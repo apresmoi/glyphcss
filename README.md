@@ -30,7 +30,7 @@ You can also load VoxCSS directly from unpkg:
     <div id="scene"></div>
   </div>
   <script type="module">
-    import { createCamera, createScene, renderScene } from "../../dist/index.js";
+    import { createCamera, createScene, renderScene } from "https://unpkg.com/@layoutit/voxcss@0.0.1/dist/index.js";
 
     const voxels = [{ x: 3, y: 3, z: 0, color: "#F97316" }];
 
