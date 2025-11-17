@@ -17,16 +17,9 @@ yarn add @layoutit/voxcss
 pnpm add @layoutit/voxcss
 ```
 
-You can also load VoxCSS directly from unpkg:
-
-```html
-<script type="module">
-  import { createCamera, createScene, renderScene } from "https://unpkg.com/@layoutit/voxcss@0.0.1/dist/index.js";
-</script>
-```
-
 ## Usage
 
+You can also load VoxCSS directly from unpkg:
 
 ```html
   <div id="camera">
