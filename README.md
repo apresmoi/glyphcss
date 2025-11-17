@@ -74,7 +74,6 @@ You can also load VoxCSS directly from unpkg:
 - `voxels` – required grid data (see model below); accepts any iterable of voxel objects.
 - `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
-- `shapes` – custom shape renderers keyed by `voxel.shape`, useful for sprites, extrusions, or decals without touching the renderer internals.
 
 ### Voxel data model
 
