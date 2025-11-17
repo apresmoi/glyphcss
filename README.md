@@ -17,8 +17,6 @@ yarn add @layoutit/voxcss
 pnpm add @layoutit/voxcss
 ```
 
-## Usage
-
 You can also load VoxCSS directly from unpkg:
 
 ```html
