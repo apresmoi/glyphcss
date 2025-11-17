@@ -1,7 +1,6 @@
 # VoxCSS
 
-CSS-first voxel renderer that stacks plain HTML layers with 3D transforms. VoxCSS ships the core runtime plus thin Vue, React, and Svelte wrappers.
-
+CSS-first voxel renderer that stacks plain HTML layers with 3D transforms—essentially a web-based voxel engine powered by CSS grids. VoxCSS ships the core runtime plus thin Vue, React, and Svelte wrappers.
 
 ### Usage
 
