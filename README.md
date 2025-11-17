@@ -12,7 +12,7 @@ yarn add @layoutit/voxcss
 pnpm add @layoutit/voxcss
 ```
 
-Need it straight from a CDN? Pull the ESM build from unpkg:
+You can also load VoxCSS directly from unpkg:
 
 ```html
 <script type="module">
