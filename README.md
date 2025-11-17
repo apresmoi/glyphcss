@@ -19,8 +19,6 @@ pnpm add @layoutit/voxcss
 
 ## Usage
 
-VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene controls the 3D grid dimensions and decorations. The voxel object accepts shape, dimensions, rotation, color and textures.
-
 You can also load VoxCSS directly from unpkg:
 
 ```html
@@ -51,7 +49,9 @@ You can also load VoxCSS directly from unpkg:
   </script>
 ```
 
-## Framework Examples
+## Framework Components
+
+VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene controls the 3D grid dimensions and decorations. The voxel object accepts shape, dimensions, rotation, color and textures.
 
 Vue 3
 ```vue
