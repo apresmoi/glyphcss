@@ -51,7 +51,7 @@ You can also load VoxCSS directly from unpkg:
 
 ## Framework Components
 
-VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene controls the 3D grid dimensions and decorations. The voxel object accepts shape, dimensions, rotation, color and textures.
+VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene controls the 3D grid dimensions and decorations. 
 
 Vue 3
 ```vue
@@ -112,6 +112,7 @@ Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space
 
 ### Voxel data model
 
+The voxel object accepts shape, dimensions, rotation, color and textures.
 ```ts
 type Voxel = {
   x: number;
