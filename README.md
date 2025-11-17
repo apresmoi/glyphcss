@@ -87,7 +87,6 @@ type Voxel = {
   color?: string;
   texture?: string;
   shape?: string;
-  data?: Record<string, unknown>;
 };
 type VoxelGrid = Voxel[];
 ```
