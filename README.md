@@ -4,10 +4,8 @@ A web based voxel engine. Renders HTML cuboids by stacking CSS grid layers and a
 
 View live docs, API reference, and model examples at [voxcss.com](https://voxcss.com).
 
+<img width="1915" height="900" alt="Screenshot 2025-11-17 at 08 00 28" src="https://github.com/user-attachments/assets/2d925a72-5518-4a82-a8b2-39ff5648fea7" />
 
-<img width="200" height="48" alt="voxisologo" src="https://github.com/user-attachments/assets/45c90cdd-a455-4baf-9ef4-6cf0bf22e33c" />
-
-<img width="1915" height="900" alt="voxcss-intro" src="https://github.com/user-attachments/assets/9fae8356-81e7-47f6-82a7-4c29fa71cd6b" />
 
 ## Installation
 
