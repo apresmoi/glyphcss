@@ -1,29 +1,36 @@
 # VoxCSS
 
-CSS-first voxel renderer that stacks plain HTML layers with 3D transforms—essentially a web-based voxel engine powered by CSS grids. VoxCSS ships the core runtime plus thin Vue, React, and Svelte wrappers.
+A CSS-first voxel renderer that stacks plain HTML layers with 3D transforms. Essentially, a web-based voxel engine powered by CSS grids. Ships the core runtime plus thin Vue, React, and Svelte wrappers.
 
-### Usage
+## Usage
 
 
-```ts
-import { createCamera, createScene, renderScene } from "@layoutit/voxcss";
+```html
+  <div id="camera">
+    <div id="scene"></div>
+  </div>
+  <script type="module">
+    import { createCamera, createScene, renderScene } from "../../dist/index.js";
 
-const cameraElement = document.getElementById("camera");
-const sceneElement = document.getElementById("scene");
+    const voxels = [{ x: 3, y: 3, z: 0, color: "#F97316" }];
 
-if (cameraElement && sceneElement) {
-  const camera = createCamera({ element: cameraElement, interactive: true, zoom: 1.2 });
-  const scene = createScene({
-    element: sceneElement,
-    voxels,
-    rows: 8,
-    cols: 8,
-    depth: 6,
-    showWalls: true,
-    showFloor: true
-  });
-  renderScene({ camera, scene });
-}
+    const cameraElement = document.getElementById("camera");
+    const sceneElement = document.getElementById("scene");
+
+    if (cameraElement && sceneElement) {
+      const camera = createCamera({ element: cameraElement, interactive: true, zoom: 1.5 });
+      const scene = createScene({
+        element: sceneElement,
+        voxels,
+        rows: 8,
+        cols: 8,
+        depth: 6,
+        showWalls: true,
+        showFloor: true
+      });
+      renderScene({ camera, scene });
+    }
+  </script>
 ```
 
 
@@ -62,6 +69,8 @@ type VoxelGrid = Voxel[];
 ```
 
 Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space—the renderer infers them from the voxel set.
+
+## Framework Examples
 
 Vue 3
 ```vue
