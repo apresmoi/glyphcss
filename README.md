@@ -49,42 +49,6 @@ You can also load VoxCSS directly from unpkg:
   </script>
 ```
 
-
-## API reference
-
-### VoxCamera props
-
-- `interactive` – enable pointer drag controls.
-- `zoom`, `pan`, `tilt` – translate the camera in/out, vertically, and horizontally.
-- `rotX`, `rotY` – rotate around the X/Y axis.
-- `perspective` – control CSS perspective depth (or disable it).
-- `invert` – flip pointer drag direction to match your app’s UX.
-
-### VoxScene props
-
-- `voxels` – required grid data (see model below); accepts any iterable of voxel objects.
-- `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
-- `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
-
-Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
-
-### Voxel data model
-
-```ts
-type Voxel = {
-  x: number;
-  y: number;
-  z: number;
-  x2?: number; // defaults to x + 1
-  y2?: number; // defaults to y + 1
-  color?: string;
-  texture?: string;
-  shape?: string;
-};
-type VoxelGrid = Voxel[];
-```
-
-
 ## Framework Examples
 
 Vue 3
@@ -125,6 +89,42 @@ Svelte
   <VoxScene {voxels} />
 </VoxCamera>
 ```
+
+## API reference
+
+### VoxCamera props
+
+- `interactive` – enable pointer drag controls.
+- `zoom`, `pan`, `tilt` – translate the camera in/out, vertically, and horizontally.
+- `rotX`, `rotY` – rotate around the X/Y axis.
+- `perspective` – control CSS perspective depth (or disable it).
+- `invert` – flip pointer drag direction to match your app’s UX.
+
+### VoxScene props
+
+- `voxels` – required grid data (see model below); accepts any iterable of voxel objects.
+- `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
+- `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
+
+Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
+
+### Voxel data model
+
+```ts
+type Voxel = {
+  x: number;
+  y: number;
+  z: number;
+  x2?: number; // defaults to x + 1
+  y2?: number; // defaults to y + 1
+  color?: string;
+  texture?: string;
+  shape?: string;
+};
+type VoxelGrid = Voxel[];
+```
+
+
 
 ## License
 
