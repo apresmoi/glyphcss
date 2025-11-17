@@ -64,7 +64,7 @@ You can also load VoxCSS directly from unpkg:
 - `interactive` – enable pointer drag controls; disable it for deterministic screenshots or SSR.
 - `zoom`, `pan`, `tilt` – translate the camera in/out, vertically, and horizontally; passing arrays lets you animate per axis.
 - `rotX`, `rotY` – rotate around the X/Y axis; dimetric defaults mimic the landing page hero, but you can dial them toward orthographic looks.
-- `perspective` or `false` – control CSS perspective depth or disable it.
+- `perspective` – control CSS perspective depth (or disable it).
 - `invert` – flip pointer drag direction to match your app’s UX.
 
 ### VoxScene props
