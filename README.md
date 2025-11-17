@@ -12,6 +12,8 @@ yarn add @layoutit/voxcss
 pnpm add @layoutit/voxcss
 ```
 
+Need it straight from a CDN? Pull the ESM build from unpkg:
+
 ```html
 <script type="module">
   import { createCamera, createScene, renderScene } from "https://unpkg.com/@layoutit/voxcss@0.0.1/dist/index.js";
