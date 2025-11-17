@@ -1,8 +1,8 @@
 # VoxCSS
 
-A web based voxel engine. Renders HTML cuboids by stacking CSS grid layers and applying 3D transforms. Supports colors and textures, plus cubic and dimetric projections. Ships the core runtime and thin Vue, React, and Svelte wrappers. 
+A DOM based voxel engine. Renders HTML cuboids by stacking CSS grid layers and applying 3D transforms. Supports colors and textures, interactions and culling, plus shapes and dimetric projections. Ships the core runtime with thin Vue, React, and Svelte wrappers. 
 
-View live docs, API reference, and model examples at [voxcss.com](https://voxcss.com).
+For live docs, API reference, and model examples visit [voxcss.com](https://voxcss.com)
 
 <img width="1915" height="900" alt="Screenshot 2025-11-17 at 08 00 28" src="https://github.com/user-attachments/assets/2d925a72-5518-4a82-a8b2-39ff5648fea7" />
 
@@ -18,6 +18,8 @@ pnpm add @layoutit/voxcss
 ```
 
 ## Usage
+
+VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene controls the 3D grid dimensions and decorations. The voxel object accepts shape, dimensions, rotation, color and textures.
 
 You can also load VoxCSS directly from unpkg:
 
