@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>VoxCSS · Vue 2 example</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #000;
+    }
+  </style>
+  <script type="importmap">
+      {
+        "imports": {
+          "vue": "https://unpkg.com/vue@2.7.16/dist/vue.esm.browser.js"
+        }
+      }
+    </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import Vue from "vue";
+    import { VoxCamera, VoxScene } from "../../dist/vue2/index.js";
+
+    const voxels = [{ x: 3, y: 3, z: 0, color: "#38BDF8" }];
+
+    new Vue({
+      el: "#app",
+      components: { VoxCamera, VoxScene },
+      data: () => ({ voxels, rows: 8, cols: 8, depth: 6 }),
+      template: `
+          <VoxCamera :zoom="1.5" interactive>
+            <VoxScene
+              :voxels="voxels"
+              :rows="rows"
+              :cols="cols"
+              :depth="depth"
+              show-walls
+              show-floor
+            />
+          </VoxCamera>
+        `
+    });
+  </script>
+</body>
+
+</html>

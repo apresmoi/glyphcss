@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>VoxCSS · React example</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    body {
+      margin: 0;
+    }
+
+    #root {
+      height: 100vh;
+      background: #000;
+    }
+  </style>
+  <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@18.2.0?dev",
+          "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime?dev",
+          "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev"
+        }
+      }
+    </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module">
+    import React from "react";
+    import { createRoot } from "react-dom/client";
+    import { VoxCamera, VoxScene } from "../../dist/react/index.js";
+
+    const voxels = [{ x: 3, y: 3, z: 0, color: "#FACC15" }];
+
+    function App() {
+      return (
+        React.createElement(VoxCamera, { interactive: true, zoom: 1.5 },
+          React.createElement(VoxScene, {
+            voxels,
+            rows: 8,
+            cols: 8,
+            depth: 6,
+            showWalls: true,
+            showFloor: true
+          })
+        )
+      );
+    }
+
+    const root = createRoot(document.getElementById("root"));
+    root.render(React.createElement(App));
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>VoxCSS · Vue 3 example</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    body {
+      margin: 0;
+    }
+
+    #app {
+      min-height: 100vh;
+      background: #000;
+    }
+  </style>
+  <script type="importmap">
+      {
+        "imports": {
+          "vue": "https://unpkg.com/vue@3.5.12/dist/vue.esm-browser.js"
+        }
+      }
+    </script>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module">
+    import { createApp } from "vue";
+    import { VoxCamera, VoxScene } from "../../dist/vue/index.js";
+
+    const voxels = [{ x: 3, y: 3, z: 0, color: "#4ADE80" }];
+
+    const app = createApp({
+      data: () => ({ voxels, rows: 8, cols: 8, depth: 6 }),
+      components: { VoxCamera, VoxScene },
+      template: `
+          <VoxCamera interactive :zoom="1.5">
+            <VoxScene
+              :voxels="voxels"
+              :rows="rows"
+              :cols="cols"
+              :depth="depth"
+              show-walls
+              show-floor
+            />
+          </VoxCamera>
+        `
+    });
+
+    app.mount("#app");
+  </script>
+</body>
+
+</html>

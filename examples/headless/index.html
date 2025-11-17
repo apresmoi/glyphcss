@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>VoxCSS · headless example</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #000;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="camera">
+    <div id="scene"></div>
+  </div>
+  <script type="module">
+    import { createCamera, createScene, renderScene } from "../../dist/index.js";
+
+    const voxels = [{ x: 3, y: 3, z: 0, color: "#F97316" }];
+
+    const cameraElement = document.getElementById("camera");
+    const sceneElement = document.getElementById("scene");
+
+    if (cameraElement && sceneElement) {
+      const camera = createCamera({ element: cameraElement, interactive: true, zoom: 1.5 });
+      const scene = createScene({
+        element: sceneElement,
+        voxels,
+        rows: 8,
+        cols: 8,
+        depth: 6,
+        showWalls: true,
+        showFloor: true
+      });
+      renderScene({ camera, scene });
+    }
+  </script>
+</body>
+
+</html>

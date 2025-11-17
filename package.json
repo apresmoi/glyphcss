@@ -1,0 +1,96 @@
+{
+  "name": "@layoutit/voxcss",
+  "version": "0.0.1",
+  "description": "Framework-agnostic CSS voxel renderer with Vue, React, and Svelte wrappers.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "svelte": "./svelte/index.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LayoutitStudio/voxcss.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LayoutitStudio/voxcss/issues"
+  },
+  "homepage": "https://github.com/LayoutitStudio/voxcss#readme",
+  "keywords": [
+    "voxels",
+    "css",
+    "3d",
+    "vue",
+    "react",
+    "svelte"
+  ],
+  "files": [
+    "dist",
+    "react",
+    "vue",
+    "vue2",
+    "svelte"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue/index.js",
+      "require": "./dist/vue/index.cjs"
+    },
+    "./vue2": {
+      "types": "./dist/vue2/index.d.ts",
+      "import": "./dist/vue2/index.js",
+      "require": "./dist/vue2/index.cjs"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.cjs"
+    },
+    "./svelte": {
+      "types": "./svelte/index.d.ts",
+      "svelte": "./svelte/index.ts",
+      "default": "./svelte/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup --clean",
+    "watch": "tsup --watch --sourcemap",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "vue": "^2.6.14 || ^3.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "svelte": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "svelte": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.26",
+    "@types/react-dom": "^18.3.7",
+    "vue": "^3.5.12",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  }
+}
