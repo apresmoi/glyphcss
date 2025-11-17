@@ -73,6 +73,8 @@ You can also load VoxCSS directly from unpkg:
 - `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
 
+Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
+
 ### Voxel data model
 
 ```ts
@@ -89,7 +91,6 @@ type Voxel = {
 type VoxelGrid = Voxel[];
 ```
 
-Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space—the renderer infers them from the voxel set.
 
 ## Framework Examples
 
