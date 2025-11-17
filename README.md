@@ -98,6 +98,19 @@ export function App({ voxels }) {
 }
 ```
 
+Svelte
+```svelte
+<script lang="ts">
+  import { VoxCamera, VoxScene } from "@layoutit/voxcss/svelte";
+
+  const voxels = [{ x: 2, y: 2, z: 0, color: "#0EA5E9" }];
+</script>
+
+<VoxCamera interactive>
+  <VoxScene {voxels} />
+</VoxCamera>
+```
+
 ## License
 
 MIT.
