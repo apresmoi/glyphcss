@@ -56,6 +56,8 @@ You can also load VoxCSS directly from unpkg:
   </script>
 ```
 
+![stackgrid](https://github.com/user-attachments/assets/6f9b705f-baef-49c5-8c46-5fd7e3905647)
+
 
 ## API reference
 
