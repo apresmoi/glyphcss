@@ -2,6 +2,22 @@
 
 A CSS-first voxel renderer that stacks plain HTML layers with 3D transforms. Essentially, a web-based voxel engine powered by CSS grids. Ships the core runtime plus thin Vue, React, and Svelte wrappers.
 
+## Installation
+
+```bash
+npm install @layoutit/voxcss
+# or
+yarn add @layoutit/voxcss
+# or
+pnpm add @layoutit/voxcss
+```
+
+```html
+<script type="module">
+  import { createCamera, createScene, renderScene } from "https://unpkg.com/@layoutit/voxcss@0.0.1/dist/index.js";
+</script>
+```
+
 ## Usage
 
 
