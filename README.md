@@ -14,7 +14,6 @@ View live docs, API reference, and model examples at [voxcss.com](https://voxcss
 ```bash
 npm install @layoutit/voxcss
 # or
-
 yarn add @layoutit/voxcss
 # or
 pnpm add @layoutit/voxcss
