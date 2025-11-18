@@ -1,6 +1,14 @@
 /* Isometric camera state + helpers used by scene controllers and UIs. */
 import { BASE_TILE } from "./types";
 
+export interface AutoRotateConfig {
+  axis?: "x" | "y";
+  speed?: number;
+  pauseOnInteraction?: boolean;
+}
+
+export type AutoRotateOption = boolean | number | AutoRotateConfig;
+
 export interface CameraState {
   zoom: number;
   pan: number;

@@ -6,7 +6,7 @@ import type {
   VoxelGrid,
   WallsMask
 } from "./types";
-import { BASE_TILE, DEFAULT_OFFSETS, DEFAULT_PROJECTION, DEFAULT_WALLS } from "./types";
+import { BASE_TILE, DEFAULT_OFFSETS, DEFAULT_PROJECTION, DEFAULT_WALLS, DEFAULT_WALL_COLOR } from "./types";
 
 export interface VoxelLookup {
   rows: number;
@@ -57,6 +57,7 @@ export function buildContext(
     showFloor: partial.showFloor ?? false,
     rotX: partial.rotX,
     rotY: partial.rotY,
+    wallColor: partial.wallColor ?? DEFAULT_WALL_COLOR,
     getVoxel: (x: number, y: number, z: number) => getVoxelFromLookup(lookupSource, x, y, z),
     resolveTexture: partial.resolveTexture,
     lighting: partial.lighting

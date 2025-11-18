@@ -8,8 +8,10 @@ import {
   watch,
   computed
 } from "vue";
+import type { PropType } from "vue";
 import { createSceneController } from "@voxcss/controller/createSceneController";
-import type { CameraState } from "@voxcss/core/camera";
+import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
+import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
 
 function resolveInvertMultiplier(value: number | boolean | undefined): number {
@@ -37,9 +39,10 @@ export default defineComponent({
     rotY: { type: Number, default: 45 },
     invert: { type: [Boolean, Number], default: false },
     perspective: { type: [Number, Boolean], default: 8000 },
-    interactive: { type: Boolean, default: false }
+    interactive: { type: Boolean, default: false },
+    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption>, default: undefined }
   },
-  setup(props, { slots }) {
+  setup(props, { slots, expose }) {
     const controller = createSceneController({
       camera: {
         zoom: props.zoom,
@@ -57,6 +60,7 @@ export default defineComponent({
     const cursorSnapshot = ref(controller.getCursor());
     const wallsSnapshot = ref<WallsMask>(controller.getWalls());
     const subscriptions: Array<() => void> = [];
+    const autoRotateHandle = ref<AutoRotateHandle | null>(null);
 
     const cursorStyle = computed(() => (props.interactive ? cursorSnapshot.value : "default"));
     const sceneStyle = computed(() => ({
@@ -100,8 +104,21 @@ export default defineComponent({
 
     watch(() => props.invert, applyInvert);
 
+    const syncAutoRotate = (value: AutoRotateOption | undefined) => {
+      autoRotateHandle.value?.stop();
+      autoRotateHandle.value = createAutoRotateHandle(controller, value);
+      autoRotateHandle.value?.start();
+    };
+
+    watch(
+      () => props.animate,
+      (value) => syncAutoRotate(value),
+      { immediate: true }
+    );
+
     const handlePointerDown = (event: PointerEvent) => {
       if (!props.interactive) return;
+      autoRotateHandle.value?.notifyInteraction();
       controller.handlePointerDown(event);
       cursorSnapshot.value = controller.getCursor();
       (event.target as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
@@ -138,6 +155,17 @@ export default defineComponent({
     onBeforeUnmount(() => {
       subscriptions.forEach((stop) => stop?.());
       subscriptions.length = 0;
+      autoRotateHandle.value?.stop();
+    });
+
+    expose({
+      controller,
+      startAutoRotate(config?: AutoRotateOption) {
+        syncAutoRotate(config ?? props.animate);
+      },
+      stopAutoRotate() {
+        autoRotateHandle.value?.stop();
+      }
     });
 
     return () => {

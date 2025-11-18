@@ -49,6 +49,7 @@ export interface GridContext {
   showFloor: boolean;
   rotX?: number;
   rotY?: number;
+  wallColor: string;
   getVoxel(x: number, y: number, z: number): Voxel | null;
   resolveTexture?(name: string, face: string): string | undefined;
   lighting?(voxel: Voxel, face: string): Partial<CSSStyleDeclaration> | undefined;
@@ -120,6 +121,8 @@ export const DEFAULT_WALLS: WallsMask = {
   fr: false
 };
 
+export const DEFAULT_WALL_COLOR = "#3e3e4d";
+
 export const LAYER_CLASS = "voxcss-layer";
 export const VOXEL_CLASS = "voxcss-voxel";
 export const FLOOR_CLASS = "voxcss-floor";
@@ -146,6 +149,7 @@ export interface RenderState {
   lastShowWalls: boolean | undefined;
   lastWallDimensions: WallDimensionsSnapshot | null;
   lastShowFloor: boolean | undefined;
+  lastWallColor: string | undefined;
 }
 
 export interface WallDimensionsSnapshot {

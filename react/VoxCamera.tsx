@@ -1,8 +1,10 @@
-import React, { useMemo, useEffect, useState, useCallback } from "react";
+import React, { useMemo, useEffect, useState, useCallback, useRef, useImperativeHandle, forwardRef } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createSceneController } from "@voxcss/controller/createSceneController";
 import type { SceneController } from "@voxcss/controller/createSceneController";
+import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
 import type { WallsMask } from "@voxcss/core";
+import type { AutoRotateOption } from "@voxcss/core/camera";
 import { SceneControllerContext } from "./context";
 
 const DEFAULTS = {
@@ -49,20 +51,31 @@ export interface VoxCameraProps {
   invert?: boolean | number;
   perspective?: number | boolean;
   interactive?: boolean;
+  animate?: AutoRotateOption;
   children?: ReactNode | ((context: CameraRenderContext) => ReactNode);
 }
 
-export function VoxCamera({
-  zoom = DEFAULTS.zoom,
-  pan = DEFAULTS.pan,
-  tilt = DEFAULTS.tilt,
-  rotX = DEFAULTS.rotX,
-  rotY = DEFAULTS.rotY,
-  invert = DEFAULTS.invert,
-  perspective = DEFAULT_PERSPECTIVE,
-  interactive = false,
-  children
-}: VoxCameraProps) {
+export interface VoxCameraHandle {
+  controller: SceneController;
+  startAutoRotate(config?: AutoRotateOption): void;
+  stopAutoRotate(): void;
+}
+
+export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function VoxCamera(
+  {
+    zoom = DEFAULTS.zoom,
+    pan = DEFAULTS.pan,
+    tilt = DEFAULTS.tilt,
+    rotX = DEFAULTS.rotX,
+    rotY = DEFAULTS.rotY,
+    invert = DEFAULTS.invert,
+    perspective = DEFAULT_PERSPECTIVE,
+    interactive = false,
+    animate,
+    children
+  },
+  ref
+) {
   const controller = useMemo(() => {
     return createSceneController({
       camera: {
@@ -77,6 +90,8 @@ export function VoxCamera({
   }, []);
 
   const [boxStyle, setBoxStyle] = useState(() => controller.getBoxStyle());
+  const autoRotateRef = useRef<AutoRotateHandle | null>(null);
+  const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
 
   useEffect(() => controller.subscribeBoxStyle((style) => setBoxStyle(style)), [controller]);
 
@@ -88,8 +103,40 @@ export function VoxCamera({
     controller.setControls({ invert: resolveInvertMultiplier(invert) });
   }, [controller, invert]);
 
+  useEffect(() => {
+    animateOptionRef.current = animate;
+    const handle = createAutoRotateHandle(controller, animate);
+    handle?.start();
+    autoRotateRef.current = handle;
+    return () => {
+      handle?.stop();
+      if (autoRotateRef.current === handle) {
+        autoRotateRef.current = null;
+      }
+    };
+  }, [controller, animate]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      controller,
+      startAutoRotate(config?: AutoRotateOption) {
+        autoRotateRef.current?.stop();
+        const option = config ?? animateOptionRef.current;
+        const handle = createAutoRotateHandle(controller, option);
+        handle?.start();
+        autoRotateRef.current = handle;
+      },
+      stopAutoRotate() {
+        autoRotateRef.current?.stop();
+      }
+    }),
+    [controller]
+  );
+
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      autoRotateRef.current?.notifyInteraction();
       controller.handlePointerDown(event.nativeEvent as unknown as PointerEvent);
       event.currentTarget.setPointerCapture?.(event.pointerId);
     },
@@ -140,4 +187,4 @@ export function VoxCamera({
       </div>
     </SceneControllerContext.Provider>
   );
-}
+});

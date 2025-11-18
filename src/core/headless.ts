@@ -5,7 +5,9 @@ import {
   type SceneControllerOptions
 } from "../controller/createSceneController";
 import { createSceneHost, type SceneHost, type SceneHostOptions } from "../controller/createSceneHost";
+import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
 import { inferGridDimensions } from "./context";
+import type { AutoRotateOption } from "./camera";
 import type { SceneDimensions, VoxelGrid } from "./types";
 import { SCENE_CLASS } from "./types";
 
@@ -23,12 +25,14 @@ export interface HeadlessCameraOptions {
   rotY?: number;
   invert?: boolean | number;
   dragSpeed?: number;
+  animate?: AutoRotateOption;
 }
 
 export interface HeadlessCameraHandle {
   element: HTMLElement;
   controller: SceneController;
   interactive: boolean;
+  autoRotate?: AutoRotateHandle | null;
   destroy(): void;
 }
 
@@ -73,15 +77,21 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   const interactive = options.interactive !== false;
   const controllerConfig = mergeControllerOptions(options);
   const controller = createSceneController(controllerConfig);
+  const autoRotate = createAutoRotateHandle(controller, options.animate);
   element.classList.add(SCENE_CLASS);
   applyPerspective(element, options.perspective);
-  const detachPointer = interactive ? attachPointerEvents(element, controller) : null;
+  const detachPointer = interactive
+    ? attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction())
+    : null;
+  autoRotate?.start();
   return {
     element,
     controller,
     interactive,
+    autoRotate,
     destroy() {
       detachPointer?.();
+      autoRotate?.stop();
     }
   };
 }
@@ -201,8 +211,13 @@ function applyPerspective(element: HTMLElement, perspective: number | false | un
   element.style.perspective = `${value}px`;
 }
 
-function attachPointerEvents(element: HTMLElement, controller: SceneController) {
+function attachPointerEvents(
+  element: HTMLElement,
+  controller: SceneController,
+  onInteraction?: () => void
+) {
   const handlePointerDown = (event: PointerEvent) => {
+    onInteraction?.();
     controller.handlePointerDown(event);
     element.setPointerCapture?.(event.pointerId);
   };

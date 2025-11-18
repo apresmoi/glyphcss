@@ -28,7 +28,9 @@
     const sceneElement = document.getElementById("scene");
 
     if (cameraElement && sceneElement) {
-      const camera = createCamera({ element: cameraElement, interactive: true, zoom: 1.5 });
+      const camera = createCamera({
+        element: cameraElement, interactive: true, zoom: 1.5
+      });
       const scene = createScene({
         element: sceneElement,
         voxels,

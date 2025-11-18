@@ -141,6 +141,7 @@ export function createSceneController(
     dragState.isDragging = true;
     dragState.pointerX = event.clientX;
     dragState.pointerY = event.clientY;
+    notifyCamera();
   }
 
   function handlePointerMove(event: PointerEvent) {
@@ -159,6 +160,7 @@ export function createSceneController(
 
   function handlePointerUp() {
     dragState.isDragging = false;
+    notifyCamera();
   }
 
   function getBoxStyle() {

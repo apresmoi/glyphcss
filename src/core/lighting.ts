@@ -1,5 +1,5 @@
 /* Shared lighting helpers for voxcss shapes. */
-import type { CubeFace } from "./types";
+import type { CubeFace, WallsMask } from "./types";
 
 interface ParsedColor {
   rgb: [number, number, number];
@@ -94,13 +94,27 @@ const FACE_ADJUSTMENTS: Record<CubeFace, number> = {
   b: 0,
   fr: -15,
   fl: -25,
-  bl: -35,
-  br: -35
+  bl: -40,
+  br: -30
 };
 
 export function shadeCubeFace(base: string, face: CubeFace): string {
   const delta = FACE_ADJUSTMENTS[face] ?? 0;
   return shadeColor(base, delta);
+}
+
+const WALL_FACE_MAP: Partial<Record<keyof WallsMask, CubeFace>> = {
+  fr: "fr",
+  fl: "fl",
+  bl: "bl",
+  br: "br"
+};
+
+export function shadeWallFace(base: string, face: keyof WallsMask): string {
+  const cubeFace = WALL_FACE_MAP[face];
+  if (!cubeFace) return shadeColor(base, 0);
+  const delta = FACE_ADJUSTMENTS[cubeFace] ?? 0;
+  return shadeColor(base, -delta);
 }
 
 export type DimetricShapeType = "flat" | "ramp" | "wedge" | "spike";

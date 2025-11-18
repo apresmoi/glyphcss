@@ -74,7 +74,6 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-wall {
   position: absolute;
-  background: rgba(89, 89, 111, 1);
   background-image: linear-gradient(
       to right,
       rgba(0, 0, 0, 0.1) 1px,
@@ -82,23 +81,6 @@ const CORE_BASE_STYLES = `
     ),
     linear-gradient(to bottom, rgba(0, 0, 0, 0.1) 1px, transparent 1px);
   background-size: 50px 50px;
-  border: 0.5px solid #202020;
-}
-.voxcss-wall::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.voxcss-wall--frontRight::after,
-.voxcss-wall--backRight::after {
-  background: rgba(0, 0, 0, 0.25);
-}
-.voxcss-wall--backLeft::after {
-  background: rgba(0, 0, 0, 0.1);
-}
-.voxcss-wall--frontLeft::after {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.15), transparent);
 }
 .voxcss-cube {
   position: relative;

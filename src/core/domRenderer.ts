@@ -24,10 +24,19 @@ import type {
   VoxcssHooks,
   CubeFace
 } from "./types";
-import { LAYER_CLASS, VOXEL_CLASS, FLOOR_CLASS, FACE_CLASS, WALL_CLASS, WALL_CONTAINER_CLASS } from "./types";
+import {
+  LAYER_CLASS,
+  VOXEL_CLASS,
+  FLOOR_CLASS,
+  FACE_CLASS,
+  WALL_CLASS,
+  WALL_CONTAINER_CLASS,
+  DEFAULT_WALL_COLOR
+} from "./types";
 import { getVoxelBounds, makeVoxelKey, wallMasksEqual } from "./context";
 import { computeVisibleFaces } from "./visibility";
 import { cubeShapeRenderer, ensureCubeDomCache, disposeCubeDom } from "./shapes";
+import { shadeWallFace } from "./lighting";
 
 interface DomRendererState {
   renderState: RenderState;
@@ -96,7 +105,8 @@ function createRenderState(documentRef: Document, root: HTMLElement): RenderStat
     lastWallsMask: null,
     lastShowWalls: undefined,
     lastWallDimensions: null,
-    lastShowFloor: undefined
+    lastShowFloor: undefined,
+    lastWallColor: undefined
   };
 }
 
@@ -354,6 +364,7 @@ function updateWallsContainer(
   const nextDimensions = snapshotWallDimensions(context, depthLayers);
   const geometryChanged =
     context.showWalls && !wallDimensionsEqual(state.lastWallDimensions, nextDimensions);
+  const wallColorChanged = (state.lastWallColor ?? DEFAULT_WALL_COLOR) !== context.wallColor;
 
   if (!context.showWalls) {
     if (state.wallsContainer) {
@@ -364,10 +375,17 @@ function updateWallsContainer(
     state.lastShowWalls = false;
     state.lastWallsMask = null;
     state.lastWallDimensions = null;
+    state.lastWallColor = undefined;
     return;
   }
 
-  if (!showWallsChanged && !maskChanged && !geometryChanged && state.wallsContainer) {
+  if (
+    !showWallsChanged &&
+    !maskChanged &&
+    !geometryChanged &&
+    !wallColorChanged &&
+    state.wallsContainer
+  ) {
     return;
   }
 
@@ -396,6 +414,7 @@ function updateWallsContainer(
       wall.className = def.className;
     }
     applyWallDefinitionStyles(wall, def);
+    applyWallLighting(wall, def.key, context);
   }
 
   for (const [key, element] of Array.from(state.wallElements.entries())) {
@@ -408,6 +427,7 @@ function updateWallsContainer(
   state.lastWallsMask = { ...context.walls };
   state.lastShowWalls = true;
   state.lastWallDimensions = nextDimensions;
+  state.lastWallColor = context.wallColor;
 }
 
 function ensureWallsRoot(
@@ -449,6 +469,20 @@ function applyWallDefinitionStyles(el: HTMLElement, def: WallDefinition): void {
   if (dataset.voxWallTransform !== def.transform) {
     el.style.transform = def.transform;
     dataset.voxWallTransform = def.transform;
+  }
+}
+
+function applyWallLighting(el: HTMLElement, key: keyof WallsMask, context: GridContext): void {
+  if (key !== "fr" && key !== "fl" && key !== "bl" && key !== "br") return;
+  const dataset = el.dataset;
+  const base = context.wallColor ?? DEFAULT_WALL_COLOR;
+  if (dataset.voxWallBaseColor !== base) {
+    dataset.voxWallBaseColor = base;
+  }
+  const shaded = shadeWallFace(base, key);
+  if (dataset.voxWallShade !== shaded) {
+    el.style.backgroundColor = shaded;
+    dataset.voxWallShade = shaded;
   }
 }
 

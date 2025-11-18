@@ -2,6 +2,8 @@
   import { onDestroy, setContext } from "svelte";
   import { createSceneController } from "@voxcss/controller/createSceneController";
   import type { SceneController, WallsMask } from "@voxcss/core";
+  import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
+  import type { AutoRotateOption } from "@voxcss/core/camera";
   import { CONTROLLER_KEY } from "./context";
 
   export let zoom: number = 0.65;
@@ -12,6 +14,7 @@
   export let invert: boolean | number = false;
   export let perspective: number | boolean = 8000;
   export let interactive: boolean = false;
+  export let animate: AutoRotateOption = false;
 
   const DEFAULT_INVERT_MULTIPLIER = 1;
   const DEFAULT_PERSPECTIVE = 8000;
@@ -40,16 +43,34 @@
   const unsubscribeStyle = controller.subscribeBoxStyle((style) => {
     boxStyle = style;
   });
+  let autoRotate: AutoRotateHandle | null = null;
 
   onDestroy(() => {
     unsubscribeStyle?.();
+    autoRotate?.stop();
   });
 
   $: controller.updateCamera({ zoom, pan, tilt, rotX, rotY });
   $: controller.setControls({ invert: resolveInvertMultiplier(invert) });
+  $: syncAutoRotate(animate);
+
+  function syncAutoRotate(value: AutoRotateOption) {
+    autoRotate?.stop();
+    autoRotate = createAutoRotateHandle(controller, value);
+    autoRotate?.start();
+  }
+
+  export function startAutoRotate(value?: AutoRotateOption) {
+    syncAutoRotate(value ?? animate);
+  }
+
+  export function stopAutoRotate() {
+    autoRotate?.stop();
+  }
 
   function handlePointerDown(event: PointerEvent) {
     if (!interactive) return;
+    autoRotate?.notifyInteraction();
     controller.handlePointerDown(event);
     (event.target as HTMLElement)?.setPointerCapture?.(event.pointerId);
   }

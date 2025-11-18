@@ -3,7 +3,8 @@ import Vue from "vue";
 import type { PropType, VNode } from "vue";
 import { createSceneController } from "@voxcss/controller/createSceneController";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import type { CameraState } from "@voxcss/core/camera";
+import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
+import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
 
 function resolveInvertMultiplier(value: number | boolean | undefined): number {
@@ -59,6 +60,10 @@ export default Vue.extend({
     interactive: {
       type: Boolean,
       default: false
+    },
+    animate: {
+      type: [Boolean, Number, Object] as PropType<AutoRotateOption>,
+      default: undefined
     }
   },
   data(): {
@@ -68,6 +73,7 @@ export default Vue.extend({
     cursorSnapshot: string;
     wallsSnapshot: WallsMask;
     subscriptions: Array<() => void>;
+    autoRotateHandle: AutoRotateHandle | null;
   } {
     const controllerInstance = createSceneController({
       camera: {
@@ -85,7 +91,8 @@ export default Vue.extend({
       cameraSnapshot: controllerInstance.getCameraState(),
       cursorSnapshot: controllerInstance.getCursor(),
       wallsSnapshot: controllerInstance.getWalls(),
-      subscriptions: []
+      subscriptions: [],
+      autoRotateHandle: null
     };
   },
   created() {
@@ -99,10 +106,13 @@ export default Vue.extend({
       this.wallsSnapshot = this.controllerInstance.getWalls();
     });
     this.subscriptions = [stopBoxStyle, stopCamera];
+    this.syncAutoRotate();
   },
   beforeDestroy() {
     this.subscriptions.forEach((stop) => stop?.());
     this.subscriptions = [];
+    this.autoRotateHandle?.stop?.();
+    this.autoRotateHandle = null;
   },
   watch: {
     zoom(value: number) {
@@ -122,6 +132,9 @@ export default Vue.extend({
     },
     invert(value: number | boolean) {
       this.controllerInstance.setControls({ invert: resolveInvertMultiplier(value) });
+    },
+    animate() {
+      this.syncAutoRotate();
     }
   },
   computed: {
@@ -159,8 +172,21 @@ export default Vue.extend({
         invert: resolveInvertMultiplier(this.invert)
       });
     },
+    syncAutoRotate(config?: AutoRotateOption) {
+      this.autoRotateHandle?.stop?.();
+      const option = config !== undefined ? config : this.animate;
+      this.autoRotateHandle = createAutoRotateHandle(this.controllerInstance, option) ?? null;
+      this.autoRotateHandle?.start?.();
+    },
+    startAutoRotate(config?: AutoRotateOption) {
+      this.syncAutoRotate(config);
+    },
+    stopAutoRotate() {
+      this.autoRotateHandle?.stop?.();
+    },
     handlePointerDown(event: PointerEvent) {
       if (!this.interactive) return;
+      this.autoRotateHandle?.notifyInteraction?.();
       this.controllerInstance.handlePointerDown(event);
       this.cursorSnapshot = this.controllerInstance.getCursor();
       (event.target as HTMLElement)?.setPointerCapture?.(event.pointerId);
