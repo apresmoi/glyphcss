@@ -141,8 +141,8 @@ export interface LayerRecord {
 }
 
 export interface RenderState {
+  root: HTMLElement;
   floor: HTMLElement;
-  layerAnchor: Comment;
   layers: Map<number, LayerRecord>;
   wallElements: Map<keyof WallsMask, HTMLElement>;
   ceiling: HTMLElement | null;

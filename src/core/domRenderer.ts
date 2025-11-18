@@ -71,6 +71,9 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
       removeLayerRecord(record);
     }
     renderState.layers.clear();
+    for (const [, element] of renderState.wallElements) {
+      element.remove();
+    }
     renderState.wallElements.clear();
     renderState.ceiling?.remove();
     renderState.ceiling = null;
@@ -101,11 +104,9 @@ function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRe
 function createRenderState(documentRef: Document, root: HTMLElement): RenderState {
   root.innerHTML = "";
   const floor = appendFloor(documentRef, root);
-  const layerAnchor = documentRef.createComment("voxcss-layer-anchor");
-  floor.appendChild(layerAnchor);
   return {
+    root,
     floor,
-    layerAnchor,
     layers: new Map(),
     wallElements: new Map(),
     ceiling: null,
@@ -191,8 +192,9 @@ function applyLayerMetaPatch(
   const cols = Math.max(patch.cols, 1);
   const rows = Math.max(patch.rows, 1);
   layer.style.transform = `translateZ(${patch.layerIndex * patch.elevation}px)`;
-  if (layer.parentNode !== state.floor) {
-    state.floor.appendChild(layer);
+  const parent = state.floor;
+  if (layer.parentNode !== parent) {
+    parent.appendChild(layer);
   }
   context.rows = patch.rows;
   context.cols = patch.cols;
@@ -496,7 +498,9 @@ function updateVerticalWalls(
 }
 
 function mountStructuralElement(state: RenderState, element: HTMLElement): void {
-  state.floor.insertBefore(element, state.layerAnchor);
+  const parent = state.root;
+  const reference = state.floor.nextSibling;
+  parent.insertBefore(element, reference);
 }
 
 interface WallDefinition {
@@ -510,33 +514,16 @@ interface WallDefinition {
 function applyWallDefinitionStyles(el: HTMLElement, def: WallDefinition): void {
   const width = `${def.width}px`;
   const height = `${def.height}px`;
-  const dataset = el.dataset;
-  if (dataset.voxWallWidth !== width) {
-    el.style.width = width;
-    dataset.voxWallWidth = width;
-  }
-  if (dataset.voxWallHeight !== height) {
-    el.style.height = height;
-    dataset.voxWallHeight = height;
-  }
-  if (dataset.voxWallTransform !== def.transform) {
-    el.style.transform = def.transform;
-    dataset.voxWallTransform = def.transform;
-  }
+  el.style.width = width;
+  el.style.height = height;
+  el.style.transform = def.transform;
 }
 
 function applyWallLighting(el: HTMLElement, key: keyof WallsMask, context: GridContext): void {
   if (key !== "fr" && key !== "fl" && key !== "bl" && key !== "br") return;
-  const dataset = el.dataset;
   const base = context.wallColor ?? DEFAULT_WALL_COLOR;
-  if (dataset.voxWallBaseColor !== base) {
-    dataset.voxWallBaseColor = base;
-  }
   const shaded = shadeWallFace(base, key);
-  if (dataset.voxWallShade !== shaded) {
-    el.style.backgroundColor = shaded;
-    dataset.voxWallShade = shaded;
-  }
+  el.style.backgroundColor = shaded;
 }
 
 function snapshotWallDimensions(context: GridContext, depthLayers: number): WallDimensionsSnapshot {
