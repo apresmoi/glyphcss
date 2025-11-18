@@ -44,7 +44,7 @@ const CORE_BASE_STYLES = `
   right: 0;
   bottom: 0;
   transform-style: preserve-3d;
-  background: #c2c2f3;
+  background: var(--voxcss-floor-base, #c2c2f3);
   background-image:
     repeating-linear-gradient(
       to right,
@@ -68,7 +68,7 @@ const CORE_BASE_STYLES = `
   inset: 0;
   transform-style: preserve-3d;
   pointer-events: none;
-  background: #c2c2f3;
+  background: var(--voxcss-ceiling-base, #c2c2f3);
   background-image:
     repeating-linear-gradient(
       to right,
@@ -84,7 +84,7 @@ const CORE_BASE_STYLES = `
       transparent 1px,
       transparent 50px
     );
-  opacity: 0.35;
+  opacity: var(--voxcss-ceiling-opacity, 0.35);
   z-index: 0;
 }
   .voxcss-wall--frontRight,

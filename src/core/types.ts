@@ -151,6 +151,8 @@ export interface RenderState {
   lastWallDimensions: WallDimensionsSnapshot | null;
   lastShowFloor: boolean | undefined;
   lastWallColor: string | undefined;
+  lastFloorColor: string | undefined;
+  lastCeilingColor: string | undefined;
   lastCeilingDimensions: WallDimensionsSnapshot | null;
 }
 

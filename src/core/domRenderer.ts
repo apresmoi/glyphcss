@@ -38,7 +38,7 @@ import {
 import { getVoxelBounds, makeVoxelKey, wallMasksEqual } from "./context";
 import { computeVisibleFaces } from "./visibility";
 import { cubeShapeRenderer, ensureCubeDomCache, disposeCubeDom } from "./shapes";
-import { shadeWallFace } from "./lighting";
+import { shadeWallFace, shadeColor } from "./lighting";
 
 interface DomRendererState {
   renderState: RenderState;
@@ -115,6 +115,8 @@ function createRenderState(documentRef: Document, root: HTMLElement): RenderStat
     lastWallDimensions: null,
     lastShowFloor: undefined,
     lastWallColor: undefined,
+    lastFloorColor: undefined,
+    lastCeilingColor: undefined,
     lastCeilingDimensions: null
   };
 }
@@ -379,18 +381,19 @@ function updateHorizontalPlanes(
   const shouldShowFloor = horizontalEnabled && !!mask.b;
   const shouldShowCeiling = horizontalEnabled && !!mask.t;
 
-  if (state.lastShowFloor !== shouldShowFloor) {
-    const floor = state.floor;
-    floor.style.pointerEvents = "none";
-    if (shouldShowFloor) {
-      floor.style.background = "";
-      floor.style.backgroundImage = "";
-    } else {
-      floor.style.background = "none";
-      floor.style.backgroundImage = "none";
+  const floor = state.floor;
+  floor.style.pointerEvents = "none";
+  if (shouldShowFloor) {
+    const baseColor = context.wallColor ?? DEFAULT_WALL_COLOR;
+    if (!state.lastShowFloor || state.lastFloorColor !== baseColor) {
+      applyFloorAppearance(state, baseColor);
+      state.lastFloorColor = baseColor;
     }
-    state.lastShowFloor = shouldShowFloor;
+  } else {
+    resetFloorAppearance(floor);
+    state.lastFloorColor = undefined;
   }
+  state.lastShowFloor = shouldShowFloor;
 
   if (!shouldShowCeiling) {
     if (state.ceiling) {
@@ -398,6 +401,7 @@ function updateHorizontalPlanes(
       state.ceiling = null;
     }
     state.lastCeilingDimensions = null;
+    state.lastCeilingColor = undefined;
     return;
   }
 
@@ -424,6 +428,11 @@ function updateHorizontalPlanes(
     };
     applyWallDefinitionStyles(ceiling, def);
     state.lastCeilingDimensions = { ...dimensions };
+  }
+  const ceilingColor = context.wallColor ?? DEFAULT_WALL_COLOR;
+  if (state.lastCeilingColor !== ceilingColor) {
+    applyCeilingAppearance(ceiling, ceilingColor);
+    state.lastCeilingColor = ceilingColor;
   }
 }
 
@@ -501,6 +510,28 @@ function mountStructuralElement(state: RenderState, element: HTMLElement): void 
   const parent = state.root;
   const reference = state.floor.nextSibling;
   parent.insertBefore(element, reference);
+}
+
+const FLOOR_BASE_DELTA = 120;
+const CEILING_BASE_DELTA = FLOOR_BASE_DELTA;
+
+function applyFloorAppearance(state: RenderState, baseColor: string): void {
+  const floor = state.floor;
+  const floorBase = shadeColor(baseColor, FLOOR_BASE_DELTA);
+  floor.style.removeProperty("background");
+  floor.style.removeProperty("backgroundImage");
+  floor.style.setProperty("--voxcss-floor-base", floorBase);
+}
+
+function resetFloorAppearance(floor: HTMLElement): void {
+  floor.style.background = "none";
+  floor.style.backgroundImage = "none";
+  floor.style.removeProperty("--voxcss-floor-base");
+}
+
+function applyCeilingAppearance(ceiling: HTMLElement, baseColor: string): void {
+  ceiling.style.setProperty("--voxcss-ceiling-base", shadeColor(baseColor, CEILING_BASE_DELTA));
+  ceiling.style.setProperty("--voxcss-ceiling-opacity", "0.35");
 }
 
 interface WallDefinition {
