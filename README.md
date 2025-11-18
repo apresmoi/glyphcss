@@ -20,7 +20,7 @@ pnpm add @layoutit/voxcss
 You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ```html
-<script type="module">
+  <script type="module">
     import { createCamera, createScene, renderScene } from "https://unpkg.com/@layoutit/voxcss@0.0.1/dist/index.js";
 
     const camera = createCamera({
@@ -40,11 +40,11 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
     });
 
     renderScene({ camera, scene });
-</script>
+  </script>
 
-<div id="camera">
+  <div id="camera">
     <div id="scene"></div>
-</div>
+  </div>
 ```
 
 ## Framework Components
