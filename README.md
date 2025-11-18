@@ -98,7 +98,7 @@ Svelte
 - `zoom`, `pan`, `tilt` – translate the camera in/out, vertically, and horizontally.
 - `rotX`, `rotY` – rotate around the X/Y axis.
 - `perspective` – control CSS perspective depth (or disable it).
-- `invert` – flip pointer drag direction to match your app’s UX.
+- `invert` – flip pointer drag direction.
 
 ### VoxScene props
 
