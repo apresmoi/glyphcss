@@ -49,7 +49,7 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ## Framework Components
 
-VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene controls the 3D grid dimensions and decorations. 
+VoxCamera exposes zoom, pan, tilt, rotation, perspective, and pointer inversion flags. VoxScene consumes the voxel object and controls the 3D grid dimensions and decorations. 
 
 Vue 3
 ```vue
