@@ -17,7 +17,7 @@ yarn add @layoutit/voxcss
 pnpm add @layoutit/voxcss
 ```
 
-You can also load VoxCSS directly from unpkg. Here is a minimal VoxCSS scene example:
+You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ```html
   <script type="module">
