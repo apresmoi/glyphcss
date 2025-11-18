@@ -181,7 +181,7 @@ export default defineComponent({
       return h(
         "div",
         {
-          class: "voxcss-scene",
+          class: "voxcss-camera",
           style: sceneStyle.value,
           onPointerdown: props.interactive ? handlePointerDown : undefined,
           onPointermove: props.interactive ? handlePointerMove : undefined,

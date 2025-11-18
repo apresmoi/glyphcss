@@ -143,7 +143,7 @@ const CORE_BASE_STYLES = `
 .voxcss-cube-face--br {
   transform: rotateX(90deg) translateZ(25px);
 }
-.voxcss-scene {
+.voxcss-camera {
   display: flex;
   width: 100%;
   justify-content: center;
@@ -154,7 +154,7 @@ const CORE_BASE_STYLES = `
   position: relative;
   overflow: hidden;
 }
-.voxcss-scene * {
+.voxcss-camera * {
   transform-style: preserve-3d;
   position: absolute;
 }

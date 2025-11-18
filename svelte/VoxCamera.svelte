@@ -97,7 +97,7 @@
 </script>
 
 <div
-  class="voxcss-scene"
+  class="voxcss-camera"
   style={sceneStyleAttr}
   on:pointerdown={handlePointerDown}
   on:pointermove={handlePointerMove}

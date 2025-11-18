@@ -133,7 +133,7 @@ export type CubeFace = (typeof CUBE_FACES)[number];
 export const WALL_CLASS = "voxcss-wall";
 export const CEILING_CLASS = "voxcss-ceiling";
 export const STYLE_ID = "voxcss-base-styles";
-export const SCENE_CLASS = "voxcss-scene";
+export const SCENE_CLASS = "voxcss-camera";
 
 export interface LayerRecord {
   element: HTMLElement;

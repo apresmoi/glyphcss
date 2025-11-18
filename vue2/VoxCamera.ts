@@ -218,7 +218,7 @@ export default Vue.extend({
     return h(
       "div",
       {
-        class: "voxcss-scene",
+        class: "voxcss-camera",
         style: vm.sceneStyle,
         on: vm.interactive
           ? {

@@ -182,7 +182,7 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
 
   return (
     <SceneControllerContext.Provider value={controller}>
-      <div className="voxcss-scene" style={{ cursor, perspective: resolvePerspective(perspective) }} {...pointerHandlers}>
+      <div className="voxcss-camera" style={{ cursor, perspective: resolvePerspective(perspective) }} {...pointerHandlers}>
         {renderedChildren}
       </div>
     </SceneControllerContext.Provider>
