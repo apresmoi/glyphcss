@@ -19,6 +19,7 @@ import type {
   PointerEventPayload,
   RenderState,
   WallsMask,
+  WallDimensionsSnapshot,
   Voxel,
   ShapeRenderer,
   VoxcssHooks,
@@ -30,8 +31,9 @@ import {
   FLOOR_CLASS,
   FACE_CLASS,
   WALL_CLASS,
-  WALL_CONTAINER_CLASS,
-  DEFAULT_WALL_COLOR
+  CEILING_CLASS,
+  DEFAULT_WALL_COLOR,
+  DEFAULT_WALLS
 } from "./types";
 import { getVoxelBounds, makeVoxelKey, wallMasksEqual } from "./context";
 import { computeVisibleFaces } from "./visibility";
@@ -69,8 +71,10 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
       removeLayerRecord(record);
     }
     renderState.layers.clear();
+    renderState.wallElements.clear();
+    renderState.ceiling?.remove();
+    renderState.ceiling = null;
     renderState.floor.remove();
-    renderState.wallsContainer?.remove();
     rendererStates.delete(target);
   }
 
@@ -97,16 +101,20 @@ function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRe
 function createRenderState(documentRef: Document, root: HTMLElement): RenderState {
   root.innerHTML = "";
   const floor = appendFloor(documentRef, root);
+  const layerAnchor = documentRef.createComment("voxcss-layer-anchor");
+  floor.appendChild(layerAnchor);
   return {
     floor,
+    layerAnchor,
     layers: new Map(),
-    wallsContainer: null,
     wallElements: new Map(),
+    ceiling: null,
     lastWallsMask: null,
     lastShowWalls: undefined,
     lastWallDimensions: null,
     lastShowFloor: undefined,
-    lastWallColor: undefined
+    lastWallColor: undefined,
+    lastCeilingDimensions: null
   };
 }
 
@@ -153,10 +161,10 @@ function applyPatchSet(
         pointerUpdates.add(patch.layerIndex);
         break;
       case "wallsMeta":
-        applyWallsMetaPatch(renderState, patch, documentRef, root, context, snapshot.layers.length);
+        applyWallsMetaPatch(renderState, patch, documentRef, context, snapshot.layers.length);
         break;
       case "floorMeta":
-        applyFloorMetaPatch(renderState, patch, context);
+        applyFloorMetaPatch(renderState, patch, documentRef, context, snapshot.layers.length);
         break;
       case "pointerRegion":
         // pointer metadata is informational for now; delegation wiring happens elsewhere.
@@ -268,28 +276,23 @@ function applyWallsMetaPatch(
   state: RenderState,
   patch: WallsMetaPatch,
   documentRef: Document,
-  root: HTMLElement,
   context: GridContext,
   depthLayers: number
 ): void {
   context.showWalls = patch.showWalls;
   context.walls = { ...patch.mask };
-  updateWallsContainer(state, documentRef, root, context, depthLayers);
+  updateStructuralElements(state, documentRef, context, depthLayers);
 }
 
-function applyFloorMetaPatch(state: RenderState, patch: FloorMetaPatch, context: GridContext): void {
-  const showFloor = patch.showFloor;
-  const floor = state.floor;
-  floor.style.pointerEvents = "none";
-  if (!showFloor) {
-    floor.style.background = "none";
-    floor.style.backgroundImage = "none";
-  } else {
-    floor.style.background = "";
-    floor.style.backgroundImage = "";
-  }
-  context.showFloor = showFloor;
-  state.lastShowFloor = showFloor;
+function applyFloorMetaPatch(
+  state: RenderState,
+  patch: FloorMetaPatch,
+  documentRef: Document,
+  context: GridContext,
+  depthLayers: number
+): void {
+  context.showFloor = patch.showFloor;
+  updateStructuralElements(state, documentRef, context, depthLayers);
 }
 
 function syncVoxelElement(element: HTMLElement, voxel: Voxel): void {
@@ -350,47 +353,110 @@ function ensureLayerRecord(
   return record;
 }
 
-function updateWallsContainer(
+function updateStructuralElements(
   state: RenderState,
   documentRef: Document,
-  root: HTMLElement,
   context: GridContext,
   depthLayers: number
 ): void {
+  const previousMask = state.lastWallsMask;
+  const dimensions = snapshotWallDimensions(context, depthLayers);
+  updateHorizontalPlanes(state, documentRef, context, dimensions);
+  updateVerticalWalls(state, documentRef, context, dimensions, previousMask);
+  state.lastWallsMask = { ...(context.walls ?? DEFAULT_WALLS) };
+}
+
+function updateHorizontalPlanes(
+  state: RenderState,
+  documentRef: Document,
+  context: GridContext,
+  dimensions: WallDimensionsSnapshot
+): void {
+  const mask = context.walls ?? DEFAULT_WALLS;
+  const horizontalEnabled = !!context.showFloor;
+  const shouldShowFloor = horizontalEnabled && !!mask.b;
+  const shouldShowCeiling = horizontalEnabled && !!mask.t;
+
+  if (state.lastShowFloor !== shouldShowFloor) {
+    const floor = state.floor;
+    floor.style.pointerEvents = "none";
+    if (shouldShowFloor) {
+      floor.style.background = "";
+      floor.style.backgroundImage = "";
+    } else {
+      floor.style.background = "none";
+      floor.style.backgroundImage = "none";
+    }
+    state.lastShowFloor = shouldShowFloor;
+  }
+
+  if (!shouldShowCeiling) {
+    if (state.ceiling) {
+      state.ceiling.remove();
+      state.ceiling = null;
+    }
+    state.lastCeilingDimensions = null;
+    return;
+  }
+
+  let ceiling = state.ceiling;
+  let created = false;
+  if (!ceiling) {
+    ceiling = documentRef.createElement("div");
+    ceiling.className = CEILING_CLASS;
+    state.ceiling = ceiling;
+    created = true;
+  } else if (ceiling.className !== CEILING_CLASS) {
+    ceiling.className = CEILING_CLASS;
+  }
+  mountStructuralElement(state, ceiling);
+  const needsUpdate =
+    created || !state.lastCeilingDimensions || !wallDimensionsEqual(state.lastCeilingDimensions, dimensions);
+  if (needsUpdate) {
+    const def: WallDefinition = {
+      key: "t",
+      className: CEILING_CLASS,
+      width: dimensions.cols * dimensions.tileSize,
+      height: dimensions.rows * dimensions.tileSize,
+      transform: `translateZ(${dimensions.depth * dimensions.tileSize}px)`
+    };
+    applyWallDefinitionStyles(ceiling, def);
+    state.lastCeilingDimensions = { ...dimensions };
+  }
+}
+
+function updateVerticalWalls(
+  state: RenderState,
+  documentRef: Document,
+  context: GridContext,
+  dimensions: WallDimensionsSnapshot,
+  previousMask: WallsMask | null
+): void {
   const showWallsChanged = state.lastShowWalls !== context.showWalls;
   const maskChanged =
-    context.showWalls &&
-    (!state.lastWallsMask || !wallMasksEqual(state.lastWallsMask, context.walls));
-  const nextDimensions = snapshotWallDimensions(context, depthLayers);
+    context.showWalls && (!previousMask || !wallMasksEqual(previousMask, context.walls));
   const geometryChanged =
-    context.showWalls && !wallDimensionsEqual(state.lastWallDimensions, nextDimensions);
+    context.showWalls && !wallDimensionsEqual(state.lastWallDimensions, dimensions);
   const wallColorChanged = (state.lastWallColor ?? DEFAULT_WALL_COLOR) !== context.wallColor;
 
   if (!context.showWalls) {
-    if (state.wallsContainer) {
-      state.wallsContainer.remove();
-      state.wallsContainer = null;
+    if (state.wallElements.size) {
+      for (const [, element] of state.wallElements) {
+        element.remove();
+      }
       state.wallElements.clear();
     }
     state.lastShowWalls = false;
-    state.lastWallsMask = null;
     state.lastWallDimensions = null;
     state.lastWallColor = undefined;
     return;
   }
 
-  if (
-    !showWallsChanged &&
-    !maskChanged &&
-    !geometryChanged &&
-    !wallColorChanged &&
-    state.wallsContainer
-  ) {
+  if (!showWallsChanged && !maskChanged && !geometryChanged && !wallColorChanged) {
     return;
   }
 
-  const container = ensureWallsRoot(state, documentRef, root);
-  const definitions = computeWallDefinitions(context, depthLayers);
+  const definitions = computeWallDefinitions(dimensions);
   const activeKeys = new Set<keyof WallsMask>();
 
   for (const def of definitions) {
@@ -409,10 +475,10 @@ function updateWallsContainer(
       wall = documentRef.createElement("div");
       wall.className = def.className;
       state.wallElements.set(def.key, wall);
-      container.appendChild(wall);
     } else if (wall.className !== def.className) {
       wall.className = def.className;
     }
+    mountStructuralElement(state, wall);
     applyWallDefinitionStyles(wall, def);
     applyWallLighting(wall, def.key, context);
   }
@@ -424,26 +490,13 @@ function updateWallsContainer(
     }
   }
 
-  state.lastWallsMask = { ...context.walls };
   state.lastShowWalls = true;
-  state.lastWallDimensions = nextDimensions;
+  state.lastWallDimensions = { ...dimensions };
   state.lastWallColor = context.wallColor;
 }
 
-function ensureWallsRoot(
-  state: RenderState,
-  documentRef: Document,
-  root: HTMLElement
-): HTMLElement {
-  if (state.wallsContainer && root.contains(state.wallsContainer)) {
-    return state.wallsContainer;
-  }
-  const container = documentRef.createElement("div");
-  container.className = WALL_CONTAINER_CLASS;
-  root.insertBefore(container, state.floor);
-  state.wallsContainer = container;
-  state.wallElements.clear();
-  return container;
+function mountStructuralElement(state: RenderState, element: HTMLElement): void {
+  state.floor.insertBefore(element, state.layerAnchor);
 }
 
 interface WallDefinition {
@@ -486,7 +539,7 @@ function applyWallLighting(el: HTMLElement, key: keyof WallsMask, context: GridC
   }
 }
 
-function snapshotWallDimensions(context: GridContext, depthLayers: number) {
+function snapshotWallDimensions(context: GridContext, depthLayers: number): WallDimensionsSnapshot {
   return {
     rows: Math.max(context.rows, 1),
     cols: Math.max(context.cols, 1),
@@ -496,8 +549,8 @@ function snapshotWallDimensions(context: GridContext, depthLayers: number) {
 }
 
 function wallDimensionsEqual(
-  previous: RenderState["lastWallDimensions"],
-  next: ReturnType<typeof snapshotWallDimensions>
+  previous: WallDimensionsSnapshot | null,
+  next: WallDimensionsSnapshot
 ): boolean {
   if (!previous) return false;
   return (
@@ -508,11 +561,11 @@ function wallDimensionsEqual(
   );
 }
 
-function computeWallDefinitions(context: GridContext, depthLayers: number): WallDefinition[] {
-  const tile = context.tileSize;
-  const rows = Math.max(context.rows, 1);
-  const cols = Math.max(context.cols, 1);
-  const depth = Math.max(depthLayers, 1);
+function computeWallDefinitions(dimensions: WallDimensionsSnapshot): WallDefinition[] {
+  const tile = dimensions.tileSize;
+  const rows = Math.max(dimensions.rows, 1);
+  const cols = Math.max(dimensions.cols, 1);
+  const depth = Math.max(dimensions.depth, 1);
   const halfTile = tile / 2;
   const depthPx = depth * tile;
   const rowPx = rows * tile;

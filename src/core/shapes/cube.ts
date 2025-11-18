@@ -1,7 +1,7 @@
 import type { ShapeRenderer, GridContext, Voxel, CubeFace } from "../types";
 import { CUBE_CLASS, FACE_CLASS } from "../types";
 import { computeVisibleFaces } from "../visibility";
-import { shadeCubeFace } from "../lighting";
+import { shadeCubeFace, getCubeFaceLightDelta } from "../lighting";
 
 const cubeDomCache = new WeakMap<HTMLElement, Map<CubeFace, HTMLElement>>();
 
@@ -75,38 +75,68 @@ function applyFaceAppearance(
   voxel: Voxel,
   context: GridContext
 ): void {
-  const textureKey = voxel.texture;
+  const textureUrl = resolveTextureUrl(voxel, face, context);
+  const hasTexture = Boolean(textureUrl);
 
-  if (textureKey) {
-    const textureUrl =
-      context.resolveTexture?.(textureKey, face) ??
-      (textureKey.includes("/") ? textureKey : undefined);
-    if (textureUrl) {
-      el.style.backgroundImage = `url(${textureUrl})`;
-      el.style.backgroundColor = "";
-      return;
-    }
+  if (hasTexture && textureUrl) {
+    el.style.backgroundImage = `url(${textureUrl})`;
+  } else {
+    el.style.backgroundImage = "";
   }
-  let customImageApplied = false;
+
   let customColorApplied = false;
+  let customFilterApplied = false;
   const custom = context.lighting?.(voxel, face);
   if (custom) {
     if (custom.backgroundImage !== undefined) {
       el.style.backgroundImage = custom.backgroundImage ?? "";
-      customImageApplied = true;
     }
     if (custom.backgroundColor !== undefined) {
       el.style.backgroundColor = custom.backgroundColor ?? "";
       customColorApplied = true;
     }
+    if (custom.filter !== undefined) {
+      el.style.filter = custom.filter ?? "";
+      customFilterApplied = true;
+    }
   }
-  if (!customImageApplied) {
-    el.style.backgroundImage = "";
+
+  if (hasTexture && !customFilterApplied) {
+    applyTextureLighting(el, face);
+  } else if (!customFilterApplied) {
+    el.style.filter = "";
   }
-  if (customColorApplied) {
-    return;
+
+  if (!customColorApplied) {
+    if (hasTexture) {
+      el.style.backgroundColor = "";
+    } else {
+      const baseColor = voxel.color ?? "#cccccc";
+      const shaded = shadeCubeFace(baseColor, face);
+      el.style.backgroundColor = shaded;
+    }
   }
-  const baseColor = voxel.color ?? "#cccccc";
-  const shaded = shadeCubeFace(baseColor, face);
-  el.style.backgroundColor = shaded;
+}
+
+function resolveTextureUrl(
+  voxel: Voxel,
+  face: CubeFace,
+  context: GridContext
+): string | undefined {
+  const textureKey = voxel.texture;
+  if (!textureKey) return undefined;
+  const resolved = context.resolveTexture?.(textureKey, face);
+  if (resolved) return resolved;
+  return textureKey.includes("/") ? textureKey : undefined;
+}
+
+function applyTextureLighting(el: HTMLElement, face: CubeFace): void {
+  const delta = getCubeFaceLightDelta(face);
+  const brightness = Math.max(0, 1 + delta / 200);
+  if (Math.abs(brightness - 1) < 0.001) {
+    el.style.filter = "";
+  } else {
+    const rounded = Math.round(brightness * 1000) / 1000;
+    el.style.filter = `brightness(${rounded})`;
+  }
 }

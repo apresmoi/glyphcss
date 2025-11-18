@@ -62,15 +62,34 @@ const CORE_BASE_STYLES = `
     );
   z-index: 0;
 }
+
+.voxcss-ceiling {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  background: #c2c2f3;
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.15) 0,
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 50px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.15) 0,
+      rgba(0, 0, 0, 0.15) 1px,
+      transparent 1px,
+      transparent 50px
+    );
+  opacity: 0.35;
+  z-index: 0;
+}
   .voxcss-wall--frontRight,
 .voxcss-wall--backRight {
   right: 0;
-}
-
-.voxcss-walls {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
 }
 .voxcss-wall {
   position: absolute;

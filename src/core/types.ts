@@ -131,7 +131,7 @@ export const FACE_CLASS = "voxcss-cube-face";
 export const CUBE_FACES = ["t", "b", "bl", "br", "fr", "fl"] as const;
 export type CubeFace = (typeof CUBE_FACES)[number];
 export const WALL_CLASS = "voxcss-wall";
-export const WALL_CONTAINER_CLASS = "voxcss-walls";
+export const CEILING_CLASS = "voxcss-ceiling";
 export const STYLE_ID = "voxcss-base-styles";
 export const SCENE_CLASS = "voxcss-scene";
 
@@ -142,14 +142,16 @@ export interface LayerRecord {
 
 export interface RenderState {
   floor: HTMLElement;
+  layerAnchor: Comment;
   layers: Map<number, LayerRecord>;
-  wallsContainer: HTMLElement | null;
   wallElements: Map<keyof WallsMask, HTMLElement>;
+  ceiling: HTMLElement | null;
   lastWallsMask: WallsMask | null;
   lastShowWalls: boolean | undefined;
   lastWallDimensions: WallDimensionsSnapshot | null;
   lastShowFloor: boolean | undefined;
   lastWallColor: string | undefined;
+  lastCeilingDimensions: WallDimensionsSnapshot | null;
 }
 
 export interface WallDimensionsSnapshot {

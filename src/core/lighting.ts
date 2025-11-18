@@ -98,8 +98,12 @@ const FACE_ADJUSTMENTS: Record<CubeFace, number> = {
   br: -30
 };
 
+export function getCubeFaceLightDelta(face: CubeFace): number {
+  return FACE_ADJUSTMENTS[face] ?? 0;
+}
+
 export function shadeCubeFace(base: string, face: CubeFace): string {
-  const delta = FACE_ADJUSTMENTS[face] ?? 0;
+  const delta = getCubeFaceLightDelta(face);
   return shadeColor(base, delta);
 }
 
