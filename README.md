@@ -62,6 +62,7 @@ import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
 const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
 </script>
 ```
+A legacy Vue 2 component is also included.
 
 React
 ```tsx
@@ -115,13 +116,10 @@ type Voxel = {
   x: number;
   y: number;
   z: number;
-  x2?: number; // defaults to x + 1
-  y2?: number; // defaults to y + 1
   color?: string;
   texture?: string;
   shape?: string;
 };
-type VoxelGrid = Voxel[];
 ```
 
 
