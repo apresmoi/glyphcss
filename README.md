@@ -26,7 +26,6 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
   const camera = createCamera({
         element: document.getElementById("camera"),
         interactive: true,
-        zoom: 1.5
     });
 
   const scene = createScene({
