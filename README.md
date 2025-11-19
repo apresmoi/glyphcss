@@ -99,12 +99,14 @@ Svelte
 - `rotX`, `rotY` – rotate around the X/Y axis.
 - `perspective` – control CSS perspective depth (or disable it).
 - `invert` – flip pointer drag direction.
+- `projection` – pick `"cubic"` or `"dimetric"` presets; affects wall visibility and layer spacing.
 
 ### VoxScene props
 
 - `voxels` – required grid data (see model below); accepts any iterable of voxel objects.
 - `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
+- `shapes` – choose between `cube`, `ramp`, `wedge`, and `spike`. If ommited, defaults to `cube`.
 
 Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
 
