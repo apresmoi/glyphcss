@@ -1,11 +1,11 @@
-import React, { useMemo, useEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
+import React, { useEffect, useLayoutEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { createSceneController } from "@voxcss/controller/createSceneController";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
+import { createCamera } from "@voxcss/core";
 import type { WallsMask } from "@voxcss/core";
-import { attachPointerEvents } from "@voxcss/core";
 import type { AutoRotateOption } from "@voxcss/core/camera";
+import type { HeadlessCameraHandle } from "@voxcss/core/headless";
+import { resolveInvertMultiplier, normalizePerspectiveValue } from "@voxcss/controller/utils";
 import { SceneControllerContext } from "./context";
 
 const DEFAULTS = {
@@ -16,24 +16,7 @@ const DEFAULTS = {
   rotY: 45,
   invert: false
 };
-const DEFAULT_INVERT_MULTIPLIER = 1;
 const DEFAULT_PERSPECTIVE = 8000;
-
-type InvertControlValue = boolean | number | undefined;
-type PerspectiveValue = number | boolean | undefined;
-
-function resolveInvertMultiplier(value: InvertControlValue): number {
-  if (typeof value === "number") {
-    return value < 0 ? -1 : 1;
-  }
-  return value ? -1 : 1;
-}
-
-function resolvePerspective(value: PerspectiveValue): string {
-  if (value === false) return "none";
-  const numeric = typeof value === "number" ? value : DEFAULT_PERSPECTIVE;
-  return `${numeric}px`;
-}
 
 export interface CameraRenderContext {
   boxStyle: CSSProperties;
@@ -77,100 +60,122 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   },
   ref
 ) {
-  const initialCameraRef = useRef({
-    zoom,
-    pan,
-    tilt,
-    rotX,
-    rotY
-  });
-  const initialControlsRef = useRef({
-    invert: resolveInvertMultiplier(invert ?? DEFAULTS.invert ?? DEFAULT_INVERT_MULTIPLIER)
-  });
-  const controller = useMemo(() => {
-    return createSceneController({
-      camera: initialCameraRef.current,
-      controls: { invert: initialControlsRef.current.invert ?? DEFAULT_INVERT_MULTIPLIER }
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const cameraHandleRef = useRef<HeadlessCameraHandle | null>(null);
+  const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
+  const [controller, setController] = useState<SceneController | null>(null);
+  const [boxStyle, setBoxStyle] = useState<Record<string, string>>({});
+  const [cameraState, setCameraState] = useState(() => controller?.getCameraState());
+  const [walls, setWalls] = useState(() => controller?.getWalls());
+  const [cursor, setCursor] = useState("default");
+
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const handle = createCamera({
+      element: node,
+      interactive,
+      perspective: normalizePerspectiveValue(perspective),
+      zoom,
+      pan,
+      tilt,
+      rotX,
+      rotY,
+      invert,
+      animate
     });
+    cameraHandleRef.current = handle;
+    setController(handle.controller);
+    return () => {
+      handle.destroy();
+      cameraHandleRef.current = null;
+      setController(null);
+      setBoxStyle({});
+      setCameraState(undefined);
+      setWalls(undefined);
+      setCursor("default");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [boxStyle, setBoxStyle] = useState(() => controller.getBoxStyle());
-  const autoRotateRef = useRef<AutoRotateHandle | null>(null);
-  const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
-  const containerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const handle = cameraHandleRef.current;
+    if (!handle) return;
+    handle.controller.updateCamera({ zoom, pan, tilt, rotX, rotY });
+  }, [zoom, pan, tilt, rotX, rotY]);
 
   useEffect(() => {
-    const unsubscribe = controller.subscribeBoxStyle((style) => setBoxStyle(style));
-    return () => unsubscribe();
-  }, [controller]);
-
-  useEffect(() => {
-    controller.updateCamera({ zoom, pan, tilt, rotX, rotY });
-  }, [controller, zoom, pan, tilt, rotX, rotY]);
-
-  useEffect(() => {
+    if (!controller) return;
     controller.setControls({ invert: resolveInvertMultiplier(invert) });
   }, [controller, invert]);
 
   useEffect(() => {
+    cameraHandleRef.current?.setInteractive(interactive);
+  }, [interactive]);
+
+  useEffect(() => {
+    cameraHandleRef.current?.setPerspective(normalizePerspectiveValue(perspective));
+  }, [perspective]);
+
+  useEffect(() => {
     animateOptionRef.current = animate;
-    const handle = createAutoRotateHandle(controller, animate);
-    handle?.start();
-    autoRotateRef.current = handle;
+    cameraHandleRef.current?.setAnimate(animate);
+  }, [animate]);
+
+  useEffect(() => {
+    if (!controller) return;
+    setBoxStyle(controller.getBoxStyle());
+    setCameraState(controller.getCameraState());
+    setWalls(controller.getWalls());
+    setCursor(interactive ? controller.getCursor() : "default");
+    const unsubscribeBox = controller.subscribeBoxStyle((style) => setBoxStyle(style));
+    const unsubscribeCamera = controller.subscribeCamera((state) => {
+      setCameraState(state);
+      setWalls(controller.getWalls());
+      setCursor(interactive ? controller.getCursor() : "default");
+    });
     return () => {
-      handle?.stop();
-      if (autoRotateRef.current === handle) {
-        autoRotateRef.current = null;
-      }
+      unsubscribeBox();
+      unsubscribeCamera();
     };
-  }, [controller, animate]);
+  }, [controller, interactive]);
 
   useImperativeHandle(
     ref,
     () => ({
-      controller,
+      controller: controller as SceneController,
       startAutoRotate(config?: AutoRotateOption) {
-        autoRotateRef.current?.stop();
         const option = config ?? animateOptionRef.current;
-        const handle = createAutoRotateHandle(controller, option);
-        handle?.start();
-        autoRotateRef.current = handle;
+        animateOptionRef.current = option;
+        cameraHandleRef.current?.setAnimate(option);
       },
       stopAutoRotate() {
-        autoRotateRef.current?.stop();
+        cameraHandleRef.current?.setAnimate(false);
       }
     }),
     [controller]
   );
 
-  useEffect(() => {
-    if (!interactive) return;
-    const node = containerRef.current;
-    if (!node) return;
-    const detach = attachPointerEvents(node, controller, () => autoRotateRef.current?.notifyInteraction());
-    return () => detach();
-  }, [interactive, controller]);
-
-  const cursor = interactive ? controller.getCursor() : "default";
-
-  const context: CameraRenderContext = {
-    boxStyle,
-    cursor,
-    walls: controller.getWalls(),
-    controller,
-    camera: controller.getCameraState()
-  };
+  const context: CameraRenderContext | null = controller
+    ? {
+        boxStyle,
+        cursor,
+        walls: walls ?? controller.getWalls(),
+        controller,
+        camera: cameraState ?? controller.getCameraState()
+      }
+    : null;
 
   const renderedChildren =
-    typeof children === "function" ? (children as (ctx: CameraRenderContext) => ReactNode)(context) : children;
+    controller && context
+      ? typeof children === "function"
+        ? (children as (ctx: CameraRenderContext) => ReactNode)(context)
+        : children
+      : null;
 
   return (
     <SceneControllerContext.Provider value={controller}>
-      <div
-        ref={containerRef}
-        className="voxcss-camera"
-        style={{ cursor, perspective: resolvePerspective(perspective) }}
-      >
+      <div ref={containerRef} className="voxcss-camera" style={{ cursor }}>
         {renderedChildren}
       </div>
     </SceneControllerContext.Provider>

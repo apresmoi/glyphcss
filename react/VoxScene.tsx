@@ -14,7 +14,6 @@ export interface VoxSceneProps {
   showWalls?: boolean;
   showFloor?: boolean;
   projection?: ProjectionMode;
-  dimetric?: boolean;
 }
 
 export function VoxScene({
@@ -24,8 +23,7 @@ export function VoxScene({
   depth,
   showWalls = false,
   showFloor = false,
-  projection,
-  dimetric = false
+  projection
 }: VoxSceneProps) {
   const controller = useSceneControllerContext();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -38,8 +36,7 @@ export function VoxScene({
     depth,
     showWalls,
     showFloor,
-    projection,
-    dimetric
+    projection
   });
 
   return <div ref={containerRef} style={boxStyle as CSSProperties} />;

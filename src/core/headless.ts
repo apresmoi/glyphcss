@@ -33,6 +33,9 @@ export interface HeadlessCameraHandle {
   controller: SceneController;
   interactive: boolean;
   autoRotate?: AutoRotateHandle | null;
+  setInteractive(value: boolean): void;
+  setPerspective(value: number | false | undefined): void;
+  setAnimate(option: AutoRotateOption | false | undefined): void;
   destroy(): void;
 }
 
@@ -69,26 +72,50 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   if (!element) {
     throw new Error("voxcss: createHeadlessCamera requires an element.");
   }
-  const interactive = options.interactive !== false;
+  let interactive = options.interactive !== false;
   const controllerConfig = mergeControllerOptions(options);
   const controller = createSceneController(controllerConfig);
-  const autoRotate = createAutoRotateHandle(controller, options.animate);
+  let autoRotate = createAutoRotateHandle(controller, options.animate);
   element.classList.add(SCENE_CLASS);
   applyPerspective(element, options.perspective);
-  const detachPointer = interactive
+  let detachPointer = interactive
     ? attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction())
     : null;
   autoRotate?.start();
-  return {
+  const handle: HeadlessCameraHandle = {
     element,
     controller,
     interactive,
     autoRotate,
+    setInteractive(value: boolean) {
+      if (interactive === value) return;
+      interactive = value;
+      handle.interactive = interactive;
+      if (interactive) {
+        if (!detachPointer) {
+          detachPointer = attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction());
+        }
+      } else {
+        detachPointer?.();
+        detachPointer = null;
+        element.style.cursor = "default";
+      }
+    },
+    setPerspective(value: number | false | undefined) {
+      applyPerspective(element, value);
+    },
+    setAnimate(option: AutoRotateOption | false | undefined) {
+      autoRotate?.stop();
+      autoRotate = option === false ? null : createAutoRotateHandle(controller, option);
+      handle.autoRotate = autoRotate;
+      autoRotate?.start();
+    },
     destroy() {
       detachPointer?.();
       autoRotate?.stop();
     }
   };
+  return handle;
 }
 
 export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle {

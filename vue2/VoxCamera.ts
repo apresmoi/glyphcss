@@ -1,24 +1,12 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { PropType, VNode } from "vue";
-import { createSceneController } from "@voxcss/controller/createSceneController";
+import { createCamera } from "@voxcss/core";
+import type { HeadlessCameraHandle } from "@voxcss/core/headless";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
 import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
-
-function resolveInvertMultiplier(value: number | boolean | undefined): number {
-  if (typeof value === "number") {
-    return value < 0 ? -1 : 1;
-  }
-  return value ? -1 : 1;
-}
-
-function resolvePerspectiveValue(value: number | boolean | undefined): string {
-  if (value === false) return "none";
-  const numeric = typeof value === "number" ? value : 8000;
-  return `${numeric}px`;
-}
+import { resolveInvertMultiplier, normalizePerspectiveValue } from "@voxcss/controller/utils";
 
 export default Vue.extend({
   name: "VoxCamera",
@@ -67,74 +55,59 @@ export default Vue.extend({
     }
   },
   data(): {
-    controllerInstance: SceneController;
+    controllerInstance: SceneController | null;
+    cameraHandle: HeadlessCameraHandle | null;
     boxStyleSnapshot: Record<string, string>;
-    cameraSnapshot: CameraState;
+    cameraSnapshot: CameraState | null;
     cursorSnapshot: string;
-    wallsSnapshot: WallsMask;
+    wallsSnapshot: WallsMask | null;
     subscriptions: Array<() => void>;
-    autoRotateHandle: AutoRotateHandle | null;
   } {
-    const controllerInstance = createSceneController({
-      camera: {
-        zoom: this.zoom,
-        pan: this.pan,
-        tilt: this.tilt,
-        rotX: this.rotX,
-        rotY: this.rotY
-      }
-    });
-
     return {
-      controllerInstance,
-      boxStyleSnapshot: controllerInstance.getBoxStyle(),
-      cameraSnapshot: controllerInstance.getCameraState(),
-      cursorSnapshot: controllerInstance.getCursor(),
-      wallsSnapshot: controllerInstance.getWalls(),
-      subscriptions: [],
-      autoRotateHandle: null
+      controllerInstance: null,
+      cameraHandle: null,
+      boxStyleSnapshot: {},
+      cameraSnapshot: null,
+      cursorSnapshot: "default",
+      wallsSnapshot: null,
+      subscriptions: []
     };
-  },
-  created() {
-    this.syncCameraProps();
-    this.syncControls();
-    const stopBoxStyle = this.controllerInstance.subscribeBoxStyle((style) => {
-      this.boxStyleSnapshot = style;
-    });
-    const stopCamera = this.controllerInstance.subscribeCamera((state) => {
-      this.cameraSnapshot = state;
-      this.wallsSnapshot = this.controllerInstance.getWalls();
-    });
-    this.subscriptions = [stopBoxStyle, stopCamera];
-    this.syncAutoRotate();
   },
   beforeDestroy() {
     this.subscriptions.forEach((stop) => stop?.());
     this.subscriptions = [];
-    this.autoRotateHandle?.stop?.();
-    this.autoRotateHandle = null;
+    this.cameraHandle?.destroy?.();
+    this.cameraHandle = null;
+    this.controllerInstance = null;
   },
   watch: {
     zoom(value: number) {
-      this.controllerInstance.updateCamera({ zoom: value });
+      this.cameraHandle?.controller.updateCamera({ zoom: value });
     },
     pan(value: number) {
-      this.controllerInstance.updateCamera({ pan: value });
+      this.cameraHandle?.controller.updateCamera({ pan: value });
     },
     tilt(value: number) {
-      this.controllerInstance.updateCamera({ tilt: value });
+      this.cameraHandle?.controller.updateCamera({ tilt: value });
     },
     rotX(value: number) {
-      this.controllerInstance.updateCamera({ rotX: value });
+      this.cameraHandle?.controller.updateCamera({ rotX: value });
     },
     rotY(value: number) {
-      this.controllerInstance.updateCamera({ rotY: value });
+      this.cameraHandle?.controller.updateCamera({ rotY: value });
     },
     invert(value: number | boolean) {
-      this.controllerInstance.setControls({ invert: resolveInvertMultiplier(value) });
+      this.controllerInstance?.setControls({ invert: resolveInvertMultiplier(value) });
     },
     animate() {
-      this.syncAutoRotate();
+      this.cameraHandle?.setAnimate(this.animate);
+    },
+    interactive(value: boolean) {
+      this.cameraHandle?.setInteractive(value);
+      this.cursorSnapshot = value && this.controllerInstance ? this.controllerInstance.getCursor() : "default";
+    },
+    perspective(value: number | boolean) {
+      this.cameraHandle?.setPerspective(normalizePerspectiveValue(value));
     }
   },
   computed: {
@@ -152,82 +125,86 @@ export default Vue.extend({
     },
     sceneStyle(): Record<string, string> {
       return {
-        cursor: this.cursor,
-        perspective: resolvePerspectiveValue(this.perspective)
+        cursor: this.cursor
       };
     }
   },
   methods: {
-    syncCameraProps() {
-      this.controllerInstance.updateCamera({
+    mountCamera() {
+      const node = this.$refs.camera as HTMLElement | undefined;
+      if (!node) return;
+      const handle = createCamera({
+        element: node,
+        interactive: this.interactive,
+        perspective: normalizePerspectiveValue(this.perspective),
         zoom: this.zoom,
         pan: this.pan,
         tilt: this.tilt,
         rotX: this.rotX,
-        rotY: this.rotY
+        rotY: this.rotY,
+        invert: this.invert,
+        animate: this.animate
       });
+      this.cameraHandle = handle;
+      this.controllerInstance = handle.controller;
+      this.syncSnapshots();
+      this.subscriptions = [
+        this.controllerInstance.subscribeBoxStyle((style) => {
+          this.boxStyleSnapshot = style;
+        }),
+        this.controllerInstance.subscribeCamera((state) => {
+          this.cameraSnapshot = state;
+          this.wallsSnapshot = this.controllerInstance?.getWalls() ?? null;
+          this.cursorSnapshot =
+            this.interactive && this.controllerInstance ? this.controllerInstance.getCursor() : "default";
+        })
+      ];
     },
-    syncControls() {
-      this.controllerInstance.setControls({
-        invert: resolveInvertMultiplier(this.invert)
-      });
-    },
-    syncAutoRotate(config?: AutoRotateOption) {
-      this.autoRotateHandle?.stop?.();
-      const option = config !== undefined ? config : this.animate;
-      this.autoRotateHandle = createAutoRotateHandle(this.controllerInstance, option) ?? null;
-      this.autoRotateHandle?.start?.();
+    syncSnapshots() {
+      if (!this.controllerInstance) return;
+      this.boxStyleSnapshot = this.controllerInstance.getBoxStyle();
+      this.cameraSnapshot = this.controllerInstance.getCameraState();
+      this.wallsSnapshot = this.controllerInstance.getWalls();
+      this.cursorSnapshot = this.interactive ? this.controllerInstance.getCursor() : "default";
     },
     startAutoRotate(config?: AutoRotateOption) {
-      this.syncAutoRotate(config);
+      this.cameraHandle?.setAnimate(config ?? this.animate);
     },
     stopAutoRotate() {
-      this.autoRotateHandle?.stop?.();
-    },
-    handlePointerDown(event: PointerEvent) {
-      if (!this.interactive) return;
-      this.autoRotateHandle?.notifyInteraction?.();
-      this.controllerInstance.handlePointerDown(event);
-      this.cursorSnapshot = this.controllerInstance.getCursor();
-      (event.target as HTMLElement)?.setPointerCapture?.(event.pointerId);
-    },
-    handlePointerMove(event: PointerEvent) {
-      if (!this.interactive) return;
-      this.controllerInstance.handlePointerMove(event);
-    },
-    handlePointerUp(event: PointerEvent) {
-      if (!this.interactive) return;
-      this.controllerInstance.handlePointerUp();
-      this.cursorSnapshot = this.controllerInstance.getCursor();
-      (event.target as HTMLElement)?.releasePointerCapture?.(event.pointerId);
+      this.cameraHandle?.setAnimate(false);
+    }
+  },
+  mounted() {
+    this.mountCamera();
+  },
+  updated() {
+    if (!this.controllerInstance && this.cameraHandle) {
+      this.controllerInstance = this.cameraHandle.controller;
+      this.syncSnapshots();
     }
   },
   render(h) {
     const vm = this as any;
     const slot = vm.$scopedSlots.default;
-    const slotContent = slot
-      ? slot({
-        boxStyle: vm.boxStyle,
-        cursor: vm.cursor,
-        walls: vm.walls,
-        camera: vm.controllerState,
-        controller: vm.controllerInstance
-      })
-      : (vm.$slots.default as VNode[] | undefined);
+    const slotContent =
+      vm.controllerInstance && slot
+        ? slot({
+          boxStyle: vm.boxStyle,
+          cursor: vm.cursor,
+          walls: vm.walls,
+          camera: vm.controllerState,
+          controller: vm.controllerInstance
+        })
+        : vm.controllerInstance
+          ? (vm.$slots.default as VNode[] | undefined)
+          : undefined;
 
     return h(
       "div",
       {
         class: "voxcss-camera",
-        style: vm.sceneStyle,
-        on: vm.interactive
-          ? {
-            pointerdown: vm.handlePointerDown,
-            pointermove: vm.handlePointerMove,
-            pointerup: vm.handlePointerUp,
-            pointerleave: vm.handlePointerUp
-          }
-          : undefined
+        ref: "camera",
+        style: vm.sceneStyle
       },
       slotContent
     );

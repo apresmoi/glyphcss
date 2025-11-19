@@ -13,8 +13,7 @@ export default defineComponent({
     depth: { type: Number, default: undefined },
     showWalls: { type: Boolean, default: false },
     showFloor: { type: Boolean, default: false },
-    projection: { type: String as PropType<ProjectionMode | undefined>, default: undefined },
-    dimetric: { type: Boolean, default: false }
+    projection: { type: String as PropType<ProjectionMode | undefined>, default: undefined }
   },
   setup(props) {
     const controller = inject<SceneController | null>(CONTROLLER_KEY, null);
@@ -23,7 +22,7 @@ export default defineComponent({
     }
 
     const hostElement = ref<HTMLElement | null>(null);
-    const { voxels, rows, cols, depth, showWalls, showFloor, projection, dimetric } = toRefs(props);
+    const { voxels, rows, cols, depth, showWalls, showFloor, projection } = toRefs(props);
 
     const { boxStyle } = useSceneHost({
       controller,
@@ -34,8 +33,7 @@ export default defineComponent({
       depth,
       showWalls,
       showFloor,
-      projection,
-      dimetric
+      projection
     });
 
     return () =>

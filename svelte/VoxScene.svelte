@@ -11,7 +11,6 @@
   export let showWalls = false;
   export let showFloor = false;
   export let projection: ProjectionMode | undefined = undefined;
-  export let dimetric = false;
 
   const controller = getContext<SceneController>(CONTROLLER_KEY);
   if (!controller) {
@@ -26,8 +25,7 @@
     depth,
     showWalls,
     showFloor,
-    projection,
-    dimetric
+    projection
   };
 </script>
 

@@ -40,10 +40,6 @@ export default Vue.extend({
     projection: {
       type: String as PropType<ProjectionMode | undefined>,
       default: undefined
-    },
-    dimetric: {
-      type: Boolean,
-      default: false
     }
   },
   data() {

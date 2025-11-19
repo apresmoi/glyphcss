@@ -1,31 +1,20 @@
 import {
   defineComponent,
   h,
-  provide,
   onMounted,
   onBeforeUnmount,
   ref,
   watch,
-  computed
+  computed,
+  getCurrentInstance
 } from "vue";
-import type { PropType } from "vue";
-import { createSceneController } from "@voxcss/controller/createSceneController";
-import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
+import type { PropType, ComponentInternalInstance } from "vue";
+import { createCamera } from "@voxcss/core";
 import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
-
-function resolveInvertMultiplier(value: number | boolean | undefined): number {
-  if (typeof value === "number") {
-    return value < 0 ? -1 : 1;
-  }
-  return value ? -1 : 1;
-}
-
-function resolvePerspectiveValue(value: number | boolean | undefined): string {
-  if (value === false) return "none";
-  const numeric = typeof value === "number" ? value : 8000;
-  return `${numeric}px`;
-}
+import type { HeadlessCameraHandle } from "@voxcss/core/headless";
+import type { SceneController } from "@voxcss/controller/createSceneController";
+import { resolveInvertMultiplier, normalizePerspectiveValue } from "@voxcss/controller/utils";
 
 export const CONTROLLER_KEY = Symbol("voxcss-scene-controller");
 
@@ -43,138 +32,168 @@ export default defineComponent({
     animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption>, default: undefined }
   },
   setup(props, { slots, expose }) {
-    const controller = createSceneController({
-      camera: {
-        zoom: props.zoom,
-        pan: props.pan,
-        tilt: props.tilt,
-        rotX: props.rotX,
-        rotY: props.rotY
-      }
-    });
-
-    provide(CONTROLLER_KEY, controller);
-
-    const boxStyle = ref<Record<string, string>>(controller.getBoxStyle());
-    const cameraSnapshot = ref<CameraState>(controller.getCameraState());
-    const cursorSnapshot = ref(controller.getCursor());
-    const wallsSnapshot = ref<WallsMask>(controller.getWalls());
+    const containerRef = ref<HTMLElement | null>(null);
+    const cameraHandle = ref<HeadlessCameraHandle | null>(null);
+    const controller = ref<SceneController | null>(null);
+    const boxStyle = ref<Record<string, string>>({});
+    const cameraSnapshot = ref<CameraState | null>(null);
+    const cursorSnapshot = ref("default");
+    const wallsSnapshot = ref<WallsMask | null>(null);
+    const instance = getCurrentInstance() as (ComponentInternalInstance & { provides: Record<PropertyKey, unknown> }) | null;
+    const ready = ref(false);
     const subscriptions: Array<() => void> = [];
-    const autoRotateHandle = ref<AutoRotateHandle | null>(null);
 
     const cursorStyle = computed(() => (props.interactive ? cursorSnapshot.value : "default"));
-    const sceneStyle = computed(() => ({
-      cursor: cursorStyle.value,
-      perspective: resolvePerspectiveValue(props.perspective)
-    }));
 
-    const syncCameraProps = () => {
-      controller.updateCamera({
-        zoom: props.zoom,
-        pan: props.pan,
-        tilt: props.tilt,
-        rotX: props.rotX,
-        rotY: props.rotY
-      });
+    const applyPerspective = () => {
+      cameraHandle.value?.setPerspective(normalizePerspectiveValue(props.perspective));
     };
 
-    watch(
-      () => props.zoom,
-      (value) => controller.updateCamera({ zoom: value })
-    );
-    watch(
-      () => props.pan,
-      (value) => controller.updateCamera({ pan: value })
-    );
-    watch(
-      () => props.tilt,
-      (value) => controller.updateCamera({ tilt: value })
-    );
-    watch(
-      () => props.rotX,
-      (value) => controller.updateCamera({ rotX: value })
-    );
-    watch(
-      () => props.rotY,
-      (value) => controller.updateCamera({ rotY: value })
-    );
-    const applyInvert = (value: number | boolean | undefined) => {
-      controller.setControls({ invert: resolveInvertMultiplier(value) });
-    };
-
-    watch(() => props.invert, applyInvert);
-
-    const syncAutoRotate = (value: AutoRotateOption | undefined) => {
-      autoRotateHandle.value?.stop();
-      autoRotateHandle.value = createAutoRotateHandle(controller, value);
-      autoRotateHandle.value?.start();
-    };
-
-    watch(
-      () => props.animate,
-      (value) => syncAutoRotate(value),
-      { immediate: true }
-    );
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!props.interactive) return;
-      autoRotateHandle.value?.notifyInteraction();
-      controller.handlePointerDown(event);
-      cursorSnapshot.value = controller.getCursor();
-      (event.target as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
-    };
-
-    const handlePointerMove = (event: PointerEvent) => {
-      if (!props.interactive) return;
-      controller.handlePointerMove(event);
-    };
-
-    const handlePointerUp = (event: PointerEvent) => {
-      if (!props.interactive) return;
-      controller.handlePointerUp();
-      cursorSnapshot.value = controller.getCursor();
-      (event.target as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
+    const syncSnapshots = () => {
+      if (!controller.value) return;
+      boxStyle.value = controller.value.getBoxStyle();
+      cameraSnapshot.value = controller.value.getCameraState();
+      wallsSnapshot.value = controller.value.getWalls();
+      cursorSnapshot.value = props.interactive ? controller.value.getCursor() : "default";
     };
 
     onMounted(() => {
-      syncCameraProps();
-      applyInvert(props.invert);
+      if (!containerRef.value) return;
+      const handle = createCamera({
+        element: containerRef.value,
+        interactive: props.interactive,
+        perspective: normalizePerspectiveValue(props.perspective),
+        zoom: props.zoom,
+        pan: props.pan,
+        tilt: props.tilt,
+        rotX: props.rotX,
+        rotY: props.rotY,
+        invert: props.invert,
+        animate: props.animate
+      });
+      cameraHandle.value = handle;
+      controller.value = handle.controller;
+      syncSnapshots();
       subscriptions.push(
-        controller.subscribeBoxStyle((style) => {
+        controller.value.subscribeBoxStyle((style) => {
           boxStyle.value = style;
         })
       );
       subscriptions.push(
-        controller.subscribeCamera((state) => {
+        controller.value.subscribeCamera((state) => {
           cameraSnapshot.value = state;
-          wallsSnapshot.value = controller.getWalls();
+          wallsSnapshot.value = controller.value?.getWalls() ?? null;
+          cursorSnapshot.value = props.interactive && controller.value ? controller.value.getCursor() : "default";
         })
       );
+      if (instance && controller.value) {
+        const key = CONTROLLER_KEY as unknown as PropertyKey;
+        instance.provides[key] = controller.value;
+      }
+      ready.value = true;
     });
 
     onBeforeUnmount(() => {
       subscriptions.forEach((stop) => stop?.());
       subscriptions.length = 0;
-      autoRotateHandle.value?.stop();
+      cameraHandle.value?.destroy();
+      cameraHandle.value = null;
+      controller.value = null;
     });
 
+    watch(
+      () => props.zoom,
+      (value) => {
+        if (!cameraHandle.value) return;
+        cameraHandle.value.controller.updateCamera({ zoom: value });
+      }
+    );
+    watch(
+      () => props.pan,
+      (value) => {
+        if (!cameraHandle.value) return;
+        cameraHandle.value.controller.updateCamera({ pan: value });
+      }
+    );
+    watch(
+      () => props.tilt,
+      (value) => {
+        if (!cameraHandle.value) return;
+        cameraHandle.value.controller.updateCamera({ tilt: value });
+      }
+    );
+    watch(
+      () => props.rotX,
+      (value) => {
+        if (!cameraHandle.value) return;
+        cameraHandle.value.controller.updateCamera({ rotX: value });
+      }
+    );
+    watch(
+      () => props.rotY,
+      (value) => {
+        if (!cameraHandle.value) return;
+        cameraHandle.value.controller.updateCamera({ rotY: value });
+      }
+    );
+
+    watch(
+      () => props.invert,
+      (value) => {
+        controller.value?.setControls({ invert: resolveInvertMultiplier(value) });
+      }
+    );
+
+    watch(
+      () => props.interactive,
+      (value) => {
+        cameraHandle.value?.setInteractive(value);
+        cursorSnapshot.value = value && controller.value ? controller.value.getCursor() : "default";
+      }
+    );
+
+    watch(
+      () => props.perspective,
+      () => {
+        applyPerspective();
+      }
+    );
+
+    watch(
+      () => props.animate,
+      (value) => {
+        cameraHandle.value?.setAnimate(value);
+      }
+    );
+
     expose({
-      controller,
+      get controller() {
+        if (!controller.value) {
+          throw new Error("voxcss: controller is not ready yet.");
+        }
+        return controller.value;
+      },
       startAutoRotate(config?: AutoRotateOption) {
-        syncAutoRotate(config ?? props.animate);
+        cameraHandle.value?.setAnimate(config ?? props.animate);
       },
       stopAutoRotate() {
-        autoRotateHandle.value?.stop();
+        cameraHandle.value?.setAnimate(false);
       }
     });
 
     return () => {
+      if (!ready.value) {
+        return h("div", {
+          class: "voxcss-camera",
+          ref: containerRef
+        });
+      }
       const slotProps = {
-        boxStyle: boxStyle.value,
+        boxStyle: boxStyle.value ?? {},
         cursor: cursorStyle.value,
-        walls: wallsSnapshot.value,
-        camera: cameraSnapshot.value,
-        controller
+        walls: wallsSnapshot.value ?? (controller.value?.getWalls() as WallsMask),
+        camera: cameraSnapshot.value ?? controller.value?.getCameraState(),
+        controller: controller.value!
       };
       const children = slots.default ? slots.default(slotProps) : undefined;
 
@@ -182,11 +201,8 @@ export default defineComponent({
         "div",
         {
           class: "voxcss-camera",
-          style: sceneStyle.value,
-          onPointerdown: props.interactive ? handlePointerDown : undefined,
-          onPointermove: props.interactive ? handlePointerMove : undefined,
-          onPointerup: props.interactive ? handlePointerUp : undefined,
-          onPointerleave: props.interactive ? handlePointerUp : undefined
+          ref: containerRef,
+          style: { cursor: cursorStyle.value }
         },
         children
       );
