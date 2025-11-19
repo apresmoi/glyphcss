@@ -6,12 +6,15 @@ export interface SceneHostOptions extends Pick<SceneOptions, "document" | "conte
   voxels?: VoxelGrid;
 }
 
+export interface SceneHostStateUpdate {
+  voxels?: VoxelGrid;
+  context?: Partial<GridContext>;
+}
+
 export interface SceneHost {
   mount(target: HTMLElement, voxels?: VoxelGrid, context?: Partial<GridContext>): void;
-  update(voxels?: VoxelGrid, context?: Partial<GridContext>): void;
-  updateContext(context?: Partial<GridContext>): void;
-  setVoxels(voxels: VoxelGrid): void;
-  setContext(context: Partial<GridContext>): void;
+  setState(state: SceneHostStateUpdate): void;
+  flush(): void;
   syncController(controller: { getWalls(): WallsMask; subscribeCamera(listener: () => void): () => void }, buildContext: () => Partial<GridContext>): void;
   destroy(): void;
   getHandle(): VoxIllustrationHandle | null;
@@ -25,6 +28,7 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
 
   let currentVoxelGrid: VoxelGrid = options.voxels ?? [];
   let currentContext: Partial<GridContext> = { ...(options.context ?? {}) };
+  let dirty = false;
 
   function mount(target: HTMLElement, voxels?: VoxelGrid, context?: Partial<GridContext>) {
     targetElement = target;
@@ -41,33 +45,24 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
       context: currentContext,
       document: options.document
     });
+    dirty = false;
   }
 
-  function update(voxels?: VoxelGrid, context?: Partial<GridContext>) {
-    if (voxels && voxels !== currentVoxelGrid) {
-      currentVoxelGrid = voxels;
+  function setState(state: SceneHostStateUpdate) {
+    if (state.voxels && state.voxels !== currentVoxelGrid) {
+      currentVoxelGrid = state.voxels;
+      dirty = true;
     }
-    if (context) {
-      currentContext = context;
+    if (state.context) {
+      currentContext = state.context;
+      dirty = true;
     }
-    if (!handle) return;
+  }
+
+  function flush() {
+    if (!dirty || !handle) return;
     handle.update(currentVoxelGrid, currentContext);
-  }
-
-  function updateContext(context?: Partial<GridContext>) {
-    if (context) {
-      currentContext = context;
-    }
-    if (!handle) return;
-    handle.update(currentVoxelGrid, currentContext);
-  }
-
-  function setVoxels(voxels: VoxelGrid) {
-    update(voxels, undefined);
-  }
-
-  function setContext(context: Partial<GridContext>) {
-    updateContext(context);
+    dirty = false;
   }
 
   function destroy() {
@@ -88,10 +83,8 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
 
   return {
     mount,
-    update,
-    updateContext,
-    setVoxels,
-    setContext,
+    setState,
+    flush,
     syncController(controller, buildContext) {
       unsubscribeCamera?.();
       lastWalls = controller.getWalls();
@@ -101,7 +94,8 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
           return;
         }
         lastWalls = nextWalls;
-        updateContext(buildContext());
+        setState({ context: buildContext() });
+        flush();
       });
     },
     destroy,

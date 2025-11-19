@@ -97,10 +97,11 @@ export function useSceneHost(params: SceneHostParams): Record<string, string> {
     const context = analysis.snapshot;
     if (prevVoxelsRef.current !== voxels) {
       prevVoxelsRef.current = voxels;
-      host.update(voxels, context);
+      host.setState({ voxels, context });
     } else {
-      host.updateContext(context);
+      host.setState({ context });
     }
+    host.flush();
     applyDimensions(analysis.dimensions);
   }, [controller, voxels, rows, cols, depth, showWalls, showFloor, projection, dimetric]);
 

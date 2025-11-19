@@ -59,7 +59,8 @@ export function createSceneHostManager(vm: Vue & VoxSceneProps, controller: Scen
       () => {
         if (!mounted) return;
       const analysis = buildAnalysis();
-      host.update(vm.voxels as VoxelGrid, analysis.snapshot);
+      host.setState({ voxels: vm.voxels as VoxelGrid, context: analysis.snapshot });
+      host.flush();
       applyDimensions(analysis.dimensions);
       }
     ),
@@ -68,7 +69,8 @@ export function createSceneHostManager(vm: Vue & VoxSceneProps, controller: Scen
       () => {
         if (!mounted) return;
         const analysis = buildAnalysis();
-        host.updateContext(analysis.snapshot);
+        host.setState({ context: analysis.snapshot });
+        host.flush();
         host.syncController(controller, () => buildAnalysis().snapshot);
         applyDimensions(analysis.dimensions);
       }

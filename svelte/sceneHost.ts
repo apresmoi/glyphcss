@@ -61,7 +61,8 @@ export function sceneHost(node: HTMLElement, options: SceneHostActionOptions) {
   function update(next: SceneHostActionOptions) {
     current = next;
     const analysis = buildAnalysis();
-    host.update(current.voxels, analysis.snapshot);
+    host.setState({ voxels: current.voxels, context: analysis.snapshot });
+    host.flush();
     applyDimensions(analysis.dimensions);
   }
 

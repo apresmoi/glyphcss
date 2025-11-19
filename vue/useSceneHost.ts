@@ -71,7 +71,8 @@ export function useSceneHost(params: SceneHostParams) {
     () => voxels.value,
     () => {
       const analysis = buildAnalysis();
-      hostRef.value.update(voxels.value, analysis.snapshot);
+      hostRef.value.setState({ voxels: voxels.value, context: analysis.snapshot });
+      hostRef.value.flush();
       applyDimensions(analysis.dimensions);
     }
   );
@@ -80,7 +81,8 @@ export function useSceneHost(params: SceneHostParams) {
     () => [rows.value, cols.value, depth.value, showWalls.value, showFloor.value, projection.value, dimetric.value],
     () => {
       const analysis = buildAnalysis();
-      hostRef.value.updateContext(analysis.snapshot);
+      hostRef.value.setState({ context: analysis.snapshot });
+      hostRef.value.flush();
       hostRef.value.syncController(controller, () => buildAnalysis().snapshot);
       applyDimensions(analysis.dimensions);
     }

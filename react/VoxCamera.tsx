@@ -1,9 +1,10 @@
-import React, { useMemo, useEffect, useState, useCallback, useRef, useImperativeHandle, forwardRef } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import React, { useMemo, useEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createSceneController } from "@voxcss/controller/createSceneController";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import { createAutoRotateHandle, type AutoRotateHandle } from "@voxcss/controller/autoRotate";
 import type { WallsMask } from "@voxcss/core";
+import { attachPointerEvents } from "@voxcss/core";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import { SceneControllerContext } from "./context";
 
@@ -96,6 +97,7 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   const [boxStyle, setBoxStyle] = useState(() => controller.getBoxStyle());
   const autoRotateRef = useRef<AutoRotateHandle | null>(null);
   const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const unsubscribe = controller.subscribeBoxStyle((style) => setBoxStyle(style));
@@ -141,29 +143,13 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
     [controller]
   );
 
-  const handlePointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      autoRotateRef.current?.notifyInteraction();
-      controller.handlePointerDown(event.nativeEvent as unknown as PointerEvent);
-      event.currentTarget.setPointerCapture?.(event.pointerId);
-    },
-    [controller]
-  );
-
-  const handlePointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      controller.handlePointerMove(event.nativeEvent as unknown as PointerEvent);
-    },
-    [controller]
-  );
-
-  const handlePointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      controller.handlePointerUp();
-      event.currentTarget.releasePointerCapture?.(event.pointerId);
-    },
-    [controller]
-  );
+  useEffect(() => {
+    if (!interactive) return;
+    const node = containerRef.current;
+    if (!node) return;
+    const detach = attachPointerEvents(node, controller, () => autoRotateRef.current?.notifyInteraction());
+    return () => detach();
+  }, [interactive, controller]);
 
   const cursor = interactive ? controller.getCursor() : "default";
 
@@ -178,18 +164,13 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   const renderedChildren =
     typeof children === "function" ? (children as (ctx: CameraRenderContext) => ReactNode)(context) : children;
 
-  const pointerHandlers = interactive
-    ? {
-      onPointerDown: handlePointerDown,
-      onPointerMove: handlePointerMove,
-      onPointerUp: handlePointerUp,
-      onPointerLeave: handlePointerUp
-    }
-    : {};
-
   return (
     <SceneControllerContext.Provider value={controller}>
-      <div className="voxcss-camera" style={{ cursor, perspective: resolvePerspective(perspective) }} {...pointerHandlers}>
+      <div
+        ref={containerRef}
+        className="voxcss-camera"
+        style={{ cursor, perspective: resolvePerspective(perspective) }}
+      >
         {renderedChildren}
       </div>
     </SceneControllerContext.Provider>

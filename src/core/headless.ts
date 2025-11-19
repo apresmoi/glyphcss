@@ -7,6 +7,7 @@ import {
 import { createSceneHost, type SceneHost } from "../controller/createSceneHost";
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
 import { buildSceneContext, inferGridDimensions } from "./context";
+import { attachPointerEvents } from "./pointerEvents";
 import type { AutoRotateOption } from "./camera";
 import type { SceneDimensions, VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
@@ -160,7 +161,8 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   const unsubscribeBox = controller.subscribeBoxStyle((style) => Object.assign(scene.element.style, style));
   const updateContextFromDimensions = () => {
-    scene.host.updateContext(buildContext());
+    scene.host.setState({ context: buildContext() });
+    scene.host.flush();
   };
   const unsubscribeDimensions = controller.subscribeDimensions(updateContextFromDimensions);
   const updateCursor = () => {
@@ -177,7 +179,8 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
       if (!applyExplicitDimensions) {
         controller.setDimensions(inferGridDimensions(voxels));
       }
-      scene.host.update(voxels, buildContext());
+      scene.host.setState({ voxels, context: buildContext() });
+      scene.host.flush();
     },
     destroy() {
       unsubscribeBox();
@@ -216,33 +219,6 @@ function applyPerspective(element: HTMLElement, perspective: number | false | un
   }
   const value = typeof perspective === "number" ? perspective : DEFAULT_PERSPECTIVE;
   element.style.perspective = `${value}px`;
-}
-
-function attachPointerEvents(
-  element: HTMLElement,
-  controller: SceneController,
-  onInteraction?: () => void
-) {
-  const handlePointerDown = (event: PointerEvent) => {
-    onInteraction?.();
-    controller.handlePointerDown(event);
-    element.setPointerCapture?.(event.pointerId);
-  };
-  const handlePointerMove = (event: PointerEvent) => controller.handlePointerMove(event);
-  const handlePointerUp = (event: PointerEvent) => {
-    controller.handlePointerUp();
-    element.releasePointerCapture?.(event.pointerId);
-  };
-  element.addEventListener("pointerdown", handlePointerDown);
-  element.addEventListener("pointermove", handlePointerMove);
-  element.addEventListener("pointerup", handlePointerUp);
-  element.addEventListener("pointerleave", handlePointerUp);
-  return () => {
-    element.removeEventListener("pointerdown", handlePointerDown);
-    element.removeEventListener("pointermove", handlePointerMove);
-    element.removeEventListener("pointerup", handlePointerUp);
-    element.removeEventListener("pointerleave", handlePointerUp);
-  };
 }
 
 function normalizeInvert(value?: boolean | number): number | undefined {

@@ -36,6 +36,7 @@ export {
   makeVoxelKey,
   makeCellKey
 } from "./context";
+export { attachPointerEvents } from "./pointerEvents";
 
 export { injectBaseStyles } from "./styles";
 export {
