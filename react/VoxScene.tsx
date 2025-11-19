@@ -4,13 +4,7 @@ import { createSceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import { inferGridDimensions, wallMasksEqual } from "@voxcss/core";
-import type {
-  VoxelGrid,
-  ShapeRenderer,
-  WallsMask,
-  VoxcssHooks,
-  ProjectionMode
-} from "@voxcss/core";
+import type { VoxelGrid, WallsMask, ProjectionMode } from "@voxcss/core";
 import { useSceneControllerContext } from "./context";
 
 const DEFAULT_VOXELS: VoxelGrid = [];
@@ -22,8 +16,6 @@ export interface VoxSceneProps {
   depth?: number;
   showWalls?: boolean;
   showFloor?: boolean;
-  shapes?: Record<string, ShapeRenderer>;
-  hooks?: VoxcssHooks;
   projection?: ProjectionMode;
   dimetric?: boolean;
 }
@@ -35,8 +27,6 @@ export function VoxScene({
   depth,
   showWalls = false,
   showFloor = false,
-  shapes = {},
-  hooks,
   projection,
   dimetric = false
 }: VoxSceneProps) {
@@ -82,7 +72,7 @@ export function VoxScene({
   }, [rows, cols, depth, voxels, showWalls, showFloor, projection, dimetric, controller]);
 
   useEffect(() => {
-    const host = createSceneHost({ shapes, hooks });
+    const host = createSceneHost();
     hostRef.current = host;
     const node = containerRef.current;
     if (node) {
@@ -116,14 +106,6 @@ export function VoxScene({
       host.updateContext(context);
     }
   }, [voxels, rows, cols, showWalls, showFloor, depth, projection, dimetric, buildContext]);
-
-  useEffect(() => {
-    hostRef.current?.setShapes(shapes);
-  }, [shapes]);
-
-  useEffect(() => {
-    hostRef.current?.setHooks(hooks);
-  }, [hooks]);
 
   useEffect(() => {
     const inferred = inferGridDimensions(voxels);

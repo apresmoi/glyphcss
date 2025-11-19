@@ -2,15 +2,7 @@
   import { getContext, onDestroy, onMount } from "svelte";
   import { createSceneHost } from "@voxcss/controller/createSceneHost";
   import { wallMasksEqual, inferGridDimensions } from "@voxcss/core";
-  import type {
-    SceneHost,
-    SceneController,
-    VoxelGrid,
-    ShapeRenderer,
-    WallsMask,
-    VoxcssHooks,
-    ProjectionMode
-  } from "@voxcss/core";
+  import type { SceneHost, SceneController, VoxelGrid, WallsMask, ProjectionMode } from "@voxcss/core";
   import { CONTROLLER_KEY } from "./context";
 
   export let voxels: VoxelGrid = [];
@@ -19,10 +11,8 @@
   export let depth: number | undefined = undefined;
   export let showWalls = false;
   export let showFloor = false;
-  export let shapes: Record<string, ShapeRenderer> = {};
-  export let hooks: VoxcssHooks | undefined = undefined;
-export let projection: ProjectionMode | undefined = undefined;
-export let dimetric = false;
+  export let projection: ProjectionMode | undefined = undefined;
+  export let dimetric = false;
 
   const controller = getContext<SceneController>(CONTROLLER_KEY);
   if (!controller) {
@@ -54,7 +44,7 @@ export let dimetric = false;
   });
 
   onMount(() => {
-    host = createSceneHost({ shapes, hooks });
+    host = createSceneHost();
     if (container) {
       host.mount(container, voxels, buildContext());
     }
@@ -117,8 +107,6 @@ export let dimetric = false;
   })();
   $: projection, updateHost();
   $: dimetric, updateHost();
-  $: host?.setShapes(shapes);
-  $: host?.setHooks(hooks);
 </script>
 
 <div

@@ -6,12 +6,11 @@ import type {
   RemoveVoxelPatch,
   LayerMetaPatch,
   WallsMetaPatch,
-  FloorMetaPatch,
-  PointerRegionPatch
+  FloorMetaPatch
 } from "./renderer";
 import { computeVisibleFaces } from "./visibility";
 import { makeVoxelKey, wallMasksEqual } from "./context";
-import type { Voxel, PointerEventPayload } from "./types";
+import type { Voxel } from "./types";
 
 export interface SceneDiffResult {
   patches: ScenePatch[];
@@ -81,13 +80,11 @@ function diffLayer(
     }
     if (!existing) {
       patches.push(createAddPatch(layerIndex, key, voxel, faces));
-      patches.push(...createPointerPatches(layerIndex, key, voxel, faces));
       continue;
     }
     const update = createUpdatePatch(layerIndex, key, voxel, existing, faces, forceFaceUpdate);
     if (update) {
       patches.push(update);
-      patches.push(...createPointerPatches(layerIndex, key, voxel, faces));
     }
   }
 
@@ -159,29 +156,6 @@ function createLayerMetaPatch(layerIndex: number, snapshot: SceneSnapshot): Laye
     tileSize: snapshot.context.tileSize,
     elevation: snapshot.context.layerElevation
   };
-}
-
-function createPointerPatches(
-  layerIndex: number,
-  voxelKey: string,
-  voxel: Voxel,
-  faces: ReturnType<typeof computeVisibleFaces>
-): PointerRegionPatch[] {
-  return faces.map((face) => {
-    const payload: PointerEventPayload = {
-      voxelKey,
-      voxel,
-      face,
-      type: "region"
-    };
-    return {
-      type: "pointerRegion",
-      layerIndex,
-      voxelKey,
-      face,
-      payload
-    };
-  });
 }
 
 const visibleFacesCache = new WeakMap<SceneSnapshot, Map<string, ReturnType<typeof computeVisibleFaces>>>();

@@ -1,16 +1,7 @@
 import { createVoxScene } from "../core/scene";
-import { defaultShapes } from "../core/shapes";
-import type {
-  GridContext,
-  ShapeRenderer,
-  VoxIllustrationHandle,
-  VoxcssHooks,
-  VoxelGrid
-} from "../core";
+import type { GridContext, VoxIllustrationHandle, VoxelGrid } from "../core";
 
 export interface SceneHostOptions {
-  shapes?: Record<string, ShapeRenderer>;
-  hooks?: VoxcssHooks;
   document?: Document;
   context?: Partial<GridContext>;
   voxels?: VoxelGrid;
@@ -22,8 +13,6 @@ export interface SceneHost {
   updateContext(context?: Partial<GridContext>): void;
   setVoxels(voxels: VoxelGrid): void;
   setContext(context: Partial<GridContext>): void;
-  setShapes(shapes: Record<string, ShapeRenderer>): void;
-  setHooks(hooks?: VoxcssHooks): void;
   destroy(): void;
   getHandle(): VoxIllustrationHandle | null;
 }
@@ -34,11 +23,6 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
 
   let currentVoxelGrid: VoxelGrid = options.voxels ?? [];
   let currentContext: Partial<GridContext> = { ...(options.context ?? {}) };
-  let currentShapes: Record<string, ShapeRenderer> = {
-    ...defaultShapes,
-    ...(options.shapes ?? {})
-  };
-  let currentHooks: VoxcssHooks | undefined = options.hooks;
 
   function mount(target: HTMLElement, voxels?: VoxelGrid, context?: Partial<GridContext>) {
     targetElement = target;
@@ -50,8 +34,6 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     handle = createVoxScene({
       element: target,
       voxels: currentVoxelGrid,
-      shapes: currentShapes,
-      hooks: currentHooks,
       context: currentContext,
       document: options.document
     });
@@ -84,16 +66,6 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     updateContext(context);
   }
 
-  function setShapes(shapes: Record<string, ShapeRenderer>) {
-    currentShapes = { ...defaultShapes, ...shapes };
-    handle?.scene.update(currentVoxelGrid, currentContext);
-  }
-
-  function setHooks(hooks?: VoxcssHooks) {
-    currentHooks = hooks;
-    handle?.scene.update(currentVoxelGrid, currentContext);
-  }
-
   function destroy() {
     destroyHandle();
     targetElement = null;
@@ -114,8 +86,6 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     updateContext,
     setVoxels,
     setContext,
-    setShapes,
-    setHooks,
     destroy,
     getHandle
   };

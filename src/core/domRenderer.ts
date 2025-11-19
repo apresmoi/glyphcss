@@ -10,34 +10,31 @@ import type {
   RemoveVoxelPatch,
   LayerMetaPatch,
   WallsMetaPatch,
-  FloorMetaPatch,
-  PointerRegionPatch
+  FloorMetaPatch
 } from "./renderer";
 import type {
   GridContext,
   LayerRecord,
-  PointerEventPayload,
   RenderState,
   WallsMask,
   WallDimensionsSnapshot,
   Voxel,
   ShapeRenderer,
-  VoxcssHooks,
   CubeFace
 } from "./types";
 import {
   LAYER_CLASS,
   FLOOR_CLASS,
   FACE_CLASS,
-  FACE_DATA_PROP,
   WALL_CLASS,
   CEILING_CLASS,
   DEFAULT_WALL_COLOR,
   DEFAULT_WALLS
 } from "./types";
-import { getVoxelBounds, makeVoxelKey, wallMasksEqual } from "./context";
+import { getVoxelBounds, wallMasksEqual } from "./context";
 import { computeVisibleFaces } from "./visibility";
 import { cubeShapeRenderer, ensureCubeDomCache, disposeCubeDom } from "./shapes";
+import { defaultShapes } from "./shapes/registry";
 import { shadeWallFace, shadeColor } from "./lighting";
 
 interface DomRendererState {
@@ -52,18 +49,19 @@ const noopRenderer: ShapeRenderer = () => {};
 const DIMETRIC_PROJECTION_CLASS = "voxcss-projection--dimetric";
 
 export const createDomRenderer: RendererFactory = (options: RendererMountOptions): RendererHandle => {
-  const { documentRef, target, shapes, hooks } = options;
+  const { documentRef, target } = options;
+  const shapes = defaultShapes;
   const state = ensureDomRendererState(documentRef, target);
 
   function applyInitial(snapshot: SceneSnapshot): void {
     state.context = { ...snapshot.context };
     const diff = diffScenes(null, snapshot);
-    applyPatchSet(state, snapshot, diff.patches, documentRef, target, shapes, hooks);
+    applyPatchSet(state, snapshot, diff.patches, documentRef, target, shapes);
   }
 
   function applyPatches(snapshot: SceneSnapshot, patches: ScenePatch[]): void {
     state.context = { ...snapshot.context };
-    applyPatchSet(state, snapshot, patches, documentRef, target, shapes, hooks);
+    applyPatchSet(state, snapshot, patches, documentRef, target, shapes);
   }
 
   function destroy(): void {
@@ -135,8 +133,7 @@ function applyPatchSet(
   patches: ScenePatch[],
   documentRef: Document,
   root: HTMLElement,
-  shapes: Record<string, ShapeRenderer>,
-  hooks?: VoxcssHooks
+  shapes: Record<string, ShapeRenderer>
 ): void {
   const renderState = state.renderState;
   const context = state.context ?? snapshot.context;
@@ -145,8 +142,6 @@ function applyPatchSet(
   root.style.setProperty("--voxcss-rows", String(context.rows));
   root.style.setProperty("--voxcss-cols", String(context.cols));
 
-  const pointerUpdates = new Set<number>();
-
   for (const patch of patches) {
     switch (patch.type) {
       case "layerMeta":
@@ -154,16 +149,13 @@ function applyPatchSet(
         applyLayerMetaPatch(renderState, patch, context, documentRef);
         break;
       case "addVoxel":
-        applyAddVoxelPatch(renderState, patch, context, shapes, hooks, documentRef);
-        pointerUpdates.add(patch.layerIndex);
+        applyAddVoxelPatch(renderState, patch, context, shapes, documentRef);
         break;
       case "updateVoxel":
-        applyUpdateVoxelPatch(renderState, patch, context, shapes, hooks, documentRef);
-        pointerUpdates.add(patch.layerIndex);
+        applyUpdateVoxelPatch(renderState, patch, context, shapes, documentRef);
         break;
       case "removeVoxel":
         applyRemoveVoxelPatch(renderState, patch);
-        pointerUpdates.add(patch.layerIndex);
         break;
       case "wallsMeta":
         applyWallsMetaPatch(renderState, patch, documentRef, context, snapshot.layers.length);
@@ -171,16 +163,6 @@ function applyPatchSet(
       case "floorMeta":
         applyFloorMetaPatch(renderState, patch, documentRef, context, snapshot.layers.length);
         break;
-      case "pointerRegion":
-        // pointer metadata is informational for now; delegation wiring happens elsewhere.
-        break;
-    }
-  }
-
-  for (const layerIndex of pointerUpdates) {
-    const record = renderState.layers.get(layerIndex);
-    if (record) {
-      updateDelegatedPointerHandlers(record, hooks?.onPointer);
     }
   }
 }
@@ -199,7 +181,7 @@ function applyLayerMetaPatch(
   context: GridContext,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, undefined);
+  const record = ensureLayerRecord(state, patch.layerIndex, documentRef);
   const layer = record.element;
   const cols = Math.max(patch.cols, 1);
   const rows = Math.max(patch.rows, 1);
@@ -219,10 +201,9 @@ function applyAddVoxelPatch(
   patch: AddVoxelPatch,
   context: GridContext,
   shapes: Record<string, ShapeRenderer>,
-  hooks: VoxcssHooks | undefined,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, hooks);
+  const record = ensureLayerRecord(state, patch.layerIndex, documentRef);
   const layer = record.element;
 
   let voxelRoot = record.voxels.get(patch.voxelKey);
@@ -248,10 +229,9 @@ function applyUpdateVoxelPatch(
   patch: UpdateVoxelPatch,
   context: GridContext,
   shapes: Record<string, ShapeRenderer>,
-  hooks: VoxcssHooks | undefined,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, hooks);
+  const record = ensureLayerRecord(state, patch.layerIndex, documentRef);
   const element = record.voxels.get(patch.voxelKey);
   if (!element) {
     const addPatch: AddVoxelPatch = {
@@ -261,7 +241,7 @@ function applyUpdateVoxelPatch(
       voxel: patch.voxel,
       faces: patch.faces ?? computeVisibleFaces(patch.voxel, context)
     };
-    applyAddVoxelPatch(state, addPatch, context, shapes, hooks, documentRef);
+    applyAddVoxelPatch(state, addPatch, context, shapes, documentRef);
     return;
   }
   syncVoxelElement(element, patch.voxel);
@@ -280,7 +260,6 @@ function applyRemoveVoxelPatch(state: RenderState, patch: RemoveVoxelPatch): voi
   const element = record.voxels.get(patch.voxelKey);
   if (!element) return;
   disposeCubeDom(element);
-  delete (element as any).__voxelData;
   element.remove();
   record.voxels.delete(patch.voxelKey);
 }
@@ -311,7 +290,6 @@ function applyFloorMetaPatch(
 function syncVoxelElement(element: HTMLElement, voxel: Voxel): void {
   const { x2, y2 } = getVoxelBounds(voxel);
   element.style.gridArea = `${voxel.x} / ${voxel.y} / ${x2} / ${y2}`;
-  (element as any).__voxelData = voxel;
 }
 
 function renderVoxel(args: {
@@ -350,8 +328,7 @@ function renderVoxel(args: {
 function ensureLayerRecord(
   state: RenderState,
   layerIndex: number,
-  documentRef: Document,
-  hooks?: VoxcssHooks
+  documentRef: Document
 ): LayerRecord {
   let record = state.layers.get(layerIndex);
   if (!record) {
@@ -362,7 +339,6 @@ function ensureLayerRecord(
       voxels: new Map()
     };
     state.layers.set(layerIndex, record);
-    hooks?.onLayerMount?.(layerIndex, element);
   }
   return record;
 }
@@ -632,108 +608,10 @@ function computeWallDefinitions(dimensions: WallDimensionsSnapshot): WallDefinit
 }
 
 function removeLayerRecord(record: LayerRecord): void {
-  detachDelegatedPointerHandlers(record);
   for (const [, element] of record.voxels) {
     disposeCubeDom(element);
-    delete (element as any).__voxelData;
     element.remove();
   }
   record.voxels.clear();
   record.element.remove();
-}
-
-function updateDelegatedPointerHandlers(
-  record: LayerRecord,
-  emitPointer?: (payload: PointerEventPayload) => void
-): void {
-  const currentHandler = (record.element as any).__voxPointerHandler as ((event: PointerEvent) => void) | undefined;
-  const currentEmit = (record.element as any).__voxPointerEmit as typeof emitPointer | undefined;
-
-  if (!emitPointer) {
-    if (currentHandler) {
-      detachDelegatedPointerHandlers(record);
-      delete (record.element as any).__voxPointerEmit;
-    }
-    return;
-  }
-
-  if (currentHandler && currentEmit === emitPointer) {
-    return;
-  }
-
-  if (currentHandler) {
-    detachDelegatedPointerHandlers(record);
-  }
-
-  const handler = (event: PointerEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-    const faceEl = findFaceElement(target);
-    if (!faceEl) return;
-    const face = resolveFace(faceEl);
-    if (!face) return;
-    const voxelContainer = findVoxelRoot(faceEl);
-    if (!voxelContainer) return;
-    const voxel = (voxelContainer as any).__voxelData as Voxel | undefined;
-    if (!voxel) return;
-    emitPointer({
-      voxelKey: makeVoxelKey(voxel),
-      voxel,
-      face,
-      type: event.type,
-      event
-    });
-  };
-  (record.element as any).__voxPointerHandler = handler;
-  (record.element as any).__voxPointerEmit = emitPointer;
-  record.element.addEventListener("pointerdown", handler);
-  record.element.addEventListener("pointerover", handler);
-  record.element.addEventListener("pointerup", handler);
-}
-
-function detachDelegatedPointerHandlers(record: LayerRecord): void {
-  const handler = (record.element as any).__voxPointerHandler;
-  if (!handler) return;
-  record.element.removeEventListener("pointerdown", handler);
-  record.element.removeEventListener("pointerover", handler);
-  record.element.removeEventListener("pointerup", handler);
-  delete (record.element as any).__voxPointerHandler;
-  delete (record.element as any).__voxPointerEmit;
-}
-
-function resolveFace(element: HTMLElement): CubeFace | undefined {
-  const stored = (element as any)[FACE_DATA_PROP] as CubeFace | undefined;
-  if (stored) {
-    return stored;
-  }
-  const faceClass = Array.from(element.classList).find((cls) => cls.startsWith(`${FACE_CLASS}--`));
-  if (faceClass) {
-    return faceClass.slice(`${FACE_CLASS}--`.length) as CubeFace;
-  }
-  return undefined;
-}
-
-function findFaceElement(start: HTMLElement | null): HTMLElement | null {
-  let current: HTMLElement | null = start;
-  while (current) {
-    if ((current as any)[FACE_DATA_PROP]) {
-      return current;
-    }
-    if (current.classList?.contains(FACE_CLASS)) {
-      return current;
-    }
-    current = current.parentElement;
-  }
-  return null;
-}
-
-function findVoxelRoot(start: HTMLElement | null): HTMLElement | null {
-  let current: HTMLElement | null = start;
-  while (current) {
-    if ((current as any).__voxelData) {
-      return current;
-    }
-    current = current.parentElement;
-  }
-  return null;
 }

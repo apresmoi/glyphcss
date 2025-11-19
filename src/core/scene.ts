@@ -19,8 +19,6 @@ export function voxScene(options: VoxSceneOptions = {}): VoxcssInstance {
   const state = {
     root: null as HTMLElement | null,
     grid: [] as VoxelGrid,
-    shapes: { ...(options.shapes ?? {}) },
-    hooks: options.hooks ?? {},
     userContext: { showWalls: options.showWalls, showFloor: options.showFloor, ...(options.context ?? {}) },
     documentRef: options.document ?? (typeof document !== "undefined" ? document : undefined),
     lastDiff: null as SceneDiffResult | null,
@@ -43,9 +41,7 @@ export function voxScene(options: VoxSceneOptions = {}): VoxcssInstance {
     injectBaseStyles(state.documentRef!);
     state.rendererHandle = createDomRenderer({
       documentRef: state.documentRef!,
-      target: target,
-      shapes: state.shapes,
-      hooks: state.hooks
+      target: target
     });
     state.rendererHandle.applyInitial(snapshot);
     state.lastDiff = null;

@@ -6,9 +6,7 @@ export type {
   WallsMask,
   OffsetMap,
   GridContext,
-  PointerEventPayload,
   ShapeRenderer,
-  VoxcssHooks,
   CreateVoxcssOptions,
   VoxcssInstance,
   VoxIllustrationOptions,
@@ -34,8 +32,7 @@ export {
   cubeShapeRenderer,
   rampShapeRenderer,
   wedgeShapeRenderer,
-  spikeShapeRenderer,
-  defaultShapes
+  spikeShapeRenderer
 } from "./shapes";
 export {
   shadeColor,
@@ -60,8 +57,7 @@ export type {
   RemoveVoxelPatch,
   LayerMetaPatch,
   WallsMetaPatch,
-  FloorMetaPatch,
-  PointerRegionPatch
+  FloorMetaPatch
 } from "./renderer";
 
 export * from "./camera";

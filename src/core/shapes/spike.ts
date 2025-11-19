@@ -1,5 +1,5 @@
 import type { ShapeRenderer } from "../types";
-import { prepareShapeRoot, markElementFace } from "./shapeUtils";
+import { prepareShapeRoot } from "./shapeUtils";
 
 export const spikeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   const prepared = prepareShapeRoot({
@@ -67,8 +67,6 @@ export const spikeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   svgSecondary.appendChild(pathSecondary);
   slopeSecondary.appendChild(svgSecondary);
 
-  markElementFace(slopePrimary, "t");
-  markElementFace(slopeSecondary, "t");
 
   prepared.container.appendChild(slopePrimary);
   prepared.container.appendChild(slopeSecondary);

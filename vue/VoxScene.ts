@@ -12,13 +12,7 @@ import { createSceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import { inferGridDimensions, wallMasksEqual } from "@voxcss/core";
-import type {
-  SceneDimensions,
-  VoxelGrid,
-  WallsMask,
-  VoxcssHooks,
-  ProjectionMode
-} from "@voxcss/core";
+import type { SceneDimensions, VoxelGrid, WallsMask, ProjectionMode } from "@voxcss/core";
 import { CONTROLLER_KEY } from "./VoxCamera";
 
 function shouldResolveTexture(name: string): boolean {
@@ -41,8 +35,6 @@ export default defineComponent({
     depth: { type: Number, default: undefined },
     showWalls: { type: Boolean, default: false },
     showFloor: { type: Boolean, default: false },
-    shapes: { type: Object, default: () => ({}) },
-    hooks: { type: Object as PropType<VoxcssHooks | undefined>, default: undefined },
     projection: { type: String as PropType<ProjectionMode | undefined>, default: undefined },
     dimetric: { type: Boolean, default: false }
   },
@@ -116,7 +108,7 @@ export default defineComponent({
     }
 
     onMounted(() => {
-      host.value = createSceneHost({ shapes: props.shapes as Record<string, any>, hooks: props.hooks });
+      host.value = createSceneHost();
       if (!hostElement.value) return;
       host.value.mount(hostElement.value, props.voxels as VoxelGrid, buildContext());
       syncDimensions();
@@ -144,21 +136,6 @@ export default defineComponent({
       () => {
         host.value?.updateContext(buildContext());
         syncDimensions();
-      }
-    );
-
-    watch(
-      () => props.shapes,
-      (next) => {
-        host.value?.setShapes(next as Record<string, any>);
-        host.value?.update(props.voxels as VoxelGrid, buildContext());
-      }
-    );
-
-    watch(
-      () => props.hooks,
-      (next) => {
-        host.value?.setHooks(next as VoxcssHooks | undefined);
       }
     );
 

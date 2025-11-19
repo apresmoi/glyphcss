@@ -1,10 +1,8 @@
-import type { GridContext, Voxel, CubeFace } from "../types";
-import { FACE_DATA_PROP } from "../types";
+import type { GridContext, Voxel } from "../types";
 import type { ShapeType, ShapeSurfaceLighting } from "../lighting";
 import { computeShapeLighting } from "../lighting";
 
 const SHAPE_INNER_CLASS = "voxcss-shape-inner";
-const FACE_PROP = FACE_DATA_PROP;
 const ORIENTATION_CLASS_NAMES = ["voxcss-east", "voxcss-south", "voxcss-west", "voxcss-north"];
 
 export interface PreparedShapeResult {
@@ -65,10 +63,6 @@ function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
 
 function findShapeInner(root: HTMLElement): HTMLElement | null {
   return root.querySelector<HTMLElement>(`.${SHAPE_INNER_CLASS}`) ?? null;
-}
-
-export function markElementFace(element: HTMLElement, face: CubeFace): void {
-  (element as any)[FACE_PROP] = face;
 }
 
 export function prepareShapeRoot(args: PrepareShapeArgs): PreparedShapeResult | null {

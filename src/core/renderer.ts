@@ -1,18 +1,9 @@
 import type { SceneSnapshot } from "./state";
-import type {
-  CubeFace,
-  GridContext,
-  PointerEventPayload,
-  ShapeRenderer,
-  VoxcssHooks,
-  Voxel
-} from "./types";
+import type { CubeFace, GridContext, Voxel } from "./types";
 
 export interface RendererMountOptions {
   documentRef: Document;
   target: HTMLElement;
-  shapes: Record<string, ShapeRenderer>;
-  hooks?: VoxcssHooks;
 }
 
 export interface RendererHandle {
@@ -29,8 +20,7 @@ export type ScenePatch =
   | RemoveVoxelPatch
   | LayerMetaPatch
   | WallsMetaPatch
-  | FloorMetaPatch
-  | PointerRegionPatch;
+  | FloorMetaPatch;
 
 interface VoxelPatchBase {
   voxelKey: string;
@@ -72,12 +62,4 @@ export interface WallsMetaPatch {
 export interface FloorMetaPatch {
   type: "floorMeta";
   showFloor: boolean;
-}
-
-export interface PointerRegionPatch {
-  type: "pointerRegion";
-  layerIndex: number;
-  voxelKey: string;
-  face: CubeFace;
-  payload: PointerEventPayload;
 }

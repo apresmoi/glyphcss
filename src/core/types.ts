@@ -55,31 +55,15 @@ export interface GridContext {
   lighting?(voxel: Voxel, face: string): Partial<CSSStyleDeclaration> | undefined;
 }
 
-export interface PointerEventPayload {
-  voxelKey: string;
-  voxel: Voxel;
-  face?: string;
-  type: string;
-  event?: PointerEvent;
-}
-
 export type ShapeRenderer = (args: {
   voxel: Voxel;
   context: GridContext;
   root: HTMLElement;
-  emitPointer?: (payload: PointerEventPayload) => void;
   precomputedFaces?: CubeFace[];
 }) => void | HTMLElement | DocumentFragment;
 
-export interface VoxcssHooks {
-  onPointer?(payload: PointerEventPayload): void;
-  onLayerMount?(layerIndex: number, element: HTMLElement): void;
-}
-
 export interface CreateVoxcssOptions {
-  shapes?: Record<string, ShapeRenderer>;
   context?: Partial<GridContext>;
-  hooks?: VoxcssHooks;
   document?: Document;
   showWalls?: boolean;
   showFloor?: boolean;
@@ -133,7 +117,6 @@ export const WALL_CLASS = "voxcss-wall";
 export const CEILING_CLASS = "voxcss-ceiling";
 export const STYLE_ID = "voxcss-base-styles";
 export const SCENE_CLASS = "voxcss-camera";
-export const FACE_DATA_PROP = "__voxcssFace";
 
 export interface LayerRecord {
   element: HTMLElement;

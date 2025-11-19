@@ -5,13 +5,7 @@ import { createSceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import { inferGridDimensions, wallMasksEqual } from "@voxcss/core";
-import type {
-  SceneDimensions,
-  VoxelGrid,
-  WallsMask,
-  VoxcssHooks,
-  ProjectionMode
-} from "@voxcss/core";
+import type { SceneDimensions, VoxelGrid, WallsMask, ProjectionMode } from "@voxcss/core";
 
 type SceneVm = Vue & {
   unwatchers: Array<() => void>;
@@ -55,14 +49,6 @@ export default Vue.extend({
       type: Boolean,
       default: false
     },
-    shapes: {
-      type: Object,
-      default: () => ({})
-    },
-    hooks: {
-      type: Object as PropType<VoxcssHooks | undefined>,
-      default: undefined
-    },
     projection: {
       type: String as PropType<ProjectionMode | undefined>,
       default: undefined
@@ -97,7 +83,7 @@ export default Vue.extend({
     });
   },
   mounted() {
-    this.host = createSceneHost({ shapes: this.shapes, hooks: this.hooks });
+    this.host = createSceneHost();
     this.host.mount(this.$refs.host as HTMLElement, this.voxels as VoxelGrid, this.buildContext());
     this.syncDimensions();
     this.registerWatch(
@@ -123,23 +109,6 @@ export default Vue.extend({
         () => {
           this.host?.updateContext(this.buildContext());
           this.syncDimensions();
-        }
-      )
-    );
-    this.registerWatch(
-      this.$watch(
-        () => this.shapes,
-        (next) => {
-          this.host?.setShapes(next as Record<string, any>);
-          this.host?.update(this.voxels as VoxelGrid, this.buildContext());
-        }
-      )
-    );
-    this.registerWatch(
-      this.$watch(
-        () => this.hooks,
-        (next) => {
-          this.host?.setHooks(next as VoxcssHooks | undefined);
         }
       )
     );
