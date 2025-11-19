@@ -14,12 +14,7 @@ export interface RendererHandle {
 
 export type RendererFactory = (options: RendererMountOptions) => RendererHandle;
 
-export type ScenePatch =
-  | AddVoxelPatch
-  | UpdateVoxelPatch
-  | RemoveVoxelPatch
-  | WallsMetaPatch
-  | FloorMetaPatch;
+export type ScenePatch = AddVoxelPatch | UpdateVoxelPatch | RemoveVoxelPatch;
 
 interface VoxelPatchBase {
   voxelKey: string;
@@ -41,15 +36,4 @@ export interface UpdateVoxelPatch extends VoxelPatchBase {
 
 export interface RemoveVoxelPatch extends VoxelPatchBase {
   type: "removeVoxel";
-}
-
-export interface WallsMetaPatch {
-  type: "wallsMeta";
-  showWalls: boolean;
-  mask: GridContext["walls"];
-}
-
-export interface FloorMetaPatch {
-  type: "floorMeta";
-  showFloor: boolean;
 }

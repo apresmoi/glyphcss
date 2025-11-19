@@ -1,12 +1,5 @@
 import type { SceneSnapshot } from "./state";
-import type {
-  ScenePatch,
-  AddVoxelPatch,
-  UpdateVoxelPatch,
-  RemoveVoxelPatch,
-  WallsMetaPatch,
-  FloorMetaPatch
-} from "./renderer";
+import type { ScenePatch, AddVoxelPatch, UpdateVoxelPatch, RemoveVoxelPatch } from "./renderer";
 import { computeVisibleFaces } from "./visibility";
 import { makeVoxelKey, wallMasksEqual } from "./context";
 import type { Voxel } from "./types";
@@ -32,17 +25,6 @@ export function diffScenes(previous: SceneSnapshot | null, next: SceneSnapshot):
     const prevVoxels = prevLayers[layerIndex] ?? [];
     patches.push(...diffLayer(layerIndex, prevVoxels, nextVoxels, next, wallsChanged));
   }
-
-  patches.push({
-    type: "wallsMeta",
-    showWalls: next.context.showWalls,
-    mask: next.context.walls
-  } satisfies WallsMetaPatch);
-
-  patches.push({
-    type: "floorMeta",
-    showFloor: next.context.showFloor
-  } satisfies FloorMetaPatch);
 
   return { patches };
 }

@@ -64,9 +64,7 @@ export type {
   ScenePatch,
   AddVoxelPatch,
   UpdateVoxelPatch,
-  RemoveVoxelPatch,
-  WallsMetaPatch,
-  FloorMetaPatch
+  RemoveVoxelPatch
 } from "./renderer";
 
 export * from "./camera";

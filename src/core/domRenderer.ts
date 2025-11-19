@@ -7,9 +7,7 @@ import type {
   ScenePatch,
   AddVoxelPatch,
   UpdateVoxelPatch,
-  RemoveVoxelPatch,
-  WallsMetaPatch,
-  FloorMetaPatch
+  RemoveVoxelPatch
 } from "./renderer";
 import type {
   GridContext,
@@ -105,15 +103,7 @@ function createRenderState(documentRef: Document, root: HTMLElement): RenderStat
     floor,
     layers: new Map(),
     wallElements: new Map(),
-    ceiling: null,
-    lastWallsMask: null,
-    lastShowWalls: undefined,
-    lastWallDimensions: null,
-    lastShowFloor: undefined,
-    lastWallColor: undefined,
-    lastFloorColor: undefined,
-    lastCeilingColor: undefined,
-    lastCeilingDimensions: null
+    ceiling: null
   };
 }
 
@@ -135,26 +125,30 @@ function applyPatchSet(
   const renderState = state.renderState;
   const context = state.context ?? snapshot.context;
   updateProjectionClass(root, context);
-  if (!patches.length) return;
   root.style.setProperty("--voxcss-rows", String(context.rows));
   root.style.setProperty("--voxcss-cols", String(context.cols));
+  syncSceneStructure(renderState, documentRef, context, snapshot.layers.length);
+  if (!patches.length) return;
 
   for (const patch of patches) {
     switch (patch.type) {
       case "addVoxel":
-        applyAddVoxelPatch(renderState, patch, context, shapes, documentRef);
+        applyVoxelUpsertPatch(renderState, patch.layerIndex, patch.voxelKey, patch.voxel, patch.faces, context, shapes, documentRef);
         break;
       case "updateVoxel":
-        applyUpdateVoxelPatch(renderState, patch, context, shapes, documentRef);
+        applyVoxelUpsertPatch(
+          renderState,
+          patch.layerIndex,
+          patch.voxelKey,
+          patch.voxel,
+          patch.faces ?? computeVisibleFaces(patch.voxel, context),
+          context,
+          shapes,
+          documentRef
+        );
         break;
       case "removeVoxel":
         applyRemoveVoxelPatch(renderState, patch);
-        break;
-      case "wallsMeta":
-        applyWallsMetaPatch(renderState, patch, documentRef, context, snapshot.layers.length);
-        break;
-      case "floorMeta":
-        applyFloorMetaPatch(renderState, patch, documentRef, context, snapshot.layers.length);
         break;
     }
   }
@@ -168,58 +162,30 @@ function updateProjectionClass(root: HTMLElement, context: GridContext): void {
   }
 }
 
-function applyAddVoxelPatch(
+function applyVoxelUpsertPatch(
   state: RenderState,
-  patch: AddVoxelPatch,
+  layerIndex: number,
+  voxelKey: string,
+  voxel: Voxel,
+  faces: CubeFace[],
   context: GridContext,
   shapes: Record<string, ShapeRenderer>,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, context);
+  const record = ensureLayerRecord(state, layerIndex, documentRef, context);
   const layer = record.element;
-
-  let voxelRoot = record.voxels.get(patch.voxelKey);
-  if (!voxelRoot) {
-    voxelRoot = documentRef.createElement("div");
-    record.voxels.set(patch.voxelKey, voxelRoot);
-  }
-  if (voxelRoot.parentNode !== layer) {
-    layer.appendChild(voxelRoot);
-  }
-  syncVoxelElement(voxelRoot, patch.voxel);
-  renderVoxel({
-    voxel: patch.voxel,
-    faces: patch.faces,
-    context,
-    root: voxelRoot,
-    shapes
-  });
-}
-
-function applyUpdateVoxelPatch(
-  state: RenderState,
-  patch: UpdateVoxelPatch,
-  context: GridContext,
-  shapes: Record<string, ShapeRenderer>,
-  documentRef: Document
-): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, context);
-  const element = record.voxels.get(patch.voxelKey);
+  let element = record.voxels.get(voxelKey);
   if (!element) {
-    const addPatch: AddVoxelPatch = {
-      type: "addVoxel",
-      layerIndex: patch.layerIndex,
-      voxelKey: patch.voxelKey,
-      voxel: patch.voxel,
-      faces: patch.faces ?? computeVisibleFaces(patch.voxel, context)
-    };
-    applyAddVoxelPatch(state, addPatch, context, shapes, documentRef);
-    return;
+    element = documentRef.createElement("div");
+    record.voxels.set(voxelKey, element);
   }
-  syncVoxelElement(element, patch.voxel);
+  if (element.parentNode !== layer) {
+    layer.appendChild(element);
+  }
+  syncVoxelElement(element, voxel);
   renderVoxel({
-    voxel: patch.voxel,
-    faces: patch.faces ?? computeVisibleFaces(patch.voxel, context),
+    voxel,
+    faces,
     context,
     root: element,
     shapes
@@ -234,29 +200,6 @@ function applyRemoveVoxelPatch(state: RenderState, patch: RemoveVoxelPatch): voi
   disposeCubeDom(element);
   element.remove();
   record.voxels.delete(patch.voxelKey);
-}
-
-function applyWallsMetaPatch(
-  state: RenderState,
-  patch: WallsMetaPatch,
-  documentRef: Document,
-  context: GridContext,
-  depthLayers: number
-): void {
-  context.showWalls = patch.showWalls;
-  context.walls = { ...patch.mask };
-  updateStructuralElements(state, documentRef, context, depthLayers);
-}
-
-function applyFloorMetaPatch(
-  state: RenderState,
-  patch: FloorMetaPatch,
-  documentRef: Document,
-  context: GridContext,
-  depthLayers: number
-): void {
-  context.showFloor = patch.showFloor;
-  updateStructuralElements(state, documentRef, context, depthLayers);
 }
 
 function syncVoxelElement(element: HTMLElement, voxel: Voxel): void {
@@ -320,130 +263,87 @@ function ensureLayerRecord(
   }
   const elevation = context.layerElevation ?? context.tileSize ?? 0;
   layer.style.transform = `translateZ(${layerIndex * elevation}px)`;
-  record.rows = context.rows;
-  record.cols = context.cols;
-  record.tileSize = context.tileSize;
-  record.elevation = elevation;
   return record;
 }
-
-function updateStructuralElements(
+function syncSceneStructure(
   state: RenderState,
   documentRef: Document,
   context: GridContext,
   depthLayers: number
 ): void {
-  const previousMask = state.lastWallsMask;
-  const dimensions = snapshotWallDimensions(context, depthLayers);
-  updateHorizontalPlanes(state, documentRef, context, dimensions);
-  updateVerticalWalls(state, documentRef, context, dimensions, previousMask);
-  state.lastWallsMask = { ...(context.walls ?? DEFAULT_WALLS) };
+  syncFloor(state, context);
+  syncCeiling(state, documentRef, context, depthLayers);
+  syncWalls(state, documentRef, context, depthLayers);
 }
 
-function updateHorizontalPlanes(
+function syncFloor(state: RenderState, context: GridContext): void {
+  const floor = state.floor;
+  floor.style.pointerEvents = "none";
+  const mask = context.walls ?? DEFAULT_WALLS;
+  const shouldShow = !!context.showFloor && !!mask.b;
+  if (shouldShow) {
+    applyFloorAppearance(floor, context.wallColor ?? DEFAULT_WALL_COLOR);
+  } else {
+    resetFloorAppearance(floor);
+  }
+}
+
+function syncCeiling(
   state: RenderState,
   documentRef: Document,
   context: GridContext,
-  dimensions: WallDimensionsSnapshot
+  depthLayers: number
 ): void {
   const mask = context.walls ?? DEFAULT_WALLS;
-  const horizontalEnabled = !!context.showFloor;
-  const shouldShowFloor = horizontalEnabled && !!mask.b;
-  const shouldShowCeiling = horizontalEnabled && !!mask.t;
-
-  const floor = state.floor;
-  floor.style.pointerEvents = "none";
-  if (shouldShowFloor) {
-    const baseColor = context.wallColor ?? DEFAULT_WALL_COLOR;
-    if (!state.lastShowFloor || state.lastFloorColor !== baseColor) {
-      applyFloorAppearance(state, baseColor);
-      state.lastFloorColor = baseColor;
-    }
-  } else {
-    resetFloorAppearance(floor);
-    state.lastFloorColor = undefined;
-  }
-  state.lastShowFloor = shouldShowFloor;
-
-  if (!shouldShowCeiling) {
+  const shouldShow = !!context.showFloor && !!mask.t;
+  if (!shouldShow) {
     if (state.ceiling) {
       state.ceiling.remove();
       state.ceiling = null;
     }
-    state.lastCeilingDimensions = null;
-    state.lastCeilingColor = undefined;
     return;
   }
-
+  const dimensions = snapshotWallDimensions(context, depthLayers);
   let ceiling = state.ceiling;
-  let created = false;
   if (!ceiling) {
     ceiling = documentRef.createElement("div");
     ceiling.className = CEILING_CLASS;
     state.ceiling = ceiling;
-    created = true;
   } else if (ceiling.className !== CEILING_CLASS) {
     ceiling.className = CEILING_CLASS;
   }
   mountStructuralElement(state, ceiling);
-  const needsUpdate =
-    created || !state.lastCeilingDimensions || !wallDimensionsEqual(state.lastCeilingDimensions, dimensions);
-  if (needsUpdate) {
-    const def: WallDefinition = {
-      key: "t",
-      className: CEILING_CLASS,
-      width: dimensions.cols * dimensions.tileSize,
-      height: dimensions.rows * dimensions.tileSize,
-      transform: `translateZ(${dimensions.depth * dimensions.tileSize}px)`
-    };
-    applyWallDefinitionStyles(ceiling, def);
-    state.lastCeilingDimensions = { ...dimensions };
-  }
-  const ceilingColor = context.wallColor ?? DEFAULT_WALL_COLOR;
-  if (state.lastCeilingColor !== ceilingColor) {
-    applyCeilingAppearance(ceiling, ceilingColor);
-    state.lastCeilingColor = ceilingColor;
-  }
+  const def: WallDefinition = {
+    key: "t",
+    className: CEILING_CLASS,
+    width: dimensions.cols * dimensions.tileSize,
+    height: dimensions.rows * dimensions.tileSize,
+    transform: `translateZ(${dimensions.depth * dimensions.tileSize}px)`
+  };
+  applyWallDefinitionStyles(ceiling, def);
+  applyCeilingAppearance(ceiling, context.wallColor ?? DEFAULT_WALL_COLOR);
 }
 
-function updateVerticalWalls(
+function syncWalls(
   state: RenderState,
   documentRef: Document,
   context: GridContext,
-  dimensions: WallDimensionsSnapshot,
-  previousMask: WallsMask | null
+  depthLayers: number
 ): void {
-  const showWallsChanged = state.lastShowWalls !== context.showWalls;
-  const maskChanged =
-    context.showWalls && (!previousMask || !wallMasksEqual(previousMask, context.walls));
-  const geometryChanged =
-    context.showWalls && !wallDimensionsEqual(state.lastWallDimensions, dimensions);
-  const wallColorChanged = (state.lastWallColor ?? DEFAULT_WALL_COLOR) !== context.wallColor;
-
   if (!context.showWalls) {
-    if (state.wallElements.size) {
-      for (const [, element] of state.wallElements) {
-        element.remove();
-      }
-      state.wallElements.clear();
+    for (const [, element] of state.wallElements) {
+      element.remove();
     }
-    state.lastShowWalls = false;
-    state.lastWallDimensions = null;
-    state.lastWallColor = undefined;
+    state.wallElements.clear();
     return;
   }
-
-  if (!showWallsChanged && !maskChanged && !geometryChanged && !wallColorChanged) {
-    return;
-  }
-
+  const mask = context.walls ?? DEFAULT_WALLS;
+  const dimensions = snapshotWallDimensions(context, depthLayers);
   const definitions = computeWallDefinitions(dimensions);
   const activeKeys = new Set<keyof WallsMask>();
-
   for (const def of definitions) {
-    const visible = context.walls?.[def.key];
-    const existing = state.wallElements.get(def.key);
-    if (!visible) {
+    if (!mask[def.key]) {
+      const existing = state.wallElements.get(def.key);
       if (existing) {
         existing.remove();
         state.wallElements.delete(def.key);
@@ -451,7 +351,7 @@ function updateVerticalWalls(
       continue;
     }
     activeKeys.add(def.key);
-    let wall = existing;
+    let wall = state.wallElements.get(def.key);
     if (!wall) {
       wall = documentRef.createElement("div");
       wall.className = def.className;
@@ -463,17 +363,12 @@ function updateVerticalWalls(
     applyWallDefinitionStyles(wall, def);
     applyWallLighting(wall, def.key, context);
   }
-
   for (const [key, element] of Array.from(state.wallElements.entries())) {
     if (!activeKeys.has(key)) {
       element.remove();
       state.wallElements.delete(key);
     }
   }
-
-  state.lastShowWalls = true;
-  state.lastWallDimensions = { ...dimensions };
-  state.lastWallColor = context.wallColor;
 }
 
 function mountStructuralElement(state: RenderState, element: HTMLElement): void {
@@ -485,8 +380,7 @@ function mountStructuralElement(state: RenderState, element: HTMLElement): void 
 const FLOOR_BASE_DELTA = 120;
 const CEILING_BASE_DELTA = FLOOR_BASE_DELTA;
 
-function applyFloorAppearance(state: RenderState, baseColor: string): void {
-  const floor = state.floor;
+function applyFloorAppearance(floor: HTMLElement, baseColor: string): void {
   const floorBase = shadeColor(baseColor, FLOOR_BASE_DELTA);
   floor.style.removeProperty("background");
   floor.style.removeProperty("backgroundImage");
@@ -534,19 +428,6 @@ function snapshotWallDimensions(context: GridContext, depthLayers: number): Wall
     depth: Math.max(depthLayers, 1),
     tileSize: context.tileSize
   };
-}
-
-function wallDimensionsEqual(
-  previous: WallDimensionsSnapshot | null,
-  next: WallDimensionsSnapshot
-): boolean {
-  if (!previous) return false;
-  return (
-    previous.rows === next.rows &&
-    previous.cols === next.cols &&
-    previous.depth === next.depth &&
-    previous.tileSize === next.tileSize
-  );
 }
 
 function computeWallDefinitions(dimensions: WallDimensionsSnapshot): WallDefinition[] {

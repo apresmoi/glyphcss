@@ -145,10 +145,6 @@ export const SCENE_CLASS = "voxcss-camera";
 export interface LayerRecord {
   element: HTMLElement;
   voxels: Map<string, HTMLElement>;
-  rows?: number;
-  cols?: number;
-  tileSize?: number;
-  elevation?: number;
 }
 
 export interface RenderState {
@@ -157,14 +153,6 @@ export interface RenderState {
   layers: Map<number, LayerRecord>;
   wallElements: Map<keyof WallsMask, HTMLElement>;
   ceiling: HTMLElement | null;
-  lastWallsMask: WallsMask | null;
-  lastShowWalls: boolean | undefined;
-  lastWallDimensions: WallDimensionsSnapshot | null;
-  lastShowFloor: boolean | undefined;
-  lastWallColor: string | undefined;
-  lastFloorColor: string | undefined;
-  lastCeilingColor: string | undefined;
-  lastCeilingDimensions: WallDimensionsSnapshot | null;
 }
 
 export interface WallDimensionsSnapshot {

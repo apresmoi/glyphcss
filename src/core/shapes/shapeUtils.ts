@@ -1,6 +1,7 @@
 import type { GridContext, Voxel } from "../types";
 import type { ShapeType, ShapeSurfaceLighting } from "../lighting";
 import { computeShapeLighting } from "../lighting";
+import { getVoxelBounds } from "../context";
 
 const SHAPE_INNER_CLASS = "voxcss-shape-inner";
 const ORIENTATION_CLASS_NAMES = ["voxcss-east", "voxcss-south", "voxcss-west", "voxcss-north"];
@@ -9,6 +10,54 @@ export interface PreparedShapeResult {
   baseColor: string;
   container: HTMLElement;
   lighting: ShapeSurfaceLighting[];
+}
+
+export function getSurfaceColor(prepared: PreparedShapeResult, surfaceId: string): string {
+  return prepared.lighting.find((surface) => surface.id === surfaceId)?.color ?? prepared.baseColor;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+export interface SvgSlopeDefinition {
+  className: string;
+  surfaceId: string;
+  path: string;
+  viewBox?: string;
+  width?: string;
+  height?: string;
+}
+
+export function createSvgSlopeElement(
+  doc: Document,
+  prepared: PreparedShapeResult,
+  definition: SvgSlopeDefinition
+): HTMLElement {
+  const { className, surfaceId, path, viewBox = "0 0 480 480", width = "56", height = "50" } = definition;
+  const slope = doc.createElement("div");
+  slope.className = className;
+  const svg = doc.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", viewBox);
+  svg.setAttribute("width", width);
+  svg.setAttribute("height", height);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("xmlns", SVG_NS);
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.style.position = "absolute";
+  svg.style.inset = "0";
+  svg.style.width = "100%";
+  svg.style.height = "100%";
+  svg.style.display = "block";
+  svg.style.pointerEvents = "none";
+  const pathEl = doc.createElementNS(SVG_NS, "path");
+  pathEl.setAttribute("d", path);
+  pathEl.setAttribute("fill", getSurfaceColor(prepared, surfaceId));
+  pathEl.setAttribute("stroke", "rgba(0, 0, 0, 0.1)");
+  pathEl.setAttribute("stroke-width", "1");
+  pathEl.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.appendChild(pathEl);
+  slope.appendChild(svg);
+  return slope;
 }
 
 export interface PrepareShapeOptions {
@@ -52,13 +101,6 @@ function isCovered(voxel: Voxel, context: GridContext): boolean {
     }
   }
   return false;
-}
-
-function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
-  return {
-    x2: voxel.x2 ?? voxel.x + 1,
-    y2: voxel.y2 ?? voxel.y + 1
-  };
 }
 
 function findShapeInner(root: HTMLElement): HTMLElement | null {
