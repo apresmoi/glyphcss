@@ -27,9 +27,9 @@ import type {
 } from "./types";
 import {
   LAYER_CLASS,
-  VOXEL_CLASS,
   FLOOR_CLASS,
   FACE_CLASS,
+  FACE_DATA_PROP,
   WALL_CLASS,
   CEILING_CLASS,
   DEFAULT_WALL_COLOR,
@@ -49,6 +49,7 @@ interface DomRendererState {
 const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
 
 const noopRenderer: ShapeRenderer = () => {};
+const DIMETRIC_PROJECTION_CLASS = "voxcss-projection--dimetric";
 
 export const createDomRenderer: RendererFactory = (options: RendererMountOptions): RendererHandle => {
   const { documentRef, target, shapes, hooks } = options;
@@ -137,9 +138,10 @@ function applyPatchSet(
   shapes: Record<string, ShapeRenderer>,
   hooks?: VoxcssHooks
 ): void {
-  if (!patches.length) return;
   const renderState = state.renderState;
   const context = state.context ?? snapshot.context;
+  updateProjectionClass(root, context);
+  if (!patches.length) return;
   root.style.setProperty("--voxcss-rows", String(context.rows));
   root.style.setProperty("--voxcss-cols", String(context.cols));
 
@@ -183,6 +185,14 @@ function applyPatchSet(
   }
 }
 
+function updateProjectionClass(root: HTMLElement, context: GridContext): void {
+  if (context.projection === "dimetric") {
+    root.classList.add(DIMETRIC_PROJECTION_CLASS);
+  } else {
+    root.classList.remove(DIMETRIC_PROJECTION_CLASS);
+  }
+}
+
 function applyLayerMetaPatch(
   state: RenderState,
   patch: LayerMetaPatch,
@@ -218,7 +228,6 @@ function applyAddVoxelPatch(
   let voxelRoot = record.voxels.get(patch.voxelKey);
   if (!voxelRoot) {
     voxelRoot = documentRef.createElement("div");
-    voxelRoot.className = VOXEL_CLASS;
     record.voxels.set(patch.voxelKey, voxelRoot);
   }
   if (voxelRoot.parentNode !== layer) {
@@ -315,6 +324,7 @@ function renderVoxel(args: {
   const { voxel, faces, context, root, shapes } = args;
   const shapeKey = voxel.shape || "cube";
   const renderer = shapes[shapeKey] ?? (shapeKey === "cube" ? cubeShapeRenderer : noopRenderer);
+  root.className = "";
   if (renderer === noopRenderer) {
     disposeCubeDom(root);
     root.innerHTML = "";
@@ -658,12 +668,11 @@ function updateDelegatedPointerHandlers(
   const handler = (event: PointerEvent) => {
     const target = event.target as HTMLElement | null;
     if (!target) return;
-    const faceEl = target.closest<HTMLElement>(`.${FACE_CLASS}`);
+    const faceEl = findFaceElement(target);
     if (!faceEl) return;
-    const faceClass = Array.from(faceEl.classList).find((cls) => cls.startsWith(`${FACE_CLASS}--`));
-    const face = faceClass ? (faceClass.slice(`${FACE_CLASS}--`.length) as CubeFace) : undefined;
+    const face = resolveFace(faceEl);
     if (!face) return;
-    const voxelContainer = faceEl.closest<HTMLElement>(`.${VOXEL_CLASS}`);
+    const voxelContainer = findVoxelRoot(faceEl);
     if (!voxelContainer) return;
     const voxel = (voxelContainer as any).__voxelData as Voxel | undefined;
     if (!voxel) return;
@@ -690,4 +699,41 @@ function detachDelegatedPointerHandlers(record: LayerRecord): void {
   record.element.removeEventListener("pointerup", handler);
   delete (record.element as any).__voxPointerHandler;
   delete (record.element as any).__voxPointerEmit;
+}
+
+function resolveFace(element: HTMLElement): CubeFace | undefined {
+  const stored = (element as any)[FACE_DATA_PROP] as CubeFace | undefined;
+  if (stored) {
+    return stored;
+  }
+  const faceClass = Array.from(element.classList).find((cls) => cls.startsWith(`${FACE_CLASS}--`));
+  if (faceClass) {
+    return faceClass.slice(`${FACE_CLASS}--`.length) as CubeFace;
+  }
+  return undefined;
+}
+
+function findFaceElement(start: HTMLElement | null): HTMLElement | null {
+  let current: HTMLElement | null = start;
+  while (current) {
+    if ((current as any)[FACE_DATA_PROP]) {
+      return current;
+    }
+    if (current.classList?.contains(FACE_CLASS)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function findVoxelRoot(start: HTMLElement | null): HTMLElement | null {
+  let current: HTMLElement | null = start;
+  while (current) {
+    if ((current as any).__voxelData) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
 }

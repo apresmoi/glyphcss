@@ -2,6 +2,7 @@ import type { ShapeRenderer, GridContext, Voxel, CubeFace } from "../types";
 import { CUBE_CLASS, FACE_CLASS } from "../types";
 import { computeVisibleFaces } from "../visibility";
 import { shadeCubeFace, getCubeFaceLightDelta } from "../lighting";
+import { markElementFace } from "./shapeUtils";
 
 const cubeDomCache = new WeakMap<HTMLElement, Map<CubeFace, HTMLElement>>();
 
@@ -44,9 +45,6 @@ export const cubeShapeRenderer: ShapeRenderer = ({
 
   const cachedFaces = ensureCubeDomCache(root);
 
-  const half = context.layerElevation / 2;
-  const size = `${context.tileSize}px`;
-
   const visibleSet = new Set(faces);
   for (const [face, faceEl] of Array.from(cachedFaces.entries())) {
     if (!visibleSet.has(face)) {
@@ -65,6 +63,7 @@ export const cubeShapeRenderer: ShapeRenderer = ({
     } else if (faceEl.parentElement !== root) {
       root.appendChild(faceEl);
     }
+    markElementFace(faceEl, face);
     applyFaceAppearance(faceEl, face, voxel, context);
   }
 };

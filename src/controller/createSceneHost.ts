@@ -1,5 +1,5 @@
 import { createVoxScene } from "../core/scene";
-import { dimetricShapes } from "../core/shapes";
+import { defaultShapes } from "../core/shapes";
 import type {
   GridContext,
   ShapeRenderer,
@@ -35,7 +35,7 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
   let currentVoxelGrid: VoxelGrid = options.voxels ?? [];
   let currentContext: Partial<GridContext> = { ...(options.context ?? {}) };
   let currentShapes: Record<string, ShapeRenderer> = {
-    ...dimetricShapes,
+    ...defaultShapes,
     ...(options.shapes ?? {})
   };
   let currentHooks: VoxcssHooks | undefined = options.hooks;
@@ -85,7 +85,7 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
   }
 
   function setShapes(shapes: Record<string, ShapeRenderer>) {
-    currentShapes = { ...dimetricShapes, ...shapes };
+    currentShapes = { ...defaultShapes, ...shapes };
     handle?.scene.update(currentVoxelGrid, currentContext);
   }
 

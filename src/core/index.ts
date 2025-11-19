@@ -32,19 +32,18 @@ export {
 export { injectBaseStyles } from "./styles";
 export {
   cubeShapeRenderer,
-  flatShapeRenderer,
   rampShapeRenderer,
   wedgeShapeRenderer,
   spikeShapeRenderer,
-  dimetricShapes
+  defaultShapes
 } from "./shapes";
 export {
   shadeColor,
   shadeCubeFace,
   parseColor,
-  computeDimetricLighting
+  computeShapeLighting
 } from "./lighting";
-export type { DimetricShapeType, DimetricSurfaceLighting } from "./lighting";
+export type { ShapeType, ShapeSurfaceLighting } from "./lighting";
 export { voxScene, createVoxScene } from "./scene";
 export type { VoxSceneOptions } from "./scene";
 export { deriveSceneSnapshot } from "./state";

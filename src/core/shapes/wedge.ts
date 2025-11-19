@@ -1,23 +1,20 @@
 import type { ShapeRenderer } from "../types";
-import { prepareDimetricShape, applyDimetricShapeClass } from "./dimetricUtils";
+import { prepareShapeRoot, markElementFace } from "./shapeUtils";
 
 export const wedgeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
-  const prepared = prepareDimetricShape({
+  const prepared = prepareShapeRoot({
     shape: "wedge",
     voxel,
     context,
     root,
-    options: { mountToRoot: true, pointerSurface: false }
+    options: { mountToRoot: true }
   });
   if (!prepared) return;
-  applyDimetricShapeClass(root, "voxcss-dimetric-wedge");
+  root.classList.add("voxcss-wedge");
   const doc = prepared.container.ownerDocument ?? document;
   const svgNS = "http://www.w3.org/2000/svg";
   const slopePrimary = doc.createElement("div");
   slopePrimary.className = "voxcss-wedge-slope voxcss-wedge-slope--primary";
-  slopePrimary.dataset.voxFace = "t";
-  slopePrimary.style.pointerEvents = "auto";
-  slopePrimary.style.background = "transparent";
   const svgPrimary = doc.createElementNS(svgNS, "svg");
   svgPrimary.setAttribute("viewBox", "0 0 480 480");
   svgPrimary.setAttribute("width", "56");
@@ -34,10 +31,9 @@ export const wedgeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   svgPrimary.style.pointerEvents = "none";
   const pathPrimary = doc.createElementNS(svgNS, "path");
   pathPrimary.setAttribute("d", "M0 0 L480 0 L0 480 Z");
-  pathPrimary.setAttribute(
-    "fill",
-    "var(--voxcss-dim-surface-primary, var(--voxcss-dim-color, #63c74d))"
-  );
+  const primaryColor =
+    prepared.lighting.find((surface) => surface.id === "primary")?.color ?? "#cccccc";
+  pathPrimary.setAttribute("fill", primaryColor);
   pathPrimary.setAttribute("stroke", "rgba(0, 0, 0, 0.1)");
   pathPrimary.setAttribute("stroke-width", "1");
   pathPrimary.setAttribute("vector-effect", "non-scaling-stroke");
@@ -46,9 +42,6 @@ export const wedgeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
 
   const slopeSecondary = doc.createElement("div");
   slopeSecondary.className = "voxcss-wedge-slope voxcss-wedge-slope--secondary";
-  slopeSecondary.dataset.voxFace = "t";
-  slopeSecondary.style.pointerEvents = "auto";
-  slopeSecondary.style.background = "transparent";
   const svgSecondary = doc.createElementNS(svgNS, "svg");
   svgSecondary.setAttribute("viewBox", "0 0 480 480");
   svgSecondary.setAttribute("width", "50");
@@ -65,15 +58,17 @@ export const wedgeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   svgSecondary.style.pointerEvents = "none";
   const pathSecondary = doc.createElementNS(svgNS, "path");
   pathSecondary.setAttribute("d", "M480 480 L0 480 L480 0 Z");
-  pathSecondary.setAttribute(
-    "fill",
-    "var(--voxcss-dim-surface-secondary, var(--voxcss-dim-color, #63c74d))"
-  );
+  const secondaryColor =
+    prepared.lighting.find((surface) => surface.id === "secondary")?.color ?? "#cccccc";
+  pathSecondary.setAttribute("fill", secondaryColor);
   pathSecondary.setAttribute("stroke", "rgba(0, 0, 0, 0.1)");
   pathSecondary.setAttribute("stroke-width", "1");
   pathSecondary.setAttribute("vector-effect", "non-scaling-stroke");
   svgSecondary.appendChild(pathSecondary);
   slopeSecondary.appendChild(svgSecondary);
+
+  markElementFace(slopePrimary, "t");
+  markElementFace(slopeSecondary, "t");
 
   prepared.container.appendChild(slopePrimary);
   prepared.container.appendChild(slopeSecondary);

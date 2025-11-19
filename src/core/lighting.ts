@@ -121,23 +121,22 @@ export function shadeWallFace(base: string, face: keyof WallsMask): string {
   return shadeColor(base, -delta);
 }
 
-export type DimetricShapeType = "flat" | "ramp" | "wedge" | "spike";
+export type ShapeType = "ramp" | "wedge" | "spike";
 
-interface DimetricSurfaceDefinition {
+interface ShapeSurfaceDefinition {
   id: string;
   baseAngle: number;
   allowPeak?: boolean;
 }
 
-export interface DimetricSurfaceLighting {
+export interface ShapeSurfaceLighting {
   id: string;
   angle: number;
   level: number;
   color: string;
 }
 
-const DIMETRIC_SURFACE_DEFINITIONS: Record<DimetricShapeType, DimetricSurfaceDefinition[]> = {
-  flat: [{ id: "top", baseAngle: 180, allowPeak: true }],
+const SHAPE_SURFACE_DEFINITIONS: Record<ShapeType, ShapeSurfaceDefinition[]> = {
   ramp: [{ id: "slope", baseAngle: 0 }],
   wedge: [
     { id: "primary", baseAngle: 0 },
@@ -149,45 +148,45 @@ const DIMETRIC_SURFACE_DEFINITIONS: Record<DimetricShapeType, DimetricSurfaceDef
   ]
 };
 
-const DIMETRIC_LIGHT_SOURCE_ANGLE = 180;
-const DIMETRIC_LEVEL_DELTAS: Record<number, number> = {
+const SHAPE_LIGHT_SOURCE_ANGLE = 180;
+const SHAPE_LEVEL_DELTAS: Record<number, number> = {
   1: 18,
   2: 8,
   3: -12,
   4: -28
 };
 
-function normalizeDimetricAngle(value: number): number {
+function normalizeShapeAngle(value: number): number {
   if (!Number.isFinite(value)) return 0;
   const normalized = value % 360;
   return normalized < 0 ? normalized + 360 : normalized;
 }
 
-function dimetricAngularDifference(a: number, b: number): number {
-  const diff = Math.abs(normalizeDimetricAngle(a) - normalizeDimetricAngle(b));
+function shapeAngularDifference(a: number, b: number): number {
+  const diff = Math.abs(normalizeShapeAngle(a) - normalizeShapeAngle(b));
   return diff > 180 ? 360 - diff : diff;
 }
 
 function angleToBrightnessLevel(angle: number, { allowPeak = false }: { allowPeak?: boolean } = {}): number {
-  const diff = dimetricAngularDifference(angle, DIMETRIC_LIGHT_SOURCE_ANGLE);
+  const diff = shapeAngularDifference(angle, SHAPE_LIGHT_SOURCE_ANGLE);
   if (allowPeak && diff <= 10) return 1;
   if (diff <= 30) return 2;
   if (diff <= 90) return 3;
   return 4;
 }
 
-export function computeDimetricLighting(
-  shape: DimetricShapeType,
+export function computeShapeLighting(
+  shape: ShapeType,
   rotation: number,
   baseColor: string
-): DimetricSurfaceLighting[] {
-  const surfaces = DIMETRIC_SURFACE_DEFINITIONS[shape];
+): ShapeSurfaceLighting[] {
+  const surfaces = SHAPE_SURFACE_DEFINITIONS[shape];
   if (!surfaces) return [];
-  const normalizedRotation = normalizeDimetricAngle(rotation);
+  const normalizedRotation = normalizeShapeAngle(rotation);
   return surfaces.map((surface) => {
-    const angle = normalizeDimetricAngle(normalizedRotation + surface.baseAngle);
+    const angle = normalizeShapeAngle(normalizedRotation + surface.baseAngle);
     const level = angleToBrightnessLevel(angle, { allowPeak: surface.allowPeak });
-    const delta = DIMETRIC_LEVEL_DELTAS[level] ?? 0;
+    const delta = SHAPE_LEVEL_DELTAS[level] ?? 0;
     return {
       id: surface.id,
       angle,

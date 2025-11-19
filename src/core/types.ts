@@ -124,7 +124,6 @@ export const DEFAULT_WALLS: WallsMask = {
 export const DEFAULT_WALL_COLOR = "#3e3e4d";
 
 export const LAYER_CLASS = "voxcss-layer";
-export const VOXEL_CLASS = "voxcss-voxel";
 export const FLOOR_CLASS = "voxcss-floor";
 export const CUBE_CLASS = "voxcss-cube";
 export const FACE_CLASS = "voxcss-cube-face";
@@ -134,6 +133,7 @@ export const WALL_CLASS = "voxcss-wall";
 export const CEILING_CLASS = "voxcss-ceiling";
 export const STYLE_ID = "voxcss-base-styles";
 export const SCENE_CLASS = "voxcss-camera";
+export const FACE_DATA_PROP = "__voxcssFace";
 
 export interface LayerRecord {
   element: HTMLElement;

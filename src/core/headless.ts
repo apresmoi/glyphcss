@@ -8,7 +8,7 @@ import { createSceneHost, type SceneHost, type SceneHostOptions } from "../contr
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
 import { inferGridDimensions } from "./context";
 import type { AutoRotateOption } from "./camera";
-import type { SceneDimensions, VoxelGrid } from "./types";
+import type { SceneDimensions, VoxelGrid, ProjectionMode } from "./types";
 import { SCENE_CLASS } from "./types";
 
 const DEFAULT_PERSPECTIVE = 8000;
@@ -44,6 +44,7 @@ export interface HeadlessSceneOptions {
   depth?: number;
   showWalls?: boolean;
   showFloor?: boolean;
+  projection?: ProjectionMode;
   host?: SceneHostOptions;
 }
 
@@ -55,6 +56,7 @@ export interface HeadlessSceneHandle {
   depth?: number;
   showWalls: boolean;
   showFloor: boolean;
+  projection: ProjectionMode;
   host: SceneHost;
   destroy(): void;
 }
@@ -110,6 +112,7 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
     depth: options.depth,
     showWalls: options.showWalls ?? false,
     showFloor: options.showFloor ?? false,
+    projection: options.projection ?? "cubic",
     host,
     destroy() {
       host.destroy();
@@ -139,6 +142,8 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   const buildContext = () => {
     const dims = controller.getDimensions();
     const cameraState = controller.getCameraState();
+    const projection = scene.projection ?? "cubic";
+    controller.setProjection?.(projection);
     return {
       rows: scene.rows ?? dims.rows,
       cols: scene.cols ?? dims.cols,
@@ -147,7 +152,8 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
       rotY: cameraState.rotY,
       showWalls: scene.showWalls,
       showFloor: scene.showFloor,
-      walls: controller.getWalls()
+      walls: controller.getWalls(),
+      projection
     };
   };
 

@@ -21,9 +21,46 @@
   </div>
   <script type="module">
     import { createCamera, createScene, renderScene } from "../../dist/index.js";
-
-    const voxels = [{ x: 3, y: 3, z: 0, color: "#F97316" }];
-
+    const voxels = [
+      { shape: "spike", x: 7, y: 7, z: 0, rot: 90 },
+      { shape: "ramp", x: 6, y: 7, z: 0 },
+      { shape: "ramp", x: 5, y: 7, z: 0 },
+      { shape: "spike", x: 4, y: 7, z: 0 },
+      { shape: "ramp", x: 7, y: 6, z: 0, rot: 90 },
+      { shape: "cube", x: 6, y: 6, z: 0 },
+      { shape: "cube", x: 5, y: 6, z: 0 },
+      { shape: "ramp", x: 4, y: 6, z: 0, rot: 270 },
+      { shape: "ramp", x: 7, y: 5, z: 0, rot: 90 },
+      { shape: "cube", x: 6, y: 5, z: 0 },
+      { shape: "cube", x: 5, y: 5, z: 0 },
+      { shape: "spike", x: 2, y: 5, z: 0 },
+      { shape: "ramp", x: 7, y: 4, z: 0, rot: 90 },
+      { shape: "cube", x: 6, y: 4, z: 0 },
+      { shape: "cube", x: 5, y: 4, z: 0 },
+      { shape: "cube", x: 4, y: 4, z: 0 },
+      { shape: "cube", x: 3, y: 4, z: 0 },
+      { shape: "ramp", x: 3, y: 5, z: 0 },
+      { shape: "ramp", x: 7, y: 3, z: 0, rot: 90 },
+      { shape: "cube", x: 6, y: 3, z: 0 },
+      { shape: "cube", x: 5, y: 3, z: 0 },
+      { shape: "cube", x: 4, y: 3, z: 0 },
+      { shape: "cube", x: 3, y: 3, z: 0 },
+      { shape: "ramp", x: 2, y: 3, z: 0, rot: 270 },
+      { shape: "spike", x: 7, y: 2, z: 0, rot: 180 },
+      { shape: "ramp", x: 6, y: 2, z: 0, rot: 180 },
+      { shape: "ramp", x: 5, y: 2, z: 0, rot: 180 },
+      { shape: "ramp", x: 4, y: 2, z: 0, rot: 180 },
+      { shape: "ramp", x: 3, y: 2, z: 0, rot: 180 },
+      { shape: "spike", x: 2, y: 2, z: 0, rot: 270 },
+      { shape: "ramp", x: 2, y: 4, z: 0, rot: 270 },
+      { shape: "wedge", x: 4, y: 5, z: 0 },
+      { shape: "ramp", x: 4, y: 4, z: 1 },
+      { shape: "spike", x: 3, y: 4, z: 1 },
+      { shape: "ramp", x: 4, y: 3, z: 1, rot: 180 },
+      { shape: "spike", x: 3, y: 3, z: 1, rot: 270 },
+      { shape: "spike", x: 5, y: 3, z: 1, rot: 180 },
+      { shape: "spike", x: 5, y: 4, z: 1, rot: 90 },
+    ];
     const cameraElement = document.getElementById("camera");
     const sceneElement = document.getElementById("scene");
 
