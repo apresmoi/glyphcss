@@ -111,16 +111,19 @@ Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space
 
 ### Voxel data model
 
-The voxel object accepts shape, dimensions, rotation, color and textures.
+Each voxel describes a single cell in the grid:
+- `x`, `y`, `z` – required integer coordinates.
+- `shape` – `cube` (default), `ramp`, `wedge`, or `spike`.
+- `color` / `texture` – apply solid fills or image URLs per voxel.
+- `rot` – per-voxel rotation in degrees; ramps/wedges/spikes snap to 90° increments.
+
+Example:
 ```ts
-type Voxel = {
-  x: number;
-  y: number;
-  z: number;
-  color?: string;
-  texture?: string;
-  shape?: string;
-};
+const voxels = [
+  { x: 2, y: 2, z: 0, color: "#f97316" },
+  { x: 3, y: 2, z: 0, shape: "ramp", rot: 90, color: "#94a3b8" },
+  { x: 3, y: 3, z: 0, texture: "/example.png" }
+];
 ```
 
 
