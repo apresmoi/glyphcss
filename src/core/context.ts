@@ -2,6 +2,9 @@
 import type {
   GridContext,
   OffsetMap,
+  ProjectionMode,
+  SceneContextSnapshot,
+  SceneDimensions,
   Voxel,
   VoxelGrid,
   WallsMask
@@ -169,4 +172,68 @@ export function makeVoxelKey(voxel: Voxel): string {
 
 export function makeCellKey(x: number, y: number): string {
   return `${x}/${y}`;
+}
+
+export interface SceneContextInput {
+  voxels: VoxelGrid;
+  rows?: number;
+  cols?: number;
+  depth?: number;
+  showWalls?: boolean;
+  showFloor?: boolean;
+  projection?: ProjectionMode;
+  walls?: WallsMask;
+  resolveTexture?: GridContext["resolveTexture"];
+  dimensions?: SceneDimensions;
+}
+
+export function buildSceneContextSnapshot(input: SceneContextInput): SceneContextSnapshot {
+  const inferred = inferGridDimensions(input.voxels);
+  const baseDimensions = input.dimensions ?? {};
+  const rows = Math.max(input.rows ?? baseDimensions.rows ?? inferred.rows, 1);
+  const cols = Math.max(input.cols ?? baseDimensions.cols ?? inferred.cols, 1);
+  const depth = Math.max(input.depth ?? baseDimensions.depth ?? inferred.depth, 0);
+  const projection = input.projection ?? DEFAULT_PROJECTION;
+  const walls = input.walls ? { ...input.walls } : { ...DEFAULT_WALLS };
+  return {
+    rows,
+    cols,
+    depth,
+    showWalls: Boolean(input.showWalls),
+    showFloor: Boolean(input.showFloor),
+    projection,
+    walls,
+    resolveTexture: input.resolveTexture
+  };
+}
+
+export interface ControllerDimensionInput {
+  controller: { setDimensions(dimensions: Required<SceneDimensions>): void; getDimensions(): Required<SceneDimensions> };
+  voxels: VoxelGrid;
+  rows?: number;
+  cols?: number;
+  depth?: number;
+}
+
+export function syncControllerDimensions({
+  controller,
+  voxels,
+  rows,
+  cols,
+  depth
+}: ControllerDimensionInput): void {
+  const inferred = inferGridDimensions(voxels);
+  const current = controller.getDimensions();
+  const next = {
+    rows: rows ?? inferred.rows ?? current.rows,
+    cols: cols ?? inferred.cols ?? current.cols,
+    depth: depth ?? inferred.depth ?? current.depth
+  };
+  if (
+    next.rows !== current.rows ||
+    next.cols !== current.cols ||
+    next.depth !== current.depth
+  ) {
+    controller.setDimensions(next);
+  }
 }

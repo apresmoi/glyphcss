@@ -1,6 +1,6 @@
 /* Scene lifecycle: voxScene host and createVoxScene convenience wrapper. */
 import type {
-  CreateVoxcssOptions,
+  SceneOptions,
   GridContext,
   VoxIllustrationHandle,
   VoxIllustrationOptions,
@@ -13,7 +13,7 @@ import { diffScenes, type SceneDiffResult } from "./diff";
 import type { RendererHandle } from "./renderer";
 import { createDomRenderer } from "./domRenderer";
 
-export type VoxSceneOptions = CreateVoxcssOptions;
+export type VoxSceneOptions = SceneOptions;
 
 export function voxScene(options: VoxSceneOptions = {}): VoxcssInstance {
   const state = {

@@ -121,10 +121,21 @@ function resolveTextureUrl(
   context: GridContext
 ): string | undefined {
   const textureKey = voxel.texture;
-  if (!textureKey) return undefined;
+  if (!textureKey || textureKey.startsWith("#")) return undefined;
   const resolved = context.resolveTexture?.(textureKey, face);
   if (resolved) return resolved;
-  return textureKey.includes("/") ? textureKey : undefined;
+  if (
+    textureKey.startsWith("/") ||
+    textureKey.startsWith("./") ||
+    textureKey.startsWith("../") ||
+    textureKey.startsWith("http://") ||
+    textureKey.startsWith("https://") ||
+    textureKey.startsWith("data:") ||
+    textureKey.includes(".")
+  ) {
+    return textureKey;
+  }
+  return undefined;
 }
 
 function applyTextureLighting(el: HTMLElement, face: CubeFace): void {

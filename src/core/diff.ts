@@ -4,7 +4,6 @@ import type {
   AddVoxelPatch,
   UpdateVoxelPatch,
   RemoveVoxelPatch,
-  LayerMetaPatch,
   WallsMetaPatch,
   FloorMetaPatch
 } from "./renderer";
@@ -32,7 +31,6 @@ export function diffScenes(previous: SceneSnapshot | null, next: SceneSnapshot):
     const nextVoxels = next.layers[layerIndex] ?? [];
     const prevVoxels = prevLayers[layerIndex] ?? [];
     patches.push(...diffLayer(layerIndex, prevVoxels, nextVoxels, next, wallsChanged));
-    patches.push(createLayerMetaPatch(layerIndex, next));
   }
 
   patches.push({
@@ -144,17 +142,6 @@ function createRemovePatch(layerIndex: number, voxelKey: string): RemoveVoxelPat
     type: "removeVoxel",
     layerIndex,
     voxelKey
-  };
-}
-
-function createLayerMetaPatch(layerIndex: number, snapshot: SceneSnapshot): LayerMetaPatch {
-  return {
-    type: "layerMeta",
-    layerIndex,
-    rows: snapshot.context.rows,
-    cols: snapshot.context.cols,
-    tileSize: snapshot.context.tileSize,
-    elevation: snapshot.context.layerElevation
   };
 }
 

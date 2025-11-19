@@ -8,7 +8,6 @@ import type {
   AddVoxelPatch,
   UpdateVoxelPatch,
   RemoveVoxelPatch,
-  LayerMetaPatch,
   WallsMetaPatch,
   FloorMetaPatch
 } from "./renderer";
@@ -40,7 +39,6 @@ import { shadeWallFace, shadeColor } from "./lighting";
 interface DomRendererState {
   renderState: RenderState;
   context: GridContext | null;
-  layerMeta: Map<number, LayerMetaPatch>;
 }
 
 const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
@@ -93,8 +91,7 @@ function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRe
   const renderState = createRenderState(documentRef, root);
   const composed: DomRendererState = {
     renderState,
-    context: null,
-    layerMeta: new Map()
+    context: null
   };
   rendererStates.set(root, composed);
   return composed;
@@ -144,10 +141,6 @@ function applyPatchSet(
 
   for (const patch of patches) {
     switch (patch.type) {
-      case "layerMeta":
-        state.layerMeta.set(patch.layerIndex, patch);
-        applyLayerMetaPatch(renderState, patch, context, documentRef);
-        break;
       case "addVoxel":
         applyAddVoxelPatch(renderState, patch, context, shapes, documentRef);
         break;
@@ -175,27 +168,6 @@ function updateProjectionClass(root: HTMLElement, context: GridContext): void {
   }
 }
 
-function applyLayerMetaPatch(
-  state: RenderState,
-  patch: LayerMetaPatch,
-  context: GridContext,
-  documentRef: Document
-): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef);
-  const layer = record.element;
-  const cols = Math.max(patch.cols, 1);
-  const rows = Math.max(patch.rows, 1);
-  layer.style.transform = `translateZ(${patch.layerIndex * patch.elevation}px)`;
-  const parent = state.floor;
-  if (layer.parentNode !== parent) {
-    parent.appendChild(layer);
-  }
-  context.rows = patch.rows;
-  context.cols = patch.cols;
-  context.tileSize = patch.tileSize;
-  context.layerElevation = patch.elevation;
-}
-
 function applyAddVoxelPatch(
   state: RenderState,
   patch: AddVoxelPatch,
@@ -203,7 +175,7 @@ function applyAddVoxelPatch(
   shapes: Record<string, ShapeRenderer>,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef);
+  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, context);
   const layer = record.element;
 
   let voxelRoot = record.voxels.get(patch.voxelKey);
@@ -231,7 +203,7 @@ function applyUpdateVoxelPatch(
   shapes: Record<string, ShapeRenderer>,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, patch.layerIndex, documentRef);
+  const record = ensureLayerRecord(state, patch.layerIndex, documentRef, context);
   const element = record.voxels.get(patch.voxelKey);
   if (!element) {
     const addPatch: AddVoxelPatch = {
@@ -328,7 +300,8 @@ function renderVoxel(args: {
 function ensureLayerRecord(
   state: RenderState,
   layerIndex: number,
-  documentRef: Document
+  documentRef: Document,
+  context: GridContext
 ): LayerRecord {
   let record = state.layers.get(layerIndex);
   if (!record) {
@@ -340,6 +313,17 @@ function ensureLayerRecord(
     };
     state.layers.set(layerIndex, record);
   }
+  const layer = record.element;
+  const parent = state.floor;
+  if (layer.parentNode !== parent) {
+    parent.appendChild(layer);
+  }
+  const elevation = context.layerElevation ?? context.tileSize ?? 0;
+  layer.style.transform = `translateZ(${layerIndex * elevation}px)`;
+  record.rows = context.rows;
+  record.cols = context.cols;
+  record.tileSize = context.tileSize;
+  record.elevation = elevation;
   return record;
 }
 

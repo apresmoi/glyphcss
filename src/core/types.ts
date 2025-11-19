@@ -62,12 +62,18 @@ export type ShapeRenderer = (args: {
   precomputedFaces?: CubeFace[];
 }) => void | HTMLElement | DocumentFragment;
 
-export interface CreateVoxcssOptions {
-  context?: Partial<GridContext>;
-  document?: Document;
+export interface SceneOptions {
+  rows?: number;
+  cols?: number;
+  depth?: number;
   showWalls?: boolean;
   showFloor?: boolean;
+  projection?: ProjectionMode;
+  context?: Partial<GridContext>;
+  document?: Document;
 }
+
+export type CreateVoxcssOptions = SceneOptions;
 
 export interface VoxcssInstance {
   mount(target: HTMLElement, grid: VoxelGrid, context?: Partial<GridContext>): void;
@@ -75,7 +81,7 @@ export interface VoxcssInstance {
   destroy(): void;
 }
 
-export interface VoxIllustrationOptions extends CreateVoxcssOptions {
+export interface VoxIllustrationOptions extends SceneOptions {
   element: string | HTMLElement;
   voxels: VoxelGrid;
 }
@@ -121,6 +127,10 @@ export const SCENE_CLASS = "voxcss-camera";
 export interface LayerRecord {
   element: HTMLElement;
   voxels: Map<string, HTMLElement>;
+  rows?: number;
+  cols?: number;
+  tileSize?: number;
+  elevation?: number;
 }
 
 export interface RenderState {
@@ -144,4 +154,15 @@ export interface WallDimensionsSnapshot {
   cols: number;
   depth: number;
   tileSize: number;
+}
+
+export interface SceneContextSnapshot {
+  rows: number;
+  cols: number;
+  depth: number;
+  showWalls: boolean;
+  showFloor: boolean;
+  projection: ProjectionMode;
+  walls: WallsMask;
+  resolveTexture?: GridContext["resolveTexture"];
 }

@@ -7,6 +7,7 @@ export type {
   OffsetMap,
   GridContext,
   ShapeRenderer,
+  SceneOptions,
   CreateVoxcssOptions,
   VoxcssInstance,
   VoxIllustrationOptions,
@@ -18,6 +19,8 @@ export { BASE_TILE, DEFAULT_PROJECTION } from "./types";
 export {
   buildContext,
   buildVoxelLookups,
+  buildSceneContextSnapshot,
+  syncControllerDimensions,
   inferGridDimensions,
   computeWallMask,
   wallMasksEqual,
@@ -55,7 +58,6 @@ export type {
   AddVoxelPatch,
   UpdateVoxelPatch,
   RemoveVoxelPatch,
-  LayerMetaPatch,
   WallsMetaPatch,
   FloorMetaPatch
 } from "./renderer";

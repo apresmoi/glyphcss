@@ -4,11 +4,11 @@ import {
   type SceneController,
   type SceneControllerOptions
 } from "../controller/createSceneController";
-import { createSceneHost, type SceneHost, type SceneHostOptions } from "../controller/createSceneHost";
+import { createSceneHost, type SceneHost } from "../controller/createSceneHost";
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
-import { inferGridDimensions } from "./context";
+import { buildSceneContextSnapshot, inferGridDimensions } from "./context";
 import type { AutoRotateOption } from "./camera";
-import type { SceneDimensions, VoxelGrid, ProjectionMode } from "./types";
+import type { SceneDimensions, VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
 
 const DEFAULT_PERSPECTIVE = 8000;
@@ -36,16 +36,9 @@ export interface HeadlessCameraHandle {
   destroy(): void;
 }
 
-export interface HeadlessSceneOptions {
+export interface HeadlessSceneOptions extends SceneOptions {
   element: HTMLElement;
   voxels?: VoxelGrid;
-  rows?: number;
-  cols?: number;
-  depth?: number;
-  showWalls?: boolean;
-  showFloor?: boolean;
-  projection?: ProjectionMode;
-  host?: SceneHostOptions;
 }
 
 export interface HeadlessSceneHandle {
@@ -103,7 +96,7 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
   if (!element) {
     throw new Error("voxcss: createHeadlessScene requires an element.");
   }
-  const host = createSceneHost(options.host);
+  const host = createSceneHost();
   return {
     element,
     voxels: options.voxels ?? [],
@@ -144,31 +137,39 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     const cameraState = controller.getCameraState();
     const projection = scene.projection ?? "cubic";
     controller.setProjection?.(projection);
-    return {
-      rows: scene.rows ?? dims.rows,
-      cols: scene.cols ?? dims.cols,
-      depth: scene.depth ?? dims.depth,
-      rotX: cameraState.rotX,
-      rotY: cameraState.rotY,
+    const base = buildSceneContextSnapshot({
+      voxels: currentVoxels,
+      rows: scene.rows,
+      cols: scene.cols,
+      depth: scene.depth,
       showWalls: scene.showWalls,
       showFloor: scene.showFloor,
+      projection,
       walls: controller.getWalls(),
-      projection
+      dimensions: dims
+    });
+    return {
+      ...base,
+      rotX: cameraState.rotX,
+      rotY: cameraState.rotY
     };
   };
 
   scene.host.mount(scene.element, currentVoxels, buildContext());
+  scene.host.syncController(controller, buildContext);
 
   const unsubscribeBox = controller.subscribeBoxStyle((style) => Object.assign(scene.element.style, style));
-  const syncContext = () => {
+  const updateContextFromDimensions = () => {
     scene.host.updateContext(buildContext());
+  };
+  const unsubscribeDimensions = controller.subscribeDimensions(updateContextFromDimensions);
+  const updateCursor = () => {
     if (camera.interactive) {
       camera.element.style.cursor = controller.getCursor();
     }
   };
-  const unsubscribeCamera = controller.subscribeCamera(syncContext);
-  const unsubscribeDimensions = controller.subscribeDimensions(syncContext);
-  syncContext();
+  const unsubscribeCamera = controller.subscribeCamera(updateCursor);
+  updateCursor();
 
   return {
     setVoxels(voxels: VoxelGrid) {

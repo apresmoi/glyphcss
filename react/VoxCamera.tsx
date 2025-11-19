@@ -76,16 +76,20 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   },
   ref
 ) {
+  const initialCameraRef = useRef({
+    zoom,
+    pan,
+    tilt,
+    rotX,
+    rotY
+  });
+  const initialControlsRef = useRef({
+    invert: resolveInvertMultiplier(invert ?? DEFAULTS.invert ?? DEFAULT_INVERT_MULTIPLIER)
+  });
   const controller = useMemo(() => {
     return createSceneController({
-      camera: {
-        zoom: DEFAULTS.zoom,
-        pan: DEFAULTS.pan,
-        tilt: DEFAULTS.tilt,
-        rotX: DEFAULTS.rotX,
-        rotY: DEFAULTS.rotY
-      },
-      controls: { invert: DEFAULT_INVERT_MULTIPLIER }
+      camera: initialCameraRef.current,
+      controls: { invert: initialControlsRef.current.invert ?? DEFAULT_INVERT_MULTIPLIER }
     });
   }, []);
 
@@ -93,7 +97,10 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   const autoRotateRef = useRef<AutoRotateHandle | null>(null);
   const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
 
-  useEffect(() => controller.subscribeBoxStyle((style) => setBoxStyle(style)), [controller]);
+  useEffect(() => {
+    const unsubscribe = controller.subscribeBoxStyle((style) => setBoxStyle(style));
+    return () => unsubscribe();
+  }, [controller]);
 
   useEffect(() => {
     controller.updateCamera({ zoom, pan, tilt, rotX, rotY });

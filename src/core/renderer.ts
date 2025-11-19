@@ -18,7 +18,6 @@ export type ScenePatch =
   | AddVoxelPatch
   | UpdateVoxelPatch
   | RemoveVoxelPatch
-  | LayerMetaPatch
   | WallsMetaPatch
   | FloorMetaPatch;
 
@@ -42,15 +41,6 @@ export interface UpdateVoxelPatch extends VoxelPatchBase {
 
 export interface RemoveVoxelPatch extends VoxelPatchBase {
   type: "removeVoxel";
-}
-
-export interface LayerMetaPatch {
-  type: "layerMeta";
-  layerIndex: number;
-  rows: number;
-  cols: number;
-  tileSize: number;
-  elevation: number;
 }
 
 export interface WallsMetaPatch {

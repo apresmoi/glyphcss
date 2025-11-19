@@ -1,9 +1,8 @@
 import { createVoxScene } from "../core/scene";
-import type { GridContext, VoxIllustrationHandle, VoxelGrid } from "../core";
+import { wallMasksEqual } from "../core/context";
+import type { GridContext, SceneOptions, VoxIllustrationHandle, VoxelGrid, WallsMask } from "../core";
 
-export interface SceneHostOptions {
-  document?: Document;
-  context?: Partial<GridContext>;
+export interface SceneHostOptions extends Pick<SceneOptions, "document" | "context"> {
   voxels?: VoxelGrid;
 }
 
@@ -13,6 +12,7 @@ export interface SceneHost {
   updateContext(context?: Partial<GridContext>): void;
   setVoxels(voxels: VoxelGrid): void;
   setContext(context: Partial<GridContext>): void;
+  syncController(controller: { getWalls(): WallsMask; subscribeCamera(listener: () => void): () => void }, buildContext: () => Partial<GridContext>): void;
   destroy(): void;
   getHandle(): VoxIllustrationHandle | null;
 }
@@ -20,6 +20,8 @@ export interface SceneHost {
 export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
   let targetElement: HTMLElement | null = null;
   let handle: VoxIllustrationHandle | null = null;
+  let unsubscribeCamera: (() => void) | null = null;
+  let lastWalls: WallsMask | null = null;
 
   let currentVoxelGrid: VoxelGrid = options.voxels ?? [];
   let currentContext: Partial<GridContext> = { ...(options.context ?? {}) };
@@ -68,6 +70,8 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
 
   function destroy() {
     destroyHandle();
+    unsubscribeCamera?.();
+    unsubscribeCamera = null;
     targetElement = null;
   }
 
@@ -86,6 +90,18 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     updateContext,
     setVoxels,
     setContext,
+    syncController(controller, buildContext) {
+      unsubscribeCamera?.();
+      lastWalls = controller.getWalls();
+      unsubscribeCamera = controller.subscribeCamera(() => {
+        const nextWalls = controller.getWalls();
+        if (lastWalls && wallMasksEqual(lastWalls, nextWalls)) {
+          return;
+        }
+        lastWalls = nextWalls;
+        updateContext(buildContext());
+      });
+    },
     destroy,
     getHandle
   };
