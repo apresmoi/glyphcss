@@ -274,6 +274,7 @@ function syncSceneStructure(
   syncFloor(state, context);
   syncCeiling(state, documentRef, context, depthLayers);
   syncWalls(state, documentRef, context, depthLayers);
+  syncLayerElevations(state, context);
 }
 
 function syncFloor(state: RenderState, context: GridContext): void {
@@ -419,6 +420,13 @@ function applyWallLighting(el: HTMLElement, key: keyof WallsMask, context: GridC
   const base = context.wallColor ?? DEFAULT_WALL_COLOR;
   const shaded = shadeWallFace(base, key);
   el.style.backgroundColor = shaded;
+}
+
+function syncLayerElevations(state: RenderState, context: GridContext): void {
+  const elevation = context.layerElevation ?? context.tileSize ?? 0;
+  for (const [layerIndex, record] of state.layers.entries()) {
+    record.element.style.transform = `translateZ(${layerIndex * elevation}px)`;
+  }
 }
 
 function snapshotWallDimensions(context: GridContext, depthLayers: number): WallDimensionsSnapshot {

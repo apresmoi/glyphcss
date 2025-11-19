@@ -15,7 +15,6 @@ export interface SceneControllerOptions {
 }
 
 export interface ControllerControls {
-  dragSpeed: number;
   invert: number;
 }
 
@@ -49,9 +48,10 @@ const DEFAULT_DIMENSIONS: Required<SceneDimensions> = {
 };
 
 const DEFAULT_CONTROLS: ControllerControls = {
-  dragSpeed: 5,
   invert: 1
 };
+
+const POINTER_DRAG_SPEED = 5;
 
 export function createSceneController(
   options: SceneControllerOptions = {}
@@ -147,9 +147,8 @@ export function createSceneController(
   function handlePointerMove(event: PointerEvent) {
     if (!dragState.isDragging) return;
     const invert = controls.invert || 1;
-    const dragSpeed = controls.dragSpeed || 1;
-    const dX = ((event.clientX - dragState.pointerX) * invert) / dragSpeed;
-    const dY = ((event.clientY - dragState.pointerY) * invert) / dragSpeed;
+    const dX = ((event.clientX - dragState.pointerX) * invert) / POINTER_DRAG_SPEED;
+    const dY = ((event.clientY - dragState.pointerY) * invert) / POINTER_DRAG_SPEED;
     const nextRotY = (camera.state.rotY - dX + 360) % 360;
     const nextRotX = Math.max(0, Math.min(100, camera.state.rotX - dY));
     camera.update({ rotX: nextRotX, rotY: nextRotY });

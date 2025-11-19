@@ -1,5 +1,8 @@
 node_modules/
 dist/
 docs/
+examples/headless/testsuite.html
+examples/react/testsuite.html
+examples/vue/testsuite.html
 .DS_Store
 package-lock.json

@@ -25,7 +25,6 @@ export interface HeadlessCameraOptions {
   rotX?: number;
   rotY?: number;
   invert?: boolean | number;
-  dragSpeed?: number;
   animate?: AutoRotateOption;
 }
 
@@ -141,9 +140,9 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     const analysis = buildSceneContext({
       grid: currentVoxels,
       context: {
-        rows: scene.rows ?? dims.rows,
-        cols: scene.cols ?? dims.cols,
-        depth: scene.depth ?? dims.depth,
+        rows: dims.rows,
+        cols: dims.cols,
+        depth: dims.depth,
         showWalls: scene.showWalls,
         showFloor: scene.showFloor,
         projection,
@@ -158,6 +157,13 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   scene.host.mount(scene.element, currentVoxels, buildContext());
   scene.host.syncController(controller, buildContext);
+  patchSceneOptions(scene, (key) => {
+    if (key === "projection") {
+      controller.setProjection?.(scene.projection ?? "cubic");
+    }
+    scene.host.setState({ context: buildContext() });
+    scene.host.flush();
+  });
 
   const unsubscribeBox = controller.subscribeBoxStyle((style) => Object.assign(scene.element.style, style));
   const updateContextFromDimensions = () => {
@@ -192,6 +198,27 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   };
 }
 
+type ReactiveSceneOption = "showWalls" | "showFloor" | "projection";
+
+function patchSceneOptions(scene: HeadlessSceneHandle, onChange: (key: ReactiveSceneOption) => void): void {
+  const keys: ReactiveSceneOption[] = ["showWalls", "showFloor", "projection"];
+  for (const key of keys) {
+    let value = scene[key];
+    Object.defineProperty(scene, key, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return value;
+      },
+      set(next) {
+        if (value === next) return;
+        value = next as typeof value;
+        onChange(key);
+      }
+    });
+  }
+}
+
 function mergeControllerOptions(options: HeadlessCameraOptions): SceneControllerOptions {
   const base = options.controller ?? {};
   const cameraOverrides = filterUndefined({
@@ -202,8 +229,7 @@ function mergeControllerOptions(options: HeadlessCameraOptions): SceneController
     rotY: options.rotY
   });
   const controlsOverrides = filterUndefined<Partial<ControllerControls>>({
-    invert: normalizeInvert(options.invert),
-    dragSpeed: options.dragSpeed
+    invert: normalizeInvert(options.invert)
   });
   return {
     ...base,
