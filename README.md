@@ -99,7 +99,7 @@ Svelte
 - `rotX`, `rotY` – rotate around the X/Y axis.
 - `perspective` – control CSS perspective depth (or disable it).
 - `invert` – flip pointer drag direction.
-- `projection` – pick `"cubic"` or `"dimetric"` presets; affects wall visibility and layer spacing.
+- `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing.
 
 ### VoxScene props
 
