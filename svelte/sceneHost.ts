@@ -1,6 +1,6 @@
 import { createSceneHost } from "@voxcss/controller/createSceneHost";
-import { buildSceneContextSnapshot, syncControllerDimensions } from "@voxcss/core";
-import type { SceneController, VoxelGrid, ProjectionMode } from "@voxcss/core";
+import { buildSceneContext } from "@voxcss/core";
+import type { SceneController, VoxelGrid, ProjectionMode, SceneDimensions } from "@voxcss/core";
 
 interface SceneHostActionOptions {
   controller: SceneController;
@@ -25,42 +25,44 @@ export function sceneHost(node: HTMLElement, options: SceneHostActionOptions) {
   applyBoxStyle(current.controller.getBoxStyle());
   const unsubscribeBox = current.controller.subscribeBoxStyle(applyBoxStyle);
 
-  const buildContext = () => {
+  const applyDimensions = (next: Required<SceneDimensions>) => {
+    const currentDims = current.controller.getDimensions();
+    if (
+      next.rows !== currentDims.rows ||
+      next.cols !== currentDims.cols ||
+      next.depth !== currentDims.depth
+    ) {
+      current.controller.setDimensions(next);
+    }
+  };
+
+  const buildAnalysis = () => {
     const projectionMode = current.dimetric ? "dimetric" : current.projection;
     current.controller.setProjection?.(projectionMode);
-    return buildSceneContextSnapshot({
-      voxels: current.voxels,
-      rows: current.rows,
-      cols: current.cols,
-      depth: current.depth,
-      showWalls: current.showWalls,
-      showFloor: current.showFloor,
-      projection: projectionMode,
-      walls: current.controller.getWalls()
+    return buildSceneContext({
+      grid: current.voxels,
+      context: {
+        rows: current.rows,
+        cols: current.cols,
+        depth: current.depth,
+        showWalls: current.showWalls,
+        showFloor: current.showFloor,
+        projection: projectionMode,
+        walls: current.controller.getWalls()
+      }
     });
   };
 
-  host.mount(node, current.voxels, buildContext());
-  host.syncController(current.controller, buildContext);
-  syncControllerDimensions({
-    controller: current.controller,
-    voxels: current.voxels,
-    rows: current.rows,
-    cols: current.cols,
-    depth: current.depth
-  });
+  const initialAnalysis = buildAnalysis();
+  host.mount(node, current.voxels, initialAnalysis.snapshot);
+  host.syncController(current.controller, () => buildAnalysis().snapshot);
+  applyDimensions(initialAnalysis.dimensions);
 
   function update(next: SceneHostActionOptions) {
     current = next;
-    const context = buildContext();
-    host.update(current.voxels, context);
-    syncControllerDimensions({
-      controller: current.controller,
-      voxels: current.voxels,
-      rows: current.rows,
-      cols: current.cols,
-      depth: current.depth
-    });
+    const analysis = buildAnalysis();
+    host.update(current.voxels, analysis.snapshot);
+    applyDimensions(analysis.dimensions);
   }
 
   return {

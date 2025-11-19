@@ -12,16 +12,23 @@ export type {
   VoxcssInstance,
   VoxIllustrationOptions,
   VoxIllustrationHandle,
-  ProjectionMode
+  ProjectionMode,
+  SceneContextSnapshot,
+  VoxelLookup,
+  VoxelLookupBuildResult,
+  SceneAnalysisPayload
 } from "./types";
+export type { SceneContextBuildArgs, SceneContextBuildResult } from "./context";
 export { BASE_TILE, DEFAULT_PROJECTION } from "./types";
 
 export {
+  buildSceneContext,
   buildContext,
   buildVoxelLookups,
   buildSceneContextSnapshot,
   syncControllerDimensions,
   inferGridDimensions,
+  computeGridChecksum,
   computeWallMask,
   wallMasksEqual,
   getVoxelFromLookup,

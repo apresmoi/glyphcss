@@ -31,7 +31,9 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     if (voxels && voxels !== currentVoxelGrid) {
       currentVoxelGrid = voxels;
     }
-    if (context) currentContext = { ...currentContext, ...context };
+    if (context) {
+      currentContext = context;
+    }
     destroyHandle();
     handle = createVoxScene({
       element: target,
@@ -46,7 +48,7 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
       currentVoxelGrid = voxels;
     }
     if (context) {
-      currentContext = { ...currentContext, ...context };
+      currentContext = context;
     }
     if (!handle) return;
     handle.update(currentVoxelGrid, currentContext);
@@ -54,7 +56,7 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
 
   function updateContext(context?: Partial<GridContext>) {
     if (context) {
-      currentContext = { ...currentContext, ...context };
+      currentContext = context;
     }
     if (!handle) return;
     handle.update(currentVoxelGrid, currentContext);

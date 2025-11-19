@@ -1,6 +1,10 @@
-import type { GridContext, SceneDimensions, Voxel, VoxelGrid } from "./types";
-import type { VoxelLookup } from "./context";
-import { buildContext, buildVoxelLookups } from "./context";
+import type { GridContext, SceneDimensions, SceneAnalysisPayload, Voxel, VoxelGrid, VoxelLookup, VoxelLookupBuildResult } from "./types";
+import {
+  buildSceneContext,
+  buildVoxelLookups,
+  computeGridChecksum,
+  inferGridDimensions
+} from "./context";
 
 export interface SceneSnapshot {
   grid: VoxelGrid;
@@ -9,25 +13,14 @@ export interface SceneSnapshot {
   context: GridContext;
   dimensions: Required<SceneDimensions>;
   userContext: Partial<GridContext>;
+  gridChecksum: number;
 }
 
 export interface SceneSnapshotArgs {
   grid: VoxelGrid;
   userContext?: Partial<GridContext>;
   previous?: SceneSnapshot | null;
-}
-
-function buildLayerBuckets(grid: VoxelGrid, depth: number): Voxel[][] {
-  const layerCount = Math.max(depth, 0);
-  if (!layerCount) return [];
-  const buckets: Voxel[][] = Array.from({ length: layerCount }, () => []);
-  for (const voxel of grid ?? []) {
-    if (!voxel) continue;
-    const layerIndex = Math.max(0, Math.floor(voxel.z ?? 0));
-    if (!buckets[layerIndex]) continue;
-    buckets[layerIndex].push(voxel);
-  }
-  return buckets;
+  analysis?: SceneAnalysisPayload | null;
 }
 
 export function deriveSceneSnapshot(args: SceneSnapshotArgs): SceneSnapshot {
@@ -38,32 +31,76 @@ export function deriveSceneSnapshot(args: SceneSnapshotArgs): SceneSnapshot {
     ...(args.userContext ?? {})
   };
 
-  const gridChanged = !args.previous || args.previous.grid !== grid;
-
-  const lookups =
-    gridChanged || !args.previous
-      ? buildVoxelLookups(grid, userContext.rows, userContext.cols)
-      : args.previous.lookups;
-
-  const context = buildContext(userContext, grid, lookups);
-
-  const dimensions: Required<SceneDimensions> = {
-    rows: context.rows,
-    cols: context.cols,
-    depth: context.depth
+  const inferred = inferGridDimensions(grid);
+  const targetRows = Math.max(userContext.rows ?? inferred.rows, 1);
+  const targetCols = Math.max(userContext.cols ?? inferred.cols, 1);
+  const targetDepth = Math.max(userContext.depth ?? inferred.depth, 0);
+  const resolvedDimensions: Required<SceneDimensions> = {
+    rows: targetRows,
+    cols: targetCols,
+    depth: targetDepth
   };
 
-  const layers =
-    gridChanged || !args.previous || args.previous.context.depth !== context.depth
-      ? buildLayerBuckets(grid, context.depth)
-      : args.previous.layers;
+  const previous = args.previous ?? null;
+  const gridChanged = !previous || previous.grid !== grid;
+  const dimensionsChanged =
+    !previous ||
+    previous.dimensions.rows !== targetRows ||
+    previous.dimensions.cols !== targetCols ||
+    previous.dimensions.depth !== targetDepth;
+
+  const providedAnalysis = args.analysis;
+  let checksum: number | null = null;
+  const ensureChecksum = () => {
+    if (checksum === null) {
+      checksum = computeGridChecksum(grid);
+    }
+    return checksum;
+  };
+
+  let lookupData: VoxelLookupBuildResult | null = null;
+
+  if (
+    providedAnalysis &&
+    providedAnalysis.dimensions.rows === targetRows &&
+    providedAnalysis.dimensions.cols === targetCols &&
+    providedAnalysis.dimensions.depth === targetDepth &&
+    providedAnalysis.checksum === ensureChecksum()
+  ) {
+    lookupData = providedAnalysis.lookupData;
+    checksum = providedAnalysis.checksum;
+  }
+
+  if (!lookupData && previous && !gridChanged && !dimensionsChanged) {
+    if (previous.gridChecksum === ensureChecksum()) {
+      lookupData = {
+        lookups: previous.lookups,
+        layers: previous.layers,
+        checksum: previous.gridChecksum
+      };
+      checksum = previous.gridChecksum;
+    }
+  }
+
+  if (!lookupData) {
+    lookupData = buildVoxelLookups(grid, targetRows, targetCols, targetDepth);
+    checksum = lookupData.checksum;
+  }
+
+  const built = buildSceneContext({
+    grid,
+    context: userContext,
+    lookupData,
+    dimensions: resolvedDimensions
+  });
 
   return {
     grid,
-    layers,
-    lookups,
-    context,
-    dimensions,
-    userContext
+    layers: lookupData.layers,
+    lookups: lookupData.lookups,
+    context: built.context,
+    dimensions: built.dimensions,
+    userContext,
+    gridChecksum: checksum ?? lookupData.checksum
   };
 }

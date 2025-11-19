@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createSceneHost } from "@voxcss/controller/createSceneHost";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { buildSceneContextSnapshot, syncControllerDimensions } from "@voxcss/core";
+import { buildSceneContext } from "@voxcss/core";
 import type { SceneHost } from "@voxcss/controller/createSceneHost";
-import type { ProjectionMode, VoxelGrid } from "@voxcss/core";
+import type { ProjectionMode, VoxelGrid, SceneDimensions } from "@voxcss/core";
 
 interface SceneHostParams {
   containerRef: RefObject<HTMLDivElement>;
@@ -42,34 +42,36 @@ export function useSceneHost(params: SceneHostParams): Record<string, string> {
     return () => unsubscribe();
   }, [controller]);
 
-  const buildContextRef = useRef(() =>
-    buildSceneContextSnapshot({
-      voxels,
-      rows,
-      cols,
-      depth,
-      showWalls,
-      showFloor,
-      projection,
-      walls: controller.getWalls()
-    })
-  );
+  const applyDimensions = (next: Required<SceneDimensions>) => {
+    const current = controller.getDimensions();
+    if (
+      next.rows !== current.rows ||
+      next.cols !== current.cols ||
+      next.depth !== current.depth
+    ) {
+      controller.setDimensions(next);
+    }
+  };
 
-  const buildContext = () => {
+  const buildAnalysis = () => {
     const projectionMode: ProjectionMode | undefined = dimetric ? "dimetric" : projection;
     controller.setProjection?.(projectionMode);
-    return buildSceneContextSnapshot({
-      voxels,
-      rows,
-      cols,
-      depth,
-      showWalls,
-      showFloor,
-      projection: projectionMode,
-      walls: controller.getWalls()
+    return buildSceneContext({
+      grid: voxels,
+      context: {
+        rows,
+        cols,
+        depth,
+        showWalls,
+        showFloor,
+        projection: projectionMode,
+        walls: controller.getWalls()
+      }
     });
   };
-  buildContextRef.current = buildContext;
+
+  const buildContextRef = useRef(() => buildAnalysis().snapshot);
+  buildContextRef.current = () => buildAnalysis().snapshot;
 
   useEffect(() => {
     const host = createSceneHost();
@@ -91,15 +93,16 @@ export function useSceneHost(params: SceneHostParams): Record<string, string> {
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const context = buildContextRef.current();
+    const analysis = buildAnalysis();
+    const context = analysis.snapshot;
     if (prevVoxelsRef.current !== voxels) {
       prevVoxelsRef.current = voxels;
       host.update(voxels, context);
     } else {
       host.updateContext(context);
     }
-    syncControllerDimensions({ controller, voxels, rows, cols, depth });
-  }, [controller, voxels, rows, cols, depth, showWalls, showFloor, projection, dimetric, buildContext]);
+    applyDimensions(analysis.dimensions);
+  }, [controller, voxels, rows, cols, depth, showWalls, showFloor, projection, dimetric]);
 
   return boxStyle;
 }

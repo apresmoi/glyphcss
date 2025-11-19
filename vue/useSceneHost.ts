@@ -1,7 +1,7 @@
 import { ref, onMounted, onBeforeUnmount, watch, type Ref } from "vue";
 import { createSceneHost } from "@voxcss/controller/createSceneHost";
-import { buildSceneContextSnapshot, syncControllerDimensions } from "@voxcss/core";
-import type { SceneController, VoxelGrid, ProjectionMode } from "@voxcss/core";
+import { buildSceneContext } from "@voxcss/core";
+import type { SceneController, VoxelGrid, ProjectionMode, SceneDimensions } from "@voxcss/core";
 
 interface SceneHostParams {
   controller: SceneController;
@@ -25,36 +25,41 @@ export function useSceneHost(params: SceneHostParams) {
     boxStyle.value = style;
   });
 
-  const buildContext = () => {
-    const projectionMode: ProjectionMode | undefined = dimetric.value ? "dimetric" : projection.value;
-    controller.setProjection?.(projectionMode);
-    return buildSceneContextSnapshot({
-      voxels: voxels.value,
-      rows: rows.value,
-      cols: cols.value,
-      depth: depth.value,
-      showWalls: showWalls.value,
-      showFloor: showFloor.value,
-      projection: projectionMode,
-      walls: controller.getWalls()
-    });
+  const applyDimensions = (next: Required<SceneDimensions>) => {
+    const current = controller.getDimensions();
+    if (
+      next.rows !== current.rows ||
+      next.cols !== current.cols ||
+      next.depth !== current.depth
+    ) {
+      controller.setDimensions(next);
+    }
   };
 
-  const syncDimensions = () =>
-    syncControllerDimensions({
-      controller,
-      voxels: voxels.value,
-      rows: rows.value,
-      cols: cols.value,
-      depth: depth.value
+  const buildAnalysis = () => {
+    const projectionMode: ProjectionMode | undefined = dimetric.value ? "dimetric" : projection.value;
+    controller.setProjection?.(projectionMode);
+    return buildSceneContext({
+      grid: voxels.value,
+      context: {
+        rows: rows.value,
+        cols: cols.value,
+        depth: depth.value,
+        showWalls: showWalls.value,
+        showFloor: showFloor.value,
+        projection: projectionMode,
+        walls: controller.getWalls()
+      }
     });
+  };
 
   onMounted(() => {
     const node = hostElement.value;
     if (!node) return;
-    hostRef.value.mount(node, voxels.value, buildContext());
-    syncDimensions();
-    hostRef.value.syncController(controller, buildContext);
+    const analysis = buildAnalysis();
+    hostRef.value.mount(node, voxels.value, analysis.snapshot);
+    applyDimensions(analysis.dimensions);
+    hostRef.value.syncController(controller, () => buildAnalysis().snapshot);
   });
 
   onBeforeUnmount(() => {
@@ -65,17 +70,19 @@ export function useSceneHost(params: SceneHostParams) {
   watch(
     () => voxels.value,
     () => {
-      hostRef.value.update(voxels.value, buildContext());
-      syncDimensions();
+      const analysis = buildAnalysis();
+      hostRef.value.update(voxels.value, analysis.snapshot);
+      applyDimensions(analysis.dimensions);
     }
   );
 
   watch(
     () => [rows.value, cols.value, depth.value, showWalls.value, showFloor.value, projection.value, dimetric.value],
     () => {
-      hostRef.value.updateContext(buildContext());
-      hostRef.value.syncController(controller, buildContext);
-      syncDimensions();
+      const analysis = buildAnalysis();
+      hostRef.value.updateContext(analysis.snapshot);
+      hostRef.value.syncController(controller, () => buildAnalysis().snapshot);
+      applyDimensions(analysis.dimensions);
     }
   );
 

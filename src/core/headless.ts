@@ -6,7 +6,7 @@ import {
 } from "../controller/createSceneController";
 import { createSceneHost, type SceneHost } from "../controller/createSceneHost";
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
-import { buildSceneContextSnapshot, inferGridDimensions } from "./context";
+import { buildSceneContext, inferGridDimensions } from "./context";
 import type { AutoRotateOption } from "./camera";
 import type { SceneDimensions, VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
@@ -137,22 +137,22 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     const cameraState = controller.getCameraState();
     const projection = scene.projection ?? "cubic";
     controller.setProjection?.(projection);
-    const base = buildSceneContextSnapshot({
-      voxels: currentVoxels,
-      rows: scene.rows,
-      cols: scene.cols,
-      depth: scene.depth,
-      showWalls: scene.showWalls,
-      showFloor: scene.showFloor,
-      projection,
-      walls: controller.getWalls(),
+    const analysis = buildSceneContext({
+      grid: currentVoxels,
+      context: {
+        rows: scene.rows ?? dims.rows,
+        cols: scene.cols ?? dims.cols,
+        depth: scene.depth ?? dims.depth,
+        showWalls: scene.showWalls,
+        showFloor: scene.showFloor,
+        projection,
+        walls: controller.getWalls(),
+        rotX: cameraState.rotX,
+        rotY: cameraState.rotY
+      },
       dimensions: dims
     });
-    return {
-      ...base,
-      rotX: cameraState.rotX,
-      rotY: cameraState.rotY
-    };
+    return analysis.snapshot;
   };
 
   scene.host.mount(scene.element, currentVoxels, buildContext());

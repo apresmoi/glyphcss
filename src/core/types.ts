@@ -19,10 +19,28 @@ export type VoxelGrid = Voxel[];
 
 export const BASE_TILE = 50;
 
+export interface VoxelLookup {
+  rows: number;
+  cols: number;
+  voxels: (Voxel | null)[];
+}
+
+export interface VoxelLookupBuildResult {
+  lookups: VoxelLookup[];
+  layers: Voxel[][];
+  checksum: number;
+}
+
 export interface SceneDimensions {
   rows?: number;
   cols?: number;
   depth?: number;
+}
+
+export interface SceneAnalysisPayload {
+  lookupData: VoxelLookupBuildResult;
+  dimensions: Required<SceneDimensions>;
+  checksum: number;
 }
 
 export interface WallsMask {
@@ -165,4 +183,12 @@ export interface SceneContextSnapshot {
   projection: ProjectionMode;
   walls: WallsMask;
   resolveTexture?: GridContext["resolveTexture"];
+  lighting?: GridContext["lighting"];
+  rotX?: number;
+  rotY?: number;
+  layerElevation: number;
+  tileSize: number;
+  offsets: OffsetMap;
+  wallColor: string;
+  analysis?: SceneAnalysisPayload;
 }

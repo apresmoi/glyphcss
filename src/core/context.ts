@@ -3,41 +3,112 @@ import type {
   GridContext,
   OffsetMap,
   ProjectionMode,
+  SceneAnalysisPayload,
   SceneContextSnapshot,
   SceneDimensions,
   Voxel,
   VoxelGrid,
+  VoxelLookup,
+  VoxelLookupBuildResult,
   WallsMask
 } from "./types";
 import { BASE_TILE, DEFAULT_OFFSETS, DEFAULT_PROJECTION, DEFAULT_WALLS, DEFAULT_WALL_COLOR } from "./types";
 
-export interface VoxelLookup {
-  rows: number;
-  cols: number;
-  voxels: (Voxel | null)[];
+export interface SceneContextBuildArgs {
+  grid: VoxelGrid;
+  context?: Partial<GridContext>;
+  lookupData?: VoxelLookupBuildResult | null;
+  dimensions?: SceneDimensions;
 }
 
-export function buildContext(
-  partial: Partial<GridContext>,
-  grid: VoxelGrid,
-  lookups?: VoxelLookup[]
-): GridContext {
+export interface SceneContextBuildResult {
+  context: GridContext;
+  snapshot: SceneContextSnapshot;
+  dimensions: Required<SceneDimensions>;
+  lookupData: VoxelLookupBuildResult;
+  analysis: SceneAnalysisPayload;
+}
+
+const lookupCache = new WeakMap<VoxelGrid, Map<string, { checksum: number; data: VoxelLookupBuildResult }>>();
+
+
+function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensions>; checksum: number } {
+  let maxRow = 0;
+  let maxCol = 0;
+  let maxDepth = 0;
+  let checksum = hashInit(grid.length);
+  for (const voxel of grid ?? []) {
+    if (!voxel) continue;
+    if (typeof voxel.x === "number") {
+      const rowEnd = typeof voxel.x2 === "number" ? voxel.x2 : voxel.x + 1;
+      if (rowEnd > maxRow) maxRow = rowEnd;
+    }
+    if (typeof voxel.y === "number") {
+      const colEnd = typeof voxel.y2 === "number" ? voxel.y2 : voxel.y + 1;
+      if (colEnd > maxCol) maxCol = colEnd;
+    }
+    const depthIndex = Math.max(0, Math.floor(voxel.z ?? 0)) + 1;
+    if (depthIndex > maxDepth) maxDepth = depthIndex;
+    checksum = hashVoxel(checksum, voxel);
+  }
+  const dimensions: Required<SceneDimensions> = {
+    rows: maxRow > 0 ? maxRow : FALLBACK_ROWS_COLS,
+    cols: maxCol > 0 ? maxCol : FALLBACK_ROWS_COLS,
+    depth: maxDepth > 0 ? maxDepth : FALLBACK_DEPTH
+  };
+  return {
+    dimensions,
+    checksum: hashFinalize(checksum)
+  };
+}
+
+function getLookupCache(grid: VoxelGrid): Map<string, { checksum: number; data: VoxelLookupBuildResult }> {
+  let cache = lookupCache.get(grid);
+  if (!cache) {
+    cache = new Map();
+    lookupCache.set(grid, cache);
+  }
+  return cache;
+}
+
+function makeLookupCacheKey(rows: number, cols: number, depth: number): string {
+  return `${rows}:${cols}:${depth}`;
+}
+
+function acquireLookupData(grid: VoxelGrid, rows: number, cols: number, depth: number, checksumHint?: number): VoxelLookupBuildResult {
+  const cache = getLookupCache(grid);
+  const key = makeLookupCacheKey(rows, cols, depth);
+  const cached = cache.get(key);
+  if (cached && checksumHint !== undefined && cached.checksum === checksumHint) {
+    return cached.data;
+  }
+  const checksum = checksumHint ?? computeGridChecksum(grid);
+  if (cached && cached.checksum === checksum) {
+    return cached.data;
+  }
+  const data = buildVoxelLookups(grid, rows, cols, depth);
+  cache.set(key, { checksum: data.checksum, data });
+  return data;
+}
+
+export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuildResult {
+  const grid = args.grid ?? [];
+  const partial = args.context ?? {};
+  const geometry = scanGridGeometry(grid);
+  const inferred = geometry.dimensions;
+  const dimensionOverrides = args.dimensions ?? {};
   const tileSize = BASE_TILE;
   const projection = partial.projection ?? DEFAULT_PROJECTION;
-  const inferred = inferGridDimensions(grid);
-  const rows = Math.max(partial.rows ?? inferred.rows, 1);
-  const cols = Math.max(partial.cols ?? inferred.cols, 1);
-  const depth = Math.max(partial.depth ?? inferred.depth, 0);
-  const lookupSource = lookups ?? buildVoxelLookups(grid, rows, cols);
+  const rows = Math.max(partial.rows ?? dimensionOverrides.rows ?? inferred.rows, 1);
+  const cols = Math.max(partial.cols ?? dimensionOverrides.cols ?? inferred.cols, 1);
+  const depth = Math.max(partial.depth ?? dimensionOverrides.depth ?? inferred.depth, 0);
 
   const hasAngles = partial.rotX !== undefined || partial.rotY !== undefined;
-  const baseWalls = hasAngles
-    ? computeWallMask(partial.rotX, partial.rotY)
-    : DEFAULT_WALLS;
-  const walls: WallsMask = {
-    ...baseWalls,
-    ...(partial.walls ?? {})
-  };
+  const resolvedWalls = partial.walls
+    ? { ...DEFAULT_WALLS, ...partial.walls }
+    : hasAngles
+      ? computeWallMask(partial.rotX, partial.rotY)
+      : { ...DEFAULT_WALLS };
 
   const offsets: OffsetMap = {
     ...DEFAULT_OFFSETS,
@@ -46,25 +117,85 @@ export function buildContext(
 
   const defaultLayerElevation = projection === "dimetric" ? tileSize / 2 : tileSize;
   const layerElevation = partial.layerElevation ?? defaultLayerElevation;
+  let lookupData = args.lookupData ?? null;
+  if (!lookupData) {
+    lookupData = acquireLookupData(grid, rows, cols, depth, geometry.checksum);
+  }
 
-  return {
+  const context: GridContext = {
     rows,
     cols,
     depth,
     tileSize,
     layerElevation,
     projection,
-    walls,
+    walls: resolvedWalls,
     offsets,
     showWalls: partial.showWalls ?? false,
     showFloor: partial.showFloor ?? false,
     rotX: partial.rotX,
     rotY: partial.rotY,
     wallColor: partial.wallColor ?? DEFAULT_WALL_COLOR,
-    getVoxel: (x: number, y: number, z: number) => getVoxelFromLookup(lookupSource, x, y, z),
+    getVoxel: (x: number, y: number, z: number) => getVoxelFromLookup(lookupData!.lookups, x, y, z),
     resolveTexture: partial.resolveTexture,
     lighting: partial.lighting
   };
+
+  const snapshot: SceneContextSnapshot = {
+    rows,
+    cols,
+    depth,
+    showWalls: context.showWalls,
+    showFloor: context.showFloor,
+    projection,
+    walls: { ...resolvedWalls },
+    resolveTexture: context.resolveTexture,
+    lighting: context.lighting,
+    rotX: context.rotX,
+    rotY: context.rotY,
+    layerElevation,
+    tileSize,
+    offsets,
+    wallColor: context.wallColor,
+    analysis: undefined
+  };
+
+  const analysisPayload: SceneAnalysisPayload = {
+    lookupData: lookupData!,
+    dimensions: {
+      rows,
+      cols,
+      depth
+    },
+    checksum: lookupData!.checksum
+  };
+
+  snapshot.analysis = analysisPayload;
+
+  const result: SceneContextBuildResult = {
+    context,
+    snapshot,
+    dimensions: {
+      rows,
+      cols,
+      depth
+    },
+    lookupData: lookupData!,
+    analysis: analysisPayload
+  };
+
+  return result;
+}
+
+export function buildContext(
+  partial: Partial<GridContext>,
+  grid: VoxelGrid,
+  lookups?: VoxelLookup[]
+): GridContext {
+  const lookupData = lookups
+    ? { lookups, layers: Array.from({ length: lookups.length }, () => [] as Voxel[]), checksum: 0 }
+    : undefined;
+  return buildSceneContext({ grid, context: partial, lookupData }).context;
 }
 
 export function computeWallMask(rotX: number = 65, rotY: number = 45): WallsMask {
@@ -95,22 +226,31 @@ export function wallMasksEqual(a?: WallsMask | null, b?: WallsMask | null): bool
   );
 }
 
-export function buildVoxelLookups(grid: VoxelGrid, rows?: number, cols?: number): VoxelLookup[] {
+export function buildVoxelLookups(grid: VoxelGrid, rows?: number, cols?: number, depthOverride?: number): VoxelLookupBuildResult {
   const inferred = inferGridDimensions(grid);
   const targetRows = Math.max(rows ?? inferred.rows, 1);
   const targetCols = Math.max(cols ?? inferred.cols, 1);
-  const depth = Math.max(inferred.depth, 0);
-  if (!depth) return [];
+  const depth = Math.max(depthOverride ?? inferred.depth, 0);
+  if (!depth) {
+    return { lookups: [], layers: [], checksum: hashFinalize(hashInit(0)) };
+  }
   const lookups: VoxelLookup[] = Array.from({ length: depth }, () => ({
     rows: targetRows,
     cols: targetCols,
     voxels: new Array<Voxel | null>(targetRows * targetCols).fill(null)
   }));
+  const layers: Voxel[][] = Array.from({ length: depth }, () => []);
+  let checksum = hashInit(grid.length);
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
     const layerIndex = Math.max(0, Math.floor(voxel.z ?? 0));
     const lookup = lookups[layerIndex];
-    if (!lookup) continue;
+    const layer = layers[layerIndex];
+    if (!lookup || !layer) {
+      checksum = hashVoxel(checksum, voxel);
+      continue;
+    }
+    layer.push(voxel);
     const { x2, y2 } = getVoxelBounds(voxel);
     for (let row = voxel.x; row < x2; row += 1) {
       if (row < 0 || row >= targetRows) continue;
@@ -119,31 +259,26 @@ export function buildVoxelLookups(grid: VoxelGrid, rows?: number, cols?: number)
         lookup.voxels[row * targetCols + col] = voxel;
       }
     }
+    checksum = hashVoxel(checksum, voxel);
   }
-  return lookups;
+  return { lookups, layers, checksum: hashFinalize(checksum) };
+}
+
+export function computeGridChecksum(grid: VoxelGrid): number {
+  let checksum = hashInit(grid.length);
+  for (const voxel of grid ?? []) {
+    if (!voxel) continue;
+    checksum = hashVoxel(checksum, voxel);
+  }
+  return hashFinalize(checksum);
 }
 
 const FALLBACK_ROWS_COLS = 16;
 const FALLBACK_DEPTH = 12;
 
 export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: number; depth: number } {
-  let maxRow = 0;
-  let maxCol = 0;
-  let maxDepth = 0;
-  for (const voxel of grid ?? []) {
-    if (typeof voxel?.x !== "number" || typeof voxel?.y !== "number") continue;
-    const rowEnd = typeof voxel.x2 === "number" ? voxel.x2 : voxel.x + 1;
-    const colEnd = typeof voxel.y2 === "number" ? voxel.y2 : voxel.y + 1;
-    if (rowEnd > maxRow) maxRow = rowEnd;
-    if (colEnd > maxCol) maxCol = colEnd;
-    const depthIndex = Math.max(0, Math.floor(voxel.z ?? 0)) + 1;
-    if (depthIndex > maxDepth) maxDepth = depthIndex;
-  }
-  return {
-    rows: maxRow > 0 ? maxRow : FALLBACK_ROWS_COLS,
-    cols: maxCol > 0 ? maxCol : FALLBACK_ROWS_COLS,
-    depth: maxDepth > 0 ? maxDepth : FALLBACK_DEPTH
-  };
+  const geometry = scanGridGeometry(grid);
+  return { ...geometry.dimensions };
 }
 
 export function getVoxelFromLookup(
@@ -163,6 +298,56 @@ export function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
     x2: voxel.x2 ?? voxel.x + 1,
     y2: voxel.y2 ?? voxel.y + 1
   };
+}
+
+const HASH_SEED = 2166136261;
+
+function hashInit(seed: number): number {
+  return Math.imul(HASH_SEED, seed + 1);
+}
+
+function hashNumber(hash: number, value: number | undefined): number {
+  const mixed = value ?? 0;
+  hash ^= mixed + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+  return hash | 0;
+}
+
+function hashStringValue(hash: number, value?: string): number {
+  if (!value) return hash;
+  let result = hash;
+  for (let i = 0; i < value.length; i += 1) {
+    result ^= value.charCodeAt(i) + 0x9e3779b9 + (result << 6) + (result >> 2);
+  }
+  return result | 0;
+}
+
+function hashObject(hash: number, value: unknown): number {
+  if (!value) return hash;
+  try {
+    const serialized = JSON.stringify(value);
+    return hashStringValue(hash, serialized ?? "");
+  } catch {
+    return hash;
+  }
+}
+
+function hashVoxel(hash: number, voxel: Voxel): number {
+  let result = hash;
+  result = hashNumber(result, voxel.x);
+  result = hashNumber(result, voxel.y);
+  result = hashNumber(result, voxel.z);
+  result = hashNumber(result, voxel.x2);
+  result = hashNumber(result, voxel.y2);
+  result = hashStringValue(result, voxel.color);
+  result = hashStringValue(result, voxel.texture);
+  result = hashStringValue(result, voxel.shape);
+  result = hashNumber(result, voxel.rot);
+  result = hashObject(result, voxel.data);
+  return result;
+}
+
+function hashFinalize(hash: number): number {
+  return hash >>> 0;
 }
 
 export function makeVoxelKey(voxel: Voxel): string {
@@ -188,23 +373,21 @@ export interface SceneContextInput {
 }
 
 export function buildSceneContextSnapshot(input: SceneContextInput): SceneContextSnapshot {
-  const inferred = inferGridDimensions(input.voxels);
-  const baseDimensions = input.dimensions ?? {};
-  const rows = Math.max(input.rows ?? baseDimensions.rows ?? inferred.rows, 1);
-  const cols = Math.max(input.cols ?? baseDimensions.cols ?? inferred.cols, 1);
-  const depth = Math.max(input.depth ?? baseDimensions.depth ?? inferred.depth, 0);
-  const projection = input.projection ?? DEFAULT_PROJECTION;
-  const walls = input.walls ? { ...input.walls } : { ...DEFAULT_WALLS };
-  return {
-    rows,
-    cols,
-    depth,
-    showWalls: Boolean(input.showWalls),
-    showFloor: Boolean(input.showFloor),
-    projection,
-    walls,
+  const snapshotContext: Partial<GridContext> = {
+    rows: input.rows,
+    cols: input.cols,
+    depth: input.depth,
+    showWalls: input.showWalls,
+    showFloor: input.showFloor,
+    projection: input.projection,
+    walls: input.walls,
     resolveTexture: input.resolveTexture
   };
+  return buildSceneContext({
+    grid: input.voxels,
+    context: snapshotContext,
+    dimensions: input.dimensions
+  }).snapshot;
 }
 
 export interface ControllerDimensionInput {
@@ -222,13 +405,12 @@ export function syncControllerDimensions({
   cols,
   depth
 }: ControllerDimensionInput): void {
-  const inferred = inferGridDimensions(voxels);
+  const analysis = buildSceneContext({
+    grid: voxels,
+    context: { rows, cols, depth }
+  });
+  const next = analysis.dimensions;
   const current = controller.getDimensions();
-  const next = {
-    rows: rows ?? inferred.rows ?? current.rows,
-    cols: cols ?? inferred.cols ?? current.cols,
-    depth: depth ?? inferred.depth ?? current.depth
-  };
   if (
     next.rows !== current.rows ||
     next.cols !== current.cols ||
