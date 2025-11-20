@@ -6,6 +6,8 @@ import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
+  ensureCameraController,
+  resolveCameraView,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
@@ -65,6 +67,9 @@ export function createCameraComponent() {
       this.slotPayload = null;
     },
     computed: {
+      cameraView() {
+        return resolveCameraView(this.slotPayload);
+      },
       controllerState() {
         return this.slotPayload?.camera;
       },
@@ -72,14 +77,14 @@ export function createCameraComponent() {
         return this.slotPayload?.boxStyle ?? {};
       },
       cursor(): string {
-        return this.slotPayload?.cursor ?? "default";
+        return this.cameraView.cursor;
       },
       walls() {
         return this.slotPayload?.walls;
       },
       sceneStyle(): Record<string, string> {
         return {
-          cursor: this.cursor
+          cursor: this.cameraView.cursor
         };
       }
     },
@@ -105,16 +110,17 @@ export function createCameraComponent() {
     render(h) {
       const vm = this as any;
       const slot = vm.$scopedSlots.default;
+      const view = vm.cameraView;
       const slotContent =
-        vm.controllerInstance && slot
+        view.ready && slot && view.slotProps
           ? slot({
               boxStyle: vm.boxStyle,
-              cursor: vm.cursor,
+              cursor: view.cursor,
               walls: vm.walls,
               camera: vm.controllerState,
-              controller: vm.controllerInstance
+              controller: ensureCameraController(view.controller)
             })
-          : vm.controllerInstance
+          : view.ready
             ? (vm.$slots.default as VNode[] | undefined)
             : undefined;
 

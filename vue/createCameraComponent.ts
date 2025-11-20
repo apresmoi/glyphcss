@@ -3,7 +3,8 @@ import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  type CameraSlotProps
+  ensureCameraController,
+  resolveCameraView
 } from "@voxcss/controller/createCameraComponentCore";
 import { useCameraBinding } from "./bindings";
 import { CONTROLLER_KEY } from "./controllerKey";
@@ -29,15 +30,12 @@ export function createCameraComponent() {
       const { elementRef, controller, slotProps, startAutoRotate, stopAutoRotate } = useCameraBinding(bindingProps);
       provide(CONTROLLER_KEY, controller);
 
-      const resolvedSlotProps = computed(() => slotProps.value);
-      const cursorStyle = computed(() => resolvedSlotProps.value?.cursor ?? "default");
+      const viewState = computed(() => resolveCameraView(slotProps.value));
+      const cursorStyle = computed(() => viewState.value.cursor);
 
       expose({
         get controller() {
-          if (!controller.value) {
-            throw new Error("voxcss: controller is not ready yet.");
-          }
-          return controller.value;
+          return ensureCameraController(viewState.value.controller);
         },
         startAutoRotate(config?: AutoRotateOption) {
           startAutoRotate(config ?? props.animate);
@@ -48,8 +46,9 @@ export function createCameraComponent() {
       });
 
       return () => {
-        const currentSlot = resolvedSlotProps.value;
-        const children = currentSlot && slots.default ? slots.default(currentSlot) : undefined;
+        const currentView = viewState.value;
+        const children =
+          currentView.ready && currentView.slotProps && slots.default ? slots.default(currentView.slotProps) : undefined;
 
         return h(
           "div",

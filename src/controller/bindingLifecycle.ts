@@ -7,7 +7,6 @@ export interface BindingLifecycle<TAdapter extends { sync(): void; destroy(): vo
   setOptions(options: TOptions | null): void;
   sync(): void;
   destroy(): void;
-  getAdapter(): TAdapter | null;
 }
 
 export function createBindingLifecycle<TAdapter extends { sync(): void; destroy(): void }, TOptions>(
@@ -44,9 +43,6 @@ export function createBindingLifecycle<TAdapter extends { sync(): void; destroy(
       adapter.destroy();
       element = null;
       options = null;
-    },
-    getAdapter() {
-      return destroyed ? null : adapter;
     }
   };
 }

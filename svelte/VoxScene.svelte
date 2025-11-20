@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getContext } from "svelte";
-  import type { SceneController, VoxelGrid, ProjectionMode } from "@voxcss/core";
+  import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
+  import type { SceneController } from "@voxcss/controller/createSceneController";
   import { CONTROLLER_KEY } from "./context";
   import { sceneBinding } from "./bindings";
   import { createSceneComponent } from "./createSceneComponent";

@@ -4,7 +4,6 @@ import {
   type CameraBindingOptions,
   type CameraRenderSnapshot
 } from "./createCameraBinding";
-import type { AutoRotateOption } from "../core/camera";
 import type { SceneController } from "./createSceneController";
 import { createElementBindingAdapter } from "./bindingAdapters";
 
@@ -20,9 +19,6 @@ export interface CameraBindingAdapterHooks {
 export interface CameraBindingAdapter {
   sync(): void;
   destroy(): void;
-  setAnimate(option: AutoRotateOption | false | undefined): void;
-  getSnapshot(): CameraRenderSnapshot | null;
-  getController(): SceneController | null;
 }
 
 export function createCameraBindingAdapter(hooks: CameraBindingAdapterHooks): CameraBindingAdapter {
@@ -70,11 +66,6 @@ export function createCameraBindingAdapter(hooks: CameraBindingAdapterHooks): Ca
 
   return {
     sync: () => adapter.sync(),
-    destroy: () => adapter.destroy(),
-    setAnimate(option) {
-      adapter.getHandle()?.setAnimate(option);
-    },
-    getSnapshot: () => currentSnapshot,
-    getController: () => currentController
+    destroy: () => adapter.destroy()
   };
 }

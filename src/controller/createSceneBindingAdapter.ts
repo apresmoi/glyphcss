@@ -5,13 +5,11 @@ import { extractSceneState } from "./sceneOptions";
 export interface SceneBindingAdapterHooks {
   getElement(): HTMLElement | null;
   getOptions(): Omit<SceneBindingOptions, "element"> | null;
-  onUpdate?(handle: SceneBindingHandle | null): void;
 }
 
 export interface SceneBindingAdapter {
   sync(): void;
   destroy(): void;
-  getHandle(): SceneBindingHandle | null;
 }
 
 export function createSceneBindingAdapter(hooks: SceneBindingAdapterHooks): SceneBindingAdapter {
@@ -24,16 +22,13 @@ export function createSceneBindingAdapter(hooks: SceneBindingAdapterHooks): Scen
       mount(element, options) {
         const binding = createSceneBinding({ ...options, element });
         binding.mount();
-        hooks.onUpdate?.(binding);
         return binding;
       },
       update(binding, options) {
         binding.update(extractSceneState(options));
-        hooks.onUpdate?.(binding);
       },
-      destroy(binding, _reason) {
+      destroy(binding) {
         binding.destroy();
-        hooks.onUpdate?.(null);
       },
       shouldRemount(previous, next) {
         return previous.options.controller !== next.options.controller;
@@ -43,7 +38,6 @@ export function createSceneBindingAdapter(hooks: SceneBindingAdapterHooks): Scen
 
   return {
     sync: () => adapter.sync(),
-    destroy: () => adapter.destroy(),
-    getHandle: () => adapter.getHandle()
+    destroy: () => adapter.destroy()
   };
 }

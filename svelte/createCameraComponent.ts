@@ -3,6 +3,7 @@ import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
+  resolveCameraView,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
@@ -45,7 +46,7 @@ export function createCameraComponent(config: SvelteCameraComponentConfig): Svel
       return slotProps;
     },
     getCursor() {
-      return slotProps?.cursor ?? "default";
+      return resolveCameraView(slotProps).cursor;
     },
     startAutoRotate(config?: AutoRotateOption | false) {
       bindingState.startAutoRotate(config);

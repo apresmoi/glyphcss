@@ -4,6 +4,8 @@ import type { SceneController } from "@voxcss/controller/createSceneController";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
+  ensureCameraController,
+  resolveCameraView,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
@@ -41,33 +43,30 @@ export function createCameraComponent({
   return forwardRef<VoxCameraHandle, ReactCameraComponentProps>(function VoxCameraFactory(props, ref) {
     const { children, ...rest } = props;
     const binding = useBinding(createCameraBindingProps(rest));
-    const slotProps = binding.slotProps;
+    const view = resolveCameraView(binding.slotProps);
 
     useImperativeHandle(
       ref,
       () => {
-        if (!binding.controller) {
-          throw new Error("voxcss: controller is not ready yet.");
-        }
         return {
-          controller: binding.controller,
+          controller: ensureCameraController(view.controller),
           startAutoRotate: binding.startAutoRotate,
           stopAutoRotate: binding.stopAutoRotate
         };
       },
-      [binding.controller, binding.startAutoRotate, binding.stopAutoRotate]
+      [view.controller, binding.startAutoRotate, binding.stopAutoRotate]
     );
 
     const renderedChildren =
-      slotProps && binding.controller
+      view.ready && view.slotProps
         ? typeof children === "function"
-          ? (children as CameraChildRender)(convertSlotProps(slotProps))
+          ? (children as CameraChildRender)(convertSlotProps(view.slotProps as CameraSlotProps))
           : children
         : null;
 
     return (
-      <SceneControllerContext.Provider value={binding.controller}>
-        <div ref={binding.containerRef} className={className} style={{ cursor: slotProps?.cursor ?? "default" }}>
+      <SceneControllerContext.Provider value={view.controller}>
+        <div ref={binding.containerRef} className={className} style={{ cursor: view.cursor }}>
           {renderedChildren}
         </div>
       </SceneControllerContext.Provider>
