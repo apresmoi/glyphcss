@@ -9,7 +9,6 @@ import {
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
-import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
 import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 
 export default Vue.extend({
@@ -58,32 +57,8 @@ export default Vue.extend({
     this.controllerInstance = null;
   },
   watch: {
-    zoom(value: number) {
-      this.cameraBinding?.updateCamera({ zoom: value });
-    },
-    pan(value: number) {
-      this.cameraBinding?.updateCamera({ pan: value });
-    },
-    tilt(value: number) {
-      this.cameraBinding?.updateCamera({ tilt: value });
-    },
-    rotX(value: number) {
-      this.cameraBinding?.updateCamera({ rotX: value });
-    },
-    rotY(value: number) {
-      this.cameraBinding?.updateCamera({ rotY: value });
-    },
-    invert(value: number | boolean) {
-      this.cameraBinding?.setControls({ invert: resolveInvertMultiplier(value) });
-    },
-    animate() {
-      this.cameraBinding?.setAnimate(this.animate);
-    },
-    interactive(value: boolean) {
-      this.cameraBinding?.setInteractive(value);
-    },
-    perspective(value: number | boolean) {
-      this.cameraBinding?.setPerspective(value);
+    cameraPropSignature() {
+      this.updateBindingOptions();
     }
   },
   computed: {
@@ -103,6 +78,19 @@ export default Vue.extend({
       return {
         cursor: this.cursor
       };
+    },
+    cameraPropSignature(): unknown[] {
+      return [
+        this.zoom,
+        this.pan,
+        this.tilt,
+        this.rotX,
+        this.rotY,
+        this.invert,
+        this.interactive,
+        this.perspective,
+        this.animate
+      ];
     }
   },
   methods: {
@@ -133,6 +121,19 @@ export default Vue.extend({
       this.applySnapshot(handle.getSnapshot());
       this.unsubscribeSnapshot?.();
       this.unsubscribeSnapshot = handle.subscribe((next) => this.applySnapshot(next));
+    },
+    updateBindingOptions() {
+      this.cameraBinding?.setOptions({
+        zoom: this.zoom,
+        pan: this.pan,
+        tilt: this.tilt,
+        rotX: this.rotX,
+        rotY: this.rotY,
+        invert: this.invert,
+        interactive: this.interactive,
+        perspective: this.perspective,
+        animate: this.animate
+      });
     },
     startAutoRotate(config?: AutoRotateOption) {
       this.cameraBinding?.setAnimate(config ?? this.animate);

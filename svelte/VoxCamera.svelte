@@ -2,7 +2,6 @@
   import { onMount, onDestroy, setContext } from "svelte";
   import type { SceneController, WallsMask } from "@voxcss/core";
   import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
-  import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
   import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
   import {
     createCameraBinding,
@@ -66,16 +65,18 @@
   });
 
   $: if (cameraBinding) {
-    cameraBinding.updateCamera({ zoom, pan, tilt, rotX, rotY });
+    cameraBinding.setOptions({
+      zoom,
+      pan,
+      tilt,
+      rotX,
+      rotY,
+      invert,
+      interactive,
+      perspective,
+      animate
+    });
   }
-
-  $: if (cameraBinding) {
-    cameraBinding.setControls({ invert: resolveInvertMultiplier(invert) });
-  }
-
-  $: cameraBinding?.setInteractive(interactive);
-  $: cameraBinding?.setPerspective(perspective);
-  $: cameraBinding?.setAnimate(animate);
 
   export function startAutoRotate(value?: AutoRotateOption) {
     cameraBinding?.setAnimate(value ?? animate);

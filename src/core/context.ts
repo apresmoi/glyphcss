@@ -389,33 +389,3 @@ export function buildSceneContextSnapshot(input: SceneContextInput): SceneContex
     dimensions: input.dimensions
   }).snapshot;
 }
-
-export interface ControllerDimensionInput {
-  controller: { setDimensions(dimensions: Required<SceneDimensions>): void; getDimensions(): Required<SceneDimensions> };
-  voxels: VoxelGrid;
-  rows?: number;
-  cols?: number;
-  depth?: number;
-}
-
-export function syncControllerDimensions({
-  controller,
-  voxels,
-  rows,
-  cols,
-  depth
-}: ControllerDimensionInput): void {
-  const analysis = buildSceneContext({
-    grid: voxels,
-    context: { rows, cols, depth }
-  });
-  const next = analysis.dimensions;
-  const current = controller.getDimensions();
-  if (
-    next.rows !== current.rows ||
-    next.cols !== current.cols ||
-    next.depth !== current.depth
-  ) {
-    controller.setDimensions(next);
-  }
-}

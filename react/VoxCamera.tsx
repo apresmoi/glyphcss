@@ -4,7 +4,6 @@ import type { SceneController } from "@voxcss/controller/createSceneController";
 import { createCameraBinding, type CameraBindingHandle, type CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
 import type { WallsMask } from "@voxcss/core";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
 import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 import { SceneControllerContext } from "./context";
 
@@ -86,25 +85,19 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   }, []);
 
   useEffect(() => {
-    cameraBindingRef.current?.updateCamera({ zoom, pan, tilt, rotX, rotY });
-  }, [zoom, pan, tilt, rotX, rotY]);
-
-  useEffect(() => {
-    cameraBindingRef.current?.setControls({ invert: resolveInvertMultiplier(invert) });
-  }, [invert]);
-
-  useEffect(() => {
-    cameraBindingRef.current?.setInteractive(interactive);
-  }, [interactive]);
-
-  useEffect(() => {
-    cameraBindingRef.current?.setPerspective(perspective);
-  }, [perspective]);
-
-  useEffect(() => {
     animateOptionRef.current = animate;
-    cameraBindingRef.current?.setAnimate(animate);
-  }, [animate]);
+    cameraBindingRef.current?.setOptions({
+      zoom,
+      pan,
+      tilt,
+      rotX,
+      rotY,
+      invert,
+      interactive,
+      perspective,
+      animate
+    });
+  }, [zoom, pan, tilt, rotX, rotY, invert, interactive, perspective, animate]);
 
   useImperativeHandle(
     ref,

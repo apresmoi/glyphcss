@@ -1,10 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
 import { useSceneControllerContext } from "./context";
-import { createSceneSession, type SceneSessionHandle } from "@voxcss/controller/createSceneSession";
-import { DEFAULT_SCENE_FLAGS } from "@voxcss/controller/defaults";
-
-const DEFAULT_VOXELS: VoxelGrid = [];
+import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/createSceneBinding";
 
 export interface VoxSceneProps {
   voxels?: VoxelGrid;
@@ -16,23 +13,15 @@ export interface VoxSceneProps {
   projection?: ProjectionMode;
 }
 
-export function VoxScene({
-  voxels = DEFAULT_VOXELS,
-  rows,
-  cols,
-  depth,
-  showWalls = DEFAULT_SCENE_FLAGS.showWalls,
-  showFloor = DEFAULT_SCENE_FLAGS.showFloor,
-  projection = DEFAULT_SCENE_FLAGS.projection
-}: VoxSceneProps) {
+export function VoxScene({ voxels, rows, cols, depth, showWalls, showFloor, projection }: VoxSceneProps) {
   const controller = useSceneControllerContext();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const sessionRef = useRef<SceneSessionHandle | null>(null);
+  const bindingRef = useRef<SceneBindingHandle | null>(null);
 
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
-    const session = createSceneSession({
+    const binding = createSceneBinding({
       controller,
       element,
       voxels,
@@ -43,16 +32,16 @@ export function VoxScene({
       showFloor,
       projection
     });
-    session.mount();
-    sessionRef.current = session;
+    binding.mount();
+    bindingRef.current = binding;
     return () => {
-      session.destroy();
-      sessionRef.current = null;
+      binding.destroy();
+      bindingRef.current = null;
     };
   }, [controller]);
 
   useEffect(() => {
-    sessionRef.current?.setState({
+    bindingRef.current?.update({
       voxels,
       rows,
       cols,

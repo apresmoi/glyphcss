@@ -3,8 +3,7 @@ import Vue from "vue";
 import type { PropType, VNode } from "vue";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
-import { DEFAULT_SCENE_FLAGS } from "@voxcss/controller/defaults";
-import { createSceneSession, type SceneSessionHandle } from "@voxcss/controller/createSceneSession";
+import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/createSceneBinding";
 
 export default Vue.extend({
   inject: {
@@ -15,29 +14,25 @@ export default Vue.extend({
   name: "VoxScene",
   props: {
     voxels: {
-      type: Array,
-      default: () => []
+      type: Array as PropType<VoxelGrid | undefined>
     },
     rows: {
-      type: Number,
-      default: undefined
+      type: Number
     },
     cols: {
-      type: Number,
-      default: undefined
+      type: Number
     },
     depth: {
-      type: Number,
-      default: undefined
+      type: Number
     },
-    showWalls: { type: Boolean, default: DEFAULT_SCENE_FLAGS.showWalls },
-    showFloor: { type: Boolean, default: DEFAULT_SCENE_FLAGS.showFloor },
-    projection: { type: String as PropType<ProjectionMode | undefined>, default: DEFAULT_SCENE_FLAGS.projection }
+    showWalls: { type: Boolean as PropType<boolean | undefined> },
+    showFloor: { type: Boolean as PropType<boolean | undefined> },
+    projection: { type: String as PropType<ProjectionMode | undefined> }
   },
   data() {
     return {
       controller: null as SceneController | null,
-      sessionHandle: null as SceneSessionHandle | null
+      bindingHandle: null as SceneBindingHandle | null
     };
   },
   created() {
@@ -51,8 +46,8 @@ export default Vue.extend({
     this.mountSession();
   },
   beforeDestroy() {
-    this.sessionHandle?.destroy();
-    this.sessionHandle = null;
+    this.bindingHandle?.destroy();
+    this.bindingHandle = null;
   },
   methods: {
     resolveController(): SceneController | null {
@@ -63,7 +58,7 @@ export default Vue.extend({
       if (!this.controller) return;
       const node = this.$refs.host as HTMLElement | undefined;
       if (!node) return;
-      const session = createSceneSession({
+      const binding = createSceneBinding({
         controller: this.controller,
         element: node,
         voxels: this.voxels as VoxelGrid,
@@ -74,11 +69,11 @@ export default Vue.extend({
         showFloor: this.showFloor,
         projection: this.projection
       });
-      session.mount();
-      this.sessionHandle = session;
+      binding.mount();
+      this.bindingHandle = binding;
     },
     updateSessionState() {
-      this.sessionHandle?.setState({
+      this.bindingHandle?.update({
         voxels: this.voxels as VoxelGrid,
         rows: this.rows,
         cols: this.cols,

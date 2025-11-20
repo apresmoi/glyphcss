@@ -1,6 +1,6 @@
 import { createSceneHost, type SceneHost } from "./createSceneHost";
 import type { SceneController } from "./createSceneController";
-import { buildSceneContext, syncControllerDimensions } from "../core/context";
+import { buildSceneContext } from "../core/context";
 import type { GridContext, ProjectionMode, VoxelGrid } from "../core";
 
 export interface SceneSessionState {
@@ -60,13 +60,6 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   });
 
   const buildContextSnapshot = () => {
-    syncControllerDimensions({
-      controller,
-      voxels: state.voxels,
-      rows: state.rows,
-      cols: state.cols,
-      depth: state.depth
-    });
     const projection = state.projection;
     controller.setProjection?.(projection);
     const baseContext: Partial<GridContext> = {
@@ -79,12 +72,20 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
       walls: controller.getWalls()
     };
     const extra = buildContextExtras?.() ?? {};
-    const snapshot = buildSceneContext({
+    const scene = buildSceneContext({
       grid: state.voxels,
-      context: { ...baseContext, ...extra },
-      dimensions: controller.getDimensions()
+      context: { ...baseContext, ...extra }
     });
-    return snapshot.snapshot;
+    const nextDimensions = scene.dimensions;
+    const currentDimensions = controller.getDimensions();
+    if (
+      nextDimensions.rows !== currentDimensions.rows ||
+      nextDimensions.cols !== currentDimensions.cols ||
+      nextDimensions.depth !== currentDimensions.depth
+    ) {
+      controller.setDimensions(nextDimensions);
+    }
+    return scene.snapshot;
   };
 
   const mount = () => {

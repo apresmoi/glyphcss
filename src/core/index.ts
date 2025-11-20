@@ -26,7 +26,6 @@ export {
   buildContext,
   buildVoxelLookups,
   buildSceneContextSnapshot,
-  syncControllerDimensions,
   inferGridDimensions,
   computeGridChecksum,
   computeWallMask,

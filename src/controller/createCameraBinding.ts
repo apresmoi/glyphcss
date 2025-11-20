@@ -32,6 +32,7 @@ export interface CameraBindingHandle {
   controller: SceneController;
   subscribe(listener: RenderListener): () => void;
   getSnapshot(): CameraRenderSnapshot;
+  setOptions(options: Partial<Omit<CameraBindingOptions, "element">>): void;
   updateCamera(next: Partial<CameraState>): void;
   setControls(next: Partial<ControllerControls>): void;
   setInteractive(value: boolean): void;
@@ -40,40 +41,56 @@ export interface CameraBindingHandle {
   destroy(): void;
 }
 
+type CameraBindingConfig = Omit<CameraBindingOptions, "element">;
+
+interface CameraBindingState {
+  zoom: number;
+  pan: number;
+  tilt: number;
+  rotX: number;
+  rotY: number;
+  invert: boolean | number | undefined;
+  perspective: number | boolean | undefined;
+  interactive: boolean;
+  animate: AutoRotateOption | false | undefined;
+}
+
+function normalizeOptions(options: CameraBindingConfig): CameraBindingState {
+  return {
+    zoom: options.zoom ?? DEFAULT_CAMERA_PROPS.zoom,
+    pan: options.pan ?? DEFAULT_CAMERA_PROPS.pan,
+    tilt: options.tilt ?? DEFAULT_CAMERA_PROPS.tilt,
+    rotX: options.rotX ?? DEFAULT_CAMERA_PROPS.rotX,
+    rotY: options.rotY ?? DEFAULT_CAMERA_PROPS.rotY,
+    invert: options.invert ?? DEFAULT_CAMERA_PROPS.invert,
+    perspective: options.perspective ?? DEFAULT_CAMERA_PROPS.perspective,
+    interactive: options.interactive ?? DEFAULT_CAMERA_PROPS.interactive,
+    animate: options.animate ?? DEFAULT_CAMERA_PROPS.animate
+  };
+}
+
 export function createCameraBinding(options: CameraBindingOptions): CameraBindingHandle {
-  const {
-    element,
-    zoom,
-    pan,
-    tilt,
-    rotX,
-    rotY,
-    invert,
-    perspective = DEFAULT_CAMERA_PROPS.perspective,
-    interactive = DEFAULT_CAMERA_PROPS.interactive,
-    animate = DEFAULT_CAMERA_PROPS.animate
-  } = options;
+  const { element, ...rest } = options;
   if (!element) {
     throw new Error("voxcss: createCameraBinding requires an element.");
   }
+  let current = normalizeOptions(rest);
   const cameraHandle: HeadlessCameraHandle = createCamera({
     element,
-    interactive,
-    perspective: normalizePerspectiveValue(perspective),
-    zoom,
-    pan,
-    tilt,
-    rotX,
-    rotY,
-    invert,
-    animate
+    interactive: current.interactive,
+    perspective: normalizePerspectiveValue(current.perspective),
+    zoom: current.zoom,
+    pan: current.pan,
+    tilt: current.tilt,
+    rotX: current.rotX,
+    rotY: current.rotY,
+    invert: current.invert,
+    animate: current.animate
   });
   const controller = cameraHandle.controller;
-  if (invert !== undefined) {
-    controller.setControls({ invert: resolveInvertMultiplier(invert) });
-  }
+  controller.setControls({ invert: resolveInvertMultiplier(current.invert) });
 
-  let interactiveState = interactive;
+  let interactiveState = current.interactive;
   const listeners = new Set<RenderListener>();
   let snapshot = buildSnapshot(controller, interactiveState);
 
@@ -99,26 +116,54 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
     return snapshot;
   }
 
+  function setOptions(next: Partial<Omit<CameraBindingOptions, "element">>) {
+    const nextState = normalizeOptions({ ...current, ...next });
+    const cameraUpdate: Partial<CameraState> = {};
+    if (nextState.zoom !== current.zoom) cameraUpdate.zoom = nextState.zoom;
+    if (nextState.pan !== current.pan) cameraUpdate.pan = nextState.pan;
+    if (nextState.tilt !== current.tilt) cameraUpdate.tilt = nextState.tilt;
+    if (nextState.rotX !== current.rotX) cameraUpdate.rotX = nextState.rotX;
+    if (nextState.rotY !== current.rotY) cameraUpdate.rotY = nextState.rotY;
+    if (Object.keys(cameraUpdate).length) {
+      controller.updateCamera(cameraUpdate);
+    }
+    if (nextState.invert !== current.invert) {
+      controller.setControls({ invert: resolveInvertMultiplier(nextState.invert) });
+    }
+    if (nextState.interactive !== current.interactive) {
+      interactiveState = nextState.interactive;
+      cameraHandle.setInteractive(nextState.interactive);
+      notify();
+    }
+    if (nextState.perspective !== current.perspective) {
+      cameraHandle.setPerspective(normalizePerspectiveValue(nextState.perspective));
+    }
+    if (nextState.animate !== current.animate) {
+      cameraHandle.setAnimate(nextState.animate);
+    }
+    current = nextState;
+  }
+
   function updateCamera(next: Partial<CameraState>) {
-    controller.updateCamera(next);
+    setOptions(next);
   }
 
   function setControls(next: Partial<ControllerControls>) {
-    controller.setControls(next);
+    if (next.invert !== undefined) {
+      setOptions({ invert: next.invert });
+    }
   }
 
   function setInteractive(value: boolean) {
-    interactiveState = value;
-    cameraHandle.setInteractive(value);
-    notify();
+    setOptions({ interactive: value });
   }
 
   function setPerspective(value: number | boolean | undefined) {
-    cameraHandle.setPerspective(normalizePerspectiveValue(value));
+    setOptions({ perspective: value });
   }
 
   function setAnimate(option: AutoRotateOption | false | undefined) {
-    cameraHandle.setAnimate(option);
+    setOptions({ animate: option });
   }
 
   function destroy() {
@@ -134,6 +179,7 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
     controller,
     subscribe,
     getSnapshot,
+    setOptions,
     updateCamera,
     setControls,
     setInteractive,

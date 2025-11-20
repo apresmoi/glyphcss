@@ -2,16 +2,15 @@
   import { getContext, onMount, onDestroy } from "svelte";
   import type { SceneController, VoxelGrid, ProjectionMode } from "@voxcss/core";
   import { CONTROLLER_KEY } from "./context";
-  import { createSceneSession, type SceneSessionHandle } from "@voxcss/controller/createSceneSession";
-  import { DEFAULT_SCENE_FLAGS } from "@voxcss/controller/defaults";
+  import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/createSceneBinding";
 
-  export let voxels: VoxelGrid = [];
-  export let rows: number | undefined = undefined;
-  export let cols: number | undefined = undefined;
-  export let depth: number | undefined = undefined;
-  export let showWalls: boolean = DEFAULT_SCENE_FLAGS.showWalls;
-  export let showFloor: boolean = DEFAULT_SCENE_FLAGS.showFloor;
-  export let projection: ProjectionMode | undefined = DEFAULT_SCENE_FLAGS.projection;
+  export let voxels: VoxelGrid | undefined;
+  export let rows: number | undefined;
+  export let cols: number | undefined;
+  export let depth: number | undefined;
+  export let showWalls: boolean | undefined;
+  export let showFloor: boolean | undefined;
+  export let projection: ProjectionMode | undefined;
 
   const controller = getContext<SceneController>(CONTROLLER_KEY);
   if (!controller) {
@@ -19,11 +18,11 @@
   }
 
   let container: HTMLDivElement | null = null;
-  let session: SceneSessionHandle | null = null;
+  let binding: SceneBindingHandle | null = null;
 
-  function mountSession() {
+  function mountBinding() {
     if (!controller || !container) return;
-    session = createSceneSession({
+    binding = createSceneBinding({
       controller,
       element: container,
       voxels,
@@ -34,20 +33,20 @@
       showFloor,
       projection
     });
-    session.mount();
+    binding.mount();
   }
 
   onMount(() => {
-    mountSession();
+    mountBinding();
   });
 
   onDestroy(() => {
-    session?.destroy();
-    session = null;
+    binding?.destroy();
+    binding = null;
   });
 
-  $: if (session) {
-    session.setState({
+  $: if (binding) {
+    binding.update({
       voxels,
       rows,
       cols,

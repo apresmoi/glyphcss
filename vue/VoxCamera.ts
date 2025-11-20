@@ -11,7 +11,6 @@ import {
 import type { PropType, ComponentInternalInstance } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
 import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 import {
   createCameraBinding,
@@ -81,43 +80,19 @@ export default defineComponent({
     });
 
     watch(
-      () => [props.zoom, props.pan, props.tilt, props.rotX, props.rotY],
+      () => [props.zoom, props.pan, props.tilt, props.rotX, props.rotY, props.invert, props.interactive, props.perspective, props.animate],
       () => {
-        cameraBinding.value?.updateCamera({
+        cameraBinding.value?.setOptions({
           zoom: props.zoom,
           pan: props.pan,
           tilt: props.tilt,
           rotX: props.rotX,
-          rotY: props.rotY
+          rotY: props.rotY,
+          invert: props.invert,
+          interactive: props.interactive,
+          perspective: props.perspective,
+          animate: props.animate
         });
-      }
-    );
-
-    watch(
-      () => props.invert,
-      (value) => {
-        cameraBinding.value?.setControls({ invert: resolveInvertMultiplier(value) });
-      }
-    );
-
-    watch(
-      () => props.interactive,
-      (value) => {
-        cameraBinding.value?.setInteractive(value);
-      }
-    );
-
-    watch(
-      () => props.perspective,
-      (value) => {
-        cameraBinding.value?.setPerspective(value);
-      }
-    );
-
-    watch(
-      () => props.animate,
-      (value) => {
-        cameraBinding.value?.setAnimate(value);
       }
     );
 
