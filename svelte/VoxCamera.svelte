@@ -2,7 +2,6 @@
   import { onMount, onDestroy, setContext } from "svelte";
   import type { SceneController, WallsMask } from "@voxcss/core";
   import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
-  import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
   import {
     createCameraBinding,
     type CameraBindingHandle,
@@ -10,15 +9,15 @@
   } from "@voxcss/controller/createCameraBinding";
   import { CONTROLLER_KEY } from "./context";
 
-  export let zoom: number = DEFAULT_CAMERA_PROPS.zoom;
-  export let pan: number = DEFAULT_CAMERA_PROPS.pan;
-  export let tilt: number = DEFAULT_CAMERA_PROPS.tilt;
-  export let rotX: number = DEFAULT_CAMERA_PROPS.rotX;
-  export let rotY: number = DEFAULT_CAMERA_PROPS.rotY;
-  export let invert: boolean | number = DEFAULT_CAMERA_PROPS.invert;
-  export let perspective: number | boolean = DEFAULT_CAMERA_PROPS.perspective as number;
-  export let interactive: boolean = DEFAULT_CAMERA_PROPS.interactive;
-  export let animate: AutoRotateOption = (DEFAULT_CAMERA_PROPS.animate as AutoRotateOption) ?? false;
+  export let zoom: number | undefined;
+  export let pan: number | undefined;
+  export let tilt: number | undefined;
+  export let rotX: number | undefined;
+  export let rotY: number | undefined;
+  export let invert: boolean | number | undefined;
+  export let perspective: number | boolean | undefined;
+  export let interactive: boolean | undefined;
+  export let animate: AutoRotateOption | undefined;
 
   let container: HTMLDivElement | null = null;
   let controller: SceneController | null = null;

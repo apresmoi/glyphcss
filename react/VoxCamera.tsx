@@ -4,7 +4,6 @@ import type { SceneController } from "@voxcss/controller/createSceneController";
 import { createCameraBinding, type CameraBindingHandle, type CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
 import type { WallsMask } from "@voxcss/core";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 import { SceneControllerContext } from "./context";
 
 export interface CameraRenderContext {
@@ -35,18 +34,7 @@ export interface VoxCameraHandle {
 }
 
 export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function VoxCamera(
-  {
-    zoom = DEFAULT_CAMERA_PROPS.zoom,
-    pan = DEFAULT_CAMERA_PROPS.pan,
-    tilt = DEFAULT_CAMERA_PROPS.tilt,
-    rotX = DEFAULT_CAMERA_PROPS.rotX,
-    rotY = DEFAULT_CAMERA_PROPS.rotY,
-    invert = DEFAULT_CAMERA_PROPS.invert,
-    perspective = DEFAULT_CAMERA_PROPS.perspective,
-    interactive = DEFAULT_CAMERA_PROPS.interactive,
-    animate = DEFAULT_CAMERA_PROPS.animate,
-    children
-  },
+  { zoom, pan, tilt, rotX, rotY, invert, perspective, interactive, animate, children },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);

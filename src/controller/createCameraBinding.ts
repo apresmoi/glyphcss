@@ -33,10 +33,6 @@ export interface CameraBindingHandle {
   subscribe(listener: RenderListener): () => void;
   getSnapshot(): CameraRenderSnapshot;
   setOptions(options: Partial<Omit<CameraBindingOptions, "element">>): void;
-  updateCamera(next: Partial<CameraState>): void;
-  setControls(next: Partial<ControllerControls>): void;
-  setInteractive(value: boolean): void;
-  setPerspective(value: number | boolean | undefined): void;
   setAnimate(option: AutoRotateOption | false | undefined): void;
   destroy(): void;
 }
@@ -144,24 +140,6 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
     current = nextState;
   }
 
-  function updateCamera(next: Partial<CameraState>) {
-    setOptions(next);
-  }
-
-  function setControls(next: Partial<ControllerControls>) {
-    if (next.invert !== undefined) {
-      setOptions({ invert: next.invert });
-    }
-  }
-
-  function setInteractive(value: boolean) {
-    setOptions({ interactive: value });
-  }
-
-  function setPerspective(value: number | boolean | undefined) {
-    setOptions({ perspective: value });
-  }
-
   function setAnimate(option: AutoRotateOption | false | undefined) {
     setOptions({ animate: option });
   }
@@ -180,10 +158,6 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
     subscribe,
     getSnapshot,
     setOptions,
-    updateCamera,
-    setControls,
-    setInteractive,
-    setPerspective,
     setAnimate,
     destroy
   };

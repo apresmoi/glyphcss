@@ -9,7 +9,6 @@ import {
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
-import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 
 export default Vue.extend({
   name: "VoxCamera",
@@ -20,15 +19,15 @@ export default Vue.extend({
     };
   },
   props: {
-    zoom: { type: Number, default: DEFAULT_CAMERA_PROPS.zoom },
-    pan: { type: Number, default: DEFAULT_CAMERA_PROPS.pan },
-    tilt: { type: Number, default: DEFAULT_CAMERA_PROPS.tilt },
-    rotX: { type: Number, default: DEFAULT_CAMERA_PROPS.rotX },
-    rotY: { type: Number, default: DEFAULT_CAMERA_PROPS.rotY },
-    invert: { type: [Boolean, Number] as PropType<boolean | number>, default: DEFAULT_CAMERA_PROPS.invert },
-    perspective: { type: [Number, Boolean] as PropType<number | boolean>, default: DEFAULT_CAMERA_PROPS.perspective },
-    interactive: { type: Boolean, default: DEFAULT_CAMERA_PROPS.interactive },
-    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption>, default: DEFAULT_CAMERA_PROPS.animate }
+    zoom: { type: Number },
+    pan: { type: Number },
+    tilt: { type: Number },
+    rotX: { type: Number },
+    rotY: { type: Number },
+    invert: { type: [Boolean, Number] as PropType<boolean | number> },
+    perspective: { type: [Number, Boolean] as PropType<number | boolean> },
+    interactive: { type: Boolean },
+    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption> }
   },
   data(): {
     controllerInstance: SceneController | null;

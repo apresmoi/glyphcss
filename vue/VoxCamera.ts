@@ -11,7 +11,6 @@ import {
 import type { PropType, ComponentInternalInstance } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 import {
   createCameraBinding,
   type CameraBindingHandle,
@@ -23,15 +22,15 @@ export const CONTROLLER_KEY = Symbol("voxcss-scene-controller");
 export default defineComponent({
   name: "VoxCamera",
   props: {
-    zoom: { type: Number, default: DEFAULT_CAMERA_PROPS.zoom },
-    pan: { type: Number, default: DEFAULT_CAMERA_PROPS.pan },
-    tilt: { type: Number, default: DEFAULT_CAMERA_PROPS.tilt },
-    rotX: { type: Number, default: DEFAULT_CAMERA_PROPS.rotX },
-    rotY: { type: Number, default: DEFAULT_CAMERA_PROPS.rotY },
-    invert: { type: [Boolean, Number], default: DEFAULT_CAMERA_PROPS.invert },
-    perspective: { type: [Number, Boolean], default: DEFAULT_CAMERA_PROPS.perspective },
-    interactive: { type: Boolean, default: DEFAULT_CAMERA_PROPS.interactive },
-    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption>, default: DEFAULT_CAMERA_PROPS.animate }
+    zoom: { type: Number },
+    pan: { type: Number },
+    tilt: { type: Number },
+    rotX: { type: Number },
+    rotY: { type: Number },
+    invert: { type: [Boolean, Number] },
+    perspective: { type: [Number, Boolean] },
+    interactive: { type: Boolean },
+    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption> }
   },
   setup(props, { slots, expose }) {
     const containerRef = ref<HTMLElement | null>(null);
