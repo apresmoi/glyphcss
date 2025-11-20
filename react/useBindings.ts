@@ -51,8 +51,7 @@ function useBindingAdapter<TAdapter extends { sync(): void; destroy(): void }, T
   }, [lifecycle]);
 
   return {
-    ref: containerRef,
-    getAdapter: () => lifecycle.getAdapter()
+    ref: containerRef
   };
 }
 

@@ -33,7 +33,6 @@ export function useElementBindingAdapter<TOptions, TAdapter extends { sync(): vo
   );
 
   return {
-    elementRef,
-    getAdapter: () => lifecycle.getAdapter()
+    elementRef
   };
 }

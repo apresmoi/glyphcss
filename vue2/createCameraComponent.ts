@@ -1,7 +1,6 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { VNode } from "vue";
-import type { CameraBindingHandle } from "@voxcss/controller/createCameraBinding";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
@@ -25,13 +24,11 @@ export function createCameraComponent() {
     props: cameraPropOptions,
     data(): {
       controllerInstance: SceneController | null;
-      cameraBinding: CameraBindingHandle | null;
       slotPayload: CameraSlotProps | null;
       cameraBindingManager: ReturnType<typeof createCameraBindingManager> | null;
     } {
       return {
         controllerInstance: null,
-        cameraBinding: null,
         slotPayload: null,
         cameraBindingManager: null
       };
@@ -51,20 +48,21 @@ export function createCameraComponent() {
             perspective: this.perspective,
             animate: this.animate
           }),
-        (slotProps) => {
-          this.slotPayload = slotProps;
-        },
-        (handle) => {
-          this.cameraBinding = handle;
-          this.controllerInstance = handle ? handle.controller : null;
+        {
+          onSlotProps: (slotProps) => {
+            this.slotPayload = slotProps;
+          },
+          onController: (controller) => {
+            this.controllerInstance = controller;
+          }
         }
       );
     },
     beforeDestroy() {
       this.cameraBindingManager?.destroy();
       this.cameraBindingManager = null;
-      this.cameraBinding = null;
       this.controllerInstance = null;
+      this.slotPayload = null;
     },
     computed: {
       controllerState() {
@@ -92,10 +90,10 @@ export function createCameraComponent() {
         this.cameraBindingManager?.mount(node);
       },
       startAutoRotate(config?: AutoRotateOption) {
-        this.cameraBinding?.setAnimate(config ?? this.animate);
+        this.cameraBindingManager?.startAutoRotate(config ?? this.animate);
       },
       stopAutoRotate() {
-        this.cameraBinding?.setAnimate(false);
+        this.cameraBindingManager?.stopAutoRotate();
       }
     },
     mounted() {

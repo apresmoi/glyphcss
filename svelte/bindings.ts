@@ -39,7 +39,7 @@ export function sceneBinding(node: HTMLElement, options: SceneBindingActionOptio
 }
 
 function resolveCameraOptions(options: CameraBindingActionOptions): Omit<CameraBindingOptions, "element"> {
-  const { onSnapshot, onController, onHandle, ...rest } = options;
+  const { onSnapshot, onController, onHandle, onSlotProps, ...rest } = options;
   return rest;
 }
 
