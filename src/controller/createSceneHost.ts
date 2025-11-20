@@ -13,7 +13,6 @@ export interface SceneHostStateUpdate {
 export interface SceneHost {
   mount(target: HTMLElement, voxels?: VoxelGrid, context?: Partial<GridContext>): void;
   setState(state: SceneHostStateUpdate): void;
-  flush(): void;
   syncController(controller: { subscribeWalls(listener: (walls: WallsMask) => void): () => void }, buildContext: () => Partial<GridContext>): void;
   destroy(): void;
   getHandle(): VoxIllustrationHandle | null;
@@ -27,6 +26,14 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
   let currentVoxelGrid: VoxelGrid = options.voxels ?? [];
   let currentContext: Partial<GridContext> = { ...(options.context ?? {}) };
   let dirty = false;
+  let flushScheduled = false;
+
+  const enqueue = (() => {
+    if (typeof queueMicrotask === "function") {
+      return queueMicrotask;
+    }
+    return (fn: () => void) => Promise.resolve().then(fn);
+  })();
 
   function mount(target: HTMLElement, voxels?: VoxelGrid, context?: Partial<GridContext>) {
     targetElement = target;
@@ -55,12 +62,22 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
       currentContext = state.context;
       dirty = true;
     }
+    scheduleFlush();
   }
 
   function flush() {
     if (!dirty || !handle) return;
     handle.update(currentVoxelGrid, currentContext);
     dirty = false;
+  }
+
+  function scheduleFlush() {
+    if (!dirty || flushScheduled) return;
+    flushScheduled = true;
+    enqueue(() => {
+      flushScheduled = false;
+      flush();
+    });
   }
 
   function destroy() {
@@ -82,12 +99,10 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
   return {
     mount,
     setState,
-    flush,
     syncController(controller, buildContext) {
       unsubscribeWalls?.();
       unsubscribeWalls = controller.subscribeWalls(() => {
         setState({ context: buildContext() });
-        flush();
       });
     },
     destroy,

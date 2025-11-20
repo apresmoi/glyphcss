@@ -1,21 +1,7 @@
-import {
-  defineComponent,
-  h,
-  onMounted,
-  onBeforeUnmount,
-  ref,
-  watch,
-  computed,
-  getCurrentInstance
-} from "vue";
+import { defineComponent, h, computed, getCurrentInstance, watch } from "vue";
 import type { PropType, ComponentInternalInstance } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import type { SceneController } from "@voxcss/controller/createSceneController";
-import {
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraRenderSnapshot
-} from "@voxcss/controller/createCameraBinding";
+import { useCameraBinding } from "./bindings";
 
 export const CONTROLLER_KEY = Symbol("voxcss-scene-controller");
 
@@ -33,67 +19,34 @@ export default defineComponent({
     animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption | false> }
   },
   setup(props, { slots, expose }) {
-    const containerRef = ref<HTMLElement | null>(null);
-    const cameraBinding = ref<CameraBindingHandle | null>(null);
-    const controller = ref<SceneController | null>(null);
-    const snapshot = ref<CameraRenderSnapshot | null>(null);
     const instance = getCurrentInstance() as (ComponentInternalInstance & { provides: Record<PropertyKey, unknown> }) | null;
-    const ready = ref(false);
-    const unsubscribe = ref<(() => void) | null>(null);
+    const bindingProps = () => ({
+      interactive: props.interactive,
+      perspective: props.perspective,
+      zoom: props.zoom,
+      pan: props.pan,
+      tilt: props.tilt,
+      rotX: props.rotX,
+      rotY: props.rotY,
+      invert: props.invert,
+      animate: props.animate
+    });
+    const { elementRef, controller, snapshot, startAutoRotate, stopAutoRotate } = useCameraBinding(bindingProps);
+
+    if (instance) {
+      watch(
+        controller,
+        (next) => {
+          if (next) {
+            const key = CONTROLLER_KEY as unknown as PropertyKey;
+            instance.provides[key] = next;
+          }
+        },
+        { immediate: true }
+      );
+    }
 
     const cursorStyle = computed(() => snapshot.value?.cursor ?? "default");
-
-    onMounted(() => {
-      if (!containerRef.value) return;
-      const handle = createCameraBinding({
-        element: containerRef.value,
-        interactive: props.interactive,
-        perspective: props.perspective,
-        zoom: props.zoom,
-        pan: props.pan,
-        tilt: props.tilt,
-        rotX: props.rotX,
-        rotY: props.rotY,
-        invert: props.invert,
-        animate: props.animate
-      });
-      cameraBinding.value = handle;
-      controller.value = handle.controller;
-      snapshot.value = handle.getSnapshot();
-      unsubscribe.value = handle.subscribe((next) => {
-        snapshot.value = next;
-      });
-      if (instance && controller.value) {
-        const key = CONTROLLER_KEY as unknown as PropertyKey;
-        instance.provides[key] = controller.value;
-      }
-      ready.value = true;
-    });
-
-    onBeforeUnmount(() => {
-      unsubscribe.value?.();
-      cameraBinding.value?.destroy();
-      cameraBinding.value = null;
-      controller.value = null;
-      unsubscribe.value = null;
-    });
-
-    watch(
-      () => [props.zoom, props.pan, props.tilt, props.rotX, props.rotY, props.invert, props.interactive, props.perspective, props.animate],
-      () => {
-        cameraBinding.value?.setOptions({
-          zoom: props.zoom,
-          pan: props.pan,
-          tilt: props.tilt,
-          rotX: props.rotX,
-          rotY: props.rotY,
-          invert: props.invert,
-          interactive: props.interactive,
-          perspective: props.perspective,
-          animate: props.animate
-        });
-      }
-    );
 
     expose({
       get controller() {
@@ -103,20 +56,14 @@ export default defineComponent({
         return controller.value;
       },
       startAutoRotate(config?: AutoRotateOption) {
-        cameraBinding.value?.setAnimate(config ?? props.animate);
+        startAutoRotate(config ?? props.animate);
       },
       stopAutoRotate() {
-        cameraBinding.value?.setAnimate(false);
+        stopAutoRotate();
       }
     });
 
     return () => {
-      if (!ready.value) {
-        return h("div", {
-          class: "voxcss-camera",
-          ref: containerRef
-        });
-      }
       const currentSnapshot = snapshot.value;
       const slotProps =
         currentSnapshot && controller.value
@@ -134,7 +81,7 @@ export default defineComponent({
         "div",
         {
           class: "voxcss-camera",
-          ref: containerRef,
+          ref: elementRef,
           style: { cursor: cursorStyle.value }
         },
         children

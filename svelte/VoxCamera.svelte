@@ -1,13 +1,10 @@
 <script lang="ts">
-  import { onMount, onDestroy, setContext } from "svelte";
+  import { setContext } from "svelte";
   import type { SceneController, WallsMask } from "@voxcss/core";
   import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
-  import {
-    createCameraBinding,
-    type CameraBindingHandle,
-    type CameraRenderSnapshot
-  } from "@voxcss/controller/createCameraBinding";
+  import type { CameraBindingHandle, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
   import { CONTROLLER_KEY } from "./context";
+  import { cameraBinding } from "./bindings";
 
   export let zoom: number | undefined;
   export let pan: number | undefined;
@@ -19,14 +16,12 @@
   export let interactive: boolean | undefined;
   export let animate: AutoRotateOption | undefined;
 
-  let container: HTMLDivElement | null = null;
   let controller: SceneController | null = null;
-  let cameraBinding: CameraBindingHandle | null = null;
+  let bindingHandle: CameraBindingHandle | null = null;
   let boxStyle: Record<string, string> = {};
   let walls: WallsMask | null = null;
   let cameraState: CameraState | null = null;
   let cursor = "default";
-  let unsubscribeSnapshot: (() => void) | null = null;
 
   function applySnapshot(next: CameraRenderSnapshot) {
     boxStyle = next.boxStyle;
@@ -35,58 +30,42 @@
     cursor = next.cursor;
   }
 
-  onMount(() => {
-    if (!container) return;
-    const handle = createCameraBinding({
-      element: container,
-      interactive,
-      perspective,
-      zoom,
-      pan,
-      tilt,
-      rotX,
-      rotY,
-      invert,
-      animate
-    });
-    cameraBinding = handle;
-    controller = handle.controller;
-    setContext(CONTROLLER_KEY, controller);
-    applySnapshot(handle.getSnapshot());
-    unsubscribeSnapshot = handle.subscribe((next) => applySnapshot(next));
-  });
-
-  onDestroy(() => {
-    unsubscribeSnapshot?.();
-    cameraBinding?.destroy();
-    cameraBinding = null;
-    controller = null;
-  });
-
-  $: if (cameraBinding) {
-    cameraBinding.setOptions({
-      zoom,
-      pan,
-      tilt,
-      rotX,
-      rotY,
-      invert,
-      interactive,
-      perspective,
-      animate
-    });
+  function handleController(next: SceneController | null) {
+    controller = next;
+    if (next) {
+      setContext(CONTROLLER_KEY, next);
+    }
   }
 
+  function handleHandle(next: CameraBindingHandle | null) {
+    bindingHandle = next;
+  }
+
+  $: bindingOptions = {
+    zoom,
+    pan,
+    tilt,
+    rotX,
+    rotY,
+    invert,
+    interactive,
+    perspective,
+    animate,
+    onSnapshot: applySnapshot,
+    onController: handleController,
+    onHandle: handleHandle
+  };
+
   export function startAutoRotate(value?: AutoRotateOption) {
-    cameraBinding?.setAnimate(value ?? animate);
+    bindingHandle?.setAnimate(value ?? animate);
   }
 
   export function stopAutoRotate() {
-    cameraBinding?.setAnimate(false);
+    bindingHandle?.setAnimate(false);
   }
 </script>
 
-<div bind:this={container} class="voxcss-camera" style={`cursor:${cursor}`}>
+<div use:cameraBinding={bindingOptions} class="voxcss-camera" style={`cursor:${cursor}`}>
   {#if controller}
     <slot boxStyle={boxStyle} cursor={cursor} walls={walls} controller={controller} camera={cameraState} />
   {/if}

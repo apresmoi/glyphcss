@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { getContext, onMount, onDestroy } from "svelte";
+  import { getContext } from "svelte";
   import type { SceneController, VoxelGrid, ProjectionMode } from "@voxcss/core";
   import { CONTROLLER_KEY } from "./context";
-  import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/createSceneBinding";
+  import { sceneBinding } from "./bindings";
 
   export let voxels: VoxelGrid | undefined;
   export let rows: number | undefined;
@@ -17,45 +17,16 @@
     throw new Error("voxcss: VoxScene must be used inside VoxCamera.");
   }
 
-  let container: HTMLDivElement | null = null;
-  let binding: SceneBindingHandle | null = null;
-
-  function mountBinding() {
-    if (!controller || !container) return;
-    binding = createSceneBinding({
-      controller,
-      element: container,
-      voxels,
-      rows,
-      cols,
-      depth,
-      showWalls,
-      showFloor,
-      projection
-    });
-    binding.mount();
-  }
-
-  onMount(() => {
-    mountBinding();
-  });
-
-  onDestroy(() => {
-    binding?.destroy();
-    binding = null;
-  });
-
-  $: if (binding) {
-    binding.update({
-      voxels,
-      rows,
-      cols,
-      depth,
-      showWalls,
-      showFloor,
-      projection
-    });
-  }
+  $: bindingOptions = {
+    controller,
+    voxels,
+    rows,
+    cols,
+    depth,
+    showWalls,
+    showFloor,
+    projection
+  };
 </script>
 
-<div bind:this={container} class="voxcss-scene-host"></div>
+<div use:sceneBinding={bindingOptions} class="voxcss-scene-host"></div>

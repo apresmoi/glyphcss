@@ -1,10 +1,10 @@
-import React, { useEffect, useLayoutEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
+import React, { useImperativeHandle, forwardRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { createCameraBinding, type CameraBindingHandle, type CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
 import type { WallsMask } from "@voxcss/core";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import { SceneControllerContext } from "./context";
+import { useCameraBinding } from "./useBindings";
 
 export interface CameraRenderContext {
   boxStyle: CSSProperties;
@@ -37,70 +37,36 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   { zoom, pan, tilt, rotX, rotY, invert, perspective, interactive, animate, children },
   ref
 ) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const cameraBindingRef = useRef<CameraBindingHandle | null>(null);
-  const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
-  const [controller, setController] = useState<SceneController | null>(null);
-  const [snapshot, setSnapshot] = useState<CameraRenderSnapshot | null>(null);
-
-  useLayoutEffect(() => {
-    const node = containerRef.current;
-    if (!node) return;
-    const binding = createCameraBinding({
-      element: node,
-      interactive,
-      perspective,
-      zoom,
-      pan,
-      tilt,
-      rotX,
-      rotY,
-      invert,
-      animate
-    });
-    cameraBindingRef.current = binding;
-    setController(binding.controller);
-    setSnapshot(binding.getSnapshot());
-    const unsubscribe = binding.subscribe((next) => setSnapshot(next));
-    return () => {
-      unsubscribe();
-      binding.destroy();
-      cameraBindingRef.current = null;
-      setController(null);
-      setSnapshot(null);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    animateOptionRef.current = animate;
-    cameraBindingRef.current?.setOptions({
-      zoom,
-      pan,
-      tilt,
-      rotX,
-      rotY,
-      invert,
-      interactive,
-      perspective,
-      animate
-    });
-  }, [zoom, pan, tilt, rotX, rotY, invert, interactive, perspective, animate]);
+  const {
+    containerRef,
+    controller,
+    snapshot,
+    startAutoRotate: startAutoRotateBinding,
+    stopAutoRotate: stopAutoRotateBinding
+  } = useCameraBinding({
+    zoom,
+    pan,
+    tilt,
+    rotX,
+    rotY,
+    invert,
+    perspective,
+    interactive,
+    animate
+  });
 
   useImperativeHandle(
     ref,
     () => ({
       controller: controller as SceneController,
       startAutoRotate(config?: AutoRotateOption) {
-        const option = config ?? animateOptionRef.current;
-        animateOptionRef.current = option;
-        cameraBindingRef.current?.setAnimate(option);
+        startAutoRotateBinding(config);
       },
       stopAutoRotate() {
-        cameraBindingRef.current?.setAnimate(false);
+        stopAutoRotateBinding();
       }
     }),
-    [controller]
+    [controller, startAutoRotateBinding, stopAutoRotateBinding]
   );
 
   const context: CameraRenderContext | null =

@@ -3,7 +3,7 @@ import Vue from "vue";
 import type { PropType, VNode } from "vue";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
-import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/createSceneBinding";
+import { createSceneBindingManager } from "./bindings";
 
 export default Vue.extend({
   inject: {
@@ -32,7 +32,7 @@ export default Vue.extend({
   data() {
     return {
       controller: null as SceneController | null,
-      bindingHandle: null as SceneBindingHandle | null
+      sceneBindingManager: null as ReturnType<typeof createSceneBindingManager> | null
     };
   },
   created() {
@@ -41,73 +41,38 @@ export default Vue.extend({
       throw new Error("voxcss: VoxScene must be rendered inside a VoxCamera.");
     }
     this.controller = controller;
+    this.sceneBindingManager = createSceneBindingManager(this, () => ({
+      controller: this.controller,
+      voxels: this.voxels as VoxelGrid,
+      rows: this.rows,
+      cols: this.cols,
+      depth: this.depth,
+      showWalls: this.showWalls,
+      showFloor: this.showFloor,
+      projection: this.projection
+    }));
+    this.$watch(
+      () => [this.voxels, this.rows, this.cols, this.depth, this.showWalls, this.showFloor, this.projection],
+      () => {
+        this.sceneBindingManager?.update();
+      },
+      { deep: false }
+    );
   },
   mounted() {
-    this.mountSession();
+    const node = this.$refs.host as HTMLElement | undefined;
+    if (node) {
+      this.sceneBindingManager?.mount(node);
+    }
   },
   beforeDestroy() {
-    this.bindingHandle?.destroy();
-    this.bindingHandle = null;
+    this.sceneBindingManager?.destroy();
+    this.sceneBindingManager = null;
   },
   methods: {
     resolveController(): SceneController | null {
       const injected = (this as any).sceneController;
       return typeof injected === "function" ? injected() : injected;
-    },
-    mountSession() {
-      if (!this.controller) return;
-      const node = this.$refs.host as HTMLElement | undefined;
-      if (!node) return;
-      const binding = createSceneBinding({
-        controller: this.controller,
-        element: node,
-        voxels: this.voxels as VoxelGrid,
-        rows: this.rows,
-        cols: this.cols,
-        depth: this.depth,
-        showWalls: this.showWalls,
-        showFloor: this.showFloor,
-        projection: this.projection
-      });
-      binding.mount();
-      this.bindingHandle = binding;
-    },
-    updateSessionState() {
-      this.bindingHandle?.update({
-        voxels: this.voxels as VoxelGrid,
-        rows: this.rows,
-        cols: this.cols,
-        depth: this.depth,
-        showWalls: this.showWalls,
-        showFloor: this.showFloor,
-        projection: this.projection
-      });
-    }
-  },
-  watch: {
-    voxels: {
-      handler() {
-        this.updateSessionState();
-      },
-      deep: false
-    },
-    rows() {
-      this.updateSessionState();
-    },
-    cols() {
-      this.updateSessionState();
-    },
-    depth() {
-      this.updateSessionState();
-    },
-    showWalls() {
-      this.updateSessionState();
-    },
-    showFloor() {
-      this.updateSessionState();
-    },
-    projection() {
-      this.updateSessionState();
     }
   },
   render(h) {

@@ -42,6 +42,7 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
     projection: options.projection
   };
   let mounted = false;
+  let isSyncingDimensions = false;
 
   const applyBoxStyle = (style: Record<string, string>) => {
     for (const [key, value] of Object.entries(style)) {
@@ -52,9 +53,8 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   applyBoxStyle(controller.getBoxStyle());
   const unsubscribeBox = controller.subscribeBoxStyle(applyBoxStyle);
   const unsubscribeDimensions = controller.subscribeDimensions(() => {
-    if (!mounted) return;
+    if (!mounted || isSyncingDimensions) return;
     host.setState({ context: buildContextSnapshot() });
-    host.flush();
   });
 
   const buildContextSnapshot = () => {
@@ -83,7 +83,9 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
       nextDimensions.cols !== currentDimensions.cols ||
       nextDimensions.depth !== currentDimensions.depth
     ) {
+      isSyncingDimensions = true;
       controller.setDimensions(nextDimensions);
+      isSyncingDimensions = false;
     }
     return scene.snapshot;
   };
@@ -100,7 +102,6 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
     state = { ...state, ...next };
     if (!mounted) return;
     host.setState({ voxels: state.voxels, context: buildContextSnapshot() });
-    host.flush();
   };
 
   const destroy = () => {

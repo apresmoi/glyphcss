@@ -1,11 +1,8 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { PropType, VNode } from "vue";
-import {
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraRenderSnapshot
-} from "@voxcss/controller/createCameraBinding";
+import { type CameraBindingHandle, type CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+import { createCameraBindingManager } from "./bindings";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
@@ -36,7 +33,7 @@ export default Vue.extend({
     cameraSnapshot: CameraState | null;
     cursorSnapshot: string;
     wallsSnapshot: WallsMask | null;
-    unsubscribeSnapshot: (() => void) | null;
+    cameraBindingManager: ReturnType<typeof createCameraBindingManager> | null;
   } {
     return {
       controllerInstance: null,
@@ -45,20 +42,35 @@ export default Vue.extend({
       cameraSnapshot: null,
       cursorSnapshot: "default",
       wallsSnapshot: null,
-      unsubscribeSnapshot: null
+      cameraBindingManager: null
     };
   },
+  created() {
+    this.cameraBindingManager = createCameraBindingManager(
+      this,
+      () => ({
+        zoom: this.zoom,
+        pan: this.pan,
+        tilt: this.tilt,
+        rotX: this.rotX,
+        rotY: this.rotY,
+        invert: this.invert,
+        interactive: this.interactive,
+        perspective: this.perspective,
+        animate: this.animate
+      }),
+      (snapshot) => this.applySnapshot(snapshot),
+      (handle) => {
+        this.cameraBinding = handle;
+        this.controllerInstance = handle ? handle.controller : null;
+      }
+    );
+  },
   beforeDestroy() {
-    this.unsubscribeSnapshot?.();
-    this.unsubscribeSnapshot = null;
-    this.cameraBinding?.destroy?.();
+    this.cameraBindingManager?.destroy();
+    this.cameraBindingManager = null;
     this.cameraBinding = null;
     this.controllerInstance = null;
-  },
-  watch: {
-    cameraPropSignature() {
-      this.updateBindingOptions();
-    }
   },
   computed: {
     controllerState() {
@@ -77,19 +89,6 @@ export default Vue.extend({
       return {
         cursor: this.cursor
       };
-    },
-    cameraPropSignature(): unknown[] {
-      return [
-        this.zoom,
-        this.pan,
-        this.tilt,
-        this.rotX,
-        this.rotY,
-        this.invert,
-        this.interactive,
-        this.perspective,
-        this.animate
-      ];
     }
   },
   methods: {
@@ -103,36 +102,7 @@ export default Vue.extend({
     mountCamera() {
       const node = this.$refs.camera as HTMLElement | undefined;
       if (!node) return;
-      const handle = createCameraBinding({
-        element: node,
-        interactive: this.interactive,
-        perspective: this.perspective,
-        zoom: this.zoom,
-        pan: this.pan,
-        tilt: this.tilt,
-        rotX: this.rotX,
-        rotY: this.rotY,
-        invert: this.invert,
-        animate: this.animate
-      });
-      this.cameraBinding = handle;
-      this.controllerInstance = handle.controller;
-      this.applySnapshot(handle.getSnapshot());
-      this.unsubscribeSnapshot?.();
-      this.unsubscribeSnapshot = handle.subscribe((next) => this.applySnapshot(next));
-    },
-    updateBindingOptions() {
-      this.cameraBinding?.setOptions({
-        zoom: this.zoom,
-        pan: this.pan,
-        tilt: this.tilt,
-        rotX: this.rotX,
-        rotY: this.rotY,
-        invert: this.invert,
-        interactive: this.interactive,
-        perspective: this.perspective,
-        animate: this.animate
-      });
+      this.cameraBindingManager?.mount(node);
     },
     startAutoRotate(config?: AutoRotateOption) {
       this.cameraBinding?.setAnimate(config ?? this.animate);
@@ -145,10 +115,7 @@ export default Vue.extend({
     this.mountCamera();
   },
   updated() {
-    if (!this.controllerInstance && this.cameraBinding) {
-      this.controllerInstance = this.cameraBinding.controller;
-      this.applySnapshot(this.cameraBinding.getSnapshot());
-    }
+    this.cameraBindingManager?.update();
   },
   render(h) {
     const vm = this as any;
