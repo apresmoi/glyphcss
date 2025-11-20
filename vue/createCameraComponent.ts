@@ -1,28 +1,18 @@
 import { defineComponent, h, computed, provide } from "vue";
-import type { PropType } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  resolveCameraSlotProps
+  type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
 import { useCameraBinding } from "./bindings";
 import { CONTROLLER_KEY } from "./controllerKey";
+import { cameraPropOptions } from "./propOptions";
 
 export function createCameraComponent() {
   return defineComponent({
     name: "VoxCamera",
-    props: {
-      zoom: { type: Number },
-      pan: { type: Number },
-      tilt: { type: Number },
-      rotX: { type: Number },
-      rotY: { type: Number },
-      invert: { type: [Boolean, Number] },
-      perspective: { type: [Number, Boolean] },
-      interactive: { type: Boolean },
-      animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption | false> }
-    },
+    props: cameraPropOptions,
     setup(props, { slots, expose }) {
       const bindingProps = () =>
         createCameraBindingProps({
@@ -36,11 +26,11 @@ export function createCameraComponent() {
           invert: props.invert,
           animate: props.animate
         });
-      const { elementRef, controller, snapshot, startAutoRotate, stopAutoRotate } = useCameraBinding(bindingProps);
+      const { elementRef, controller, slotProps, startAutoRotate, stopAutoRotate } = useCameraBinding(bindingProps);
       provide(CONTROLLER_KEY, controller);
 
-      const slotProps = computed(() => resolveCameraSlotProps(controller.value, snapshot.value));
-      const cursorStyle = computed(() => slotProps.value?.cursor ?? "default");
+      const resolvedSlotProps = computed(() => slotProps.value);
+      const cursorStyle = computed(() => resolvedSlotProps.value?.cursor ?? "default");
 
       expose({
         get controller() {
@@ -58,7 +48,7 @@ export function createCameraComponent() {
       });
 
       return () => {
-        const currentSlot = slotProps.value;
+        const currentSlot = resolvedSlotProps.value;
         const children = currentSlot && slots.default ? slots.default(currentSlot) : undefined;
 
         return h(

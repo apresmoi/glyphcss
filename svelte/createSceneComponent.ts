@@ -1,6 +1,7 @@
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import {
   createSceneBindingProps,
+  ensureSceneController,
   SCENE_HOST_CLASS,
   type SceneComponentProps
 } from "@voxcss/controller/createSceneComponentCore";
@@ -18,7 +19,8 @@ export interface SvelteSceneComponentInstance {
 export function createSceneComponent(config: SvelteSceneComponentFactoryConfig): SvelteSceneComponentInstance {
   return {
     className: SCENE_HOST_CLASS,
-    getBindingOptions: (props: SceneComponentProps) => createSceneBindingProps(config.getController(), props)
+    getBindingOptions: (props: SceneComponentProps) =>
+      createSceneBindingProps(ensureSceneController(config.getController()), props)
   };
 }
 

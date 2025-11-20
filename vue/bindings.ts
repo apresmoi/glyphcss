@@ -1,90 +1,70 @@
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
 import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
-import type { CameraBindingOptions, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
-import { createCameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
+import type { CameraBindingOptions } from "@voxcss/controller/createCameraBinding";
+import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
+import { useElementBindingAdapter } from "./bindingAdapters";
+import { createCameraBindingState } from "@voxcss/controller/cameraBindingState";
 
 export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"> | null) {
-  const hostElement = ref<HTMLElement | null>(null);
-  const adapter = createSceneBindingAdapter({
-    getElement: () => hostElement.value,
-    getOptions: () => props()
-  });
-
-  const sync = () => {
-    adapter.sync();
-  };
-
-  onMounted(sync);
-  onBeforeUnmount(() => adapter.destroy());
-
-  watch(
+  const { elementRef: hostElement } = useElementBindingAdapter(
     () => props(),
-    () => {
-      sync();
-    },
-    { deep: true }
+    (hooks) =>
+      createSceneBindingAdapter({
+        getElement: () => hooks.getElement(),
+        getOptions: () => hooks.getOptions()
+      })
   );
-
-  watch(hostElement, () => {
-    sync();
-  });
-
   return {
     hostElement
   };
 }
 
 export function useCameraBinding(props: () => Omit<CameraBindingOptions, "element">) {
-  const elementRef = ref<HTMLElement | null>(null);
   const controller = ref<SceneController | null>(null);
-  const snapshot = ref<CameraRenderSnapshot | null>(null);
-  const adapter = createCameraBindingAdapter({
-    getElement: () => elementRef.value,
-    getOptions: () => props(),
-    onController: (next) => {
-      controller.value = next;
-    },
-    onSnapshot: (next) => {
-      snapshot.value = next;
-    },
-    onDestroy: () => {
-      snapshot.value = null;
-    }
-  });
-
-  const sync = () => {
-    adapter.sync();
-  };
-
-  onMounted(sync);
-  onBeforeUnmount(() => adapter.destroy());
+  const slotProps = ref<CameraSlotProps | null>(null);
+  const elementRef = ref<HTMLElement | null>(null);
+  const bindingState = createCameraBindingState(props());
 
   watch(
     () => props(),
-    () => {
-      sync();
+    (next) => {
+      bindingState.setOptions(next);
     },
     { deep: true }
   );
 
-  watch(elementRef, () => {
-    sync();
+  watch(
+    elementRef,
+    (element) => {
+      bindingState.setElement(element);
+    },
+    { immediate: true }
+  );
+
+  const unsubscribe = bindingState.subscribe((snapshot) => {
+    controller.value = snapshot.controller;
+    slotProps.value = snapshot.slotProps;
+  });
+
+  onBeforeUnmount(() => {
+    unsubscribe();
+    bindingState.destroy();
   });
 
   const startAutoRotate = (config?: CameraBindingOptions["animate"]) => {
-    adapter.setAnimate(config ?? props().animate);
+    bindingState.startAutoRotate(config);
   };
 
   const stopAutoRotate = () => {
-    adapter.setAnimate(false);
+    bindingState.stopAutoRotate();
   };
 
   return {
     elementRef,
     controller,
-    snapshot,
+    slotProps,
     startAutoRotate,
     stopAutoRotate
   };

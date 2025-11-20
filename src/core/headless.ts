@@ -1,9 +1,4 @@
-import {
-  createSceneController,
-  type ControllerControls,
-  type SceneController,
-  type SceneControllerOptions
-} from "../controller/createSceneController";
+import { createSceneController, type ControllerControls, type SceneController } from "../controller/createSceneController";
 import { createSceneHost, type SceneHost } from "../controller/createSceneHost";
 import type { SceneSessionHandle, SceneSessionState } from "../controller/createSceneSession";
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
@@ -12,22 +7,14 @@ import type { AutoRotateOption } from "./camera";
 import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
 import { DEFAULT_CAMERA_PROPS } from "../controller/defaults";
-import { normalizePerspectiveValue, resolveInvertMultiplier } from "../controller/cameraUtils";
+import { formatPerspectiveStyle } from "../controller/cameraUtils";
 import { createSceneBinding, type SceneBindingHandle } from "../controller/createSceneBinding";
-import { mergeControllerOptions } from "../controller/cameraOptions";
+import { mergeControllerOptions, normalizeCameraOptions } from "../controller/cameraOptions";
+import { normalizeSceneState, type NormalizedSceneState, extractSceneState } from "../controller/sceneOptions";
+import type { CameraControllerInput } from "../controller/cameraOptions";
 
-export interface HeadlessCameraOptions {
+export interface HeadlessCameraOptions extends CameraControllerInput {
   element: HTMLElement;
-  controller?: SceneControllerOptions;
-  perspective?: number | false;
-  interactive?: boolean;
-  zoom?: number;
-  pan?: number;
-  tilt?: number;
-  rotX?: number;
-  rotY?: number;
-  invert?: boolean | number;
-  animate?: AutoRotateOption | false;
 }
 
 export interface HeadlessCameraHandle {
@@ -36,7 +23,7 @@ export interface HeadlessCameraHandle {
   interactive: boolean;
   autoRotate?: AutoRotateHandle | null;
   setInteractive(value: boolean): void;
-  setPerspective(value: number | false | undefined): void;
+  setPerspective(value: number | boolean | undefined): void;
   setAnimate(option: AutoRotateOption | false | undefined): void;
   destroy(): void;
 }
@@ -73,12 +60,13 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   if (!element) {
     throw new Error("voxcss: createHeadlessCamera requires an element.");
   }
-  let interactive = options.interactive !== false;
+  const normalized = normalizeCameraOptions(options);
+  let interactive = normalized.interactive;
   const controllerConfig = mergeControllerOptions(options);
   const controller = createSceneController(controllerConfig);
-  let autoRotate = createAutoRotateHandle(controller, options.animate);
+  let autoRotate = createAutoRotateHandle(controller, normalized.animate);
   element.classList.add(SCENE_CLASS);
-  applyPerspective(element, options.perspective);
+  applyPerspective(element, normalized.perspective);
   let detachPointer = interactive
     ? attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction())
     : null;
@@ -102,7 +90,7 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
         element.style.cursor = "default";
       }
     },
-    setPerspective(value: number | false | undefined) {
+    setPerspective(value: number | boolean | undefined) {
       applyPerspective(element, value);
     },
     setAnimate(option: AutoRotateOption | false | undefined) {
@@ -125,28 +113,12 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
     throw new Error("voxcss: createHeadlessScene requires an element.");
   }
   const host = createSceneHost();
-  let state: SceneSessionState = {
-    voxels: options.voxels ?? [],
-    rows: options.rows,
-    cols: options.cols,
-    depth: options.depth,
-    showWalls: options.showWalls ?? false,
-    showFloor: options.showFloor ?? false,
-    projection: options.projection
-  };
+  let state: NormalizedSceneState = normalizeSceneState(options);
   let session: SceneSessionHandle | null = null;
   let binding: SceneBindingHandle | null = null;
 
   const syncBinding = () => {
-    binding?.update({
-      voxels: state.voxels,
-      rows: state.rows,
-      cols: state.cols,
-      depth: state.depth,
-      showWalls: state.showWalls,
-      showFloor: state.showFloor,
-      projection: state.projection
-    });
+    binding?.update(extractSceneState(state));
   };
 
   return {
@@ -156,7 +128,11 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
       return { ...state };
     },
     setOptions(next) {
-      state = { ...state, ...next };
+      state = {
+        ...state,
+        ...next,
+        ...normalizeSceneState(next, state)
+      };
       syncBinding();
     },
     setVoxels(voxels: VoxelGrid) {
@@ -193,13 +169,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     controller,
     element: scene.element,
     host: scene.host,
-    voxels: sceneState.voxels,
-    rows: sceneState.rows,
-    cols: sceneState.cols,
-    depth: sceneState.depth,
-    showWalls: sceneState.showWalls,
-    showFloor: sceneState.showFloor,
-    projection: sceneState.projection,
+    ...extractSceneState(sceneState),
     onSessionChange: (next) => scene._setSession(next)
   });
   scene._attachBinding?.(binding);
@@ -225,25 +195,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   };
 }
 
-function applyPerspective(element: HTMLElement, perspective: number | false | undefined) {
-  const normalized = normalizePerspectiveValue(perspective);
-  if (normalized === false) {
-    element.style.perspective = "none";
-    return;
-  }
-  const resolved =
-    typeof normalized === "number"
-      ? normalized
-      : (DEFAULT_CAMERA_PROPS.perspective as number | undefined) ?? 8000;
-  element.style.perspective = `${resolved}px`;
-}
-
-function filterUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {
-  const output: Partial<T> = {};
-  for (const [key, value] of Object.entries(input) as [keyof T, T[keyof T]][]) {
-    if (value !== undefined) {
-      output[key] = value;
-    }
-  }
-  return output;
+function applyPerspective(element: HTMLElement, perspective: number | boolean | undefined) {
+  const fallback = (DEFAULT_CAMERA_PROPS.perspective as number | undefined) ?? 8000;
+  element.style.perspective = formatPerspectiveStyle(perspective, fallback);
 }

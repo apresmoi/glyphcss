@@ -1,53 +1,62 @@
 // @ts-nocheck
-import type { CameraBindingHandle, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+import type { CameraBindingHandle } from "@voxcss/controller/createCameraBinding";
+import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
-import { createCameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
+import { createBindingLifecycle, type BindingLifecycleAdapterHooks } from "@voxcss/controller/bindingLifecycle";
+import { createCameraBindingState } from "@voxcss/controller/cameraBindingState";
 
-export function createSceneBindingManager(vm: any, resolveOptions: () => any) {
-  let hostElement: HTMLElement | null = null;
-  const adapter = createSceneBindingAdapter({
-    getElement: () => hostElement,
-    getOptions: () => resolveOptions()
+export function createSceneBindingManager(_vm: any, resolveOptions: () => any) {
+  return createElementBindingManager(resolveOptions, (hooks) =>
+    createSceneBindingAdapter({
+      getElement: () => hooks.getElement(),
+      getOptions: () => hooks.getOptions()
+    })
+  );
+}
+
+export function createCameraBindingManager(
+  _vm: any,
+  resolveOptions: () => any,
+  onSlotProps: (props: CameraSlotProps | null) => void,
+  onReady: (handle: CameraBindingHandle | null) => void
+) {
+  const state = createCameraBindingState(resolveOptions());
+  const unsubscribeState = state.subscribe((snapshot) => {
+    onSlotProps(snapshot.slotProps);
+  });
+  const unsubscribeHandle = state.subscribeHandle((handle) => {
+    onReady(handle);
   });
   return {
     mount(element: HTMLElement) {
-      hostElement = element;
-      adapter.sync();
+      state.setElement(element);
     },
     update() {
-      adapter.sync();
+      state.setOptions(resolveOptions());
     },
     destroy() {
-      hostElement = null;
-      adapter.destroy();
+      unsubscribeState();
+      unsubscribeHandle();
+      state.destroy();
     }
   };
 }
 
-export function createCameraBindingManager(
-  vm: any,
-  resolveOptions: () => any,
-  onSnapshot: (snapshot: CameraRenderSnapshot) => void,
-  onReady: (handle: CameraBindingHandle | null) => void
+function createElementBindingManager<TOptions, TAdapter extends { sync(): void; destroy(): void }>(
+  resolveOptions: () => TOptions,
+  factory: (hooks: BindingLifecycleAdapterHooks<TOptions | null>) => TAdapter
 ) {
-  let hostElement: HTMLElement | null = null;
-  const adapter = createCameraBindingAdapter({
-    getElement: () => hostElement,
-    getOptions: () => resolveOptions(),
-    onSnapshot: (snapshot) => onSnapshot(snapshot),
-    onHandle: (handle) => onReady(handle)
-  });
+  const lifecycle = createBindingLifecycle(factory);
   return {
     mount(element: HTMLElement) {
-      hostElement = element;
-      adapter.sync();
+      lifecycle.setOptions(resolveOptions());
+      lifecycle.setElement(element);
     },
     update() {
-      adapter.sync();
+      lifecycle.setOptions(resolveOptions());
     },
     destroy() {
-      hostElement = null;
-      adapter.destroy();
+      lifecycle.destroy();
     }
   };
 }

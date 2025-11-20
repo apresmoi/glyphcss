@@ -3,7 +3,7 @@ import type { AutoRotateOption, CameraState } from "../core/camera";
 import type { WallsMask } from "../core";
 import type { HeadlessCameraHandle } from "../core/headless";
 import type { SceneController } from "./createSceneController";
-import { resolveInvertMultiplier, normalizePerspectiveValue } from "./cameraUtils";
+import { resolveInvertMultiplier } from "./cameraUtils";
 import { DEFAULT_CAMERA_PROPS } from "./defaults";
 import { normalizeCameraOptions } from "./cameraOptions";
 
@@ -49,7 +49,7 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
   const cameraHandle: HeadlessCameraHandle = createCamera({
     element,
     interactive: current.interactive,
-    perspective: normalizePerspectiveValue(current.perspective),
+    perspective: current.perspective,
     zoom: current.zoom,
     pan: current.pan,
     tilt: current.tilt,
@@ -111,7 +111,7 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
       notify();
     }
     if (nextState.perspective !== current.perspective) {
-      cameraHandle.setPerspective(normalizePerspectiveValue(nextState.perspective));
+      cameraHandle.setPerspective(nextState.perspective);
     }
     if (nextState.animate !== current.animate) {
       cameraHandle.setAnimate(nextState.animate);

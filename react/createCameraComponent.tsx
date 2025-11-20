@@ -4,7 +4,6 @@ import type { SceneController } from "@voxcss/controller/createSceneController";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  resolveCameraSlotProps,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
@@ -42,7 +41,7 @@ export function createCameraComponent({
   return forwardRef<VoxCameraHandle, ReactCameraComponentProps>(function VoxCameraFactory(props, ref) {
     const { children, ...rest } = props;
     const binding = useBinding(createCameraBindingProps(rest));
-    const slotProps = resolveCameraSlotProps(binding.controller, binding.snapshot);
+    const slotProps = binding.slotProps;
 
     useImperativeHandle(
       ref,

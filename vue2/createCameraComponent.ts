@@ -1,17 +1,17 @@
 // @ts-nocheck
 import Vue from "vue";
-import type { PropType, VNode } from "vue";
-import type { CameraBindingHandle, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+import type { VNode } from "vue";
+import type { CameraBindingHandle } from "@voxcss/controller/createCameraBinding";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  resolveCameraSlotProps,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
 import { createCameraBindingManager } from "./bindings";
+import { cameraPropOptions } from "../vue/propOptions";
 
 export function createCameraComponent() {
   return Vue.extend({
@@ -22,17 +22,7 @@ export function createCameraComponent() {
         sceneController: () => vm.controllerInstance
       };
     },
-    props: {
-      zoom: { type: Number },
-      pan: { type: Number },
-      tilt: { type: Number },
-      rotX: { type: Number },
-      rotY: { type: Number },
-      invert: { type: [Boolean, Number] as PropType<boolean | number> },
-      perspective: { type: [Number, Boolean] as PropType<number | boolean> },
-      interactive: { type: Boolean },
-      animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption | false> }
-    },
+    props: cameraPropOptions,
     data(): {
       controllerInstance: SceneController | null;
       cameraBinding: CameraBindingHandle | null;
@@ -61,7 +51,9 @@ export function createCameraComponent() {
             perspective: this.perspective,
             animate: this.animate
           }),
-        (snapshot) => this.applySnapshot(snapshot),
+        (slotProps) => {
+          this.slotPayload = slotProps;
+        },
         (handle) => {
           this.cameraBinding = handle;
           this.controllerInstance = handle ? handle.controller : null;
@@ -94,9 +86,6 @@ export function createCameraComponent() {
       }
     },
     methods: {
-      applySnapshot(snapshot?: CameraRenderSnapshot) {
-        this.slotPayload = resolveCameraSlotProps(this.controllerInstance, snapshot ?? null);
-      },
       mountCamera() {
         const node = this.$refs.camera as HTMLElement | undefined;
         if (!node) return;

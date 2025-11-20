@@ -1,14 +1,14 @@
 // @ts-nocheck
 import Vue from "vue";
-import type { PropType } from "vue";
-import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import {
   createSceneBindingProps,
+  ensureSceneController,
   SCENE_HOST_CLASS,
   type SceneComponentProps
 } from "@voxcss/controller/createSceneComponentCore";
 import { createSceneBindingManager } from "./bindings";
+import { scenePropOptions } from "../vue/propOptions";
 
 export function createSceneComponent() {
   return Vue.extend({
@@ -18,15 +18,7 @@ export function createSceneComponent() {
       }
     },
     name: "VoxScene",
-    props: {
-      voxels: { type: Array as PropType<VoxelGrid | undefined> },
-      rows: { type: Number },
-      cols: { type: Number },
-      depth: { type: Number },
-      showWalls: { type: Boolean as PropType<boolean | undefined> },
-      showFloor: { type: Boolean as PropType<boolean | undefined> },
-      projection: { type: String as PropType<ProjectionMode | undefined> }
-    },
+    props: scenePropOptions,
     data() {
       return {
         controller: null as SceneController | null,
@@ -58,9 +50,9 @@ export function createSceneComponent() {
       this.sceneBindingManager = null;
     },
     methods: {
-      resolveController(): SceneController | null {
+      resolveController(): SceneController {
         const injected = (this as any).sceneController;
-        return typeof injected === "function" ? injected() : injected;
+        return ensureSceneController(typeof injected === "function" ? injected() : injected);
       },
       buildProps(): SceneComponentProps {
         return {

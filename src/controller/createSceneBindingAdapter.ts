@@ -1,5 +1,6 @@
 import { createSceneBinding, type SceneBindingHandle, type SceneBindingOptions } from "./createSceneBinding";
-import type { SceneController } from "./createSceneController";
+import { createElementBindingAdapter } from "./bindingAdapters";
+import { extractSceneState } from "./sceneOptions";
 
 export interface SceneBindingAdapterHooks {
   getElement(): HTMLElement | null;
@@ -14,65 +15,35 @@ export interface SceneBindingAdapter {
 }
 
 export function createSceneBindingAdapter(hooks: SceneBindingAdapterHooks): SceneBindingAdapter {
-  let binding: SceneBindingHandle | null = null;
-  let mountedElement: HTMLElement | null = null;
-  let mountedController: SceneController | null = null;
-
-  const notify = (handle: SceneBindingHandle | null) => {
-    hooks.onUpdate?.(handle);
-  };
-
-  const destroyBinding = () => {
-    if (!binding) return;
-    binding.destroy();
-    binding = null;
-    mountedElement = null;
-    mountedController = null;
-    notify(null);
-  };
-
-  const mountBinding = (options: Omit<SceneBindingOptions, "element">, element: HTMLElement) => {
-    destroyBinding();
-    binding = createSceneBinding({ ...options, element });
-    binding.mount();
-    mountedElement = element;
-    mountedController = options.controller;
-    notify(binding);
-  };
-
-  const sync = () => {
-    const element = hooks.getElement();
-    const options = hooks.getOptions();
-    const controller = options?.controller ?? null;
-    if (!element || !options || !controller) {
-      destroyBinding();
-      return;
+  const adapter = createElementBindingAdapter<SceneBindingHandle, Omit<SceneBindingOptions, "element">>(
+    {
+      getElement: () => hooks.getElement(),
+      getOptions: () => hooks.getOptions()
+    },
+    {
+      mount(element, options) {
+        const binding = createSceneBinding({ ...options, element });
+        binding.mount();
+        hooks.onUpdate?.(binding);
+        return binding;
+      },
+      update(binding, options) {
+        binding.update(extractSceneState(options));
+        hooks.onUpdate?.(binding);
+      },
+      destroy(binding, _reason) {
+        binding.destroy();
+        hooks.onUpdate?.(null);
+      },
+      shouldRemount(previous, next) {
+        return previous.options.controller !== next.options.controller;
+      }
     }
-    if (!binding || mountedElement !== element || mountedController !== controller) {
-      mountBinding(options, element);
-      return;
-    }
-    binding.update({
-      voxels: options.voxels,
-      rows: options.rows,
-      cols: options.cols,
-      depth: options.depth,
-      showWalls: options.showWalls,
-      showFloor: options.showFloor,
-      projection: options.projection
-    });
-    notify(binding);
-  };
-
-  const destroy = () => {
-    destroyBinding();
-  };
-
-  const getHandle = () => binding;
+  );
 
   return {
-    sync,
-    destroy,
-    getHandle
+    sync: () => adapter.sync(),
+    destroy: () => adapter.destroy(),
+    getHandle: () => adapter.getHandle()
   };
 }

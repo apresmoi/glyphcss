@@ -1,8 +1,14 @@
 import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
 import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
-import { createCameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
-import type { CameraBindingHandle, CameraBindingOptions, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+import type {
+  CameraBindingHandle,
+  CameraBindingOptions,
+  CameraRenderSnapshot
+} from "@voxcss/controller/createCameraBinding";
+import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
+import { createBindingLifecycle } from "@voxcss/controller/bindingLifecycle";
+import { createCameraBindingState } from "@voxcss/controller/cameraBindingState";
 
 export type SceneBindingActionOptions = Omit<SceneBindingOptions, "element">;
 
@@ -10,24 +16,24 @@ export interface CameraBindingActionOptions extends Omit<CameraBindingOptions, "
   onSnapshot?(snapshot: CameraRenderSnapshot): void;
   onController?(controller: SceneController | null): void;
   onHandle?(handle: CameraBindingHandle | null): void;
+  onSlotProps?(props: CameraSlotProps | null): void;
 }
 
 export function sceneBinding(node: HTMLElement, options: SceneBindingActionOptions) {
-  let currentOptions = options;
-  const adapter = createSceneBindingAdapter({
-    getElement: () => node,
-    getOptions: () => currentOptions
-  });
-
-  adapter.sync();
-
+  const lifecycle = createBindingLifecycle((hooks) =>
+    createSceneBindingAdapter({
+      getElement: () => hooks.getElement(),
+      getOptions: () => hooks.getOptions()
+    })
+  );
+  lifecycle.setOptions(options);
+  lifecycle.setElement(node);
   return {
     update(next: SceneBindingActionOptions) {
-      currentOptions = next;
-      adapter.sync();
+      lifecycle.setOptions(next);
     },
     destroy() {
-      adapter.destroy();
+      lifecycle.destroy();
     }
   };
 }
@@ -39,23 +45,32 @@ function resolveCameraOptions(options: CameraBindingActionOptions): Omit<CameraB
 
 export function cameraBinding(node: HTMLElement, options: CameraBindingActionOptions) {
   let currentOptions = options;
-  const adapter = createCameraBindingAdapter({
-    getElement: () => node,
-    getOptions: () => resolveCameraOptions(currentOptions),
-    onSnapshot: (snapshot) => currentOptions.onSnapshot?.(snapshot),
-    onController: (controller) => currentOptions.onController?.(controller),
-    onHandle: (handle) => currentOptions.onHandle?.(handle)
-  });
+  const state = createCameraBindingState(resolveCameraOptions(currentOptions));
+  state.setElement(node);
 
-  adapter.sync();
+  const unsubscribeSnapshot = state.subscribe((next) => {
+    currentOptions.onController?.(next.controller);
+    currentOptions.onSlotProps?.(next.slotProps);
+  });
+  const unsubscribeRender = state.subscribeRender((snapshot) => {
+    if (snapshot) {
+      currentOptions.onSnapshot?.(snapshot);
+    }
+  });
+  const unsubscribeHandle = state.subscribeHandle((handle) => {
+    currentOptions.onHandle?.(handle);
+  });
 
   return {
     update(next: CameraBindingActionOptions) {
       currentOptions = next;
-      adapter.sync();
+      state.setOptions(resolveCameraOptions(next));
     },
     destroy() {
-      adapter.destroy();
+      unsubscribeSnapshot();
+      unsubscribeRender();
+      unsubscribeHandle();
+      state.destroy();
     }
   };
 }

@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { setContext } from "svelte";
+  import { setContext, onDestroy } from "svelte";
   import type { SceneController } from "@voxcss/controller/createSceneController";
   import type { AutoRotateOption } from "@voxcss/core/camera";
   import { CONTROLLER_KEY } from "./context";
-  import { cameraBinding } from "./bindings";
   import { createCameraComponent } from "./createCameraComponent";
 
   export let zoom: number | undefined;
@@ -22,7 +21,9 @@
     }
   });
 
-  $: bindingOptions = cameraComponent.buildBindingOptions({
+  let cameraElement: HTMLDivElement | null = null;
+
+  $: cameraComponent.setProps({
     zoom,
     pan,
     tilt,
@@ -34,8 +35,13 @@
     animate
   });
 
+  $: cameraComponent.setElement(cameraElement);
   $: slotProps = cameraComponent.getSlotProps();
   $: cursor = cameraComponent.getCursor();
+
+  onDestroy(() => {
+    cameraComponent.destroy();
+  });
 
   export function startAutoRotate(value?: AutoRotateOption) {
     cameraComponent.startAutoRotate(value);
@@ -46,7 +52,7 @@
   }
 </script>
 
-<div use:cameraBinding={bindingOptions} class={cameraComponent.className} style={`cursor:${cursor}`}>
+<div bind:this={cameraElement} class={cameraComponent.className} style={`cursor:${cursor}`}>
   {#if slotProps}
     <slot
       boxStyle={slotProps.boxStyle}

@@ -1,100 +1,128 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import type { RefObject } from "react";
 import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import { createSceneBindingAdapter, type SceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
-import type { CameraBindingOptions, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
-import { createCameraBindingAdapter, type CameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
+import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
+import type { CameraBindingOptions } from "@voxcss/controller/createCameraBinding";
+import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
+import {
+  createBindingLifecycle,
+  type BindingLifecycle,
+  type BindingLifecycleAdapterHooks
+} from "@voxcss/controller/bindingLifecycle";
+import {
+  createCameraBindingState,
+  type CameraBindingSnapshot
+} from "@voxcss/controller/cameraBindingState";
 
 export type SceneBindingProps = Omit<SceneBindingOptions, "element">;
 export type CameraBindingProps = Omit<CameraBindingOptions, "element">;
 
-export function useSceneBinding(props: SceneBindingProps) {
+function useBindingAdapter<TAdapter extends { sync(): void; destroy(): void }, TOptions>(
+  initAdapter: (hooks: BindingLifecycleAdapterHooks<TOptions | null>) => TAdapter,
+  options: TOptions
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const optionsRef = useRef(props);
-  optionsRef.current = props;
-  const adapterRef = useRef<SceneBindingAdapter | null>(null);
+  const lifecycleRef = useRef<BindingLifecycle<TAdapter, TOptions> | null>(null);
 
-  if (!adapterRef.current) {
-    adapterRef.current = createSceneBindingAdapter({
-      getElement: () => containerRef.current,
-      getOptions: () => optionsRef.current
-    });
+  if (!lifecycleRef.current) {
+    lifecycleRef.current = createBindingLifecycle(initAdapter);
   }
 
+  const lifecycle = lifecycleRef.current;
+
   useLayoutEffect(() => {
-    adapterRef.current?.sync();
-  });
+    lifecycle.setElement(containerRef.current);
+    return () => {
+      lifecycle.setElement(null);
+    };
+  }, [lifecycle]);
+
+  useLayoutEffect(() => {
+    lifecycle.setOptions(options);
+  }, [lifecycle, options]);
 
   useEffect(() => {
     return () => {
-      adapterRef.current?.destroy();
+      lifecycle.destroy();
+      lifecycleRef.current = null;
     };
-  }, []);
+  }, [lifecycle]);
 
-  return containerRef;
+  return {
+    ref: containerRef,
+    getAdapter: () => lifecycle.getAdapter()
+  };
+}
+
+export function useSceneBinding(props: SceneBindingProps) {
+  const { ref } = useBindingAdapter(
+    (hooks) =>
+      createSceneBindingAdapter({
+        getElement: () => hooks.getElement(),
+        getOptions: () => hooks.getOptions()
+      }),
+    props
+  );
+  return ref;
 }
 
 export interface CameraBindingHookResult {
   containerRef: RefObject<HTMLDivElement>;
   controller: SceneController | null;
-  snapshot: CameraRenderSnapshot | null;
+  slotProps: CameraSlotProps | null;
   startAutoRotate(config?: AutoRotateOption | false): void;
   stopAutoRotate(): void;
 }
 
 export function useCameraBinding(props: CameraBindingProps): CameraBindingHookResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const optionsRef = useRef(props);
-  optionsRef.current = props;
-  const animateRef = useRef<AutoRotateOption | false | undefined>(props.animate);
-  const adapterRef = useRef<CameraBindingAdapter | null>(null);
-  const [controller, setController] = useState<SceneController | null>(null);
-  const [snapshot, setSnapshot] = useState<CameraRenderSnapshot | null>(null);
-
-  if (!adapterRef.current) {
-    adapterRef.current = createCameraBindingAdapter({
-      getElement: () => containerRef.current,
-      getOptions: () => optionsRef.current,
-      onController: (next) => setController(next),
-      onSnapshot: (next) => setSnapshot(next),
-      onDestroy: () => setSnapshot(null)
-    });
+  const stateRef = useRef<ReturnType<typeof createCameraBindingState> | null>(null);
+  if (!stateRef.current) {
+    stateRef.current = createCameraBindingState(props);
   }
+  const bindingState = stateRef.current;
+  const [snapshot, setSnapshot] = useState<CameraBindingSnapshot>(() => bindingState.getSnapshot());
 
   useLayoutEffect(() => {
-    adapterRef.current?.sync();
-  });
+    bindingState.setElement(containerRef.current);
+    return () => {
+      bindingState.setElement(null);
+    };
+  }, [bindingState]);
+
+  useEffect(() => {
+    bindingState.setOptions(props);
+  }, [bindingState, props]);
+
+  useEffect(() => {
+    const unsubscribe = bindingState.subscribe((next) => setSnapshot(next));
+    return () => unsubscribe();
+  }, [bindingState]);
 
   useEffect(() => {
     return () => {
-      adapterRef.current?.destroy();
-      adapterRef.current = null;
-      setController(null);
-      setSnapshot(null);
+      bindingState.destroy();
+      stateRef.current = null;
     };
-  }, []);
+  }, [bindingState]);
 
-  useEffect(() => {
-    animateRef.current = props.animate;
-  }, [props.animate]);
-
-  const startAutoRotate = useCallback((config?: AutoRotateOption | false) => {
-    const option = config ?? animateRef.current;
-    animateRef.current = option;
-    adapterRef.current?.setAnimate(option);
-  }, []);
+  const startAutoRotate = useCallback(
+    (config?: AutoRotateOption | false) => {
+      bindingState.startAutoRotate(config);
+    },
+    [bindingState]
+  );
 
   const stopAutoRotate = useCallback(() => {
-    animateRef.current = false;
-    adapterRef.current?.setAnimate(false);
-  }, []);
+    bindingState.stopAutoRotate();
+  }, [bindingState]);
 
   return {
     containerRef,
-    controller,
-    snapshot,
+    controller: snapshot.controller,
+    slotProps: snapshot.slotProps,
     startAutoRotate,
     stopAutoRotate
   };

@@ -1,8 +1,23 @@
 import type { SceneControllerOptions } from "./createSceneController";
-import type { CameraBindingOptions } from "./createCameraBinding";
-import type { HeadlessCameraOptions } from "../core/headless";
+import type { AutoRotateOption } from "../core/camera";
 import { DEFAULT_CAMERA_PROPS } from "./defaults";
 import { normalizePerspectiveValue, resolveInvertMultiplier } from "./cameraUtils";
+
+export interface CameraOptionsInput {
+  zoom?: number;
+  pan?: number;
+  tilt?: number;
+  rotX?: number;
+  rotY?: number;
+  invert?: boolean | number;
+  perspective?: number | boolean;
+  interactive?: boolean;
+  animate?: AutoRotateOption | false;
+}
+
+export interface CameraControllerInput extends CameraOptionsInput {
+  controller?: SceneControllerOptions;
+}
 
 export interface NormalizedCameraOptions {
   zoom: number;
@@ -11,14 +26,16 @@ export interface NormalizedCameraOptions {
   rotX: number;
   rotY: number;
   invert?: boolean | number;
-  perspective?: number | boolean;
+  perspective: number | false | undefined;
   interactive: boolean;
-  animate?: CameraBindingOptions["animate"];
+  animate?: AutoRotateOption | false;
 }
 
 export function normalizeCameraOptions(
-  options: Partial<Omit<CameraBindingOptions, "element">>
+  options: CameraOptionsInput = {}
 ): NormalizedCameraOptions {
+  const perspectiveInput =
+    options.perspective === undefined ? DEFAULT_CAMERA_PROPS.perspective : options.perspective;
   return {
     zoom: options.zoom ?? DEFAULT_CAMERA_PROPS.zoom,
     pan: options.pan ?? DEFAULT_CAMERA_PROPS.pan,
@@ -26,13 +43,13 @@ export function normalizeCameraOptions(
     rotX: options.rotX ?? DEFAULT_CAMERA_PROPS.rotX,
     rotY: options.rotY ?? DEFAULT_CAMERA_PROPS.rotY,
     invert: options.invert,
-    perspective: options.perspective ?? DEFAULT_CAMERA_PROPS.perspective,
+    perspective: normalizePerspectiveValue(perspectiveInput),
     interactive: options.interactive ?? DEFAULT_CAMERA_PROPS.interactive,
     animate: options.animate ?? DEFAULT_CAMERA_PROPS.animate
   };
 }
 
-export function mergeControllerOptions(options: HeadlessCameraOptions): SceneControllerOptions {
+export function mergeControllerOptions(options: CameraControllerInput): SceneControllerOptions {
   const base = options.controller ?? {};
   const cameraOverrides = filterUndefined({
     zoom: options.zoom,

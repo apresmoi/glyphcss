@@ -1,17 +1,10 @@
 import { createSceneHost, type SceneHost } from "./createSceneHost";
 import type { SceneController } from "./createSceneController";
 import { buildSceneContext } from "../core/context";
-import type { GridContext, ProjectionMode, VoxelGrid } from "../core";
+import { normalizeSceneState, type NormalizedSceneState, type SceneStateInput } from "./sceneOptions";
+import type { GridContext } from "../core";
 
-export interface SceneSessionState {
-  voxels: VoxelGrid;
-  rows?: number;
-  cols?: number;
-  depth?: number;
-  showWalls?: boolean;
-  showFloor?: boolean;
-  projection?: ProjectionMode;
-}
+export interface SceneSessionState extends SceneStateInput {}
 
 export interface SceneSessionOptions extends SceneSessionState {
   controller: SceneController;
@@ -32,15 +25,7 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   const element = options.element;
   const host = options.host ?? createSceneHost();
 
-  let state: SceneSessionState = {
-    voxels: options.voxels ?? [],
-    rows: options.rows,
-    cols: options.cols,
-    depth: options.depth,
-    showWalls: options.showWalls ?? false,
-    showFloor: options.showFloor ?? false,
-    projection: options.projection
-  };
+  let state: NormalizedSceneState = normalizeSceneState(options);
   let mounted = false;
   let isSyncingDimensions = false;
 
@@ -99,7 +84,11 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   };
 
   const setState = (next: Partial<SceneSessionState>) => {
-    state = { ...state, ...next };
+    state = {
+      ...state,
+      ...next,
+      ...normalizeSceneState(next, state)
+    };
     if (!mounted) return;
     host.setState({ voxels: state.voxels, context: buildContextSnapshot() });
   };
