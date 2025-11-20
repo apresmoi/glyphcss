@@ -1,10 +1,7 @@
-import { createSceneBinding, type SceneBindingHandle, type SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import {
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraBindingOptions,
-  type CameraRenderSnapshot
-} from "@voxcss/controller/createCameraBinding";
+import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
+import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
+import { createCameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
+import type { CameraBindingHandle, CameraBindingOptions, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 
 export type SceneBindingActionOptions = Omit<SceneBindingOptions, "element">;
@@ -15,86 +12,50 @@ export interface CameraBindingActionOptions extends Omit<CameraBindingOptions, "
   onHandle?(handle: CameraBindingHandle | null): void;
 }
 
-function applySceneBinding(node: HTMLElement, options: SceneBindingActionOptions): SceneBindingHandle {
-  const binding = createSceneBinding({ ...options, element: node });
-  binding.mount();
-  return binding;
-}
-
 export function sceneBinding(node: HTMLElement, options: SceneBindingActionOptions) {
-  let binding = applySceneBinding(node, options);
+  let currentOptions = options;
+  const adapter = createSceneBindingAdapter({
+    getElement: () => node,
+    getOptions: () => currentOptions
+  });
+
+  adapter.sync();
 
   return {
     update(next: SceneBindingActionOptions) {
-      if (next.controller !== options.controller) {
-        binding.destroy();
-        binding = applySceneBinding(node, next);
-      } else {
-        binding.update({
-          voxels: next.voxels,
-          rows: next.rows,
-          cols: next.cols,
-          depth: next.depth,
-          showWalls: next.showWalls,
-          showFloor: next.showFloor,
-          projection: next.projection
-        });
-      }
-      options = next;
+      currentOptions = next;
+      adapter.sync();
     },
     destroy() {
-      binding.destroy();
+      adapter.destroy();
     }
   };
 }
 
-function mountCameraBinding(node: HTMLElement, options: CameraBindingActionOptions) {
-  const binding = createCameraBinding({ ...options, element: node });
-  options.onHandle?.(binding);
-  options.onController?.(binding.controller);
-  let unsubscribe = binding.subscribe((snapshot) => options.onSnapshot?.(snapshot));
-  options.onSnapshot?.(binding.getSnapshot());
-
-  return {
-    binding,
-    teardown() {
-      unsubscribe?.();
-      binding.destroy();
-      options.onHandle?.(null);
-      options.onController?.(null);
-    },
-    updateCallbacks(next: CameraBindingActionOptions) {
-      options = next;
-    }
-  };
+function resolveCameraOptions(options: CameraBindingActionOptions): Omit<CameraBindingOptions, "element"> {
+  const { onSnapshot, onController, onHandle, ...rest } = options;
+  return rest;
 }
 
 export function cameraBinding(node: HTMLElement, options: CameraBindingActionOptions) {
-  let mounted = mountCameraBinding(node, options);
+  let currentOptions = options;
+  const adapter = createCameraBindingAdapter({
+    getElement: () => node,
+    getOptions: () => resolveCameraOptions(currentOptions),
+    onSnapshot: (snapshot) => currentOptions.onSnapshot?.(snapshot),
+    onController: (controller) => currentOptions.onController?.(controller),
+    onHandle: (handle) => currentOptions.onHandle?.(handle)
+  });
+
+  adapter.sync();
 
   return {
     update(next: CameraBindingActionOptions) {
-      if (next !== options && next.controller !== options.controller) {
-        mounted.teardown();
-        mounted = mountCameraBinding(node, next);
-      } else {
-        mounted.binding.setOptions({
-          zoom: next.zoom,
-          pan: next.pan,
-          tilt: next.tilt,
-          rotX: next.rotX,
-          rotY: next.rotY,
-          invert: next.invert,
-          interactive: next.interactive,
-          perspective: next.perspective,
-          animate: next.animate
-        });
-        mounted.updateCallbacks(next);
-      }
-      options = next;
+      currentOptions = next;
+      adapter.sync();
     },
     destroy() {
-      mounted.teardown();
+      adapter.destroy();
     }
   };
 }

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { setContext } from "svelte";
-  import type { SceneController, WallsMask } from "@voxcss/core";
-  import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
-  import type { CameraBindingHandle, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+  import type { SceneController } from "@voxcss/controller/createSceneController";
+  import type { AutoRotateOption } from "@voxcss/core/camera";
   import { CONTROLLER_KEY } from "./context";
   import { cameraBinding } from "./bindings";
+  import { createCameraComponent } from "./createCameraComponent";
 
   export let zoom: number | undefined;
   export let pan: number | undefined;
@@ -16,32 +16,13 @@
   export let interactive: boolean | undefined;
   export let animate: AutoRotateOption | undefined;
 
-  let controller: SceneController | null = null;
-  let bindingHandle: CameraBindingHandle | null = null;
-  let boxStyle: Record<string, string> = {};
-  let walls: WallsMask | null = null;
-  let cameraState: CameraState | null = null;
-  let cursor = "default";
-
-  function applySnapshot(next: CameraRenderSnapshot) {
-    boxStyle = next.boxStyle;
-    cameraState = next.camera;
-    walls = next.walls;
-    cursor = next.cursor;
-  }
-
-  function handleController(next: SceneController | null) {
-    controller = next;
-    if (next) {
-      setContext(CONTROLLER_KEY, next);
+  const cameraComponent = createCameraComponent({
+    onControllerReady(controller: SceneController) {
+      setContext(CONTROLLER_KEY, controller);
     }
-  }
+  });
 
-  function handleHandle(next: CameraBindingHandle | null) {
-    bindingHandle = next;
-  }
-
-  $: bindingOptions = {
+  $: bindingOptions = cameraComponent.buildBindingOptions({
     zoom,
     pan,
     tilt,
@@ -50,23 +31,29 @@
     invert,
     interactive,
     perspective,
-    animate,
-    onSnapshot: applySnapshot,
-    onController: handleController,
-    onHandle: handleHandle
-  };
+    animate
+  });
+
+  $: slotProps = cameraComponent.getSlotProps();
+  $: cursor = cameraComponent.getCursor();
 
   export function startAutoRotate(value?: AutoRotateOption) {
-    bindingHandle?.setAnimate(value ?? animate);
+    cameraComponent.startAutoRotate(value);
   }
 
   export function stopAutoRotate() {
-    bindingHandle?.setAnimate(false);
+    cameraComponent.stopAutoRotate();
   }
 </script>
 
-<div use:cameraBinding={bindingOptions} class="voxcss-camera" style={`cursor:${cursor}`}>
-  {#if controller}
-    <slot boxStyle={boxStyle} cursor={cursor} walls={walls} controller={controller} camera={cameraState} />
+<div use:cameraBinding={bindingOptions} class={cameraComponent.className} style={`cursor:${cursor}`}>
+  {#if slotProps}
+    <slot
+      boxStyle={slotProps.boxStyle}
+      cursor={slotProps.cursor}
+      walls={slotProps.walls}
+      controller={slotProps.controller}
+      camera={slotProps.camera}
+    />
   {/if}
 </div>

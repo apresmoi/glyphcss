@@ -1,27 +1,25 @@
 // @ts-nocheck
-import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/createSceneBinding";
-import {
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraRenderSnapshot
-} from "@voxcss/controller/createCameraBinding";
+import type { CameraBindingHandle, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
+import { createCameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
 
 export function createSceneBindingManager(vm: any, resolveOptions: () => any) {
-  let binding: SceneBindingHandle | null = null;
+  let hostElement: HTMLElement | null = null;
+  const adapter = createSceneBindingAdapter({
+    getElement: () => hostElement,
+    getOptions: () => resolveOptions()
+  });
   return {
     mount(element: HTMLElement) {
-      const options = resolveOptions();
-      binding = createSceneBinding({ ...options, element });
-      binding.mount();
+      hostElement = element;
+      adapter.sync();
     },
     update() {
-      if (!binding) return;
-      const options = resolveOptions();
-      binding.update(options);
+      adapter.sync();
     },
     destroy() {
-      binding?.destroy();
-      binding = null;
+      hostElement = null;
+      adapter.destroy();
     }
   };
 }
@@ -32,27 +30,24 @@ export function createCameraBindingManager(
   onSnapshot: (snapshot: CameraRenderSnapshot) => void,
   onReady: (handle: CameraBindingHandle | null) => void
 ) {
-  let binding: CameraBindingHandle | null = null;
-  let unsubscribe: (() => void) | null = null;
+  let hostElement: HTMLElement | null = null;
+  const adapter = createCameraBindingAdapter({
+    getElement: () => hostElement,
+    getOptions: () => resolveOptions(),
+    onSnapshot: (snapshot) => onSnapshot(snapshot),
+    onHandle: (handle) => onReady(handle)
+  });
   return {
     mount(element: HTMLElement) {
-      const options = resolveOptions();
-      binding = createCameraBinding({ ...options, element });
-      onReady(binding);
-      onSnapshot(binding.getSnapshot());
-      unsubscribe = binding.subscribe((snapshot) => onSnapshot(snapshot));
+      hostElement = element;
+      adapter.sync();
     },
     update() {
-      if (!binding) return;
-      const options = resolveOptions();
-      binding.setOptions(options);
+      adapter.sync();
     },
     destroy() {
-      unsubscribe?.();
-      unsubscribe = null;
-      binding?.destroy();
-      binding = null;
-      onReady(null);
+      hostElement = null;
+      adapter.destroy();
     }
   };
 }

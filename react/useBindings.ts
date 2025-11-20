@@ -1,16 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import type { RefObject } from "react";
-import {
-  createSceneBinding,
-  type SceneBindingHandle,
-  type SceneBindingOptions
-} from "@voxcss/controller/createSceneBinding";
-import {
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraBindingOptions,
-  type CameraRenderSnapshot
-} from "@voxcss/controller/createCameraBinding";
+import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
+import { createSceneBindingAdapter, type SceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
+import type { CameraBindingOptions, CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
+import { createCameraBindingAdapter, type CameraBindingAdapter } from "@voxcss/controller/createCameraBindingAdapter";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 
@@ -19,31 +12,26 @@ export type CameraBindingProps = Omit<CameraBindingOptions, "element">;
 
 export function useSceneBinding(props: SceneBindingProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const bindingRef = useRef<SceneBindingHandle | null>(null);
+  const optionsRef = useRef(props);
+  optionsRef.current = props;
+  const adapterRef = useRef<SceneBindingAdapter | null>(null);
 
-  useEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const binding = createSceneBinding({ ...props, element });
-    binding.mount();
-    bindingRef.current = binding;
-    return () => {
-      binding.destroy();
-      bindingRef.current = null;
-    };
-  }, [props.controller]);
-
-  useEffect(() => {
-    bindingRef.current?.update({
-      voxels: props.voxels,
-      rows: props.rows,
-      cols: props.cols,
-      depth: props.depth,
-      showWalls: props.showWalls,
-      showFloor: props.showFloor,
-      projection: props.projection
+  if (!adapterRef.current) {
+    adapterRef.current = createSceneBindingAdapter({
+      getElement: () => containerRef.current,
+      getOptions: () => optionsRef.current
     });
-  }, [props.voxels, props.rows, props.cols, props.depth, props.showWalls, props.showFloor, props.projection]);
+  }
+
+  useLayoutEffect(() => {
+    adapterRef.current?.sync();
+  });
+
+  useEffect(() => {
+    return () => {
+      adapterRef.current?.destroy();
+    };
+  }, []);
 
   return containerRef;
 }
@@ -58,53 +46,49 @@ export interface CameraBindingHookResult {
 
 export function useCameraBinding(props: CameraBindingProps): CameraBindingHookResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const bindingRef = useRef<CameraBindingHandle | null>(null);
+  const optionsRef = useRef(props);
+  optionsRef.current = props;
   const animateRef = useRef<AutoRotateOption | false | undefined>(props.animate);
+  const adapterRef = useRef<CameraBindingAdapter | null>(null);
   const [controller, setController] = useState<SceneController | null>(null);
   const [snapshot, setSnapshot] = useState<CameraRenderSnapshot | null>(null);
 
+  if (!adapterRef.current) {
+    adapterRef.current = createCameraBindingAdapter({
+      getElement: () => containerRef.current,
+      getOptions: () => optionsRef.current,
+      onController: (next) => setController(next),
+      onSnapshot: (next) => setSnapshot(next),
+      onDestroy: () => setSnapshot(null)
+    });
+  }
+
   useLayoutEffect(() => {
-    const element = containerRef.current;
-    if (!element) return;
-    const binding = createCameraBinding({ ...props, element });
-    bindingRef.current = binding;
-    setController(binding.controller);
-    setSnapshot(binding.getSnapshot());
-    const unsubscribe = binding.subscribe((next) => setSnapshot(next));
+    adapterRef.current?.sync();
+  });
+
+  useEffect(() => {
     return () => {
-      unsubscribe();
-      binding.destroy();
-      bindingRef.current = null;
+      adapterRef.current?.destroy();
+      adapterRef.current = null;
       setController(null);
       setSnapshot(null);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     animateRef.current = props.animate;
-    bindingRef.current?.setOptions({
-      zoom: props.zoom,
-      pan: props.pan,
-      tilt: props.tilt,
-      rotX: props.rotX,
-      rotY: props.rotY,
-      invert: props.invert,
-      interactive: props.interactive,
-      perspective: props.perspective,
-      animate: props.animate
-    });
-  }, [props.zoom, props.pan, props.tilt, props.rotX, props.rotY, props.invert, props.interactive, props.perspective, props.animate]);
+  }, [props.animate]);
 
   const startAutoRotate = useCallback((config?: AutoRotateOption | false) => {
     const option = config ?? animateRef.current;
     animateRef.current = option;
-    bindingRef.current?.setAnimate(option);
+    adapterRef.current?.setAnimate(option);
   }, []);
 
   const stopAutoRotate = useCallback(() => {
     animateRef.current = false;
-    bindingRef.current?.setAnimate(false);
+    adapterRef.current?.setAnimate(false);
   }, []);
 
   return {

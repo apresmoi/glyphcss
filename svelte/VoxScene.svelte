@@ -3,6 +3,7 @@
   import type { SceneController, VoxelGrid, ProjectionMode } from "@voxcss/core";
   import { CONTROLLER_KEY } from "./context";
   import { sceneBinding } from "./bindings";
+  import { createSceneComponent } from "./createSceneComponent";
 
   export let voxels: VoxelGrid | undefined;
   export let rows: number | undefined;
@@ -13,12 +14,11 @@
   export let projection: ProjectionMode | undefined;
 
   const controller = getContext<SceneController>(CONTROLLER_KEY);
-  if (!controller) {
-    throw new Error("voxcss: VoxScene must be used inside VoxCamera.");
-  }
+  const sceneComponent = createSceneComponent({
+    getController: () => controller
+  });
 
-  $: bindingOptions = {
-    controller,
+  $: bindingOptions = sceneComponent.getBindingOptions({
     voxels,
     rows,
     cols,
@@ -26,7 +26,7 @@
     showWalls,
     showFloor,
     projection
-  };
+  });
 </script>
 
-<div use:sceneBinding={bindingOptions} class="voxcss-scene-host"></div>
+<div use:sceneBinding={bindingOptions} class={sceneComponent.className}></div>

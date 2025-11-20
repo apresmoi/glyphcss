@@ -5,7 +5,7 @@ import {
   type SceneControllerOptions
 } from "../controller/createSceneController";
 import { createSceneHost, type SceneHost } from "../controller/createSceneHost";
-import { createSceneSession, type SceneSessionHandle, type SceneSessionState } from "../controller/createSceneSession";
+import type { SceneSessionHandle, SceneSessionState } from "../controller/createSceneSession";
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
 import { attachPointerEvents } from "./pointerEvents";
 import type { AutoRotateOption } from "./camera";
@@ -13,6 +13,8 @@ import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
 import { DEFAULT_CAMERA_PROPS } from "../controller/defaults";
 import { normalizePerspectiveValue, resolveInvertMultiplier } from "../controller/cameraUtils";
+import { createSceneBinding, type SceneBindingHandle } from "../controller/createSceneBinding";
+import { mergeControllerOptions } from "../controller/cameraOptions";
 
 export interface HeadlessCameraOptions {
   element: HTMLElement;
@@ -52,6 +54,7 @@ export interface HeadlessSceneHandle {
   setVoxels(voxels: VoxelGrid): void;
   _getSession(): SceneSessionHandle | null;
   _setSession(session: SceneSessionHandle | null): void;
+  _attachBinding?(binding: SceneBindingHandle | null): void;
   destroy(): void;
 }
 
@@ -132,6 +135,20 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
     projection: options.projection
   };
   let session: SceneSessionHandle | null = null;
+  let binding: SceneBindingHandle | null = null;
+
+  const syncBinding = () => {
+    binding?.update({
+      voxels: state.voxels,
+      rows: state.rows,
+      cols: state.cols,
+      depth: state.depth,
+      showWalls: state.showWalls,
+      showFloor: state.showFloor,
+      projection: state.projection
+    });
+  };
+
   return {
     element,
     host,
@@ -140,19 +157,11 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
     },
     setOptions(next) {
       state = { ...state, ...next };
-      session?.setState({
-        voxels: state.voxels,
-        rows: state.rows,
-        cols: state.cols,
-        depth: state.depth,
-        showWalls: state.showWalls,
-        showFloor: state.showFloor,
-        projection: state.projection
-      });
+      syncBinding();
     },
     setVoxels(voxels: VoxelGrid) {
       state = { ...state, voxels };
-      session?.setState({ voxels });
+      binding?.update({ voxels });
     },
     _getSession() {
       return session;
@@ -160,8 +169,12 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
     _setSession(nextSession: SceneSessionHandle | null) {
       session = nextSession;
     },
+    _attachBinding(nextBinding: SceneBindingHandle | null) {
+      binding = nextBinding;
+    },
     destroy() {
-      session?.destroy();
+      binding?.destroy();
+      binding = null;
       session = null;
       host.destroy();
     }
@@ -176,7 +189,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   const controller = camera.controller;
   const sceneState = scene.getState();
 
-  const session = createSceneSession({
+  const binding = createSceneBinding({
     controller,
     element: scene.element,
     host: scene.host,
@@ -186,10 +199,11 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     depth: sceneState.depth,
     showWalls: sceneState.showWalls,
     showFloor: sceneState.showFloor,
-    projection: sceneState.projection
+    projection: sceneState.projection,
+    onSessionChange: (next) => scene._setSession(next)
   });
-  session.mount();
-  scene._setSession(session);
+  scene._attachBinding?.(binding);
+  binding.mount();
 
   const updateCursor = () => {
     if (camera.interactive) {
@@ -208,26 +222,6 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
       scene.destroy();
       camera.destroy();
     }
-  };
-}
-
-function mergeControllerOptions(options: HeadlessCameraOptions): SceneControllerOptions {
-  const base = options.controller ?? {};
-  const cameraOverrides = filterUndefined({
-    zoom: options.zoom,
-    pan: options.pan,
-    tilt: options.tilt,
-    rotX: options.rotX,
-    rotY: options.rotY
-  });
-  const invertOverride = resolveInvertMultiplier(options.invert);
-  const controlsOverrides = filterUndefined<Partial<ControllerControls>>({
-    invert: invertOverride
-  });
-  return {
-    ...base,
-    camera: { ...(base.camera ?? {}), ...cameraOverrides },
-    controls: { ...(base.controls ?? {}), ...controlsOverrides }
   };
 }
 

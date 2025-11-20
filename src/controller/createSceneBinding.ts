@@ -2,10 +2,12 @@ import type { SceneController } from "./createSceneController";
 import { createSceneSession, type SceneSessionHandle } from "./createSceneSession";
 import type { ProjectionMode, VoxelGrid } from "../core";
 import { DEFAULT_SCENE_FLAGS } from "./defaults";
+import type { SceneHost } from "./createSceneHost";
 
 export interface SceneBindingOptions {
   controller: SceneController;
   element: HTMLElement | null;
+  host?: SceneHost;
   voxels?: VoxelGrid;
   rows?: number;
   cols?: number;
@@ -13,6 +15,7 @@ export interface SceneBindingOptions {
   showWalls?: boolean;
   showFloor?: boolean;
   projection?: ProjectionMode;
+  onSessionChange?(session: SceneSessionHandle | null): void;
 }
 
 export interface SceneBindingHandle {
@@ -52,6 +55,7 @@ export function createSceneBinding(initial: SceneBindingOptions): SceneBindingHa
     session = createSceneSession({
       controller: current.controller,
       element,
+      host: current.host,
       voxels: current.voxels,
       rows: current.rows,
       cols: current.cols,
@@ -61,6 +65,7 @@ export function createSceneBinding(initial: SceneBindingOptions): SceneBindingHa
       projection: current.projection
     });
     session.mount();
+    current.onSessionChange?.(session);
     mounted = true;
   };
 
@@ -80,6 +85,7 @@ export function createSceneBinding(initial: SceneBindingOptions): SceneBindingHa
 
   const destroy = () => {
     session?.destroy();
+    current.onSessionChange?.(null);
     session = null;
     mounted = false;
   };

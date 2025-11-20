@@ -3,8 +3,9 @@ import type { AutoRotateOption, CameraState } from "../core/camera";
 import type { WallsMask } from "../core";
 import type { HeadlessCameraHandle } from "../core/headless";
 import type { SceneController } from "./createSceneController";
-import { normalizePerspectiveValue, resolveInvertMultiplier } from "./cameraUtils";
+import { resolveInvertMultiplier, normalizePerspectiveValue } from "./cameraUtils";
 import { DEFAULT_CAMERA_PROPS } from "./defaults";
+import { normalizeCameraOptions } from "./cameraOptions";
 
 export interface CameraBindingOptions {
   element: HTMLElement;
@@ -37,42 +38,14 @@ export interface CameraBindingHandle {
   destroy(): void;
 }
 
-type CameraBindingConfig = Omit<CameraBindingOptions, "element">;
-
-interface CameraBindingState {
-  zoom: number;
-  pan: number;
-  tilt: number;
-  rotX: number;
-  rotY: number;
-  invert: boolean | number | undefined;
-  perspective: number | boolean | undefined;
-  interactive: boolean;
-  animate: AutoRotateOption | false | undefined;
-}
-
 const DEFAULT_INVERT = resolveInvertMultiplier(DEFAULT_CAMERA_PROPS.invert) ?? 1;
-
-function normalizeOptions(options: CameraBindingConfig): CameraBindingState {
-  return {
-    zoom: options.zoom ?? DEFAULT_CAMERA_PROPS.zoom,
-    pan: options.pan ?? DEFAULT_CAMERA_PROPS.pan,
-    tilt: options.tilt ?? DEFAULT_CAMERA_PROPS.tilt,
-    rotX: options.rotX ?? DEFAULT_CAMERA_PROPS.rotX,
-    rotY: options.rotY ?? DEFAULT_CAMERA_PROPS.rotY,
-    invert: options.invert,
-    perspective: options.perspective ?? DEFAULT_CAMERA_PROPS.perspective,
-    interactive: options.interactive ?? DEFAULT_CAMERA_PROPS.interactive,
-    animate: options.animate ?? DEFAULT_CAMERA_PROPS.animate
-  };
-}
 
 export function createCameraBinding(options: CameraBindingOptions): CameraBindingHandle {
   const { element, ...rest } = options;
   if (!element) {
     throw new Error("voxcss: createCameraBinding requires an element.");
   }
-  let current = normalizeOptions(rest);
+  let current = normalizeCameraOptions(rest);
   const cameraHandle: HeadlessCameraHandle = createCamera({
     element,
     interactive: current.interactive,
@@ -118,7 +91,7 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
   }
 
   function setOptions(next: Partial<Omit<CameraBindingOptions, "element">>) {
-    const nextState = normalizeOptions({ ...current, ...next });
+    const nextState = normalizeCameraOptions({ ...current, ...next });
     const cameraUpdate: Partial<CameraState> = {};
     if (nextState.zoom !== current.zoom) cameraUpdate.zoom = nextState.zoom;
     if (nextState.pan !== current.pan) cameraUpdate.pan = nextState.pan;
