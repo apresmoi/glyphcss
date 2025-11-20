@@ -1,22 +1,12 @@
 import React, { useEffect, useLayoutEffect, useState, useRef, useImperativeHandle, forwardRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { createCamera } from "@voxcss/core";
+import { createCameraBinding, type CameraBindingHandle, type CameraRenderSnapshot } from "@voxcss/controller/createCameraBinding";
 import type { WallsMask } from "@voxcss/core";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import type { HeadlessCameraHandle } from "@voxcss/core/headless";
-import { resolveInvertMultiplier, normalizePerspectiveValue } from "@voxcss/controller/utils";
+import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
+import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 import { SceneControllerContext } from "./context";
-
-const DEFAULTS = {
-  zoom: 0.65,
-  pan: 0,
-  tilt: 0,
-  rotX: 65,
-  rotY: 45,
-  invert: false
-};
-const DEFAULT_PERSPECTIVE = 8000;
 
 export interface CameraRenderContext {
   boxStyle: CSSProperties;
@@ -47,35 +37,32 @@ export interface VoxCameraHandle {
 
 export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function VoxCamera(
   {
-    zoom = DEFAULTS.zoom,
-    pan = DEFAULTS.pan,
-    tilt = DEFAULTS.tilt,
-    rotX = DEFAULTS.rotX,
-    rotY = DEFAULTS.rotY,
-    invert = DEFAULTS.invert,
-    perspective = DEFAULT_PERSPECTIVE,
-    interactive = false,
-    animate,
+    zoom = DEFAULT_CAMERA_PROPS.zoom,
+    pan = DEFAULT_CAMERA_PROPS.pan,
+    tilt = DEFAULT_CAMERA_PROPS.tilt,
+    rotX = DEFAULT_CAMERA_PROPS.rotX,
+    rotY = DEFAULT_CAMERA_PROPS.rotY,
+    invert = DEFAULT_CAMERA_PROPS.invert,
+    perspective = DEFAULT_CAMERA_PROPS.perspective,
+    interactive = DEFAULT_CAMERA_PROPS.interactive,
+    animate = DEFAULT_CAMERA_PROPS.animate,
     children
   },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const cameraHandleRef = useRef<HeadlessCameraHandle | null>(null);
+  const cameraBindingRef = useRef<CameraBindingHandle | null>(null);
   const animateOptionRef = useRef<AutoRotateOption | undefined>(animate);
   const [controller, setController] = useState<SceneController | null>(null);
-  const [boxStyle, setBoxStyle] = useState<Record<string, string>>({});
-  const [cameraState, setCameraState] = useState(() => controller?.getCameraState());
-  const [walls, setWalls] = useState(() => controller?.getWalls());
-  const [cursor, setCursor] = useState("default");
+  const [snapshot, setSnapshot] = useState<CameraRenderSnapshot | null>(null);
 
   useLayoutEffect(() => {
     const node = containerRef.current;
     if (!node) return;
-    const handle = createCamera({
+    const binding = createCameraBinding({
       element: node,
       interactive,
-      perspective: normalizePerspectiveValue(perspective),
+      perspective,
       zoom,
       pan,
       tilt,
@@ -84,61 +71,40 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
       invert,
       animate
     });
-    cameraHandleRef.current = handle;
-    setController(handle.controller);
+    cameraBindingRef.current = binding;
+    setController(binding.controller);
+    setSnapshot(binding.getSnapshot());
+    const unsubscribe = binding.subscribe((next) => setSnapshot(next));
     return () => {
-      handle.destroy();
-      cameraHandleRef.current = null;
+      unsubscribe();
+      binding.destroy();
+      cameraBindingRef.current = null;
       setController(null);
-      setBoxStyle({});
-      setCameraState(undefined);
-      setWalls(undefined);
-      setCursor("default");
+      setSnapshot(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const handle = cameraHandleRef.current;
-    if (!handle) return;
-    handle.controller.updateCamera({ zoom, pan, tilt, rotX, rotY });
+    cameraBindingRef.current?.updateCamera({ zoom, pan, tilt, rotX, rotY });
   }, [zoom, pan, tilt, rotX, rotY]);
 
   useEffect(() => {
-    if (!controller) return;
-    controller.setControls({ invert: resolveInvertMultiplier(invert) });
-  }, [controller, invert]);
+    cameraBindingRef.current?.setControls({ invert: resolveInvertMultiplier(invert) });
+  }, [invert]);
 
   useEffect(() => {
-    cameraHandleRef.current?.setInteractive(interactive);
+    cameraBindingRef.current?.setInteractive(interactive);
   }, [interactive]);
 
   useEffect(() => {
-    cameraHandleRef.current?.setPerspective(normalizePerspectiveValue(perspective));
+    cameraBindingRef.current?.setPerspective(perspective);
   }, [perspective]);
 
   useEffect(() => {
     animateOptionRef.current = animate;
-    cameraHandleRef.current?.setAnimate(animate);
+    cameraBindingRef.current?.setAnimate(animate);
   }, [animate]);
-
-  useEffect(() => {
-    if (!controller) return;
-    setBoxStyle(controller.getBoxStyle());
-    setCameraState(controller.getCameraState());
-    setWalls(controller.getWalls());
-    setCursor(interactive ? controller.getCursor() : "default");
-    const unsubscribeBox = controller.subscribeBoxStyle((style) => setBoxStyle(style));
-    const unsubscribeCamera = controller.subscribeCamera((state) => {
-      setCameraState(state);
-      setWalls(controller.getWalls());
-      setCursor(interactive ? controller.getCursor() : "default");
-    });
-    return () => {
-      unsubscribeBox();
-      unsubscribeCamera();
-    };
-  }, [controller, interactive]);
 
   useImperativeHandle(
     ref,
@@ -147,24 +113,25 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
       startAutoRotate(config?: AutoRotateOption) {
         const option = config ?? animateOptionRef.current;
         animateOptionRef.current = option;
-        cameraHandleRef.current?.setAnimate(option);
+        cameraBindingRef.current?.setAnimate(option);
       },
       stopAutoRotate() {
-        cameraHandleRef.current?.setAnimate(false);
+        cameraBindingRef.current?.setAnimate(false);
       }
     }),
     [controller]
   );
 
-  const context: CameraRenderContext | null = controller
-    ? {
-        boxStyle,
-        cursor,
-        walls: walls ?? controller.getWalls(),
-        controller,
-        camera: cameraState ?? controller.getCameraState()
-      }
-    : null;
+  const context: CameraRenderContext | null =
+    controller && snapshot
+      ? {
+          boxStyle: snapshot.boxStyle as CSSProperties,
+          cursor: snapshot.cursor,
+          walls: snapshot.walls,
+          controller,
+          camera: snapshot.camera
+        }
+      : null;
 
   const renderedChildren =
     controller && context
@@ -175,7 +142,7 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
 
   return (
     <SceneControllerContext.Provider value={controller}>
-      <div ref={containerRef} className="voxcss-camera" style={{ cursor }}>
+      <div ref={containerRef} className="voxcss-camera" style={{ cursor: snapshot?.cursor ?? "default" }}>
         {renderedChildren}
       </div>
     </SceneControllerContext.Provider>

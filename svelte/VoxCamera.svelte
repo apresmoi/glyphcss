@@ -1,46 +1,48 @@
 <script lang="ts">
   import { onMount, onDestroy, setContext } from "svelte";
-  import { createCamera } from "@voxcss/core";
   import type { SceneController, WallsMask } from "@voxcss/core";
   import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
-  import type { HeadlessCameraHandle } from "@voxcss/core/headless";
-  import { resolveInvertMultiplier, normalizePerspectiveValue } from "@voxcss/controller/utils";
+  import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
+  import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
+  import {
+    createCameraBinding,
+    type CameraBindingHandle,
+    type CameraRenderSnapshot
+  } from "@voxcss/controller/createCameraBinding";
   import { CONTROLLER_KEY } from "./context";
 
-  export let zoom: number = 0.65;
-  export let pan: number = 0;
-  export let tilt: number = 0;
-  export let rotX: number = 65;
-  export let rotY: number = 45;
-  export let invert: boolean | number = false;
-  export let perspective: number | boolean = 8000;
-  export let interactive: boolean = false;
-  export let animate: AutoRotateOption = false;
+  export let zoom: number = DEFAULT_CAMERA_PROPS.zoom;
+  export let pan: number = DEFAULT_CAMERA_PROPS.pan;
+  export let tilt: number = DEFAULT_CAMERA_PROPS.tilt;
+  export let rotX: number = DEFAULT_CAMERA_PROPS.rotX;
+  export let rotY: number = DEFAULT_CAMERA_PROPS.rotY;
+  export let invert: boolean | number = DEFAULT_CAMERA_PROPS.invert;
+  export let perspective: number | boolean = DEFAULT_CAMERA_PROPS.perspective as number;
+  export let interactive: boolean = DEFAULT_CAMERA_PROPS.interactive;
+  export let animate: AutoRotateOption = (DEFAULT_CAMERA_PROPS.animate as AutoRotateOption) ?? false;
 
   let container: HTMLDivElement | null = null;
   let controller: SceneController | null = null;
-  let cameraHandle: HeadlessCameraHandle | null = null;
+  let cameraBinding: CameraBindingHandle | null = null;
   let boxStyle: Record<string, string> = {};
   let walls: WallsMask | null = null;
   let cameraState: CameraState | null = null;
   let cursor = "default";
-  let unsubscribeStyle: (() => void) | null = null;
-  let unsubscribeCamera: (() => void) | null = null;
+  let unsubscribeSnapshot: (() => void) | null = null;
 
-  function syncSnapshot() {
-    if (!controller) return;
-    boxStyle = controller.getBoxStyle();
-    cameraState = controller.getCameraState();
-    walls = controller.getWalls();
-    cursor = interactive ? controller.getCursor() : "default";
+  function applySnapshot(next: CameraRenderSnapshot) {
+    boxStyle = next.boxStyle;
+    cameraState = next.camera;
+    walls = next.walls;
+    cursor = next.cursor;
   }
 
   onMount(() => {
     if (!container) return;
-    const handle = createCamera({
+    const handle = createCameraBinding({
       element: container,
       interactive,
-      perspective: normalizePerspectiveValue(perspective),
+      perspective,
       zoom,
       pan,
       tilt,
@@ -49,46 +51,38 @@
       invert,
       animate
     });
-    cameraHandle = handle;
+    cameraBinding = handle;
     controller = handle.controller;
     setContext(CONTROLLER_KEY, controller);
-    syncSnapshot();
-    unsubscribeStyle = controller.subscribeBoxStyle((style) => {
-      boxStyle = style;
-    });
-    unsubscribeCamera = controller.subscribeCamera((state) => {
-      cameraState = state;
-      walls = controller?.getWalls() ?? null;
-      cursor = interactive && controller ? controller.getCursor() : "default";
-    });
+    applySnapshot(handle.getSnapshot());
+    unsubscribeSnapshot = handle.subscribe((next) => applySnapshot(next));
   });
 
   onDestroy(() => {
-    unsubscribeStyle?.();
-    unsubscribeCamera?.();
-    cameraHandle?.destroy();
-    cameraHandle = null;
+    unsubscribeSnapshot?.();
+    cameraBinding?.destroy();
+    cameraBinding = null;
     controller = null;
   });
 
-  $: if (cameraHandle) {
-    cameraHandle.controller.updateCamera({ zoom, pan, tilt, rotX, rotY });
+  $: if (cameraBinding) {
+    cameraBinding.updateCamera({ zoom, pan, tilt, rotX, rotY });
   }
 
-  $: if (controller) {
-    controller.setControls({ invert: resolveInvertMultiplier(invert) });
+  $: if (cameraBinding) {
+    cameraBinding.setControls({ invert: resolveInvertMultiplier(invert) });
   }
 
-  $: cameraHandle?.setInteractive(interactive);
-  $: cameraHandle?.setPerspective(normalizePerspectiveValue(perspective));
-  $: cameraHandle?.setAnimate(animate);
+  $: cameraBinding?.setInteractive(interactive);
+  $: cameraBinding?.setPerspective(perspective);
+  $: cameraBinding?.setAnimate(animate);
 
   export function startAutoRotate(value?: AutoRotateOption) {
-    cameraHandle?.setAnimate(value ?? animate);
+    cameraBinding?.setAnimate(value ?? animate);
   }
 
   export function stopAutoRotate() {
-    cameraHandle?.setAnimate(false);
+    cameraBinding?.setAnimate(false);
   }
 </script>
 

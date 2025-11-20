@@ -1,9 +1,10 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { PropType, VNode } from "vue";
-import { createSceneHostManager } from "./sceneHostManager";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
+import { DEFAULT_SCENE_FLAGS } from "@voxcss/controller/defaults";
+import { createSceneSession, type SceneSessionHandle } from "@voxcss/controller/createSceneSession";
 
 export default Vue.extend({
   inject: {
@@ -29,24 +30,14 @@ export default Vue.extend({
       type: Number,
       default: undefined
     },
-    showWalls: {
-      type: Boolean,
-      default: false
-    },
-    showFloor: {
-      type: Boolean,
-      default: false
-    },
-    projection: {
-      type: String as PropType<ProjectionMode | undefined>,
-      default: undefined
-    }
+    showWalls: { type: Boolean, default: DEFAULT_SCENE_FLAGS.showWalls },
+    showFloor: { type: Boolean, default: DEFAULT_SCENE_FLAGS.showFloor },
+    projection: { type: String as PropType<ProjectionMode | undefined>, default: DEFAULT_SCENE_FLAGS.projection }
   },
   data() {
     return {
       controller: null as SceneController | null,
-      boxStyleSnapshot: {} as Record<string, string>,
-      hostManager: null as ReturnType<typeof createSceneHostManager> | null
+      sessionHandle: null as SceneSessionHandle | null
     };
   },
   created() {
@@ -55,27 +46,79 @@ export default Vue.extend({
       throw new Error("voxcss: VoxScene must be rendered inside a VoxCamera.");
     }
     this.controller = controller;
-    this.boxStyleSnapshot = controller.getBoxStyle();
   },
   mounted() {
-    if (!this.controller) return;
-    this.hostManager = createSceneHostManager(this as any, this.controller);
-    this.hostManager.mount(this.$refs.host as HTMLElement);
+    this.mountSession();
   },
   beforeDestroy() {
-    this.hostManager?.destroy();
-    this.hostManager = null;
+    this.sessionHandle?.destroy();
+    this.sessionHandle = null;
   },
   methods: {
     resolveController(): SceneController | null {
       const injected = (this as any).sceneController;
       return typeof injected === "function" ? injected() : injected;
+    },
+    mountSession() {
+      if (!this.controller) return;
+      const node = this.$refs.host as HTMLElement | undefined;
+      if (!node) return;
+      const session = createSceneSession({
+        controller: this.controller,
+        element: node,
+        voxels: this.voxels as VoxelGrid,
+        rows: this.rows,
+        cols: this.cols,
+        depth: this.depth,
+        showWalls: this.showWalls,
+        showFloor: this.showFloor,
+        projection: this.projection
+      });
+      session.mount();
+      this.sessionHandle = session;
+    },
+    updateSessionState() {
+      this.sessionHandle?.setState({
+        voxels: this.voxels as VoxelGrid,
+        rows: this.rows,
+        cols: this.cols,
+        depth: this.depth,
+        showWalls: this.showWalls,
+        showFloor: this.showFloor,
+        projection: this.projection
+      });
+    }
+  },
+  watch: {
+    voxels: {
+      handler() {
+        this.updateSessionState();
+      },
+      deep: false
+    },
+    rows() {
+      this.updateSessionState();
+    },
+    cols() {
+      this.updateSessionState();
+    },
+    depth() {
+      this.updateSessionState();
+    },
+    showWalls() {
+      this.updateSessionState();
+    },
+    showFloor() {
+      this.updateSessionState();
+    },
+    projection() {
+      this.updateSessionState();
     }
   },
   render(h) {
     return h("div", {
       ref: "host",
-      style: this.boxStyleSnapshot
+      class: "voxcss-scene-host"
     });
   }
 });

@@ -1,8 +1,8 @@
-import React, { useRef } from "react";
-import type { CSSProperties } from "react";
+import React, { useEffect, useRef } from "react";
 import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
 import { useSceneControllerContext } from "./context";
-import { useSceneHost } from "./useSceneHost";
+import { createSceneSession, type SceneSessionHandle } from "@voxcss/controller/createSceneSession";
+import { DEFAULT_SCENE_FLAGS } from "@voxcss/controller/defaults";
 
 const DEFAULT_VOXELS: VoxelGrid = [];
 
@@ -21,23 +21,47 @@ export function VoxScene({
   rows,
   cols,
   depth,
-  showWalls = false,
-  showFloor = false,
-  projection
+  showWalls = DEFAULT_SCENE_FLAGS.showWalls,
+  showFloor = DEFAULT_SCENE_FLAGS.showFloor,
+  projection = DEFAULT_SCENE_FLAGS.projection
 }: VoxSceneProps) {
   const controller = useSceneControllerContext();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const boxStyle = useSceneHost({
-    containerRef,
-    controller,
-    voxels,
-    rows,
-    cols,
-    depth,
-    showWalls,
-    showFloor,
-    projection
-  });
+  const sessionRef = useRef<SceneSessionHandle | null>(null);
 
-  return <div ref={containerRef} style={boxStyle as CSSProperties} />;
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const session = createSceneSession({
+      controller,
+      element,
+      voxels,
+      rows,
+      cols,
+      depth,
+      showWalls,
+      showFloor,
+      projection
+    });
+    session.mount();
+    sessionRef.current = session;
+    return () => {
+      session.destroy();
+      sessionRef.current = null;
+    };
+  }, [controller]);
+
+  useEffect(() => {
+    sessionRef.current?.setState({
+      voxels,
+      rows,
+      cols,
+      depth,
+      showWalls,
+      showFloor,
+      projection
+    });
+  }, [voxels, rows, cols, depth, showWalls, showFloor, projection]);
+
+  return <div ref={containerRef} className="voxcss-scene-host" />;
 }

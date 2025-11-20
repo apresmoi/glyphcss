@@ -1,12 +1,16 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { PropType, VNode } from "vue";
-import { createCamera } from "@voxcss/core";
-import type { HeadlessCameraHandle } from "@voxcss/core/headless";
+import {
+  createCameraBinding,
+  type CameraBindingHandle,
+  type CameraRenderSnapshot
+} from "@voxcss/controller/createCameraBinding";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption, CameraState } from "@voxcss/core/camera";
 import type { WallsMask } from "@voxcss/core";
-import { resolveInvertMultiplier, normalizePerspectiveValue } from "@voxcss/controller/utils";
+import { resolveInvertMultiplier } from "@voxcss/controller/cameraUtils";
+import { DEFAULT_CAMERA_PROPS } from "@voxcss/controller/defaults";
 
 export default Vue.extend({
   name: "VoxCamera",
@@ -17,97 +21,69 @@ export default Vue.extend({
     };
   },
   props: {
-    zoom: {
-      type: Number,
-      default: 0.65
-    },
-    pan: {
-      type: Number,
-      default: 0
-    },
-    tilt: {
-      type: Number,
-      default: 0
-    },
-    rotX: {
-      type: Number,
-      default: 65
-    },
-    rotY: {
-      type: Number,
-      default: 45
-    },
-    invert: {
-      type: [Boolean, Number] as PropType<boolean | number>,
-      default: false
-    },
-    perspective: {
-      type: [Number, Boolean] as PropType<number | boolean>,
-      default: 8000
-    },
-    interactive: {
-      type: Boolean,
-      default: false
-    },
-    animate: {
-      type: [Boolean, Number, Object] as PropType<AutoRotateOption>,
-      default: undefined
-    }
+    zoom: { type: Number, default: DEFAULT_CAMERA_PROPS.zoom },
+    pan: { type: Number, default: DEFAULT_CAMERA_PROPS.pan },
+    tilt: { type: Number, default: DEFAULT_CAMERA_PROPS.tilt },
+    rotX: { type: Number, default: DEFAULT_CAMERA_PROPS.rotX },
+    rotY: { type: Number, default: DEFAULT_CAMERA_PROPS.rotY },
+    invert: { type: [Boolean, Number] as PropType<boolean | number>, default: DEFAULT_CAMERA_PROPS.invert },
+    perspective: { type: [Number, Boolean] as PropType<number | boolean>, default: DEFAULT_CAMERA_PROPS.perspective },
+    interactive: { type: Boolean, default: DEFAULT_CAMERA_PROPS.interactive },
+    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption>, default: DEFAULT_CAMERA_PROPS.animate }
   },
   data(): {
     controllerInstance: SceneController | null;
-    cameraHandle: HeadlessCameraHandle | null;
+    cameraBinding: CameraBindingHandle | null;
     boxStyleSnapshot: Record<string, string>;
     cameraSnapshot: CameraState | null;
     cursorSnapshot: string;
     wallsSnapshot: WallsMask | null;
-    subscriptions: Array<() => void>;
+    unsubscribeSnapshot: (() => void) | null;
   } {
     return {
       controllerInstance: null,
-      cameraHandle: null,
+      cameraBinding: null,
       boxStyleSnapshot: {},
       cameraSnapshot: null,
       cursorSnapshot: "default",
       wallsSnapshot: null,
-      subscriptions: []
+      unsubscribeSnapshot: null
     };
   },
   beforeDestroy() {
-    this.subscriptions.forEach((stop) => stop?.());
-    this.subscriptions = [];
-    this.cameraHandle?.destroy?.();
-    this.cameraHandle = null;
+    this.unsubscribeSnapshot?.();
+    this.unsubscribeSnapshot = null;
+    this.cameraBinding?.destroy?.();
+    this.cameraBinding = null;
     this.controllerInstance = null;
   },
   watch: {
     zoom(value: number) {
-      this.cameraHandle?.controller.updateCamera({ zoom: value });
+      this.cameraBinding?.updateCamera({ zoom: value });
     },
     pan(value: number) {
-      this.cameraHandle?.controller.updateCamera({ pan: value });
+      this.cameraBinding?.updateCamera({ pan: value });
     },
     tilt(value: number) {
-      this.cameraHandle?.controller.updateCamera({ tilt: value });
+      this.cameraBinding?.updateCamera({ tilt: value });
     },
     rotX(value: number) {
-      this.cameraHandle?.controller.updateCamera({ rotX: value });
+      this.cameraBinding?.updateCamera({ rotX: value });
     },
     rotY(value: number) {
-      this.cameraHandle?.controller.updateCamera({ rotY: value });
+      this.cameraBinding?.updateCamera({ rotY: value });
     },
     invert(value: number | boolean) {
-      this.controllerInstance?.setControls({ invert: resolveInvertMultiplier(value) });
+      this.cameraBinding?.setControls({ invert: resolveInvertMultiplier(value) });
     },
     animate() {
-      this.cameraHandle?.setAnimate(this.animate);
+      this.cameraBinding?.setAnimate(this.animate);
     },
     interactive(value: boolean) {
-      this.cameraHandle?.setInteractive(value);
-      this.cursorSnapshot = value && this.controllerInstance ? this.controllerInstance.getCursor() : "default";
+      this.cameraBinding?.setInteractive(value);
     },
     perspective(value: number | boolean) {
-      this.cameraHandle?.setPerspective(normalizePerspectiveValue(value));
+      this.cameraBinding?.setPerspective(value);
     }
   },
   computed: {
@@ -130,13 +106,20 @@ export default Vue.extend({
     }
   },
   methods: {
+    applySnapshot(snapshot?: CameraRenderSnapshot) {
+      if (!snapshot) return;
+      this.boxStyleSnapshot = snapshot.boxStyle;
+      this.cameraSnapshot = snapshot.camera;
+      this.wallsSnapshot = snapshot.walls;
+      this.cursorSnapshot = snapshot.cursor;
+    },
     mountCamera() {
       const node = this.$refs.camera as HTMLElement | undefined;
       if (!node) return;
-      const handle = createCamera({
+      const handle = createCameraBinding({
         element: node,
         interactive: this.interactive,
-        perspective: normalizePerspectiveValue(this.perspective),
+        perspective: this.perspective,
         zoom: this.zoom,
         pan: this.pan,
         tilt: this.tilt,
@@ -145,42 +128,26 @@ export default Vue.extend({
         invert: this.invert,
         animate: this.animate
       });
-      this.cameraHandle = handle;
+      this.cameraBinding = handle;
       this.controllerInstance = handle.controller;
-      this.syncSnapshots();
-      this.subscriptions = [
-        this.controllerInstance.subscribeBoxStyle((style) => {
-          this.boxStyleSnapshot = style;
-        }),
-        this.controllerInstance.subscribeCamera((state) => {
-          this.cameraSnapshot = state;
-          this.wallsSnapshot = this.controllerInstance?.getWalls() ?? null;
-          this.cursorSnapshot =
-            this.interactive && this.controllerInstance ? this.controllerInstance.getCursor() : "default";
-        })
-      ];
-    },
-    syncSnapshots() {
-      if (!this.controllerInstance) return;
-      this.boxStyleSnapshot = this.controllerInstance.getBoxStyle();
-      this.cameraSnapshot = this.controllerInstance.getCameraState();
-      this.wallsSnapshot = this.controllerInstance.getWalls();
-      this.cursorSnapshot = this.interactive ? this.controllerInstance.getCursor() : "default";
+      this.applySnapshot(handle.getSnapshot());
+      this.unsubscribeSnapshot?.();
+      this.unsubscribeSnapshot = handle.subscribe((next) => this.applySnapshot(next));
     },
     startAutoRotate(config?: AutoRotateOption) {
-      this.cameraHandle?.setAnimate(config ?? this.animate);
+      this.cameraBinding?.setAnimate(config ?? this.animate);
     },
     stopAutoRotate() {
-      this.cameraHandle?.setAnimate(false);
+      this.cameraBinding?.setAnimate(false);
     }
   },
   mounted() {
     this.mountCamera();
   },
   updated() {
-    if (!this.controllerInstance && this.cameraHandle) {
-      this.controllerInstance = this.cameraHandle.controller;
-      this.syncSnapshots();
+    if (!this.controllerInstance && this.cameraBinding) {
+      this.controllerInstance = this.cameraBinding.controller;
+      this.applySnapshot(this.cameraBinding.getSnapshot());
     }
   },
   render(h) {

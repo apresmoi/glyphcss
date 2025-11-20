@@ -6,6 +6,8 @@ import { computeWallMask } from "../core";
 type DimensionsListener = (dimensions: Required<SceneDimensions>) => void;
 type CameraListener = (state: CameraState) => void;
 type StyleListener = (style: Record<string, string>) => void;
+type WallsListener = (walls: WallsMask) => void;
+type CursorListener = (cursor: string) => void;
 
 export interface SceneControllerOptions {
   dimensions?: SceneDimensions;
@@ -30,7 +32,9 @@ export interface SceneController {
   getBoxStyle(): Record<string, string>;
   subscribeBoxStyle(listener: StyleListener): () => void;
   getWalls(): WallsMask;
+  subscribeWalls(listener: WallsListener): () => void;
   getCursor(): string;
+  subscribeCursor(listener: CursorListener): () => void;
   isDragging(): boolean;
   getControls(): ControllerControls;
   setControls(next: Partial<ControllerControls>): void;
@@ -68,6 +72,8 @@ export function createSceneController(
   const dimensionSubscribers = new Set<DimensionsListener>();
   const cameraSubscribers = new Set<CameraListener>();
   const styleSubscribers = new Set<StyleListener>();
+  const wallsSubscribers = new Set<WallsListener>();
+  const cursorSubscribers = new Set<CursorListener>();
 
   const dragState = {
     isDragging: false,
@@ -85,11 +91,23 @@ export function createSceneController(
     const snapshot = { ...camera.state };
     cameraSubscribers.forEach((listener) => listener(snapshot));
     notifyStyle();
+    notifyWalls();
+    notifyCursor();
   }
 
   function notifyStyle() {
     const snapshot = getBoxStyle();
     styleSubscribers.forEach((listener) => listener(snapshot));
+  }
+
+  function notifyWalls() {
+    const snapshot = getWalls();
+    wallsSubscribers.forEach((listener) => listener(snapshot));
+  }
+
+  function notifyCursor() {
+    const cursor = getCursor();
+    cursorSubscribers.forEach((listener) => listener(cursor));
   }
 
   function setDimensions(next: SceneDimensions) {
@@ -133,6 +151,22 @@ export function createSceneController(
     listener(getBoxStyle());
     return () => {
       styleSubscribers.delete(listener);
+    };
+  }
+
+  function subscribeWalls(listener: WallsListener) {
+    wallsSubscribers.add(listener);
+    listener(getWalls());
+    return () => {
+      wallsSubscribers.delete(listener);
+    };
+  }
+
+  function subscribeCursor(listener: CursorListener) {
+    cursorSubscribers.add(listener);
+    listener(getCursor());
+    return () => {
+      cursorSubscribers.delete(listener);
     };
   }
 
@@ -209,7 +243,9 @@ export function createSceneController(
     getBoxStyle,
     subscribeBoxStyle,
     getWalls,
+    subscribeWalls,
     getCursor,
+    subscribeCursor,
     isDragging,
     getControls,
     setControls,
