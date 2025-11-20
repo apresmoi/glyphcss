@@ -1,17 +1,14 @@
 import { DEFAULT_CAMERA_PROPS } from "./defaults";
 
-export function resolveInvertMultiplier(value: number | boolean | undefined, fallback = 1): number {
+export function resolveInvertMultiplier(value: number | boolean | undefined): number | undefined {
   if (typeof value === "number") {
-    if (value === 0) return fallback;
+    if (value === 0) return undefined;
     return value < 0 ? -1 : 1;
   }
   if (typeof value === "boolean") {
     return value ? -1 : 1;
   }
-  if (typeof DEFAULT_CAMERA_PROPS.invert === "number") {
-    return DEFAULT_CAMERA_PROPS.invert;
-  }
-  return fallback;
+  return undefined;
 }
 
 export function normalizePerspectiveValue(value: number | boolean | undefined): number | false | undefined {

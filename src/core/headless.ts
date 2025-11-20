@@ -12,7 +12,7 @@ import type { AutoRotateOption } from "./camera";
 import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
 import { DEFAULT_CAMERA_PROPS } from "../controller/defaults";
-import { normalizePerspectiveValue } from "../controller/cameraUtils";
+import { normalizePerspectiveValue, resolveInvertMultiplier } from "../controller/cameraUtils";
 
 export interface HeadlessCameraOptions {
   element: HTMLElement;
@@ -25,7 +25,7 @@ export interface HeadlessCameraOptions {
   rotX?: number;
   rotY?: number;
   invert?: boolean | number;
-  animate?: AutoRotateOption;
+  animate?: AutoRotateOption | false;
 }
 
 export interface HeadlessCameraHandle {
@@ -186,14 +186,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     depth: sceneState.depth,
     showWalls: sceneState.showWalls,
     showFloor: sceneState.showFloor,
-    projection: sceneState.projection,
-    buildContextExtras: () => {
-      const cameraState = controller.getCameraState();
-      return {
-        rotX: cameraState.rotX,
-        rotY: cameraState.rotY
-      };
-    }
+    projection: sceneState.projection
   });
   session.mount();
   scene._setSession(session);
@@ -227,8 +220,9 @@ function mergeControllerOptions(options: HeadlessCameraOptions): SceneController
     rotX: options.rotX,
     rotY: options.rotY
   });
+  const invertOverride = resolveInvertMultiplier(options.invert);
   const controlsOverrides = filterUndefined<Partial<ControllerControls>>({
-    invert: normalizeInvert(options.invert)
+    invert: invertOverride
   });
   return {
     ...base,
@@ -248,15 +242,6 @@ function applyPerspective(element: HTMLElement, perspective: number | false | un
       ? normalized
       : (DEFAULT_CAMERA_PROPS.perspective as number | undefined) ?? 8000;
   element.style.perspective = `${resolved}px`;
-}
-
-function normalizeInvert(value?: boolean | number): number | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "number") {
-    if (value === 0) return undefined;
-    return value < 0 ? -1 : 1;
-  }
-  return value ? -1 : 1;
 }
 
 function filterUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {

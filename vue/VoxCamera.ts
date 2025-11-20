@@ -30,7 +30,7 @@ export default defineComponent({
     invert: { type: [Boolean, Number] },
     perspective: { type: [Number, Boolean] },
     interactive: { type: Boolean },
-    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption> }
+    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption | false> }
   },
   setup(props, { slots, expose }) {
     const containerRef = ref<HTMLElement | null>(null);

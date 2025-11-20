@@ -27,7 +27,7 @@ export default Vue.extend({
     invert: { type: [Boolean, Number] as PropType<boolean | number> },
     perspective: { type: [Number, Boolean] as PropType<number | boolean> },
     interactive: { type: Boolean },
-    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption> }
+    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption | false> }
   },
   data(): {
     controllerInstance: SceneController | null;

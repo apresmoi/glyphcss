@@ -23,7 +23,7 @@ export interface VoxCameraProps {
   invert?: boolean | number;
   perspective?: number | boolean;
   interactive?: boolean;
-  animate?: AutoRotateOption;
+  animate?: AutoRotateOption | false;
   children?: ReactNode | ((context: CameraRenderContext) => ReactNode);
 }
 

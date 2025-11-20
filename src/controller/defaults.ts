@@ -10,7 +10,7 @@ export const DEFAULT_CAMERA_PROPS = {
   invert: false as boolean | number,
   perspective: 8000,
   interactive: false,
-  animate: undefined as AutoRotateOption | undefined
+  animate: undefined as AutoRotateOption | false | undefined
 };
 
 export const DEFAULT_SCENE_FLAGS = {

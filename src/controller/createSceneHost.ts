@@ -1,5 +1,4 @@
 import { createVoxScene } from "../core/scene";
-import { wallMasksEqual } from "../core/context";
 import type { GridContext, SceneOptions, VoxIllustrationHandle, VoxelGrid, WallsMask } from "../core";
 
 export interface SceneHostOptions extends Pick<SceneOptions, "document" | "context"> {
@@ -15,7 +14,7 @@ export interface SceneHost {
   mount(target: HTMLElement, voxels?: VoxelGrid, context?: Partial<GridContext>): void;
   setState(state: SceneHostStateUpdate): void;
   flush(): void;
-  syncController(controller: { getWalls(): WallsMask; subscribeCamera(listener: () => void): () => void }, buildContext: () => Partial<GridContext>): void;
+  syncController(controller: { subscribeWalls(listener: (walls: WallsMask) => void): () => void }, buildContext: () => Partial<GridContext>): void;
   destroy(): void;
   getHandle(): VoxIllustrationHandle | null;
 }
@@ -23,8 +22,7 @@ export interface SceneHost {
 export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
   let targetElement: HTMLElement | null = null;
   let handle: VoxIllustrationHandle | null = null;
-  let unsubscribeCamera: (() => void) | null = null;
-  let lastWalls: WallsMask | null = null;
+  let unsubscribeWalls: (() => void) | null = null;
 
   let currentVoxelGrid: VoxelGrid = options.voxels ?? [];
   let currentContext: Partial<GridContext> = { ...(options.context ?? {}) };
@@ -67,8 +65,8 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
 
   function destroy() {
     destroyHandle();
-    unsubscribeCamera?.();
-    unsubscribeCamera = null;
+    unsubscribeWalls?.();
+    unsubscribeWalls = null;
     targetElement = null;
   }
 
@@ -86,14 +84,8 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     setState,
     flush,
     syncController(controller, buildContext) {
-      unsubscribeCamera?.();
-      lastWalls = controller.getWalls();
-      unsubscribeCamera = controller.subscribeCamera(() => {
-        const nextWalls = controller.getWalls();
-        if (lastWalls && wallMasksEqual(lastWalls, nextWalls)) {
-          return;
-        }
-        lastWalls = nextWalls;
+      unsubscribeWalls?.();
+      unsubscribeWalls = controller.subscribeWalls(() => {
         setState({ context: buildContext() });
         flush();
       });

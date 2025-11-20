@@ -2,7 +2,7 @@ import { createCamera } from "../core/headless";
 import type { AutoRotateOption, CameraState } from "../core/camera";
 import type { WallsMask } from "../core";
 import type { HeadlessCameraHandle } from "../core/headless";
-import type { ControllerControls, SceneController } from "./createSceneController";
+import type { SceneController } from "./createSceneController";
 import { normalizePerspectiveValue, resolveInvertMultiplier } from "./cameraUtils";
 import { DEFAULT_CAMERA_PROPS } from "./defaults";
 
@@ -16,7 +16,7 @@ export interface CameraBindingOptions {
   invert?: boolean | number;
   perspective?: number | boolean;
   interactive?: boolean;
-  animate?: AutoRotateOption;
+  animate?: AutoRotateOption | false;
 }
 
 export interface CameraRenderSnapshot {
@@ -51,6 +51,8 @@ interface CameraBindingState {
   animate: AutoRotateOption | false | undefined;
 }
 
+const DEFAULT_INVERT = resolveInvertMultiplier(DEFAULT_CAMERA_PROPS.invert) ?? 1;
+
 function normalizeOptions(options: CameraBindingConfig): CameraBindingState {
   return {
     zoom: options.zoom ?? DEFAULT_CAMERA_PROPS.zoom,
@@ -58,7 +60,7 @@ function normalizeOptions(options: CameraBindingConfig): CameraBindingState {
     tilt: options.tilt ?? DEFAULT_CAMERA_PROPS.tilt,
     rotX: options.rotX ?? DEFAULT_CAMERA_PROPS.rotX,
     rotY: options.rotY ?? DEFAULT_CAMERA_PROPS.rotY,
-    invert: options.invert ?? DEFAULT_CAMERA_PROPS.invert,
+    invert: options.invert,
     perspective: options.perspective ?? DEFAULT_CAMERA_PROPS.perspective,
     interactive: options.interactive ?? DEFAULT_CAMERA_PROPS.interactive,
     animate: options.animate ?? DEFAULT_CAMERA_PROPS.animate
@@ -84,7 +86,10 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
     animate: current.animate
   });
   const controller = cameraHandle.controller;
-  controller.setControls({ invert: resolveInvertMultiplier(current.invert) });
+  const initialInvert = resolveInvertMultiplier(current.invert);
+  if (initialInvert !== undefined) {
+    controller.setControls({ invert: initialInvert });
+  }
 
   let interactiveState = current.interactive;
   const listeners = new Set<RenderListener>();
@@ -124,7 +129,8 @@ export function createCameraBinding(options: CameraBindingOptions): CameraBindin
       controller.updateCamera(cameraUpdate);
     }
     if (nextState.invert !== current.invert) {
-      controller.setControls({ invert: resolveInvertMultiplier(nextState.invert) });
+      const invertOverride = resolveInvertMultiplier(nextState.invert);
+      controller.setControls({ invert: invertOverride ?? DEFAULT_INVERT });
     }
     if (nextState.interactive !== current.interactive) {
       interactiveState = nextState.interactive;

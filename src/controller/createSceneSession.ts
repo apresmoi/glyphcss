@@ -17,7 +17,6 @@ export interface SceneSessionOptions extends SceneSessionState {
   controller: SceneController;
   element: HTMLElement;
   host?: SceneHost;
-  buildContextExtras?: () => Partial<GridContext>;
 }
 
 export interface SceneSessionHandle {
@@ -32,7 +31,6 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   const controller = options.controller;
   const element = options.element;
   const host = options.host ?? createSceneHost();
-  const buildContextExtras = options.buildContextExtras;
 
   let state: SceneSessionState = {
     voxels: options.voxels ?? [],
@@ -62,6 +60,7 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   const buildContextSnapshot = () => {
     const projection = state.projection;
     controller.setProjection?.(projection);
+    const cameraState = controller.getCameraState?.();
     const baseContext: Partial<GridContext> = {
       rows: state.rows,
       cols: state.cols,
@@ -69,12 +68,13 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
       showWalls: state.showWalls,
       showFloor: state.showFloor,
       projection,
-      walls: controller.getWalls()
+      walls: controller.getWalls(),
+      rotX: cameraState?.rotX,
+      rotY: cameraState?.rotY
     };
-    const extra = buildContextExtras?.() ?? {};
     const scene = buildSceneContext({
       grid: state.voxels,
-      context: { ...baseContext, ...extra }
+      context: baseContext
     });
     const nextDimensions = scene.dimensions;
     const currentDimensions = controller.getDimensions();

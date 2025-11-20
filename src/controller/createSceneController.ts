@@ -1,7 +1,7 @@
 import { createIsometricCamera } from "../core/camera";
 import type { CameraHandle, CameraState } from "../core/camera";
 import type { ProjectionMode, SceneDimensions, WallsMask } from "../core";
-import { computeWallMask } from "../core";
+import { computeWallMask, wallMasksEqual } from "../core";
 
 type DimensionsListener = (dimensions: Required<SceneDimensions>) => void;
 type CameraListener = (state: CameraState) => void;
@@ -73,6 +73,7 @@ export function createSceneController(
   const cameraSubscribers = new Set<CameraListener>();
   const styleSubscribers = new Set<StyleListener>();
   const wallsSubscribers = new Set<WallsListener>();
+  let lastWalls: WallsMask | null = null;
   const cursorSubscribers = new Set<CursorListener>();
 
   const dragState = {
@@ -102,6 +103,10 @@ export function createSceneController(
 
   function notifyWalls() {
     const snapshot = getWalls();
+    if (lastWalls && wallMasksEqual(lastWalls, snapshot)) {
+      return;
+    }
+    lastWalls = snapshot;
     wallsSubscribers.forEach((listener) => listener(snapshot));
   }
 
@@ -156,7 +161,9 @@ export function createSceneController(
 
   function subscribeWalls(listener: WallsListener) {
     wallsSubscribers.add(listener);
-    listener(getWalls());
+    const snapshot = getWalls();
+    lastWalls = snapshot;
+    listener(snapshot);
     return () => {
       wallsSubscribers.delete(listener);
     };
