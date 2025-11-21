@@ -14,18 +14,7 @@ export function createCameraComponent() {
     name: "VoxCamera",
     props: cameraPropOptions,
     setup(props, { slots, expose }) {
-      const bindingProps = () =>
-        createCameraBindingProps({
-          interactive: props.interactive,
-          perspective: props.perspective,
-          zoom: props.zoom,
-          pan: props.pan,
-          tilt: props.tilt,
-          rotX: props.rotX,
-          rotY: props.rotY,
-          invert: props.invert,
-          animate: props.animate
-        });
+      const bindingProps = () => createCameraBindingProps(props);
       const { elementRef, controller, slotProps, startAutoRotate, stopAutoRotate } = useCameraBinding(bindingProps);
       provide(CONTROLLER_KEY, controller);
 

@@ -37,18 +37,7 @@ export function createCameraComponent() {
     created() {
       this.cameraBindingManager = createCameraBindingManager(
         this,
-        () =>
-          createCameraBindingProps({
-            zoom: this.zoom,
-            pan: this.pan,
-            tilt: this.tilt,
-            rotX: this.rotX,
-            rotY: this.rotY,
-            invert: this.invert,
-            interactive: this.interactive,
-            perspective: this.perspective,
-            animate: this.animate
-          }),
+        () => createCameraBindingProps(this),
         {
           onSlotProps: (slotProps) => {
             this.slotPayload = slotProps;

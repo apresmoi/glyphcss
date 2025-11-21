@@ -1,5 +1,5 @@
 import { createSceneController, type ControllerControls, type SceneController } from "../controller/createSceneController";
-import { createSceneHost, type SceneHost } from "../controller/createSceneHost";
+import { createSceneHost } from "../controller/createSceneHost";
 import type { SceneSessionHandle, SceneSessionState } from "../controller/createSceneSession";
 import { createAutoRotateHandle, type AutoRotateHandle } from "../controller/autoRotate";
 import { attachPointerEvents } from "./pointerEvents";
@@ -35,7 +35,6 @@ export interface HeadlessSceneOptions extends SceneOptions {
 
 export interface HeadlessSceneHandle {
   element: HTMLElement;
-  host: SceneHost;
   getState(): SceneSessionState;
   setOptions(options: Partial<Omit<SceneSessionState, "voxels">>): void;
   setVoxels(voxels: VoxelGrid): void;
@@ -53,6 +52,7 @@ export interface HeadlessRenderHandle {
 }
 
 interface InternalSceneState {
+  host: ReturnType<typeof createSceneHost>;
   session: SceneSessionHandle | null;
   binding: SceneBindingHandle | null;
 }
@@ -127,6 +127,7 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
   const host = createSceneHost();
   let state: NormalizedSceneState = normalizeSceneState(options);
   const internalState: InternalSceneState = {
+    host,
     session: null,
     binding: null
   };
@@ -137,7 +138,6 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
 
   const handle: HeadlessSceneHandle = {
     element,
-    host,
     getState() {
       return { ...state };
     },
@@ -178,7 +178,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   const binding = createSceneBinding({
     controller,
     element: scene.element,
-    host: scene.host,
+    host: internalSceneState.host,
     ...extractSceneState(sceneState),
     onSessionChange: (next) => {
       internalSceneState.session = next;

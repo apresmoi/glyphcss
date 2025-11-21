@@ -71,7 +71,7 @@ export function resolveCameraSlotProps(
   };
 }
 
-export function resolveCameraView(slotProps: CameraSlotProps | null): CameraViewState {
+function resolveCameraView(slotProps: CameraSlotProps | null): CameraViewState {
   const controller = slotProps?.controller ?? null;
   return {
     slotProps,
