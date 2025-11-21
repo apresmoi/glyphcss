@@ -1,17 +1,31 @@
 // @ts-nocheck
 import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
-import { createBindingLifecycle, type BindingLifecycleAdapterHooks } from "@voxcss/controller/bindingLifecycle";
+import {
+  createSceneBindingManager as createControllerSceneBindingManager,
+  type SceneBindingManager
+} from "@voxcss/controller/createSceneBindingAdapter";
 import { createCameraBindingView } from "@voxcss/controller/cameraBindingView";
 
 export function createSceneBindingManager(_vm: any, resolveOptions: () => any) {
-  return createElementBindingManager(resolveOptions, (hooks) =>
-    createSceneBindingAdapter({
-      getElement: () => hooks.getElement(),
-      getOptions: () => hooks.getOptions()
-    })
-  );
+  let currentElement: HTMLElement | null = null;
+  const manager: SceneBindingManager<ReturnType<typeof resolveOptions>> = createControllerSceneBindingManager({
+    getElement: () => currentElement,
+    getOptions: () => resolveOptions()
+  });
+  return {
+    mount(element: HTMLElement) {
+      currentElement = element;
+      manager.mount(element);
+    },
+    update() {
+      manager.update(resolveOptions());
+    },
+    destroy() {
+      manager.destroy();
+      currentElement = null;
+    }
+  };
 }
 
 export function createCameraBindingManager(
@@ -44,25 +58,6 @@ export function createCameraBindingManager(
     destroy() {
       unsubscribe();
       view.destroy();
-    }
-  };
-}
-
-function createElementBindingManager<TOptions, TAdapter extends { sync(): void; destroy(): void }>(
-  resolveOptions: () => TOptions,
-  factory: (hooks: BindingLifecycleAdapterHooks<TOptions | null>) => TAdapter
-) {
-  const lifecycle = createBindingLifecycle(factory);
-  return {
-    mount(element: HTMLElement) {
-      lifecycle.setOptions(resolveOptions());
-      lifecycle.setElement(element);
-    },
-    update() {
-      lifecycle.setOptions(resolveOptions());
-    },
-    destroy() {
-      lifecycle.destroy();
     }
   };
 }

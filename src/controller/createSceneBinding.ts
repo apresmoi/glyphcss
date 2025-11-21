@@ -16,7 +16,7 @@ export interface SceneBindingOptions {
   projection?: ProjectionMode;
 }
 
-interface InternalSceneBindingOptions extends SceneBindingOptions {
+export interface InternalSceneBindingOptions extends SceneBindingOptions {
   host?: SceneHost;
   onSessionChange?(session: SceneSessionHandle | null): void;
 }
@@ -29,7 +29,7 @@ export interface SceneBindingHandle {
 
 type BindingState = Omit<InternalSceneBindingOptions, keyof NormalizedSceneState> & NormalizedSceneState;
 
-export function createSceneBinding(initial: InternalSceneBindingOptions): SceneBindingHandle {
+function createSceneBindingInternal(initial: InternalSceneBindingOptions): SceneBindingHandle {
   let current: BindingState = {
     ...initial,
     ...normalizeSceneState(initial)
@@ -75,3 +75,9 @@ export function createSceneBinding(initial: InternalSceneBindingOptions): SceneB
     destroy
   };
 }
+
+export function createSceneBinding(initial: SceneBindingOptions): SceneBindingHandle {
+  return createSceneBindingInternal(initial);
+}
+
+export { createSceneBindingInternal };

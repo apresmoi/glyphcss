@@ -31,6 +31,7 @@ export function createSceneComponent() {
       this.sceneBindingManager = createSceneBindingManager(this, () =>
         createSceneBindingProps(this.controller, this.buildProps())
       );
+      this.sceneBindingManager?.update();
       this.$watch(
         () => [this.voxels, this.rows, this.cols, this.depth, this.showWalls, this.showFloor, this.projection],
         () => {

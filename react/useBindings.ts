@@ -1,16 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import type { RefObject } from "react";
 import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
+import { createSceneBindingManager } from "@voxcss/controller/createSceneBindingAdapter";
 import type { CameraBindingOptions } from "@voxcss/controller/createCameraBinding";
 import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import {
-  createBindingLifecycle,
-  type BindingLifecycle,
-  type BindingLifecycleAdapterHooks
-} from "@voxcss/controller/bindingLifecycle";
 import {
   createCameraBindingView,
   type CameraBindingSnapshot
@@ -19,52 +14,33 @@ import {
 export type SceneBindingProps = Omit<SceneBindingOptions, "element">;
 export type CameraBindingProps = Omit<CameraBindingOptions, "element">;
 
-function useBindingAdapter<TAdapter extends { sync(): void; destroy(): void }, TOptions>(
-  initAdapter: (hooks: BindingLifecycleAdapterHooks<TOptions | null>) => TAdapter,
-  options: TOptions
-) {
+export function useSceneBinding(props: SceneBindingProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const lifecycleRef = useRef<BindingLifecycle<TAdapter, TOptions> | null>(null);
+  const managerRef = useRef<ReturnType<typeof createSceneBindingManager<SceneBindingProps>> | null>(null);
 
-  if (!lifecycleRef.current) {
-    lifecycleRef.current = createBindingLifecycle(initAdapter);
+  if (!managerRef.current) {
+    managerRef.current = createSceneBindingManager<SceneBindingProps>({
+      getElement: () => containerRef.current,
+      getOptions: () => props
+    });
   }
 
-  const lifecycle = lifecycleRef.current;
+  const manager = managerRef.current;
 
   useLayoutEffect(() => {
-    lifecycle.setElement(containerRef.current);
+    if (!containerRef.current) return;
+    manager.mount(containerRef.current);
     return () => {
-      lifecycle.setElement(null);
+      manager.destroy();
+      managerRef.current = null;
     };
-  }, [lifecycle]);
+  }, [manager]);
 
   useLayoutEffect(() => {
-    lifecycle.setOptions(options);
-  }, [lifecycle, options]);
+    manager.update(props);
+  }, [manager, props]);
 
-  useEffect(() => {
-    return () => {
-      lifecycle.destroy();
-      lifecycleRef.current = null;
-    };
-  }, [lifecycle]);
-
-  return {
-    ref: containerRef
-  };
-}
-
-export function useSceneBinding(props: SceneBindingProps) {
-  const { ref } = useBindingAdapter(
-    (hooks) =>
-      createSceneBindingAdapter({
-        getElement: () => hooks.getElement(),
-        getOptions: () => hooks.getOptions()
-      }),
-    props
-  );
-  return ref;
+  return containerRef;
 }
 
 export interface CameraBindingHookResult {

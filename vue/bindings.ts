@@ -1,24 +1,43 @@
 import { onBeforeUnmount, ref, watch } from "vue";
 import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
+import { createSceneBindingManager } from "@voxcss/controller/createSceneBindingAdapter";
 import type { CameraBindingOptions } from "@voxcss/controller/createCameraBinding";
 import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { useElementBindingAdapter } from "./bindingAdapters";
 import {
   createCameraBindingView,
   type CameraBindingSnapshot
 } from "@voxcss/controller/cameraBindingView";
 
 export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"> | null) {
-  const { elementRef: hostElement } = useElementBindingAdapter(
-    () => props(),
-    (hooks) =>
-      createSceneBindingAdapter({
-        getElement: () => hooks.getElement(),
-        getOptions: () => hooks.getOptions()
-      })
+  const hostElement = ref<HTMLElement | null>(null);
+  const manager = createSceneBindingManager({
+    getElement: () => hostElement.value,
+    getOptions: () => props() ?? undefined
+  });
+
+  watch(
+    hostElement,
+    (element) => {
+      if (element) {
+        manager.mount(element);
+      }
+    },
+    { immediate: true }
   );
+
+  watch(
+    () => props(),
+    (next) => {
+      manager.update(next ?? undefined);
+    },
+    { deep: true, immediate: true }
+  );
+
+  onBeforeUnmount(() => {
+    manager.destroy();
+  });
+
   return {
     hostElement
   };

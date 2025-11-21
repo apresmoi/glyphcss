@@ -8,7 +8,7 @@ import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
 import { DEFAULT_CAMERA_PROPS } from "../controller/defaults";
 import { formatPerspectiveStyle } from "../controller/cameraUtils";
-import { createSceneBinding, type SceneBindingHandle } from "../controller/createSceneBinding";
+import { createSceneBinding, createSceneBindingInternal, type InternalSceneBindingOptions, type SceneBindingHandle } from "../controller/createSceneBinding";
 import { mergeControllerOptions, normalizeCameraOptions } from "../controller/cameraOptions";
 import { normalizeSceneState, type NormalizedSceneState, extractSceneState } from "../controller/sceneOptions";
 import type { CameraControllerInput } from "../controller/cameraOptions";
@@ -166,7 +166,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   const internalSceneState = getInternalSceneState(scene);
   const sceneState = internalSceneState.state;
 
-  const binding = createSceneBinding({
+  const binding = createSceneBindingInternal({
     controller,
     element: scene.element,
     host: internalSceneState.host,
