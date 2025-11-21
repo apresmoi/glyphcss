@@ -35,8 +35,6 @@ export interface HeadlessSceneOptions extends SceneOptions {
 
 export interface HeadlessSceneHandle {
   element: HTMLElement;
-  getState(): SceneSessionState;
-  setOptions(options: Partial<Omit<SceneSessionState, "voxels">>): void;
   setVoxels(voxels: VoxelGrid): void;
   destroy(): void;
 }
@@ -55,6 +53,7 @@ interface InternalSceneState {
   host: ReturnType<typeof createSceneHost>;
   session: SceneSessionHandle | null;
   binding: SceneBindingHandle | null;
+  state: SceneSessionState;
 }
 
 const SCENE_STATE = new WeakMap<HeadlessSceneHandle, InternalSceneState>();
@@ -129,28 +128,20 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
   const internalState: InternalSceneState = {
     host,
     session: null,
-    binding: null
+    binding: null,
+    state
   };
 
   const syncBinding = () => {
     internalState.binding?.update(extractSceneState(state));
+    internalState.state = state;
   };
 
   const handle: HeadlessSceneHandle = {
     element,
-    getState() {
-      return { ...state };
-    },
-    setOptions(next) {
-      state = {
-        ...state,
-        ...next,
-        ...normalizeSceneState(next, state)
-      };
-      syncBinding();
-    },
     setVoxels(voxels: VoxelGrid) {
       state = { ...state, voxels };
+      internalState.state = state;
       internalState.binding?.update({ voxels });
     },
     destroy() {
@@ -172,8 +163,8 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   }
 
   const controller = camera.controller;
-  const sceneState = scene.getState();
   const internalSceneState = getInternalSceneState(scene);
+  const sceneState = internalSceneState.state;
 
   const binding = createSceneBinding({
     controller,
