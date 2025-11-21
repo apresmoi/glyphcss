@@ -30,6 +30,15 @@ export interface CameraViewState {
   ready: boolean;
 }
 
+export interface CameraViewController {
+  slotProps: CameraSlotProps | null;
+  controller: SceneController | null;
+  cursor: string;
+  ready: boolean;
+  ensureController(): SceneController;
+  getRenderableProps(): CameraSlotProps | null;
+}
+
 export const CAMERA_HOST_CLASS = "voxcss-camera";
 
 export function createCameraBindingProps(props: CameraComponentProps): Omit<CameraBindingOptions, "element"> {
@@ -77,4 +86,20 @@ export function ensureCameraController(controller: SceneController | null): Scen
     throw new Error("voxcss: controller is not ready yet.");
   }
   return controller;
+}
+
+export function createCameraViewController(slotProps: CameraSlotProps | null): CameraViewController {
+  const view = resolveCameraView(slotProps);
+  return {
+    ...view,
+    ensureController() {
+      return ensureCameraController(view.controller);
+    },
+    getRenderableProps() {
+      if (view.ready && view.slotProps) {
+        return view.slotProps;
+      }
+      return null;
+    }
+  };
 }

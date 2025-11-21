@@ -16,8 +16,6 @@ export interface SceneSessionHandle {
   mount(): void;
   setState(next: Partial<SceneSessionState>): void;
   destroy(): void;
-  getState(): SceneSessionState;
-  getHost(): SceneHost;
 }
 
 export function createSceneSession(options: SceneSessionOptions): SceneSessionHandle {
@@ -103,12 +101,6 @@ export function createSceneSession(options: SceneSessionOptions): SceneSessionHa
   return {
     mount,
     setState,
-    destroy,
-    getState() {
-      return { ...state };
-    },
-    getHost() {
-      return host;
-    }
+    destroy
   };
 }

@@ -35,8 +35,6 @@ export interface SceneController {
   subscribeWalls(listener: WallsListener): () => void;
   getCursor(): string;
   subscribeCursor(listener: CursorListener): () => void;
-  isDragging(): boolean;
-  getControls(): ControllerControls;
   setControls(next: Partial<ControllerControls>): void;
   setProjection(mode?: ProjectionMode): void;
 
@@ -216,16 +214,8 @@ export function createSceneController(
     return computeWallMask(camera.state.rotX, camera.state.rotY);
   }
 
-  function isDragging() {
-    return dragState.isDragging;
-  }
-
   function getCursor() {
     return dragState.isDragging ? "grabbing" : "grab";
-  }
-
-  function getControls() {
-    return { ...controls };
   }
 
   function setControls(next: Partial<ControllerControls>) {
@@ -253,8 +243,6 @@ export function createSceneController(
     subscribeWalls,
     getCursor,
     subscribeCursor,
-    isDragging,
-    getControls,
     setControls,
     setProjection,
     handlePointerDown,

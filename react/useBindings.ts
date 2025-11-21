@@ -12,9 +12,9 @@ import {
   type BindingLifecycleAdapterHooks
 } from "@voxcss/controller/bindingLifecycle";
 import {
-  createCameraBindingState,
+  createCameraBindingView,
   type CameraBindingSnapshot
-} from "@voxcss/controller/cameraBindingState";
+} from "@voxcss/controller/cameraBindingView";
 
 export type SceneBindingProps = Omit<SceneBindingOptions, "element">;
 export type CameraBindingProps = Omit<CameraBindingOptions, "element">;
@@ -77,46 +77,46 @@ export interface CameraBindingHookResult {
 
 export function useCameraBinding(props: CameraBindingProps): CameraBindingHookResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stateRef = useRef<ReturnType<typeof createCameraBindingState> | null>(null);
-  if (!stateRef.current) {
-    stateRef.current = createCameraBindingState(props);
+  const viewRef = useRef<ReturnType<typeof createCameraBindingView> | null>(null);
+  if (!viewRef.current) {
+    viewRef.current = createCameraBindingView(props);
   }
-  const bindingState = stateRef.current;
-  const [snapshot, setSnapshot] = useState<CameraBindingSnapshot>(() => bindingState.getSnapshot());
+  const bindingView = viewRef.current;
+  const [snapshot, setSnapshot] = useState<CameraBindingSnapshot>(() => bindingView.getSnapshot());
 
   useLayoutEffect(() => {
-    bindingState.setElement(containerRef.current);
+    bindingView.setElement(containerRef.current);
     return () => {
-      bindingState.setElement(null);
+      bindingView.setElement(null);
     };
-  }, [bindingState]);
+  }, [bindingView]);
 
   useEffect(() => {
-    bindingState.setOptions(props);
-  }, [bindingState, props]);
+    bindingView.setOptions(props);
+  }, [bindingView, props]);
 
   useEffect(() => {
-    const unsubscribe = bindingState.subscribe((next) => setSnapshot(next));
+    const unsubscribe = bindingView.subscribe((next) => setSnapshot(next));
     return () => unsubscribe();
-  }, [bindingState]);
+  }, [bindingView]);
 
   useEffect(() => {
     return () => {
-      bindingState.destroy();
-      stateRef.current = null;
+      bindingView.destroy();
+      viewRef.current = null;
     };
-  }, [bindingState]);
+  }, [bindingView]);
 
   const startAutoRotate = useCallback(
     (config?: AutoRotateOption | false) => {
-      bindingState.startAutoRotate(config);
+      bindingView.startAutoRotate(config);
     },
-    [bindingState]
+    [bindingView]
   );
 
   const stopAutoRotate = useCallback(() => {
-    bindingState.stopAutoRotate();
-  }, [bindingState]);
+    bindingView.stopAutoRotate();
+  }, [bindingView]);
 
   return {
     containerRef,

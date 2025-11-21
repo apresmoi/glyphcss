@@ -12,6 +12,7 @@ These examples are intentionally tiny static pages that pull framework runtimes 
 | `/examples/vue/` | Vue 3 composition API sample. |
 | `/examples/vue2/` | Legacy Vue 2 render. |
 | `/examples/headless/` | Pure DOM/Pointer wiring using `createSceneHost` + `createSceneController`. |
-| `/examples/svelte/` | (Removed) Svelte requires a build pipeline; use the framework package directly. |
 
 The CDN import maps keep `node_modules/` out of `examples/`, while relying on the locally built VoxCSS bundle (`dist/`).
+
+> Note: we no longer ship a Svelte example in `/examples/`; use the `@layoutit/voxcss/svelte` package in your own SvelteKit/Vite app instead.

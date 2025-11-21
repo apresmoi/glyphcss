@@ -15,7 +15,6 @@ export interface SceneHost {
   setState(state: SceneHostStateUpdate): void;
   syncController(controller: { subscribeWalls(listener: (walls: WallsMask) => void): () => void }, buildContext: () => Partial<GridContext>): void;
   destroy(): void;
-  getHandle(): VoxIllustrationHandle | null;
 }
 
 export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
@@ -87,10 +86,6 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
     targetElement = null;
   }
 
-  function getHandle() {
-    return handle;
-  }
-
   function destroyHandle() {
     handle?.destroy();
     handle = null;
@@ -105,7 +100,6 @@ export function createSceneHost(options: SceneHostOptions = {}): SceneHost {
         setState({ context: buildContext() });
       });
     },
-    destroy,
-    getHandle
+    destroy
   };
 }

@@ -187,17 +187,6 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
   return result;
 }
 
-export function buildContext(
-  partial: Partial<GridContext>,
-  grid: VoxelGrid,
-  lookups?: VoxelLookup[]
-): GridContext {
-  const lookupData = lookups
-    ? { lookups, layers: Array.from({ length: lookups.length }, () => [] as Voxel[]), checksum: 0 }
-    : undefined;
-  return buildSceneContext({ grid, context: partial, lookupData }).context;
-}
-
 export function computeWallMask(rotX: number = 65, rotY: number = 45): WallsMask {
   const normalizedRotY = ((rotY % 360) + 360) % 360;
   const topHidden = Math.round(rotX) >= 90;

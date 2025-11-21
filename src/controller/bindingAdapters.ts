@@ -16,7 +16,6 @@ export interface ElementBindingDriver<THandle, TOptions> {
 export interface ElementBindingAdapter<THandle> {
   sync(): void;
   destroy(): void;
-  getHandle(): THandle | null;
 }
 
 export function createElementBindingAdapter<THandle, TOptions>(
@@ -69,7 +68,6 @@ export function createElementBindingAdapter<THandle, TOptions>(
     sync,
     destroy: () => {
       teardown("teardown");
-    },
-    getHandle: () => handle
+    }
   };
 }

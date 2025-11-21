@@ -1,5 +1,5 @@
 import type { AutoRotateOption } from "../core/camera";
-import type { CameraBindingOptions, CameraBindingHandle, CameraRenderSnapshot } from "./createCameraBinding";
+import type { CameraBindingOptions, CameraBindingHandle } from "./createCameraBinding";
 import type { CameraSlotProps } from "./createCameraComponentCore";
 import type { SceneController } from "./createSceneController";
 import { createBindingLifecycle } from "./bindingLifecycle";
@@ -15,8 +15,6 @@ export interface CameraBindingState {
   setOptions(options: Omit<CameraBindingOptions, "element">): void;
   getSnapshot(): CameraBindingSnapshot;
   subscribe(listener: (snapshot: CameraBindingSnapshot) => void): () => void;
-  subscribeRender(listener: (snapshot: CameraRenderSnapshot | null) => void): () => void;
-  subscribeHandle(listener: (handle: CameraBindingHandle | null) => void): () => void;
   startAutoRotate(option?: AutoRotateOption | false): void;
   stopAutoRotate(): void;
   destroy(): void;
@@ -26,13 +24,10 @@ export function createCameraBindingState(initialOptions: Omit<CameraBindingOptio
   let currentOptions = initialOptions;
   let controller: SceneController | null = null;
   let slotProps: CameraSlotProps | null = null;
-  let renderSnapshot: CameraRenderSnapshot | null = null;
   let handle: CameraBindingHandle | null = null;
   let animateRef: AutoRotateOption | false | undefined = initialOptions.animate;
 
   const stateListeners = new Set<(snapshot: CameraBindingSnapshot) => void>();
-  const renderListeners = new Set<(snapshot: CameraRenderSnapshot | null) => void>();
-  const handleListeners = new Set<(binding: CameraBindingHandle | null) => void>();
 
   const emitSnapshot = () => {
     const snapshot: CameraBindingSnapshot = {
@@ -40,14 +35,6 @@ export function createCameraBindingState(initialOptions: Omit<CameraBindingOptio
       slotProps
     };
     stateListeners.forEach((listener) => listener(snapshot));
-  };
-
-  const emitRenderSnapshot = () => {
-    renderListeners.forEach((listener) => listener(renderSnapshot));
-  };
-
-  const emitHandle = () => {
-    handleListeners.forEach((listener) => listener(handle));
   };
 
   const lifecycle = createBindingLifecycle((hooks) =>
@@ -62,24 +49,16 @@ export function createCameraBindingState(initialOptions: Omit<CameraBindingOptio
         slotProps = next;
         emitSnapshot();
       },
-      onSnapshot: (next) => {
-        renderSnapshot = next;
-        emitRenderSnapshot();
-      },
       onHandle: (next) => {
         handle = next;
-        emitHandle();
         if (next && animateRef !== undefined) {
           next.setAnimate(animateRef);
         }
       },
       onDestroy: () => {
-        renderSnapshot = null;
         slotProps = null;
         handle = null;
         emitSnapshot();
-        emitRenderSnapshot();
-        emitHandle();
       }
     })
   );
@@ -111,20 +90,6 @@ export function createCameraBindingState(initialOptions: Omit<CameraBindingOptio
         stateListeners.delete(listener);
       };
     },
-    subscribeRender(listener) {
-      renderListeners.add(listener);
-      listener(renderSnapshot);
-      return () => {
-        renderListeners.delete(listener);
-      };
-    },
-    subscribeHandle(listener) {
-      handleListeners.add(listener);
-      listener(handle);
-      return () => {
-        handleListeners.delete(listener);
-      };
-    },
     startAutoRotate(option) {
       const next = option ?? animateRef;
       animateRef = next;
@@ -137,11 +102,8 @@ export function createCameraBindingState(initialOptions: Omit<CameraBindingOptio
     destroy() {
       lifecycle.destroy();
       stateListeners.clear();
-      renderListeners.clear();
-      handleListeners.clear();
       controller = null;
       slotProps = null;
-      renderSnapshot = null;
       handle = null;
     }
   };

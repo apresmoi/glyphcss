@@ -4,8 +4,7 @@ import type { SceneController } from "@voxcss/controller/createSceneController";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  ensureCameraController,
-  resolveCameraView,
+  createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
@@ -43,32 +42,31 @@ export function createCameraComponent({
   return forwardRef<VoxCameraHandle, ReactCameraComponentProps>(function VoxCameraFactory(props, ref) {
     const { children, ...rest } = props;
     const binding = useBinding(createCameraBindingProps(rest));
-    const view = resolveCameraView(binding.slotProps);
+    const view = createCameraViewController(binding.slotProps);
+    const renderableProps = view.getRenderableProps();
 
     useImperativeHandle(
       ref,
-      () => {
-        return {
-          controller: ensureCameraController(view.controller),
-          startAutoRotate: binding.startAutoRotate,
-          stopAutoRotate: binding.stopAutoRotate
-        };
-      },
-      [view.controller, binding.startAutoRotate, binding.stopAutoRotate]
-    );
+          () => ({
+            controller: view.ensureController(),
+            startAutoRotate: binding.startAutoRotate,
+            stopAutoRotate: binding.stopAutoRotate
+          }),
+          [view.controller, binding.startAutoRotate, binding.stopAutoRotate]
+        );
 
-    const renderedChildren =
-      view.ready && view.slotProps
-        ? typeof children === "function"
-          ? (children as CameraChildRender)(convertSlotProps(view.slotProps as CameraSlotProps))
-          : children
-        : null;
+        const renderedChildren =
+          renderableProps && view.ready
+            ? typeof children === "function"
+              ? (children as CameraChildRender)(convertSlotProps(renderableProps))
+              : children
+            : null;
 
     return (
-      <SceneControllerContext.Provider value={view.controller}>
-        <div ref={binding.containerRef} className={className} style={{ cursor: view.cursor }}>
-          {renderedChildren}
-        </div>
+        <SceneControllerContext.Provider value={view.controller}>
+          <div ref={binding.containerRef} className={className} style={{ cursor: view.cursor }}>
+            {renderedChildren}
+          </div>
       </SceneControllerContext.Provider>
     );
   });

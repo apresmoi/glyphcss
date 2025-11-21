@@ -3,7 +3,7 @@ import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCo
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import { createSceneBindingAdapter } from "@voxcss/controller/createSceneBindingAdapter";
 import { createBindingLifecycle, type BindingLifecycleAdapterHooks } from "@voxcss/controller/bindingLifecycle";
-import { createCameraBindingState } from "@voxcss/controller/cameraBindingState";
+import { createCameraBindingView } from "@voxcss/controller/cameraBindingView";
 
 export function createSceneBindingManager(_vm: any, resolveOptions: () => any) {
   return createElementBindingManager(resolveOptions, (hooks) =>
@@ -22,28 +22,28 @@ export function createCameraBindingManager(
     onController: (controller: SceneController | null) => void;
   }
 ) {
-  const state = createCameraBindingState(resolveOptions());
-  const unsubscribe = state.subscribe((snapshot) => {
+  const view = createCameraBindingView(resolveOptions());
+  const unsubscribe = view.subscribe((snapshot) => {
     hooks.onSlotProps(snapshot.slotProps);
     hooks.onController(snapshot.controller);
   });
   return {
     mount(element: HTMLElement) {
-      state.setOptions(resolveOptions());
-      state.setElement(element);
+      view.setOptions(resolveOptions());
+      view.setElement(element);
     },
     update() {
-      state.setOptions(resolveOptions());
+      view.setOptions(resolveOptions());
     },
     startAutoRotate(config?: any) {
-      state.startAutoRotate(config);
+      view.startAutoRotate(config);
     },
     stopAutoRotate() {
-      state.stopAutoRotate();
+      view.stopAutoRotate();
     },
     destroy() {
       unsubscribe();
-      state.destroy();
+      view.destroy();
     }
   };
 }

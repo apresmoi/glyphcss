@@ -23,7 +23,6 @@ export { BASE_TILE, DEFAULT_PROJECTION } from "./types";
 
 export {
   buildSceneContext,
-  buildContext,
   buildVoxelLookups,
   buildSceneContextSnapshot,
   inferGridDimensions,

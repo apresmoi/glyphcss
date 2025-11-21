@@ -39,9 +39,6 @@ export interface HeadlessSceneHandle {
   getState(): SceneSessionState;
   setOptions(options: Partial<Omit<SceneSessionState, "voxels">>): void;
   setVoxels(voxels: VoxelGrid): void;
-  _getSession(): SceneSessionHandle | null;
-  _setSession(session: SceneSessionHandle | null): void;
-  _attachBinding?(binding: SceneBindingHandle | null): void;
   destroy(): void;
 }
 
@@ -53,6 +50,21 @@ export interface HeadlessRenderOptions {
 export interface HeadlessRenderHandle {
   setVoxels(voxels: VoxelGrid): void;
   destroy(): void;
+}
+
+interface InternalSceneState {
+  session: SceneSessionHandle | null;
+  binding: SceneBindingHandle | null;
+}
+
+const SCENE_STATE = new WeakMap<HeadlessSceneHandle, InternalSceneState>();
+
+function getInternalSceneState(scene: HeadlessSceneHandle): InternalSceneState {
+  const state = SCENE_STATE.get(scene);
+  if (!state) {
+    throw new Error("voxcss: unknown headless scene handle.");
+  }
+  return state;
 }
 
 export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHandle {
@@ -114,14 +126,16 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
   }
   const host = createSceneHost();
   let state: NormalizedSceneState = normalizeSceneState(options);
-  let session: SceneSessionHandle | null = null;
-  let binding: SceneBindingHandle | null = null;
-
-  const syncBinding = () => {
-    binding?.update(extractSceneState(state));
+  const internalState: InternalSceneState = {
+    session: null,
+    binding: null
   };
 
-  return {
+  const syncBinding = () => {
+    internalState.binding?.update(extractSceneState(state));
+  };
+
+  const handle: HeadlessSceneHandle = {
     element,
     host,
     getState() {
@@ -137,24 +151,19 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle 
     },
     setVoxels(voxels: VoxelGrid) {
       state = { ...state, voxels };
-      binding?.update({ voxels });
-    },
-    _getSession() {
-      return session;
-    },
-    _setSession(nextSession: SceneSessionHandle | null) {
-      session = nextSession;
-    },
-    _attachBinding(nextBinding: SceneBindingHandle | null) {
-      binding = nextBinding;
+      internalState.binding?.update({ voxels });
     },
     destroy() {
-      binding?.destroy();
-      binding = null;
-      session = null;
+      internalState.binding?.destroy();
+      internalState.binding = null;
+      internalState.session = null;
       host.destroy();
+      SCENE_STATE.delete(handle);
     }
   };
+
+  SCENE_STATE.set(handle, internalState);
+  return handle;
 }
 
 export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessRenderHandle {
@@ -164,15 +173,18 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   const controller = camera.controller;
   const sceneState = scene.getState();
+  const internalSceneState = getInternalSceneState(scene);
 
   const binding = createSceneBinding({
     controller,
     element: scene.element,
     host: scene.host,
     ...extractSceneState(sceneState),
-    onSessionChange: (next) => scene._setSession(next)
+    onSessionChange: (next) => {
+      internalSceneState.session = next;
+    }
   });
-  scene._attachBinding?.(binding);
+  internalSceneState.binding = binding;
   binding.mount();
 
   const updateCursor = () => {

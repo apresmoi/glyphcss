@@ -5,7 +5,10 @@ import type { CameraBindingOptions } from "@voxcss/controller/createCameraBindin
 import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import { useElementBindingAdapter } from "./bindingAdapters";
-import { createCameraBindingState } from "@voxcss/controller/cameraBindingState";
+import {
+  createCameraBindingView,
+  type CameraBindingSnapshot
+} from "@voxcss/controller/cameraBindingView";
 
 export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"> | null) {
   const { elementRef: hostElement } = useElementBindingAdapter(
@@ -25,12 +28,12 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
   const controller = ref<SceneController | null>(null);
   const slotProps = ref<CameraSlotProps | null>(null);
   const elementRef = ref<HTMLElement | null>(null);
-  const bindingState = createCameraBindingState(props());
+  const bindingView = createCameraBindingView(props());
 
   watch(
     () => props(),
     (next) => {
-      bindingState.setOptions(next);
+      bindingView.setOptions(next);
     },
     { deep: true }
   );
@@ -38,27 +41,27 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
   watch(
     elementRef,
     (element) => {
-      bindingState.setElement(element);
+      bindingView.setElement(element);
     },
     { immediate: true }
   );
 
-  const unsubscribe = bindingState.subscribe((snapshot) => {
+  const unsubscribe = bindingView.subscribe((snapshot: CameraBindingSnapshot) => {
     controller.value = snapshot.controller;
     slotProps.value = snapshot.slotProps;
   });
 
   onBeforeUnmount(() => {
     unsubscribe();
-    bindingState.destroy();
+    bindingView.destroy();
   });
 
   const startAutoRotate = (config?: CameraBindingOptions["animate"]) => {
-    bindingState.startAutoRotate(config);
+    bindingView.startAutoRotate(config);
   };
 
   const stopAutoRotate = () => {
-    bindingState.stopAutoRotate();
+    bindingView.stopAutoRotate();
   };
 
   return {

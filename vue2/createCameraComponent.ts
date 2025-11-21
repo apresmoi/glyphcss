@@ -6,8 +6,7 @@ import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  ensureCameraController,
-  resolveCameraView,
+  createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/createCameraComponentCore";
@@ -67,24 +66,27 @@ export function createCameraComponent() {
       this.slotPayload = null;
     },
     computed: {
-      cameraView() {
-        return resolveCameraView(this.slotPayload);
+      cameraViewController() {
+        return createCameraViewController(this.slotPayload);
+      },
+      renderableSlot(): CameraSlotProps | null {
+        return this.cameraViewController.getRenderableProps();
       },
       controllerState() {
-        return this.slotPayload?.camera;
+        return this.renderableSlot?.camera;
       },
       boxStyle(): Record<string, string> {
-        return this.slotPayload?.boxStyle ?? {};
+        return this.renderableSlot?.boxStyle ?? {};
       },
       cursor(): string {
-        return this.cameraView.cursor;
+        return this.cameraViewController.cursor;
       },
       walls() {
-        return this.slotPayload?.walls;
+        return this.renderableSlot?.walls;
       },
       sceneStyle(): Record<string, string> {
         return {
-          cursor: this.cameraView.cursor
+          cursor: this.cameraViewController.cursor
         };
       }
     },
@@ -110,15 +112,16 @@ export function createCameraComponent() {
     render(h) {
       const vm = this as any;
       const slot = vm.$scopedSlots.default;
-      const view = vm.cameraView;
+      const view = vm.cameraViewController;
+      const slotPayload = vm.renderableSlot;
       const slotContent =
-        view.ready && slot && view.slotProps
+        slotPayload && slot
           ? slot({
               boxStyle: vm.boxStyle,
               cursor: view.cursor,
               walls: vm.walls,
               camera: vm.controllerState,
-              controller: ensureCameraController(view.controller)
+              controller: view.ensureController()
             })
           : view.ready
             ? (vm.$slots.default as VNode[] | undefined)

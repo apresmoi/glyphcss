@@ -69,15 +69,6 @@ export function mergeControllerOptions(options: CameraControllerInput): SceneCon
   };
 }
 
-export function resolvePerspective(value: number | boolean | undefined) {
-  const normalized = normalizePerspectiveValue(value);
-  if (normalized === false) {
-    return { css: "none", value: false } as const;
-  }
-  const resolved = typeof normalized === "number" ? normalized : (DEFAULT_CAMERA_PROPS.perspective as number | undefined) ?? 8000;
-  return { css: `${resolved}px`, value: resolved } as const;
-}
-
 function filterUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {
   const output: Partial<T> = {};
   for (const [key, value] of Object.entries(input) as [keyof T, T[keyof T]][]) {
