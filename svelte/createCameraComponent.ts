@@ -6,8 +6,11 @@ import {
   createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
-} from "@voxcss/controller/createCameraComponentCore";
-import { createCameraBindingView } from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/cameraBindingView";
+import {
+  createCameraBindingManager,
+  type CameraBindingSnapshot
+} from "@voxcss/controller/cameraBindingView";
 
 export interface SvelteCameraComponentConfig {
   onControllerReady(controller: SceneController): void;
@@ -25,22 +28,25 @@ export interface SvelteCameraComponentInstance {
 }
 
 export function createCameraComponent(config: SvelteCameraComponentConfig): SvelteCameraComponentInstance {
-  const bindingView = createCameraBindingView(createCameraBindingProps({}));
   let slotProps: CameraSlotProps | null = null;
-  const unsubscribe = bindingView.subscribe((snapshot) => {
-      slotProps = snapshot.slotProps;
-      if (snapshot.controller) {
-        config.onControllerReady(snapshot.controller);
-      }
-    });
+  const bindingManager = createCameraBindingManager(createCameraBindingProps({}));
+
+  const applySnapshot = (snapshot: CameraBindingSnapshot) => {
+    slotProps = snapshot.slotProps;
+    if (snapshot.controller) {
+      config.onControllerReady(snapshot.controller);
+    }
+  };
+  applySnapshot(bindingManager.getSnapshot());
+  const unsubscribe = bindingManager.subscribe(applySnapshot);
 
   return {
     className: CAMERA_HOST_CLASS,
     setElement(element) {
-      bindingView.setElement(element);
+      bindingManager.setElement(element);
     },
     setProps(props) {
-      bindingView.setOptions(createCameraBindingProps(props));
+      bindingManager.update(createCameraBindingProps(props));
     },
     getSlotProps() {
       return createCameraViewController(slotProps).getRenderableProps();
@@ -49,14 +55,15 @@ export function createCameraComponent(config: SvelteCameraComponentConfig): Svel
       return createCameraViewController(slotProps).cursor;
     },
     startAutoRotate(config?: AutoRotateOption | false) {
-      bindingView.startAutoRotate(config);
+      bindingManager.startAutoRotate(config);
     },
     stopAutoRotate() {
-      bindingView.stopAutoRotate();
+      bindingManager.stopAutoRotate();
     },
     destroy() {
       unsubscribe();
-      bindingView.destroy();
+      bindingManager.setElement(null);
+      bindingManager.destroy();
     }
   };
 }

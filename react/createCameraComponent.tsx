@@ -7,7 +7,7 @@ import {
   createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
-} from "@voxcss/controller/createCameraComponentCore";
+} from "@voxcss/controller/cameraBindingView";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import { SceneControllerContext } from "./context";
 import type { CameraBindingHookResult } from "./useBindings";

@@ -1,6 +1,10 @@
 import type { ProjectionMode, VoxelGrid } from "../core";
-import { DEFAULT_SCENE_FLAGS } from "./defaults";
 
+const DEFAULT_SCENE_FLAGS = {
+  showWalls: false,
+  showFloor: false,
+  projection: "cubic" as ProjectionMode
+};
 export interface SceneStateInput {
   voxels?: VoxelGrid;
   rows?: number;

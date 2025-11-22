@@ -9,7 +9,7 @@ import {
   createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
-} from "@voxcss/controller/createCameraComponentCore";
+} from "@voxcss/controller/cameraBindingView";
 import { createCameraBindingManager } from "./bindings";
 import { cameraPropOptions } from "../vue/propOptions";
 

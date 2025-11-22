@@ -1,11 +1,11 @@
 import { onBeforeUnmount, ref, watch } from "vue";
 import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import { createSceneBindingManager } from "@voxcss/controller/createSceneBindingAdapter";
-import type { CameraBindingOptions } from "@voxcss/controller/createCameraBinding";
-import type { CameraSlotProps } from "@voxcss/controller/createCameraComponentCore";
+import { createSceneBindingManager } from "@voxcss/controller/createSceneBinding";
+import type { CameraBindingOptions } from "@voxcss/controller/cameraBindingView";
+import type { CameraSlotProps } from "@voxcss/controller/cameraBindingView";
 import type { SceneController } from "@voxcss/controller/createSceneController";
 import {
-  createCameraBindingView,
+  createCameraBindingManager,
   type CameraBindingSnapshot
 } from "@voxcss/controller/cameraBindingView";
 
@@ -47,12 +47,12 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
   const controller = ref<SceneController | null>(null);
   const slotProps = ref<CameraSlotProps | null>(null);
   const elementRef = ref<HTMLElement | null>(null);
-  const bindingView = createCameraBindingView(props());
+  const bindingManager = createCameraBindingManager(props());
 
   watch(
     () => props(),
     (next) => {
-      bindingView.setOptions(next);
+      bindingManager.update(next);
     },
     { deep: true }
   );
@@ -60,27 +60,28 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
   watch(
     elementRef,
     (element) => {
-      bindingView.setElement(element);
+      bindingManager.setElement(element);
     },
     { immediate: true }
   );
 
-  const unsubscribe = bindingView.subscribe((snapshot: CameraBindingSnapshot) => {
+  const unsubscribe = bindingManager.subscribe((snapshot: CameraBindingSnapshot) => {
     controller.value = snapshot.controller;
     slotProps.value = snapshot.slotProps;
   });
 
   onBeforeUnmount(() => {
     unsubscribe();
-    bindingView.destroy();
+    bindingManager.setElement(null);
+    bindingManager.destroy();
   });
 
   const startAutoRotate = (config?: CameraBindingOptions["animate"]) => {
-    bindingView.startAutoRotate(config);
+    bindingManager.startAutoRotate(config);
   };
 
   const stopAutoRotate = () => {
-    bindingView.stopAutoRotate();
+    bindingManager.stopAutoRotate();
   };
 
   return {

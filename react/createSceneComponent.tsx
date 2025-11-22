@@ -6,7 +6,7 @@ import {
   createSceneBindingProps,
   SCENE_HOST_CLASS,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneComponentCore";
+} from "@voxcss/controller/createSceneBinding";
 
 export interface ReactSceneComponentFactoryConfig {
   useController(): SceneController | null;

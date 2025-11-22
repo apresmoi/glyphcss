@@ -1,21 +1,26 @@
 import { createSceneController, type ControllerControls, type SceneController } from "../controller/createSceneController";
-import { createSceneHost } from "../controller/createSceneHost";
-import { createSceneSession, type SceneSessionHandle } from "../controller/createSceneSession";
+import {
+  createSceneHost,
+  createSceneSession,
+  type SceneSessionHandle
+} from "../controller/createSceneBinding";
 import { attachPointerEvents } from "./pointerEvents";
 import type { AutoRotateOption } from "./camera";
 import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
 import { SCENE_CLASS } from "./types";
-import { DEFAULT_CAMERA_PROPS } from "../controller/defaults";
-import { formatPerspectiveStyle } from "../controller/cameraUtils";
-import { mergeControllerOptions, normalizeCameraOptions } from "../controller/cameraOptions";
+import {
+  DEFAULT_CAMERA_PROPS,
+  formatPerspectiveStyle,
+  mergeControllerOptions,
+  normalizeCameraOptions,
+  type CameraControllerInput
+} from "../controller/cameraBindingView";
 import {
   normalizeSceneState,
   type NormalizedSceneState,
   extractSceneState,
   type SceneStateInput
 } from "../controller/sceneOptions";
-import type { CameraControllerInput } from "../controller/cameraOptions";
-
 export interface HeadlessCameraOptions extends CameraControllerInput {
   element: HTMLElement;
 }

@@ -6,7 +6,7 @@ import {
   ensureSceneController,
   SCENE_HOST_CLASS,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneComponentCore";
+} from "@voxcss/controller/createSceneBinding";
 import { createSceneBindingManager } from "./bindings";
 import { scenePropOptions } from "../vue/propOptions";
 

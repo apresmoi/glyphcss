@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 import type { SceneController } from "@voxcss/controller/createSceneController";
-import { ensureSceneController } from "@voxcss/controller/createSceneComponentCore";
+import { ensureSceneController } from "@voxcss/controller/createSceneBinding";
 
 export const SceneControllerContext = createContext<SceneController | null>(null);
 

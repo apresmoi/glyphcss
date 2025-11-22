@@ -5,7 +5,7 @@ import {
   SCENE_HOST_CLASS,
   ensureSceneController,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneComponentCore";
+} from "@voxcss/controller/createSceneBinding";
 import { CONTROLLER_KEY } from "./controllerKey";
 import { useSceneBinding } from "./bindings";
 import { scenePropOptions } from "./propOptions";

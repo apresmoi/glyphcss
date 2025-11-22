@@ -5,8 +5,3 @@ export type {
   SceneControllerOptions,
   ControllerControls
 } from "./controller/createSceneController";
-export { createSceneBinding } from "./controller/createSceneBinding";
-export type { SceneBindingOptions, SceneBindingHandle } from "./controller/createSceneBinding";
-export { createCameraBinding } from "./controller/createCameraBinding";
-export type { CameraBindingOptions, CameraBindingHandle, CameraRenderSnapshot } from "./controller/createCameraBinding";
-export { DEFAULT_CAMERA_PROPS, DEFAULT_SCENE_FLAGS } from "./controller/defaults";

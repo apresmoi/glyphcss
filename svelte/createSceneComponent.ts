@@ -4,7 +4,7 @@ import {
   ensureSceneController,
   SCENE_HOST_CLASS,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneComponentCore";
+} from "@voxcss/controller/createSceneBinding";
 import type { SceneBindingActionOptions } from "./bindings";
 
 export interface SvelteSceneComponentFactoryConfig {
