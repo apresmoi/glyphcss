@@ -1,5 +1,5 @@
-import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import { createSceneBindingManager } from "@voxcss/controller/createSceneBinding";
+import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
+import { createSceneBindingManager } from "@voxcss/controller/sceneBindings";
 
 export type SceneBindingActionOptions = Omit<SceneBindingOptions, "element">;
 

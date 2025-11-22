@@ -7,4 +7,4 @@ export const VoxScene = createSceneComponent({
   useBinding: useSceneBinding
 });
 
-export type { SceneComponentProps as VoxSceneProps } from "@voxcss/controller/createSceneBinding";
+export type { SceneComponentProps as VoxSceneProps } from "@voxcss/controller/sceneBindings";

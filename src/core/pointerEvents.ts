@@ -1,4 +1,4 @@
-import type { SceneController } from "../controller/createSceneController";
+import type { SceneController } from "../controller/sceneController";
 
 export function attachPointerEvents(
   element: HTMLElement,

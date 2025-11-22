@@ -1,6 +1,6 @@
 <script lang="ts">
   import { setContext, onDestroy } from "svelte";
-  import type { SceneController } from "@voxcss/controller/createSceneController";
+  import type { SceneController } from "@voxcss/controller/sceneController";
   import type { AutoRotateOption } from "@voxcss/core/camera";
   import { CONTROLLER_KEY } from "./context";
   import { createCameraComponent } from "./createCameraComponent";

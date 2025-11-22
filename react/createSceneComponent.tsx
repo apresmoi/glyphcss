@@ -1,12 +1,12 @@
 import React from "react";
 import type { RefObject } from "react";
-import type { SceneController } from "@voxcss/controller/createSceneController";
-import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
+import type { SceneController } from "@voxcss/controller/sceneController";
+import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
 import {
   createSceneBindingProps,
   SCENE_HOST_CLASS,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneBinding";
+} from "@voxcss/controller/sceneBindings";
 
 export interface ReactSceneComponentFactoryConfig {
   useController(): SceneController | null;

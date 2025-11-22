@@ -4,7 +4,7 @@ import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
   createCameraViewController
-} from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/cameraBindings";
 import { useCameraBinding } from "./bindings";
 import { CONTROLLER_KEY } from "./controllerKey";
 import { cameraPropOptions } from "./propOptions";
@@ -52,4 +52,4 @@ export function createCameraComponent() {
   });
 }
 
-export type { CameraComponentProps } from "@voxcss/controller/cameraBindingView";
+export type { CameraComponentProps } from "@voxcss/controller/cameraBindings";

@@ -1,15 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import type { RefObject } from "react";
-import type { SceneBindingOptions } from "@voxcss/controller/createSceneBinding";
-import { createSceneBindingManager } from "@voxcss/controller/createSceneBinding";
-import type { CameraBindingOptions } from "@voxcss/controller/cameraBindingView";
-import type { CameraSlotProps } from "@voxcss/controller/cameraBindingView";
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
+import { createSceneBindingManager } from "@voxcss/controller/sceneBindings";
+import type { CameraBindingOptions } from "@voxcss/controller/cameraBindings";
+import type { CameraSlotProps } from "@voxcss/controller/cameraBindings";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   createCameraBindingManager,
   type CameraBindingSnapshot
-} from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/cameraBindings";
 
 export type SceneBindingProps = Omit<SceneBindingOptions, "element">;
 export type CameraBindingProps = Omit<CameraBindingOptions, "element">;

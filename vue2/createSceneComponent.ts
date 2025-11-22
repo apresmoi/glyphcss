@@ -1,12 +1,12 @@
 // @ts-nocheck
 import Vue from "vue";
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import {
   createSceneBindingProps,
   ensureSceneController,
   SCENE_HOST_CLASS,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneBinding";
+} from "@voxcss/controller/sceneBindings";
 import { createSceneBindingManager } from "./bindings";
 import { scenePropOptions } from "../vue/propOptions";
 

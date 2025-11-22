@@ -1,10 +1,10 @@
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import {
   createSceneBindingProps,
   ensureSceneController,
   SCENE_HOST_CLASS,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneBinding";
+} from "@voxcss/controller/sceneBindings";
 import type { SceneBindingActionOptions } from "./bindings";
 
 export interface SvelteSceneComponentFactoryConfig {

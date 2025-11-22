@@ -1,9 +1,9 @@
-import { createSceneController, type ControllerControls, type SceneController } from "../controller/createSceneController";
+import { sceneController, type ControllerControls, type SceneController } from "../controller/sceneController";
 import {
   createSceneHost,
   createSceneSession,
   type SceneSessionHandle
-} from "../controller/createSceneBinding";
+} from "../controller/sceneBindings";
 import { attachPointerEvents } from "./pointerEvents";
 import type { AutoRotateOption } from "./camera";
 import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
@@ -14,7 +14,7 @@ import {
   mergeControllerOptions,
   normalizeCameraOptions,
   type CameraControllerInput
-} from "../controller/cameraBindingView";
+} from "../controller/cameraBindings";
 import {
   normalizeSceneState,
   type NormalizedSceneState,
@@ -95,7 +95,7 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   const normalized = normalizeCameraOptions(options);
   let interactive = normalized.interactive;
   const controllerConfig = mergeControllerOptions(options);
-  const controller = createSceneController(controllerConfig);
+  const controller = sceneController(controllerConfig);
   let autoRotate = createAutoRotateHandle(controller, normalized.animate);
   element.classList.add(SCENE_CLASS);
   applyPerspective(element, normalized.perspective);

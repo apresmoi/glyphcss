@@ -1,13 +1,13 @@
 import React, { forwardRef, useImperativeHandle } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
   createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
-} from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/cameraBindings";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import { SceneControllerContext } from "./context";
 import type { CameraBindingHookResult } from "./useBindings";

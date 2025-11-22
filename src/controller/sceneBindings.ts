@@ -1,4 +1,4 @@
-import type { SceneController } from "./createSceneController";
+import type { SceneController } from "./sceneController";
 import type {
   ProjectionMode,
   SceneOptions,

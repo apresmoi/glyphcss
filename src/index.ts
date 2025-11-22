@@ -1,7 +1,7 @@
 export * from "./core";
-export { createSceneController } from "./controller/createSceneController";
+export { sceneController } from "./controller/sceneController";
 export type {
   SceneController,
   SceneControllerOptions,
   ControllerControls
-} from "./controller/createSceneController";
+} from "./controller/sceneController";

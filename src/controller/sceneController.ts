@@ -55,7 +55,7 @@ const DEFAULT_CONTROLS: ControllerControls = {
 
 const POINTER_DRAG_SPEED = 5;
 
-export function createSceneController(
+export function sceneController(
   options: SceneControllerOptions = {}
 ): SceneController {
   let dimensions = normalizeDimensions(

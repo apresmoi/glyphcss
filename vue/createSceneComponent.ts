@@ -1,11 +1,11 @@
 import { defineComponent, h, inject, toRefs, type Ref } from "vue";
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import {
   createSceneBindingProps,
   SCENE_HOST_CLASS,
   ensureSceneController,
   type SceneComponentProps
-} from "@voxcss/controller/createSceneBinding";
+} from "@voxcss/controller/sceneBindings";
 import { CONTROLLER_KEY } from "./controllerKey";
 import { useSceneBinding } from "./bindings";
 import { scenePropOptions } from "./propOptions";

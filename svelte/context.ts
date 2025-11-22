@@ -1,4 +1,4 @@
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 
 export const CONTROLLER_KEY = Symbol("voxcss-controller");
 

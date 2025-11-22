@@ -2,8 +2,8 @@ import type { WallsMask } from "../core";
 import { createCamera } from "../core/headless";
 import type { HeadlessCameraHandle } from "../core/headless";
 import type { AutoRotateOption, CameraState } from "../core/camera";
-import type { SceneController, SceneControllerOptions } from "./createSceneController";
-import { createBindingLifecycle, createElementBindingAdapter } from "./createSceneBinding";
+import type { SceneController, SceneControllerOptions } from "./sceneController";
+import { createBindingLifecycle, createElementBindingAdapter } from "./sceneBindings";
 
 export const DEFAULT_CAMERA_PROPS = {
   zoom: 0.65,

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { VNode } from "vue";
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
@@ -9,7 +9,7 @@ import {
   createCameraViewController,
   type CameraComponentProps,
   type CameraSlotProps
-} from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/cameraBindings";
 import { createCameraBindingManager } from "./bindings";
 import { cameraPropOptions } from "../vue/propOptions";
 

@@ -1,16 +1,14 @@
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
   createCameraViewController,
-  type CameraComponentProps,
-  type CameraSlotProps
-} from "@voxcss/controller/cameraBindingView";
-import {
   createCameraBindingManager,
+  type CameraComponentProps,
+  type CameraSlotProps,
   type CameraBindingSnapshot
-} from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/cameraBindings";
 
 export interface SvelteCameraComponentConfig {
   onControllerReady(controller: SceneController): void;

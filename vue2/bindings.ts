@@ -1,11 +1,11 @@
 // @ts-nocheck
-import type { CameraSlotProps } from "@voxcss/controller/cameraBindingView";
-import type { SceneController } from "@voxcss/controller/createSceneController";
+import type { CameraSlotProps } from "@voxcss/controller/cameraBindings";
+import type { SceneController } from "@voxcss/controller/sceneController";
 import {
   createSceneBindingManager as createControllerSceneBindingManager,
   type SceneBindingManager
-} from "@voxcss/controller/createSceneBinding";
-import { createCameraBindingManager as createControllerCameraBindingManager } from "@voxcss/controller/cameraBindingView";
+} from "@voxcss/controller/sceneBindings";
+import { createCameraBindingManager as createControllerCameraBindingManager } from "@voxcss/controller/cameraBindings";
 
 export function createSceneBindingManager(_vm: any, resolveOptions: () => any) {
   let currentElement: HTMLElement | null = null;
