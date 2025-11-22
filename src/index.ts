@@ -10,5 +10,3 @@ export type { SceneBindingOptions, SceneBindingHandle } from "./controller/creat
 export { createCameraBinding } from "./controller/createCameraBinding";
 export type { CameraBindingOptions, CameraBindingHandle, CameraRenderSnapshot } from "./controller/createCameraBinding";
 export { DEFAULT_CAMERA_PROPS, DEFAULT_SCENE_FLAGS } from "./controller/defaults";
-export { resolveInvertMultiplier, normalizePerspectiveValue, formatPerspectiveStyle } from "./controller/cameraUtils";
-export { createDomRenderer } from "./core/domRenderer";

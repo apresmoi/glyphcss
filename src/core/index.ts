@@ -36,7 +36,6 @@ export {
 } from "./context";
 export { attachPointerEvents } from "./pointerEvents";
 
-export { injectBaseStyles } from "./styles";
 export {
   cubeShapeRenderer,
   rampShapeRenderer,

@@ -16,7 +16,7 @@ export interface SceneBindingOptions {
   projection?: ProjectionMode;
 }
 
-export interface InternalSceneBindingOptions extends SceneBindingOptions {
+interface InternalSceneBindingOptions extends SceneBindingOptions {
   host?: SceneHost;
   onSessionChange?(session: SceneSessionHandle | null): void;
 }
@@ -79,5 +79,3 @@ function createSceneBindingInternal(initial: InternalSceneBindingOptions): Scene
 export function createSceneBinding(initial: SceneBindingOptions): SceneBindingHandle {
   return createSceneBindingInternal(initial);
 }
-
-export { createSceneBindingInternal };
