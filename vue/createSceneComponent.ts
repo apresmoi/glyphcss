@@ -1,11 +1,6 @@
 import { defineComponent, h, inject, toRefs, type Ref } from "vue";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import {
-  createSceneBindingProps,
-  SCENE_HOST_CLASS,
-  ensureSceneController,
-  type SceneComponentProps
-} from "@voxcss/controller/sceneBindings";
+import { SCENE_HOST_CLASS, ensureSceneController, type SceneComponentProps } from "@voxcss/controller/sceneBindings";
 import { CONTROLLER_KEY } from "./controllerKey";
 import { useSceneBinding } from "./bindings";
 import { scenePropOptions } from "./propOptions";
@@ -18,8 +13,8 @@ export function createSceneComponent() {
       const controller = inject<Ref<SceneController | null> | null>(CONTROLLER_KEY, null);
       const { voxels, rows, cols, depth, showWalls, showFloor, projection } = toRefs(props);
       const resolveProps = () => {
-        const current = ensureSceneController(controller?.value ?? null);
-        return createSceneBindingProps(current, {
+        return {
+          controller: ensureSceneController(controller?.value ?? null),
           voxels: voxels.value,
           rows: rows.value,
           cols: cols.value,
@@ -27,7 +22,7 @@ export function createSceneComponent() {
           showWalls: showWalls.value,
           showFloor: showFloor.value,
           projection: projection.value
-        });
+        };
       };
       const { hostElement } = useSceneBinding(resolveProps);
 

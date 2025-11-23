@@ -1,29 +1,37 @@
 // @ts-nocheck
 import type { CameraSlotProps } from "@voxcss/controller/cameraBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
+import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
 import {
-  createSceneBindingManager as createControllerSceneBindingManager,
-  type SceneBindingManager
-} from "@voxcss/controller/sceneBindings";
-import { createCameraBindingManager as createControllerCameraBindingManager } from "@voxcss/controller/cameraBindings";
+  buildCameraSlotProps,
+  createCameraBinding,
+  type CameraBindingHandle,
+  type CameraRenderSnapshot
+} from "@voxcss/controller/cameraBindings";
 
 export function createSceneBindingManager(_vm: any, resolveOptions: () => any) {
-  let currentElement: HTMLElement | null = null;
-  const manager: SceneBindingManager<ReturnType<typeof resolveOptions>> = createControllerSceneBindingManager({
-    getElement: () => currentElement,
-    getOptions: () => resolveOptions()
-  });
+  let binding: SceneBindingHandle | null = null;
+  let element: HTMLElement | null = null;
+
+  const cleanup = () => {
+    binding?.destroy();
+    binding = null;
+  };
+
   return {
-    mount(element: HTMLElement) {
-      currentElement = element;
-      manager.mount(element);
+    mount(target: HTMLElement) {
+      element = target;
+      cleanup();
+      const options = resolveOptions();
+      binding = createSceneBinding({ ...options, element: target });
     },
     update() {
-      manager.update(resolveOptions());
+      if (!binding) return;
+      binding.update(resolveOptions());
     },
     destroy() {
-      manager.destroy();
-      currentElement = null;
+      cleanup();
+      element = null;
     }
   };
 }
@@ -34,31 +42,60 @@ export function createCameraBindingManager(
   hooks: {
     onSlotProps: (props: CameraSlotProps | null) => void;
     onController: (controller: SceneController | null) => void;
+    onCursor?: (cursor: string) => void;
   }
 ) {
-  const manager = createControllerCameraBindingManager(resolveOptions());
-  const unsubscribe = manager.subscribe((snapshot) => {
-    hooks.onSlotProps(snapshot.slotProps);
-    hooks.onController(snapshot.controller);
-  });
+  let binding: CameraBindingHandle | null = null;
+  let unsubscribe: (() => void) | null = null;
+  let animateValue: any = resolveOptions().animate;
+
+  const applySnapshot = (snapshot: CameraRenderSnapshot) => {
+    if (!binding) return;
+    const slotProps = buildCameraSlotProps(binding.controller, snapshot);
+    hooks.onCursor?.(snapshot.cursor ?? "default");
+    hooks.onSlotProps(slotProps);
+    hooks.onController(slotProps?.controller ?? null);
+  };
+
+  const cleanup = () => {
+    unsubscribe?.();
+    unsubscribe = null;
+    binding?.destroy();
+    binding = null;
+    hooks.onSlotProps(null);
+    hooks.onController(null);
+    hooks.onCursor?.("default");
+  };
+
   return {
-    mount(element: HTMLElement) {
-      manager.update(resolveOptions());
-      manager.setElement(element);
+    mount(target: HTMLElement) {
+      cleanup();
+      const options = resolveOptions();
+      animateValue = options.animate;
+      binding = createCameraBinding({ ...options, element: target });
+      if (animateValue !== undefined && animateValue !== options.animate) {
+        binding.setAnimate(animateValue);
+      }
+      applySnapshot(binding.getSnapshot());
+      unsubscribe = binding.subscribe((snapshot) => applySnapshot(snapshot));
     },
     update() {
-      manager.update(resolveOptions());
+      if (!binding) return;
+      const options = resolveOptions();
+      animateValue = options.animate;
+      binding.setOptions(options);
     },
     startAutoRotate(config?: any) {
-      manager.startAutoRotate(config);
+      const next = config ?? animateValue;
+      animateValue = next;
+      binding?.setAnimate(next);
     },
     stopAutoRotate() {
-      manager.stopAutoRotate();
+      animateValue = false;
+      binding?.setAnimate(false);
     },
     destroy() {
-      unsubscribe();
-      manager.setElement(null);
-      manager.destroy();
+      cleanup();
     }
   };
 }

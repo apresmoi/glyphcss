@@ -6,7 +6,7 @@ import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
   createCameraBindingProps,
-  createCameraViewController,
+  ensureCameraController,
   type CameraComponentProps,
   type CameraSlotProps
 } from "@voxcss/controller/cameraBindings";
@@ -27,11 +27,13 @@ export function createCameraComponent() {
       controllerInstance: SceneController | null;
       slotPayload: CameraSlotProps | null;
       cameraBindingManager: ReturnType<typeof createCameraBindingManager> | null;
+      cursorStyleValue: string;
     } {
       return {
         controllerInstance: null,
         slotPayload: null,
-        cameraBindingManager: null
+        cameraBindingManager: null,
+        cursorStyleValue: "default"
       };
     },
     created() {
@@ -44,6 +46,9 @@ export function createCameraComponent() {
           },
           onController: (controller) => {
             this.controllerInstance = controller;
+          },
+          onCursor: (cursor) => {
+            this.cursorStyleValue = cursor;
           }
         }
       );
@@ -55,11 +60,8 @@ export function createCameraComponent() {
       this.slotPayload = null;
     },
     computed: {
-      cameraViewController() {
-        return createCameraViewController(this.slotPayload);
-      },
       renderableSlot(): CameraSlotProps | null {
-        return this.cameraViewController.getRenderableProps();
+        return this.slotPayload && this.controllerInstance ? this.slotPayload : null;
       },
       controllerState() {
         return this.renderableSlot?.camera;
@@ -67,15 +69,12 @@ export function createCameraComponent() {
       boxStyle(): Record<string, string> {
         return this.renderableSlot?.boxStyle ?? {};
       },
-      cursor(): string {
-        return this.cameraViewController.cursor;
-      },
       walls() {
         return this.renderableSlot?.walls;
       },
       sceneStyle(): Record<string, string> {
         return {
-          cursor: this.cameraViewController.cursor
+          cursor: this.cursorStyleValue
         };
       }
     },
@@ -101,18 +100,18 @@ export function createCameraComponent() {
     render(h) {
       const vm = this as any;
       const slot = vm.$scopedSlots.default;
-      const view = vm.cameraViewController;
       const slotPayload = vm.renderableSlot;
+      const controller = vm.controllerInstance;
       const slotContent =
-        slotPayload && slot
+        slotPayload && controller && slot
           ? slot({
               boxStyle: vm.boxStyle,
-              cursor: view.cursor,
+              cursor: slotPayload.cursor,
               walls: vm.walls,
               camera: vm.controllerState,
-              controller: view.ensureController()
+              controller: ensureCameraController(controller)
             })
-          : view.ready
+          : slotPayload && controller
             ? (vm.$slots.default as VNode[] | undefined)
             : undefined;
 

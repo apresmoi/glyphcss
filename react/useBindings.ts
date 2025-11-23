@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import type { RefObject } from "react";
 import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
-import { createSceneBindingManager } from "@voxcss/controller/sceneBindings";
+import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
 import type { CameraBindingOptions } from "@voxcss/controller/cameraBindings";
 import type { CameraSlotProps } from "@voxcss/controller/cameraBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
-  createCameraBindingManager,
-  type CameraBindingSnapshot
+  buildCameraSlotProps,
+  createCameraBinding,
+  type CameraBindingHandle,
+  type CameraRenderSnapshot
 } from "@voxcss/controller/cameraBindings";
 
 export type SceneBindingProps = Omit<SceneBindingOptions, "element">;
@@ -16,29 +18,24 @@ export type CameraBindingProps = Omit<CameraBindingOptions, "element">;
 
 export function useSceneBinding(props: SceneBindingProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const managerRef = useRef<ReturnType<typeof createSceneBindingManager<SceneBindingProps>> | null>(null);
-
-  if (!managerRef.current) {
-    managerRef.current = createSceneBindingManager<SceneBindingProps>({
-      getElement: () => containerRef.current,
-      getOptions: () => props
-    });
-  }
-
-  const manager = managerRef.current;
+  const bindingRef = useRef<SceneBindingHandle | null>(null);
+  const latestProps = useRef(props);
 
   useLayoutEffect(() => {
-    if (!containerRef.current) return;
-    manager.mount(containerRef.current);
+    const element = containerRef.current;
+    if (!element) return;
+    const binding = createSceneBinding({ ...latestProps.current, element });
+    bindingRef.current = binding;
     return () => {
-      manager.destroy();
-      managerRef.current = null;
+      binding.destroy();
+      bindingRef.current = null;
     };
-  }, [manager]);
+  }, []);
 
-  useLayoutEffect(() => {
-    manager.update(props);
-  }, [manager, props]);
+  useEffect(() => {
+    latestProps.current = props;
+    bindingRef.current?.update(props);
+  }, [props]);
 
   return containerRef;
 }
@@ -47,58 +44,84 @@ export interface CameraBindingHookResult {
   containerRef: RefObject<HTMLDivElement>;
   controller: SceneController | null;
   slotProps: CameraSlotProps | null;
+  cursor: string;
   startAutoRotate(config?: AutoRotateOption | false): void;
   stopAutoRotate(): void;
 }
 
 export function useCameraBinding(props: CameraBindingProps): CameraBindingHookResult {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const managerRef = useRef<ReturnType<typeof createCameraBindingManager> | null>(null);
-  if (!managerRef.current) {
-    managerRef.current = createCameraBindingManager(props);
-  }
-  const bindingManager = managerRef.current;
-  const [snapshot, setSnapshot] = useState<CameraBindingSnapshot>(() => bindingManager.getSnapshot());
+  const bindingRef = useRef<CameraBindingHandle | null>(null);
+  const animateRef = useRef<AutoRotateOption | false | undefined>(props.animate);
+  const latestProps = useRef(props);
+  const [state, setState] = useState<{
+    controller: SceneController | null;
+    slotProps: CameraSlotProps | null;
+    cursor: string;
+  }>({
+    controller: null,
+    slotProps: null,
+    cursor: "default"
+  });
 
   useLayoutEffect(() => {
-    bindingManager.setElement(containerRef.current);
-    return () => {
-      bindingManager.setElement(null);
+    const element = containerRef.current;
+    if (!element) return;
+    const options = latestProps.current;
+    const handle = createCameraBinding({ ...options, element });
+    bindingRef.current = handle;
+
+    const applySnapshot = (snapshot: CameraRenderSnapshot) => {
+      setState({
+        controller: handle.controller,
+        slotProps: buildCameraSlotProps(handle.controller, snapshot),
+        cursor: snapshot.cursor ?? "default"
+      });
     };
-  }, [bindingManager]);
 
-  useEffect(() => {
-    bindingManager.update(props);
-  }, [bindingManager, props]);
+    if (animateRef.current !== undefined && animateRef.current !== options.animate) {
+      handle.setAnimate(animateRef.current);
+    }
 
-  useEffect(() => {
-    const unsubscribe = bindingManager.subscribe((next) => setSnapshot(next));
-    setSnapshot(bindingManager.getSnapshot());
-    return () => unsubscribe();
-  }, [bindingManager]);
+    applySnapshot(handle.getSnapshot());
+    const unsubscribe = handle.subscribe(applySnapshot);
 
-  useEffect(() => {
     return () => {
-      bindingManager.destroy();
-      managerRef.current = null;
+      unsubscribe();
+      handle.destroy();
+      bindingRef.current = null;
+      setState({
+        controller: null,
+        slotProps: null,
+        cursor: "default"
+      });
     };
-  }, [bindingManager]);
+  }, []);
 
-  const startAutoRotate = useCallback(
-    (config?: AutoRotateOption | false) => {
-      bindingManager.startAutoRotate(config);
-    },
-    [bindingManager]
-  );
+  useEffect(() => {
+    latestProps.current = props;
+    animateRef.current = props.animate;
+    bindingRef.current?.setOptions(props);
+  }, [props]);
+
+  const startAutoRotate = useCallback((config?: AutoRotateOption | false) => {
+    const handle = bindingRef.current;
+    if (!handle) return;
+    const next = config ?? animateRef.current;
+    animateRef.current = next;
+    handle.setAnimate(next);
+  }, []);
 
   const stopAutoRotate = useCallback(() => {
-    bindingManager.stopAutoRotate();
-  }, [bindingManager]);
+    animateRef.current = false;
+    bindingRef.current?.setAnimate(false);
+  }, []);
 
   return {
     containerRef,
-    controller: snapshot.controller,
-    slotProps: snapshot.slotProps,
+    controller: state.controller,
+    slotProps: state.slotProps,
+    cursor: state.cursor,
     startAutoRotate,
     stopAutoRotate
   };

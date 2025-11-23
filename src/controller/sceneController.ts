@@ -1,7 +1,9 @@
 import { createIsometricCamera } from "../core/camera";
 import type { CameraHandle, CameraState } from "../core/camera";
-import type { ProjectionMode, SceneDimensions, WallsMask } from "../core";
+import type { ProjectionMode, SceneDimensions, WallsMask, SceneContextSnapshot } from "../core";
 import { computeWallMask, wallMasksEqual } from "../core";
+import { buildSceneContext } from "../core/context";
+import type { SceneStateShape } from "./sceneOptions";
 
 type DimensionsListener = (dimensions: Required<SceneDimensions>) => void;
 type CameraListener = (state: CameraState) => void;
@@ -37,6 +39,7 @@ export interface SceneController {
   subscribeCursor(listener: CursorListener): () => void;
   setControls(next: Partial<ControllerControls>): void;
   setProjection(mode?: ProjectionMode): void;
+  applySceneState(state: SceneStateShape): SceneContextSnapshot;
 
   handlePointerDown(event: PointerEvent): void;
   handlePointerMove(event: PointerEvent): void;
@@ -230,6 +233,28 @@ export function sceneController(
     }
   }
 
+  function applySceneState(state: SceneStateShape): SceneContextSnapshot {
+    setProjection(state.projection);
+    const cameraState = camera.state;
+    const baseContext = {
+      rows: state.rows,
+      cols: state.cols,
+      depth: state.depth,
+      showWalls: state.showWalls,
+      showFloor: state.showFloor,
+      projection: state.projection,
+      walls: getWalls(),
+      rotX: cameraState.rotX,
+      rotY: cameraState.rotY
+    };
+    const scene = buildSceneContext({
+      grid: state.voxels,
+      context: baseContext
+    });
+    setDimensions(scene.dimensions);
+    return scene.snapshot;
+  }
+
   return {
     getDimensions,
     setDimensions,
@@ -245,6 +270,7 @@ export function sceneController(
     subscribeCursor,
     setControls,
     setProjection,
+    applySceneState,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp

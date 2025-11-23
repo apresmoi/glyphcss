@@ -1,10 +1,5 @@
 import type { SceneController } from "@voxcss/controller/sceneController";
-import {
-  createSceneBindingProps,
-  ensureSceneController,
-  SCENE_HOST_CLASS,
-  type SceneComponentProps
-} from "@voxcss/controller/sceneBindings";
+import { ensureSceneController, SCENE_HOST_CLASS, type SceneComponentProps } from "@voxcss/controller/sceneBindings";
 import type { SceneBindingActionOptions } from "./bindings";
 
 export interface SvelteSceneComponentFactoryConfig {
@@ -19,8 +14,10 @@ export interface SvelteSceneComponentInstance {
 export function createSceneComponent(config: SvelteSceneComponentFactoryConfig): SvelteSceneComponentInstance {
   return {
     className: SCENE_HOST_CLASS,
-    getBindingOptions: (props: SceneComponentProps) =>
-      createSceneBindingProps(ensureSceneController(config.getController()), props)
+    getBindingOptions: (props: SceneComponentProps) => ({
+      controller: ensureSceneController(config.getController()),
+      ...props
+    })
   };
 }
 

@@ -1,12 +1,7 @@
 // @ts-nocheck
 import Vue from "vue";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import {
-  createSceneBindingProps,
-  ensureSceneController,
-  SCENE_HOST_CLASS,
-  type SceneComponentProps
-} from "@voxcss/controller/sceneBindings";
+import { ensureSceneController, SCENE_HOST_CLASS, type SceneComponentProps } from "@voxcss/controller/sceneBindings";
 import { createSceneBindingManager } from "./bindings";
 import { scenePropOptions } from "../vue/propOptions";
 
@@ -28,9 +23,10 @@ export function createSceneComponent() {
     created() {
       const controller = this.resolveController();
       this.controller = controller;
-      this.sceneBindingManager = createSceneBindingManager(this, () =>
-        createSceneBindingProps(this.controller, this.buildProps())
-      );
+      this.sceneBindingManager = createSceneBindingManager(this, () => ({
+        controller: this.controller,
+        ...this.buildProps()
+      }));
       this.sceneBindingManager?.update();
       this.$watch(
         () => [this.voxels, this.rows, this.cols, this.depth, this.showWalls, this.showFloor, this.projection],
