@@ -1,5 +1,4 @@
 import type { WallsMask } from "../core";
-import { createCamera } from "../core/headless";
 import type { HeadlessCameraHandle } from "../core/headless";
 import type { AutoRotateOption, CameraState } from "../core/camera";
 import type { SceneController, SceneControllerOptions } from "./sceneController";
@@ -97,14 +96,14 @@ export function mergeControllerOptions(options: CameraControllerInput): SceneCon
     rotY: options.rotY
   });
   const invertOverride = resolveInvertMultiplier(options.invert);
-  const controlsOverrides = filterUndefined({
-    invert: invertOverride
-  });
-  return {
+  const next: SceneControllerOptions = {
     ...base,
-    camera: { ...(base.camera ?? {}), ...cameraOverrides },
-    controls: { ...(base.controls ?? {}), ...controlsOverrides }
+    camera: { ...(base.camera ?? {}), ...cameraOverrides }
   };
+  if (invertOverride !== undefined) {
+    next.pointerInvert = invertOverride;
+  }
+  return next;
 }
 
 function filterUndefined<T extends Record<string, unknown>>(input: T): Partial<T> {
@@ -115,37 +114,6 @@ function filterUndefined<T extends Record<string, unknown>>(input: T): Partial<T
     }
   }
   return output;
-}
-
-export interface CameraBindingOptions {
-  element: HTMLElement;
-  zoom?: number;
-  pan?: number;
-  tilt?: number;
-  rotX?: number;
-  rotY?: number;
-  invert?: boolean | number;
-  perspective?: number | boolean;
-  interactive?: boolean;
-  animate?: AutoRotateOption | false;
-}
-
-export interface CameraRenderSnapshot {
-  boxStyle: Record<string, string>;
-  camera: CameraState;
-  walls: WallsMask;
-  cursor: string;
-}
-
-type RenderListener = (snapshot: CameraRenderSnapshot) => void;
-
-export interface CameraBindingHandle {
-  controller: SceneController;
-  subscribe(listener: RenderListener): () => void;
-  getSnapshot(): CameraRenderSnapshot;
-  setOptions(options: Partial<Omit<CameraBindingOptions, "element">>): void;
-  setAnimate(option: AutoRotateOption | false | undefined): void;
-  destroy(): void;
 }
 
 export interface CameraComponentProps {
@@ -164,40 +132,44 @@ export interface CameraSlotProps {
   boxStyle: Record<string, string>;
   cursor: string;
   walls: WallsMask;
-  camera: CameraRenderSnapshot["camera"];
+  camera: CameraState;
   controller: SceneController;
 }
 
 export const CAMERA_HOST_CLASS = "voxcss-camera";
 
-export function createCameraBindingProps(props: CameraComponentProps): Omit<CameraBindingOptions, "element"> {
-  return {
-    zoom: props.zoom,
-    pan: props.pan,
-    tilt: props.tilt,
-    rotX: props.rotX,
-    rotY: props.rotY,
-    invert: props.invert,
-    perspective: props.perspective,
-    interactive: props.interactive,
-    animate: props.animate
-  };
-}
+const DEFAULT_INVERT = resolveInvertMultiplier(DEFAULT_CAMERA_PROPS.invert) ?? 1;
 
-export function buildCameraSlotProps(
-  controller: SceneController | null,
-  snapshot: CameraRenderSnapshot | null
-): CameraSlotProps | null {
-  if (!controller || !snapshot) {
-    return null;
+export function syncCameraOptions(
+  handle: HeadlessCameraHandle,
+  current: NormalizedCameraOptions,
+  next: CameraOptionsInput
+): NormalizedCameraOptions {
+  const controller = handle.controller;
+  const nextState = normalizeCameraOptions({ ...current, ...next });
+  const cameraUpdate: Partial<CameraState> = {};
+  if (nextState.zoom !== current.zoom) cameraUpdate.zoom = nextState.zoom;
+  if (nextState.pan !== current.pan) cameraUpdate.pan = nextState.pan;
+  if (nextState.tilt !== current.tilt) cameraUpdate.tilt = nextState.tilt;
+  if (nextState.rotX !== current.rotX) cameraUpdate.rotX = nextState.rotX;
+  if (nextState.rotY !== current.rotY) cameraUpdate.rotY = nextState.rotY;
+  if (Object.keys(cameraUpdate).length) {
+    controller.updateCamera(cameraUpdate);
   }
-  return {
-    boxStyle: snapshot.boxStyle,
-    cursor: snapshot.cursor,
-    walls: snapshot.walls,
-    camera: snapshot.camera,
-    controller
-  };
+  if (nextState.invert !== current.invert) {
+    const invertOverride = resolveInvertMultiplier(nextState.invert);
+    controller.setPointerInvert(invertOverride ?? DEFAULT_INVERT);
+  }
+  if (nextState.interactive !== current.interactive) {
+    handle.setInteractive(nextState.interactive);
+  }
+  if (nextState.perspective !== current.perspective) {
+    handle.setPerspective(nextState.perspective);
+  }
+  if (nextState.animate !== current.animate) {
+    handle.setAnimate(nextState.animate);
+  }
+  return nextState;
 }
 
 export function ensureCameraController(controller: SceneController | null): SceneController {
@@ -205,117 +177,4 @@ export function ensureCameraController(controller: SceneController | null): Scen
     throw new Error("voxcss: controller is not ready yet.");
   }
   return controller;
-}
-
-const DEFAULT_INVERT = resolveInvertMultiplier(DEFAULT_CAMERA_PROPS.invert) ?? 1;
-
-export function createCameraBinding(options: CameraBindingOptions): CameraBindingHandle {
-  const { element, ...rest } = options;
-  if (!element) {
-    throw new Error("voxcss: createCameraBinding requires an element.");
-  }
-  let current = normalizeCameraOptions(rest);
-  const cameraHandle: HeadlessCameraHandle = createCamera({
-    element,
-    interactive: current.interactive,
-    perspective: current.perspective,
-    zoom: current.zoom,
-    pan: current.pan,
-    tilt: current.tilt,
-    rotX: current.rotX,
-    rotY: current.rotY,
-    invert: current.invert,
-    animate: current.animate
-  });
-  const controller = cameraHandle.controller;
-  const initialInvert = resolveInvertMultiplier(current.invert);
-  if (initialInvert !== undefined) {
-    controller.setControls({ invert: initialInvert });
-  }
-
-  let interactiveState = current.interactive;
-  const listeners = new Set<RenderListener>();
-  let snapshot = buildSnapshot(controller, interactiveState);
-
-  const notify = () => {
-    snapshot = buildSnapshot(controller, interactiveState);
-    listeners.forEach((listener) => listener(snapshot));
-  };
-
-  const unsubscribeBox = controller.subscribeBoxStyle(() => notify());
-  const unsubscribeCamera = controller.subscribeCamera(() => notify());
-  const unsubscribeWalls = controller.subscribeWalls(() => notify());
-  const unsubscribeCursor = controller.subscribeCursor(() => notify());
-
-  function subscribe(listener: RenderListener) {
-    listeners.add(listener);
-    listener(snapshot);
-    return () => {
-      listeners.delete(listener);
-    };
-  }
-
-  function getSnapshot() {
-    return snapshot;
-  }
-
-  function setOptions(next: Partial<Omit<CameraBindingOptions, "element">>) {
-    const nextState = normalizeCameraOptions({ ...current, ...next });
-    const cameraUpdate: Partial<CameraState> = {};
-    if (nextState.zoom !== current.zoom) cameraUpdate.zoom = nextState.zoom;
-    if (nextState.pan !== current.pan) cameraUpdate.pan = nextState.pan;
-    if (nextState.tilt !== current.tilt) cameraUpdate.tilt = nextState.tilt;
-    if (nextState.rotX !== current.rotX) cameraUpdate.rotX = nextState.rotX;
-    if (nextState.rotY !== current.rotY) cameraUpdate.rotY = nextState.rotY;
-    if (Object.keys(cameraUpdate).length) {
-      controller.updateCamera(cameraUpdate);
-    }
-    if (nextState.invert !== current.invert) {
-      const invertOverride = resolveInvertMultiplier(nextState.invert);
-      controller.setControls({ invert: invertOverride ?? DEFAULT_INVERT });
-    }
-    if (nextState.interactive !== current.interactive) {
-      interactiveState = nextState.interactive;
-      cameraHandle.setInteractive(nextState.interactive);
-      notify();
-    }
-    if (nextState.perspective !== current.perspective) {
-      cameraHandle.setPerspective(nextState.perspective);
-    }
-    if (nextState.animate !== current.animate) {
-      cameraHandle.setAnimate(nextState.animate);
-    }
-    current = nextState;
-  }
-
-  function setAnimate(option: AutoRotateOption | false | undefined) {
-    setOptions({ animate: option });
-  }
-
-  function destroy() {
-    unsubscribeBox();
-    unsubscribeCamera();
-    unsubscribeWalls();
-    unsubscribeCursor();
-    cameraHandle.destroy();
-    listeners.clear();
-  }
-
-  return {
-    controller,
-    subscribe,
-    getSnapshot,
-    setOptions,
-    setAnimate,
-    destroy
-  };
-}
-
-function buildSnapshot(controller: SceneController, interactive: boolean): CameraRenderSnapshot {
-  return {
-    boxStyle: controller.getBoxStyle(),
-    camera: controller.getCameraState(),
-    walls: controller.getWalls(),
-    cursor: interactive ? controller.getCursor() : "default"
-  };
 }

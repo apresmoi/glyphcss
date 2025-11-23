@@ -29,14 +29,14 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
     });
 
   const scene = createScene({
-        element: document.getElementById("scene"),
-        voxels: [{ x: 3, y: 3, z: 0 }, { x: 3, y: 3, z: 1 }],
-        rows: 8,
-        cols: 8,
-        depth: 6,
-        showWalls: true,
-        showFloor: true
-    });
+    element: document.getElementById("scene"),
+    voxels: [{ x: 3, y: 3, z: 0 }, { x: 3, y: 3, z: 1 }],
+    rows: 8,
+    cols: 8,
+    depth: 6,
+    showWalls: true,
+    showFloor: true
+  });
 
   renderScene({ camera, scene });
 </script>

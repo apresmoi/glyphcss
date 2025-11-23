@@ -4,7 +4,7 @@
   import type { SceneController } from "@voxcss/controller/sceneController";
   import { CONTROLLER_KEY } from "./context";
   import { sceneBinding } from "./bindings";
-  import { createSceneComponent } from "./createSceneComponent";
+  import { SCENE_HOST_CLASS, type SceneComponentProps } from "@voxcss/controller/sceneBindings";
 
   export let voxels: VoxelGrid | undefined;
   export let rows: number | undefined;
@@ -15,11 +15,9 @@
   export let projection: ProjectionMode | undefined;
 
   const controller = getContext<SceneController>(CONTROLLER_KEY);
-  const sceneComponent = createSceneComponent({
-    getController: () => controller
-  });
 
-  $: bindingOptions = sceneComponent.getBindingOptions({
+  $: bindingOptions = ({
+    controller,
     voxels,
     rows,
     cols,
@@ -27,7 +25,7 @@
     showWalls,
     showFloor,
     projection
-  });
+  } satisfies SceneComponentProps);
 </script>
 
-<div use:sceneBinding={bindingOptions} class={sceneComponent.className}></div>
+<div use:sceneBinding={bindingOptions} class={SCENE_HOST_CLASS}></div>

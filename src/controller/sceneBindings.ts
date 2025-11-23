@@ -1,13 +1,49 @@
 import type { SceneController } from "./sceneController";
-import type { ProjectionMode, VoxelGrid, VoxIllustrationHandle } from "../core";
-import { createVoxScene } from "../core/scene";
-import {
-  normalizeSceneState,
-  type NormalizedSceneState,
-  extractSceneState,
-  type SceneStateInput,
-  type SceneStateShape
-} from "./sceneOptions";
+import type { ProjectionMode, VoxelGrid, SceneSnapshot } from "../core";
+import { deriveSceneSnapshot } from "../core/state";
+import { diffScenes } from "../core/diff";
+import { createDomRenderer } from "../core/domRenderer";
+import { injectBaseStyles } from "../core/styles";
+
+const DEFAULT_SCENE_FLAGS = {
+  showWalls: false,
+  showFloor: false,
+  projection: "cubic" as ProjectionMode
+};
+
+export interface SceneStateInput {
+  voxels?: VoxelGrid;
+  rows?: number;
+  cols?: number;
+  depth?: number;
+  showWalls?: boolean;
+  showFloor?: boolean;
+  projection?: ProjectionMode;
+}
+
+export interface SceneStateShape extends SceneStateInput {
+  voxels: VoxelGrid;
+  showWalls: boolean;
+  showFloor: boolean;
+  projection: ProjectionMode;
+}
+
+export const EMPTY_VOXELS: VoxelGrid = [];
+
+export function normalizeSceneState(
+  input: SceneStateInput = {},
+  fallback?: SceneStateShape
+): SceneStateShape {
+  return {
+    voxels: input.voxels ?? fallback?.voxels ?? EMPTY_VOXELS,
+    rows: input.rows ?? fallback?.rows,
+    cols: input.cols ?? fallback?.cols,
+    depth: input.depth ?? fallback?.depth,
+    showWalls: input.showWalls ?? fallback?.showWalls ?? DEFAULT_SCENE_FLAGS.showWalls,
+    showFloor: input.showFloor ?? fallback?.showFloor ?? DEFAULT_SCENE_FLAGS.showFloor,
+    projection: input.projection ?? fallback?.projection ?? DEFAULT_SCENE_FLAGS.projection
+  };
+}
 
 interface SceneRendererHandle {
   update(state: SceneStateShape): void;
@@ -23,8 +59,18 @@ interface SceneRendererOptions {
 function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle {
   const controller = options.controller;
   const element = options.element;
-  let state: NormalizedSceneState = normalizeSceneState(options.state);
-  let handle: VoxIllustrationHandle | null = null;
+  let state: SceneStateShape = normalizeSceneState(options.state);
+  let previousSnapshot: SceneSnapshot | null = null;
+
+  const documentRef = element.ownerDocument ?? (typeof document !== "undefined" ? document : undefined);
+  if (!documentRef) {
+    throw new Error("voxcss: document is not available. Provide a host element attached to a document.");
+  }
+  injectBaseStyles(documentRef);
+  const renderer = createDomRenderer({
+    documentRef,
+    target: element
+  });
 
   const applyBoxStyle = (style: Record<string, string>) => {
     for (const [key, value] of Object.entries(style)) {
@@ -36,16 +82,20 @@ function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle
   const unsubscribeBox = controller.subscribeBoxStyle(applyBoxStyle);
 
   const renderScene = () => {
-    const snapshot = controller.applySceneState(state);
-    if (!handle) {
-      handle = createVoxScene({
-        element,
-        voxels: state.voxels,
-        context: snapshot
-      });
+    const contextSnapshot = controller.applySceneState(state);
+    const nextSnapshot = deriveSceneSnapshot({
+      grid: state.voxels,
+      userContext: contextSnapshot,
+      previous: previousSnapshot,
+      analysis: contextSnapshot.analysis
+    });
+    if (!previousSnapshot) {
+      renderer.applyInitial(nextSnapshot);
     } else {
-      handle.update(state.voxels, snapshot);
+      const diff = diffScenes(previousSnapshot, nextSnapshot);
+      renderer.applyPatches(nextSnapshot, diff.patches);
     }
+    previousSnapshot = nextSnapshot;
   };
 
   renderScene();
@@ -62,8 +112,8 @@ function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle
       unsubscribeBox();
       unsubscribeWalls();
       unsubscribeDimensions();
-      handle?.destroy();
-      handle = null;
+      renderer.destroy();
+      previousSnapshot = null;
     }
   };
 }
@@ -83,17 +133,17 @@ export function createSceneBinding(options: SceneBindingOptions): SceneBindingHa
     throw new Error("voxcss: createSceneBinding requires an element.");
   }
   const controller = options.controller;
-  let state: NormalizedSceneState = normalizeSceneState(options);
+  let state: SceneStateShape = normalizeSceneState(options);
   const renderer = createSceneRenderer({
     controller,
     element: options.element,
-    state: extractSceneState(state)
+    state
   });
 
   return {
     update(next) {
       state = normalizeSceneState(next, state);
-      renderer.update(extractSceneState(state));
+      renderer.update(state);
     },
     destroy() {
       renderer.destroy();
@@ -101,15 +151,7 @@ export function createSceneBinding(options: SceneBindingOptions): SceneBindingHa
   };
 }
 
-export interface SceneComponentProps {
-  voxels?: VoxelGrid;
-  rows?: number;
-  cols?: number;
-  depth?: number;
-  showWalls?: boolean;
-  showFloor?: boolean;
-  projection?: ProjectionMode;
-}
+export interface SceneComponentProps extends SceneStateInput {}
 
 export const SCENE_HOST_CLASS = "voxcss-scene-host";
 

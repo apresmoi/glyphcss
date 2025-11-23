@@ -29,14 +29,58 @@ export interface SceneContextBuildResult {
   analysis: SceneAnalysisPayload;
 }
 
-const lookupCache = new WeakMap<VoxelGrid, Map<string, { checksum: number; data: VoxelLookupBuildResult }>>();
+export interface LookupDataCacheEntry {
+  grid: VoxelGrid;
+  dimensions: Required<SceneDimensions>;
+  lookups: VoxelLookup[];
+  layers: Voxel[][];
+  checksum: number;
+}
 
+export interface LookupDataArgs {
+  grid: VoxelGrid;
+  rows: number;
+  cols: number;
+  depth: number;
+  analysis?: SceneAnalysisPayload | null;
+  previous?: LookupDataCacheEntry | null;
+}
 
-function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensions>; checksum: number } {
+export function getLookupData(args: LookupDataArgs): VoxelLookupBuildResult {
+  const { grid, rows, cols, depth, analysis, previous } = args;
+  const dimensionsMatch = (candidate: Required<SceneDimensions>) =>
+    candidate.rows === rows && candidate.cols === cols && candidate.depth === depth;
+  let checksum: number | null = null;
+  const ensureChecksum = () => {
+    if (checksum === null) {
+      checksum = computeGridChecksum(grid);
+    }
+    return checksum;
+  };
+
+  if (analysis && dimensionsMatch(analysis.dimensions)) {
+    if (analysis.checksum === ensureChecksum()) {
+      return analysis.lookupData;
+    }
+  }
+
+  if (previous && previous.grid === grid && dimensionsMatch(previous.dimensions)) {
+    if (previous.checksum === ensureChecksum()) {
+      return {
+        lookups: previous.lookups,
+        layers: previous.layers,
+        checksum: previous.checksum
+      };
+    }
+  }
+
+  return buildVoxelLookups(grid, rows, cols, depth);
+}
+
+function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensions> } {
   let maxRow = 0;
   let maxCol = 0;
   let maxDepth = 0;
-  let checksum = hashInit(grid.length);
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
     if (typeof voxel.x === "number") {
@@ -49,7 +93,6 @@ function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensio
     }
     const depthIndex = Math.max(0, Math.floor(voxel.z ?? 0)) + 1;
     if (depthIndex > maxDepth) maxDepth = depthIndex;
-    checksum = hashVoxel(checksum, voxel);
   }
   const dimensions: Required<SceneDimensions> = {
     rows: maxRow > 0 ? maxRow : FALLBACK_ROWS_COLS,
@@ -57,38 +100,8 @@ function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensio
     depth: maxDepth > 0 ? maxDepth : FALLBACK_DEPTH
   };
   return {
-    dimensions,
-    checksum: hashFinalize(checksum)
+    dimensions
   };
-}
-
-function getLookupCache(grid: VoxelGrid): Map<string, { checksum: number; data: VoxelLookupBuildResult }> {
-  let cache = lookupCache.get(grid);
-  if (!cache) {
-    cache = new Map();
-    lookupCache.set(grid, cache);
-  }
-  return cache;
-}
-
-function makeLookupCacheKey(rows: number, cols: number, depth: number): string {
-  return `${rows}:${cols}:${depth}`;
-}
-
-function acquireLookupData(grid: VoxelGrid, rows: number, cols: number, depth: number, checksumHint?: number): VoxelLookupBuildResult {
-  const cache = getLookupCache(grid);
-  const key = makeLookupCacheKey(rows, cols, depth);
-  const cached = cache.get(key);
-  if (cached && checksumHint !== undefined && cached.checksum === checksumHint) {
-    return cached.data;
-  }
-  const checksum = checksumHint ?? computeGridChecksum(grid);
-  if (cached && cached.checksum === checksum) {
-    return cached.data;
-  }
-  const data = buildVoxelLookups(grid, rows, cols, depth);
-  cache.set(key, { checksum: data.checksum, data });
-  return data;
 }
 
 export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuildResult {
@@ -117,10 +130,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
 
   const defaultLayerElevation = projection === "dimetric" ? tileSize / 2 : tileSize;
   const layerElevation = partial.layerElevation ?? defaultLayerElevation;
-  let lookupData = args.lookupData ?? null;
-  if (!lookupData) {
-    lookupData = acquireLookupData(grid, rows, cols, depth, geometry.checksum);
-  }
+  const lookupData = args.lookupData ?? getLookupData({ grid, rows, cols, depth });
 
   const context: GridContext = {
     rows,

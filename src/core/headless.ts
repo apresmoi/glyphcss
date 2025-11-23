@@ -1,8 +1,6 @@
-import { sceneController, type ControllerControls, type SceneController } from "../controller/sceneController";
-import { createSceneBinding, type SceneBindingHandle } from "../controller/sceneBindings";
-import { attachPointerEvents } from "./pointerEvents";
-import type { AutoRotateOption } from "./camera";
-import type { VoxelGrid, ProjectionMode, SceneOptions } from "./types";
+import { sceneController, type SceneController } from "../controller/sceneController";
+import { createSceneBinding, type SceneStateInput } from "../controller/sceneBindings";
+import type { VoxelGrid, ProjectionMode } from "./types";
 import { SCENE_CLASS } from "./types";
 import {
   DEFAULT_CAMERA_PROPS,
@@ -11,12 +9,8 @@ import {
   normalizeCameraOptions,
   type CameraControllerInput
 } from "../controller/cameraBindings";
-import {
-  normalizeSceneState,
-  type NormalizedSceneState,
-  extractSceneState,
-  type SceneStateInput
-} from "../controller/sceneOptions";
+import { createInteractiveController } from "./interactiveController";
+import type { AutoRotateOption } from "./camera";
 export interface HeadlessCameraOptions extends CameraControllerInput {
   element: HTMLElement;
 }
@@ -25,40 +19,25 @@ export interface HeadlessCameraHandle {
   element: HTMLElement;
   controller: SceneController;
   interactive: boolean;
-  autoRotate?: AutoRotateHandle | null;
   setInteractive(value: boolean): void;
-  setPerspective(value: number | boolean | undefined): void;
   setAnimate(option: AutoRotateOption | false | undefined): void;
+  setPerspective(value: number | boolean | undefined): void;
   destroy(): void;
 }
 
-export interface HeadlessSceneOptions extends SceneOptions {
+export interface HeadlessSceneOptions extends SceneStateInput {
   element: HTMLElement;
-  voxels?: VoxelGrid;
-}
-
-export interface HeadlessSceneHandle {
-  element: HTMLElement;
-  setVoxels(voxels: VoxelGrid): void;
-  setOptions(options: SceneStateInput): void;
-  attach(controller: SceneController): SceneBindingHandle;
-  destroy(): void;
 }
 
 export interface HeadlessRenderOptions {
   camera: HeadlessCameraHandle;
-  scene: HeadlessSceneHandle;
+  scene: HeadlessSceneOptions;
 }
 
 export interface HeadlessRenderHandle {
   setVoxels(voxels: VoxelGrid): void;
+  setScene(options: SceneStateInput): void;
   destroy(): void;
-}
-
-interface AutoRotateHandle {
-  start(): void;
-  stop(): void;
-  notifyInteraction(): void;
 }
 
 export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHandle {
@@ -67,90 +46,35 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
     throw new Error("voxcss: createHeadlessCamera requires an element.");
   }
   const normalized = normalizeCameraOptions(options);
-  let interactive = normalized.interactive;
   const controllerConfig = mergeControllerOptions(options);
   const controller = sceneController(controllerConfig);
-  let autoRotate = createAutoRotateHandle(controller, normalized.animate);
   element.classList.add(SCENE_CLASS);
   applyPerspective(element, normalized.perspective);
-  let detachPointer = interactive
-    ? attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction())
-    : null;
-  autoRotate?.start();
+  const interactions = createInteractiveController({
+    element,
+    controller,
+    interactive: normalized.interactive,
+    animate: normalized.animate
+  });
   const handle: HeadlessCameraHandle = {
     element,
     controller,
-    interactive,
-    autoRotate,
+    interactive: interactions.interactive,
     setInteractive(value: boolean) {
-      if (interactive === value) return;
-      interactive = value;
-      handle.interactive = interactive;
-      if (interactive) {
-        if (!detachPointer) {
-          detachPointer = attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction());
-        }
-      } else {
-        detachPointer?.();
-        detachPointer = null;
-        element.style.cursor = "default";
-      }
+      interactions.setInteractive(value);
+      handle.interactive = interactions.interactive;
+    },
+    setAnimate(option: AutoRotateOption | false | undefined) {
+      interactions.setAnimate(option);
     },
     setPerspective(value: number | boolean | undefined) {
       applyPerspective(element, value);
     },
-    setAnimate(option: AutoRotateOption | false | undefined) {
-      autoRotate?.stop();
-      autoRotate = option === false ? null : createAutoRotateHandle(controller, option);
-      handle.autoRotate = autoRotate;
-      autoRotate?.start();
-    },
     destroy() {
-      detachPointer?.();
-      autoRotate?.stop();
+      interactions.destroy();
+      handle.interactive = false;
     }
   };
-  return handle;
-}
-
-export function createScene(options: HeadlessSceneOptions): HeadlessSceneHandle {
-  const element = options.element;
-  if (!element) {
-    throw new Error("voxcss: createHeadlessScene requires an element.");
-  }
-  let state: NormalizedSceneState = normalizeSceneState(options);
-  let binding: SceneBindingHandle | null = null;
-
-  const syncBinding = () => {
-    binding?.update(state);
-  };
-
-  const handle: HeadlessSceneHandle = {
-    element,
-    setVoxels(voxels: VoxelGrid) {
-      state = { ...state, voxels };
-      syncBinding();
-    },
-    setOptions(options: SceneStateInput) {
-      state = normalizeSceneState(options, state);
-      syncBinding();
-    },
-    attach(controller: SceneController) {
-      binding?.destroy();
-      binding = createSceneBinding({
-        controller,
-        element: handle.element,
-        ...extractSceneState(state)
-      });
-      syncBinding();
-      return binding;
-    },
-    destroy() {
-      binding?.destroy();
-      binding = null;
-    }
-  };
-
   return handle;
 }
 
@@ -160,7 +84,12 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
   }
 
   const controller = camera.controller;
-  const binding = scene.attach(controller);
+  const { element, ...state } = scene;
+  const binding = createSceneBinding({
+    controller,
+    element,
+    ...state
+  });
 
   const updateCursor = () => {
     if (camera.interactive) {
@@ -172,118 +101,28 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   return {
     setVoxels(voxels: VoxelGrid) {
-      scene.setVoxels(voxels);
+      binding.update({ voxels });
+    },
+    setScene(options: SceneStateInput) {
+      binding.update(options);
     },
     destroy() {
       unsubscribeCursor();
-      scene.destroy();
+      binding.destroy();
       camera.destroy();
     }
   };
 }
 
+export function createScene(options: HeadlessSceneOptions): HeadlessSceneOptions {
+  const element = options.element;
+  if (!element) {
+    throw new Error("voxcss: createHeadlessScene requires an element.");
+  }
+  return { ...options, element };
+}
+
 function applyPerspective(element: HTMLElement, perspective: number | boolean | undefined) {
   const fallback = (DEFAULT_CAMERA_PROPS.perspective as number | undefined) ?? 8000;
   element.style.perspective = formatPerspectiveStyle(perspective, fallback);
-}
-
-interface NormalizedAutoRotateConfig {
-  axis: "x" | "y";
-  speed: number;
-  pauseOnInteraction: boolean;
-}
-
-const DEFAULT_AUTO_ROTATE_SPEED = 0.3;
-
-const AUTO_ROTATE_SCOPE: typeof globalThis | undefined =
-  typeof window !== "undefined"
-    ? window
-    : typeof globalThis !== "undefined"
-      ? globalThis
-      : undefined;
-
-const REQUEST_FRAME =
-  typeof AUTO_ROTATE_SCOPE?.requestAnimationFrame === "function"
-    ? AUTO_ROTATE_SCOPE.requestAnimationFrame.bind(AUTO_ROTATE_SCOPE)
-    : null;
-
-const CANCEL_FRAME =
-  typeof AUTO_ROTATE_SCOPE?.cancelAnimationFrame === "function"
-    ? AUTO_ROTATE_SCOPE.cancelAnimationFrame.bind(AUTO_ROTATE_SCOPE)
-    : null;
-
-function createAutoRotateHandle(
-  controller: SceneController,
-  option?: AutoRotateOption
-): AutoRotateHandle | null {
-  const config = normalizeAutoRotateOption(option);
-  if (!config || !REQUEST_FRAME || !CANCEL_FRAME) {
-    return null;
-  }
-
-  let frameId: number | null = null;
-  let disabledByInteraction = false;
-
-  const applyRotation = () => {
-    const state = controller.getCameraState();
-    if (config.axis === "x") {
-      const nextRotX = normalizeAngle(state.rotX + config.speed);
-      controller.updateCamera({ rotX: nextRotX });
-    } else {
-      const nextRotY = normalizeAngle(state.rotY + config.speed);
-      controller.updateCamera({ rotY: nextRotY });
-    }
-  };
-
-  const tick = () => {
-    frameId = REQUEST_FRAME(tick);
-    if (!disabledByInteraction) {
-      applyRotation();
-    }
-  };
-
-  return {
-    start() {
-      if (frameId !== null || disabledByInteraction) return;
-      frameId = REQUEST_FRAME(tick);
-    },
-    stop() {
-      if (frameId === null) return;
-      CANCEL_FRAME(frameId);
-      frameId = null;
-    },
-    notifyInteraction() {
-      if (!config.pauseOnInteraction || disabledByInteraction) return;
-      disabledByInteraction = true;
-      if (frameId !== null) {
-        CANCEL_FRAME(frameId);
-        frameId = null;
-      }
-    }
-  };
-}
-
-function normalizeAutoRotateOption(option?: AutoRotateOption): NormalizedAutoRotateConfig | null {
-  if (!option) return null;
-  if (option === true) {
-    return { axis: "y", speed: DEFAULT_AUTO_ROTATE_SPEED, pauseOnInteraction: true };
-  }
-  if (typeof option === "number") {
-    if (!Number.isFinite(option) || option === 0) return null;
-    return { axis: "y", speed: option, pauseOnInteraction: true };
-  }
-  const speedValue =
-    typeof option.speed === "number" && Number.isFinite(option.speed)
-      ? option.speed
-      : DEFAULT_AUTO_ROTATE_SPEED;
-  if (!speedValue) return null;
-  const axis = option.axis === "x" ? "x" : "y";
-  const pauseOnInteraction = option.pauseOnInteraction !== false;
-  return { axis, speed: speedValue, pauseOnInteraction };
-}
-
-function normalizeAngle(value: number): number {
-  let normalized = value % 360;
-  if (normalized < 0) normalized += 360;
-  return normalized;
 }

@@ -34,7 +34,11 @@ export {
   makeVoxelKey,
   makeCellKey
 } from "./context";
-export { attachPointerEvents } from "./pointerEvents";
+export { createInteractiveController } from "./interactiveController";
+export type {
+  InteractiveControllerHandle,
+  InteractiveControllerOptions
+} from "./interactiveController";
 
 export {
   cubeShapeRenderer,
@@ -49,8 +53,6 @@ export {
   computeShapeLighting
 } from "./lighting";
 export type { ShapeType, ShapeSurfaceLighting } from "./lighting";
-export { voxScene, createVoxScene } from "./scene";
-export type { VoxSceneOptions } from "./scene";
 export { deriveSceneSnapshot } from "./state";
 export type { SceneSnapshot, SceneSnapshotArgs } from "./state";
 export { diffScenes } from "./diff";
@@ -75,7 +77,6 @@ export type {
   HeadlessCameraOptions,
   HeadlessCameraHandle,
   HeadlessSceneOptions,
-  HeadlessSceneHandle,
   HeadlessRenderOptions,
   HeadlessRenderHandle
 } from "./headless";

@@ -1,14 +1,14 @@
 import { onBeforeUnmount, ref, watch } from "vue";
 import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
 import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
-import type { CameraBindingOptions } from "@voxcss/controller/cameraBindings";
-import type { CameraSlotProps } from "@voxcss/controller/cameraBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
+import { createCamera, type HeadlessCameraHandle } from "@voxcss/core/headless";
 import {
-  buildCameraSlotProps,
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraRenderSnapshot
+  normalizeCameraOptions,
+  syncCameraOptions,
+  type CameraComponentProps,
+  type CameraSlotProps,
+  type NormalizedCameraOptions
 } from "@voxcss/controller/cameraBindings";
 
 export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"> | null) {
@@ -50,27 +50,36 @@ export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"
   };
 }
 
-export function useCameraBinding(props: () => Omit<CameraBindingOptions, "element">) {
+export function useCameraBinding(props: () => CameraComponentProps) {
   const controller = ref<SceneController | null>(null);
   const slotProps = ref<CameraSlotProps | null>(null);
   const cursor = ref("default");
   const elementRef = ref<HTMLElement | null>(null);
-  const animateRef = ref<CameraBindingOptions["animate"] | false | undefined>(props().animate);
-  let binding: CameraBindingHandle | null = null;
-  let unsubscribe: (() => void) | null = null;
+  const animateRef = ref<CameraComponentProps["animate"] | false | undefined>(props().animate);
+  let handle: HeadlessCameraHandle | null = null;
+  let normalizedOptions: NormalizedCameraOptions = normalizeCameraOptions();
+  let unsubscribe: Array<() => void> = [];
 
-  const applySnapshot = (snapshot: CameraRenderSnapshot) => {
-    if (!binding) return;
-    controller.value = binding.controller;
-    slotProps.value = buildCameraSlotProps(binding.controller, snapshot);
-    cursor.value = snapshot.cursor ?? "default";
+  const applySnapshot = () => {
+    if (!handle) return;
+    const currentController = handle.controller;
+    const nextCursor = handle.interactive ? currentController.getCursor() : "default";
+    controller.value = currentController;
+    slotProps.value = {
+      boxStyle: currentController.getBoxStyle(),
+      cursor: nextCursor,
+      walls: currentController.getWalls(),
+      camera: currentController.getCameraState(),
+      controller: currentController
+    };
+    cursor.value = nextCursor;
   };
 
   const cleanup = () => {
-    unsubscribe?.();
-    unsubscribe = null;
-    binding?.destroy();
-    binding = null;
+    unsubscribe.forEach((dispose) => dispose());
+    unsubscribe = [];
+    handle?.destroy();
+    handle = null;
     controller.value = null;
     slotProps.value = null;
     cursor.value = "default";
@@ -79,14 +88,27 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
   const mountBinding = () => {
     cleanup();
     const element = elementRef.value;
-    const options = props();
     if (!element) return;
-    binding = createCameraBinding({ ...options, element });
-    if (animateRef.value !== undefined && animateRef.value !== options.animate) {
-      binding.setAnimate(animateRef.value);
+    const next = props();
+    normalizedOptions = normalizeCameraOptions({ ...normalizedOptions, ...next });
+    handle = createCamera({ ...normalizedOptions, element });
+    const currentController = handle.controller;
+    unsubscribe = [
+      currentController.subscribeBoxStyle(applySnapshot),
+      currentController.subscribeCamera(applySnapshot),
+      currentController.subscribeWalls(applySnapshot),
+      currentController.subscribeCursor(applySnapshot)
+    ];
+    applySnapshot();
+  };
+
+  const updateOptions = (next: CameraComponentProps) => {
+    if (!handle) {
+      normalizedOptions = normalizeCameraOptions({ ...normalizedOptions, ...next });
+      return;
     }
-    applySnapshot(binding.getSnapshot());
-    unsubscribe = binding.subscribe(applySnapshot);
+    normalizedOptions = syncCameraOptions(handle, normalizedOptions, next);
+    applySnapshot();
   };
 
   watch(
@@ -101,7 +123,7 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
     () => props(),
     (next) => {
       animateRef.value = next.animate;
-      binding?.setOptions(next);
+      updateOptions(next);
     },
     { deep: true }
   );
@@ -110,15 +132,15 @@ export function useCameraBinding(props: () => Omit<CameraBindingOptions, "elemen
     cleanup();
   });
 
-  const startAutoRotate = (config?: CameraBindingOptions["animate"]) => {
+  const startAutoRotate = (config?: CameraComponentProps["animate"]) => {
     const next = config ?? animateRef.value;
     animateRef.value = next;
-    binding?.setAnimate(next);
+    updateOptions({ animate: next });
   };
 
   const stopAutoRotate = () => {
     animateRef.value = false;
-    binding?.setAnimate(false);
+    updateOptions({ animate: false });
   };
 
   return {

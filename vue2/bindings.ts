@@ -1,70 +1,108 @@
 // @ts-nocheck
-import type { CameraSlotProps } from "@voxcss/controller/cameraBindings";
+import { createCamera } from "@voxcss/core/headless";
+import {
+  normalizeCameraOptions,
+  syncCameraOptions,
+  type CameraComponentProps,
+  type CameraSlotProps,
+  type NormalizedCameraOptions
+} from "@voxcss/controller/cameraBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
 import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
-import {
-  buildCameraSlotProps,
-  createCameraBinding,
-  type CameraBindingHandle,
-  type CameraRenderSnapshot
-} from "@voxcss/controller/cameraBindings";
 
 export function createSceneBindingManager(_vm: any, resolveOptions: () => any) {
   let binding: SceneBindingHandle | null = null;
   let element: HTMLElement | null = null;
+  let latestOptions: ReturnType<typeof resolveOptions> | null = null;
 
   const cleanup = () => {
     binding?.destroy();
     binding = null;
+  };
+
+  const tryCreateBinding = () => {
+    if (!element || !latestOptions?.controller) {
+      return;
+    }
+    binding = createSceneBinding({ ...latestOptions, element });
   };
 
   return {
     mount(target: HTMLElement) {
       element = target;
       cleanup();
-      const options = resolveOptions();
-      binding = createSceneBinding({ ...options, element: target });
+      latestOptions = resolveOptions();
+      if (!latestOptions.controller) {
+        return;
+      }
+      binding = createSceneBinding({ ...latestOptions, element: target });
     },
     update() {
-      if (!binding) return;
-      binding.update(resolveOptions());
+      latestOptions = resolveOptions();
+      if (!latestOptions?.controller) {
+        return;
+      }
+      if (!binding) {
+        tryCreateBinding();
+        return;
+      }
+      binding.update(latestOptions);
     },
     destroy() {
       cleanup();
       element = null;
+      latestOptions = null;
     }
   };
 }
 
 export function createCameraBindingManager(
   _vm: any,
-  resolveOptions: () => any,
+  resolveOptions: () => CameraComponentProps,
   hooks: {
     onSlotProps: (props: CameraSlotProps | null) => void;
     onController: (controller: SceneController | null) => void;
     onCursor?: (cursor: string) => void;
   }
 ) {
-  let binding: CameraBindingHandle | null = null;
-  let unsubscribe: (() => void) | null = null;
+  let handle: ReturnType<typeof createCamera> | null = null;
+  let unsubscribe: Array<() => void> = [];
+  let normalizedOptions: NormalizedCameraOptions = normalizeCameraOptions();
   let animateValue: any = resolveOptions().animate;
 
-  const applySnapshot = (snapshot: CameraRenderSnapshot) => {
-    if (!binding) return;
-    const slotProps = buildCameraSlotProps(binding.controller, snapshot);
-    hooks.onCursor?.(snapshot.cursor ?? "default");
+  const applySnapshot = () => {
+    if (!handle) return;
+    const controller = handle.controller;
+    const cursor = handle.interactive ? controller.getCursor() : "default";
+    const slotProps: CameraSlotProps = {
+      boxStyle: controller.getBoxStyle(),
+      cursor,
+      walls: controller.getWalls(),
+      camera: controller.getCameraState(),
+      controller
+    };
+    hooks.onCursor?.(cursor);
     hooks.onSlotProps(slotProps);
-    hooks.onController(slotProps?.controller ?? null);
+    hooks.onController(controller);
   };
 
   const cleanup = () => {
-    unsubscribe?.();
-    unsubscribe = null;
-    binding?.destroy();
-    binding = null;
+    unsubscribe.forEach((dispose) => dispose());
+    unsubscribe = [];
+    handle?.destroy();
+    handle = null;
     hooks.onSlotProps(null);
     hooks.onController(null);
     hooks.onCursor?.("default");
+  };
+
+  const updateOptions = (input: CameraComponentProps) => {
+    if (!handle) {
+      normalizedOptions = normalizeCameraOptions({ ...normalizedOptions, ...input });
+      return;
+    }
+    normalizedOptions = syncCameraOptions(handle, normalizedOptions, input);
+    applySnapshot();
   };
 
   return {
@@ -72,27 +110,30 @@ export function createCameraBindingManager(
       cleanup();
       const options = resolveOptions();
       animateValue = options.animate;
-      binding = createCameraBinding({ ...options, element: target });
-      if (animateValue !== undefined && animateValue !== options.animate) {
-        binding.setAnimate(animateValue);
-      }
-      applySnapshot(binding.getSnapshot());
-      unsubscribe = binding.subscribe((snapshot) => applySnapshot(snapshot));
+      normalizedOptions = normalizeCameraOptions({ ...normalizedOptions, ...options });
+      handle = createCamera({ ...normalizedOptions, element: target });
+      const controller = handle.controller;
+      unsubscribe = [
+        controller.subscribeBoxStyle(applySnapshot),
+        controller.subscribeCamera(applySnapshot),
+        controller.subscribeWalls(applySnapshot),
+        controller.subscribeCursor(applySnapshot)
+      ];
+      applySnapshot();
     },
     update() {
-      if (!binding) return;
       const options = resolveOptions();
       animateValue = options.animate;
-      binding.setOptions(options);
+      updateOptions(options);
     },
     startAutoRotate(config?: any) {
       const next = config ?? animateValue;
       animateValue = next;
-      binding?.setAnimate(next);
+      updateOptions({ animate: next });
     },
     stopAutoRotate() {
       animateValue = false;
-      binding?.setAnimate(false);
+      updateOptions({ animate: false });
     },
     destroy() {
       cleanup();
