@@ -1,7 +1,7 @@
 import { createSceneBinding, type SceneBindingHandle, type SceneBindingOptions } from "./sceneBindings";
 import type { SceneController } from "./sceneController";
 import { createCamera, type HeadlessCameraHandle } from "../core/headless";
-import { DEFAULT_CAMERA_STATE, normalizeInvertMultiplier, type AutoRotateOption } from "../core/camera";
+import { normalizeInvertMultiplier, type AutoRotateOption, type CameraState } from "../core/camera";
 import { SCENE_CLASS } from "../core/types";
 
 export interface CameraComponentProps {
@@ -46,18 +46,6 @@ export function attachSceneBinding(options: AttachSceneBindingOptions): SceneBin
 
 export type CameraBindingSnapshot = CameraSlotProps;
 
-interface NormalizedCameraOptions {
-  zoom: number;
-  pan: number;
-  tilt: number;
-  rotX: number;
-  rotY: number;
-  invert?: boolean | number;
-  perspective: number | false;
-  interactive: boolean;
-  animate?: AutoRotateOption | false;
-}
-
 export function mountCameraBinding(
   element: HTMLElement,
   props: CameraComponentProps,
@@ -70,8 +58,8 @@ export function mountCameraBinding(
   stopAutoRotate(): void;
 } {
   const handle = createCamera({ ...props, element });
-  let options = normalizeCameraOptions(props);
-  let animate = options.animate;
+  let currentProps: CameraComponentProps = { ...props };
+  let animate = currentProps.animate;
 
   const applySnapshot = () => {
     const controller = handle.controller;
@@ -96,32 +84,32 @@ export function mountCameraBinding(
   applySnapshot();
 
   const update = (next: CameraComponentProps) => {
-    const current = options;
-    options = normalizeCameraOptions({ ...current, ...next });
+    const merged: CameraComponentProps = { ...currentProps, ...next };
     const controller = handle.controller;
-    const cameraUpdate: Partial<ReturnType<typeof controller.getCameraState>> = {};
-    if (options.zoom !== current.zoom) cameraUpdate.zoom = options.zoom;
-    if (options.pan !== current.pan) cameraUpdate.pan = options.pan;
-    if (options.tilt !== current.tilt) cameraUpdate.tilt = options.tilt;
-    if (options.rotX !== current.rotX) cameraUpdate.rotX = options.rotX;
-    if (options.rotY !== current.rotY) cameraUpdate.rotY = options.rotY;
+    const cameraUpdate: Partial<CameraState> = {};
+    if (merged.zoom !== undefined && merged.zoom !== currentProps.zoom) cameraUpdate.zoom = merged.zoom;
+    if (merged.pan !== undefined && merged.pan !== currentProps.pan) cameraUpdate.pan = merged.pan;
+    if (merged.tilt !== undefined && merged.tilt !== currentProps.tilt) cameraUpdate.tilt = merged.tilt;
+    if (merged.rotX !== undefined && merged.rotX !== currentProps.rotX) cameraUpdate.rotX = merged.rotX;
+    if (merged.rotY !== undefined && merged.rotY !== currentProps.rotY) cameraUpdate.rotY = merged.rotY;
     if (Object.keys(cameraUpdate).length) {
       controller.updateCamera(cameraUpdate);
     }
-    if (options.invert !== current.invert) {
-      const invertOverride = normalizeInvertMultiplier(options.invert);
+    if (merged.invert !== currentProps.invert) {
+      const invertOverride = normalizeInvertMultiplier(merged.invert);
       controller.setPointerInvert(invertOverride ?? normalizeInvertMultiplier(false) ?? 1);
     }
-    if (options.interactive !== current.interactive) {
-      handle.setInteractive(options.interactive ?? false);
+    if (merged.interactive !== undefined && merged.interactive !== handle.interactive) {
+      handle.setInteractive(!!merged.interactive);
     }
-    if (options.perspective !== current.perspective) {
-      handle.setPerspective(options.perspective);
+    if (merged.perspective !== undefined && merged.perspective !== currentProps.perspective) {
+      handle.setPerspective(merged.perspective);
     }
-    if (options.animate !== current.animate) {
-      handle.setAnimate(options.animate);
+    if (merged.animate !== undefined && merged.animate !== currentProps.animate) {
+      handle.setAnimate(merged.animate);
     }
-    animate = options.animate;
+    currentProps = merged;
+    animate = merged.animate;
     applySnapshot();
   };
 
@@ -149,21 +137,4 @@ export function mountCameraBinding(
   };
 }
 
-const DEFAULT_INTERACTIVE = false;
 const DEFAULT_INVERT = normalizeInvertMultiplier(false) ?? 1;
-
-function normalizeCameraOptions(options: CameraComponentProps = {}): NormalizedCameraOptions {
-  return {
-    zoom: options.zoom ?? DEFAULT_CAMERA_STATE.zoom,
-    pan: options.pan ?? DEFAULT_CAMERA_STATE.pan,
-    tilt: options.tilt ?? DEFAULT_CAMERA_STATE.tilt,
-    rotX: options.rotX ?? DEFAULT_CAMERA_STATE.rotX,
-    rotY: options.rotY ?? DEFAULT_CAMERA_STATE.rotY,
-    invert: options.invert,
-    perspective: options.perspective === false ? false : typeof options.perspective === "number" ? options.perspective : DEFAULT_PERSPECTIVE_FALLBACK,
-    interactive: options.interactive ?? DEFAULT_INTERACTIVE,
-    animate: options.animate
-  };
-}
-
-const DEFAULT_PERSPECTIVE_FALLBACK = 8000;
