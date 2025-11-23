@@ -1,6 +1,5 @@
 import type { SceneController } from "./sceneController";
-import type { ProjectionMode, VoxelGrid, SceneSnapshot } from "../core";
-import { diffScenes } from "../core/diff";
+import type { ProjectionMode, VoxelGrid } from "../core";
 import { createDomRenderer } from "../core/domRenderer";
 import { injectBaseStyles } from "../core/styles";
 
@@ -59,7 +58,6 @@ function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle
   const controller = options.controller;
   const element = options.element;
   let state: SceneStateShape = normalizeSceneState(options.state);
-  let previousSnapshot: SceneSnapshot | null = null;
 
   const documentRef = element.ownerDocument ?? (typeof document !== "undefined" ? document : undefined);
   if (!documentRef) {
@@ -81,14 +79,8 @@ function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle
   const unsubscribeBox = controller.subscribeBoxStyle(applyBoxStyle);
 
   const renderScene = () => {
-    const nextSnapshot = controller.applySceneState(state);
-    if (!previousSnapshot) {
-      renderer.applyInitial(nextSnapshot);
-    } else {
-      const diff = diffScenes(previousSnapshot, nextSnapshot);
-      renderer.applyPatches(nextSnapshot, diff.patches);
-    }
-    previousSnapshot = nextSnapshot;
+    const snapshot = controller.applySceneState(state);
+    renderer.render(snapshot);
   };
 
   renderScene();
@@ -106,7 +98,6 @@ function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle
       unsubscribeWalls();
       unsubscribeDimensions();
       renderer.destroy();
-      previousSnapshot = null;
     }
   };
 }

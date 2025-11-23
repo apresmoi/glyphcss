@@ -1,14 +1,5 @@
-import { diffScenes } from "./diff";
 import type { SceneSnapshot } from "./state";
-import type {
-  RendererFactory,
-  RendererHandle,
-  RendererMountOptions,
-  ScenePatch,
-  AddVoxelPatch,
-  UpdateVoxelPatch,
-  RemoveVoxelPatch
-} from "./renderer";
+import type { RendererFactory, RendererHandle, RendererMountOptions } from "./renderer";
 import type {
   GridContext,
   LayerRecord,
@@ -22,13 +13,12 @@ import type {
 import {
   LAYER_CLASS,
   FLOOR_CLASS,
-  FACE_CLASS,
   WALL_CLASS,
   CEILING_CLASS,
   DEFAULT_WALL_COLOR,
   DEFAULT_WALLS
 } from "./types";
-import { getVoxelBounds, wallMasksEqual } from "./context";
+import { getVoxelBounds, makeVoxelKey } from "./context";
 import { computeVisibleFaces } from "./visibility";
 import { cubeShapeRenderer, ensureCubeDomCache, disposeCubeDom } from "./shapes";
 import { defaultShapes } from "./shapes/registry";
@@ -49,27 +39,15 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
   const shapes = defaultShapes;
   const state = ensureDomRendererState(documentRef, target);
 
-  function applyInitial(snapshot: SceneSnapshot): void {
+  function render(snapshot: SceneSnapshot): void {
     state.context = { ...snapshot.context };
-    const diff = diffScenes(null, snapshot);
-    applyPatchSet(state, snapshot, diff.patches, documentRef, target, shapes);
-  }
-
-  function applyPatches(snapshot: SceneSnapshot, patches: ScenePatch[]): void {
-    state.context = { ...snapshot.context };
-    applyPatchSet(state, snapshot, patches, documentRef, target, shapes);
+    renderScene(state, snapshot, documentRef, target, shapes);
   }
 
   function destroy(): void {
     const renderState = state.renderState;
-    for (const [, record] of renderState.layers) {
-      removeLayerRecord(record);
-    }
-    renderState.layers.clear();
-    for (const [, element] of renderState.wallElements) {
-      element.remove();
-    }
-    renderState.wallElements.clear();
+    resetLayers(renderState);
+    clearWalls(renderState);
     renderState.ceiling?.remove();
     renderState.ceiling = null;
     renderState.floor.remove();
@@ -77,8 +55,7 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
   }
 
   return {
-    applyInitial,
-    applyPatches,
+    render,
     destroy
   };
 };
@@ -114,10 +91,9 @@ function appendFloor(documentRef: Document, root: HTMLElement): HTMLElement {
   return floor;
 }
 
-function applyPatchSet(
+function renderScene(
   state: DomRendererState,
   snapshot: SceneSnapshot,
-  patches: ScenePatch[],
   documentRef: Document,
   root: HTMLElement,
   shapes: Record<string, ShapeRenderer>
@@ -127,31 +103,10 @@ function applyPatchSet(
   updateProjectionClass(root, context);
   root.style.setProperty("--voxcss-rows", String(context.rows));
   root.style.setProperty("--voxcss-cols", String(context.cols));
-  syncSceneStructure(renderState, documentRef, context, snapshot.layers.length);
-  if (!patches.length) return;
 
-  for (const patch of patches) {
-    switch (patch.type) {
-      case "addVoxel":
-        applyVoxelUpsertPatch(renderState, patch.layerIndex, patch.voxelKey, patch.voxel, patch.faces, context, shapes, documentRef);
-        break;
-      case "updateVoxel":
-        applyVoxelUpsertPatch(
-          renderState,
-          patch.layerIndex,
-          patch.voxelKey,
-          patch.voxel,
-          patch.faces ?? computeVisibleFaces(patch.voxel, context),
-          context,
-          shapes,
-          documentRef
-        );
-        break;
-      case "removeVoxel":
-        applyRemoveVoxelPatch(renderState, patch);
-        break;
-    }
-  }
+  resetLayers(renderState);
+  renderLayers(renderState, snapshot.layers, context, shapes, documentRef);
+  syncSceneStructure(renderState, documentRef, context, snapshot.layers.length);
 }
 
 function updateProjectionClass(root: HTMLElement, context: GridContext): void {
@@ -162,9 +117,46 @@ function updateProjectionClass(root: HTMLElement, context: GridContext): void {
   }
 }
 
-function applyVoxelUpsertPatch(
+function resetLayers(state: RenderState): void {
+  for (const [, record] of state.layers) {
+    removeLayerRecord(record);
+  }
+  state.layers.clear();
+}
+
+function renderLayers(
+  state: RenderState,
+  layers: Voxel[][],
+  context: GridContext,
+  shapes: Record<string, ShapeRenderer>,
+  documentRef: Document
+): void {
+  for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
+    renderLayer(state, layerIndex, layers[layerIndex], context, shapes, documentRef);
+  }
+}
+
+function renderLayer(
   state: RenderState,
   layerIndex: number,
+  voxels: Voxel[] | undefined,
+  context: GridContext,
+  shapes: Record<string, ShapeRenderer>,
+  documentRef: Document
+): void {
+  if (!voxels?.length) return;
+  const record = createLayerRecord(state, layerIndex, documentRef, context);
+  for (const voxel of voxels) {
+    if (!voxel) continue;
+    const faces = computeVisibleFaces(voxel, context);
+    if (!faces.length) continue;
+    const voxelKey = makeVoxelKey(voxel);
+    renderVoxelElement(record, voxelKey, voxel, faces, context, shapes, documentRef);
+  }
+}
+
+function renderVoxelElement(
+  record: LayerRecord,
   voxelKey: string,
   voxel: Voxel,
   faces: CubeFace[],
@@ -172,16 +164,9 @@ function applyVoxelUpsertPatch(
   shapes: Record<string, ShapeRenderer>,
   documentRef: Document
 ): void {
-  const record = ensureLayerRecord(state, layerIndex, documentRef, context);
-  const layer = record.element;
-  let element = record.voxels.get(voxelKey);
-  if (!element) {
-    element = documentRef.createElement("div");
-    record.voxels.set(voxelKey, element);
-  }
-  if (element.parentNode !== layer) {
-    layer.appendChild(element);
-  }
+  const element = documentRef.createElement("div");
+  record.voxels.set(voxelKey, element);
+  record.element.appendChild(element);
   syncVoxelElement(element, voxel);
   renderVoxel({
     voxel,
@@ -190,16 +175,6 @@ function applyVoxelUpsertPatch(
     root: element,
     shapes
   });
-}
-
-function applyRemoveVoxelPatch(state: RenderState, patch: RemoveVoxelPatch): void {
-  const record = state.layers.get(patch.layerIndex);
-  if (!record) return;
-  const element = record.voxels.get(patch.voxelKey);
-  if (!element) return;
-  disposeCubeDom(element);
-  element.remove();
-  record.voxels.delete(patch.voxelKey);
 }
 
 function syncVoxelElement(element: HTMLElement, voxel: Voxel): void {
@@ -240,31 +215,26 @@ function renderVoxel(args: {
   }
 }
 
-function ensureLayerRecord(
+function createLayerRecord(
   state: RenderState,
   layerIndex: number,
   documentRef: Document,
   context: GridContext
 ): LayerRecord {
-  let record = state.layers.get(layerIndex);
-  if (!record) {
-    const element = documentRef.createElement("div");
-    element.className = LAYER_CLASS;
-    record = {
-      element,
-      voxels: new Map()
-    };
-    state.layers.set(layerIndex, record);
-  }
-  const layer = record.element;
+  const element = documentRef.createElement("div");
+  element.className = LAYER_CLASS;
+  const record: LayerRecord = {
+    element,
+    voxels: new Map()
+  };
+  state.layers.set(layerIndex, record);
   const parent = state.floor;
-  if (layer.parentNode !== parent) {
-    parent.appendChild(layer);
-  }
+  parent.appendChild(element);
   const elevation = context.layerElevation ?? context.tileSize ?? 0;
-  layer.style.transform = `translateZ(${layerIndex * elevation}px)`;
+  element.style.transform = `translateZ(${layerIndex * elevation}px)`;
   return record;
 }
+
 function syncSceneStructure(
   state: RenderState,
   documentRef: Document,
@@ -332,10 +302,7 @@ function syncWalls(
   depthLayers: number
 ): void {
   if (!context.showWalls) {
-    for (const [, element] of state.wallElements) {
-      element.remove();
-    }
-    state.wallElements.clear();
+    clearWalls(state);
     return;
   }
   const mask = context.walls ?? DEFAULT_WALLS;
@@ -478,6 +445,13 @@ function computeWallDefinitions(dimensions: WallDimensionsSnapshot): WallDefinit
       transform: `rotateX(-90deg) translateZ(${halfTile * (2 * rows - depth)}px) translateY(-${halfTile * depth}px)`
     }
   ];
+}
+
+function clearWalls(state: RenderState): void {
+  for (const [, element] of state.wallElements) {
+    element.remove();
+  }
+  state.wallElements.clear();
 }
 
 function removeLayerRecord(record: LayerRecord): void {

@@ -3,7 +3,6 @@ import type {
   GridContext,
   OffsetMap,
   ProjectionMode,
-  SceneAnalysisPayload,
   SceneDimensions,
   Voxel,
   VoxelGrid,
@@ -23,7 +22,6 @@ export interface SceneContextBuildResult {
   context: GridContext;
   dimensions: Required<SceneDimensions>;
   lookupData: VoxelLookupBuildResult;
-  analysis: SceneAnalysisPayload;
 }
 
 const FALLBACK_ROWS_COLS = 16;
@@ -99,16 +97,6 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     lighting: partial.lighting
   };
 
-  const analysisPayload: SceneAnalysisPayload = {
-    lookupData: lookupData!,
-    dimensions: {
-      rows,
-      cols,
-      depth
-    },
-    checksum: lookupData!.checksum
-  };
-
   return {
     context,
     dimensions: {
@@ -116,8 +104,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
       cols,
       depth
     },
-    lookupData: lookupData!,
-    analysis: analysisPayload
+    lookupData: lookupData!
   };
 }
 
@@ -160,7 +147,7 @@ export function buildVoxelLookups(
   const targetCols = Math.max(cols ?? inferred?.cols ?? 1, 1);
   const depth = Math.max(depthOverride ?? inferred?.depth ?? 0, 0);
   if (!depth) {
-    return { lookups: [], layers: [], checksum: hashFinalize(hashInit(0)) };
+    return { lookups: [], layers: [] };
   }
   const lookups: VoxelLookup[] = Array.from({ length: depth }, () => ({
     rows: targetRows,
@@ -168,14 +155,12 @@ export function buildVoxelLookups(
     voxels: new Array<Voxel | null>(targetRows * targetCols).fill(null)
   }));
   const layers: Voxel[][] = Array.from({ length: depth }, () => []);
-  let checksum = hashInit(grid.length);
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
     const layerIndex = Math.max(0, Math.floor(voxel.z ?? 0));
     const lookup = lookups[layerIndex];
     const layer = layers[layerIndex];
     if (!lookup || !layer) {
-      checksum = hashVoxel(checksum, voxel);
       continue;
     }
     layer.push(voxel);
@@ -187,9 +172,8 @@ export function buildVoxelLookups(
         lookup.voxels[row * targetCols + col] = voxel;
       }
     }
-    checksum = hashVoxel(checksum, voxel);
   }
-  return { lookups, layers, checksum: hashFinalize(checksum) };
+  return { lookups, layers };
 }
 
 export function getVoxelFromLookup(
@@ -209,56 +193,6 @@ export function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
     x2: voxel.x2 ?? voxel.x + 1,
     y2: voxel.y2 ?? voxel.y + 1
   };
-}
-
-const HASH_SEED = 2166136261;
-
-function hashInit(seed: number): number {
-  return Math.imul(HASH_SEED, seed + 1);
-}
-
-function hashNumber(hash: number, value: number | undefined): number {
-  const mixed = value ?? 0;
-  hash ^= mixed + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-  return hash | 0;
-}
-
-function hashStringValue(hash: number, value?: string): number {
-  if (!value) return hash;
-  let result = hash;
-  for (let i = 0; i < value.length; i += 1) {
-    result ^= value.charCodeAt(i) + 0x9e3779b9 + (result << 6) + (result >> 2);
-  }
-  return result | 0;
-}
-
-function hashObject(hash: number, value: unknown): number {
-  if (!value) return hash;
-  try {
-    const serialized = JSON.stringify(value);
-    return hashStringValue(hash, serialized ?? "");
-  } catch {
-    return hash;
-  }
-}
-
-function hashVoxel(hash: number, voxel: Voxel): number {
-  let result = hash;
-  result = hashNumber(result, voxel.x);
-  result = hashNumber(result, voxel.y);
-  result = hashNumber(result, voxel.z);
-  result = hashNumber(result, voxel.x2);
-  result = hashNumber(result, voxel.y2);
-  result = hashStringValue(result, voxel.color);
-  result = hashStringValue(result, voxel.texture);
-  result = hashStringValue(result, voxel.shape);
-  result = hashNumber(result, voxel.rot);
-  result = hashObject(result, voxel.data);
-  return result;
-}
-
-function hashFinalize(hash: number): number {
-  return hash >>> 0;
 }
 
 export function makeVoxelKey(voxel: Voxel): string {

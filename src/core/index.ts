@@ -14,8 +14,7 @@ export type {
   VoxIllustrationHandle,
   ProjectionMode,
   VoxelLookup,
-  VoxelLookupBuildResult,
-  SceneAnalysisPayload
+  VoxelLookupBuildResult
 } from "./types";
 export type { SceneContextBuildArgs, SceneContextBuildResult } from "./context";
 export { BASE_TILE, DEFAULT_PROJECTION } from "./types";
@@ -45,16 +44,10 @@ export {
 } from "./lighting";
 export type { ShapeType, ShapeSurfaceLighting } from "./lighting";
 export type { SceneSnapshot } from "./state";
-export { diffScenes } from "./diff";
-export type { SceneDiffResult } from "./diff";
 export type {
   RendererFactory,
   RendererHandle,
-  RendererMountOptions,
-  ScenePatch,
-  AddVoxelPatch,
-  UpdateVoxelPatch,
-  RemoveVoxelPatch
+  RendererMountOptions
 } from "./renderer";
 
 export * from "./camera";

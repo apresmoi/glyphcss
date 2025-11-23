@@ -28,19 +28,12 @@ export interface VoxelLookup {
 export interface VoxelLookupBuildResult {
   lookups: VoxelLookup[];
   layers: Voxel[][];
-  checksum: number;
 }
 
 export interface SceneDimensions {
   rows?: number;
   cols?: number;
   depth?: number;
-}
-
-export interface SceneAnalysisPayload {
-  lookupData: VoxelLookupBuildResult;
-  dimensions: Required<SceneDimensions>;
-  checksum: number;
 }
 
 export interface WallsMask {
