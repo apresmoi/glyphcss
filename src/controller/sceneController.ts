@@ -1,7 +1,7 @@
 import { createIsometricCamera, normalizeInvertMultiplier } from "../core/camera";
 import type { CameraHandle, CameraState } from "../core/camera";
 import type { ProjectionMode, SceneDimensions, WallsMask } from "../core";
-import { computeWallMask, wallMasksEqual } from "../core";
+import { computeWallMask, inferGridDimensions, wallMasksEqual } from "../core";
 import { buildSceneContext } from "../core/context";
 import type { SceneSnapshot } from "../core/state";
 import type { SceneStateShape } from "./sceneBindings";
@@ -11,51 +11,6 @@ type CameraListener = (state: CameraState) => void;
 type StyleListener = (style: Record<string, string>) => void;
 type WallsListener = (walls: WallsMask) => void;
 type CursorListener = (cursor: string) => void;
-
-type SceneControllerEventPayloads = {
-  dimensions: Required<SceneDimensions>;
-  camera: CameraState;
-  style: Record<string, string>;
-  walls: WallsMask;
-  cursor: string;
-};
-
-type SceneControllerEventName = keyof SceneControllerEventPayloads;
-
-interface SceneControllerEmitter {
-  emit<K extends SceneControllerEventName>(event: K, payload: SceneControllerEventPayloads[K]): void;
-  subscribe<K extends SceneControllerEventName>(
-    event: K,
-    listener: (payload: SceneControllerEventPayloads[K]) => void
-  ): () => void;
-}
-
-function createSceneEmitter(): SceneControllerEmitter {
-  type Listener = (payload: SceneControllerEventPayloads[SceneControllerEventName]) => void;
-  const listeners: Partial<Record<SceneControllerEventName, Listener[]>> = {};
-  return {
-    emit(event, payload) {
-      listeners[event]?.forEach((listener) => {
-        (listener as (value: typeof payload) => void)(payload);
-      });
-    },
-    subscribe(event, listener) {
-      const bucket = (listeners[event] ??= [] as Listener[]);
-      bucket.push(listener as Listener);
-      return () => {
-        const current = listeners[event];
-        if (!current) return;
-        const index = current.indexOf(listener as Listener);
-        if (index >= 0) {
-          current.splice(index, 1);
-        }
-        if (!current.length) {
-          delete listeners[event];
-        }
-      };
-    }
-  };
-}
 
 export interface SceneControllerOptions {
   dimensions?: SceneDimensions;
@@ -88,27 +43,29 @@ export interface SceneController {
   handlePointerUp(): void;
 }
 
-const DEFAULT_DIMENSIONS: Required<SceneDimensions> = {
-  rows: 16,
-  cols: 16,
-  depth: 12
-};
-
 const DEFAULT_POINTER_INVERT = 1;
 const POINTER_DRAG_SPEED = 5;
 
 export function sceneController(options: SceneControllerOptions = {}): SceneController {
+  const dimensionListeners = new Set<DimensionsListener>();
+  const cameraListeners = new Set<CameraListener>();
+  const styleListeners = new Set<StyleListener>();
+  const wallListeners = new Set<WallsListener>();
+  const cursorListeners = new Set<CursorListener>();
+  function notify<T>(listeners: Set<(payload: T) => void>, payload: T) {
+    listeners.forEach((listener) => listener(payload));
+  }
+  const defaultDimensions = inferGridDimensions([]);
   let dimensions: Required<SceneDimensions> = {
-    rows: typeof options.dimensions?.rows === "number" ? options.dimensions.rows : DEFAULT_DIMENSIONS.rows,
-    cols: typeof options.dimensions?.cols === "number" ? options.dimensions.cols : DEFAULT_DIMENSIONS.cols,
-    depth: typeof options.dimensions?.depth === "number" ? options.dimensions.depth : DEFAULT_DIMENSIONS.depth
+    rows: typeof options.dimensions?.rows === "number" ? options.dimensions.rows : defaultDimensions.rows,
+    cols: typeof options.dimensions?.cols === "number" ? options.dimensions.cols : defaultDimensions.cols,
+    depth: typeof options.dimensions?.depth === "number" ? options.dimensions.depth : defaultDimensions.depth
   };
 
   const camera: CameraHandle = createIsometricCamera(options.camera);
   let pointerInvert = normalizeInvertMultiplier(options.pointerInvert) ?? DEFAULT_POINTER_INVERT;
   let projectionMode: ProjectionMode = options.projection === "dimetric" ? "dimetric" : "cubic";
 
-  const emitter = createSceneEmitter();
   let lastWalls: WallsMask | null = null;
 
   const dragState = {
@@ -125,12 +82,14 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       return;
     }
     dimensions = { rows, cols, depth };
-    emitState("dimensions", { ...dimensions });
+    notify(dimensionListeners, { ...dimensions });
     emitStyle();
   }
 
   function subscribeDimensions(listener: DimensionsListener) {
-    return subscribeImmediate("dimensions", listener, getDimensions());
+    dimensionListeners.add(listener);
+    listener(getDimensions());
+    return () => dimensionListeners.delete(listener);
   }
 
   function getDimensions() {
@@ -143,28 +102,36 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
 
   function updateCamera(next: Partial<CameraState>) {
     camera.update(next);
-    emitState("camera", { ...camera.state });
+    notify(cameraListeners, { ...camera.state });
     emitStyle();
     emitWalls();
     emitCursor();
   }
 
   function subscribeCamera(listener: CameraListener) {
-    return subscribeImmediate("camera", listener, getCameraState());
+    cameraListeners.add(listener);
+    listener(getCameraState());
+    return () => cameraListeners.delete(listener);
   }
 
   function subscribeBoxStyle(listener: StyleListener) {
-    return subscribeImmediate("style", listener, getBoxStyle());
+    styleListeners.add(listener);
+    listener(getBoxStyle());
+    return () => styleListeners.delete(listener);
   }
 
   function subscribeWalls(listener: WallsListener) {
     const snapshot = getWalls();
     lastWalls = snapshot;
-    return subscribeImmediate("walls", listener, snapshot);
+    wallListeners.add(listener);
+    listener(snapshot);
+    return () => wallListeners.delete(listener);
   }
 
   function subscribeCursor(listener: CursorListener) {
-    return subscribeImmediate("cursor", listener, getCursor());
+    cursorListeners.add(listener);
+    listener(getCursor());
+    return () => cursorListeners.delete(listener);
   }
 
   function handlePointerDown(event: PointerEvent) {
@@ -184,7 +151,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     camera.update({ rotX: nextRotX, rotY: nextRotY });
     dragState.pointerX = event.clientX;
     dragState.pointerY = event.clientY;
-    emitState("camera", { ...camera.state });
+    notify(cameraListeners, { ...camera.state });
     emitStyle();
     emitWalls();
     emitCursor();
@@ -214,7 +181,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   }
 
   function emitStyle() {
-    emitState("style", getBoxStyle());
+    notify(styleListeners, getBoxStyle());
   }
 
   function emitWalls() {
@@ -223,25 +190,11 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       return;
     }
     lastWalls = snapshot;
-    emitState("walls", snapshot);
+    notify(wallListeners, snapshot);
   }
 
   function emitCursor() {
-    emitState("cursor", getCursor());
-  }
-
-  function emitState<K extends SceneControllerEventName>(event: K, payload: SceneControllerEventPayloads[K]) {
-    emitter.emit(event, payload);
-  }
-
-  function subscribeImmediate<K extends SceneControllerEventName>(
-    event: K,
-    listener: (payload: SceneControllerEventPayloads[K]) => void,
-    initial: SceneControllerEventPayloads[K]
-  ): () => void {
-    const unsubscribe = emitter.subscribe(event, listener);
-    listener(initial);
-    return unsubscribe;
+    notify(cursorListeners, getCursor());
   }
 
   function setPointerInvert(multiplier: number) {
@@ -281,9 +234,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       layers: scene.lookupData.layers,
       lookups: scene.lookupData.lookups,
       context: scene.context,
-      dimensions: scene.dimensions,
-      userContext: baseContext,
-      gridChecksum: scene.lookupData.checksum
+      dimensions: scene.dimensions
     };
   }
 

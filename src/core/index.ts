@@ -28,8 +28,7 @@ export {
   wallMasksEqual,
   getVoxelFromLookup,
   getVoxelBounds,
-  makeVoxelKey,
-  makeCellKey
+  makeVoxelKey
 } from "./context";
 
 export {

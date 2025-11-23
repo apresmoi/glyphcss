@@ -16,7 +16,6 @@ import { BASE_TILE, DEFAULT_OFFSETS, DEFAULT_PROJECTION, DEFAULT_WALLS, DEFAULT_
 export interface SceneContextBuildArgs {
   grid: VoxelGrid;
   context?: Partial<GridContext>;
-  lookupData?: VoxelLookupBuildResult | null;
   dimensions?: SceneDimensions;
 }
 
@@ -27,67 +26,26 @@ export interface SceneContextBuildResult {
   analysis: SceneAnalysisPayload;
 }
 
-export interface LookupDataCacheEntry {
-  grid: VoxelGrid;
-  dimensions: Required<SceneDimensions>;
-  lookups: VoxelLookup[];
-  layers: Voxel[][];
-  checksum: number;
-}
+const FALLBACK_ROWS_COLS = 16;
+const FALLBACK_DEPTH = 12;
 
-export interface LookupDataArgs {
-  grid: VoxelGrid;
-  rows: number;
-  cols: number;
-  depth: number;
-  analysis?: SceneAnalysisPayload | null;
-  previous?: LookupDataCacheEntry | null;
-}
-
-export function getLookupData(args: LookupDataArgs): VoxelLookupBuildResult {
-  const { grid, rows, cols, depth, analysis, previous } = args;
-  const dimensionsMatch = (candidate: Required<SceneDimensions>) =>
-    candidate.rows === rows && candidate.cols === cols && candidate.depth === depth;
-
-  if (analysis && dimensionsMatch(analysis.dimensions)) {
-    return analysis.lookupData;
-  }
-
-  if (previous && previous.grid === grid && dimensionsMatch(previous.dimensions)) {
-    return {
-      lookups: previous.lookups,
-      layers: previous.layers,
-      checksum: previous.checksum
-    };
-  }
-
-  return buildVoxelLookups(grid, rows, cols, depth);
-}
-
-function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensions> } {
+export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: number; depth: number } {
   let maxRow = 0;
   let maxCol = 0;
   let maxDepth = 0;
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
-    if (typeof voxel.x === "number") {
-      const rowEnd = typeof voxel.x2 === "number" ? voxel.x2 : voxel.x + 1;
-      if (rowEnd > maxRow) maxRow = rowEnd;
-    }
-    if (typeof voxel.y === "number") {
-      const colEnd = typeof voxel.y2 === "number" ? voxel.y2 : voxel.y + 1;
-      if (colEnd > maxCol) maxCol = colEnd;
-    }
+    const rowEnd = typeof voxel.x2 === "number" ? voxel.x2 : voxel.x + 1;
+    const colEnd = typeof voxel.y2 === "number" ? voxel.y2 : voxel.y + 1;
+    if (rowEnd > maxRow) maxRow = rowEnd;
+    if (colEnd > maxCol) maxCol = colEnd;
     const depthIndex = Math.max(0, Math.floor(voxel.z ?? 0)) + 1;
     if (depthIndex > maxDepth) maxDepth = depthIndex;
   }
-  const dimensions: Required<SceneDimensions> = {
+  return {
     rows: maxRow > 0 ? maxRow : FALLBACK_ROWS_COLS,
     cols: maxCol > 0 ? maxCol : FALLBACK_ROWS_COLS,
     depth: maxDepth > 0 ? maxDepth : FALLBACK_DEPTH
-  };
-  return {
-    dimensions
   };
 }
 
@@ -99,9 +57,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     typeof dimensionOverrides.rows === "number" &&
     typeof dimensionOverrides.cols === "number" &&
     typeof dimensionOverrides.depth === "number";
-  const inferred = hasFullOverride
-    ? (dimensionOverrides as Required<SceneDimensions>)
-    : scanGridGeometry(grid).dimensions;
+  const inferred = hasFullOverride ? (dimensionOverrides as Required<SceneDimensions>) : inferGridDimensions(grid);
   const tileSize = BASE_TILE;
   const projection = partial.projection ?? DEFAULT_PROJECTION;
   const rows = Math.max(partial.rows ?? dimensionOverrides.rows ?? inferred.rows, 1);
@@ -122,7 +78,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
 
   const defaultLayerElevation = projection === "dimetric" ? tileSize / 2 : tileSize;
   const layerElevation = partial.layerElevation ?? defaultLayerElevation;
-  const lookupData = args.lookupData ?? getLookupData({ grid, rows, cols, depth });
+  const lookupData = buildVoxelLookups(grid, rows, cols, depth);
 
   const context: GridContext = {
     rows,
@@ -236,14 +192,6 @@ export function buildVoxelLookups(
   return { lookups, layers, checksum: hashFinalize(checksum) };
 }
 
-const FALLBACK_ROWS_COLS = 16;
-const FALLBACK_DEPTH = 12;
-
-export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: number; depth: number } {
-  const geometry = scanGridGeometry(grid);
-  return { ...geometry.dimensions };
-}
-
 export function getVoxelFromLookup(
   lookups: VoxelLookup[],
   x: number,
@@ -316,8 +264,4 @@ function hashFinalize(hash: number): number {
 export function makeVoxelKey(voxel: Voxel): string {
   const { x2, y2 } = getVoxelBounds(voxel);
   return `${voxel.x}/${voxel.y}/${x2}/${y2}/${voxel.z}`;
-}
-
-export function makeCellKey(x: number, y: number): string {
-  return `${x}/${y}`;
 }

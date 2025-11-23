@@ -1,15 +1,70 @@
-import { defineComponent, h, computed } from "vue";
+import { defineComponent, h, computed, onBeforeUnmount, ref, watch } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import { CAMERA_HOST_CLASS, ensureCameraController } from "@voxcss/controller/cameraBindings";
-import { useCameraBinding } from "./bindings";
+import { mountCameraBinding, CAMERA_HOST_CLASS, ensureCameraController, type CameraSlotProps } from "@voxcss/controller/domBindings";
 import { cameraPropOptions } from "./propOptions";
 
 export default defineComponent({
   name: "VoxCamera",
   props: cameraPropOptions,
   setup(props, { slots, expose }) {
-    const bindingProps = () => props;
-    const { elementRef, controller, slotProps, cursor, startAutoRotate, stopAutoRotate } = useCameraBinding(bindingProps);
+    const controller = ref<import("@voxcss/controller/sceneController").SceneController | null>(null);
+    const slotProps = ref<CameraSlotProps | null>(null);
+    const cursor = ref("default");
+    const elementRef = ref<HTMLElement | null>(null);
+    const animateRef = ref(props.animate);
+    let teardown: ReturnType<typeof mountCameraBinding> | null = null;
+
+    const mountBinding = () => {
+      teardown?.destroy();
+      teardown = null;
+      controller.value = null;
+      slotProps.value = null;
+      cursor.value = "default";
+      const element = elementRef.value;
+      if (!element) return;
+      teardown = mountCameraBinding(
+        element,
+        props,
+        (snapshot) => {
+          if (!snapshot) {
+            controller.value = null;
+            slotProps.value = null;
+            cursor.value = "default";
+            return;
+          }
+          controller.value = snapshot.controller;
+          slotProps.value = {
+            boxStyle: snapshot.boxStyle,
+            cursor: snapshot.cursor,
+            walls: snapshot.walls,
+            camera: snapshot.camera,
+            controller: snapshot.controller
+          };
+          cursor.value = snapshot.cursor;
+        },
+        (nextCursor) => {
+          cursor.value = nextCursor;
+        }
+      );
+    };
+
+    watch(elementRef, () => mountBinding(), { immediate: true });
+    watch(
+      () => props,
+      (next) => {
+        animateRef.value = next.animate;
+        teardown?.update(next);
+      },
+      { deep: true }
+    );
+
+    onBeforeUnmount(() => {
+      teardown?.destroy();
+      teardown = null;
+      controller.value = null;
+      slotProps.value = null;
+      cursor.value = "default";
+    });
 
     const cursorStyle = computed(() => cursor.value ?? "default");
 
@@ -18,10 +73,13 @@ export default defineComponent({
         return ensureCameraController(controller.value);
       },
       startAutoRotate(config?: AutoRotateOption) {
-        startAutoRotate(config ?? props.animate);
+        const next = config ?? animateRef.value;
+        animateRef.value = next;
+        teardown?.startAutoRotate(next);
       },
       stopAutoRotate() {
-        stopAutoRotate();
+        animateRef.value = false;
+        teardown?.stopAutoRotate();
       }
     });
 

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, createContext, useContext } from "react";
 import type { RefObject } from "react";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import { attachSceneBinding, type AttachSceneBindingOptions } from "@voxcss/controller/sharedBindings";
+import { attachSceneBinding, type AttachSceneBindingOptions } from "@voxcss/controller/domBindings";
 
 export const SceneControllerContext = createContext<SceneController | null>(null);
 

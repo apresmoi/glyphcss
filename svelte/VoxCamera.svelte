@@ -2,8 +2,8 @@
   import { onDestroy, onMount } from "svelte";
   import type { SceneController } from "@voxcss/controller/sceneController";
   import type { AutoRotateOption } from "@voxcss/core/camera";
-  import { CAMERA_HOST_CLASS, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/cameraBindings";
-  import { mountCameraBinding } from "@voxcss/controller/sharedCamera";
+  import { CAMERA_HOST_CLASS, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/domBindings";
+  import { mountCameraBinding } from "@voxcss/controller/domBindings";
 
   export let zoom: number | undefined;
   export let pan: number | undefined;

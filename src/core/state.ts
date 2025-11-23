@@ -6,6 +6,4 @@ export interface SceneSnapshot {
   lookups: VoxelLookup[];
   context: GridContext;
   dimensions: Required<SceneDimensions>;
-  userContext: Partial<GridContext>;
-  gridChecksum: number;
 }
