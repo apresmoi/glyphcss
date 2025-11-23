@@ -1,18 +1,10 @@
-import React, { forwardRef, useImperativeHandle, useCallback, useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
+import React, { forwardRef, useImperativeHandle, useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import {
-  ensureCameraController,
-  normalizeCameraOptions,
-  syncCameraOptions,
-  type CameraComponentProps,
-  type CameraSlotProps,
-  type NormalizedCameraOptions,
-  CAMERA_HOST_CLASS
-} from "@voxcss/controller/cameraBindings";
+import { CAMERA_HOST_CLASS, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/cameraBindings";
 import type { AutoRotateOption } from "@voxcss/core/camera";
-import { createCamera, type HeadlessCameraHandle } from "@voxcss/core/headless";
-import { SceneControllerContext } from "./useBindings";
+import { SceneControllerContext, useSceneControllerContext } from "./useBindings";
+import { mountCameraBinding } from "@voxcss/controller/sharedCamera";
 
 export interface CameraChildRender {
   (context: CameraRenderContext): ReactNode;
@@ -47,9 +39,7 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   ]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const handleRef = useRef<HeadlessCameraHandle | null>(null);
-  const optionsRef = useRef<NormalizedCameraOptions | null>(null);
-  const unsubscribersRef = useRef<Array<() => void>>([]);
+  const teardownRef = useRef<ReturnType<typeof mountCameraBinding> | null>(null);
   const animateRef = useRef<AutoRotateOption | false | undefined>(cameraProps.animate);
   const latestProps = useRef(cameraProps);
 
@@ -57,86 +47,64 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
   const [cursor, setCursor] = useState("default");
   const [controller, setController] = useState<SceneController | null>(null);
 
-  const applySnapshot = useCallback(() => {
-    const handle = handleRef.current;
-    if (!handle) return;
-    const currentController = handle.controller;
-    const nextCursor = handle.interactive ? currentController.getCursor() : "default";
-    setController(currentController);
-    setSlotProps({
-      boxStyle: currentController.getBoxStyle(),
-      cursor: nextCursor,
-      walls: currentController.getWalls(),
-      camera: currentController.getCameraState(),
-      controller: currentController
-    });
-    setCursor(nextCursor);
-  }, []);
-
-  const updateOptions = useCallback(
-    (next: CameraComponentProps) => {
-      const handle = handleRef.current;
-      const current = optionsRef.current;
-      if (!handle || !current) return;
-      optionsRef.current = syncCameraOptions(handle, current, next);
-      applySnapshot();
-    },
-    [applySnapshot]
-  );
-
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (!element) return;
     const options = latestProps.current;
-    const handle = createCamera({ ...options, element });
-    handleRef.current = handle;
-    optionsRef.current = normalizeCameraOptions(options);
-    animateRef.current = optionsRef.current.animate;
-    applySnapshot();
-
-    const currentController = handle.controller;
-    const unsubscribers = [
-      currentController.subscribeBoxStyle(applySnapshot),
-      currentController.subscribeCamera(applySnapshot),
-      currentController.subscribeWalls(applySnapshot),
-      currentController.subscribeCursor(applySnapshot)
-    ];
-    unsubscribersRef.current = unsubscribers;
-
+    const teardown = mountCameraBinding(
+      element,
+      options,
+      (snapshot) => {
+        if (!snapshot) {
+          setController(null);
+          setSlotProps(null);
+          setCursor("default");
+          return;
+        }
+        setController(snapshot.controller);
+        setSlotProps({
+          boxStyle: snapshot.boxStyle,
+          cursor: snapshot.cursor,
+          walls: snapshot.walls,
+          camera: snapshot.camera,
+          controller: snapshot.controller
+        });
+        setCursor(snapshot.cursor);
+      },
+      (nextCursor) => setCursor(nextCursor)
+    );
+    teardownRef.current = teardown;
     return () => {
-      unsubscribersRef.current.forEach((unsubscribe) => unsubscribe());
-      unsubscribersRef.current = [];
-      handle.destroy();
-      handleRef.current = null;
-      optionsRef.current = null;
+      teardownRef.current?.destroy();
+      teardownRef.current = null;
       animateRef.current = undefined;
       setController(null);
       setSlotProps(null);
       setCursor("default");
     };
-  }, [applySnapshot]);
+  }, []);
 
   useEffect(() => {
     latestProps.current = cameraProps;
     animateRef.current = cameraProps.animate;
-    updateOptions(cameraProps);
-  }, [cameraProps, updateOptions]);
+    teardownRef.current?.update(cameraProps);
+  }, [cameraProps]);
 
   useImperativeHandle(
     ref,
     () => ({
-      controller: ensureCameraController(controller),
+      controller: controller ?? useSceneControllerContext(),
       startAutoRotate: (config?: AutoRotateOption) => {
         const next = config ?? animateRef.current;
         animateRef.current = next;
-        updateOptions({ animate: next });
+        teardownRef.current?.startAutoRotate(next);
       },
       stopAutoRotate: () => {
         animateRef.current = false;
-        updateOptions({ animate: false });
+        teardownRef.current?.stopAutoRotate();
       }
     }),
-    [controller, updateOptions]
+    [controller]
   );
 
   const renderedChildren =

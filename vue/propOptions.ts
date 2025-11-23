@@ -1,6 +1,7 @@
 import type { PropType } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import type { ProjectionMode, VoxelGrid } from "@voxcss/core";
+import type { SceneController } from "@voxcss/controller/sceneController";
 
 export const cameraPropOptions = {
   zoom: { type: Number },
@@ -15,6 +16,7 @@ export const cameraPropOptions = {
 } as const;
 
 export const scenePropOptions = {
+  controller: { type: Object as PropType<SceneController>, required: true },
   voxels: { type: Array as PropType<VoxelGrid | undefined> },
   rows: { type: Number },
   cols: { type: Number },

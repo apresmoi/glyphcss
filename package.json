@@ -28,7 +28,6 @@
     "dist",
     "react",
     "vue",
-    "vue2",
     "svelte"
   ],
   "exports": {
@@ -41,11 +40,6 @@
       "types": "./dist/vue/index.d.ts",
       "import": "./dist/vue/index.js",
       "require": "./dist/vue/index.cjs"
-    },
-    "./vue2": {
-      "types": "./dist/vue2/index.d.ts",
-      "import": "./dist/vue2/index.js",
-      "require": "./dist/vue2/index.cjs"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",
@@ -67,7 +61,7 @@
     "access": "public"
   },
   "peerDependencies": {
-    "vue": "^2.6.14 || ^3.0.0",
+    "vue": "^3.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
     "svelte": "^4.0.0"

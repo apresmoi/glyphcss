@@ -1,30 +1,31 @@
 import { useEffect, useLayoutEffect, useRef, createContext, useContext } from "react";
 import type { RefObject } from "react";
-import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
-import { createSceneBinding, ensureSceneController, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
+import { attachSceneBinding, type AttachSceneBindingOptions } from "@voxcss/controller/sharedBindings";
 
 export const SceneControllerContext = createContext<SceneController | null>(null);
 
 export function useSceneControllerContext(): SceneController {
   const controller = useContext(SceneControllerContext);
-  return ensureSceneController(controller);
+  if (!controller) {
+    throw new Error("voxcss: controller is not ready yet.");
+  }
+  return controller;
 }
 
-export type SceneBindingProps = Omit<SceneBindingOptions, "element">;
+export type SceneBindingProps = Omit<AttachSceneBindingOptions, "element"> & { controller: SceneController };
 
 export function useSceneBinding(props: SceneBindingProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const bindingRef = useRef<SceneBindingHandle | null>(null);
+  const bindingRef = useRef<ReturnType<typeof attachSceneBinding>>(null);
   const latestProps = useRef(props);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (!element) return;
-    const binding = createSceneBinding({ ...latestProps.current, element });
-    bindingRef.current = binding;
+    bindingRef.current = attachSceneBinding({ ...latestProps.current, element });
     return () => {
-      binding.destroy();
+      bindingRef.current?.destroy();
       bindingRef.current = null;
     };
   }, []);

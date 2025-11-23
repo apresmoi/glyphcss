@@ -1,6 +1,5 @@
 import type { SceneController } from "./sceneController";
 import type { ProjectionMode, VoxelGrid, SceneSnapshot } from "../core";
-import { deriveSceneSnapshot } from "../core/state";
 import { diffScenes } from "../core/diff";
 import { createDomRenderer } from "../core/domRenderer";
 import { injectBaseStyles } from "../core/styles";
@@ -82,13 +81,7 @@ function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle
   const unsubscribeBox = controller.subscribeBoxStyle(applyBoxStyle);
 
   const renderScene = () => {
-    const contextSnapshot = controller.applySceneState(state);
-    const nextSnapshot = deriveSceneSnapshot({
-      grid: state.voxels,
-      userContext: contextSnapshot,
-      previous: previousSnapshot,
-      analysis: contextSnapshot.analysis
-    });
+    const nextSnapshot = controller.applySceneState(state);
     if (!previousSnapshot) {
       renderer.applyInitial(nextSnapshot);
     } else {

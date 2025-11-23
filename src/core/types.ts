@@ -161,22 +161,3 @@ export interface WallDimensionsSnapshot {
   depth: number;
   tileSize: number;
 }
-
-export interface SceneContextSnapshot {
-  rows: number;
-  cols: number;
-  depth: number;
-  showWalls: boolean;
-  showFloor: boolean;
-  projection: ProjectionMode;
-  walls: WallsMask;
-  resolveTexture?: GridContext["resolveTexture"];
-  lighting?: GridContext["lighting"];
-  rotX?: number;
-  rotY?: number;
-  layerElevation: number;
-  tileSize: number;
-  offsets: OffsetMap;
-  wallColor: string;
-  analysis?: SceneAnalysisPayload;
-}

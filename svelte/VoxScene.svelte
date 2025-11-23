@@ -1,8 +1,5 @@
 <script lang="ts">
-  import { getContext } from "svelte";
   import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
-  import type { SceneController } from "@voxcss/controller/sceneController";
-  import { CONTROLLER_KEY } from "./context";
   import { sceneBinding } from "./bindings";
   import { SCENE_HOST_CLASS, type SceneComponentProps } from "@voxcss/controller/sceneBindings";
 
@@ -14,7 +11,7 @@
   export let showFloor: boolean | undefined;
   export let projection: ProjectionMode | undefined;
 
-  const controller = getContext<SceneController>(CONTROLLER_KEY);
+  export let controller: import("@voxcss/controller/sceneController").SceneController;
 
   $: bindingOptions = ({
     controller,

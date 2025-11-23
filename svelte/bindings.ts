@@ -1,10 +1,9 @@
-import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
-import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
+import { attachSceneBinding, type AttachSceneBindingOptions } from "@voxcss/controller/sharedBindings";
 
-export type SceneBindingActionOptions = Omit<SceneBindingOptions, "element">;
+export type SceneBindingActionOptions = Omit<AttachSceneBindingOptions, "element">;
 
 export function sceneBinding(node: HTMLElement, options: SceneBindingActionOptions) {
-  let binding: SceneBindingHandle | null = createSceneBinding({ ...options, element: node });
+  let binding = attachSceneBinding({ ...options, element: node });
   return {
     update(next: SceneBindingActionOptions) {
       options = next;

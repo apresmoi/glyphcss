@@ -13,7 +13,6 @@ export type {
   VoxIllustrationOptions,
   VoxIllustrationHandle,
   ProjectionMode,
-  SceneContextSnapshot,
   VoxelLookup,
   VoxelLookupBuildResult,
   SceneAnalysisPayload
@@ -24,9 +23,7 @@ export { BASE_TILE, DEFAULT_PROJECTION } from "./types";
 export {
   buildSceneContext,
   buildVoxelLookups,
-  buildSceneContextSnapshot,
   inferGridDimensions,
-  computeGridChecksum,
   computeWallMask,
   wallMasksEqual,
   getVoxelFromLookup,
@@ -34,11 +31,6 @@ export {
   makeVoxelKey,
   makeCellKey
 } from "./context";
-export { createInteractiveController } from "./interactiveController";
-export type {
-  InteractiveControllerHandle,
-  InteractiveControllerOptions
-} from "./interactiveController";
 
 export {
   cubeShapeRenderer,
@@ -53,8 +45,7 @@ export {
   computeShapeLighting
 } from "./lighting";
 export type { ShapeType, ShapeSurfaceLighting } from "./lighting";
-export { deriveSceneSnapshot } from "./state";
-export type { SceneSnapshot, SceneSnapshotArgs } from "./state";
+export type { SceneSnapshot } from "./state";
 export { diffScenes } from "./diff";
 export type { SceneDiffResult } from "./diff";
 export type {
@@ -68,11 +59,7 @@ export type {
 } from "./renderer";
 
 export * from "./camera";
-export {
-  createCamera,
-  createScene,
-  renderScene
-} from "./headless";
+export { createCamera, renderScene } from "./headless";
 export type {
   HeadlessCameraOptions,
   HeadlessCameraHandle,

@@ -10,7 +10,6 @@ These examples are intentionally tiny static pages that pull framework runtimes 
 | --- | --- |
 | `/examples/react/` | React 18 + VoxCamera/VoxScene rendered via ReactDOM. |
 | `/examples/vue/` | Vue 3 composition API sample. |
-| `/examples/vue2/` | Legacy Vue 2 render. |
 | `/examples/headless/` | Pure DOM/Pointer wiring using the headless APIs (`createCamera`, `createScene`, `renderScene`). |
 
 The CDN import maps keep `node_modules/` out of `examples/`, while relying on the locally built VoxCSS bundle (`dist/`).

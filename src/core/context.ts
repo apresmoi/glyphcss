@@ -4,7 +4,6 @@ import type {
   OffsetMap,
   ProjectionMode,
   SceneAnalysisPayload,
-  SceneContextSnapshot,
   SceneDimensions,
   Voxel,
   VoxelGrid,
@@ -23,7 +22,6 @@ export interface SceneContextBuildArgs {
 
 export interface SceneContextBuildResult {
   context: GridContext;
-  snapshot: SceneContextSnapshot;
   dimensions: Required<SceneDimensions>;
   lookupData: VoxelLookupBuildResult;
   analysis: SceneAnalysisPayload;
@@ -50,28 +48,17 @@ export function getLookupData(args: LookupDataArgs): VoxelLookupBuildResult {
   const { grid, rows, cols, depth, analysis, previous } = args;
   const dimensionsMatch = (candidate: Required<SceneDimensions>) =>
     candidate.rows === rows && candidate.cols === cols && candidate.depth === depth;
-  let checksum: number | null = null;
-  const ensureChecksum = () => {
-    if (checksum === null) {
-      checksum = computeGridChecksum(grid);
-    }
-    return checksum;
-  };
 
   if (analysis && dimensionsMatch(analysis.dimensions)) {
-    if (analysis.checksum === ensureChecksum()) {
-      return analysis.lookupData;
-    }
+    return analysis.lookupData;
   }
 
   if (previous && previous.grid === grid && dimensionsMatch(previous.dimensions)) {
-    if (previous.checksum === ensureChecksum()) {
-      return {
-        lookups: previous.lookups,
-        layers: previous.layers,
-        checksum: previous.checksum
-      };
-    }
+    return {
+      lookups: previous.lookups,
+      layers: previous.layers,
+      checksum: previous.checksum
+    };
   }
 
   return buildVoxelLookups(grid, rows, cols, depth);
@@ -107,9 +94,14 @@ function scanGridGeometry(grid: VoxelGrid): { dimensions: Required<SceneDimensio
 export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuildResult {
   const grid = args.grid ?? [];
   const partial = args.context ?? {};
-  const geometry = scanGridGeometry(grid);
-  const inferred = geometry.dimensions;
   const dimensionOverrides = args.dimensions ?? {};
+  const hasFullOverride =
+    typeof dimensionOverrides.rows === "number" &&
+    typeof dimensionOverrides.cols === "number" &&
+    typeof dimensionOverrides.depth === "number";
+  const inferred = hasFullOverride
+    ? (dimensionOverrides as Required<SceneDimensions>)
+    : scanGridGeometry(grid).dimensions;
   const tileSize = BASE_TILE;
   const projection = partial.projection ?? DEFAULT_PROJECTION;
   const rows = Math.max(partial.rows ?? dimensionOverrides.rows ?? inferred.rows, 1);
@@ -151,25 +143,6 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     lighting: partial.lighting
   };
 
-  const snapshot: SceneContextSnapshot = {
-    rows,
-    cols,
-    depth,
-    showWalls: context.showWalls,
-    showFloor: context.showFloor,
-    projection,
-    walls: { ...resolvedWalls },
-    resolveTexture: context.resolveTexture,
-    lighting: context.lighting,
-    rotX: context.rotX,
-    rotY: context.rotY,
-    layerElevation,
-    tileSize,
-    offsets,
-    wallColor: context.wallColor,
-    analysis: undefined
-  };
-
   const analysisPayload: SceneAnalysisPayload = {
     lookupData: lookupData!,
     dimensions: {
@@ -180,11 +153,8 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     checksum: lookupData!.checksum
   };
 
-  snapshot.analysis = analysisPayload;
-
-  const result: SceneContextBuildResult = {
+  return {
     context,
-    snapshot,
     dimensions: {
       rows,
       cols,
@@ -193,8 +163,6 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     lookupData: lookupData!,
     analysis: analysisPayload
   };
-
-  return result;
 }
 
 export function computeWallMask(rotX: number = 65, rotY: number = 45): WallsMask {
@@ -225,11 +193,16 @@ export function wallMasksEqual(a?: WallsMask | null, b?: WallsMask | null): bool
   );
 }
 
-export function buildVoxelLookups(grid: VoxelGrid, rows?: number, cols?: number, depthOverride?: number): VoxelLookupBuildResult {
-  const inferred = inferGridDimensions(grid);
-  const targetRows = Math.max(rows ?? inferred.rows, 1);
-  const targetCols = Math.max(cols ?? inferred.cols, 1);
-  const depth = Math.max(depthOverride ?? inferred.depth, 0);
+export function buildVoxelLookups(
+  grid: VoxelGrid,
+  rows?: number,
+  cols?: number,
+  depthOverride?: number
+): VoxelLookupBuildResult {
+  const inferred = rows === undefined || cols === undefined || depthOverride === undefined ? inferGridDimensions(grid) : null;
+  const targetRows = Math.max(rows ?? inferred?.rows ?? 1, 1);
+  const targetCols = Math.max(cols ?? inferred?.cols ?? 1, 1);
+  const depth = Math.max(depthOverride ?? inferred?.depth ?? 0, 0);
   if (!depth) {
     return { lookups: [], layers: [], checksum: hashFinalize(hashInit(0)) };
   }
@@ -261,15 +234,6 @@ export function buildVoxelLookups(grid: VoxelGrid, rows?: number, cols?: number,
     checksum = hashVoxel(checksum, voxel);
   }
   return { lookups, layers, checksum: hashFinalize(checksum) };
-}
-
-export function computeGridChecksum(grid: VoxelGrid): number {
-  let checksum = hashInit(grid.length);
-  for (const voxel of grid ?? []) {
-    if (!voxel) continue;
-    checksum = hashVoxel(checksum, voxel);
-  }
-  return hashFinalize(checksum);
 }
 
 const FALLBACK_ROWS_COLS = 16;
@@ -356,35 +320,4 @@ export function makeVoxelKey(voxel: Voxel): string {
 
 export function makeCellKey(x: number, y: number): string {
   return `${x}/${y}`;
-}
-
-export interface SceneContextInput {
-  voxels: VoxelGrid;
-  rows?: number;
-  cols?: number;
-  depth?: number;
-  showWalls?: boolean;
-  showFloor?: boolean;
-  projection?: ProjectionMode;
-  walls?: WallsMask;
-  resolveTexture?: GridContext["resolveTexture"];
-  dimensions?: SceneDimensions;
-}
-
-export function buildSceneContextSnapshot(input: SceneContextInput): SceneContextSnapshot {
-  const snapshotContext: Partial<GridContext> = {
-    rows: input.rows,
-    cols: input.cols,
-    depth: input.depth,
-    showWalls: input.showWalls,
-    showFloor: input.showFloor,
-    projection: input.projection,
-    walls: input.walls,
-    resolveTexture: input.resolveTexture
-  };
-  return buildSceneContext({
-    grid: input.voxels,
-    context: snapshotContext,
-    dimensions: input.dimensions
-  }).snapshot;
 }

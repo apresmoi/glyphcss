@@ -1,32 +1,33 @@
 import { onBeforeUnmount, ref, watch } from "vue";
-import type { SceneBindingOptions } from "@voxcss/controller/sceneBindings";
-import { createSceneBinding, type SceneBindingHandle } from "@voxcss/controller/sceneBindings";
+import { attachSceneBinding, type AttachSceneBindingOptions } from "@voxcss/controller/sharedBindings";
+import { mountCameraBinding } from "@voxcss/controller/sharedCamera";
+import type { CameraComponentProps, CameraSlotProps } from "@voxcss/controller/cameraBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import { createCamera, type HeadlessCameraHandle } from "@voxcss/core/headless";
-import {
-  normalizeCameraOptions,
-  syncCameraOptions,
-  type CameraComponentProps,
-  type CameraSlotProps,
-  type NormalizedCameraOptions
-} from "@voxcss/controller/cameraBindings";
 
-export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"> | null) {
+export function useSceneBinding(props: () => Omit<AttachSceneBindingOptions, "element"> | null) {
   const hostElement = ref<HTMLElement | null>(null);
-  let binding: SceneBindingHandle | null = null;
+  let binding: ReturnType<typeof attachSceneBinding> = null;
+  let currentController: SceneController | null = null;
 
   const cleanup = () => {
     binding?.destroy();
     binding = null;
+    currentController = null;
+  };
+
+  const mountBinding = () => {
+    cleanup();
+    const element = hostElement.value;
+    const next = props();
+    if (!element || !next || !next.controller) return;
+    currentController = next.controller;
+    binding = attachSceneBinding({ ...next, element });
   };
 
   watch(
     hostElement,
-    (element) => {
-      cleanup();
-      const next = props();
-      if (!element || !next) return;
-      binding = createSceneBinding({ ...next, element });
+    () => {
+      mountBinding();
     },
     { immediate: true }
   );
@@ -34,9 +35,12 @@ export function useSceneBinding(props: () => Omit<SceneBindingOptions, "element"
   watch(
     () => props(),
     (next) => {
-      if (next && binding) {
-        binding.update(next);
+      const controllerChanged = next?.controller !== currentController;
+      if (!next || !binding || controllerChanged) {
+        mountBinding();
+        return;
       }
+      binding.update(next);
     },
     { deep: true }
   );
@@ -56,30 +60,11 @@ export function useCameraBinding(props: () => CameraComponentProps) {
   const cursor = ref("default");
   const elementRef = ref<HTMLElement | null>(null);
   const animateRef = ref<CameraComponentProps["animate"] | false | undefined>(props().animate);
-  let handle: HeadlessCameraHandle | null = null;
-  let normalizedOptions: NormalizedCameraOptions = normalizeCameraOptions();
-  let unsubscribe: Array<() => void> = [];
-
-  const applySnapshot = () => {
-    if (!handle) return;
-    const currentController = handle.controller;
-    const nextCursor = handle.interactive ? currentController.getCursor() : "default";
-    controller.value = currentController;
-    slotProps.value = {
-      boxStyle: currentController.getBoxStyle(),
-      cursor: nextCursor,
-      walls: currentController.getWalls(),
-      camera: currentController.getCameraState(),
-      controller: currentController
-    };
-    cursor.value = nextCursor;
-  };
+  let teardown: ReturnType<typeof mountCameraBinding> | null = null;
 
   const cleanup = () => {
-    unsubscribe.forEach((dispose) => dispose());
-    unsubscribe = [];
-    handle?.destroy();
-    handle = null;
+    teardown?.destroy();
+    teardown = null;
     controller.value = null;
     slotProps.value = null;
     cursor.value = "default";
@@ -88,27 +73,32 @@ export function useCameraBinding(props: () => CameraComponentProps) {
   const mountBinding = () => {
     cleanup();
     const element = elementRef.value;
-    if (!element) return;
     const next = props();
-    normalizedOptions = normalizeCameraOptions({ ...normalizedOptions, ...next });
-    handle = createCamera({ ...normalizedOptions, element });
-    const currentController = handle.controller;
-    unsubscribe = [
-      currentController.subscribeBoxStyle(applySnapshot),
-      currentController.subscribeCamera(applySnapshot),
-      currentController.subscribeWalls(applySnapshot),
-      currentController.subscribeCursor(applySnapshot)
-    ];
-    applySnapshot();
-  };
-
-  const updateOptions = (next: CameraComponentProps) => {
-    if (!handle) {
-      normalizedOptions = normalizeCameraOptions({ ...normalizedOptions, ...next });
-      return;
-    }
-    normalizedOptions = syncCameraOptions(handle, normalizedOptions, next);
-    applySnapshot();
+    if (!element) return;
+    teardown = mountCameraBinding(
+      element,
+      next,
+      (snapshot) => {
+        if (!snapshot) {
+          controller.value = null;
+          slotProps.value = null;
+          cursor.value = "default";
+          return;
+        }
+        controller.value = snapshot.controller;
+        slotProps.value = {
+          boxStyle: snapshot.boxStyle,
+          cursor: snapshot.cursor,
+          walls: snapshot.walls,
+          camera: snapshot.camera,
+          controller: snapshot.controller
+        };
+        cursor.value = snapshot.cursor;
+      },
+      (nextCursor) => {
+        cursor.value = nextCursor;
+      }
+    );
   };
 
   watch(
@@ -123,7 +113,7 @@ export function useCameraBinding(props: () => CameraComponentProps) {
     () => props(),
     (next) => {
       animateRef.value = next.animate;
-      updateOptions(next);
+      teardown?.update(next);
     },
     { deep: true }
   );
@@ -135,12 +125,12 @@ export function useCameraBinding(props: () => CameraComponentProps) {
   const startAutoRotate = (config?: CameraComponentProps["animate"]) => {
     const next = config ?? animateRef.value;
     animateRef.value = next;
-    updateOptions({ animate: next });
+    teardown?.startAutoRotate(next);
   };
 
   const stopAutoRotate = () => {
     animateRef.value = false;
-    updateOptions({ animate: false });
+    teardown?.stopAutoRotate();
   };
 
   return {

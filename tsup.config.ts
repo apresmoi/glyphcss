@@ -4,8 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "react/index": "react/index.ts",
-    "vue/index": "vue/index.ts",
-    "vue2/index": "vue2/index.ts"
+    "vue/index": "vue/index.ts"
   },
   format: ["esm", "cjs"],
   dts: true,

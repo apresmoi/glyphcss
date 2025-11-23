@@ -1,14 +1,11 @@
 import type { WallsMask } from "../core";
 import type { HeadlessCameraHandle } from "../core/headless";
+import { DEFAULT_CAMERA_STATE, normalizeInvertMultiplier } from "../core/camera";
 import type { AutoRotateOption, CameraState } from "../core/camera";
 import type { SceneController, SceneControllerOptions } from "./sceneController";
 
 export const DEFAULT_CAMERA_PROPS = {
-  zoom: 0.65,
-  pan: 0,
-  tilt: 0,
-  rotX: 65,
-  rotY: 45,
+  ...DEFAULT_CAMERA_STATE,
   invert: false as boolean | number,
   perspective: 8000,
   interactive: false,
@@ -43,17 +40,6 @@ export interface NormalizedCameraOptions {
   animate?: AutoRotateOption | false;
 }
 
-export function resolveInvertMultiplier(value: number | boolean | undefined): number | undefined {
-  if (typeof value === "number") {
-    if (value === 0) return undefined;
-    return value < 0 ? -1 : 1;
-  }
-  if (typeof value === "boolean") {
-    return value ? -1 : 1;
-  }
-  return undefined;
-}
-
 export function normalizePerspectiveValue(value: number | boolean | undefined): number | false | undefined {
   if (value === false) return false;
   if (typeof value === "number") return value;
@@ -74,11 +60,11 @@ export function normalizeCameraOptions(options: CameraOptionsInput = {}): Normal
   const perspectiveInput =
     options.perspective === undefined ? DEFAULT_CAMERA_PROPS.perspective : options.perspective;
   return {
-    zoom: options.zoom ?? DEFAULT_CAMERA_PROPS.zoom,
-    pan: options.pan ?? DEFAULT_CAMERA_PROPS.pan,
-    tilt: options.tilt ?? DEFAULT_CAMERA_PROPS.tilt,
-    rotX: options.rotX ?? DEFAULT_CAMERA_PROPS.rotX,
-    rotY: options.rotY ?? DEFAULT_CAMERA_PROPS.rotY,
+    zoom: options.zoom ?? DEFAULT_CAMERA_STATE.zoom,
+    pan: options.pan ?? DEFAULT_CAMERA_STATE.pan,
+    tilt: options.tilt ?? DEFAULT_CAMERA_STATE.tilt,
+    rotX: options.rotX ?? DEFAULT_CAMERA_STATE.rotX,
+    rotY: options.rotY ?? DEFAULT_CAMERA_STATE.rotY,
     invert: options.invert,
     perspective: normalizePerspectiveValue(perspectiveInput),
     interactive: options.interactive ?? DEFAULT_CAMERA_PROPS.interactive,
@@ -95,7 +81,7 @@ export function mergeControllerOptions(options: CameraControllerInput): SceneCon
     rotX: options.rotX,
     rotY: options.rotY
   });
-  const invertOverride = resolveInvertMultiplier(options.invert);
+  const invertOverride = normalizeInvertMultiplier(options.invert);
   const next: SceneControllerOptions = {
     ...base,
     camera: { ...(base.camera ?? {}), ...cameraOverrides }
@@ -138,7 +124,7 @@ export interface CameraSlotProps {
 
 export const CAMERA_HOST_CLASS = "voxcss-camera";
 
-const DEFAULT_INVERT = resolveInvertMultiplier(DEFAULT_CAMERA_PROPS.invert) ?? 1;
+const DEFAULT_INVERT = normalizeInvertMultiplier(DEFAULT_CAMERA_PROPS.invert) ?? 1;
 
 export function syncCameraOptions(
   handle: HeadlessCameraHandle,
@@ -157,7 +143,7 @@ export function syncCameraOptions(
     controller.updateCamera(cameraUpdate);
   }
   if (nextState.invert !== current.invert) {
-    const invertOverride = resolveInvertMultiplier(nextState.invert);
+    const invertOverride = normalizeInvertMultiplier(nextState.invert);
     controller.setPointerInvert(invertOverride ?? DEFAULT_INVERT);
   }
   if (nextState.interactive !== current.interactive) {

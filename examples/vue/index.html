@@ -37,8 +37,9 @@
       data: () => ({ voxels, rows: 8, cols: 8, depth: 6 }),
       components: { VoxCamera, VoxScene },
       template: `
-          <VoxCamera interactive :zoom="1.5">
+          <VoxCamera interactive :zoom="1.5" v-slot="{ controller }">
             <VoxScene
+              :controller="controller"
               :voxels="voxels"
               :rows="rows"
               :cols="cols"

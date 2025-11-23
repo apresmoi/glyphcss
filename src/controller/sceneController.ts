@@ -1,8 +1,9 @@
-import { createIsometricCamera } from "../core/camera";
+import { createIsometricCamera, normalizeInvertMultiplier } from "../core/camera";
 import type { CameraHandle, CameraState } from "../core/camera";
-import type { ProjectionMode, SceneDimensions, WallsMask, SceneContextSnapshot } from "../core";
+import type { ProjectionMode, SceneDimensions, WallsMask } from "../core";
 import { computeWallMask, wallMasksEqual } from "../core";
 import { buildSceneContext } from "../core/context";
+import type { SceneSnapshot } from "../core/state";
 import type { SceneStateShape } from "./sceneBindings";
 
 type DimensionsListener = (dimensions: Required<SceneDimensions>) => void;
@@ -30,7 +31,8 @@ interface SceneControllerEmitter {
 }
 
 function createSceneEmitter(): SceneControllerEmitter {
-  const listeners: Partial<Record<SceneControllerEventName, Set<(payload: unknown) => void>>> = {};
+  type Listener = (payload: SceneControllerEventPayloads[SceneControllerEventName]) => void;
+  const listeners: Partial<Record<SceneControllerEventName, Listener[]>> = {};
   return {
     emit(event, payload) {
       listeners[event]?.forEach((listener) => {
@@ -38,11 +40,16 @@ function createSceneEmitter(): SceneControllerEmitter {
       });
     },
     subscribe(event, listener) {
-      const bucket = (listeners[event] ??= new Set());
-      bucket.add(listener as (payload: unknown) => void);
+      const bucket = (listeners[event] ??= [] as Listener[]);
+      bucket.push(listener as Listener);
       return () => {
-        bucket.delete(listener as (payload: unknown) => void);
-        if (bucket.size === 0) {
+        const current = listeners[event];
+        if (!current) return;
+        const index = current.indexOf(listener as Listener);
+        if (index >= 0) {
+          current.splice(index, 1);
+        }
+        if (!current.length) {
           delete listeners[event];
         }
       };
@@ -74,7 +81,7 @@ export interface SceneController {
   subscribeCursor(listener: CursorListener): () => void;
   setPointerInvert(multiplier: number): void;
   setProjection(mode?: ProjectionMode): void;
-  applySceneState(state: SceneStateShape): SceneContextSnapshot;
+  applySceneState(state: SceneStateShape): SceneSnapshot;
 
   handlePointerDown(event: PointerEvent): void;
   handlePointerMove(event: PointerEvent): void;
@@ -98,7 +105,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   };
 
   const camera: CameraHandle = createIsometricCamera(options.camera);
-  let pointerInvert = resolvePointerInvert(options.pointerInvert);
+  let pointerInvert = normalizeInvertMultiplier(options.pointerInvert) ?? DEFAULT_POINTER_INVERT;
   let projectionMode: ProjectionMode = options.projection === "dimetric" ? "dimetric" : "cubic";
 
   const emitter = createSceneEmitter();
@@ -238,7 +245,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   }
 
   function setPointerInvert(multiplier: number) {
-    pointerInvert = resolvePointerInvert(multiplier);
+    pointerInvert = normalizeInvertMultiplier(multiplier) ?? DEFAULT_POINTER_INVERT;
   }
 
   function setProjection(mode?: ProjectionMode) {
@@ -249,7 +256,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     }
   }
 
-  function applySceneState(state: SceneStateShape): SceneContextSnapshot {
+  function applySceneState(state: SceneStateShape): SceneSnapshot {
     setProjection(state.projection);
     const cameraState = camera.state;
     const baseContext = {
@@ -265,10 +272,19 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     };
     const scene = buildSceneContext({
       grid: state.voxels,
-      context: baseContext
+      context: baseContext,
+      dimensions
     });
     setDimensions(scene.dimensions);
-    return scene.snapshot;
+    return {
+      grid: state.voxels,
+      layers: scene.lookupData.layers,
+      lookups: scene.lookupData.lookups,
+      context: scene.context,
+      dimensions: scene.dimensions,
+      userContext: baseContext,
+      gridChecksum: scene.lookupData.checksum
+    };
   }
 
   return {
@@ -291,11 +307,4 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     handlePointerMove,
     handlePointerUp
   };
-}
-
-function resolvePointerInvert(value?: number): number {
-  if (typeof value === "number" && value !== 0) {
-    return value < 0 ? -1 : 1;
-  }
-  return DEFAULT_POINTER_INVERT;
 }
