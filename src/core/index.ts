@@ -51,7 +51,7 @@ export type {
 } from "./renderer";
 
 export * from "./camera";
-export { createCamera, renderScene } from "./headless";
+export { createCamera, createScene, renderScene } from "./headless";
 export type {
   HeadlessCameraOptions,
   HeadlessCameraHandle,

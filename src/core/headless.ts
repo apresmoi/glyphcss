@@ -1,5 +1,10 @@
 import { sceneController, type SceneController } from "../controller/sceneController";
-import { createSceneBinding, type SceneStateInput } from "../controller/sceneBindings";
+import {
+  createSceneBinding,
+  normalizeSceneState,
+  SCENE_HOST_CLASS,
+  type SceneStateInput
+} from "../controller/sceneBindings";
 import type { VoxelGrid } from "./types";
 import { SCENE_CLASS } from "./types";
 import type { AutoRotateOption } from "./camera";
@@ -38,6 +43,16 @@ export interface HeadlessRenderHandle {
 const DEFAULT_PERSPECTIVE = 8000;
 const DEFAULT_INTERACTIVE = false;
 const DEFAULT_INVERT = normalizeInvertMultiplier(false) ?? 1;
+
+export function createScene(options: HeadlessSceneOptions): HeadlessSceneOptions {
+  const { element, ...state } = options;
+  if (!element) {
+    throw new Error("voxcss: createScene requires an element.");
+  }
+  element.classList.add(SCENE_HOST_CLASS);
+  const normalized = normalizeSceneState(state);
+  return { element, ...normalized };
+}
 
 export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHandle {
   const element = options.element;
