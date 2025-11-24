@@ -1,14 +1,34 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
-import { attachSceneBinding } from "@voxcss/controller/domBindings";
-import { SCENE_HOST_CLASS, type SceneBindingOptions } from "@voxcss/controller/sceneBindings";
-import { scenePropOptions } from "./propOptions";
+import { mountScene, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
+import type { SceneController } from "@voxcss/controller/sceneController";
+
+const scenePropOptions = {
+  controller: { type: Object as import("vue").PropType<SceneController>, required: true },
+  voxels: { type: Array as import("vue").PropType<import("@voxcss/core/types").VoxelGrid | undefined> },
+  rows: { type: Number },
+  cols: { type: Number },
+  depth: { type: Number },
+  showWalls: { type: Boolean as import("vue").PropType<boolean | undefined> },
+  showFloor: { type: Boolean as import("vue").PropType<boolean | undefined> },
+  projection: { type: String as import("vue").PropType<import("@voxcss/core/types").ProjectionMode | undefined> }
+} as const;
 
 export default defineComponent({
   name: "VoxScene",
   props: scenePropOptions,
   setup(props) {
     const hostElement = ref<HTMLElement | null>(null);
-    let binding: ReturnType<typeof attachSceneBinding> | null = null;
+    let binding: ReturnType<typeof mountScene> | null = null;
+
+    const resolveState = (input: Partial<SceneState>): SceneState => ({
+      voxels: input.voxels ?? [],
+      rows: input.rows,
+      cols: input.cols,
+      depth: input.depth,
+      showWalls: input.showWalls ?? false,
+      showFloor: input.showFloor ?? false,
+      projection: input.projection ?? "cubic"
+    });
 
     const mountBinding = () => {
       binding?.destroy();
@@ -16,17 +36,19 @@ export default defineComponent({
       const element = hostElement.value;
       const controller = props.controller;
       if (!element || !controller) return;
-      const options: Omit<SceneBindingOptions, "element"> = {
+      const options: SceneState & { controller: SceneController } = {
         controller,
-        voxels: props.voxels,
-        rows: props.rows,
-        cols: props.cols,
-        depth: props.depth,
-        showWalls: props.showWalls,
-        showFloor: props.showFloor,
-        projection: props.projection
+        ...resolveState({
+          voxels: props.voxels,
+          rows: props.rows,
+          cols: props.cols,
+          depth: props.depth,
+          showWalls: props.showWalls,
+          showFloor: props.showFloor,
+          projection: props.projection
+        })
       };
-      binding = attachSceneBinding({ ...options, element });
+      binding = mountScene({ ...options, element });
     };
 
     watch(hostElement, () => mountBinding(), { immediate: true });
@@ -51,15 +73,17 @@ export default defineComponent({
           binding = null;
           return;
         }
-        binding.update({
-          voxels: props.voxels,
-          rows: props.rows,
-          cols: props.cols,
-          depth: props.depth,
-          showWalls: props.showWalls,
-          showFloor: props.showFloor,
-          projection: props.projection
-        });
+        binding.update(
+          resolveState({
+            voxels: props.voxels,
+            rows: props.rows,
+            cols: props.cols,
+            depth: props.depth,
+            showWalls: props.showWalls,
+            showFloor: props.showFloor,
+            projection: props.projection
+          })
+        );
       },
       { deep: true }
     );

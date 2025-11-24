@@ -1,5 +1,3 @@
-import type { SceneSnapshot } from "./state";
-import type { RendererFactory, RendererHandle, RendererMountOptions } from "./renderer";
 import type {
   GridContext,
   LayerRecord,
@@ -34,6 +32,26 @@ const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
 const noopRenderer: ShapeRenderer = () => {};
 const DIMETRIC_PROJECTION_CLASS = "voxcss-projection--dimetric";
 
+export interface RendererMountOptions {
+  documentRef: Document;
+  target: HTMLElement;
+}
+
+export interface RendererHandle {
+  render(snapshot: SceneSnapshot): void;
+  destroy(): void;
+}
+
+export interface SceneSnapshot {
+  grid: VoxelGrid;
+  layers: Voxel[][];
+  lookups: VoxelLookup[];
+  context: GridContext;
+  dimensions: Required<SceneDimensions>;
+}
+
+export type RendererFactory = (options: RendererMountOptions) => RendererHandle;
+
 export const createDomRenderer: RendererFactory = (options: RendererMountOptions): RendererHandle => {
   const { documentRef, target } = options;
   const shapes = defaultShapes;
@@ -63,25 +81,21 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
 function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRendererState {
   const existing = rendererStates.get(root);
   if (existing) return existing;
-  const renderState = createRenderState(documentRef, root);
-  const composed: DomRendererState = {
-    renderState,
-    context: null
-  };
-  rendererStates.set(root, composed);
-  return composed;
-}
-
-function createRenderState(documentRef: Document, root: HTMLElement): RenderState {
   root.innerHTML = "";
   const floor = appendFloor(documentRef, root);
-  return {
+  const renderState: RenderState = {
     root,
     floor,
     layers: new Map(),
     wallElements: new Map(),
     ceiling: null
   };
+  const composed: DomRendererState = {
+    renderState,
+    context: null
+  };
+  rendererStates.set(root, composed);
+  return composed;
 }
 
 function appendFloor(documentRef: Document, root: HTMLElement): HTMLElement {

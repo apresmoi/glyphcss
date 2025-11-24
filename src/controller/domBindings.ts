@@ -1,8 +1,8 @@
-import { createSceneBinding, type SceneBindingHandle, type SceneBindingOptions } from "./sceneBindings";
 import type { SceneController } from "./sceneController";
 import { createCamera, type HeadlessCameraHandle } from "../core/headless";
 import { normalizeInvertMultiplier, type AutoRotateOption, type CameraState } from "../core/camera";
 import { SCENE_CLASS } from "../core/types";
+import type { ControllerSnapshot } from "./sceneController";
 
 export interface CameraComponentProps {
   zoom?: number;
@@ -33,17 +33,6 @@ export function ensureCameraController(controller: SceneController | null): Scen
   return controller;
 }
 
-export type AttachSceneBindingOptions = Omit<SceneBindingOptions, "element" | "controller"> & {
-  controller: SceneController | null;
-  element: HTMLElement | null;
-};
-
-export function attachSceneBinding(options: AttachSceneBindingOptions): SceneBindingHandle | null {
-  const { controller, element, ...rest } = options;
-  if (!controller || !element) return null;
-  return createSceneBinding({ controller, element, ...rest });
-}
-
 export type CameraBindingSnapshot = CameraSlotProps;
 
 export function mountCameraBinding(
@@ -58,69 +47,49 @@ export function mountCameraBinding(
   stopAutoRotate(): void;
 } {
   const handle = createCamera({ ...props, element });
-  let currentProps: CameraComponentProps = { ...props };
-  let animate = currentProps.animate;
-
-  const applySnapshot = () => {
+  const currentProps: CameraComponentProps = { ...props };
+  const applySnapshot = (snapshot: ControllerSnapshot) => {
     const controller = handle.controller;
-    const cursor = handle.interactive ? controller.getCursor() : "default";
+    const cursor = handle.interactive ? snapshot.cursor : "default";
     onSnapshot({
       controller,
       cursor,
-      boxStyle: controller.getBoxStyle(),
-      walls: controller.getWalls(),
-      camera: controller.getCameraState()
+      boxStyle: snapshot.style,
+      walls: snapshot.walls,
+      camera: snapshot.camera
     });
     onCursor?.(cursor);
   };
 
-  const unsubscribers = [
-    handle.controller.subscribeBoxStyle(applySnapshot),
-    handle.controller.subscribeCamera(applySnapshot),
-    handle.controller.subscribeWalls(applySnapshot),
-    handle.controller.subscribeCursor(applySnapshot)
-  ];
-
-  applySnapshot();
+  const unsubscribers = [handle.controller.subscribeSnapshot(applySnapshot)];
 
   const update = (next: CameraComponentProps) => {
-    const merged: CameraComponentProps = { ...currentProps, ...next };
-    const controller = handle.controller;
+    const prevProps = { ...currentProps };
+    Object.assign(currentProps, next);
     const cameraUpdate: Partial<CameraState> = {};
-    if (merged.zoom !== undefined && merged.zoom !== currentProps.zoom) cameraUpdate.zoom = merged.zoom;
-    if (merged.pan !== undefined && merged.pan !== currentProps.pan) cameraUpdate.pan = merged.pan;
-    if (merged.tilt !== undefined && merged.tilt !== currentProps.tilt) cameraUpdate.tilt = merged.tilt;
-    if (merged.rotX !== undefined && merged.rotX !== currentProps.rotX) cameraUpdate.rotX = merged.rotX;
-    if (merged.rotY !== undefined && merged.rotY !== currentProps.rotY) cameraUpdate.rotY = merged.rotY;
-    if (Object.keys(cameraUpdate).length) {
-      controller.updateCamera(cameraUpdate);
+    if (next.zoom !== undefined && next.zoom !== prevProps.zoom) cameraUpdate.zoom = next.zoom;
+    if (next.pan !== undefined && next.pan !== prevProps.pan) cameraUpdate.pan = next.pan;
+    if (next.tilt !== undefined && next.tilt !== prevProps.tilt) cameraUpdate.tilt = next.tilt;
+    if (next.rotX !== undefined && next.rotX !== prevProps.rotX) cameraUpdate.rotX = next.rotX;
+    if (next.rotY !== undefined && next.rotY !== prevProps.rotY) cameraUpdate.rotY = next.rotY;
+    if (Object.keys(cameraUpdate).length) handle.controller.updateCamera(cameraUpdate);
+    if (next.invert !== undefined && next.invert !== prevProps.invert) {
+      const invertOverride = normalizeInvertMultiplier(next.invert);
+      handle.controller.setPointerInvert(invertOverride ?? normalizeInvertMultiplier(false) ?? 1);
     }
-    if (merged.invert !== currentProps.invert) {
-      const invertOverride = normalizeInvertMultiplier(merged.invert);
-      controller.setPointerInvert(invertOverride ?? normalizeInvertMultiplier(false) ?? 1);
+    if (next.interactive !== undefined && next.interactive !== prevProps.interactive) {
+      handle.setInteractive(!!next.interactive);
     }
-    if (merged.interactive !== undefined && merged.interactive !== handle.interactive) {
-      handle.setInteractive(!!merged.interactive);
+    if (next.perspective !== undefined && next.perspective !== prevProps.perspective) {
+      handle.setPerspective(next.perspective);
     }
-    if (merged.perspective !== undefined && merged.perspective !== currentProps.perspective) {
-      handle.setPerspective(merged.perspective);
+    if (next.animate !== undefined && next.animate !== prevProps.animate) {
+      handle.setAnimate(next.animate);
     }
-    if (merged.animate !== undefined && merged.animate !== currentProps.animate) {
-      handle.setAnimate(merged.animate);
-    }
-    currentProps = merged;
-    animate = merged.animate;
-    applySnapshot();
   };
 
-  const startAutoRotate = (config?: AutoRotateOption) => {
-    const next = config ?? animate;
-    update({ animate: next });
-  };
-
-  const stopAutoRotate = () => {
-    update({ animate: false });
-  };
+  const startAutoRotate = (config?: AutoRotateOption) => update({ animate: config ?? currentProps.animate });
+  const stopAutoRotate = () => update({ animate: false });
 
   const destroy = () => {
     unsubscribers.forEach((dispose) => dispose());
@@ -136,5 +105,3 @@ export function mountCameraBinding(
     stopAutoRotate
   };
 }
-
-const DEFAULT_INVERT = normalizeInvertMultiplier(false) ?? 1;

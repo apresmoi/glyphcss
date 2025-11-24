@@ -1,8 +1,7 @@
 <script lang="ts">
-  import type { VoxelGrid, ProjectionMode } from "@voxcss/core";
-  import { SCENE_HOST_CLASS, type SceneComponentProps } from "@voxcss/controller/sceneBindings";
+  import type { VoxelGrid, ProjectionMode } from "@voxcss/core/types";
+  import { SCENE_HOST_CLASS, type SceneComponentProps, type SceneState, mountScene } from "@voxcss/controller/sceneBindings";
   import { createEventDispatcher, onDestroy } from "svelte";
-  import { attachSceneBinding } from "@voxcss/controller/domBindings";
 
   export let voxels: VoxelGrid | undefined;
   export let rows: number | undefined;
@@ -16,9 +15,19 @@
 
   let element: HTMLDivElement | null = null;
   const dispatch = createEventDispatcher();
-  let binding: ReturnType<typeof attachSceneBinding> | null = null;
+  let binding: ReturnType<typeof mountScene> | null = null;
 
-  $: bindingOptions = ({
+  const resolveState = (input: SceneComponentProps): SceneState => ({
+    voxels: input.voxels ?? [],
+    rows: input.rows,
+    cols: input.cols,
+    depth: input.depth,
+    showWalls: input.showWalls ?? false,
+    showFloor: input.showFloor ?? false,
+    projection: input.projection ?? "cubic"
+  });
+
+  $: bindingOptions = resolveState({
     voxels,
     rows,
     cols,
@@ -26,13 +35,13 @@
     showWalls,
     showFloor,
     projection
-  } satisfies SceneComponentProps);
+  });
 
   $: {
     if (binding) {
       binding.update(bindingOptions);
     } else if (element && controller) {
-      binding = attachSceneBinding({ element, controller, ...bindingOptions });
+      binding = mountScene({ element, controller, ...bindingOptions });
     }
   }
 

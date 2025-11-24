@@ -1,11 +1,5 @@
 import { sceneController, type SceneController } from "../controller/sceneController";
-import {
-  createSceneBinding,
-  normalizeSceneState,
-  SCENE_HOST_CLASS,
-  type SceneStateInput
-} from "../controller/sceneBindings";
-import type { VoxelGrid } from "./types";
+import { mountScene, SCENE_HOST_CLASS, type SceneState } from "../controller/sceneBindings";
 import { SCENE_CLASS } from "./types";
 import type { AutoRotateOption } from "./camera";
 import { normalizeInvertMultiplier, DEFAULT_CAMERA_STATE } from "./camera";
@@ -20,14 +14,14 @@ export interface HeadlessCameraOptions extends CameraComponentProps {
 export interface HeadlessCameraHandle {
   element: HTMLElement;
   controller: SceneController;
-  interactive: boolean;
+  get interactive(): boolean;
   setInteractive(value: boolean): void;
   setAnimate(option: AutoRotateOption | false | undefined): void;
   setPerspective(value: number | boolean | undefined): void;
   destroy(): void;
 }
 
-export type HeadlessSceneOptions = SceneStateInput & { element: HTMLElement };
+export type HeadlessSceneOptions = SceneState & { element: HTMLElement };
 
 export interface HeadlessRenderOptions {
   camera: HeadlessCameraHandle;
@@ -35,14 +29,12 @@ export interface HeadlessRenderOptions {
 }
 
 export interface HeadlessRenderHandle {
-  setVoxels(voxels: VoxelGrid): void;
-  setScene(options: SceneStateInput): void;
+  setVoxels(voxels: SceneState["voxels"]): void;
+  setScene(options: SceneState): void;
   destroy(): void;
 }
 
 const DEFAULT_PERSPECTIVE = 8000;
-const DEFAULT_INTERACTIVE = false;
-const DEFAULT_INVERT = normalizeInvertMultiplier(false) ?? 1;
 
 export function createScene(options: HeadlessSceneOptions): HeadlessSceneOptions {
   const { element, ...state } = options;
@@ -50,8 +42,7 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneOptions
     throw new Error("voxcss: createScene requires an element.");
   }
   element.classList.add(SCENE_HOST_CLASS);
-  const normalized = normalizeSceneState(state);
-  return { element, ...normalized };
+  return { element, ...state };
 }
 
 export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHandle {
@@ -59,20 +50,23 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   if (!element) {
     throw new Error("voxcss: createHeadlessCamera requires an element.");
   }
-  const normalized = normalizeCameraOptions(options);
-  const controllerConfig = mergeControllerOptions(normalized);
-  const controller = sceneController(controllerConfig);
+  const { normalized, controllerOptions } = normalizeCameraOptions(options);
+  const controller = sceneController(controllerOptions);
   element.classList.add(SCENE_CLASS);
   applyPerspective(element, normalized.perspective);
   let interactive = normalized.interactive;
   let autoRotate = createAutoRotateHandle(controller, normalized.animate);
+  let currentAnimate = normalized.animate;
+  let currentPerspective = normalized.perspective;
   let detachPointer = interactive ? attachPointerEvents(element, controller, () => autoRotate?.notifyInteraction()) : null;
   autoRotate?.start();
 
   const handle: HeadlessCameraHandle = {
     element,
     controller,
-    interactive,
+    get interactive() {
+      return interactive;
+    },
     setInteractive(value: boolean) {
       if (interactive === value) return;
       interactive = value;
@@ -85,22 +79,26 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
         detachPointer = null;
         element.style.cursor = "default";
       }
-      handle.interactive = interactive;
     },
     setAnimate(option: AutoRotateOption | false | undefined) {
+      if (option === currentAnimate) return;
       autoRotate?.stop();
       autoRotate = option === false ? null : createAutoRotateHandle(controller, option);
       autoRotate?.start();
+      currentAnimate = option;
     },
     setPerspective(value: number | boolean | undefined) {
-      applyPerspective(element, value);
+      const resolved = value === false ? false : typeof value === "number" ? value : DEFAULT_PERSPECTIVE;
+      if (resolved === currentPerspective) return;
+      applyPerspective(element, resolved);
+      currentPerspective = resolved;
     },
     destroy() {
       detachPointer?.();
       detachPointer = null;
       autoRotate?.stop();
       autoRotate = null;
-      handle.interactive = false;
+      interactive = false;
     }
   };
   return handle;
@@ -113,29 +111,28 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   const controller = camera.controller;
   const { element, ...state } = scene;
-  const binding = createSceneBinding({
+  let currentState: SceneState = { ...state };
+  const binding = mountScene({
     controller,
     element,
-    ...state
+    ...currentState
   });
 
-  const updateCursor = () => {
-    if (camera.interactive) {
-      camera.element.style.cursor = controller.getCursor();
-    }
-  };
-  const unsubscribeCursor = controller.subscribeCursor(updateCursor);
-  updateCursor();
+  if (camera.interactive) {
+    camera.element.style.cursor = controller.getCursor();
+  }
 
   return {
-    setVoxels(voxels: VoxelGrid) {
-      binding.update({ voxels });
+    setVoxels(voxels: SceneState["voxels"]) {
+      currentState = { ...currentState, voxels };
+      binding.update(currentState);
     },
-    setScene(options: SceneStateInput) {
-      binding.update(options);
+    setScene(options: SceneState) {
+      // Merge so partial updates (e.g., toggling walls) preserve the existing scene state.
+      currentState = { ...currentState, ...options };
+      binding.update(currentState);
     },
     destroy() {
-      unsubscribeCursor();
       binding.destroy();
       camera.destroy();
     }
@@ -143,50 +140,46 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 }
 
 function applyPerspective(element: HTMLElement, perspective: number | boolean | undefined) {
-  element.style.perspective = formatPerspectiveStyle(perspective, DEFAULT_PERSPECTIVE);
+  if (perspective === false) {
+    element.style.perspective = "none";
+    return;
+  }
+  const resolved = typeof perspective === "number" ? perspective : DEFAULT_PERSPECTIVE;
+  element.style.perspective = `${resolved}px`;
 }
 
-function mergeControllerOptions(options: HeadlessCameraOptions): SceneControllerOptions {
-  const base = options.controller ?? {};
-  const cameraOverrides: Record<string, number> = {};
-  if (options.zoom !== undefined) cameraOverrides.zoom = options.zoom;
-  if (options.pan !== undefined) cameraOverrides.pan = options.pan;
-  if (options.tilt !== undefined) cameraOverrides.tilt = options.tilt;
-  if (options.rotX !== undefined) cameraOverrides.rotX = options.rotX;
-  if (options.rotY !== undefined) cameraOverrides.rotY = options.rotY;
+function normalizeCameraOptions(options: HeadlessCameraOptions): {
+  normalized: HeadlessCameraOptions & { interactive: boolean; perspective: number | false };
+  controllerOptions: SceneControllerOptions;
+} {
+  const controllerBase = options.controller ?? {};
+  const baseCamera = controllerBase.camera ?? {};
+  const zoom = options.zoom ?? baseCamera.zoom ?? DEFAULT_CAMERA_STATE.zoom;
+  const pan = options.pan ?? baseCamera.pan ?? DEFAULT_CAMERA_STATE.pan;
+  const tilt = options.tilt ?? baseCamera.tilt ?? DEFAULT_CAMERA_STATE.tilt;
+  const rotX = options.rotX ?? baseCamera.rotX ?? DEFAULT_CAMERA_STATE.rotX;
+  const rotY = options.rotY ?? baseCamera.rotY ?? DEFAULT_CAMERA_STATE.rotY;
+  const interactive = options.interactive ?? false;
+  const perspective =
+    options.perspective === false
+      ? false
+      : typeof options.perspective === "number"
+        ? options.perspective
+        : DEFAULT_PERSPECTIVE;
 
-  const next: SceneControllerOptions = { ...base };
-  if (Object.keys(cameraOverrides).length) {
-    next.camera = { ...(base.camera ?? {}), ...cameraOverrides };
-  }
+  const controllerOptions: SceneControllerOptions = {
+    ...controllerBase,
+    camera: { ...baseCamera, zoom, pan, tilt, rotX, rotY }
+  };
+
   const invertOverride = normalizeInvertMultiplier(options.invert);
   if (invertOverride !== undefined) {
-    next.pointerInvert = invertOverride;
+    controllerOptions.pointerInvert = invertOverride;
   }
-  return next;
-}
 
-function formatPerspectiveStyle(value: number | boolean | undefined, fallback = DEFAULT_PERSPECTIVE): string {
-  if (value === false) {
-    return "none";
-  }
-  const resolved = typeof value === "number" ? value : fallback;
-  return `${resolved}px`;
-}
-
-function normalizeCameraOptions(options: HeadlessCameraOptions): HeadlessCameraOptions & {
-  interactive: boolean;
-  perspective: number | false;
-} {
   return {
-    ...options,
-    zoom: options.zoom ?? DEFAULT_CAMERA_STATE.zoom,
-    pan: options.pan ?? DEFAULT_CAMERA_STATE.pan,
-    tilt: options.tilt ?? DEFAULT_CAMERA_STATE.tilt,
-    rotX: options.rotX ?? DEFAULT_CAMERA_STATE.rotX,
-    rotY: options.rotY ?? DEFAULT_CAMERA_STATE.rotY,
-    interactive: options.interactive ?? DEFAULT_INTERACTIVE,
-    perspective: options.perspective === false ? false : typeof options.perspective === "number" ? options.perspective : DEFAULT_PERSPECTIVE
+    normalized: { ...options, zoom, pan, tilt, rotX, rotY, interactive, perspective },
+    controllerOptions
   };
 }
 
@@ -206,14 +199,12 @@ function attachPointerEvents(
     element.releasePointerCapture?.(event.pointerId);
   };
   element.addEventListener("pointerdown", handlePointerDown);
-  element.addEventListener("pointermove", handlePointerMove);
-  element.addEventListener("pointerup", handlePointerUp);
-  element.addEventListener("pointerleave", handlePointerUp);
+  element.addEventListener("pointermove", handlePointerMove, { passive: true });
+  element.addEventListener("pointerup", handlePointerUp, { passive: true });
   return () => {
     element.removeEventListener("pointerdown", handlePointerDown);
     element.removeEventListener("pointermove", handlePointerMove);
     element.removeEventListener("pointerup", handlePointerUp);
-    element.removeEventListener("pointerleave", handlePointerUp);
   };
 }
 
@@ -225,21 +216,14 @@ interface NormalizedAutoRotateConfig {
 
 const DEFAULT_AUTO_ROTATE_SPEED = 0.3;
 
-const AUTO_ROTATE_SCOPE: typeof globalThis | undefined =
-  typeof window !== "undefined"
-    ? window
-    : typeof globalThis !== "undefined"
-      ? globalThis
-      : undefined;
-
 const REQUEST_FRAME =
-  typeof AUTO_ROTATE_SCOPE?.requestAnimationFrame === "function"
-    ? AUTO_ROTATE_SCOPE.requestAnimationFrame.bind(AUTO_ROTATE_SCOPE)
+  typeof globalThis !== "undefined" && typeof globalThis.requestAnimationFrame === "function"
+    ? globalThis.requestAnimationFrame.bind(globalThis)
     : null;
 
 const CANCEL_FRAME =
-  typeof AUTO_ROTATE_SCOPE?.cancelAnimationFrame === "function"
-    ? AUTO_ROTATE_SCOPE.cancelAnimationFrame.bind(AUTO_ROTATE_SCOPE)
+  typeof globalThis !== "undefined" && typeof globalThis.cancelAnimationFrame === "function"
+    ? globalThis.cancelAnimationFrame.bind(globalThis)
     : null;
 
 function createAutoRotateHandle(

@@ -1,147 +1,69 @@
 import type { SceneController } from "./sceneController";
-import type { ProjectionMode, VoxelGrid } from "../core";
+import type { ProjectionMode, VoxelGrid, WallsMask } from "../core/types";
 import { createDomRenderer } from "../core/domRenderer";
 import { injectBaseStyles } from "../core/styles";
+import { wallMasksEqual } from "../core/context";
 
-const DEFAULT_SCENE_FLAGS = {
-  showWalls: false,
-  showFloor: false,
-  projection: "cubic" as ProjectionMode
-};
-
-export interface SceneStateInput {
-  voxels?: VoxelGrid;
+export interface SceneState {
+  voxels: VoxelGrid;
   rows?: number;
   cols?: number;
   depth?: number;
-  showWalls?: boolean;
-  showFloor?: boolean;
-  projection?: ProjectionMode;
-}
-
-export interface SceneStateShape extends SceneStateInput {
-  voxels: VoxelGrid;
   showWalls: boolean;
   showFloor: boolean;
   projection: ProjectionMode;
 }
 
-export const EMPTY_VOXELS: VoxelGrid = [];
-
-export function normalizeSceneState(
-  input: SceneStateInput = {},
-  fallback?: SceneStateShape
-): SceneStateShape {
-  return {
-    voxels: input.voxels ?? fallback?.voxels ?? EMPTY_VOXELS,
-    rows: input.rows ?? fallback?.rows,
-    cols: input.cols ?? fallback?.cols,
-    depth: input.depth ?? fallback?.depth,
-    showWalls: input.showWalls ?? fallback?.showWalls ?? DEFAULT_SCENE_FLAGS.showWalls,
-    showFloor: input.showFloor ?? fallback?.showFloor ?? DEFAULT_SCENE_FLAGS.showFloor,
-    projection: input.projection ?? fallback?.projection ?? DEFAULT_SCENE_FLAGS.projection
-  };
-}
-
-interface SceneRendererHandle {
-  update(state: SceneStateShape): void;
-  destroy(): void;
-}
-
-interface SceneRendererOptions {
-  controller: SceneController;
-  element: HTMLElement;
-  state: SceneStateShape;
-}
-
-function createSceneRenderer(options: SceneRendererOptions): SceneRendererHandle {
-  const controller = options.controller;
-  const element = options.element;
-  let state: SceneStateShape = normalizeSceneState(options.state);
-
-  const documentRef = element.ownerDocument ?? (typeof document !== "undefined" ? document : undefined);
-  if (!documentRef) {
-    throw new Error("voxcss: document is not available. Provide a host element attached to a document.");
-  }
-  injectBaseStyles(documentRef);
-  const renderer = createDomRenderer({
-    documentRef,
-    target: element
-  });
-
-  const applyBoxStyle = (style: Record<string, string>) => {
-    for (const [key, value] of Object.entries(style)) {
-      (element.style as CSSStyleDeclaration & Record<string, string>)[key] = value ?? "";
-    }
-  };
-
-  applyBoxStyle(controller.getBoxStyle());
-  const unsubscribeBox = controller.subscribeBoxStyle(applyBoxStyle);
-
-  const renderScene = () => {
-    const snapshot = controller.applySceneState(state);
-    renderer.render(snapshot);
-  };
-
-  renderScene();
-
-  const unsubscribeWalls = controller.subscribeWalls(() => renderScene());
-  const unsubscribeDimensions = controller.subscribeDimensions(() => renderScene());
-
-  return {
-    update(nextState) {
-      state = normalizeSceneState(nextState, state);
-      renderScene();
-    },
-    destroy() {
-      unsubscribeBox();
-      unsubscribeWalls();
-      unsubscribeDimensions();
-      renderer.destroy();
-    }
-  };
-}
-
-export interface SceneBindingOptions extends SceneStateInput {
-  controller: SceneController;
-  element: HTMLElement;
-}
-
-export interface SceneBindingHandle {
-  update(options: SceneStateInput): void;
-  destroy(): void;
-}
-
-export function createSceneBinding(options: SceneBindingOptions): SceneBindingHandle {
-  if (!options.element) {
-    throw new Error("voxcss: createSceneBinding requires an element.");
-  }
-  const controller = options.controller;
-  let state: SceneStateShape = normalizeSceneState(options);
-  const renderer = createSceneRenderer({
-    controller,
-    element: options.element,
-    state
-  });
-
-  return {
-    update(next) {
-      state = normalizeSceneState(next, state);
-      renderer.update(state);
-    },
-    destroy() {
-      renderer.destroy();
-    }
-  };
-}
-
-export interface SceneComponentProps extends SceneStateInput {}
-
+export type SceneComponentProps = Partial<SceneState>;
 export const SCENE_HOST_CLASS = "voxcss-scene-host";
 
-export function ensureSceneController(controller: SceneController | null): SceneController {
-  if (!controller) {
-    throw new Error("voxcss: VoxScene must be rendered inside a VoxCamera.");
+export function mountScene({
+  controller,
+  element,
+  ...initial
+}: SceneState & { controller: SceneController; element: HTMLElement }) {
+  if (!element) {
+    throw new Error("voxcss: mountScene requires an element.");
   }
-  return controller;
+  element.classList.add(SCENE_HOST_CLASS);
+
+  let state: SceneState = initial;
+  const doc = element.ownerDocument ?? (typeof document !== "undefined" ? document : undefined);
+  if (!doc) {
+    throw new Error("voxcss: document is not available. Provide a host element attached to a document.");
+  }
+
+  injectBaseStyles(doc);
+  const renderer = createDomRenderer({ documentRef: doc, target: element });
+  let lastWalls: WallsMask | null = null;
+  const applyBoxStyle = (style: Record<string, string>) => {
+    Object.entries(style).forEach(([key, value]) => {
+      (element.style as CSSStyleDeclaration & Record<string, string>)[key] = value ?? "";
+    });
+  };
+  applyBoxStyle(controller.getBoxStyle());
+
+  const rerender = () => renderer.render(controller.applySceneState(state));
+  rerender();
+
+  const unsubscribers = [
+    controller.subscribeSnapshot(({ style, walls }) => {
+      applyBoxStyle(style);
+      if (!lastWalls || !wallMasksEqual(lastWalls, walls)) {
+        lastWalls = walls;
+        rerender();
+      }
+    })
+  ];
+
+  return {
+    update(next: SceneState) {
+      state = next;
+      rerender();
+    },
+    destroy() {
+      unsubscribers.forEach((dispose) => dispose());
+      renderer.destroy();
+    }
+  };
 }

@@ -1,7 +1,18 @@
 import { defineComponent, h, computed, onBeforeUnmount, ref, watch } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import { mountCameraBinding, CAMERA_HOST_CLASS, ensureCameraController, type CameraSlotProps } from "@voxcss/controller/domBindings";
-import { cameraPropOptions } from "./propOptions";
+
+const cameraPropOptions = {
+  zoom: { type: Number },
+  pan: { type: Number },
+  tilt: { type: Number },
+  rotX: { type: Number },
+  rotY: { type: Number },
+  invert: { type: [Boolean, Number] as import("vue").PropType<boolean | number> },
+  perspective: { type: [Number, Boolean] as import("vue").PropType<number | boolean> },
+  interactive: { type: Boolean },
+  animate: { type: [Boolean, Number, Object] as import("vue").PropType<AutoRotateOption | false> }
+} as const;
 
 export default defineComponent({
   name: "VoxCamera",
