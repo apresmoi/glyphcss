@@ -17,6 +17,18 @@ export interface SceneState {
 export type SceneComponentProps = Partial<SceneState>;
 export const SCENE_HOST_CLASS = "voxcss-scene-host";
 
+export function normalizeSceneState(input: SceneComponentProps): SceneState {
+  return {
+    voxels: input.voxels ?? [],
+    rows: input.rows,
+    cols: input.cols,
+    depth: input.depth,
+    showWalls: input.showWalls ?? false,
+    showFloor: input.showFloor ?? false,
+    projection: input.projection ?? "cubic"
+  };
+}
+
 export function mountScene({
   controller,
   element,
@@ -27,7 +39,7 @@ export function mountScene({
   }
   element.classList.add(SCENE_HOST_CLASS);
 
-  let state: SceneState = initial;
+  let state: SceneState = normalizeSceneState(initial);
   const doc = element.ownerDocument ?? (typeof document !== "undefined" ? document : undefined);
   if (!doc) {
     throw new Error("voxcss: document is not available. Provide a host element attached to a document.");
@@ -58,7 +70,7 @@ export function mountScene({
 
   return {
     update(next: SceneState) {
-      state = next;
+      state = normalizeSceneState(next);
       rerender();
     },
     destroy() {

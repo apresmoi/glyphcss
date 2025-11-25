@@ -1,9 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import type { SceneController } from "@voxcss/controller/sceneController";
   import type { AutoRotateOption } from "@voxcss/core/camera";
-  import { CAMERA_HOST_CLASS, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/domBindings";
-  import { mountCameraBinding } from "@voxcss/controller/domBindings";
+  import { CAMERA_HOST_CLASS, mountCameraBinding, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/domBindings";
 
   export let zoom: number | undefined;
   export let pan: number | undefined;
@@ -16,7 +14,6 @@
   export let animate: AutoRotateOption | undefined;
 
   let cameraElement: HTMLDivElement | null = null;
-  let controller: SceneController | null = null;
   let slotProps: CameraSlotProps | null = null;
   let cursor = "default";
   let teardown: ReturnType<typeof mountCameraBinding> | null = null;
@@ -33,14 +30,6 @@
     animate
   });
 
-  function cleanup() {
-    teardown?.destroy();
-    teardown = null;
-    controller = null;
-    slotProps = null;
-    cursor = "default";
-  }
-
   onMount(() => {
     if (!cameraElement) return;
     const props = currentProps();
@@ -48,27 +37,19 @@
       cameraElement,
       props,
       (snapshot) => {
-        if (!snapshot) {
-          controller = null;
-          slotProps = null;
-          cursor = "default";
-          return;
-        }
-        controller = snapshot.controller;
-        slotProps = {
-          boxStyle: snapshot.boxStyle,
-          cursor: snapshot.cursor,
-          walls: snapshot.walls,
-          camera: snapshot.camera,
-          controller: snapshot.controller
-        };
-        cursor = snapshot.cursor;
+        slotProps = snapshot;
+        cursor = snapshot?.cursor ?? "default";
       },
       (nextCursor) => {
         cursor = nextCursor;
       }
     );
-    return cleanup;
+    return () => {
+      teardown?.destroy();
+      teardown = null;
+      slotProps = null;
+      cursor = "default";
+    };
   });
 
   $: teardown?.update(currentProps());
@@ -82,7 +63,10 @@
   }
 
   onDestroy(() => {
-    cleanup();
+    teardown?.destroy();
+    teardown = null;
+    slotProps = null;
+    cursor = "default";
   });
 </script>
 

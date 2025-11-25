@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, createContext, useContext } from "react";
 import type { RefObject } from "react";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import { mountScene, type SceneState } from "@voxcss/controller/sceneBindings";
+import { mountScene, normalizeSceneState, type SceneState } from "@voxcss/controller/sceneBindings";
 
 export const SceneControllerContext = createContext<SceneController | null>(null);
 
@@ -23,21 +23,11 @@ export function useSceneBinding(props: SceneBindingProps) {
   const bindingRef = useRef<ReturnType<typeof mountScene> | null>(null);
   const latestProps = useRef(props);
 
-  const resolveState = (input: Partial<SceneState>): SceneState => ({
-    voxels: input.voxels ?? [],
-    rows: input.rows,
-    cols: input.cols,
-    depth: input.depth,
-    showWalls: input.showWalls ?? false,
-    showFloor: input.showFloor ?? false,
-    projection: input.projection ?? "cubic"
-  });
-
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (!element) return;
     const { controller, element: _unused, ...state } = latestProps.current;
-    bindingRef.current = mountScene({ controller, element, ...resolveState(state) });
+    bindingRef.current = mountScene({ controller, element, ...normalizeSceneState(state) });
     return () => {
       bindingRef.current?.destroy();
       bindingRef.current = null;
@@ -47,7 +37,7 @@ export function useSceneBinding(props: SceneBindingProps) {
   useEffect(() => {
     latestProps.current = props;
     const { controller: _controller, element: _element, ...state } = props;
-    bindingRef.current?.update(resolveState(state));
+    bindingRef.current?.update(normalizeSceneState(state));
   }, [props]);
 
   return containerRef;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { VoxelGrid, ProjectionMode } from "@voxcss/core/types";
-  import { SCENE_HOST_CLASS, type SceneComponentProps, type SceneState, mountScene } from "@voxcss/controller/sceneBindings";
+  import { SCENE_HOST_CLASS, mountScene, normalizeSceneState } from "@voxcss/controller/sceneBindings";
   import { createEventDispatcher, onDestroy } from "svelte";
 
   export let voxels: VoxelGrid | undefined;
@@ -17,17 +17,7 @@
   const dispatch = createEventDispatcher();
   let binding: ReturnType<typeof mountScene> | null = null;
 
-  const resolveState = (input: SceneComponentProps): SceneState => ({
-    voxels: input.voxels ?? [],
-    rows: input.rows,
-    cols: input.cols,
-    depth: input.depth,
-    showWalls: input.showWalls ?? false,
-    showFloor: input.showFloor ?? false,
-    projection: input.projection ?? "cubic"
-  });
-
-  $: bindingOptions = resolveState({
+  $: bindingOptions = normalizeSceneState({
     voxels,
     rows,
     cols,

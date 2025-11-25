@@ -1,5 +1,5 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
-import { mountScene, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
+import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
 
 const scenePropOptions = {
@@ -20,16 +20,6 @@ export default defineComponent({
     const hostElement = ref<HTMLElement | null>(null);
     let binding: ReturnType<typeof mountScene> | null = null;
 
-    const resolveState = (input: Partial<SceneState>): SceneState => ({
-      voxels: input.voxels ?? [],
-      rows: input.rows,
-      cols: input.cols,
-      depth: input.depth,
-      showWalls: input.showWalls ?? false,
-      showFloor: input.showFloor ?? false,
-      projection: input.projection ?? "cubic"
-    });
-
     const mountBinding = () => {
       binding?.destroy();
       binding = null;
@@ -38,7 +28,7 @@ export default defineComponent({
       if (!element || !controller) return;
       const options: SceneState & { controller: SceneController } = {
         controller,
-        ...resolveState({
+        ...normalizeSceneState({
           voxels: props.voxels,
           rows: props.rows,
           cols: props.cols,
@@ -74,7 +64,7 @@ export default defineComponent({
           return;
         }
         binding.update(
-          resolveState({
+          normalizeSceneState({
             voxels: props.voxels,
             rows: props.rows,
             cols: props.cols,

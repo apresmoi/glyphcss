@@ -15,11 +15,8 @@ export interface ControllerSnapshot {
 }
 
 export interface SceneSnapshot {
-  grid: VoxelGrid;
   layers: Voxel[][];
-  lookups: VoxelLookup[];
   context: GridContext;
-  dimensions: Required<SceneDimensions>;
 }
 
 export interface SceneControllerOptions {
@@ -67,6 +64,22 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   let isDragging = false;
   let pointerX = 0;
   let pointerY = 0;
+  let cachedSnapshot: ControllerSnapshot | null = null;
+
+  function buildSnapshot(): ControllerSnapshot {
+    cachedSnapshot = {
+      style: camera.getStyle({
+        rows: dimensions.rows,
+        cols: dimensions.cols,
+        depth: dimensions.depth,
+        dimetric: projectionMode === "dimetric"
+      }),
+      walls: computeWallMask(camera.state.rotX, camera.state.rotY),
+      cursor: isDragging ? "grabbing" : "grab",
+      camera: { ...camera.state }
+    };
+    return cachedSnapshot;
+  }
 
   function setDimensions(next: SceneDimensions) {
     const rows = typeof next.rows === "number" ? next.rows : dimensions.rows;
@@ -76,6 +89,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       return;
     }
     dimensions = { rows, cols, depth };
+    cachedSnapshot = null;
     emitSnapshot();
   }
 
@@ -89,22 +103,13 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
 
   function updateCamera(next: Partial<CameraState>) {
     camera.update(next);
+    cachedSnapshot = null;
     emitSnapshot();
   }
 
   function subscribeSnapshot(listener: SnapshotListener) {
     snapshotListeners.add(listener);
-    listener({
-      style: camera.getStyle({
-        rows: dimensions.rows,
-        cols: dimensions.cols,
-        depth: dimensions.depth,
-        dimetric: projectionMode === "dimetric"
-      }),
-      walls: computeWallMask(camera.state.rotX, camera.state.rotY),
-      cursor: isDragging ? "grabbing" : "grab",
-      camera: { ...camera.state }
-    });
+    listener(buildSnapshot());
     return () => snapshotListeners.delete(listener);
   }
 
@@ -112,6 +117,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     isDragging = true;
     pointerX = event.clientX;
     pointerY = event.clientY;
+    cachedSnapshot = null;
     emitSnapshot();
   }
 
@@ -125,28 +131,28 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     camera.update({ rotX: nextRotX, rotY: nextRotY });
     pointerX = event.clientX;
     pointerY = event.clientY;
+    cachedSnapshot = null;
     emitSnapshot();
   }
 
   function handlePointerUp() {
     if (!isDragging) return;
     isDragging = false;
+    cachedSnapshot = null;
     emitSnapshot();
   }
 
   function emitSnapshot() {
-    const snap: ControllerSnapshot = {
-      style: camera.getStyle({
-        rows: dimensions.rows,
-        cols: dimensions.cols,
-        depth: dimensions.depth,
-        dimetric: projectionMode === "dimetric"
-      }),
-      walls: computeWallMask(camera.state.rotX, camera.state.rotY),
-      cursor: isDragging ? "grabbing" : "grab",
-      camera: { ...camera.state }
-    };
+    const snap = cachedSnapshot ?? buildSnapshot();
     snapshotListeners.forEach((listener) => listener(snap));
+  }
+
+  function getWalls() {
+    return (cachedSnapshot ?? buildSnapshot()).walls;
+  }
+
+  function getCursor() {
+    return (cachedSnapshot ?? buildSnapshot()).cursor;
   }
 
   function setPointerInvert(multiplier: number) {
@@ -163,30 +169,27 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
 
   function applySceneState(state: SceneState): SceneSnapshot {
     setProjection(state.projection);
-    const cameraState = camera.state;
-    const baseContext = {
-      rows: state.rows,
-      cols: state.cols,
-      depth: state.depth,
-      showWalls: state.showWalls,
-      showFloor: state.showFloor,
-      projection: state.projection,
-      walls: computeWallMask(camera.state.rotX, camera.state.rotY),
-      rotX: cameraState.rotX,
-      rotY: cameraState.rotY
-    };
+    const snapshot = cachedSnapshot ?? buildSnapshot();
     const scene = buildSceneContext({
       grid: state.voxels,
-      context: baseContext,
+      context: {
+        rows: state.rows,
+        cols: state.cols,
+        depth: state.depth,
+        showWalls: state.showWalls,
+        showFloor: state.showFloor,
+        projection: state.projection,
+        walls: snapshot.walls,
+        rotX: snapshot.camera.rotX,
+        rotY: snapshot.camera.rotY
+      },
       dimensions
     });
     setDimensions(scene.dimensions);
+    cachedSnapshot = null;
     return {
-      grid: state.voxels,
       layers: scene.lookupData.layers,
-      lookups: scene.lookupData.lookups,
-      context: scene.context,
-      dimensions: scene.dimensions
+      context: scene.context
     };
   }
 
@@ -195,16 +198,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     setDimensions,
     getCameraState,
     updateCamera,
-    getBoxStyle: () =>
-      camera.getStyle({
-        rows: dimensions.rows,
-        cols: dimensions.cols,
-        depth: dimensions.depth,
-        dimetric: projectionMode === "dimetric"
-      }),
+    getBoxStyle: () => (cachedSnapshot ?? buildSnapshot()).style,
     subscribeSnapshot,
-    getWalls: () => computeWallMask(camera.state.rotX, camera.state.rotY),
-    getCursor: () => (isDragging ? "grabbing" : "grab"),
+    getWalls,
+    getCursor,
     setPointerInvert,
     setProjection,
     applySceneState,

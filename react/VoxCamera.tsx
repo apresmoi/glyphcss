@@ -1,7 +1,11 @@
 import React, { forwardRef, useImperativeHandle, useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { SceneController } from "@voxcss/controller/sceneController";
-import { CAMERA_HOST_CLASS, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/domBindings";
+import {
+  CAMERA_HOST_CLASS,
+  type CameraComponentProps,
+  type CameraSlotProps
+} from "@voxcss/controller/domBindings";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import { SceneControllerContext, useSceneControllerContext } from "./useBindings";
 import { mountCameraBinding } from "@voxcss/controller/domBindings";
@@ -40,45 +44,27 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const teardownRef = useRef<ReturnType<typeof mountCameraBinding> | null>(null);
-  const animateRef = useRef<AutoRotateOption | false | undefined>(cameraProps.animate);
   const latestProps = useRef(cameraProps);
 
   const [slotProps, setSlotProps] = useState<CameraSlotProps | null>(null);
   const [cursor, setCursor] = useState("default");
-  const [controller, setController] = useState<SceneController | null>(null);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
     if (!element) return;
     const options = latestProps.current;
-    const teardown = mountCameraBinding(
+    teardownRef.current = mountCameraBinding(
       element,
       options,
       (snapshot) => {
-        if (!snapshot) {
-          setController(null);
-          setSlotProps(null);
-          setCursor("default");
-          return;
-        }
-        setController(snapshot.controller);
-        setSlotProps({
-          boxStyle: snapshot.boxStyle,
-          cursor: snapshot.cursor,
-          walls: snapshot.walls,
-          camera: snapshot.camera,
-          controller: snapshot.controller
-        });
-        setCursor(snapshot.cursor);
+        setSlotProps(snapshot);
+        setCursor(snapshot?.cursor ?? "default");
       },
       (nextCursor) => setCursor(nextCursor)
     );
-    teardownRef.current = teardown;
     return () => {
       teardownRef.current?.destroy();
       teardownRef.current = null;
-      animateRef.current = undefined;
-      setController(null);
       setSlotProps(null);
       setCursor("default");
     };
@@ -86,7 +72,6 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
 
   useEffect(() => {
     latestProps.current = cameraProps;
-    animateRef.current = cameraProps.animate;
     teardownRef.current?.update(cameraProps);
   }, [cameraProps]);
 
@@ -95,17 +80,16 @@ export const VoxCamera = forwardRef<VoxCameraHandle, VoxCameraProps>(function Vo
     () => ({
       controller: controller ?? useSceneControllerContext(),
       startAutoRotate: (config?: AutoRotateOption) => {
-        const next = config ?? animateRef.current;
-        animateRef.current = next;
-        teardownRef.current?.startAutoRotate(next);
+        teardownRef.current?.startAutoRotate(config);
       },
       stopAutoRotate: () => {
-        animateRef.current = false;
         teardownRef.current?.stopAutoRotate();
       }
     }),
-    [controller]
+    [slotProps?.controller]
   );
+
+  const controller = slotProps?.controller ?? null;
 
   const renderedChildren =
     slotProps && controller

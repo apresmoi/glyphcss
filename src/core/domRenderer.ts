@@ -19,12 +19,13 @@ import {
 import { getVoxelBounds, makeVoxelKey } from "./context";
 import { computeVisibleFaces } from "./visibility";
 import { cubeShapeRenderer, ensureCubeDomCache, disposeCubeDom } from "./shapes";
-import { defaultShapes } from "./shapes/registry";
+import { rampShapeRenderer } from "./shapes/ramp";
+import { wedgeShapeRenderer } from "./shapes/wedge";
+import { spikeShapeRenderer } from "./shapes/spike";
 import { shadeWallFace, shadeColor } from "./lighting";
 
 interface DomRendererState {
   renderState: RenderState;
-  context: GridContext | null;
 }
 
 const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
@@ -43,23 +44,24 @@ export interface RendererHandle {
 }
 
 export interface SceneSnapshot {
-  grid: VoxelGrid;
   layers: Voxel[][];
-  lookups: VoxelLookup[];
   context: GridContext;
-  dimensions: Required<SceneDimensions>;
 }
 
 export type RendererFactory = (options: RendererMountOptions) => RendererHandle;
 
 export const createDomRenderer: RendererFactory = (options: RendererMountOptions): RendererHandle => {
   const { documentRef, target } = options;
-  const shapes = defaultShapes;
+  const shapes = {
+    cube: cubeShapeRenderer,
+    ramp: rampShapeRenderer,
+    wedge: wedgeShapeRenderer,
+    spike: spikeShapeRenderer
+  };
   const state = ensureDomRendererState(documentRef, target);
 
   function render(snapshot: SceneSnapshot): void {
-    state.context = { ...snapshot.context };
-    renderScene(state, snapshot, documentRef, target, shapes);
+    renderScene(state.renderState, snapshot, documentRef, target, shapes);
   }
 
   function destroy(): void {
@@ -90,10 +92,7 @@ function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRe
     wallElements: new Map(),
     ceiling: null
   };
-  const composed: DomRendererState = {
-    renderState,
-    context: null
-  };
+  const composed: DomRendererState = { renderState };
   rendererStates.set(root, composed);
   return composed;
 }
@@ -106,14 +105,13 @@ function appendFloor(documentRef: Document, root: HTMLElement): HTMLElement {
 }
 
 function renderScene(
-  state: DomRendererState,
+  renderState: RenderState,
   snapshot: SceneSnapshot,
   documentRef: Document,
   root: HTMLElement,
   shapes: Record<string, ShapeRenderer>
 ): void {
-  const renderState = state.renderState;
-  const context = state.context ?? snapshot.context;
+  const context = snapshot.context;
   updateProjectionClass(root, context);
   root.style.setProperty("--voxcss-rows", String(context.rows));
   root.style.setProperty("--voxcss-cols", String(context.cols));

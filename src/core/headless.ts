@@ -1,8 +1,8 @@
 import { sceneController, type SceneController } from "../controller/sceneController";
-import { mountScene, SCENE_HOST_CLASS, type SceneState } from "../controller/sceneBindings";
+import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "../controller/sceneBindings";
 import { SCENE_CLASS } from "./types";
 import type { AutoRotateOption } from "./camera";
-import { normalizeInvertMultiplier, DEFAULT_CAMERA_STATE } from "./camera";
+import { createIsometricCamera, normalizeInvertMultiplier } from "./camera";
 import type { SceneControllerOptions } from "../controller/sceneController";
 import type { CameraComponentProps } from "../controller/domBindings";
 
@@ -18,6 +18,7 @@ export interface HeadlessCameraHandle {
   setInteractive(value: boolean): void;
   setAnimate(option: AutoRotateOption | false | undefined): void;
   setPerspective(value: number | boolean | undefined): void;
+  update(next: CameraComponentProps): void;
   destroy(): void;
 }
 
@@ -42,7 +43,7 @@ export function createScene(options: HeadlessSceneOptions): HeadlessSceneOptions
     throw new Error("voxcss: createScene requires an element.");
   }
   element.classList.add(SCENE_HOST_CLASS);
-  return { element, ...state };
+  return { element, ...normalizeSceneState(state) };
 }
 
 export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHandle {
@@ -93,6 +94,30 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
       applyPerspective(element, resolved);
       currentPerspective = resolved;
     },
+    update(next: CameraComponentProps) {
+      if (next.zoom !== undefined || next.pan !== undefined || next.tilt !== undefined || next.rotX !== undefined || next.rotY !== undefined) {
+        controller.updateCamera({
+          ...(next.zoom !== undefined ? { zoom: next.zoom } : {}),
+          ...(next.pan !== undefined ? { pan: next.pan } : {}),
+          ...(next.tilt !== undefined ? { tilt: next.tilt } : {}),
+          ...(next.rotX !== undefined ? { rotX: next.rotX } : {}),
+          ...(next.rotY !== undefined ? { rotY: next.rotY } : {})
+        });
+      }
+      if (next.invert !== undefined) {
+        const invertOverride = normalizeInvertMultiplier(next.invert);
+        controller.setPointerInvert(invertOverride ?? normalizeInvertMultiplier(false) ?? 1);
+      }
+      if (next.interactive !== undefined) {
+        handle.setInteractive(!!next.interactive);
+      }
+      if (next.perspective !== undefined) {
+        handle.setPerspective(next.perspective);
+      }
+      if (next.animate !== undefined) {
+        handle.setAnimate(next.animate);
+      }
+    },
     destroy() {
       detachPointer?.();
       detachPointer = null;
@@ -111,7 +136,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   const controller = camera.controller;
   const { element, ...state } = scene;
-  let currentState: SceneState = { ...state };
+  let currentState: SceneState = normalizeSceneState(state);
   const binding = mountScene({
     controller,
     element,
@@ -124,12 +149,12 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
 
   return {
     setVoxels(voxels: SceneState["voxels"]) {
-      currentState = { ...currentState, voxels };
+      currentState = normalizeSceneState({ ...currentState, voxels });
       binding.update(currentState);
     },
     setScene(options: SceneState) {
       // Merge so partial updates (e.g., toggling walls) preserve the existing scene state.
-      currentState = { ...currentState, ...options };
+      currentState = normalizeSceneState({ ...currentState, ...options });
       binding.update(currentState);
     },
     destroy() {
@@ -154,11 +179,14 @@ function normalizeCameraOptions(options: HeadlessCameraOptions): {
 } {
   const controllerBase = options.controller ?? {};
   const baseCamera = controllerBase.camera ?? {};
-  const zoom = options.zoom ?? baseCamera.zoom ?? DEFAULT_CAMERA_STATE.zoom;
-  const pan = options.pan ?? baseCamera.pan ?? DEFAULT_CAMERA_STATE.pan;
-  const tilt = options.tilt ?? baseCamera.tilt ?? DEFAULT_CAMERA_STATE.tilt;
-  const rotX = options.rotX ?? baseCamera.rotX ?? DEFAULT_CAMERA_STATE.rotX;
-  const rotY = options.rotY ?? baseCamera.rotY ?? DEFAULT_CAMERA_STATE.rotY;
+  const { zoom, pan, tilt, rotX, rotY } = createIsometricCamera({
+    zoom: options.zoom ?? baseCamera.zoom,
+    pan: options.pan ?? baseCamera.pan,
+    tilt: options.tilt ?? baseCamera.tilt,
+    rotX: options.rotX ?? baseCamera.rotX,
+    rotY: options.rotY ?? baseCamera.rotY,
+    depthOffset: baseCamera.depthOffset
+  }).state;
   const interactive = options.interactive ?? false;
   const perspective =
     options.perspective === false

@@ -22,11 +22,6 @@ export interface CameraStyleInput {
   depth?: number;
   rows?: number;
   cols?: number;
-  zoom?: number;
-  pan?: number;
-  tilt?: number;
-  rotX?: number;
-  rotY?: number;
   dimetric?: boolean;
 }
 
@@ -75,11 +70,6 @@ export function createIsometricCamera(initial: Partial<CameraState> = {}): Camer
   }
 
   function getStyle(input: CameraStyleInput = {}) {
-    const zoom = input.zoom ?? state.zoom;
-    const pan = input.pan ?? state.pan;
-    const tilt = input.tilt ?? state.tilt;
-    const rotX = input.rotX ?? state.rotX;
-    const rotY = input.rotY ?? state.rotY;
     const depth = input.depth ?? 0;
     const depthMultiplier = input.dimetric ? 0.5 : 1;
     const depthOffset = depth * state.depthOffset * depthMultiplier;
@@ -88,7 +78,7 @@ export function createIsometricCamera(initial: Partial<CameraState> = {}): Camer
     const height = (input.rows ?? 0) * tileSize;
 
     return {
-      transform: `scale(${zoom}) translateY(${depthOffset}px) translateY(${tilt}px) translateX(${pan}px) rotateX(${rotX}deg) rotate(${rotY}deg)`,
+      transform: `scale(${state.zoom}) translateY(${depthOffset}px) translateY(${state.tilt}px) translateX(${state.pan}px) rotateX(${state.rotX}deg) rotate(${state.rotY}deg)`,
       width: `${width}px`,
       height: `${height}px`
     };
