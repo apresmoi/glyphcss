@@ -15,7 +15,7 @@ export interface SceneState {
 }
 
 export type SceneComponentProps = Partial<SceneState>;
-export const SCENE_HOST_CLASS = "voxcss-scene-host";
+export const SCENE_HOST_CLASS = "voxcss-scene";
 
 export function normalizeSceneState(input: SceneComponentProps): SceneState {
   return {
