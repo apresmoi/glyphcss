@@ -126,6 +126,8 @@ export const SCENE_CLASS = "voxcss-camera";
 
 export interface LayerRecord {
   element: HTMLElement;
+  children?: HTMLElement[];
+  lastVoxels?: Voxel[] | null;
 }
 
 export interface RenderState {

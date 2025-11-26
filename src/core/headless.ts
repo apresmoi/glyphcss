@@ -218,17 +218,21 @@ function attachPointerEvents(
 ): () => void {
   const handlePointerDown = (event: PointerEvent) => {
     onInteraction?.();
+    event.preventDefault();
     controller.handlePointerDown(event);
     element.setPointerCapture?.(event.pointerId);
   };
-  const handlePointerMove = (event: PointerEvent) => controller.handlePointerMove(event);
+  const handlePointerMove = (event: PointerEvent) => {
+    event.preventDefault();
+    controller.handlePointerMove(event);
+  };
   const handlePointerUp = (event: PointerEvent) => {
     controller.handlePointerUp();
     element.releasePointerCapture?.(event.pointerId);
   };
   element.addEventListener("pointerdown", handlePointerDown);
-  element.addEventListener("pointermove", handlePointerMove, { passive: true });
-  element.addEventListener("pointerup", handlePointerUp, { passive: true });
+  element.addEventListener("pointermove", handlePointerMove);
+  element.addEventListener("pointerup", handlePointerUp);
   return () => {
     element.removeEventListener("pointerdown", handlePointerDown);
     element.removeEventListener("pointermove", handlePointerMove);

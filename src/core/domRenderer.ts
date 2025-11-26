@@ -174,15 +174,64 @@ function renderLayer(
   shapes: Record<string, ShapeRenderer>,
   documentRef: Document
 ): void {
-  if (!voxels?.length) return;
-  const record = ensureLayerRecord(state, layerIndex, documentRef, context);
-  clearLayerChildren(record);
-  for (const voxel of voxels) {
-    if (!voxel) continue;
-    const faces = computeVisibleFaces(voxel, context);
-    if (!faces.length) continue;
-    renderVoxelElement(record, voxel, faces, context, shapes, documentRef);
+  if (!voxels?.length) {
+    const existing = state.layers.get(layerIndex);
+    if (existing) {
+      clearLayerChildren(existing);
+      existing.lastVoxels = null;
+    }
+    return;
   }
+  const record = ensureLayerRecord(state, layerIndex, documentRef, context);
+  const sameRef = voxelArraysEqual(record.lastVoxels, voxels);
+  if (!record.children) {
+    record.children = [];
+  }
+  if (!sameRef) {
+    clearLayerChildren(record);
+    record.children = [];
+  }
+  const pool = record.children;
+  while (pool.length < voxels.length) {
+    const element = documentRef.createElement("div");
+    record.element.appendChild(element);
+    pool.push(element);
+  }
+  while (pool.length > voxels.length) {
+    const element = pool.pop();
+    if (element) {
+      disposeCubeDom(element);
+      element.remove();
+    }
+  }
+  for (let i = 0; i < voxels.length; i += 1) {
+    const voxel = voxels[i];
+    if (!voxel) continue;
+    const element = pool[i];
+    if (!element) continue;
+    element.style.display = "";
+    const faces = computeVisibleFaces(voxel, context);
+    if (!faces.length) {
+      element.style.display = "none";
+      disposeCubeDom(element);
+      element.innerHTML = "";
+      continue;
+    }
+    syncVoxelElement(element, voxel);
+    renderVoxelElement(record, voxel, faces, context, shapes, documentRef, element);
+  }
+  record.children = pool;
+  record.lastVoxels = voxels;
+}
+
+function voxelArraysEqual(a?: Voxel[] | null, b?: Voxel[] | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
 
 function renderVoxelElement(
@@ -191,16 +240,19 @@ function renderVoxelElement(
   faces: CubeFace[],
   context: GridContext,
   shapes: Record<string, ShapeRenderer>,
-  documentRef: Document
+  documentRef: Document,
+  element?: HTMLElement
 ): void {
-  const element = documentRef.createElement("div");
-  record.element.appendChild(element);
-  syncVoxelElement(element, voxel);
+  const host = element ?? documentRef.createElement("div");
+  if (!element) {
+    record.element.appendChild(host);
+  }
+  syncVoxelElement(host, voxel);
   renderVoxel({
     voxel,
     faces,
     context,
-    root: element,
+    root: host,
     shapes
   });
 }
@@ -252,7 +304,9 @@ function createLayerRecord(
   const element = documentRef.createElement("div");
   element.className = LAYER_CLASS;
   const record: LayerRecord = {
-    element
+    element,
+    children: [],
+    lastVoxels: null
   };
   state.layers.set(layerIndex, record);
   const parent = state.floor;
@@ -533,18 +587,16 @@ function clearWalls(state: RenderState): void {
 }
 
 function removeLayerRecord(record: LayerRecord): void {
-  const children = Array.from(record.element.children) as HTMLElement[];
-  for (const element of children) {
-    disposeCubeDom(element);
-    element.remove();
-  }
+  clearLayerChildren(record);
   record.element.remove();
 }
 
 function clearLayerChildren(record: LayerRecord): void {
-  const children = Array.from(record.element.children) as HTMLElement[];
+  const children = record.children ?? Array.from(record.element.children);
   for (const element of children) {
     disposeCubeDom(element);
     element.remove();
   }
+  record.children = [];
+  record.lastVoxels = null;
 }

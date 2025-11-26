@@ -25,6 +25,7 @@ export function useSceneBinding(props: SceneBindingProps) {
   const prevStateRef = useRef<SceneState | null>(null);
 
   useLayoutEffect(() => {
+    latestProps.current = props;
     const element = containerRef.current;
     if (!element) return;
     const { controller, element: _unused, ...state } = latestProps.current;
@@ -32,8 +33,9 @@ export function useSceneBinding(props: SceneBindingProps) {
     return () => {
       bindingRef.current?.destroy();
       bindingRef.current = null;
+      prevStateRef.current = null;
     };
-  }, []);
+  }, [props.controller]);
 
   useEffect(() => {
     latestProps.current = props;
@@ -44,7 +46,16 @@ export function useSceneBinding(props: SceneBindingProps) {
     }
     prevStateRef.current = nextState;
     bindingRef.current?.update(nextState);
-  }, [props.voxels, props.rows, props.cols, props.depth, props.showWalls, props.showFloor, props.projection]);
+  }, [
+    props.controller,
+    props.voxels,
+    props.rows,
+    props.cols,
+    props.depth,
+    props.showWalls,
+    props.showFloor,
+    props.projection
+  ]);
 
   return containerRef;
 }
