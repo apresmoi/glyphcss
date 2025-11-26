@@ -2,6 +2,7 @@
   import type { VoxelGrid, ProjectionMode } from "@voxcss/core/types";
   import { SCENE_HOST_CLASS, mountScene, normalizeSceneState } from "@voxcss/controller/sceneBindings";
   import { createEventDispatcher, onDestroy } from "svelte";
+  import { useControllerStore } from "./context";
 
   export let voxels: VoxelGrid | undefined;
   export let rows: number | undefined;
@@ -11,12 +12,15 @@
   export let showFloor: boolean | undefined;
   export let projection: ProjectionMode | undefined;
 
-  export let controller: import("@voxcss/controller/sceneController").SceneController;
+  export let controller: import("@voxcss/controller/sceneController").SceneController | undefined;
 
   let element: HTMLDivElement | null = null;
   const dispatch = createEventDispatcher();
   let binding: ReturnType<typeof mountScene> | null = null;
   let lastController: typeof controller | null = null;
+  const controllerStore = useControllerStore();
+  let resolvedController: typeof controller | null = null;
+  $: resolvedController = controller ?? $controllerStore ?? null;
 
   $: bindingOptions = normalizeSceneState({
     voxels,
@@ -30,18 +34,25 @@
 
   // Remount when the controller instance changes so subscriptions and pointer events stay in sync.
   $: {
-    if (controller && lastController && controller !== lastController && binding) {
+    if (resolvedController && lastController && resolvedController !== lastController && binding) {
       binding.destroy();
       binding = null;
     }
-    lastController = controller;
+    if (!resolvedController && binding) {
+      binding.destroy();
+      binding = null;
+    }
+    lastController = resolvedController;
   }
 
   $: {
+    if (!resolvedController || !element) {
+      return;
+    }
     if (binding) {
       binding.update(bindingOptions);
-    } else if (element && controller) {
-      binding = mountScene({ element, controller, ...bindingOptions });
+    } else if (element) {
+      binding = mountScene({ element, controller: resolvedController, ...bindingOptions });
     }
   }
 

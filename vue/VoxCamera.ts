@@ -1,4 +1,4 @@
-import { defineComponent, h, computed, onBeforeUnmount, ref, watch } from "vue";
+import { defineComponent, h, computed, onBeforeUnmount, ref, watch, provide } from "vue";
 import type { AutoRotateOption } from "@voxcss/core/camera";
 import {
   CAMERA_HOST_CLASS,
@@ -6,6 +6,7 @@ import {
   type CameraSlotProps
 } from "@voxcss/controller/domBindings";
 import { mountCameraBinding } from "@voxcss/controller/domBindings";
+import { controllerKey } from "./context";
 
 const cameraPropOptions = {
   zoom: { type: Number },
@@ -25,6 +26,8 @@ export default defineComponent({
   setup(props, { slots, expose }) {
     const slotProps = ref<CameraSlotProps | null>(null);
     const cursor = ref("default");
+    const controllerRef = ref<CameraSlotProps["controller"] | null>(null);
+    provide(controllerKey, controllerRef);
     const elementRef = ref<HTMLElement | null>(null);
     let teardown: ReturnType<typeof mountCameraBinding> | null = null;
 
@@ -38,6 +41,7 @@ export default defineComponent({
         props,
         (snapshot) => {
           slotProps.value = snapshot;
+          controllerRef.value = snapshot?.controller ?? null;
           cursor.value = snapshot?.cursor ?? "default";
         },
         (nextCursor) => {
@@ -59,6 +63,7 @@ export default defineComponent({
       teardown?.destroy();
       teardown = null;
       slotProps.value = null;
+      controllerRef.value = null;
       cursor.value = "default";
     });
 

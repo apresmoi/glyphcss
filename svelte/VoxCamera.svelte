@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
+  import { createControllerStore, provideControllerStore } from "./context";
   import type { AutoRotateOption } from "@voxcss/core/camera";
   import { CAMERA_HOST_CLASS, mountCameraBinding, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/domBindings";
 
@@ -17,6 +18,8 @@
   let slotProps: CameraSlotProps | null = null;
   let cursor = "default";
   let teardown: ReturnType<typeof mountCameraBinding> | null = null;
+  const controllerStore = createControllerStore();
+  provideControllerStore(controllerStore);
 
   const currentProps = (): CameraComponentProps => ({
     zoom,
@@ -38,6 +41,7 @@
       props,
       (snapshot) => {
         slotProps = snapshot;
+        controllerStore.set(snapshot?.controller ?? null);
         cursor = snapshot?.cursor ?? "default";
       },
       (nextCursor) => {
@@ -48,6 +52,7 @@
       teardown?.destroy();
       teardown = null;
       slotProps = null;
+      controllerStore.set(null);
       cursor = "default";
     };
   });

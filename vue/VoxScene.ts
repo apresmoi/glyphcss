@@ -1,9 +1,10 @@
-import { defineComponent, h, onBeforeUnmount, ref, watch } from "vue";
+import { defineComponent, h, onBeforeUnmount, ref, watch, computed, inject } from "vue";
 import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
+import { controllerKey } from "./context";
 
 const scenePropOptions = {
-  controller: { type: Object as import("vue").PropType<SceneController>, required: true },
+  controller: { type: Object as import("vue").PropType<SceneController> },
   voxels: { type: Array as import("vue").PropType<import("@voxcss/core/types").VoxelGrid | undefined> },
   rows: { type: Number },
   cols: { type: Number },
@@ -19,12 +20,14 @@ export default defineComponent({
   setup(props) {
     const hostElement = ref<HTMLElement | null>(null);
     let binding: ReturnType<typeof mountScene> | null = null;
+    const injectedController = inject(controllerKey, null);
+    const resolvedController = computed<SceneController | null>(() => props.controller ?? injectedController?.value ?? null);
 
     const mountBinding = () => {
       binding?.destroy();
       binding = null;
       const element = hostElement.value;
-      const controller = props.controller;
+      const controller = resolvedController.value;
       if (!element || !controller) return;
       const options: SceneState & { controller: SceneController } = {
         controller,
@@ -42,6 +45,7 @@ export default defineComponent({
     };
 
     watch(hostElement, () => mountBinding(), { immediate: true });
+    watch(resolvedController, () => mountBinding());
     watch(
       () => props.controller,
       (next, prev) => {

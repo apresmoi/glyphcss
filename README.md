@@ -99,13 +99,14 @@ Svelte
 - `rotX`, `rotY` – rotate around the X/Y axis.
 - `perspective` – control CSS perspective depth (or disable it).
 - `invert` – flip pointer drag direction.
-- `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing.
+- `animate` – auto-rotate the camera; accepts `true`, a speed number, or `{ axis, speed, pauseOnInteraction }`.
 
 ### VoxScene props
 
-- `voxels` – required grid data (see model below); accepts any iterable of voxel objects.
+- `voxels` – array of voxel objects; optional (defaults to empty) to render a blank scene.
 - `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
+- `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing.
 
 Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
 
