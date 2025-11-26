@@ -93,7 +93,10 @@ const CORE_BASE_STYLES = `
       transparent 1px
     ),
     linear-gradient(to bottom, rgba(0, 0, 0, 0.1) 1px, transparent 1px);
-  background-size: 50px 50px;
+  background-size: 50px var(--voxcss-layer-elevation, 50px);
+}
+.voxcss-wall--backLeft {
+  background-size: var(--voxcss-layer-elevation, 50px) 50px;
 }
 .voxcss-cube {
   position: relative;

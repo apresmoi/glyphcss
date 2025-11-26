@@ -48,6 +48,8 @@ export function mountScene({
   injectBaseStyles(doc);
   const renderer = createDomRenderer({ documentRef: doc, target: element });
   let lastWalls: WallsMask | null = null;
+  let lastDimensions = controller.getDimensions();
+  let lastProjection = controller.getProjection();
   const applyBoxStyle = (style: Record<string, string>) => {
     Object.entries(style).forEach(([key, value]) => {
       (element.style as CSSStyleDeclaration & Record<string, string>)[key] = value ?? "";
@@ -61,8 +63,17 @@ export function mountScene({
   const unsubscribers = [
     controller.subscribeSnapshot(({ style, walls }) => {
       applyBoxStyle(style);
-      if (!lastWalls || !wallMasksEqual(lastWalls, walls)) {
+      const nextDimensions = controller.getDimensions();
+      const dimensionsChanged =
+        nextDimensions.rows !== lastDimensions.rows ||
+        nextDimensions.cols !== lastDimensions.cols ||
+        nextDimensions.depth !== lastDimensions.depth;
+      const projectionChanged = controller.getProjection() !== lastProjection;
+      const wallsChanged = !lastWalls || !wallMasksEqual(lastWalls, walls);
+      if (dimensionsChanged || projectionChanged || wallsChanged) {
         lastWalls = walls;
+        lastDimensions = nextDimensions;
+        lastProjection = controller.getProjection();
         rerender();
       }
     })

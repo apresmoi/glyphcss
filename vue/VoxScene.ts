@@ -43,8 +43,16 @@ export default defineComponent({
 
     watch(hostElement, () => mountBinding(), { immediate: true });
     watch(
+      () => props.controller,
+      (next, prev) => {
+        if (next === prev) return;
+        binding?.destroy();
+        binding = null;
+        mountBinding();
+      }
+    );
+    watch(
       () => [
-        props.controller,
         props.voxels,
         props.rows,
         props.cols,
@@ -56,11 +64,6 @@ export default defineComponent({
       () => {
         if (!binding) {
           mountBinding();
-          return;
-        }
-        if (!props.controller) {
-          binding?.destroy();
-          binding = null;
           return;
         }
         binding.update(

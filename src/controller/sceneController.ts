@@ -1,7 +1,7 @@
 import { createIsometricCamera, normalizeInvertMultiplier } from "../core/camera";
 import type { CameraHandle, CameraState } from "../core/camera";
 import type { ProjectionMode, SceneDimensions, WallsMask, Voxel, GridContext } from "../core/types";
-import { buildSceneContext } from "../core/context";
+import { buildSceneContext, computeWallMask, wallMasksEqual } from "../core/context";
 import type { SceneState } from "./sceneBindings";
 
 type SnapshotListener = (snapshot: ControllerSnapshot) => void;
@@ -27,6 +27,7 @@ export interface SceneControllerOptions {
 
 export interface SceneController {
   getDimensions(): Required<SceneDimensions>;
+  getProjection(): ProjectionMode;
   setDimensions(next: SceneDimensions): void;
 
   getCameraState(): CameraState;
@@ -136,6 +137,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     };
   }
 
+  function getProjection() {
+    return lastState.projection;
+  }
+
   function getCameraState() {
     return { ...camera.state };
   }
@@ -144,7 +149,15 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     const hadRotationUpdate = next.rotX !== undefined || next.rotY !== undefined;
     camera.update(next);
     if (hadRotationUpdate) {
-      rebuildScene(lastState);
+      // Only rotation changes: avoid rebuilding the entire scene; update wall mask if needed.
+      if (lastState.showWalls) {
+        const nextMask = computeWallMask(camera.state.rotX, camera.state.rotY);
+        if (!wallMasksEqual(currentContext.walls, nextMask)) {
+          currentContext = { ...currentContext, walls: nextMask };
+        }
+      }
+      emitSnapshot();
+      return;
     }
     emitSnapshot();
   }
@@ -169,11 +182,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     const dY = ((event.clientY - pointerY) * invert) / POINTER_DRAG_SPEED;
     const nextRotY = (camera.state.rotY - dX + 360) % 360;
     const nextRotX = Math.max(0, Math.min(100, camera.state.rotX - dY));
-    camera.update({ rotX: nextRotX, rotY: nextRotY });
-    rebuildScene(lastState);
+    // Rotation-only updates should not rebuild the scene; rely on camera update + wall mask refresh.
+    updateCamera({ rotX: nextRotX, rotY: nextRotY });
     pointerX = event.clientX;
     pointerY = event.clientY;
-    emitSnapshot();
   }
 
   function handlePointerUp() {
@@ -219,6 +231,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
 
   return {
     getDimensions,
+    getProjection,
     setDimensions,
     getCameraState,
     updateCamera,

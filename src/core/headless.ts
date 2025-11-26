@@ -230,13 +230,19 @@ function attachPointerEvents(
     controller.handlePointerUp();
     element.releasePointerCapture?.(event.pointerId);
   };
+  const handlePointerCancel = (event: PointerEvent) => {
+    controller.handlePointerUp();
+    element.releasePointerCapture?.(event.pointerId);
+  };
   element.addEventListener("pointerdown", handlePointerDown);
   element.addEventListener("pointermove", handlePointerMove);
   element.addEventListener("pointerup", handlePointerUp);
+  element.addEventListener("pointercancel", handlePointerCancel);
   return () => {
     element.removeEventListener("pointerdown", handlePointerDown);
     element.removeEventListener("pointermove", handlePointerMove);
     element.removeEventListener("pointerup", handlePointerUp);
+    element.removeEventListener("pointercancel", handlePointerCancel);
   };
 }
 

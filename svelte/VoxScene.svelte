@@ -16,6 +16,7 @@
   let element: HTMLDivElement | null = null;
   const dispatch = createEventDispatcher();
   let binding: ReturnType<typeof mountScene> | null = null;
+  let lastController: typeof controller | null = null;
 
   $: bindingOptions = normalizeSceneState({
     voxels,
@@ -26,6 +27,15 @@
     showFloor,
     projection
   });
+
+  // Remount when the controller instance changes so subscriptions and pointer events stay in sync.
+  $: {
+    if (controller && lastController && controller !== lastController && binding) {
+      binding.destroy();
+      binding = null;
+    }
+    lastController = controller;
+  }
 
   $: {
     if (binding) {
