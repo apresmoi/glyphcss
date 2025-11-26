@@ -19,17 +19,6 @@ export type VoxelGrid = Voxel[];
 
 export const BASE_TILE = 50;
 
-export interface VoxelLookup {
-  rows: number;
-  cols: number;
-  voxels: (Voxel | null)[];
-}
-
-export interface VoxelLookupBuildResult {
-  lookups: VoxelLookup[];
-  layers: Voxel[][];
-}
-
 export interface SceneDimensions {
   rows?: number;
   cols?: number;
@@ -137,7 +126,6 @@ export const SCENE_CLASS = "voxcss-camera";
 
 export interface LayerRecord {
   element: HTMLElement;
-  voxels: Map<string, HTMLElement>;
 }
 
 export interface RenderState {

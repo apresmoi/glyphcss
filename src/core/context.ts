@@ -1,15 +1,5 @@
 /* Context building + voxel lookup helpers used by renderers and controllers. */
-import type {
-  GridContext,
-  OffsetMap,
-  ProjectionMode,
-  SceneDimensions,
-  Voxel,
-  VoxelGrid,
-  VoxelLookup,
-  VoxelLookupBuildResult,
-  WallsMask
-} from "./types";
+import type { GridContext, OffsetMap, ProjectionMode, SceneDimensions, Voxel, VoxelGrid, WallsMask } from "./types";
 import { BASE_TILE, DEFAULT_OFFSETS, DEFAULT_PROJECTION, DEFAULT_WALLS, DEFAULT_WALL_COLOR } from "./types";
 
 export interface SceneContextBuildArgs {
@@ -21,7 +11,7 @@ export interface SceneContextBuildArgs {
 export interface SceneContextBuildResult {
   context: GridContext;
   dimensions: Required<SceneDimensions>;
-  lookupData: VoxelLookupBuildResult;
+  layers: Voxel[][];
 }
 
 const FALLBACK_ROWS_COLS = 16;
@@ -76,7 +66,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
 
   const defaultLayerElevation = projection === "dimetric" ? tileSize / 2 : tileSize;
   const layerElevation = partial.layerElevation ?? defaultLayerElevation;
-  const lookupData = buildVoxelLookups(grid, rows, cols, depth);
+  const { layers, lookups } = buildVoxelLayers(grid, rows, cols, depth);
 
   const context: GridContext = {
     rows,
@@ -92,7 +82,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     rotX: partial.rotX,
     rotY: partial.rotY,
     wallColor: partial.wallColor ?? DEFAULT_WALL_COLOR,
-    getVoxel: (x: number, y: number, z: number) => getVoxelFromLookup(lookupData!.lookups, x, y, z),
+    getVoxel: (x: number, y: number, z: number) => findVoxelInLayers(lookups, x, y, z, cols),
     resolveTexture: partial.resolveTexture,
     lighting: partial.lighting
   };
@@ -104,7 +94,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
       cols,
       depth
     },
-    lookupData: lookupData!
+    layers
   };
 }
 
@@ -136,56 +126,34 @@ export function wallMasksEqual(a?: WallsMask | null, b?: WallsMask | null): bool
   );
 }
 
-export function buildVoxelLookups(
+function buildVoxelLayers(
   grid: VoxelGrid,
-  rows?: number,
-  cols?: number,
-  depthOverride?: number
-): VoxelLookupBuildResult {
-  const inferred = rows === undefined || cols === undefined || depthOverride === undefined ? inferGridDimensions(grid) : null;
-  const targetRows = Math.max(rows ?? inferred?.rows ?? 1, 1);
-  const targetCols = Math.max(cols ?? inferred?.cols ?? 1, 1);
-  const depth = Math.max(depthOverride ?? inferred?.depth ?? 0, 0);
-  if (!depth) {
-    return { lookups: [], layers: [] };
+  rows: number,
+  cols: number,
+  depth: number
+): { layers: Voxel[][]; lookups: Array<(Voxel | null)[]> } {
+  if (depth <= 0) {
+    return { layers: [], lookups: [] };
   }
-  const lookups: VoxelLookup[] = Array.from({ length: depth }, () => ({
-    rows: targetRows,
-    cols: targetCols,
-    voxels: new Array<Voxel | null>(targetRows * targetCols).fill(null)
-  }));
   const layers: Voxel[][] = Array.from({ length: depth }, () => []);
+  const lookups: Array<(Voxel | null)[]> = Array.from({ length: depth }, () => new Array<Voxel | null>(rows * cols).fill(null));
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
     const layerIndex = Math.max(0, Math.floor(voxel.z ?? 0));
-    const lookup = lookups[layerIndex];
     const layer = layers[layerIndex];
-    if (!lookup || !layer) {
-      continue;
-    }
+    const lookup = lookups[layerIndex];
+    if (!layer || !lookup) continue;
     layer.push(voxel);
     const { x2, y2 } = getVoxelBounds(voxel);
-    for (let row = voxel.x; row < x2; row += 1) {
-      if (row < 0 || row >= targetRows) continue;
-      for (let col = voxel.y; col < y2; col += 1) {
-        if (col < 0 || col >= targetCols) continue;
-        lookup.voxels[row * targetCols + col] = voxel;
+    for (let x = voxel.x; x < x2; x += 1) {
+      if (x < 0 || x >= rows) continue;
+      for (let y = voxel.y; y < y2; y += 1) {
+        if (y < 0 || y >= cols) continue;
+        lookup[x * cols + y] = voxel;
       }
     }
   }
-  return { lookups, layers };
-}
-
-export function getVoxelFromLookup(
-  lookups: VoxelLookup[],
-  x: number,
-  y: number,
-  z: number
-): Voxel | null {
-  const layer = lookups[z];
-  if (!layer) return null;
-  if (x < 0 || y < 0 || x >= layer.rows || y >= layer.cols) return null;
-  return layer.voxels[x * layer.cols + y] ?? null;
+  return { layers, lookups };
 }
 
 export function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
@@ -195,7 +163,25 @@ export function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
   };
 }
 
-export function makeVoxelKey(voxel: Voxel): string {
+function findVoxelInLayers(
+  lookups: Array<(Voxel | null)[]>,
+  x: number,
+  y: number,
+  z: number,
+  cols: number
+): Voxel | null {
+  const layer = lookups[z];
+  if (!layer || x < 0 || y < 0) return null;
+  if (cols <= 0 || y >= cols) return null;
+  const rows = Math.floor(layer.length / cols);
+  if (x >= rows) return null;
+  const idx = x * cols + y;
+  if (idx < 0 || idx >= layer.length) return null;
+  const voxel = layer[idx];
+  if (!voxel) return null;
   const { x2, y2 } = getVoxelBounds(voxel);
-  return `${voxel.x}/${voxel.y}/${x2}/${y2}/${voxel.z}`;
+  if (x >= voxel.x && x < x2 && y >= voxel.y && y < y2) {
+    return voxel;
+  }
+  return null;
 }

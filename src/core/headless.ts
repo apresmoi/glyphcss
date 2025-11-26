@@ -244,27 +244,33 @@ interface NormalizedAutoRotateConfig {
 
 const DEFAULT_AUTO_ROTATE_SPEED = 0.3;
 
-const REQUEST_FRAME =
-  typeof globalThis !== "undefined" && typeof globalThis.requestAnimationFrame === "function"
-    ? globalThis.requestAnimationFrame.bind(globalThis)
-    : null;
-
-const CANCEL_FRAME =
-  typeof globalThis !== "undefined" && typeof globalThis.cancelAnimationFrame === "function"
-    ? globalThis.cancelAnimationFrame.bind(globalThis)
-    : null;
-
 function createAutoRotateHandle(
   controller: SceneController,
   option?: AutoRotateOption
 ): { start(): void; stop(): void; notifyInteraction(): void } | null {
   const config = normalizeAutoRotateOption(option);
-  if (!config || !REQUEST_FRAME || !CANCEL_FRAME) {
+  if (!config) {
     return null;
   }
 
   let frameId: number | null = null;
   let disabledByInteraction = false;
+  let requestFrame: typeof requestAnimationFrame | null = null;
+  let cancelFrame: typeof cancelAnimationFrame | null = null;
+
+  const ensureFrameFns = () => {
+    if (requestFrame && cancelFrame) return true;
+    if (typeof globalThis === "undefined") return false;
+    const raf =
+      typeof globalThis.requestAnimationFrame === "function"
+        ? globalThis.requestAnimationFrame.bind(globalThis)
+        : null;
+    const caf =
+      typeof globalThis.cancelAnimationFrame === "function" ? globalThis.cancelAnimationFrame.bind(globalThis) : null;
+    requestFrame = raf;
+    cancelFrame = caf;
+    return Boolean(requestFrame && cancelFrame);
+  };
 
   const applyRotation = () => {
     const state = controller.getCameraState();
@@ -278,7 +284,8 @@ function createAutoRotateHandle(
   };
 
   const tick = () => {
-    frameId = REQUEST_FRAME(tick);
+    if (!requestFrame) return;
+    frameId = requestFrame(tick);
     if (!disabledByInteraction) {
       applyRotation();
     }
@@ -287,18 +294,27 @@ function createAutoRotateHandle(
   return {
     start() {
       if (frameId !== null || disabledByInteraction) return;
-      frameId = REQUEST_FRAME(tick);
+      if (!ensureFrameFns() || !requestFrame) return;
+      frameId = requestFrame(tick);
     },
     stop() {
       if (frameId === null) return;
-      CANCEL_FRAME(frameId);
+      if (!cancelFrame && !ensureFrameFns()) {
+        frameId = null;
+        return;
+      }
+      cancelFrame?.(frameId);
       frameId = null;
     },
     notifyInteraction() {
       if (!config.pauseOnInteraction || disabledByInteraction) return;
       disabledByInteraction = true;
       if (frameId !== null) {
-        CANCEL_FRAME(frameId);
+        if (!cancelFrame && !ensureFrameFns()) {
+          frameId = null;
+          return;
+        }
+        cancelFrame?.(frameId);
         frameId = null;
       }
     }

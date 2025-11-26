@@ -22,6 +22,7 @@ export function useSceneBinding(props: SceneBindingProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const bindingRef = useRef<ReturnType<typeof mountScene> | null>(null);
   const latestProps = useRef(props);
+  const prevStateRef = useRef<SceneState | null>(null);
 
   useLayoutEffect(() => {
     const element = containerRef.current;
@@ -37,8 +38,25 @@ export function useSceneBinding(props: SceneBindingProps) {
   useEffect(() => {
     latestProps.current = props;
     const { controller: _controller, element: _element, ...state } = props;
-    bindingRef.current?.update(normalizeSceneState(state));
-  }, [props]);
+    const nextState = normalizeSceneState(state);
+    if (prevStateRef.current && sceneStateShallowEqual(prevStateRef.current, nextState)) {
+      return;
+    }
+    prevStateRef.current = nextState;
+    bindingRef.current?.update(nextState);
+  }, [props.voxels, props.rows, props.cols, props.depth, props.showWalls, props.showFloor, props.projection]);
 
   return containerRef;
+}
+
+function sceneStateShallowEqual(a: SceneState, b: SceneState): boolean {
+  return (
+    a.voxels === b.voxels &&
+    a.rows === b.rows &&
+    a.cols === b.cols &&
+    a.depth === b.depth &&
+    a.showWalls === b.showWalls &&
+    a.showFloor === b.showFloor &&
+    a.projection === b.projection
+  );
 }

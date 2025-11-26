@@ -16,16 +16,18 @@ import {
   DEFAULT_WALL_COLOR,
   DEFAULT_WALLS
 } from "./types";
-import { getVoxelBounds, makeVoxelKey } from "./context";
+import { getVoxelBounds } from "./context";
 import { computeVisibleFaces } from "./visibility";
 import { cubeShapeRenderer, ensureCubeDomCache, disposeCubeDom } from "./shapes";
 import { rampShapeRenderer } from "./shapes/ramp";
 import { wedgeShapeRenderer } from "./shapes/wedge";
 import { spikeShapeRenderer } from "./shapes/spike";
 import { shadeWallFace, shadeColor } from "./lighting";
+import { wallMasksEqual } from "./context";
 
 interface DomRendererState {
   renderState: RenderState;
+  prevStructure: StructureSnapshot | null;
 }
 
 const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
@@ -61,7 +63,7 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
   const state = ensureDomRendererState(documentRef, target);
 
   function render(snapshot: SceneSnapshot): void {
-    renderScene(state.renderState, snapshot, documentRef, target, shapes);
+    renderScene(state, snapshot, documentRef, target, shapes);
   }
 
   function destroy(): void {
@@ -92,7 +94,7 @@ function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRe
     wallElements: new Map(),
     ceiling: null
   };
-  const composed: DomRendererState = { renderState };
+  const composed: DomRendererState = { renderState, prevStructure: null };
   rendererStates.set(root, composed);
   return composed;
 }
@@ -105,20 +107,27 @@ function appendFloor(documentRef: Document, root: HTMLElement): HTMLElement {
 }
 
 function renderScene(
-  renderState: RenderState,
+  state: DomRendererState,
   snapshot: SceneSnapshot,
   documentRef: Document,
   root: HTMLElement,
   shapes: Record<string, ShapeRenderer>
 ): void {
+  const renderState = state.renderState;
   const context = snapshot.context;
-  updateProjectionClass(root, context);
-  root.style.setProperty("--voxcss-rows", String(context.rows));
-  root.style.setProperty("--voxcss-cols", String(context.cols));
+  const nextStructure = snapshotStructure(context, snapshot.layers.length);
+  const structureChanged = !structureEqual(state.prevStructure, nextStructure);
+  if (structureChanged) {
+    updateProjectionClass(root, context);
+    root.style.setProperty("--voxcss-rows", String(context.rows));
+    root.style.setProperty("--voxcss-cols", String(context.cols));
+  }
 
-  resetLayers(renderState);
   renderLayers(renderState, snapshot.layers, context, shapes, documentRef);
-  syncSceneStructure(renderState, documentRef, context, snapshot.layers.length);
+  if (structureChanged) {
+    syncSceneStructure(renderState, documentRef, context, snapshot.layers.length);
+    state.prevStructure = nextStructure;
+  }
 }
 
 function updateProjectionClass(root: HTMLElement, context: GridContext): void {
@@ -143,8 +152,17 @@ function renderLayers(
   shapes: Record<string, ShapeRenderer>,
   documentRef: Document
 ): void {
+  const activeLayers = new Set<number>();
   for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
     renderLayer(state, layerIndex, layers[layerIndex], context, shapes, documentRef);
+    activeLayers.add(layerIndex);
+  }
+  // Remove any excess layers from previous renders.
+  for (const [layerIndex, record] of Array.from(state.layers.entries())) {
+    if (!activeLayers.has(layerIndex)) {
+      removeLayerRecord(record);
+      state.layers.delete(layerIndex);
+    }
   }
 }
 
@@ -157,19 +175,18 @@ function renderLayer(
   documentRef: Document
 ): void {
   if (!voxels?.length) return;
-  const record = createLayerRecord(state, layerIndex, documentRef, context);
+  const record = ensureLayerRecord(state, layerIndex, documentRef, context);
+  clearLayerChildren(record);
   for (const voxel of voxels) {
     if (!voxel) continue;
     const faces = computeVisibleFaces(voxel, context);
     if (!faces.length) continue;
-    const voxelKey = makeVoxelKey(voxel);
-    renderVoxelElement(record, voxelKey, voxel, faces, context, shapes, documentRef);
+    renderVoxelElement(record, voxel, faces, context, shapes, documentRef);
   }
 }
 
 function renderVoxelElement(
   record: LayerRecord,
-  voxelKey: string,
   voxel: Voxel,
   faces: CubeFace[],
   context: GridContext,
@@ -177,7 +194,6 @@ function renderVoxelElement(
   documentRef: Document
 ): void {
   const element = documentRef.createElement("div");
-  record.voxels.set(voxelKey, element);
   record.element.appendChild(element);
   syncVoxelElement(element, voxel);
   renderVoxel({
@@ -236,8 +252,7 @@ function createLayerRecord(
   const element = documentRef.createElement("div");
   element.className = LAYER_CLASS;
   const record: LayerRecord = {
-    element,
-    voxels: new Map()
+    element
   };
   state.layers.set(layerIndex, record);
   const parent = state.floor;
@@ -245,6 +260,22 @@ function createLayerRecord(
   const elevation = context.layerElevation ?? context.tileSize ?? 0;
   element.style.transform = `translateZ(${layerIndex * elevation}px)`;
   return record;
+}
+
+function ensureLayerRecord(
+  state: RenderState,
+  layerIndex: number,
+  documentRef: Document,
+  context: GridContext
+): LayerRecord {
+  const existing = state.layers.get(layerIndex);
+  if (existing) {
+    // Keep the element but update elevation in case projection/layerElevation changed.
+    const elevation = context.layerElevation ?? context.tileSize ?? 0;
+    existing.element.style.transform = `translateZ(${layerIndex * elevation}px)`;
+    return existing;
+  }
+  return createLayerRecord(state, layerIndex, documentRef, context);
 }
 
 function syncSceneStructure(
@@ -408,6 +439,41 @@ function syncLayerElevations(state: RenderState, context: GridContext): void {
   }
 }
 
+interface StructureSnapshot {
+  rows: number;
+  cols: number;
+  depthLayers: number;
+  projection?: GridContext["projection"];
+  walls: WallsMask;
+  showWalls: boolean;
+  showFloor: boolean;
+}
+
+function snapshotStructure(context: GridContext, depthLayers: number): StructureSnapshot {
+  return {
+    rows: Math.max(context.rows, 1),
+    cols: Math.max(context.cols, 1),
+    depthLayers: Math.max(depthLayers, 0),
+    projection: context.projection,
+    walls: context.walls ?? DEFAULT_WALLS,
+    showWalls: !!context.showWalls,
+    showFloor: !!context.showFloor
+  };
+}
+
+function structureEqual(a: StructureSnapshot | null, b: StructureSnapshot | null): boolean {
+  if (!a || !b) return false;
+  return (
+    a.rows === b.rows &&
+    a.cols === b.cols &&
+    a.depthLayers === b.depthLayers &&
+    a.projection === b.projection &&
+    a.showWalls === b.showWalls &&
+    a.showFloor === b.showFloor &&
+    wallMasksEqual(a.walls, b.walls)
+  );
+}
+
 function snapshotWallDimensions(context: GridContext, depthLayers: number): WallDimensionsSnapshot {
   return {
     rows: Math.max(context.rows, 1),
@@ -467,10 +533,18 @@ function clearWalls(state: RenderState): void {
 }
 
 function removeLayerRecord(record: LayerRecord): void {
-  for (const [, element] of record.voxels) {
+  const children = Array.from(record.element.children) as HTMLElement[];
+  for (const element of children) {
     disposeCubeDom(element);
     element.remove();
   }
-  record.voxels.clear();
   record.element.remove();
+}
+
+function clearLayerChildren(record: LayerRecord): void {
+  const children = Array.from(record.element.children) as HTMLElement[];
+  for (const element of children) {
+    disposeCubeDom(element);
+    element.remove();
+  }
 }
