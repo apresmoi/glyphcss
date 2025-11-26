@@ -1,6 +1,12 @@
 <script lang="ts">
-  import type { VoxelGrid, ProjectionMode } from "@voxcss/core/types";
-  import { SCENE_HOST_CLASS, mountScene, normalizeSceneState } from "@voxcss/controller/sceneBindings";
+  import {
+    SCENE_HOST_CLASS,
+    mountScene,
+    normalizeSceneState,
+    type ProjectionMode,
+    type VoxelGrid,
+    type SceneController
+  } from "@layoutit/voxcss";
   import { createEventDispatcher, onDestroy } from "svelte";
   import { useControllerStore } from "./context";
 
@@ -12,7 +18,7 @@
   export let showFloor: boolean | undefined;
   export let projection: ProjectionMode | undefined;
 
-  export let controller: import("@voxcss/controller/sceneController").SceneController | undefined;
+  export let controller: SceneController | undefined;
 
   let element: HTMLDivElement | null = null;
   const dispatch = createEventDispatcher();

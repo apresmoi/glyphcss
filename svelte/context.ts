@@ -1,4 +1,4 @@
-import type { SceneController } from "@voxcss/controller/sceneController";
+import type { SceneController } from "@layoutit/voxcss";
 import { getContext, setContext } from "svelte";
 import { readable, writable, type Readable, type Writable } from "svelte/store";
 

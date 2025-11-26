@@ -1,12 +1,12 @@
 {
   "name": "@layoutit/voxcss",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Framework-agnostic CSS voxel renderer with Vue, React, and Svelte wrappers.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "svelte": "./svelte/index.ts",
+  "svelte": "./dist/svelte/index.js",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -25,10 +25,7 @@
     "svelte"
   ],
   "files": [
-    "dist",
-    "react",
-    "vue",
-    "svelte"
+    "dist"
   ],
   "exports": {
     ".": {
@@ -47,14 +44,16 @@
       "require": "./dist/react/index.cjs"
     },
     "./svelte": {
-      "types": "./svelte/index.d.ts",
-      "svelte": "./svelte/index.ts",
-      "default": "./svelte/index.ts"
+      "types": "./dist/svelte/index.d.ts",
+      "svelte": "./dist/svelte/index.js",
+      "import": "./dist/svelte/index.js",
+      "require": "./dist/svelte/index.cjs",
+      "default": "./dist/svelte/index.js"
     }
   },
   "scripts": {
-    "build": "tsup --clean",
-    "watch": "tsup --watch --sourcemap",
+    "build": "tsup --clean && node -e \"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\"",
+    "watch": "tsup --watch --sourcemap --onSuccess \"node -e \\\"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\\\"\"",
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {

@@ -1,8 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { createControllerStore, provideControllerStore } from "./context";
-  import type { AutoRotateOption } from "@voxcss/core/camera";
-  import { CAMERA_HOST_CLASS, mountCameraBinding, type CameraComponentProps, type CameraSlotProps } from "@voxcss/controller/domBindings";
+  import {
+    CAMERA_HOST_CLASS,
+    mountCameraBinding,
+    type AutoRotateOption,
+    type CameraComponentProps,
+    type CameraSlotProps
+  } from "@layoutit/voxcss";
 
   export let zoom: number | undefined;
   export let pan: number | undefined;
