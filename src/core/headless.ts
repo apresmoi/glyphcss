@@ -29,6 +29,11 @@ export interface HeadlessRenderOptions {
   scene: HeadlessSceneOptions;
 }
 
+export interface HeadlessRenderConfig {
+  camera: HeadlessCameraOptions | HeadlessCameraHandle;
+  scene: HeadlessSceneOptions;
+}
+
 export interface HeadlessRenderHandle {
   setVoxels(voxels: SceneState["voxels"]): void;
   setScene(options: SceneState): void;
@@ -129,13 +134,18 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   return handle;
 }
 
-export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessRenderHandle {
-  if (scene.element.parentElement !== camera.element) {
-    camera.element.appendChild(scene.element);
+export function renderScene(options: HeadlessRenderOptions): HeadlessRenderHandle;
+export function renderScene(options: HeadlessRenderConfig): HeadlessRenderHandle;
+export function renderScene({ camera, scene }: HeadlessRenderOptions | HeadlessRenderConfig): HeadlessRenderHandle {
+  const cameraHandle = isCameraHandle(camera) ? camera : createCamera(camera);
+  const sceneState = createScene(scene);
+
+  if (sceneState.element.parentElement !== cameraHandle.element) {
+    cameraHandle.element.appendChild(sceneState.element);
   }
 
-  const controller = camera.controller;
-  const { element, ...state } = scene;
+  const controller = cameraHandle.controller;
+  const { element, ...state } = sceneState;
   let currentState: SceneState = normalizeSceneState(state);
   const binding = mountScene({
     controller,
@@ -143,8 +153,8 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     ...currentState
   });
 
-  if (camera.interactive) {
-    camera.element.style.cursor = controller.getCursor();
+  if (cameraHandle.interactive) {
+    cameraHandle.element.style.cursor = controller.getCursor();
   }
 
   return {
@@ -159,7 +169,7 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions): HeadlessR
     },
     destroy() {
       binding.destroy();
-      camera.destroy();
+      cameraHandle.destroy();
     }
   };
 }
@@ -244,6 +254,15 @@ function attachPointerEvents(
     element.removeEventListener("pointerup", handlePointerUp);
     element.removeEventListener("pointercancel", handlePointerCancel);
   };
+}
+
+function isCameraHandle(value: unknown): value is HeadlessCameraHandle {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as HeadlessCameraHandle).setInteractive === "function" &&
+    typeof (value as HeadlessCameraHandle).destroy === "function"
+  );
 }
 
 interface NormalizedAutoRotateConfig {

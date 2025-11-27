@@ -21,18 +21,19 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ```html
 <script type="module">
-  import { createCamera, createScene, renderScene } from "https://unpkg.com/@layoutit/voxcss@latest/dist/index.js";
-
-  const camera = createCamera({
-        element: document.getElementById("camera"),
-        interactive: true,
-    });
+  import { renderScene } from "https://unpkg.com/@layoutit/voxcss@latest/dist/index.js";
 
   renderScene({
-    camera,
+    camera: {
+      element: document.getElementById("camera"),
+      interactive: true
+    },
     scene: {
       element: document.getElementById("scene"),
-      voxels: [{ x: 3, y: 3, z: 0 }, { x: 3, y: 3, z: 1 }],
+      voxels: [
+        { x: 3, y: 3, z: 0 },
+        { x: 3, y: 3, z: 1 }
+      ],
       rows: 8,
       cols: 8,
       depth: 6,
