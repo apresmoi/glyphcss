@@ -128,7 +128,33 @@ const voxels = [
 ];
 ```
 
+## Loading MagicaVoxel (.vox) files
 
+Use the built-in parser to turn a MagicaVoxel `.vox` binary into a voxel object and feed it to `renderScene`:
+```ts
+import { parseMagicaVoxel, renderScene } from "@layoutit/voxcss";
+
+const cameraEl = document.getElementById("camera")!;
+const sceneEl = document.getElementById("scene")!;
+
+fetch("/models/example.vox")
+  .then((r) => r.arrayBuffer())
+  .then((buffer) => parseMagicaVoxel(buffer))
+  .then(({ voxels, rows, cols, depth }) => {
+    renderScene({
+      camera: { element: cameraEl, interactive: true },
+      scene: {
+        element: sceneEl,
+        voxels,
+        rows,
+        cols,
+        depth,
+        showWalls: true,
+        showFloor: true
+      }
+    });
+  });
+```
 
 ## License
 

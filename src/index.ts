@@ -34,3 +34,4 @@ export {
 
 export { type AutoRotateOption } from "./core/camera";
 export type { ProjectionMode, VoxelGrid } from "./core/types";
+export { parseMagicaVoxel, type MagicaVoxelParseResult } from "./utils/parseMagicaVoxel";
