@@ -6,7 +6,7 @@ export function computeVisibleFaces(voxel: Voxel, context: GridContext): CubeFac
   const faces: CubeFace[] = [];
   for (const face of CUBE_FACES) {
     if (isFaceOccluded(voxel, context, face)) continue;
-    if (isWallFaceHidden(context.showWalls, context.walls, face)) continue;
+    if (isWallFaceHidden(context.walls, face)) continue;
     faces.push(face);
   }
   return faces;
@@ -51,8 +51,7 @@ function isFaceOccluded(voxel: Voxel, context: GridContext, face: CubeFace): boo
   return false;
 }
 
-function isWallFaceHidden(showWalls: boolean, walls: WallsMask, face: CubeFace): boolean {
-  if (!showWalls) return false;
+function isWallFaceHidden(walls: WallsMask, face: CubeFace): boolean {
   switch (face) {
     case "t":
     case "b":
