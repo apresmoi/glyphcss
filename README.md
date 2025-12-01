@@ -76,7 +76,7 @@ Svelte
 ```svelte
 <script lang="ts">
   import { VoxCamera, VoxScene } from "@layoutit/voxcss/svelte";
-  const voxels = [{ x: 2, y: 2, z: 0, color: "#0EA5E9" }];
+  const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
 </script>
 
 <VoxCamera interactive>
