@@ -133,6 +133,7 @@ export interface ShapeSurfaceLighting {
   id: string;
   angle: number;
   level: number;
+  delta: number;
   color: string;
 }
 
@@ -191,6 +192,7 @@ export function computeShapeLighting(
       id: surface.id,
       angle,
       level,
+      delta,
       color: shadeColor(baseColor, delta)
     };
   });

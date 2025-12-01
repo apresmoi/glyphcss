@@ -16,6 +16,39 @@ export function getSurfaceColor(prepared: PreparedShapeResult, surfaceId: string
   return prepared.lighting.find((surface) => surface.id === surfaceId)?.color ?? prepared.baseColor;
 }
 
+export function resolveSurfaceTexture(
+  voxel: Voxel,
+  surfaceId: string,
+  context: GridContext
+): string | undefined {
+  const textureKey = voxel.texture;
+  if (!textureKey || textureKey.startsWith("#")) return undefined;
+  const resolved = context.resolveTexture?.(textureKey, surfaceId);
+  if (resolved) return resolved;
+  if (
+    textureKey.startsWith("/") ||
+    textureKey.startsWith("./") ||
+    textureKey.startsWith("../") ||
+    textureKey.startsWith("http://") ||
+    textureKey.startsWith("https://") ||
+    textureKey.startsWith("data:") ||
+    textureKey.includes(".")
+  ) {
+    return textureKey;
+  }
+  return undefined;
+}
+
+export function applyTextureBrightness(el: HTMLElement, delta: number): void {
+  const brightness = Math.max(0, 1 + delta / 200);
+  if (Math.abs(brightness - 1) < 0.001) {
+    el.style.filter = "";
+    return;
+  }
+  const rounded = Math.round(brightness * 1000) / 1000;
+  el.style.filter = `brightness(${rounded})`;
+}
+
 export function isBottomOccluded(voxel: Voxel, context: GridContext): boolean {
   const targetZ = Math.floor((voxel.z ?? 0) - 1);
   if (targetZ < 0) return false;
@@ -36,6 +69,8 @@ export function shouldRenderBottom(voxel: Voxel, context: GridContext): boolean 
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const XLINK_NS = "http://www.w3.org/1999/xlink";
+let slopePatternId = 0;
 
 export interface SvgSlopeDefinition {
   className: string;
@@ -46,12 +81,19 @@ export interface SvgSlopeDefinition {
   height?: string;
 }
 
+export interface SvgSlopeOptions {
+  textureUrl?: string;
+  brightnessDelta?: number;
+}
+
 export function createSvgSlopeElement(
   doc: Document,
   prepared: PreparedShapeResult,
-  definition: SvgSlopeDefinition
+  definition: SvgSlopeDefinition,
+  options: SvgSlopeOptions = {}
 ): HTMLElement {
   const { className, surfaceId, path, viewBox = "0 0 480 480", width = "56", height = "50" } = definition;
+  const { textureUrl, brightnessDelta = 0 } = options;
   const slope = doc.createElement("div");
   slope.className = className;
   const svg = doc.createElementNS(SVG_NS, "svg");
@@ -68,9 +110,35 @@ export function createSvgSlopeElement(
   svg.style.height = "100%";
   svg.style.display = "block";
   svg.style.pointerEvents = "none";
+  if (textureUrl) {
+    applyTextureBrightness(slope, brightnessDelta);
+  } else {
+    slope.style.filter = "";
+  }
+  const defs = textureUrl ? doc.createElementNS(SVG_NS, "defs") : null;
+  let fillValue = getSurfaceColor(prepared, surfaceId);
+  if (textureUrl && defs) {
+    const pattern = doc.createElementNS(SVG_NS, "pattern");
+    const patternId = `voxcss-slope-texture-${(slopePatternId += 1)}`;
+    pattern.setAttribute("id", patternId);
+    pattern.setAttribute("patternUnits", "objectBoundingBox");
+    pattern.setAttribute("patternContentUnits", "objectBoundingBox");
+    pattern.setAttribute("width", "1");
+    pattern.setAttribute("height", "1");
+    const image = doc.createElementNS(SVG_NS, "image");
+    image.setAttribute("width", "1");
+    image.setAttribute("height", "1");
+    image.setAttribute("preserveAspectRatio", "xMidYMid slice");
+    image.setAttribute("href", textureUrl);
+    image.setAttributeNS(XLINK_NS, "xlink:href", textureUrl);
+    pattern.appendChild(image);
+    defs.appendChild(pattern);
+    svg.appendChild(defs);
+    fillValue = `url(#${patternId})`;
+  }
   const pathEl = doc.createElementNS(SVG_NS, "path");
   pathEl.setAttribute("d", path);
-  pathEl.setAttribute("fill", getSurfaceColor(prepared, surfaceId));
+  pathEl.setAttribute("fill", fillValue);
   pathEl.setAttribute("stroke", "rgba(0, 0, 0, 0.1)");
   pathEl.setAttribute("stroke-width", "1");
   pathEl.setAttribute("vector-effect", "non-scaling-stroke");

@@ -214,6 +214,18 @@ const CORE_BASE_STYLES = `
   --voxcss-shape-rotation: 270deg;
 }
 
+.voxcss-ramp .voxcss-ramp-slope,
+.voxcss-ramp .voxcss-ramp-bottom,
+.voxcss-wedge .voxcss-wedge-bottom,
+.voxcss-spike .voxcss-spike-bottom {
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.voxcss-ramp .voxcss-ramp-slope {
+  background-size: 70px 50px;
+}
+
 .voxcss-ramp .voxcss-ramp-bottom,
 .voxcss-wedge .voxcss-wedge-bottom,
 .voxcss-spike .voxcss-spike-bottom {
