@@ -26,9 +26,10 @@ export {
   renderScene,
   type HeadlessCameraOptions,
   type HeadlessCameraHandle,
+  type HeadlessCameraConfig,
   type HeadlessSceneOptions,
+  type HeadlessSceneConfig,
   type HeadlessRenderOptions,
-  type HeadlessRenderConfig,
   type HeadlessRenderHandle
 } from "./core/headless";
 

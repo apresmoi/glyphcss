@@ -11,6 +11,11 @@ export interface HeadlessCameraOptions extends CameraComponentProps {
   element: HTMLElement;
 }
 
+export interface HeadlessCameraConfig extends CameraComponentProps {
+  controller?: SceneControllerOptions;
+  element?: HTMLElement;
+}
+
 export interface HeadlessCameraHandle {
   element: HTMLElement;
   controller: SceneController;
@@ -22,16 +27,14 @@ export interface HeadlessCameraHandle {
   destroy(): void;
 }
 
-export type HeadlessSceneOptions = SceneState & { element: HTMLElement };
+export type HeadlessSceneOptions = Partial<SceneState> & { element: HTMLElement };
+export type HeadlessSceneConfig = Partial<SceneState> & { element?: HTMLElement };
+type NormalizedHeadlessSceneOptions = SceneState & { element: HTMLElement };
 
 export interface HeadlessRenderOptions {
-  camera: HeadlessCameraHandle;
-  scene: HeadlessSceneOptions;
-}
-
-export interface HeadlessRenderConfig {
-  camera: HeadlessCameraOptions | HeadlessCameraHandle;
-  scene: HeadlessSceneOptions;
+  element: HTMLElement;
+  camera?: HeadlessCameraConfig | HeadlessCameraHandle;
+  scene?: HeadlessSceneConfig;
 }
 
 export interface HeadlessRenderHandle {
@@ -42,7 +45,7 @@ export interface HeadlessRenderHandle {
 
 const DEFAULT_PERSPECTIVE = 8000;
 
-export function createScene(options: HeadlessSceneOptions): HeadlessSceneOptions {
+export function createScene(options: HeadlessSceneOptions): NormalizedHeadlessSceneOptions {
   const { element, ...state } = options;
   if (!element) {
     throw new Error("voxcss: createScene requires an element.");
@@ -134,15 +137,39 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   return handle;
 }
 
-export function renderScene(options: HeadlessRenderOptions): HeadlessRenderHandle;
-export function renderScene(options: HeadlessRenderConfig): HeadlessRenderHandle;
-export function renderScene({ camera, scene }: HeadlessRenderOptions | HeadlessRenderConfig): HeadlessRenderHandle {
-  const cameraHandle = isCameraHandle(camera) ? camera : createCamera(camera);
-  const sceneState = createScene(scene);
-
-  if (sceneState.element.parentElement !== cameraHandle.element) {
-    cameraHandle.element.appendChild(sceneState.element);
+export function renderScene({ element: root, camera, scene }: HeadlessRenderOptions): HeadlessRenderHandle {
+  if (!root) {
+    throw new Error("voxcss: renderScene requires a root element.");
   }
+
+  const doc = root.ownerDocument ?? (typeof document !== "undefined" ? document : undefined);
+  if (!doc) {
+    throw new Error("voxcss: renderScene requires a document to create DOM nodes.");
+  }
+
+  const cameraElement = resolveCameraElement(camera, doc);
+  const cameraElementWasCreated = !isCameraHandle(camera) && !camera?.element;
+  if (cameraElement.parentElement !== root) {
+    root.appendChild(cameraElement);
+  }
+
+  const cameraHandle = isCameraHandle(camera)
+    ? camera
+    : createCamera({
+        ...(camera ?? {}),
+        element: cameraElement
+      });
+
+  const sceneElement = resolveSceneElement(scene, doc);
+  const sceneElementWasCreated = !scene?.element;
+  if (sceneElement.parentElement !== cameraHandle.element) {
+    cameraHandle.element.appendChild(sceneElement);
+  }
+
+  const sceneState = createScene({
+    ...(scene ?? {}),
+    element: sceneElement
+  });
 
   const controller = cameraHandle.controller;
   const { element, ...state } = sceneState;
@@ -170,8 +197,31 @@ export function renderScene({ camera, scene }: HeadlessRenderOptions | HeadlessR
     destroy() {
       binding.destroy();
       cameraHandle.destroy();
+      if (sceneElementWasCreated) {
+        sceneElement.remove();
+      }
+      if (cameraElementWasCreated) {
+        cameraElement.remove();
+      }
     }
   };
+}
+
+function resolveCameraElement(camera: HeadlessRenderOptions["camera"], doc: Document): HTMLElement {
+  if (isCameraHandle(camera)) {
+    return camera.element;
+  }
+  if (camera?.element) {
+    return camera.element;
+  }
+  return doc.createElement("div");
+}
+
+function resolveSceneElement(scene: HeadlessSceneConfig | undefined, doc: Document): HTMLElement {
+  if (scene?.element) {
+    return scene.element;
+  }
+  return doc.createElement("div");
 }
 
 function applyPerspective(element: HTMLElement, perspective: number | boolean | undefined) {

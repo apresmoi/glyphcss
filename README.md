@@ -20,37 +20,29 @@ pnpm add @layoutit/voxcss
 You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ```html
+<div id="voxcss"></div>
+
 <script type="module">
   import { renderScene } from "https://unpkg.com/@layoutit/voxcss@latest/dist/index.js";
 
   renderScene({
-    camera: {
-      element: document.getElementById("camera"),
-      interactive: true
-    },
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
     scene: {
-      element: document.getElementById("scene"),
       voxels: [
         { x: 3, y: 3, z: 0 },
         { x: 3, y: 3, z: 1 }
       ],
-      rows: 8,
-      cols: 8,
-      depth: 6,
-      showWalls: true,
       showFloor: true
     }
   });
 </script>
 
-<div id="camera">
-  <div id="scene"></div>
-</div>
 ```
 
 ## Framework Components
 
-VoxCamera sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction flags. VoxScene receives the voxel object and controls the 3D grid dimensions and decorations. 
+VoxCamera sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction props. VoxScene receives the voxel object and controls the 3D grid dimensions and decorations. 
 
 Vue 3
 ```vue
@@ -69,7 +61,9 @@ React
 ```tsx
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
 
-export function App({ voxels }) {
+const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
+
+export function App() {
   return (
     <VoxCamera interactive>
       <VoxScene voxels={voxels} />
@@ -134,17 +128,16 @@ Use the built-in parser to turn a MagicaVoxel `.vox` binary into a voxel object 
 ```ts
 import { parseMagicaVoxel, renderScene } from "@layoutit/voxcss";
 
-const cameraEl = document.getElementById("camera")!;
-const sceneEl = document.getElementById("scene")!;
+const rootEl = document.getElementById("voxcss")!;
 
 fetch("/models/example.vox")
   .then((r) => r.arrayBuffer())
   .then((buffer) => parseMagicaVoxel(buffer))
   .then(({ voxels, rows, cols, depth }) => {
     renderScene({
-      camera: { element: cameraEl, interactive: true },
+      element: rootEl,
+      camera: { interactive: true },
       scene: {
-        element: sceneEl,
         voxels,
         rows,
         cols,
