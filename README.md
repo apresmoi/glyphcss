@@ -51,6 +51,7 @@ Vue 3
     <VoxScene :voxels="voxels" />
   </VoxCamera>
 </template>
+
 <script setup lang="ts">
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
 const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
@@ -60,7 +61,6 @@ const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
 React
 ```tsx
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
 const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
 
 export function App() {
@@ -76,7 +76,6 @@ Svelte
 ```svelte
 <script lang="ts">
   import { VoxCamera, VoxScene } from "@layoutit/voxcss/svelte";
-
   const voxels = [{ x: 2, y: 2, z: 0, color: "#0EA5E9" }];
 </script>
 
