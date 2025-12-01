@@ -16,6 +16,25 @@ export function getSurfaceColor(prepared: PreparedShapeResult, surfaceId: string
   return prepared.lighting.find((surface) => surface.id === surfaceId)?.color ?? prepared.baseColor;
 }
 
+export function isBottomOccluded(voxel: Voxel, context: GridContext): boolean {
+  const targetZ = Math.floor((voxel.z ?? 0) - 1);
+  if (targetZ < 0) return false;
+  const { x2, y2 } = getVoxelBounds(voxel);
+  for (let x = voxel.x; x < x2; x += 1) {
+    for (let y = voxel.y; y < y2; y += 1) {
+      if (!context.getVoxel(x, y, targetZ)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+export function shouldRenderBottom(voxel: Voxel, context: GridContext): boolean {
+  if (context.walls?.b) return false;
+  return !isBottomOccluded(voxel, context);
+}
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export interface SvgSlopeDefinition {

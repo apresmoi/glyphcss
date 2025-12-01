@@ -1,5 +1,5 @@
 import type { ShapeRenderer } from "../types";
-import { prepareShapeRoot, createSvgSlopeElement } from "./shapeUtils";
+import { createSvgSlopeElement, prepareShapeRoot, shouldRenderBottom } from "./shapeUtils";
 
 export const spikeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   const prepared = prepareShapeRoot({
@@ -12,6 +12,12 @@ export const spikeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   if (!prepared) return;
   root.classList.add("voxcss-spike");
   const doc = prepared.container.ownerDocument ?? document;
+  if (shouldRenderBottom(voxel, context)) {
+    const bottom = doc.createElement("div");
+    bottom.className = "voxcss-spike-bottom";
+    bottom.style.background = prepared.baseColor;
+    prepared.container.appendChild(bottom);
+  }
   const primarySlope = createSvgSlopeElement(doc, prepared, {
     className: "voxcss-spike-slope voxcss-spike-slope--primary",
     surfaceId: "primary",

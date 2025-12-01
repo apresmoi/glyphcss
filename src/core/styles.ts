@@ -214,6 +214,20 @@ const CORE_BASE_STYLES = `
   --voxcss-shape-rotation: 270deg;
 }
 
+.voxcss-ramp .voxcss-ramp-bottom,
+.voxcss-wedge .voxcss-wedge-bottom,
+.voxcss-spike .voxcss-spike-bottom {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: auto;
+  outline: 1px solid rgba(0, 0, 0, 0.08);
+  outline-offset: -1px;
+  backface-visibility: hidden;
+  transform: translateZ(calc(-1 * var(--voxcss-layer-elevation, 50px)))
+    rotateX(180deg);
+}
+
 .voxcss-ramp,
 .voxcss-wedge,
 .voxcss-spike {

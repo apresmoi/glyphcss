@@ -1,5 +1,5 @@
 import type { ShapeRenderer } from "../types";
-import { prepareShapeRoot, createSvgSlopeElement } from "./shapeUtils";
+import { prepareShapeRoot, createSvgSlopeElement, shouldRenderBottom } from "./shapeUtils";
 
 export const wedgeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   const prepared = prepareShapeRoot({
@@ -12,6 +12,12 @@ export const wedgeShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   if (!prepared) return;
   root.classList.add("voxcss-wedge");
   const doc = prepared.container.ownerDocument ?? document;
+  if (shouldRenderBottom(voxel, context)) {
+    const bottom = doc.createElement("div");
+    bottom.className = "voxcss-wedge-bottom";
+    bottom.style.background = prepared.baseColor;
+    prepared.container.appendChild(bottom);
+  }
   const primarySlope = createSvgSlopeElement(doc, prepared, {
     className: "voxcss-wedge-slope voxcss-wedge-slope--primary",
     surfaceId: "primary",

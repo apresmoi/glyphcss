@@ -1,5 +1,5 @@
 import type { ShapeRenderer } from "../types";
-import { prepareShapeRoot } from "./shapeUtils";
+import { prepareShapeRoot, shouldRenderBottom } from "./shapeUtils";
 
 export const rampShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   const prepared = prepareShapeRoot({
@@ -12,6 +12,12 @@ export const rampShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   if (!prepared) return;
   root.classList.add("voxcss-ramp");
   const doc = prepared.container.ownerDocument ?? document;
+  if (shouldRenderBottom(voxel, context)) {
+    const bottom = doc.createElement("div");
+    bottom.className = "voxcss-ramp-bottom";
+    bottom.style.background = prepared.baseColor;
+    prepared.container.appendChild(bottom);
+  }
   const slope = doc.createElement("div");
   slope.className = "voxcss-ramp-slope";
   const slopeLighting = prepared.lighting.find((surface) => surface.id === "slope");
