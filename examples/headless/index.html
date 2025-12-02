@@ -6,32 +6,14 @@
   <title>VoxCSS · Headless example</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root {
-      font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color-scheme: dark;
-      background: #000;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
     body {
       margin: 0;
       height: 100vh;
       background: #000;
-      display: grid;
-      place-items: center;
     }
 
     #voxcss {
-      width: min(1100px, 94vw);
-      height: min(720px, 90vh);
-      background: #020617;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      border-radius: 18px;
-      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.45);
-      overflow: hidden;
+      height: 100%;
     }
   </style>
 </head>
@@ -44,25 +26,11 @@
 
     const root = document.getElementById("voxcss");
 
-    const voxels = [
-      { shape: "ramp", x: 6, y: 7, z: 0 },
-      { shape: "ramp", x: 5, y: 7, z: 0 },
-      { shape: "cube", x: 6, y: 6, z: 0, color: "#38bdf8" },
-      { shape: "cube", x: 5, y: 6, z: 0, color: "#38bdf8" },
-      { shape: "cube", x: 6, y: 5, z: 0, color: "#0ea5e9" },
-      { shape: "cube", x: 5, y: 5, z: 0, color: "#0ea5e9" },
-      { shape: "cube", x: 4, y: 4, z: 0, color: "#1e293b" },
-      { shape: "cube", x: 3, y: 4, z: 0, color: "#1e293b" },
-      { shape: "cube", x: 4, y: 3, z: 0, color: "#1e293b" },
-      { shape: "cube", x: 3, y: 3, z: 0, color: "#1e293b" },
-      { shape: "ramp", x: 4, y: 4, z: 1 },
-      { shape: "spike", x: 3, y: 4, z: 1, color: "#67e8f9" },
-      { shape: "spike", x: 3, y: 3, z: 1, rot: 270, color: "#67e8f9" }
-    ];
+    const voxels = [{ x: 3, y: 3, z: 0, color: "#FACC15" }];
 
     renderScene({
       element: root,
-      camera: { interactive: true, zoom: 1.4, rotX: 65, rotY: 45 },
+      camera: { interactive: true, zoom: 1.5, rotX: 65, rotY: 45 },
       scene: {
         voxels,
         rows: 8,
