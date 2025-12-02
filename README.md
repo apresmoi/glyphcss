@@ -150,9 +150,11 @@ fetch("/models/example.vox")
 ## Made with VoxCSS
 
 [Layoutit Voxels](https://voxels.layoutit.com)
+A CSS Voxel editor
 <img width="1000" height="600" alt="layoutit-voxels" src="https://github.com/user-attachments/assets/a0c83010-3852-4180-95d8-a5d69b1b2ae5" />
 
 [Layoutit Terra](https://terra.layoutit.com)
+A CSS Terrain Generator
 <img width="1000" height="601" alt="layoutit-terra" src="https://github.com/user-attachments/assets/98ce47cb-831d-4680-b7fa-c105df202c1c" />
 
 ## License
