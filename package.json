@@ -1,6 +1,6 @@
 {
   "name": "@layoutit/voxcss",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Framework-agnostic CSS voxel renderer with Vue, React, and Svelte wrappers.",
   "type": "module",
   "main": "dist/index.cjs",
