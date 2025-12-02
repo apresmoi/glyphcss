@@ -150,11 +150,9 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     camera.update(next);
     if (hadRotationUpdate) {
       // Only rotation changes: avoid rebuilding the entire scene; update wall mask if needed.
-      if (lastState.showWalls) {
-        const nextMask = computeWallMask(camera.state.rotX, camera.state.rotY);
-        if (!wallMasksEqual(currentContext.walls, nextMask)) {
-          currentContext = { ...currentContext, walls: nextMask };
-        }
+      const nextMask = computeWallMask(camera.state.rotX, camera.state.rotY);
+      if (!wallMasksEqual(currentContext.walls, nextMask)) {
+        currentContext = { ...currentContext, walls: nextMask };
       }
       emitSnapshot();
       return;
