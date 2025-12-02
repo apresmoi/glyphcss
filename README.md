@@ -4,8 +4,7 @@ A DOM based voxel engine. Renders HTML cuboids by stacking CSS grid layers and a
 
 Visit [voxcss.com](https://voxcss.com) for live docs, API reference, and model examples.
 
-<img width="1915" height="900" alt="Screenshot 2025-11-17 at 08 00 28" src="https://github.com/user-attachments/assets/2d925a72-5518-4a82-a8b2-39ff5648fea7" />
-
+<img width="1725" height="865" alt="voxscene" src="https://github.com/user-attachments/assets/e3707a01-f257-4f62-9577-a9e08b3652e3" />
 
 ## Installation
 
@@ -147,6 +146,14 @@ fetch("/models/example.vox")
     });
   });
 ```
+
+## Made with VoxCSS
+
+[Layoutit Voxels](https://voxels.layoutit.com)
+<img width="1000" height="600" alt="layoutit-voxels" src="https://github.com/user-attachments/assets/a0c83010-3852-4180-95d8-a5d69b1b2ae5" />
+
+[Layoutit Terra](https://terra.layoutit.com)
+<img width="1000" height="601" alt="layoutit-terra" src="https://github.com/user-attachments/assets/98ce47cb-831d-4680-b7fa-c105df202c1c" />
 
 ## License
 
