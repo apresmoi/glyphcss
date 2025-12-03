@@ -83,6 +83,8 @@ Svelte
 </VoxCamera>
 ```
 
+![apple](https://github.com/user-attachments/assets/f6764fe9-3a8f-45d0-8976-4b1b4d6ff760)
+
 ## API reference
 
 ### VoxCamera props
