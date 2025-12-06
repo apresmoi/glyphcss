@@ -5,7 +5,8 @@
     normalizeSceneState,
     type ProjectionMode,
     type VoxelGrid,
-    type SceneController
+    type SceneController,
+    mergeVoxels as mergeVoxelsHelper
   } from "@layoutit/voxcss";
   import { createEventDispatcher, onDestroy } from "svelte";
   import { useControllerStore } from "./context";
@@ -17,6 +18,7 @@
   export let showWalls: boolean | undefined;
   export let showFloor: boolean | undefined;
   export let projection: ProjectionMode | undefined;
+  export let mergeVoxels: boolean | undefined;
 
   export let controller: SceneController | undefined;
 
@@ -29,7 +31,7 @@
   $: resolvedController = controller ?? $controllerStore ?? null;
 
   $: bindingOptions = normalizeSceneState({
-    voxels,
+    voxels: mergeVoxels ? mergeVoxelsHelper(voxels ?? []) : voxels,
     rows,
     cols,
     depth,

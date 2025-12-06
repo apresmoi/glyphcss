@@ -2,6 +2,7 @@ import { defineComponent, h, onBeforeUnmount, ref, watch, computed, inject } fro
 import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
 import { controllerKey } from "./context";
+import { mergeVoxels } from "@voxcss/utils/mergeVoxels";
 
 const scenePropOptions = {
   controller: { type: Object as import("vue").PropType<SceneController> },
@@ -11,7 +12,8 @@ const scenePropOptions = {
   depth: { type: Number },
   showWalls: { type: Boolean as import("vue").PropType<boolean | undefined> },
   showFloor: { type: Boolean as import("vue").PropType<boolean | undefined> },
-  projection: { type: String as import("vue").PropType<import("@voxcss/core/types").ProjectionMode | undefined> }
+  projection: { type: String as import("vue").PropType<import("@voxcss/core/types").ProjectionMode | undefined> },
+  mergeVoxels: { type: Boolean }
 } as const;
 
 export default defineComponent({
@@ -29,10 +31,11 @@ export default defineComponent({
       const element = hostElement.value;
       const controller = resolvedController.value;
       if (!element || !controller) return;
+      const voxels = props.mergeVoxels ? mergeVoxels(props.voxels ?? []) : props.voxels;
       const options: SceneState & { controller: SceneController } = {
         controller,
         ...normalizeSceneState({
-          voxels: props.voxels,
+          voxels,
           rows: props.rows,
           cols: props.cols,
           depth: props.depth,
@@ -63,16 +66,18 @@ export default defineComponent({
         props.depth,
         props.showWalls,
         props.showFloor,
-        props.projection
+        props.projection,
+        props.mergeVoxels
       ],
       () => {
         if (!binding) {
           mountBinding();
           return;
         }
+        const voxels = props.mergeVoxels ? mergeVoxels(props.voxels ?? []) : props.voxels;
         binding.update(
           normalizeSceneState({
-            voxels: props.voxels,
+            voxels,
             rows: props.rows,
             cols: props.cols,
             depth: props.depth,

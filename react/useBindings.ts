@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, createContext, useContext } from "r
 import type { RefObject } from "react";
 import type { SceneController } from "@voxcss/controller/sceneController";
 import { mountScene, normalizeSceneState, type SceneState } from "@voxcss/controller/sceneBindings";
+import { mergeVoxels } from "@voxcss/utils/mergeVoxels";
 
 export const SceneControllerContext = createContext<SceneController | null>(null);
 
@@ -16,6 +17,7 @@ export function useSceneControllerContext(): SceneController {
 export type SceneBindingProps = Partial<SceneState> & {
   controller: SceneController;
   element?: HTMLElement | null;
+  mergeVoxels?: boolean;
 };
 
 export function useSceneBinding(props: SceneBindingProps) {
@@ -28,8 +30,10 @@ export function useSceneBinding(props: SceneBindingProps) {
     latestProps.current = props;
     const element = containerRef.current;
     if (!element) return;
-    const { controller, element: _unused, ...state } = latestProps.current;
-    bindingRef.current = mountScene({ controller, element, ...normalizeSceneState(state) });
+    const { controller, element: _unused, mergeVoxels: merge, ...state } = latestProps.current;
+    const normalized = normalizeSceneState(state);
+    const voxels = merge ? mergeVoxels(normalized.voxels) : normalized.voxels;
+    bindingRef.current = mountScene({ controller, element, ...normalized, voxels });
     return () => {
       bindingRef.current?.destroy();
       bindingRef.current = null;
@@ -39,8 +43,9 @@ export function useSceneBinding(props: SceneBindingProps) {
 
   useEffect(() => {
     latestProps.current = props;
-    const { controller: _controller, element: _element, ...state } = props;
-    const nextState = normalizeSceneState(state);
+    const { controller: _controller, element: _element, mergeVoxels: merge, ...state } = props;
+    const normalized = normalizeSceneState(state);
+    const nextState = { ...normalized, voxels: merge ? mergeVoxels(normalized.voxels) : normalized.voxels };
     if (prevStateRef.current && sceneStateShallowEqual(prevStateRef.current, nextState)) {
       return;
     }
@@ -54,7 +59,8 @@ export function useSceneBinding(props: SceneBindingProps) {
     props.depth,
     props.showWalls,
     props.showFloor,
-    props.projection
+    props.projection,
+    props.mergeVoxels
   ]);
 
   return containerRef;

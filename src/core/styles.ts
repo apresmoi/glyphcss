@@ -105,7 +105,8 @@ const CORE_BASE_STYLES = `
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
-  transform: translateZ(25px);
+  --voxcss-layer-half: calc(var(--voxcss-layer-elevation, 50px) / 2);
+  transform: translateZ(var(--voxcss-layer-half));
 }
 .voxcss-cube__inner {
   position: absolute;
@@ -124,45 +125,49 @@ const CORE_BASE_STYLES = `
   background-size: cover;
 }
 .voxcss-cube-face--t {
-  transform: translateZ(25px);
+  transform: translateZ(var(--voxcss-layer-half));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--t {
   transform: translateZ(0);
 }
 .voxcss-cube-face--b {
-  transform: translateZ(-25px);
+  transform: translateZ(calc(-1 * var(--voxcss-layer-half)));
 }
 .voxcss-cube-face--fr {
-  transform: rotateY(90deg) translateZ(25px);
+  width: var(--voxcss-layer-elevation, 50px);
+  transform: rotateY(90deg) translateZ(var(--voxcss-side-offset-y, 25px));
 }
 .voxcss-cube-face--fl {
-  transform: rotateX(90deg) translateZ(-25px);
+  height: var(--voxcss-layer-elevation, 50px);
+  transform: rotateX(90deg) translateZ(calc(-1 * var(--voxcss-side-offset-x, 25px)));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fl {
-  height: 25px;
+  height: var(--voxcss-layer-elevation, 50px);
   transform-origin: bottom;
-  transform: rotateX(90deg) translateZ(-25px);
+  transform: rotateX(90deg) translateZ(calc(-1 * var(--voxcss-side-offset-x, 25px)));
 }
 .voxcss-cube-face--bl {
-  transform: rotateY(90deg) translateZ(-25px);
+  width: var(--voxcss-layer-elevation, 50px);
+  transform: rotateY(90deg) translateZ(calc(-1 * var(--voxcss-layer-half)));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--bl {
   transform: rotateY(90deg) translateZ(0px);
-  width: 25px;
+  width: var(--voxcss-layer-elevation, 50px);
   transform-origin: bottom left;
 }
 .voxcss-cube-face--br {
-  transform: rotateX(90deg) translateZ(25px);
+  height: var(--voxcss-layer-elevation, 50px);
+  transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--br {
-  height: 25px;
+  height: var(--voxcss-layer-elevation, 50px);
   transform-origin: bottom;
-  transform: rotateX(90deg) translateZ(25px);
+  transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fr {
-  transform: rotateY(90deg) translateZ(50px);
+  transform: rotateY(90deg) translateZ(var(--voxcss-side-offset-x, 50px));
   transform-origin: bottom left;
-  width: 25px;
+  width: var(--voxcss-layer-elevation, 50px);
 }
 .voxcss-camera {
   display: flex;

@@ -32,6 +32,14 @@ export const cubeShapeRenderer: ShapeRenderer = ({
   root,
   precomputedFaces
 }) => {
+  const tile = context.tileSize ?? 50;
+  const layer = context.layerElevation ?? tile;
+  const spanX = Math.max(1, (voxel.x2 ?? voxel.x + 1) - voxel.x) * tile;
+  const spanY = Math.max(1, (voxel.y2 ?? voxel.y + 1) - voxel.y) * tile;
+  const offsetSpanX = spanX > tile ? spanX - layer / 2 : layer / 2;
+  const offsetSpanY = spanY > tile ? spanY - layer / 2 : layer / 2;
+  root.style.setProperty("--voxcss-side-offset-x", `${offsetSpanX}px`);
+  root.style.setProperty("--voxcss-side-offset-y", `${offsetSpanY}px`);
   const faces = precomputedFaces ?? computeVisibleFaces(voxel, context);
   if (!faces.length) {
     root.style.display = "none";
