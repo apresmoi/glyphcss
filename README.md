@@ -37,7 +37,7 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ## Framework Components
 
-`<VoxCamera>` sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction props. `<VoxScene>` receives the voxel array and controls the 3D grid and its decorations. Vue, React, and Svelte wrappers all expose these two components with identical props:
+ Vue, React, and Svelte wrappers all expose the same components with identical props: `<VoxCamera>` sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction controls; `<VoxScene>` receives the voxel array and manages the 3D grid and its decorations.
 
 ```tsx
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
