@@ -10,10 +10,6 @@ Visit [voxcss.com](https://voxcss.com) for live docs, API reference, and model e
 
 ```bash
 npm install @layoutit/voxcss
-# or
-yarn add @layoutit/voxcss
-# or
-pnpm add @layoutit/voxcss
 ```
 
 You can also load VoxCSS directly from unpkg. Here is a minimal example:
