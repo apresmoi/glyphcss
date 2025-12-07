@@ -71,10 +71,10 @@ Visit [voxcss.com/usage](https://voxcss.com/usage) for more framework-specific e
 ### VoxScene props
 
 - `voxels` – array of voxel objects; optional (defaults to empty) to render a blank scene.
-- `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
+- `rows`, `cols`, `depth` – override the inferred bounds and explicitly set the 3D grid size.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
-- `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing.
-- `mergeVoxels` – opt into voxel merging to collapse contiguous cubes into larger areas (`x2/y2`). Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
+- `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing (50/25px).
+- `mergeVoxels` – collapses contiguous cubes into larger areas. Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
 
 ### Voxel data model
 
