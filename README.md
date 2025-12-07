@@ -74,9 +74,7 @@ Visit [voxcss.com/usage](https://voxcss.com/usage) for more framework-specific e
 - `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
 - `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing.
-- `mergeVoxels` – opt into voxel merging to collapse contiguous cubes into larger areas (`x2/y2`). Accepts `true`, `false`, or a number threshold (merge when the voxel count exceeds the value). Defaults to auto-merging large inputs.
-
-Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
+- `mergeVoxels` – opt into voxel merging to collapse contiguous cubes into larger areas (`x2/y2`). Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
 
 ### Voxel data model
 
@@ -84,7 +82,7 @@ Each voxel describes a single cell in the grid:
 - `x`, `y`, `z` – required integer coordinates; `x2`/`y2` optional for area footprints.
 - `shape` – `cube` (default), `ramp`, `wedge`, or `spike`.
 - `color` / `texture` – apply solid fills or image URLs per voxel.
-- `rot` – per-voxel rotation in degrees; ramps/wedges/spikes snap to 90° increments.
+- `rot` – rotation in degrees; ramps/wedges/spikes snap to 90° increments.
 
 Example:
 ```ts
