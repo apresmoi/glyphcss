@@ -49,7 +49,7 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 </VoxCamera>
 ```
 
-Visit voxcss.com/usage for more framework-specific examples.
+Visit [voxcss.com/usage](https://voxcss.com/usage) for more framework-specific examples.
 
 ![apple](https://github.com/user-attachments/assets/f6764fe9-3a8f-45d0-8976-4b1b4d6ff760)
 
