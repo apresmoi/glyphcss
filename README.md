@@ -44,9 +44,17 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 `<VoxCamera>` sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction props. `<VoxScene>` receives the voxel array and controls the 3D grid and its decorations. Vue, React, and Svelte wrappers all expose these two components with identical props:
 
 ```tsx
-<VoxCamera interactive>
-  <VoxScene voxels={[{ x: 1, y: 1, z: 0, color: "#f00" }]} />
-</VoxCamera>
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+export default function App() {
+  const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
+
+  return (
+    <VoxCamera interactive>
+      <VoxScene voxels={voxels} />
+    </VoxCamera>
+  );
+}
 ```
 
 Visit [voxcss.com/usage](https://voxcss.com/usage) for more framework-specific examples.
@@ -74,10 +82,6 @@ Visit [voxcss.com/usage](https://voxcss.com/usage) for more framework-specific e
 
 Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
 
-## Performance
-
-VoxCSS renders everything in the DOM, so performance is determined by how many elements the browser has to manage. The engine reduces work through culling based on neighbors and camera rotation, only drawing the outer shell of the model with the faces that are actually visible. The `mergeVoxels` prop can be essential: instead of rendering each cube as its own node, the engine scans each layer and groups adjacent voxels into larger rectangles in the x/y dimensions. Merging is auto-enabled for bigger scenes (over 2000 voxels) and can cut DOM size dramatically.
-
 ### Voxel data model
 
 Each voxel describes a single cell in the grid:
@@ -94,6 +98,12 @@ const voxels = [
   { x: 3, y: 3, z: 0, texture: "/example.png" }
 ];
 ```
+
+## Performance
+
+VoxCSS renders everything in the DOM, so performance is determined by how many elements the browser has to manage. The engine reduces work through culling based on neighbors and camera rotation, only drawing the outer shell of the model with the faces that are actually visible. 
+
+The `mergeVoxels` prop can be essential: instead of rendering each cube as its own node, the engine scans each layer and groups adjacent voxels into larger rectangles in the x/y dimensions. Merging is auto-enabled for bigger scenes (over 2000 voxels) and can cut DOM size dramatically.
 
 ## Loading MagicaVoxel (.vox) files
 
