@@ -85,7 +85,7 @@ Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space
 ### Voxel data model
 
 Each voxel describes a single cell in the grid:
-- `x`, `y`, `z` – required integer coordinates.
+- `x`, `y`, `z` – required integer coordinates; `x2`/`y2` optional for area footprints.
 - `shape` – `cube` (default), `ramp`, `wedge`, or `spike`.
 - `color` / `texture` – apply solid fills or image URLs per voxel.
 - `rot` – per-voxel rotation in degrees; ramps/wedges/spikes snap to 90° increments.
