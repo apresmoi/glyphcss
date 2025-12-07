@@ -15,7 +15,6 @@ function buildSignature(voxel: Voxel): string {
 function isMergeable(voxel: Voxel): boolean {
   const shape = voxel.shape ?? "cube";
   if (shape !== "cube") return false;
-  if (voxel.data) return false;
   return true;
 }
 

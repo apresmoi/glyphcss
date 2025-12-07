@@ -41,47 +41,15 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ## Framework Components
 
-VoxCamera sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction props. VoxScene receives the voxel object and controls the 3D grid dimensions and decorations. 
+`<VoxCamera>` sets the viewpoint and exposes zoom, pan, tilt, rotation, perspective, and interaction props. `<VoxScene>` receives the voxel array and controls the 3D grid and its decorations. Vue, React, and Svelte wrappers all expose these two components with identical props:
 
-Vue 3
-```vue
-<template>
-  <VoxCamera interactive>
-    <VoxScene :voxels="voxels" />
-  </VoxCamera>
-</template>
-
-<script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
-</script>
-```
-
-React
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
-
-export function App() {
-  return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
-  );
-}
-```
-
-Svelte
-```svelte
-<script lang="ts">
-  import { VoxCamera, VoxScene } from "@layoutit/voxcss/svelte";
-  const voxels = [{ x: 1, y: 1, z: 0, color: "#f00" }];
-</script>
-
 <VoxCamera interactive>
-  <VoxScene {voxels} />
+  <VoxScene voxels={[{ x: 1, y: 1, z: 0, color: "#f00" }]} />
 </VoxCamera>
 ```
+
+Visit voxcss.com/usage for more framework-specific examples.
 
 ![apple](https://github.com/user-attachments/assets/f6764fe9-3a8f-45d0-8976-4b1b4d6ff760)
 
@@ -102,8 +70,13 @@ Svelte
 - `rows`, `cols`, `depth` – override inferred bounds when you have sparse data or want to reserve empty margins.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
 - `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing.
+- `mergeVoxels` – opt into voxel merging to collapse contiguous cubes into larger areas (`x2/y2`). Accepts `true`, `false`, or a number threshold (merge when the voxel count exceeds the value). Defaults to auto-merging large inputs.
 
 Leave `rows`, `cols`, and `depth` undefined unless you need to clamp empty space, the renderer infers them from the voxel set.
+
+## Performance
+
+VoxCSS renders everything in the DOM, so performance is determined by how many elements the browser has to manage. The engine reduces work through culling based on neighbors and camera rotation, only drawing the outer shell of the model with the faces that are actually visible. The `mergeVoxels` prop can be essential: instead of rendering each cube as its own node, the engine scans each layer and groups adjacent voxels into larger rectangles in the x/y dimensions. Merging is auto-enabled for bigger scenes (over 2000 voxels) and can cut DOM size dramatically.
 
 ### Voxel data model
 

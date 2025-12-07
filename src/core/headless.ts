@@ -32,11 +32,13 @@ export type HeadlessSceneOptions = Partial<SceneState> & { element: HTMLElement 
 export type HeadlessSceneConfig = Partial<SceneState> & { element?: HTMLElement };
 type NormalizedHeadlessSceneOptions = SceneState & { element: HTMLElement };
 
+export type MergeVoxelsOption = boolean | number | undefined;
+
 export interface HeadlessRenderOptions {
   element: HTMLElement;
   camera?: HeadlessCameraConfig | HeadlessCameraHandle;
   scene?: HeadlessSceneConfig;
-  mergeVoxels?: boolean;
+  mergeVoxels?: MergeVoxelsOption;
 }
 
 export interface HeadlessRenderHandle {
@@ -139,11 +141,23 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   return handle;
 }
 
+const DEFAULT_MERGE_THRESHOLD = 2000;
+
+function shouldMergeVoxels(option: MergeVoxelsOption, voxelCount: number | undefined): boolean {
+  if (option === true) return true;
+  if (option === false) return false;
+  if (typeof option === "number") {
+    return voxelCount !== undefined ? voxelCount > option : false;
+  }
+  // Default: apply merge if over the threshold.
+  return voxelCount !== undefined ? voxelCount > DEFAULT_MERGE_THRESHOLD : false;
+}
+
 export function renderScene({
   element: root,
   camera,
   scene,
-  mergeVoxels: merge
+  mergeVoxels: mergeOption
 }: HeadlessRenderOptions): HeadlessRenderHandle {
   if (!root) {
     throw new Error("voxcss: renderScene requires a root element.");
@@ -173,9 +187,10 @@ export function renderScene({
     cameraHandle.element.appendChild(sceneElement);
   }
 
-  const shouldMerge = Boolean(merge);
-  const applyMerge = (voxels: SceneState["voxels"] | undefined) =>
-    shouldMerge && voxels ? mergeVoxels(voxels) : voxels ?? [];
+  const applyMerge = (voxels: SceneState["voxels"] | undefined) => {
+    if (!voxels) return [];
+    return shouldMergeVoxels(mergeOption, voxels.length) ? mergeVoxels(voxels) : voxels;
+  };
 
   const sceneState = createScene({
     ...(scene ?? {}),

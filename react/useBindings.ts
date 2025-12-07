@@ -14,10 +14,12 @@ export function useSceneControllerContext(): SceneController {
   return controller;
 }
 
+import type { MergeVoxelsOption } from "@voxcss/core/headless";
+
 export type SceneBindingProps = Partial<SceneState> & {
   controller: SceneController;
   element?: HTMLElement | null;
-  mergeVoxels?: boolean;
+  mergeVoxels?: MergeVoxelsOption;
 };
 
 export function useSceneBinding(props: SceneBindingProps) {
@@ -30,9 +32,16 @@ export function useSceneBinding(props: SceneBindingProps) {
     latestProps.current = props;
     const element = containerRef.current;
     if (!element) return;
-    const { controller, element: _unused, mergeVoxels: merge, ...state } = latestProps.current;
+    const { controller, element: _unused, mergeVoxels: mergeOption, ...state } = latestProps.current;
     const normalized = normalizeSceneState(state);
-    const voxels = merge ? mergeVoxels(normalized.voxels) : normalized.voxels;
+    const voxels =
+      mergeOption === true
+        ? mergeVoxels(normalized.voxels)
+        : typeof mergeOption === "number"
+          ? normalized.voxels && normalized.voxels.length > mergeOption
+            ? mergeVoxels(normalized.voxels)
+            : normalized.voxels
+          : normalized.voxels;
     bindingRef.current = mountScene({ controller, element, ...normalized, voxels });
     return () => {
       bindingRef.current?.destroy();
@@ -43,9 +52,17 @@ export function useSceneBinding(props: SceneBindingProps) {
 
   useEffect(() => {
     latestProps.current = props;
-    const { controller: _controller, element: _element, mergeVoxels: merge, ...state } = props;
+    const { controller: _controller, element: _element, mergeVoxels: mergeOption, ...state } = props;
     const normalized = normalizeSceneState(state);
-    const nextState = { ...normalized, voxels: merge ? mergeVoxels(normalized.voxels) : normalized.voxels };
+    const voxels =
+      mergeOption === true
+        ? mergeVoxels(normalized.voxels)
+        : typeof mergeOption === "number"
+          ? normalized.voxels && normalized.voxels.length > mergeOption
+            ? mergeVoxels(normalized.voxels)
+            : normalized.voxels
+          : normalized.voxels;
+    const nextState = { ...normalized, voxels };
     if (prevStateRef.current && sceneStateShallowEqual(prevStateRef.current, nextState)) {
       return;
     }
