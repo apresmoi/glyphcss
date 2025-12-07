@@ -59,10 +59,10 @@ export default function App() {
 
 ### VoxCamera props
 
-- `interactive` – enable pointer drag controls.
 - `zoom`, `pan`, `tilt` – translate the camera in/out, vertically, and horizontally.
 - `rotX`, `rotY` – rotate around the X/Y axis.
 - `perspective` – control CSS perspective depth (or disable it).
+- `interactive` – enable pointer drag controls.
 - `invert` – flip pointer drag direction.
 - `animate` – auto-rotate the camera; accepts `true`, a speed number, or `{ axis, speed, pauseOnInteraction }`.
 
@@ -72,7 +72,7 @@ export default function App() {
 - `rows`, `cols`, `depth` – override the inferred bounds and explicitly set the 3D grid size.
 - `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
 - `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing (50/25px).
-- `mergeVoxels` – collapses contiguous cubes into larger areas. Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
+- `mergeVoxels` – collapse contiguous cubes into larger areas. Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
 
 ### Voxel data model
 
