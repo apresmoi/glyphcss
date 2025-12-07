@@ -1,6 +1,6 @@
 # VoxCSS
 
-A CSS voxel engine. Renders HTML cuboids by stacking grid layers and applying 3D transforms. Supports colors and textures, interactions and culling, plus shapes, areas and projections. Works with Vue, React, Svelte, or plain JavaScript.
+A CSS voxel engine. A 3D grid for the DOM. Renders HTML cuboids by stacking grid layers and applying transforms. Supports colors and textures, interactions and culling, plus shapes, areas and projections. Works with Vue, React, Svelte, or plain JavaScript.
 
 Visit [voxcss.com](https://voxcss.com) for live docs, API reference, and model examples.
 
