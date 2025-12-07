@@ -114,9 +114,6 @@ fetch("/models/example.vox")
       camera: { interactive: true },
       scene: {
         voxels,
-        rows,
-        cols,
-        depth,
         showWalls: true,
         showFloor: true
       }
