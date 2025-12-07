@@ -70,9 +70,9 @@ export default function App() {
 
 - `voxels` – array of voxel objects; optional (defaults to empty) to render a blank scene.
 - `rows`, `cols`, `depth` – override the inferred bounds and explicitly set the 3D grid size.
-- `show-walls`, `show-floor` – toggle structural planes to provide context or make floating builds feel grounded.
+- `show-walls`, `show-floor` – toggle structural planes.
 - `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing (50/25px).
-- `mergeVoxels` – collapse contiguous cubes into larger areas. Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
+- `mergeVoxels` – collapse contiguous cubes into larger areas for better performance. Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
 
 ### Voxel data model
 
