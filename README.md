@@ -108,13 +108,12 @@ const rootEl = document.getElementById("voxcss")!;
 fetch("/models/example.vox")
   .then((r) => r.arrayBuffer())
   .then((buffer) => parseMagicaVoxel(buffer))
-  .then(({ voxels, rows, cols, depth }) => {
+  .then(({ voxels }) => {
     renderScene({
       element: rootEl,
       camera: { interactive: true },
       scene: {
         voxels,
-        showWalls: true,
         showFloor: true
       }
     });
