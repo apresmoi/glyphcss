@@ -108,6 +108,10 @@ const CORE_BASE_STYLES = `
   --voxcss-layer-half: calc(var(--voxcss-layer-elevation, 50px) / 2);
   transform: translateZ(var(--voxcss-layer-half));
 }
+.voxcss-projection--dimetric .voxcss-cube {
+  --voxcss-layer-half: var(--voxcss-layer-elevation, 50px);
+  transform: translateZ(var(--voxcss-layer-half));
+}
 .voxcss-cube__inner {
   position: absolute;
   inset: 0;
@@ -165,7 +169,7 @@ const CORE_BASE_STYLES = `
   transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fr {
-  transform: rotateY(90deg) translateZ(var(--voxcss-side-offset-x, 50px));
+  transform: rotateY(90deg) translateZ(var(--voxcss-fr-offset, var(--voxcss-side-offset-y, 25px)));
   transform-origin: bottom left;
   width: var(--voxcss-layer-elevation, 50px);
 }
