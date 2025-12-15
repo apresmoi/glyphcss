@@ -31,16 +31,21 @@ const CORE_BASE_STYLES = `
   pointer-events: all;
 }
 
-.voxcss-shell {
+.voxcss-plane {
+  display: grid;
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
   pointer-events: none;
   z-index: 1;
+  transform-origin: 0 0;
+}
+.voxcss-plane > * {
+  pointer-events: all;
 }
 
-.voxcss-shell-sheet {
-  display: grid;
+.voxcss-floor-x,
+.voxcss-floor-y {
   position: absolute;
   top: 0;
   left: 0;
@@ -49,17 +54,16 @@ const CORE_BASE_STYLES = `
   z-index: 1;
   transform-origin: 0 0;
 }
-.voxcss-shell-sheet > * {
-  pointer-events: all;
+
+.voxcss-floor-x {
+  transform: rotateX(90deg);
 }
 
-.voxcss-renderer--plane-shell .voxcss-cube-face {
-  transform: none !important;
-  width: 100% !important;
-  height: 100% !important;
+.voxcss-floor-y {
+  transform: rotateY(-90deg);
 }
 
-.voxcss-floor {
+.voxcss-floor-z {
   position: absolute;
   top: 0;
   left: 0;
@@ -140,12 +144,8 @@ const CORE_BASE_STYLES = `
   --voxcss-layer-half: var(--voxcss-layer-elevation, 50px);
   transform: translateZ(var(--voxcss-layer-half));
 }
-.voxcss-cube__inner {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-}
-.voxcss-cube-face {
+.voxcss-cube-face,
+.voxcss-plane-face {
   position: absolute;
   inset: 0;
   box-sizing: border-box;

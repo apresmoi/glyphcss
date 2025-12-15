@@ -37,7 +37,6 @@ const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
 
 const noopRenderer: ShapeRenderer = () => {};
 const DIMETRIC_PROJECTION_CLASS = "voxcss-projection--dimetric";
-const PLANE_SHELL_RENDERER_CLASS = "voxcss-renderer--plane-shell";
 
 export interface RendererMountOptions {
   documentRef: Document;
@@ -136,7 +135,6 @@ function renderScene(
   const structureChanged = !structureEqual(state.prevStructure, nextStructure);
   if (structureChanged) {
     updateProjectionClass(root, context);
-    updateRenderModeClass(root, renderMode);
     root.style.setProperty("--voxcss-rows", String(context.rows));
     root.style.setProperty("--voxcss-cols", String(context.cols));
   }
@@ -164,14 +162,6 @@ function updateProjectionClass(root: HTMLElement, context: GridContext): void {
   }
 }
 
-function updateRenderModeClass(root: HTMLElement, mode: SceneRenderMode): void {
-  if (mode === "plane-shell") {
-    root.classList.add(PLANE_SHELL_RENDERER_CLASS);
-  } else {
-    root.classList.remove(PLANE_SHELL_RENDERER_CLASS);
-  }
-}
-
 function resetLayers(state: RenderState): void {
   for (const [, record] of state.layers) {
     removeLayerRecord(record);
@@ -180,33 +170,54 @@ function resetLayers(state: RenderState): void {
 }
 
 interface PlaneShellDomState {
-  container: HTMLElement;
+  zHost: HTMLElement;
+  xHost: HTMLElement;
+  yHost: HTMLElement;
 }
 
-function ensurePlaneShellContainer(state: DomRendererState, documentRef: Document): HTMLElement {
-  const existing = state.planeShell?.container;
+function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): PlaneShellDomState {
+  const existing = state.planeShell;
+  const root = state.renderState.root;
   const floor = state.renderState.floor;
   if (existing) {
-    if (existing.parentElement !== floor) {
-      floor.appendChild(existing);
+    if (existing.xHost.parentElement !== root) {
+      root.appendChild(existing.xHost);
     }
+    if (existing.yHost.parentElement !== root) {
+      root.appendChild(existing.yHost);
+    }
+    existing.zHost = floor;
     return existing;
   }
-  const container = documentRef.createElement("div");
-  container.className = "voxcss-shell";
-  floor.appendChild(container);
-  state.planeShell = { container };
-  return container;
+
+  const xHost = documentRef.createElement("div");
+  xHost.className = "voxcss-floor-x";
+
+  const yHost = documentRef.createElement("div");
+  yHost.className = "voxcss-floor-y";
+
+  root.appendChild(xHost);
+  root.appendChild(yHost);
+
+  const composed: PlaneShellDomState = { zHost: floor, xHost, yHost };
+  state.planeShell = composed;
+  return composed;
 }
 
 function clearPlaneShell(state: DomRendererState): void {
-  state.planeShell?.container.remove();
+  const planeShell = state.planeShell;
+  if (!planeShell) return;
+  planeShell.zHost.innerHTML = "";
+  planeShell.xHost.remove();
+  planeShell.yHost.remove();
   state.planeShell = null;
 }
 
 function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, documentRef: Document): void {
-  const container = ensurePlaneShellContainer(state, documentRef);
-  container.innerHTML = "";
+  const hosts = ensurePlaneShellHosts(state, documentRef);
+  hosts.zHost.innerHTML = "";
+  hosts.xHost.innerHTML = "";
+  hosts.yHost.innerHTML = "";
 
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
@@ -214,6 +225,11 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
   const rows = Math.max(context.rows, 1);
   const cols = Math.max(context.cols, 1);
   const depth = Math.max(snapshot.layers.length, 0);
+
+  hosts.xHost.style.width = `${cols * tileSize}px`;
+  hosts.xHost.style.height = `${depth * layerElevation}px`;
+  hosts.yHost.style.width = `${depth * layerElevation}px`;
+  hosts.yHost.style.height = `${rows * tileSize}px`;
 
   const occupied = new Map<number, Voxel>();
   const strideXY = rows * cols;
@@ -235,39 +251,34 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     }
   }
 
-  const sheets = new Map<string, HTMLElement>();
+  const planes = new Map<string, HTMLElement>();
 
-  const ensureSheet = (axis: "x" | "y" | "z", k: number): HTMLElement => {
+  const ensurePlane = (axis: "x" | "y" | "z", k: number): HTMLElement => {
     const key = `${axis}:${k}`;
-    const existing = sheets.get(key);
+    const existing = planes.get(key);
     if (existing) return existing;
 
-    const sheet = documentRef.createElement("div");
-    sheet.className = `voxcss-shell-sheet voxcss-shell-sheet--${axis}`;
+    const plane = documentRef.createElement("div");
+    plane.className = "voxcss-plane";
 
     if (axis === "z") {
-      sheet.style.width = "100%";
-      sheet.style.height = "100%";
-      sheet.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-      sheet.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
-      sheet.style.transform = `translateZ(${k * layerElevation}px)`;
+      plane.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
+      plane.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+      plane.style.transform = `translateZ(${k * layerElevation}px)`;
     } else if (axis === "y") {
-      sheet.style.width = `${depth * layerElevation}px`;
-      sheet.style.height = `${rows * tileSize}px`;
-      sheet.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
-      sheet.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
-      sheet.style.transform = `translateX(${(k - 1) * tileSize}px) rotateY(-90deg)`;
+      plane.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
+      plane.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+      plane.style.transform = `translateZ(${-1 * (k - 1) * tileSize}px)`;
     } else {
-      sheet.style.width = `${cols * tileSize}px`;
-      sheet.style.height = `${depth * layerElevation}px`;
-      sheet.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-      sheet.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
-      sheet.style.transform = `translateY(${(k - 1) * tileSize}px) rotateX(90deg)`;
+      plane.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
+      plane.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
+      plane.style.transform = `translateZ(${-1 * (k - 1) * tileSize}px)`;
     }
 
-    container.appendChild(sheet);
-    sheets.set(key, sheet);
-    return sheet;
+    const parent = axis === "z" ? hosts.zHost : axis === "x" ? hosts.xHost : hosts.yHost;
+    parent.appendChild(plane);
+    planes.set(key, plane);
+    return plane;
   };
 
   const offsets = context.offsets;
@@ -294,7 +305,7 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     cells: Set<string>;
   }
 
-  const groupsBySheet = new Map<string, Map<string, FaceCellGroup>>();
+  const groupsByPlane = new Map<string, Map<string, FaceCellGroup>>();
 
   const addFaceCell = (
     axis: "x" | "y" | "z",
@@ -304,11 +315,11 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     x: number,
     y: number
   ): void => {
-    const sheetKey = `${axis}:${plane}`;
-    let groups = groupsBySheet.get(sheetKey);
+    const planeKey = `${axis}:${plane}`;
+    let groups = groupsByPlane.get(planeKey);
     if (!groups) {
       groups = new Map<string, FaceCellGroup>();
-      groupsBySheet.set(sheetKey, groups);
+      groupsByPlane.set(planeKey, groups);
     }
     const sig = getSignature(voxel, face);
     const groupKey = `${face}\n${sig}`;
@@ -420,20 +431,20 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     return rects;
   };
 
-  for (const [sheetKey, groups] of groupsBySheet.entries()) {
-    const [axisRaw, planeRaw] = sheetKey.split(":");
+  for (const [planeKey, groups] of groupsByPlane.entries()) {
+    const [axisRaw, planeRaw] = planeKey.split(":");
     const axis = axisRaw as "x" | "y" | "z";
     const plane = Number(planeRaw);
-    const sheet = ensureSheet(axis, plane);
+    const planeEl = ensurePlane(axis, plane);
 
     for (const group of groups.values()) {
       const rects = mergeCellKeys(group.cells);
       for (const rect of rects) {
         const quad = documentRef.createElement("div");
-        quad.className = `voxcss-shell-face voxcss-cube-face voxcss-cube-face--${group.face}`;
+        quad.className = `voxcss-plane-face voxcss-plane-face--${group.face}`;
         quad.style.gridArea = `${rect.x} / ${rect.y} / ${rect.x2} / ${rect.y2}`;
         applyCubeFaceAppearance(quad, group.face, group.voxel, context);
-        sheet.appendChild(quad);
+        planeEl.appendChild(quad);
       }
     }
   }

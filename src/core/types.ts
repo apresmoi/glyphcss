@@ -115,7 +115,7 @@ export const DEFAULT_WALLS: WallsMask = {
 export const DEFAULT_WALL_COLOR = "#3e3e4d";
 
 export const LAYER_CLASS = "voxcss-layer";
-export const FLOOR_CLASS = "voxcss-floor";
+export const FLOOR_CLASS = "voxcss-floor-z";
 export const CUBE_CLASS = "voxcss-cube";
 export const FACE_CLASS = "voxcss-cube-face";
 export const CUBE_FACES = ["t", "b", "bl", "br", "fr", "fl"] as const;

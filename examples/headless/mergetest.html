@@ -480,14 +480,18 @@
 
     function updateStatus() {
       const sceneEl = root.querySelector(".voxcss-scene");
-      const mode = sceneEl?.classList.contains("voxcss-renderer--plane-shell") ? "plane-shell" : "cubes";
       const mergeUi = mergeSelect.value;
+      const mergeOption = mergeOptionFromUi(mergeUi);
       const integration = integrationSelect?.value ?? "headless";
       const projection = projectionSelect.value;
       const voxels = currentModel?.voxels ?? [];
+      const hasZ2 = voxels.some((voxel) => voxel && typeof voxel.z2 === "number" && Number.isFinite(voxel.z2));
+      const cubeOnly = voxels.every((voxel) => !voxel || !voxel.shape || voxel.shape === "cube");
+      const wants3d = mergeOption === "3d" || hasZ2;
+      const mode = wants3d && cubeOnly ? "plane-shell" : "cubes";
       const dims = currentModel ? `${currentModel.cols}×${currentModel.rows}×${currentModel.depth}` : "—";
       const voxelElements = sceneEl ? sceneEl.querySelectorAll(".voxcss-cube").length : 0;
-      const quadElements = sceneEl ? sceneEl.querySelectorAll(".voxcss-shell-face").length : 0;
+      const quadElements = sceneEl ? sceneEl.querySelectorAll(".voxcss-plane > .voxcss-plane-face").length : 0;
       statusEl.innerHTML = `
         <div><strong>mode:</strong> ${mode} &nbsp;•&nbsp; <strong>integration:</strong> ${integration} &nbsp;•&nbsp; <strong>mergeVoxels:</strong> ${mergeUi} &nbsp;•&nbsp; <strong>projection:</strong> ${projection}</div>
         <small>
