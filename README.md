@@ -72,12 +72,14 @@ export default function App() {
 - `rows`, `cols`, `depth` – override the inferred bounds and explicitly set the 3D grid size.
 - `show-walls`, `show-floor` – toggle structural planes.
 - `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing (50/25px).
-- `mergeVoxels` – collapse contiguous cubes into larger areas for better performance. Accepts `true`, `false`, or a number threshold. Defaults to auto-merging large scenes (>2000 voxels).
+- `mergeVoxels` – merge strategy for performance: `false` (default), `"2d"` (merge across `x`/`y` within each `z` layer), or `"3d"` (merge across `x`/`y`/`z`). If any voxel uses `z2`, te engine takes the `"3d"` render path.
 
 ### Voxel data model
 
 Each voxel describes a single cell in the grid:
-- `x`, `y`, `z` – required integer coordinates; `x2`/`y2` optional for area footprints.
+- `x`, `y`, `z` – required integer coordinates.
+- `x2`/`y2` – optional exclusive ends for area footprints.
+- `z2` – optional exclusive end for vertical spans (voxel occupies layers `z..(z2-1)`).
 - `shape` – `cube` (default), `ramp`, `wedge`, or `spike`.
 - `color` / `texture` – apply solid fills or image URLs per voxel.
 - `rot` – rotation in degrees; ramps/wedges/spikes snap to 90° increments.
@@ -93,9 +95,9 @@ const voxels = [
 
 ## Performance
 
-VoxCSS renders everything in the DOM, so performance is determined by how many elements the browser has to manage. The engine reduces work through culling based on neighbors and camera rotation, only drawing the outer shell of the model with the faces that are actually visible. 
+VoxCSS renders everything in the DOM, so performance is determined by how many elements the browser has to manage. The engine reduces work through culling based on neighbors and camera rotation, only drawing the outer surface of the model with the faces that are actually visible. 
 
-The `mergeVoxels` prop can be essential: instead of rendering each cube as its own node, the engine scans each layer and groups adjacent voxels into larger rectangles in the x/y dimensions. Merging is auto-enabled for bigger scenes (over 2000 voxels) and can cut DOM size dramatically.
+The `mergeVoxels` prop can be essential: instead of rendering each voxel as its own node, the engine can group work into larger merged elements. Use `mergeVoxels="2d"` to merge adjacent voxels across `x`/`y` within each `z` layer, or `mergeVoxels="3d"` to merge across `x`/`y`/`z`. The default is `mergeVoxels={false}`.
 
 ## Loading MagicaVoxel (.vox) files
 

@@ -17,7 +17,7 @@ export interface SceneContextBuildResult {
 const FALLBACK_ROWS_COLS = 16;
 const FALLBACK_DEPTH = 12;
 
-export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: number; depth: number } {
+function computeGridExtents(grid: VoxelGrid): { rows: number; cols: number; depth: number } {
   let maxRow = 0;
   let maxCol = 0;
   let maxDepth = 0;
@@ -27,9 +27,14 @@ export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: numb
     const colEnd = typeof voxel.y2 === "number" ? voxel.y2 : voxel.y + 1;
     if (rowEnd > maxRow) maxRow = rowEnd;
     if (colEnd > maxCol) maxCol = colEnd;
-    const depthIndex = Math.max(0, Math.floor(voxel.z ?? 0)) + 1;
-    if (depthIndex > maxDepth) maxDepth = depthIndex;
+    const { z2 } = getVoxelZBounds(voxel);
+    if (z2 > maxDepth) maxDepth = z2;
   }
+  return { rows: maxRow, cols: maxCol, depth: maxDepth };
+}
+
+export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: number; depth: number } {
+  const { rows: maxRow, cols: maxCol, depth: maxDepth } = computeGridExtents(grid);
   return {
     rows: maxRow > 0 ? maxRow : FALLBACK_ROWS_COLS,
     cols: maxCol > 0 ? maxCol : FALLBACK_ROWS_COLS,
@@ -41,16 +46,36 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
   const grid = args.grid ?? [];
   const partial = args.context ?? {};
   const dimensionOverrides = args.dimensions ?? {};
-  const hasFullOverride =
-    typeof dimensionOverrides.rows === "number" &&
-    typeof dimensionOverrides.cols === "number" &&
-    typeof dimensionOverrides.depth === "number";
-  const inferred = hasFullOverride ? (dimensionOverrides as Required<SceneDimensions>) : inferGridDimensions(grid);
+  const inferred = computeGridExtents(grid);
   const tileSize = BASE_TILE;
   const projection = partial.projection ?? DEFAULT_PROJECTION;
-  const rows = Math.max(partial.rows ?? dimensionOverrides.rows ?? inferred.rows, 1);
-  const cols = Math.max(partial.cols ?? dimensionOverrides.cols ?? inferred.cols, 1);
-  const depth = Math.max(partial.depth ?? dimensionOverrides.depth ?? inferred.depth, 0);
+  const rowsOverride =
+    typeof partial.rows === "number"
+      ? partial.rows
+      : typeof dimensionOverrides.rows === "number"
+        ? dimensionOverrides.rows
+        : undefined;
+  const colsOverride =
+    typeof partial.cols === "number"
+      ? partial.cols
+      : typeof dimensionOverrides.cols === "number"
+        ? dimensionOverrides.cols
+        : undefined;
+  const depthOverride =
+    typeof partial.depth === "number"
+      ? partial.depth
+      : typeof dimensionOverrides.depth === "number"
+        ? dimensionOverrides.depth
+        : undefined;
+
+  const rowsBase = Math.max(rowsOverride ?? 0, inferred.rows);
+  const colsBase = Math.max(colsOverride ?? 0, inferred.cols);
+  const depthBase = Math.max(depthOverride ?? 0, inferred.depth);
+
+  const rows = Math.max(rowsOverride === undefined && inferred.rows === 0 ? FALLBACK_ROWS_COLS : rowsBase, 1);
+  const cols = Math.max(colsOverride === undefined && inferred.cols === 0 ? FALLBACK_ROWS_COLS : colsBase, 1);
+  const depth =
+    depthOverride === undefined && inferred.depth === 0 ? FALLBACK_DEPTH : Math.max(depthBase, 0);
 
   const hasAngles = partial.rotX !== undefined || partial.rotY !== undefined;
   const resolvedWalls = partial.walls
@@ -139,17 +164,25 @@ function buildVoxelLayers(
   const lookups: Array<(Voxel | null)[]> = Array.from({ length: depth }, () => new Array<Voxel | null>(rows * cols).fill(null));
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
-    const layerIndex = Math.max(0, Math.floor(voxel.z ?? 0));
-    const layer = layers[layerIndex];
-    const lookup = lookups[layerIndex];
-    if (!layer || !lookup) continue;
-    layer.push(voxel);
-    const { x2, y2 } = getVoxelBounds(voxel);
-    for (let x = voxel.x; x < x2; x += 1) {
-      if (x < 0 || x >= rows) continue;
-      for (let y = voxel.y; y < y2; y += 1) {
-        if (y < 0 || y >= cols) continue;
-        lookup[x * cols + y] = voxel;
+    const { z: zStart, z2 } = getVoxelZBounds(voxel);
+    const hasZSpan = typeof voxel.z2 === "number" && Number.isFinite(voxel.z2) && Math.floor(voxel.z2) > zStart + 1;
+    const zEnd = Math.min(z2, depth);
+    for (let layerIndex = zStart; layerIndex < zEnd; layerIndex += 1) {
+      const layer = layers[layerIndex];
+      const lookup = lookups[layerIndex];
+      if (!layer || !lookup) continue;
+      const normalizedVoxel =
+        !hasZSpan && layerIndex === zStart && voxel.z === zStart
+          ? voxel
+          : { ...voxel, z: layerIndex, z2: undefined };
+      layer.push(normalizedVoxel);
+      const { x2, y2 } = getVoxelBounds(normalizedVoxel);
+      for (let x = normalizedVoxel.x; x < x2; x += 1) {
+        if (x < 0 || x >= rows) continue;
+        for (let y = normalizedVoxel.y; y < y2; y += 1) {
+          if (y < 0 || y >= cols) continue;
+          lookup[x * cols + y] = normalizedVoxel;
+        }
       }
     }
   }
@@ -161,6 +194,13 @@ export function getVoxelBounds(voxel: Voxel): { x2: number; y2: number } {
     x2: voxel.x2 ?? voxel.x + 1,
     y2: voxel.y2 ?? voxel.y + 1
   };
+}
+
+export function getVoxelZBounds(voxel: Voxel): { z: number; z2: number } {
+  const rawZ = Number.isFinite(voxel.z) ? voxel.z : 0;
+  const z = Math.max(0, Math.floor(rawZ));
+  const rawZ2 = typeof voxel.z2 === "number" && Number.isFinite(voxel.z2) ? voxel.z2 : z + 1;
+  return { z, z2: Math.max(z + 1, Math.floor(rawZ2)) };
 }
 
 function findVoxelInLayers(

@@ -31,6 +31,34 @@ const CORE_BASE_STYLES = `
   pointer-events: all;
 }
 
+.voxcss-shell {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.voxcss-shell-sheet {
+  display: grid;
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  z-index: 1;
+  transform-origin: 0 0;
+}
+.voxcss-shell-sheet > * {
+  pointer-events: all;
+}
+
+.voxcss-renderer--plane-shell .voxcss-cube-face {
+  transform: none !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 .voxcss-floor {
   position: absolute;
   top: 0;

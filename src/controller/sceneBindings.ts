@@ -3,6 +3,7 @@ import type { ProjectionMode, VoxelGrid, WallsMask } from "../core/types";
 import { createDomRenderer } from "../core/domRenderer";
 import { injectBaseStyles } from "../core/styles";
 import { wallMasksEqual } from "../core/context";
+import type { MergeVoxelsOption } from "../utils/mergeVoxelsOption";
 
 export interface SceneState {
   voxels: VoxelGrid;
@@ -12,6 +13,7 @@ export interface SceneState {
   showWalls: boolean;
   showFloor: boolean;
   projection: ProjectionMode;
+  mergeVoxels?: MergeVoxelsOption;
 }
 
 export type SceneComponentProps = Partial<SceneState>;
@@ -25,7 +27,8 @@ export function normalizeSceneState(input: SceneComponentProps): SceneState {
     depth: input.depth,
     showWalls: input.showWalls ?? false,
     showFloor: input.showFloor ?? false,
-    projection: input.projection ?? "cubic"
+    projection: input.projection ?? "cubic",
+    mergeVoxels: input.mergeVoxels ?? false
   };
 }
 

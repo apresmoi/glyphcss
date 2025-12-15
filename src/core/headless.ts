@@ -5,7 +5,9 @@ import type { AutoRotateOption } from "./camera";
 import { createIsometricCamera, normalizeInvertMultiplier } from "./camera";
 import type { SceneControllerOptions } from "../controller/sceneController";
 import type { CameraComponentProps } from "../controller/domBindings";
-import { mergeVoxels } from "../utils/mergeVoxels";
+import type { MergeVoxelsOption } from "../utils/mergeVoxelsOption";
+
+export type { MergeVoxelsOption } from "../utils/mergeVoxelsOption";
 
 export interface HeadlessCameraOptions extends CameraComponentProps {
   controller?: SceneControllerOptions;
@@ -31,8 +33,6 @@ export interface HeadlessCameraHandle {
 export type HeadlessSceneOptions = Partial<SceneState> & { element: HTMLElement };
 export type HeadlessSceneConfig = Partial<SceneState> & { element?: HTMLElement };
 type NormalizedHeadlessSceneOptions = SceneState & { element: HTMLElement };
-
-export type MergeVoxelsOption = boolean | number | undefined;
 
 export interface HeadlessRenderOptions {
   element: HTMLElement;
@@ -141,18 +141,6 @@ export function createCamera(options: HeadlessCameraOptions): HeadlessCameraHand
   return handle;
 }
 
-const DEFAULT_MERGE_THRESHOLD = 2000;
-
-function shouldMergeVoxels(option: MergeVoxelsOption, voxelCount: number | undefined): boolean {
-  if (option === true) return true;
-  if (option === false) return false;
-  if (typeof option === "number") {
-    return voxelCount !== undefined ? voxelCount > option : false;
-  }
-  // Default: apply merge if over the threshold.
-  return voxelCount !== undefined ? voxelCount > DEFAULT_MERGE_THRESHOLD : false;
-}
-
 export function renderScene({
   element: root,
   camera,
@@ -187,14 +175,12 @@ export function renderScene({
     cameraHandle.element.appendChild(sceneElement);
   }
 
-  const applyMerge = (voxels: SceneState["voxels"] | undefined) => {
-    if (!voxels) return [];
-    return shouldMergeVoxels(mergeOption, voxels.length) ? mergeVoxels(voxels) : voxels;
-  };
+  const initialMergeOption = scene?.mergeVoxels ?? mergeOption;
 
   const sceneState = createScene({
     ...(scene ?? {}),
-    voxels: applyMerge(scene?.voxels),
+    mergeVoxels: initialMergeOption,
+    voxels: scene?.voxels ?? [],
     element: sceneElement
   });
 
@@ -213,14 +199,13 @@ export function renderScene({
 
   return {
     setVoxels(voxels: SceneState["voxels"]) {
-      currentState = normalizeSceneState({ ...currentState, voxels: applyMerge(voxels) });
+      currentState = normalizeSceneState({ ...currentState, voxels });
       binding.update(currentState);
     },
     setScene(options: SceneState) {
       // Merge so partial updates (e.g., toggling walls) preserve the existing scene state.
-      const mergedVoxels =
-        options.voxels !== undefined ? applyMerge(options.voxels) : currentState.voxels;
-      currentState = normalizeSceneState({ ...currentState, ...options, voxels: mergedVoxels });
+      const nextVoxels = options.voxels !== undefined ? options.voxels : currentState.voxels;
+      currentState = normalizeSceneState({ ...currentState, ...options, voxels: nextVoxels });
       binding.update(currentState);
     },
     destroy() {

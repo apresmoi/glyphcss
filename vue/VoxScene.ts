@@ -1,8 +1,8 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch, computed, inject } from "vue";
 import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
 import type { SceneController } from "@voxcss/controller/sceneController";
+import { normalizeMergeVoxelsOption, type MergeVoxelsOption } from "@voxcss/utils/mergeVoxelsOption";
 import { controllerKey } from "./context";
-import { mergeVoxels } from "@voxcss/utils/mergeVoxels";
 
 const scenePropOptions = {
   controller: { type: Object as import("vue").PropType<SceneController> },
@@ -13,7 +13,11 @@ const scenePropOptions = {
   showWalls: { type: Boolean as import("vue").PropType<boolean | undefined> },
   showFloor: { type: Boolean as import("vue").PropType<boolean | undefined> },
   projection: { type: String as import("vue").PropType<import("@voxcss/core/types").ProjectionMode | undefined> },
-  mergeVoxels: { type: Boolean }
+  mergeVoxels: {
+    type: [String, Boolean] as import("vue").PropType<MergeVoxelsOption>,
+    default: false,
+    validator: (value: unknown) => value === false || value === "2d" || value === "3d"
+  }
 } as const;
 
 export default defineComponent({
@@ -31,17 +35,19 @@ export default defineComponent({
       const element = hostElement.value;
       const controller = resolvedController.value;
       if (!element || !controller) return;
-      const voxels = props.mergeVoxels ? mergeVoxels(props.voxels ?? []) : props.voxels;
+      const rawVoxels = props.voxels ?? [];
+      const mergeOption = normalizeMergeVoxelsOption(props.mergeVoxels);
       const options: SceneState & { controller: SceneController } = {
         controller,
         ...normalizeSceneState({
-          voxels,
+          voxels: rawVoxels,
           rows: props.rows,
           cols: props.cols,
           depth: props.depth,
           showWalls: props.showWalls,
           showFloor: props.showFloor,
-          projection: props.projection
+          projection: props.projection,
+          mergeVoxels: mergeOption
         })
       };
       binding = mountScene({ ...options, element });
@@ -74,16 +80,18 @@ export default defineComponent({
           mountBinding();
           return;
         }
-        const voxels = props.mergeVoxels ? mergeVoxels(props.voxels ?? []) : props.voxels;
+        const rawVoxels = props.voxels ?? [];
+        const mergeOption = normalizeMergeVoxelsOption(props.mergeVoxels);
         binding.update(
           normalizeSceneState({
-            voxels,
+            voxels: rawVoxels,
             rows: props.rows,
             cols: props.cols,
             depth: props.depth,
             showWalls: props.showWalls,
             showFloor: props.showFloor,
-            projection: props.projection
+            projection: props.projection,
+            mergeVoxels: mergeOption
           })
         );
       },

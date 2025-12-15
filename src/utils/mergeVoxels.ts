@@ -1,5 +1,5 @@
 import type { Voxel, VoxelGrid } from "../core/types";
-import { getVoxelBounds } from "../core/context";
+import { getVoxelBounds, getVoxelZBounds } from "../core/context";
 
 interface CellEntry {
   sig: string;
@@ -31,12 +31,26 @@ export function mergeVoxels(grid: VoxelGrid): VoxelGrid {
   const byLayer = new Map<number, Voxel[]>();
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
-    const z = Math.floor(voxel.z ?? 0);
-    const bucket = byLayer.get(z);
-    if (bucket) {
-      bucket.push(voxel);
-    } else {
-      byLayer.set(z, [voxel]);
+    const { z: zStart, z2 } = getVoxelZBounds(voxel);
+    const hasZSpan = typeof voxel.z2 === "number" && Number.isFinite(voxel.z2) && Math.floor(voxel.z2) > zStart + 1;
+    if (!hasZSpan) {
+      const normalized = voxel.z === zStart ? voxel : { ...voxel, z: zStart };
+      const bucket = byLayer.get(zStart);
+      if (bucket) {
+        bucket.push(normalized);
+      } else {
+        byLayer.set(zStart, [normalized]);
+      }
+      continue;
+    }
+    for (let z = zStart; z < z2; z += 1) {
+      const normalized: Voxel = { ...voxel, z, z2: undefined };
+      const bucket = byLayer.get(z);
+      if (bucket) {
+        bucket.push(normalized);
+      } else {
+        byLayer.set(z, [normalized]);
+      }
     }
   }
 

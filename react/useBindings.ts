@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, createContext, useContext } from "r
 import type { RefObject } from "react";
 import type { SceneController } from "@voxcss/controller/sceneController";
 import { mountScene, normalizeSceneState, type SceneState } from "@voxcss/controller/sceneBindings";
-import { mergeVoxels } from "@voxcss/utils/mergeVoxels";
+import type { MergeVoxelsOption } from "@voxcss/utils/mergeVoxelsOption";
 
 export const SceneControllerContext = createContext<SceneController | null>(null);
 
@@ -13,8 +13,6 @@ export function useSceneControllerContext(): SceneController {
   }
   return controller;
 }
-
-import type { MergeVoxelsOption } from "@voxcss/core/headless";
 
 export type SceneBindingProps = Partial<SceneState> & {
   controller: SceneController;
@@ -33,16 +31,8 @@ export function useSceneBinding(props: SceneBindingProps) {
     const element = containerRef.current;
     if (!element) return;
     const { controller, element: _unused, mergeVoxels: mergeOption, ...state } = latestProps.current;
-    const normalized = normalizeSceneState(state);
-    const voxels =
-      mergeOption === true
-        ? mergeVoxels(normalized.voxels)
-        : typeof mergeOption === "number"
-          ? normalized.voxels && normalized.voxels.length > mergeOption
-            ? mergeVoxels(normalized.voxels)
-            : normalized.voxels
-          : normalized.voxels;
-    bindingRef.current = mountScene({ controller, element, ...normalized, voxels });
+    const normalized = normalizeSceneState({ ...state, mergeVoxels: mergeOption });
+    bindingRef.current = mountScene({ controller, element, ...normalized });
     return () => {
       bindingRef.current?.destroy();
       bindingRef.current = null;
@@ -53,16 +43,8 @@ export function useSceneBinding(props: SceneBindingProps) {
   useEffect(() => {
     latestProps.current = props;
     const { controller: _controller, element: _element, mergeVoxels: mergeOption, ...state } = props;
-    const normalized = normalizeSceneState(state);
-    const voxels =
-      mergeOption === true
-        ? mergeVoxels(normalized.voxels)
-        : typeof mergeOption === "number"
-          ? normalized.voxels && normalized.voxels.length > mergeOption
-            ? mergeVoxels(normalized.voxels)
-            : normalized.voxels
-          : normalized.voxels;
-    const nextState = { ...normalized, voxels };
+    const normalized = normalizeSceneState({ ...state, mergeVoxels: mergeOption });
+    const nextState = { ...normalized };
     if (prevStateRef.current && sceneStateShallowEqual(prevStateRef.current, nextState)) {
       return;
     }
@@ -91,6 +73,7 @@ function sceneStateShallowEqual(a: SceneState, b: SceneState): boolean {
     a.depth === b.depth &&
     a.showWalls === b.showWalls &&
     a.showFloor === b.showFloor &&
-    a.projection === b.projection
+    a.projection === b.projection &&
+    a.mergeVoxels === b.mergeVoxels
   );
 }

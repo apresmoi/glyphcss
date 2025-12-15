@@ -37,3 +37,9 @@ export { type AutoRotateOption } from "./core/camera";
 export type { ProjectionMode, VoxelGrid } from "./core/types";
 export { parseMagicaVoxel, type MagicaVoxelParseResult } from "./utils/parseMagicaVoxel";
 export { mergeVoxels } from "./utils/mergeVoxels";
+export {
+  normalizeMergeVoxelsOption,
+  is2dMerge,
+  is3dMerge,
+  type MergeVoxelsOption
+} from "./utils/mergeVoxelsOption";

@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <title>VoxCSS · merge/plane-shell test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "vue": "https://unpkg.com/vue@3.5.12/dist/vue.esm-browser.prod.js"
+      }
+    }
+  </script>
+  <style>
+    :root {
+      font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: dark;
+      background: #020617;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 20%, #0f172a, #020617);
+      color: #e2e8f0;
+    }
+
+    header {
+      padding: 2rem 3rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.75rem;
+    }
+
+    header p {
+      margin: 0;
+      color: #94a3b8;
+      max-width: 740px;
+      line-height: 1.4;
+    }
+
+    .status {
+      font-size: 0.9rem;
+      color: #e2e8f0;
+    }
+
+    .status small {
+      display: block;
+      margin-top: 0.25rem;
+      color: #94a3b8;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 1.5rem;
+      padding: 0 3rem 3rem;
+      min-height: calc(100vh - 160px);
+    }
+
+    .viewport {
+      background: rgba(2, 6, 23, 0.85);
+      border-radius: 24px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      padding: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 520px;
+      box-shadow: 0 25px 40px rgba(2, 6, 23, 0.65);
+    }
+
+    .viewport #voxcss {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 18px;
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+
+    .control-panel {
+      background: rgba(2, 6, 23, 0.86);
+      border-radius: 24px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      padding: 1.5rem;
+      box-shadow: 0 25px 40px rgba(2, 6, 23, 0.65);
+      overflow-y: auto;
+      max-height: calc(100vh - 4rem);
+    }
+
+    .control-panel section {
+      margin-bottom: 1.25rem;
+    }
+
+    .control-panel h2 {
+      margin: 0 0 0.6rem;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #94a3b8;
+    }
+
+    label.control-label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      margin-bottom: 0.75rem;
+    }
+
+    select {
+      width: 100%;
+      padding: 0.45rem 0.55rem;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+      color: inherit;
+    }
+
+    label.toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .note {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      line-height: 1.4;
+    }
+
+    button {
+      padding: 0.45rem 0.6rem;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+      color: inherit;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+
+    button:hover {
+      border-color: rgba(148, 163, 184, 0.45);
+      background: rgba(30, 41, 59, 0.6);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .button-row button {
+      flex: 1;
+      min-width: 140px;
+    }
+
+    pre.code {
+      margin: 0;
+      padding: 0.75rem;
+      border-radius: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      background: rgba(15, 23, 42, 0.6);
+      overflow: auto;
+      max-height: 360px;
+      font-size: 0.75rem;
+      line-height: 1.35;
+      white-space: pre;
+    }
+
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .control-panel {
+        max-height: none;
+      }
+    }
+  </style>
+</head>
+
+  <body>
+  <header>
+    <h1>mergeVoxels: off / 2d / 3d</h1>
+    <p>
+      Switch <code>mergeVoxels</code> between off (raw cubes), 2d (legacy merged cubes), and 3d (plane-shell when cube-only).
+      Use the models below to sanity check exposed faces, wall masking, and projection.
+    </p>
+    <div class="status" id="status"></div>
+  </header>
+
+  <div class="layout">
+    <section class="viewport">
+      <div id="voxcss"></div>
+    </section>
+
+    <aside class="control-panel">
+      <section>
+        <h2>Model</h2>
+        <label class="control-label">
+          Preset
+          <select id="model">
+            <option value="single">Single cube</option>
+            <option value="z2-pillar">z2 pillar (x2/y2 + z2)</option>
+            <option value="z2-wall">z2 wall (2 voxels)</option>
+            <option value="z2-hollow">z2 hollow box (6 voxels)</option>
+            <option value="z2-terraces">z2 terraces (4 voxels)</option>
+            <option value="solid-small">Solid 8×8×4</option>
+            <option value="solid-2000">Solid 20×20×5 (2000 voxels)</option>
+            <option value="solid-2400">Solid 20×20×6 (2400 voxels)</option>
+            <option value="solid-2001">Solid 20×20×5 + 1 (2001 voxels)</option>
+            <option value="slab">Flat slab 26×26×1</option>
+            <option value="wall-y">Vertical wall (XZ plane)</option>
+            <option value="wall-x">Vertical wall (YZ plane)</option>
+            <option value="stripes">Striped slab (merge boundaries)</option>
+            <option value="areas">Area voxels (x2/y2)</option>
+            <option value="hollow">Hollow 10×10×6</option>
+            <option value="tunnel">Tunnel + cavity</option>
+            <option value="mixed-shapes">Mixed shapes (should stay cubes)</option>
+          </select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Renderer</h2>
+        <label class="control-label">
+          mergeVoxels
+          <select id="merge">
+            <option value="off">off (no merge)</option>
+            <option value="2d">2d (legacy merged cubes)</option>
+            <option value="3d">3d (plane-shell if cube-only)</option>
+          </select>
+        </label>
+        <label class="control-label">
+          Integration
+          <select id="integration">
+            <option value="headless" selected>headless</option>
+            <option value="react">react</option>
+            <option value="vue">vue</option>
+          </select>
+        </label>
+        <p class="note">
+          Plane-shell activates when mergeVoxels = "3d" (or any voxel uses z2) and every voxel is a cube.
+        </p>
+      </section>
+
+      <section>
+        <h2>Scene</h2>
+        <label class="control-label">
+          Projection
+          <select id="projection">
+            <option value="cubic">cubic</option>
+            <option value="dimetric">dimetric</option>
+          </select>
+        </label>
+        <label class="toggle">
+          <input id="show-walls" type="checkbox" />
+          Show walls
+        </label>
+        <label class="toggle">
+          <input id="show-floor" type="checkbox" checked />
+          Show floor
+        </label>
+      </section>
+
+      <section>
+        <h2>Data</h2>
+        <label class="control-label">
+          Voxels
+          <select id="voxels-view">
+            <option value="source">source (as defined)</option>
+            <option value="expanded">expanded z2 (per-layer)</option>
+            <option value="merged2d">2d merged (preview)</option>
+          </select>
+        </label>
+        <label class="control-label">
+          Preview
+          <select id="voxels-limit">
+            <option value="50">first 50</option>
+            <option value="200" selected>first 200</option>
+            <option value="1000">first 1000</option>
+            <option value="all">all</option>
+          </select>
+        </label>
+        <div class="button-row">
+          <button type="button" id="copy-voxels">Copy voxels JSON</button>
+          <button type="button" id="copy-scene">Copy scene preset JSON</button>
+        </div>
+        <p class="note" id="voxels-summary"></p>
+        <pre class="code" id="voxels-json"></pre>
+      </section>
+    </aside>
+  </div>
+
+  <script type="module">
+    import { renderScene, mergeVoxels } from "../../dist/index.js";
+
+    const root = document.getElementById("voxcss");
+    const statusEl = document.getElementById("status");
+    const modelSelect = document.getElementById("model");
+    const mergeSelect = document.getElementById("merge");
+    const integrationSelect = document.getElementById("integration");
+    const projectionSelect = document.getElementById("projection");
+    const showWallsInput = document.getElementById("show-walls");
+    const showFloorInput = document.getElementById("show-floor");
+    const voxelsViewSelect = document.getElementById("voxels-view");
+    const voxelsLimitSelect = document.getElementById("voxels-limit");
+    const voxelsSummaryEl = document.getElementById("voxels-summary");
+    const voxelsJsonEl = document.getElementById("voxels-json");
+    const copyVoxelsBtn = document.getElementById("copy-voxels");
+    const copySceneBtn = document.getElementById("copy-scene");
+
+    let handle = null;
+    let currentIntegration = "headless";
+    let reactRoot = null;
+    let renderReactScene = null;
+    let vueApp = null;
+    let vueState = null;
+    let currentModel = null;
+
+    const DEFAULT_CAMERA = { interactive: true, zoom: 1.0, rotX: 65, rotY: 45 };
+
+    function mergeOptionFromUi(value) {
+      if (value === "2d" || value === "3d") return value;
+      return false;
+    }
+
+    function buildScenePayload() {
+      return {
+        voxels: currentModel?.voxels ?? [],
+        rows: currentModel?.rows,
+        cols: currentModel?.cols,
+        depth: currentModel?.depth,
+        showWalls: showWallsInput.checked,
+        showFloor: showFloorInput.checked,
+        projection: projectionSelect.value,
+        mergeVoxels: mergeOptionFromUi(mergeSelect.value)
+      };
+    }
+
+    function getVoxelBounds(voxel) {
+      return {
+        x2: typeof voxel.x2 === "number" ? voxel.x2 : voxel.x + 1,
+        y2: typeof voxel.y2 === "number" ? voxel.y2 : voxel.y + 1,
+        z2: typeof voxel.z2 === "number" ? voxel.z2 : voxel.z + 1
+      };
+    }
+
+    function computeVoxelExtents(voxels) {
+      if (!voxels?.length) return null;
+      let minX = Infinity;
+      let minY = Infinity;
+      let minZ = Infinity;
+      let maxX2 = -Infinity;
+      let maxY2 = -Infinity;
+      let maxZ2 = -Infinity;
+      for (const voxel of voxels) {
+        if (!voxel) continue;
+        const { x2, y2, z2 } = getVoxelBounds(voxel);
+        minX = Math.min(minX, voxel.x);
+        minY = Math.min(minY, voxel.y);
+        minZ = Math.min(minZ, voxel.z);
+        maxX2 = Math.max(maxX2, x2);
+        maxY2 = Math.max(maxY2, y2);
+        maxZ2 = Math.max(maxZ2, z2);
+      }
+      return {
+        minX,
+        minY,
+        minZ,
+        maxX2,
+        maxY2,
+        maxZ2
+      };
+    }
+
+    function expandVoxelsZ2(voxels) {
+      const out = [];
+      for (const voxel of voxels ?? []) {
+        if (!voxel) continue;
+        const zStart = Math.max(0, Math.floor(voxel.z ?? 0));
+        const z2 = typeof voxel.z2 === "number" && Number.isFinite(voxel.z2) ? Math.max(zStart + 1, Math.floor(voxel.z2)) : zStart + 1;
+        for (let z = zStart; z < z2; z += 1) {
+          out.push({ ...voxel, z, z2: undefined });
+        }
+      }
+      return out;
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        // Fallback for file:// and non-secure contexts.
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.left = "-9999px";
+        textarea.style.top = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try {
+          document.execCommand("copy");
+          return true;
+        } catch {
+          return false;
+        } finally {
+          textarea.remove();
+        }
+      }
+    }
+
+    function resolvePreviewLimit() {
+      const raw = voxelsLimitSelect?.value ?? "200";
+      if (raw === "all") return Infinity;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : 200;
+    }
+
+    function getVoxelsForView(viewKey, sourceVoxels) {
+      switch (viewKey) {
+        case "expanded":
+          return expandVoxelsZ2(sourceVoxels);
+        case "merged2d":
+          return mergeVoxels(sourceVoxels);
+        case "source":
+        default:
+          return sourceVoxels;
+      }
+    }
+
+    function updateVoxelPanel() {
+      if (!voxelsJsonEl || !voxelsSummaryEl) return;
+      const sourceVoxels = currentModel?.voxels ?? [];
+      const viewKey = voxelsViewSelect?.value ?? "source";
+      const voxels = getVoxelsForView(viewKey, sourceVoxels);
+      const limit = resolvePreviewLimit();
+      const preview = limit === Infinity ? voxels : voxels.slice(0, limit);
+      const truncated = preview.length < voxels.length;
+      voxelsJsonEl.textContent = JSON.stringify(preview, null, 2) + (truncated ? `\n\n… +${voxels.length - preview.length} more` : "");
+
+      const z2Count = sourceVoxels.filter((voxel) => voxel && typeof voxel.z2 === "number" && Number.isFinite(voxel.z2)).length;
+      const expandedCount = expandVoxelsZ2(sourceVoxels).length;
+      const extents = computeVoxelExtents(sourceVoxels);
+      const extentsText = extents
+        ? ` · extents x ${extents.minX}..${extents.maxX2 - 1}, y ${extents.minY}..${extents.maxY2 - 1}, z ${extents.minZ}..${extents.maxZ2 - 1}`
+        : "";
+
+      const label =
+        viewKey === "source" ? "source" : viewKey === "expanded" ? "expanded z2" : "2d merged";
+      voxelsSummaryEl.textContent =
+        `view: ${label} (${voxels.length}) · source ${sourceVoxels.length}` +
+        (z2Count ? ` (${z2Count} with z2)` : "") +
+        ` · expanded ${expandedCount}` +
+        extentsText;
+    }
+
+    function updateStatus() {
+      const sceneEl = root.querySelector(".voxcss-scene");
+      const mode = sceneEl?.classList.contains("voxcss-renderer--plane-shell") ? "plane-shell" : "cubes";
+      const mergeUi = mergeSelect.value;
+      const integration = integrationSelect?.value ?? "headless";
+      const projection = projectionSelect.value;
+      const voxels = currentModel?.voxels ?? [];
+      const dims = currentModel ? `${currentModel.cols}×${currentModel.rows}×${currentModel.depth}` : "—";
+      const voxelElements = sceneEl ? sceneEl.querySelectorAll(".voxcss-cube").length : 0;
+      const quadElements = sceneEl ? sceneEl.querySelectorAll(".voxcss-shell-face").length : 0;
+      statusEl.innerHTML = `
+        <div><strong>mode:</strong> ${mode} &nbsp;•&nbsp; <strong>integration:</strong> ${integration} &nbsp;•&nbsp; <strong>mergeVoxels:</strong> ${mergeUi} &nbsp;•&nbsp; <strong>projection:</strong> ${projection}</div>
+        <small>
+          source ${voxels.length} voxels · dom ${voxelElements} voxels / ${quadElements} quads · dims ${dims}
+        </small>
+      `;
+      updateVoxelPanel();
+    }
+
+    function buildSolid({ width, height, depth, offset = 2 }) {
+      const voxels = [];
+      for (let z = 0; z < depth; z += 1) {
+        for (let x = offset; x < offset + height; x += 1) {
+          for (let y = offset; y < offset + width; y += 1) {
+            voxels.push({
+              x,
+              y,
+              z,
+              color: z === depth - 1 ? "#fb7185" : z === 0 ? "#38bdf8" : "#94a3b8"
+            });
+          }
+        }
+      }
+      return {
+        voxels,
+        rows: height + offset + 3,
+        cols: width + offset + 3,
+        depth: depth + 2
+      };
+    }
+
+    function buildSingleCube({ offset = 5 } = {}) {
+      const voxels = [{ x: offset, y: offset, z: 0, color: "#38bdf8" }];
+      return {
+        voxels,
+        rows: offset + 6,
+        cols: offset + 6,
+        depth: 4
+      };
+    }
+
+    function buildZ2Pillar() {
+      const offset = 4;
+      const voxels = [
+        { x: offset, y: offset, z: 0, x2: offset + 2, y2: offset + 2, z2: 10, color: "#38bdf8" },
+        { x: offset + 2, y: offset, z: 0, z2: 5, color: "#fb7185" }
+      ];
+      return {
+        voxels,
+        rows: offset + 8,
+        cols: offset + 8,
+        depth: 12
+      };
+    }
+
+    function buildZ2Wall() {
+      const offset = 4;
+      const length = 18;
+      const y = offset + 3;
+      const z2 = 12;
+      const voxels = [
+        { x: offset, y, z: 0, x2: offset + Math.floor(length / 2), y2: y + 1, z2, color: "#38bdf8" },
+        { x: offset + Math.floor(length / 2), y, z: 0, x2: offset + length, y2: y + 1, z2, color: "#fb7185" }
+      ];
+      return {
+        voxels,
+        rows: offset + length + 4,
+        cols: y + 6,
+        depth: z2 + 2
+      };
+    }
+
+    function buildZ2HollowBox({ size = 10, height = 10, offset = 4 } = {}) {
+      const x0 = offset;
+      const y0 = offset;
+      const x1 = x0 + size;
+      const y1 = y0 + size;
+      const z2 = height;
+      const wallA = "#38bdf8";
+      const wallB = "#94a3b8";
+
+      const voxels = [
+        { x: x0, y: y0, z: 0, x2: x0 + 1, y2: y1, z2, color: wallA },
+        { x: x1 - 1, y: y0, z: 0, x2: x1, y2: y1, z2, color: wallA },
+        { x: x0 + 1, y: y0, z: 0, x2: x1 - 1, y2: y0 + 1, z2, color: wallB },
+        { x: x0 + 1, y: y1 - 1, z: 0, x2: x1 - 1, y2: y1, z2, color: wallB },
+        { x: x0 + 1, y: y0 + 1, z: 0, x2: x1 - 1, y2: y1 - 1, color: "#1e293b" },
+        { x: x0 + 3, y: y0 + 3, z: 0, x2: x0 + 4, y2: y0 + 4, z2: z2 - 2, color: "#facc15" }
+      ];
+
+      return {
+        voxels,
+        rows: x1 + 4,
+        cols: y1 + 4,
+        depth: z2 + 2
+      };
+    }
+
+    function buildZ2Terraces() {
+      const offset = 4;
+      const baseSize = 12;
+      const voxels = [
+        { x: offset, y: offset, z: 0, x2: offset + baseSize, y2: offset + baseSize, z2: 2, color: "#38bdf8" },
+        { x: offset + 1, y: offset + 1, z: 2, x2: offset + baseSize - 1, y2: offset + baseSize - 1, z2: 4, color: "#94a3b8" },
+        { x: offset + 2, y: offset + 2, z: 4, x2: offset + baseSize - 2, y2: offset + baseSize - 2, z2: 6, color: "#fb7185" },
+        { x: offset + 5, y: offset + 5, z: 6, x2: offset + 7, y2: offset + 7, z2: 11, color: "#22c55e" }
+      ];
+      return {
+        voxels,
+        rows: offset + baseSize + 5,
+        cols: offset + baseSize + 5,
+        depth: 13
+      };
+    }
+
+    function buildSlab({ width = 26, height = 26, offset = 2 } = {}) {
+      return buildSolid({ width, height, depth: 1, offset });
+    }
+
+    function buildWallY({ width = 14, height = 18, depth = 10, offset = 2 } = {}) {
+      const voxels = [];
+      const y = offset + Math.floor(width / 2);
+      for (let z = 0; z < depth; z += 1) {
+        for (let x = offset; x < offset + height; x += 1) {
+          voxels.push({
+            x,
+            y,
+            z,
+            color: z % 2 === 0 ? "#38bdf8" : "#94a3b8"
+          });
+        }
+      }
+      return {
+        voxels,
+        rows: height + offset + 3,
+        cols: width + offset + 3,
+        depth: depth + 2
+      };
+    }
+
+    function buildWallX({ width = 14, height = 18, depth = 10, offset = 2 } = {}) {
+      const voxels = [];
+      const x = offset + Math.floor(height / 2);
+      for (let z = 0; z < depth; z += 1) {
+        for (let y = offset; y < offset + width; y += 1) {
+          voxels.push({
+            x,
+            y,
+            z,
+            color: z % 2 === 0 ? "#fb7185" : "#94a3b8"
+          });
+        }
+      }
+      return {
+        voxels,
+        rows: height + offset + 3,
+        cols: width + offset + 3,
+        depth: depth + 2
+      };
+    }
+
+    function buildStripedSlab({ width = 24, height = 24, offset = 2 } = {}) {
+      const voxels = [];
+      const colors = ["#38bdf8", "#fb7185", "#94a3b8", "#facc15"];
+      for (let x = offset; x < offset + height; x += 1) {
+        for (let y = offset; y < offset + width; y += 1) {
+          voxels.push({
+            x,
+            y,
+            z: 0,
+            color: colors[(y - offset) % colors.length]
+          });
+        }
+      }
+      return {
+        voxels,
+        rows: height + offset + 3,
+        cols: width + offset + 3,
+        depth: 4
+      };
+    }
+
+    function buildAreaPatches({ offset = 2 } = {}) {
+      const voxels = [
+        { x: offset, y: offset, z: 0, x2: offset + 10, y2: offset + 6, color: "#38bdf8" },
+        { x: offset + 10, y: offset, z: 0, x2: offset + 18, y2: offset + 10, color: "#94a3b8" },
+        { x: offset + 2, y: offset + 6, z: 1, x2: offset + 14, y2: offset + 14, color: "#fb7185" },
+        { x: offset + 6, y: offset + 14, z: 2, x2: offset + 18, y2: offset + 18, color: "#facc15" }
+      ];
+      return {
+        voxels,
+        rows: offset + 22,
+        cols: offset + 22,
+        depth: 6
+      };
+    }
+
+    function buildHollowBox({ sizeXY, depth, offset = 2 }) {
+      const voxels = [];
+      const sizeX = sizeXY;
+      const sizeY = sizeXY;
+      for (let z = 0; z < depth; z += 1) {
+        for (let x = 0; x < sizeX; x += 1) {
+          for (let y = 0; y < sizeY; y += 1) {
+            const onEdge = x === 0 || y === 0 || x === sizeX - 1 || y === sizeY - 1 || z === 0 || z === depth - 1;
+            if (!onEdge) continue;
+            voxels.push({
+              x: x + offset,
+              y: y + offset,
+              z,
+              color: z === 0 ? "#38bdf8" : "#94a3b8"
+            });
+          }
+        }
+      }
+      return {
+        voxels,
+        rows: sizeX + offset + 3,
+        cols: sizeY + offset + 3,
+        depth: depth + 2
+      };
+    }
+
+    function buildTunnel({ width = 12, height = 10, depth = 6, offset = 2 }) {
+      const voxels = [];
+      const midX = Math.floor(height / 2);
+      const midY = Math.floor(width / 2);
+      for (let z = 0; z < depth; z += 1) {
+        for (let x = 0; x < height; x += 1) {
+          for (let y = 0; y < width; y += 1) {
+            const isShell = x === 0 || y === 0 || x === height - 1 || y === width - 1 || z === 0 || z === depth - 1;
+            const inTunnel = z > 0 && z < depth - 1 && y === midY && x >= 1 && x <= height - 2;
+            const inCavity = z >= 2 && z <= 3 && x >= midX - 1 && x <= midX + 1 && y >= midY - 1 && y <= midY + 1;
+            if (!isShell) continue;
+            if (inTunnel || inCavity) continue;
+            voxels.push({
+              x: x + offset,
+              y: y + offset,
+              z,
+              color: z === depth - 1 ? "#fb7185" : "#38bdf8"
+            });
+          }
+        }
+      }
+      return {
+        voxels,
+        rows: height + offset + 3,
+        cols: width + offset + 3,
+        depth: depth + 2
+      };
+    }
+
+    function buildMixedShapes() {
+      const base = buildSolid({ width: 10, height: 10, depth: 3, offset: 2 });
+      const voxels = [...base.voxels];
+      voxels.push({ shape: "ramp", x: 6, y: 6, z: 3, rot: 90, color: "#facc15" });
+      voxels.push({ shape: "spike", x: 7, y: 6, z: 3, rot: 180, color: "#f97316" });
+      voxels.push({ shape: "wedge", x: 6, y: 7, z: 3, rot: 0, color: "#22c55e" });
+      return {
+        ...base,
+        voxels,
+        depth: base.depth + 2
+      };
+    }
+
+    function buildModel(key) {
+      switch (key) {
+        case "single":
+          return { ...buildSingleCube(), label: "Single cube" };
+        case "z2-pillar":
+          return { ...buildZ2Pillar(), label: "z2 pillar (x2/y2 + z2)" };
+        case "z2-wall":
+          return { ...buildZ2Wall(), label: "z2 wall" };
+        case "z2-hollow":
+          return { ...buildZ2HollowBox(), label: "z2 hollow box" };
+        case "z2-terraces":
+          return { ...buildZ2Terraces(), label: "z2 terraces" };
+        case "solid-small":
+          return { ...buildSolid({ width: 8, height: 8, depth: 4 }), label: "Solid 8×8×4" };
+        case "solid-2000":
+          return { ...buildSolid({ width: 20, height: 20, depth: 5 }), label: "Solid 20×20×5 (2000)" };
+        case "solid-2400":
+          return { ...buildSolid({ width: 20, height: 20, depth: 6 }), label: "Solid 20×20×6" };
+        case "solid-2001": {
+          const base = buildSolid({ width: 20, height: 20, depth: 5 });
+          return {
+            ...base,
+            voxels: base.voxels.concat([{ x: 3, y: 3, z: 5, color: "#22c55e" }]),
+            depth: Math.max(base.depth, 8),
+            label: "Solid 20×20×5 + 1 (2001 voxels)"
+          };
+        }
+        case "slab":
+          return { ...buildSlab(), label: "Flat slab 26×26×1" };
+        case "wall-y":
+          return { ...buildWallY(), label: "Vertical wall (XZ plane)" };
+        case "wall-x":
+          return { ...buildWallX(), label: "Vertical wall (YZ plane)" };
+        case "stripes":
+          return { ...buildStripedSlab(), label: "Striped slab" };
+        case "areas":
+          return { ...buildAreaPatches(), label: "Area voxels (x2/y2)" };
+        case "hollow":
+          return { ...buildHollowBox({ sizeXY: 10, depth: 6 }), label: "Hollow 10×10×6" };
+        case "tunnel":
+          return { ...buildTunnel({}), label: "Tunnel + cavity" };
+        case "mixed-shapes":
+          return { ...buildMixedShapes(), label: "Mixed shapes" };
+        default:
+          return { ...buildSolid({ width: 8, height: 8, depth: 4 }), label: "Solid 8×8×4" };
+      }
+    }
+
+    let reactDeps = null;
+    async function ensureReactDeps() {
+      if (reactDeps) return reactDeps;
+      const [ReactModule, ReactDomClientModule, VoxReact] = await Promise.all([
+        import("react"),
+        import("react-dom/client"),
+        import("../../dist/react/index.js")
+      ]);
+      const React = ReactModule.default ?? ReactModule;
+      reactDeps = {
+        React,
+        createRoot: ReactDomClientModule.createRoot,
+        VoxCamera: VoxReact.VoxCamera,
+        VoxScene: VoxReact.VoxScene
+      };
+      return reactDeps;
+    }
+
+    let vueDeps = null;
+    async function ensureVueDeps() {
+      if (vueDeps) return vueDeps;
+      const [Vue, VoxVue] = await Promise.all([import("vue"), import("../../dist/vue/index.js")]);
+      vueDeps = {
+        createApp: Vue.createApp,
+        h: Vue.h,
+        reactive: Vue.reactive,
+        VoxCamera: VoxVue.VoxCamera,
+        VoxScene: VoxVue.VoxScene
+      };
+      return vueDeps;
+    }
+
+    function destroyIntegration() {
+      if (handle) {
+        handle.destroy();
+        handle = null;
+      }
+      if (reactRoot) {
+        reactRoot.unmount();
+        reactRoot = null;
+        renderReactScene = null;
+      }
+      if (vueApp) {
+        vueApp.unmount();
+        vueApp = null;
+        vueState = null;
+      }
+      root.innerHTML = "";
+    }
+
+    async function ensureIntegration(scenePayload, { remount } = { remount: false }) {
+      const nextIntegration = integrationSelect?.value ?? "headless";
+      if (remount || nextIntegration !== currentIntegration) {
+        destroyIntegration();
+        currentIntegration = nextIntegration;
+      }
+
+      if (currentIntegration === "react") {
+        const { React, createRoot, VoxCamera, VoxScene } = await ensureReactDeps();
+        if (!reactRoot) {
+          reactRoot = createRoot(root);
+          renderReactScene = (scene) => {
+            reactRoot.render(
+              React.createElement(
+                VoxCamera,
+                DEFAULT_CAMERA,
+                React.createElement(VoxScene, {
+                  voxels: scene.voxels,
+                  rows: scene.rows,
+                  cols: scene.cols,
+                  depth: scene.depth,
+                  showWalls: scene.showWalls,
+                  showFloor: scene.showFloor,
+                  projection: scene.projection,
+                  mergeVoxels: scene.mergeVoxels
+                })
+              )
+            );
+          };
+        }
+        renderReactScene(scenePayload);
+        return;
+      }
+
+      if (currentIntegration === "vue") {
+        const { createApp, h, reactive, VoxCamera, VoxScene } = await ensureVueDeps();
+        if (!vueApp) {
+          vueState = reactive({ ...scenePayload });
+          vueApp = createApp({
+            setup() {
+              return () =>
+                h(VoxCamera, DEFAULT_CAMERA, {
+                  default: ({ controller }) =>
+                    h(VoxScene, {
+                      controller,
+                      voxels: vueState.voxels,
+                      rows: vueState.rows,
+                      cols: vueState.cols,
+                      depth: vueState.depth,
+                      showWalls: vueState.showWalls,
+                      showFloor: vueState.showFloor,
+                      projection: vueState.projection,
+                      mergeVoxels: vueState.mergeVoxels
+                    })
+                });
+            }
+          });
+          vueApp.mount(root);
+        } else {
+          Object.assign(vueState, scenePayload);
+        }
+        return;
+      }
+
+      // Default: headless
+      if (!handle) {
+        handle = renderScene({
+          element: root,
+          camera: DEFAULT_CAMERA,
+          scene: scenePayload
+        });
+      } else {
+        handle.setScene(scenePayload);
+      }
+    }
+
+    async function syncScene() {
+      if (!currentModel) return;
+      await ensureIntegration(buildScenePayload(), { remount: false });
+      updateStatus();
+    }
+
+    async function mount() {
+      currentModel = buildModel(modelSelect.value);
+      await ensureIntegration(buildScenePayload(), { remount: true });
+      updateStatus();
+    }
+
+    modelSelect.addEventListener("change", () => void mount());
+    mergeSelect.addEventListener("change", () => void syncScene());
+    integrationSelect?.addEventListener("change", () => void mount());
+    projectionSelect.addEventListener("change", () => void syncScene());
+    showWallsInput.addEventListener("change", () => void syncScene());
+    showFloorInput.addEventListener("change", () => void syncScene());
+    voxelsViewSelect?.addEventListener("change", () => updateVoxelPanel());
+    voxelsLimitSelect?.addEventListener("change", () => updateVoxelPanel());
+    copyVoxelsBtn?.addEventListener("click", async () => {
+      const sourceVoxels = currentModel?.voxels ?? [];
+      const viewKey = voxelsViewSelect?.value ?? "source";
+      const voxels = getVoxelsForView(viewKey, sourceVoxels);
+      await copyText(JSON.stringify(voxels, null, 2));
+    });
+    copySceneBtn?.addEventListener("click", async () => {
+      if (!currentModel) return;
+      const payload = {
+        voxels: currentModel.voxels,
+        rows: currentModel.rows,
+        cols: currentModel.cols,
+        depth: currentModel.depth,
+        showWalls: showWallsInput.checked,
+        showFloor: showFloorInput.checked,
+        projection: projectionSelect.value,
+        mergeVoxels: mergeOptionFromUi(mergeSelect.value)
+      };
+      await copyText(JSON.stringify(payload, null, 2));
+    });
+
+    mount().catch((err) => console.error(err));
+  </script>
+</body>
+
+</html>

@@ -1,5 +1,5 @@
 import type { SvelteComponentTyped } from "svelte";
-import type { ProjectionMode, SceneController, VoxelGrid } from "@layoutit/voxcss";
+import type { MergeVoxelsOption, ProjectionMode, SceneController, VoxelGrid } from "@layoutit/voxcss";
 
 export default class VoxScene extends SvelteComponentTyped<
   {
@@ -10,6 +10,7 @@ export default class VoxScene extends SvelteComponentTyped<
     showWalls?: boolean;
     showFloor?: boolean;
     projection?: ProjectionMode;
+    mergeVoxels?: MergeVoxelsOption;
     controller?: SceneController;
   },
   { destroy: CustomEvent<void> },

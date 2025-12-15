@@ -3,6 +3,11 @@ import type { CameraHandle, CameraState } from "../core/camera";
 import type { ProjectionMode, SceneDimensions, WallsMask, Voxel, GridContext } from "../core/types";
 import { buildSceneContext, computeWallMask, wallMasksEqual } from "../core/context";
 import type { SceneState } from "./sceneBindings";
+import { mergeVoxels as mergeVoxelsGrid } from "../utils/mergeVoxels";
+import { normalizeMergeVoxelsOption, is2dMerge, is3dMerge } from "../utils/mergeVoxelsOption";
+import type { MergeVoxelsOption } from "../utils/mergeVoxelsOption";
+import type { VoxelGrid } from "../core/types";
+import type { RendererMetadata, SceneRenderMode } from "../core/domRenderer";
 
 type SnapshotListener = (snapshot: ControllerSnapshot) => void;
 
@@ -16,6 +21,7 @@ export interface ControllerSnapshot {
 export interface SceneSnapshot {
   layers: Voxel[][];
   context: GridContext;
+  renderer?: RendererMetadata;
 }
 
 export interface SceneControllerOptions {
@@ -65,11 +71,47 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     depth: dimensionOverride?.depth,
     showWalls: false,
     showFloor: false,
-    projection: options.projection === "dimetric" ? "dimetric" : "cubic"
+    projection: options.projection === "dimetric" ? "dimetric" : "cubic",
+    mergeVoxels: false
+  };
+
+  let cachedRawVoxels: VoxelGrid | null = null;
+  let cachedMergeOption: MergeVoxelsOption = false;
+  let cachedMergedVoxels: VoxelGrid | null = null;
+  let cachedCubeOnly = true;
+  let cachedHasZ2 = false;
+
+  const resolveGrid = (
+    state: SceneState
+  ): { grid: VoxelGrid; mergeOption: MergeVoxelsOption; rawCount: number; cubeOnly: boolean; hasZ2: boolean } => {
+    const rawVoxels = state.voxels ?? [];
+    const mergeOption = normalizeMergeVoxelsOption(state.mergeVoxels);
+    if (rawVoxels === cachedRawVoxels && mergeOption === cachedMergeOption && cachedMergedVoxels) {
+      return {
+        grid: cachedMergedVoxels,
+        mergeOption,
+        rawCount: rawVoxels.length,
+        cubeOnly: cachedCubeOnly,
+        hasZ2: cachedHasZ2
+      };
+    }
+
+    const cubeOnly = rawVoxels.every((voxel) => !voxel || (voxel.shape ?? "cube") === "cube");
+    const hasZ2 = rawVoxels.some((voxel) => voxel && typeof voxel.z2 === "number" && Number.isFinite(voxel.z2));
+    const shouldPreMerge = is2dMerge(mergeOption) && !hasZ2;
+    const grid = shouldPreMerge ? mergeVoxelsGrid(rawVoxels) : rawVoxels;
+
+    cachedRawVoxels = rawVoxels;
+    cachedMergeOption = mergeOption;
+    cachedMergedVoxels = grid;
+    cachedCubeOnly = cubeOnly;
+    cachedHasZ2 = hasZ2;
+
+    return { grid, mergeOption, rawCount: rawVoxels.length, cubeOnly, hasZ2 };
   };
 
   const initialScene = buildSceneContext({
-    grid: lastState.voxels,
+    grid: resolveGrid(lastState).grid,
     context: {
       rows: lastState.rows,
       cols: lastState.cols,
@@ -86,8 +128,9 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   let currentLayers: Voxel[][] = initialScene.layers;
 
   function rebuildScene(state: SceneState) {
+    const { grid } = resolveGrid(state);
     const scene = buildSceneContext({
-      grid: state.voxels,
+      grid,
       context: {
         rows: state.rows,
         cols: state.cols,
@@ -152,7 +195,9 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       // Only rotation changes: avoid rebuilding the entire scene; update wall mask if needed.
       const nextMask = computeWallMask(camera.state.rotX, camera.state.rotY);
       if (!wallMasksEqual(currentContext.walls, nextMask)) {
-        currentContext = { ...currentContext, walls: nextMask };
+        currentContext = { ...currentContext, walls: nextMask, rotX: camera.state.rotX, rotY: camera.state.rotY };
+      } else if (currentContext.rotX !== camera.state.rotX || currentContext.rotY !== camera.state.rotY) {
+        currentContext = { ...currentContext, rotX: camera.state.rotX, rotY: camera.state.rotY };
       }
       emitSnapshot();
       return;
@@ -218,12 +263,37 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   }
 
   function applySceneState(state: SceneState): SceneSnapshot {
+    const prevState = lastState;
     lastState = state;
-    const scene = rebuildScene(state);
+    const { mergeOption, rawCount, cubeOnly, hasZ2 } = resolveGrid(state);
+    const wants3d = is3dMerge(mergeOption) || hasZ2;
+    const planeShellEligible = wants3d && cubeOnly;
+    const mode: SceneRenderMode = planeShellEligible ? "plane-shell" : "cubes";
+    const shouldPreMerge = is2dMerge(mergeOption) && !hasZ2;
+    const mergeApplies = shouldPreMerge || planeShellEligible;
+    const needsRebuild =
+      prevState.voxels !== state.voxels ||
+      prevState.rows !== state.rows ||
+      prevState.cols !== state.cols ||
+      prevState.depth !== state.depth ||
+      prevState.showWalls !== state.showWalls ||
+      prevState.showFloor !== state.showFloor ||
+      prevState.projection !== state.projection ||
+      prevState.mergeVoxels !== state.mergeVoxels;
+    if (needsRebuild) {
+      rebuildScene(state);
+    }
     emitSnapshot();
     return {
       layers: currentLayers,
-      context: currentContext
+      context: currentContext,
+      renderer: {
+        mode,
+        mergeApplies,
+        rawVoxelCount: rawCount,
+        cubeOnly,
+        planeShellEligible
+      }
     };
   }
 

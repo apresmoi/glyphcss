@@ -5,8 +5,8 @@
     normalizeSceneState,
     type ProjectionMode,
     type VoxelGrid,
-    type SceneController,
-    mergeVoxels as mergeVoxelsHelper
+    type MergeVoxelsOption,
+    type SceneController
   } from "@layoutit/voxcss";
   import { createEventDispatcher, onDestroy } from "svelte";
   import { useControllerStore } from "./context";
@@ -18,7 +18,7 @@
   export let showWalls: boolean | undefined;
   export let showFloor: boolean | undefined;
   export let projection: ProjectionMode | undefined;
-  export let mergeVoxels: boolean | undefined;
+  export let mergeVoxels: MergeVoxelsOption = false;
 
   export let controller: SceneController | undefined;
 
@@ -31,13 +31,14 @@
   $: resolvedController = controller ?? $controllerStore ?? null;
 
   $: bindingOptions = normalizeSceneState({
-    voxels: mergeVoxels ? mergeVoxelsHelper(voxels ?? []) : voxels,
+    voxels,
     rows,
     cols,
     depth,
     showWalls,
     showFloor,
-    projection
+    projection,
+    mergeVoxels
   });
 
   // Remount when the controller instance changes so subscriptions and pointer events stay in sync.

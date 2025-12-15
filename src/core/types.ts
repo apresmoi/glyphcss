@@ -8,6 +8,7 @@ export interface Voxel {
   z: number;
   x2?: number;
   y2?: number;
+  z2?: number;
   color?: string;
   texture?: string;
   shape?: string;
