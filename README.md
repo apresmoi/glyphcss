@@ -102,23 +102,24 @@ The `mergeVoxels` prop can be essential: instead of rendering each voxel as its 
 
 Use the built-in parser to turn a MagicaVoxel `.vox` binary into a voxel object and feed it to `renderScene`:
 ```ts
-import { parseMagicaVoxel, renderScene } from "@layoutit/voxcss";
+<div id="voxcss"></div>
 
-const rootEl = document.getElementById("voxcss")!;
+<script type="module">
+  import { parseMagicaVoxel, renderScene } from "@layoutit/voxcss";
 
-fetch("/models/example.vox")
-  .then((r) => r.arrayBuffer())
-  .then((buffer) => parseMagicaVoxel(buffer))
-  .then(({ voxels }) => {
-    renderScene({
-      element: rootEl,
-      camera: { interactive: true },
-      scene: {
-        voxels,
-        showFloor: true
-      }
-    });
+  const model = await fetch("/models/example.vox")
+    .then(r => r.arrayBuffer())
+    .then(parseMagicaVoxel);
+
+  renderScene({
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
+    scene: {
+      voxels: model.voxels,
+      showFloor: true
+    }
   });
+</script>
 ```
 
 ## Made with VoxCSS
