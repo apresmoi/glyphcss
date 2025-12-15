@@ -76,10 +76,8 @@ export default function App() {
 
 ### Voxel data model
 
-Each voxel describes a single cell in the grid:
-- `x`, `y`, `z` – required integer coordinates.
-- `x2`/`y2` – optional exclusive ends for area footprints.
-- `z2` – optional exclusive end for vertical spans (voxel occupies layers `z..(z2-1)`).
+Each voxel describes a single cell in the grid: 
+- `x`, `y`, `z` (required integer coordinates), `x2`/`y2`/`z2` (optional for area footprints).
 - `shape` – `cube` (default), `ramp`, `wedge`, or `spike`.
 - `color` / `texture` – apply solid fills or image URLs per voxel.
 - `rot` – rotation in degrees; ramps/wedges/spikes snap to 90° increments.
