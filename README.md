@@ -72,7 +72,7 @@ export default function App() {
 - `rows`, `cols`, `depth` – override the inferred bounds and explicitly set the 3D grid size.
 - `show-walls`, `show-floor` – toggle structural planes.
 - `projection` – pick `"cubic"` or `"dimetric"` presets to change the layer spacing (50/25px).
-- `mergeVoxels` – merge strategy for performance: `false` (default), `"2d"` (merge across `x`/`y` within each `z` layer), or `"3d"` (merge across `x`/`y`/`z`). If any voxel uses `z2`, te engine takes the `"3d"` render path.
+- `mergeVoxels` – merge strategy for performance: `false` (default), `"2d"` (merge across `x`/`y` within each `z` layer), or `"3d"` (merge across `x`/`y`/`z`). If any voxel uses `z2`, the engine takes the `"3d"` render path.
 
 ### Voxel data model
 
