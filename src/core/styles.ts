@@ -31,19 +31,6 @@ const CORE_BASE_STYLES = `
   pointer-events: all;
 }
 
-.voxcss-plane {
-  display: grid;
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  pointer-events: none;
-  z-index: 1;
-  transform-origin: 0 0;
-}
-.voxcss-plane > * {
-  pointer-events: all;
-}
-
 .voxcss-floor-x,
 .voxcss-floor-y {
   position: absolute;
@@ -156,6 +143,7 @@ const CORE_BASE_STYLES = `
   height: 100%;
   background-size: cover;
 }
+
 .voxcss-cube-face--t {
   transform: translateZ(var(--voxcss-layer-half));
 }

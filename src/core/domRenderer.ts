@@ -25,7 +25,7 @@ import { wedgeShapeRenderer } from "./shapes/wedge";
 import { spikeShapeRenderer } from "./shapes/spike";
 import { shadeWallFace, shadeColor } from "./lighting";
 import { wallMasksEqual } from "./context";
-import { applyCubeFaceAppearance, getCubeFaceAppearanceSignature } from "./cubeFaceAppearance";
+import { computeCubeFaceAppearance, getCubeFaceAppearanceSignature } from "./cubeFaceAppearance";
 
 interface DomRendererState {
   renderState: RenderState;
@@ -173,6 +173,43 @@ interface PlaneShellDomState {
   zHost: HTMLElement;
   xHost: HTMLElement;
   yHost: HTMLElement;
+  zPool: HTMLElement[];
+  xPool: HTMLElement[];
+  yPool: HTMLElement[];
+  meshLayers: Voxel[][] | null;
+  mesh: PlaneShellMesh | null;
+}
+
+interface FaceCellGroup {
+  face: CubeFace;
+  voxel: Voxel;
+  cells: Set<number>;
+}
+
+interface Rect {
+  x: number;
+  y: number;
+  x2: number;
+  y2: number;
+}
+
+interface PlaneShellMeshGroup {
+  face: CubeFace;
+  voxel: Voxel;
+  rects: Rect[];
+}
+
+interface PlaneShellMeshPlane {
+  axis: "x" | "y" | "z";
+  plane: number;
+  groups: PlaneShellMeshGroup[];
+}
+
+interface PlaneShellMesh {
+  rows: number;
+  cols: number;
+  depth: number;
+  planes: PlaneShellMeshPlane[];
 }
 
 function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): PlaneShellDomState {
@@ -186,7 +223,9 @@ function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): 
     if (existing.yHost.parentElement !== root) {
       root.appendChild(existing.yHost);
     }
-    existing.zHost = floor;
+    if (existing.zHost !== floor) {
+      existing.zHost = floor;
+    }
     return existing;
   }
 
@@ -199,15 +238,31 @@ function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): 
   root.appendChild(xHost);
   root.appendChild(yHost);
 
-  const composed: PlaneShellDomState = { zHost: floor, xHost, yHost };
+  const composed: PlaneShellDomState = {
+    zHost: floor,
+    xHost,
+    yHost,
+    zPool: [],
+    xPool: [],
+    yPool: [],
+    meshLayers: null,
+    mesh: null
+  };
   state.planeShell = composed;
   return composed;
+}
+
+function resetPlaneShellHostGrid(host: HTMLElement): void {
+  host.style.removeProperty("display");
+  host.style.removeProperty("grid-template-columns");
+  host.style.removeProperty("grid-template-rows");
 }
 
 function clearPlaneShell(state: DomRendererState): void {
   const planeShell = state.planeShell;
   if (!planeShell) return;
   planeShell.zHost.innerHTML = "";
+  resetPlaneShellHostGrid(planeShell.zHost);
   planeShell.xHost.remove();
   planeShell.yHost.remove();
   state.planeShell = null;
@@ -215,21 +270,105 @@ function clearPlaneShell(state: DomRendererState): void {
 
 function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, documentRef: Document): void {
   const hosts = ensurePlaneShellHosts(state, documentRef);
-  hosts.zHost.innerHTML = "";
-  hosts.xHost.innerHTML = "";
-  hosts.yHost.innerHTML = "";
+  const rows = Math.max(snapshot.context.rows, 1);
+  const cols = Math.max(snapshot.context.cols, 1);
+  const depth = Math.max(snapshot.layers.length, 0);
+  const meshNeedsRebuild =
+    !hosts.mesh ||
+    hosts.meshLayers !== snapshot.layers ||
+    hosts.mesh.rows !== rows ||
+    hosts.mesh.cols !== cols ||
+    hosts.mesh.depth !== depth;
+  if (meshNeedsRebuild) {
+    hosts.mesh = buildPlaneShellMesh(snapshot);
+    hosts.meshLayers = snapshot.layers;
+  }
+  const mesh = hosts.mesh;
+  if (!mesh) return;
+  renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef);
+}
 
+function packCellKey(x: number, y: number, stride: number): number {
+  return x * stride + y;
+}
+
+function mergePackedCells(cells: Set<number>, stride: number): Rect[] {
+  const keys = Array.from(cells.values());
+  keys.sort((a, b) => {
+    const ay = a % stride;
+    const by = b % stride;
+    if (ay !== by) return ay - by;
+    return Math.floor(a / stride) - Math.floor(b / stride);
+  });
+
+  const visited = new Set<number>();
+  const hasCell = (x: number, y: number): boolean => {
+    const key = packCellKey(x, y, stride);
+    if (visited.has(key)) return false;
+    return cells.has(key);
+  };
+
+  const rects: Rect[] = [];
+
+  for (const startKey of keys) {
+    if (visited.has(startKey)) continue;
+    if (!cells.has(startKey)) continue;
+    const x = Math.floor(startKey / stride);
+    const y = startKey - x * stride;
+
+    let width = 1;
+    while (hasCell(x + width, y)) {
+      width += 1;
+    }
+
+    let height = 1;
+    let canGrow = true;
+    while (canGrow) {
+      const nextY = y + height;
+      for (let dx = 0; dx < width; dx += 1) {
+        if (!hasCell(x + dx, nextY)) {
+          canGrow = false;
+          break;
+        }
+      }
+      if (canGrow) {
+        height += 1;
+      }
+    }
+
+    for (let dx = 0; dx < width; dx += 1) {
+      const rowBase = (x + dx) * stride;
+      for (let dy = 0; dy < height; dy += 1) {
+        visited.add(rowBase + (y + dy));
+      }
+    }
+
+    rects.push({
+      x,
+      y,
+      x2: x + width,
+      y2: y + height
+    });
+  }
+
+  return rects;
+}
+
+function buildPlaneShellGroups(snapshot: SceneSnapshot): {
+  context: GridContext;
+  tileSize: number;
+  layerElevation: number;
+  rows: number;
+  cols: number;
+  depth: number;
+  groupsByPlane: Map<string, Map<string, FaceCellGroup>>;
+} {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
   const rows = Math.max(context.rows, 1);
   const cols = Math.max(context.cols, 1);
   const depth = Math.max(snapshot.layers.length, 0);
-
-  hosts.xHost.style.width = `${cols * tileSize}px`;
-  hosts.xHost.style.height = `${depth * layerElevation}px`;
-  hosts.yHost.style.width = `${depth * layerElevation}px`;
-  hosts.yHost.style.height = `${rows * tileSize}px`;
 
   const occupied = new Map<number, Voxel>();
   const strideXY = rows * cols;
@@ -251,38 +390,7 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     }
   }
 
-  const planes = new Map<string, HTMLElement>();
-
-  const ensurePlane = (axis: "x" | "y" | "z", k: number): HTMLElement => {
-    const key = `${axis}:${k}`;
-    const existing = planes.get(key);
-    if (existing) return existing;
-
-    const plane = documentRef.createElement("div");
-    plane.className = "voxcss-plane";
-
-    if (axis === "z") {
-      plane.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-      plane.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
-      plane.style.transform = `translateZ(${k * layerElevation}px)`;
-    } else if (axis === "y") {
-      plane.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
-      plane.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
-      plane.style.transform = `translateZ(${-1 * (k - 1) * tileSize}px)`;
-    } else {
-      plane.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-      plane.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
-      plane.style.transform = `translateZ(${-1 * (k - 1) * tileSize}px)`;
-    }
-
-    const parent = axis === "z" ? hosts.zHost : axis === "x" ? hosts.xHost : hosts.yHost;
-    parent.appendChild(plane);
-    planes.set(key, plane);
-    return plane;
-  };
-
   const offsets = context.offsets;
-  const walls = context.walls;
 
   type FaceSignatureMap = Partial<Record<CubeFace, string>>;
   const signatureCache = new WeakMap<Voxel, FaceSignatureMap>();
@@ -299,13 +407,12 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     return sig;
   };
 
-  interface FaceCellGroup {
-    face: CubeFace;
-    voxel: Voxel;
-    cells: Set<string>;
-  }
-
   const groupsByPlane = new Map<string, Map<string, FaceCellGroup>>();
+  const strideByAxis: Record<"x" | "y" | "z", number> = {
+    z: cols + 1,
+    x: cols + 1,
+    y: depth + 1
+  };
 
   const addFaceCell = (
     axis: "x" | "y" | "z",
@@ -325,10 +432,10 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     const groupKey = `${face}\n${sig}`;
     let group = groups.get(groupKey);
     if (!group) {
-      group = { face, voxel, cells: new Set<string>() };
+      group = { face, voxel, cells: new Set<number>() };
       groups.set(groupKey, group);
     }
-    group.cells.add(`${x}:${y}`);
+    group.cells.add(packCellKey(x, y, strideByAxis[axis]));
   };
 
   for (const [key, voxel] of occupied.entries()) {
@@ -338,7 +445,6 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     const y = rem - x * cols;
 
     for (const face of CUBE_FACES) {
-      if (walls[face]) continue;
       const delta = offsets[face];
       if (!delta) continue;
       const [dx, dy, dz] = delta;
@@ -366,88 +472,138 @@ function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, docu
     }
   }
 
-  interface Rect {
-    x: number;
-    y: number;
-    x2: number;
-    y2: number;
-  }
+  return { context, tileSize, layerElevation, rows, cols, depth, groupsByPlane };
+}
 
-  const mergeCellKeys = (cells: Set<string>): Rect[] => {
-    const coords: Array<{ x: number; y: number }> = Array.from(cells.values()).map((cellKey) => {
-      const [xs, ys] = cellKey.split(":");
-      return { x: Number(xs), y: Number(ys) };
-    });
-    coords.sort((a, b) => (a.y !== b.y ? a.y - b.y : a.x - b.x));
+function buildPlaneShellMesh(snapshot: SceneSnapshot): PlaneShellMesh {
+  const { rows, cols, depth, groupsByPlane } = buildPlaneShellGroups(snapshot);
+  const planeKeys = Array.from(groupsByPlane.keys());
+  planeKeys.sort((a, b) => {
+    const [axisA, planeA] = a.split(":");
+    const [axisB, planeB] = b.split(":");
+    if (axisA !== axisB) return axisA < axisB ? -1 : 1;
+    return Number(planeA) - Number(planeB);
+  });
 
-    const visited = new Set<string>();
-    const hasCell = (x: number, y: number): boolean => {
-      const key = `${x}:${y}`;
-      if (visited.has(key)) return false;
-      return cells.has(key);
-    };
+  const planes: PlaneShellMeshPlane[] = [];
 
-    const rects: Rect[] = [];
-
-    for (const coord of coords) {
-      const startKey = `${coord.x}:${coord.y}`;
-      if (visited.has(startKey)) continue;
-      if (!cells.has(startKey)) continue;
-
-      let width = 1;
-      while (hasCell(coord.x + width, coord.y)) {
-        width += 1;
-      }
-
-      let height = 1;
-      let canGrow = true;
-      while (canGrow) {
-        const nextY = coord.y + height;
-        for (let dx = 0; dx < width; dx += 1) {
-          if (!hasCell(coord.x + dx, nextY)) {
-            canGrow = false;
-            break;
-          }
-        }
-        if (canGrow) {
-          height += 1;
-        }
-      }
-
-      for (let dx = 0; dx < width; dx += 1) {
-        for (let dy = 0; dy < height; dy += 1) {
-          visited.add(`${coord.x + dx}:${coord.y + dy}`);
-        }
-      }
-
-      rects.push({
-        x: coord.x,
-        y: coord.y,
-        x2: coord.x + width,
-        y2: coord.y + height
-      });
-    }
-
-    return rects;
-  };
-
-  for (const [planeKey, groups] of groupsByPlane.entries()) {
+  for (const planeKey of planeKeys) {
+    const groups = groupsByPlane.get(planeKey);
+    if (!groups) continue;
     const [axisRaw, planeRaw] = planeKey.split(":");
     const axis = axisRaw as "x" | "y" | "z";
     const plane = Number(planeRaw);
-    const planeEl = ensurePlane(axis, plane);
+    const groupKeys = Array.from(groups.keys());
+    groupKeys.sort();
+    const planeGroups: PlaneShellMeshGroup[] = [];
+    for (const groupKey of groupKeys) {
+      const group = groups.get(groupKey);
+      if (!group) continue;
+      const stride = axis === "y" ? depth + 1 : cols + 1;
+      const rects = mergePackedCells(group.cells, stride);
+      planeGroups.push({ face: group.face, voxel: group.voxel, rects });
+    }
+    planes.push({ axis, plane, groups: planeGroups });
+  }
 
-    for (const group of groups.values()) {
-      const rects = mergeCellKeys(group.cells);
-      for (const rect of rects) {
-        const quad = documentRef.createElement("div");
+  return { rows, cols, depth, planes };
+}
+
+function renderPlaneShellAxisHost(
+  hosts: PlaneShellDomState,
+  mesh: PlaneShellMesh,
+  snapshot: SceneSnapshot,
+  documentRef: Document
+): void {
+  const context = snapshot.context;
+  const tileSize = context.tileSize ?? 50;
+  const layerElevation = context.layerElevation ?? tileSize;
+  const rows = mesh.rows;
+  const cols = mesh.cols;
+  const depth = mesh.depth;
+
+  hosts.xHost.style.width = `${cols * tileSize}px`;
+  hosts.xHost.style.height = `${depth * layerElevation}px`;
+  hosts.yHost.style.width = `${depth * layerElevation}px`;
+  hosts.yHost.style.height = `${rows * tileSize}px`;
+
+  hosts.zHost.style.display = "grid";
+  hosts.zHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
+  hosts.zHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+
+  hosts.xHost.style.display = "grid";
+  hosts.xHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
+  hosts.xHost.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
+
+  hosts.yHost.style.display = "grid";
+  hosts.yHost.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
+  hosts.yHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+
+  const transformCache = new Map<string, string>();
+  const resolveTransform = (axis: "x" | "y" | "z", plane: number): string => {
+    const key = `${axis}:${plane}`;
+    const existing = transformCache.get(key);
+    if (existing) return existing;
+    const computed =
+      axis === "z"
+        ? `translateZ(${plane * layerElevation}px)`
+        : `translateZ(${-1 * (plane - 1) * tileSize}px)`;
+    transformCache.set(key, computed);
+    return computed;
+  };
+
+  const ensureQuad = (axis: "x" | "y" | "z", index: number): HTMLElement => {
+    const pool = axis === "z" ? hosts.zPool : axis === "x" ? hosts.xPool : hosts.yPool;
+    const parent = axis === "z" ? hosts.zHost : axis === "x" ? hosts.xHost : hosts.yHost;
+    let quad = pool[index];
+    if (!quad) {
+      quad = documentRef.createElement("div");
+      parent.appendChild(quad);
+      pool[index] = quad;
+    } else if (quad.parentElement !== parent) {
+      parent.appendChild(quad);
+    }
+    if (quad.style.display === "none") {
+      quad.style.display = "";
+    }
+    return quad;
+  };
+
+  const removeUnused = (pool: HTMLElement[], used: number): void => {
+    for (let i = used; i < pool.length; i += 1) {
+      const quad = pool[i];
+      if (!quad) continue;
+      quad.remove();
+    }
+  };
+  const walls = context.walls ?? DEFAULT_WALLS;
+
+  let zIndex = 0;
+  let xIndex = 0;
+  let yIndex = 0;
+
+  for (const plane of mesh.planes) {
+    const axis = plane.axis;
+    const transform = resolveTransform(axis, plane.plane);
+    for (const group of plane.groups) {
+      if (walls[group.face]) continue;
+      const appearance = computeCubeFaceAppearance(group.voxel, group.face, context);
+      for (const rect of group.rects) {
+        const nextIndex = axis === "z" ? zIndex++ : axis === "x" ? xIndex++ : yIndex++;
+        const quad = ensureQuad(axis, nextIndex);
         quad.className = `voxcss-plane-face voxcss-plane-face--${group.face}`;
         quad.style.gridArea = `${rect.x} / ${rect.y} / ${rect.x2} / ${rect.y2}`;
-        applyCubeFaceAppearance(quad, group.face, group.voxel, context);
-        planeEl.appendChild(quad);
+        quad.style.transform = transform;
+        quad.style.backgroundImage = appearance.backgroundImage;
+        quad.style.backgroundColor = appearance.backgroundColor;
+        quad.style.filter = appearance.filter;
       }
     }
   }
+
+  removeUnused(hosts.zPool, zIndex);
+  removeUnused(hosts.xPool, xIndex);
+  removeUnused(hosts.yPool, yIndex);
 }
 
 function renderLayers(

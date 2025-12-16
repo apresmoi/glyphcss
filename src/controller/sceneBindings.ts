@@ -53,6 +53,10 @@ export function mountScene({
   let lastWalls: WallsMask | null = null;
   let lastDimensions = controller.getDimensions();
   let lastProjection = controller.getProjection();
+  const win = doc.defaultView ?? undefined;
+  const requestFrame = win?.requestAnimationFrame?.bind(win) ?? ((cb: FrameRequestCallback) => setTimeout(cb, 16) as unknown as number);
+  const cancelFrame = win?.cancelAnimationFrame?.bind(win) ?? ((id: number) => clearTimeout(id));
+  let pendingRender: number | null = null;
   const applyBoxStyle = (style: Record<string, string>) => {
     Object.entries(style).forEach(([key, value]) => {
       (element.style as CSSStyleDeclaration & Record<string, string>)[key] = value ?? "";
@@ -60,8 +64,14 @@ export function mountScene({
   };
   applyBoxStyle(controller.getBoxStyle());
 
-  const rerender = () => renderer.render(controller.applySceneState(state));
-  rerender();
+  const scheduleRender = () => {
+    if (pendingRender !== null) return;
+    pendingRender = requestFrame(() => {
+      pendingRender = null;
+      renderer.render(controller.applySceneState(state));
+    });
+  };
+  scheduleRender();
 
   const unsubscribers = [
     controller.subscribeSnapshot(({ style, walls }) => {
@@ -77,7 +87,7 @@ export function mountScene({
         lastWalls = walls;
         lastDimensions = nextDimensions;
         lastProjection = controller.getProjection();
-        rerender();
+        scheduleRender();
       }
     })
   ];
@@ -85,9 +95,13 @@ export function mountScene({
   return {
     update(next: SceneState) {
       state = normalizeSceneState(next);
-      rerender();
+      scheduleRender();
     },
     destroy() {
+      if (pendingRender !== null) {
+        cancelFrame(pendingRender);
+        pendingRender = null;
+      }
       unsubscribers.forEach((dispose) => dispose());
       renderer.destroy();
     }
