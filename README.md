@@ -78,7 +78,7 @@ export default function App() {
 
 Each voxel describes a single cell in the grid: 
 - `x`, `y`, `z` –  required integer coordinates.
-- `x2`, `y2`,`z2` – optional for area footprints.
+- `x2`, `y2`, `z2` – optional for area footprints.
 - `shape` – `cube` (default), `ramp`, `wedge`, or `spike`.
 - `color` / `texture` – apply solid fills or image URLs per voxel.
 - `rot` – rotation in degrees; ramps/wedges/spikes snap to 90° increments.
@@ -101,7 +101,7 @@ The `mergeVoxels` prop can be essential: instead of rendering each voxel as its 
 ## Loading MagicaVoxel (.vox) files
 
 Use the built-in parser to turn a MagicaVoxel `.vox` binary into a voxel object and feed it to `renderScene`:
-```ts
+```html
 <div id="voxcss"></div>
 
 <script type="module">
