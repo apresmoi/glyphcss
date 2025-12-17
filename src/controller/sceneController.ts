@@ -79,11 +79,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   let cachedMergeOption: MergeVoxelsOption = false;
   let cachedMergedVoxels: VoxelGrid | null = null;
   let cachedCubeOnly = true;
-  let cachedHasZ2 = false;
 
   const resolveGrid = (
     state: SceneState
-  ): { grid: VoxelGrid; mergeOption: MergeVoxelsOption; rawCount: number; cubeOnly: boolean; hasZ2: boolean } => {
+  ): { grid: VoxelGrid; mergeOption: MergeVoxelsOption; rawCount: number; cubeOnly: boolean } => {
     const rawVoxels = state.voxels ?? [];
     const mergeOption = normalizeMergeVoxelsOption(state.mergeVoxels);
     if (rawVoxels === cachedRawVoxels && mergeOption === cachedMergeOption && cachedMergedVoxels) {
@@ -91,23 +90,20 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
         grid: cachedMergedVoxels,
         mergeOption,
         rawCount: rawVoxels.length,
-        cubeOnly: cachedCubeOnly,
-        hasZ2: cachedHasZ2
+        cubeOnly: cachedCubeOnly
       };
     }
 
     const cubeOnly = rawVoxels.every((voxel) => !voxel || (voxel.shape ?? "cube") === "cube");
-    const hasZ2 = rawVoxels.some((voxel) => voxel && typeof voxel.z2 === "number" && Number.isFinite(voxel.z2));
-    const shouldPreMerge = is2dMerge(mergeOption) && !hasZ2;
+    const shouldPreMerge = is2dMerge(mergeOption);
     const grid = shouldPreMerge ? mergeVoxelsGrid(rawVoxels) : rawVoxels;
 
     cachedRawVoxels = rawVoxels;
     cachedMergeOption = mergeOption;
     cachedMergedVoxels = grid;
     cachedCubeOnly = cubeOnly;
-    cachedHasZ2 = hasZ2;
 
-    return { grid, mergeOption, rawCount: rawVoxels.length, cubeOnly, hasZ2 };
+    return { grid, mergeOption, rawCount: rawVoxels.length, cubeOnly };
   };
 
   const initialScene = buildSceneContext({
@@ -265,11 +261,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   function applySceneState(state: SceneState): SceneSnapshot {
     const prevState = lastState;
     lastState = state;
-    const { mergeOption, rawCount, cubeOnly, hasZ2 } = resolveGrid(state);
-    const wants3d = is3dMerge(mergeOption) || hasZ2;
-    const planeShellEligible = wants3d && cubeOnly;
+    const { mergeOption, rawCount, cubeOnly } = resolveGrid(state);
+    const planeShellEligible = is3dMerge(mergeOption) && cubeOnly;
     const mode: SceneRenderMode = planeShellEligible ? "plane-shell-mask" : "cubes";
-    const shouldPreMerge = is2dMerge(mergeOption) && !hasZ2;
+    const shouldPreMerge = is2dMerge(mergeOption);
     const mergeApplies = shouldPreMerge || planeShellEligible;
     const needsRebuild =
       prevState.voxels !== state.voxels ||

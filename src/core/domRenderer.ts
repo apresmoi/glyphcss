@@ -1979,14 +1979,26 @@ function renderPlaneShellAxisHostMask(
   snapshot: SceneSnapshot,
   documentRef: Document
 ): void {
+  const removeUnused = (pool: HTMLElement[], used: number): void => {
+    for (let i = used; i < pool.length; i += 1) {
+      const quad = pool[i];
+      if (!quad) continue;
+      quad.remove();
+    }
+    pool.length = used;
+  };
+
+  const planes = mask?.planes ?? [];
+  if (!planes.length) {
+    removeUnused(hosts.zMaskPool, 0);
+    removeUnused(hosts.xMaskPool, 0);
+    removeUnused(hosts.yMaskPool, 0);
+    return;
+  }
+
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
-  const rows = mask?.rows ?? Math.max(context.rows, 1);
-  const cols = mask?.cols ?? Math.max(context.cols, 1);
-  const depth = mask?.depth ?? Math.max(snapshot.layers.length, 0);
-
-  applyPlaneShellHostGrid(hosts, { rows, cols, depth, tileSize, layerElevation });
 
   const transformCache = new Map<string, string>();
   const resolveTransform = (axis: "x" | "y" | "z", plane: number): string => {
@@ -2028,15 +2040,6 @@ function renderPlaneShellAxisHostMask(
     return quad;
   };
 
-  const removeUnused = (pool: HTMLElement[], used: number): void => {
-    for (let i = used; i < pool.length; i += 1) {
-      const quad = pool[i];
-      if (!quad) continue;
-      quad.remove();
-    }
-    pool.length = used;
-  };
-
   const walls = context.walls ?? DEFAULT_WALLS;
   const backgroundRepeat = "no-repeat";
   const imageRendering = "pixelated";
@@ -2045,7 +2048,6 @@ function renderPlaneShellAxisHostMask(
   let xIndex = 0;
   let yIndex = 0;
 
-  const planes = mask?.planes ?? [];
   for (const plane of planes) {
     const axis = plane.axis;
     const cellWidthPx = axis === "y" ? layerElevation : tileSize;
