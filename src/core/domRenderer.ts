@@ -58,9 +58,34 @@ const PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILL_RATIO_XY = 0.65;
 const PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_COUNT_Z = 24;
 const PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_COUNT_XY = 32;
 const PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILLED_CELLS = 200_000;
+const PLANE_SHELL_MASK_DETAIL_SPRITE_TILE_MAX_COUNT_Z = 32;
+const PLANE_SHELL_MASK_DETAIL_SPRITE_TILE_MAX_COUNT_XY = 64;
 
 function computeDomQuadPenaltyPx(): number {
   return Math.round(PLANE_SHELL_MASK_TILE_TARGET_PX * PLANE_SHELL_MASK_TILE_TARGET_PX * PLANE_SHELL_MASK_DOM_QUAD_PENALTY_FACTOR);
+}
+
+function applyPlaneShellHostGrid(
+  hosts: Pick<PlaneShellDomState, "zHost" | "xHost" | "yHost">,
+  layout: { rows: number; cols: number; depth: number; tileSize: number; layerElevation: number }
+): void {
+  const { rows, cols, depth, tileSize, layerElevation } = layout;
+  hosts.xHost.style.width = `${cols * tileSize}px`;
+  hosts.xHost.style.height = `${depth * layerElevation}px`;
+  hosts.yHost.style.width = `${depth * layerElevation}px`;
+  hosts.yHost.style.height = `${rows * tileSize}px`;
+
+  hosts.zHost.style.display = "grid";
+  hosts.zHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
+  hosts.zHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+
+  hosts.xHost.style.display = "grid";
+  hosts.xHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
+  hosts.xHost.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
+
+  hosts.yHost.style.display = "grid";
+  hosts.yHost.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
+  hosts.yHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
 }
 
 export interface RendererMountOptions {
@@ -81,7 +106,7 @@ export interface SceneSnapshot {
 
 export type RendererFactory = (options: RendererMountOptions) => RendererHandle;
 
-export type SceneRenderMode = "cubes" | "plane-shell" | "plane-shell-mask";
+export type SceneRenderMode = "cubes" | "plane-shell-mask";
 
 export interface RendererMetadata {
   mode: SceneRenderMode;
@@ -164,15 +189,11 @@ function renderScene(
     root.style.setProperty("--voxcss-cols", String(context.cols));
   }
 
-  if (renderMode === "plane-shell" || renderMode === "plane-shell-mask") {
+  if (renderMode === "plane-shell-mask") {
     if (renderState.layers.size) {
       resetLayers(renderState);
     }
-    if (renderMode === "plane-shell-mask") {
-      renderPlaneShellMask(state, snapshot, documentRef);
-    } else {
-      renderPlaneShell(state, snapshot, documentRef);
-    }
+    renderPlaneShellMask(state, snapshot, documentRef);
   } else {
     clearPlaneShell(state);
     renderLayers(renderState, snapshot.layers, context, shapes, documentRef);
@@ -202,13 +223,15 @@ interface PlaneShellDomState {
   zHost: HTMLElement;
   xHost: HTMLElement;
   yHost: HTMLElement;
+  zMaskAnchor: Comment;
+  xMaskAnchor: Comment;
+  yMaskAnchor: Comment;
   zPool: HTMLElement[];
   xPool: HTMLElement[];
   yPool: HTMLElement[];
   zMaskPool: HTMLElement[];
   xMaskPool: HTMLElement[];
   yMaskPool: HTMLElement[];
-  mode: "rect" | "mask" | "hybrid" | null;
   meshLayers: Voxel[][] | null;
   mesh: PlaneShellMesh | null;
   maskLayers: Voxel[][] | null;
@@ -293,6 +316,23 @@ interface PlaneShellMaskMesh {
   stats?: PlaneShellMaskMeshStats;
 }
 
+function ensurePlaneShellMaskAnchors(hosts: PlaneShellDomState): void {
+  const ensure = (
+    host: HTMLElement,
+    anchor: Comment,
+    maskPool: HTMLElement[]
+  ): void => {
+    if (anchor.parentNode === host) return;
+    if (anchor.parentNode) anchor.remove();
+    const firstMask = maskPool.find((quad) => quad?.parentElement === host) ?? null;
+    if (firstMask) host.insertBefore(anchor, firstMask);
+    else host.appendChild(anchor);
+  };
+  ensure(hosts.zHost, hosts.zMaskAnchor, hosts.zMaskPool);
+  ensure(hosts.xHost, hosts.xMaskAnchor, hosts.xMaskPool);
+  ensure(hosts.yHost, hosts.yMaskAnchor, hosts.yMaskPool);
+}
+
 function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): PlaneShellDomState {
   const existing = state.planeShell;
   const root = state.renderState.root;
@@ -307,6 +347,7 @@ function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): 
     if (existing.zHost !== floor) {
       existing.zHost = floor;
     }
+    ensurePlaneShellMaskAnchors(existing);
     return existing;
   }
 
@@ -319,17 +360,26 @@ function ensurePlaneShellHosts(state: DomRendererState, documentRef: Document): 
   root.appendChild(xHost);
   root.appendChild(yHost);
 
+  const zMaskAnchor = documentRef.createComment("voxcss:plane-shell-mask-anchor:z");
+  const xMaskAnchor = documentRef.createComment("voxcss:plane-shell-mask-anchor:x");
+  const yMaskAnchor = documentRef.createComment("voxcss:plane-shell-mask-anchor:y");
+  floor.appendChild(zMaskAnchor);
+  xHost.appendChild(xMaskAnchor);
+  yHost.appendChild(yMaskAnchor);
+
   const composed: PlaneShellDomState = {
     zHost: floor,
     xHost,
     yHost,
+    zMaskAnchor,
+    xMaskAnchor,
+    yMaskAnchor,
     zPool: [],
     xPool: [],
     yPool: [],
     zMaskPool: [],
     xMaskPool: [],
     yMaskPool: [],
-    mode: null,
     meshLayers: null,
     mesh: null,
     maskLayers: null,
@@ -393,34 +443,21 @@ function resetPlaneShellQuads(hosts: PlaneShellDomState): void {
   hosts.zMaskPool.length = 0;
   hosts.xMaskPool.length = 0;
   hosts.yMaskPool.length = 0;
-  hosts.zHost.innerHTML = "";
-  hosts.xHost.innerHTML = "";
-  hosts.yHost.innerHTML = "";
-}
-
-function renderPlaneShell(state: DomRendererState, snapshot: SceneSnapshot, documentRef: Document): void {
-  const hosts = ensurePlaneShellHosts(state, documentRef);
-  if (hosts.mode !== "rect") {
-    disposePlaneShellMask(hosts);
-    resetPlaneShellQuads(hosts);
-    hosts.mode = "rect";
+  for (const node of Array.from(hosts.zHost.childNodes)) {
+    if (node === hosts.zMaskAnchor) continue;
+    node.remove();
   }
-  const rows = Math.max(snapshot.context.rows, 1);
-  const cols = Math.max(snapshot.context.cols, 1);
-  const depth = Math.max(snapshot.layers.length, 0);
-  const meshNeedsRebuild =
-    !hosts.mesh ||
-    hosts.meshLayers !== snapshot.layers ||
-    hosts.mesh.rows !== rows ||
-    hosts.mesh.cols !== cols ||
-    hosts.mesh.depth !== depth;
-  if (meshNeedsRebuild) {
-    hosts.mesh = buildPlaneShellMesh(snapshot);
-    hosts.meshLayers = snapshot.layers;
+  for (const node of Array.from(hosts.xHost.childNodes)) {
+    if (node === hosts.xMaskAnchor) continue;
+    node.remove();
   }
-  const mesh = hosts.mesh;
-  if (!mesh) return;
-  renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef);
+  for (const node of Array.from(hosts.yHost.childNodes)) {
+    if (node === hosts.yMaskAnchor) continue;
+    node.remove();
+  }
+  if (hosts.zMaskAnchor.parentNode !== hosts.zHost) hosts.zHost.appendChild(hosts.zMaskAnchor);
+  if (hosts.xMaskAnchor.parentNode !== hosts.xHost) hosts.xHost.appendChild(hosts.xMaskAnchor);
+  if (hosts.yMaskAnchor.parentNode !== hosts.yHost) hosts.yHost.appendChild(hosts.yMaskAnchor);
 }
 
 function getAppearanceColorKey(
@@ -443,13 +480,6 @@ function getAppearanceColorKey(
 
 function renderPlaneShellMask(state: DomRendererState, snapshot: SceneSnapshot, documentRef: Document): void {
   const hosts = ensurePlaneShellHosts(state, documentRef);
-  if (hosts.mode !== "hybrid") {
-    disposePlaneShellMask(hosts);
-    resetPlaneShellQuads(hosts);
-    hosts.mode = "hybrid";
-    hosts.meshLayers = null;
-    hosts.mesh = null;
-  }
 
   const rows = Math.max(snapshot.context.rows, 1);
   const cols = Math.max(snapshot.context.cols, 1);
@@ -646,7 +676,7 @@ function renderPlaneShellMask(state: DomRendererState, snapshot: SceneSnapshot, 
   if (!needsMaskFaces) {
     disposePlaneShellMask(hosts);
     const baseCounts = renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef);
-    const maskCounts = renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef, null, true);
+    const maskCounts = renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef);
     maybeDispatchPlaneShellMaskStats(state.renderState.root, {
       baseQuads: baseCounts.total,
       maskQuads: maskCounts.total,
@@ -696,9 +726,9 @@ function renderPlaneShellMask(state: DomRendererState, snapshot: SceneSnapshot, 
   let maskCounts = { z: 0, x: 0, y: 0, total: 0 };
   if (hosts.mask) {
     const maskFaces = new Set<string>([...replaceFaces, ...overlayOnlyFaces]);
-    maskCounts = renderPlaneShellAxisHostMask(hosts, hosts.mask, snapshot, documentRef, maskFaces, true);
+    maskCounts = renderPlaneShellAxisHostMask(hosts, hosts.mask, snapshot, documentRef, maskFaces);
   } else {
-    maskCounts = renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef, null, true);
+    maskCounts = renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef);
   }
 
   const stats = hosts.mask?.stats;
@@ -1039,10 +1069,6 @@ function buildPlaneShellMeshFromGroups({ rows, cols, depth, groupsByPlane }: Pla
   return { rows, cols, depth, planes };
 }
 
-function buildPlaneShellMesh(snapshot: SceneSnapshot): PlaneShellMesh {
-  return buildPlaneShellMeshFromGroups(buildPlaneShellGroups(snapshot));
-}
-
 type ParsedColor = { r: number; g: number; b: number; alpha: number };
 
 function clampByte(value: number): number {
@@ -1216,37 +1242,37 @@ function buildPlaneShellMaskMesh(
       const faceGroups = groupsByFace.get(face);
       if (!faceGroups?.length) continue;
 
-	      type PaintGroup = { cells: Set<number>; r: number; g: number; b: number; alpha: number };
-	      const paintGroups: PaintGroup[] = [];
-	      let allOpaque = true;
-	      let faceSupported = true;
+      type PaintGroup = { cells: Set<number>; r: number; g: number; b: number; alpha: number };
+      const paintGroups: PaintGroup[] = [];
+      let allOpaque = true;
+      let faceSupported = true;
 
-	      for (const group of faceGroups) {
-	        const appearance = computeCubeFaceAppearance(group.voxel, face, context);
-	        if (appearance.backgroundImage) {
-	          faceSupported = false;
-	          break;
-	        }
-	        const brightness = parseBrightnessFilter(appearance.filter);
-	        if (brightness === null) {
-	          faceSupported = false;
-	          break;
-	        }
-	        const parsed = parseColor(appearance.backgroundColor);
-	        if (!parsed) {
-	          faceSupported = false;
-	          break;
-	        }
-	        const alpha = clampByte(parsed.alpha * 255);
-	        if (alpha <= 0) continue;
-	        if (alpha !== 255) allOpaque = false;
-	        const r = clampByte(parsed.r * brightness);
-	        const g = clampByte(parsed.g * brightness);
-	        const b = clampByte(parsed.b * brightness);
-	        paintGroups.push({ cells: group.cells, r, g, b, alpha });
-	      }
+      for (const group of faceGroups) {
+        const appearance = computeCubeFaceAppearance(group.voxel, face, context);
+        if (appearance.backgroundImage) {
+          faceSupported = false;
+          break;
+        }
+        const brightness = parseBrightnessFilter(appearance.filter);
+        if (brightness === null) {
+          faceSupported = false;
+          break;
+        }
+        const parsed = parseColor(appearance.backgroundColor);
+        if (!parsed) {
+          faceSupported = false;
+          break;
+        }
+        const alpha = clampByte(parsed.alpha * 255);
+        if (alpha <= 0) continue;
+        if (alpha !== 255) allOpaque = false;
+        const r = clampByte(parsed.r * brightness);
+        const g = clampByte(parsed.g * brightness);
+        const b = clampByte(parsed.b * brightness);
+        paintGroups.push({ cells: group.cells, r, g, b, alpha });
+      }
 
-	      if (!faceSupported) continue;
+      if (!faceSupported) continue;
       if (!paintGroups.length) continue;
 
       let minRow = Number.POSITIVE_INFINITY;
@@ -1255,7 +1281,7 @@ function buildPlaneShellMaskMesh(
       let maxCol = -1;
       let fillCount = 0;
       const colorCounts = new Map<string, number>();
-      const maxOpaqueMaskCells = 200_000;
+      const maxOpaqueMaskCells = PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILLED_CELLS;
       let opaqueCells: Set<number> | null = allOpaque ? new Set<number>() : null;
 
       for (const group of paintGroups) {
@@ -1596,10 +1622,10 @@ function buildPlaneShellMaskMesh(
               const cellWidthPx = axis === "y" ? (context.layerElevation ?? context.tileSize ?? 50) : (context.tileSize ?? 50);
               const cellHeightPx = axis === "x" ? (context.layerElevation ?? context.tileSize ?? 50) : (context.tileSize ?? 50);
               const cellPxMax = Math.max(cellWidthPx, cellHeightPx);
-              const tileTargetPx = 768;
-              const domQuadPenaltyPx = Math.round(tileTargetPx * tileTargetPx * 0.12);
-              const tileMinCells = 8;
-              const tileMaxCells = 64;
+              const tileTargetPx = PLANE_SHELL_MASK_TILE_TARGET_PX;
+              const domQuadPenaltyPx = computeDomQuadPenaltyPx();
+              const tileMinCells = PLANE_SHELL_MASK_TILE_MIN_CELLS;
+              const tileMaxCells = PLANE_SHELL_MASK_TILE_MAX_CELLS;
               let tileCells = tileMinCells;
               while (!isDetailFullyFilled && tileCells < tileMaxCells && tileCells * cellPxMax < tileTargetPx) {
                 tileCells *= 2;
@@ -1650,9 +1676,11 @@ function buildPlaneShellMaskMesh(
                 });
               } else {
                 const fillRatio = detailPaint.length / detailBBoxArea;
-                const tileMinArea = 4_096;
-                const tileMaxFillRatio = axis === "z" ? 0.55 : 0.65;
-                const tileMaxCount = axis === "z" ? 32 : 64;
+                const tileMinArea = PLANE_SHELL_MASK_TILING_MIN_AREA_CELLS;
+                const tileMaxFillRatio =
+                  axis === "z" ? PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILL_RATIO_Z : PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILL_RATIO_XY;
+                const tileMaxCount =
+                  axis === "z" ? PLANE_SHELL_MASK_DETAIL_SPRITE_TILE_MAX_COUNT_Z : PLANE_SHELL_MASK_DETAIL_SPRITE_TILE_MAX_COUNT_XY;
                 const snapTilesToGrid = axis === "z";
                 const canTile = detailBBoxArea >= tileMinArea && fillRatio <= tileMaxFillRatio && tileBounds.size >= 2;
 
@@ -1782,13 +1810,14 @@ function buildPlaneShellMaskMesh(
       let wroteAny = false;
 
       const fillRatio = bboxArea > 0 ? fillCount / bboxArea : 1;
-      const tileTargetPx = 768;
-      const domQuadPenaltyPx = Math.round(tileTargetPx * tileTargetPx * 0.12);
-      const tileMinArea = 4_096;
-      const tileMaxFillRatio = axis === "z" ? 0.55 : 0.65;
-      const tileMaxCount = axis === "z" ? 24 : 32;
+      const tileTargetPx = PLANE_SHELL_MASK_TILE_TARGET_PX;
+      const domQuadPenaltyPx = computeDomQuadPenaltyPx();
+      const tileMinArea = PLANE_SHELL_MASK_TILING_MIN_AREA_CELLS;
+      const tileMaxFillRatio =
+        axis === "z" ? PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILL_RATIO_Z : PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILL_RATIO_XY;
+      const tileMaxCount = axis === "z" ? PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_COUNT_Z : PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_COUNT_XY;
       const snapTilesToGrid = axis === "z";
-      const maxSpriteTilingCells = 200_000;
+      const maxSpriteTilingCells = PLANE_SHELL_MASK_FULL_SPRITE_TILE_MAX_FILLED_CELLS;
       const shouldConsiderTiling =
         bboxArea >= tileMinArea && fillRatio <= tileMaxFillRatio && fillCount <= maxSpriteTilingCells;
 
@@ -1797,8 +1826,8 @@ function buildPlaneShellMaskMesh(
       const cellWidthPx = axis === "y" ? layerElevationPx : tileSizePx;
       const cellHeightPx = axis === "x" ? layerElevationPx : tileSizePx;
       const cellPxMax = Math.max(cellWidthPx, cellHeightPx);
-      const tileMinCells = 8;
-      const tileMaxCells = 64;
+      const tileMinCells = PLANE_SHELL_MASK_TILE_MIN_CELLS;
+      const tileMaxCells = PLANE_SHELL_MASK_TILE_MAX_CELLS;
       let tileCells = tileMinCells;
       while (tileCells < tileMaxCells && tileCells * cellPxMax < tileTargetPx) {
         tileCells *= 2;
@@ -1904,12 +1933,12 @@ function buildPlaneShellMaskMesh(
             const fillRatioSingle = fillRatio;
             const fillRatioTiled =
               mergedTileAreaCells > 0 ? Math.min(1, Math.max(0, fillCount / mergedTileAreaCells)) : 1;
-            const alphaTaxSingle = 1 + (1 - fillRatioSingle) * 0.5;
-            const alphaTaxTiled = 1 + (1 - fillRatioTiled) * 0.5;
+            const alphaTaxSingle = 1 + (1 - fillRatioSingle) * PLANE_SHELL_MASK_ALPHA_TAX_HOLES_FACTOR;
+            const alphaTaxTiled = 1 + (1 - fillRatioTiled) * PLANE_SHELL_MASK_ALPHA_TAX_HOLES_FACTOR;
             const scoreSingle = bboxPx * alphaTaxSingle + domQuadPenaltyPx;
             const scoreTiled = tiledPx * alphaTaxTiled + merged.length * domQuadPenaltyPx;
 
-            if (scoreTiled + Math.round(domQuadPenaltyPx * 0.25) < scoreSingle) {
+            if (scoreTiled + Math.round(domQuadPenaltyPx * PLANE_SHELL_MASK_TILING_MARGIN_PENALTY_FRACTION) < scoreSingle) {
               tileAreaCells = mergedTileAreaCells;
               tiles = merged.map((rect) => ({
                 gridArea: `${rect.x} / ${rect.y} / ${rect.x2} / ${rect.y2}`,
@@ -1987,22 +2016,7 @@ function renderPlaneShellAxisHost(
   const cols = mesh.cols;
   const depth = mesh.depth;
 
-  hosts.xHost.style.width = `${cols * tileSize}px`;
-  hosts.xHost.style.height = `${depth * layerElevation}px`;
-  hosts.yHost.style.width = `${depth * layerElevation}px`;
-  hosts.yHost.style.height = `${rows * tileSize}px`;
-
-  hosts.zHost.style.display = "grid";
-  hosts.zHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-  hosts.zHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
-
-  hosts.xHost.style.display = "grid";
-  hosts.xHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-  hosts.xHost.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
-
-  hosts.yHost.style.display = "grid";
-  hosts.yHost.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
-  hosts.yHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+  applyPlaneShellHostGrid(hosts, { rows, cols, depth, tileSize, layerElevation });
 
   const transformCache = new Map<string, string>();
   const resolveTransform = (axis: "x" | "y" | "z", plane: number): string => {
@@ -2020,13 +2034,14 @@ function renderPlaneShellAxisHost(
   const ensureQuad = (axis: "x" | "y" | "z", index: number): HTMLElement => {
     const pool = axis === "z" ? hosts.zPool : axis === "x" ? hosts.xPool : hosts.yPool;
     const parent = axis === "z" ? hosts.zHost : axis === "x" ? hosts.xHost : hosts.yHost;
+    const anchor = axis === "z" ? hosts.zMaskAnchor : axis === "x" ? hosts.xMaskAnchor : hosts.yMaskAnchor;
     let quad = pool[index];
     if (!quad) {
       quad = documentRef.createElement("div");
-      parent.appendChild(quad);
+      parent.insertBefore(quad, anchor);
       pool[index] = quad;
     } else if (quad.parentElement !== parent) {
-      parent.appendChild(quad);
+      parent.insertBefore(quad, anchor);
     }
     if (quad.style.display === "none") {
       quad.style.display = "";
@@ -2096,8 +2111,7 @@ function renderPlaneShellAxisHostMask(
   mask: PlaneShellMaskMesh | null,
   snapshot: SceneSnapshot,
   documentRef: Document,
-  onlyFaces: Set<string> | null = null,
-  useMaskPools: boolean = false
+  onlyFaces: Set<string> | null = null
 ): PlaneShellQuadCounts {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
@@ -2106,22 +2120,7 @@ function renderPlaneShellAxisHostMask(
   const cols = mask?.cols ?? Math.max(context.cols, 1);
   const depth = mask?.depth ?? Math.max(snapshot.layers.length, 0);
 
-  hosts.xHost.style.width = `${cols * tileSize}px`;
-  hosts.xHost.style.height = `${depth * layerElevation}px`;
-  hosts.yHost.style.width = `${depth * layerElevation}px`;
-  hosts.yHost.style.height = `${rows * tileSize}px`;
-
-  hosts.zHost.style.display = "grid";
-  hosts.zHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-  hosts.zHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
-
-  hosts.xHost.style.display = "grid";
-  hosts.xHost.style.gridTemplateColumns = `repeat(${cols}, ${tileSize}px)`;
-  hosts.xHost.style.gridTemplateRows = `repeat(${depth}, ${layerElevation}px)`;
-
-  hosts.yHost.style.display = "grid";
-  hosts.yHost.style.gridTemplateColumns = `repeat(${depth}, ${layerElevation}px)`;
-  hosts.yHost.style.gridTemplateRows = `repeat(${rows}, ${tileSize}px)`;
+  applyPlaneShellHostGrid(hosts, { rows, cols, depth, tileSize, layerElevation });
 
   const transformCache = new Map<string, string>();
   const resolveTransform = (axis: "x" | "y" | "z", plane: number): string => {
@@ -2147,17 +2146,7 @@ function renderPlaneShellAxisHostMask(
   };
 
   const ensureQuad = (axis: "x" | "y" | "z", index: number): HTMLElement => {
-    const pool = useMaskPools
-      ? axis === "z"
-        ? hosts.zMaskPool
-        : axis === "x"
-          ? hosts.xMaskPool
-          : hosts.yMaskPool
-      : axis === "z"
-        ? hosts.zPool
-        : axis === "x"
-          ? hosts.xPool
-          : hosts.yPool;
+    const pool = axis === "z" ? hosts.zMaskPool : axis === "x" ? hosts.xMaskPool : hosts.yMaskPool;
     const parent = axis === "z" ? hosts.zHost : axis === "x" ? hosts.xHost : hosts.yHost;
     let quad = pool[index];
     if (!quad) {
@@ -2165,9 +2154,6 @@ function renderPlaneShellAxisHostMask(
       parent.appendChild(quad);
       pool[index] = quad;
     } else if (quad.parentElement !== parent) {
-      parent.appendChild(quad);
-    } else if (useMaskPools) {
-      // Keep overlays after any base quads added this frame.
       parent.appendChild(quad);
     }
     if (quad.style.display === "none") {
@@ -2182,9 +2168,7 @@ function renderPlaneShellAxisHostMask(
       if (!quad) continue;
       quad.remove();
     }
-    if (useMaskPools) {
-      pool.length = used;
-    }
+    pool.length = used;
   };
 
   const walls = context.walls ?? DEFAULT_WALLS;
@@ -2237,12 +2221,9 @@ function renderPlaneShellAxisHostMask(
     }
   }
 
-  const zPool = useMaskPools ? hosts.zMaskPool : hosts.zPool;
-  const xPool = useMaskPools ? hosts.xMaskPool : hosts.xPool;
-  const yPool = useMaskPools ? hosts.yMaskPool : hosts.yPool;
-  removeUnused(zPool, zIndex);
-  removeUnused(xPool, xIndex);
-  removeUnused(yPool, yIndex);
+  removeUnused(hosts.zMaskPool, zIndex);
+  removeUnused(hosts.xMaskPool, xIndex);
+  removeUnused(hosts.yMaskPool, yIndex);
   return { z: zIndex, x: xIndex, y: yIndex, total: zIndex + xIndex + yIndex };
 }
 

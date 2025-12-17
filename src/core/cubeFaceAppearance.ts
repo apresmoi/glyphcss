@@ -94,10 +94,6 @@ function resolveTextureUrl(voxel: Voxel, face: CubeFace, context: GridContext): 
   return undefined;
 }
 
-function applyTextureLighting(el: HTMLElement, face: CubeFace): void {
-  el.style.filter = getTextureLightingFilter(face);
-}
-
 function getTextureLightingFilter(face: CubeFace): string {
   const delta = getCubeFaceLightDelta(face);
   const brightness = Math.max(0, 1 + delta / 200);
