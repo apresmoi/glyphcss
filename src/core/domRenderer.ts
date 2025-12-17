@@ -297,23 +297,11 @@ interface PlaneShellMaskMeshPlane {
   faces: PlaneShellMaskMeshFace[];
 }
 
-interface PlaneShellMaskMeshStats {
-  spriteRgbPixels: number;
-  spriteRgbaPixels: number;
-  spriteCount: number;
-  blobBytes: number;
-  fullSpriteTileCount: number;
-  fullSpriteTiledAreaCells: number;
-  detailSpriteTileCount: number;
-  detailSpriteTiledAreaCells: number;
-}
-
 interface PlaneShellMaskMesh {
   rows: number;
   cols: number;
   depth: number;
   planes: PlaneShellMaskMeshPlane[];
-  stats?: PlaneShellMaskMeshStats;
 }
 
 function ensurePlaneShellMaskAnchors(hosts: PlaneShellDomState): void {
@@ -406,7 +394,12 @@ function clearPlaneShell(state: DomRendererState): void {
   const planeShell = state.planeShell;
   if (!planeShell) return;
   disposePlaneShellMask(planeShell);
-  resetPlaneShellQuads(planeShell);
+  planeShell.zPool.length = 0;
+  planeShell.xPool.length = 0;
+  planeShell.yPool.length = 0;
+  planeShell.zMaskPool.length = 0;
+  planeShell.xMaskPool.length = 0;
+  planeShell.yMaskPool.length = 0;
   planeShell.zHost.innerHTML = "";
   resetPlaneShellHostGrid(planeShell.zHost);
   planeShell.xHost.remove();
@@ -428,36 +421,6 @@ function disposePlaneShellMask(hosts: PlaneShellDomState): void {
   }
   hosts.mask = null;
   hosts.maskUnsupported = false;
-}
-
-function resetPlaneShellQuads(hosts: PlaneShellDomState): void {
-  for (const quad of hosts.zPool) quad?.remove();
-  for (const quad of hosts.xPool) quad?.remove();
-  for (const quad of hosts.yPool) quad?.remove();
-  for (const quad of hosts.zMaskPool) quad?.remove();
-  for (const quad of hosts.xMaskPool) quad?.remove();
-  for (const quad of hosts.yMaskPool) quad?.remove();
-  hosts.zPool.length = 0;
-  hosts.xPool.length = 0;
-  hosts.yPool.length = 0;
-  hosts.zMaskPool.length = 0;
-  hosts.xMaskPool.length = 0;
-  hosts.yMaskPool.length = 0;
-  for (const node of Array.from(hosts.zHost.childNodes)) {
-    if (node === hosts.zMaskAnchor) continue;
-    node.remove();
-  }
-  for (const node of Array.from(hosts.xHost.childNodes)) {
-    if (node === hosts.xMaskAnchor) continue;
-    node.remove();
-  }
-  for (const node of Array.from(hosts.yHost.childNodes)) {
-    if (node === hosts.yMaskAnchor) continue;
-    node.remove();
-  }
-  if (hosts.zMaskAnchor.parentNode !== hosts.zHost) hosts.zHost.appendChild(hosts.zMaskAnchor);
-  if (hosts.xMaskAnchor.parentNode !== hosts.xHost) hosts.xHost.appendChild(hosts.xMaskAnchor);
-  if (hosts.yMaskAnchor.parentNode !== hosts.yHost) hosts.yHost.appendChild(hosts.yMaskAnchor);
 }
 
 function getAppearanceColorKey(
@@ -675,21 +638,8 @@ function renderPlaneShellMask(state: DomRendererState, snapshot: SceneSnapshot, 
   const needsMaskFaces = overlayOnlyFaces.size > 0 || replaceFaces.size > 0;
   if (!needsMaskFaces) {
     disposePlaneShellMask(hosts);
-    const baseCounts = renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef);
-    const maskCounts = renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef);
-    maybeDispatchPlaneShellMaskStats(state.renderState.root, {
-      baseQuads: baseCounts.total,
-      maskQuads: maskCounts.total,
-      spriteRgbPixels: 0,
-      spriteRgbaPixels: 0,
-      spriteCount: 0,
-      blobBytes: 0,
-      fullSpriteTileCount: 0,
-      fullSpriteTiledAreaCells: 0,
-      detailSpriteTileCount: 0,
-      detailSpriteTiledAreaCells: 0,
-      unsupported: false
-    });
+    renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef);
+    renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef);
     return;
   }
 
@@ -705,7 +655,7 @@ function renderPlaneShellMask(state: DomRendererState, snapshot: SceneSnapshot, 
   }
 
   const skipBaseFaces = new Set<string>([...replaceFaces, ...baseSpriteFaces]);
-  const baseCounts = renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef, skipBaseFaces, overlayBaseKeyByFaceEffective);
+  renderPlaneShellAxisHost(hosts, mesh, snapshot, documentRef, skipBaseFaces, overlayBaseKeyByFaceEffective);
 
   if (!hosts.mask && !hosts.maskUnsupported) {
     const maskFaces = new Set<string>([...replaceFaces, ...overlayOnlyFaces]);
@@ -723,55 +673,10 @@ function renderPlaneShellMask(state: DomRendererState, snapshot: SceneSnapshot, 
     }
   }
 
-  let maskCounts = { z: 0, x: 0, y: 0, total: 0 };
   if (hosts.mask) {
-    const maskFaces = new Set<string>([...replaceFaces, ...overlayOnlyFaces]);
-    maskCounts = renderPlaneShellAxisHostMask(hosts, hosts.mask, snapshot, documentRef, maskFaces);
+    renderPlaneShellAxisHostMask(hosts, hosts.mask, snapshot, documentRef);
   } else {
-    maskCounts = renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef);
-  }
-
-  const stats = hosts.mask?.stats;
-  maybeDispatchPlaneShellMaskStats(state.renderState.root, {
-    baseQuads: baseCounts.total,
-    maskQuads: maskCounts.total,
-    spriteRgbPixels: stats?.spriteRgbPixels ?? 0,
-    spriteRgbaPixels: stats?.spriteRgbaPixels ?? 0,
-    spriteCount: stats?.spriteCount ?? 0,
-    blobBytes: stats?.blobBytes ?? 0,
-    fullSpriteTileCount: stats?.fullSpriteTileCount ?? 0,
-    fullSpriteTiledAreaCells: stats?.fullSpriteTiledAreaCells ?? 0,
-    detailSpriteTileCount: stats?.detailSpriteTileCount ?? 0,
-    detailSpriteTiledAreaCells: stats?.detailSpriteTiledAreaCells ?? 0,
-    unsupported: hosts.maskUnsupported
-  });
-}
-
-type PlaneShellMaskPerfStats = {
-  baseQuads: number;
-  maskQuads: number;
-  spriteRgbPixels: number;
-  spriteRgbaPixels: number;
-  spriteCount: number;
-  blobBytes: number;
-  fullSpriteTileCount: number;
-  fullSpriteTiledAreaCells: number;
-  detailSpriteTileCount: number;
-  detailSpriteTiledAreaCells: number;
-  unsupported: boolean;
-};
-
-function maybeDispatchPlaneShellMaskStats(target: HTMLElement, stats: PlaneShellMaskPerfStats): void {
-  if (typeof CustomEvent === "undefined") return;
-  try {
-    target.dispatchEvent(
-      new CustomEvent("voxcss:plane-shell-mask-stats", {
-        detail: stats,
-        bubbles: true
-      })
-    );
-  } catch {
-    // ignore (stats are best-effort)
+    renderPlaneShellAxisHostMask(hosts, null, snapshot, documentRef);
   }
 }
 
@@ -1188,16 +1093,6 @@ function buildPlaneShellMaskMesh(
   const context = snapshot.context;
   const planes: PlaneShellMaskMeshPlane[] = [];
   const urls: string[] = [];
-  const stats: PlaneShellMaskMeshStats = {
-    spriteRgbPixels: 0,
-    spriteRgbaPixels: 0,
-    spriteCount: 0,
-    blobBytes: 0,
-    fullSpriteTileCount: 0,
-    fullSpriteTiledAreaCells: 0,
-    detailSpriteTileCount: 0,
-    detailSpriteTiledAreaCells: 0
-  };
 
   const fail = (): null => {
     if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
@@ -1519,15 +1414,12 @@ function buildPlaneShellMaskMesh(
                       pixels[idx + 1] = baseG;
                       pixels[idx + 2] = baseB;
                       pixels[idx + 3] = 255;
-                    }
-                    try {
-                      const blob = rgbaToPngBlob(pixels, baseCropWidth, baseCropHeight);
-                      stats.spriteCount += 1;
-                      stats.blobBytes += blob.size;
-                      stats.spriteRgbaPixels += baseCropWidth * baseCropHeight;
-                      const url = URL.createObjectURL(blob);
-                      urls.push(url);
-                      faceSprites.push({
+	                    }
+	                    try {
+	                      const blob = rgbaToPngBlob(pixels, baseCropWidth, baseCropHeight);
+	                      const url = URL.createObjectURL(blob);
+	                      urls.push(url);
+	                      faceSprites.push({
                         face,
                         layer: 0,
                         url,
@@ -1617,8 +1509,6 @@ function buildPlaneShellMaskMesh(
                 }
               }
               const tiles: Array<{ gridArea: string; offsetRow: number; offsetCol: number }> = [];
-              let detailTileAreaCells = detailBBoxArea;
-
               const cellWidthPx = axis === "y" ? (context.layerElevation ?? context.tileSize ?? 50) : (context.tileSize ?? 50);
               const cellHeightPx = axis === "x" ? (context.layerElevation ?? context.tileSize ?? 50) : (context.tileSize ?? 50);
               const cellPxMax = Math.max(cellWidthPx, cellHeightPx);
@@ -1739,7 +1629,6 @@ function buildPlaneShellMaskMesh(
                   const scoreTiled = tiledPx + merged.length * domQuadPenaltyPx;
 
                   if (merged.length >= 2 && scoreTiled < scoreSingle) {
-                    detailTileAreaCells = tileAreaCells;
                     for (const rect of merged) {
                       tiles.push({
                         gridArea: `${rect.x} / ${rect.y} / ${rect.x2} / ${rect.y2}`,
@@ -1751,7 +1640,6 @@ function buildPlaneShellMaskMesh(
                 }
 
                 if (!tiles.length) {
-                  detailTileAreaCells = detailBBoxArea;
                   tiles.push({
                     gridArea: `${detailRowStart} / ${detailColStart} / ${detailRowEnd} / ${detailColEnd}`,
                     offsetRow: 0,
@@ -1770,14 +1658,6 @@ function buildPlaneShellMaskMesh(
                   }
                   return rgbaToPngBlob(rgbaPixels, detailCropWidth, detailCropHeight);
                 })();
-                stats.spriteCount += 1;
-                stats.blobBytes += blob.size;
-                if (rgbPixels) stats.spriteRgbPixels += detailCropWidth * detailCropHeight;
-                else stats.spriteRgbaPixels += detailCropWidth * detailCropHeight;
-                if (detailTileAreaCells > 0) {
-                  stats.detailSpriteTileCount += tiles.length;
-                  stats.detailSpriteTiledAreaCells += detailTileAreaCells;
-                }
                 const url = URL.createObjectURL(blob);
                 urls.push(url);
                 faceSprites.push({
@@ -1877,7 +1757,6 @@ function buildPlaneShellMaskMesh(
       let tiles: Array<{ gridArea: string; offsetRow: number; offsetCol: number }> = [
         { gridArea: `${rowStart} / ${colStart} / ${rowEnd} / ${colEnd}`, offsetRow: 0, offsetCol: 0 }
       ];
-      let tileAreaCells = bboxArea;
 
       if (tileBounds && tileBounds.size >= 2) {
         while (tileCells < tileMaxCells && tileBounds.size > tileMaxCount) {
@@ -1939,7 +1818,6 @@ function buildPlaneShellMaskMesh(
             const scoreTiled = tiledPx * alphaTaxTiled + merged.length * domQuadPenaltyPx;
 
             if (scoreTiled + Math.round(domQuadPenaltyPx * PLANE_SHELL_MASK_TILING_MARGIN_PENALTY_FRACTION) < scoreSingle) {
-              tileAreaCells = mergedTileAreaCells;
               tiles = merged.map((rect) => ({
                 gridArea: `${rect.x} / ${rect.y} / ${rect.x2} / ${rect.y2}`,
                 offsetRow: rect.x - rowStart,
@@ -1964,14 +1842,6 @@ function buildPlaneShellMaskMesh(
           }
           return rgbaToPngBlob(pixels, cropWidth, cropHeight);
         })();
-        stats.spriteCount += 1;
-        stats.blobBytes += blob.size;
-        if (isRgbSprite) stats.spriteRgbPixels += cropWidth * cropHeight;
-        else stats.spriteRgbaPixels += cropWidth * cropHeight;
-        if (tileAreaCells > 0) {
-          stats.fullSpriteTileCount += tiles.length;
-          stats.fullSpriteTiledAreaCells += tileAreaCells;
-        }
 
         const url = URL.createObjectURL(blob);
         urls.push(url);
@@ -1996,10 +1866,8 @@ function buildPlaneShellMaskMesh(
     planes.push({ axis, plane, faces: faceSprites });
   }
 
-  return { rows, cols, depth, planes, stats };
+  return { rows, cols, depth, planes };
 }
-
-type PlaneShellQuadCounts = { z: number; x: number; y: number; total: number };
 
 function renderPlaneShellAxisHost(
   hosts: PlaneShellDomState,
@@ -2008,7 +1876,7 @@ function renderPlaneShellAxisHost(
   documentRef: Document,
   skipFaces: Set<string> | null = null,
   baseKeyByFace: Map<string, string> | null = null
-): PlaneShellQuadCounts {
+): void {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
@@ -2103,16 +1971,14 @@ function renderPlaneShellAxisHost(
   removeUnused(hosts.zPool, zIndex);
   removeUnused(hosts.xPool, xIndex);
   removeUnused(hosts.yPool, yIndex);
-  return { z: zIndex, x: xIndex, y: yIndex, total: zIndex + xIndex + yIndex };
 }
 
 function renderPlaneShellAxisHostMask(
   hosts: PlaneShellDomState,
   mask: PlaneShellMaskMesh | null,
   snapshot: SceneSnapshot,
-  documentRef: Document,
-  onlyFaces: Set<string> | null = null
-): PlaneShellQuadCounts {
+  documentRef: Document
+): void {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
@@ -2186,7 +2052,6 @@ function renderPlaneShellAxisHostMask(
     const cellHeightPx = axis === "x" ? layerElevation : tileSize;
     for (const faceSprite of plane.faces) {
       if (walls[faceSprite.face]) continue;
-      if (onlyFaces && !onlyFaces.has(`${axis}:${plane.plane}:${faceSprite.face}`)) continue;
       const layer = faceSprite.layer ?? 0;
       const transform = resolveFaceTransform(axis, plane.plane, faceSprite.face, layer);
       const tiles =
@@ -2224,7 +2089,6 @@ function renderPlaneShellAxisHostMask(
   removeUnused(hosts.zMaskPool, zIndex);
   removeUnused(hosts.xMaskPool, xIndex);
   removeUnused(hosts.yMaskPool, yIndex);
-  return { z: zIndex, x: xIndex, y: yIndex, total: zIndex + xIndex + yIndex };
 }
 
 function renderLayers(
