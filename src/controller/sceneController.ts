@@ -4,7 +4,7 @@ import type { ProjectionMode, SceneDimensions, WallsMask, Voxel, GridContext } f
 import { buildSceneContext, computeWallMask, wallMasksEqual } from "../core/context";
 import type { SceneState } from "./sceneBindings";
 import { mergeVoxels as mergeVoxelsGrid } from "../utils/mergeVoxels";
-import { normalizeMergeVoxelsOption, is2dMerge, is3dMerge } from "../utils/mergeVoxelsOption";
+import { normalizeMergeVoxelsOption, is2dMerge, is3dMerge, is3dMask } from "../utils/mergeVoxelsOption";
 import type { MergeVoxelsOption } from "../utils/mergeVoxelsOption";
 import type { VoxelGrid } from "../core/types";
 import type { RendererMetadata, SceneRenderMode } from "../core/domRenderer";
@@ -266,9 +266,13 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     const prevState = lastState;
     lastState = state;
     const { mergeOption, rawCount, cubeOnly, hasZ2 } = resolveGrid(state);
-    const wants3d = is3dMerge(mergeOption) || hasZ2;
+    const wants3d = is3dMerge(mergeOption) || is3dMask(mergeOption) || hasZ2;
     const planeShellEligible = wants3d && cubeOnly;
-    const mode: SceneRenderMode = planeShellEligible ? "plane-shell" : "cubes";
+    const mode: SceneRenderMode = planeShellEligible
+      ? is3dMask(mergeOption)
+        ? "plane-shell-mask"
+        : "plane-shell"
+      : "cubes";
     const shouldPreMerge = is2dMerge(mergeOption) && !hasZ2;
     const mergeApplies = shouldPreMerge || planeShellEligible;
     const needsRebuild =

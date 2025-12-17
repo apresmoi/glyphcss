@@ -144,6 +144,11 @@ const CORE_BASE_STYLES = `
   background-size: cover;
 }
 
+.voxcss-plane-face {
+  outline: none;
+  outline-offset: 0;
+}
+
 .voxcss-cube-face--t {
   transform: translateZ(var(--voxcss-layer-half));
 }

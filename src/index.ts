@@ -41,5 +41,6 @@ export {
   normalizeMergeVoxelsOption,
   is2dMerge,
   is3dMerge,
+  is3dMask,
   type MergeVoxelsOption
 } from "./utils/mergeVoxelsOption";

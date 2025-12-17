@@ -290,33 +290,110 @@ function attachPointerEvents(
   controller: SceneController,
   onInteraction?: () => void
 ): () => void {
+  const prevTouchAction = element.style.touchAction;
+  const prevUserSelect = element.style.userSelect;
+  element.style.touchAction = "none";
+  element.style.userSelect = "none";
+
+  const nonPassive: AddEventListenerOptions = { passive: false };
+
+  let activePointerId: number | null = null;
+  let detachWindowListeners: (() => void) | null = null;
+  const win = element.ownerDocument?.defaultView ?? null;
+
+  const detachActiveWindowListeners = () => {
+    detachWindowListeners?.();
+    detachWindowListeners = null;
+  };
+
+  const attachWindowListeners = () => {
+    if (!win || detachWindowListeners) return;
+    const handleWinPointerMove = (event: PointerEvent) => {
+      if (activePointerId === null || event.pointerId !== activePointerId) return;
+      if (event.cancelable) event.preventDefault();
+      controller.handlePointerMove(event);
+    };
+    const handleWinPointerUp = (event: PointerEvent) => {
+      if (activePointerId === null || event.pointerId !== activePointerId) return;
+      controller.handlePointerUp();
+      activePointerId = null;
+      detachActiveWindowListeners();
+    };
+    const handleWinPointerCancel = (event: PointerEvent) => {
+      if (activePointerId === null || event.pointerId !== activePointerId) return;
+      controller.handlePointerUp();
+      activePointerId = null;
+      detachActiveWindowListeners();
+    };
+    win.addEventListener("pointermove", handleWinPointerMove, nonPassive);
+    win.addEventListener("pointerup", handleWinPointerUp);
+    win.addEventListener("pointercancel", handleWinPointerCancel);
+    detachWindowListeners = () => {
+      win.removeEventListener("pointermove", handleWinPointerMove, nonPassive);
+      win.removeEventListener("pointerup", handleWinPointerUp);
+      win.removeEventListener("pointercancel", handleWinPointerCancel);
+    };
+  };
+
   const handlePointerDown = (event: PointerEvent) => {
+    if (activePointerId !== null) return;
+    if (event.isPrimary === false) return;
     onInteraction?.();
-    event.preventDefault();
+    if (event.cancelable) event.preventDefault();
     controller.handlePointerDown(event);
-    element.setPointerCapture?.(event.pointerId);
+    activePointerId = event.pointerId;
+    try {
+      element.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Ignore (e.g., unsupported or invalid capture scenarios).
+    }
+    // Safari/iOS can fail to deliver pointerup/pointermove if the pointer leaves the element
+    // and capture isn't active, so fall back to window-level listeners.
+    if (typeof element.hasPointerCapture === "function") {
+      if (!element.hasPointerCapture(event.pointerId)) attachWindowListeners();
+    } else if (typeof element.setPointerCapture !== "function") {
+      attachWindowListeners();
+    }
   };
   const handlePointerMove = (event: PointerEvent) => {
-    event.preventDefault();
+    if (activePointerId === null || event.pointerId !== activePointerId) return;
+    if (event.cancelable) event.preventDefault();
     controller.handlePointerMove(event);
   };
   const handlePointerUp = (event: PointerEvent) => {
+    if (activePointerId === null || event.pointerId !== activePointerId) return;
     controller.handlePointerUp();
-    element.releasePointerCapture?.(event.pointerId);
+    activePointerId = null;
+    detachActiveWindowListeners();
+    try {
+      element.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Ignore (e.g., capture may not have been set).
+    }
   };
   const handlePointerCancel = (event: PointerEvent) => {
+    if (activePointerId === null || event.pointerId !== activePointerId) return;
     controller.handlePointerUp();
-    element.releasePointerCapture?.(event.pointerId);
+    activePointerId = null;
+    detachActiveWindowListeners();
+    try {
+      element.releasePointerCapture?.(event.pointerId);
+    } catch {
+      // Ignore (e.g., capture may not have been set).
+    }
   };
-  element.addEventListener("pointerdown", handlePointerDown);
-  element.addEventListener("pointermove", handlePointerMove);
+  element.addEventListener("pointerdown", handlePointerDown, nonPassive);
+  element.addEventListener("pointermove", handlePointerMove, nonPassive);
   element.addEventListener("pointerup", handlePointerUp);
   element.addEventListener("pointercancel", handlePointerCancel);
   return () => {
-    element.removeEventListener("pointerdown", handlePointerDown);
-    element.removeEventListener("pointermove", handlePointerMove);
+    element.removeEventListener("pointerdown", handlePointerDown, nonPassive);
+    element.removeEventListener("pointermove", handlePointerMove, nonPassive);
     element.removeEventListener("pointerup", handlePointerUp);
     element.removeEventListener("pointercancel", handlePointerCancel);
+    detachActiveWindowListeners();
+    element.style.touchAction = prevTouchAction;
+    element.style.userSelect = prevUserSelect;
   };
 }
 
