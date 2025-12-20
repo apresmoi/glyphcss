@@ -94,11 +94,11 @@ const voxels = [
 
 ## Performance
 
-VoxCSS renders everything in the DOM, so performance is mostly determined by how many elements the browser has to manage. To reduce work, the engine performs culling based on voxel neighbors and camera rotation, rendering only the outer surface of the model and skipping faces that are not visible.
-
-<img width="1600" height="750" alt="Voxel model showing merged grid geometries and face culling" src="https://github.com/user-attachments/assets/123f4a06-a1ac-4ec1-a58e-cade601da979" />
+VoxCSS renders everything in the DOM, so performance is mostly determined by how many elements the browser has to manage. To reduce work, the engine does culling based on voxel neighbors and camera rotation, rendering only the outer surface of the model and skipping faces that are not visible.
 
 The `mergeVoxels` prop can be essential for performance. It controls the stacked grid geometry and allows the engine to group voxels into larger merged elements, significantly reducing DOM node count.
+
+<img width="1600" height="750" alt="Voxel model showing merged grid geometries and face culling" src="https://github.com/user-attachments/assets/123f4a06-a1ac-4ec1-a58e-cade601da979" />
 
 - `mergeVoxels="2d"` merges adjacent voxels across **x / y** within each **z layer**
 - `mergeVoxels="3d"` merges across **x / y / z**
