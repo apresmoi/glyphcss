@@ -101,7 +101,7 @@ The `mergeVoxels` prop can be essential for performance. It controls the stacked
 <img width="1600" height="750" alt="mergeVoxels" src="https://github.com/user-attachments/assets/be13a202-7095-4d6d-aea3-6c87d647bb62" />
 
 - `mergeVoxels="2d"` merges adjacent voxels across x / y within each z layer.
-- `mergeVoxels="3d"` merges across x / y / z. This switches the engine from voxel to volumetric rendering, and can unlock much better performance.
+- `mergeVoxels="3d"` merges across x / y / z. This switches the engine from voxel to volumetric rendering.
 
 ## Loading MagicaVoxel (.vox) files
 
