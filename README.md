@@ -98,12 +98,10 @@ VoxCSS renders everything in the DOM, so performance is mostly determined by how
 
 The `mergeVoxels` prop can be essential for performance. It controls the stacked grid geometry and allows the engine to group voxels into larger merged elements, significantly reducing DOM node count.
 
-<img width="1600" height="750" alt="Voxel model showing merged grid geometries and face culling" src="https://github.com/user-attachments/assets/123f4a06-a1ac-4ec1-a58e-cade601da979" />
+<img width="1600" height="750" alt="mergeVoxels" src="https://github.com/user-attachments/assets/be13a202-7095-4d6d-aea3-6c87d647bb62" />
 
-- `mergeVoxels="2d"` merges adjacent voxels across **x / y** within each **z layer**
-- `mergeVoxels="3d"` merges across **x / y / z**
-
-The `3d` mode switches the engine from voxel to volumetric rendering, and can unlock much better performance for large scenes.
+- `mergeVoxels="2d"` merges adjacent voxels across x / y within each z layer.
+- `mergeVoxels="3d"` merges across x / y / z. This switches the engine from voxel to volumetric rendering, and can unlock much better performance.
 
 ## Loading MagicaVoxel (.vox) files
 
