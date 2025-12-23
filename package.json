@@ -54,6 +54,8 @@
   "scripts": {
     "build": "tsup --clean && node -e \"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\"",
     "watch": "tsup --watch --sourcemap --onSuccess \"node -e \\\"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\\\"\"",
+    "bench:test": "node scripts/plane-shell-test.mjs",
+    "bench:test:build": "node scripts/plane-shell-test.mjs --build",
     "prepublishOnly": "npm run build"
   },
   "publishConfig": {

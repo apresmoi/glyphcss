@@ -147,6 +147,45 @@ const CORE_BASE_STYLES = `
 .voxcss-plane-face {
   outline: none;
   outline-offset: 0;
+  pointer-events: none;
+}
+
+.voxcss-plane-face::before,
+.voxcss-plane-face::after {
+  position: absolute;
+  pointer-events: none;
+  display: block;
+}
+
+.voxcss-plane-face::before {
+  content: var(--voxcss-plane-detail-before-content, none);
+  left: var(--voxcss-plane-detail-before-left, 0px);
+  top: var(--voxcss-plane-detail-before-top, 0px);
+  width: var(--voxcss-plane-detail-before-width, 0px);
+  height: var(--voxcss-plane-detail-before-height, 0px);
+  background-color: var(--voxcss-plane-detail-before-color, transparent);
+  box-shadow: var(
+    --before-shadow-list,
+    var(--voxcss-plane-detail-before-shadow-left, 0px)
+    var(--voxcss-plane-detail-before-shadow-top, 0px)
+    0
+    0
+    color-mix(
+      in srgb,
+      var(--voxcss-plane-detail-before-shadow-color, transparent) var(--voxcss-plane-detail-before-shadow-opacity, 0%),
+      transparent
+    )
+  );
+}
+
+.voxcss-plane-face::after {
+  content: var(--voxcss-plane-detail-after-content, none);
+  left: var(--voxcss-plane-detail-after-left, 0px);
+  top: var(--voxcss-plane-detail-after-top, 0px);
+  width: var(--voxcss-plane-detail-after-width, 0px);
+  height: var(--voxcss-plane-detail-after-height, 0px);
+  background-color: var(--voxcss-plane-detail-after-color, transparent);
+  box-shadow: var(--after-shadow-list, none);
 }
 
 .voxcss-cube-face--t {

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 docs/
+scripts/
+examples/headless/models
 examples/headless/testsuite.html
 examples/headless/vox-drop.html
 examples/react/testsuite.html

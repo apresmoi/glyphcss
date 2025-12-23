@@ -55,6 +55,11 @@ export const DEFAULT_CAMERA_STATE: CameraState = {
   depthOffset: 20
 };
 
+const CAMERA_PRECISION = 100;
+
+const quantize = (value: number): number =>
+  Math.round(value * CAMERA_PRECISION) / CAMERA_PRECISION;
+
 export function createIsometricCamera(initial: Partial<CameraState> = {}): CameraHandle {
   const state: CameraState = {
     zoom: initial.zoom ?? DEFAULT_CAMERA_STATE.zoom,
@@ -66,7 +71,12 @@ export function createIsometricCamera(initial: Partial<CameraState> = {}): Camer
   };
 
   function update(next: Partial<CameraState>): void {
-    Object.assign(state, next);
+    if (next.zoom !== undefined) state.zoom = quantize(next.zoom);
+    if (next.pan !== undefined) state.pan = quantize(next.pan);
+    if (next.tilt !== undefined) state.tilt = quantize(next.tilt);
+    if (next.rotX !== undefined) state.rotX = quantize(next.rotX);
+    if (next.rotY !== undefined) state.rotY = quantize(next.rotY);
+    if (next.depthOffset !== undefined) state.depthOffset = quantize(next.depthOffset);
   }
 
   function getStyle(input: CameraStyleInput = {}) {
