@@ -50,6 +50,7 @@ export interface GridContext {
   showFloor: boolean;
   rotX?: number;
   rotY?: number;
+  renderVersion?: number;
   wallColor: string;
   getVoxel(x: number, y: number, z: number): Voxel | null;
   resolveTexture?(name: string, face: string): string | undefined;
