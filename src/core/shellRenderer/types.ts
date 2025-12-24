@@ -66,6 +66,9 @@ type VoxcssTune = Partial<{
   splitCandidateLimit: number;
   maxSplitsPerFace: number;
   maxHostsPerFace: number;
+  stampMaxOffset: number;
+  stampMaxPseudoSpan: number;
+  stampMaxBleedArea: number;
 }>;
 
 const voxcssTune: VoxcssTune | null = (() => {
@@ -97,9 +100,9 @@ export const SPLIT_CANDIDATE_LIMIT = tuneNumber("splitCandidateLimit", 4);
 export const MAX_BRUSHES_PER_HOST = tuneNumber("maxBrushesPerHost", 1);
 export const COMBO_MIN_AREA = 16;
 export const STAMP_BUCKET_SIZE = 16;
-export const STAMP_MAX_OFFSET = 12;
-export const STAMP_MAX_PSEUDO_SPAN = 64;
-export const STAMP_MAX_BLEED_AREA = 2048;
+export const STAMP_MAX_OFFSET = tuneNumber("stampMaxOffset", 8);
+export const STAMP_MAX_PSEUDO_SPAN = tuneNumber("stampMaxPseudoSpan", 64);
+export const STAMP_MAX_BLEED_AREA = tuneNumber("stampMaxBleedArea", 2048);
 export const STAMP_MAX_OFFSET_RELAXED = 20;
 export const STAMP_MAX_PSEUDO_SPAN_RELAXED = 96;
 export const STAMP_MAX_BLEED_AREA_RELAXED = 3072;

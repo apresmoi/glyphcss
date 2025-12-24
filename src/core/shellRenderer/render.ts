@@ -763,18 +763,6 @@ const buildBrushPairing = (
 
     if (absorbPlans.length) absorbed.set(parentIndex, absorbPlans);
 
-    if (!nested.has(parentIndex)) {
-      for (const j of candidateIndices) {
-        if (children.has(j)) continue;
-        const child = brushes[j];
-        if (!rectContainsPacked(parent, child)) continue;
-        if (canNestBrushPair(parent, child)) {
-          nested.set(parentIndex, j);
-          children.add(j);
-          break;
-        }
-      }
-    }
   }
 
   return { absorbed, nested, children };
@@ -1172,6 +1160,7 @@ const renderFacePlans = (
     const brushZ = formatZOffset(planeOffset + stampOffset);
     const cellWidthPx = axis === "y" ? layerElevation : tileSize;
     const cellHeightPx = axis === "x" ? layerElevation : tileSize;
+    const pseudoEpsilonPx = 0;
     const applyPseudoRect = (
       target: HTMLElement,
       contentVar: "before" | "after",
@@ -1179,10 +1168,10 @@ const renderFacePlans = (
       bbox: PackedBrush
     ): void => {
       const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
-      const leftPx = (rect.x - bbox.c0) * cellWidthPx;
-      const topPx = (rect.y - bbox.r0) * cellHeightPx;
-      const widthPx = rect.w * cellWidthPx;
-      const heightPx = rect.h * cellHeightPx;
+      const leftPx = (rect.x - bbox.c0) * cellWidthPx - pseudoEpsilonPx;
+      const topPx = (rect.y - bbox.r0) * cellHeightPx - pseudoEpsilonPx;
+      const widthPx = rect.w * cellWidthPx + pseudoEpsilonPx * 2;
+      const heightPx = rect.h * cellHeightPx + pseudoEpsilonPx * 2;
       setCssVarIfDiff(target, `${prefix}c`, "''");
       setCssVarIfDiff(target, `${prefix}l`, `${leftPx}px`);
       setCssVarIfDiff(target, `${prefix}t`, `${topPx}px`);
@@ -1212,6 +1201,19 @@ const renderFacePlans = (
           if (absorbPlan.slot === "before") beforeRect = paintRectToBrushRect(absorbPlan.rect);
           else if (absorbPlan.slot === "after") afterRect = paintRectToBrushRect(absorbPlan.rect);
         }
+      }
+      if (beforeRect && afterRect) {
+        const beforeArea = beforeRect.w * beforeRect.h;
+        const afterArea = afterRect.w * afterRect.h;
+        if (beforeArea <= afterArea) {
+          const swap = afterRect;
+          afterRect = beforeRect;
+          beforeRect = swap;
+        }
+      }
+      if (!afterRect && beforeRect) {
+        afterRect = beforeRect;
+        beforeRect = undefined;
       }
       clearPlaneDetailVars(target);
       const areaValue = placement === "grid" ? gridArea : "";
@@ -1359,9 +1361,21 @@ const renderFacePlans = (
     }
 
     let planPaintedCells = 0;
+    const brushOrder: number[] = [];
     for (let i = 0; i < brushesToRender.length; i += 1) {
+      if (pairing.children.has(i)) continue;
+      brushOrder.push(i);
+    }
+    brushOrder.sort((a, b) => {
+      const areaA = paintedCells[a] ?? getBrushPaintedCells(brushesToRender[a]);
+      const areaB = paintedCells[b] ?? getBrushPaintedCells(brushesToRender[b]);
+      if (areaA !== areaB) return areaB - areaA;
+      return a - b;
+    });
+
+    for (const i of brushOrder) {
       const packed = brushesToRender[i];
-      if (!packed || pairing.children.has(i)) continue;
+      if (!packed) continue;
       const gridArea = gridAreaFor(packed.r0, packed.c0, packed.r1, packed.c1);
       const brushWidth = packed.c1 - packed.c0;
       const brushHeight = packed.r1 - packed.r0;
@@ -1377,22 +1391,6 @@ const renderFacePlans = (
       totalPseudoLayers += countPseudoLayers(packed, absorbPlans);
       totalPseudoArea += getPseudoArea(packed, absorbPlans);
 
-      const nestedChildIndex = pairing.nested.get(i);
-      if (nestedChildIndex !== undefined) {
-        const child = brushesToRender[nestedChildIndex];
-        if (child) {
-          const childWidth = child.c1 - child.c0;
-          const childHeight = child.r1 - child.r0;
-          const childPaintedCells = paintedCells[nestedChildIndex] ?? getBrushPaintedCells(child);
-          if (childWidth <= 0 || childHeight <= 0 || childPaintedCells <= 0) continue;
-          const childBrush = nextBrush(axis);
-          applyBrushWithPlacement(childBrush, child, "", "nested", packed);
-          if (childBrush.parentElement !== brush) brush.appendChild(childBrush);
-          totalBrushNodes += 1;
-          totalPseudoLayers += countPseudoLayers(child);
-          totalPseudoArea += getPseudoArea(child);
-        }
-      }
       planPaintedCells += brushPaintedCells;
     }
 
