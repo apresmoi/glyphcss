@@ -53,21 +53,48 @@ export interface DetailPlan {
 export interface HostPlan { r0: number; c0: number; r1: number; c1: number; baseColorId: number; details: DetailPlan[]; detailSig?: string; }
 export interface FacePlan { key: FaceKey; originRow: number; originCol: number; palette: string[]; signatureHash: number; hosts: HostPlan[]; fallback: boolean; }
 
+type VoxcssTune = Partial<{
+  baseCoverMin: number;
+  fragmentationLimit: number;
+  detailColorLimit: number;
+  minHostArea: number;
+  maxBrushesPerHost: number;
+  mergePasses: number;
+  hostCap: number;
+  maxSplitDepth: number;
+  maxSplitsPerHost: number;
+  splitCandidateLimit: number;
+  maxSplitsPerFace: number;
+  maxHostsPerFace: number;
+}>;
+
+const voxcssTune: VoxcssTune | null = (() => {
+  if (typeof globalThis === "undefined") return null;
+  const raw = (globalThis as { __voxcssTune?: unknown }).__voxcssTune;
+  if (!raw || typeof raw !== "object") return null;
+  return raw as VoxcssTune;
+})();
+
+const tuneNumber = (key: keyof VoxcssTune, fallback: number): number => {
+  const value = voxcssTune?.[key];
+  return Number.isFinite(value) ? Number(value) : fallback;
+};
+
 export const NEW_SHELL_VERSION = 1;
-export const HOST_CAP = 1500;
-export const BASE_COVER_MIN = 0.25;
+export const HOST_CAP = tuneNumber("hostCap", 1500);
+export const BASE_COVER_MIN = tuneNumber("baseCoverMin", 0.3);
 export const HOST_FILL_RATIO_MIN = 0.6;
 export const HOST_GAP_MAX = 64;
-export const DETAIL_COLOR_LIMIT = 6;
+export const DETAIL_COLOR_LIMIT = tuneNumber("detailColorLimit", 4);
 export const DETAIL_COLOR_LIMIT_TRANSPARENT = 8;
-export const MAX_SPLIT_DEPTH = 3;
-export const MAX_SPLITS_PER_HOST = 4;
-export const MAX_SPLITS_PER_FACE = 600;
-export const MAX_HOSTS_PER_FACE = 4000;
-export const MIN_HOST_AREA = 4;
-export const FRAGMENTATION_LIMIT = 1200;
-export const SPLIT_CANDIDATE_LIMIT = 4;
-export const MAX_BRUSHES_PER_HOST = 5;
+export const MAX_SPLIT_DEPTH = tuneNumber("maxSplitDepth", 2);
+export const MAX_SPLITS_PER_HOST = tuneNumber("maxSplitsPerHost", 2);
+export const MAX_SPLITS_PER_FACE = tuneNumber("maxSplitsPerFace", 400);
+export const MAX_HOSTS_PER_FACE = tuneNumber("maxHostsPerFace", 8000);
+export const MIN_HOST_AREA = tuneNumber("minHostArea", 8);
+export const FRAGMENTATION_LIMIT = tuneNumber("fragmentationLimit", 400);
+export const SPLIT_CANDIDATE_LIMIT = tuneNumber("splitCandidateLimit", 4);
+export const MAX_BRUSHES_PER_HOST = tuneNumber("maxBrushesPerHost", 1);
 export const COMBO_MIN_AREA = 16;
 export const STAMP_BUCKET_SIZE = 16;
 export const STAMP_MAX_OFFSET = 12;
@@ -82,7 +109,7 @@ export const MAX_MERGE_AREA = 4096;
 export const MAX_OVERLAP_GAP = 8;
 export const MAX_OVERLAP_CANDIDATES_PER_BRUSH = 24;
 export const MAX_OVERLAP_MERGES_PER_PASS = 256;
-export const MAX_OVERLAP_PASSES = 2;
+export const MAX_OVERLAP_PASSES = tuneNumber("mergePasses", 2);
 export const MAX_OVERLAP_COLORS = 12;
 export const PLANE_SHELL_DEV_VERIFY = false;
 export const wallsToSig = (walls: WallsMask): number =>

@@ -120,7 +120,14 @@ export function updatePlaneShellGeometry(
     }
   }
 
-  renderFacePlans(hosts, snapshot, documentRef, plans);
+  const stats = renderFacePlans(hosts, snapshot, documentRef, plans);
+  if (layersChanged || depsChanged) {
+    console.log(
+      `[VoxCSS] PlaneShell stats paintCells=${stats.paintCells} pseudoLayers=${stats.pseudoLayers} ` +
+      `pseudoArea=${stats.pseudoArea} brushNodes=${stats.brushNodes} svgNodes=${stats.svgNodes} ` +
+      `svgPaths=${stats.svgPaths} compositeNodes=${stats.compositeNodes}`
+    );
+  }
   return hosts;
 }
 

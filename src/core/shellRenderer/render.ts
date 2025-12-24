@@ -82,10 +82,13 @@ type PackedBrush = {
 };
 
 type FaceSvgHost = { host: HostPlan; gridArea: string; hostWidth: number; hostHeight: number };
+type BrushPairing = { absorbed: Map<number, AbsorbPlan[]>; nested: Map<number, number>; children: Set<number> };
 type FaceBrushCacheEntry = {
   signatureHash: number;
   brushes: PackedBrush[];
   svgHosts: FaceSvgHost[];
+  pairing?: BrushPairing;
+  paintedCells?: number[];
 };
 
 const cloneBrushRect = (rect?: BrushRect): BrushRect | undefined => rect ? { ...rect } : undefined;
@@ -877,9 +880,12 @@ const packRectsToBrushes = (
     }
     let bestBase: BrushRect | null = null;
     let bestPartner: BrushRect | null = null;
+    let bestPaintCost = Number.POSITIVE_INFINITY;
+    let bestPartnerArea = Number.POSITIVE_INFINITY;
     let bestBleedArea = Number.POSITIVE_INFINITY;
     let bestMaxAbsOffset = Number.POSITIVE_INFINITY;
     let bestOffsetSum = Number.POSITIVE_INFINITY;
+    const pseudoWeight = 1.5;
     visitStampValue += 1;
     const visitValue = visitStampValue;
 
@@ -922,52 +928,72 @@ const packRectsToBrushes = (
           const validA = reasonA === 0;
           const validB = reasonB === 0;
           if (!validA && !validB) continue;
+          const baseAreaA = Math.max(0, rect.w) * Math.max(0, rect.h);
+          const partnerAreaA = Math.max(0, candidate.w) * Math.max(0, candidate.h);
+          const baseAreaB = Math.max(0, candidate.w) * Math.max(0, candidate.h);
+          const partnerAreaB = Math.max(0, rect.w) * Math.max(0, rect.h);
+          const costA = baseAreaA + partnerAreaA * pseudoWeight;
+          const costB = baseAreaB + partnerAreaB * pseudoWeight;
           let base = rect;
           let partner = candidate;
           let absDx = absDxA;
           let absDy = absDyA;
           let bleedArea = bleedA;
+          let paintCost = costA;
           if (validB) {
             const maxOffsetA = Math.max(absDxA, absDyA);
             const maxOffsetB = Math.max(absDxB, absDyB);
             const sumOffsetA = absDxA + absDyA;
             const sumOffsetB = absDxB + absDyB;
-            if (
+            const preferB =
               !validA ||
-              bleedB < bleedArea ||
-              (bleedB === bleedArea && (
-                maxOffsetB < maxOffsetA ||
-                (maxOffsetB === maxOffsetA && (
-                  sumOffsetB < sumOffsetA ||
-                  (sumOffsetB === sumOffsetA && compareStampTie(candidate, rect) < 0)
+              costB < paintCost ||
+              (costB === paintCost && (
+                bleedB < bleedArea ||
+                (bleedB === bleedArea && (
+                  maxOffsetB < maxOffsetA ||
+                  (maxOffsetB === maxOffsetA && (
+                    sumOffsetB < sumOffsetA ||
+                    (sumOffsetB === sumOffsetA && compareStampTie(candidate, rect) < 0)
+                  ))
                 ))
-              ))
-            ) {
+              ));
+            if (preferB) {
               base = candidate;
               partner = rect;
               absDx = absDxB;
               absDy = absDyB;
               bleedArea = bleedB;
+              paintCost = costB;
             }
           }
           const maxAbsOffset = Math.max(absDx, absDy);
           const offsetSum = absDx + absDy;
+          const partnerArea = Math.max(0, partner.w) * Math.max(0, partner.h);
           if (
-            bleedArea < bestBleedArea ||
-            (bleedArea === bestBleedArea && (
-              maxAbsOffset < bestMaxAbsOffset ||
-              (maxAbsOffset === bestMaxAbsOffset && (
-                offsetSum < bestOffsetSum ||
-                (offsetSum === bestOffsetSum && (
-                  !bestPartner ||
-                  compareStampTie(base, bestBase ?? base) < 0 ||
-                  (bestBase && compareStampTie(base, bestBase) === 0 && compareStampTie(partner, bestPartner) < 0)
+            paintCost < bestPaintCost ||
+            (paintCost === bestPaintCost && (
+              partnerArea < bestPartnerArea ||
+              (partnerArea === bestPartnerArea && (
+                bleedArea < bestBleedArea ||
+                (bleedArea === bestBleedArea && (
+                  maxAbsOffset < bestMaxAbsOffset ||
+                  (maxAbsOffset === bestMaxAbsOffset && (
+                    offsetSum < bestOffsetSum ||
+                    (offsetSum === bestOffsetSum && (
+                      !bestPartner ||
+                      compareStampTie(base, bestBase ?? base) < 0 ||
+                      (bestBase && compareStampTie(base, bestBase) === 0 && compareStampTie(partner, bestPartner) < 0)
+                    ))
+                  ))
                 ))
               ))
             ))
           ) {
             bestBase = base;
             bestPartner = partner;
+            bestPaintCost = paintCost;
+            bestPartnerArea = partnerArea;
             bestBleedArea = bleedArea;
             bestMaxAbsOffset = maxAbsOffset;
             bestOffsetSum = offsetSum;
@@ -1041,12 +1067,22 @@ const packRectsToBrushes = (
   return output;
 };
 
+type PlaneShellRenderStats = {
+  paintCells: number;
+  brushNodes: number;
+  pseudoLayers: number;
+  pseudoArea: number;
+  svgNodes: number;
+  svgPaths: number;
+  compositeNodes: number;
+};
+
 const renderFacePlans = (
   hosts: PlaneShellDomState,
   snapshot: PlaneShellSnapshot,
   documentRef: Document,
   plans: FacePlan[]
-): void => {
+): PlaneShellRenderStats => {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
@@ -1054,6 +1090,12 @@ const renderFacePlans = (
   const brushRects: BrushRect[] = [];
   const packedBrushes: PackedBrush[] = [];
   const svgHosts: FaceSvgHost[] = [];
+  let totalPaintCells = 0;
+  let totalBrushNodes = 0;
+  let totalPseudoLayers = 0;
+  let totalPseudoArea = 0;
+  let totalSvgNodes = 0;
+  let totalSvgPaths = 0;
   const axisState: Record<PlaneShellAxis, { host: HTMLElement; pool: Element[]; index: number }> = {
     z: { host: hosts.zHost, pool: hosts.zPool, index: 0 },
     x: { host: hosts.xHost, pool: hosts.xPool, index: 0 },
@@ -1088,13 +1130,44 @@ const renderFacePlans = (
     axis === "z"
       ? plane * layerElevation
       : -1 * (plane - 1) * tileSize;
-  const gridAreaFor = (row0: number, col0: number, row1: number, col1: number): string =>
-    `${row0} / ${col0} / ${row1} / ${col1}`;
+    const gridAreaFor = (row0: number, col0: number, row1: number, col1: number): string =>
+      `${row0} / ${col0} / ${row1} / ${col1}`;
 
-  for (const plan of plans) {
-    const { axis, plane, face } = plan.key;
-    if (walls[face]) continue;
-    const planeOffset = getPlaneOffset(axis, plane);
+    const countPseudoLayers = (brush: PackedBrush, absorbPlans?: AbsorbPlan[]): number => {
+      let hasBefore = !!brush.before;
+      let hasAfter = !!brush.after;
+      if (absorbPlans) {
+        for (const plan of absorbPlans) {
+          if (plan.slot === "before") hasBefore = true;
+          else if (plan.slot === "after") hasAfter = true;
+        }
+      }
+      return (hasBefore ? 1 : 0) + (hasAfter ? 1 : 0);
+    };
+
+    const getPseudoArea = (brush: PackedBrush, absorbPlans?: AbsorbPlan[]): number => {
+      let beforeRect = brush.before;
+      let afterRect = brush.after;
+      if (absorbPlans) {
+        for (const plan of absorbPlans) {
+          if (plan.slot === "before") beforeRect = paintRectToBrushRect(plan.rect);
+          else if (plan.slot === "after") afterRect = paintRectToBrushRect(plan.rect);
+        }
+      }
+      let area = 0;
+      if (beforeRect && normalizePaintColor(beforeRect.color)) {
+        area += Math.max(0, beforeRect.w) * Math.max(0, beforeRect.h);
+      }
+      if (afterRect && normalizePaintColor(afterRect.color)) {
+        area += Math.max(0, afterRect.w) * Math.max(0, afterRect.h);
+      }
+      return area;
+    };
+
+    for (const plan of plans) {
+      const { axis, plane, face } = plan.key;
+      if (walls[face]) continue;
+      const planeOffset = getPlaneOffset(axis, plane);
     const stampOffset = STAMP_FACE_Z_OFFSET[face] ?? 0.12;
     const brushZ = formatZOffset(planeOffset + stampOffset);
     const cellWidthPx = axis === "y" ? layerElevation : tileSize;
@@ -1194,9 +1267,15 @@ const renderFacePlans = (
     const canReuseBrushes = cacheEntry && cacheEntry.signatureHash === plan.signatureHash;
     let brushesToRender: PackedBrush[];
     let svgHostsForFace: FaceSvgHost[] = [];
+    let pairing: BrushPairing;
+    let paintedCells: number[];
     if (canReuseBrushes && cacheEntry) {
       brushesToRender = cacheEntry.brushes;
       svgHostsForFace = cacheEntry.svgHosts;
+      pairing = cacheEntry.pairing ?? buildBrushPairing(brushesToRender);
+      paintedCells = cacheEntry.paintedCells ?? brushesToRender.map(getBrushPaintedCells);
+      if (!cacheEntry.pairing) cacheEntry.pairing = pairing;
+      if (!cacheEntry.paintedCells) cacheEntry.paintedCells = paintedCells;
     } else {
       brushRects.length = 0;
       packedBrushes.length = 0;
@@ -1268,14 +1347,17 @@ const renderFacePlans = (
       const processedBrushes = packRectsToBrushes(brushRects, packedBrushes);
       brushesToRender = processedBrushes;
       svgHostsForFace = svgHosts;
+      pairing = buildBrushPairing(brushesToRender);
+      paintedCells = brushesToRender.map(getBrushPaintedCells);
       brushCache.set(faceCacheKey, {
         signatureHash: plan.signatureHash,
         brushes: clonePackedBrushes(brushesToRender),
-        svgHosts: cloneFaceSvgHosts(svgHostsForFace)
+        svgHosts: cloneFaceSvgHosts(svgHostsForFace),
+        pairing,
+        paintedCells
       });
     }
 
-    const pairing = buildBrushPairing(brushesToRender);
     let planPaintedCells = 0;
     for (let i = 0; i < brushesToRender.length; i += 1) {
       const packed = brushesToRender[i];
@@ -1283,14 +1365,17 @@ const renderFacePlans = (
       const gridArea = gridAreaFor(packed.r0, packed.c0, packed.r1, packed.c1);
       const brushWidth = packed.c1 - packed.c0;
       const brushHeight = packed.r1 - packed.r0;
-      const paintedCells = getBrushPaintedCells(packed);
-      if (brushWidth <= 0 || brushHeight <= 0 || paintedCells <= 0) continue;
+      const brushPaintedCells = paintedCells[i] ?? getBrushPaintedCells(packed);
+      if (brushWidth <= 0 || brushHeight <= 0 || brushPaintedCells <= 0) continue;
       const brush = nextBrush(axis);
       const absorbPlans = pairing.absorbed.get(i);
       applyBrushWithPlacement(brush, packed, gridArea, "grid", undefined, absorbPlans);
       if (absorbPlans?.length) {
         /* absorb plans captured for rendering only */
       }
+      totalBrushNodes += 1;
+      totalPseudoLayers += countPseudoLayers(packed, absorbPlans);
+      totalPseudoArea += getPseudoArea(packed, absorbPlans);
 
       const nestedChildIndex = pairing.nested.get(i);
       if (nestedChildIndex !== undefined) {
@@ -1298,14 +1383,17 @@ const renderFacePlans = (
         if (child) {
           const childWidth = child.c1 - child.c0;
           const childHeight = child.r1 - child.r0;
-          const childPaintedCells = getBrushPaintedCells(child);
+          const childPaintedCells = paintedCells[nestedChildIndex] ?? getBrushPaintedCells(child);
           if (childWidth <= 0 || childHeight <= 0 || childPaintedCells <= 0) continue;
           const childBrush = nextBrush(axis);
           applyBrushWithPlacement(childBrush, child, "", "nested", packed);
           if (childBrush.parentElement !== brush) brush.appendChild(childBrush);
+          totalBrushNodes += 1;
+          totalPseudoLayers += countPseudoLayers(child);
+          totalPseudoArea += getPseudoArea(child);
         }
       }
-      planPaintedCells += paintedCells;
+      planPaintedCells += brushPaintedCells;
     }
 
     for (const svgHost of svgHostsForFace) {
@@ -1321,6 +1409,8 @@ const renderFacePlans = (
         (svgDetailC ? 1 : 0) +
         (svgDetailD ? 1 : 0);
       if (!svgPathCount) continue;
+      totalSvgNodes += 1;
+      totalSvgPaths += svgPathCount;
       const svg = nextSvg(axis);
       svg.setAttribute("preserveAspectRatio", "none");
       setAttrIfDiff(svg, "shape-rendering", "geometricPrecision");
@@ -1396,11 +1486,21 @@ const renderFacePlans = (
         throw new Error("[VoxCSS] PlaneShell emitted elements for an empty plan");
       }
     }
+    totalPaintCells += planPaintedCells;
   }
   for (const axis of Object.keys(axisState) as PlaneShellAxis[]) {
     const bucket = axisState[axis];
     for (let i = bucket.index; i < bucket.pool.length; i += 1) bucket.pool[i]?.remove();
   }
+  return {
+    paintCells: totalPaintCells,
+    brushNodes: totalBrushNodes,
+    pseudoLayers: totalPseudoLayers,
+    pseudoArea: totalPseudoArea,
+    svgNodes: totalSvgNodes,
+    svgPaths: totalSvgPaths,
+    compositeNodes: totalBrushNodes + totalSvgNodes
+  };
 };
 
 

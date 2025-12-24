@@ -73,7 +73,12 @@ export function mountScene({
       renderer.render(lastSceneSnapshot);
     });
   };
-  scheduleRender();
+  // Render once synchronously to avoid a long rAF handler on initial mount.
+  lastSceneSnapshot = controller.applySceneState(state);
+  renderer.render(lastSceneSnapshot);
+  lastWalls = controller.getWalls();
+  lastDimensions = controller.getDimensions();
+  lastProjection = controller.getProjection();
 
   const unsubscribers = [
     controller.subscribeSnapshot(({ style, walls, cameraOnly, context }) => {
