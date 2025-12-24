@@ -9,9 +9,9 @@ export interface PlaneShellDomState {
   zHost: HTMLElement;
   xHost: HTMLElement;
   yHost: HTMLElement;
-  zPool: HTMLElement[];
-  xPool: HTMLElement[];
-  yPool: HTMLElement[];
+  zPool: Element[];
+  xPool: Element[];
+  yPool: Element[];
   faceCache: Map<string, FacePlan>;
   cacheLighting: GridContext["lighting"] | null;
   cacheResolveTexture: GridContext["resolveTexture"] | null;
@@ -44,7 +44,7 @@ interface FaceBuffer {
   palette: string[];
 }
 interface FaceData { key: FaceKey; buffer: FaceBuffer; signatureHash: number; fillCells: number; }
-interface HostRect { r0: number; c0: number; r1: number; c1: number; }
+interface HostRect { r0: number; c0: number; r1: number; c1: number; transparent?: boolean; }
 interface DetailPlan {
   colorId: number;
   path: string;
@@ -55,11 +55,29 @@ interface DetailPlan {
 interface HostPlan { r0: number; c0: number; r1: number; c1: number; baseColorId: number; details: DetailPlan[]; detailSig?: string; }
 interface FacePlan { key: FaceKey; originRow: number; originCol: number; palette: string[]; signatureHash: number; hosts: HostPlan[]; stats: FaceStats; fallback: boolean; }
 interface FaceStats { hosts: number; svgHosts: number; svgPaths: number; stampPathBytes: number; stampSvgHosts: number; stampPseudoHosts: number; stampBrushHosts: number; splitCount: number; fallback: boolean; }
-interface PlaneShellStats { plans: number; renderedHosts: number; svgHosts: number; svgPaths: number; stampPathBytes: number; stampSvgHosts: number; stampPseudoHosts: number; stampBrushHosts: number; splitCount: number; fallbackFaces: number; domEstimate: number; domAvg: number; domMax: number; }
+interface PlaneShellStats {
+  plans: number;
+  baseBrushes: number;
+  detailBrushes: number;
+  totalBrushes: number;
+  svgHosts: number;
+  svgPaths: number;
+  stampPathBytes: number;
+  stampSvgHosts: number;
+  stampPseudoHosts: number;
+  stampBrushHosts: number;
+  splitCount: number;
+  fallbackFaces: number;
+  domEstimate: number;
+  domAvg: number;
+  domMax: number;
+}
 
 const NEW_SHELL_VERSION = 1;
 const HOST_CAP = 1500;
 const BASE_COVER_MIN = 0.4;
+const HOST_FILL_RATIO_MIN = 0.85;
+const HOST_GAP_MAX = 8;
 const DETAIL_COLOR_LIMIT = 4;
 const MAX_SPLIT_DEPTH = 2;
 const MAX_SPLITS_PER_HOST = 2;
@@ -180,7 +198,7 @@ const STAMP_FACE_Z_OFFSET: Record<CubeFace, number> = {
   br: 0.12,
   bl: 0.12
 };
-const getStampZOffset = (face: CubeFace): string => `${(STAMP_FACE_Z_OFFSET[face] ?? 0.12).toFixed(3)}px`;
+const formatZOffset = (value: number): string => `${value.toFixed(3)}px`;
 
 const HASH_SEED = 2166136261;
 const HASH_PRIME = 16777619;
@@ -480,11 +498,22 @@ const mergeHostRects = (
   width: number,
   height: number
 ): HostRect[] => {
-  const isSolidRect = (r0: number, c0: number, r1: number, c1: number): boolean => {
+  const getRectFillStats = (r0: number, c0: number, r1: number, c1: number): { area: number; filled: number; fillRatio: number; emptyCells: number } | null => {
     const area = Math.max(0, r1 - r0) * Math.max(0, c1 - c0);
-    if (!area) return false;
-    if (r0 < 0 || c0 < 0 || r1 > height || c1 > width) return false;
-    return sumRectFromPsum(psum, width, r0, c0, r1, c1) === area;
+    if (!area) return null;
+    if (r0 < 0 || c0 < 0 || r1 > height || c1 > width) return null;
+    const filled = sumRectFromPsum(psum, width, r0, c0, r1, c1);
+    const emptyCells = area - filled;
+    const fillRatio = area ? filled / area : 0;
+    return { area, filled, fillRatio, emptyCells };
+  };
+  const canMerge = (r0: number, c0: number, r1: number, c1: number): { transparent: boolean } | null => {
+    const stats = getRectFillStats(r0, c0, r1, c1);
+    if (!stats) return null;
+    if (stats.fillRatio >= HOST_FILL_RATIO_MIN || stats.emptyCells <= HOST_GAP_MAX) {
+      return { transparent: stats.filled < stats.area };
+    }
+    return null;
   };
   let current = rects.slice();
   for (let iter = 0; iter < 2; iter += 1) {
@@ -498,8 +527,10 @@ const mergeHostRects = (
         const c0 = last.c0;
         const r1 = last.r1;
         const c1 = rect.c1;
-        if (isSolidRect(r0, c0, r1, c1)) {
+        const merged = canMerge(r0, c0, r1, c1);
+        if (merged) {
           last.c1 = c1;
+          last.transparent = merged.transparent;
           continue;
         }
       }
@@ -514,8 +545,10 @@ const mergeHostRects = (
         const c0 = last.c0;
         const r1 = rect.r1;
         const c1 = last.c1;
-        if (isSolidRect(r0, c0, r1, c1)) {
+        const merged = canMerge(r0, c0, r1, c1);
+        if (merged) {
           last.r1 = r1;
+          last.transparent = merged.transparent;
           continue;
         }
       }
@@ -701,7 +734,8 @@ const resetHistogram = (scratch: HistogramScratch): void => {
 const analyzeHostColors = (
   buffer: FaceBuffer,
   rect: HostRect,
-  scratch: HistogramScratch
+  scratch: HistogramScratch,
+  allowEmpty: boolean
 ): { baseColorId: number; baseCount: number; uniqueColors: number; baseCoverage: number; nonBaseCoverage: number; area: number; colorCounts: { colorId: number; count: number }[]; invalid: boolean } => {
   const { ids, width } = buffer;
   const area = Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
@@ -717,7 +751,7 @@ const analyzeHostColors = (
     for (let c = rect.c0; c < rect.c1; c += 1) {
       const id = ids[rowBase + c];
       if (!id) {
-        invalid = true;
+        if (!allowEmpty) invalid = true;
         continue;
       }
       const prev = scratch.counts[id];
@@ -835,6 +869,10 @@ const verifyHostDetails = (
     for (let c = 0; c < hostWidth; c += 1) {
       const id = ids[rowBase + host.c0 + c];
       const m = mask[maskRow + c];
+      if (!id) {
+        if (m) return false;
+        continue;
+      }
       if (id === baseColorId) {
         if (m) return false;
         continue;
@@ -856,7 +894,8 @@ const chooseSplitLine = (
   buffer: FaceBuffer,
   rect: HostRect,
   parentUniqueColors: number,
-  parentNonBaseCoverage: number
+  parentNonBaseCoverage: number,
+  allowEmpty: boolean
 ): { axis: "v" | "h"; line: number } | null => {
   const width = rect.c1 - rect.c0;
   const height = rect.r1 - rect.r0;
@@ -921,10 +960,10 @@ const chooseSplitLine = (
     resetHistogram(scratchB);
     const leftStats = analyzeHostColors(buffer, isVertical
       ? { r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: line }
-      : { r0: rect.r0, c0: rect.c0, r1: line, c1: rect.c1 }, scratchA);
+      : { r0: rect.r0, c0: rect.c0, r1: line, c1: rect.c1 }, scratchA, allowEmpty);
     const rightStats = analyzeHostColors(buffer, isVertical
       ? { r0: rect.r0, c0: line, r1: rect.r1, c1: rect.c1 }
-      : { r0: line, c0: rect.c0, r1: rect.r1, c1: rect.c1 }, scratchB);
+      : { r0: line, c0: rect.c0, r1: rect.r1, c1: rect.c1 }, scratchB, allowEmpty);
     if (leftStats.invalid || rightStats.invalid) continue;
     const score = Math.max(leftStats.uniqueColors, rightStats.uniqueColors);
     const tie = Math.max(leftStats.nonBaseCoverage, rightStats.nonBaseCoverage);
@@ -972,7 +1011,7 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
   const mergedRects = mergeHostRects(rects, psum, buffer.width, buffer.height);
   const hostRects = mergedRects;
   let coveredCells = 0;
-  for (const rect of hostRects) coveredCells += Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
+  for (const rect of hostRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
   const chosenCoveredAll = coveredCells === fillCells;
   // Coverage must reflect the rects we actually render.
   const hosts: HostPlan[] = [];
@@ -996,19 +1035,27 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
     if (fallback) return false;
     const area = Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
     if (!area) return true;
-    const analysis = analyzeHostColors(buffer, rect, scratch);
-    if (analysis.invalid || !analysis.baseColorId) {
+    const transparentHost = rect.transparent === true;
+    const analysis = analyzeHostColors(buffer, rect, scratch, transparentHost);
+    if (analysis.invalid || (!analysis.baseColorId && !transparentHost)) {
       fallback = true;
       return false;
     }
-    const needsSplit = analysis.uniqueColors > DETAIL_COLOR_LIMIT + 1 || analysis.baseCoverage < BASE_COVER_MIN;
-    const detailColors = analysis.colorCounts
-      .filter((entry) => entry.colorId !== analysis.baseColorId)
-      .slice(0, DETAIL_COLOR_LIMIT)
-      .map((entry) => entry.colorId);
-    const canStamp = !needsSplit && analysis.uniqueColors <= DETAIL_COLOR_LIMIT + 1 && analysis.baseCoverage >= BASE_COVER_MIN;
+    const needsSplit = transparentHost
+      ? analysis.uniqueColors > DETAIL_COLOR_LIMIT
+      : analysis.uniqueColors > DETAIL_COLOR_LIMIT + 1 || analysis.baseCoverage < BASE_COVER_MIN;
+    const detailColors = transparentHost
+      ? analysis.colorCounts.map((entry) => entry.colorId)
+      : analysis.colorCounts
+        .filter((entry) => entry.colorId !== analysis.baseColorId)
+        .slice(0, DETAIL_COLOR_LIMIT)
+        .map((entry) => entry.colorId);
+    const canStamp = transparentHost
+      ? !needsSplit && analysis.uniqueColors <= DETAIL_COLOR_LIMIT
+      : !needsSplit && analysis.uniqueColors <= DETAIL_COLOR_LIMIT + 1 && analysis.baseCoverage >= BASE_COVER_MIN;
+    const baseColorId = transparentHost ? -1 : analysis.baseColorId;
     if (canStamp && !detailColors.length) {
-      addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId: analysis.baseColorId, details: [] });
+      addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: [] });
       return true;
     }
     if (canStamp && detailColors.length) {
@@ -1020,7 +1067,7 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
       });
       const rectRunCount = detailRects.reduce((sum, entry) => sum + entry.rects.length, 0);
       if (rectRunCount <= FRAGMENTATION_LIMIT) {
-        const ok = verifyHostDetails(buffer, rect, analysis.baseColorId, detailRects, maskRef);
+        const ok = verifyHostDetails(buffer, rect, baseColorId, detailRects, maskRef);
         if (ok) {
           const hostArea = area;
           const detailArea = detailRects.reduce((sum, entry) => {
@@ -1043,14 +1090,14 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
           const hostHeight = rect.r1 - rect.r0;
           let detailSig = `${hostWidth}x${hostHeight}`;
           for (const detail of details) detailSig += `|${detail.fill}:${detail.path}`;
-          addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId: analysis.baseColorId, details, detailSig });
+          addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details, detailSig });
           return true;
         }
       }
     }
 
     if (depth < MAX_SPLIT_DEPTH && splitsRemaining > 0 && area >= MIN_HOST_AREA) {
-      const split = chooseSplitLine(buffer, rect, analysis.uniqueColors, analysis.nonBaseCoverage);
+      const split = chooseSplitLine(buffer, rect, analysis.uniqueColors, analysis.nonBaseCoverage, transparentHost);
       if (split) {
         splitCount += 1;
         const nextSplits = splitsRemaining - 1;
@@ -1110,6 +1157,8 @@ const buildCacheKey = (face: FaceData): string => {
   hash = hashNumber(hash, NEW_SHELL_VERSION);
   hash = hashNumber(hash, HOST_CAP);
   hash = hashNumber(hash, Math.round(BASE_COVER_MIN * 1000));
+  hash = hashNumber(hash, Math.round(HOST_FILL_RATIO_MIN * 1000));
+  hash = hashNumber(hash, HOST_GAP_MAX);
   hash = hashNumber(hash, DETAIL_COLOR_LIMIT);
   hash = hashNumber(hash, MAX_SPLIT_DEPTH);
   hash = hashNumber(hash, MAX_SPLITS_PER_HOST);
@@ -1123,7 +1172,9 @@ const buildCacheKey = (face: FaceData): string => {
 };
 
 const buildPlaneShellStats = (faces: FacePlan[], walls: WallsMask): PlaneShellStats => {
-  let renderedHosts = 0;
+  let baseBrushes = 0;
+  let detailBrushes = 0;
+  let totalBrushes = 0;
   let svgHosts = 0;
   let svgPaths = 0;
   let stampPathBytes = 0;
@@ -1135,7 +1186,9 @@ const buildPlaneShellStats = (faces: FacePlan[], walls: WallsMask): PlaneShellSt
   let domMax = 0;
   for (const face of faces) {
     if (walls[face.key.face]) continue;
-    renderedHosts += face.stats.hosts;
+    baseBrushes += face.stats.hosts;
+    detailBrushes += face.stats.stampBrushHosts;
+    totalBrushes += face.stats.hosts + face.stats.stampBrushHosts;
     svgHosts += face.stats.svgHosts;
     svgPaths += face.stats.svgPaths;
     stampPathBytes += face.stats.stampPathBytes;
@@ -1147,9 +1200,25 @@ const buildPlaneShellStats = (faces: FacePlan[], walls: WallsMask): PlaneShellSt
     domMax = Math.max(domMax, face.stats.hosts + face.stats.stampSvgHosts + face.stats.stampBrushHosts);
   }
   const plans = faces.filter((face) => !walls[face.key.face]).length;
-  const domEstimate = renderedHosts + stampSvgHosts + stampBrushHosts;
+  const domEstimate = totalBrushes + stampSvgHosts;
   const domAvg = plans ? domEstimate / plans : 0;
-  return { plans, renderedHosts, svgHosts, svgPaths, stampPathBytes, stampSvgHosts, stampPseudoHosts, stampBrushHosts, splitCount, fallbackFaces, domEstimate, domAvg, domMax };
+  return {
+    plans,
+    baseBrushes,
+    detailBrushes,
+    totalBrushes,
+    svgHosts,
+    svgPaths,
+    stampPathBytes,
+    stampSvgHosts,
+    stampPseudoHosts,
+    stampBrushHosts,
+    splitCount,
+    fallbackFaces,
+    domEstimate,
+    domAvg,
+    domMax
+  };
 };
 
 const updatePlaneShellStats = (
@@ -1200,36 +1269,41 @@ const updatePlaneShellStats = (
 };
 
 const syncPlaneShellStatsDataset = (root: HTMLElement, stats: PlaneShellStats): void => {
+  setDatasetIfDiff(root, "voxcssPlaneShellBaseBrushes", String(stats.baseBrushes));
+  setDatasetIfDiff(root, "voxcssPlaneShellDetailBrushes", String(stats.detailBrushes));
+  setDatasetIfDiff(root, "voxcssPlaneShellTotalBrushes", String(stats.totalBrushes));
+  setDatasetIfDiff(root, "voxcssStampBrushHosts", String(stats.detailBrushes));
   setDatasetIfDiff(root, "voxcssStampSvgHosts", String(stats.stampSvgHosts));
   setDatasetIfDiff(root, "voxcssStampPseudoHosts", String(stats.stampPseudoHosts));
 };
 
-const applyHost = (
-  quad: HTMLElement,
-  face: CubeFace,
+const applyBrush = (
+  brush: HTMLElement,
   gridArea: string,
-  transform: string,
-  backgroundColor: string
+  backgroundColor: string,
+  zOffset: string
 ): void => {
-  const state = quad as { __voxcssNewHostState?: { className?: string; gridArea?: string; transform?: string; backgroundColor?: string } };
-  const hostState = state.__voxcssNewHostState ?? (state.__voxcssNewHostState = {});
-  const className = `voxcss-plane voxcss-plane--${face}`;
-  if (hostState.className !== className) {
-    quad.className = className;
-    hostState.className = className;
+  const state = brush as { __voxcssNewBrushState?: { className?: string; gridArea?: string; backgroundColor?: string } };
+  const brushState = state.__voxcssNewBrushState ?? (state.__voxcssNewBrushState = {});
+  const className = "voxcss-plane-brush";
+  if (brushState.className !== className) {
+    brush.className = className;
+    brushState.className = className;
   }
-  if (hostState.gridArea !== gridArea) {
-    quad.style.gridArea = gridArea;
-    hostState.gridArea = gridArea;
+  if (brushState.gridArea !== gridArea) {
+    brush.style.gridArea = gridArea;
+    brushState.gridArea = gridArea;
   }
-  if (hostState.transform !== transform) {
-    quad.style.transform = transform;
-    hostState.transform = transform;
+  if (brushState.backgroundColor !== backgroundColor) {
+    brush.style.backgroundColor = backgroundColor;
+    brushState.backgroundColor = backgroundColor;
   }
-  if (hostState.backgroundColor !== backgroundColor) {
-    quad.style.backgroundColor = backgroundColor;
-    hostState.backgroundColor = backgroundColor;
-  }
+  setCssVarIfDiff(brush, "--vox-z", zOffset);
+  setStyleIfDiff(brush, "position", "relative");
+  setStyleIfDiff(brush, "left", "");
+  setStyleIfDiff(brush, "top", "");
+  setStyleIfDiff(brush, "width", "");
+  setStyleIfDiff(brush, "height", "");
 };
 
 const renderFacePlans = (
@@ -1243,24 +1317,41 @@ const renderFacePlans = (
   const layerElevation = context.layerElevation ?? tileSize;
   const walls = context.walls ?? DEFAULT_WALLS;
   const tasks: { rect: { x: number; y: number; width: number; height: number }; color: string }[] = [];
-  const axisState: Record<PlaneShellAxis, { host: HTMLElement; pool: HTMLElement[]; index: number }> = {
+  const axisState: Record<PlaneShellAxis, { host: HTMLElement; pool: Element[]; index: number }> = {
     z: { host: hosts.zHost, pool: hosts.zPool, index: 0 },
     x: { host: hosts.xHost, pool: hosts.xPool, index: 0 },
     y: { host: hosts.yHost, pool: hosts.yPool, index: 0 }
   };
-  const nextHost = (axis: PlaneShellAxis): HTMLElement => {
+  const nextElement = (axis: PlaneShellAxis, tag: "b" | "svg"): Element => {
     const bucket = axisState[axis];
     const i = bucket.index++;
-    let q = bucket.pool[i];
-    if (!q) q = documentRef.createElement("div"), bucket.pool[i] = q, bucket.host.appendChild(q);
-    else if (q.parentElement !== bucket.host) bucket.host.appendChild(q);
-    if (q.style.display === "none") q.style.display = "";
-    return q;
+    let el = bucket.pool[i];
+    const wantsSvg = tag === "svg";
+    if (el) {
+      const tagName = el.tagName.toLowerCase();
+      if ((wantsSvg && tagName !== "svg") || (!wantsSvg && tagName !== "b")) {
+        el.remove();
+        el = undefined;
+      }
+    }
+    if (!el) {
+      el = wantsSvg ? documentRef.createElementNS(SVG_NS, "svg") : documentRef.createElement("b");
+      bucket.pool[i] = el;
+      bucket.host.appendChild(el);
+    } else if (el.parentElement !== bucket.host) {
+      bucket.host.appendChild(el);
+    }
+    if (el instanceof HTMLElement && el.style.display === "none") el.style.display = "";
+    return el;
   };
-  const getTransform = (axis: PlaneShellAxis, plane: number): string =>
+  const nextBrush = (axis: PlaneShellAxis): HTMLElement => nextElement(axis, "b") as HTMLElement;
+  const nextSvg = (axis: PlaneShellAxis): SVGSVGElement => nextElement(axis, "svg") as SVGSVGElement;
+  const getPlaneOffset = (axis: PlaneShellAxis, plane: number): number =>
     axis === "z"
-      ? `translateZ(${plane * layerElevation}px)`
-      : `translateZ(${-1 * (plane - 1) * tileSize}px)`;
+      ? plane * layerElevation
+      : -1 * (plane - 1) * tileSize;
+  const gridAreaFor = (row0: number, col0: number, row1: number, col1: number): string =>
+    `${row0} / ${col0} / ${row1} / ${col1}`;
 
   for (const plan of plans) {
     const { axis, plane, face } = plan.key;
@@ -1268,193 +1359,102 @@ const renderFacePlans = (
     plan.stats.stampPseudoHosts = 0;
     plan.stats.stampBrushHosts = 0;
     if (walls[face]) continue;
-    const transform = getTransform(axis, plane);
-    const stampZOffset = getStampZOffset(face);
+    const planeOffset = getPlaneOffset(axis, plane);
+    const stampOffset = STAMP_FACE_Z_OFFSET[face] ?? 0.12;
+    const brushZ = formatZOffset(planeOffset + stampOffset);
     const cellWidthPx = axis === "y" ? layerElevation : tileSize;
     const cellHeightPx = axis === "x" ? layerElevation : tileSize;
+
+    const applyPseudo = (
+      target: HTMLElement,
+      contentVar: "before" | "after",
+      task: { rect: { x: number; y: number; width: number; height: number }; color: string }
+    ): void => {
+      const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
+      const leftPx = task.rect.x * cellWidthPx;
+      const topPx = task.rect.y * cellHeightPx;
+      const widthPx = task.rect.width * cellWidthPx;
+      const heightPx = task.rect.height * cellHeightPx;
+      setCssVarIfDiff(target, `${prefix}c`, "''");
+      setCssVarIfDiff(target, `${prefix}l`, `${leftPx}px`);
+      setCssVarIfDiff(target, `${prefix}t`, `${topPx}px`);
+      setCssVarIfDiff(target, `${prefix}w`, `${widthPx}px`);
+      setCssVarIfDiff(target, `${prefix}h`, `${heightPx}px`);
+      setCssVarIfDiff(target, `${prefix}col`, task.color);
+      setCssVarIfDiff(target, "--vox-z", brushZ);
+    };
+
+    const applyBrushPseudo = (
+      brush: HTMLElement,
+      contentVar: "before" | "after",
+      task: { rect: { x: number; y: number; width: number; height: number }; color: string },
+      baseRect: { x: number; y: number }
+    ): void => {
+      const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
+      const leftPx = (task.rect.x - baseRect.x) * cellWidthPx;
+      const topPx = (task.rect.y - baseRect.y) * cellHeightPx;
+      const widthPx = task.rect.width * cellWidthPx;
+      const heightPx = task.rect.height * cellHeightPx;
+      setCssVarIfDiff(brush, `${prefix}c`, "''");
+      setCssVarIfDiff(brush, `${prefix}l`, `${leftPx}px`);
+      setCssVarIfDiff(brush, `${prefix}t`, `${topPx}px`);
+      setCssVarIfDiff(brush, `${prefix}w`, `${widthPx}px`);
+      setCssVarIfDiff(brush, `${prefix}h`, `${heightPx}px`);
+      setCssVarIfDiff(brush, `${prefix}col`, task.color);
+      setCssVarIfDiff(brush, "--vox-z", brushZ);
+    };
+
     for (const host of plan.hosts) {
-      const quad = nextHost(axis);
-      const gridArea = `${plan.originRow + host.r0} / ${plan.originCol + host.c0} / ${plan.originRow + host.r1} / ${plan.originCol + host.c1}`;
+      const baseBrush = nextBrush(axis);
+      const hostRow0 = plan.originRow + host.r0;
+      const hostCol0 = plan.originCol + host.c0;
+      const hostRow1 = plan.originRow + host.r1;
+      const hostCol1 = plan.originCol + host.c1;
+      const gridArea = gridAreaFor(hostRow0, hostCol0, hostRow1, hostCol1);
       const backgroundColor = plan.palette[host.baseColorId] ?? "transparent";
-      applyHost(quad, face, gridArea, transform, backgroundColor);
-      const hostWidth = host.c1 - host.c0;
-      const hostHeight = host.r1 - host.r0;
-      const stampKey = `${plan.signatureHash}:${host.r0}:${host.c0}:${host.r1}:${host.c1}:${axis}:${face}`;
-      if (host.details.length) {
-        const svgState = quad as {
-          __voxcssNewStampSvg?: SVGSVGElement;
+      clearPlaneDetailVars(baseBrush);
+      applyBrush(baseBrush, gridArea, backgroundColor, brushZ);
+
+      if (!host.details.length) continue;
+
+      tasks.length = 0;
+      let pseudoValid = true;
+      for (const detail of host.details) {
+        const rects = getDetailRects(detail);
+        if (!rects.length) {
+          pseudoValid = false;
+          break;
+        }
+        const fill = detail.fill || plan.palette[detail.colorId] || "transparent";
+        for (const rect of rects) tasks.push({ rect, color: fill });
+      }
+
+      const shouldBrush = pseudoValid && tasks.length && tasks.length <= MAX_BRUSHES_PER_HOST * 3;
+      if (!shouldBrush) {
+        const hostWidth = host.c1 - host.c0;
+        const hostHeight = host.r1 - host.r0;
+        const svg = nextSvg(axis);
+        svg.setAttribute("preserveAspectRatio", "none");
+        setAttrIfDiff(svg, "shape-rendering", "geometricPrecision");
+        svg.setAttribute("aria-hidden", "true");
+        svg.setAttribute("focusable", "false");
+        setStyleIfDiff(svg, "position", "relative");
+        setStyleIfDiff(svg, "width", "100%");
+        setStyleIfDiff(svg, "height", "100%");
+        setStyleIfDiff(svg, "display", "block");
+        setStyleIfDiff(svg, "pointerEvents", "none");
+        setStyleIfDiff(svg, "transformOrigin", "0 0");
+        setStyleIfDiff(svg, "willChange", "transform");
+        setStyleIfDiff(svg, "gridArea", gridArea);
+        setStyleIfDiff(svg, "transform", `translateZ(${brushZ})`);
+        setAttrIfDiff(svg, "viewBox", `0 0 ${hostWidth} ${hostHeight}`);
+        plan.stats.stampSvgHosts += 1;
+        const svgState = svg as {
           __voxcssNewStampPathA?: SVGPathElement;
           __voxcssNewStampPathB?: SVGPathElement;
           __voxcssNewStampPathC?: SVGPathElement;
           __voxcssNewStampPathD?: SVGPathElement;
-          __voxcssNewStampKey?: string;
-          __voxcssNewStampHasDetails?: boolean;
-          __voxcssNewStampMode?: "svg" | "pseudo" | "brush" | "none";
-          __voxcssNewStampBrushes?: HTMLElement[];
         };
-        let detailSig = host.detailSig;
-        if (!detailSig) {
-          detailSig = `${hostWidth}x${hostHeight}`;
-          for (const detail of host.details) {
-            const fill = detail.fill || plan.palette[detail.colorId] || "";
-            detailSig += `|${fill}:${detail.path}`;
-          }
-        }
-        const nextStampKey = `${stampKey}|${detailSig}`;
-        tasks.length = 0;
-        let pseudoValid = true;
-        for (const detail of host.details) {
-          const rects = getDetailRects(detail);
-          if (!rects.length) {
-            pseudoValid = false;
-            break;
-          }
-          const fill = detail.fill || plan.palette[detail.colorId] || "transparent";
-          for (const rect of rects) tasks.push({ rect, color: fill });
-        }
-        if (pseudoValid && tasks.length && tasks.length <= MAX_BRUSHES_PER_HOST * 3) {
-          if (tasks.length > 2) {
-            tasks.sort((a, b) => (b.rect.width * b.rect.height) - (a.rect.width * a.rect.height));
-          }
-          const applyPseudo = (
-            contentVar: "before" | "after",
-            task: { rect: { x: number; y: number; width: number; height: number }; color: string }
-          ): void => {
-            const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
-            const leftPx = task.rect.x * cellWidthPx;
-            const topPx = task.rect.y * cellHeightPx;
-            const widthPx = task.rect.width * cellWidthPx;
-            const heightPx = task.rect.height * cellHeightPx;
-            setCssVarIfDiff(quad, `${prefix}c`, "''");
-            setCssVarIfDiff(quad, `${prefix}l`, `${leftPx}px`);
-            setCssVarIfDiff(quad, `${prefix}t`, `${topPx}px`);
-            setCssVarIfDiff(quad, `${prefix}w`, `${widthPx}px`);
-            setCssVarIfDiff(quad, `${prefix}h`, `${heightPx}px`);
-            setCssVarIfDiff(quad, `${prefix}col`, task.color);
-            setCssVarIfDiff(quad, "--vox-z", stampZOffset);
-          };
-          const applyBrushPseudo = (
-            brush: HTMLElement,
-            contentVar: "before" | "after",
-            task: { rect: { x: number; y: number; width: number; height: number }; color: string },
-            baseRect: { x: number; y: number }
-          ): void => {
-            const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
-            const leftPx = (task.rect.x - baseRect.x) * cellWidthPx;
-            const topPx = (task.rect.y - baseRect.y) * cellHeightPx;
-            const widthPx = task.rect.width * cellWidthPx;
-            const heightPx = task.rect.height * cellHeightPx;
-            setCssVarIfDiff(brush, `${prefix}c`, "''");
-            setCssVarIfDiff(brush, `${prefix}l`, `${leftPx}px`);
-            setCssVarIfDiff(brush, `${prefix}t`, `${topPx}px`);
-            setCssVarIfDiff(brush, `${prefix}w`, `${widthPx}px`);
-            setCssVarIfDiff(brush, `${prefix}h`, `${heightPx}px`);
-            setCssVarIfDiff(brush, `${prefix}col`, task.color);
-            setCssVarIfDiff(brush, "--vox-z", stampZOffset);
-          };
-          if (tasks.length <= 2) {
-            const nextPseudoKey = `${nextStampKey}|pseudo:${tasks.length}`;
-            if (svgState.__voxcssNewStampMode === "pseudo" && svgState.__voxcssNewStampKey === nextPseudoKey) continue;
-            if (svgState.__voxcssNewStampSvg) svgState.__voxcssNewStampSvg.remove();
-            svgState.__voxcssNewStampSvg = undefined;
-            svgState.__voxcssNewStampPathA = undefined;
-            svgState.__voxcssNewStampPathB = undefined;
-            svgState.__voxcssNewStampPathC = undefined;
-            svgState.__voxcssNewStampPathD = undefined;
-            clearPlaneDetailVars(quad);
-            const brushes = svgState.__voxcssNewStampBrushes ?? (svgState.__voxcssNewStampBrushes = []);
-            for (const brush of brushes) brush.remove();
-            brushes.length = 0;
-            if (tasks[0]) applyPseudo("before", tasks[0]);
-            if (tasks[1]) applyPseudo("after", tasks[1]);
-            if (!tasks[1]) setCssVarIfDiff(quad, "--vox-ac", "none");
-            svgState.__voxcssNewStampKey = nextPseudoKey;
-            svgState.__voxcssNewStampHasDetails = true;
-            svgState.__voxcssNewStampMode = "pseudo";
-            plan.stats.stampPseudoHosts += 1;
-            continue;
-          }
-          const brushOffset = 2;
-          const remainingTasks = tasks.length - brushOffset;
-          const brushCount = Math.ceil(remainingTasks / 3);
-          const nextBrushKey = `${nextStampKey}|brush:${tasks.length}`;
-          if (svgState.__voxcssNewStampMode === "brush" && svgState.__voxcssNewStampKey === nextBrushKey) continue;
-          if (svgState.__voxcssNewStampSvg) svgState.__voxcssNewStampSvg.remove();
-          svgState.__voxcssNewStampSvg = undefined;
-          svgState.__voxcssNewStampPathA = undefined;
-          svgState.__voxcssNewStampPathB = undefined;
-          svgState.__voxcssNewStampPathC = undefined;
-          svgState.__voxcssNewStampPathD = undefined;
-          clearPlaneDetailVars(quad);
-          if (tasks[0]) applyPseudo("before", tasks[0]);
-          if (tasks[1]) applyPseudo("after", tasks[1]);
-          if (!tasks[1]) setCssVarIfDiff(quad, "--vox-ac", "none");
-          const brushes = svgState.__voxcssNewStampBrushes ?? (svgState.__voxcssNewStampBrushes = []);
-          for (let i = 0; i < brushCount; i += 1) {
-            let brush = brushes[i];
-            if (!brush) {
-              brush = documentRef.createElement("b");
-              brush.className = "voxcss-plane-brush";
-              setStyleIfDiff(brush, "position", "absolute");
-              setStyleIfDiff(brush, "display", "block");
-              setStyleIfDiff(brush, "pointerEvents", "none");
-              setStyleIfDiff(brush, "overflow", "visible");
-              brushes[i] = brush;
-              quad.appendChild(brush);
-            } else if (brush.parentElement !== quad) {
-              quad.appendChild(brush);
-            }
-            clearPlaneDetailVars(brush);
-            const base = tasks[brushOffset + i * 3];
-            setStyleIfDiff(brush, "left", `${base.rect.x * cellWidthPx}px`);
-            setStyleIfDiff(brush, "top", `${base.rect.y * cellHeightPx}px`);
-            setStyleIfDiff(brush, "width", `${base.rect.width * cellWidthPx}px`);
-            setStyleIfDiff(brush, "height", `${base.rect.height * cellHeightPx}px`);
-            setStyleIfDiff(brush, "backgroundColor", base.color);
-            setCssVarIfDiff(brush, "--vox-z", stampZOffset);
-            const beforeTask = tasks[brushOffset + i * 3 + 1];
-            const afterTask = tasks[brushOffset + i * 3 + 2];
-            if (beforeTask) applyBrushPseudo(brush, "before", beforeTask, base.rect);
-            else setCssVarIfDiff(brush, "--vox-bc", "none");
-            if (afterTask) applyBrushPseudo(brush, "after", afterTask, base.rect);
-            else setCssVarIfDiff(brush, "--vox-ac", "none");
-          }
-          for (let i = brushCount; i < brushes.length; i += 1) brushes[i]?.remove();
-          brushes.length = brushCount;
-          svgState.__voxcssNewStampKey = nextBrushKey;
-          svgState.__voxcssNewStampHasDetails = true;
-          svgState.__voxcssNewStampMode = "brush";
-          plan.stats.stampPseudoHosts += 1;
-          plan.stats.stampBrushHosts += brushCount;
-          continue;
-        }
-        clearPlaneDetailVars(quad);
-        if (svgState.__voxcssNewStampHasDetails && svgState.__voxcssNewStampKey === nextStampKey && svgState.__voxcssNewStampMode === "svg") continue;
-        if (svgState.__voxcssNewStampBrushes?.length) {
-          for (const brush of svgState.__voxcssNewStampBrushes) brush.remove();
-          svgState.__voxcssNewStampBrushes.length = 0;
-        }
-        const svg = svgState.__voxcssNewStampSvg ?? documentRef.createElementNS(SVG_NS, "svg");
-        if (!svgState.__voxcssNewStampSvg) {
-          svg.setAttribute("preserveAspectRatio", "none");
-          setAttrIfDiff(svg, "shape-rendering", "geometricPrecision");
-          svg.setAttribute("aria-hidden", "true");
-          svg.setAttribute("focusable", "false");
-          setStyleIfDiff(svg, "position", "absolute");
-          setStyleIfDiff(svg, "left", "0");
-          setStyleIfDiff(svg, "top", "0");
-          setStyleIfDiff(svg, "width", "100%");
-          setStyleIfDiff(svg, "height", "100%");
-          setStyleIfDiff(svg, "display", "block");
-          setStyleIfDiff(svg, "pointerEvents", "none");
-          setStyleIfDiff(svg, "transformOrigin", "0 0");
-          setStyleIfDiff(svg, "willChange", "transform");
-          svgState.__voxcssNewStampSvg = svg;
-          quad.appendChild(svg);
-        }
-        setAttrIfDiff(svg, "viewBox", `0 0 ${hostWidth} ${hostHeight}`);
-        setStyleIfDiff(svg, "transform", `translateZ(${stampZOffset})`);
-        plan.stats.stampSvgHosts += 1;
         const ensurePath = (key: "A" | "B" | "C" | "D"): SVGPathElement => {
           const pathKey =
             key === "A" ? "__voxcssNewStampPathA" :
@@ -1504,39 +1504,44 @@ const renderFacePlans = (
           svgState.__voxcssNewStampPathD.remove();
           svgState.__voxcssNewStampPathD = undefined;
         }
-        svgState.__voxcssNewStampKey = nextStampKey;
-        svgState.__voxcssNewStampHasDetails = true;
-        svgState.__voxcssNewStampMode = "svg";
-      } else {
-        const svgState = quad as {
-          __voxcssNewStampSvg?: SVGSVGElement;
-          __voxcssNewStampPathA?: SVGPathElement;
-          __voxcssNewStampPathB?: SVGPathElement;
-          __voxcssNewStampPathC?: SVGPathElement;
-          __voxcssNewStampPathD?: SVGPathElement;
-          __voxcssNewStampKey?: string;
-          __voxcssNewStampHasDetails?: boolean;
-          __voxcssNewStampMode?: "svg" | "pseudo" | "brush" | "none";
-          __voxcssNewStampBrushes?: HTMLElement[];
-        };
-        if (svgState.__voxcssNewStampMode === "none" && svgState.__voxcssNewStampKey === stampKey) {
-          continue;
-        }
-        if (svgState.__voxcssNewStampSvg) svgState.__voxcssNewStampSvg.remove();
-        svgState.__voxcssNewStampSvg = undefined;
-        svgState.__voxcssNewStampPathA = undefined;
-        svgState.__voxcssNewStampPathB = undefined;
-        svgState.__voxcssNewStampPathC = undefined;
-        svgState.__voxcssNewStampPathD = undefined;
-        if (svgState.__voxcssNewStampBrushes?.length) {
-          for (const brush of svgState.__voxcssNewStampBrushes) brush.remove();
-          svgState.__voxcssNewStampBrushes.length = 0;
-        }
-        clearPlaneDetailVars(quad);
-        svgState.__voxcssNewStampKey = stampKey;
-        svgState.__voxcssNewStampHasDetails = false;
-        svgState.__voxcssNewStampMode = "none";
+        continue;
       }
+
+      if (tasks.length > 2) {
+        tasks.sort((a, b) => (b.rect.width * b.rect.height) - (a.rect.width * a.rect.height));
+      }
+
+      if (tasks[0]) applyPseudo(baseBrush, "before", tasks[0]);
+      if (tasks[1]) applyPseudo(baseBrush, "after", tasks[1]);
+      if (!tasks[1]) setCssVarIfDiff(baseBrush, "--vox-ac", "none");
+
+      if (tasks.length <= 2) {
+        plan.stats.stampPseudoHosts += 1;
+        continue;
+      }
+
+      const brushOffset = 2;
+      const remainingTasks = tasks.length - brushOffset;
+      const brushCount = Math.ceil(remainingTasks / 3);
+      for (let i = 0; i < brushCount; i += 1) {
+        const base = tasks[brushOffset + i * 3];
+        if (!base) continue;
+        const brushRow0 = hostRow0 + base.rect.y;
+        const brushCol0 = hostCol0 + base.rect.x;
+        const brushRow1 = brushRow0 + base.rect.height;
+        const brushCol1 = brushCol0 + base.rect.width;
+        const detailBrush = nextBrush(axis);
+        clearPlaneDetailVars(detailBrush);
+        applyBrush(detailBrush, gridAreaFor(brushRow0, brushCol0, brushRow1, brushCol1), base.color, brushZ);
+        const beforeTask = tasks[brushOffset + i * 3 + 1];
+        const afterTask = tasks[brushOffset + i * 3 + 2];
+        if (beforeTask) applyBrushPseudo(detailBrush, "before", beforeTask, base.rect);
+        else setCssVarIfDiff(detailBrush, "--vox-bc", "none");
+        if (afterTask) applyBrushPseudo(detailBrush, "after", afterTask, base.rect);
+        else setCssVarIfDiff(detailBrush, "--vox-ac", "none");
+      }
+      plan.stats.stampPseudoHosts += 1;
+      plan.stats.stampBrushHosts += brushCount;
     }
   }
 
