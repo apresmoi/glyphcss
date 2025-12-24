@@ -21,7 +21,7 @@ import { rampShapeRenderer } from "./shapes/ramp";
 import { wedgeShapeRenderer } from "./shapes/wedge";
 import { spikeShapeRenderer } from "./shapes/spike";
 import { shadeWallFace, shadeColor } from "./lighting";
-import { clearPlaneShell, renderPlaneShellMask, type PlaneShellDomState } from "./shellRenderer";
+import { clearPlaneShell, updatePlaneShellGeometry, type PlaneShellDomState } from "./shellRenderer";
 
 interface DomRendererState {
   renderState: RenderState;
@@ -35,7 +35,11 @@ const DIMETRIC_PROJECTION_CLASS = "voxcss-projection--dimetric";
 
 export interface RendererMountOptions { documentRef: Document; target: HTMLElement; }
 
-export interface RendererHandle { render(snapshot: SceneSnapshot): void; destroy(): void; }
+export interface RendererHandle {
+  render(snapshot: SceneSnapshot): void;
+  updateStructure?(context: GridContext, depthLayers: number): void;
+  destroy(): void;
+}
 
 export interface SceneSnapshot { layers: Voxel[][]; context: GridContext; renderer?: RendererMetadata; }
 
@@ -52,6 +56,7 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
 
   return {
     render: (snapshot: SceneSnapshot) => renderScene(state, snapshot, documentRef, target, shapes),
+    updateStructure: (context: GridContext, depthLayers: number) => updateSceneStructure(state, documentRef, context, depthLayers),
     destroy: () => {
       const renderState = state.renderState;
       resetLayers(renderState);
@@ -90,7 +95,7 @@ function renderScene(
   if (structureChanged) root.classList[context.projection === "dimetric" ? "add" : "remove"](DIMETRIC_PROJECTION_CLASS), root.style.setProperty("--voxcss-rows", String(context.rows)), root.style.setProperty("--voxcss-cols", String(context.cols));
   if (renderMode === "plane-shell-mask") {
     renderState.layers.size && resetLayers(renderState);
-    state.planeShell = renderPlaneShellMask(renderState, state.planeShell, snapshot, documentRef);
+    state.planeShell = updatePlaneShellGeometry(renderState, state.planeShell, snapshot, documentRef);
   } else {
     clearPlaneShell(state.planeShell);
     state.planeShell = null;
@@ -100,6 +105,28 @@ function renderScene(
       if (layerIndex >= layers.length) removeLayerRecord(record), renderState.layers.delete(layerIndex);
   }
   if (structureChanged) syncSceneStructure(renderState, documentRef, context, layers.length), (state.prevStructure = nextStructure);
+}
+
+function updateSceneStructure(
+  state: DomRendererState,
+  documentRef: Document,
+  context: GridContext,
+  depthLayers: number
+): void {
+  syncSceneStructure(state.renderState, documentRef, context, depthLayers);
+  const prev = state.prevStructure;
+  if (prev) {
+    state.prevStructure = {
+      ...prev,
+      rows: Math.max(context.rows, 1),
+      cols: Math.max(context.cols, 1),
+      depthLayers: Math.max(depthLayers, 0),
+      projection: context.projection,
+      walls: context.walls ?? DEFAULT_WALLS,
+      showWalls: !!context.showWalls,
+      showFloor: !!context.showFloor
+    };
+  }
 }
 
 function resetLayers(state: RenderState): void {

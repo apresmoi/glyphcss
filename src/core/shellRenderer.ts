@@ -28,6 +28,7 @@ export interface PlaneShellDomState {
   lastDebugSig: number;
   statsLoggedOnce?: boolean;
   lastStats?: PlaneShellStats;
+  warnedUnstableLayers?: boolean;
 }
 
 type PlaneShellAxis = "x" | "y" | "z";
@@ -54,9 +55,58 @@ interface DetailPlan {
 }
 interface HostPlan { r0: number; c0: number; r1: number; c1: number; baseColorId: number; details: DetailPlan[]; detailSig?: string; }
 interface FacePlan { key: FaceKey; originRow: number; originCol: number; palette: string[]; signatureHash: number; hosts: HostPlan[]; stats: FaceStats; fallback: boolean; }
-interface FaceStats { hosts: number; svgHosts: number; svgPaths: number; stampPathBytes: number; stampSvgHosts: number; stampPseudoHosts: number; stampBrushHosts: number; splitCount: number; fallback: boolean; }
+interface FaceStats {
+  hosts: number;
+  hostsBeforeMerge: number;
+  hostsAfterMerge: number;
+  emittedBrushes: number;
+  baseBrushesPacked: number;
+  stampBrushes: number;
+  comboBrushes: number;
+  stampAttempts: number;
+  stampPairs: number;
+  stampAttemptsStrict: number;
+  stampAttemptsRelaxed: number;
+  stampPairsStrict: number;
+  stampPairsRelaxed: number;
+  avgComboInners: number;
+  svgHosts: number;
+  svgPaths: number;
+  stampPathBytes: number;
+  stampSvgHosts: number;
+  stampPseudoHosts: number;
+  stampBrushHosts: number;
+  stampTightPairs: number;
+  stampRejectedByOffset: number;
+  stampRejectedByBleed: number;
+  stampBucketsVisitedStrict: number;
+  stampBucketsVisitedRelaxed: number;
+  stampCandidatesVisitedStrict: number;
+  stampCandidatesVisitedRelaxed: number;
+  stampCandidatesRejectedByOffsetStrict: number;
+  stampCandidatesRejectedByOffsetRelaxed: number;
+  stampMaxAbsDx: number;
+  stampMaxAbsDy: number;
+  stampBleedAreaTotal: number;
+  stampBleedAreaAvg: number;
+  splitCount: number;
+  fallback: boolean;
+}
 interface PlaneShellStats {
   plans: number;
+  baseBrushesBeforeMerge: number;
+  baseBrushesAfterMerge: number;
+  baseBrushesPacked: number;
+  stampBrushes: number;
+  comboBrushes: number;
+  emittedBrushes: number;
+  stampAttempts: number;
+  stampPairs: number;
+  stampAttemptsStrict: number;
+  stampAttemptsRelaxed: number;
+  stampPairsStrict: number;
+  stampPairsRelaxed: number;
+  avgComboInners: number;
   baseBrushes: number;
   detailBrushes: number;
   totalBrushes: number;
@@ -66,6 +116,19 @@ interface PlaneShellStats {
   stampSvgHosts: number;
   stampPseudoHosts: number;
   stampBrushHosts: number;
+  stampTightPairs: number;
+  stampRejectedByOffset: number;
+  stampRejectedByBleed: number;
+  stampBucketsVisitedStrict: number;
+  stampBucketsVisitedRelaxed: number;
+  stampCandidatesVisitedStrict: number;
+  stampCandidatesVisitedRelaxed: number;
+  stampCandidatesRejectedByOffsetStrict: number;
+  stampCandidatesRejectedByOffsetRelaxed: number;
+  stampMaxAbsDx: number;
+  stampMaxAbsDy: number;
+  stampBleedAreaTotal: number;
+  stampBleedAreaAvg: number;
   splitCount: number;
   fallbackFaces: number;
   domEstimate: number;
@@ -75,18 +138,27 @@ interface PlaneShellStats {
 
 const NEW_SHELL_VERSION = 1;
 const HOST_CAP = 1500;
-const BASE_COVER_MIN = 0.4;
-const HOST_FILL_RATIO_MIN = 0.85;
-const HOST_GAP_MAX = 8;
-const DETAIL_COLOR_LIMIT = 4;
-const MAX_SPLIT_DEPTH = 2;
-const MAX_SPLITS_PER_HOST = 2;
-const MAX_SPLITS_PER_FACE = 400;
+const BASE_COVER_MIN = 0.25;
+const HOST_FILL_RATIO_MIN = 0.6;
+const HOST_GAP_MAX = 64;
+const DETAIL_COLOR_LIMIT = 6;
+const DETAIL_COLOR_LIMIT_TRANSPARENT = 8;
+const MAX_SPLIT_DEPTH = 3;
+const MAX_SPLITS_PER_HOST = 4;
+const MAX_SPLITS_PER_FACE = 600;
 const MAX_HOSTS_PER_FACE = 4000;
 const MIN_HOST_AREA = 4;
-const FRAGMENTATION_LIMIT = 600;
+const FRAGMENTATION_LIMIT = 1200;
 const SPLIT_CANDIDATE_LIMIT = 4;
 const MAX_BRUSHES_PER_HOST = 5;
+const COMBO_MIN_AREA = 16;
+const STAMP_BUCKET_SIZE = 16;
+const STAMP_MAX_OFFSET = 12;
+const STAMP_MAX_PSEUDO_SPAN = 64;
+const STAMP_MAX_BLEED_AREA = 2048;
+const STAMP_MAX_OFFSET_RELAXED = 20;
+const STAMP_MAX_PSEUDO_SPAN_RELAXED = 96;
+const STAMP_MAX_BLEED_AREA_RELAXED = 3072;
 const SVG_NS = "http://www.w3.org/2000/svg";
 const wallsToSig = (walls: WallsMask): number =>
   (walls.t ? 1 : 0) |
@@ -516,7 +588,7 @@ const mergeHostRects = (
     return null;
   };
   let current = rects.slice();
-  for (let iter = 0; iter < 2; iter += 1) {
+  for (let iter = 0; iter < 3; iter += 1) {
     if (current.length < 2) break;
     current.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.r1 - b.r1 || a.c0 - b.c0 || a.c1 - b.c1));
     const horiz: HostRect[] = [];
@@ -599,7 +671,8 @@ const ensurePlaneShellHosts = (
     cacheLayersRef: null,
     lastFaces: null,
     lastDebugSig: -1,
-    statsLoggedOnce: false
+    statsLoggedOnce: false,
+    warnedUnstableLayers: false
   };
 };
 
@@ -1007,9 +1080,11 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
   const { buffer, fillCells } = faceData;
   const rectEngine = makeRectEngine(buffer.width, buffer.height);
   const { rects, coveredAll } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
+  const hostsBeforeMerge = rects.length;
   const psum = buildMaskPsum(buffer.mask, buffer.width, buffer.height);
   const mergedRects = mergeHostRects(rects, psum, buffer.width, buffer.height);
   const hostRects = mergedRects;
+  const hostsAfterMerge = hostRects.length;
   let coveredCells = 0;
   for (const rect of hostRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
   const chosenCoveredAll = coveredCells === fillCells;
@@ -1017,7 +1092,43 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
   const hosts: HostPlan[] = [];
   let splitCount = 0;
   let fallback = !chosenCoveredAll;
-  const stats: FaceStats = { hosts: 0, svgHosts: 0, svgPaths: 0, stampPathBytes: 0, stampSvgHosts: 0, stampPseudoHosts: 0, stampBrushHosts: 0, splitCount: 0, fallback: false };
+  const stats: FaceStats = {
+    hosts: 0,
+    hostsBeforeMerge,
+    hostsAfterMerge,
+    emittedBrushes: 0,
+    baseBrushesPacked: 0,
+    stampBrushes: 0,
+    comboBrushes: 0,
+    stampAttempts: 0,
+    stampPairs: 0,
+    stampAttemptsStrict: 0,
+    stampAttemptsRelaxed: 0,
+    stampPairsStrict: 0,
+    stampPairsRelaxed: 0,
+    avgComboInners: 0,
+    svgHosts: 0,
+    svgPaths: 0,
+    stampPathBytes: 0,
+    stampSvgHosts: 0,
+    stampPseudoHosts: 0,
+    stampBrushHosts: 0,
+    stampTightPairs: 0,
+    stampRejectedByOffset: 0,
+    stampRejectedByBleed: 0,
+    stampBucketsVisitedStrict: 0,
+    stampBucketsVisitedRelaxed: 0,
+    stampCandidatesVisitedStrict: 0,
+    stampCandidatesVisitedRelaxed: 0,
+    stampCandidatesRejectedByOffsetStrict: 0,
+    stampCandidatesRejectedByOffsetRelaxed: 0,
+    stampMaxAbsDx: 0,
+    stampMaxAbsDy: 0,
+    stampBleedAreaTotal: 0,
+    stampBleedAreaAvg: 0,
+    splitCount: 0,
+    fallback: false
+  };
   const maskRef = { mask: new Uint8Array(0) };
   const scratch: HistogramScratch = { counts: new Int32Array(buffer.palette.length), touched: [] };
 
@@ -1041,18 +1152,19 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
       fallback = true;
       return false;
     }
+    const detailLimit = transparentHost ? DETAIL_COLOR_LIMIT_TRANSPARENT : DETAIL_COLOR_LIMIT;
     const needsSplit = transparentHost
-      ? analysis.uniqueColors > DETAIL_COLOR_LIMIT
-      : analysis.uniqueColors > DETAIL_COLOR_LIMIT + 1 || analysis.baseCoverage < BASE_COVER_MIN;
+      ? analysis.uniqueColors > detailLimit
+      : analysis.uniqueColors > detailLimit + 1 || analysis.baseCoverage < BASE_COVER_MIN;
     const detailColors = transparentHost
       ? analysis.colorCounts.map((entry) => entry.colorId)
       : analysis.colorCounts
         .filter((entry) => entry.colorId !== analysis.baseColorId)
-        .slice(0, DETAIL_COLOR_LIMIT)
+        .slice(0, detailLimit)
         .map((entry) => entry.colorId);
     const canStamp = transparentHost
-      ? !needsSplit && analysis.uniqueColors <= DETAIL_COLOR_LIMIT
-      : !needsSplit && analysis.uniqueColors <= DETAIL_COLOR_LIMIT + 1 && analysis.baseCoverage >= BASE_COVER_MIN;
+      ? !needsSplit && analysis.uniqueColors <= detailLimit
+      : !needsSplit && analysis.uniqueColors <= detailLimit + 1 && analysis.baseCoverage >= BASE_COVER_MIN;
     const baseColorId = transparentHost ? -1 : analysis.baseColorId;
     if (canStamp && !detailColors.length) {
       addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: [] });
@@ -1160,6 +1272,7 @@ const buildCacheKey = (face: FaceData): string => {
   hash = hashNumber(hash, Math.round(HOST_FILL_RATIO_MIN * 1000));
   hash = hashNumber(hash, HOST_GAP_MAX);
   hash = hashNumber(hash, DETAIL_COLOR_LIMIT);
+  hash = hashNumber(hash, DETAIL_COLOR_LIMIT_TRANSPARENT);
   hash = hashNumber(hash, MAX_SPLIT_DEPTH);
   hash = hashNumber(hash, MAX_SPLITS_PER_HOST);
   hash = hashNumber(hash, MAX_SPLITS_PER_FACE);
@@ -1172,6 +1285,31 @@ const buildCacheKey = (face: FaceData): string => {
 };
 
 const buildPlaneShellStats = (faces: FacePlan[], walls: WallsMask): PlaneShellStats => {
+  let baseBrushesBeforeMerge = 0;
+  let baseBrushesAfterMerge = 0;
+  let baseBrushesPacked = 0;
+  let stampBrushes = 0;
+  let comboBrushes = 0;
+  let emittedBrushes = 0;
+  let stampAttempts = 0;
+  let stampPairs = 0;
+  let stampAttemptsStrict = 0;
+  let stampAttemptsRelaxed = 0;
+  let stampPairsStrict = 0;
+  let stampPairsRelaxed = 0;
+  let comboInnersTotal = 0;
+  let stampTightPairs = 0;
+  let stampRejectedByOffset = 0;
+  let stampRejectedByBleed = 0;
+  let stampBucketsVisitedStrict = 0;
+  let stampBucketsVisitedRelaxed = 0;
+  let stampCandidatesVisitedStrict = 0;
+  let stampCandidatesVisitedRelaxed = 0;
+  let stampCandidatesRejectedByOffsetStrict = 0;
+  let stampCandidatesRejectedByOffsetRelaxed = 0;
+  let stampMaxAbsDx = 0;
+  let stampMaxAbsDy = 0;
+  let stampBleedAreaTotal = 0;
   let baseBrushes = 0;
   let detailBrushes = 0;
   let totalBrushes = 0;
@@ -1186,24 +1324,64 @@ const buildPlaneShellStats = (faces: FacePlan[], walls: WallsMask): PlaneShellSt
   let domMax = 0;
   for (const face of faces) {
     if (walls[face.key.face]) continue;
-    baseBrushes += face.stats.hosts;
-    detailBrushes += face.stats.stampBrushHosts;
-    totalBrushes += face.stats.hosts + face.stats.stampBrushHosts;
+    baseBrushesBeforeMerge += face.stats.hostsBeforeMerge;
+    baseBrushesAfterMerge += face.stats.hostsAfterMerge;
+    baseBrushesPacked += face.stats.baseBrushesPacked;
+    stampBrushes += face.stats.stampBrushes;
+    comboBrushes += face.stats.comboBrushes;
+    emittedBrushes += face.stats.emittedBrushes;
+    stampAttempts += face.stats.stampAttempts;
+    stampPairs += face.stats.stampPairs;
+    stampAttemptsStrict += face.stats.stampAttemptsStrict;
+    stampAttemptsRelaxed += face.stats.stampAttemptsRelaxed;
+    stampPairsStrict += face.stats.stampPairsStrict;
+    stampPairsRelaxed += face.stats.stampPairsRelaxed;
+    comboInnersTotal += face.stats.avgComboInners * face.stats.comboBrushes;
     svgHosts += face.stats.svgHosts;
     svgPaths += face.stats.svgPaths;
     stampPathBytes += face.stats.stampPathBytes;
     stampSvgHosts += face.stats.stampSvgHosts;
     stampPseudoHosts += face.stats.stampPseudoHosts;
     stampBrushHosts += face.stats.stampBrushHosts;
+    stampTightPairs += face.stats.stampTightPairs;
+    stampRejectedByOffset += face.stats.stampRejectedByOffset;
+    stampRejectedByBleed += face.stats.stampRejectedByBleed;
+    stampBucketsVisitedStrict += face.stats.stampBucketsVisitedStrict;
+    stampBucketsVisitedRelaxed += face.stats.stampBucketsVisitedRelaxed;
+    stampCandidatesVisitedStrict += face.stats.stampCandidatesVisitedStrict;
+    stampCandidatesVisitedRelaxed += face.stats.stampCandidatesVisitedRelaxed;
+    stampCandidatesRejectedByOffsetStrict += face.stats.stampCandidatesRejectedByOffsetStrict;
+    stampCandidatesRejectedByOffsetRelaxed += face.stats.stampCandidatesRejectedByOffsetRelaxed;
+    stampMaxAbsDx = Math.max(stampMaxAbsDx, face.stats.stampMaxAbsDx);
+    stampMaxAbsDy = Math.max(stampMaxAbsDy, face.stats.stampMaxAbsDy);
+    stampBleedAreaTotal += face.stats.stampBleedAreaTotal;
     splitCount += face.stats.splitCount;
     if (face.stats.fallback) fallbackFaces += 1;
-    domMax = Math.max(domMax, face.stats.hosts + face.stats.stampSvgHosts + face.stats.stampBrushHosts);
+    domMax = Math.max(domMax, face.stats.emittedBrushes + face.stats.stampSvgHosts);
   }
+  baseBrushes = baseBrushesPacked;
+  detailBrushes = stampBrushes + comboBrushes;
+  totalBrushes = emittedBrushes;
+  const avgComboInners = comboBrushes ? comboInnersTotal / comboBrushes : 0;
+  const stampBleedAreaAvg = stampTightPairs ? stampBleedAreaTotal / stampTightPairs : 0;
   const plans = faces.filter((face) => !walls[face.key.face]).length;
-  const domEstimate = totalBrushes + stampSvgHosts;
+  const domEstimate = emittedBrushes + stampSvgHosts;
   const domAvg = plans ? domEstimate / plans : 0;
   return {
     plans,
+    baseBrushesBeforeMerge,
+    baseBrushesAfterMerge,
+    baseBrushesPacked,
+    stampBrushes,
+    comboBrushes,
+    emittedBrushes,
+    stampAttempts,
+    stampPairs,
+    stampAttemptsStrict,
+    stampAttemptsRelaxed,
+    stampPairsStrict,
+    stampPairsRelaxed,
+    avgComboInners,
     baseBrushes,
     detailBrushes,
     totalBrushes,
@@ -1213,6 +1391,19 @@ const buildPlaneShellStats = (faces: FacePlan[], walls: WallsMask): PlaneShellSt
     stampSvgHosts,
     stampPseudoHosts,
     stampBrushHosts,
+    stampTightPairs,
+    stampRejectedByOffset,
+    stampRejectedByBleed,
+    stampBucketsVisitedStrict,
+    stampBucketsVisitedRelaxed,
+    stampCandidatesVisitedStrict,
+    stampCandidatesVisitedRelaxed,
+    stampCandidatesRejectedByOffsetStrict,
+    stampCandidatesRejectedByOffsetRelaxed,
+    stampMaxAbsDx,
+    stampMaxAbsDy,
+    stampBleedAreaTotal,
+    stampBleedAreaAvg,
     splitCount,
     fallbackFaces,
     domEstimate,
@@ -1250,12 +1441,38 @@ const updatePlaneShellStats = (
     debugSig = hashNumber(debugSig, axisCode);
     debugSig = hashNumber(debugSig, plan.key.plane);
     debugSig = hashNumber(debugSig, faceCode);
+    debugSig = hashNumber(debugSig, plan.stats.hostsBeforeMerge);
+    debugSig = hashNumber(debugSig, plan.stats.hostsAfterMerge);
+    debugSig = hashNumber(debugSig, plan.stats.emittedBrushes);
+    debugSig = hashNumber(debugSig, plan.stats.baseBrushesPacked);
+    debugSig = hashNumber(debugSig, plan.stats.stampBrushes);
+    debugSig = hashNumber(debugSig, plan.stats.comboBrushes);
+    debugSig = hashNumber(debugSig, plan.stats.stampAttempts);
+    debugSig = hashNumber(debugSig, plan.stats.stampPairs);
+    debugSig = hashNumber(debugSig, plan.stats.stampAttemptsStrict);
+    debugSig = hashNumber(debugSig, plan.stats.stampAttemptsRelaxed);
+    debugSig = hashNumber(debugSig, plan.stats.stampPairsStrict);
+    debugSig = hashNumber(debugSig, plan.stats.stampPairsRelaxed);
+    debugSig = hashNumber(debugSig, Math.round(plan.stats.avgComboInners * 1000));
     debugSig = hashNumber(debugSig, plan.stats.hosts);
     debugSig = hashNumber(debugSig, plan.stats.svgPaths);
     debugSig = hashNumber(debugSig, plan.stats.stampPathBytes);
     debugSig = hashNumber(debugSig, plan.stats.stampSvgHosts);
     debugSig = hashNumber(debugSig, plan.stats.stampPseudoHosts);
     debugSig = hashNumber(debugSig, plan.stats.stampBrushHosts);
+    debugSig = hashNumber(debugSig, plan.stats.stampTightPairs);
+    debugSig = hashNumber(debugSig, plan.stats.stampRejectedByOffset);
+    debugSig = hashNumber(debugSig, plan.stats.stampRejectedByBleed);
+    debugSig = hashNumber(debugSig, plan.stats.stampBucketsVisitedStrict);
+    debugSig = hashNumber(debugSig, plan.stats.stampBucketsVisitedRelaxed);
+    debugSig = hashNumber(debugSig, plan.stats.stampCandidatesVisitedStrict);
+    debugSig = hashNumber(debugSig, plan.stats.stampCandidatesVisitedRelaxed);
+    debugSig = hashNumber(debugSig, plan.stats.stampCandidatesRejectedByOffsetStrict);
+    debugSig = hashNumber(debugSig, plan.stats.stampCandidatesRejectedByOffsetRelaxed);
+    debugSig = hashNumber(debugSig, plan.stats.stampMaxAbsDx);
+    debugSig = hashNumber(debugSig, plan.stats.stampMaxAbsDy);
+    debugSig = hashNumber(debugSig, plan.stats.stampBleedAreaTotal);
+    debugSig = hashNumber(debugSig, Math.round(plan.stats.stampBleedAreaAvg * 1000));
   }
   if (debugSig === hosts.lastDebugSig) return;
   if (!hosts.statsLoggedOnce) {
@@ -1300,10 +1517,481 @@ const applyBrush = (
   }
   setCssVarIfDiff(brush, "--vox-z", zOffset);
   setStyleIfDiff(brush, "position", "relative");
+  setStyleIfDiff(brush, "overflow", "visible");
   setStyleIfDiff(brush, "left", "");
   setStyleIfDiff(brush, "top", "");
   setStyleIfDiff(brush, "width", "");
   setStyleIfDiff(brush, "height", "");
+};
+
+type BrushRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  area: number;
+  id: number;
+};
+
+type PackedBrush = {
+  mode: "BASE" | "STAMP" | "COMBO";
+  r0: number;
+  c0: number;
+  r1: number;
+  c1: number;
+  baseColor: string;
+  before?: BrushRect;
+  after?: BrushRect;
+};
+
+type StampConstraints = {
+  maxOffset: number;
+  maxPseudoSpan: number;
+  maxBleedArea: number;
+};
+
+const compareColor = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+const rectContains = (outer: BrushRect, inner: BrushRect): boolean =>
+  inner.x >= outer.x &&
+  inner.y >= outer.y &&
+  inner.x + inner.w <= outer.x + outer.w &&
+  inner.y + inner.h <= outer.y + outer.h;
+
+const compareRectStable = (a: BrushRect, b: BrushRect): number => {
+  const colorDiff = compareColor(a.color, b.color);
+  if (colorDiff) return colorDiff;
+  if (a.y !== b.y) return a.y - b.y;
+  if (a.x !== b.x) return a.x - b.x;
+  if (a.area !== b.area) return b.area - a.area;
+  return a.id - b.id;
+};
+
+const compareStampTie = (a: BrushRect, b: BrushRect): number => {
+  if (a.area !== b.area) return b.area - a.area;
+  const colorDiff = compareColor(a.color, b.color);
+  if (colorDiff) return colorDiff;
+  if (a.y !== b.y) return a.y - b.y;
+  if (a.x !== b.x) return a.x - b.x;
+  return a.id - b.id;
+};
+
+const compareComboBase = (a: BrushRect, b: BrushRect): number => {
+  if (a.area !== b.area) return b.area - a.area;
+  const colorDiff = compareColor(a.color, b.color);
+  if (colorDiff) return colorDiff;
+  if (a.y !== b.y) return a.y - b.y;
+  if (a.x !== b.x) return a.x - b.x;
+  return a.id - b.id;
+};
+
+const compareInnerRect = (a: BrushRect, b: BrushRect): number => {
+  if (a.area !== b.area) return b.area - a.area;
+  if (a.y !== b.y) return a.y - b.y;
+  if (a.x !== b.x) return a.x - b.x;
+  const colorDiff = compareColor(a.color, b.color);
+  if (colorDiff) return colorDiff;
+  return a.id - b.id;
+};
+
+const isBetterInner = (a: BrushRect, b: BrushRect): boolean => compareInnerRect(a, b) < 0;
+
+const packRectsToBrushes = (
+  rects: BrushRect[],
+  output: PackedBrush[]
+): {
+  brushes: PackedBrush[];
+  baseCount: number;
+  stampCount: number;
+  comboCount: number;
+  stampAttempts: number;
+  stampPairs: number;
+  stampAttemptsStrict: number;
+  stampAttemptsRelaxed: number;
+  stampPairsStrict: number;
+  stampPairsRelaxed: number;
+  avgComboInners: number;
+  stampTightPairs: number;
+  stampRejectedByOffset: number;
+  stampRejectedByBleed: number;
+  stampBucketsVisitedStrict: number;
+  stampBucketsVisitedRelaxed: number;
+  stampCandidatesVisitedStrict: number;
+  stampCandidatesVisitedRelaxed: number;
+  stampCandidatesRejectedByOffsetStrict: number;
+  stampCandidatesRejectedByOffsetRelaxed: number;
+  stampMaxAbsDx: number;
+  stampMaxAbsDy: number;
+  stampBleedAreaTotal: number;
+} => {
+  const bucketKey = (bx: number, by: number): number => (bx << 16) ^ (by & 0xffff);
+  output.length = 0;
+  if (!rects.length) {
+    return {
+      brushes: output,
+      baseCount: 0,
+      stampCount: 0,
+      comboCount: 0,
+      stampAttempts: 0,
+      stampPairs: 0,
+      stampAttemptsStrict: 0,
+      stampAttemptsRelaxed: 0,
+      stampPairsStrict: 0,
+      stampPairsRelaxed: 0,
+      avgComboInners: 0,
+      stampTightPairs: 0,
+      stampRejectedByOffset: 0,
+      stampRejectedByBleed: 0,
+      stampBucketsVisitedStrict: 0,
+      stampBucketsVisitedRelaxed: 0,
+      stampCandidatesVisitedStrict: 0,
+      stampCandidatesVisitedRelaxed: 0,
+      stampCandidatesRejectedByOffsetStrict: 0,
+      stampCandidatesRejectedByOffsetRelaxed: 0,
+      stampMaxAbsDx: 0,
+      stampMaxAbsDy: 0,
+      stampBleedAreaTotal: 0
+    };
+  }
+
+  const used = new Array(rects.length).fill(false);
+  const rectsSorted = rects.slice().sort(compareRectStable);
+  const comboOrder = rects.slice().sort(compareComboBase);
+  const buckets = new Map<number, number[]>();
+  const visitStamp = new Int32Array(rects.length);
+  const visitCombo = new Int32Array(rects.length);
+  let visitStampValue = 1;
+  let visitComboValue = 1;
+
+  for (const rect of rects) {
+    const minBx = Math.floor(rect.x / STAMP_BUCKET_SIZE);
+    const maxBx = Math.floor((rect.x + rect.w - 1) / STAMP_BUCKET_SIZE);
+    const minBy = Math.floor(rect.y / STAMP_BUCKET_SIZE);
+    const maxBy = Math.floor((rect.y + rect.h - 1) / STAMP_BUCKET_SIZE);
+    for (let bx = minBx; bx <= maxBx; bx += 1) {
+      for (let by = minBy; by <= maxBy; by += 1) {
+        const key = bucketKey(bx, by);
+        const bucket = buckets.get(key);
+        if (bucket) bucket.push(rect.id);
+        else buckets.set(key, [rect.id]);
+      }
+    }
+  }
+
+  let baseCount = 0;
+  let stampCount = 0;
+  let comboCount = 0;
+  let stampAttemptsStrict = 0;
+  let stampAttemptsRelaxed = 0;
+  let stampPairsStrict = 0;
+  let stampPairsRelaxed = 0;
+  let comboInnersTotal = 0;
+  let stampTightPairs = 0;
+  let stampRejectedByOffset = 0;
+  let stampRejectedByBleed = 0;
+  let stampBucketsVisitedStrict = 0;
+  let stampBucketsVisitedRelaxed = 0;
+  let stampCandidatesVisitedStrict = 0;
+  let stampCandidatesVisitedRelaxed = 0;
+  let stampCandidatesRejectedByOffsetStrict = 0;
+  let stampCandidatesRejectedByOffsetRelaxed = 0;
+  let stampMaxAbsDx = 0;
+  let stampMaxAbsDy = 0;
+  let stampBleedAreaTotal = 0;
+
+  for (const base of comboOrder) {
+    if (used[base.id]) continue;
+    const minBx = Math.floor(base.x / STAMP_BUCKET_SIZE);
+    const maxBx = Math.floor((base.x + base.w - 1) / STAMP_BUCKET_SIZE);
+    const minBy = Math.floor(base.y / STAMP_BUCKET_SIZE);
+    const maxBy = Math.floor((base.y + base.h - 1) / STAMP_BUCKET_SIZE);
+    let bestA: BrushRect | null = null;
+    let bestB: BrushRect | null = null;
+    visitComboValue += 1;
+
+    for (let bx = minBx; bx <= maxBx; bx += 1) {
+      for (let by = minBy; by <= maxBy; by += 1) {
+        const bucket = buckets.get(bucketKey(bx, by));
+        if (!bucket) continue;
+        for (const id of bucket) {
+          if (id === base.id || used[id]) continue;
+          if (visitCombo[id] === visitComboValue) continue;
+          visitCombo[id] = visitComboValue;
+          const candidate = rects[id];
+          if (!rectContains(base, candidate)) continue;
+          if (!bestA || isBetterInner(candidate, bestA)) {
+            bestB = bestA;
+            bestA = candidate;
+            continue;
+          }
+          if (!bestB || isBetterInner(candidate, bestB)) bestB = candidate;
+        }
+      }
+    }
+
+    if (!bestA) continue;
+    if (base.area < COMBO_MIN_AREA && !bestB) continue;
+    output.push({
+      mode: "COMBO",
+      r0: base.y,
+      c0: base.x,
+      r1: base.y + base.h,
+      c1: base.x + base.w,
+      baseColor: base.color,
+      before: bestA,
+      after: bestB ?? undefined
+    });
+    used[base.id] = true;
+    used[bestA.id] = true;
+    if (bestB) used[bestB.id] = true;
+    comboInnersTotal += bestB ? 2 : 1;
+    comboCount += 1;
+  }
+
+  const findBestStampPartner = (
+    rect: BrushRect,
+    constraints: StampConstraints,
+    isStrict: boolean
+  ): { base: BrushRect; partner: BrushRect } | null => {
+    const minX = rect.x - constraints.maxOffset;
+    const maxX = rect.x + constraints.maxOffset;
+    const minY = rect.y - constraints.maxOffset;
+    const maxY = rect.y + constraints.maxOffset;
+    let bxMin = Math.floor(minX / STAMP_BUCKET_SIZE);
+    let bxMax = Math.floor(maxX / STAMP_BUCKET_SIZE);
+    let byMin = Math.floor(minY / STAMP_BUCKET_SIZE);
+    let byMax = Math.floor(maxY / STAMP_BUCKET_SIZE);
+    bxMin -= 1;
+    bxMax += 1;
+    byMin -= 1;
+    byMax += 1;
+    let bestBase: BrushRect | null = null;
+    let bestPartner: BrushRect | null = null;
+    let bestBleedArea = Number.POSITIVE_INFINITY;
+    let bestMaxAbsOffset = Number.POSITIVE_INFINITY;
+    let bestOffsetSum = Number.POSITIVE_INFINITY;
+    visitStampValue += 1;
+    const visitValue = visitStampValue;
+
+    for (let bx = bxMin; bx <= bxMax; bx += 1) {
+      for (let by = byMin; by <= byMax; by += 1) {
+        if (isStrict) stampBucketsVisitedStrict += 1;
+        else stampBucketsVisitedRelaxed += 1;
+        const bucket = buckets.get(bucketKey(bx, by));
+        if (!bucket) continue;
+        for (const id of bucket) {
+          if (id === rect.id || used[id]) continue;
+          if (visitStamp[id] === visitValue) continue;
+          visitStamp[id] = visitValue;
+          if (isStrict) stampCandidatesVisitedStrict += 1;
+          else stampCandidatesVisitedRelaxed += 1;
+          const candidate = rects[id];
+          let reasonA = 0;
+          let absDxA = Math.abs(candidate.x - rect.x);
+          let absDyA = Math.abs(candidate.y - rect.y);
+          let bleedA = 0;
+          if (absDxA > constraints.maxOffset || absDyA > constraints.maxOffset) {
+            reasonA = 1;
+          } else {
+            const spanWA = Math.max(rect.w, absDxA + candidate.w);
+            const spanHA = Math.max(rect.h, absDyA + candidate.h);
+            if (spanWA > constraints.maxPseudoSpan || spanHA > constraints.maxPseudoSpan) {
+              reasonA = 1;
+            } else {
+              bleedA = (absDxA + candidate.w) * (absDyA + candidate.h);
+              if (bleedA > constraints.maxBleedArea) reasonA = 2;
+            }
+          }
+
+          let reasonB = 0;
+          let absDxB = Math.abs(rect.x - candidate.x);
+          let absDyB = Math.abs(rect.y - candidate.y);
+          let bleedB = 0;
+          if (absDxB > constraints.maxOffset || absDyB > constraints.maxOffset) {
+            reasonB = 1;
+          } else {
+            const spanWB = Math.max(candidate.w, absDxB + rect.w);
+            const spanHB = Math.max(candidate.h, absDyB + rect.h);
+            if (spanWB > constraints.maxPseudoSpan || spanHB > constraints.maxPseudoSpan) {
+              reasonB = 1;
+            } else {
+              bleedB = (absDxB + rect.w) * (absDyB + rect.h);
+              if (bleedB > constraints.maxBleedArea) reasonB = 2;
+            }
+          }
+
+          const validA = reasonA === 0;
+          const validB = reasonB === 0;
+          if (!validA && !validB) {
+            if (reasonA === 1 || reasonB === 1) {
+              stampRejectedByOffset += 1;
+              if (isStrict) stampCandidatesRejectedByOffsetStrict += 1;
+              else stampCandidatesRejectedByOffsetRelaxed += 1;
+            } else {
+              stampRejectedByBleed += 1;
+            }
+            continue;
+          }
+          let base = rect;
+          let partner = candidate;
+          let absDx = absDxA;
+          let absDy = absDyA;
+          let bleedArea = bleedA;
+          if (validB) {
+            const maxOffsetA = Math.max(absDxA, absDyA);
+            const maxOffsetB = Math.max(absDxB, absDyB);
+            const sumOffsetA = absDxA + absDyA;
+            const sumOffsetB = absDxB + absDyB;
+            if (
+              !validA ||
+              bleedB < bleedArea ||
+              (bleedB === bleedArea && (
+                maxOffsetB < maxOffsetA ||
+                (maxOffsetB === maxOffsetA && (
+                  sumOffsetB < sumOffsetA ||
+                  (sumOffsetB === sumOffsetA && compareStampTie(candidate, rect) < 0)
+                ))
+              ))
+            ) {
+              base = candidate;
+              partner = rect;
+              absDx = absDxB;
+              absDy = absDyB;
+              bleedArea = bleedB;
+            }
+          }
+          const maxAbsOffset = Math.max(absDx, absDy);
+          const offsetSum = absDx + absDy;
+          if (
+            bleedArea < bestBleedArea ||
+            (bleedArea === bestBleedArea && (
+              maxAbsOffset < bestMaxAbsOffset ||
+              (maxAbsOffset === bestMaxAbsOffset && (
+                offsetSum < bestOffsetSum ||
+                (offsetSum === bestOffsetSum && (
+                  !bestPartner ||
+                  compareStampTie(base, bestBase ?? base) < 0 ||
+                  (bestBase && compareStampTie(base, bestBase) === 0 && compareStampTie(partner, bestPartner) < 0)
+                ))
+              ))
+            ))
+          ) {
+            bestBase = base;
+            bestPartner = partner;
+            bestBleedArea = bleedArea;
+            bestMaxAbsOffset = maxAbsOffset;
+            bestOffsetSum = offsetSum;
+          }
+        }
+      }
+    }
+
+    if (!bestBase || !bestPartner) return null;
+    return { base: bestBase, partner: bestPartner };
+  };
+
+  const strictConstraints: StampConstraints = {
+    maxOffset: STAMP_MAX_OFFSET,
+    maxPseudoSpan: STAMP_MAX_PSEUDO_SPAN,
+    maxBleedArea: STAMP_MAX_BLEED_AREA
+  };
+  const relaxedConstraints: StampConstraints = {
+    maxOffset: STAMP_MAX_OFFSET_RELAXED,
+    maxPseudoSpan: STAMP_MAX_PSEUDO_SPAN_RELAXED,
+    maxBleedArea: STAMP_MAX_BLEED_AREA_RELAXED
+  };
+
+  const emitStamp = (base: BrushRect, partner: BrushRect): void => {
+    const dx = partner.x - base.x;
+    const dy = partner.y - base.y;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    const bleedArea = (absDx + partner.w) * (absDy + partner.h);
+    output.push({
+      mode: "STAMP",
+      r0: base.y,
+      c0: base.x,
+      r1: base.y + base.h,
+      c1: base.x + base.w,
+      baseColor: base.color,
+      before: partner
+    });
+    used[base.id] = true;
+    used[partner.id] = true;
+    stampCount += 1;
+    stampTightPairs += 1;
+    stampMaxAbsDx = Math.max(stampMaxAbsDx, absDx);
+    stampMaxAbsDy = Math.max(stampMaxAbsDy, absDy);
+    stampBleedAreaTotal += bleedArea;
+  };
+
+  const emitBase = (rect: BrushRect): void => {
+    output.push({
+      mode: "BASE",
+      r0: rect.y,
+      c0: rect.x,
+      r1: rect.y + rect.h,
+      c1: rect.x + rect.w,
+      baseColor: rect.color
+    });
+    used[rect.id] = true;
+    baseCount += 1;
+  };
+
+  const leftovers: BrushRect[] = [];
+  for (const rect of rectsSorted) {
+    if (used[rect.id]) continue;
+    stampAttemptsStrict += 1;
+    const pair = findBestStampPartner(rect, strictConstraints, true);
+    if (pair) {
+      emitStamp(pair.base, pair.partner);
+      stampPairsStrict += 1;
+      continue;
+    }
+    leftovers.push(rect);
+  }
+
+  for (const rect of leftovers) {
+    if (used[rect.id]) continue;
+    stampAttemptsRelaxed += 1;
+    const pair = findBestStampPartner(rect, relaxedConstraints, false);
+    if (pair) {
+      emitStamp(pair.base, pair.partner);
+      stampPairsRelaxed += 1;
+      continue;
+    }
+    emitBase(rect);
+  }
+
+  const stampAttempts = stampAttemptsStrict + stampAttemptsRelaxed;
+  const stampPairs = stampPairsStrict + stampPairsRelaxed;
+  const avgComboInners = comboCount ? comboInnersTotal / comboCount : 0;
+  return {
+    brushes: output,
+    baseCount,
+    stampCount,
+    comboCount,
+    stampAttempts,
+    stampPairs,
+    stampAttemptsStrict,
+    stampAttemptsRelaxed,
+    stampPairsStrict,
+    stampPairsRelaxed,
+    avgComboInners,
+    stampTightPairs,
+    stampRejectedByOffset,
+    stampRejectedByBleed,
+    stampBucketsVisitedStrict,
+    stampBucketsVisitedRelaxed,
+    stampCandidatesVisitedStrict,
+    stampCandidatesVisitedRelaxed,
+    stampCandidatesRejectedByOffsetStrict,
+    stampCandidatesRejectedByOffsetRelaxed,
+    stampMaxAbsDx,
+    stampMaxAbsDy,
+    stampBleedAreaTotal
+  };
 };
 
 const renderFacePlans = (
@@ -1316,7 +2004,9 @@ const renderFacePlans = (
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
   const walls = context.walls ?? DEFAULT_WALLS;
-  const tasks: { rect: { x: number; y: number; width: number; height: number }; color: string }[] = [];
+  const brushRects: BrushRect[] = [];
+  const packedBrushes: PackedBrush[] = [];
+  const svgHosts: { host: HostPlan; gridArea: string; hostWidth: number; hostHeight: number }[] = [];
   const axisState: Record<PlaneShellAxis, { host: HTMLElement; pool: Element[]; index: number }> = {
     z: { host: hosts.zHost, pool: hosts.zPool, index: 0 },
     x: { host: hosts.xHost, pool: hosts.xPool, index: 0 },
@@ -1341,7 +2031,7 @@ const renderFacePlans = (
     } else if (el.parentElement !== bucket.host) {
       bucket.host.appendChild(el);
     }
-    if (el instanceof HTMLElement && el.style.display === "none") el.style.display = "";
+    if (typeof HTMLElement !== "undefined" && el instanceof HTMLElement && el.style.display === "none") el.style.display = "";
     return el;
   };
   const nextBrush = (axis: PlaneShellAxis): HTMLElement => nextElement(axis, "b") as HTMLElement;
@@ -1358,6 +2048,30 @@ const renderFacePlans = (
     plan.stats.stampSvgHosts = 0;
     plan.stats.stampPseudoHosts = 0;
     plan.stats.stampBrushHosts = 0;
+    plan.stats.emittedBrushes = 0;
+    plan.stats.baseBrushesPacked = 0;
+    plan.stats.stampBrushes = 0;
+    plan.stats.comboBrushes = 0;
+    plan.stats.stampAttempts = 0;
+    plan.stats.stampPairs = 0;
+    plan.stats.stampAttemptsStrict = 0;
+    plan.stats.stampAttemptsRelaxed = 0;
+    plan.stats.stampPairsStrict = 0;
+    plan.stats.stampPairsRelaxed = 0;
+    plan.stats.avgComboInners = 0;
+    plan.stats.stampTightPairs = 0;
+    plan.stats.stampRejectedByOffset = 0;
+    plan.stats.stampRejectedByBleed = 0;
+    plan.stats.stampBucketsVisitedStrict = 0;
+    plan.stats.stampBucketsVisitedRelaxed = 0;
+    plan.stats.stampCandidatesVisitedStrict = 0;
+    plan.stats.stampCandidatesVisitedRelaxed = 0;
+    plan.stats.stampCandidatesRejectedByOffsetStrict = 0;
+    plan.stats.stampCandidatesRejectedByOffsetRelaxed = 0;
+    plan.stats.stampMaxAbsDx = 0;
+    plan.stats.stampMaxAbsDy = 0;
+    plan.stats.stampBleedAreaTotal = 0;
+    plan.stats.stampBleedAreaAvg = 0;
     if (walls[face]) continue;
     const planeOffset = getPlaneOffset(axis, plane);
     const stampOffset = STAMP_FACE_Z_OFFSET[face] ?? 0.12;
@@ -1365,183 +2079,222 @@ const renderFacePlans = (
     const cellWidthPx = axis === "y" ? layerElevation : tileSize;
     const cellHeightPx = axis === "x" ? layerElevation : tileSize;
 
-    const applyPseudo = (
+    brushRects.length = 0;
+    packedBrushes.length = 0;
+    svgHosts.length = 0;
+    let rectId = 0;
+
+    const applyPseudoRect = (
       target: HTMLElement,
       contentVar: "before" | "after",
-      task: { rect: { x: number; y: number; width: number; height: number }; color: string }
+      rect: BrushRect,
+      bbox: PackedBrush
     ): void => {
       const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
-      const leftPx = task.rect.x * cellWidthPx;
-      const topPx = task.rect.y * cellHeightPx;
-      const widthPx = task.rect.width * cellWidthPx;
-      const heightPx = task.rect.height * cellHeightPx;
+      const leftPx = (rect.x - bbox.c0) * cellWidthPx;
+      const topPx = (rect.y - bbox.r0) * cellHeightPx;
+      const widthPx = rect.w * cellWidthPx;
+      const heightPx = rect.h * cellHeightPx;
       setCssVarIfDiff(target, `${prefix}c`, "''");
       setCssVarIfDiff(target, `${prefix}l`, `${leftPx}px`);
       setCssVarIfDiff(target, `${prefix}t`, `${topPx}px`);
       setCssVarIfDiff(target, `${prefix}w`, `${widthPx}px`);
       setCssVarIfDiff(target, `${prefix}h`, `${heightPx}px`);
-      setCssVarIfDiff(target, `${prefix}col`, task.color);
+      setCssVarIfDiff(target, `${prefix}col`, rect.color);
       setCssVarIfDiff(target, "--vox-z", brushZ);
     };
 
-    const applyBrushPseudo = (
-      brush: HTMLElement,
-      contentVar: "before" | "after",
-      task: { rect: { x: number; y: number; width: number; height: number }; color: string },
-      baseRect: { x: number; y: number }
-    ): void => {
-      const prefix = contentVar === "before" ? "--vox-b" : "--vox-a";
-      const leftPx = (task.rect.x - baseRect.x) * cellWidthPx;
-      const topPx = (task.rect.y - baseRect.y) * cellHeightPx;
-      const widthPx = task.rect.width * cellWidthPx;
-      const heightPx = task.rect.height * cellHeightPx;
-      setCssVarIfDiff(brush, `${prefix}c`, "''");
-      setCssVarIfDiff(brush, `${prefix}l`, `${leftPx}px`);
-      setCssVarIfDiff(brush, `${prefix}t`, `${topPx}px`);
-      setCssVarIfDiff(brush, `${prefix}w`, `${widthPx}px`);
-      setCssVarIfDiff(brush, `${prefix}h`, `${heightPx}px`);
-      setCssVarIfDiff(brush, `${prefix}col`, task.color);
-      setCssVarIfDiff(brush, "--vox-z", brushZ);
+    const disablePseudo = (target: HTMLElement, contentVar: "before" | "after"): void => {
+      const varName = contentVar === "before" ? "--vox-bc" : "--vox-ac";
+      setCssVarIfDiff(target, varName, "none");
     };
 
     for (const host of plan.hosts) {
-      const baseBrush = nextBrush(axis);
       const hostRow0 = plan.originRow + host.r0;
       const hostCol0 = plan.originCol + host.c0;
       const hostRow1 = plan.originRow + host.r1;
       const hostCol1 = plan.originCol + host.c1;
+      const hostWidth = host.c1 - host.c0;
+      const hostHeight = host.r1 - host.r0;
       const gridArea = gridAreaFor(hostRow0, hostCol0, hostRow1, hostCol1);
-      const backgroundColor = plan.palette[host.baseColorId] ?? "transparent";
-      clearPlaneDetailVars(baseBrush);
-      applyBrush(baseBrush, gridArea, backgroundColor, brushZ);
+
+      if (host.baseColorId >= 0) {
+        const baseColor = plan.palette[host.baseColorId] ?? "transparent";
+        const area = hostWidth * hostHeight;
+        if (area > 0) {
+          brushRects.push({
+            x: hostCol0,
+            y: hostRow0,
+            w: hostWidth,
+            h: hostHeight,
+            color: baseColor,
+            area,
+            id: rectId++
+          });
+        }
+      }
 
       if (!host.details.length) continue;
 
-      tasks.length = 0;
-      let pseudoValid = true;
+      const detailStart = brushRects.length;
+      let detailsValid = true;
       for (const detail of host.details) {
         const rects = getDetailRects(detail);
         if (!rects.length) {
-          pseudoValid = false;
+          detailsValid = false;
           break;
         }
         const fill = detail.fill || plan.palette[detail.colorId] || "transparent";
-        for (const rect of rects) tasks.push({ rect, color: fill });
+        for (const rect of rects) {
+          const width = rect.width;
+          const height = rect.height;
+          if (width <= 0 || height <= 0) continue;
+          brushRects.push({
+            x: hostCol0 + rect.x,
+            y: hostRow0 + rect.y,
+            w: width,
+            h: height,
+            color: fill,
+            area: width * height,
+            id: rectId++
+          });
+        }
       }
 
-      const shouldBrush = pseudoValid && tasks.length && tasks.length <= MAX_BRUSHES_PER_HOST * 3;
-      if (!shouldBrush) {
-        const hostWidth = host.c1 - host.c0;
-        const hostHeight = host.r1 - host.r0;
-        const svg = nextSvg(axis);
-        svg.setAttribute("preserveAspectRatio", "none");
-        setAttrIfDiff(svg, "shape-rendering", "geometricPrecision");
-        svg.setAttribute("aria-hidden", "true");
-        svg.setAttribute("focusable", "false");
-        setStyleIfDiff(svg, "position", "relative");
-        setStyleIfDiff(svg, "width", "100%");
-        setStyleIfDiff(svg, "height", "100%");
-        setStyleIfDiff(svg, "display", "block");
-        setStyleIfDiff(svg, "pointerEvents", "none");
-        setStyleIfDiff(svg, "transformOrigin", "0 0");
-        setStyleIfDiff(svg, "willChange", "transform");
-        setStyleIfDiff(svg, "gridArea", gridArea);
-        setStyleIfDiff(svg, "transform", `translateZ(${brushZ})`);
-        setAttrIfDiff(svg, "viewBox", `0 0 ${hostWidth} ${hostHeight}`);
-        plan.stats.stampSvgHosts += 1;
-        const svgState = svg as {
-          __voxcssNewStampPathA?: SVGPathElement;
-          __voxcssNewStampPathB?: SVGPathElement;
-          __voxcssNewStampPathC?: SVGPathElement;
-          __voxcssNewStampPathD?: SVGPathElement;
-        };
-        const ensurePath = (key: "A" | "B" | "C" | "D"): SVGPathElement => {
-          const pathKey =
-            key === "A" ? "__voxcssNewStampPathA" :
-              key === "B" ? "__voxcssNewStampPathB" :
-                key === "C" ? "__voxcssNewStampPathC" : "__voxcssNewStampPathD";
-          let path = svgState[pathKey];
-          if (!path) {
-            path = documentRef.createElementNS(SVG_NS, "path");
-            svg.appendChild(path);
-            svgState[pathKey] = path;
-          }
-          return path;
-        };
-        const svgDetailA = host.details[0];
-        const svgDetailB = host.details[1];
-        const svgDetailC = host.details[2];
-        const svgDetailD = host.details[3];
-        if (svgDetailA) {
-          const pathA = ensurePath("A");
-          setAttrIfDiff(pathA, "d", svgDetailA.path);
-          setAttrIfDiff(pathA, "fill", plan.palette[svgDetailA.colorId] ?? "");
-        } else if (svgState.__voxcssNewStampPathA) {
-          svgState.__voxcssNewStampPathA.remove();
-          svgState.__voxcssNewStampPathA = undefined;
-        }
-        if (svgDetailB) {
-          const pathB = ensurePath("B");
-          setAttrIfDiff(pathB, "d", svgDetailB.path);
-          setAttrIfDiff(pathB, "fill", plan.palette[svgDetailB.colorId] ?? "");
-        } else if (svgState.__voxcssNewStampPathB) {
-          svgState.__voxcssNewStampPathB.remove();
-          svgState.__voxcssNewStampPathB = undefined;
-        }
-        if (svgDetailC) {
-          const pathC = ensurePath("C");
-          setAttrIfDiff(pathC, "d", svgDetailC.path);
-          setAttrIfDiff(pathC, "fill", plan.palette[svgDetailC.colorId] ?? "");
-        } else if (svgState.__voxcssNewStampPathC) {
-          svgState.__voxcssNewStampPathC.remove();
-          svgState.__voxcssNewStampPathC = undefined;
-        }
-        if (svgDetailD) {
-          const pathD = ensurePath("D");
-          setAttrIfDiff(pathD, "d", svgDetailD.path);
-          setAttrIfDiff(pathD, "fill", plan.palette[svgDetailD.colorId] ?? "");
-        } else if (svgState.__voxcssNewStampPathD) {
-          svgState.__voxcssNewStampPathD.remove();
-          svgState.__voxcssNewStampPathD = undefined;
-        }
+      if (!detailsValid) {
+        brushRects.length = detailStart;
+        svgHosts.push({ host, gridArea, hostWidth, hostHeight });
+      }
+    }
+
+    const packResult = packRectsToBrushes(brushRects, packedBrushes);
+    plan.stats.emittedBrushes = packResult.brushes.length;
+    plan.stats.baseBrushesPacked = packResult.baseCount;
+    plan.stats.stampBrushes = packResult.stampCount;
+    plan.stats.comboBrushes = packResult.comboCount;
+    plan.stats.stampAttempts = packResult.stampAttempts;
+    plan.stats.stampPairs = packResult.stampPairs;
+    plan.stats.stampAttemptsStrict = packResult.stampAttemptsStrict;
+    plan.stats.stampAttemptsRelaxed = packResult.stampAttemptsRelaxed;
+    plan.stats.stampPairsStrict = packResult.stampPairsStrict;
+    plan.stats.stampPairsRelaxed = packResult.stampPairsRelaxed;
+    plan.stats.avgComboInners = packResult.avgComboInners;
+    plan.stats.stampTightPairs = packResult.stampTightPairs;
+    plan.stats.stampRejectedByOffset = packResult.stampRejectedByOffset;
+    plan.stats.stampRejectedByBleed = packResult.stampRejectedByBleed;
+    plan.stats.stampBucketsVisitedStrict = packResult.stampBucketsVisitedStrict;
+    plan.stats.stampBucketsVisitedRelaxed = packResult.stampBucketsVisitedRelaxed;
+    plan.stats.stampCandidatesVisitedStrict = packResult.stampCandidatesVisitedStrict;
+    plan.stats.stampCandidatesVisitedRelaxed = packResult.stampCandidatesVisitedRelaxed;
+    plan.stats.stampCandidatesRejectedByOffsetStrict = packResult.stampCandidatesRejectedByOffsetStrict;
+    plan.stats.stampCandidatesRejectedByOffsetRelaxed = packResult.stampCandidatesRejectedByOffsetRelaxed;
+    plan.stats.stampMaxAbsDx = packResult.stampMaxAbsDx;
+    plan.stats.stampMaxAbsDy = packResult.stampMaxAbsDy;
+    plan.stats.stampBleedAreaTotal = packResult.stampBleedAreaTotal;
+    plan.stats.stampBleedAreaAvg = packResult.stampTightPairs
+      ? packResult.stampBleedAreaTotal / packResult.stampTightPairs
+      : 0;
+    plan.stats.stampPseudoHosts = packResult.stampCount + packResult.comboCount;
+    plan.stats.stampBrushHosts = packResult.stampCount + packResult.comboCount;
+
+    for (const packed of packResult.brushes) {
+      const brush = nextBrush(axis);
+      const gridArea = gridAreaFor(packed.r0, packed.c0, packed.r1, packed.c1);
+      clearPlaneDetailVars(brush);
+      if (packed.mode === "BASE") {
+        applyBrush(brush, gridArea, packed.baseColor, brushZ);
+        disablePseudo(brush, "before");
+        disablePseudo(brush, "after");
         continue;
       }
-
-      if (tasks.length > 2) {
-        tasks.sort((a, b) => (b.rect.width * b.rect.height) - (a.rect.width * a.rect.height));
-      }
-
-      if (tasks[0]) applyPseudo(baseBrush, "before", tasks[0]);
-      if (tasks[1]) applyPseudo(baseBrush, "after", tasks[1]);
-      if (!tasks[1]) setCssVarIfDiff(baseBrush, "--vox-ac", "none");
-
-      if (tasks.length <= 2) {
-        plan.stats.stampPseudoHosts += 1;
+      if (packed.mode === "STAMP") {
+        applyBrush(brush, gridArea, packed.baseColor, brushZ);
+        if (packed.before) applyPseudoRect(brush, "before", packed.before, packed);
+        else disablePseudo(brush, "before");
+        if (packed.after) applyPseudoRect(brush, "after", packed.after, packed);
+        else disablePseudo(brush, "after");
         continue;
       }
+      applyBrush(brush, gridArea, packed.baseColor, brushZ);
+      if (packed.before) applyPseudoRect(brush, "before", packed.before, packed);
+      else disablePseudo(brush, "before");
+      if (packed.after) applyPseudoRect(brush, "after", packed.after, packed);
+      else disablePseudo(brush, "after");
+    }
 
-      const brushOffset = 2;
-      const remainingTasks = tasks.length - brushOffset;
-      const brushCount = Math.ceil(remainingTasks / 3);
-      for (let i = 0; i < brushCount; i += 1) {
-        const base = tasks[brushOffset + i * 3];
-        if (!base) continue;
-        const brushRow0 = hostRow0 + base.rect.y;
-        const brushCol0 = hostCol0 + base.rect.x;
-        const brushRow1 = brushRow0 + base.rect.height;
-        const brushCol1 = brushCol0 + base.rect.width;
-        const detailBrush = nextBrush(axis);
-        clearPlaneDetailVars(detailBrush);
-        applyBrush(detailBrush, gridAreaFor(brushRow0, brushCol0, brushRow1, brushCol1), base.color, brushZ);
-        const beforeTask = tasks[brushOffset + i * 3 + 1];
-        const afterTask = tasks[brushOffset + i * 3 + 2];
-        if (beforeTask) applyBrushPseudo(detailBrush, "before", beforeTask, base.rect);
-        else setCssVarIfDiff(detailBrush, "--vox-bc", "none");
-        if (afterTask) applyBrushPseudo(detailBrush, "after", afterTask, base.rect);
-        else setCssVarIfDiff(detailBrush, "--vox-ac", "none");
+    for (const svgHost of svgHosts) {
+      const host = svgHost.host;
+      const svg = nextSvg(axis);
+      svg.setAttribute("preserveAspectRatio", "none");
+      setAttrIfDiff(svg, "shape-rendering", "geometricPrecision");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("focusable", "false");
+      setStyleIfDiff(svg, "position", "relative");
+      setStyleIfDiff(svg, "width", "100%");
+      setStyleIfDiff(svg, "height", "100%");
+      setStyleIfDiff(svg, "display", "block");
+      setStyleIfDiff(svg, "pointerEvents", "none");
+      setStyleIfDiff(svg, "transformOrigin", "0 0");
+      setStyleIfDiff(svg, "willChange", "transform");
+      setStyleIfDiff(svg, "gridArea", svgHost.gridArea);
+      setStyleIfDiff(svg, "transform", `translateZ(${brushZ})`);
+      setAttrIfDiff(svg, "viewBox", `0 0 ${svgHost.hostWidth} ${svgHost.hostHeight}`);
+      plan.stats.stampSvgHosts += 1;
+      const svgState = svg as {
+        __voxcssNewStampPathA?: SVGPathElement;
+        __voxcssNewStampPathB?: SVGPathElement;
+        __voxcssNewStampPathC?: SVGPathElement;
+        __voxcssNewStampPathD?: SVGPathElement;
+      };
+      const ensurePath = (key: "A" | "B" | "C" | "D"): SVGPathElement => {
+        const pathKey =
+          key === "A" ? "__voxcssNewStampPathA" :
+            key === "B" ? "__voxcssNewStampPathB" :
+              key === "C" ? "__voxcssNewStampPathC" : "__voxcssNewStampPathD";
+        let path = svgState[pathKey];
+        if (!path) {
+          path = documentRef.createElementNS(SVG_NS, "path");
+          svg.appendChild(path);
+          svgState[pathKey] = path;
+        }
+        return path;
+      };
+      const svgDetailA = host.details[0];
+      const svgDetailB = host.details[1];
+      const svgDetailC = host.details[2];
+      const svgDetailD = host.details[3];
+      if (svgDetailA) {
+        const pathA = ensurePath("A");
+        setAttrIfDiff(pathA, "d", svgDetailA.path);
+        setAttrIfDiff(pathA, "fill", plan.palette[svgDetailA.colorId] ?? "");
+      } else if (svgState.__voxcssNewStampPathA) {
+        svgState.__voxcssNewStampPathA.remove();
+        svgState.__voxcssNewStampPathA = undefined;
       }
-      plan.stats.stampPseudoHosts += 1;
-      plan.stats.stampBrushHosts += brushCount;
+      if (svgDetailB) {
+        const pathB = ensurePath("B");
+        setAttrIfDiff(pathB, "d", svgDetailB.path);
+        setAttrIfDiff(pathB, "fill", plan.palette[svgDetailB.colorId] ?? "");
+      } else if (svgState.__voxcssNewStampPathB) {
+        svgState.__voxcssNewStampPathB.remove();
+        svgState.__voxcssNewStampPathB = undefined;
+      }
+      if (svgDetailC) {
+        const pathC = ensurePath("C");
+        setAttrIfDiff(pathC, "d", svgDetailC.path);
+        setAttrIfDiff(pathC, "fill", plan.palette[svgDetailC.colorId] ?? "");
+      } else if (svgState.__voxcssNewStampPathC) {
+        svgState.__voxcssNewStampPathC.remove();
+        svgState.__voxcssNewStampPathC = undefined;
+      }
+      if (svgDetailD) {
+        const pathD = ensurePath("D");
+        setAttrIfDiff(pathD, "d", svgDetailD.path);
+        setAttrIfDiff(pathD, "fill", plan.palette[svgDetailD.colorId] ?? "");
+      } else if (svgState.__voxcssNewStampPathD) {
+        svgState.__voxcssNewStampPathD.remove();
+        svgState.__voxcssNewStampPathD = undefined;
+      }
     }
   }
 
@@ -1551,7 +2304,7 @@ const renderFacePlans = (
   }
 };
 
-export function renderPlaneShellMask(
+export function updatePlaneShellGeometry(
   renderState: RenderState,
   planeShell: PlaneShellDomState | null,
   snapshot: PlaneShellSnapshot,
@@ -1571,6 +2324,7 @@ export function renderPlaneShellMask(
   const wallsSig = wallsToSig(walls);
   const renderVersion = typeof context.renderVersion === "number" ? context.renderVersion : null;
   const hasRenderVersion = renderVersion !== null;
+  const renderVersionChanged = hasRenderVersion && hosts.cacheRenderVersion !== renderVersion;
 
   const depsChanged =
     hosts.cacheLighting !== lighting ||
@@ -1581,8 +2335,15 @@ export function renderPlaneShellMask(
     hosts.cacheRows !== rows ||
     hosts.cacheCols !== cols ||
     hosts.cacheDepth !== depth ||
-    hosts.cacheWallsSig !== wallsSig ||
-    (hasRenderVersion && hosts.cacheRenderVersion !== renderVersion);
+    hosts.cacheWallsSig !== wallsSig;
+
+  const layersRefChanged = hosts.cacheLayersRef !== snapshot.layers;
+  const layersChanged = hasRenderVersion ? renderVersionChanged : layersRefChanged;
+
+  if (!hasRenderVersion && layersRefChanged && hosts.cacheLayersRef && !hosts.warnedUnstableLayers) {
+    console.warn("[VoxCSS] PlaneShell called with unstable snapshot.layers; this will force rebuilds. Provide renderVersion or reuse layers array.");
+    hosts.warnedUnstableLayers = true;
+  }
 
   if (depsChanged) {
     hosts.faceCache.clear();
@@ -1596,13 +2357,14 @@ export function renderPlaneShellMask(
     hosts.cacheDepth = depth;
     hosts.cacheWallsSig = wallsSig;
     hosts.cacheRenderVersion = renderVersion;
+    hosts.cacheLayersRef = snapshot.layers;
     hosts.lastFaces = null;
-  }
-  if (hosts.cacheLayersRef !== snapshot.layers) {
+  } else if (layersChanged) {
+    hosts.cacheRenderVersion = renderVersion;
     hosts.cacheLayersRef = snapshot.layers;
     hosts.lastFaces = null;
   }
-  if (!depsChanged && hosts.lastFaces && hosts.cacheLayersRef === snapshot.layers && hasRenderVersion) {
+  if (!depsChanged && !layersChanged) {
     return hosts;
   }
 
@@ -1655,4 +2417,8 @@ export function renderPlaneShellMask(
   updatePlaneShellStats(hosts, stats, context, plans, tileSize, layerElevation);
   syncPlaneShellStatsDataset(renderState.root, stats);
   return hosts;
+}
+
+export function updatePlaneShellCamera(_renderState: RenderState): void {
+  // Camera transforms are owned by the scene controller; PlaneShell does no per-frame DOM work.
 }

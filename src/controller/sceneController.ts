@@ -16,6 +16,9 @@ export interface ControllerSnapshot {
   walls: WallsMask;
   cursor: string;
   camera: CameraState;
+  cameraOnly: boolean;
+  context: GridContext;
+  depthLayers: number;
 }
 
 export interface SceneSnapshot {
@@ -60,6 +63,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
 
   const camera: CameraHandle = createIsometricCamera(options.camera);
   let pointerInvert = normalizeInvertMultiplier(options.pointerInvert) ?? DEFAULT_POINTER_INVERT;
+  let lastSnapshotCameraOnly = false;
   let isDragging = false;
   let pointerX = 0;
   let pointerY = 0;
@@ -154,7 +158,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       }),
       walls: currentContext.walls,
       cursor: isDragging ? "grabbing" : "grab",
-      camera: { ...camera.state }
+      camera: { ...camera.state },
+      cameraOnly: lastSnapshotCameraOnly,
+      context: currentContext,
+      depthLayers: currentLayers.length
     };
   }
 
@@ -165,7 +172,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       depth: next.depth ?? dimensionOverride?.depth
     };
     rebuildScene(lastState);
-    emitSnapshot();
+    emitSnapshot(false);
   }
 
   function getDimensions() {
@@ -195,10 +202,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       } else if (currentContext.rotX !== camera.state.rotX || currentContext.rotY !== camera.state.rotY) {
         currentContext = { ...currentContext, rotX: camera.state.rotX, rotY: camera.state.rotY };
       }
-      emitSnapshot();
+      emitSnapshot(true);
       return;
     }
-    emitSnapshot();
+    emitSnapshot(true);
   }
 
   function subscribeSnapshot(listener: SnapshotListener) {
@@ -211,7 +218,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     isDragging = true;
     pointerX = event.clientX;
     pointerY = event.clientY;
-    emitSnapshot();
+    emitSnapshot(true);
   }
 
   function handlePointerMove(event: PointerEvent) {
@@ -230,10 +237,11 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   function handlePointerUp() {
     if (!isDragging) return;
     isDragging = false;
-    emitSnapshot();
+    emitSnapshot(true);
   }
 
-  function emitSnapshot() {
+  function emitSnapshot(cameraOnly: boolean) {
+    lastSnapshotCameraOnly = cameraOnly;
     const snap = buildSnapshot();
     snapshotListeners.forEach((listener) => listener(snap));
   }
@@ -255,7 +263,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     if (lastState.projection === normalized) return;
     lastState = { ...lastState, projection: normalized };
     rebuildScene(lastState);
-    emitSnapshot();
+    emitSnapshot(false);
   }
 
   function applySceneState(state: SceneState): SceneSnapshot {
@@ -278,7 +286,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     if (needsRebuild) {
       rebuildScene(state);
     }
-    emitSnapshot();
+    emitSnapshot(false);
     return {
       layers: currentLayers,
       context: currentContext,

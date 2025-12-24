@@ -57,6 +57,7 @@ export function mountScene({
   const requestFrame = win?.requestAnimationFrame?.bind(win) ?? ((cb: FrameRequestCallback) => setTimeout(cb, 16) as unknown as number);
   const cancelFrame = win?.cancelAnimationFrame?.bind(win) ?? ((id: number) => clearTimeout(id));
   let pendingRender: number | null = null;
+  let lastSceneSnapshot: ReturnType<typeof controller.applySceneState> | null = null;
   const applyBoxStyle = (style: Record<string, string>) => {
     Object.entries(style).forEach(([key, value]) => {
       (element.style as CSSStyleDeclaration & Record<string, string>)[key] = value ?? "";
@@ -68,14 +69,28 @@ export function mountScene({
     if (pendingRender !== null) return;
     pendingRender = requestFrame(() => {
       pendingRender = null;
-      renderer.render(controller.applySceneState(state));
+      lastSceneSnapshot = controller.applySceneState(state);
+      renderer.render(lastSceneSnapshot);
     });
   };
   scheduleRender();
 
   const unsubscribers = [
-    controller.subscribeSnapshot(({ style, walls }) => {
+    controller.subscribeSnapshot(({ style, walls, cameraOnly, context }) => {
       applyBoxStyle(style);
+      if (cameraOnly) {
+        const wallsChanged = !lastWalls || !wallMasksEqual(lastWalls, walls);
+        if (wallsChanged) {
+          lastWalls = walls;
+          if (lastSceneSnapshot) {
+            lastSceneSnapshot = { ...lastSceneSnapshot, context };
+            renderer.render(lastSceneSnapshot);
+          } else {
+            scheduleRender();
+          }
+        }
+        return;
+      }
       const nextDimensions = controller.getDimensions();
       const dimensionsChanged =
         nextDimensions.rows !== lastDimensions.rows ||
@@ -94,8 +109,19 @@ export function mountScene({
 
   return {
     update(next: SceneState) {
-      state = normalizeSceneState(next);
-      scheduleRender();
+      const nextState = normalizeSceneState(next);
+      const prevState = state;
+      state = nextState;
+      const shouldRender =
+        prevState.voxels !== nextState.voxels ||
+        prevState.rows !== nextState.rows ||
+        prevState.cols !== nextState.cols ||
+        prevState.depth !== nextState.depth ||
+        prevState.showWalls !== nextState.showWalls ||
+        prevState.showFloor !== nextState.showFloor ||
+        prevState.projection !== nextState.projection ||
+        prevState.mergeVoxels !== nextState.mergeVoxels;
+      if (shouldRender) scheduleRender();
     },
     destroy() {
       if (pendingRender !== null) {
