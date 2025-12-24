@@ -161,8 +161,6 @@ const CORE_BASE_STYLES = `
   position: absolute;
   pointer-events: none;
   display: block;
-  transform: translateZ(var(--vox-z, 0px));
-  transform-origin: 0 0;
 }
 
 .voxcss-plane-brush {
