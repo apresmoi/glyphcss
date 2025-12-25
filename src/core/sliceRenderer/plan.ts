@@ -13,7 +13,7 @@ import {
   type PackedBrush
 } from "../shellRenderer/render";
 
-type PassKind = "raw" | "packed" | "merge" | "svg" | "fallback";
+type PassKind = "raw" | "packed" | "merge" | "svg" | "gradient" | "fallback";
 
 type PassResult = {
   kind: PassKind;
@@ -35,7 +35,10 @@ type RectBuildResult = {
   detailsValid: boolean;
 };
 
-type BrushCounts = { base: number; stamp: number; combo: number; svg: number };
+type BrushCounts = { base: number; stamp: number; combo: number; svg: number; gradient: number };
+type GradientStop = { start: number; end: number; color: string };
+
+const MAX_GRADIENT_STOPS = 12;
 
 const normalizePaintColor = (value?: string): string | null => {
   const raw = String(value ?? "").trim();
@@ -131,6 +134,237 @@ const buildBrushRects = (regions: RegionPlan[], palette: string[]): RectBuildRes
   return { rects, baseRects, detailRectsList, baseOnlyRects, detailRects, detailsValid };
 };
 
+const buildGradientStops = (
+  size: number,
+  baseColor: string,
+  segments: Array<{ start: number; end: number; color: string }>
+): GradientStop[] | null => {
+  if (size <= 0) return null;
+  const colors = new Array<string>(size).fill(baseColor);
+  for (const segment of segments) {
+    const start = Math.max(0, segment.start);
+    const end = Math.min(size, segment.end);
+    if (end <= start) continue;
+    for (let i = start; i < end; i += 1) {
+      const existing = colors[i];
+      if (existing !== baseColor && existing !== segment.color) return null;
+      colors[i] = segment.color;
+    }
+  }
+  const stops: GradientStop[] = [];
+  let current = colors[0];
+  let start = 0;
+  for (let i = 1; i < size; i += 1) {
+    if (colors[i] === current) continue;
+    stops.push({ start, end: i, color: current });
+    if (stops.length > MAX_GRADIENT_STOPS) return null;
+    start = i;
+    current = colors[i];
+  }
+  stops.push({ start, end: size, color: current });
+  if (stops.length > MAX_GRADIENT_STOPS || stops.length <= 1) return null;
+  return stops;
+};
+
+const buildGradientBrush = (
+  region: RegionPlan,
+  palette: string[]
+): { brush: Brush; stopCount: number; detailRects: number } | null => {
+  if (!region.details.length || region.baseColorId < 0) return null;
+  const baseColor = normalizePaintColor(palette[region.baseColorId]);
+  if (!baseColor) return null;
+  const width = region.c1 - region.c0;
+  const height = region.r1 - region.r0;
+  if (width <= 0 || height <= 0) return null;
+
+  const rects: Array<{ x: number; y: number; w: number; h: number; color: string }> = [];
+  let detailRects = 0;
+  for (const detail of region.details) {
+    const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
+    if (!fill) return null;
+    const rectRuns = getDetailRects(detail);
+    if (!rectRuns.length) return null;
+    detailRects += rectRuns.length;
+    for (const rect of rectRuns) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      rects.push({ x: rect.x, y: rect.y, w: rect.width, h: rect.height, color: fill });
+    }
+  }
+  if (!detailRects || !rects.length) return null;
+
+  const coversAxisSpan = (intervals: Array<[number, number]>, span: number): boolean => {
+    if (span <= 0 || !intervals.length) return false;
+    const sorted = intervals
+      .map(([start, end]) => [Math.max(0, start), Math.min(span, end)] as [number, number])
+      .filter(([start, end]) => end > start)
+      .sort((a, b) => (a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]));
+    if (!sorted.length) return false;
+    let covered = 0;
+    let [currentStart, currentEnd] = sorted[0];
+    for (let i = 1; i < sorted.length; i += 1) {
+      const [start, end] = sorted[i];
+      if (end <= currentEnd) continue;
+      if (start > currentEnd) {
+        covered += currentEnd - currentStart;
+        currentStart = start;
+        currentEnd = end;
+        continue;
+      }
+      currentEnd = end;
+    }
+    covered += currentEnd - currentStart;
+    return covered >= span;
+  };
+
+  const canRepresentAxis = (axis: "x" | "y"): boolean => {
+    const stripeGroups = new Map<string, { color: string; spans: Array<[number, number]> }>();
+    const span = axis === "y" ? width : height;
+    for (const rect of rects) {
+      if (rect.color === baseColor) continue;
+      const start = axis === "y" ? rect.y : rect.x;
+      const end = axis === "y" ? rect.y + rect.h : rect.x + rect.w;
+      const crossStart = axis === "y" ? rect.x : rect.y;
+      const crossEnd = axis === "y" ? rect.x + rect.w : rect.y + rect.h;
+      const key = `${start}:${end}`;
+      const existing = stripeGroups.get(key);
+      if (!existing) {
+        stripeGroups.set(key, { color: rect.color, spans: [[crossStart, crossEnd]] });
+        continue;
+      }
+      if (existing.color !== rect.color) return false;
+      existing.spans.push([crossStart, crossEnd]);
+    }
+    for (const group of stripeGroups.values()) {
+      if (!coversAxisSpan(group.spans, span)) return false;
+    }
+    return true;
+  };
+
+  const canY = canRepresentAxis("y");
+  const canX = canRepresentAxis("x");
+  if (!canY && !canX) return null;
+
+  const buildStopsForAxis = (axis: "x" | "y"): GradientStop[] | null => {
+    if (axis === "y") {
+      const segments = rects.map((rect) => ({
+        start: rect.y,
+        end: rect.y + rect.h,
+        color: rect.color
+      }));
+      return buildGradientStops(height, baseColor, segments);
+    }
+    const segments = rects.map((rect) => ({
+      start: rect.x,
+      end: rect.x + rect.w,
+      color: rect.color
+    }));
+    return buildGradientStops(width, baseColor, segments);
+  };
+
+  const stopsY = canY ? buildStopsForAxis("y") : null;
+  const stopsX = canX ? buildStopsForAxis("x") : null;
+  let axis: "x" | "y" | null = null;
+  let stops: GradientStop[] | null = null;
+  if (stopsY && stopsX) {
+    axis = stopsY.length <= stopsX.length ? "y" : "x";
+    stops = axis === "y" ? stopsY : stopsX;
+  } else if (stopsY) {
+    axis = "y";
+    stops = stopsY;
+  } else if (stopsX) {
+    axis = "x";
+    stops = stopsX;
+  }
+  if (!axis || !stops) return null;
+
+  return {
+    brush: {
+      kind: "GRADIENT",
+      r0: region.r0,
+      c0: region.c0,
+      r1: region.r1,
+      c1: region.c1,
+      baseColor,
+      gradientAxis: axis,
+      gradientStops: stops
+    },
+    stopCount: stops.length,
+    detailRects
+  };
+};
+
+const buildGradientBrushes = (
+  regions: RegionPlan[],
+  palette: string[]
+): { brushes: Brush[]; skipRegions: Set<number>; gradientStops: number; gradientDetailRects: number } => {
+  const brushes: Brush[] = [];
+  const skipRegions = new Set<number>();
+  let gradientStops = 0;
+  let gradientDetailRects = 0;
+  for (let i = 0; i < regions.length; i += 1) {
+    const region = regions[i];
+    const result = buildGradientBrush(region, palette);
+    if (!result) continue;
+    brushes.push(result.brush);
+    skipRegions.add(i);
+    gradientStops += result.stopCount;
+    gradientDetailRects += result.detailRects;
+  }
+  return { brushes, skipRegions, gradientStops, gradientDetailRects };
+};
+
+const buildRectListForRegions = (
+  regions: RegionPlan[],
+  palette: string[],
+  skipRegions: Set<number>
+): BrushRect[] => {
+  const rects: BrushRect[] = [];
+  let rectId = 0;
+  for (let i = 0; i < regions.length; i += 1) {
+    if (skipRegions.has(i)) continue;
+    const region = regions[i];
+    if (region.baseColorId >= 0) {
+      const color = normalizePaintColor(palette[region.baseColorId]);
+      if (!color) continue;
+      const w = region.c1 - region.c0;
+      const h = region.r1 - region.r0;
+      if (w > 0 && h > 0) {
+        rects.push({
+          x: region.c0,
+          y: region.r0,
+          w,
+          h,
+          color,
+          area: w * h,
+          id: rectId++
+        });
+      }
+    }
+    if (!region.details.length) continue;
+    for (const detail of region.details) {
+      const rectRuns = getDetailRects(detail);
+      if (!rectRuns.length) continue;
+      const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
+      if (!fill) continue;
+      for (const rect of rectRuns) {
+        const w = rect.width;
+        const h = rect.height;
+        if (w <= 0 || h <= 0) continue;
+        rects.push({
+          x: region.c0 + rect.x,
+          y: region.r0 + rect.y,
+          w,
+          h,
+          color: fill,
+          area: w * h,
+          id: rectId++
+        });
+      }
+    }
+  }
+  return rects;
+};
+
 const buildBasePackedBrushes = (rects: BrushRect[]): PackedBrush[] =>
   rects.map((rect) => ({
     mode: "BASE",
@@ -166,6 +400,7 @@ const buildSvgBrushes = (regions: RegionPlan[], palette: string[]): Brush[] => {
   for (const region of regions) {
     if (!region.details.length) continue;
     const svgPaths: Array<{ path: string; color: string }> = [];
+    let paintArea = 0;
     let minX = Number.POSITIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
@@ -180,6 +415,7 @@ const buildSvgBrushes = (regions: RegionPlan[], palette: string[]): Brush[] => {
         minY = Math.min(minY, rect.y);
         maxX = Math.max(maxX, rect.x + rect.width);
         maxY = Math.max(maxY, rect.y + rect.height);
+        paintArea += rect.width * rect.height;
       }
       svgPaths.push({ path: detail.path, color: fill });
     }
@@ -195,7 +431,8 @@ const buildSvgBrushes = (regions: RegionPlan[], palette: string[]): Brush[] => {
       r1: region.r0 + maxY,
       c1: region.c0 + maxX,
       svgPaths,
-      svgViewBox: `${minX} ${minY} ${boxW} ${boxH}`
+      svgViewBox: `${minX} ${minY} ${boxW} ${boxH}`,
+      svgPaintArea: paintArea
     });
   }
   return brushes;
@@ -230,6 +467,50 @@ const paintRectToBrushRect = (rect: { r0: number; c0: number; r1: number; c1: nu
   area: Math.max(0, rect.c1 - rect.c0) * Math.max(0, rect.r1 - rect.r0),
   id: -1
 });
+
+const getBrushBaseArea = (brush: PackedBrush): number => {
+  const baseColor = normalizePaintColor(brush.baseColor);
+  if (!baseColor) return 0;
+  const baseW = brush.c1 - brush.c0;
+  const baseH = brush.r1 - brush.r0;
+  return baseW > 0 && baseH > 0 ? baseW * baseH : 0;
+};
+
+const getBrushPseudoArea = (brush: PackedBrush, absorbPlans?: AbsorbPlan[]): number => {
+  let beforeRect = brush.before;
+  let afterRect = brush.after;
+  if (absorbPlans) {
+    for (const absorb of absorbPlans) {
+      if (absorb.slot === "before") beforeRect = paintRectToBrushRect(absorb.rect);
+      else if (absorb.slot === "after") afterRect = paintRectToBrushRect(absorb.rect);
+    }
+  }
+  let area = 0;
+  if (beforeRect && normalizePaintColor(beforeRect.color)) {
+    area += Math.max(0, beforeRect.w) * Math.max(0, beforeRect.h);
+  }
+  if (afterRect && normalizePaintColor(afterRect.color)) {
+    area += Math.max(0, afterRect.w) * Math.max(0, afterRect.h);
+  }
+  return area;
+};
+
+const getPackedPaintStats = (
+  packed: PackedBrush[],
+  pairing: BrushPairing
+): { paintCells: number; pseudoArea: number } => {
+  let paintCells = 0;
+  let pseudoArea = 0;
+  for (let i = 0; i < packed.length; i += 1) {
+    if (pairing.children.has(i)) continue;
+    const brush = packed[i];
+    if (!brush) continue;
+    paintCells += getBrushBaseArea(brush);
+    const absorbPlans = pairing.absorbed.get(i);
+    pseudoArea += getBrushPseudoArea(brush, absorbPlans);
+  }
+  return { paintCells, pseudoArea };
+};
 
 type PaintRect = { r0: number; c0: number; r1: number; c1: number; color: string };
 
@@ -298,14 +579,13 @@ const paintRectIds = (
   return area;
 };
 
-const verifyPackedBrushes = (
+const paintPackedBrushes = (
   buffer: FaceData["buffer"],
   brushes: PackedBrush[],
   pairing: BrushPairing,
   paletteIds: Map<string, number>,
   scratch: Uint32Array
-): { ok: boolean; paintedCells: number } => {
-  scratch.fill(0);
+): boolean => {
   const brushOrder: number[] = [];
   const paintedAreas: number[] = [];
   for (let i = 0; i < brushes.length; i += 1) {
@@ -321,19 +601,97 @@ const verifyPackedBrushes = (
     if (areaA !== areaB) return areaB - areaA;
     return a - b;
   });
-  let paintedCells = 0;
   for (const index of brushOrder) {
     const brush = brushes[index];
     if (!brush) continue;
     const absorbPlans = pairing.absorbed.get(index);
     const layers = resolveLayers(brush, absorbPlans);
     const basePainted = paintRectIds(scratch, buffer.width, buffer.height, layers.base, paletteIds);
-    if (basePainted === null) return { ok: false, paintedCells: 0 };
+    if (basePainted === null) return false;
     const beforePainted = paintRectIds(scratch, buffer.width, buffer.height, layers.before, paletteIds);
-    if (beforePainted === null) return { ok: false, paintedCells: 0 };
+    if (beforePainted === null) return false;
     const afterPainted = paintRectIds(scratch, buffer.width, buffer.height, layers.after, paletteIds);
-    if (afterPainted === null) return { ok: false, paintedCells: 0 };
+    if (afterPainted === null) return false;
   }
+  return true;
+};
+
+const paintGradientBrushes = (
+  buffer: FaceData["buffer"],
+  brushes: Brush[],
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array
+): boolean => {
+  for (const brush of brushes) {
+    if (brush.kind !== "GRADIENT") continue;
+    const axis = brush.gradientAxis;
+    const stops = brush.gradientStops;
+    if (!axis || !stops?.length) return false;
+    if (axis === "y") {
+      for (const stop of stops) {
+        const rect: PaintRect = {
+          r0: brush.r0 + stop.start,
+          c0: brush.c0,
+          r1: brush.r0 + stop.end,
+          c1: brush.c1,
+          color: stop.color
+        };
+        const painted = paintRectIds(scratch, buffer.width, buffer.height, rect, paletteIds);
+        if (painted === null) return false;
+      }
+    } else {
+      for (const stop of stops) {
+        const rect: PaintRect = {
+          r0: brush.r0,
+          c0: brush.c0 + stop.start,
+          r1: brush.r1,
+          c1: brush.c0 + stop.end,
+          color: stop.color
+        };
+        const painted = paintRectIds(scratch, buffer.width, buffer.height, rect, paletteIds);
+        if (painted === null) return false;
+      }
+    }
+  }
+  return true;
+};
+
+const verifyPackedBrushes = (
+  buffer: FaceData["buffer"],
+  brushes: PackedBrush[],
+  pairing: BrushPairing,
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array
+): { ok: boolean; paintedCells: number } => {
+  scratch.fill(0);
+  if (!paintPackedBrushes(buffer, brushes, pairing, paletteIds, scratch)) {
+    return { ok: false, paintedCells: 0 };
+  }
+  let paintedCells = 0;
+  for (let i = 0; i < scratch.length; i += 1) {
+    const value = scratch[i];
+    if (value !== buffer.ids[i]) return { ok: false, paintedCells: 0 };
+    if (value) paintedCells += 1;
+  }
+  return { ok: true, paintedCells };
+};
+
+const verifyGradientBrushes = (
+  buffer: FaceData["buffer"],
+  packed: PackedBrush[],
+  pairing: BrushPairing,
+  gradientBrushes: Brush[],
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array
+): { ok: boolean; paintedCells: number } => {
+  scratch.fill(0);
+  if (!paintPackedBrushes(buffer, packed, pairing, paletteIds, scratch)) {
+    return { ok: false, paintedCells: 0 };
+  }
+  if (!paintGradientBrushes(buffer, gradientBrushes, paletteIds, scratch)) {
+    return { ok: false, paintedCells: 0 };
+  }
+  let paintedCells = 0;
   for (let i = 0; i < scratch.length; i += 1) {
     const value = scratch[i];
     if (value !== buffer.ids[i]) return { ok: false, paintedCells: 0 };
@@ -368,22 +726,34 @@ const evaluatePackedPass = (
         domEstimate: 0,
         baseOnlyRects,
         detailRects,
+        svgPaths: 0,
+        gradientStops: 0,
         splitCount: 0,
         idealCells,
         paintedCells: 0,
+        paintCells: 0,
+        pseudoArea: 0,
+        paintCost: 0,
         uniqueColors
       },
       scoreTotal: Number.POSITIVE_INFINITY,
       verified: false
     };
   }
+  const { paintCells, pseudoArea } = getPackedPaintStats(packed, pairing);
+  const paintCost = paintCells + pseudoArea;
   const metrics: SliceMetrics = {
     domEstimate,
     baseOnlyRects,
     detailRects,
+    svgPaths: 0,
+    gradientStops: 0,
     splitCount: 0,
     idealCells,
     paintedCells: verifyResult.paintedCells,
+    paintCells,
+    pseudoArea,
+    paintCost,
     uniqueColors
   };
   return {
@@ -428,22 +798,37 @@ const evaluateSvgPass = (
         domEstimate: 0,
         baseOnlyRects,
         detailRects,
+        svgPaths: 0,
+        gradientStops: 0,
         splitCount: 0,
         idealCells,
         paintedCells: 0,
+        paintCells: 0,
+        pseudoArea: 0,
+        paintCost: 0,
         uniqueColors
       },
       scoreTotal: Number.POSITIVE_INFINITY,
       verified: false
     };
   }
+  const basePaintStats = getPackedPaintStats(basePacked, pairing);
+  const svgArea = svgBrushes.reduce((sum, brush) => sum + (brush.svgPaintArea ?? 0), 0);
+  const paintCells = basePaintStats.paintCells + svgArea;
+  const pseudoArea = basePaintStats.pseudoArea;
+  const paintCost = paintCells + pseudoArea;
   const metrics: SliceMetrics = {
     domEstimate,
     baseOnlyRects,
     detailRects,
+    svgPaths: svgPathCount,
+    gradientStops: 0,
     splitCount: 0,
     idealCells,
     paintedCells: verifyResult.paintedCells,
+    paintCells,
+    pseudoArea,
+    paintCost,
     uniqueColors
   };
   return {
@@ -453,7 +838,86 @@ const evaluateSvgPass = (
     pairing,
     compositeEstimate,
     metrics,
-    scoreTotal: scorePlan(metrics, false),
+    scoreTotal: scorePlan(metrics, false, { detailCount: metrics.svgPaths, fragCount: metrics.svgPaths }),
+    verified: true
+  };
+};
+
+const evaluateGradientPass = (
+  packed: PackedBrush[],
+  gradientBrushes: Brush[],
+  gradientStops: number,
+  gradientDetailRects: number,
+  baseOnlyRects: number,
+  detailRects: number,
+  uniqueColors: number,
+  idealCells: number,
+  buffer: FaceData["buffer"],
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array
+): PassResult => {
+  const pairing = buildBrushPairing(packed);
+  const domEstimate = countTopLevelBrushes(packed, pairing) + gradientBrushes.length;
+  const compositeEstimate = domEstimate;
+  const verifyResult = verifyGradientBrushes(buffer, packed, pairing, gradientBrushes, paletteIds, scratch);
+  if (!verifyResult.ok) {
+    return {
+      kind: "gradient",
+      brushes: [],
+      packed,
+      pairing,
+      compositeEstimate,
+      metrics: {
+        domEstimate: 0,
+        baseOnlyRects,
+        detailRects,
+        svgPaths: 0,
+        gradientStops: 0,
+        splitCount: 0,
+        idealCells,
+        paintedCells: 0,
+        paintCells: 0,
+        pseudoArea: 0,
+        paintCost: 0,
+        uniqueColors
+      },
+      scoreTotal: Number.POSITIVE_INFINITY,
+      verified: false
+    };
+  }
+  const basePaintStats = getPackedPaintStats(packed, pairing);
+  const gradientArea = gradientBrushes.reduce((sum, brush) => {
+    const width = brush.c1 - brush.c0;
+    const height = brush.r1 - brush.r0;
+    if (width <= 0 || height <= 0) return sum;
+    return sum + width * height;
+  }, 0);
+  const paintCells = basePaintStats.paintCells + gradientArea;
+  const pseudoArea = basePaintStats.pseudoArea;
+  const paintCost = paintCells + pseudoArea;
+  const metrics: SliceMetrics = {
+    domEstimate,
+    baseOnlyRects,
+    detailRects,
+    svgPaths: 0,
+    gradientStops,
+    splitCount: 0,
+    idealCells,
+    paintedCells: verifyResult.paintedCells,
+    paintCells,
+    pseudoArea,
+    paintCost,
+    uniqueColors
+  };
+  const detailCount = Math.max(0, detailRects - gradientDetailRects) + gradientStops;
+  return {
+    kind: "gradient",
+    brushes: [...packed.map(packedToBrush), ...gradientBrushes],
+    packed,
+    pairing,
+    compositeEstimate,
+    metrics,
+    scoreTotal: scorePlan(metrics, false, { detailCount, fragCount: detailCount }),
     verified: true
   };
 };
@@ -495,7 +959,7 @@ const buildFallbackCellBrushes = (buffer: FaceData["buffer"]): PackedBrush[] => 
 };
 
 const countTopLevelBrushKinds = (packed: PackedBrush[], pairing: BrushPairing): BrushCounts => {
-  const counts: BrushCounts = { base: 0, stamp: 0, combo: 0, svg: 0 };
+  const counts: BrushCounts = { base: 0, stamp: 0, combo: 0, svg: 0, gradient: 0 };
   for (let i = 0; i < packed.length; i += 1) {
     if (pairing.children.has(i)) continue;
     const brush = packed[i];
@@ -507,46 +971,40 @@ const countTopLevelBrushKinds = (packed: PackedBrush[], pairing: BrushPairing): 
 };
 
 const chooseBestPass = (passes: PassResult[]): PassResult | null => {
-  let best: PassResult | null = null;
-  for (const pass of passes) {
-    if (!pass.verified) continue;
-    if (!best) {
-      best = pass;
-      continue;
-    }
-    if (pass.metrics.domEstimate < best.metrics.domEstimate) {
-      best = pass;
-      continue;
-    }
-    if (pass.metrics.domEstimate === best.metrics.domEstimate && pass.scoreTotal < best.scoreTotal) {
-      best = pass;
-    }
-  }
-  if (!best) return null;
-  if (best.kind === "svg") return best;
+  const verified = passes.filter((pass) => pass.verified);
+  if (!verified.length) return null;
 
-  const svgCandidates = passes.filter((pass) => pass.verified && pass.kind === "svg");
-  if (!svgCandidates.length) return best;
+  const pickBest = (candidates: PassResult[]): PassResult | null => {
+    let best: PassResult | null = null;
+    for (const pass of candidates) {
+      if (!best) {
+        best = pass;
+        continue;
+      }
+      if (pass.scoreTotal < best.scoreTotal) {
+        best = pass;
+        continue;
+      }
+      if (pass.scoreTotal === best.scoreTotal) {
+        if (pass.metrics.domEstimate < best.metrics.domEstimate) {
+          best = pass;
+          continue;
+        }
+        if (pass.metrics.domEstimate === best.metrics.domEstimate && pass.metrics.paintCost < best.metrics.paintCost) {
+          best = pass;
+        }
+      }
+    }
+    return best;
+  };
 
-  const domSlack = Math.max(6, Math.round(best.metrics.domEstimate * 0.15));
-  const compositeGainMin = Math.max(1, Math.round(best.compositeEstimate * 0.05));
-  let svgPick: PassResult | null = null;
-  for (const svg of svgCandidates) {
-    if (svg.metrics.domEstimate > best.metrics.domEstimate + domSlack) continue;
-    if (best.compositeEstimate - svg.compositeEstimate < compositeGainMin) continue;
-    if (!svgPick) {
-      svgPick = svg;
-      continue;
-    }
-    if (svg.metrics.domEstimate < svgPick.metrics.domEstimate) {
-      svgPick = svg;
-      continue;
-    }
-    if (svg.metrics.domEstimate === svgPick.metrics.domEstimate && svg.compositeEstimate < svgPick.compositeEstimate) {
-      svgPick = svg;
-    }
-  }
-  return svgPick ?? best;
+  const nonSvg = verified.filter((pass) => pass.kind !== "svg");
+  const bestNonSvg = pickBest(nonSvg);
+  if (!bestNonSvg) return pickBest(verified);
+
+  const domCap = bestNonSvg.metrics.domEstimate;
+  const guarded = verified.filter((pass) => pass.kind !== "svg" || pass.metrics.domEstimate <= domCap);
+  return pickBest(guarded) ?? bestNonSvg;
 };
 
 export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
@@ -591,13 +1049,33 @@ export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
     );
     passes.push(passBPacked);
 
+    const gradientPlan = buildGradientBrushes(regions, palette);
+    if (gradientPlan.brushes.length) {
+      const gradientRects = buildRectListForRegions(regions, palette, gradientPlan.skipRegions);
+      const gradientPacked: PackedBrush[] = [];
+      const passGradient = evaluateGradientPass(
+        packRectsToBrushes(gradientRects, gradientPacked),
+        gradientPlan.brushes,
+        gradientPlan.gradientStops,
+        gradientPlan.gradientDetailRects,
+        rectResult.baseOnlyRects,
+        rectResult.detailRects,
+        uniqueColors,
+        idealCells,
+        buffer,
+        paletteIds,
+        scratch
+      );
+      passes.push(passGradient);
+    }
+
     if (passBPacked.verified) {
       if (svgBrushes.length) {
         const basePacked: PackedBrush[] = [];
         packRectsToBrushes(rectResult.baseRects, basePacked);
-      const passSvg = evaluateSvgPass(
-        basePacked,
-        svgBrushes,
+        const passSvg = evaluateSvgPass(
+          basePacked,
+          svgBrushes,
           rectResult.baseOnlyRects,
           rectResult.detailRects,
           uniqueColors,
@@ -631,7 +1109,11 @@ export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
         paletteIds,
         scratch
       );
-      passes.push(passCMerge);
+      if (passCMerge.verified) {
+        const reducesDom = passCMerge.metrics.domEstimate < passBPacked.metrics.domEstimate;
+        const paintOk = passCMerge.metrics.paintCost <= passBPacked.metrics.paintCost;
+        if (reducesDom && paintOk) passes.push(passCMerge);
+      }
     }
   }
 
@@ -666,9 +1148,14 @@ export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
           domEstimate: 0,
           baseOnlyRects: rectResult.baseOnlyRects,
           detailRects: rectResult.detailRects,
+          svgPaths: 0,
+          gradientStops: 0,
           splitCount: 0,
           idealCells,
           paintedCells: 0,
+          paintCells: 0,
+          pseudoArea: 0,
+          paintCost: 0,
           uniqueColors
         },
         scoreTotal: Number.POSITIVE_INFINITY,
@@ -680,6 +1167,7 @@ export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
   const metrics = best.metrics;
   const brushCounts = countTopLevelBrushKinds(best.packed, best.pairing);
   brushCounts.svg = best.brushes.reduce((sum, brush) => sum + (brush.kind === "SVG" ? 1 : 0), 0);
+  brushCounts.gradient = best.brushes.reduce((sum, brush) => sum + (brush.kind === "GRADIENT" ? 1 : 0), 0);
   return {
     key: faceData.key,
     buffer,

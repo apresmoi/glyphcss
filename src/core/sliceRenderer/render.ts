@@ -18,6 +18,16 @@ type BrushRect = { x: number; y: number; w: number; h: number; color: string; ar
 type SliceRenderStats = {
   paintCells: number;
   brushNodes: number;
+  brushBase: number;
+  brushStamp: number;
+  brushCombo: number;
+  brushGradient: number;
+  brushSvg: number;
+  pseudoBase: number;
+  pseudoStamp: number;
+  pseudoCombo: number;
+  pseudoGradient: number;
+  pseudoSvg: number;
   pseudoLayers: number;
   pseudoArea: number;
   svgNodes: number;
@@ -60,10 +70,45 @@ const applyBrush = (
   setCssVarIfDiff(brush, "--vox-z", zOffset);
   setStyleIfDiff(brush, "position", "relative");
   setStyleIfDiff(brush, "overflow", "visible");
+  setStyleIfDiff(brush, "backgroundImage", "");
+  setStyleIfDiff(brush, "backgroundRepeat", "");
+  setStyleIfDiff(brush, "backgroundSize", "");
+  setStyleIfDiff(brush, "backgroundPosition", "");
   setStyleIfDiff(brush, "left", "");
   setStyleIfDiff(brush, "top", "");
   setStyleIfDiff(brush, "width", "");
   setStyleIfDiff(brush, "height", "");
+};
+
+const buildGradientCss = (brush: Brush): string | null => {
+  const axis = brush.gradientAxis;
+  const stops = brush.gradientStops;
+  if (!axis || !stops?.length) return null;
+  const size = axis === "y" ? brush.r1 - brush.r0 : brush.c1 - brush.c0;
+  if (size <= 0) return null;
+  const formatPos = (value: number): string => `${((value / size) * 100).toFixed(3)}%`;
+  const parts = stops.map((stop) => `${stop.color} ${formatPos(stop.start)} ${formatPos(stop.end)}`);
+  const direction = axis === "y" ? "to bottom" : "to right";
+  return `linear-gradient(${direction}, ${parts.join(", ")})`;
+};
+
+const applyGradientBrush = (
+  target: HTMLElement,
+  brush: Brush,
+  gridArea: string,
+  zOffset: string
+): void => {
+  const baseColor = brush.baseColor ?? "";
+  clearPlaneDetailVars(target);
+  applyBrush(target, gridArea, baseColor, zOffset);
+  setStyleIfDiff(target, "transform", "");
+  const gradientCss = buildGradientCss(brush);
+  if (gradientCss) {
+    setStyleIfDiff(target, "backgroundImage", gradientCss);
+    setStyleIfDiff(target, "backgroundRepeat", "no-repeat");
+    setStyleIfDiff(target, "backgroundSize", "100% 100%");
+    setStyleIfDiff(target, "backgroundPosition", "0 0");
+  }
 };
 
 const paintRectToBrushRect = (rect: { r0: number; c0: number; r1: number; c1: number; color: string }): BrushRect => ({
@@ -96,13 +141,24 @@ const getBrushPaintedCells = (brush: PackedBrush): number => {
   return beforeArea + afterArea - overlap;
 };
 
-const toPackedBrushes = (brushes: Brush[]): { packed: PackedBrush[]; svg: Brush[] } => {
+const getGradientPaintedCells = (brush: Brush): number => {
+  const width = brush.c1 - brush.c0;
+  const height = brush.r1 - brush.r0;
+  return width > 0 && height > 0 ? width * height : 0;
+};
+
+const toPackedBrushes = (brushes: Brush[]): { packed: PackedBrush[]; svg: Brush[]; gradient: Brush[] } => {
   const packed: PackedBrush[] = [];
   const svg: Brush[] = [];
+  const gradient: Brush[] = [];
   let rectId = 0;
   for (const brush of brushes) {
     if (brush.kind === "SVG") {
       svg.push(brush);
+      continue;
+    }
+    if (brush.kind === "GRADIENT") {
+      gradient.push(brush);
       continue;
     }
     const before = brush.before
@@ -122,7 +178,7 @@ const toPackedBrushes = (brushes: Brush[]): { packed: PackedBrush[]; svg: Brush[
       after
     });
   }
-  return { packed, svg };
+  return { packed, svg, gradient };
 };
 
 export const renderSlicePlans = (
@@ -138,6 +194,16 @@ export const renderSlicePlans = (
 
   let totalPaintCells = 0;
   let totalBrushNodes = 0;
+  let totalBrushBase = 0;
+  let totalBrushStamp = 0;
+  let totalBrushCombo = 0;
+  let totalBrushGradient = 0;
+  let totalBrushSvg = 0;
+  let totalPseudoBase = 0;
+  let totalPseudoStamp = 0;
+  let totalPseudoCombo = 0;
+  let totalPseudoGradient = 0;
+  let totalPseudoSvg = 0;
   let totalPseudoLayers = 0;
   let totalPseudoArea = 0;
   let totalSvgNodes = 0;
@@ -198,7 +264,7 @@ export const renderSlicePlans = (
     const cellHeightPx = axis === "x" ? layerElevation : tileSize;
     const originRow = plan.buffer.minRow;
     const originCol = plan.buffer.minCol;
-    const { packed, svg } = toPackedBrushes(plan.brushes);
+    const { packed, svg, gradient } = toPackedBrushes(plan.brushes);
     const pairing: BrushPairing = buildBrushPairing(packed);
     const paintedCells = packed.map(getBrushPaintedCells);
 
@@ -322,8 +388,32 @@ export const renderSlicePlans = (
       const absorbPlans = pairing.absorbed.get(i);
       applyBrushWithPlacement(brush, packedBrush, gridArea, absorbPlans);
       totalBrushNodes += 1;
-      totalPseudoLayers += countPseudoLayers(packedBrush, absorbPlans);
+      const brushPseudoLayers = countPseudoLayers(packedBrush, absorbPlans);
+      if (packedBrush.mode === "BASE") totalBrushBase += 1;
+      else if (packedBrush.mode === "STAMP") totalBrushStamp += 1;
+      else if (packedBrush.mode === "COMBO") totalBrushCombo += 1;
+      totalPseudoLayers += brushPseudoLayers;
+      if (packedBrush.mode === "BASE") totalPseudoBase += brushPseudoLayers;
+      else if (packedBrush.mode === "STAMP") totalPseudoStamp += brushPseudoLayers;
+      else if (packedBrush.mode === "COMBO") totalPseudoCombo += brushPseudoLayers;
       totalPseudoArea += getPseudoArea(packedBrush, absorbPlans);
+      planPaintedCells += brushPaintedCells;
+    }
+
+    for (const gradientBrush of gradient) {
+      const gridArea = gridAreaFor(
+        originRow + gradientBrush.r0,
+        originCol + gradientBrush.c0,
+        originRow + gradientBrush.r1,
+        originCol + gradientBrush.c1
+      );
+      const brushPaintedCells = getGradientPaintedCells(gradientBrush);
+      if (brushPaintedCells <= 0) continue;
+      const brush = nextBrush(axis);
+      applyGradientBrush(brush, gradientBrush, gridArea, brushZ);
+      totalBrushNodes += 1;
+      totalBrushGradient += 1;
+      totalPseudoGradient += 0;
       planPaintedCells += brushPaintedCells;
     }
 
@@ -374,6 +464,8 @@ export const renderSlicePlans = (
       }
       totalSvgNodes += 1;
       totalBrushNodes += 1;
+      totalBrushSvg += 1;
+      totalPseudoSvg += 0;
       planPaintedCells += (svgBrush.r1 - svgBrush.r0) * (svgBrush.c1 - svgBrush.c0);
     }
 
@@ -388,6 +480,16 @@ export const renderSlicePlans = (
   return {
     paintCells: totalPaintCells,
     brushNodes: totalBrushNodes,
+    brushBase: totalBrushBase,
+    brushStamp: totalBrushStamp,
+    brushCombo: totalBrushCombo,
+    brushGradient: totalBrushGradient,
+    brushSvg: totalBrushSvg,
+    pseudoBase: totalPseudoBase,
+    pseudoStamp: totalPseudoStamp,
+    pseudoCombo: totalPseudoCombo,
+    pseudoGradient: totalPseudoGradient,
+    pseudoSvg: totalPseudoSvg,
     pseudoLayers: totalPseudoLayers,
     pseudoArea: totalPseudoArea,
     svgNodes: totalSvgNodes,

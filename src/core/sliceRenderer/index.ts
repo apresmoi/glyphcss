@@ -134,11 +134,13 @@ export function updateSliceRendererGeometry(
     brushStamp: plan.brushCounts.stamp,
     brushCombo: plan.brushCounts.combo,
     brushSvg: plan.brushCounts.svg,
+    brushGradient: plan.brushCounts.gradient,
     brushTotal:
       plan.brushCounts.base +
       plan.brushCounts.stamp +
       plan.brushCounts.combo +
-      plan.brushCounts.svg,
+      plan.brushCounts.svg +
+      plan.brushCounts.gradient,
     axis: plan.key.axis,
     plane: plan.key.plane,
     face: plan.key.face,
@@ -173,15 +175,32 @@ export function updateSliceRendererGeometry(
       totals: {
         domEstimate: (plans ?? []).reduce((sum, plan) => sum + plan.metrics.domEstimate, 0),
         paintedCells: (plans ?? []).reduce((sum, plan) => sum + plan.metrics.paintedCells, 0)
+      },
+      renderStats: {
+        paintCells: stats.paintCells,
+        pseudoLayers: stats.pseudoLayers,
+        pseudoArea: stats.pseudoArea,
+        brushNodes: stats.brushNodes,
+        brushBase: stats.brushBase,
+        brushStamp: stats.brushStamp,
+        brushCombo: stats.brushCombo,
+        brushGradient: stats.brushGradient,
+        brushSvg: stats.brushSvg,
+        pseudoBase: stats.pseudoBase,
+        pseudoStamp: stats.pseudoStamp,
+        pseudoCombo: stats.pseudoCombo,
+        pseudoGradient: stats.pseudoGradient,
+        pseudoSvg: stats.pseudoSvg,
+        svgNodes: stats.svgNodes,
+        svgPaths: stats.svgPaths,
+        compositeNodes: stats.compositeNodes
       }
     };
   }
 
   if (layersChanged || depsChanged) {
     console.log(
-      `[VoxCSS] sliceRenderer stats paintCells=${stats.paintCells} pseudoLayers=${stats.pseudoLayers} ` +
-      `pseudoArea=${stats.pseudoArea} brushNodes=${stats.brushNodes} svgNodes=${stats.svgNodes} ` +
-      `svgPaths=${stats.svgPaths} compositeNodes=${stats.compositeNodes}`
+      `[VoxCSS] sliceRenderer stats ${stats}`
     );
   }
 

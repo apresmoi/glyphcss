@@ -21,7 +21,7 @@ export type RegionPlan = {
 };
 
 export type Brush = {
-  kind: "BASE" | "STAMP" | "COMBO" | "SVG";
+  kind: "BASE" | "STAMP" | "COMBO" | "SVG" | "GRADIENT";
   r0: number;
   c0: number;
   r1: number;
@@ -31,15 +31,23 @@ export type Brush = {
   after?: { x: number; y: number; w: number; h: number; color: string };
   svgPaths?: { path: string; color: string }[];
   svgViewBox?: string;
+  svgPaintArea?: number;
+  gradientAxis?: "x" | "y";
+  gradientStops?: { start: number; end: number; color: string }[];
 };
 
 export type SliceMetrics = {
   domEstimate: number;
   baseOnlyRects: number;
   detailRects: number;
+  svgPaths: number;
+  gradientStops: number;
   splitCount: number;
   idealCells: number;
   paintedCells: number;
+  paintCells: number;
+  pseudoArea: number;
+  paintCost: number;
   uniqueColors: number;
 };
 
@@ -53,6 +61,7 @@ export type SlicePlan = {
     stamp: number;
     combo: number;
     svg: number;
+    gradient: number;
   };
   metrics: SliceMetrics;
   scoreTotal: number;
@@ -103,26 +112,35 @@ export const getFragPerCell = (metrics: SliceMetrics): number =>
   metrics.detailRects / Math.max(1, metrics.idealCells);
 
 export const getOverdrawRatio = (metrics: SliceMetrics): number =>
-  metrics.paintedCells / Math.max(1, metrics.idealCells);
+  metrics.paintCost / Math.max(1, metrics.idealCells);
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
-export const scorePlan = (metrics: SliceMetrics, fallback: boolean): number => {
+export const scorePlan = (
+  metrics: SliceMetrics,
+  fallback: boolean,
+  options?: { detailCount?: number; fragCount?: number }
+): number => {
   const domPerCell = getDomPerCell(metrics);
-  const fragPerCell = getFragPerCell(metrics);
+  const paintOverdraw = Math.max(0, getOverdrawRatio(metrics) - 1);
+  const detailCount = options?.detailCount ?? metrics.detailRects;
+  const fragCount = options?.fragCount ?? metrics.detailRects;
+  const fragPerCell = fragCount / Math.max(1, metrics.idealCells);
 
   const domNorm = clamp(domPerCell / 0.25, 0, 1);
   const fragNorm = clamp(fragPerCell / 0.2, 0, 1);
-  const detailNorm = clamp(metrics.detailRects / 200, 0, 1);
+  const detailNorm = clamp(detailCount / 200, 0, 1);
+  const paintNorm = clamp(paintOverdraw / 0.5, 0, 1);
   const fallbackNorm = fallback ? 1 : 0;
 
   const score =
     100 *
-    (0.55 * domNorm +
-      0.25 * fragNorm +
-      0.15 * detailNorm +
-      0.05 * fallbackNorm);
+    (0.495 * domNorm +
+      0.225 * fragNorm +
+      0.135 * detailNorm +
+      0.1 * paintNorm +
+      0.045 * fallbackNorm);
 
   return clamp(score, 0, 100);
 };
