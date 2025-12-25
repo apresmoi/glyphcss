@@ -1,19 +1,21 @@
 import type { RenderState } from "../types";
 import { DEFAULT_WALLS } from "../types";
-import type { PlaneShellDomState, PlaneShellSnapshot } from "./types";
-import { ensurePlaneShellHosts, wallsToSig } from "./types";
-import { buildFaceDataFromSnapshot, buildFacePlan, buildCacheKey } from "./plan";
-import { renderFacePlans } from "./render";
+import type { SliceRendererDomState, SliceRendererSnapshot } from "./types";
+import { ensureSliceRendererHosts, clearSliceRenderer, getDomPerCell } from "./types";
+import { wallsToSig } from "../shellRenderer/types";
+import { buildFaceDataFromSnapshot, buildSliceCacheKey, buildSlicePlan } from "./plan";
+import { renderSlicePlans } from "./render";
 
-export { clearPlaneShell } from "./types";
-export type { PlaneShellDomState, PlaneShellSnapshot } from "./types";
-export function updatePlaneShellGeometry(
+export { clearSliceRenderer } from "./types";
+export type { SliceRendererDomState, SliceRendererSnapshot } from "./types";
+
+export function updateSliceRendererGeometry(
   renderState: RenderState,
-  planeShell: PlaneShellDomState | null,
-  snapshot: PlaneShellSnapshot,
+  sliceRenderer: SliceRendererDomState | null,
+  snapshot: SliceRendererSnapshot,
   documentRef: Document
-): PlaneShellDomState {
-  const hosts = ensurePlaneShellHosts(renderState, planeShell, documentRef);
+): SliceRendererDomState {
+  const hosts = ensureSliceRendererHosts(renderState, sliceRenderer, documentRef);
   const context = snapshot.context;
   const rows = Math.max(context.rows, 1);
   const cols = Math.max(context.cols, 1);
@@ -44,7 +46,7 @@ export function updatePlaneShellGeometry(
   const layersChanged = hasRenderVersion ? renderVersionChanged : layersRefChanged;
 
   if (!hasRenderVersion && layersRefChanged && hosts.cacheLayersRef && !hosts.warnedUnstableLayers) {
-    console.warn("[VoxCSS] PlaneShell called with unstable snapshot.layers; this will force rebuilds. Provide renderVersion or reuse layers array.");
+    console.warn("[VoxCSS] sliceRenderer called with unstable snapshot.layers; this will force rebuilds. Provide renderVersion or reuse layers array.");
     hosts.warnedUnstableLayers = true;
   }
 
@@ -61,12 +63,12 @@ export function updatePlaneShellGeometry(
     hosts.cacheWallsSig = wallsSig;
     hosts.cacheRenderVersion = renderVersion;
     hosts.cacheLayersRef = snapshot.layers;
-    hosts.lastFaces = null;
+    hosts.lastSlices = null;
   } else {
     if (layersChanged) {
       hosts.cacheRenderVersion = renderVersion;
       hosts.cacheLayersRef = snapshot.layers;
-      hosts.lastFaces = null;
+      hosts.lastSlices = null;
     }
     if (wallsSigChanged) {
       hosts.cacheWallsSig = wallsSig;
@@ -80,7 +82,10 @@ export function updatePlaneShellGeometry(
     for (const [host, w, h] of [
       [hosts.xHost, cols * tileSize, depth * layerElevation],
       [hosts.yHost, depth * layerElevation, rows * tileSize]
-    ] as [HTMLElement, number, number][]) host.style.width = `${w}px`, host.style.height = `${h}px`;
+    ] as [HTMLElement, number, number][]) {
+      host.style.width = `${w}px`;
+      host.style.height = `${h}px`;
+    }
     for (const [host, gridCols, gridRows, colPx, rowPx] of [
       [hosts.zHost, cols, rows, tileSize, tileSize],
       [hosts.xHost, cols, depth, tileSize, layerElevation],
@@ -94,25 +99,26 @@ export function updatePlaneShellGeometry(
     }
   }
 
-  let plans: FacePlan[];
+  let plans: SliceRendererDomState["lastSlices"] | null;
   let usedKeys: Set<string> | null = null;
-  if (!depsChanged && hosts.lastFaces) {
-    plans = hosts.lastFaces;
+  if (!depsChanged && hosts.lastSlices) {
+    plans = hosts.lastSlices;
   } else {
     const faces = buildFaceDataFromSnapshot(snapshot);
-    plans = [];
+    const nextPlans = [];
     usedKeys = new Set();
     for (const face of faces) {
-      const cacheKey = buildCacheKey(face);
+      const cacheKey = buildSliceCacheKey(face);
       let plan = hosts.faceCache.get(cacheKey);
       if (!plan) {
-        plan = buildFacePlan(face);
+        plan = buildSlicePlan(face);
         hosts.faceCache.set(cacheKey, plan);
       }
-      plans.push(plan);
+      nextPlans.push(plan);
       usedKeys.add(cacheKey);
     }
-    hosts.lastFaces = plans;
+    plans = nextPlans;
+    hosts.lastSlices = nextPlans;
   }
 
   if (usedKeys) {
@@ -122,17 +128,66 @@ export function updatePlaneShellGeometry(
     }
   }
 
-  const stats = renderFacePlans(hosts, snapshot, documentRef, plans);
+  const stats = renderSlicePlans(hosts, snapshot, documentRef, plans ?? []);
+  const slices = (plans ?? []).map((plan) => ({
+    brushBase: plan.brushCounts.base,
+    brushStamp: plan.brushCounts.stamp,
+    brushCombo: plan.brushCounts.combo,
+    brushSvg: plan.brushCounts.svg,
+    brushTotal:
+      plan.brushCounts.base +
+      plan.brushCounts.stamp +
+      plan.brushCounts.combo +
+      plan.brushCounts.svg,
+    axis: plan.key.axis,
+    plane: plan.key.plane,
+    face: plan.key.face,
+    scoreTotal: plan.scoreTotal,
+    domEstimate: plan.metrics.domEstimate,
+    detailRects: plan.metrics.detailRects,
+    uniqueColors: plan.metrics.uniqueColors,
+    idealCells: plan.metrics.idealCells,
+    paintedCells: plan.metrics.paintedCells,
+    fallback: plan.fallback
+  }));
+  const worstSlices = (plans ?? [])
+    .slice()
+    .sort((a, b) => b.scoreTotal - a.scoreTotal)
+    .slice(0, 5)
+    .map((plan) => ({
+      axis: plan.key.axis,
+      plane: plan.key.plane,
+      face: plan.key.face,
+      scoreTotal: Number.isFinite(plan.scoreTotal) ? Number(plan.scoreTotal.toFixed(3)) : plan.scoreTotal,
+      domEstimate: plan.metrics.domEstimate,
+      domPerCell: Number(getDomPerCell(plan.metrics).toFixed(3)),
+      detailRects: plan.metrics.detailRects,
+      uniqueColors: plan.metrics.uniqueColors,
+      fallback: plan.fallback
+    }));
+
+  if (typeof globalThis !== "undefined") {
+    (globalThis as { __voxcssLastSliceRendererReport?: unknown }).__voxcssLastSliceRendererReport = {
+      slices,
+      worstSlices,
+      totals: {
+        domEstimate: (plans ?? []).reduce((sum, plan) => sum + plan.metrics.domEstimate, 0),
+        paintedCells: (plans ?? []).reduce((sum, plan) => sum + plan.metrics.paintedCells, 0)
+      }
+    };
+  }
+
   if (layersChanged || depsChanged) {
     console.log(
-      `[VoxCSS] PlaneShell stats paintCells=${stats.paintCells} pseudoLayers=${stats.pseudoLayers} ` +
+      `[VoxCSS] sliceRenderer stats paintCells=${stats.paintCells} pseudoLayers=${stats.pseudoLayers} ` +
       `pseudoArea=${stats.pseudoArea} brushNodes=${stats.brushNodes} svgNodes=${stats.svgNodes} ` +
       `svgPaths=${stats.svgPaths} compositeNodes=${stats.compositeNodes}`
     );
   }
+
   return hosts;
 }
 
-export function updatePlaneShellCamera(_renderState: RenderState): void {
-  // Camera transforms are owned by the scene controller; PlaneShell does no per-frame DOM work.
+export function updateSliceRendererCamera(_renderState: RenderState): void {
+  // Camera transforms are owned by the scene controller; sliceRenderer does no per-frame DOM work.
 }

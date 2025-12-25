@@ -271,7 +271,22 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     lastState = state;
     const { mergeOption, rawCount, cubeOnly } = resolveGrid(state);
     const planeShellEligible = is3dMerge(mergeOption) && cubeOnly;
-    const mode: SceneRenderMode = planeShellEligible ? "plane-shell-mask" : "cubes";
+    const mode: SceneRenderMode = (() => {
+      if (typeof globalThis !== "undefined") {
+        const override = (globalThis as { __VOXCSS_PLANE_SHELL_RENDERER__?: unknown }).__VOXCSS_PLANE_SHELL_RENDERER__;
+        if (typeof override === "string") {
+          const normalized = override.toLowerCase();
+          if (normalized === "slice" || normalized === "slice-renderer") {
+            return planeShellEligible ? "slice-renderer" : "cubes";
+          }
+          if (normalized === "shell" || normalized === "plane-shell-mask") {
+            return planeShellEligible ? "plane-shell-mask" : "cubes";
+          }
+          if (normalized === "cubes") return "cubes";
+        }
+      }
+      return planeShellEligible ? "plane-shell-mask" : "cubes";
+    })();
     const shouldPreMerge = is2dMerge(mergeOption);
     const mergeApplies = shouldPreMerge || planeShellEligible;
     const needsRebuild =

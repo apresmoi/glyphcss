@@ -1,5 +1,5 @@
 import type { GridContext, RenderState, Voxel, CubeFace, WallsMask } from "../types";
-import { computeCubeFaceAppearance } from "../cubeFaceAppearance";
+import { computeCubeFaceAppearance } from "../faceAppearance";
 
 export interface PlaneShellSnapshot { layers: Voxel[][]; context: GridContext; }
 

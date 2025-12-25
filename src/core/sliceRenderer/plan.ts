@@ -1,0 +1,702 @@
+import type { FaceData, FacePlan, HostPlan } from "../shellRenderer/types";
+import type { AxisSlices, Brush, RegionPlan, SliceMetrics, SlicePlan } from "./types";
+import { scorePlan, SLICE_RENDERER_VERSION } from "./types";
+import { buildCacheKey as buildShellCacheKey, buildFaceDataFromSnapshot, buildFacePlan } from "../shellRenderer/plan";
+import { getDetailRects } from "../shellRenderer/types";
+import {
+  buildBrushPairing,
+  optimizeBrushOverlaps,
+  packRectsToBrushes,
+  type AbsorbPlan,
+  type BrushPairing,
+  type BrushRect,
+  type PackedBrush
+} from "../shellRenderer/render";
+
+type PassKind = "raw" | "packed" | "merge" | "svg" | "fallback";
+
+type PassResult = {
+  kind: PassKind;
+  brushes: Brush[];
+  packed: PackedBrush[];
+  pairing: BrushPairing;
+  compositeEstimate: number;
+  metrics: SliceMetrics;
+  scoreTotal: number;
+  verified: boolean;
+};
+
+type RectBuildResult = {
+  rects: BrushRect[];
+  baseRects: BrushRect[];
+  detailRectsList: BrushRect[];
+  baseOnlyRects: number;
+  detailRects: number;
+  detailsValid: boolean;
+};
+
+type BrushCounts = { base: number; stamp: number; combo: number; svg: number };
+
+const normalizePaintColor = (value?: string): string | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "transparent") return null;
+  const rgbaMatch = raw.match(/^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)$/i);
+  if (rgbaMatch) {
+    const alpha = Number(rgbaMatch[1]);
+    if (Number.isFinite(alpha) && alpha <= 0) return null;
+  }
+  return raw;
+};
+
+const buildSliceCacheKey = (face: FaceData): string =>
+  `slice:${SLICE_RENDERER_VERSION}:${buildShellCacheKey(face)}`;
+
+const buildRegionsFromHosts = (hosts: HostPlan[]): RegionPlan[] =>
+  hosts.map((host) => ({
+    r0: host.r0,
+    c0: host.c0,
+    r1: host.r1,
+    c1: host.c1,
+    baseColorId: host.baseColorId,
+    details: host.details
+  }));
+
+const buildBrushRects = (regions: RegionPlan[], palette: string[]): RectBuildResult => {
+  const rects: BrushRect[] = [];
+  const baseRects: BrushRect[] = [];
+  const detailRectsList: BrushRect[] = [];
+  let baseOnlyRects = 0;
+  let detailRects = 0;
+  let detailsValid = true;
+  let rectId = 0;
+  let baseRectId = 0;
+  let detailRectId = 0;
+  for (const region of regions) {
+    const hasDetails = region.details.length > 0;
+    if (!hasDetails && region.baseColorId >= 0) baseOnlyRects += 1;
+    if (region.baseColorId >= 0) {
+      const color = normalizePaintColor(palette[region.baseColorId]);
+      if (!color) {
+        detailsValid = false;
+        break;
+      }
+      const w = region.c1 - region.c0;
+      const h = region.r1 - region.r0;
+      if (w > 0 && h > 0) {
+        const rect = {
+          x: region.c0,
+          y: region.r0,
+          w,
+          h,
+          color,
+          area: w * h,
+          id: rectId++
+        };
+        rects.push(rect);
+        baseRects.push({ ...rect, id: baseRectId++ });
+      }
+    }
+    if (!hasDetails) continue;
+    for (const detail of region.details) {
+      const rectRuns = getDetailRects(detail);
+      if (!rectRuns.length) {
+        detailsValid = false;
+        break;
+      }
+      const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
+      if (!fill) {
+        detailsValid = false;
+        break;
+      }
+      detailRects += rectRuns.length;
+      for (const rect of rectRuns) {
+        const w = rect.width;
+        const h = rect.height;
+        if (w <= 0 || h <= 0) continue;
+        const detailRect = {
+          x: region.c0 + rect.x,
+          y: region.r0 + rect.y,
+          w,
+          h,
+          color: fill,
+          area: w * h,
+          id: rectId++
+        };
+        rects.push(detailRect);
+        detailRectsList.push({ ...detailRect, id: detailRectId++ });
+      }
+    }
+    if (!detailsValid) break;
+  }
+  return { rects, baseRects, detailRectsList, baseOnlyRects, detailRects, detailsValid };
+};
+
+const buildBasePackedBrushes = (rects: BrushRect[]): PackedBrush[] =>
+  rects.map((rect) => ({
+    mode: "BASE",
+    r0: rect.y,
+    c0: rect.x,
+    r1: rect.y + rect.h,
+    c1: rect.x + rect.w,
+    baseColor: rect.color
+  }));
+
+const packedToBrush = (brush: PackedBrush): Brush => ({
+  kind: brush.mode,
+  r0: brush.r0,
+  c0: brush.c0,
+  r1: brush.r1,
+  c1: brush.c1,
+  baseColor: brush.baseColor,
+  before: brush.before ? { x: brush.before.x, y: brush.before.y, w: brush.before.w, h: brush.before.h, color: brush.before.color } : undefined,
+  after: brush.after ? { x: brush.after.x, y: brush.after.y, w: brush.after.w, h: brush.after.h, color: brush.after.color } : undefined
+});
+
+const countTopLevelBrushes = (brushes: PackedBrush[], pairing: BrushPairing): number => {
+  let count = 0;
+  for (let i = 0; i < brushes.length; i += 1) {
+    if (pairing.children.has(i)) continue;
+    count += 1;
+  }
+  return count;
+};
+
+const buildSvgBrushes = (regions: RegionPlan[], palette: string[]): Brush[] => {
+  const brushes: Brush[] = [];
+  for (const region of regions) {
+    if (!region.details.length) continue;
+    const svgPaths: Array<{ path: string; color: string }> = [];
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const detail of region.details) {
+      const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
+      if (!fill || !detail.path) continue;
+      const rectRuns = getDetailRects(detail);
+      if (!rectRuns.length) continue;
+      for (const rect of rectRuns) {
+        minX = Math.min(minX, rect.x);
+        minY = Math.min(minY, rect.y);
+        maxX = Math.max(maxX, rect.x + rect.width);
+        maxY = Math.max(maxY, rect.y + rect.height);
+      }
+      svgPaths.push({ path: detail.path, color: fill });
+    }
+    if (!svgPaths.length) continue;
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) continue;
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    if (boxW <= 0 || boxH <= 0) continue;
+    brushes.push({
+      kind: "SVG",
+      r0: region.r0 + minY,
+      c0: region.c0 + minX,
+      r1: region.r0 + maxY,
+      c1: region.c0 + maxX,
+      svgPaths,
+      svgViewBox: `${minX} ${minY} ${boxW} ${boxH}`
+    });
+  }
+  return brushes;
+};
+
+const getBrushPaintedCells = (brush: PackedBrush): number => {
+  const baseColor = normalizePaintColor(brush.baseColor);
+  const baseW = brush.c1 - brush.c0;
+  const baseH = brush.r1 - brush.r0;
+  const baseArea = baseColor && baseW > 0 && baseH > 0 ? baseW * baseH : 0;
+  if (baseArea) return baseArea;
+  const before = brush.before && normalizePaintColor(brush.before.color) ? brush.before : null;
+  const after = brush.after && normalizePaintColor(brush.after.color) ? brush.after : null;
+  const beforeArea = before && before.w > 0 && before.h > 0 ? before.w * before.h : 0;
+  const afterArea = after && after.w > 0 && after.h > 0 ? after.w * after.h : 0;
+  if (!beforeArea) return afterArea;
+  if (!afterArea) return beforeArea;
+  const ix0 = Math.max(before.x, after.x);
+  const iy0 = Math.max(before.y, after.y);
+  const ix1 = Math.min(before.x + before.w, after.x + after.w);
+  const iy1 = Math.min(before.y + before.h, after.y + after.h);
+  const overlap = ix1 > ix0 && iy1 > iy0 ? (ix1 - ix0) * (iy1 - iy0) : 0;
+  return beforeArea + afterArea - overlap;
+};
+
+const paintRectToBrushRect = (rect: { r0: number; c0: number; r1: number; c1: number; color: string }): BrushRect => ({
+  x: rect.c0,
+  y: rect.r0,
+  w: rect.c1 - rect.c0,
+  h: rect.r1 - rect.r0,
+  color: rect.color,
+  area: Math.max(0, rect.c1 - rect.c0) * Math.max(0, rect.r1 - rect.r0),
+  id: -1
+});
+
+type PaintRect = { r0: number; c0: number; r1: number; c1: number; color: string };
+
+const resolveLayers = (
+  brush: PackedBrush,
+  absorbPlans?: AbsorbPlan[]
+): { base: PaintRect | null; before: PaintRect | null; after: PaintRect | null } => {
+  const baseColor = normalizePaintColor(brush.baseColor);
+  const base = baseColor
+    ? { r0: brush.r0, c0: brush.c0, r1: brush.r1, c1: brush.c1, color: baseColor }
+    : null;
+  let beforeRect = brush.before;
+  let afterRect = brush.after;
+  if (absorbPlans) {
+    for (const absorb of absorbPlans) {
+      if (absorb.slot === "before") beforeRect = paintRectToBrushRect(absorb.rect);
+      else if (absorb.slot === "after") afterRect = paintRectToBrushRect(absorb.rect);
+    }
+  }
+  if (beforeRect && afterRect) {
+    const beforeArea = beforeRect.w * beforeRect.h;
+    const afterArea = afterRect.w * afterRect.h;
+    if (beforeArea <= afterArea) {
+      const swap = afterRect;
+      afterRect = beforeRect;
+      beforeRect = swap;
+    }
+  }
+  if (!afterRect && beforeRect) {
+    afterRect = beforeRect;
+    beforeRect = undefined;
+  }
+  const beforeColor = beforeRect ? normalizePaintColor(beforeRect.color) : null;
+  const afterColor = afterRect ? normalizePaintColor(afterRect.color) : null;
+  const before = beforeRect && beforeColor
+    ? { r0: beforeRect.y, c0: beforeRect.x, r1: beforeRect.y + beforeRect.h, c1: beforeRect.x + beforeRect.w, color: beforeColor }
+    : null;
+  const after = afterRect && afterColor
+    ? { r0: afterRect.y, c0: afterRect.x, r1: afterRect.y + afterRect.h, c1: afterRect.x + afterRect.w, color: afterColor }
+    : null;
+  return { base, before, after };
+};
+
+const paintRectIds = (
+  target: Uint32Array,
+  width: number,
+  height: number,
+  rect: PaintRect | null,
+  paletteIds: Map<string, number>
+): number | null => {
+  if (!rect) return 0;
+  const colorId = paletteIds.get(rect.color);
+  if (!colorId) return null;
+  const r0 = Math.max(0, rect.r0);
+  const c0 = Math.max(0, rect.c0);
+  const r1 = Math.min(height, rect.r1);
+  const c1 = Math.min(width, rect.c1);
+  if (r1 <= r0 || c1 <= c0) return 0;
+  const area = (r1 - r0) * (c1 - c0);
+  for (let r = r0; r < r1; r += 1) {
+    const rowBase = r * width;
+    for (let c = c0; c < c1; c += 1) {
+      target[rowBase + c] = colorId;
+    }
+  }
+  return area;
+};
+
+const verifyPackedBrushes = (
+  buffer: FaceData["buffer"],
+  brushes: PackedBrush[],
+  pairing: BrushPairing,
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array
+): { ok: boolean; paintedCells: number } => {
+  scratch.fill(0);
+  const brushOrder: number[] = [];
+  const paintedAreas: number[] = [];
+  for (let i = 0; i < brushes.length; i += 1) {
+    if (pairing.children.has(i)) continue;
+    brushOrder.push(i);
+  }
+  for (let i = 0; i < brushes.length; i += 1) {
+    paintedAreas[i] = getBrushPaintedCells(brushes[i]);
+  }
+  brushOrder.sort((a, b) => {
+    const areaA = paintedAreas[a] ?? 0;
+    const areaB = paintedAreas[b] ?? 0;
+    if (areaA !== areaB) return areaB - areaA;
+    return a - b;
+  });
+  let paintedCells = 0;
+  for (const index of brushOrder) {
+    const brush = brushes[index];
+    if (!brush) continue;
+    const absorbPlans = pairing.absorbed.get(index);
+    const layers = resolveLayers(brush, absorbPlans);
+    const basePainted = paintRectIds(scratch, buffer.width, buffer.height, layers.base, paletteIds);
+    if (basePainted === null) return { ok: false, paintedCells: 0 };
+    const beforePainted = paintRectIds(scratch, buffer.width, buffer.height, layers.before, paletteIds);
+    if (beforePainted === null) return { ok: false, paintedCells: 0 };
+    const afterPainted = paintRectIds(scratch, buffer.width, buffer.height, layers.after, paletteIds);
+    if (afterPainted === null) return { ok: false, paintedCells: 0 };
+  }
+  for (let i = 0; i < scratch.length; i += 1) {
+    const value = scratch[i];
+    if (value !== buffer.ids[i]) return { ok: false, paintedCells: 0 };
+    if (value) paintedCells += 1;
+  }
+  return { ok: true, paintedCells };
+};
+
+const evaluatePackedPass = (
+  kind: PassKind,
+  packed: PackedBrush[],
+  baseOnlyRects: number,
+  detailRects: number,
+  uniqueColors: number,
+  idealCells: number,
+  buffer: FaceData["buffer"],
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array
+): PassResult => {
+  const pairing = buildBrushPairing(packed);
+  const domEstimate = countTopLevelBrushes(packed, pairing);
+  const compositeEstimate = domEstimate;
+  const verifyResult = verifyPackedBrushes(buffer, packed, pairing, paletteIds, scratch);
+  if (!verifyResult.ok) {
+    return {
+      kind,
+      brushes: [],
+      packed,
+      pairing,
+      compositeEstimate,
+      metrics: {
+        domEstimate: 0,
+        baseOnlyRects,
+        detailRects,
+        splitCount: 0,
+        idealCells,
+        paintedCells: 0,
+        uniqueColors
+      },
+      scoreTotal: Number.POSITIVE_INFINITY,
+      verified: false
+    };
+  }
+  const metrics: SliceMetrics = {
+    domEstimate,
+    baseOnlyRects,
+    detailRects,
+    splitCount: 0,
+    idealCells,
+    paintedCells: verifyResult.paintedCells,
+    uniqueColors
+  };
+  return {
+    kind,
+    brushes: packed.map(packedToBrush),
+    packed,
+    pairing,
+    compositeEstimate,
+    metrics,
+    scoreTotal: scorePlan(metrics, false),
+    verified: true
+  };
+};
+
+const evaluateSvgPass = (
+  basePacked: PackedBrush[],
+  svgBrushes: Brush[],
+  baseOnlyRects: number,
+  detailRects: number,
+  uniqueColors: number,
+  idealCells: number,
+  buffer: FaceData["buffer"],
+  paletteIds: Map<string, number>,
+  scratch: Uint32Array,
+  verifyPacked: PackedBrush[],
+  verifyPairing: BrushPairing
+): PassResult => {
+  const pairing = buildBrushPairing(basePacked);
+  const svgPathCount = svgBrushes.reduce((sum, brush) => sum + (brush.svgPaths?.length ?? 0), 0);
+  const baseTopLevel = countTopLevelBrushes(basePacked, pairing);
+  const domEstimate = baseTopLevel + svgBrushes.length * 2 + svgPathCount;
+  const compositeEstimate = baseTopLevel + svgBrushes.length;
+  const verifyResult = verifyPackedBrushes(buffer, verifyPacked, verifyPairing, paletteIds, scratch);
+  if (!verifyResult.ok) {
+    return {
+      kind: "svg",
+      brushes: [],
+      packed: basePacked,
+      pairing,
+      compositeEstimate,
+      metrics: {
+        domEstimate: 0,
+        baseOnlyRects,
+        detailRects,
+        splitCount: 0,
+        idealCells,
+        paintedCells: 0,
+        uniqueColors
+      },
+      scoreTotal: Number.POSITIVE_INFINITY,
+      verified: false
+    };
+  }
+  const metrics: SliceMetrics = {
+    domEstimate,
+    baseOnlyRects,
+    detailRects,
+    splitCount: 0,
+    idealCells,
+    paintedCells: verifyResult.paintedCells,
+    uniqueColors
+  };
+  return {
+    kind: "svg",
+    brushes: [...basePacked.map(packedToBrush), ...svgBrushes],
+    packed: basePacked,
+    pairing,
+    compositeEstimate,
+    metrics,
+    scoreTotal: scorePlan(metrics, false),
+    verified: true
+  };
+};
+
+const computeUniqueColors = (ids: Uint32Array, paletteSize: number): number => {
+  if (!ids.length) return 0;
+  const seen = new Uint8Array(Math.max(1, paletteSize));
+  let count = 0;
+  for (const id of ids) {
+    if (!id) continue;
+    if (!seen[id]) {
+      seen[id] = 1;
+      count += 1;
+    }
+  }
+  return count;
+};
+
+const buildFallbackCellBrushes = (buffer: FaceData["buffer"]): PackedBrush[] => {
+  const brushes: PackedBrush[] = [];
+  const { width, height, ids, palette } = buffer;
+  for (let r = 0; r < height; r += 1) {
+    const rowBase = r * width;
+    for (let c = 0; c < width; c += 1) {
+      const id = ids[rowBase + c];
+      if (!id) continue;
+      const baseColor = palette[id] ?? "";
+      brushes.push({
+        mode: "BASE",
+        r0: r,
+        c0: c,
+        r1: r + 1,
+        c1: c + 1,
+        baseColor
+      });
+    }
+  }
+  return brushes;
+};
+
+const countTopLevelBrushKinds = (packed: PackedBrush[], pairing: BrushPairing): BrushCounts => {
+  const counts: BrushCounts = { base: 0, stamp: 0, combo: 0, svg: 0 };
+  for (let i = 0; i < packed.length; i += 1) {
+    if (pairing.children.has(i)) continue;
+    const brush = packed[i];
+    if (brush.mode === "BASE") counts.base += 1;
+    else if (brush.mode === "STAMP") counts.stamp += 1;
+    else if (brush.mode === "COMBO") counts.combo += 1;
+  }
+  return counts;
+};
+
+const chooseBestPass = (passes: PassResult[]): PassResult | null => {
+  let best: PassResult | null = null;
+  for (const pass of passes) {
+    if (!pass.verified) continue;
+    if (!best) {
+      best = pass;
+      continue;
+    }
+    if (pass.metrics.domEstimate < best.metrics.domEstimate) {
+      best = pass;
+      continue;
+    }
+    if (pass.metrics.domEstimate === best.metrics.domEstimate && pass.scoreTotal < best.scoreTotal) {
+      best = pass;
+    }
+  }
+  if (!best) return null;
+  if (best.kind === "svg") return best;
+
+  const svgCandidates = passes.filter((pass) => pass.verified && pass.kind === "svg");
+  if (!svgCandidates.length) return best;
+
+  const domSlack = Math.max(6, Math.round(best.metrics.domEstimate * 0.15));
+  const compositeGainMin = Math.max(1, Math.round(best.compositeEstimate * 0.05));
+  let svgPick: PassResult | null = null;
+  for (const svg of svgCandidates) {
+    if (svg.metrics.domEstimate > best.metrics.domEstimate + domSlack) continue;
+    if (best.compositeEstimate - svg.compositeEstimate < compositeGainMin) continue;
+    if (!svgPick) {
+      svgPick = svg;
+      continue;
+    }
+    if (svg.metrics.domEstimate < svgPick.metrics.domEstimate) {
+      svgPick = svg;
+      continue;
+    }
+    if (svg.metrics.domEstimate === svgPick.metrics.domEstimate && svg.compositeEstimate < svgPick.compositeEstimate) {
+      svgPick = svg;
+    }
+  }
+  return svgPick ?? best;
+};
+
+export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
+  const facePlan: FacePlan = buildFacePlan(faceData);
+  const buffer = faceData.buffer;
+  const regions = buildRegionsFromHosts(facePlan.hosts);
+  const palette = buffer.palette;
+  const rectResult = buildBrushRects(regions, palette);
+  const paletteIds = new Map<string, number>();
+  for (let i = 1; i < palette.length; i += 1) paletteIds.set(palette[i], i);
+  const uniqueColors = computeUniqueColors(buffer.ids, palette.length);
+  const idealCells = faceData.fillCells;
+  const scratch = new Uint32Array(buffer.width * buffer.height);
+  const svgBrushes = rectResult.detailsValid ? buildSvgBrushes(regions, palette) : [];
+
+  const passes: PassResult[] = [];
+  if (rectResult.detailsValid) {
+    const passARaw = evaluatePackedPass(
+      "raw",
+      buildBasePackedBrushes(rectResult.rects),
+      rectResult.baseOnlyRects,
+      rectResult.detailRects,
+      uniqueColors,
+      idealCells,
+      buffer,
+      paletteIds,
+      scratch
+    );
+    passes.push(passARaw);
+
+    const packed: PackedBrush[] = [];
+    const passBPacked = evaluatePackedPass(
+      "packed",
+      packRectsToBrushes(rectResult.rects, packed),
+      rectResult.baseOnlyRects,
+      rectResult.detailRects,
+      uniqueColors,
+      idealCells,
+      buffer,
+      paletteIds,
+      scratch
+    );
+    passes.push(passBPacked);
+
+    if (passBPacked.verified) {
+      if (svgBrushes.length) {
+        const basePacked: PackedBrush[] = [];
+        packRectsToBrushes(rectResult.baseRects, basePacked);
+      const passSvg = evaluateSvgPass(
+        basePacked,
+        svgBrushes,
+          rectResult.baseOnlyRects,
+          rectResult.detailRects,
+          uniqueColors,
+          idealCells,
+          buffer,
+          paletteIds,
+          scratch,
+          passBPacked.packed,
+          passBPacked.pairing
+        );
+        passes.push(passSvg);
+      }
+      const baseline: PackedBrush[] = [];
+      packRectsToBrushes(rectResult.rects, baseline);
+      const optimized = optimizeBrushOverlaps(
+        baseline.map((brush) => ({
+          ...brush,
+          before: brush.before ? { ...brush.before } : undefined,
+          after: brush.after ? { ...brush.after } : undefined
+        })),
+        baseline
+      );
+      const passCMerge = evaluatePackedPass(
+        "merge",
+        optimized.brushes,
+        rectResult.baseOnlyRects,
+        rectResult.detailRects,
+        uniqueColors,
+        idealCells,
+        buffer,
+        paletteIds,
+        scratch
+      );
+      passes.push(passCMerge);
+    }
+  }
+
+  let best = chooseBestPass(passes);
+  let fallback = false;
+  if (!best) {
+    fallback = true;
+    const fallbackBrushes = buildFallbackCellBrushes(buffer);
+    const fallbackPass = evaluatePackedPass(
+      "fallback",
+      fallbackBrushes,
+      rectResult.baseOnlyRects,
+      rectResult.detailRects,
+      uniqueColors,
+      idealCells,
+      buffer,
+      paletteIds,
+      scratch
+    );
+    if (fallbackPass.verified) {
+      const metrics = { ...fallbackPass.metrics };
+      const scoreTotal = scorePlan(metrics, true);
+      best = { ...fallbackPass, metrics, scoreTotal, verified: true };
+    } else {
+      best = {
+        kind: "fallback",
+        brushes: [],
+        packed: [],
+        pairing: buildBrushPairing([]),
+        compositeEstimate: 0,
+        metrics: {
+          domEstimate: 0,
+          baseOnlyRects: rectResult.baseOnlyRects,
+          detailRects: rectResult.detailRects,
+          splitCount: 0,
+          idealCells,
+          paintedCells: 0,
+          uniqueColors
+        },
+        scoreTotal: Number.POSITIVE_INFINITY,
+        verified: false
+      };
+    }
+  }
+
+  const metrics = best.metrics;
+  const brushCounts = countTopLevelBrushKinds(best.packed, best.pairing);
+  brushCounts.svg = best.brushes.reduce((sum, brush) => sum + (brush.kind === "SVG" ? 1 : 0), 0);
+  return {
+    key: faceData.key,
+    buffer,
+    regions,
+    brushes: best.brushes,
+    brushCounts,
+    metrics,
+    scoreTotal: best.scoreTotal,
+    status: fallback ? "degraded" : "ok",
+    fallback
+  };
+};
+
+export const buildAxisSlices = (plans: SlicePlan[]): AxisSlices => ({
+  x: plans.filter((plan) => plan.key.axis === "x"),
+  y: plans.filter((plan) => plan.key.axis === "y"),
+  z: plans.filter((plan) => plan.key.axis === "z")
+});
+
+export { buildSliceCacheKey, buildFaceDataFromSnapshot };

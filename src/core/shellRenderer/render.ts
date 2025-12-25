@@ -60,7 +60,7 @@ const applyBrush = (
   setStyleIfDiff(brush, "height", "");
 };
 
-type BrushRect = {
+export type BrushRect = {
   x: number;
   y: number;
   w: number;
@@ -70,7 +70,7 @@ type BrushRect = {
   id: number;
 };
 
-type PackedBrush = {
+export type PackedBrush = {
   mode: "BASE" | "STAMP" | "COMBO";
   r0: number;
   c0: number;
@@ -82,7 +82,7 @@ type PackedBrush = {
 };
 
 type FaceSvgHost = { host: HostPlan; gridArea: string; hostWidth: number; hostHeight: number };
-type BrushPairing = { absorbed: Map<number, AbsorbPlan[]>; nested: Map<number, number>; children: Set<number> };
+export type BrushPairing = { absorbed: Map<number, AbsorbPlan[]>; nested: Map<number, number>; children: Set<number> };
 type FaceBrushCacheEntry = {
   signatureHash: number;
   brushes: PackedBrush[];
@@ -158,9 +158,9 @@ const compareInnerRect = (a: BrushRect, b: BrushRect): number => {
 
 const isBetterInner = (a: BrushRect, b: BrushRect): boolean => compareInnerRect(a, b) < 0;
 
-type PaintRect = { r0: number; c0: number; r1: number; c1: number; color: string };
+export type PaintRect = { r0: number; c0: number; r1: number; c1: number; color: string };
 type BrushLayers = { base: PaintRect | null; before: PaintRect | null; after: PaintRect | null };
-type AbsorbPlan = { slot: "before" | "after"; rect: PaintRect };
+export type AbsorbPlan = { slot: "before" | "after"; rect: PaintRect };
 
 const normalizePaintColor = (value?: string): string | null => {
   const raw = (value ?? "").trim();
@@ -1502,4 +1502,4 @@ const renderFacePlans = (
 };
 
 
-export { renderFacePlans };
+export { renderFacePlans, packRectsToBrushes, buildBrushPairing, optimizeBrushOverlaps };

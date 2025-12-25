@@ -1,7 +1,7 @@
 import type { ShapeRenderer, CubeFace } from "../types";
 import { CUBE_CLASS, FACE_CLASS } from "../types";
 import { computeVisibleFaces } from "../visibility";
-import { applyCubeFaceAppearance } from "../cubeFaceAppearance";
+import { applyCubeFaceAppearance } from "../faceAppearance";
 
 const cubeDomCache = new WeakMap<HTMLElement, Map<CubeFace, HTMLElement>>();
 
