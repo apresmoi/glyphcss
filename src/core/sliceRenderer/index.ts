@@ -199,9 +199,7 @@ export function updateSliceRendererGeometry(
   }
 
   if (layersChanged || depsChanged) {
-    console.log(
-      `[VoxCSS] sliceRenderer stats ${stats}`
-    );
+    console.log("[VoxCSS] sliceRenderer stats", stats);
   }
 
   return hosts;
