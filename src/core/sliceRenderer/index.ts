@@ -1,7 +1,7 @@
 import type { RenderState } from "../types";
 import { DEFAULT_WALLS } from "../types";
 import type { SliceRendererDomState, SliceRendererSnapshot } from "./slicePlan";
-import { ensureSliceRendererHosts, clearSliceRenderer, getDomPerCell } from "./slicePlan";
+import { ensureSliceRendererHosts, clearSliceRenderer } from "./slicePlan";
 import { wallsToSig } from "./sliceCore";
 import { buildFaceDataFromSnapshot, buildSliceCacheKey, buildSlicePlan } from "./slicePlan";
 import { renderSlicePlans } from "./sliceRender";
@@ -20,8 +20,6 @@ export function updateSliceRendererGeometry(
   const rows = Math.max(context.rows, 1);
   const cols = Math.max(context.cols, 1);
   const depth = Math.max(snapshot.layers.length, 0);
-  const lighting = context.lighting ?? null;
-  const resolveTexture = context.resolveTexture ?? null;
   const offsets = context.offsets;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
@@ -33,8 +31,6 @@ export function updateSliceRendererGeometry(
   const renderVersionChanged = hasRenderVersion && hosts.cacheRenderVersion !== renderVersion;
 
   const depsChanged =
-    hosts.cacheLighting !== lighting ||
-    hosts.cacheResolveTexture !== resolveTexture ||
     hosts.cacheOffsets !== offsets ||
     hosts.cacheTileSize !== tileSize ||
     hosts.cacheLayerElevation !== layerElevation ||
@@ -52,8 +48,6 @@ export function updateSliceRendererGeometry(
 
   if (depsChanged) {
     hosts.faceCache.clear();
-    hosts.cacheLighting = lighting;
-    hosts.cacheResolveTexture = resolveTexture;
     hosts.cacheOffsets = offsets;
     hosts.cacheTileSize = tileSize;
     hosts.cacheLayerElevation = layerElevation;
@@ -128,126 +122,7 @@ export function updateSliceRendererGeometry(
     }
   }
 
-  const stats = renderSlicePlans(hosts, snapshot, documentRef, plans ?? []);
-  const activePlans = plans ?? [];
-  const renderedPlans = activePlans.filter((plan) => !walls[plan.key.face]);
-  const slices = activePlans.map((plan) => ({
-    brushBase: plan.brushCounts.base,
-    brushStamp: 0,
-    brushCombo: 0,
-    brushSvg: 0,
-    brushGradient: 0,
-    brushTotal: plan.brushCounts.base,
-    axis: plan.key.axis,
-    plane: plan.key.plane,
-    face: plan.key.face,
-    scoreTotal: plan.scoreTotal,
-    domEstimate: plan.metrics.domEstimate,
-    detailRects: plan.metrics.detailRects,
-    uniqueColors: plan.metrics.uniqueColors,
-    idealCells: plan.metrics.idealCells,
-    paintedCells: plan.metrics.paintedCells,
-    fallback: plan.fallback
-  }));
-  const worstSlices = activePlans
-    .slice()
-    .sort((a, b) => b.scoreTotal - a.scoreTotal)
-    .slice(0, 5)
-    .map((plan) => ({
-      axis: plan.key.axis,
-      plane: plan.key.plane,
-      face: plan.key.face,
-      scoreTotal: Number.isFinite(plan.scoreTotal) ? Number(plan.scoreTotal.toFixed(3)) : plan.scoreTotal,
-      domEstimate: plan.metrics.domEstimate,
-      domPerCell: Number(getDomPerCell(plan.metrics).toFixed(3)),
-      detailRects: plan.metrics.detailRects,
-      uniqueColors: plan.metrics.uniqueColors,
-      fallback: plan.fallback
-    }));
-  let totalDomEstimate = 0;
-  let totalIdealCells = 0;
-  let totalPaintedCells = 0;
-  let totalDetailRects = 0;
-  let fallbackSlices = 0;
-  for (const plan of renderedPlans) {
-    totalDomEstimate += plan.metrics.domEstimate;
-    totalIdealCells += plan.metrics.idealCells;
-    totalPaintedCells += plan.metrics.paintedCells;
-    totalDetailRects += plan.metrics.detailRects;
-    if (plan.fallback) fallbackSlices += 1;
-  }
-  const paintedCells = Number.isFinite(totalPaintedCells) ? totalPaintedCells : totalIdealCells;
-  const paintCost = stats.paintCost;
-  const overdrawCells = Math.max(0, paintCost - paintedCells);
-  const wastedPaint = overdrawCells;
-  const wastedPaintRatio = paintedCells > 0 ? wastedPaint / paintedCells : 0;
-  const overdrawRatio = paintCost / Math.max(1, paintedCells);
-  const domPerCell = totalDomEstimate / Math.max(1, totalIdealCells);
-  const fragPerCell = totalDetailRects / Math.max(1, totalIdealCells);
-
-  if (typeof globalThis !== "undefined") {
-    (globalThis as { __voxcssLastSliceRendererReport?: unknown }).__voxcssLastSliceRendererReport = {
-      slices,
-      worstSlices,
-      totals: {
-        domEstimate: totalDomEstimate,
-        paintedCells,
-        paintCost: Math.round(paintCost),
-        wastedPaint: Math.round(wastedPaint),
-        wastedPaintRatio: Number.isFinite(wastedPaintRatio) ? Number(wastedPaintRatio.toFixed(3)) : 0,
-        overdrawCells: Math.round(overdrawCells),
-        overdrawRatio: Number.isFinite(overdrawRatio) ? Number(overdrawRatio.toFixed(3)) : 0,
-        compositeNodes: stats.compositeNodes
-      },
-      renderStats: {
-        paintCells: stats.paintCells,
-        paintCost: Math.round(paintCost),
-        paintedCells,
-        wastedPaint: Math.round(wastedPaint),
-        wastedPaintRatio: Number.isFinite(wastedPaintRatio) ? Number(wastedPaintRatio.toFixed(3)) : 0,
-        overdrawCells: Math.round(overdrawCells),
-        overdrawRatio: Number.isFinite(overdrawRatio) ? Number(overdrawRatio.toFixed(3)) : 0,
-        pseudoLayers: stats.pseudoLayers,
-        pseudoArea: stats.pseudoArea,
-        brushNodes: stats.brushNodes,
-        brushBase: stats.brushBase,
-        brushStamp: stats.brushStamp,
-        brushCombo: stats.brushCombo,
-        brushGradient: stats.brushGradient,
-        brushSvg: stats.brushSvg,
-        svgNodes: stats.svgNodes,
-        svgPaths: stats.svgPaths,
-        compositeNodes: stats.compositeNodes
-      }
-    };
-  }
-
-  if (layersChanged || depsChanged) {
-    const round3 = (value: number): number => (Number.isFinite(value) ? Number(value.toFixed(3)) : value);
-    const tuningReport = {
-      totals: {
-        domEstimate: Math.round(totalDomEstimate),
-        domPerCell: round3(domPerCell),
-        detailRects: totalDetailRects,
-        fragPerCell: round3(fragPerCell),
-        paintedCells: Math.round(paintedCells),
-        paintCost: Math.round(paintCost),
-        overdrawRatio: round3(overdrawRatio),
-        wastedPaintRatio: round3(wastedPaintRatio),
-        fallbacks: fallbackSlices
-      },
-      brushes: {
-        nodes: stats.brushNodes,
-        base: stats.brushBase,
-        stamp: stats.brushStamp,
-        combo: stats.brushCombo,
-        gradient: stats.brushGradient,
-        svg: stats.brushSvg
-      },
-      worstSlices: worstSlices.slice(0, 3)
-    };
-    console.log("[VoxCSS] sliceRenderer report", tuningReport);
-  }
+  renderSlicePlans(hosts, snapshot, documentRef, plans ?? []);
 
   return hosts;
 }

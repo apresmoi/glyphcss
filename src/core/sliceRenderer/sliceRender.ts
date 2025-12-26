@@ -3,22 +3,6 @@ import { DEFAULT_WALLS } from "../types";
 import type { Brush, SlicePlan, SliceRendererDomState, SliceRendererSnapshot } from "./slicePlan";
 import { STAMP_FACE_Z_OFFSET, formatZOffset, setCssVarIfDiff, setStyleIfDiff } from "./sliceCore";
 
-type SliceRenderStats = {
-  paintCells: number;
-  paintCost: number;
-  brushNodes: number;
-  brushBase: number;
-  brushStamp: number;
-  brushCombo: number;
-  brushGradient: number;
-  brushSvg: number;
-  pseudoLayers: number;
-  pseudoArea: number;
-  svgNodes: number;
-  svgPaths: number;
-  compositeNodes: number;
-};
-
 const normalizePaintColor = (value?: string): string | null => {
   const raw = String(value ?? "").trim();
   if (!raw || raw === "transparent") return null;
@@ -69,15 +53,11 @@ export const renderSlicePlans = (
   snapshot: SliceRendererSnapshot,
   documentRef: Document,
   plans: SlicePlan[]
-): SliceRenderStats => {
+): void => {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
   const layerElevation = context.layerElevation ?? tileSize;
   const walls: WallsMask = context.walls ?? DEFAULT_WALLS;
-
-  let totalPaintCells = 0;
-  let totalBrushNodes = 0;
-  let totalBrushBase = 0;
 
   const axisState = {
     z: { host: hosts.zHost, pool: hosts.zPool, index: 0 },
@@ -117,10 +97,7 @@ export const renderSlicePlans = (
     const brushZ = formatZOffset(planeOffset + stampOffset);
     const originRow = plan.buffer.minRow;
     const originCol = plan.buffer.minCol;
-    let planPaintedCells = 0;
-
     for (const brush of plan.brushes) {
-      if (brush.kind !== "BASE") continue;
       const color = normalizePaintColor(brush.baseColor);
       if (!color) continue;
       const gridArea = gridAreaFor(
@@ -131,12 +108,7 @@ export const renderSlicePlans = (
       );
       const el = nextBrush(axis);
       applyBrush(el, gridArea, color, brushZ);
-      totalBrushNodes += 1;
-      totalBrushBase += 1;
-      planPaintedCells += (brush.r1 - brush.r0) * (brush.c1 - brush.c0);
     }
-
-    totalPaintCells += planPaintedCells;
   }
 
   for (const axis of Object.keys(axisState) as Array<keyof typeof axisState>) {
@@ -144,20 +116,5 @@ export const renderSlicePlans = (
     for (let i = bucket.index; i < bucket.pool.length; i += 1) bucket.pool[i]?.remove();
   }
 
-  const paintCost = totalPaintCells;
-  return {
-    paintCells: totalPaintCells,
-    paintCost,
-    brushNodes: totalBrushNodes,
-    brushBase: totalBrushBase,
-    brushStamp: 0,
-    brushCombo: 0,
-    brushGradient: 0,
-    brushSvg: 0,
-    pseudoLayers: 0,
-    pseudoArea: 0,
-    svgNodes: 0,
-    svgPaths: 0,
-    compositeNodes: totalBrushNodes
-  };
+  return;
 };
