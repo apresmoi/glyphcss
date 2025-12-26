@@ -1,5 +1,5 @@
 import type { GridContext, RenderState, Voxel } from "../types";
-import type { DetailPlan, FaceBuffer, FaceData, FaceKey, FacePlan, HostPlan } from "./sliceCore";
+import type { DetailPlan, FaceBuffer, FaceData, FaceKey, HostPlan } from "./sliceCore";
 import {
   buildCacheKey as buildFaceCacheKey,
   buildFaceDataFromSnapshot,
@@ -9,15 +9,6 @@ import {
 } from "./sliceCore";
 
 export type SliceAxis = "x" | "y" | "z";
-
-export type RegionPlan = {
-  r0: number;
-  c0: number;
-  r1: number;
-  c1: number;
-  baseColorId: number;
-  details: DetailPlan[];
-};
 
 export type Brush = {
   r0: number;
@@ -30,7 +21,6 @@ export type Brush = {
 export type SlicePlan = {
   key: FaceKey;
   buffer: FaceBuffer;
-  regions: RegionPlan[];
   brushes: Brush[];
 };
 
@@ -57,7 +47,6 @@ export interface SliceRendererDomState {
   cacheRenderVersion: number | null;
   cacheLayersRef: Voxel[][] | null;
   lastSlices: SlicePlan[] | null;
-  warnedUnstableLayers?: boolean;
 }
 
 export const SLICE_RENDERER_VERSION = 1;
@@ -101,8 +90,7 @@ export const ensureSliceRendererHosts = (
     cacheWallsSig: 0,
     cacheRenderVersion: null,
     cacheLayersRef: null,
-    lastSlices: null,
-    warnedUnstableLayers: false
+    lastSlices: null
   };
 };
 
@@ -146,18 +134,8 @@ const normalizePaintColor = (value?: string): string | null => {
   return raw;
 };
 
-const buildRegionsFromHosts = (hosts: HostPlan[]): RegionPlan[] =>
-  hosts.map((host) => ({
-    r0: host.r0,
-    c0: host.c0,
-    r1: host.r1,
-    c1: host.c1,
-    baseColorId: host.baseColorId,
-    details: host.details
-  }));
-
 const buildDetailRectsForRegion = (
-  region: RegionPlan,
+  region: HostPlan,
   palette: string[]
 ): { rects: BrushRect[]; detailsValid: boolean } => {
   if (!region.details.length) {
@@ -242,7 +220,7 @@ const buildDetailRectsForRegion = (
   return { rects, detailsValid: true };
 };
 
-const buildBrushRects = (regions: RegionPlan[], palette: string[]): RectBuildResult => {
+const buildBrushRects = (regions: HostPlan[], palette: string[]): RectBuildResult => {
   const rects: BrushRect[] = [];
   let detailsValid = true;
   for (const region of regions) {
@@ -389,11 +367,10 @@ const buildFallbackCellBrushes = (buffer: FaceData["buffer"]): PackedBrush[] => 
 };
 
 export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
-  const facePlan: FacePlan = buildFacePlan(faceData);
+  const facePlan = buildFacePlan(faceData);
   const buffer = faceData.buffer;
-  const regions = buildRegionsFromHosts(facePlan.hosts);
   const palette = buffer.palette;
-  const rectResult = buildBrushRects(regions, palette);
+  const rectResult = buildBrushRects(facePlan.hosts, palette);
   const paletteIds = new Map<string, number>();
   for (let i = 1; i < palette.length; i += 1) paletteIds.set(palette[i], i);
   const scratch = new Uint32Array(buffer.width * buffer.height);
@@ -428,7 +405,6 @@ export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
   return {
     key: faceData.key,
     buffer,
-    regions,
     brushes: best.brushes
   };
 };

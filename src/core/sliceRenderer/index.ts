@@ -41,11 +41,6 @@ export function updateSliceRendererGeometry(
   const layersRefChanged = hosts.cacheLayersRef !== snapshot.layers;
   const layersChanged = hasRenderVersion ? renderVersionChanged : layersRefChanged;
 
-  if (!hasRenderVersion && layersRefChanged && hosts.cacheLayersRef && !hosts.warnedUnstableLayers) {
-    console.warn("[VoxCSS] sliceRenderer called with unstable snapshot.layers; this will force rebuilds. Provide renderVersion or reuse layers array.");
-    hosts.warnedUnstableLayers = true;
-  }
-
   if (depsChanged) {
     hosts.faceCache.clear();
     hosts.cacheOffsets = offsets;
