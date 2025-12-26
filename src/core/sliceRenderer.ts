@@ -33,6 +33,7 @@ const MIN_HOST_AREA = 8;
 const FRAGMENTATION_LIMIT = 400;
 const SPLIT_CANDIDATE_LIMIT = 4;
 const SLICE_RENDERER_VERSION = 1;
+const BRUSH_CLASS = "voxcss-brush";
 
 const wallsToSig = (walls: WallsMask): number =>
   (walls.t ? 1 : 0) |
@@ -42,22 +43,15 @@ const wallsToSig = (walls: WallsMask): number =>
   (walls.fl ? 16 : 0) |
   (walls.fr ? 32 : 0);
 
-let __colorParserStyle: CSSStyleDeclaration | null = null;
-const __colorCache = new Map<string, { r: number; g: number; b: number } | null>();
-
-const getColorParserStyle = (): CSSStyleDeclaration | null => {
-  if (typeof document === "undefined") return null;
-  if (__colorParserStyle) return __colorParserStyle;
-  const style = new Option().style;
-  __colorParserStyle = style;
-  return style;
-};
+const AXIS_ORDER: Record<PlaneAxis, number> = { x: 0, y: 1, z: 2 };
+const FACE_ORDER = new Map<CubeFace, number>();
+CUBE_FACES.forEach((face, index) => FACE_ORDER.set(face, index));
 
 const normalizeCssColor = (rawColor: string, brightness: number): { r: number; g: number; b: number } | null => {
-  const parser = getColorParserStyle();
-  if (!parser) return null;
-  parser.color = rawColor;
-  const computed = parser.color;
+  if (typeof document === "undefined") return null;
+  const style = new Option().style;
+  style.color = rawColor;
+  const computed = style.color;
   if (!computed) return null;
   const match = computed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+)\s*)?\)$/i);
   if (!match) return null;
@@ -100,13 +94,7 @@ function getAppearanceColorKey(
   }
   const rawColor = appearance.backgroundColor.trim();
   if (!rawColor) return null;
-  const cacheKey = `${rawColor}||${brightness}`;
-  if (__colorCache.has(cacheKey)) {
-    const cached = __colorCache.get(cacheKey);
-    return cached ? { r: cached.r, g: cached.g, b: cached.b } : null;
-  }
   const normalized = normalizeCssColor(rawColor, brightness);
-  __colorCache.set(cacheKey, normalized);
   if (!normalized) return null;
   return { r: normalized.r, g: normalized.g, b: normalized.b };
 }
@@ -172,55 +160,6 @@ const makeRectEngine = (width: number, height: number) => {
   const hist = new Int32Array(width);
   const stack = new Int32Array(width + 1);
 
-  const forEachRectRuns = (
-    r0: number,
-    c0: number,
-    r1: number,
-    c1: number,
-    isOn: (idx: number) => boolean,
-    onRect: (rr0: number, rc0: number, rr1: number, rc1: number) => void
-  ): void => {
-    const openStore: number[] = [];
-    const open = new Map<number, number>();
-    const keyFor = (runC0: number, runC1: number): number =>
-      runC0 * (width + 1) + runC1;
-    const closeRectAt = (index: number): void => {
-      onRect(openStore[index], openStore[index + 1], openStore[index + 2], openStore[index + 3]);
-    };
-
-    for (let r = r0; r < r1; r += 1) {
-      const nextOpen = new Map<number, number>();
-      const rowBase = r * width;
-      let c = c0;
-      while (c < c1) {
-        while (c < c1 && !isOn(rowBase + c)) c += 1;
-        if (c >= c1) break;
-        const runC0 = c;
-        while (c < c1 && isOn(rowBase + c)) c += 1;
-        const runC1 = c;
-        const key = keyFor(runC0, runC1);
-        const prevIndex = open.get(key);
-        if (prevIndex !== undefined && openStore[prevIndex + 2] === r) {
-          openStore[prevIndex + 2] = r + 1;
-          nextOpen.set(key, prevIndex);
-        } else {
-          const index = openStore.length;
-          openStore.push(r, runC0, r + 1, runC1);
-          nextOpen.set(key, index);
-        }
-      }
-
-      for (const [key, index] of open) {
-        if (!nextOpen.has(key)) closeRectAt(index);
-      }
-
-      open.clear();
-      for (const [key, index] of nextOpen) open.set(key, index);
-    }
-
-    for (const index of open.values()) closeRectAt(index);
-  };
-
   const maxRectInMask = (mask: Uint8Array): [number, number, number, number, number] => {
     hist.fill(0);
     let bestArea = 0;
@@ -283,7 +222,7 @@ const makeRectEngine = (width: number, height: number) => {
     return { rects, coveredAll: remaining <= 0 };
   };
 
-  return { forEachRectRuns, maxRects };
+  return { maxRects };
 };
 
 const buildMaskPsum = (mask: Uint8Array, width: number, height: number): Uint32Array => {
@@ -442,16 +381,12 @@ const buildFaceDataFromSnapshot = (snapshot: { layers: Voxel[][]; context: GridC
     }
   }
 
-  const axisOrder: Record<PlaneAxis, number> = { x: 0, y: 1, z: 2 };
-  const faceOrder = new Map<CubeFace, number>();
-  CUBE_FACES.forEach((face, index) => faceOrder.set(face, index));
-
   const buildersList = Array.from(builders.values());
   buildersList.sort((a, b) => {
-    const axisDiff = axisOrder[a.key.axis] - axisOrder[b.key.axis];
+    const axisDiff = AXIS_ORDER[a.key.axis] - AXIS_ORDER[b.key.axis];
     if (axisDiff) return axisDiff;
     if (a.key.plane !== b.key.plane) return a.key.plane - b.key.plane;
-    return (faceOrder.get(a.key.face) ?? 0) - (faceOrder.get(b.key.face) ?? 0);
+    return (FACE_ORDER.get(a.key.face) ?? 0) - (FACE_ORDER.get(b.key.face) ?? 0);
   });
   for (const builder of buildersList) {
     if (builder.cells.length > 1) {
@@ -524,51 +459,6 @@ const analyzeHostColors = (
   const baseCoverage = area ? baseCount / area : 0;
   resetHistogram(scratch);
   return { baseColorId, uniqueColors, baseCoverage, colorCounts, invalid };
-};
-
-const extractColorRects = (
-  buffer: FaceBuffer,
-  rect: HostRect,
-  colorId: number,
-  rectEngine: ReturnType<typeof makeRectEngine>
-): HostRect[] => {
-  const rects: HostRect[] = [];
-  rectEngine.forEachRectRuns(
-    rect.r0,
-    rect.c0,
-    rect.r1,
-    rect.c1,
-    (idx) => buffer.ids[idx] === colorId,
-    (r0, c0, r1, c1) => {
-      rects.push({ r0: r0 - rect.r0, c0: c0 - rect.c0, r1: r1 - rect.r0, c1: c1 - rect.c0 });
-    }
-  );
-  return rects;
-};
-
-const mergeAdjacentRectsExact = (rects: HostRect[]): HostRect[] => {
-  if (rects.length < 2) return rects;
-  rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-  const horiz: HostRect[] = [];
-  for (const rect of rects) {
-    const last = horiz[horiz.length - 1];
-    if (last && rect.r0 === last.r0 && rect.r1 === last.r1 && rect.c0 === last.c1) {
-      last.c1 = rect.c1;
-      continue;
-    }
-    horiz.push({ ...rect });
-  }
-  horiz.sort((a, b) => (a.c0 !== b.c0 ? a.c0 - b.c0 : a.r0 - b.r0 || a.c1 - b.c1 || a.r1 - b.r1));
-  const merged: HostRect[] = [];
-  for (const rect of horiz) {
-    const last = merged[merged.length - 1];
-    if (last && rect.c0 === last.c0 && rect.c1 === last.c1 && rect.r0 === last.r1) {
-      last.r1 = rect.r1;
-      continue;
-    }
-    merged.push({ ...rect });
-  }
-  return merged;
 };
 
 const chooseSplitLine = (
@@ -691,133 +581,24 @@ const chooseSplitLine = (
   return best;
 };
 
-const appendBaseBrush = (
-  brushes: Brush[],
-  palette: string[],
-  region: HostRect,
-  baseColorId: number
-): boolean => {
-  if (baseColorId < 0) return true;
-  const color = normalizePaintColor(palette[baseColorId]);
-  if (!color) return false;
-  const w = region.c1 - region.c0;
-  const h = region.r1 - region.r0;
-  if (w > 0 && h > 0) {
-    brushes.push({
-      r0: region.r0,
-      c0: region.c0,
-      r1: region.r1,
-      c1: region.c1,
-      baseColor: color
-    });
-  }
-  return true;
-};
-
-const appendDetailBrushes = (
-  brushes: Brush[],
-  region: HostRect,
-  details: Array<{ rects: HostRect[]; fill: string }>
-): boolean => {
-  if (!details.length) return true;
-  const byColor = new Map<string, Array<{ x: number; y: number; w: number; h: number }>>();
-  for (const detail of details) {
-    const rectRuns = detail.rects;
-    if (!rectRuns.length) return false;
-    const fill = normalizePaintColor(detail.fill);
-    if (!fill) return false;
-    let list = byColor.get(fill);
-    if (!list) {
-      list = [];
-      byColor.set(fill, list);
-    }
-    for (const rect of rectRuns) {
-      const width = rect.c1 - rect.c0;
-      const height = rect.r1 - rect.r0;
-      if (width <= 0 || height <= 0) continue;
-      list.push({ x: rect.c0, y: rect.r0, w: width, h: height });
-    }
-  }
-  const width = Math.max(0, region.c1 - region.c0);
-  const height = Math.max(0, region.r1 - region.r0);
-  const rectEngine = width > 0 && height > 0 ? makeRectEngine(width, height) : null;
-  const mask = rectEngine ? new Uint8Array(width * height) : null;
-  for (const [color, runs] of byColor) {
-    if (!runs.length) continue;
-    let mergedRects: Array<{ r0: number; c0: number; r1: number; c1: number }> | null = null;
-    if (rectEngine && mask) {
-      mask.fill(0);
-      let fillCells = 0;
-      for (const run of runs) {
-        const r0 = Math.max(0, run.y);
-        const c0 = Math.max(0, run.x);
-        const r1 = Math.min(height, run.y + run.h);
-        const c1 = Math.min(width, run.x + run.w);
-        if (r1 <= r0 || c1 <= c0) continue;
-        for (let r = r0; r < r1; r += 1) {
-          const rowBase = r * width;
-          for (let c = c0; c < c1; c += 1) {
-            if (!mask[rowBase + c]) {
-              mask[rowBase + c] = 1;
-              fillCells += 1;
-            }
-          }
-        }
-      }
-      if (fillCells) {
-        const limit = Math.max(runs.length, Math.min(DETAIL_MERGE_MAX_RECTS, fillCells));
-        const merged = rectEngine.maxRects(mask, limit, fillCells);
-        if (merged.coveredAll) {
-          mergedRects = merged.rects.map((rect) => ({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1 }));
-        }
-      }
-    }
-    if (mergedRects) {
-      for (const rect of mergedRects) {
-        const w = rect.c1 - rect.c0;
-        const h = rect.r1 - rect.r0;
-        if (w <= 0 || h <= 0) continue;
-        brushes.push({
-          r0: region.r0 + rect.r0,
-          c0: region.c0 + rect.c0,
-          r1: region.r0 + rect.r1,
-          c1: region.c0 + rect.c1,
-          baseColor: color
-        });
-      }
-      continue;
-    }
-    for (const rect of runs) {
-      brushes.push({
-        r0: region.r0 + rect.y,
-        c0: region.c0 + rect.x,
-        r1: region.r0 + rect.y + rect.h,
-        c1: region.c0 + rect.x + rect.w,
-        baseColor: color
-      });
-    }
-  }
-  return true;
-};
-
 const buildFallbackHostBrushes = (
   buffer: FaceBuffer,
-  rectEngine: ReturnType<typeof makeRectEngine>
+  rectEngine: ReturnType<typeof makeRectEngine>,
+  scratchCounts: Int32Array
 ): Brush[] | null => {
-  const { ids, palette, width, height } = buffer;
-  const colorCounts = new Int32Array(palette.length);
-  for (let i = 0; i < ids.length; i += 1) if (ids[i]) colorCounts[ids[i]] += 1;
-  const paletteColors: string[] = new Array(palette.length).fill("");
+  const { ids, palette } = buffer;
+  scratchCounts.fill(0);
+  for (let i = 0; i < ids.length; i += 1) if (ids[i]) scratchCounts[ids[i]] += 1;
   const items: Array<{ r0: number; c0: number; r1: number; c1: number; colorId: number }> = [];
   const mask = new Uint8Array(ids.length);
-  for (let colorId = 1; colorId < colorCounts.length; colorId += 1) {
-    if (!colorCounts[colorId]) continue;
-    const color = normalizePaintColor(palette[colorId]);
+  for (let colorId = 1; colorId < scratchCounts.length; colorId += 1) {
+    const fillCells = scratchCounts[colorId];
+    if (!fillCells) continue;
+    const color = palette[colorId] ?? "";
     if (!color) return null;
-    paletteColors[colorId] = color;
     mask.fill(0);
     for (let i = 0; i < ids.length; i += 1) mask[i] = ids[i] === colorId ? 1 : 0;
-    const { rects } = rectEngine.maxRects(mask, colorCounts[colorId], colorCounts[colorId]);
+    const { rects } = rectEngine.maxRects(mask, fillCells, fillCells);
     for (const rect of rects) {
       if (rect.r1 <= rect.r0 || rect.c1 <= rect.c0) continue;
       items.push({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, colorId });
@@ -826,7 +607,7 @@ const buildFallbackHostBrushes = (
   items.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
   const brushes: Brush[] = [];
   for (const item of items) {
-    const color = paletteColors[item.colorId];
+    const color = palette[item.colorId] ?? "";
     if (!color) return null;
     brushes.push({
       r0: item.r0,
@@ -842,7 +623,7 @@ const buildFallbackHostBrushes = (
 const buildPlannedBrushes = (
   faceData: FaceData,
   rectEngine: ReturnType<typeof makeRectEngine>
-): { brushes: Brush[]; fallbackToHosts: boolean; invalidColor: boolean } => {
+): { brushes: Brush[]; fallbackToHosts: boolean } => {
   const { buffer, fillCells } = faceData;
   const { palette } = buffer;
   const { rects } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
@@ -854,18 +635,10 @@ const buildPlannedBrushes = (
   let splitCount = 0;
   let hostCount = 0;
   let fallback = coveredCells !== fillCells;
-  let invalidColor = false;
   const scratch: HistogramScratch = { counts: new Int32Array(buffer.palette.length), touched: [] };
 
-  const addHostBrushes = (rect: HostRect, baseColorId: number, details: Array<{ rects: HostRect[]; fill: string }>): boolean => {
-    if (!appendBaseBrush(brushes, palette, rect, baseColorId)) return false;
-    if (!appendDetailBrushes(brushes, rect, details)) return false;
-    hostCount += 1;
-    return true;
-  };
-
   const processHost = (rect: HostRect, depth: number, splitsRemaining: number): boolean => {
-    if (fallback || invalidColor) return false;
+    if (fallback) return false;
     const area = Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
     if (!area) return true;
     const transparentHost = rect.transparent === true;
@@ -886,21 +659,188 @@ const buildPlannedBrushes = (
           .filter((entry) => entry.colorId !== analysis.baseColorId)
           .slice(0, detailLimit)
           .map((entry) => entry.colorId);
-      if (!detailColors.length) {
-        if (!addHostBrushes(rect, baseColorId, [])) invalidColor = true;
-        return !invalidColor;
+      const baseColor = baseColorId >= 0 ? (palette[baseColorId] ?? "") : "";
+      if (baseColorId >= 0 && !baseColor) {
+        fallback = true;
+        return false;
       }
-      const detailPlans = detailColors.map((colorId) => {
-        let rects = extractColorRects(buffer, rect, colorId, rectEngine);
-        rects = mergeAdjacentRectsExact(rects);
-        rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+      const detailPlans: Array<{ rects: HostRect[]; fill: string }> = [];
+      let rectRunCount = 0;
+      for (const colorId of detailColors) {
+        let rects: HostRect[] = [];
+        if (rect.r1 > rect.r0 && rect.c1 > rect.c0) {
+          const openStore: number[] = [];
+          const open = new Map<number, number>();
+          const keyFor = (runC0: number, runC1: number): number =>
+            runC0 * (buffer.width + 1) + runC1;
+          const closeRectAt = (index: number): void => {
+            rects.push({
+              r0: openStore[index] - rect.r0,
+              c0: openStore[index + 1] - rect.c0,
+              r1: openStore[index + 2] - rect.r0,
+              c1: openStore[index + 3] - rect.c0
+            });
+          };
+
+          for (let r = rect.r0; r < rect.r1; r += 1) {
+            const nextOpen = new Map<number, number>();
+            const rowBase = r * buffer.width;
+            let c = rect.c0;
+            while (c < rect.c1) {
+              while (c < rect.c1 && buffer.ids[rowBase + c] !== colorId) c += 1;
+              if (c >= rect.c1) break;
+              const runC0 = c;
+              while (c < rect.c1 && buffer.ids[rowBase + c] === colorId) c += 1;
+              const runC1 = c;
+              const key = keyFor(runC0, runC1);
+              const prevIndex = open.get(key);
+              if (prevIndex !== undefined && openStore[prevIndex + 2] === r) {
+                openStore[prevIndex + 2] = r + 1;
+                nextOpen.set(key, prevIndex);
+              } else {
+                const index = openStore.length;
+                openStore.push(r, runC0, r + 1, runC1);
+                nextOpen.set(key, index);
+              }
+            }
+
+            for (const [key, index] of open) {
+              if (!nextOpen.has(key)) closeRectAt(index);
+            }
+
+            open.clear();
+            for (const [key, index] of nextOpen) open.set(key, index);
+          }
+
+          for (const index of open.values()) closeRectAt(index);
+        }
+
+        if (rects.length > 1) {
+          rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+          const horiz: HostRect[] = [];
+          for (const rectItem of rects) {
+            const last = horiz[horiz.length - 1];
+            if (last && rectItem.r0 === last.r0 && rectItem.r1 === last.r1 && rectItem.c0 === last.c1) {
+              last.c1 = rectItem.c1;
+              continue;
+            }
+            horiz.push({ ...rectItem });
+          }
+          horiz.sort((a, b) => (a.c0 !== b.c0 ? a.c0 - b.c0 : a.r0 - b.r0 || a.c1 - b.c1 || a.r1 - b.r1));
+          const merged: HostRect[] = [];
+          for (const rectItem of horiz) {
+            const last = merged[merged.length - 1];
+            if (last && rectItem.c0 === last.c0 && rectItem.c1 === last.c1 && rectItem.r0 === last.r1) {
+              last.r1 = rectItem.r1;
+              continue;
+            }
+            merged.push({ ...rectItem });
+          }
+          rects = merged;
+        }
+        if (rects.length > 1) {
+          rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+        }
         const fill = buffer.palette[colorId] ?? "";
-        return { rects, fill };
-      });
-      const rectRunCount = detailPlans.reduce((sum, entry) => sum + entry.rects.length, 0);
+        rectRunCount += rects.length;
+        detailPlans.push({ rects, fill });
+      }
       if (rectRunCount <= FRAGMENTATION_LIMIT) {
-        if (!addHostBrushes(rect, baseColorId, detailPlans)) invalidColor = true;
-        return !invalidColor;
+        if (baseColorId >= 0) {
+          const w = rect.c1 - rect.c0;
+          const h = rect.r1 - rect.r0;
+          if (w > 0 && h > 0) {
+            brushes.push({
+              r0: rect.r0,
+              c0: rect.c0,
+              r1: rect.r1,
+              c1: rect.c1,
+              baseColor: baseColor
+            });
+          }
+        }
+        if (detailPlans.length) {
+          const width = Math.max(0, rect.c1 - rect.c0);
+          const height = Math.max(0, rect.r1 - rect.r0);
+          const detailEngine = width > 0 && height > 0 ? makeRectEngine(width, height) : null;
+          const mask = detailEngine ? new Uint8Array(width * height) : null;
+          for (const detail of detailPlans) {
+            const rectRuns = detail.rects;
+            if (!rectRuns.length) {
+              fallback = true;
+              return false;
+            }
+            const color = detail.fill;
+            if (!color) {
+              fallback = true;
+              return false;
+            }
+            const runs: Array<{ x: number; y: number; w: number; h: number }> = [];
+            for (const rectRun of rectRuns) {
+              const rectWidth = rectRun.c1 - rectRun.c0;
+              const rectHeight = rectRun.r1 - rectRun.r0;
+              if (rectWidth <= 0 || rectHeight <= 0) continue;
+              runs.push({ x: rectRun.c0, y: rectRun.r0, w: rectWidth, h: rectHeight });
+            }
+            if (!runs.length) continue;
+            let mergedRects: Array<{ r0: number; c0: number; r1: number; c1: number }> | null = null;
+            if (detailEngine && mask) {
+              mask.fill(0);
+              let fillCells = 0;
+              for (const run of runs) {
+                const r0 = Math.max(0, run.y);
+                const c0 = Math.max(0, run.x);
+                const r1 = Math.min(height, run.y + run.h);
+                const c1 = Math.min(width, run.x + run.w);
+                if (r1 <= r0 || c1 <= c0) continue;
+                for (let r = r0; r < r1; r += 1) {
+                  const rowBase = r * width;
+                  for (let c = c0; c < c1; c += 1) {
+                    if (!mask[rowBase + c]) {
+                      mask[rowBase + c] = 1;
+                      fillCells += 1;
+                    }
+                  }
+                }
+              }
+              if (fillCells) {
+                const limit = Math.max(runs.length, Math.min(DETAIL_MERGE_MAX_RECTS, fillCells));
+                const merged = detailEngine.maxRects(mask, limit, fillCells);
+                if (merged.coveredAll) {
+                  mergedRects = merged.rects.map((rectItem) => ({
+                    r0: rectItem.r0, c0: rectItem.c0, r1: rectItem.r1, c1: rectItem.c1
+                  }));
+                }
+              }
+            }
+            if (mergedRects) {
+              for (const rectItem of mergedRects) {
+                const w = rectItem.c1 - rectItem.c0;
+                const h = rectItem.r1 - rectItem.r0;
+                if (w <= 0 || h <= 0) continue;
+                brushes.push({
+                  r0: rect.r0 + rectItem.r0,
+                  c0: rect.c0 + rectItem.c0,
+                  r1: rect.r0 + rectItem.r1,
+                  c1: rect.c0 + rectItem.c1,
+                  baseColor: color
+                });
+              }
+            } else {
+              for (const rectRun of runs) {
+                brushes.push({
+                  r0: rect.r0 + rectRun.y,
+                  c0: rect.c0 + rectRun.x,
+                  r1: rect.r0 + rectRun.y + rectRun.h,
+                  c1: rect.c0 + rectRun.x + rectRun.w,
+                  baseColor: color
+                });
+              }
+            }
+          }
+        }
+        hostCount += 1;
+        return true;
       }
     }
 
@@ -936,11 +876,10 @@ const buildPlannedBrushes = (
         fallback = true;
         break;
       }
-      if (invalidColor) break;
     }
   }
 
-  return { brushes, fallbackToHosts: fallback, invalidColor };
+  return { brushes, fallbackToHosts: fallback };
 };
 
 export type Brush = {
@@ -1046,17 +985,6 @@ const buildSliceCacheKey = (face: FaceData): string => {
   return `slice:${SLICE_RENDERER_VERSION}:${axis}:${plane}:${faceKey}`;
 };
 
-const normalizePaintColor = (value?: string): string | null => {
-  const raw = String(value ?? "").trim();
-  if (!raw || raw === "transparent") return null;
-  const rgbaMatch = raw.match(/^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)$/i);
-  if (rgbaMatch) {
-    const alpha = Number(rgbaMatch[1]);
-    if (Number.isFinite(alpha) && alpha <= 0) return null;
-  }
-  return raw;
-};
-
 
 const verifyPackedBrushes = (
   buffer: FaceData["buffer"],
@@ -1116,14 +1044,13 @@ const buildSlicePlan = (faceData: FaceData): SlicePlan => {
   const paletteIds = new Map<string, number>();
   for (let i = 1; i < palette.length; i += 1) paletteIds.set(palette[i], i);
   const scratch = new Uint32Array(buffer.width * buffer.height);
+  const fallbackCounts = new Int32Array(palette.length);
 
   const planned = buildPlannedBrushes(faceData, rectEngine);
   let bestBrushes: Brush[] | null = null;
-  if (!planned.invalidColor) {
-    bestBrushes = planned.fallbackToHosts
-      ? buildFallbackHostBrushes(buffer, rectEngine)
-      : planned.brushes;
-  }
+  bestBrushes = planned.fallbackToHosts
+    ? buildFallbackHostBrushes(buffer, rectEngine, fallbackCounts)
+    : planned.brushes;
 
   if (!bestBrushes || !verifyPackedBrushes(buffer, bestBrushes, paletteIds, scratch)) {
     const fallbackBrushes = buildFallbackCellBrushes(buffer);
@@ -1156,10 +1083,9 @@ const applyBrush = (
 ): void => {
   const state = brush as { __voxcssNewBrushState?: BrushState };
   const brushState = state.__voxcssNewBrushState ?? (state.__voxcssNewBrushState = {});
-  const className = "voxcss-brush";
-  if (brushState.className !== className) {
-    brush.className = className;
-    brushState.className = className;
+  if (brushState.className !== BRUSH_CLASS) {
+    brush.className = BRUSH_CLASS;
+    brushState.className = BRUSH_CLASS;
   }
   if (brushState.gridArea !== gridArea) {
     brush.style.gridArea = gridArea;
@@ -1179,7 +1105,7 @@ const renderSlicePlans = (
   hosts: SliceRendererDomState,
   snapshot: SliceRendererSnapshot,
   documentRef: Document,
-  plans: SliceRendererDomState["lastSlices"] | null
+  plans: SlicePlan[]
 ): void => {
   const context = snapshot.context;
   const tileSize = context.tileSize ?? 50;
@@ -1208,8 +1134,7 @@ const renderSlicePlans = (
     return el;
   };
 
-  const planList = plans ?? [];
-  for (const plan of planList) {
+  for (const plan of plans) {
     const { axis, plane, face } = plan.key;
     if (walls[face]) continue;
     const planeOffset = axis === "z" ? plane * layerElevation : -1 * (plane - 1) * tileSize;
@@ -1217,11 +1142,9 @@ const renderSlicePlans = (
     const originRow = plan.buffer.minRow;
     const originCol = plan.buffer.minCol;
     for (const brush of plan.brushes) {
-      const color = normalizePaintColor(brush.baseColor);
-      if (!color) continue;
       const gridArea = `${originRow + brush.r0} / ${originCol + brush.c0} / ${originRow + brush.r1} / ${originCol + brush.c1}`;
       const el = nextBrush(axis);
-      applyBrush(el, gridArea, color, brushZ);
+      applyBrush(el, gridArea, brush.baseColor, brushZ);
     }
   }
 
@@ -1311,7 +1234,7 @@ export function updateSliceRendererGeometry(
     }
   }
 
-  let plans: SliceRendererDomState["lastSlices"] | null;
+  let plans: SlicePlan[];
   let usedKeys: Set<string> | null = null;
   if (!depsChanged && hosts.lastSlices) {
     plans = hosts.lastSlices;
@@ -1340,7 +1263,7 @@ export function updateSliceRendererGeometry(
     }
   }
 
-  renderSlicePlans(hosts, snapshot, documentRef, plans ?? []);
+  renderSlicePlans(hosts, snapshot, documentRef, plans);
 
   return hosts;
 }
