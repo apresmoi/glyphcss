@@ -1,10 +1,9 @@
 import type { GridContext, RenderState, Voxel } from "../types";
-import type { DetailPlan, FaceBuffer, FaceData, FaceKey, HostPlan } from "./sliceCore";
+import type { FaceBuffer, FaceData, FaceKey, HostPlan } from "./sliceCore";
 import {
   buildCacheKey as buildFaceCacheKey,
   buildFaceDataFromSnapshot,
   buildFacePlan,
-  getDetailRects,
   makeRectEngine
 } from "./sliceCore";
 
@@ -124,18 +123,15 @@ export const normalizePaintColor = (value?: string): string | null => {
   return raw;
 };
 
-const buildDetailRectsForRegion = (
-  region: HostPlan,
-  palette: string[]
-): Brush[] | null => {
+const buildDetailRectsForRegion = (region: HostPlan): Brush[] | null => {
   if (!region.details.length) {
     return [];
   }
   const byColor = new Map<string, Array<{ x: number; y: number; w: number; h: number }>>();
   for (const detail of region.details) {
-    const rectRuns = getDetailRects(detail);
+    const rectRuns = detail.rects;
     if (!rectRuns.length) return null;
-    const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
+    const fill = normalizePaintColor(detail.fill);
     if (!fill) return null;
     let list = byColor.get(fill);
     if (!list) {
@@ -143,8 +139,10 @@ const buildDetailRectsForRegion = (
       byColor.set(fill, list);
     }
     for (const rect of rectRuns) {
-      if (rect.width <= 0 || rect.height <= 0) continue;
-      list.push({ x: rect.x, y: rect.y, w: rect.width, h: rect.height });
+      const width = rect.c1 - rect.c0;
+      const height = rect.r1 - rect.r0;
+      if (width <= 0 || height <= 0) continue;
+      list.push({ x: rect.c0, y: rect.r0, w: width, h: height });
     }
   }
   const brushes: Brush[] = [];
@@ -230,7 +228,7 @@ const buildBrushesForHosts = (regions: HostPlan[], palette: string[]): Brush[] |
       }
     }
     if (!hasDetails) continue;
-    const detailBrushes = buildDetailRectsForRegion(region, palette);
+    const detailBrushes = buildDetailRectsForRegion(region);
     if (!detailBrushes) return null;
     for (const detailBrush of detailBrushes) {
       brushes.push(detailBrush);
@@ -301,10 +299,10 @@ const buildFallbackCellBrushes = (buffer: FaceData["buffer"]): Brush[] => {
 };
 
 export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
-  const facePlan = buildFacePlan(faceData);
+  const hosts = buildFacePlan(faceData);
   const buffer = faceData.buffer;
   const palette = buffer.palette;
-  const baseBrushes = buildBrushesForHosts(facePlan.hosts, palette);
+  const baseBrushes = buildBrushesForHosts(hosts, palette);
   const paletteIds = new Map<string, number>();
   for (let i = 1; i < palette.length; i += 1) paletteIds.set(palette[i], i);
   const scratch = new Uint32Array(buffer.width * buffer.height);

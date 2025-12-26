@@ -19,21 +19,16 @@ export interface FaceBuffer {
 export interface FaceData { key: FaceKey; buffer: FaceBuffer; signatureHash: number; fillCells: number; }
 export interface HostRect { r0: number; c0: number; r1: number; c1: number; transparent?: boolean; }
 export interface DetailPlan {
-  colorId: number;
-  path: string;
-  rects?: HostRect[];
+  rects: HostRect[];
   fill: string;
-  rectsCache?: { x: number; y: number; width: number; height: number }[];
 }
-export interface HostPlan { r0: number; c0: number; r1: number; c1: number; baseColorId: number; details: DetailPlan[]; detailSig?: string; }
-export interface FacePlan { key: FaceKey; originRow: number; originCol: number; palette: string[]; signatureHash: number; hosts: HostPlan[]; fallback: boolean; }
+export interface HostPlan { r0: number; c0: number; r1: number; c1: number; baseColorId: number; details: DetailPlan[]; }
 
 type VoxcssTune = Partial<{
   baseCoverMin: number;
   fragmentationLimit: number;
   detailColorLimit: number;
   minHostArea: number;
-  maxBrushesPerHost: number;
   hostCap: number;
   maxSplitDepth: number;
   maxSplitsPerHost: number;
@@ -68,7 +63,6 @@ const MAX_HOSTS_PER_FACE = tuneNumber("maxHostsPerFace", 8000);
 const MIN_HOST_AREA = tuneNumber("minHostArea", 8);
 const FRAGMENTATION_LIMIT = tuneNumber("fragmentationLimit", 400);
 const SPLIT_CANDIDATE_LIMIT = tuneNumber("splitCandidateLimit", 4);
-const MAX_BRUSHES_PER_HOST = tuneNumber("maxBrushesPerHost", 1);
 export const wallsToSig = (walls: WallsMask): number =>
   (walls.t ? 1 : 0) |
   (walls.b ? 2 : 0) |
@@ -76,44 +70,6 @@ export const wallsToSig = (walls: WallsMask): number =>
   (walls.br ? 8 : 0) |
   (walls.fl ? 16 : 0) |
   (walls.fr ? 32 : 0);
-
-const parseSimpleRectPath = (path: string): { x: number; y: number; width: number; height: number } | null => {
-  const match = path.match(/^M([\d.]+)\s+([\d.]+)H([\d.]+)V([\d.]+)H\1Z$/);
-  if (!match) return null;
-  const x0 = Number(match[1]);
-  const y0 = Number(match[2]);
-  const x1 = Number(match[3]);
-  const y1 = Number(match[4]);
-  if (!Number.isFinite(x0) || !Number.isFinite(y0) || !Number.isFinite(x1) || !Number.isFinite(y1)) return null;
-  if (x1 <= x0 || y1 <= y0) return null;
-  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
-};
-
-const rectFromHostRect = (rect?: HostRect): { x: number; y: number; width: number; height: number } | null => {
-  if (!rect) return null;
-  const width = rect.c1 - rect.c0;
-  const height = rect.r1 - rect.r0;
-  if (width <= 0 || height <= 0) return null;
-  return { x: rect.c0, y: rect.r0, width, height };
-};
-
-export const getDetailRects = (detail?: DetailPlan): { x: number; y: number; width: number; height: number }[] => {
-  if (!detail) return [];
-  if (detail.rectsCache) return detail.rectsCache;
-  if (detail.rects?.length) {
-    const rects: { x: number; y: number; width: number; height: number }[] = [];
-    for (const rect of detail.rects) {
-      const mapped = rectFromHostRect(rect);
-      if (mapped) rects.push(mapped);
-    }
-    detail.rectsCache = rects;
-    return rects;
-  }
-  const parsed = parseSimpleRectPath(detail.path);
-  const cached = parsed ? [parsed] : [];
-  detail.rectsCache = cached;
-  return cached;
-};
 
 const HASH_SEED = 2166136261;
 const HASH_PRIME = 16777619;
@@ -376,15 +332,6 @@ export const makeRectEngine = (width: number, height: number) => {
   };
 
   return { forEachRectRuns, maxRects };
-};
-
-const buildSolidSvgPath = (rects: { r0: number; c0: number; r1: number; c1: number }[]): string => {
-  if (!rects.length) return "";
-  const pathParts: string[] = [];
-  for (const rect of rects) {
-    pathParts.push(`M${rect.c0} ${rect.r0}H${rect.c1}V${rect.r1}H${rect.c0}Z`);
-  }
-  return pathParts.join("");
 };
 
 const buildMaskPsum = (mask: Uint8Array, width: number, height: number): Uint32Array => {
@@ -673,73 +620,6 @@ const mergeAdjacentRectsExact = (rects: HostRect[]): HostRect[] => {
   return merged;
 };
 
-const ensureMask = (maskRef: { mask: Uint8Array }, size: number): Uint8Array => {
-  if (maskRef.mask.length < size) {
-    maskRef.mask = new Uint8Array(size);
-    return maskRef.mask;
-  }
-  maskRef.mask.fill(0, 0, size);
-  return maskRef.mask;
-};
-
-const verifyHostDetails = (
-  buffer: FaceBuffer,
-  host: HostRect,
-  baseColorId: number,
-  details: { colorId: number; rects: HostRect[] }[],
-  maskRef: { mask: Uint8Array }
-): boolean => {
-  const hostWidth = host.c1 - host.c0;
-  const hostHeight = host.r1 - host.r0;
-  if (hostWidth <= 0 || hostHeight <= 0) return false;
-  const mask = ensureMask(maskRef, hostWidth * hostHeight);
-  const colorMap = new Map<number, number>();
-  for (let i = 0; i < details.length; i += 1) {
-    const colorId = details[i]?.colorId ?? 0;
-    if (!colorId) continue;
-    colorMap.set(colorId, i + 1);
-  }
-  const fillMask = (rects: HostRect[], value: number): boolean => {
-    for (const rect of rects) {
-      for (let r = rect.r0; r < rect.r1; r += 1) {
-        const rowBase = r * hostWidth;
-        for (let c = rect.c0; c < rect.c1; c += 1) {
-          const idx = rowBase + c;
-          const prev = mask[idx];
-          if (prev && prev !== value) return false;
-          mask[idx] = value;
-        }
-      }
-    }
-    return true;
-  };
-  for (let i = 0; i < details.length; i += 1) {
-    const value = i + 1;
-    if (!fillMask(details[i].rects, value)) return false;
-  }
-  const ids = buffer.ids;
-  const width = buffer.width;
-  for (let r = 0; r < hostHeight; r += 1) {
-    const rowBase = (host.r0 + r) * width;
-    const maskRow = r * hostWidth;
-    for (let c = 0; c < hostWidth; c += 1) {
-      const id = ids[rowBase + host.c0 + c];
-      const m = mask[maskRow + c];
-      if (!id) {
-        if (m) return false;
-        continue;
-      }
-      if (id === baseColorId) {
-        if (m) return false;
-        continue;
-      }
-      const value = colorMap.get(id);
-      if (!value || m !== value) return false;
-    }
-  }
-  return true;
-};
-
 const pickTopK = (scores: Int32Array, k: number): number[] => {
   const indices = Array.from(scores.keys());
   indices.sort((a, b) => scores[b] - scores[a] || a - b);
@@ -859,15 +739,13 @@ const buildFallbackHostsForFace = (
   return fallbackHosts;
 };
 
-const buildFacePlan = (faceData: FaceData): FacePlan => {
+const buildFacePlan = (faceData: FaceData): HostPlan[] => {
   const { buffer, fillCells } = faceData;
   const rectEngine = makeRectEngine(buffer.width, buffer.height);
-  const { rects, coveredAll } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
-  const hostsBeforeMerge = rects.length;
+  const { rects } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
   const psum = buildMaskPsum(buffer.mask, buffer.width, buffer.height);
   const mergedRects = mergeHostRects(rects, psum, buffer.width, buffer.height);
   const hostRects = mergedRects;
-  const hostsAfterMerge = hostRects.length;
   let coveredCells = 0;
   for (const rect of hostRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
   const chosenCoveredAll = coveredCells === fillCells;
@@ -875,7 +753,6 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
   const hosts: HostPlan[] = [];
   let splitCount = 0;
   let fallback = !chosenCoveredAll;
-  const maskRef = { mask: new Uint8Array(0) };
   const scratch: HistogramScratch = { counts: new Int32Array(buffer.palette.length), touched: [] };
 
   const addHost = (plan: HostPlan): void => {
@@ -911,40 +788,17 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
       return true;
     }
     if (canStamp && detailColors.length) {
-      const detailRects = detailColors.map((colorId) => {
+      const detailPlans = detailColors.map((colorId) => {
         let rects = extractColorRects(buffer, rect, colorId, rectEngine);
         rects = mergeAdjacentRectsExact(rects);
         rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-        return { colorId, rects };
+        const fill = buffer.palette[colorId] ?? "";
+        return { rects, fill };
       });
-      const rectRunCount = detailRects.reduce((sum, entry) => sum + entry.rects.length, 0);
+      const rectRunCount = detailPlans.reduce((sum, entry) => sum + entry.rects.length, 0);
       if (rectRunCount <= FRAGMENTATION_LIMIT) {
-        const ok = verifyHostDetails(buffer, rect, baseColorId, detailRects, maskRef);
-        if (ok) {
-          const hostArea = area;
-          const detailArea = detailRects.reduce((sum, entry) => {
-            for (const detailRect of entry.rects) {
-              const rectHeight = Math.max(0, detailRect.r1 - detailRect.r0);
-              const rectWidth = Math.max(0, detailRect.c1 - detailRect.c0);
-              sum += rectHeight * rectWidth;
-            }
-            return sum;
-          }, 0);
-          const details: DetailPlan[] = [];
-          for (const entry of detailRects) {
-            const path = buildSolidSvgPath(entry.rects);
-            if (!path) continue;
-            const fill = buffer.palette[entry.colorId] ?? "";
-            const rects = entry.rects.map((rect) => ({ ...rect }));
-            details.push({ colorId: entry.colorId, path, rects, fill });
-          }
-          const hostWidth = rect.c1 - rect.c0;
-          const hostHeight = rect.r1 - rect.r0;
-          let detailSig = `${hostWidth}x${hostHeight}`;
-          for (const detail of details) detailSig += `|${detail.fill}:${detail.path}`;
-          addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details, detailSig });
-          return true;
-        }
+        addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: detailPlans });
+        return true;
       }
     }
 
@@ -990,15 +844,7 @@ const buildFacePlan = (faceData: FaceData): FacePlan => {
   }
 
 
-  return {
-    key: faceData.key,
-    originRow: buffer.minRow,
-    originCol: buffer.minCol,
-    palette: buffer.palette,
-    signatureHash: faceData.signatureHash,
-    hosts,
-    fallback
-  };
+  return hosts;
 };
 
 const buildCacheKey = (face: FaceData): string => {
