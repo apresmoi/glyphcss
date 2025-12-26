@@ -1103,11 +1103,11 @@ const renderSlicePlans = (
   const layerElevation = context.layerElevation ?? tileSize;
   const walls = context.walls ?? DEFAULT_WALLS;
 
-  const axisState = {
+  const axisState: Record<PlaneAxis, { host: HTMLElement; pool: Element[]; index: number }> = {
     z: { host: hosts.zHost, pool: hosts.zPool, index: 0 },
     x: { host: hosts.xHost, pool: hosts.xPool, index: 0 },
     y: { host: hosts.yHost, pool: hosts.yPool, index: 0 }
-  } as const;
+  };
 
   const nextBrush = (axis: "x" | "y" | "z"): HTMLElement => {
     const bucket = axisState[axis];
@@ -1139,7 +1139,7 @@ const renderSlicePlans = (
     }
   }
 
-  for (const axis of Object.keys(axisState) as Array<keyof typeof axisState>) {
+  for (const axis of Object.keys(axisState) as PlaneAxis[]) {
     const bucket = axisState[axis];
     for (let i = bucket.index; i < bucket.pool.length; i += 1) bucket.pool[i]?.remove();
   }
