@@ -539,11 +539,11 @@ const analyzeHostColors = (
   rect: HostRect,
   scratch: HistogramScratch,
   allowEmpty: boolean
-): { baseColorId: number; baseCount: number; uniqueColors: number; baseCoverage: number; nonBaseCoverage: number; area: number; colorCounts: { colorId: number; count: number }[]; invalid: boolean } => {
+): { baseColorId: number; uniqueColors: number; baseCoverage: number; nonBaseCoverage: number; colorCounts: { colorId: number; count: number }[]; invalid: boolean } => {
   const { ids, width } = buffer;
   const area = Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
   if (!area) {
-    return { baseColorId: 0, baseCount: 0, uniqueColors: 0, baseCoverage: 0, nonBaseCoverage: 0, area, colorCounts: [], invalid: true };
+    return { baseColorId: 0, uniqueColors: 0, baseCoverage: 0, nonBaseCoverage: 0, colorCounts: [], invalid: true };
   }
   let baseColorId = 0;
   let baseCount = 0;
@@ -572,7 +572,7 @@ const analyzeHostColors = (
   const baseCoverage = area ? baseCount / area : 0;
   const nonBaseCoverage = 1 - baseCoverage;
   resetHistogram(scratch);
-  return { baseColorId, baseCount, uniqueColors, baseCoverage, nonBaseCoverage, area, colorCounts, invalid };
+  return { baseColorId, uniqueColors, baseCoverage, nonBaseCoverage, colorCounts, invalid };
 };
 
 const extractColorRects = (
@@ -745,19 +745,12 @@ const buildFacePlan = (faceData: FaceData): HostPlan[] => {
   const { rects } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
   const psum = buildMaskPsum(buffer.mask, buffer.width, buffer.height);
   const mergedRects = mergeHostRects(rects, psum, buffer.width, buffer.height);
-  const hostRects = mergedRects;
   let coveredCells = 0;
-  for (const rect of hostRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
-  const chosenCoveredAll = coveredCells === fillCells;
-  // Coverage must reflect the rects we actually render.
+  for (const rect of mergedRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
   const hosts: HostPlan[] = [];
   let splitCount = 0;
-  let fallback = !chosenCoveredAll;
+  let fallback = coveredCells !== fillCells;
   const scratch: HistogramScratch = { counts: new Int32Array(buffer.palette.length), touched: [] };
-
-  const addHost = (plan: HostPlan): void => {
-    hosts.push(plan);
-  };
 
   const processHost = (rect: HostRect, depth: number, splitsRemaining: number): boolean => {
     if (fallback) return false;
@@ -773,21 +766,21 @@ const buildFacePlan = (faceData: FaceData): HostPlan[] => {
     const needsSplit = transparentHost
       ? analysis.uniqueColors > detailLimit
       : analysis.uniqueColors > detailLimit + 1 || analysis.baseCoverage < BASE_COVER_MIN;
-    const detailColors = transparentHost
-      ? analysis.colorCounts.map((entry) => entry.colorId)
-      : analysis.colorCounts
-        .filter((entry) => entry.colorId !== analysis.baseColorId)
-        .slice(0, detailLimit)
-        .map((entry) => entry.colorId);
     const canStamp = transparentHost
       ? !needsSplit && analysis.uniqueColors <= detailLimit
       : !needsSplit && analysis.uniqueColors <= detailLimit + 1 && analysis.baseCoverage >= BASE_COVER_MIN;
     const baseColorId = transparentHost ? -1 : analysis.baseColorId;
-    if (canStamp && !detailColors.length) {
-      addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: [] });
-      return true;
-    }
-    if (canStamp && detailColors.length) {
+    if (canStamp) {
+      const detailColors = transparentHost
+        ? analysis.colorCounts.map((entry) => entry.colorId)
+        : analysis.colorCounts
+          .filter((entry) => entry.colorId !== analysis.baseColorId)
+          .slice(0, detailLimit)
+          .map((entry) => entry.colorId);
+      if (!detailColors.length) {
+        hosts.push({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: [] });
+        return true;
+      }
       const detailPlans = detailColors.map((colorId) => {
         let rects = extractColorRects(buffer, rect, colorId, rectEngine);
         rects = mergeAdjacentRectsExact(rects);
@@ -797,7 +790,7 @@ const buildFacePlan = (faceData: FaceData): HostPlan[] => {
       });
       const rectRunCount = detailPlans.reduce((sum, entry) => sum + entry.rects.length, 0);
       if (rectRunCount <= FRAGMENTATION_LIMIT) {
-        addHost({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: detailPlans });
+        hosts.push({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, baseColorId, details: detailPlans });
         return true;
       }
     }
@@ -823,8 +816,8 @@ const buildFacePlan = (faceData: FaceData): HostPlan[] => {
   };
 
   if (!fallback) {
-    const sorted = hostRects.slice().sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-    for (const rect of sorted) {
+    mergedRects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+    for (const rect of mergedRects) {
       if (hosts.length > MAX_HOSTS_PER_FACE) {
         fallback = true;
         break;
@@ -837,14 +830,7 @@ const buildFacePlan = (faceData: FaceData): HostPlan[] => {
     }
   }
 
-  if (fallback) {
-    hosts.length = 0;
-    const fallbackHosts = buildFallbackHostsForFace(buffer, rectEngine);
-    for (const host of fallbackHosts) addHost(host);
-  }
-
-
-  return hosts;
+  return fallback ? buildFallbackHostsForFace(buffer, rectEngine) : hosts;
 };
 
 const buildCacheKey = (face: FaceData): string => {
