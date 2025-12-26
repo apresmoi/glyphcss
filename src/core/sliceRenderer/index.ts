@@ -129,7 +129,9 @@ export function updateSliceRendererGeometry(
   }
 
   const stats = renderSlicePlans(hosts, snapshot, documentRef, plans ?? []);
-  const slices = (plans ?? []).map((plan) => ({
+  const activePlans = plans ?? [];
+  const renderedPlans = activePlans.filter((plan) => !walls[plan.key.face]);
+  const slices = activePlans.map((plan) => ({
     brushBase: plan.brushCounts.base,
     brushStamp: plan.brushCounts.stamp,
     brushCombo: plan.brushCounts.combo,
@@ -152,7 +154,7 @@ export function updateSliceRendererGeometry(
     paintedCells: plan.metrics.paintedCells,
     fallback: plan.fallback
   }));
-  const worstSlices = (plans ?? [])
+  const worstSlices = activePlans
     .slice()
     .sort((a, b) => b.scoreTotal - a.scoreTotal)
     .slice(0, 5)
@@ -167,17 +169,43 @@ export function updateSliceRendererGeometry(
       uniqueColors: plan.metrics.uniqueColors,
       fallback: plan.fallback
     }));
+  let totalDomEstimate = 0;
+  let totalIdealCells = 0;
+  let totalPaintedCells = 0;
+  for (const plan of renderedPlans) {
+    totalDomEstimate += plan.metrics.domEstimate;
+    totalIdealCells += plan.metrics.idealCells;
+    totalPaintedCells += plan.metrics.paintedCells;
+  }
+  const paintedCells = Number.isFinite(totalPaintedCells) ? totalPaintedCells : totalIdealCells;
+  const paintCost = stats.paintCost;
+  const overdrawCells = Math.max(0, paintCost - paintedCells);
+  const wastedPaint = overdrawCells;
+  const wastedPaintRatio = paintedCells > 0 ? wastedPaint / paintedCells : 0;
+  const overdrawRatio = paintCost / Math.max(1, paintedCells);
 
   if (typeof globalThis !== "undefined") {
     (globalThis as { __voxcssLastSliceRendererReport?: unknown }).__voxcssLastSliceRendererReport = {
       slices,
       worstSlices,
       totals: {
-        domEstimate: (plans ?? []).reduce((sum, plan) => sum + plan.metrics.domEstimate, 0),
-        paintedCells: (plans ?? []).reduce((sum, plan) => sum + plan.metrics.paintedCells, 0)
+        domEstimate: totalDomEstimate,
+        paintedCells,
+        paintCost: Math.round(paintCost),
+        wastedPaint: Math.round(wastedPaint),
+        wastedPaintRatio: Number.isFinite(wastedPaintRatio) ? Number(wastedPaintRatio.toFixed(3)) : 0,
+        overdrawCells: Math.round(overdrawCells),
+        overdrawRatio: Number.isFinite(overdrawRatio) ? Number(overdrawRatio.toFixed(3)) : 0,
+        compositeNodes: stats.compositeNodes
       },
       renderStats: {
         paintCells: stats.paintCells,
+        paintCost: Math.round(paintCost),
+        paintedCells,
+        wastedPaint: Math.round(wastedPaint),
+        wastedPaintRatio: Number.isFinite(wastedPaintRatio) ? Number(wastedPaintRatio.toFixed(3)) : 0,
+        overdrawCells: Math.round(overdrawCells),
+        overdrawRatio: Number.isFinite(overdrawRatio) ? Number(overdrawRatio.toFixed(3)) : 0,
         pseudoLayers: stats.pseudoLayers,
         pseudoArea: stats.pseudoArea,
         brushNodes: stats.brushNodes,
@@ -186,11 +214,6 @@ export function updateSliceRendererGeometry(
         brushCombo: stats.brushCombo,
         brushGradient: stats.brushGradient,
         brushSvg: stats.brushSvg,
-        pseudoBase: stats.pseudoBase,
-        pseudoStamp: stats.pseudoStamp,
-        pseudoCombo: stats.pseudoCombo,
-        pseudoGradient: stats.pseudoGradient,
-        pseudoSvg: stats.pseudoSvg,
         svgNodes: stats.svgNodes,
         svgPaths: stats.svgPaths,
         compositeNodes: stats.compositeNodes

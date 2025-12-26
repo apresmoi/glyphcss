@@ -134,13 +134,20 @@ export const scorePlan = (
   const paintNorm = clamp(paintOverdraw / 0.5, 0, 1);
   const fallbackNorm = fallback ? 1 : 0;
 
+  const stampDisabled =
+    typeof globalThis !== "undefined" &&
+    (globalThis as { __voxcssSliceEnableStamp?: boolean }).__voxcssSliceEnableStamp === false;
+  const weights = stampDisabled
+    ? { dom: 0.45, frag: 0.255, detail: 0.17, paint: 0.1, fallback: 0.025 }
+    : { dom: 0.495, frag: 0.225, detail: 0.135, paint: 0.1, fallback: 0.045 };
+
   const score =
     100 *
-    (0.495 * domNorm +
-      0.225 * fragNorm +
-      0.135 * detailNorm +
-      0.1 * paintNorm +
-      0.045 * fallbackNorm);
+    (weights.dom * domNorm +
+      weights.frag * fragNorm +
+      weights.detail * detailNorm +
+      weights.paint * paintNorm +
+      weights.fallback * fallbackNorm);
 
   return clamp(score, 0, 100);
 };

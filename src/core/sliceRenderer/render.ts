@@ -17,23 +17,29 @@ type BrushRect = { x: number; y: number; w: number; h: number; color: string; ar
 
 type SliceRenderStats = {
   paintCells: number;
+  paintCost: number;
   brushNodes: number;
   brushBase: number;
   brushStamp: number;
   brushCombo: number;
   brushGradient: number;
   brushSvg: number;
-  pseudoBase: number;
-  pseudoStamp: number;
-  pseudoCombo: number;
-  pseudoGradient: number;
-  pseudoSvg: number;
   pseudoLayers: number;
   pseudoArea: number;
   svgNodes: number;
   svgPaths: number;
   compositeNodes: number;
 };
+
+const sliceToggle = (key: string, fallback: boolean): boolean => {
+  if (typeof globalThis === "undefined") return fallback;
+  const value = (globalThis as Record<string, unknown>)[key];
+  if (value === true) return true;
+  if (value === false) return false;
+  return fallback;
+};
+
+const SLICE_ENABLE_PSEUDOS = sliceToggle("__voxcssSliceEnablePseudos", false);
 
 const normalizePaintColor = (value?: string): string | null => {
   const raw = String(value ?? "").trim();
@@ -199,11 +205,6 @@ export const renderSlicePlans = (
   let totalBrushCombo = 0;
   let totalBrushGradient = 0;
   let totalBrushSvg = 0;
-  let totalPseudoBase = 0;
-  let totalPseudoStamp = 0;
-  let totalPseudoCombo = 0;
-  let totalPseudoGradient = 0;
-  let totalPseudoSvg = 0;
   let totalPseudoLayers = 0;
   let totalPseudoArea = 0;
   let totalSvgNodes = 0;
@@ -269,6 +270,7 @@ export const renderSlicePlans = (
     const paintedCells = packed.map(getBrushPaintedCells);
 
     const countPseudoLayers = (brush: PackedBrush, absorbPlans?: AbsorbPlan[]): number => {
+      if (!SLICE_ENABLE_PSEUDOS) return 0;
       let hasBefore = !!brush.before;
       let hasAfter = !!brush.after;
       if (absorbPlans) {
@@ -281,6 +283,7 @@ export const renderSlicePlans = (
     };
 
     const getPseudoArea = (brush: PackedBrush, absorbPlans?: AbsorbPlan[]): number => {
+      if (!SLICE_ENABLE_PSEUDOS) return 0;
       let beforeRect = brush.before;
       let afterRect = brush.after;
       if (absorbPlans) {
@@ -324,12 +327,7 @@ export const renderSlicePlans = (
       setCssVarIfDiff(target, varName, "none");
     };
 
-    const applyBrushWithPlacement = (
-      target: HTMLElement,
-      brush: PackedBrush,
-      gridArea: string,
-      absorbPlans?: AbsorbPlan[]
-    ): void => {
+    const resolvePseudoRects = (brush: PackedBrush, absorbPlans?: AbsorbPlan[]): { before?: BrushRect; after?: BrushRect } => {
       let beforeRect = brush.before;
       let afterRect = brush.after;
       if (absorbPlans) {
@@ -351,12 +349,38 @@ export const renderSlicePlans = (
         afterRect = beforeRect;
         beforeRect = undefined;
       }
+      return { before: beforeRect, after: afterRect };
+    };
+
+    const renderDetailBrush = (rect: BrushRect): void => {
+      const color = normalizePaintColor(rect.color);
+      if (!color || rect.w <= 0 || rect.h <= 0) return;
+      const gridArea = gridAreaFor(
+        originRow + rect.y,
+        originCol + rect.x,
+        originRow + rect.y + rect.h,
+        originCol + rect.x + rect.w
+      );
+      const brush = nextBrush(axis);
+      applyBrush(brush, gridArea, color, brushZ);
+      totalBrushNodes += 1;
+      totalBrushBase += 1;
+      planPaintedCells += rect.w * rect.h;
+    };
+
+    const applyBrushWithPlacement = (
+      target: HTMLElement,
+      brush: PackedBrush,
+      gridArea: string,
+      absorbPlans?: AbsorbPlan[]
+    ): void => {
+      const pseudoRects = SLICE_ENABLE_PSEUDOS ? resolvePseudoRects(brush, absorbPlans) : { before: undefined, after: undefined };
       clearPlaneDetailVars(target);
       applyBrush(target, gridArea, brush.baseColor, brushZ);
       setStyleIfDiff(target, "transform", "");
-      if (beforeRect) applyPseudoRect(target, "before", beforeRect, brush);
+      if (pseudoRects.before) applyPseudoRect(target, "before", pseudoRects.before, brush);
       else disablePseudo(target, "before");
-      if (afterRect) applyPseudoRect(target, "after", afterRect, brush);
+      if (pseudoRects.after) applyPseudoRect(target, "after", pseudoRects.after, brush);
       else disablePseudo(target, "after");
     };
 
@@ -386,6 +410,7 @@ export const renderSlicePlans = (
       if (brushPaintedCells <= 0) continue;
       const brush = nextBrush(axis);
       const absorbPlans = pairing.absorbed.get(i);
+      const resolvedPseudos = SLICE_ENABLE_PSEUDOS ? null : resolvePseudoRects(packedBrush, absorbPlans);
       applyBrushWithPlacement(brush, packedBrush, gridArea, absorbPlans);
       totalBrushNodes += 1;
       const brushPseudoLayers = countPseudoLayers(packedBrush, absorbPlans);
@@ -393,11 +418,12 @@ export const renderSlicePlans = (
       else if (packedBrush.mode === "STAMP") totalBrushStamp += 1;
       else if (packedBrush.mode === "COMBO") totalBrushCombo += 1;
       totalPseudoLayers += brushPseudoLayers;
-      if (packedBrush.mode === "BASE") totalPseudoBase += brushPseudoLayers;
-      else if (packedBrush.mode === "STAMP") totalPseudoStamp += brushPseudoLayers;
-      else if (packedBrush.mode === "COMBO") totalPseudoCombo += brushPseudoLayers;
       totalPseudoArea += getPseudoArea(packedBrush, absorbPlans);
       planPaintedCells += brushPaintedCells;
+      if (!SLICE_ENABLE_PSEUDOS && resolvedPseudos) {
+        if (resolvedPseudos.before) renderDetailBrush(resolvedPseudos.before);
+        if (resolvedPseudos.after) renderDetailBrush(resolvedPseudos.after);
+      }
     }
 
     for (const gradientBrush of gradient) {
@@ -413,7 +439,6 @@ export const renderSlicePlans = (
       applyGradientBrush(brush, gradientBrush, gridArea, brushZ);
       totalBrushNodes += 1;
       totalBrushGradient += 1;
-      totalPseudoGradient += 0;
       planPaintedCells += brushPaintedCells;
     }
 
@@ -465,7 +490,6 @@ export const renderSlicePlans = (
       totalSvgNodes += 1;
       totalBrushNodes += 1;
       totalBrushSvg += 1;
-      totalPseudoSvg += 0;
       planPaintedCells += (svgBrush.r1 - svgBrush.r0) * (svgBrush.c1 - svgBrush.c0);
     }
 
@@ -477,19 +501,16 @@ export const renderSlicePlans = (
     for (let i = bucket.index; i < bucket.pool.length; i += 1) bucket.pool[i]?.remove();
   }
 
+  const paintCost = totalPaintCells + totalPseudoArea;
   return {
     paintCells: totalPaintCells,
+    paintCost,
     brushNodes: totalBrushNodes,
     brushBase: totalBrushBase,
     brushStamp: totalBrushStamp,
     brushCombo: totalBrushCombo,
     brushGradient: totalBrushGradient,
     brushSvg: totalBrushSvg,
-    pseudoBase: totalPseudoBase,
-    pseudoStamp: totalPseudoStamp,
-    pseudoCombo: totalPseudoCombo,
-    pseudoGradient: totalPseudoGradient,
-    pseudoSvg: totalPseudoSvg,
     pseudoLayers: totalPseudoLayers,
     pseudoArea: totalPseudoArea,
     svgNodes: totalSvgNodes,
