@@ -119,6 +119,7 @@ export function mountScene({
       state = nextState;
       const shouldRender =
         prevState.voxels !== nextState.voxels ||
+        prevState.voxels.length !== nextState.voxels.length ||
         prevState.rows !== nextState.rows ||
         prevState.cols !== nextState.cols ||
         prevState.depth !== nextState.depth ||

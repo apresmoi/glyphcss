@@ -68,6 +68,7 @@ export function useSceneBinding(props: SceneBindingProps) {
 function sceneStateShallowEqual(a: SceneState, b: SceneState): boolean {
   return (
     a.voxels === b.voxels &&
+    a.voxels.length === b.voxels.length &&
     a.rows === b.rows &&
     a.cols === b.cols &&
     a.depth === b.depth &&

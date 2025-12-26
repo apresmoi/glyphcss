@@ -173,9 +173,14 @@ function renderLayer(
   }
   for (let i = 0; i < voxels.length; i += 1) {
     const voxel = voxels[i];
-    if (!voxel) continue;
     const element = pool[i];
     if (!element) continue;
+    if (!voxel) {
+      element.style.display = "none";
+      disposeCubeDom(element);
+      element.innerHTML = "";
+      continue;
+    }
     element.style.display = "";
     const faces = computeVisibleFaces(voxel, context);
     const clear = () => (disposeCubeDom(element), (element.innerHTML = ""));
@@ -202,9 +207,19 @@ function syncSceneStructure(
   const wallMask = context.walls ?? DEFAULT_WALLS;
   const floor = state.floor, floorShouldShow = !!context.showFloor && !!wallMask.b;
   floor.style.pointerEvents = "none";
-  if (floorShouldShow)
-    floor.style.removeProperty("background"), floor.style.removeProperty("backgroundImage"), floor.style.setProperty("--voxcss-floor-base", shadeColor(context.wallColor ?? DEFAULT_WALL_COLOR, FLOOR_BASE_DELTA));
-  else floor.style.background = "none", floor.style.backgroundImage = "none", floor.style.removeProperty("--voxcss-floor-base");
+  if (floorShouldShow) {
+    floor.style.removeProperty("background");
+    floor.style.removeProperty("backgroundImage");
+    floor.style.setProperty("--voxcss-floor-base", shadeColor(context.wallColor ?? DEFAULT_WALL_COLOR, FLOOR_BASE_DELTA));
+    floor.style.setProperty("--voxcss-grid-x", `${dimensions.tileSize}px`);
+    floor.style.setProperty("--voxcss-grid-y", `${dimensions.tileSize}px`);
+  } else {
+    floor.style.background = "none";
+    floor.style.backgroundImage = "none";
+    floor.style.removeProperty("--voxcss-floor-base");
+    floor.style.removeProperty("--voxcss-grid-x");
+    floor.style.removeProperty("--voxcss-grid-y");
+  }
 
   const ceilingShouldShow = !!context.showFloor && !!wallMask.t;
   if (!ceilingShouldShow) { state.ceiling?.remove(); state.ceiling = null; }

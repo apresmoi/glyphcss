@@ -58,6 +58,21 @@ const CORE_BASE_STYLES = `
   bottom: 0;
   transform-style: preserve-3d;
   background: var(--voxcss-floor-base, #c2c2f3);
+  background-image:
+    repeating-linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.12) 0,
+      rgba(0, 0, 0, 0.12) 1px,
+      transparent 1px,
+      transparent var(--voxcss-grid-x, 50px)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.12) 0,
+      rgba(0, 0, 0, 0.12) 1px,
+      transparent 1px,
+      transparent var(--voxcss-grid-y, 50px)
+    );
   z-index: 0;
 }
 

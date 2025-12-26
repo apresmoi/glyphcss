@@ -80,6 +80,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   };
 
   let cachedRawVoxels: VoxelGrid | null = null;
+  let cachedRawVoxelsLength = -1;
   let cachedMergeOption: MergeVoxelsOption = false;
   let cachedMergedVoxels: VoxelGrid | null = null;
   let cachedCubeOnly = true;
@@ -89,7 +90,12 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   ): { grid: VoxelGrid; mergeOption: MergeVoxelsOption; rawCount: number; cubeOnly: boolean } => {
     const rawVoxels = state.voxels ?? [];
     const mergeOption = normalizeMergeVoxelsOption(state.mergeVoxels);
-    if (rawVoxels === cachedRawVoxels && mergeOption === cachedMergeOption && cachedMergedVoxels) {
+    if (
+      rawVoxels === cachedRawVoxels &&
+      rawVoxels.length === cachedRawVoxelsLength &&
+      mergeOption === cachedMergeOption &&
+      cachedMergedVoxels
+    ) {
       return {
         grid: cachedMergedVoxels,
         mergeOption,
@@ -103,6 +109,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     const grid = shouldPreMerge ? mergeVoxelsGrid(rawVoxels) : rawVoxels;
 
     cachedRawVoxels = rawVoxels;
+    cachedRawVoxelsLength = rawVoxels.length;
     cachedMergeOption = mergeOption;
     cachedMergedVoxels = grid;
     cachedCubeOnly = cubeOnly;
@@ -273,6 +280,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     const mode: SceneRenderMode = is3dMerge(mergeOption) ? "slice-renderer" : "cubes";
     const needsRebuild =
       prevState.voxels !== state.voxels ||
+      prevState.voxels.length !== state.voxels.length ||
       prevState.rows !== state.rows ||
       prevState.cols !== state.cols ||
       prevState.depth !== state.depth ||
