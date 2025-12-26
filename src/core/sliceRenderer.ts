@@ -581,307 +581,6 @@ const chooseSplitLine = (
   return best;
 };
 
-const buildFallbackHostBrushes = (
-  buffer: FaceBuffer,
-  rectEngine: ReturnType<typeof makeRectEngine>,
-  scratchCounts: Int32Array
-): Brush[] | null => {
-  const { ids, palette } = buffer;
-  scratchCounts.fill(0);
-  for (let i = 0; i < ids.length; i += 1) if (ids[i]) scratchCounts[ids[i]] += 1;
-  const items: Array<{ r0: number; c0: number; r1: number; c1: number; colorId: number }> = [];
-  const mask = new Uint8Array(ids.length);
-  for (let colorId = 1; colorId < scratchCounts.length; colorId += 1) {
-    const fillCells = scratchCounts[colorId];
-    if (!fillCells) continue;
-    const color = palette[colorId] ?? "";
-    if (!color) return null;
-    mask.fill(0);
-    for (let i = 0; i < ids.length; i += 1) mask[i] = ids[i] === colorId ? 1 : 0;
-    const { rects } = rectEngine.maxRects(mask, fillCells, fillCells);
-    for (const rect of rects) {
-      if (rect.r1 <= rect.r0 || rect.c1 <= rect.c0) continue;
-      items.push({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, colorId });
-    }
-  }
-  items.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-  const brushes: Brush[] = [];
-  for (const item of items) {
-    const color = palette[item.colorId] ?? "";
-    if (!color) return null;
-    brushes.push({
-      r0: item.r0,
-      c0: item.c0,
-      r1: item.r1,
-      c1: item.c1,
-      baseColor: color
-    });
-  }
-  return brushes;
-};
-
-const buildPlannedBrushes = (
-  faceData: FaceData,
-  rectEngine: ReturnType<typeof makeRectEngine>
-): { brushes: Brush[]; fallbackToHosts: boolean } => {
-  const { buffer, fillCells } = faceData;
-  const { palette } = buffer;
-  const { rects } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
-  const psum = buildMaskPsum(buffer.mask, buffer.width, buffer.height);
-  const mergedRects = mergeHostRects(rects, psum, buffer.width, buffer.height);
-  let coveredCells = 0;
-  for (const rect of mergedRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
-  const brushes: Brush[] = [];
-  let splitCount = 0;
-  let hostCount = 0;
-  let fallback = coveredCells !== fillCells;
-  const scratch: HistogramScratch = { counts: new Int32Array(buffer.palette.length), touched: [] };
-
-  const processHost = (rect: HostRect, depth: number, splitsRemaining: number): boolean => {
-    if (fallback) return false;
-    const area = Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
-    if (!area) return true;
-    const transparentHost = rect.transparent === true;
-    const analysis = analyzeHostColors(buffer, rect, scratch, transparentHost);
-    if (analysis.invalid) {
-      fallback = true;
-      return false;
-    }
-    const detailLimit = transparentHost ? DETAIL_COLOR_LIMIT_TRANSPARENT : DETAIL_COLOR_LIMIT;
-    const needsSplit = transparentHost
-      ? analysis.uniqueColors > detailLimit
-      : analysis.uniqueColors > detailLimit + 1 || analysis.baseCoverage < BASE_COVER_MIN;
-    const baseColorId = transparentHost ? -1 : analysis.baseColorId;
-    if (!needsSplit) {
-      const detailColors = transparentHost
-        ? analysis.colorCounts.map((entry) => entry.colorId)
-        : analysis.colorCounts
-          .filter((entry) => entry.colorId !== analysis.baseColorId)
-          .slice(0, detailLimit)
-          .map((entry) => entry.colorId);
-      const baseColor = baseColorId >= 0 ? (palette[baseColorId] ?? "") : "";
-      if (baseColorId >= 0 && !baseColor) {
-        fallback = true;
-        return false;
-      }
-      const detailPlans: Array<{ rects: HostRect[]; fill: string }> = [];
-      let rectRunCount = 0;
-      for (const colorId of detailColors) {
-        let rects: HostRect[] = [];
-        if (rect.r1 > rect.r0 && rect.c1 > rect.c0) {
-          const openStore: number[] = [];
-          const open = new Map<number, number>();
-          const keyFor = (runC0: number, runC1: number): number =>
-            runC0 * (buffer.width + 1) + runC1;
-          const closeRectAt = (index: number): void => {
-            rects.push({
-              r0: openStore[index] - rect.r0,
-              c0: openStore[index + 1] - rect.c0,
-              r1: openStore[index + 2] - rect.r0,
-              c1: openStore[index + 3] - rect.c0
-            });
-          };
-
-          for (let r = rect.r0; r < rect.r1; r += 1) {
-            const nextOpen = new Map<number, number>();
-            const rowBase = r * buffer.width;
-            let c = rect.c0;
-            while (c < rect.c1) {
-              while (c < rect.c1 && buffer.ids[rowBase + c] !== colorId) c += 1;
-              if (c >= rect.c1) break;
-              const runC0 = c;
-              while (c < rect.c1 && buffer.ids[rowBase + c] === colorId) c += 1;
-              const runC1 = c;
-              const key = keyFor(runC0, runC1);
-              const prevIndex = open.get(key);
-              if (prevIndex !== undefined && openStore[prevIndex + 2] === r) {
-                openStore[prevIndex + 2] = r + 1;
-                nextOpen.set(key, prevIndex);
-              } else {
-                const index = openStore.length;
-                openStore.push(r, runC0, r + 1, runC1);
-                nextOpen.set(key, index);
-              }
-            }
-
-            for (const [key, index] of open) {
-              if (!nextOpen.has(key)) closeRectAt(index);
-            }
-
-            open.clear();
-            for (const [key, index] of nextOpen) open.set(key, index);
-          }
-
-          for (const index of open.values()) closeRectAt(index);
-        }
-
-        if (rects.length > 1) {
-          rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-          const horiz: HostRect[] = [];
-          for (const rectItem of rects) {
-            const last = horiz[horiz.length - 1];
-            if (last && rectItem.r0 === last.r0 && rectItem.r1 === last.r1 && rectItem.c0 === last.c1) {
-              last.c1 = rectItem.c1;
-              continue;
-            }
-            horiz.push({ ...rectItem });
-          }
-          horiz.sort((a, b) => (a.c0 !== b.c0 ? a.c0 - b.c0 : a.r0 - b.r0 || a.c1 - b.c1 || a.r1 - b.r1));
-          const merged: HostRect[] = [];
-          for (const rectItem of horiz) {
-            const last = merged[merged.length - 1];
-            if (last && rectItem.c0 === last.c0 && rectItem.c1 === last.c1 && rectItem.r0 === last.r1) {
-              last.r1 = rectItem.r1;
-              continue;
-            }
-            merged.push({ ...rectItem });
-          }
-          rects = merged;
-        }
-        if (rects.length > 1) {
-          rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-        }
-        const fill = buffer.palette[colorId] ?? "";
-        rectRunCount += rects.length;
-        detailPlans.push({ rects, fill });
-      }
-      if (rectRunCount <= FRAGMENTATION_LIMIT) {
-        if (baseColorId >= 0) {
-          const w = rect.c1 - rect.c0;
-          const h = rect.r1 - rect.r0;
-          if (w > 0 && h > 0) {
-            brushes.push({
-              r0: rect.r0,
-              c0: rect.c0,
-              r1: rect.r1,
-              c1: rect.c1,
-              baseColor: baseColor
-            });
-          }
-        }
-        if (detailPlans.length) {
-          const width = Math.max(0, rect.c1 - rect.c0);
-          const height = Math.max(0, rect.r1 - rect.r0);
-          const detailEngine = width > 0 && height > 0 ? makeRectEngine(width, height) : null;
-          const mask = detailEngine ? new Uint8Array(width * height) : null;
-          for (const detail of detailPlans) {
-            const rectRuns = detail.rects;
-            if (!rectRuns.length) {
-              fallback = true;
-              return false;
-            }
-            const color = detail.fill;
-            if (!color) {
-              fallback = true;
-              return false;
-            }
-            const runs: Array<{ x: number; y: number; w: number; h: number }> = [];
-            for (const rectRun of rectRuns) {
-              const rectWidth = rectRun.c1 - rectRun.c0;
-              const rectHeight = rectRun.r1 - rectRun.r0;
-              if (rectWidth <= 0 || rectHeight <= 0) continue;
-              runs.push({ x: rectRun.c0, y: rectRun.r0, w: rectWidth, h: rectHeight });
-            }
-            if (!runs.length) continue;
-            let mergedRects: Array<{ r0: number; c0: number; r1: number; c1: number }> | null = null;
-            if (detailEngine && mask) {
-              mask.fill(0);
-              let fillCells = 0;
-              for (const run of runs) {
-                const r0 = Math.max(0, run.y);
-                const c0 = Math.max(0, run.x);
-                const r1 = Math.min(height, run.y + run.h);
-                const c1 = Math.min(width, run.x + run.w);
-                if (r1 <= r0 || c1 <= c0) continue;
-                for (let r = r0; r < r1; r += 1) {
-                  const rowBase = r * width;
-                  for (let c = c0; c < c1; c += 1) {
-                    if (!mask[rowBase + c]) {
-                      mask[rowBase + c] = 1;
-                      fillCells += 1;
-                    }
-                  }
-                }
-              }
-              if (fillCells) {
-                const limit = Math.max(runs.length, Math.min(DETAIL_MERGE_MAX_RECTS, fillCells));
-                const merged = detailEngine.maxRects(mask, limit, fillCells);
-                if (merged.coveredAll) {
-                  mergedRects = merged.rects.map((rectItem) => ({
-                    r0: rectItem.r0, c0: rectItem.c0, r1: rectItem.r1, c1: rectItem.c1
-                  }));
-                }
-              }
-            }
-            if (mergedRects) {
-              for (const rectItem of mergedRects) {
-                const w = rectItem.c1 - rectItem.c0;
-                const h = rectItem.r1 - rectItem.r0;
-                if (w <= 0 || h <= 0) continue;
-                brushes.push({
-                  r0: rect.r0 + rectItem.r0,
-                  c0: rect.c0 + rectItem.c0,
-                  r1: rect.r0 + rectItem.r1,
-                  c1: rect.c0 + rectItem.c1,
-                  baseColor: color
-                });
-              }
-            } else {
-              for (const rectRun of runs) {
-                brushes.push({
-                  r0: rect.r0 + rectRun.y,
-                  c0: rect.c0 + rectRun.x,
-                  r1: rect.r0 + rectRun.y + rectRun.h,
-                  c1: rect.c0 + rectRun.x + rectRun.w,
-                  baseColor: color
-                });
-              }
-            }
-          }
-        }
-        hostCount += 1;
-        return true;
-      }
-    }
-
-    if (depth < MAX_SPLIT_DEPTH && splitsRemaining > 0 && area >= MIN_HOST_AREA) {
-      const split = chooseSplitLine(buffer, rect, analysis.uniqueColors, 1 - analysis.baseCoverage, transparentHost);
-      if (split) {
-        splitCount += 1;
-        const nextSplits = splitsRemaining - 1;
-        const a = split.axis === "v"
-          ? { r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: split.line }
-          : { r0: rect.r0, c0: rect.c0, r1: split.line, c1: rect.c1 };
-        const b = split.axis === "v"
-          ? { r0: rect.r0, c0: split.line, r1: rect.r1, c1: rect.c1 }
-          : { r0: split.line, c0: rect.c0, r1: rect.r1, c1: rect.c1 };
-        if (!processHost(a, depth + 1, nextSplits)) return false;
-        if (!processHost(b, depth + 1, nextSplits)) return false;
-        return true;
-      }
-    }
-    fallback = true;
-    return false;
-  };
-
-  if (!fallback) {
-    mergedRects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
-    for (const rect of mergedRects) {
-      if (hostCount > MAX_HOSTS_PER_FACE) {
-        fallback = true;
-        break;
-      }
-      if (!processHost(rect, 0, MAX_SPLITS_PER_HOST)) break;
-      if (splitCount > MAX_SPLITS_PER_FACE) {
-        fallback = true;
-        break;
-      }
-    }
-  }
-
-  return { brushes, fallbackToHosts: fallback };
-};
-
 export type Brush = {
   r0: number;
   c0: number;
@@ -986,57 +685,6 @@ const buildSliceCacheKey = (face: FaceData): string => {
 };
 
 
-const verifyPackedBrushes = (
-  buffer: FaceData["buffer"],
-  brushes: Brush[],
-  paletteIds: Map<string, number>,
-  scratch: Uint32Array
-): boolean => {
-  scratch.fill(0);
-  const { width, height } = buffer;
-  for (const brush of brushes) {
-    const colorId = paletteIds.get(brush.baseColor);
-    if (!colorId) return false;
-    const r0 = Math.max(0, brush.r0);
-    const c0 = Math.max(0, brush.c0);
-    const r1 = Math.min(height, brush.r1);
-    const c1 = Math.min(width, brush.c1);
-    if (r1 <= r0 || c1 <= c0) continue;
-    for (let r = r0; r < r1; r += 1) {
-      const rowBase = r * width;
-      for (let c = c0; c < c1; c += 1) {
-        scratch[rowBase + c] = colorId;
-      }
-    }
-  }
-  for (let i = 0; i < scratch.length; i += 1) {
-    const value = scratch[i];
-    if (value !== buffer.ids[i]) return false;
-  }
-  return true;
-};
-
-const buildFallbackCellBrushes = (buffer: FaceData["buffer"]): Brush[] => {
-  const brushes: Brush[] = [];
-  const { width, height, ids, palette } = buffer;
-  for (let r = 0; r < height; r += 1) {
-    const rowBase = r * width;
-    for (let c = 0; c < width; c += 1) {
-      const id = ids[rowBase + c];
-      if (!id) continue;
-      const baseColor = palette[id] ?? "";
-      brushes.push({
-        r0: r,
-        c0: c,
-        r1: r + 1,
-        c1: c + 1,
-        baseColor
-      });
-    }
-  }
-  return brushes;
-};
-
 const buildSlicePlan = (faceData: FaceData): SlicePlan => {
   const buffer = faceData.buffer;
   const palette = buffer.palette;
@@ -1046,15 +694,358 @@ const buildSlicePlan = (faceData: FaceData): SlicePlan => {
   const scratch = new Uint32Array(buffer.width * buffer.height);
   const fallbackCounts = new Int32Array(palette.length);
 
-  const planned = buildPlannedBrushes(faceData, rectEngine);
-  let bestBrushes: Brush[] | null = null;
-  bestBrushes = planned.fallbackToHosts
-    ? buildFallbackHostBrushes(buffer, rectEngine, fallbackCounts)
-    : planned.brushes;
+  const { fillCells } = faceData;
+  const { rects } = rectEngine.maxRects(buffer.mask, HOST_CAP, fillCells);
+  const psum = buildMaskPsum(buffer.mask, buffer.width, buffer.height);
+  const mergedRects = mergeHostRects(rects, psum, buffer.width, buffer.height);
+  let coveredCells = 0;
+  for (const rect of mergedRects) coveredCells += sumRectFromPsum(psum, buffer.width, rect.r0, rect.c0, rect.r1, rect.c1);
+  const plannedBrushes: Brush[] = [];
+  let fallbackToHosts = false;
 
-  if (!bestBrushes || !verifyPackedBrushes(buffer, bestBrushes, paletteIds, scratch)) {
-    const fallbackBrushes = buildFallbackCellBrushes(buffer);
-    if (verifyPackedBrushes(buffer, fallbackBrushes, paletteIds, scratch)) {
+  {
+    const brushes = plannedBrushes;
+    let splitCount = 0;
+    let hostCount = 0;
+    let fallback = coveredCells !== fillCells;
+    const histScratch: HistogramScratch = { counts: new Int32Array(buffer.palette.length), touched: [] };
+
+    const processHost = (rect: HostRect, depth: number, splitsRemaining: number): boolean => {
+      if (fallback) return false;
+      const area = Math.max(0, rect.r1 - rect.r0) * Math.max(0, rect.c1 - rect.c0);
+      if (!area) return true;
+      const transparentHost = rect.transparent === true;
+      const analysis = analyzeHostColors(buffer, rect, histScratch, transparentHost);
+      if (analysis.invalid) {
+        fallback = true;
+        return false;
+      }
+      const detailLimit = transparentHost ? DETAIL_COLOR_LIMIT_TRANSPARENT : DETAIL_COLOR_LIMIT;
+      const needsSplit = transparentHost
+        ? analysis.uniqueColors > detailLimit
+        : analysis.uniqueColors > detailLimit + 1 || analysis.baseCoverage < BASE_COVER_MIN;
+      const baseColorId = transparentHost ? -1 : analysis.baseColorId;
+      if (!needsSplit) {
+        const detailColors = transparentHost
+          ? analysis.colorCounts.map((entry) => entry.colorId)
+          : analysis.colorCounts
+            .filter((entry) => entry.colorId !== analysis.baseColorId)
+            .slice(0, detailLimit)
+            .map((entry) => entry.colorId);
+        const baseColor = baseColorId >= 0 ? (palette[baseColorId] ?? "") : "";
+        if (baseColorId >= 0 && !baseColor) {
+          fallback = true;
+          return false;
+        }
+        const detailPlans: Array<{ rects: HostRect[]; fill: string }> = [];
+        let rectRunCount = 0;
+        for (const colorId of detailColors) {
+          let rects: HostRect[] = [];
+          if (rect.r1 > rect.r0 && rect.c1 > rect.c0) {
+            const openStore: number[] = [];
+            const open = new Map<number, number>();
+            const keyFor = (runC0: number, runC1: number): number =>
+              runC0 * (buffer.width + 1) + runC1;
+            const closeRectAt = (index: number): void => {
+              rects.push({
+                r0: openStore[index] - rect.r0,
+                c0: openStore[index + 1] - rect.c0,
+                r1: openStore[index + 2] - rect.r0,
+                c1: openStore[index + 3] - rect.c0
+              });
+            };
+
+            for (let r = rect.r0; r < rect.r1; r += 1) {
+              const nextOpen = new Map<number, number>();
+              const rowBase = r * buffer.width;
+              let c = rect.c0;
+              while (c < rect.c1) {
+                while (c < rect.c1 && buffer.ids[rowBase + c] !== colorId) c += 1;
+                if (c >= rect.c1) break;
+                const runC0 = c;
+                while (c < rect.c1 && buffer.ids[rowBase + c] === colorId) c += 1;
+                const runC1 = c;
+                const key = keyFor(runC0, runC1);
+                const prevIndex = open.get(key);
+                if (prevIndex !== undefined && openStore[prevIndex + 2] === r) {
+                  openStore[prevIndex + 2] = r + 1;
+                  nextOpen.set(key, prevIndex);
+                } else {
+                  const index = openStore.length;
+                  openStore.push(r, runC0, r + 1, runC1);
+                  nextOpen.set(key, index);
+                }
+              }
+
+              for (const [key, index] of open) {
+                if (!nextOpen.has(key)) closeRectAt(index);
+              }
+
+              open.clear();
+              for (const [key, index] of nextOpen) open.set(key, index);
+            }
+
+            for (const index of open.values()) closeRectAt(index);
+          }
+
+          if (rects.length > 1) {
+            rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+            const horiz: HostRect[] = [];
+            for (const rectItem of rects) {
+              const last = horiz[horiz.length - 1];
+              if (last && rectItem.r0 === last.r0 && rectItem.r1 === last.r1 && rectItem.c0 === last.c1) {
+                last.c1 = rectItem.c1;
+                continue;
+              }
+              horiz.push({ ...rectItem });
+            }
+            horiz.sort((a, b) => (a.c0 !== b.c0 ? a.c0 - b.c0 : a.r0 - b.r0 || a.c1 - b.c1 || a.r1 - b.r1));
+            const merged: HostRect[] = [];
+            for (const rectItem of horiz) {
+              const last = merged[merged.length - 1];
+              if (last && rectItem.c0 === last.c0 && rectItem.c1 === last.c1 && rectItem.r0 === last.r1) {
+                last.r1 = rectItem.r1;
+                continue;
+              }
+              merged.push({ ...rectItem });
+            }
+            rects = merged;
+          }
+          if (rects.length > 1) {
+            rects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+          }
+          const fill = buffer.palette[colorId] ?? "";
+          rectRunCount += rects.length;
+          detailPlans.push({ rects, fill });
+        }
+        if (rectRunCount <= FRAGMENTATION_LIMIT) {
+          if (baseColorId >= 0) {
+            const w = rect.c1 - rect.c0;
+            const h = rect.r1 - rect.r0;
+            if (w > 0 && h > 0) {
+              brushes.push({
+                r0: rect.r0,
+                c0: rect.c0,
+                r1: rect.r1,
+                c1: rect.c1,
+                baseColor: baseColor
+              });
+            }
+          }
+          if (detailPlans.length) {
+            const width = Math.max(0, rect.c1 - rect.c0);
+            const height = Math.max(0, rect.r1 - rect.r0);
+            const detailEngine = width > 0 && height > 0 ? makeRectEngine(width, height) : null;
+            const mask = detailEngine ? new Uint8Array(width * height) : null;
+            for (const detail of detailPlans) {
+              const rectRuns = detail.rects;
+              if (!rectRuns.length) {
+                fallback = true;
+                return false;
+              }
+              const color = detail.fill;
+              if (!color) {
+                fallback = true;
+                return false;
+              }
+              const runs: Array<{ x: number; y: number; w: number; h: number }> = [];
+              for (const rectRun of rectRuns) {
+                const rectWidth = rectRun.c1 - rectRun.c0;
+                const rectHeight = rectRun.r1 - rectRun.r0;
+                if (rectWidth <= 0 || rectHeight <= 0) continue;
+                runs.push({ x: rectRun.c0, y: rectRun.r0, w: rectWidth, h: rectHeight });
+              }
+              if (!runs.length) continue;
+              let mergedRects: Array<{ r0: number; c0: number; r1: number; c1: number }> | null = null;
+              if (detailEngine && mask) {
+                mask.fill(0);
+                let fillCells = 0;
+                for (const run of runs) {
+                  const r0 = Math.max(0, run.y);
+                  const c0 = Math.max(0, run.x);
+                  const r1 = Math.min(height, run.y + run.h);
+                  const c1 = Math.min(width, run.x + run.w);
+                  if (r1 <= r0 || c1 <= c0) continue;
+                  for (let r = r0; r < r1; r += 1) {
+                    const rowBase = r * width;
+                    for (let c = c0; c < c1; c += 1) {
+                      if (!mask[rowBase + c]) {
+                        mask[rowBase + c] = 1;
+                        fillCells += 1;
+                      }
+                    }
+                  }
+                }
+                if (fillCells) {
+                  const limit = Math.max(runs.length, Math.min(DETAIL_MERGE_MAX_RECTS, fillCells));
+                  const merged = detailEngine.maxRects(mask, limit, fillCells);
+                  if (merged.coveredAll) {
+                    mergedRects = merged.rects.map((rectItem) => ({
+                      r0: rectItem.r0, c0: rectItem.c0, r1: rectItem.r1, c1: rectItem.c1
+                    }));
+                  }
+                }
+              }
+              if (mergedRects) {
+                for (const rectItem of mergedRects) {
+                  const w = rectItem.c1 - rectItem.c0;
+                  const h = rectItem.r1 - rectItem.r0;
+                  if (w <= 0 || h <= 0) continue;
+                  brushes.push({
+                    r0: rect.r0 + rectItem.r0,
+                    c0: rect.c0 + rectItem.c0,
+                    r1: rect.r0 + rectItem.r1,
+                    c1: rect.c0 + rectItem.c1,
+                    baseColor: color
+                  });
+                }
+              } else {
+                for (const rectRun of runs) {
+                  brushes.push({
+                    r0: rect.r0 + rectRun.y,
+                    c0: rect.c0 + rectRun.x,
+                    r1: rect.r0 + rectRun.y + rectRun.h,
+                    c1: rect.c0 + rectRun.x + rectRun.w,
+                    baseColor: color
+                  });
+                }
+              }
+            }
+          }
+          hostCount += 1;
+          return true;
+        }
+      }
+
+      if (depth < MAX_SPLIT_DEPTH && splitsRemaining > 0 && area >= MIN_HOST_AREA) {
+        const split = chooseSplitLine(buffer, rect, analysis.uniqueColors, 1 - analysis.baseCoverage, transparentHost);
+        if (split) {
+          splitCount += 1;
+          const nextSplits = splitsRemaining - 1;
+          const a = split.axis === "v"
+            ? { r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: split.line }
+            : { r0: rect.r0, c0: rect.c0, r1: split.line, c1: rect.c1 };
+          const b = split.axis === "v"
+            ? { r0: rect.r0, c0: split.line, r1: rect.r1, c1: rect.c1 }
+            : { r0: split.line, c0: rect.c0, r1: rect.r1, c1: rect.c1 };
+          if (!processHost(a, depth + 1, nextSplits)) return false;
+          if (!processHost(b, depth + 1, nextSplits)) return false;
+          return true;
+        }
+      }
+      fallback = true;
+      return false;
+    };
+
+    if (!fallback) {
+      mergedRects.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+      for (const rect of mergedRects) {
+        if (hostCount > MAX_HOSTS_PER_FACE) {
+          fallback = true;
+          break;
+        }
+        if (!processHost(rect, 0, MAX_SPLITS_PER_HOST)) break;
+        if (splitCount > MAX_SPLITS_PER_FACE) {
+          fallback = true;
+          break;
+        }
+      }
+    }
+
+    fallbackToHosts = fallback;
+  }
+
+  let bestBrushes: Brush[] | null = null;
+  if (fallbackToHosts) {
+    const { ids } = buffer;
+    fallbackCounts.fill(0);
+    for (let i = 0; i < ids.length; i += 1) if (ids[i]) fallbackCounts[ids[i]] += 1;
+    const items: Array<{ r0: number; c0: number; r1: number; c1: number; colorId: number }> = [];
+    const mask = new Uint8Array(ids.length);
+    let invalid = false;
+    for (let colorId = 1; colorId < fallbackCounts.length; colorId += 1) {
+      const fillCells = fallbackCounts[colorId];
+      if (!fillCells) continue;
+      const color = palette[colorId] ?? "";
+      if (!color) {
+        invalid = true;
+        break;
+      }
+      mask.fill(0);
+      for (let i = 0; i < ids.length; i += 1) mask[i] = ids[i] === colorId ? 1 : 0;
+      const { rects } = rectEngine.maxRects(mask, fillCells, fillCells);
+      for (const rect of rects) {
+        if (rect.r1 <= rect.r0 || rect.c1 <= rect.c0) continue;
+        items.push({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1, colorId });
+      }
+    }
+    if (!invalid) {
+      items.sort((a, b) => (a.r0 !== b.r0 ? a.r0 - b.r0 : a.c0 - b.c0 || a.r1 - b.r1 || a.c1 - b.c1));
+      const brushes: Brush[] = [];
+      for (const item of items) {
+        const color = palette[item.colorId] ?? "";
+        if (!color) {
+          invalid = true;
+          break;
+        }
+        brushes.push({
+          r0: item.r0,
+          c0: item.c0,
+          r1: item.r1,
+          c1: item.c1,
+          baseColor: color
+        });
+      }
+      if (!invalid) bestBrushes = brushes;
+    }
+  } else {
+    bestBrushes = plannedBrushes;
+  }
+
+  const verifyBrushes = (brushes: Brush[]): boolean => {
+    scratch.fill(0);
+    const { width, height } = buffer;
+    for (const brush of brushes) {
+      const colorId = paletteIds.get(brush.baseColor);
+      if (!colorId) return false;
+      const r0 = Math.max(0, brush.r0);
+      const c0 = Math.max(0, brush.c0);
+      const r1 = Math.min(height, brush.r1);
+      const c1 = Math.min(width, brush.c1);
+      if (r1 <= r0 || c1 <= c0) continue;
+      for (let r = r0; r < r1; r += 1) {
+        const rowBase = r * width;
+        for (let c = c0; c < c1; c += 1) {
+          scratch[rowBase + c] = colorId;
+        }
+      }
+    }
+    for (let i = 0; i < scratch.length; i += 1) {
+      const value = scratch[i];
+      if (value !== buffer.ids[i]) return false;
+    }
+    return true;
+  };
+
+  if (!bestBrushes || !verifyBrushes(bestBrushes)) {
+    const fallbackBrushes: Brush[] = [];
+    const { width, height, ids } = buffer;
+    for (let r = 0; r < height; r += 1) {
+      const rowBase = r * width;
+      for (let c = 0; c < width; c += 1) {
+        const id = ids[rowBase + c];
+        if (!id) continue;
+        const baseColor = palette[id] ?? "";
+        fallbackBrushes.push({
+          r0: r,
+          c0: c,
+          r1: r + 1,
+          c1: c + 1,
+          baseColor
+        });
+      }
+    }
+    if (verifyBrushes(fallbackBrushes)) {
       bestBrushes = fallbackBrushes;
     } else {
       bestBrushes = [];
