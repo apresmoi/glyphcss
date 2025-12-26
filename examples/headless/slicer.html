@@ -653,7 +653,7 @@
 
     .slice-scene .voxcss-layer,
     .slice-scene .voxcss-plane,
-    .slice-scene .voxcss-plane-brush {
+    .slice-scene .voxcss-brush {
       transform: none !important;
     }
 
@@ -663,15 +663,15 @@
     }
 
     .slice-scene .voxcss-plane,
-    .slice-scene .voxcss-plane-brush {
+    .slice-scene .voxcss-brush {
       outline: 4px solid #ef4444;
       outline-offset: -4px;
     }
 
     .slice-scene .voxcss-plane::before,
     .slice-scene .voxcss-plane::after,
-    .slice-scene .voxcss-plane-brush::before,
-    .slice-scene .voxcss-plane-brush::after,
+    .slice-scene .voxcss-brush::before,
+    .slice-scene .voxcss-brush::after,
     .slice-scene .voxcss-cube-face::before,
     .slice-scene .voxcss-cube-face::after,
     .slice-scene .voxcss-shape-inner::before,
@@ -682,7 +682,7 @@
     }
 
     .slice-scene .voxcss-plane::after,
-    .slice-scene .voxcss-plane-brush::after,
+    .slice-scene .voxcss-brush::after,
     .slice-scene .voxcss-cube-face::after,
     .slice-scene .voxcss-shape-inner::after {
       outline: 3px solid #10b981;
@@ -707,20 +707,20 @@
     }
 
 
-    .voxcss-scene.voxcss-debug-plane-outline .voxcss-plane-brush {
+    .voxcss-scene.voxcss-debug-plane-outline .voxcss-brush {
       outline: 3px solid #ef4444 !important;
       outline-offset: -3px;
       background-color: transparent !important;
       pointer-events: all !important;
     }
 
-    .voxcss-scene.voxcss-debug-plane-outline .voxcss-plane-brush::before {
+    .voxcss-scene.voxcss-debug-plane-outline .voxcss-brush::before {
       outline: 3px solid #10b981 !important;
       outline-offset: -3px;
       background-color: transparent !important;
     }
 
-    .voxcss-scene.voxcss-debug-plane-outline .voxcss-plane-brush::after {
+    .voxcss-scene.voxcss-debug-plane-outline .voxcss-brush::after {
       outline: 3px solid #3b82f6 !important;
       outline-offset: -3px;
       background-color: transparent !important;
@@ -759,8 +759,8 @@
       display: none !important;
     }
 
-    .voxcss-scene.voxcss-plane-xray .voxcss-plane-brush,
-    .slice-scene.voxcss-plane-xray .voxcss-plane-brush {
+    .voxcss-scene.voxcss-plane-xray .voxcss-brush,
+    .slice-scene.voxcss-plane-xray .voxcss-brush {
       background-color: transparent !important;
     }
   </style>
@@ -1427,7 +1427,7 @@
       };
       if (slice.type === "layer" && slice.node instanceof HTMLElement) {
         summary.planes = slice.node.querySelectorAll(".voxcss-plane").length;
-        summary.brushes = slice.node.querySelectorAll(".voxcss-plane-brush").length;
+        summary.brushes = slice.node.querySelectorAll(".voxcss-brush").length;
         summary.cubeFaces = slice.node.querySelectorAll(".voxcss-cube-face").length;
         summary.svgHosts = slice.node.querySelectorAll("svg").length;
         summary.svgPaths = slice.node.querySelectorAll("svg path").length;
@@ -1439,7 +1439,7 @@
       for (const face of faces) {
         if (!(face instanceof Element)) continue;
         if (face.classList.contains("voxcss-plane")) summary.planes += 1;
-        if (face.classList.contains("voxcss-plane-brush")) summary.brushes += 1;
+        if (face.classList.contains("voxcss-brush")) summary.brushes += 1;
         if (face.classList.contains("voxcss-cube-face")) summary.cubeFaces += 1;
         if (face instanceof SVGElement) {
           summary.svgHosts += 1;
@@ -1505,10 +1505,10 @@
       const baseZRaw = brush.dataset.xrayBaseZ ?? brush.style.getPropertyValue("--vox-z");
       const baseZ = parseCssPx(baseZRaw);
       const nestedChildren = Array.from(brush.children).filter((child) =>
-        child instanceof HTMLElement && child.classList.contains("voxcss-plane-brush")
+        child instanceof HTMLElement && child.classList.contains("voxcss-brush")
       ).length;
       const isNestedChild = brush.parentElement instanceof HTMLElement &&
-        brush.parentElement.classList.contains("voxcss-plane-brush");
+        brush.parentElement.classList.contains("voxcss-brush");
       return {
         gridAreaValue,
         gridArea,
@@ -1596,7 +1596,7 @@
         if (!(face instanceof Element)) continue;
         const tag = face.tagName.toLowerCase();
         const className = face.className;
-        const type = face.classList.contains("voxcss-plane-brush")
+        const type = face.classList.contains("voxcss-brush")
           ? "brush"
           : face.classList.contains("voxcss-plane")
             ? "plane"
@@ -1704,7 +1704,7 @@
       return {
         totalElements: sceneEl.querySelectorAll("*").length,
         planes: sceneEl.querySelectorAll(".voxcss-plane").length,
-        brushes: sceneEl.querySelectorAll(".voxcss-plane-brush").length,
+        brushes: sceneEl.querySelectorAll(".voxcss-brush").length,
         cubeFaces: sceneEl.querySelectorAll(".voxcss-cube-face").length,
         layers: sceneEl.querySelectorAll(".voxcss-layer").length,
         svgHosts: sceneEl.querySelectorAll("svg").length,
@@ -2038,7 +2038,7 @@
               });
             });
           } else {
-            const faces = Array.from(zHost.querySelectorAll(".voxcss-plane, .voxcss-plane-brush, svg"));
+            const faces = Array.from(zHost.querySelectorAll(".voxcss-plane, .voxcss-brush, svg"));
             const groups = groupFacesByPlaneWithOffsets(faces);
             sliceWidth = colCount * tileSize;
             sliceHeight = rowCount * tileSize;
@@ -2059,7 +2059,7 @@
       } else if (planeXrayAxis === "x") {
         const xHost = sceneEl.querySelector(".voxcss-floor-x");
         if (xHost instanceof HTMLElement) {
-          const faces = Array.from(xHost.querySelectorAll(".voxcss-plane, .voxcss-plane-brush, svg"));
+          const faces = Array.from(xHost.querySelectorAll(".voxcss-plane, .voxcss-brush, svg"));
           const groups = groupFacesByPlaneWithOffsets(faces);
           sliceWidth = colCount * tileSize;
           sliceHeight = depthCount * layerElevation;
@@ -2079,7 +2079,7 @@
       } else {
         const yHost = sceneEl.querySelector(".voxcss-floor-y");
         if (yHost instanceof HTMLElement) {
-          const faces = Array.from(yHost.querySelectorAll(".voxcss-plane, .voxcss-plane-brush, svg"));
+          const faces = Array.from(yHost.querySelectorAll(".voxcss-plane, .voxcss-brush, svg"));
           const groups = groupFacesByPlaneWithOffsets(faces);
           sliceWidth = depthCount * layerElevation;
           sliceHeight = rowCount * tileSize;
@@ -2952,14 +2952,14 @@
 
         const selector =
           planeXrayAxis === "x"
-            ? ".voxcss-floor-x .voxcss-plane, .voxcss-floor-x .voxcss-plane-brush, .voxcss-floor-x svg"
+            ? ".voxcss-floor-x .voxcss-plane, .voxcss-floor-x .voxcss-brush, .voxcss-floor-x svg"
             : planeXrayAxis === "y"
-              ? ".voxcss-floor-y .voxcss-plane, .voxcss-floor-y .voxcss-plane-brush, .voxcss-floor-y svg"
-              : ".voxcss-floor-z .voxcss-layer, .voxcss-floor-z .voxcss-plane, .voxcss-floor-z .voxcss-plane-brush, .voxcss-floor-z svg";
+              ? ".voxcss-floor-y .voxcss-plane, .voxcss-floor-y .voxcss-brush, .voxcss-floor-y svg"
+              : ".voxcss-floor-z .voxcss-layer, .voxcss-floor-z .voxcss-plane, .voxcss-floor-z .voxcss-brush, .voxcss-floor-z svg";
         const targets = sceneEl.querySelectorAll(selector);
         for (const el of targets) {
           if (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) continue;
-          if (el.classList.contains("voxcss-plane-brush")) {
+          if (el.classList.contains("voxcss-brush")) {
             const baseZ = el.dataset.xrayBaseZ ?? el.style.getPropertyValue("--vox-z");
             const parsed = parseCssPx(baseZ);
             if (parsed === null) continue;

@@ -16,10 +16,9 @@ interface FaceBuffer {
   mask: Uint8Array;
   palette: string[];
 }
-interface FaceData { key: FaceKey; buffer: FaceBuffer; signatureHash: number; fillCells: number; }
+interface FaceData { key: FaceKey; buffer: FaceBuffer; fillCells: number; }
 interface HostRect { r0: number; c0: number; r1: number; c1: number; transparent?: boolean; }
 
-const FACE_PLAN_VERSION = 1;
 const HOST_CAP = 1500;
 const BASE_COVER_MIN = 0.3;
 const HOST_FILL_RATIO_MIN = 0.6;
@@ -42,22 +41,6 @@ const wallsToSig = (walls: WallsMask): number =>
   (walls.br ? 8 : 0) |
   (walls.fl ? 16 : 0) |
   (walls.fr ? 32 : 0);
-
-const HASH_SEED = 2166136261;
-const HASH_PRIME = 16777619;
-const hashUpdate = (hash: number, value: number): number => Math.imul(hash ^ value, HASH_PRIME) >>> 0;
-const hashNumber = (hash: number, value: number): number => {
-  let v = value >>> 0;
-  hash = hashUpdate(hash, v & 0xff);
-  hash = hashUpdate(hash, (v >>> 8) & 0xff);
-  hash = hashUpdate(hash, (v >>> 16) & 0xff);
-  hash = hashUpdate(hash, (v >>> 24) & 0xff);
-  return hash;
-};
-const hashString = (hash: number, value: string): number => {
-  for (let i = 0; i < value.length; i += 1) hash = hashUpdate(hash, value.charCodeAt(i));
-  return hash;
-};
 
 let __colorParserStyle: CSSStyleDeclaration | null = null;
 const __colorCache = new Map<string, { r: number; g: number; b: number } | null>();
@@ -136,7 +119,7 @@ function buildFaceBufferFromCells(
   maxCol: number,
   face: CubeFace,
   context: GridContext
-): { buffer: FaceBuffer; signatureHash: number; fillCells: number } | null {
+): { buffer: FaceBuffer; fillCells: number } | null {
   const width = maxCol - minCol + 1;
   const height = maxRow - minRow + 1;
   if (width <= 0 || height <= 0) return null;
@@ -145,7 +128,6 @@ function buildFaceBufferFromCells(
   const palette: string[] = [""];
   const colorIndex = new Map<string, number>();
   let fillCells = 0;
-  let hash = HASH_SEED;
 
   for (const cell of cells) {
     const rowOffset = cell.row - minRow;
@@ -164,7 +146,6 @@ function buildFaceBufferFromCells(
     }
     if (!ids[index]) fillCells += 1;
     ids[index] = colorId;
-    hash = hashString(hashNumber(hashNumber(hash, cell.row), cell.col), colorKey);
   }
 
   if (!fillCells) return null;
@@ -183,7 +164,6 @@ function buildFaceBufferFromCells(
       mask,
       palette
     },
-    signatureHash: hash,
     fillCells
   };
 }
@@ -492,9 +472,9 @@ const buildFaceDataFromSnapshot = (snapshot: { layers: Voxel[][]; context: GridC
       context
     );
     if (!built) continue;
-    const { buffer, signatureHash, fillCells } = built;
+    const { buffer, fillCells } = built;
     if (!fillCells) continue;
-    faces.push({ key: builder.key, buffer, signatureHash, fillCells });
+    faces.push({ key: builder.key, buffer, fillCells });
   }
 
   return faces;
@@ -963,33 +943,6 @@ const buildPlannedBrushes = (
   return { brushes, fallbackToHosts: fallback, invalidColor };
 };
 
-const CACHE_HASH_BASE = (() => {
-  let hash = HASH_SEED;
-  hash = hashNumber(hash, FACE_PLAN_VERSION);
-  hash = hashNumber(hash, HOST_CAP);
-  hash = hashNumber(hash, Math.round(BASE_COVER_MIN * 1000));
-  hash = hashNumber(hash, Math.round(HOST_FILL_RATIO_MIN * 1000));
-  hash = hashNumber(hash, HOST_GAP_MAX);
-  hash = hashNumber(hash, DETAIL_COLOR_LIMIT);
-  hash = hashNumber(hash, DETAIL_COLOR_LIMIT_TRANSPARENT);
-  hash = hashNumber(hash, MAX_SPLIT_DEPTH);
-  hash = hashNumber(hash, MAX_SPLITS_PER_HOST);
-  hash = hashNumber(hash, MAX_SPLITS_PER_FACE);
-  hash = hashNumber(hash, MAX_HOSTS_PER_FACE);
-  hash = hashNumber(hash, MIN_HOST_AREA);
-  hash = hashNumber(hash, FRAGMENTATION_LIMIT);
-  return hash;
-})();
-
-const buildCacheKey = (face: FaceData): string => {
-  let hash = CACHE_HASH_BASE;
-  for (const color of face.buffer.palette) hash = hashString(hash, color);
-  const { axis, plane, face: faceKey } = face.key;
-  return `${axis}:${plane}:${faceKey}:${face.buffer.minRow}:${face.buffer.minCol}:${face.buffer.maxRow}:${face.buffer.maxCol}:${face.fillCells}:${face.signatureHash}:${hash}`;
-};
-
-export type SliceAxis = "x" | "y" | "z";
-
 export type Brush = {
   r0: number;
   c0: number;
@@ -1088,8 +1041,10 @@ export function clearSliceRenderer(sliceRenderer: SliceRendererDomState | null):
 
 const DETAIL_MERGE_MAX_RECTS = 256;
 
-const buildSliceCacheKey = (face: FaceData): string =>
-  `slice:${SLICE_RENDERER_VERSION}:${buildCacheKey(face)}`;
+const buildSliceCacheKey = (face: FaceData): string => {
+  const { axis, plane, face: faceKey } = face.key;
+  return `slice:${SLICE_RENDERER_VERSION}:${axis}:${plane}:${faceKey}`;
+};
 
 const normalizePaintColor = (value?: string): string | null => {
   const raw = String(value ?? "").trim();
@@ -1103,12 +1058,13 @@ const normalizePaintColor = (value?: string): string | null => {
 };
 
 
-const paintPackedBrushes = (
+const verifyPackedBrushes = (
   buffer: FaceData["buffer"],
   brushes: Brush[],
   paletteIds: Map<string, number>,
   scratch: Uint32Array
 ): boolean => {
+  scratch.fill(0);
   const { width, height } = buffer;
   for (const brush of brushes) {
     const colorId = paletteIds.get(brush.baseColor);
@@ -1125,17 +1081,6 @@ const paintPackedBrushes = (
       }
     }
   }
-  return true;
-};
-
-const verifyPackedBrushes = (
-  buffer: FaceData["buffer"],
-  brushes: Brush[],
-  paletteIds: Map<string, number>,
-  scratch: Uint32Array
-): boolean => {
-  scratch.fill(0);
-  if (!paintPackedBrushes(buffer, brushes, paletteIds, scratch)) return false;
   for (let i = 0; i < scratch.length; i += 1) {
     const value = scratch[i];
     if (value !== buffer.ids[i]) return false;
@@ -1201,7 +1146,6 @@ type BrushState = {
   gridArea?: string;
   backgroundColor?: string;
   zOffset?: string;
-  initialized?: boolean;
 };
 
 const applyBrush = (
@@ -1212,23 +1156,10 @@ const applyBrush = (
 ): void => {
   const state = brush as { __voxcssNewBrushState?: BrushState };
   const brushState = state.__voxcssNewBrushState ?? (state.__voxcssNewBrushState = {});
-  const className = "voxcss-plane-brush";
+  const className = "voxcss-brush";
   if (brushState.className !== className) {
     brush.className = className;
     brushState.className = className;
-  }
-  if (!brushState.initialized) {
-    brush.style.position = "relative";
-    brush.style.overflow = "visible";
-    brush.style.backgroundImage = "";
-    brush.style.backgroundRepeat = "";
-    brush.style.backgroundSize = "";
-    brush.style.backgroundPosition = "";
-    brush.style.left = "";
-    brush.style.top = "";
-    brush.style.width = "";
-    brush.style.height = "";
-    brushState.initialized = true;
   }
   if (brushState.gridArea !== gridArea) {
     brush.style.gridArea = gridArea;
@@ -1282,7 +1213,7 @@ const renderSlicePlans = (
     const { axis, plane, face } = plan.key;
     if (walls[face]) continue;
     const planeOffset = axis === "z" ? plane * layerElevation : -1 * (plane - 1) * tileSize;
-    const brushZ = `${planeOffset.toFixed(3)}px`;
+    const brushZ = `${planeOffset}px`;
     const originRow = plan.buffer.minRow;
     const originCol = plan.buffer.minCol;
     for (const brush of plan.brushes) {
@@ -1349,6 +1280,7 @@ export function updateSliceRendererGeometry(
       hosts.cacheRenderVersion = renderVersion;
       hosts.cacheLayersRef = snapshot.layers;
       hosts.lastSlices = null;
+      hosts.faceCache.clear();
     }
     if (wallsSigChanged) {
       hosts.cacheWallsSig = wallsSig;

@@ -148,8 +148,9 @@ const CORE_BASE_STYLES = `
   display: block;
 }
 
-.voxcss-plane-brush {
-  position: absolute;
+.voxcss-brush {
+  position: relative;
+  inset: 0;
   display: block;
   pointer-events: none;
   overflow: visible;
@@ -157,8 +158,8 @@ const CORE_BASE_STYLES = `
   transform-origin: 0 0;
 }
 
-.voxcss-plane-brush::before,
-.voxcss-plane-brush::after {
+.voxcss-brush::before,
+.voxcss-brush::after {
   position: absolute;
   pointer-events: none;
   display: block;
@@ -182,7 +183,7 @@ const CORE_BASE_STYLES = `
   background-color: var(--vox-acol, transparent);
 }
 
-.voxcss-plane-brush::before {
+.voxcss-brush::before {
   content: var(--vox-bc, none);
   left: var(--vox-bl, 0px);
   top: var(--vox-bt, 0px);
@@ -191,7 +192,7 @@ const CORE_BASE_STYLES = `
   background-color: var(--vox-bcol, transparent);
 }
 
-.voxcss-plane-brush::after {
+.voxcss-brush::after {
   content: var(--vox-ac, none);
   left: var(--vox-al, 0px);
   top: var(--vox-at, 0px);
