@@ -269,26 +269,8 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   function applySceneState(state: SceneState): SceneSnapshot {
     const prevState = lastState;
     lastState = state;
-    const { mergeOption, rawCount, cubeOnly } = resolveGrid(state);
-    const planeShellEligible = is3dMerge(mergeOption) && cubeOnly;
-    const mode: SceneRenderMode = (() => {
-      if (typeof globalThis !== "undefined") {
-        const override = (globalThis as { __VOXCSS_PLANE_SHELL_RENDERER__?: unknown }).__VOXCSS_PLANE_SHELL_RENDERER__;
-        if (typeof override === "string") {
-          const normalized = override.toLowerCase();
-          if (normalized === "slice" || normalized === "slice-renderer") {
-            return planeShellEligible ? "slice-renderer" : "cubes";
-          }
-          if (normalized === "shell" || normalized === "plane-shell-mask") {
-            return planeShellEligible ? "plane-shell-mask" : "cubes";
-          }
-          if (normalized === "cubes") return "cubes";
-        }
-      }
-      return planeShellEligible ? "plane-shell-mask" : "cubes";
-    })();
-    const shouldPreMerge = is2dMerge(mergeOption);
-    const mergeApplies = shouldPreMerge || planeShellEligible;
+    const { mergeOption } = resolveGrid(state);
+    const mode: SceneRenderMode = is3dMerge(mergeOption) ? "slice-renderer" : "cubes";
     const needsRebuild =
       prevState.voxels !== state.voxels ||
       prevState.rows !== state.rows ||
@@ -305,13 +287,7 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     return {
       layers: currentLayers,
       context: currentContext,
-      renderer: {
-        mode,
-        mergeApplies,
-        rawVoxelCount: rawCount,
-        cubeOnly,
-        planeShellEligible
-      }
+      renderer: { mode }
     };
   }
 

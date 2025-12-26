@@ -21,13 +21,11 @@ import { rampShapeRenderer } from "./shapes/ramp";
 import { wedgeShapeRenderer } from "./shapes/wedge";
 import { spikeShapeRenderer } from "./shapes/spike";
 import { shadeWallFace, shadeColor } from "./lighting";
-import { clearPlaneShell, updatePlaneShellGeometry, type PlaneShellDomState } from "./shellRenderer";
 import { clearSliceRenderer, updateSliceRendererGeometry, type SliceRendererDomState } from "./sliceRenderer";
 
 interface DomRendererState {
   renderState: RenderState;
   prevStructure: StructureSnapshot | null;
-  planeShell: PlaneShellDomState | null;
   sliceRenderer: SliceRendererDomState | null;
 }
 
@@ -47,9 +45,9 @@ export interface SceneSnapshot { layers: Voxel[][]; context: GridContext; render
 
 export type RendererFactory = (options: RendererMountOptions) => RendererHandle;
 
-export type SceneRenderMode = "cubes" | "plane-shell-mask" | "slice-renderer";
+export type SceneRenderMode = "cubes" | "slice-renderer";
 
-export interface RendererMetadata { mode: SceneRenderMode; mergeApplies: boolean; rawVoxelCount: number; cubeOnly: boolean; planeShellEligible: boolean; }
+export interface RendererMetadata { mode: SceneRenderMode; }
 
 export const createDomRenderer: RendererFactory = (options: RendererMountOptions): RendererHandle => {
   const { documentRef, target } = options;
@@ -62,8 +60,6 @@ export const createDomRenderer: RendererFactory = (options: RendererMountOptions
     destroy: () => {
       const renderState = state.renderState;
       resetLayers(renderState);
-      clearPlaneShell(state.planeShell);
-      state.planeShell = null;
       clearSliceRenderer(state.sliceRenderer);
       state.sliceRenderer = null;
       clearWalls(renderState);
@@ -78,7 +74,7 @@ function ensureDomRendererState(documentRef: Document, root: HTMLElement): DomRe
   root.innerHTML = "";
   const floor = documentRef.createElement("div"); floor.className = FLOOR_CLASS; root.appendChild(floor);
   const renderState: RenderState = { root, floor, layers: new Map(), wallElements: new Map(), ceiling: null };
-  const composed: DomRendererState = { renderState, prevStructure: null, planeShell: null, sliceRenderer: null };
+  const composed: DomRendererState = { renderState, prevStructure: null, sliceRenderer: null };
   return rendererStates.set(root, composed), composed;
 }
 
@@ -97,19 +93,10 @@ function renderScene(
   const prev = state.prevStructure;
   const structureChanged = !prev || prev.rows !== nextStructure.rows || prev.cols !== nextStructure.cols || prev.depthLayers !== nextStructure.depthLayers || prev.projection !== nextStructure.projection || prev.showWalls !== nextStructure.showWalls || prev.showFloor !== nextStructure.showFloor || prev.renderMode !== nextStructure.renderMode || !wallMasksEqual(prev.walls, nextStructure.walls);
   if (structureChanged) root.classList[context.projection === "dimetric" ? "add" : "remove"](DIMETRIC_PROJECTION_CLASS), root.style.setProperty("--voxcss-rows", String(context.rows)), root.style.setProperty("--voxcss-cols", String(context.cols));
-  if (renderMode === "plane-shell-mask") {
-    clearSliceRenderer(state.sliceRenderer);
-    state.sliceRenderer = null;
-    renderState.layers.size && resetLayers(renderState);
-    state.planeShell = updatePlaneShellGeometry(renderState, state.planeShell, snapshot, documentRef);
-  } else if (renderMode === "slice-renderer") {
-    clearPlaneShell(state.planeShell);
-    state.planeShell = null;
+  if (renderMode === "slice-renderer") {
     renderState.layers.size && resetLayers(renderState);
     state.sliceRenderer = updateSliceRendererGeometry(renderState, state.sliceRenderer, snapshot, documentRef);
   } else {
-    clearPlaneShell(state.planeShell);
-    state.planeShell = null;
     clearSliceRenderer(state.sliceRenderer);
     state.sliceRenderer = null;
     for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1)

@@ -1,13 +1,13 @@
 import type { RenderState } from "../types";
 import { DEFAULT_WALLS } from "../types";
-import type { SliceRendererDomState, SliceRendererSnapshot } from "./types";
-import { ensureSliceRendererHosts, clearSliceRenderer, getDomPerCell } from "./types";
-import { wallsToSig } from "../shellRenderer/types";
-import { buildFaceDataFromSnapshot, buildSliceCacheKey, buildSlicePlan } from "./plan";
-import { renderSlicePlans } from "./render";
+import type { SliceRendererDomState, SliceRendererSnapshot } from "./slicePlan";
+import { ensureSliceRendererHosts, clearSliceRenderer, getDomPerCell } from "./slicePlan";
+import { wallsToSig } from "./sliceCore";
+import { buildFaceDataFromSnapshot, buildSliceCacheKey, buildSlicePlan } from "./slicePlan";
+import { renderSlicePlans } from "./sliceRender";
 
-export { clearSliceRenderer } from "./types";
-export type { SliceRendererDomState, SliceRendererSnapshot } from "./types";
+export { clearSliceRenderer } from "./slicePlan";
+export type { SliceRendererDomState, SliceRendererSnapshot } from "./slicePlan";
 
 export function updateSliceRendererGeometry(
   renderState: RenderState,
@@ -133,16 +133,11 @@ export function updateSliceRendererGeometry(
   const renderedPlans = activePlans.filter((plan) => !walls[plan.key.face]);
   const slices = activePlans.map((plan) => ({
     brushBase: plan.brushCounts.base,
-    brushStamp: plan.brushCounts.stamp,
-    brushCombo: plan.brushCounts.combo,
-    brushSvg: plan.brushCounts.svg,
-    brushGradient: plan.brushCounts.gradient,
-    brushTotal:
-      plan.brushCounts.base +
-      plan.brushCounts.stamp +
-      plan.brushCounts.combo +
-      plan.brushCounts.svg +
-      plan.brushCounts.gradient,
+    brushStamp: 0,
+    brushCombo: 0,
+    brushSvg: 0,
+    brushGradient: 0,
+    brushTotal: plan.brushCounts.base,
     axis: plan.key.axis,
     plane: plan.key.plane,
     face: plan.key.face,
