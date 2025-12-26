@@ -3,10 +3,8 @@ import { CUBE_FACES } from "../types";
 import { getVoxelBounds } from "../context";
 import { computeCubeFaceAppearance } from "../faceAppearance";
 
-export interface PlaneSnapshot { layers: Voxel[][]; context: GridContext; }
-
-export type PlaneAxis = "x" | "y" | "z";
-export interface FaceKey { axis: PlaneAxis; plane: number; face: CubeFace; }
+type PlaneAxis = "x" | "y" | "z";
+export interface FaceKey { axis: "x" | "y" | "z"; plane: number; face: CubeFace; }
 export interface FaceBuffer {
   width: number;
   height: number;
@@ -56,21 +54,21 @@ const tuneNumber = (key: keyof VoxcssTune, fallback: number): number => {
   return Number.isFinite(value) ? Number(value) : fallback;
 };
 
-export const FACE_PLAN_VERSION = 1;
-export const HOST_CAP = tuneNumber("hostCap", 1500);
-export const BASE_COVER_MIN = tuneNumber("baseCoverMin", 0.3);
-export const HOST_FILL_RATIO_MIN = 0.6;
-export const HOST_GAP_MAX = 64;
-export const DETAIL_COLOR_LIMIT = tuneNumber("detailColorLimit", 4);
-export const DETAIL_COLOR_LIMIT_TRANSPARENT = 8;
-export const MAX_SPLIT_DEPTH = tuneNumber("maxSplitDepth", 2);
-export const MAX_SPLITS_PER_HOST = tuneNumber("maxSplitsPerHost", 2);
-export const MAX_SPLITS_PER_FACE = tuneNumber("maxSplitsPerFace", 400);
-export const MAX_HOSTS_PER_FACE = tuneNumber("maxHostsPerFace", 8000);
-export const MIN_HOST_AREA = tuneNumber("minHostArea", 8);
-export const FRAGMENTATION_LIMIT = tuneNumber("fragmentationLimit", 400);
-export const SPLIT_CANDIDATE_LIMIT = tuneNumber("splitCandidateLimit", 4);
-export const MAX_BRUSHES_PER_HOST = tuneNumber("maxBrushesPerHost", 1);
+const FACE_PLAN_VERSION = 1;
+const HOST_CAP = tuneNumber("hostCap", 1500);
+const BASE_COVER_MIN = tuneNumber("baseCoverMin", 0.3);
+const HOST_FILL_RATIO_MIN = 0.6;
+const HOST_GAP_MAX = 64;
+const DETAIL_COLOR_LIMIT = tuneNumber("detailColorLimit", 4);
+const DETAIL_COLOR_LIMIT_TRANSPARENT = 8;
+const MAX_SPLIT_DEPTH = tuneNumber("maxSplitDepth", 2);
+const MAX_SPLITS_PER_HOST = tuneNumber("maxSplitsPerHost", 2);
+const MAX_SPLITS_PER_FACE = tuneNumber("maxSplitsPerFace", 400);
+const MAX_HOSTS_PER_FACE = tuneNumber("maxHostsPerFace", 8000);
+const MIN_HOST_AREA = tuneNumber("minHostArea", 8);
+const FRAGMENTATION_LIMIT = tuneNumber("fragmentationLimit", 400);
+const SPLIT_CANDIDATE_LIMIT = tuneNumber("splitCandidateLimit", 4);
+const MAX_BRUSHES_PER_HOST = tuneNumber("maxBrushesPerHost", 1);
 export const wallsToSig = (walls: WallsMask): number =>
   (walls.t ? 1 : 0) |
   (walls.b ? 2 : 0) |
@@ -78,22 +76,6 @@ export const wallsToSig = (walls: WallsMask): number =>
   (walls.br ? 8 : 0) |
   (walls.fl ? 16 : 0) |
   (walls.fr ? 32 : 0);
-
-export const setStyleIfDiff = (el: HTMLElement | SVGElement, name: string, value: string): void => {
-  const anyEl = el as Record<string, unknown>;
-  const cache = (anyEl.__voxcssStyleCache ?? (anyEl.__voxcssStyleCache = Object.create(null))) as Record<string, string>;
-  if (cache[name] === value) return;
-  (el as any).style[name] = value;
-  cache[name] = value;
-};
-
-export const setCssVarIfDiff = (el: HTMLElement, name: string, value: string): void => {
-  const anyEl = el as Record<string, unknown>;
-  const cache = (anyEl.__voxcssVarCache ?? (anyEl.__voxcssVarCache = Object.create(null))) as Record<string, string>;
-  if (cache[name] === value) return;
-  el.style.setProperty(name, value);
-  cache[name] = value;
-};
 
 const parseSimpleRectPath = (path: string): { x: number; y: number; width: number; height: number } | null => {
   const match = path.match(/^M([\d.]+)\s+([\d.]+)H([\d.]+)V([\d.]+)H\1Z$/);
@@ -133,20 +115,10 @@ export const getDetailRects = (detail?: DetailPlan): { x: number; y: number; wid
   return cached;
 };
 
-export const STAMP_FACE_Z_OFFSET: Record<CubeFace, number> = {
-  t: 0.12,
-  b: 0.12,
-  fr: -0.12,
-  fl: -0.12,
-  br: 0.12,
-  bl: 0.12
-};
-export const formatZOffset = (value: number): string => `${value.toFixed(3)}px`;
-
-export const HASH_SEED = 2166136261;
+const HASH_SEED = 2166136261;
 const HASH_PRIME = 16777619;
-export const hashUpdate = (hash: number, value: number): number => Math.imul(hash ^ value, HASH_PRIME) >>> 0;
-export const hashNumber = (hash: number, value: number): number => {
+const hashUpdate = (hash: number, value: number): number => Math.imul(hash ^ value, HASH_PRIME) >>> 0;
+const hashNumber = (hash: number, value: number): number => {
   let v = value >>> 0;
   hash = hashUpdate(hash, v & 0xff);
   hash = hashUpdate(hash, (v >>> 8) & 0xff);
@@ -154,7 +126,7 @@ export const hashNumber = (hash: number, value: number): number => {
   hash = hashUpdate(hash, (v >>> 24) & 0xff);
   return hash;
 };
-export const hashString = (hash: number, value: string): number => {
+const hashString = (hash: number, value: string): number => {
   for (let i = 0; i < value.length; i += 1) hash = hashUpdate(hash, value.charCodeAt(i));
   return hash;
 };
@@ -228,7 +200,7 @@ function getAppearanceColorKey(
   return { r: normalized.r, g: normalized.g, b: normalized.b };
 }
 
-export function buildFaceBufferFromCells(
+function buildFaceBufferFromCells(
   cells: { row: number; col: number; voxel: Voxel }[],
   minRow: number,
   minCol: number,
@@ -406,7 +378,7 @@ export const makeRectEngine = (width: number, height: number) => {
   return { forEachRectRuns, maxRects };
 };
 
-export const buildSolidSvgPath = (rects: { r0: number; c0: number; r1: number; c1: number }[]): string => {
+const buildSolidSvgPath = (rects: { r0: number; c0: number; r1: number; c1: number }[]): string => {
   if (!rects.length) return "";
   const pathParts: string[] = [];
   for (const rect of rects) {
@@ -415,7 +387,7 @@ export const buildSolidSvgPath = (rects: { r0: number; c0: number; r1: number; c
   return pathParts.join("");
 };
 
-export const buildMaskPsum = (mask: Uint8Array, width: number, height: number): Uint32Array => {
+const buildMaskPsum = (mask: Uint8Array, width: number, height: number): Uint32Array => {
   const psum = new Uint32Array((width + 1) * (height + 1));
   for (let r = 1; r <= height; r += 1) {
     const rowBase = (r - 1) * width;
@@ -430,12 +402,12 @@ export const buildMaskPsum = (mask: Uint8Array, width: number, height: number): 
   return psum;
 };
 
-export const sumRectFromPsum = (psum: Uint32Array, width: number, r0: number, c0: number, r1: number, c1: number): number => {
+const sumRectFromPsum = (psum: Uint32Array, width: number, r0: number, c0: number, r1: number, c1: number): number => {
   const stride = width + 1;
   return psum[r1 * stride + c1] - psum[r0 * stride + c1] - psum[r1 * stride + c0] + psum[r0 * stride + c0];
 };
 
-export const mergeHostRects = (
+const mergeHostRects = (
   rects: HostRect[],
   psum: Uint32Array,
   width: number,
@@ -502,7 +474,7 @@ export const mergeHostRects = (
   return current;
 };
 
-const buildFaceDataFromSnapshot = (snapshot: PlaneSnapshot): FaceData[] => {
+const buildFaceDataFromSnapshot = (snapshot: { layers: Voxel[][]; context: GridContext }): FaceData[] => {
   const context = snapshot.context;
   const rows = Math.max(context.rows, 1);
   const cols = Math.max(context.cols, 1);

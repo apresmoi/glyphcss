@@ -1,10 +1,122 @@
-import type { RenderState } from "../types";
-import { DEFAULT_WALLS } from "../types";
+import { DEFAULT_WALLS, type CubeFace, type RenderState } from "../types";
 import type { SliceRendererDomState, SliceRendererSnapshot } from "./slicePlan";
-import { ensureSliceRendererHosts, clearSliceRenderer } from "./slicePlan";
+import { ensureSliceRendererHosts, clearSliceRenderer, normalizePaintColor } from "./slicePlan";
 import { wallsToSig } from "./sliceCore";
 import { buildFaceDataFromSnapshot, buildSliceCacheKey, buildSlicePlan } from "./slicePlan";
-import { renderSlicePlans } from "./sliceRender";
+
+const STAMP_FACE_Z_OFFSET: Record<CubeFace, number> = {
+  t: 0.12,
+  b: 0.12,
+  fr: -0.12,
+  fl: -0.12,
+  br: 0.12,
+  bl: 0.12
+};
+
+type BrushState = {
+  className?: string;
+  gridArea?: string;
+  backgroundColor?: string;
+  zOffset?: string;
+  initialized?: boolean;
+};
+
+const applyBrush = (
+  brush: HTMLElement,
+  gridArea: string,
+  backgroundColor: string,
+  zOffset: string
+): void => {
+  const state = brush as { __voxcssNewBrushState?: BrushState };
+  const brushState = state.__voxcssNewBrushState ?? (state.__voxcssNewBrushState = {});
+  const className = "voxcss-plane-brush";
+  if (brushState.className !== className) {
+    brush.className = className;
+    brushState.className = className;
+  }
+  if (!brushState.initialized) {
+    brush.style.position = "relative";
+    brush.style.overflow = "visible";
+    brush.style.backgroundImage = "";
+    brush.style.backgroundRepeat = "";
+    brush.style.backgroundSize = "";
+    brush.style.backgroundPosition = "";
+    brush.style.left = "";
+    brush.style.top = "";
+    brush.style.width = "";
+    brush.style.height = "";
+    brushState.initialized = true;
+  }
+  if (brushState.gridArea !== gridArea) {
+    brush.style.gridArea = gridArea;
+    brushState.gridArea = gridArea;
+  }
+  if (brushState.backgroundColor !== backgroundColor) {
+    brush.style.backgroundColor = backgroundColor;
+    brushState.backgroundColor = backgroundColor;
+  }
+  if (brushState.zOffset !== zOffset) {
+    brush.style.setProperty("--vox-z", zOffset);
+    brushState.zOffset = zOffset;
+  }
+};
+
+const renderSlicePlans = (
+  hosts: SliceRendererDomState,
+  snapshot: SliceRendererSnapshot,
+  documentRef: Document,
+  plans: SliceRendererDomState["lastSlices"] | null
+): void => {
+  const context = snapshot.context;
+  const tileSize = context.tileSize ?? 50;
+  const layerElevation = context.layerElevation ?? tileSize;
+  const walls = context.walls ?? DEFAULT_WALLS;
+
+  const axisState = {
+    z: { host: hosts.zHost, pool: hosts.zPool, index: 0 },
+    x: { host: hosts.xHost, pool: hosts.xPool, index: 0 },
+    y: { host: hosts.yHost, pool: hosts.yPool, index: 0 }
+  } as const;
+
+  const nextBrush = (axis: "x" | "y" | "z"): HTMLElement => {
+    const bucket = axisState[axis];
+    const i = bucket.index++;
+    let el = bucket.pool[i] as HTMLElement | undefined;
+    if (!el || el.tagName.toLowerCase() !== "b") {
+      if (el) el.remove();
+      el = documentRef.createElement("b");
+      bucket.pool[i] = el;
+      bucket.host.appendChild(el);
+    } else if (el.parentElement !== bucket.host) {
+      bucket.host.appendChild(el);
+    }
+    if (el.style.display === "none") el.style.display = "";
+    return el;
+  };
+
+  const planList = plans ?? [];
+  for (const plan of planList) {
+    const { axis, plane, face } = plan.key;
+    if (walls[face]) continue;
+    const planeOffset = axis === "z" ? plane * layerElevation : -1 * (plane - 1) * tileSize;
+    const stampOffset = STAMP_FACE_Z_OFFSET[face] ?? 0.12;
+    const brushZ = `${(planeOffset + stampOffset).toFixed(3)}px`;
+    const originRow = plan.buffer.minRow;
+    const originCol = plan.buffer.minCol;
+    for (const brush of plan.brushes) {
+      const color = normalizePaintColor(brush.baseColor);
+      if (!color) continue;
+      const gridArea = `${originRow + brush.r0} / ${originCol + brush.c0} / ${originRow + brush.r1} / ${originCol + brush.c1}`;
+      const el = nextBrush(axis);
+      applyBrush(el, gridArea, color, brushZ);
+    }
+  }
+
+  for (const axis of Object.keys(axisState) as Array<keyof typeof axisState>) {
+    const bucket = axisState[axis];
+    for (let i = bucket.index; i < bucket.pool.length; i += 1) bucket.pool[i]?.remove();
+  }
+};
 
 export { clearSliceRenderer } from "./slicePlan";
 export type { SliceRendererDomState, SliceRendererSnapshot } from "./slicePlan";
