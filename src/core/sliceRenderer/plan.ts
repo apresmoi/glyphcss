@@ -2,7 +2,7 @@ import type { FaceData, FacePlan, HostPlan } from "../shellRenderer/types";
 import type { AxisSlices, Brush, RegionPlan, SliceMetrics, SlicePlan } from "./types";
 import { scorePlan, SLICE_RENDERER_VERSION } from "./types";
 import { buildCacheKey as buildShellCacheKey, buildFaceDataFromSnapshot, buildFacePlan } from "../shellRenderer/plan";
-import { getDetailRects } from "../shellRenderer/types";
+import { getDetailRects, makeRectEngine } from "../shellRenderer/types";
 import {
   buildBrushPairing,
   optimizeBrushOverlaps,
@@ -48,8 +48,10 @@ const sliceToggle = (key: string, fallback: boolean): boolean => {
 const SLICE_ENABLE_BRUSH = sliceToggle("__voxcssSliceEnableBrush", true);
 const SLICE_ENABLE_STAMP = sliceToggle("__voxcssSliceEnableStamp", false);
 const SLICE_ENABLE_SVG = sliceToggle("__voxcssSliceEnableSvg", false);
-const SLICE_ENABLE_GRADIENT = sliceToggle("__voxcssSliceEnableGradient", true);
+const SLICE_ENABLE_GRADIENT = sliceToggle("__voxcssSliceEnableGradient", false);
 const SLICE_ENABLE_PSEUDOS = sliceToggle("__voxcssSliceEnablePseudos", false);
+const SLICE_DISABLE_OVERLAP = sliceToggle("__voxcssSliceDisableOverlap", false);
+const SLICE_DETAIL_MERGE = sliceToggle("__voxcssSliceDetailMerge", true);
 type GradientStop = { start: number; end: number; color: string };
 
 const MAX_GRADIENT_STOPS = 12;
@@ -61,10 +63,14 @@ const GRADIENT_MAX_NON_BASE_STOPS = 4;
 const GRADIENT_ALLOW_STRIPE_OVERDRAW = true;
 const GRADIENT_MAX_STRIPE_AREA_RATIO = 0.5;
 const GRADIENT_FORCE_SIMPLE = true;
-const SVG_DETAIL_RECTS_MIN = 24;
-const SVG_DETAIL_AREA_RATIO_MIN = 0.4;
-const SVG_DETAIL_COLORS_MIN = 4;
-const SVG_DETAIL_COLORS_RECTS_MIN = 8;
+const GRADIENT_LAYERED_ENABLED = true;
+const GRADIENT_MAX_LAYERS = 96;
+const DETAIL_MERGE_MAX_RECTS = 256;
+const SVG_DETAIL_RECTS_MIN = 12;
+const SVG_DETAIL_AREA_RATIO_MIN = 0.25;
+const SVG_DETAIL_COLORS_MIN = 3;
+const SVG_DETAIL_COLORS_RECTS_MIN = 6;
+const SVG_MAX_PATHS = 6;
 
 const normalizePaintColor = (value?: string): string | null => {
   const raw = String(value ?? "").trim();
@@ -90,6 +96,101 @@ const buildRegionsFromHosts = (hosts: HostPlan[]): RegionPlan[] =>
     details: host.details
   }));
 
+const buildDetailRectsForRegion = (
+  region: RegionPlan,
+  palette: string[],
+  rectIdStart: number
+): { rects: BrushRect[]; detailRects: number; nextId: number; detailsValid: boolean } => {
+  if (!region.details.length) {
+    return { rects: [], detailRects: 0, nextId: rectIdStart, detailsValid: true };
+  }
+  const byColor = new Map<string, Array<{ x: number; y: number; w: number; h: number }>>();
+  for (const detail of region.details) {
+    const rectRuns = getDetailRects(detail);
+    if (!rectRuns.length) return { rects: [], detailRects: 0, nextId: rectIdStart, detailsValid: false };
+    const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
+    if (!fill) return { rects: [], detailRects: 0, nextId: rectIdStart, detailsValid: false };
+    let list = byColor.get(fill);
+    if (!list) {
+      list = [];
+      byColor.set(fill, list);
+    }
+    for (const rect of rectRuns) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      list.push({ x: rect.x, y: rect.y, w: rect.width, h: rect.height });
+    }
+  }
+  const rects: BrushRect[] = [];
+  let rectId = rectIdStart;
+  let detailRects = 0;
+  const width = Math.max(0, region.c1 - region.c0);
+  const height = Math.max(0, region.r1 - region.r0);
+  const rectEngine = width > 0 && height > 0 ? makeRectEngine(width, height) : null;
+  const mask = rectEngine ? new Uint8Array(width * height) : null;
+  for (const [color, runs] of byColor) {
+    if (!runs.length) continue;
+    let mergedRects: Array<{ r0: number; c0: number; r1: number; c1: number }> | null = null;
+    if (SLICE_DETAIL_MERGE && rectEngine && mask) {
+      mask.fill(0);
+      let fillCells = 0;
+      for (const run of runs) {
+        const r0 = Math.max(0, run.y);
+        const c0 = Math.max(0, run.x);
+        const r1 = Math.min(height, run.y + run.h);
+        const c1 = Math.min(width, run.x + run.w);
+        if (r1 <= r0 || c1 <= c0) continue;
+        for (let r = r0; r < r1; r += 1) {
+          const rowBase = r * width;
+          for (let c = c0; c < c1; c += 1) {
+            if (!mask[rowBase + c]) {
+              mask[rowBase + c] = 1;
+              fillCells += 1;
+            }
+          }
+        }
+      }
+      if (fillCells) {
+        const limit = Math.max(runs.length, Math.min(DETAIL_MERGE_MAX_RECTS, fillCells));
+        const merged = rectEngine.maxRects(mask, limit, fillCells);
+        if (merged.coveredAll) {
+          mergedRects = merged.rects.map((rect) => ({ r0: rect.r0, c0: rect.c0, r1: rect.r1, c1: rect.c1 }));
+        }
+      }
+    }
+    if (mergedRects) {
+      for (const rect of mergedRects) {
+        const w = rect.c1 - rect.c0;
+        const h = rect.r1 - rect.r0;
+        if (w <= 0 || h <= 0) continue;
+        rects.push({
+          x: region.c0 + rect.c0,
+          y: region.r0 + rect.r0,
+          w,
+          h,
+          color,
+          area: w * h,
+          id: rectId++
+        });
+      }
+      detailRects += mergedRects.length;
+      continue;
+    }
+    for (const rect of runs) {
+      rects.push({
+        x: region.c0 + rect.x,
+        y: region.r0 + rect.y,
+        w: rect.w,
+        h: rect.h,
+        color,
+        area: rect.w * rect.h,
+        id: rectId++
+      });
+      detailRects += 1;
+    }
+  }
+  return { rects, detailRects, nextId: rectId, detailsValid: true };
+};
+
 const buildBrushRects = (regions: RegionPlan[], palette: string[]): RectBuildResult => {
   const rects: BrushRect[] = [];
   const baseRects: BrushRect[] = [];
@@ -103,7 +204,7 @@ const buildBrushRects = (regions: RegionPlan[], palette: string[]): RectBuildRes
   for (const region of regions) {
     const hasDetails = region.details.length > 0;
     if (!hasDetails && region.baseColorId >= 0) baseOnlyRects += 1;
-    if (region.baseColorId >= 0) {
+    if (region.baseColorId >= 0 && (!hasDetails || !SLICE_DISABLE_OVERLAP)) {
       const color = normalizePaintColor(palette[region.baseColorId]);
       if (!color) {
         detailsValid = false;
@@ -126,34 +227,16 @@ const buildBrushRects = (regions: RegionPlan[], palette: string[]): RectBuildRes
       }
     }
     if (!hasDetails) continue;
-    for (const detail of region.details) {
-      const rectRuns = getDetailRects(detail);
-      if (!rectRuns.length) {
-        detailsValid = false;
-        break;
-      }
-      const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
-      if (!fill) {
-        detailsValid = false;
-        break;
-      }
-      detailRects += rectRuns.length;
-      for (const rect of rectRuns) {
-        const w = rect.width;
-        const h = rect.height;
-        if (w <= 0 || h <= 0) continue;
-        const detailRect = {
-          x: region.c0 + rect.x,
-          y: region.r0 + rect.y,
-          w,
-          h,
-          color: fill,
-          area: w * h,
-          id: rectId++
-        };
-        rects.push(detailRect);
-        detailRectsList.push({ ...detailRect, id: detailRectId++ });
-      }
+    const detailResult = buildDetailRectsForRegion(region, palette, rectId);
+    if (!detailResult.detailsValid) {
+      detailsValid = false;
+      break;
+    }
+    rectId = detailResult.nextId;
+    detailRects += detailResult.detailRects;
+    for (const detailRect of detailResult.rects) {
+      rects.push(detailRect);
+      detailRectsList.push({ ...detailRect, id: detailRectId++ });
     }
     if (!detailsValid) break;
   }
@@ -229,6 +312,35 @@ const buildGradientBrush = (
     detailColors.size > GRADIENT_MAX_DETAIL_COLORS
   ) {
     return null;
+  }
+
+  if (GRADIENT_LAYERED_ENABLED && rects.length <= GRADIENT_MAX_LAYERS) {
+    const layers = rects.map((rect) => ({
+      color: rect.color,
+      size: { w: rect.w, h: rect.h },
+      position: { x: rect.x, y: rect.y }
+    }));
+    const gradientRects = rects.map((rect) => ({
+      r0: region.r0 + rect.y,
+      c0: region.c0 + rect.x,
+      r1: region.r0 + rect.y + rect.h,
+      c1: region.c0 + rect.x + rect.w,
+      color: rect.color
+    }));
+    return {
+      brush: {
+        kind: "GRADIENT",
+        r0: region.r0,
+        c0: region.c0,
+        r1: region.r1,
+        c1: region.c1,
+        baseColor,
+        gradientLayers: layers,
+        gradientRects
+      },
+      stopCount: layers.length,
+      detailRects
+    };
   }
 
   const coversAxisSpan = (intervals: Array<[number, number]>, span: number): boolean => {
@@ -430,7 +542,7 @@ const buildRectListForRegions = (
   let rectId = 0;
   for (let i = 0; i < regions.length; i += 1) {
     const region = regions[i];
-    if (region.baseColorId >= 0 && !skipBaseRegions.has(i)) {
+    if (region.baseColorId >= 0 && !skipBaseRegions.has(i) && (!region.details.length || !SLICE_DISABLE_OVERLAP)) {
       const color = normalizePaintColor(palette[region.baseColorId]);
       if (!color) continue;
       const w = region.c1 - region.c0;
@@ -449,25 +561,11 @@ const buildRectListForRegions = (
     }
     if (skipDetailRegions.has(i)) continue;
     if (!region.details.length) continue;
-    for (const detail of region.details) {
-      const rectRuns = getDetailRects(detail);
-      if (!rectRuns.length) continue;
-      const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
-      if (!fill) continue;
-      for (const rect of rectRuns) {
-        const w = rect.width;
-        const h = rect.height;
-        if (w <= 0 || h <= 0) continue;
-        rects.push({
-          x: region.c0 + rect.x,
-          y: region.r0 + rect.y,
-          w,
-          h,
-          color: fill,
-          area: w * h,
-          id: rectId++
-        });
-      }
+    const detailResult = buildDetailRectsForRegion(region, palette, rectId);
+    if (!detailResult.detailsValid) continue;
+    rectId = detailResult.nextId;
+    for (const detailRect of detailResult.rects) {
+      rects.push(detailRect);
     }
   }
   return rects;
@@ -513,26 +611,46 @@ const buildSvgBrushes = (
     if (includeRegions && !includeRegions.has(i)) continue;
     const region = regions[i];
     if (!region.details.length) continue;
-    const svgPaths: Array<{ path: string; color: string }> = [];
-    let paintArea = 0;
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
+    const detailEntries: Array<{ path: string; color: string; area: number; minX: number; minY: number; maxX: number; maxY: number }> = [];
     for (const detail of region.details) {
       const fill = normalizePaintColor(detail.fill || palette[detail.colorId]);
       if (!fill || !detail.path) continue;
       const rectRuns = getDetailRects(detail);
       if (!rectRuns.length) continue;
+      let usesColor = false;
+      let area = 0;
+      let minX = Number.POSITIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
       for (const rect of rectRuns) {
         minX = Math.min(minX, rect.x);
         minY = Math.min(minY, rect.y);
         maxX = Math.max(maxX, rect.x + rect.width);
         maxY = Math.max(maxY, rect.y + rect.height);
-        paintArea += rect.width * rect.height;
+        area += rect.width * rect.height;
+        usesColor = true;
       }
-      svgPaths.push({ path: detail.path, color: fill });
+      if (usesColor && area > 0) {
+        detailEntries.push({ path: detail.path, color: fill, area, minX, minY, maxX, maxY });
+      }
     }
+    if (!detailEntries.length) continue;
+    detailEntries.sort((a, b) => b.area - a.area);
+    const svgEntries = detailEntries.slice(0, SVG_MAX_PATHS);
+    let paintArea = 0;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    const svgPaths = svgEntries.map((entry) => {
+      paintArea += entry.area;
+      minX = Math.min(minX, entry.minX);
+      minY = Math.min(minY, entry.minY);
+      maxX = Math.max(maxX, entry.maxX);
+      maxY = Math.max(maxY, entry.maxY);
+      return { path: entry.path, color: entry.color };
+    });
     if (!svgPaths.length) continue;
     if (!Number.isFinite(minX) || !Number.isFinite(minY)) continue;
     const boxW = maxX - minX;
@@ -739,6 +857,13 @@ const paintGradientBrushes = (
 ): boolean => {
   for (const brush of brushes) {
     if (brush.kind !== "GRADIENT") continue;
+    if (brush.gradientRects?.length) {
+      for (const rect of brush.gradientRects) {
+        const painted = paintRectIds(scratch, buffer.width, buffer.height, rect, paletteIds);
+        if (painted === null) return false;
+      }
+      continue;
+    }
     const axis = brush.gradientAxis;
     const stops = brush.gradientStops;
     if (!axis || !stops?.length) return false;
@@ -1368,8 +1493,8 @@ export const buildSlicePlan = (faceData: FaceData): SlicePlan => {
       );
       if (passCMerge.verified) {
         const reducesDom = passCMerge.metrics.domEstimate < passBPacked.metrics.domEstimate;
-        const paintOk = passCMerge.metrics.paintCost <= passBPacked.metrics.paintCost;
-        if (reducesDom && paintOk) pushPass(passCMerge);
+        // Allow exact overlap merges to compete even if they add overdraw; scoring will decide.
+        if (reducesDom) pushPass(passCMerge);
       }
     }
   }

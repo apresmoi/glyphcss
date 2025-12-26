@@ -264,6 +264,49 @@ const buildAbsorbedLayers = (parent: BrushLayers, absorb: AbsorbPlan): BrushLaye
 const brushIntersectsRect = (brush: PackedBrush, rect: { r0: number; c0: number; r1: number; c1: number }): boolean =>
   brush.r0 < rect.r1 && brush.r1 > rect.r0 && brush.c0 < rect.c1 && brush.c1 > rect.c0;
 
+const getBrushPaintedCells = (brush: PackedBrush): number => {
+  const baseColor = normalizePaintColor(brush.baseColor);
+  const baseW = brush.c1 - brush.c0;
+  const baseH = brush.r1 - brush.r0;
+  const baseArea = baseColor && baseW > 0 && baseH > 0 ? baseW * baseH : 0;
+  if (baseArea) return baseArea;
+  const before = brush.before && normalizePaintColor(brush.before.color) ? brush.before : null;
+  const after = brush.after && normalizePaintColor(brush.after.color) ? brush.after : null;
+  const beforeArea = before && before.w > 0 && before.h > 0 ? before.w * before.h : 0;
+  const afterArea = after && after.w > 0 && after.h > 0 ? after.w * after.h : 0;
+  if (!beforeArea) return afterArea;
+  if (!afterArea) return beforeArea;
+  const ix0 = Math.max(before.x, after.x);
+  const iy0 = Math.max(before.y, after.y);
+  const ix1 = Math.min(before.x + before.w, after.x + after.w);
+  const iy1 = Math.min(before.y + before.h, after.y + after.h);
+  const overlap = ix1 > ix0 && iy1 > iy0 ? (ix1 - ix0) * (iy1 - iy0) : 0;
+  return beforeArea + afterArea - overlap;
+};
+
+const paintBrushList = (
+  target: (string | null)[],
+  bbox: { r0: number; c0: number; r1: number; c1: number },
+  brushes: PackedBrush[],
+  override?: { index: number; brush: PackedBrush },
+  skipIndex?: number
+): void => {
+  const entries: Array<{ index: number; area: number; brush: PackedBrush }> = [];
+  for (let i = 0; i < brushes.length; i += 1) {
+    if (i === skipIndex) continue;
+    const brush = override && i === override.index ? override.brush : brushes[i];
+    if (!brush || !brushIntersectsRect(brush, bbox)) continue;
+    entries.push({ index: i, area: getBrushPaintedCells(brush), brush });
+  }
+  entries.sort((a, b) => {
+    if (a.area !== b.area) return b.area - a.area;
+    return a.index - b.index;
+  });
+  for (const entry of entries) {
+    paintPackedBrush(target, bbox, entry.brush);
+  }
+};
+
 const paintPackedBrush = (
   target: (string | null)[],
   bbox: { r0: number; c0: number; r1: number; c1: number },
@@ -429,16 +472,19 @@ const optimizeBrushOverlaps = (
   let current = currentBrushes.slice();
   let attempted = 0;
   let accepted = 0;
+  const overlapGap = MAX_OVERLAP_GAP * 2;
+  const relaxedMergeSpan = MAX_MERGE_SPAN * 2;
+  const relaxedMergeArea = MAX_MERGE_AREA * 4;
   for (let pass = 0; pass < MAX_OVERLAP_PASSES; pass += 1) {
     if (current.length < 2) break;
     const bucketKey = (bx: number, by: number): number => (bx << 16) ^ (by & 0xffff);
     const buckets = new Map<number, number[]>();
     for (let i = 0; i < current.length; i += 1) {
       const brush = current[i];
-      const bx0 = Math.floor((brush.c0 - MAX_OVERLAP_GAP) / STAMP_BUCKET_SIZE);
-      const bx1 = Math.floor((brush.c1 + MAX_OVERLAP_GAP - 1) / STAMP_BUCKET_SIZE);
-      const by0 = Math.floor((brush.r0 - MAX_OVERLAP_GAP) / STAMP_BUCKET_SIZE);
-      const by1 = Math.floor((brush.r1 + MAX_OVERLAP_GAP - 1) / STAMP_BUCKET_SIZE);
+      const bx0 = Math.floor((brush.c0 - overlapGap) / STAMP_BUCKET_SIZE);
+      const bx1 = Math.floor((brush.c1 + overlapGap - 1) / STAMP_BUCKET_SIZE);
+      const by0 = Math.floor((brush.r0 - overlapGap) / STAMP_BUCKET_SIZE);
+      const by1 = Math.floor((brush.r1 + overlapGap - 1) / STAMP_BUCKET_SIZE);
       for (let bx = bx0; bx <= bx1; bx += 1) {
         for (let by = by0; by <= by1; by += 1) {
           const key = bucketKey(bx, by);
@@ -459,17 +505,17 @@ const optimizeBrushOverlaps = (
     const isNearby = (a: PackedBrush, b: PackedBrush): boolean => {
       const gapX = a.c1 <= b.c0 ? b.c0 - a.c1 : b.c1 <= a.c0 ? a.c0 - b.c1 : 0;
       const gapY = a.r1 <= b.r0 ? b.r0 - a.r1 : b.r1 <= a.r0 ? a.r0 - b.r1 : 0;
-      return gapX <= MAX_OVERLAP_GAP && gapY <= MAX_OVERLAP_GAP;
+      return gapX <= overlapGap && gapY <= overlapGap;
     };
 
     for (let i = 0; i < current.length; i += 1) {
       if (mergedParents.has(i) || mergedChildren.has(i)) continue;
       if (mergesThisPass >= MAX_OVERLAP_MERGES_PER_PASS) break;
       const parent = current[i];
-      const bx0 = Math.floor((parent.c0 - MAX_OVERLAP_GAP) / STAMP_BUCKET_SIZE);
-      const bx1 = Math.floor((parent.c1 + MAX_OVERLAP_GAP - 1) / STAMP_BUCKET_SIZE);
-      const by0 = Math.floor((parent.r0 - MAX_OVERLAP_GAP) / STAMP_BUCKET_SIZE);
-      const by1 = Math.floor((parent.r1 + MAX_OVERLAP_GAP - 1) / STAMP_BUCKET_SIZE);
+      const bx0 = Math.floor((parent.c0 - overlapGap) / STAMP_BUCKET_SIZE);
+      const bx1 = Math.floor((parent.c1 + overlapGap - 1) / STAMP_BUCKET_SIZE);
+      const by0 = Math.floor((parent.r0 - overlapGap) / STAMP_BUCKET_SIZE);
+      const by1 = Math.floor((parent.r1 + overlapGap - 1) / STAMP_BUCKET_SIZE);
       candidateIndices.length = 0;
       visitValue += 1;
       for (let bx = bx0; bx <= bx1; bx += 1) {
@@ -495,6 +541,12 @@ const optimizeBrushOverlaps = (
       for (const j of candidateIndices) {
         const child = current[j];
         if (!isNearby(parent, child)) continue;
+        const parentBaseColor = normalizePaintColor(parent.baseColor);
+        const childBaseColor = normalizePaintColor(child.baseColor);
+        const sameBaseOnly = !!parentBaseColor &&
+          parentBaseColor === childBaseColor &&
+          !parent.before && !parent.after &&
+          !child.before && !child.after;
         const r0 = Math.min(parent.r0, child.r0);
         const c0 = Math.min(parent.c0, child.c0);
         const r1 = Math.max(parent.r1, child.r1);
@@ -502,16 +554,16 @@ const optimizeBrushOverlaps = (
         const width = c1 - c0;
         const height = r1 - r0;
         if (width <= 0 || height <= 0) continue;
-        if (width > MAX_MERGE_SPAN || height > MAX_MERGE_SPAN) continue;
+        const spanLimit = sameBaseOnly ? relaxedMergeSpan : MAX_MERGE_SPAN;
+        if (width > spanLimit || height > spanLimit) continue;
         const area = width * height;
-        if (area > MAX_MERGE_AREA) continue;
+        const areaLimit = sameBaseOnly ? relaxedMergeArea : MAX_MERGE_AREA;
+        if (area > areaLimit) continue;
         attempted += 1;
         const bbox = { r0, c0, r1, c1 };
         const size = area;
         const target = new Array<string | null>(size).fill(null);
-        for (let k = 0; k < baselineBrushes.length; k += 1) {
-          paintPackedBrush(target, bbox, baselineBrushes[k]);
-        }
+        paintBrushList(target, bbox, baselineBrushes);
         let hasAir = false;
         for (let k = 0; k < size; k += 1) {
           if (target[k] === null) {
@@ -520,22 +572,32 @@ const optimizeBrushOverlaps = (
           }
         }
         if (hasAir) continue;
-        const merged = buildMergedBrush(parent.baseColor, bbox, target);
-        if (!merged) continue;
-        const candidate = new Array<string | null>(size).fill(null);
-        for (let k = 0; k < current.length; k += 1) {
-          if (k === i) paintPackedBrush(candidate, bbox, merged);
-          else if (k === j) continue;
-          else paintPackedBrush(candidate, bbox, current[k]);
-        }
-        let ok = true;
-        for (let k = 0; k < size; k += 1) {
-          if (target[k] !== candidate[k]) {
-            ok = false;
-            break;
+        const candidateMatches = (merged: PackedBrush): boolean => {
+          const candidate = new Array<string | null>(size).fill(null);
+          paintBrushList(candidate, bbox, current, { index: i, brush: merged }, j);
+          for (let k = 0; k < size; k += 1) {
+            if (target[k] !== candidate[k]) return false;
           }
+          return true;
+        };
+
+        let merged: PackedBrush | null = null;
+        if (sameBaseOnly) {
+          const baseMerged: PackedBrush = {
+            mode: "BASE",
+            r0: bbox.r0,
+            c0: bbox.c0,
+            r1: bbox.r1,
+            c1: bbox.c1,
+            baseColor: parent.baseColor
+          };
+          if (candidateMatches(baseMerged)) merged = baseMerged;
         }
-        if (!ok) continue;
+        if (!merged) {
+          const mergedBrush = buildMergedBrush(parent.baseColor, bbox, target);
+          if (mergedBrush && candidateMatches(mergedBrush)) merged = mergedBrush;
+        }
+        if (!merged) continue;
         if (!bestMerged || area < bestMergedArea || (area === bestMergedArea && j < bestChild)) {
           bestChild = j;
           bestMerged = merged;

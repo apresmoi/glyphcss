@@ -34,6 +34,14 @@ export type Brush = {
   svgPaintArea?: number;
   gradientAxis?: "x" | "y";
   gradientStops?: { start: number; end: number; color: string }[];
+  gradientLayers?: {
+    axis?: "x" | "y";
+    stops?: { start: number; end: number; color: string }[];
+    color?: string;
+    size?: { w: number; h: number };
+    position?: { x: number; y: number };
+  }[];
+  gradientRects?: { r0: number; c0: number; r1: number; c1: number; color: string }[];
 };
 
 export type SliceMetrics = {

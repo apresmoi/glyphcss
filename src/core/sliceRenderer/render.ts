@@ -86,16 +86,63 @@ const applyBrush = (
   setStyleIfDiff(brush, "height", "");
 };
 
-const buildGradientCss = (brush: Brush): string | null => {
+const buildGradientCss = (
+  brush: Brush
+): { image: string; size: string; position: string } | null => {
+  const width = brush.c1 - brush.c0;
+  const height = brush.r1 - brush.r0;
+  const layers = brush.gradientLayers;
+  if (layers?.length) {
+    const images: string[] = [];
+    const sizes: string[] = [];
+    const positions: string[] = [];
+    for (const layer of layers) {
+      const axis = layer.axis ?? "y";
+      const stops = layer.stops;
+      let image = "";
+      if (stops?.length) {
+        const size = axis === "y" ? (layer.size?.h ?? height) : (layer.size?.w ?? width);
+        if (size <= 0) continue;
+        const formatPos = (value: number): string => `${((value / size) * 100).toFixed(3)}%`;
+        const parts = stops.map((stop) => `${stop.color} ${formatPos(stop.start)} ${formatPos(stop.end)}`);
+        const direction = axis === "y" ? "to bottom" : "to right";
+        image = `linear-gradient(${direction}, ${parts.join(", ")})`;
+      } else if (layer.color) {
+        image = `linear-gradient(${layer.color}, ${layer.color})`;
+      }
+      if (!image) continue;
+      images.push(image);
+      const sizeW = layer.size?.w ?? width;
+      const sizeH = layer.size?.h ?? height;
+      const sizeX = width > 0 ? `${((sizeW / width) * 100).toFixed(3)}%` : "100%";
+      const sizeY = height > 0 ? `${((sizeH / height) * 100).toFixed(3)}%` : "100%";
+      sizes.push(`${sizeX} ${sizeY}`);
+      const posX = layer.position?.x ?? 0;
+      const posY = layer.position?.y ?? 0;
+      const posXPct = width > 0 ? `${((posX / width) * 100).toFixed(3)}%` : "0%";
+      const posYPct = height > 0 ? `${((posY / height) * 100).toFixed(3)}%` : "0%";
+      positions.push(`${posXPct} ${posYPct}`);
+    }
+    if (!images.length) return null;
+    return {
+      image: images.join(", "),
+      size: sizes.join(", "),
+      position: positions.join(", ")
+    };
+  }
   const axis = brush.gradientAxis;
   const stops = brush.gradientStops;
   if (!axis || !stops?.length) return null;
-  const size = axis === "y" ? brush.r1 - brush.r0 : brush.c1 - brush.c0;
+  const size = axis === "y" ? height : width;
   if (size <= 0) return null;
   const formatPos = (value: number): string => `${((value / size) * 100).toFixed(3)}%`;
   const parts = stops.map((stop) => `${stop.color} ${formatPos(stop.start)} ${formatPos(stop.end)}`);
   const direction = axis === "y" ? "to bottom" : "to right";
-  return `linear-gradient(${direction}, ${parts.join(", ")})`;
+  return {
+    image: `linear-gradient(${direction}, ${parts.join(", ")})`,
+    size: "100% 100%",
+    position: "0 0"
+  };
 };
 
 const applyGradientBrush = (
@@ -110,10 +157,10 @@ const applyGradientBrush = (
   setStyleIfDiff(target, "transform", "");
   const gradientCss = buildGradientCss(brush);
   if (gradientCss) {
-    setStyleIfDiff(target, "backgroundImage", gradientCss);
+    setStyleIfDiff(target, "backgroundImage", gradientCss.image);
     setStyleIfDiff(target, "backgroundRepeat", "no-repeat");
-    setStyleIfDiff(target, "backgroundSize", "100% 100%");
-    setStyleIfDiff(target, "backgroundPosition", "0 0");
+    setStyleIfDiff(target, "backgroundSize", gradientCss.size);
+    setStyleIfDiff(target, "backgroundPosition", gradientCss.position);
   }
 };
 

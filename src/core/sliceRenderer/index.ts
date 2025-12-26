@@ -172,10 +172,14 @@ export function updateSliceRendererGeometry(
   let totalDomEstimate = 0;
   let totalIdealCells = 0;
   let totalPaintedCells = 0;
+  let totalDetailRects = 0;
+  let fallbackSlices = 0;
   for (const plan of renderedPlans) {
     totalDomEstimate += plan.metrics.domEstimate;
     totalIdealCells += plan.metrics.idealCells;
     totalPaintedCells += plan.metrics.paintedCells;
+    totalDetailRects += plan.metrics.detailRects;
+    if (plan.fallback) fallbackSlices += 1;
   }
   const paintedCells = Number.isFinite(totalPaintedCells) ? totalPaintedCells : totalIdealCells;
   const paintCost = stats.paintCost;
@@ -183,6 +187,8 @@ export function updateSliceRendererGeometry(
   const wastedPaint = overdrawCells;
   const wastedPaintRatio = paintedCells > 0 ? wastedPaint / paintedCells : 0;
   const overdrawRatio = paintCost / Math.max(1, paintedCells);
+  const domPerCell = totalDomEstimate / Math.max(1, totalIdealCells);
+  const fragPerCell = totalDetailRects / Math.max(1, totalIdealCells);
 
   if (typeof globalThis !== "undefined") {
     (globalThis as { __voxcssLastSliceRendererReport?: unknown }).__voxcssLastSliceRendererReport = {
@@ -222,7 +228,30 @@ export function updateSliceRendererGeometry(
   }
 
   if (layersChanged || depsChanged) {
-    console.log("[VoxCSS] sliceRenderer stats", stats);
+    const round3 = (value: number): number => (Number.isFinite(value) ? Number(value.toFixed(3)) : value);
+    const tuningReport = {
+      totals: {
+        domEstimate: Math.round(totalDomEstimate),
+        domPerCell: round3(domPerCell),
+        detailRects: totalDetailRects,
+        fragPerCell: round3(fragPerCell),
+        paintedCells: Math.round(paintedCells),
+        paintCost: Math.round(paintCost),
+        overdrawRatio: round3(overdrawRatio),
+        wastedPaintRatio: round3(wastedPaintRatio),
+        fallbacks: fallbackSlices
+      },
+      brushes: {
+        nodes: stats.brushNodes,
+        base: stats.brushBase,
+        stamp: stats.brushStamp,
+        combo: stats.brushCombo,
+        gradient: stats.brushGradient,
+        svg: stats.brushSvg
+      },
+      worstSlices: worstSlices.slice(0, 3)
+    };
+    console.log("[VoxCSS] sliceRenderer report", tuningReport);
   }
 
   return hosts;
