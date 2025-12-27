@@ -10,3 +10,4 @@ examples/react/testsuite.html
 examples/vue/testsuite.html
 .DS_Store
 package-lock.json
+AGENTS.md
