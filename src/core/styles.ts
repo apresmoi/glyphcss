@@ -58,21 +58,9 @@ const CORE_BASE_STYLES = `
   bottom: 0;
   transform-style: preserve-3d;
   background: var(--voxcss-floor-base, #c2c2f3);
-  background-image:
-    repeating-linear-gradient(
-      to right,
-      rgba(0, 0, 0, 0.12) 0,
-      rgba(0, 0, 0, 0.12) 1px,
-      transparent 1px,
-      transparent var(--voxcss-grid-x, 50px)
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0.12) 0,
-      rgba(0, 0, 0, 0.12) 1px,
-      transparent 1px,
-      transparent var(--voxcss-grid-y, 50px)
-    );
+  background-image: var(--voxcss-floor-grid-image, var(--voxcss-floor-grid, none));
+  background-repeat: repeat;
+  background-size: var(--voxcss-grid-x, 50px) var(--voxcss-grid-y, 50px);
   z-index: 0;
 }
 
@@ -82,21 +70,9 @@ const CORE_BASE_STYLES = `
   transform-style: preserve-3d;
   pointer-events: none;
   background: var(--voxcss-ceiling-base, #c2c2f3);
-  background-image:
-    repeating-linear-gradient(
-      to right,
-      rgba(0, 0, 0, 0.15) 0,
-      rgba(0, 0, 0, 0.15) 1px,
-      transparent 1px,
-      transparent 50px
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0.15) 0,
-      rgba(0, 0, 0, 0.15) 1px,
-      transparent 1px,
-      transparent 50px
-    );
+  background-image: var(--voxcss-ceiling-grid-image, var(--voxcss-ceiling-grid, none));
+  background-repeat: repeat;
+  background-size: 50px 50px;
   opacity: var(--voxcss-ceiling-opacity, 0.35);
   z-index: 0;
 }
@@ -106,12 +82,8 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-wall {
   position: absolute;
-  background-image: linear-gradient(
-      to right,
-      rgba(0, 0, 0, 0.1) 1px,
-      transparent 1px
-    ),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.1) 1px, transparent 1px);
+  background-image: var(--voxcss-wall-grid, none);
+  background-repeat: repeat;
   background-size: 50px var(--voxcss-layer-elevation, 50px);
 }
 .voxcss-wall--backLeft,
@@ -172,6 +144,7 @@ const CORE_BASE_STYLES = `
   transform: translateZ(var(--vox-z, 0px));
   transform-origin: 0 0;
 }
+
 
 .voxcss-brush::before,
 .voxcss-brush::after {

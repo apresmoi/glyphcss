@@ -62,10 +62,10 @@
     "access": "public"
   },
   "peerDependencies": {
-    "vue": "^3.0.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
-    "svelte": "^4.0.0"
+    "svelte": "^4.0.0",
+    "vue": "^3.0.0"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -84,8 +84,8 @@
   "devDependencies": {
     "@types/react": "^18.3.26",
     "@types/react-dom": "^18.3.7",
-    "vue": "^3.5.12",
     "tsup": "^8.0.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vue": "^3.5.12"
   }
 }

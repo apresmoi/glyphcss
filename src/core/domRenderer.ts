@@ -33,6 +33,50 @@ const rendererStates = new WeakMap<HTMLElement, DomRendererState>();
 
 const DIMETRIC_PROJECTION_CLASS = "voxcss-projection--dimetric";
 
+const FLOOR_GRID_ALPHA = 0.12;
+const CEILING_GRID_ALPHA = 0.15;
+const WALL_GRID_ALPHA = 0.1;
+const GRID_DISABLE_THRESHOLD = 20;
+
+const GRID_SPRITE_CACHE = new Map<string, string>();
+
+const formatSvgNumber = (value: number): string => {
+  const rounded = Math.round(value * 1000) / 1000;
+  return Number.isInteger(rounded) ? String(Math.trunc(rounded)) : String(rounded);
+};
+
+const buildGridSvg = (width: number, height: number, alpha: number): string => {
+  const w = formatSvgNumber(width);
+  const h = formatSvgNumber(height);
+  const a = formatSvgNumber(alpha);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" shape-rendering="crispEdges"><rect x="0" y="0" width="1" height="${h}" fill="rgb(0, 0, 0)" fill-opacity="${a}"/><rect x="0" y="0" width="${w}" height="1" fill="rgb(0, 0, 0)" fill-opacity="${a}"/></svg>`;
+};
+
+const getGridSpriteUrl = (documentRef: Document, width: number, height: number, alpha: number): string | null => {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  const normalizedWidth = Math.round(width * 1000) / 1000;
+  const normalizedHeight = Math.round(height * 1000) / 1000;
+  const clampedAlpha = Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0;
+  const normalizedAlpha = Math.round(clampedAlpha * 1000) / 1000;
+  const key = `${formatSvgNumber(normalizedWidth)}x${formatSvgNumber(normalizedHeight)}:${formatSvgNumber(normalizedAlpha)}`;
+  const cached = GRID_SPRITE_CACHE.get(key);
+  if (cached) return cached;
+  const svg = buildGridSvg(normalizedWidth, normalizedHeight, normalizedAlpha);
+  const blob = new Blob([svg], { type: "image/svg+xml" });
+  const urlCtor = documentRef.defaultView?.URL ?? URL;
+  const url = urlCtor.createObjectURL(blob);
+  GRID_SPRITE_CACHE.set(key, url);
+  return url;
+};
+
+const readCssPxValue = (documentRef: Document, element: HTMLElement, name: string, fallback: number): number => {
+  const view = documentRef.defaultView;
+  if (!view) return fallback;
+  const raw = view.getComputedStyle(element).getPropertyValue(name);
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 export interface RendererMountOptions { documentRef: Document; target: HTMLElement; }
 
 export interface RendererHandle {
@@ -205,6 +249,7 @@ function syncSceneStructure(
 ): void {
   const dimensions = { rows: Math.max(context.rows, 1), cols: Math.max(context.cols, 1), depth: Math.max(depthLayers, 1), tileSize: context.tileSize };
   const wallMask = context.walls ?? DEFAULT_WALLS;
+  const disableGrid = dimensions.rows > GRID_DISABLE_THRESHOLD && dimensions.cols > GRID_DISABLE_THRESHOLD;
   const floor = state.floor, floorShouldShow = !!context.showFloor && !!wallMask.b;
   floor.style.pointerEvents = "none";
   if (floorShouldShow) {
@@ -213,12 +258,20 @@ function syncSceneStructure(
     floor.style.setProperty("--voxcss-floor-base", shadeColor(context.wallColor ?? DEFAULT_WALL_COLOR, FLOOR_BASE_DELTA));
     floor.style.setProperty("--voxcss-grid-x", `${dimensions.tileSize}px`);
     floor.style.setProperty("--voxcss-grid-y", `${dimensions.tileSize}px`);
+    if (disableGrid) {
+      floor.style.removeProperty("--voxcss-floor-grid");
+    } else {
+      const floorGridUrl = getGridSpriteUrl(documentRef, dimensions.tileSize, dimensions.tileSize, FLOOR_GRID_ALPHA);
+      if (floorGridUrl) floor.style.setProperty("--voxcss-floor-grid", `url("${floorGridUrl}")`);
+      else floor.style.removeProperty("--voxcss-floor-grid");
+    }
   } else {
     floor.style.background = "none";
     floor.style.backgroundImage = "none";
     floor.style.removeProperty("--voxcss-floor-base");
     floor.style.removeProperty("--voxcss-grid-x");
     floor.style.removeProperty("--voxcss-grid-y");
+    floor.style.removeProperty("--voxcss-floor-grid");
   }
 
   const ceilingShouldShow = !!context.showFloor && !!wallMask.t;
@@ -231,6 +284,13 @@ function syncSceneStructure(
     ceiling.style.width = `${dimensions.cols * dimensions.tileSize}px`, ceiling.style.height = `${dimensions.rows * dimensions.tileSize}px`, ceiling.style.transform = `translateZ(${dimensions.depth * dimensions.tileSize}px)`;
     ceiling.style.setProperty("--voxcss-ceiling-base", shadeColor(context.wallColor ?? DEFAULT_WALL_COLOR, CEILING_BASE_DELTA));
     ceiling.style.setProperty("--voxcss-ceiling-opacity", "0.35");
+    if (disableGrid) {
+      ceiling.style.removeProperty("--voxcss-ceiling-grid");
+    } else {
+      const ceilingGridUrl = getGridSpriteUrl(documentRef, dimensions.tileSize, dimensions.tileSize, CEILING_GRID_ALPHA);
+      if (ceilingGridUrl) ceiling.style.setProperty("--voxcss-ceiling-grid", `url("${ceilingGridUrl}")`);
+      else ceiling.style.removeProperty("--voxcss-ceiling-grid");
+    }
   }
 
   if (!context.showWalls) clearWalls(state);
@@ -244,6 +304,9 @@ function syncSceneStructure(
       depthPx = depth * tile,
       rowPx = rows * tile,
       colPx = cols * tile;
+    const wallElevation = readCssPxValue(documentRef, state.root, "--voxcss-layer-elevation", context.layerElevation ?? tile);
+    const wallGridUrl = disableGrid ? null : getGridSpriteUrl(documentRef, tile, wallElevation, WALL_GRID_ALPHA);
+    const wallGridAltUrl = disableGrid || tile === wallElevation ? wallGridUrl : getGridSpriteUrl(documentRef, wallElevation, tile, WALL_GRID_ALPHA);
     for (const [key, className, width, height, transform] of [
       ["bl", `${WALL_CLASS} ${WALL_CLASS}--backLeft`, depthPx, rowPx, `rotateY(-90deg) translateZ(${halfTile * depth}px) translateX(${halfTile * depth}px)`],
       ["fr", `${WALL_CLASS} ${WALL_CLASS}--frontRight`, depthPx, rowPx, `rotateY(-90deg) translateZ(-${halfTile * depth}px) translateX(${halfTile * depth}px)`],
@@ -261,6 +324,10 @@ function syncSceneStructure(
       mountStructuralElement(state, wall);
       wall.style.width = `${width}px`, wall.style.height = `${height}px`, wall.style.transform = transform;
       wall.style.backgroundColor = shadeWallFace(context.wallColor ?? DEFAULT_WALL_COLOR, key);
+      const useAlt = key === "bl" || key === "fr";
+      const gridUrl = useAlt ? wallGridAltUrl : wallGridUrl;
+      if (gridUrl) wall.style.setProperty("--voxcss-wall-grid", `url("${gridUrl}")`);
+      else wall.style.removeProperty("--voxcss-wall-grid");
     }
   }
 

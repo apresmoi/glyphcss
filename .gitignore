@@ -2,7 +2,7 @@ node_modules/
 dist/
 docs/
 scripts/
-examples/headless/models
+examples/models
 examples/headless/testsuite.html
 examples/headless/vox-drop.html
 examples/headless/slicer.html

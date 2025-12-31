@@ -57,6 +57,19 @@ export interface SceneController {
 
 const DEFAULT_POINTER_INVERT = 1;
 const POINTER_DRAG_SPEED = 5;
+const nowMs = (): number =>
+  typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+const getSceneProfile = (): Record<string, number | boolean> | null => {
+  const root = (globalThis as { __voxcssProfile?: Record<string, unknown> }).__voxcssProfile;
+  if (!root || typeof root !== "object") return null;
+  const entry = (root as { sceneController?: Record<string, number | boolean> }).sceneController;
+  if (entry) return entry;
+  const next: Record<string, number | boolean> = {};
+  (root as { sceneController?: Record<string, number | boolean> }).sceneController = next;
+  return next;
+};
 
 export function sceneController(options: SceneControllerOptions = {}): SceneController {
   const snapshotListeners = new Set<SnapshotListener>();
@@ -274,9 +287,14 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
   }
 
   function applySceneState(state: SceneState): SceneSnapshot {
+    const profile = getSceneProfile();
+    const start = profile ? nowMs() : 0;
     const prevState = lastState;
     lastState = state;
-    const { mergeOption } = resolveGrid(state);
+    const resolveStart = profile ? nowMs() : 0;
+    const resolved = resolveGrid(state);
+    if (profile) profile.resolveMs = Math.round(nowMs() - resolveStart);
+    const { mergeOption } = resolved;
     const mode: SceneRenderMode = is3dMerge(mergeOption) ? "slice-renderer" : "cubes";
     const needsRebuild =
       prevState.voxels !== state.voxels ||
@@ -288,10 +306,16 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       prevState.showFloor !== state.showFloor ||
       prevState.projection !== state.projection ||
       prevState.mergeVoxels !== state.mergeVoxels;
+    if (profile) profile.needsRebuild = needsRebuild;
     if (needsRebuild) {
+      const buildStart = profile ? nowMs() : 0;
       rebuildScene(state);
+      if (profile) profile.buildSceneMs = Math.round(nowMs() - buildStart);
+    } else if (profile) {
+      profile.buildSceneMs = 0;
     }
     emitSnapshot(false);
+    if (profile) profile.totalMs = Math.round(nowMs() - start);
     return {
       layers: currentLayers,
       context: currentContext,

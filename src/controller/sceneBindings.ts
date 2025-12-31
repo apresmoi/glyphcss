@@ -19,6 +19,8 @@ export interface SceneState {
 export type SceneComponentProps = Partial<SceneState>;
 export const SCENE_HOST_CLASS = "voxcss-scene";
 
+const GRID_RESTORE_DELAY = 120;
+
 export function normalizeSceneState(input: SceneComponentProps): SceneState {
   return {
     voxels: input.voxels ?? [],
@@ -53,17 +55,43 @@ export function mountScene({
   let lastWalls: WallsMask | null = null;
   let lastDimensions = controller.getDimensions();
   let lastProjection = controller.getProjection();
+  let lastCamera = controller.getCameraState();
+  let lastCursor = controller.getCursor();
   const win = doc.defaultView ?? undefined;
   const requestFrame = win?.requestAnimationFrame?.bind(win) ?? ((cb: FrameRequestCallback) => setTimeout(cb, 16) as unknown as number);
   const cancelFrame = win?.cancelAnimationFrame?.bind(win) ?? ((id: number) => clearTimeout(id));
+  const setTimer = (win?.setTimeout?.bind(win) ?? setTimeout) as typeof setTimeout;
+  const clearTimer = (win?.clearTimeout?.bind(win) ?? clearTimeout) as typeof clearTimeout;
   let pendingRender: number | null = null;
   let lastSceneSnapshot: ReturnType<typeof controller.applySceneState> | null = null;
+  let gridRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+  let gridSuppressed = false;
   const applyBoxStyle = (style: Record<string, string>) => {
     Object.entries(style).forEach(([key, value]) => {
       (element.style as CSSStyleDeclaration & Record<string, string>)[key] = value ?? "";
     });
   };
   applyBoxStyle(controller.getBoxStyle());
+
+  const setGridSuppressed = (suppressed: boolean) => {
+    if (gridSuppressed === suppressed) return;
+    gridSuppressed = suppressed;
+    if (suppressed) {
+      element.style.setProperty("--voxcss-floor-grid-image", "none");
+      element.style.setProperty("--voxcss-ceiling-grid-image", "none");
+    } else {
+      element.style.removeProperty("--voxcss-floor-grid-image");
+      element.style.removeProperty("--voxcss-ceiling-grid-image");
+    }
+  };
+
+  const scheduleGridRestore = () => {
+    if (gridRestoreTimer !== null) clearTimer(gridRestoreTimer);
+    gridRestoreTimer = setTimer(() => {
+      gridRestoreTimer = null;
+      setGridSuppressed(false);
+    }, GRID_RESTORE_DELAY);
+  };
 
   const scheduleRender = () => {
     if (pendingRender !== null) return;
@@ -81,8 +109,28 @@ export function mountScene({
   lastProjection = controller.getProjection();
 
   const unsubscribers = [
-    controller.subscribeSnapshot(({ style, walls, cameraOnly, context }) => {
+    controller.subscribeSnapshot(({ style, walls, cameraOnly, context, camera, cursor }) => {
       applyBoxStyle(style);
+      if (cursor) {
+        const wasDragging = lastCursor === "grabbing";
+        const isDragging = cursor === "grabbing";
+        if (wasDragging && !isDragging) {
+          if (gridRestoreTimer !== null) {
+            clearTimer(gridRestoreTimer);
+            gridRestoreTimer = null;
+          }
+          setGridSuppressed(false);
+        }
+        lastCursor = cursor;
+      }
+      if (camera) {
+        const rotationChanged = camera.rotX !== lastCamera.rotX || camera.rotY !== lastCamera.rotY;
+        if (rotationChanged) {
+          setGridSuppressed(true);
+          scheduleGridRestore();
+        }
+        lastCamera = camera;
+      }
       if (cameraOnly) {
         const wallsChanged = !lastWalls || !wallMasksEqual(lastWalls, walls);
         if (wallsChanged) {
@@ -133,6 +181,10 @@ export function mountScene({
       if (pendingRender !== null) {
         cancelFrame(pendingRender);
         pendingRender = null;
+      }
+      if (gridRestoreTimer !== null) {
+        clearTimer(gridRestoreTimer);
+        gridRestoreTimer = null;
       }
       unsubscribers.forEach((dispose) => dispose());
       renderer.destroy();
