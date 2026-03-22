@@ -1,12 +1,10 @@
 {
-  "name": "@layoutit/voxcss",
-  "version": "0.1.8",
-  "description": "Framework-agnostic CSS voxel renderer with Vue, React, and Svelte wrappers.",
+  "name": "@layoutit/voxcss-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "description": "CSS-based voxel rendering engine monorepo.",
   "type": "module",
-  "main": "dist/index.cjs",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "svelte": "./dist/svelte/index.js",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,76 +14,15 @@
     "url": "https://github.com/LayoutitStudio/voxcss/issues"
   },
   "homepage": "https://github.com/LayoutitStudio/voxcss#readme",
-  "keywords": [
-    "voxels",
-    "css",
-    "3d",
-    "vue",
-    "react",
-    "svelte"
-  ],
-  "files": [
-    "dist"
-  ],
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
-    },
-    "./vue": {
-      "types": "./dist/vue/index.d.ts",
-      "import": "./dist/vue/index.js",
-      "require": "./dist/vue/index.cjs"
-    },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.js",
-      "require": "./dist/react/index.cjs"
-    },
-    "./svelte": {
-      "types": "./dist/svelte/index.d.ts",
-      "svelte": "./dist/svelte/index.js",
-      "import": "./dist/svelte/index.js",
-      "require": "./dist/svelte/index.cjs",
-      "default": "./dist/svelte/index.js"
-    }
-  },
   "scripts": {
-    "build": "tsup --clean && node -e \"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\"",
-    "watch": "tsup --watch --sourcemap --onSuccess \"node -e \\\"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\\\"\"",
-    "bench:test": "node scripts/slice-renderer-test.mjs",
-    "bench:test:build": "node scripts/slice-renderer-test.mjs --build",
-    "prepublishOnly": "npm run build"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "peerDependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "svelte": "^4.0.0",
-    "vue": "^3.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    },
-    "svelte": {
-      "optional": true
-    },
-    "vue": {
-      "optional": true
-    }
+    "build": "turbo build"
   },
   "devDependencies": {
-    "@types/react": "^18.3.26",
-    "@types/react-dom": "^18.3.7",
-    "tsup": "^8.0.1",
-    "typescript": "^5.3.3",
-    "vue": "^3.5.12"
+    "turbo": "^2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }
