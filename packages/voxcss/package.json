@@ -54,7 +54,8 @@
   },
   "scripts": {
     "build": "tsup --clean && node -e \"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\"",
-    "watch": "tsup --watch --sourcemap --onSuccess \"node -e \\\"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\\\"\""
+    "watch": "tsup --watch --sourcemap --onSuccess \"node -e \\\"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\\\"\"",
+    "prepublishOnly": "npm run build"
   },
   "publishConfig": {
     "access": "public"

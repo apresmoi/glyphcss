@@ -15,10 +15,8 @@
   },
   "homepage": "https://github.com/LayoutitStudio/voxcss#readme",
   "scripts": {
-    "build": "turbo build"
-  },
-  "devDependencies": {
-    "turbo": "^2"
+    "build": "pnpm -r build",
+    "publish:all": "pnpm -r publish --access public"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
