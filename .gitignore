@@ -8,6 +8,7 @@ examples/headless/vox-drop.html
 examples/headless/slicer.html
 examples/react/testsuite.html
 examples/vue/testsuite.html
+coverage/
 .DS_Store
 package-lock.json
 AGENTS.md

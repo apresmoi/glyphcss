@@ -16,6 +16,8 @@
   "homepage": "https://github.com/LayoutitStudio/voxcss#readme",
   "scripts": {
     "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
     "publish:all": "pnpm -r publish --access public"
   },
   "pnpm": {
