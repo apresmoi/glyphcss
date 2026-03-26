@@ -8,9 +8,9 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
-import { renderScene } from "../../src/core/headless";
-import { injectBaseStyles } from "../../src/core/styles";
-import { STYLE_ID, FLOOR_CLASS, LAYER_CLASS, WALL_CLASS, CEILING_CLASS, CUBE_CLASS, FACE_CLASS } from "../../src/core/types";
+import { renderScene } from "../../../html/src/headless";
+import { injectBaseStyles } from "../../../html/src/styles";
+import { STYLE_ID, FLOOR_CLASS, LAYER_CLASS, WALL_CLASS, CEILING_CLASS, CUBE_CLASS, FACE_CLASS } from "../../../core/src/types";
 // Lighting helpers intentionally NOT imported — tests use hardcoded expected values
 // to catch regressions in the shading math itself.
 

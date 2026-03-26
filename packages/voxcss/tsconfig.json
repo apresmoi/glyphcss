@@ -15,7 +15,11 @@
     "skipLibCheck": true,
     "baseUrl": "./src",
     "paths": {
-      "@voxcss/*": ["./*"]
+      "@voxcss/*": ["./*"],
+      "@layoutit/voxcss-core": ["../../core/src"],
+      "@layoutit/voxcss-core/*": ["../../core/src/*"],
+      "@layoutit/voxcss-html": ["../../html/src"],
+      "@layoutit/voxcss-html/*": ["../../html/src/*"]
     },
     "outDir": "dist"
   },

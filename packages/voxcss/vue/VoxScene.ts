@@ -1,18 +1,18 @@
 import { defineComponent, h, onBeforeUnmount, ref, watch, computed, inject } from "vue";
-import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "@voxcss/controller/sceneBindings";
-import type { SceneController } from "@voxcss/controller/sceneController";
-import { normalizeMergeVoxelsOption, type MergeVoxelsOption } from "@voxcss/utils/mergeVoxelsOption";
+import { mountScene, normalizeSceneState, SCENE_HOST_CLASS, type SceneState } from "@layoutit/voxcss-html";
+import type { SceneController } from "@layoutit/voxcss-core";
+import { normalizeMergeVoxelsOption, type MergeVoxelsOption } from "@layoutit/voxcss-core";
 import { controllerKey } from "./context";
 
 const scenePropOptions = {
   controller: { type: Object as import("vue").PropType<SceneController> },
-  voxels: { type: Array as import("vue").PropType<import("@voxcss/core/types").VoxelGrid | undefined> },
+  voxels: { type: Array as import("vue").PropType<import("@layoutit/voxcss-core").VoxelGrid | undefined> },
   rows: { type: Number },
   cols: { type: Number },
   depth: { type: Number },
   showWalls: { type: Boolean as import("vue").PropType<boolean | undefined> },
   showFloor: { type: Boolean as import("vue").PropType<boolean | undefined> },
-  projection: { type: String as import("vue").PropType<import("@voxcss/core/types").ProjectionMode | undefined> },
+  projection: { type: String as import("vue").PropType<import("@layoutit/voxcss-core").ProjectionMode | undefined> },
   mergeVoxels: {
     type: [String, Boolean] as import("vue").PropType<MergeVoxelsOption>,
     default: false,

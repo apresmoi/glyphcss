@@ -1,14 +1,14 @@
 import React, { forwardRef, useImperativeHandle, useMemo, useRef, useState, useLayoutEffect, useEffect } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { SceneController } from "@voxcss/controller/sceneController";
+import type { SceneController } from "@layoutit/voxcss-core";
 import {
   CAMERA_HOST_CLASS,
   type CameraComponentProps,
   type CameraSlotProps
-} from "@voxcss/controller/domBindings";
-import type { AutoRotateOption } from "@voxcss/core/camera";
+} from "@layoutit/voxcss-html";
+import type { AutoRotateOption } from "@layoutit/voxcss-core";
 import { SceneControllerContext, useSceneControllerContext } from "./useBindings";
-import { mountCameraBinding } from "@voxcss/controller/domBindings";
+import { mountCameraBinding } from "@layoutit/voxcss-html";
 
 export interface CameraChildRender {
   (context: CameraRenderContext): ReactNode;

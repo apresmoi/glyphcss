@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, afterEach } from "vitest";
-import { renderScene } from "../../src/core/headless";
-import type { HeadlessRenderHandle } from "../../src/core/headless";
-import { createDomRenderer } from "../../src/core/domRenderer";
-import type { SceneSnapshot } from "../../src/core/domRenderer";
-import { buildSceneContext } from "../../src/core/context";
-import { injectBaseStyles } from "../../src/core/styles";
+import { renderScene } from "../../../html/src/headless";
+import type { HeadlessRenderHandle } from "../../../html/src/headless";
+import { createDomRenderer } from "../../../html/src/renderer/domRenderer";
+import type { SceneSnapshot } from "../../../html/src/renderer/domRenderer";
+import { buildSceneContext } from "../../../core/src/scene/context";
+import { injectBaseStyles } from "../../../html/src/styles";
 // Lighting helpers intentionally NOT imported — tests use hardcoded expected values
 // to catch regressions in the shading math itself.
-import type { CubeFace, Voxel, WallsMask, GridContext } from "../../src/core/types";
+import type { CubeFace, Voxel, WallsMask, GridContext } from "../../../core/src/types";
 import {
   CUBE_FACES,
   DEFAULT_WALL_COLOR,
@@ -16,7 +16,7 @@ import {
   LAYER_CLASS,
   CUBE_CLASS,
   FACE_CLASS
-} from "../../src/core/types";
+} from "../../../core/src/types";
 
 // ---------------------------------------------------------------------------
 // Helpers

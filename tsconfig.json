@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "lib": ["DOM", "ES2020"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@voxcss-core/*": ["packages/core/src/*"]
+    }
+  },
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/html" },
+    { "path": "packages/voxcss" }
+  ]
+}

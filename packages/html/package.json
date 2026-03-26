@@ -1,0 +1,45 @@
+{
+  "name": "@layoutit/voxcss-html",
+  "version": "0.1.8",
+  "description": "HTML/DOM renderer for CSS voxel rendering. Depends on @layoutit/voxcss-core.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LayoutitStudio/voxcss.git",
+    "directory": "packages/html"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@layoutit/voxcss-core": "workspace:^"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1",
+    "vite": "^6.0.0",
+    "@vitest/coverage-v8": "^3.1.1",
+    "happy-dom": "^20.7.0"
+  }
+}

@@ -2533,7 +2533,8 @@
     function createReferenceRenderer() {
       if (!referenceRoot) return null;
       referenceRoot.innerHTML = "";
-      const camera = createCamera({ element: referenceRoot, interactive: true });
+      const cameraElement = document.createElement("div");
+      const camera = createCamera({ element: cameraElement, interactive: true });
       const handle = renderScene({
         element: referenceRoot,
         camera,
