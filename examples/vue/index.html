@@ -28,26 +28,25 @@
 <body>
   <div id="app"></div>
   <script type="module">
-    import { createApp } from "vue";
+    import { createApp, h } from "vue";
     import { VoxCamera, VoxScene } from "../../packages/voxcss/dist/vue/index.js";
 
     const voxels = [{ x: 3, y: 3, z: 0, color: "#4ADE80" }];
 
     const app = createApp({
-      data: () => ({ voxels, rows: 8, cols: 8, depth: 6 }),
-      components: { VoxCamera, VoxScene },
-      template: `
-          <VoxCamera interactive :zoom="1.5">
-            <VoxScene
-              :voxels="voxels"
-              :rows="rows"
-              :cols="cols"
-              :depth="depth"
-              show-walls
-              show-floor
-            />
-          </VoxCamera>
-        `
+      setup() {
+        return () =>
+          h(VoxCamera, { interactive: true, zoom: 1.5 }, {
+            default: () => h(VoxScene, {
+              voxels,
+              rows: 8,
+              cols: 8,
+              depth: 6,
+              showWalls: true,
+              showFloor: true,
+            })
+          });
+      }
     });
 
     app.mount("#app");

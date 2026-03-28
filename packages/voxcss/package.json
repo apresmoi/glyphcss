@@ -68,7 +68,8 @@
     "@layoutit/voxcss-html": "workspace:^"
   },
   "optionalDependencies": {
-    "@layoutit/voxcss-react": "workspace:^"
+    "@layoutit/voxcss-react": "workspace:^",
+    "@layoutit/voxcss-vue": "workspace:^"
   },
   "peerDependencies": {
     "react": "^18.0.0",
