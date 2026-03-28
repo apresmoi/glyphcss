@@ -923,7 +923,7 @@
   <input id="file-input" type="file" accept=".vox" hidden />
 
   <script type="module">
-    import { parseMagicaVoxel, renderScene, createCamera, mergeVoxels } from "../../dist/index.js";
+    import { parseMagicaVoxel, renderScene, createCamera, mergeVoxels } from "../../packages/voxcss/dist/index.js";
 
     const referenceRoot = document.getElementById("voxcss-reference");
     const sliceRoot = document.getElementById("voxcss-slice");
@@ -2482,7 +2482,7 @@
         reactRuntimePromise = Promise.all([
           import("react"),
           import("react-dom/client"),
-          import("../../dist/react/index.js")
+          import("../../packages/voxcss/dist/react/index.js")
         ]).then(([reactModule, reactDomModule, voxModule]) => ({
           React: reactModule.default ?? reactModule,
           createRoot: reactDomModule.createRoot,
@@ -2495,7 +2495,7 @@
 
     async function loadVueRuntime() {
       if (!vueRuntimePromise) {
-        vueRuntimePromise = Promise.all([import("vue"), import("../../dist/vue/index.js")]).then(([vueModule, voxModule]) => ({
+        vueRuntimePromise = Promise.all([import("vue"), import("../../packages/voxcss/dist/vue/index.js")]).then(([vueModule, voxModule]) => ({
           createApp: vueModule.createApp,
           h: vueModule.h,
           reactive: vueModule.reactive,

@@ -16,11 +16,12 @@ export {
   WALL_CLASS, CEILING_CLASS, STYLE_ID
 } from "./types";
 
-export { buildSceneContext, getVoxelBounds, wallMasksEqual } from "./scene/context";
+export { buildSceneContext, getVoxelBounds, wallMasksEqual, computeWallMask } from "./scene/context";
+export type { SceneContextBuildResult } from "./scene/context";
 export { computeVisibleFaces } from "./scene/visibility";
 
 export { createIsometricCamera, normalizeInvertMultiplier } from "./camera/camera";
-export type { CameraState, AutoRotateOption } from "./camera/camera";
+export type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "./camera/camera";
 
 export {
   parseColor,

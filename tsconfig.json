@@ -16,6 +16,6 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/html" },
-    { "path": "packages/voxcss" }
+    { "path": "packages/react" }
   ]
 }

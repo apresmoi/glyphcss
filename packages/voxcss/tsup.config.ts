@@ -27,5 +27,6 @@ export default defineConfig({
   target: "es2020",
   tsconfig: "tsconfig.json",
   external: ["vue", "react", "react-dom", "svelte"],
+  noExternal: ["@layoutit/voxcss-core", "@layoutit/voxcss-html", "@layoutit/voxcss-react"],
   esbuildPlugins: [externalSveltePlugin]
 });
