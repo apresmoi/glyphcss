@@ -62,7 +62,14 @@ function VoxSceneInner({
 
   const localSceneRef = useCallback((el: HTMLDivElement | null) => {
     sceneElRef.current = el;
-  }, [sceneElRef]);
+    if (el) {
+      // Apply initial wall mask CSS classes
+      const mask = store.getState().wallMask;
+      for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
+        el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
+      }
+    }
+  }, [sceneElRef, store]);
 
   // Inject base styles once
   const injectedRef = useRef(false);

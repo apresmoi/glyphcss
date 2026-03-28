@@ -376,7 +376,8 @@ const CORE_BASE_STYLES = `
 .voxcss-mask-fr .voxcss-brush--fr { display: none; }
 
 /* Shell elements: show when mask bit is set (inverted from faces) */
-.voxcss-scene:not(.voxcss-mask-b) .voxcss-floor-z { display: none; }
+/* Floor: hide background only, never display:none (it contains layers/cubes) */
+.voxcss-scene:not(.voxcss-mask-b) .voxcss-floor-z { background: none !important; background-image: none !important; }
 .voxcss-scene:not(.voxcss-mask-t) .voxcss-ceiling { display: none; }
 .voxcss-scene:not(.voxcss-mask-bl) .voxcss-wall--backLeft { display: none; }
 .voxcss-scene:not(.voxcss-mask-br) .voxcss-wall--backRight { display: none; }

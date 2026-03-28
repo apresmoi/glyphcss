@@ -107,7 +107,16 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
         const depthOffset = Number(el.dataset.voxDepthOffset ?? 0);
         el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
       }
-      store.updateCameraFromRef(handle);
+      if (store.updateCameraFromRef(handle)) {
+        // Apply wall mask classes directly
+        const el = sceneElRef.current;
+        if (el) {
+          const mask = store.getState().wallMask;
+          for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
+            el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
+          }
+        }
+      }
       store.notifyAll(); // props changed — always notify
     }
   }, [options.zoom, options.pan, options.tilt, options.rotX, options.rotY, store]);
@@ -122,6 +131,15 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }, []);
 
+  // Apply wall mask CSS classes on scene element (bypasses React)
+  const applyWallMaskDirect = useCallback(() => {
+    const el = sceneElRef.current;
+    if (!el) return;
+    const mask = store.getState().wallMask;
+    for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
+      el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
+    }
+  }, [store]);
 
   // Auto-rotate
   useEffect(() => {
@@ -141,7 +159,9 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
           handle.update({ rotY: normalizeAngle(handle.state.rotY + config.speed) });
         }
         applyTransformDirect();
-        store.updateCameraFromRef(handle);
+        if (store.updateCameraFromRef(handle)) {
+          applyWallMaskDirect();
+        }
       }
       frameId = requestAnimationFrame(tick);
     };
@@ -150,7 +170,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
       stopped = true;
       cancelAnimationFrame(frameId);
     };
-  }, [options.animate, applyTransformDirect, store]);
+  }, [options.animate, applyTransformDirect, applyWallMaskDirect, store]);
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -189,9 +209,11 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     applyTransformDirect();
     pointerRef.current = { x: e.clientX, y: e.clientY };
 
-    // Update store — only notifies React if wall mask changed
-    store.updateCameraFromRef(handle);
-  }, [applyTransformDirect, store]);
+    // Update store + toggle CSS classes if wall mask changed
+    if (store.updateCameraFromRef(handle)) {
+      applyWallMaskDirect();
+    }
+  }, [applyTransformDirect, applyWallMaskDirect, store]);
 
   const onPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (activePointerIdRef.current === null || e.pointerId !== activePointerIdRef.current) return;
