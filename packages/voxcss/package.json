@@ -1,12 +1,11 @@
 {
   "name": "@layoutit/voxcss",
   "version": "0.1.8",
-  "description": "Framework-agnostic CSS voxel renderer with Vue, React, and Svelte wrappers.",
+  "description": "Framework-agnostic CSS voxel renderer with Vue and React wrappers.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "svelte": "./dist/svelte/index.js",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -22,8 +21,7 @@
     "css",
     "3d",
     "vue",
-    "react",
-    "svelte"
+    "react"
   ],
   "files": [
     "dist"
@@ -43,18 +41,11 @@
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.cjs"
-    },
-    "./svelte": {
-      "types": "./dist/svelte/index.d.ts",
-      "svelte": "./dist/svelte/index.js",
-      "import": "./dist/svelte/index.js",
-      "require": "./dist/svelte/index.cjs",
-      "default": "./dist/svelte/index.js"
     }
   },
   "scripts": {
-    "build": "tsup --clean && node -e \"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\"",
-    "watch": "tsup --watch --sourcemap --onSuccess \"node -e \\\"require('fs').cpSync('svelte','dist/svelte',{recursive:true})\\\"\"",
+    "build": "tsup --clean",
+    "watch": "tsup --watch --sourcemap",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -74,7 +65,6 @@
   "peerDependencies": {
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
-    "svelte": "^4.0.0",
     "vue": "^3.0.0"
   },
   "peerDependenciesMeta": {
@@ -82,9 +72,6 @@
       "optional": true
     },
     "react-dom": {
-      "optional": true
-    },
-    "svelte": {
       "optional": true
     },
     "vue": {

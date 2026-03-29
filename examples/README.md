@@ -15,5 +15,3 @@ These examples are intentionally tiny static pages that pull framework runtimes 
 Each folder includes a minimal `index.html`; `testsuite.html` adds richer controls to poke at props and state updates.
 
 The CDN import maps keep `node_modules/` out of `examples/`, while relying on the locally built VoxCSS bundle (`dist/`).
-
-> Note: we no longer ship a Svelte example in `/examples/`; use the `@layoutit/voxcss/svelte` package in your own SvelteKit/Vite app instead.

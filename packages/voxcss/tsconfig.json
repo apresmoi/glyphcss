@@ -23,5 +23,5 @@
     },
     "outDir": "dist"
   },
-  "include": ["src", "react", "vue", "svelte"]
+  "include": ["src", "react", "vue"]
 }

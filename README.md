@@ -1,6 +1,6 @@
 # VoxCSS
 
-A CSS voxel engine. A 3D grid for the DOM. Renders HTML cuboids by stacking grid layers and applying transforms. Supports colors and textures, interactions and culling, plus shapes, areas and projections. Works with Vue, React, Svelte, or plain JavaScript.
+A CSS voxel engine. A 3D grid for the DOM. Renders HTML cuboids by stacking grid layers and applying transforms. Supports colors and textures, interactions and culling, plus shapes, areas and projections. Works with Vue, React, or plain JavaScript.
 
 Visit [voxcss.com](https://voxcss.com) for docs and model examples.
 
@@ -37,7 +37,7 @@ You can also load VoxCSS directly from unpkg. Here is a minimal example:
 
 ## Framework Components
 
-Vue, React, and Svelte wrappers all expose the same components with identical props: `<VoxCamera>` controls the viewpoint (zoom, pan, tilt, rotation, perspective), while `<VoxScene>` receives the voxel array and manages the 3D grid and its decorations.
+Vue and React wrappers expose the same components with identical props: `<VoxCamera>` controls the viewpoint (zoom, pan, tilt, rotation, perspective), while `<VoxScene>` receives the voxel array and manages the 3D grid and its decorations.
 
 ```tsx
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
