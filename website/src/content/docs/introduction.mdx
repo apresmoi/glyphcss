@@ -1,0 +1,71 @@
+---
+title: Introduction
+description: VoxCSS is a CSS voxel engine — a 3D grid for the DOM.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+VoxCSS is a **CSS voxel engine** — a 3D grid for the DOM. It renders HTML cuboids by stacking CSS grid layers and applying CSS transforms. No `<canvas>`, no WebGL, no dependencies — just pure DOM and CSS.
+
+Every voxel is a real HTML element. You can inspect it in DevTools, style it with CSS, and interact with it using standard DOM events. VoxCSS brings the simplicity of pixel art into three dimensions, right inside your web page.
+
+## Framework Support
+
+VoxCSS ships with first-class bindings for **React** and **Vue**, plus a vanilla JavaScript API that works anywhere. Pick whatever fits your stack.
+
+## Installation
+
+<Tabs syncKey="pkg">
+<TabItem label="npm">
+```bash
+npm install @layoutit/voxcss
+```
+</TabItem>
+<TabItem label="yarn">
+```bash
+yarn add @layoutit/voxcss
+```
+</TabItem>
+<TabItem label="pnpm">
+```bash
+pnpm add @layoutit/voxcss
+```
+</TabItem>
+</Tabs>
+
+### CDN
+
+You can also load VoxCSS directly from a CDN with no build step:
+
+```html
+<script type="module">
+  import { renderScene } from "https://unpkg.com/@layoutit/voxcss";
+</script>
+```
+
+## A quick taste
+
+A single orange voxel with an interactive camera. Drag it to rotate.
+
+```tsx
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+const voxels = [{ x: 1, y: 1, z: 0, color: "#f97316" }];
+
+export function App() {
+  return (
+    <VoxCamera interactive>
+      <VoxScene voxels={voxels} />
+    </VoxCamera>
+  );
+}
+```
+
+Continue to **[Quickstart →](/quickstart)** for the full walkthrough with React, Vue, and Vanilla JS versions plus a live interactive demo.
+
+## Related
+
+- [Quickstart](/quickstart) — Full install + first scene walkthrough with a live demo.
+- [Core Concepts](/core-concepts) — The mental model behind VoxCSS: grid, camera, scene, pipeline.
+- [VoxCamera](/components/vox-camera) — Camera component reference.
+- [VoxScene](/components/vox-scene) — Scene component reference.

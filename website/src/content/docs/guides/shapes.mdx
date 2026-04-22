@@ -1,0 +1,77 @@
+---
+title: Shapes
+description: Using cube, ramp, wedge, and spike shapes to build detailed voxel scenes.
+---
+
+import VoxDemo from '../../../components/VoxDemo.astro';
+
+Every voxel has a **shape** that determines its geometry. If you don't specify one, you get the default cube — but VoxCSS ships with four built-in shapes that let you build far more expressive scenes. Drag the scene below to inspect each shape from different angles; the code tabs under the demo show the full voxel array.
+
+<VoxDemo
+  id="shapes-overview"
+  voxels='[{"shape":"spike","x":7,"y":7,"z":0,"rot":90},{"shape":"ramp","x":6,"y":7,"z":0},{"shape":"ramp","x":5,"y":7,"z":0},{"shape":"spike","x":4,"y":7,"z":0},{"shape":"ramp","x":7,"y":6,"z":0,"rot":90},{"shape":"cube","x":6,"y":6,"z":0},{"shape":"cube","x":5,"y":6,"z":0},{"shape":"ramp","x":4,"y":6,"z":0,"rot":270},{"shape":"ramp","x":7,"y":5,"z":0,"rot":90},{"shape":"cube","x":6,"y":5,"z":0},{"shape":"cube","x":5,"y":5,"z":0},{"shape":"spike","x":2,"y":5,"z":0},{"shape":"ramp","x":7,"y":4,"z":0,"rot":90},{"shape":"cube","x":6,"y":4,"z":0},{"shape":"cube","x":5,"y":4,"z":0},{"shape":"cube","x":4,"y":4,"z":0},{"shape":"cube","x":3,"y":4,"z":0},{"shape":"ramp","x":3,"y":5,"z":0},{"shape":"ramp","x":7,"y":3,"z":0,"rot":90},{"shape":"cube","x":6,"y":3,"z":0},{"shape":"cube","x":5,"y":3,"z":0},{"shape":"cube","x":4,"y":3,"z":0},{"shape":"cube","x":3,"y":3,"z":0},{"shape":"ramp","x":2,"y":3,"z":0,"rot":270},{"shape":"spike","x":7,"y":2,"z":0,"rot":180},{"shape":"ramp","x":6,"y":2,"z":0,"rot":180},{"shape":"ramp","x":5,"y":2,"z":0,"rot":180},{"shape":"ramp","x":4,"y":2,"z":0,"rot":180},{"shape":"ramp","x":3,"y":2,"z":0,"rot":180},{"shape":"spike","x":2,"y":2,"z":0,"rot":270},{"shape":"ramp","x":2,"y":4,"z":0,"rot":270},{"shape":"wedge","x":4,"y":5,"z":0},{"shape":"ramp","x":4,"y":4,"z":1},{"shape":"spike","x":3,"y":4,"z":1},{"shape":"ramp","x":4,"y":3,"z":1,"rot":180},{"shape":"spike","x":3,"y":3,"z":1,"rot":270},{"shape":"spike","x":5,"y":3,"z":1,"rot":180},{"shape":"spike","x":5,"y":4,"z":1,"rot":90}]'
+  controls='["zoom","interactive","projection"]'
+  defaults='{"zoom":0.8,"interactive":true,"showFloor":true,"projection":"dimetric"}'
+/>
+
+## Cube (default)
+
+The standard cuboid — 50×50×50px with six faces. This is what you get when you omit the `shape` property entirely.
+
+```ts
+{ x: 1, y: 1, z: 0, color: "#f97316" }
+```
+
+Cubes are the workhorse of any voxel scene. Walls, floors, characters, furniture — most things start as cubes.
+
+## Ramp
+
+A diagonal slope with a bottom face and a sloped surface. Ramps are ideal for roofs, hillsides, and smooth terrain transitions.
+
+```ts
+{ x: 1, y: 1, z: 0, color: "#94a3b8", shape: "ramp" }
+```
+
+Use `rot` (`0`, `90`, `180`, `270`) to orient the ramp in four directions.
+
+```ts
+{ x: 1, y: 1, z: 0, color: "#94a3b8", shape: "ramp", rot: 90 }
+```
+
+## Wedge
+
+Two angled surfaces meeting at an edge — like a cube cut diagonally. Useful for peaked roofs, angled corners, and decorative trim.
+
+```ts
+{ x: 1, y: 1, z: 0, color: "#22c55e", shape: "wedge" }
+```
+
+Wedges support `rot` for four orientations.
+
+## Spike
+
+A pointed pyramid tapering to a tip. Great for treetops, crystals, towers, and decorative peaks.
+
+```ts
+{ x: 1, y: 1, z: 0, color: "#3b82f6", shape: "spike" }
+```
+
+Spikes also support `rot` for rotated orientations.
+
+## Rotation
+
+All non-cube shapes support the `rot` property with values snapped to 90-degree increments: **0**, **90**, **180**, and **270**. This lets you orient ramps, wedges, and spikes in four directions without dealing with arbitrary angles.
+
+```ts
+// A ramp facing each direction
+{ x: 0, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 0 }
+{ x: 1, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 90 }
+{ x: 2, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 180 }
+{ x: 3, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 270 }
+```
+
+## Related
+
+- [VoxScene](/components/vox-scene) — The `voxels` prop and full voxel object reference.
+- [Textures](/guides/textures) — Apply images to shaped voxels for extra detail.
+- [Projections](/guides/projections) — Dimetric projection pairs well with shape compositions.

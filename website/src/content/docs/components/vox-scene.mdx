@@ -1,0 +1,225 @@
+---
+title: VoxScene
+description: Scene component that renders a 3D voxel grid — voxel data, grid dimensions, walls, floor, and merge strategies.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import VoxDemo from '../../../components/VoxDemo.astro';
+
+`VoxScene` renders the voxel grid itself. It takes an array of voxel objects and draws them as CSS cuboids on a 3D grid. **VoxScene must always be placed inside a [VoxCamera](/components/vox-camera).**
+
+## Interactive Demo
+
+Adjust grid dimensions, toggle walls and floor, and switch projection modes. The code tabs below the demo update to match the current values.
+
+<VoxDemo
+  id="scene-demo"
+  voxels='[{"x":1,"y":1,"z":0,"color":"#f97316"}]'
+  controls='["rows","cols","depth","showFloor","showWalls","projection"]'
+  defaults='{"zoom":0.65,"interactive":true,"showFloor":true,"showWalls":true,"rows":8,"cols":8,"depth":6}'
+/>
+
+## Props
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `voxels` | `Voxel[]` | `[]` | Array of voxel objects (see [Voxel Object Shape](#voxel-object-shape)). Replacing the array triggers a re-render; mutating it in place does not. |
+| `rows` | `number` | auto | Grid height on the Y axis. Inferred from the voxel coordinates if omitted. Set explicitly when you want extra empty space around your voxels. |
+| `cols` | `number` | auto | Grid width on the X axis. Inferred from the voxel coordinates if omitted. |
+| `depth` | `number` | auto | Layer count on the Z axis. Inferred from the voxel coordinates if omitted. |
+| `showWalls` | `boolean` | `false` | Show floor-to-ceiling wall planes at the grid edges. The engine automatically hides walls on faces the camera is looking through. |
+| `showFloor` | `boolean` | `false` | Show the floor grid plane at `z: -1`, underneath all voxels. |
+| `projection` | `"cubic" \| "dimetric"` | `"cubic"` | Layer spacing mode. `cubic` uses 50px Z-steps (true isometric); `dimetric` halves the step to 25px for a flatter, more top-down feel. Useful for terrain and map-style scenes. |
+| `mergeVoxels` | `false \| "2d" \| "3d"` | `false` | Merge strategy for performance optimization. `"2d"` consolidates same-color voxels within each layer; `"3d"` also merges across layers. See the [Performance guide](/guides/performance). |
+| `wallColor` | `string` | `"#3e3e4d"` | CSS color for structural walls when `showWalls` is enabled. |
+
+## Voxel Object Shape
+
+Each item in the `voxels` array describes one cuboid (or a span of cuboids when area properties are used).
+
+```ts
+interface Voxel {
+  x: number;        // Required — column
+  y: number;        // Required — row
+  z: number;        // Required — layer (depth)
+  x2?: number;      // End column for area spans
+  y2?: number;      // End row for area spans
+  z2?: number;      // End layer for area spans
+  color?: string;   // CSS color ("#f97316", "tomato", "rgb(255,0,0)")
+  texture?: string; // Image URL for face textures
+  shape?: string;   // "cube" | "ramp" | "wedge" | "spike"
+  rot?: number;     // Rotation in degrees (snaps to 90° for shapes)
+}
+```
+
+The only required fields are `x`, `y`, and `z`. Everything else is optional — a voxel with no `color` or `shape` renders as the default grey cube.
+
+## Usage
+
+### Basic Scene
+
+A handful of colored voxels inside an interactive camera.
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+const voxels = [
+  { x: 1, y: 1, z: 0, color: "#f97316" },
+  { x: 2, y: 1, z: 0, color: "#facc15" },
+  { x: 1, y: 2, z: 0, color: "#22c55e" },
+  { x: 2, y: 2, z: 0, color: "#3b82f6" },
+];
+
+export function App() {
+  return (
+    <VoxCamera interactive>
+      <VoxScene voxels={voxels} />
+    </VoxCamera>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <VoxCamera interactive>
+    <VoxScene :voxels="voxels" />
+  </VoxCamera>
+</template>
+
+<script setup lang="ts">
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
+
+const voxels = [
+  { x: 1, y: 1, z: 0, color: "#f97316" },
+  { x: 2, y: 1, z: 0, color: "#facc15" },
+  { x: 1, y: 2, z: 0, color: "#22c55e" },
+  { x: 2, y: 2, z: 0, color: "#3b82f6" },
+];
+</script>
+```
+</TabItem>
+<TabItem label="Vanilla JS">
+```html
+<div id="voxcss"></div>
+<script type="module">
+  import { renderScene } from "@layoutit/voxcss";
+  renderScene({
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
+    scene: {
+      voxels: [
+        { x: 1, y: 1, z: 0, color: "#f97316" },
+        { x: 2, y: 1, z: 0, color: "#facc15" },
+        { x: 1, y: 2, z: 0, color: "#22c55e" },
+        { x: 2, y: 2, z: 0, color: "#3b82f6" },
+      ],
+    },
+  });
+</script>
+```
+</TabItem>
+</Tabs>
+
+### Scene with Walls and Floor
+
+Enable structural boundaries for a room-like look. The engine auto-hides walls on whichever faces the camera is looking through.
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+const voxels = [
+  { x: 1, y: 1, z: 0, color: "#f97316" },
+  { x: 1, y: 1, z: 1, color: "#ef4444" },
+];
+
+export function App() {
+  return (
+    <VoxCamera interactive>
+      <VoxScene voxels={voxels} showWalls showFloor wallColor="#4a4a5a" />
+    </VoxCamera>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <VoxCamera interactive>
+    <VoxScene :voxels="voxels" show-walls show-floor wall-color="#4a4a5a" />
+  </VoxCamera>
+</template>
+
+<script setup lang="ts">
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
+const voxels = [
+  { x: 1, y: 1, z: 0, color: "#f97316" },
+  { x: 1, y: 1, z: 1, color: "#ef4444" },
+];
+</script>
+```
+</TabItem>
+<TabItem label="Vanilla JS">
+```html
+<div id="voxcss"></div>
+<script type="module">
+  import { renderScene } from "@layoutit/voxcss";
+  renderScene({
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
+    scene: {
+      voxels: [
+        { x: 1, y: 1, z: 0, color: "#f97316" },
+        { x: 1, y: 1, z: 1, color: "#ef4444" },
+      ],
+      showWalls: true,
+      showFloor: true,
+      wallColor: "#4a4a5a",
+    },
+  });
+</script>
+```
+</TabItem>
+</Tabs>
+
+### Scene with Merge Mode
+
+Use `mergeVoxels` to reduce DOM element count for large or dense scenes. `"2d"` merges adjacent same-color voxels within each layer; `"3d"` also merges across layers. See the [Performance guide](/guides/performance) for a live FPS/DOM demo.
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+<VoxCamera interactive>
+  <VoxScene voxels={voxels} mergeVoxels="3d" />
+</VoxCamera>
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<VoxCamera interactive>
+  <VoxScene :voxels="voxels" merge-voxels="3d" />
+</VoxCamera>
+```
+</TabItem>
+<TabItem label="Vanilla JS">
+```js
+renderScene({
+  element: document.getElementById("voxcss"),
+  camera: { interactive: true },
+  scene: { voxels, mergeVoxels: "3d" },
+});
+```
+</TabItem>
+</Tabs>
+
+## Related
+
+- [VoxCamera](/components/vox-camera) — The required parent component.
+- [Performance](/guides/performance) — Merge modes with a live FPS/DOM stats demo.
+- [Shapes](/guides/shapes) — Using `shape` and `rot` to build richer geometry.
+- [Textures](/guides/textures) — Applying images to voxel faces.
+- [Projections](/guides/projections) — Cubic vs dimetric layer spacing.

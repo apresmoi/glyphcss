@@ -1,0 +1,182 @@
+@import url("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css");
+
+.vox-demo {
+    margin: 1.5rem 0;
+    border: 1px solid var(--sl-color-gray-5, rgba(255,255,255,0.08));
+    border-radius: 12px;
+    overflow: hidden;
+    background: #0b0f14;
+  }
+  .vox-demo__viewer {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    min-height: 320px;
+  }
+  .vox-demo__canvas {
+    position: relative;
+    min-height: 320px;
+    overflow: hidden;
+    background: #01030a;
+  }
+  .vox-demo__stats {
+    display: none;
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: Consolas, Monaco, "Andale Mono", monospace;
+    font-size: 12px;
+    color: #e2e8f0;
+    line-height: 1.6;
+    pointer-events: none;
+  }
+  .vox-demo__stats.active {
+    display: block;
+  }
+  .vox-demo__stats .stat-value {
+    color: #38bdf8;
+    font-weight: 700;
+  }
+  .vox-demo__camera,
+  .vox-demo__scene {
+    width: 100%;
+    height: 100%;
+    min-height: 320px;
+  }
+  .vox-demo__controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    background: #11141a;
+    border-left: 1px solid rgba(255,255,255,0.06);
+    min-width: 200px;
+    max-width: 240px;
+    font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+    font-size: 13px;
+    overflow-y: auto;
+    max-height: 400px;
+  }
+  .vox-demo__controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: #e2e8f0;
+  }
+  .vox-demo__controls .range-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: #cbd5e1;
+  }
+  .vox-demo__controls .range-value {
+    color: #f8fafc;
+    font-weight: 600;
+  }
+  .vox-demo__controls input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: #334155;
+    border: 1px solid #3f4c62;
+    padding: 0;
+    outline: none;
+  }
+  .vox-demo__controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #94a3b8;
+    border: 1px solid #94a3b8;
+    cursor: pointer;
+  }
+  .vox-demo__controls input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #94a3b8;
+    border: 1px solid #94a3b8;
+    cursor: pointer;
+  }
+  .vox-demo__controls .switch {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    color: #cbd5e1;
+    font-size: 13px;
+  }
+  .vox-demo__controls .switch input:not(:checked) + span {
+    color: #64748b;
+  }
+  .vox-demo__code {
+    border-top: 1px solid rgba(255,255,255,0.06);
+    max-height: 300px;
+    overflow: auto;
+  }
+  .vox-demo__tabs {
+    display: flex;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: #0a0c10;
+  }
+  .vox-demo__tab {
+    background: none;
+    border: none;
+    color: #64748b;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-family: Consolas, Monaco, "Andale Mono", monospace;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .vox-demo__tab:hover {
+    color: #cbd5e1;
+  }
+  .vox-demo__tab.active {
+    color: #e2e8f0;
+    border-bottom-color: #38bdf8;
+  }
+  .vox-demo__snippet {
+    margin: 0 !important;
+    padding: 14px 16px !important;
+    background: #000 !important;
+    border-radius: 0 !important;
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+  }
+  .vox-demo__snippet--hidden {
+    display: none;
+  }
+  .vox-demo__snippet code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace !important;
+    color: #e5e9f0 !important;
+    white-space: pre !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+  @media (max-width: 768px) {
+    .vox-demo__viewer {
+      grid-template-columns: 1fr;
+    }
+    .vox-demo__controls {
+      max-width: none;
+      border-left: none;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      max-height: none;
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .vox-demo__controls label {
+      flex: 1 1 45%;
+    }
+  }

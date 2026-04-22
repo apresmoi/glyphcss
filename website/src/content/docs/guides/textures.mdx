@@ -1,0 +1,107 @@
+---
+title: Textures
+description: Applying image textures to voxel faces for richer visual detail.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import VoxDemo from '../../../components/VoxDemo.astro';
+
+VoxCSS lets you apply image textures to voxels using the `texture` property. The texture is mapped onto all visible faces of the voxel, giving you a simple way to add visual detail beyond flat colors.
+
+<VoxDemo
+  id="textures-demo"
+  voxels='[{"shape":"spike","x":7,"y":7,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"ramp","x":6,"y":7,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":5,"y":7,"z":0,"texture":"/grass2.png"},{"shape":"spike","x":4,"y":7,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":6,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":6,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":6,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":6,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":5,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"spike","x":2,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":4,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":4,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":3,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":3,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":3,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":4,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":3,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":2,"y":3,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"spike","x":7,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":6,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":5,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":3,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"spike","x":2,"y":2,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"ramp","x":2,"y":4,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"wedge","x":4,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":4,"z":1,"texture":"/grass2.png"},{"shape":"spike","x":3,"y":4,"z":1,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":3,"z":1,"rot":180,"texture":"/grass2.png"},{"shape":"spike","x":3,"y":3,"z":1,"rot":270,"texture":"/grass2.png"},{"shape":"spike","x":5,"y":3,"z":1,"rot":180,"texture":"/grass2.png"},{"shape":"spike","x":5,"y":4,"z":1,"rot":90,"texture":"/grass2.png"}]'
+  controls='["zoom","interactive","projection"]'
+  defaults='{"zoom":0.8,"interactive":true,"showFloor":true,"projection":"dimetric"}'
+/>
+
+## Basic usage
+
+Set the `texture` property to an image URL. The image is applied as a CSS background on each face of the voxel.
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+const voxels = [
+  { x: 1, y: 1, z: 0, texture: "/grass.png" },
+  { x: 2, y: 1, z: 0, texture: "/grass.png" },
+  { x: 1, y: 2, z: 0, texture: "/grass.png" },
+];
+
+export function App() {
+  return (
+    <VoxCamera interactive>
+      <VoxScene voxels={voxels} />
+    </VoxCamera>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <VoxCamera interactive>
+    <VoxScene :voxels="voxels" />
+  </VoxCamera>
+</template>
+
+<script setup lang="ts">
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
+const voxels = [
+  { x: 1, y: 1, z: 0, texture: "/grass.png" },
+  { x: 2, y: 1, z: 0, texture: "/grass.png" },
+  { x: 1, y: 2, z: 0, texture: "/grass.png" },
+];
+</script>
+```
+</TabItem>
+<TabItem label="Vanilla JS">
+```html
+<div id="voxcss"></div>
+<script type="module">
+  import { renderScene } from "@layoutit/voxcss";
+  renderScene({
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
+    scene: {
+      voxels: [
+        { x: 1, y: 1, z: 0, texture: "/grass.png" },
+        { x: 2, y: 1, z: 0, texture: "/grass.png" },
+        { x: 1, y: 2, z: 0, texture: "/grass.png" },
+      ],
+    },
+  });
+</script>
+```
+</TabItem>
+</Tabs>
+
+## Combining texture and color
+
+You can set both `texture` and `color` on the same voxel. The color acts as a **fallback** while the image loads (so voxels don't flash white) and as a **tint** that blends with the texture.
+
+```ts
+{ x: 1, y: 1, z: 0, color: "#8B4513", texture: "/wood.png" }
+```
+
+## Texture sources
+
+The `texture` value is any valid CSS image URL:
+
+- **Relative paths** — files in your project's public directory (e.g., `/grass.png`)
+- **Absolute URLs** — hosted images (e.g., `https://example.com/texture.png`)
+- **Data URIs** — inline base64-encoded images
+
+## Tips
+
+- Use **small, tileable images** (e.g., 16×16 or 32×32 pixels) for the best look at voxel scale.
+- Textures render via CSS `background-image`, so they benefit from browser caching automatically.
+- For scenes with many textured voxels, reuse the same image URL — the browser only fetches it once.
+
+## Related
+
+- [VoxScene](/components/vox-scene) — The `voxels` prop and full voxel object reference.
+- [Shapes](/guides/shapes) — Textures apply to ramps, wedges, and spikes too.
+- [Performance](/guides/performance) — Merge modes work with textured voxels.

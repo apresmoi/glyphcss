@@ -1,0 +1,32 @@
+:root,
+:root[data-theme='light'],
+:root[data-theme='dark'] {
+  --sl-color-accent-low: #0c2d4a;
+  --sl-color-accent: #38bdf8;
+  --sl-color-accent-high: #7dd3fc;
+  --sl-color-white: #e2e8f0;
+  --sl-color-gray-1: #cbd5e1;
+  --sl-color-gray-2: #94a3b8;
+  --sl-color-gray-3: #64748b;
+  --sl-color-gray-4: #334155;
+  --sl-color-gray-5: #1e293b;
+  --sl-color-gray-6: #0f172a;
+  --sl-color-black: #0b0d10;
+  --sl-color-bg: #0b0d10;
+  --sl-color-bg-nav: #0f1115;
+  --sl-color-bg-sidebar: #0b0d10;
+  --sl-color-bg-inline-code: rgba(56, 189, 248, 0.12);
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.08);
+  --sl-color-hairline: rgba(255, 255, 255, 0.05);
+  --sl-color-text: #e2e8f0;
+  --sl-color-text-accent: #7dd3fc;
+  --sl-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', sans-serif;
+  --sl-font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  color-scheme: dark;
+}
+
+/* Force dark mode on page load */
+html {
+  background: #0b0d10;
+  color-scheme: dark;
+}

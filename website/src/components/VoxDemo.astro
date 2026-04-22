@@ -1,0 +1,512 @@
+---
+// VoxDemo — live interactive voxel scene for docs pages
+// Usage in MDX:
+//   <VoxDemo id="camera-demo" model="apple"
+//     controls='["zoom","rotX","rotY","pan","tilt","perspective","interactive","animate"]'
+//     defaults='{"zoom":0.65,"rotX":65,"rotY":45,"showFloor":true}' />
+
+interface Props {
+  id: string;
+  model?: string;
+  voxels?: string;
+  controls?: string;
+  defaults?: string;
+  showStats?: boolean;
+}
+
+import '../styles/vox-demo.css';
+
+const { id, model, voxels, controls, defaults, showStats } = Astro.props;
+---
+
+<div class="vox-demo" id={id}
+  data-model={model || undefined}
+  data-voxels={!model ? voxels : undefined}
+  data-controls={controls}
+  data-defaults={defaults}
+  data-show-stats={showStats ? "1" : undefined}>
+  <div class="vox-demo__viewer not-content">
+    <div class="vox-demo__canvas">
+      <div class="vox-demo__camera">
+        <div class="vox-demo__scene"></div>
+      </div>
+      <div class="vox-demo__stats"></div>
+    </div>
+    <div class="vox-demo__controls"></div>
+  </div>
+  <div class="vox-demo__code not-content">
+    <div class="vox-demo__tabs">
+      <button class="vox-demo__tab active" data-fw="vanilla">Vanilla JS</button>
+      <button class="vox-demo__tab" data-fw="react">React</button>
+      <button class="vox-demo__tab" data-fw="vue">Vue</button>
+    </div>
+    <pre class="vox-demo__snippet" data-fw="vanilla"><code></code></pre>
+    <pre class="vox-demo__snippet vox-demo__snippet--hidden" data-fw="react"><code></code></pre>
+    <pre class="vox-demo__snippet vox-demo__snippet--hidden" data-fw="vue"><code></code></pre>
+  </div>
+</div>
+
+
+<script>
+  // Registry of per-demo cleanup functions, invoked on page navigation so the
+  // previous page's renderers / FPS loops don't leak into the next page.
+  var voxDemoCleanups = [];
+
+  function cleanupVoxDemos() {
+    for (var i = 0; i < voxDemoCleanups.length; i++) {
+      try { voxDemoCleanups[i](); } catch (_) {}
+    }
+    voxDemoCleanups = [];
+  }
+
+  async function initVoxDemos() {
+    var lib;
+    try {
+      lib = await import("@layoutit/voxcss");
+    } catch (err) {
+      console.error("VoxDemo: failed to import @layoutit/voxcss", err);
+      return;
+    }
+
+    // Load highlight.js for syntax highlighting
+    var hljs;
+    try {
+      var hljsMod = await import("highlight.js/lib/core");
+      hljs = hljsMod.default;
+      var xmlMod = await import("highlight.js/lib/languages/xml");
+      var jsMod = await import("highlight.js/lib/languages/javascript");
+      var tsMod = await import("highlight.js/lib/languages/typescript");
+      hljs.registerLanguage("html", xmlMod.default);
+      hljs.registerLanguage("xml", xmlMod.default);
+      hljs.registerLanguage("vue", xmlMod.default);
+      hljs.registerLanguage("javascript", jsMod.default);
+      hljs.registerLanguage("tsx", tsMod.default);
+    } catch (e) {
+      hljs = null;
+    }
+
+    for (const el of document.querySelectorAll(".vox-demo")) {
+      if (el.getAttribute("data-initialized")) continue;
+      el.setAttribute("data-initialized", "1");
+      const id = el.id;
+      const modelName = el.getAttribute("data-model");
+      const voxelsData = el.getAttribute("data-voxels");
+      const controlsData = el.getAttribute("data-controls");
+      const defaultsData = el.getAttribute("data-defaults");
+
+      let voxels = [];
+      if (modelName) {
+        try {
+          var isVox = modelName.endsWith(".vox") || modelName.includes("/");
+          var modelUrl = isVox ? "/gallery/" + modelName : "/gallery/" + modelName + ".json";
+          const res = await fetch(modelUrl);
+          if (isVox) {
+            var buf = await res.arrayBuffer();
+            var parsed = lib.parseMagicaVoxel(buf);
+            voxels = Array.isArray(parsed.voxels) ? parsed.voxels : [];
+          } else {
+            voxels = await res.json();
+          }
+          if (!Array.isArray(voxels)) voxels = [];
+        } catch { voxels = []; }
+      } else {
+        try { voxels = JSON.parse(voxelsData || "[]"); } catch {}
+      }
+
+      let controlList = [];
+      try { controlList = JSON.parse(controlsData || "[]"); } catch {}
+
+      let defaults = {};
+      try { defaults = JSON.parse(defaultsData || "{}"); } catch {}
+
+      const cameraEl = el.querySelector(".vox-demo__camera");
+      const sceneEl = el.querySelector(".vox-demo__scene");
+      const canvasEl = el.querySelector(".vox-demo__canvas");
+      const controlsEl = el.querySelector(".vox-demo__controls");
+      const codeEls = {
+        react: el.querySelector('.vox-demo__snippet[data-fw="react"] code'),
+        vue: el.querySelector('.vox-demo__snippet[data-fw="vue"] code'),
+        vanilla: el.querySelector('.vox-demo__snippet[data-fw="vanilla"] code'),
+      };
+
+      // Tab switching
+      el.querySelector(".vox-demo__tabs")?.addEventListener("click", (e) => {
+        const btn = (e.target).closest(".vox-demo__tab");
+        if (!btn) return;
+        const fw = btn.dataset.fw;
+        el.querySelectorAll(".vox-demo__tab").forEach((t) => t.classList.toggle("active", (t).dataset.fw === fw));
+        el.querySelectorAll(".vox-demo__snippet").forEach((p) => p.classList.toggle("vox-demo__snippet--hidden", (p).dataset.fw !== fw));
+        // Sync with Starlight's tab preference
+        if (fw) {
+          const labelMap = { react: "React", vue: "Vue", vanilla: "Vanilla JS" };
+          try { localStorage.setItem("starlight-synced-tabs__fw", labelMap[fw] || fw); } catch {}
+        }
+      });
+
+      // Restore from Starlight's synced tab preference
+      try {
+        const saved = localStorage.getItem("starlight-synced-tabs__fw");
+        const fwMap = { "React": "react", "Vue": "vue", "Vanilla JS": "vanilla" };
+        const fw = saved ? fwMap[saved] : null;
+        if (fw) {
+          el.querySelectorAll(".vox-demo__tab").forEach((t) => t.classList.toggle("active", (t).dataset.fw === fw));
+          el.querySelectorAll(".vox-demo__snippet").forEach((p) => p.classList.toggle("vox-demo__snippet--hidden", (p).dataset.fw !== fw));
+        }
+      } catch {}
+
+      if (!cameraEl || !sceneEl || !canvasEl) return;
+
+      // State
+      const state = {
+        zoom: defaults.zoom ?? 0.65,
+        pan: defaults.pan ?? 0,
+        tilt: defaults.tilt ?? 0,
+        rotX: defaults.rotX ?? 65,
+        rotY: defaults.rotY ?? 45,
+        perspective: defaults.perspective ?? 8000,
+        perspectiveEnabled: defaults.perspectiveEnabled !== false,
+        interactive: defaults.interactive !== false,
+        animate: defaults.animate ?? false,
+        showFloor: defaults.showFloor ?? false,
+        showWalls: defaults.showWalls ?? false,
+        rows: defaults.rows,
+        cols: defaults.cols,
+        depth: defaults.depth,
+        projection: defaults.projection ?? "cubic",
+        mergeVoxels: defaults.mergeVoxels ?? false,
+      };
+
+      // Create renderer
+      const camera = lib.createCamera({
+        element: cameraEl,
+        zoom: state.zoom,
+        rotX: state.rotX,
+        rotY: state.rotY,
+        pan: state.pan,
+        tilt: state.tilt,
+        perspective: state.perspectiveEnabled ? state.perspective : false,
+        interactive: state.interactive,
+        animate: state.animate ? { axis: "y", speed: 0.3, pauseOnInteraction: true } : false,
+      });
+
+      const sceneOpts = {
+        element: sceneEl,
+        voxels,
+        showFloor: state.showFloor,
+        showWalls: state.showWalls,
+        projection: state.projection,
+        mergeVoxels: state.mergeVoxels,
+      };
+      if (state.rows != null) sceneOpts.rows = state.rows;
+      if (state.cols != null) sceneOpts.cols = state.cols;
+      if (state.depth != null) sceneOpts.depth = state.depth;
+
+      const scene = lib.createScene(sceneOpts);
+      const handle = lib.renderScene({ element: canvasEl, camera, scene });
+
+      // Stats
+      var statsEl = el.querySelector(".vox-demo__stats");
+      var wantStats = el.getAttribute("data-show-stats") === "1";
+      if (wantStats && statsEl) {
+        statsEl.classList.add("active");
+      }
+
+      // FPS counter
+      var currentFps = "-";
+      var fpsFrameId = null;
+      var fpsFrames = 0;
+      var fpsSampleStart = 0;
+
+      function fpsTick(now) {
+        if (fpsFrameId === null) return;
+        if (!fpsSampleStart) fpsSampleStart = now;
+        fpsFrames += 1;
+        var elapsed = now - fpsSampleStart;
+        if (elapsed >= 1000) {
+          currentFps = String(Math.round((fpsFrames * 1000) / elapsed));
+          fpsFrames = 0;
+          fpsSampleStart = now;
+          updateStats();
+        }
+        fpsFrameId = requestAnimationFrame(fpsTick);
+      }
+
+      if (wantStats) {
+        fpsFrameId = requestAnimationFrame(fpsTick);
+      }
+
+      // Register teardown for Astro page navigation
+      voxDemoCleanups.push(function () {
+        if (fpsFrameId !== null) {
+          try { cancelAnimationFrame(fpsFrameId); } catch (_) {}
+          fpsFrameId = null;
+        }
+        try { handle && handle.destroy && handle.destroy(); } catch (_) {}
+        try { camera && camera.destroy && camera.destroy(); } catch (_) {}
+        try { el.removeAttribute("data-initialized"); } catch (_) {}
+      });
+
+      function updateStats() {
+        if (!wantStats || !statsEl) return;
+        var elements = sceneEl.querySelectorAll("*").length;
+        statsEl.innerHTML =
+          "FPS: <span class='stat-value'>" + currentFps + "</span> · " +
+          "DOM: <span class='stat-value'>" + elements.toLocaleString() + "</span> · " +
+          "Voxels: <span class='stat-value'>" + voxels.length.toLocaleString() + "</span> · " +
+          "Merge: <span class='stat-value'>" + (state.mergeVoxels || "off") + "</span>";
+      }
+
+      function updateCamera() {
+        camera.update({
+          zoom: state.zoom,
+          pan: state.pan,
+          tilt: state.tilt,
+          rotX: state.rotX,
+          rotY: state.rotY,
+          perspective: state.perspectiveEnabled ? state.perspective : false,
+          interactive: state.interactive,
+          animate: state.animate ? { axis: "y", speed: 0.3, pauseOnInteraction: true } : false,
+        });
+        updateCode();
+      }
+
+      function updateScene() {
+        const opts = {
+          voxels,
+          showFloor: state.showFloor,
+          showWalls: state.showWalls,
+          projection: state.projection,
+          mergeVoxels: state.mergeVoxels,
+        };
+        if (state.rows != null) opts.rows = state.rows;
+        if (state.cols != null) opts.cols = state.cols;
+        if (state.depth != null) opts.depth = state.depth;
+        handle.setScene(opts);
+        updateCode();
+        setTimeout(updateStats, 100);
+      }
+
+      function updateCode() {
+        // Build prop lists
+        const cp = {};
+        if (state.zoom !== 0.65) cp.zoom = state.zoom.toFixed(2);
+        if (state.pan !== 0) cp.pan = String(state.pan);
+        if (state.tilt !== 0) cp.tilt = String(state.tilt);
+        if (state.rotX !== 65) cp.rotX = String(state.rotX);
+        if (state.rotY !== 45) cp.rotY = String(state.rotY);
+        if (!state.perspectiveEnabled) cp.perspective = "false";
+        else if (state.perspective !== 8000) cp.perspective = String(state.perspective);
+        if (state.interactive) cp.interactive = "true";
+        if (state.animate) cp.animate = '{ axis: "y", speed: 0.3 }';
+
+        const sp = {};
+        if (state.rows != null) sp.rows = String(state.rows);
+        if (state.cols != null) sp.cols = String(state.cols);
+        if (state.depth != null) sp.depth = String(state.depth);
+        if (state.showFloor) sp.showFloor = "true";
+        if (state.showWalls) sp.showWalls = "true";
+        if (state.projection !== "cubic") sp.projection = `"${state.projection}"`;
+        if (state.mergeVoxels) sp.mergeVoxels = `"${state.mergeVoxels}"`;
+
+        // React
+        var rCamEntries = Object.entries(cp);
+        var rSceneEntries = Object.entries(sp);
+        if (codeEls.react) {
+          var r = ['import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";', ""];
+          r.push("const voxels = [");
+          r.push("  // your voxel data — e.g. { x: 1, y: 1, z: 0, color: \"#f97316\" }");
+          r.push("];");
+          r.push("");
+          r.push("export function App() {");
+          r.push("  return (");
+          // VoxCamera - inline if few props
+          var camAttrs = rCamEntries.map(function(e) { return e[1] === "true" ? e[0] : e[0] + "={" + e[1] + "}"; });
+          var sceneAttrs = rSceneEntries.map(function(e) { return e[1] === "true" ? e[0] : e[0] + "={" + e[1] + "}"; });
+          if (camAttrs.length <= 3) {
+            r.push("    <VoxCamera " + camAttrs.join(" ") + ">");
+          } else {
+            r.push("    <VoxCamera");
+            camAttrs.forEach(function(a) { r.push("      " + a); });
+            r.push("    >");
+          }
+          if (sceneAttrs.length <= 2) {
+            r.push("      <VoxScene voxels={voxels} " + sceneAttrs.join(" ") + " />");
+          } else {
+            r.push("      <VoxScene");
+            r.push("        voxels={voxels}");
+            sceneAttrs.forEach(function(a) { r.push("        " + a); });
+            r.push("      />");
+          }
+          r.push("    <" + "/VoxCamera>");
+          r.push("  );");
+          r.push("}");
+          codeEls.react.textContent = r.join("\n");
+        }
+
+        // Vue
+        if (codeEls.vue) {
+          var vueCamAttrs = Object.entries(cp).map(function(e) {
+            var k = e[0].replace(/([A-Z])/g, "-$1").toLowerCase();
+            return e[1] === "true" ? k : ":" + k + '="' + e[1] + '"';
+          });
+          var vueSceneAttrs = Object.entries(sp).map(function(e) {
+            var k = e[0].replace(/([A-Z])/g, "-$1").toLowerCase();
+            return e[1] === "true" ? k : ":" + k + '="' + e[1] + '"';
+          });
+          var v = ["<template>"];
+          if (vueCamAttrs.length <= 3) {
+            v.push("  <VoxCamera " + vueCamAttrs.join(" ") + ">");
+          } else {
+            v.push("  <VoxCamera");
+            vueCamAttrs.forEach(function(a) { v.push("    " + a); });
+            v.push("  >");
+          }
+          if (vueSceneAttrs.length <= 2) {
+            v.push('    <VoxScene :voxels="voxels" ' + vueSceneAttrs.join(" ") + " />");
+          } else {
+            v.push("    <VoxScene");
+            v.push('      :voxels="voxels"');
+            vueSceneAttrs.forEach(function(a) { v.push("      " + a); });
+            v.push("    />");
+          }
+          v.push("  <" + "/VoxCamera>");
+          v.push("<" + "/template>");
+          v.push("");
+          v.push("<" + "script setup>");
+          v.push('import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";');
+          v.push("");
+          v.push("const voxels = [");
+          v.push('  // your voxel data — e.g. { x: 1, y: 1, z: 0, color: "#f97316" }');
+          v.push("];");
+          v.push("<" + "/script>");
+          codeEls.vue.textContent = v.join("\n");
+        }
+
+        // Vanilla JS
+        if (codeEls.vanilla) {
+          var j = ['import { renderScene } from "@layoutit/voxcss";', ""];
+          j.push("const voxels = [");
+          j.push("  // your voxel data — e.g. { x: 1, y: 1, z: 0, color: \"#f97316\" }");
+          j.push("];");
+          j.push("");
+          j.push("renderScene({");
+          j.push('  element: document.getElementById("voxcss"),');
+          if (rCamEntries.length === 0) {
+            j.push("  camera: {},");
+          } else {
+            j.push("  camera: {");
+            rCamEntries.forEach(function(e) { j.push("    " + e[0] + ": " + e[1] + ","); });
+            j.push("  },");
+          }
+          j.push("  scene: {");
+          j.push("    voxels,");
+          rSceneEntries.forEach(function(e) { j.push("    " + e[0] + ": " + e[1] + ","); });
+          j.push("  },");
+          j.push("});");
+          codeEls.vanilla.textContent = j.join("\n");
+        }
+
+        // Apply syntax highlighting
+        if (hljs) {
+          var langMap = { react: "tsx", vue: "xml", vanilla: "javascript" };
+          for (var fw in codeEls) {
+            var codeEl = codeEls[fw];
+            if (codeEl && codeEl.textContent) {
+              var lang = langMap[fw] || "javascript";
+              try {
+                codeEl.innerHTML = hljs.highlight(codeEl.textContent, { language: lang }).value;
+              } catch (e) {}
+            }
+          }
+        }
+      }
+
+      // Build controls
+      const controlDefs = {
+        zoom: () => makeRange("zoom", 0.1, 2, 0.01, state.zoom, (v) => { state.zoom = v; updateCamera(); }),
+        pan: () => makeRange("pan", -200, 200, 1, state.pan, (v) => { state.pan = v; updateCamera(); }, "px"),
+        tilt: () => makeRange("tilt", -200, 200, 1, state.tilt, (v) => { state.tilt = v; updateCamera(); }, "px"),
+        rotX: () => makeRange("rotX", 10, 90, 1, state.rotX, (v) => { state.rotX = v; updateCamera(); }, "°"),
+        rotY: () => makeRange("rotY", 0, 360, 1, state.rotY, (v) => { state.rotY = v; updateCamera(); }, "°"),
+        perspective: () => makeRange("perspective", 500, 12000, 500, state.perspective, (v) => { state.perspective = v; updateCamera(); }, "px"),
+        interactive: () => makeSwitch("interactive", state.interactive, (v) => { state.interactive = v; updateCamera(); }),
+        animate: () => makeSwitch("animate", state.animate, (v) => { state.animate = v; updateCamera(); }),
+        showFloor: () => makeSwitch("show floor", state.showFloor, (v) => { state.showFloor = v; updateScene(); }),
+        showWalls: () => makeSwitch("show walls", state.showWalls, (v) => { state.showWalls = v; updateScene(); }),
+        rows: () => makeRange("rows", 4, 18, 1, state.rows ?? 8, (v) => { state.rows = v; updateScene(); }),
+        cols: () => makeRange("cols", 4, 18, 1, state.cols ?? 8, (v) => { state.cols = v; updateScene(); }),
+        depth: () => makeRange("depth", 1, 10, 1, state.depth ?? 6, (v) => { state.depth = v; updateScene(); }),
+        projection: () => makeSwitch("dimetric", state.projection === "dimetric", (v) => { state.projection = v ? "dimetric" : "cubic"; updateScene(); }),
+        mergeVoxels: () => makeSwitch("merge 3d", state.mergeVoxels === "3d", (v) => { state.mergeVoxels = v ? "3d" : false; updateScene(); }),
+      };
+
+      for (const key of controlList) {
+        const maker = controlDefs[key];
+        if (maker) controlsEl.appendChild(maker());
+      }
+
+      if (controlList.length === 0) {
+        controlsEl.style.display = "none";
+        (el.querySelector(".vox-demo__viewer")).style.gridTemplateColumns = "1fr";
+      }
+
+      updateCode();
+      setTimeout(updateStats, 200);
+
+      function makeRange(label, min, max, step, initial, onChange, unit) {
+        unit = unit || "";
+        const wrapper = document.createElement("label");
+        const heading = document.createElement("span");
+        heading.className = "range-heading";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = label;
+        const valueSpan = document.createElement("span");
+        valueSpan.className = "range-value";
+        const fmt = (v) => step < 1 ? v.toFixed(2) : String(Math.round(v));
+        valueSpan.textContent = fmt(initial) + unit;
+        heading.append(nameSpan, valueSpan);
+
+        const input = document.createElement("input");
+        input.type = "range";
+        input.min = String(min);
+        input.max = String(max);
+        input.step = String(step);
+        input.value = String(initial);
+        input.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          valueSpan.textContent = fmt(v) + unit;
+          onChange(v);
+        });
+
+        wrapper.append(heading, input);
+        return wrapper;
+      }
+
+      function makeSwitch(label, initial, onChange) {
+        const wrapper = document.createElement("label");
+        wrapper.className = "switch";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = initial;
+        input.addEventListener("change", () => onChange(input.checked));
+        const span = document.createElement("span");
+        span.textContent = label;
+        wrapper.append(input, span);
+        return wrapper;
+      }
+    }
+  }
+
+  // Tear down renderers and FPS loops before Astro swaps pages so they don't
+  // leak into the next page and drag FPS down.
+  document.addEventListener("astro:before-swap", cleanupVoxDemos);
+
+  // Run on initial load and after Astro View Transitions
+  document.addEventListener("astro:page-load", function() { initVoxDemos(); });
+  // Also run immediately if already loaded (no View Transitions)
+  if (document.readyState !== "loading") {
+    initVoxDemos();
+  } else {
+    document.addEventListener("DOMContentLoaded", function() { initVoxDemos(); });
+  }
+</script>

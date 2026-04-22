@@ -1,0 +1,166 @@
+---
+title: Core Types
+description: TypeScript type definitions for voxels, camera state, walls, projections, and more.
+---
+
+All types are exported from `@layoutit/voxcss` and `@layoutit/voxcss-core`.
+
+## `Voxel`
+
+Represents a single voxel or a merged region of voxels. Use `x2`/`y2`/`z2` to define multi-cell blocks.
+
+```ts
+interface Voxel {
+  x: number;
+  y: number;
+  z: number;
+  x2?: number;
+  y2?: number;
+  z2?: number;
+  color?: string;
+  texture?: string;
+  shape?: "cube" | "ramp" | "wedge" | "spike";
+  rot?: number;
+  data?: Record<string, unknown>;
+}
+```
+
+---
+
+## `CameraState`
+
+Describes the full state of a camera viewport.
+
+```ts
+interface CameraState {
+  zoom: number;        // Default: 0.65
+  pan: number;         // Default: 0
+  tilt: number;        // Default: 0
+  rotX: number;        // Default: 65
+  rotY: number;        // Default: 45
+  depthOffset: number; // Default: 20
+}
+```
+
+---
+
+## `WallsMask`
+
+Controls which walls are visible around the scene. Each property corresponds to a face of the bounding box.
+
+```ts
+interface WallsMask {
+  t: boolean;   // Top
+  b: boolean;   // Bottom
+  bl: boolean;  // Back-left
+  br: boolean;  // Back-right
+  fl: boolean;  // Front-left
+  fr: boolean;  // Front-right
+}
+```
+
+---
+
+## `ProjectionMode`
+
+The projection style used for rendering.
+
+```ts
+type ProjectionMode = "cubic" | "dimetric";
+```
+
+- **`"cubic"`** — Standard isometric-like projection.
+- **`"dimetric"`** — Dimetric projection with adjusted axis ratios.
+
+---
+
+## `MergeVoxelsOption`
+
+Controls whether adjacent same-color voxels are merged to reduce DOM nodes.
+
+```ts
+type MergeVoxelsOption = false | "2d" | "3d";
+```
+
+- **`false`** — No merging, one element per voxel.
+- **`"2d"`** — Merge voxels within each layer.
+- **`"3d"`** — Merge voxels across layers for maximum reduction.
+
+---
+
+## `AutoRotateOption`
+
+Configures automatic camera rotation. Pass `true` for defaults, a number for custom speed, or an object for full control.
+
+```ts
+type AutoRotateOption =
+  | boolean
+  | number
+  | {
+      axis?: "x" | "y";
+      speed?: number;
+      pauseOnInteraction?: boolean;
+    };
+```
+
+---
+
+## `SceneDimensions`
+
+Explicit dimensions for the scene grid. When omitted, dimensions are inferred from the voxel data.
+
+```ts
+interface SceneDimensions {
+  rows?: number;
+  cols?: number;
+  depth?: number;
+}
+```
+
+---
+
+## `MagicaVoxelParseResult`
+
+Returned by [`parseMagicaVoxel`](/api/headless/#parsemagicavoxelbuffer).
+
+```ts
+interface MagicaVoxelParseResult {
+  voxels: Voxel[];
+  rows: number;
+  cols: number;
+  depth: number;
+}
+```
+
+---
+
+## `FaceAppearanceOverride`
+
+Overrides the visual appearance of individual cube faces.
+
+```ts
+interface FaceAppearanceOverride {
+  backgroundImage?: string | null;
+  backgroundColor?: string | null;
+  filter?: string | null;
+}
+```
+
+---
+
+## `CubeFace`
+
+Identifies one of the six faces of a cube. Uses the same keys as `WallsMask`.
+
+```ts
+type CubeFace = "t" | "b" | "bl" | "br" | "fr" | "fl";
+```
+
+| Value  | Face        |
+| ------ | ----------- |
+| `"t"`  | Top         |
+| `"b"`  | Bottom      |
+| `"bl"` | Back-left   |
+| `"br"` | Back-right  |
+| `"fr"` | Front-right |
+| `"fl"` | Front-left  |

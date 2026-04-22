@@ -1,0 +1,92 @@
+---
+title: Projections
+description: Choosing between cubic and dimetric projection modes for different visual styles.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+VoxCSS supports two projection modes that control how Z layers are spaced in the scene. The projection affects the overall feel of your voxel world without changing any voxel data.
+
+## Cubic (default)
+
+Each Z layer is spaced **50px** apart — the same as the voxel width and height. This gives a balanced, uniform isometric look where voxels appear as true cubes. Cubic is the default, so you don't need to set it explicitly. Every [Quickstart](/quickstart) example is cubic.
+
+## Dimetric
+
+Dimetric projection halves the Z spacing to **25px**, producing a flatter, more top-down perspective. Vertical height is visually compressed — good when your scene is about the ground plane more than the vertical axis.
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+const voxels = [
+  { x: 1, y: 1, z: 0, color: "#94a3b8" },
+  { x: 1, y: 1, z: 1, color: "#64748b" },
+  { x: 1, y: 1, z: 2, color: "#475569" },
+];
+
+export function App() {
+  return (
+    <VoxCamera interactive>
+      <VoxScene voxels={voxels} projection="dimetric" />
+    </VoxCamera>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <VoxCamera interactive>
+    <VoxScene :voxels="voxels" projection="dimetric" />
+  </VoxCamera>
+</template>
+
+<script setup lang="ts">
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
+const voxels = [
+  { x: 1, y: 1, z: 0, color: "#94a3b8" },
+  { x: 1, y: 1, z: 1, color: "#64748b" },
+  { x: 1, y: 1, z: 2, color: "#475569" },
+];
+</script>
+```
+</TabItem>
+<TabItem label="Vanilla JS">
+```html
+<div id="voxcss"></div>
+<script type="module">
+  import { renderScene } from "@layoutit/voxcss";
+  renderScene({
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
+    scene: {
+      voxels: [
+        { x: 1, y: 1, z: 0, color: "#94a3b8" },
+        { x: 1, y: 1, z: 1, color: "#64748b" },
+        { x: 1, y: 1, z: 2, color: "#475569" },
+      ],
+      projection: "dimetric",
+    },
+  });
+</script>
+```
+</TabItem>
+</Tabs>
+
+## When to use dimetric
+
+Dimetric works especially well for:
+
+- **Terrain and landscapes** — flattened height gives a map-like overview.
+- **Strategy game boards** — the top-down feel suits tile-based UIs.
+- **Architectural floor plans** — emphasizes X/Y layout over vertical height.
+
+If your scene is mostly about the ground plane and vertical detail is secondary, dimetric gives you a cleaner read of the spatial layout.
+
+## Related
+
+- [VoxScene](/components/vox-scene) — Full `projection` prop reference.
+- [Shapes](/guides/shapes) — The shape showcase defaults to dimetric for its terrain-like composition.
+- [Performance](/guides/performance) — Merge modes and DOM tuning.

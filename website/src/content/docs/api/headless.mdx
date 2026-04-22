@@ -1,0 +1,136 @@
+---
+title: Headless API
+description: Vanilla JavaScript API for creating cameras, scenes, and rendering voxels without a framework.
+---
+
+The headless API lets you use VoxCSS without React, Vue, or any framework. It provides direct control over camera, scene, and rendering through plain JavaScript functions.
+
+## `createCamera(options)`
+
+Creates a camera instance that controls the viewport orientation and zoom.
+
+```ts
+import { createCamera } from "@layoutit/voxcss";
+
+const camera = createCamera({
+  element: document.getElementById("camera"),
+  zoom: 0.65,
+  rotX: 65,
+  rotY: 45,
+  interactive: true,
+  perspective: 8000,
+  animate: { axis: "y", speed: 0.3, pauseOnInteraction: true },
+});
+```
+
+**Options:** Same as `VoxCamera` props, plus:
+
+| Option    | Type          | Description                  |
+| --------- | ------------- | ---------------------------- |
+| `element` | `HTMLElement`  | **Required.** Mount target. |
+
+**Returns** a `CameraHandle`:
+
+| Method                    | Description                              |
+| ------------------------- | ---------------------------------------- |
+| `update(props)`           | Update camera properties.                |
+| `setInteractive(boolean)` | Toggle pointer controls.                |
+| `setAnimate(option)`      | Change auto-rotation configuration.      |
+| `setPerspective(value)`   | Change perspective distance.             |
+| `destroy()`               | Clean up event listeners and animation.  |
+
+---
+
+## `createScene(options)`
+
+Creates a voxel scene and renders it into a DOM element.
+
+```ts
+import { createScene } from "@layoutit/voxcss";
+
+const scene = createScene({
+  element: document.getElementById("scene"),
+  voxels: [...],
+  showFloor: true,
+  showWalls: false,
+  projection: "cubic",
+  mergeVoxels: "3d",
+});
+```
+
+**Options:** Same as `VoxScene` props, plus:
+
+| Option    | Type          | Description                  |
+| --------- | ------------- | ---------------------------- |
+| `element` | `HTMLElement`  | **Required.** Mount target. |
+
+---
+
+## `renderScene(options)`
+
+All-in-one function that creates and connects a camera + scene together. This is the simplest way to get a voxel scene on screen.
+
+```ts
+import { renderScene } from "@layoutit/voxcss";
+
+const handle = renderScene({
+  element: document.getElementById("root"),
+  camera: {
+    interactive: true,
+    zoom: 0.65,
+    animate: true,
+  },
+  scene: {
+    voxels: [...],
+    showFloor: true,
+  },
+});
+```
+
+**Returns** a `RenderHandle`:
+
+| Method              | Description                    |
+| ------------------- | ------------------------------ |
+| `setVoxels(voxels)` | Replace the voxel array.       |
+| `setScene(options)`  | Update scene properties.      |
+| `destroy()`          | Clean up everything.          |
+
+---
+
+## `parseMagicaVoxel(buffer)`
+
+Parses a MagicaVoxel `.vox` binary file into a voxel array with dimensions.
+
+```ts
+import { parseMagicaVoxel } from "@layoutit/voxcss";
+
+const result = parseMagicaVoxel(arrayBuffer);
+// { voxels: Voxel[], rows: number, cols: number, depth: number }
+```
+
+Accepts `ArrayBuffer` or `Uint8Array`. See [`MagicaVoxelParseResult`](/api/types/#magicavoxelparseresult) for the return type.
+
+---
+
+## Package Exports
+
+VoxCSS is published as a single package with multiple entry points, plus individual packages for fine-grained control.
+
+### Combined package
+
+| Import path              | Contents                              |
+| ------------------------ | ------------------------------------- |
+| `@layoutit/voxcss`       | Headless API (core + HTML bundled)   |
+| `@layoutit/voxcss/react` | React components                     |
+| `@layoutit/voxcss/vue`   | Vue components                       |
+
+### Individual packages
+
+| Package                | Contents                |
+| ---------------------- | ----------------------- |
+| `@layoutit/voxcss-core`  | Pure math, zero DOM   |
+| `@layoutit/voxcss-html`  | DOM renderer           |
+| `@layoutit/voxcss-react` | React bindings         |
+| `@layoutit/voxcss-vue`   | Vue bindings           |
+
+Use the individual packages when you want to minimize bundle size or avoid pulling in DOM dependencies (e.g., in a server-side context where you only need the math utilities from `@layoutit/voxcss-core`).

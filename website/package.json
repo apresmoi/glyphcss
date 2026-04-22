@@ -1,0 +1,21 @@
+{
+  "name": "@layoutit/voxcss-website",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VoxCSS documentation and landing page.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && node scripts/generate-llms-txt.mjs",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.1",
+    "@astrojs/starlight": "^0.38.2",
+    "@layoutit/voxcss": "workspace:^",
+    "astro": "^6.0.8",
+    "highlight.js": "^11.11.1",
+    "sharp": "^0.34.2"
+  }
+}

@@ -1,0 +1,121 @@
+---
+title: Quickstart
+description: Build your first VoxCSS scene in under a minute.
+---
+
+import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+import VoxDemo from '../../components/VoxDemo.astro';
+
+Get a 3D voxel scene running in your project in two steps.
+
+<Steps>
+
+1. **Install the package**
+
+   <Tabs syncKey="pkg">
+   <TabItem label="npm">
+   ```bash
+   npm install @layoutit/voxcss
+   ```
+   </TabItem>
+   <TabItem label="yarn">
+   ```bash
+   yarn add @layoutit/voxcss
+   ```
+   </TabItem>
+   <TabItem label="pnpm">
+   ```bash
+   pnpm add @layoutit/voxcss
+   ```
+   </TabItem>
+   </Tabs>
+
+2. **Add a camera and scene**
+
+   The camera controls the viewport (zoom, rotation, drag interaction). The scene holds your voxels. Pass `interactive` to let users drag to rotate, or `animate` for auto-rotation — see [VoxCamera](/components/vox-camera) for the full prop list.
+
+   <Tabs syncKey="fw">
+   <TabItem label="React">
+   ```tsx
+   import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+   const voxels = [
+     { x: 0, y: 0, z: 0, color: "#f97316" },
+     { x: 1, y: 0, z: 0, color: "#fb923c" },
+     { x: 0, y: 1, z: 0, color: "#fdba74" },
+     { x: 0, y: 0, z: 1, color: "#ef4444" },
+   ];
+
+   export function App() {
+     return (
+       <VoxCamera interactive zoom={0.8}>
+         <VoxScene voxels={voxels} showFloor />
+       </VoxCamera>
+     );
+   }
+   ```
+   </TabItem>
+   <TabItem label="Vue">
+   ```vue
+   <template>
+     <VoxCamera interactive :zoom="0.8">
+       <VoxScene :voxels="voxels" show-floor />
+     </VoxCamera>
+   </template>
+
+   <script setup lang="ts">
+   import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
+
+   const voxels = [
+     { x: 0, y: 0, z: 0, color: "#f97316" },
+     { x: 1, y: 0, z: 0, color: "#fb923c" },
+     { x: 0, y: 1, z: 0, color: "#fdba74" },
+     { x: 0, y: 0, z: 1, color: "#ef4444" },
+   ];
+   </script>
+   ```
+   </TabItem>
+   <TabItem label="Vanilla JS">
+   ```html
+   <div id="voxcss"></div>
+   <script type="module">
+     import { renderScene } from "@layoutit/voxcss";
+
+     renderScene({
+       element: document.getElementById("voxcss"),
+       camera: { interactive: true, zoom: 0.8 },
+       scene: {
+         voxels: [
+           { x: 0, y: 0, z: 0, color: "#f97316" },
+           { x: 1, y: 0, z: 0, color: "#fb923c" },
+           { x: 0, y: 1, z: 0, color: "#fdba74" },
+           { x: 0, y: 0, z: 1, color: "#ef4444" },
+         ],
+         showFloor: true,
+       },
+     });
+   </script>
+   ```
+   </TabItem>
+   </Tabs>
+
+</Steps>
+
+## Try it live
+
+Drag to rotate. Use the controls on the right to change camera and scene properties — the code below updates in real time.
+
+<VoxDemo
+  id="quickstart-demo"
+  model="apple"
+  controls='["zoom","rotX","rotY","interactive","animate","showFloor","showWalls"]'
+  defaults='{"zoom":0.5,"interactive":true,"showFloor":false}'
+/>
+
+## Related
+
+- [Core Concepts](/core-concepts) — The mental model: grid, camera, scene, voxel data, pipeline.
+- [VoxCamera](/components/vox-camera) — Camera props and usage reference.
+- [VoxScene](/components/vox-scene) — Scene props, dimensions, walls, floor, merge modes.
+- [Shapes](/guides/shapes) — Ramps, wedges, and spikes for richer scenes.
+- [Gallery](/gallery) — Browse 100+ voxel models for inspiration.

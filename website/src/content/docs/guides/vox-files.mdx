@@ -1,0 +1,141 @@
+---
+title: Loading .vox Files
+description: Importing MagicaVoxel .vox models into VoxCSS with the built-in parser.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+VoxCSS includes a built-in parser for **MagicaVoxel `.vox` files** — the popular voxel art format. You can load `.vox` models directly into your scenes without any external tools or conversion steps.
+
+## The parser
+
+The `parseMagicaVoxel` function accepts an `ArrayBuffer` and returns a structured object:
+
+```ts
+import { parseMagicaVoxel } from "@layoutit/voxcss";
+
+const model = parseMagicaVoxel(buffer);
+// model.voxels — array of voxel objects ready for VoxCSS
+// model.rows   — Y dimension of the model
+// model.cols   — X dimension of the model
+// model.depth  — Z dimension of the model
+```
+
+The returned `voxels` array contains plain voxel objects with `x`, `y`, `z`, and `color` properties — exactly what `VoxScene` expects.
+
+## Loading a .vox file
+
+Fetch the file, convert to an `ArrayBuffer`, and pass it to the parser:
+
+```ts
+import { parseMagicaVoxel } from "@layoutit/voxcss";
+
+const model = await fetch("/models/example.vox")
+  .then(r => r.arrayBuffer())
+  .then(parseMagicaVoxel);
+```
+
+## Full examples
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { useEffect, useState } from "react";
+import { parseMagicaVoxel } from "@layoutit/voxcss";
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+
+export function App() {
+  const [model, setModel] = useState(null);
+
+  useEffect(() => {
+    fetch("/models/example.vox")
+      .then(r => r.arrayBuffer())
+      .then(parseMagicaVoxel)
+      .then(setModel);
+  }, []);
+
+  if (!model) return null;
+
+  return (
+    <VoxCamera interactive>
+      <VoxScene
+        voxels={model.voxels}
+        rows={model.rows}
+        cols={model.cols}
+        depth={model.depth}
+        mergeVoxels="3d"
+      />
+    </VoxCamera>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <VoxCamera interactive>
+    <VoxScene
+      v-if="model"
+      :voxels="model.voxels"
+      :rows="model.rows"
+      :cols="model.cols"
+      :depth="model.depth"
+      merge-voxels="3d"
+    />
+  </VoxCamera>
+</template>
+<script setup lang="ts">
+import { ref, onMounted } from "vue";
+import { parseMagicaVoxel } from "@layoutit/voxcss";
+import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
+
+const model = ref(null);
+
+onMounted(async () => {
+  model.value = await fetch("/models/example.vox")
+    .then(r => r.arrayBuffer())
+    .then(parseMagicaVoxel);
+});
+</script>
+```
+</TabItem>
+<TabItem label="Vanilla JS">
+```html
+<div id="voxcss"></div>
+<script type="module">
+  import { parseMagicaVoxel, renderScene } from "@layoutit/voxcss";
+
+  const model = await fetch("/models/example.vox")
+    .then(r => r.arrayBuffer())
+    .then(parseMagicaVoxel);
+
+  renderScene({
+    element: document.getElementById("voxcss"),
+    camera: { interactive: true },
+    scene: {
+      voxels: model.voxels,
+      rows: model.rows,
+      cols: model.cols,
+      depth: model.depth,
+      mergeVoxels: "3d",
+      showFloor: true,
+    },
+  });
+</script>
+```
+</TabItem>
+</Tabs>
+
+## Tips
+
+- **Use 3D merging** for imported models. MagicaVoxel files tend to be dense, and `mergeVoxels="3d"` will significantly reduce the DOM element count.
+- **Pass dimensions** from the parsed model (`rows`, `cols`, `depth`) to `VoxScene` so the grid is sized correctly for the model.
+- The parser reads the **first model** in the `.vox` file. Multi-model `.vox` files are not currently supported.
+- `.vox` files include a color palette — the parser maps each voxel to its hex color automatically.
+
+## Related
+
+- [Performance](/guides/performance) — Why imported models almost always want `mergeVoxels="3d"`.
+- [VoxScene](/components/vox-scene) — Props passed to render the imported model.
+- [Headless API](/api/headless) — `parseMagicaVoxel` and `renderScene` signatures.
+- [Gallery](/gallery) — 100+ `.vox` models you can download and render.
