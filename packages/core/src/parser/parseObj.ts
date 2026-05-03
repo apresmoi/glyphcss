@@ -35,6 +35,17 @@ export interface ObjParseOptions {
    * Each new non-hex material name takes the next palette slot.
    */
   palette?: string[];
+  /**
+   * Names of `o <name>` objects to KEEP. When set, faces outside these
+   * objects are dropped. Common use: an OBJ ships scenery (a ground Plane,
+   * a backdrop) alongside the actual model — filter to the real geometry.
+   */
+  includeObjects?: string[];
+  /**
+   * Names of `o <name>` objects to DROP. Applied after `includeObjects`.
+   * Faces with no enclosing `o` line are kept unless `includeObjects` is set.
+   */
+  excludeObjects?: string[];
 }
 
 export interface ObjParseResult {
@@ -68,6 +79,9 @@ const DEFAULT_PALETTE = [
  *  - `usemtl <name>` material switches. Material names that look like 6-char
  *    hex are used as colors directly; otherwise they get assigned a palette
  *    slot in first-seen order. Override either via `materialColors`.
+ *  - `o <name>` object groupings — for filtering via `includeObjects` /
+ *    `excludeObjects`. Useful when an OBJ ships scenery (e.g. a ground
+ *    `Plane` next to the actual model) that shouldn't render.
  *
  * The mesh is fit to `targetSize` cells and remapped from OBJ's +Y-up
  * convention to voxcss's +Z-up via the cyclic permutation (x,y,z) → (z,x,y),
@@ -93,6 +107,20 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
   let currentColor = defaultColor;
   let currentTexture: string | undefined = undefined;
 
+  // Current `o` group name and the include/exclude filter test. The filter
+  // gates `f` lines: faces emitted under a dropped object are skipped
+  // entirely (their vertices remain in the buffer but go unreferenced).
+  const includeSet = options?.includeObjects ? new Set(options.includeObjects) : null;
+  const excludeSet = options?.excludeObjects ? new Set(options.excludeObjects) : null;
+  let currentObject: string | null = null;
+  const objectAllowed = (): boolean => {
+    // Faces before any `o` line: allowed unless includeObjects is set.
+    if (currentObject === null) return includeSet === null;
+    if (includeSet && !includeSet.has(currentObject)) return false;
+    if (excludeSet && excludeSet.has(currentObject)) return false;
+    return true;
+  };
+
   const colorFor = (name: string): string => {
     if (name in materialOverrides) return materialOverrides[name];
     if (HEX6.test(name)) return `#${name}`;
@@ -114,11 +142,14 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
       // v on consumption (SVG y axis points down) — we keep the raw value.
       const parts = raw.trim().split(/\s+/);
       uvs.push([parseFloat(parts[1]), parseFloat(parts[2])]);
+    } else if (raw.startsWith("o ")) {
+      currentObject = raw.trim().slice(2).trim();
     } else if (raw.startsWith("usemtl ")) {
       const matName = raw.trim().split(/\s+/)[1];
       currentColor = colorFor(matName);
       currentTexture = materialTextures[matName];
     } else if (raw.startsWith("f ")) {
+      if (!objectAllowed()) continue;
       const parts = raw.trim().split(/\s+/).slice(1);
       const idx: number[] = [];
       const uvIdx: (number | null)[] = [];
@@ -142,13 +173,20 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
     return { voxels: [], triangleCount: 0, materials: materialOrder };
   }
 
-  // Bounding box.
+  // Bounding box — only count vertices actually referenced by surviving
+  // faces. Otherwise scenery-object verts (e.g. a giant ground plane the
+  // user filtered out via excludeObjects) would inflate the bbox and the
+  // real model gets shrunk to fit the empty space.
+  const usedIdx = new Set<number>();
+  for (const f of rawFaces) for (const i of f.idx) usedIdx.add(i);
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-  for (const [x, y, z] of verts) {
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  for (const i of usedIdx) {
+    const v = verts[i];
+    if (!v) continue;
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+    if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
   }
   const maxDim = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
   const scale = maxDim > 0 ? targetSize / maxDim : 1;

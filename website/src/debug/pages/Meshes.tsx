@@ -61,7 +61,10 @@ const MODELS: ModelDef[] = [
     // `texture` and `uvs` per triangle. Triangle.tsx detects uvs + texture
     // and renders via the UV-mapped <image> + <clipPath> path.
     mtlUrl: "/gallery/obj/rock1.mtl",
-    options: { targetSize: 40, defaultColor: "#8b6f47" },
+    // OBJ ships two objects: `Cube` (the rock) and `Plane` (a scenery
+    // ground quad). Drop the Plane — it'd render as a floating slab
+    // tinted by the directional light.
+    options: { targetSize: 40, defaultColor: "#8b6f47", excludeObjects: ["Plane"] },
     zoom: 0.6, rotX: 65, rotY: 45,
   },
   {
