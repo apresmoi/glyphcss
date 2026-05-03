@@ -10,6 +10,30 @@ export const DEFAULT_PROJECTION: ProjectionMode = "cubic";
  */
 export type Vec3 = [number, number, number];
 
+/**
+ * Directional light setup used by the triangle / polygon renderer for
+ * per-face Lambert shading. Direction is in scene-local CSS-pixel coords:
+ * +X right, +Y down (CSS convention), +Z toward viewer. Vector doesn't
+ * need to be pre-normalized. Color is multiplied into the surface color
+ * for the directional contribution; ambient (RGB) provides the floor for
+ * faces pointing away from the light.
+ */
+export interface DirectionalLight {
+  /** Direction the light shines TOWARD (typical convention). */
+  direction: Vec3;
+  /** Light tint, hex string. White by default. */
+  color?: string;
+  /** Ambient light tint, hex string. Pre-multiplied by `ambient` strength. */
+  ambientColor?: string;
+  /** Ambient strength 0..1 — floor brightness for back-of-light faces. */
+  ambient?: number;
+}
+
+/**
+ * Strict, post-normalization voxel — internal type used everywhere by
+ * voxcss after ingress. `x/y/z` are always present. The renderers, scene
+ * builders, occlusion checks, etc. all assume this shape.
+ */
 export interface Voxel {
   x: number;
   y: number;
@@ -23,10 +47,9 @@ export interface Voxel {
   data?: Record<string, unknown>;
   rot?: number;
   /**
-   * For shape: "triangle" / "polygon". 3+ vertices in voxel space defining
-   * an arbitrary planar face. (x, y, z) and the optional bbox fields hold
-   * the bounding box of these vertices for compatibility with cell-based
-   * accounting (occupancy maps, IoU scoring).
+   * For shape: "triangle" / "polygon". 3+ coplanar vertices in voxel space
+   * defining the face. The renderer treats triangle as the strict 3-vertex
+   * case and polygon as any N >= 3; both route to the same SVG renderer.
    */
   vertices?: Vec3[];
   /**
@@ -42,6 +65,23 @@ export interface Voxel {
 }
 
 export type VoxelGrid = Voxel[];
+
+/**
+ * Public-facing voxel input — the shape users actually pass to voxcss.
+ * Loosens `x/y/z` so triangle/polygon callers can ship just `vertices`
+ * and color: voxcss derives the bbox from the vertices at ingress and
+ * upgrades to the strict internal `Voxel` type (with x/y/z populated).
+ *
+ * For cube/ramp/wedge/spike voxels, x/y/z still need to be passed —
+ * they ARE the geometry origin. Omitting them defaults to (0,0,0).
+ */
+export interface InputVoxel extends Omit<Voxel, "x" | "y" | "z"> {
+  x?: number;
+  y?: number;
+  z?: number;
+}
+
+export type InputVoxelGrid = InputVoxel[];
 
 export const BASE_TILE = 50;
 
@@ -100,6 +140,13 @@ export interface GridContext {
   // a debug color, so you can see what `backface-visibility: hidden` would
   // normally cull. Doubles per-triangle DOM cost — use sparingly.
   debugShowBackfaces?: boolean;
+  /**
+   * Optional directional-light setup used by the triangle/polygon renderer
+   * for Lambert shading. Direction is in scene-local CSS-pixel coords:
+   * +X right, +Y down (CSS), +Z toward viewer. Vector is normalized
+   * internally; pass any non-zero direction.
+   */
+  directionalLight?: DirectionalLight;
   // Pre-computed camera-direction occlusion map. Lookup by voxel key
   // ("x:y:z") returns a space-separated string of direction-bin indices where
   // the voxel is hidden by a closer voxel. Renderers emit this as

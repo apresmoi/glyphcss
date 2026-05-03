@@ -179,10 +179,11 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
   const out: Voxel[] = [];
   const polys: PolyState[] = [];
 
-  // Pass 1: collect non-triangle voxels untouched, seed PolyState for triangles.
+  // Pass 1: collect non-polygon voxels untouched, seed PolyState for triangle/polygon.
   for (const voxel of grid ?? []) {
     if (!voxel) continue;
-    if (voxel.shape !== "triangle" || !voxel.vertices || voxel.vertices.length < 3) {
+    const isPolyShape = voxel.shape === "triangle" || voxel.shape === "polygon";
+    if (!isPolyShape || !voxel.vertices || voxel.vertices.length < 3) {
       out.push(voxel);
       continue;
     }
@@ -268,10 +269,12 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
       if (v[1] < yMin) yMin = v[1]; if (v[1] > yMax) yMax = v[1];
       if (v[2] < zMin) zMin = v[2]; if (v[2] > zMax) zMax = v[2];
     }
+    // Emit "polygon" if the merge grew past 3 vertices, "triangle" if it's
+    // still 3 — keeps the shape name semantically accurate downstream.
     out.push({
       x: Math.floor(xMin), y: Math.floor(yMin), z: Math.floor(zMin),
       x2: Math.ceil(xMax),  y2: Math.ceil(yMax),  z2: Math.ceil(zMax),
-      shape: "triangle",
+      shape: p.vertices.length === 3 ? "triangle" : "polygon",
       vertices: p.vertices,
       color: p.color,
     });

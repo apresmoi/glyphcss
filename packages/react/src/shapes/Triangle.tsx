@@ -2,6 +2,63 @@ import type { ShapeInnerProps } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// Defaults for triangle/polygon Lambert shading. Direction is in scene-
+// local CSS-pixel coords: +X = right, +Y = down (CSS), +Z = toward viewer.
+// "Upper-front-right" key light. Override per-scene via VoxScene's
+// `directionalLight` prop.
+const DEFAULT_LIGHT_DIR: [number, number, number] = [0.4, -0.7, 0.59];
+const DEFAULT_LIGHT_COLOR = "#ffffff";
+const DEFAULT_AMBIENT_COLOR = "#ffffff";
+const DEFAULT_AMBIENT = 0.45;
+
+interface RGB { r: number; g: number; b: number; }
+
+function parseHex(hex: string): RGB {
+  const c = hex.startsWith("#") ? hex.slice(1) : hex;
+  if (c.length !== 6) return { r: 255, g: 255, b: 255 };
+  return {
+    r: parseInt(c.slice(0, 2), 16),
+    g: parseInt(c.slice(2, 4), 16),
+    b: parseInt(c.slice(4, 6), 16),
+  };
+}
+
+function rgbToHex({ r, g, b }: RGB): string {
+  const f = (n: number) =>
+    Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, "0");
+  return `#${f(r)}${f(g)}${f(b)}`;
+}
+
+/**
+ * Shade `baseColor` by the Lambert factor, modulated by separate light /
+ * ambient tints. Each channel is multiplied independently so a warm light
+ * (#ffe4a8) on a blue surface (#0080ff) produces the natural muted tone
+ * you'd expect — not just a brightness scale.
+ *
+ *   shaded = (ambientStrength · ambientColor + lambert · lightColor) · base
+ */
+function shadeTriangle(
+  baseColor: string,
+  lambert: number,
+  lightColor: string,
+  ambientColor: string,
+  ambientStrength: number,
+): string {
+  const base = parseHex(baseColor);
+  const light = parseHex(lightColor);
+  const amb = parseHex(ambientColor);
+  // Both light and ambient contribute as channel-wise multipliers in [0, 1].
+  // Compose the effective tint and apply to the base color.
+  const tintR = (amb.r / 255) * ambientStrength + (light.r / 255) * lambert;
+  const tintG = (amb.g / 255) * ambientStrength + (light.g / 255) * lambert;
+  const tintB = (amb.b / 255) * ambientStrength + (light.b / 255) * lambert;
+  return rgbToHex({
+    r: base.r * tintR,
+    g: base.g * tintG,
+    b: base.b * tintB,
+  });
+}
+
 /**
  * Triangle shape — renders an arbitrary 3D triangle from `voxel.vertices`.
  *
@@ -104,6 +161,22 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     tx, ty, tz, 1,
   ].join(",");
 
+  // Per-triangle directional lighting. Pull config from the scene context
+  // (set by VoxScene's `directionalLight` prop) with sane defaults.
+  // Computed once at render — no per-frame work, no GPU shaders. As the
+  // user rotates the scene, different triangles become visible (others get
+  // backface-culled), each with the brightness it was assigned at mount.
+  const lightCfg = context.directionalLight;
+  const lightDir = lightCfg?.direction ?? DEFAULT_LIGHT_DIR;
+  const lightColor = lightCfg?.color ?? DEFAULT_LIGHT_COLOR;
+  const ambientColor = lightCfg?.ambientColor ?? DEFAULT_AMBIENT_COLOR;
+  const ambient = lightCfg?.ambient ?? DEFAULT_AMBIENT;
+  const lLen = Math.hypot(lightDir[0], lightDir[1], lightDir[2]) || 1;
+  const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
+  const direct = Math.max(0, 1 - ambient);
+  const lambert = direct * Math.max(0, nx * lx + ny * ly + nz * lz);
+  const shadedColor = shadeTriangle(baseColor, lambert, lightColor, ambientColor, ambient);
+
   // Same matrix3d but with the normal flipped — represents the BACK face.
   // We render it as a second sibling SVG when debugShowBackfaces is on, so
   // when the camera looks at the back of the triangle (where the front SVG
@@ -138,7 +211,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     >
       <path
         d={pathStr}
-        fill={baseColor}
+        fill={shadedColor}
         stroke="rgba(0,0,0,0.15)"
         strokeWidth={1}
         vectorEffect="non-scaling-stroke"

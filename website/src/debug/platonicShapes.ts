@@ -27,13 +27,10 @@ export const PLATONIC_PALETTE = [
  * auto-placement). Use 1 in interactive editors that allow user-entered 0.
  */
 export function triangleToVoxel(t: RawTriangle, gridShift = 0): Voxel {
-  const xs = [t.v0[0], t.v1[0], t.v2[0]];
-  const ys = [t.v0[1], t.v1[1], t.v2[1]];
-  const zs = [t.v0[2], t.v1[2], t.v2[2]];
+  // Voxcss now auto-derives the bbox from `vertices` for triangle / polygon
+  // shapes, so we only ship `vertices` here.
   const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
   return {
-    x: Math.min(...xs) + gridShift, y: Math.min(...ys) + gridShift, z: Math.min(...zs),
-    x2: Math.max(...xs) + gridShift, y2: Math.max(...ys) + gridShift, z2: Math.max(...zs),
     shape: "triangle",
     vertices: [sv(t.v0), sv(t.v1), sv(t.v2)],
     color: t.color,
@@ -51,18 +48,12 @@ export interface RawPolygon {
 }
 
 export function polygonToVoxel(p: RawPolygon, gridShift = 0): Voxel {
-  let xMin = Infinity, yMin = Infinity, zMin = Infinity;
-  let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
-  for (const v of p.vertices) {
-    if (v[0] < xMin) xMin = v[0]; if (v[0] > xMax) xMax = v[0];
-    if (v[1] < yMin) yMin = v[1]; if (v[1] > yMax) yMax = v[1];
-    if (v[2] < zMin) zMin = v[2]; if (v[2] > zMax) zMax = v[2];
-  }
+  // Voxcss now auto-derives x/y/z/x2/y2/z2 from `vertices` for polygon /
+  // triangle shapes, so we only need to ship `vertices` here. Use "polygon"
+  // for N != 3 and "triangle" for N == 3 to keep the shape name accurate.
   const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
   return {
-    x: xMin + gridShift, y: yMin + gridShift, z: zMin,
-    x2: xMax + gridShift, y2: yMax + gridShift, z2: zMax,
-    shape: "triangle", // same renderer — handles N-vertex polygons too
+    shape: p.vertices.length === 3 ? "triangle" : "polygon",
     vertices: p.vertices.map(sv),
     color: p.color,
   };

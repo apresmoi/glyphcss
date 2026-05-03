@@ -4,7 +4,10 @@ export type {
   Vec3,
   Voxel,
   VoxelGrid,
+  InputVoxel,
+  InputVoxelGrid,
   CubeFace,
+  DirectionalLight,
   GridContext,
   WallsMask,
   OffsetMap,
@@ -17,7 +20,7 @@ export {
   WALL_CLASS, CEILING_CLASS, STYLE_ID
 } from "./types";
 
-export { buildSceneContext, getVoxelBounds, getVoxelZBounds, wallMasksEqual, computeWallMask } from "./scene/context";
+export { buildSceneContext, normalizeVoxels, getVoxelBounds, getVoxelZBounds, wallMasksEqual, computeWallMask } from "./scene/context";
 export type { SceneContextBuildResult } from "./scene/context";
 export { computeVisibleFaces, computeFacesWithOcclusion } from "./scene/visibility";
 export { precomputeOcclusion } from "./scene/occlusion";
@@ -102,6 +105,9 @@ export { parseMagicaVoxel } from "./parser/parseMagicaVoxel";
 export type { MagicaVoxelParseResult } from "./parser/parseMagicaVoxel";
 export { parseObj } from "./parser/parseObj";
 export type { ObjParseOptions, ObjParseResult } from "./parser/parseObj";
+export { parseMtl } from "./parser/parseMtl";
+export { parseGltf } from "./parser/parseGltf";
+export type { GltfParseOptions, GltfParseResult } from "./parser/parseGltf";
 
 export {
   encodeRgbaToPng,

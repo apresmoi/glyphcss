@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
 import type { Voxel } from "@layoutit/voxcss/react";
 import PolygonCanvas from "./PolygonCanvas";
 import { useDebug } from "./DebugLayout";
 import { DebugSection } from "./DebugSection";
+import { Row, Slider } from "./controls";
 
 type Vec3 = [number, number, number];
 
@@ -51,6 +52,46 @@ export function DebugScene({
   // polygon backface render. CSS for both is unified so they look the same.
   const [showBackfaces, setShowBackfaces] = useState(false);
   const [debugShowLabels, setDebugShowLabels] = useState(false);
+
+  // Lighting controls (for triangle/polygon shading). Direction is held as
+  // azimuth (0..360°, rotation around vertical) + elevation (-90..90°,
+  // angle above horizon) — much easier to slide than 3 raw axis components.
+  // Converted to a (x, y, z) vector below in CSS-pixel-space conventions
+  // (+X right, +Y down, +Z toward viewer).
+  const [lightAzimuth, setLightAzimuth] = useState(50);
+  const [lightElevation, setLightElevation] = useState(45);
+  const [ambient, setAmbient] = useState(0.45);
+  const [lightColor, setLightColor] = useState("#ffffff");
+  const [ambientColor, setAmbientColor] = useState("#ffffff");
+  const [directionalEnabled, setDirectionalEnabled] = useState(true);
+  const [ambientEnabled, setAmbientEnabled] = useState(true);
+
+  const directionalLight = useMemo(() => {
+    const az = (lightAzimuth * Math.PI) / 180;
+    const el = (lightElevation * Math.PI) / 180;
+    // CSS-pixel space inside Triangle.tsx (after the voxel.x↔voxel.y axis
+    // swap):
+    //   CSS-x = voxcss horizontal
+    //   CSS-y = voxcss depth (forward / back)
+    //   CSS-z = voxcss elevation ("up")
+    // "Direction" is from the surface TO the light source, so elevation=90°
+    // means light is directly overhead → +CSS-z.
+    const cosEl = Math.cos(el);
+    const direction: [number, number, number] = [
+      cosEl * Math.sin(az),
+      cosEl * Math.cos(az),
+      Math.sin(el),
+    ];
+    // Disabling either contribution = zero out its tint. Since the renderer
+    // multiplies channel-wise, an effective color of "#000000" makes the
+    // contribution drop to zero without removing the field.
+    return {
+      direction,
+      color: directionalEnabled ? lightColor : "#000000",
+      ambientColor: ambientEnabled ? ambientColor : "#000000",
+      ambient: ambientEnabled ? ambient : 0,
+    };
+  }, [lightAzimuth, lightElevation, ambient, lightColor, ambientColor, directionalEnabled, ambientEnabled]);
 
   const sceneContainerRef = useRef<HTMLDivElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -126,6 +167,44 @@ export function DebugScene({
         </label>
       </DebugSection>
 
+      <DebugSection title="Light" dock="bottom">
+        <label className="debug-checkbox">
+          <input type="checkbox" checked={directionalEnabled} onChange={(e) => setDirectionalEnabled(e.target.checked)} />
+          <span>Directional</span>
+        </label>
+        {directionalEnabled && (
+          <>
+            <Row label="Azimuth">
+              <Slider value={lightAzimuth} onChange={setLightAzimuth} min={0} max={360} step={1} format={(v) => `${v.toFixed(0)}°`} />
+            </Row>
+            <Row label="Elev.">
+              <Slider value={lightElevation} onChange={setLightElevation} min={-90} max={90} step={1} format={(v) => `${v.toFixed(0)}°`} />
+            </Row>
+            <div className="debug-row">
+              <span>Color</span>
+              <input type="color" className="debug-color-swatch" value={lightColor} onChange={(e) => setLightColor(e.target.value)} title="Directional light tint" />
+              <span style={{ fontFamily: "monospace", fontSize: 11, opacity: 0.7 }}>{lightColor}</span>
+            </div>
+          </>
+        )}
+        <label className="debug-checkbox" style={{ marginTop: 4 }}>
+          <input type="checkbox" checked={ambientEnabled} onChange={(e) => setAmbientEnabled(e.target.checked)} />
+          <span>Ambient</span>
+        </label>
+        {ambientEnabled && (
+          <>
+            <Row label="Strength">
+              <Slider value={ambient} onChange={setAmbient} min={0} max={1} step={0.05} format={(v) => v.toFixed(2)} />
+            </Row>
+            <div className="debug-row">
+              <span>Color</span>
+              <input type="color" className="debug-color-swatch" value={ambientColor} onChange={(e) => setAmbientColor(e.target.value)} title="Ambient light tint" />
+              <span style={{ fontFamily: "monospace", fontSize: 11, opacity: 0.7 }}>{ambientColor}</span>
+            </div>
+          </>
+        )}
+      </DebugSection>
+
       {showVoxcss && (
         <div ref={sceneContainerRef} className="debug-pane">
           <div className="debug-pane-label">voxcss</div>
@@ -143,6 +222,7 @@ export function DebugScene({
               debugShowOccluded={showBackfaces}
               debugShowLabels={debugShowLabels}
               debugShowBackfaces={showBackfaces}
+              directionalLight={directionalLight}
             />
           </VoxCamera>
         </div>

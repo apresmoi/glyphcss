@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import type { ProjectionMode, VoxelGrid, Voxel, FaceAppearanceOverride } from "@layoutit/voxcss-core";
+import type { ProjectionMode, VoxelGrid, InputVoxelGrid, Voxel, FaceAppearanceOverride, DirectionalLight } from "@layoutit/voxcss-core";
 import type { SceneContextBuildResult } from "@layoutit/voxcss-core";
-import { buildSceneContext } from "@layoutit/voxcss-core";
+import { buildSceneContext, normalizeVoxels } from "@layoutit/voxcss-core";
 import { mergeVoxels as mergeVoxelsGrid, mergePolygons } from "@layoutit/voxcss-core";
 import type { MergeVoxelsOption, WallsMask } from "@layoutit/voxcss-core";
 
@@ -23,10 +23,11 @@ export interface UseSceneContextOptions {
   debugShowOccluded?: boolean;
   debugShowLabels?: boolean;
   debugShowBackfaces?: boolean;
+  directionalLight?: DirectionalLight;
 }
 
 export function useSceneContext(
-  voxels: VoxelGrid,
+  voxels: VoxelGrid | InputVoxelGrid,
   options: UseSceneContextOptions
 ): SceneContextBuildResult {
   // For 3d merge mode, use NO_WALLS so the scene context is stable
@@ -35,7 +36,10 @@ export function useSceneContext(
   const effectiveWalls = options.mergeVoxels === "3d" ? NO_WALLS : (options.wallMask ?? NO_WALLS);
 
   return useMemo(() => {
-    let grid = voxels;
+    // Normalize input first so the merge passes (and downstream code) see
+    // strict Voxels with x/y/z populated. Triangle/polygon voxels that ship
+    // only `vertices` get their bbox derived here.
+    let grid: VoxelGrid = normalizeVoxels(voxels);
     if (options.mergeVoxels === "2d") {
       grid = mergeVoxelsGrid(grid);
     } else if (options.mergeVoxels === "poly") {
@@ -57,6 +61,7 @@ export function useSceneContext(
         debugShowOccluded: options.debugShowOccluded,
         debugShowLabels: options.debugShowLabels,
         debugShowBackfaces: options.debugShowBackfaces,
+        directionalLight: options.directionalLight,
       },
       dimensions: {
         rows: options.rows,
@@ -80,5 +85,6 @@ export function useSceneContext(
     options.debugShowOccluded,
     options.debugShowLabels,
     options.debugShowBackfaces,
+    options.directionalLight,
   ]);
 }

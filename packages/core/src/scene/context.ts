@@ -1,10 +1,16 @@
 /* Context building + voxel lookup helpers used by renderers and controllers. */
-import type { GridContext, OffsetMap, ProjectionMode, SceneDimensions, Voxel, VoxelGrid, WallsMask } from "../types";
+import type { GridContext, InputVoxel, InputVoxelGrid, OffsetMap, ProjectionMode, SceneDimensions, Voxel, VoxelGrid, WallsMask } from "../types";
 import { BASE_TILE, DEFAULT_OFFSETS, DEFAULT_PROJECTION, DEFAULT_WALLS, DEFAULT_WALL_COLOR } from "../types";
 import { precomputeOcclusion } from "./occlusion";
 
 export interface SceneContextBuildArgs {
-  grid: VoxelGrid;
+  /**
+   * Public-facing input — accepts both strict `Voxel` and loose `InputVoxel`
+   * (where x/y/z are optional for triangle/polygon shapes). Normalized to
+   * strict `Voxel[]` at ingress; everything downstream sees populated
+   * x/y/z fields.
+   */
+  grid: InputVoxelGrid | VoxelGrid;
   context?: Partial<GridContext>;
   dimensions?: SceneDimensions;
 }
@@ -43,8 +49,56 @@ export function inferGridDimensions(grid: VoxelGrid): { rows: number; cols: numb
   };
 }
 
+/**
+ * Convert public InputVoxel → strict Voxel by populating x/y/z (and the
+ * optional bbox extent fields) where the input omits them.
+ *
+ *   - For shape: "triangle" / "polygon" with `vertices` set: derive the
+ *     bbox from min/max of the vertices.
+ *   - For everything else: default missing axis values to 0. Cubes/ramps/
+ *     wedges/spikes really should pass x/y/z explicitly (they ARE the
+ *     geometry origin), but this keeps the function total.
+ *
+ * Runs once at the entry to buildSceneContext so all downstream code can
+ * rely on `voxel.x / .y / .z` being defined numbers, no `?? 0` patches
+ * scattered through the codebase.
+ */
+export function normalizeVoxels(grid: InputVoxelGrid | VoxelGrid): VoxelGrid {
+  const out: Voxel[] = [];
+  for (const v of grid ?? []) {
+    if (!v) continue;
+    const shape = v.shape;
+    if ((shape === "triangle" || shape === "polygon") && v.vertices && v.vertices.length >= 3) {
+      let xMin = Infinity, yMin = Infinity, zMin = Infinity;
+      let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
+      for (const p of v.vertices) {
+        if (p[0] < xMin) xMin = p[0]; if (p[0] > xMax) xMax = p[0];
+        if (p[1] < yMin) yMin = p[1]; if (p[1] > yMax) yMax = p[1];
+        if (p[2] < zMin) zMin = p[2]; if (p[2] > zMax) zMax = p[2];
+      }
+      out.push({
+        ...v,
+        x: v.x ?? Math.floor(xMin),
+        y: v.y ?? Math.floor(yMin),
+        z: v.z ?? Math.floor(zMin),
+        x2: v.x2 ?? Math.ceil(xMax),
+        y2: v.y2 ?? Math.ceil(yMax),
+        z2: v.z2 ?? Math.ceil(zMax),
+      });
+      continue;
+    }
+    // Generic path — fill in missing x/y/z as 0 so downstream is safe.
+    if (v.x !== undefined && v.y !== undefined && v.z !== undefined) {
+      out.push(v as Voxel);
+    } else {
+      out.push({ ...v, x: v.x ?? 0, y: v.y ?? 0, z: v.z ?? 0 });
+    }
+  }
+  return out;
+}
+
 export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuildResult {
-  const grid = args.grid ?? [];
+  const grid = normalizeVoxels(args.grid ?? []);
   const partial = args.context ?? {};
   const dimensionOverrides = args.dimensions ?? {};
   const inferred = computeGridExtents(grid);
@@ -114,6 +168,7 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
     debugShowOccluded: partial.debugShowOccluded,
     debugShowLabels: partial.debugShowLabels,
     debugShowBackfaces: partial.debugShowBackfaces,
+    directionalLight: partial.directionalLight,
     occlusionMap: precomputeOcclusion(grid).byKey
   };
 

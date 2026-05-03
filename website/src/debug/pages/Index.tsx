@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
 import type { Voxel } from "@layoutit/voxcss/react";
+import { normalizeVoxels } from "@layoutit/voxcss";
 import { DebugLayout, SHAPE_GENERATORS, triangleToVoxel } from "..";
 import type { ShapeName } from "..";
 
@@ -97,10 +98,14 @@ interface Card {
  */
 const CARD_PX = 220;
 const TILE = 50;
-const FILL = 0.8;
+const FILL = 1.1;
 function autoZoom(voxels: Voxel[]): number {
+  // Normalize first — triangle/polygon voxels that ship only `vertices`
+  // have their bbox derived here; without this maxDim stays at 0 and
+  // we'd pick a huge zoom.
+  const normalized = normalizeVoxels(voxels);
   let maxX = 0, maxY = 0, maxZ = 0;
-  for (const v of voxels) {
+  for (const v of normalized) {
     if (v.x2 != null && v.x2 > maxX) maxX = v.x2;
     if (v.y2 != null && v.y2 > maxY) maxY = v.y2;
     if (v.z2 != null && v.z2 > maxZ) maxZ = v.z2;

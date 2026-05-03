@@ -166,13 +166,14 @@ function spikePolys(v: Voxel): Polygon[] {
 }
 
 function trianglePolys(v: Voxel): Polygon[] {
-  if (!v.vertices) return [];
-  const [a, b, c] = v.vertices;
+  if (!v.vertices || v.vertices.length < 3) return [];
+  // Emit the full N-vertex polygon, not just the first three. The canvas
+  // / manifold-check pipeline knows how to consume an N-gon.
   return [{
-    v: [a as Vec3, b as Vec3, c as Vec3],
+    v: v.vertices.map((p) => [p[0], p[1], p[2]] as Vec3),
     voxelKey: key(v),
     color: v.color,
-    face: "tri",
+    face: v.shape === "polygon" ? "poly" : "tri",
   }];
 }
 
@@ -181,6 +182,6 @@ export function voxelToPolygons(v: Voxel): Polygon[] {
   if (shape === "ramp") return rampPolys(v);
   if (shape === "wedge") return wedgePolys(v);
   if (shape === "spike") return spikePolys(v);
-  if (shape === "triangle") return trianglePolys(v);
+  if (shape === "triangle" || shape === "polygon") return trianglePolys(v);
   return cubePolys(v);
 }

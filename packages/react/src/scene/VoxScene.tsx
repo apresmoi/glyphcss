@@ -1,5 +1,5 @@
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react";
-import type { ProjectionMode, VoxelGrid, Voxel, FaceAppearanceOverride } from "@layoutit/voxcss-core";
+import type { ProjectionMode, VoxelGrid, InputVoxelGrid, Voxel, FaceAppearanceOverride, DirectionalLight } from "@layoutit/voxcss-core";
 import { DEFAULT_WALL_COLOR } from "@layoutit/voxcss-core";
 import { createIsometricCamera } from "@layoutit/voxcss-core";
 import type { MergeVoxelsOption } from "@layoutit/voxcss-core";
@@ -27,7 +27,13 @@ export function buildGridSvgDataUrl(width: number, height: number, alpha: number
 }
 
 export interface VoxSceneProps {
-  voxels: VoxelGrid;
+  /**
+   * Voxel data — accepts the loose `InputVoxelGrid` (where x/y/z are
+   * optional for triangle/polygon shapes that ship just `vertices`) or the
+   * strict `VoxelGrid`. Voxcss normalizes at ingress so downstream code
+   * always sees fully-populated x/y/z.
+   */
+  voxels: InputVoxelGrid | VoxelGrid;
   rows?: number;
   cols?: number;
   depth?: number;
@@ -41,6 +47,13 @@ export interface VoxSceneProps {
   debugShowOccluded?: boolean;
   debugShowLabels?: boolean;
   debugShowBackfaces?: boolean;
+  /**
+   * Optional directional-light setup for triangle/polygon Lambert shading.
+   * If omitted, the renderer uses a sensible default key light. Cubes /
+   * ramps / wedges / spikes still use their own per-face baked lighting
+   * — this only affects triangle/polygon voxels.
+   */
+  directionalLight?: DirectionalLight;
 }
 
 function VoxSceneInner({
@@ -58,6 +71,7 @@ function VoxSceneInner({
   debugShowOccluded,
   debugShowLabels,
   debugShowBackfaces,
+  directionalLight,
 }: VoxSceneProps) {
   const { store, cameraRef, sceneElRef } = useCameraContext();
 
@@ -131,6 +145,7 @@ function VoxSceneInner({
     debugShowOccluded,
     debugShowLabels,
     debugShowBackfaces,
+    directionalLight,
   });
 
   // Compute camera style for scene positioning

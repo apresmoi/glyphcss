@@ -21,7 +21,7 @@ function VoxShapeInner({ voxel, context }: VoxShapeProps) {
   // triangles have other triangles in the layer above their bbox, so the
   // check falsely culls them. Until isCovered becomes shape-aware, treat
   // triangles as always visible and rely on backface-visibility for culling.
-  const covered = shape === "triangle" ? false : isCovered(voxel, context);
+  const covered = shape === "triangle" || shape === "polygon" ? false : isCovered(voxel, context);
   if (covered && !context.debugShowOccluded) return null;
 
   const { x2, y2 } = getVoxelBounds(voxel);
@@ -46,7 +46,10 @@ function VoxShapeInner({ voxel, context }: VoxShapeProps) {
   } else if (shape === "wedge") {
     shapeClass = "voxcss-wedge";
     ShapeComponent = Wedge;
-  } else if (shape === "triangle") {
+  } else if (shape === "triangle" || shape === "polygon") {
+    // Both shape names route to the same renderer. "triangle" expects exactly
+    // 3 vertices (TS-typeable as a 3-tuple); "polygon" accepts any N >= 3.
+    // The single CSS class keeps the wrapper styling identical.
     shapeClass = "voxcss-triangle";
     ShapeComponent = Triangle;
   } else {

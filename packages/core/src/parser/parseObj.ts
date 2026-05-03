@@ -1,4 +1,4 @@
-import type { Vec3, Voxel } from "../types";
+import type { InputVoxel, Vec3 } from "../types";
 
 export interface ObjParseOptions {
   /**
@@ -32,7 +32,12 @@ export interface ObjParseOptions {
 }
 
 export interface ObjParseResult {
-  voxels: Voxel[];
+  /**
+   * Triangle voxels with `vertices` set and the bbox fields omitted —
+   * voxcss derives x/y/z/x2/y2/z2 from the vertices when these voxels
+   * enter a scene, so the parser doesn't need to compute them.
+   */
+  voxels: InputVoxel[];
   /** Triangle voxel count after fan-triangulation and degenerate filtering. */
   triangleCount: number;
   /** Materials encountered, in first-seen order. */
@@ -126,7 +131,7 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
     round((y - minY) * scale + gridShift),
   ]);
 
-  const voxels: Voxel[] = [];
+  const voxels: InputVoxel[] = [];
   for (const { idx, color } of rawFaces) {
     // Fan-triangulate: (i0, i1, i2), (i0, i2, i3), ...
     for (let i = 1; i < idx.length - 1; i++) {
@@ -140,16 +145,7 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
         (v1[0] === v2[0] && v1[1] === v2[1] && v1[2] === v2[2])
       ) continue;
 
-      const xs = [v0[0], v1[0], v2[0]];
-      const ys = [v0[1], v1[1], v2[1]];
-      const zs = [v0[2], v1[2], v2[2]];
       voxels.push({
-        x: Math.floor(Math.min(...xs)),
-        y: Math.floor(Math.min(...ys)),
-        z: Math.floor(Math.min(...zs)),
-        x2: Math.ceil(Math.max(...xs)),
-        y2: Math.ceil(Math.max(...ys)),
-        z2: Math.ceil(Math.max(...zs)),
         shape: "triangle",
         vertices: [v0, v1, v2],
         color,

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import type { Voxel } from "@layoutit/voxcss/react";
+import { normalizeVoxels } from "@layoutit/voxcss";
+import type { InputVoxel, Voxel } from "@layoutit/voxcss";
 import { DebugSection } from "../DebugSection";
 import { Row, Slider, Pills } from "../controls";
 import { decimateClustering, decimateEdgeLength, decimateQEM } from "../decimation";
@@ -55,17 +56,22 @@ export interface UseDecimationResult {
  *   const { voxels, method, reduction, panel } = useDecimation(SOURCE);
  *   return <>{panel}<DebugStats ... /><DebugScene voxels={voxels} ... /></>;
  */
-export function useDecimation(source: Voxel[]): UseDecimationResult {
+export function useDecimation(source: Voxel[] | InputVoxel[]): UseDecimationResult {
   const [method, setMethod] = useState<Method>("none");
   const [snap, setSnap] = useState(0);
   const [ratio, setRatio] = useState(1);
 
+  // Decimation needs strict voxels (with bbox) to roundtrip cleanly. Run
+  // voxcss's normalize step so triangle/polygon inputs that ship just
+  // `vertices` get their bbox derived before we touch them.
+  const normalized = useMemo(() => normalizeVoxels(source), [source]);
+
   const voxels = useMemo(() => {
-    if (method === "clustering") return decimateClustering(source, snap);
-    if (method === "edge-length") return decimateEdgeLength(source, ratio);
-    if (method === "qem") return decimateQEM(source, ratio);
-    return source;
-  }, [source, method, snap, ratio]);
+    if (method === "clustering") return decimateClustering(normalized, snap);
+    if (method === "edge-length") return decimateEdgeLength(normalized, ratio);
+    if (method === "qem") return decimateQEM(normalized, ratio);
+    return normalized;
+  }, [normalized, method, snap, ratio]);
 
   const reduction = source.length === 0
     ? 0

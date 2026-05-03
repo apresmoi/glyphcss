@@ -1,48 +1,90 @@
 import { useEffect, useState } from "react";
-import { parseObj } from "@layoutit/voxcss";
-import type { ObjParseOptions } from "@layoutit/voxcss";
-import type { Voxel } from "@layoutit/voxcss/react";
+import { parseObj, parseMtl, parseGltf } from "@layoutit/voxcss";
+import type {
+  GltfParseOptions, InputVoxel, ObjParseOptions,
+} from "@layoutit/voxcss";
 
-export interface ObjModelState {
-  voxels: Voxel[];
+export interface MeshModelState {
+  voxels: InputVoxel[];
   loading: boolean;
   error: string | null;
 }
 
-const EMPTY_STATE: ObjModelState = { voxels: [], loading: true, error: null };
+const EMPTY_STATE: MeshModelState = { voxels: [], loading: true, error: null };
+
+interface ObjOptions {
+  format: "obj";
+  url: string;
+  /** Optional companion .mtl URL — colors merge into parseObj.materialColors. */
+  mtlUrl?: string;
+  options?: ObjParseOptions;
+}
+interface GltfOptions {
+  format: "glb";
+  url: string;
+  options?: GltfParseOptions;
+}
+type LoadOptions = ObjOptions | GltfOptions;
 
 /**
- * Fetch an `.obj` file from `/public` and parse it into voxcss triangle
- * voxels via `parseObj`. Reruns when `url` or any option changes.
+ * Fetch a .obj or .glb (with optional .mtl) and parse into voxcss triangle
+ * voxels. Refetches when `url` / `mtlUrl` / format / options change.
  *
- * The hook key for the options object should be stable across renders —
- * either define it outside the component or memoize.
+ * The options object is JSON-stringified into the dep list so callers don't
+ * need to memoize — small enough for the kinds of options we pass.
  */
-export function useObjModel(url: string, options?: ObjParseOptions): ObjModelState {
-  const [state, setState] = useState<ObjModelState>(EMPTY_STATE);
+export function useObjModel(load: LoadOptions): MeshModelState {
+  const [state, setState] = useState<MeshModelState>(EMPTY_STATE);
 
   useEffect(() => {
     let cancelled = false;
     setState({ voxels: [], loading: true, error: null });
-    fetch(url)
-      .then((r) => {
-        if (!r.ok) throw new Error(`fetch ${url} → ${r.status}`);
-        return r.text();
-      })
-      .then((text) => {
+
+    const run = async () => {
+      try {
+        if (load.format === "obj") {
+          // .obj is text. If a sibling .mtl is provided, fetch it too and
+          // merge its name → color map into the parseObj options. The .mtl
+          // takes precedence over hex-name auto-detection (so an explicit
+          // Kd in the .mtl overrides the name-as-hex fallback).
+          const [objText, mtlText] = await Promise.all([
+            fetch(load.url).then((r) => {
+              if (!r.ok) throw new Error(`fetch ${load.url} → ${r.status}`);
+              return r.text();
+            }),
+            load.mtlUrl
+              ? fetch(load.mtlUrl).then((r) => (r.ok ? r.text() : null))
+              : Promise.resolve(null),
+          ]);
+          if (cancelled) return;
+          const mtlColors = mtlText ? parseMtl(mtlText) : {};
+          const opts: ObjParseOptions = {
+            ...load.options,
+            materialColors: { ...mtlColors, ...load.options?.materialColors },
+          };
+          const parsed = parseObj(objText, opts);
+          setState({ voxels: parsed.voxels, loading: false, error: null });
+          return;
+        }
+        // .glb is binary.
+        const buf = await fetch(load.url).then((r) => {
+          if (!r.ok) throw new Error(`fetch ${load.url} → ${r.status}`);
+          return r.arrayBuffer();
+        });
         if (cancelled) return;
-        const parsed = parseObj(text, options);
+        const parsed = parseGltf(buf, load.options);
         setState({ voxels: parsed.voxels, loading: false, error: null });
-      })
-      .catch((err) => {
+      } catch (err) {
         if (cancelled) return;
-        setState({ voxels: [], loading: false, error: String(err.message ?? err) });
-      });
+        const msg = err instanceof Error ? err.message : String(err);
+        setState({ voxels: [], loading: false, error: msg });
+      }
+    };
+
+    run();
     return () => { cancelled = true; };
-    // The options object is stringified in the dep list so callers don't
-    // need to memoize — small/cheap for the kinds of options we pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, JSON.stringify(options ?? null)]);
+  }, [JSON.stringify(load)]);
 
   return state;
 }
