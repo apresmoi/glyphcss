@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { ShapeInnerProps } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -73,6 +74,9 @@ function shadeTriangle(
  * own 2D plane, so the output is always exactly the triangle described.
  */
 export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
+  // SVG <pattern> needs a unique id; useId is stable per element so the
+  // <defs>/url(#id) reference matches even across React re-renders.
+  const patternId = useId().replace(/:/g, "_");
   if (!voxel.vertices || voxel.vertices.length < 3) return null;
   const tile = context.tileSize ?? 50;
   const elev = context.layerElevation ?? 50;
@@ -188,6 +192,81 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     tx, ty, tz, 1,
   ].join(",");
 
+  // Optional texture handling. Two paths:
+  //
+  // 1. UV-mapped (voxel.uvs supplied): compute a 2D affine that maps
+  //    UV-space [u, 1-v] → triangle-local SVG coords. Render the image
+  //    in a 1×1 unit box transformed by that affine, clipped to the
+  //    triangle. The atlas's per-triangle region lands in the right
+  //    place — works for proper textured meshes (parseObj output, etc.).
+  //
+  // 2. Single-tile fill (no UVs): wrap the image in an SVG <pattern>
+  //    that stretches it across the polygon's bbox. The image gets
+  //    stamped on the face without UV awareness.
+  //
+  // Lighting is reapplied via CSS `filter: brightness(...)` so the
+  // textured face still responds to the directional light.
+  const textureUrl = voxel.texture;
+  // Light strength = ambient floor + lambert contribution (channel-agnostic
+  // approximation of `shadeTriangle`). For a white light this matches the
+  // shaded color's brightness exactly; for tinted lights it's a reasonable
+  // proxy without per-pixel multiplication.
+  const textureBrightness = ambient + lambert;
+
+  // UV affine: solve for (a, b, c, d, e, f) such that
+  //   s_i.x = a·u_i + b·(1-v_i) + e
+  //   s_i.y = c·u_i + d·(1-v_i) + f
+  // for the first three (vertex, uv) pairs. Three pairs uniquely determine
+  // the affine; for polygons with N>3 verts we trust that all UVs are
+  // consistent with the same affine (true for OBJ-exported coplanar polys).
+  let uvTransform: string | null = null;
+  let uvClipPath: string | null = null;
+  if (textureUrl && voxel.uvs && voxel.uvs.length >= 3 && voxel.uvs.length === voxel.vertices.length) {
+    const [uv0, uv1, uv2] = voxel.uvs;
+    const sx0 = local2D[0][0] + shiftX, sy0 = local2D[0][1] + shiftY;
+    const sx1 = local2D[1][0] + shiftX, sy1 = local2D[1][1] + shiftY;
+    const sx2 = local2D[2][0] + shiftX, sy2 = local2D[2][1] + shiftY;
+    // OBJ vt has v=0 at bottom; SVG image-space y points down. Flip v.
+    const u0 = uv0[0], V0 = 1 - uv0[1];
+    const u1 = uv1[0], V1 = 1 - uv1[1];
+    const u2 = uv2[0], V2 = 1 - uv2[1];
+    const du1 = u1 - u0, dV1 = V1 - V0;
+    const du2 = u2 - u0, dV2 = V2 - V0;
+    const det = du1 * dV2 - du2 * dV1;
+    if (Math.abs(det) > 1e-9) {
+      const dx1 = sx1 - sx0, dx2 = sx2 - sx0;
+      const dy1 = sy1 - sy0, dy2 = sy2 - sy0;
+      const a = (dx1 * dV2 - dx2 * dV1) / det;
+      const b = (du1 * dx2 - du2 * dx1) / det;
+      const c = (dy1 * dV2 - dy2 * dV1) / det;
+      const d = (du1 * dy2 - du2 * dy1) / det;
+      const e = sx0 - a * u0 - b * V0;
+      const f = sy0 - c * u0 - d * V0;
+      // SVG matrix(a b c d e f) is column-major:
+      //   [a c e]
+      //   [b d f]
+      uvTransform = `matrix(${a} ${c} ${b} ${d} ${e} ${f})`;
+      // Clip the image to the polygon shape, expressed in UV space (0..1)
+      // since that's the image's local coord system. CSS clip-path wants
+      // pixel units inside SVG context, but for an <image width=1 height=1>
+      // user units == UV-space directly. Walks all N polygon UVs (works for
+      // triangles AND polygons with consistent UVs).
+      const clipParts: string[] = [];
+      for (let i = 0; i < voxel.uvs.length; i++) {
+        const [u, v] = voxel.uvs[i];
+        clipParts.push(`${i === 0 ? "M" : "L"}${u},${1 - v}`);
+      }
+      clipParts.push("Z");
+      uvClipPath = `path("${clipParts.join(" ")}")`;
+    }
+  }
+
+  // Stroke is helpful for solid-color triangles (visual debug of mesh
+  // structure), but on textured meshes it puts a grid of dark lines across
+  // the surface. Drop it when textured.
+  const stroke = textureUrl ? "none" : "rgba(0,0,0,0.15)";
+  const strokeWidth = textureUrl ? 0 : 1;
+
   const front = (
     <svg
       xmlns={SVG_NS}
@@ -207,15 +286,44 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
         // mirrored copy of it overlapping front faces from other angles.
         backfaceVisibility: "hidden",
         pointerEvents: "none",
+        filter: textureUrl ? `brightness(${textureBrightness.toFixed(3)})` : undefined,
       }}
     >
-      <path
-        d={pathStr}
-        fill={shadedColor}
-        stroke="rgba(0,0,0,0.15)"
-        strokeWidth={1}
-        vectorEffect="non-scaling-stroke"
-      />
+      {textureUrl && uvTransform ? (
+        // Clip the image in its OWN local coords (UV space, 0..1). Then the
+        // affine transform maps that clipped UV-space patch onto the triangle's
+        // local 2D plane. Inline CSS clip-path (no <defs>/<clipPath>/<path>
+        // chain) keeps the per-triangle DOM down — 2 nodes vs 5.
+        <image
+          href={textureUrl}
+          width={1}
+          height={1}
+          preserveAspectRatio="none"
+          transform={uvTransform}
+          style={{ clipPath: uvClipPath ?? undefined }}
+        />
+      ) : textureUrl ? (
+        <>
+          <defs>
+            <pattern
+              id={patternId}
+              patternUnits="userSpaceOnUse"
+              width={w}
+              height={h}
+            >
+              <image
+                href={textureUrl}
+                width={w}
+                height={h}
+                preserveAspectRatio="xMidYMid slice"
+              />
+            </pattern>
+          </defs>
+          <path d={pathStr} fill={`url(#${patternId})`} stroke={stroke} strokeWidth={strokeWidth} vectorEffect="non-scaling-stroke" />
+        </>
+      ) : (
+        <path d={pathStr} fill={shadedColor} stroke={stroke} strokeWidth={strokeWidth} vectorEffect="non-scaling-stroke" />
+      )}
     </svg>
   );
 

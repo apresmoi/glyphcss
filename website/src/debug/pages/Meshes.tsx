@@ -51,6 +51,20 @@ const MODELS: ModelDef[] = [
     zoom: 0.15, rotX: 74.4, rotY: 301.6,
   },
   {
+    id: "rock1",
+    label: "Rock (UV-mapped)",
+    category: "Environment",
+    format: "obj",
+    url: "/gallery/obj/rock1.obj",
+    // .mtl ships `map_Kd rock1-surface.jpg` — parseMtl picks it up,
+    // useObjModel resolves the path against the .mtl URL, parseObj attaches
+    // `texture` and `uvs` per triangle. Triangle.tsx detects uvs + texture
+    // and renders via the UV-mapped <image> + <clipPath> path.
+    mtlUrl: "/gallery/obj/rock1.mtl",
+    options: { targetSize: 40, defaultColor: "#8b6f47" },
+    zoom: 0.6, rotX: 65, rotY: 45,
+  },
+  {
     id: "tree",
     label: "Tree",
     category: "Environment",

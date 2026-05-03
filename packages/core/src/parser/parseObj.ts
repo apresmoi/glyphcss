@@ -1,4 +1,4 @@
-import type { InputVoxel, Vec3 } from "../types";
+import type { InputVoxel, Vec2, Vec3 } from "../types";
 
 export interface ObjParseOptions {
   /**
@@ -24,6 +24,12 @@ export interface ObjParseOptions {
    *  3. Otherwise `defaultColor`.
    */
   materialColors?: Record<string, string>;
+  /**
+   * Optional map: material name → texture URL. When set, every triangle
+   * emitted under that material gets `texture` populated. The renderer
+   * stamps the image across the triangle's local 2D plane.
+   */
+  materialTextures?: Record<string, string>;
   /**
    * Palette used to assign colors to materials whose names aren't hex.
    * Each new non-hex material name takes the next palette slot.
@@ -54,9 +60,11 @@ const DEFAULT_PALETTE = [
 /**
  * Parse a Wavefront `.obj` file into voxcss triangle voxels. Handles:
  *
- *  - `v x y z` vertex lines (ignores `vn`, `vt`, `vp`).
+ *  - `v x y z` vertex lines (ignores `vn`, `vp`).
+ *  - `vt u v` texture-coordinate lines (kept for `f` entries that reference them).
  *  - `f a b c [d ...]` face lines with optional `v/vt/vn` indices. n-gons
- *    are fan-triangulated.
+ *    are fan-triangulated. Per-face vt indices become per-triangle `uvs`
+ *    on the output voxel — needed by the renderer's UV-mapped texture path.
  *  - `usemtl <name>` material switches. Material names that look like 6-char
  *    hex are used as colors directly; otherwise they get assigned a palette
  *    slot in first-seen order. Override either via `materialColors`.
@@ -74,12 +82,16 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
   const defaultColor = options?.defaultColor ?? "#888888";
   const palette = options?.palette ?? DEFAULT_PALETTE;
   const materialOverrides = options?.materialColors ?? {};
+  const materialTextures = options?.materialTextures ?? {};
 
   const verts: Vec3[] = [];
-  const rawFaces: { idx: number[]; color: string }[] = [];
+  const uvs: Vec2[] = [];
+  // vt indices per face vertex; null if the face had no v/vt/vn slash form.
+  const rawFaces: { idx: number[]; uvIdx: (number | null)[]; color: string; texture: string | undefined }[] = [];
   const materialOrder: string[] = [];
   const materialColor = new Map<string, string>();
   let currentColor = defaultColor;
+  let currentTexture: string | undefined = undefined;
 
   const colorFor = (name: string): string => {
     if (name in materialOverrides) return materialOverrides[name];
@@ -97,12 +109,32 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
     if (raw.startsWith("v ")) {
       const parts = raw.trim().split(/\s+/);
       verts.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+    } else if (raw.startsWith("vt ")) {
+      // OBJ vt is (u, v) in 0..1, with v=0 at bottom. The renderer flips
+      // v on consumption (SVG y axis points down) — we keep the raw value.
+      const parts = raw.trim().split(/\s+/);
+      uvs.push([parseFloat(parts[1]), parseFloat(parts[2])]);
     } else if (raw.startsWith("usemtl ")) {
-      currentColor = colorFor(raw.trim().split(/\s+/)[1]);
+      const matName = raw.trim().split(/\s+/)[1];
+      currentColor = colorFor(matName);
+      currentTexture = materialTextures[matName];
     } else if (raw.startsWith("f ")) {
       const parts = raw.trim().split(/\s+/).slice(1);
-      const idx = parts.map((p) => parseInt(p.split("/")[0], 10) - 1);
-      rawFaces.push({ idx, color: currentColor });
+      const idx: number[] = [];
+      const uvIdx: (number | null)[] = [];
+      for (const p of parts) {
+        const slash = p.split("/");
+        idx.push(parseInt(slash[0], 10) - 1);
+        // slash[1] is the vt index (1-based) or empty if absent.
+        const vtRaw = slash[1];
+        if (vtRaw && vtRaw.length > 0) {
+          const v = parseInt(vtRaw, 10) - 1;
+          uvIdx.push(Number.isFinite(v) ? v : null);
+        } else {
+          uvIdx.push(null);
+        }
+      }
+      rawFaces.push({ idx, uvIdx, color: currentColor, texture: currentTexture });
     }
   }
 
@@ -132,7 +164,7 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
   ]);
 
   const voxels: InputVoxel[] = [];
-  for (const { idx, color } of rawFaces) {
+  for (const { idx, uvIdx, color, texture } of rawFaces) {
     // Fan-triangulate: (i0, i1, i2), (i0, i2, i3), ...
     for (let i = 1; i < idx.length - 1; i++) {
       const a = idx[0], b = idx[i], c = idx[i + 1];
@@ -145,10 +177,25 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
         (v1[0] === v2[0] && v1[1] === v2[1] && v1[2] === v2[2])
       ) continue;
 
+      // Pull UVs for this fan triangle from the same indices that built
+      // the vertices. Only emit `uvs` when ALL three slots resolved — a
+      // partial UV trio is worse than none (the renderer would do garbage
+      // affine math).
+      let triUvs: Vec2[] | undefined = undefined;
+      if (texture) {
+        const uA = uvIdx[0], uB = uvIdx[i], uC = uvIdx[i + 1];
+        if (uA != null && uB != null && uC != null) {
+          const ua = uvs[uA], ub = uvs[uB], uc = uvs[uC];
+          if (ua && ub && uc) triUvs = [ua, ub, uc];
+        }
+      }
+
       voxels.push({
         shape: "triangle",
         vertices: [v0, v1, v2],
         color,
+        ...(texture ? { texture } : {}),
+        ...(triUvs ? { uvs: triUvs } : {}),
       });
     }
   }

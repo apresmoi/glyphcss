@@ -1,6 +1,7 @@
 // @layoutit/voxcss-core — Pure-math voxel rendering engine (zero browser globals)
 
 export type {
+  Vec2,
   Vec3,
   Voxel,
   VoxelGrid,
@@ -106,6 +107,7 @@ export type { MagicaVoxelParseResult } from "./parser/parseMagicaVoxel";
 export { parseObj } from "./parser/parseObj";
 export type { ObjParseOptions, ObjParseResult } from "./parser/parseObj";
 export { parseMtl } from "./parser/parseMtl";
+export type { MtlParseResult } from "./parser/parseMtl";
 export { parseGltf } from "./parser/parseGltf";
 export type { GltfParseOptions, GltfParseResult } from "./parser/parseGltf";
 

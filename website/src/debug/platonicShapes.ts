@@ -14,6 +14,8 @@ export interface RawTriangle {
   v1: Vec3;
   v2: Vec3;
   color: string;
+  /** Optional texture URL — stamped across the triangle's local 2D plane. */
+  texture?: string;
 }
 
 export const PLATONIC_PALETTE = [
@@ -27,13 +29,30 @@ export const PLATONIC_PALETTE = [
  * auto-placement). Use 1 in interactive editors that allow user-entered 0.
  */
 export function triangleToVoxel(t: RawTriangle, gridShift = 0): Voxel {
-  // Voxcss now auto-derives the bbox from `vertices` for triangle / polygon
-  // shapes, so we only ship `vertices` here.
   const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
+  const verts: Vec3[] = [sv(t.v0), sv(t.v1), sv(t.v2)];
+  const bbox = bboxOfVertices(verts);
   return {
     shape: "triangle",
-    vertices: [sv(t.v0), sv(t.v1), sv(t.v2)],
+    vertices: verts,
     color: t.color,
+    ...bbox,
+    ...(t.texture ? { texture: t.texture } : {}),
+  };
+}
+
+function bboxOfVertices(verts: Vec3[]) {
+  let minX = verts[0][0], minY = verts[0][1], minZ = verts[0][2];
+  let maxX = minX, maxY = minY, maxZ = minZ;
+  for (let i = 1; i < verts.length; i++) {
+    const [x, y, z] = verts[i];
+    if (x < minX) minX = x; else if (x > maxX) maxX = x;
+    if (y < minY) minY = y; else if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; else if (z > maxZ) maxZ = z;
+  }
+  return {
+    x: Math.floor(minX), y: Math.floor(minY), z: Math.floor(minZ),
+    x2: Math.ceil(maxX), y2: Math.ceil(maxY), z2: Math.ceil(maxZ),
   };
 }
 
@@ -48,14 +67,15 @@ export interface RawPolygon {
 }
 
 export function polygonToVoxel(p: RawPolygon, gridShift = 0): Voxel {
-  // Voxcss now auto-derives x/y/z/x2/y2/z2 from `vertices` for polygon /
-  // triangle shapes, so we only need to ship `vertices` here. Use "polygon"
-  // for N != 3 and "triangle" for N == 3 to keep the shape name accurate.
+  // Use "polygon" for N != 3 and "triangle" for N == 3 to keep the shape
+  // name accurate.
   const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
+  const verts = p.vertices.map(sv);
   return {
-    shape: p.vertices.length === 3 ? "triangle" : "polygon",
-    vertices: p.vertices.map(sv),
+    shape: verts.length === 3 ? "triangle" : "polygon",
+    vertices: verts,
     color: p.color,
+    ...bboxOfVertices(verts),
   };
 }
 

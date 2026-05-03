@@ -15,13 +15,15 @@ interface TriangleDef {
   v1: Vec3;
   v2: Vec3;
   color: string;
+  /** Optional URL to an image; the renderer stamps it across the triangle. */
+  texture?: string;
 }
 
 let nextId = 1;
 const newId = () => `t${nextId++}`;
 
 const toVoxel = (t: TriangleDef): Voxel =>
-  triangleToVoxel({ v0: t.v0, v1: t.v1, v2: t.v2, color: t.color }, 1);
+  triangleToVoxel({ v0: t.v0, v1: t.v1, v2: t.v2, color: t.color, texture: t.texture }, 1);
 
 const wrapWithIds = (raws: RawTriangle[]): TriangleDef[] =>
   raws.map((r) => ({ id: newId(), ...r }));
@@ -35,8 +37,11 @@ const startingTriangles: TriangleDef[] = [
   { id: newId(), v0: [6,  0, 1], v1: [10, 2, 0], v2: [7,  4, 4], color: PALETTE[1] },
   { id: newId(), v0: [12, 1, 3], v1: [16, 0, 0], v2: [13, 4, 5], color: PALETTE[2] },
   { id: newId(), v0: [1,  6, 2], v1: [4,  7, 5], v2: [0, 10, 0], color: PALETTE[3] },
-  { id: newId(), v0: [7,  6, 4], v1: [10, 9, 1], v2: [6, 10, 6], color: PALETTE[4] },
-  { id: newId(), v0: [13, 6, 0], v1: [16, 8, 3], v2: [12, 10, 5], color: PALETTE[5] },
+  // Two textured triangles to exercise the texture path. The grass triangle
+  // sits flat on the floor (z=0) so the image reads correctly. The logo one
+  // is tilted so you can see the texture warp follows the polygon plane.
+  { id: newId(), v0: [7, 6, 0], v1: [11, 6, 0], v2: [9, 10, 0], color: "#ffffff", texture: "/grass2.png" },
+  { id: newId(), v0: [13, 6, 0], v1: [16, 6, 4], v2: [12, 10, 3], color: "#ffffff", texture: "/layoutit-voxels.png" },
 ];
 
 const PRESETS: { label: string; gen: () => RawTriangle[] }[] = [
@@ -67,6 +72,19 @@ export default function TriangleEditor() {
   };
   const updateColor = (id: string, color: string) =>
     setTriangles((prev) => prev.map((t) => t.id === id ? { ...t, color } : t));
+  const updateTexture = (id: string, texture: string) =>
+    setTriangles((prev) => prev.map((t) => {
+      if (t.id !== id) return t;
+      // Empty string clears the texture so we fall back to the per-channel
+      // shaded color path. We strip `texture` from the object entirely so a
+      // serialized voxel doesn't carry an empty texture URL.
+      if (texture.length === 0) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { texture: _drop, ...rest } = t;
+        return rest;
+      }
+      return { ...t, texture };
+    }));
   const removeTriangle = (id: string) =>
     setTriangles((prev) => prev.filter((t) => t.id !== id));
   const duplicateTriangle = (id: string) =>
@@ -156,6 +174,21 @@ export default function TriangleEditor() {
             <VertexRow label="v0" v={t.v0} onChange={(axis, val) => updateVertex(t.id, 0, axis, val)} />
             <VertexRow label="v1" v={t.v1} onChange={(axis, val) => updateVertex(t.id, 1, axis, val)} />
             <VertexRow label="v2" v={t.v2} onChange={(axis, val) => updateVertex(t.id, 2, axis, val)} />
+            <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 4, fontSize: 11, fontFamily: "monospace" }}>
+              <span style={{ minWidth: 18, opacity: 0.6 }} title="Texture URL — image stamped across the triangle">tex</span>
+              <input
+                type="text"
+                value={t.texture ?? ""}
+                placeholder="/grass2.png"
+                onChange={(e) => updateTexture(t.id, e.target.value.trim())}
+                style={{
+                  flex: 1, minWidth: 0,
+                  background: "rgba(255,255,255,0.06)", color: "white",
+                  border: "1px solid rgba(255,255,255,0.15)", borderRadius: 3,
+                  padding: "2px 4px", fontFamily: "monospace", fontSize: 11,
+                }}
+              />
+            </div>
           </div>
         ))}
       </DebugSection>

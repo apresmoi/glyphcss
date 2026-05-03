@@ -57,10 +57,18 @@ export function useObjModel(load: LoadOptions): MeshModelState {
               : Promise.resolve(null),
           ]);
           if (cancelled) return;
-          const mtlColors = mtlText ? parseMtl(mtlText) : {};
+          const mtl = mtlText ? parseMtl(mtlText) : { colors: {}, textures: {} };
+          // map_Kd paths in .mtl are relative to the .mtl file. Resolve them
+          // against the .mtl URL so the browser can fetch the image. Absolute
+          // URLs (http://…) and root-absolute paths (/…) pass through.
+          const resolvedTextures: Record<string, string> = {};
+          for (const [name, path] of Object.entries(mtl.textures)) {
+            resolvedTextures[name] = load.mtlUrl ? new URL(path, new URL(load.mtlUrl, window.location.href)).href : path;
+          }
           const opts: ObjParseOptions = {
             ...load.options,
-            materialColors: { ...mtlColors, ...load.options?.materialColors },
+            materialColors: { ...mtl.colors, ...load.options?.materialColors },
+            materialTextures: { ...resolvedTextures, ...load.options?.materialTextures },
           };
           const parsed = parseObj(objText, opts);
           setState({ voxels: parsed.voxels, loading: false, error: null });

@@ -11,6 +11,14 @@ export const DEFAULT_PROJECTION: ProjectionMode = "cubic";
 export type Vec3 = [number, number, number];
 
 /**
+ * 2D point/vector — `[u, v]`. Used for texture-atlas UV coordinates on
+ * triangle / polygon voxels. Convention follows OBJ: u is horizontal
+ * (0=left, 1=right), v is vertical (0=bottom, 1=top). Renderers flip
+ * v when binding to an `<image>` whose Y-axis points down.
+ */
+export type Vec2 = [number, number];
+
+/**
  * Directional light setup used by the triangle / polygon renderer for
  * per-face Lambert shading. Direction is in scene-local CSS-pixel coords:
  * +X right, +Y down (CSS convention), +Z toward viewer. Vector doesn't
@@ -52,6 +60,15 @@ export interface Voxel {
    * case and polygon as any N >= 3; both route to the same SVG renderer.
    */
   vertices?: Vec3[];
+  /**
+   * For shape: "triangle" / "polygon" with `texture` set. Per-vertex UV
+   * coordinates into the texture atlas, one entry per `vertices` entry,
+   * in 0..1 space. When set, the renderer maps the texture's UV-space
+   * onto the triangle via an affine transform — so each triangle samples
+   * the right region of an atlas. When unset, the texture is stamp-filled
+   * across the polygon's local 2D plane (single-tile mode).
+   */
+  uvs?: Vec2[];
   /**
    * For shape: "triangle". SVG path string defining the triangle within the
    * slope's 480×480 viewBox. Default is spike's primary slope shape:

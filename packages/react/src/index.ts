@@ -20,6 +20,8 @@ export { injectBaseStyles } from "./styles";
 export type {
   Voxel,
   VoxelGrid,
+  InputVoxel,
+  InputVoxelGrid,
   CubeFace,
   GridContext,
   ProjectionMode,
