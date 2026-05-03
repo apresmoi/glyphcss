@@ -20,7 +20,7 @@
  * voxcss's +Z-up without inverting handedness — a single y↔z swap would
  * flip every triangle's winding and break backface culling).
  */
-import type { InputVoxel, Vec3 } from "../types";
+import type { InputVoxel, Vec2, Vec3 } from "../types";
 
 export interface GltfParseOptions {
   /** Largest grid extent (cells). Mesh is uniformly scaled to fit. Default 60. */
@@ -49,6 +49,13 @@ export interface GltfParseOptions {
    * external .bin files need this.
    */
   resolveBuffer?: (uri: string) => Promise<Uint8Array> | Uint8Array;
+  /**
+   * Base URL the source file lives at. Used to resolve external image URIs
+   * (`doc.images[i].uri = "Textures/foo.png"`) against the GLB/glTF's
+   * location. Without this, relative URIs would resolve against the page,
+   * which 404s. Pass the same URL you fetched the file from.
+   */
+  baseUrl?: string;
 }
 
 export interface GltfParseResult {
@@ -58,6 +65,13 @@ export interface GltfParseResult {
   meshes: string[];
   /** Material names from the file. */
   materials: string[];
+  /**
+   * Blob/object URLs created for embedded GLB images (one per `doc.images[]`
+   * entry that had a `bufferView`). Callers MUST `URL.revokeObjectURL` each
+   * one when the result is no longer needed, otherwise they leak memory.
+   * Empty for files with only external `uri`-style image references.
+   */
+  objectUrls: string[];
 }
 
 const GLB_MAGIC = 0x46546c67; // "glTF" little-endian
@@ -90,9 +104,23 @@ interface GltfBufferView {
   byteLength: number;
   byteStride?: number;
 }
+interface GltfTextureInfo {
+  index: number; // index into doc.textures[]
+}
 interface GltfMaterial {
   name?: string;
-  pbrMetallicRoughness?: { baseColorFactor?: number[] };
+  pbrMetallicRoughness?: {
+    baseColorFactor?: number[];
+    baseColorTexture?: GltfTextureInfo;
+  };
+}
+interface GltfImage {
+  uri?: string;
+  bufferView?: number;
+  mimeType?: string;
+}
+interface GltfTexture {
+  source?: number; // index into doc.images[]
 }
 interface GltfPrimitive {
   attributes: { POSITION: number;[k: string]: number };
@@ -127,6 +155,59 @@ interface GltfDoc {
   accessors?: GltfAccessor[];
   bufferViews?: GltfBufferView[];
   buffers?: { byteLength: number; uri?: string }[];
+  images?: GltfImage[];
+  textures?: GltfTexture[];
+}
+
+function decodeUtf8(bytes: Uint8Array): string {
+  const Decoder = (globalThis as unknown as { TextDecoder: new () => { decode: (a: Uint8Array) => string } }).TextDecoder;
+  return new Decoder().decode(bytes);
+}
+
+/**
+ * Decode a base64-encoded `data:` URI to bytes. glTF JSON files often embed
+ * the buffer this way (`data:application/octet-stream;base64,...`).
+ */
+function dataUriToBytes(uri: string): Uint8Array {
+  const comma = uri.indexOf(",");
+  if (comma < 0) throw new Error("parseGltf: malformed data: URI");
+  const meta = uri.slice(5, comma); // strip "data:"
+  const payload = uri.slice(comma + 1);
+  if (!meta.includes(";base64")) {
+    // URL-encoded payload — rare for glTF buffers but spec-allowed.
+    const text = decodeURIComponent(payload);
+    const out = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
+    return out;
+  }
+  // Base64 — `atob` is universal in browsers and Node 16+.
+  const bin = (globalThis as unknown as { atob: (s: string) => string }).atob(payload);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/**
+ * Resolve a glTF JSON document's buffers[0] into raw bytes. Three sources:
+ *   - `data:` URI (typical for self-contained .gltf exports)
+ *   - external URI → `resolveBuffer` callback
+ *   - no URI (only valid in GLB context where bin comes from the chunk)
+ */
+function resolveJsonBuffer(
+  doc: GltfDoc,
+  resolveBuffer?: (uri: string) => Uint8Array | Promise<Uint8Array>,
+): Uint8Array {
+  const buf = doc.buffers?.[0];
+  if (!buf) throw new Error("parseGltf: JSON doc has no buffers[0]");
+  const uri = buf.uri;
+  if (!uri) throw new Error("parseGltf: JSON doc buffer has no uri (and there's no GLB BIN chunk)");
+  if (uri.startsWith("data:")) return dataUriToBytes(uri);
+  if (resolveBuffer) {
+    const result = resolveBuffer(uri);
+    if (result instanceof Uint8Array) return result;
+    throw new Error("parseGltf: resolveBuffer returned a Promise; use parseGltf via async if your buffers are external");
+  }
+  throw new Error(`parseGltf: external buffer URI "${uri}" — provide options.resolveBuffer`);
 }
 
 /** Parse a .glb (binary) buffer. Returns the JSON doc + the BIN bytes. */
@@ -145,12 +226,7 @@ function parseGlbContainer(buf: ArrayBuffer): { doc: GltfDoc; bin: Uint8Array | 
     const start = offset + 8;
     if (type === CHUNK_JSON) {
       const bytes = new Uint8Array(buf, start, len);
-      // Manually decode UTF-8 (TextDecoder isn't in the core's strict
-      // browser-agnostic globals lib, but is universally available at
-      // runtime). Cast through `globalThis` to satisfy the type checker.
-      const Decoder = (globalThis as unknown as { TextDecoder: new () => { decode: (a: Uint8Array) => string } }).TextDecoder;
-      const text = new Decoder().decode(bytes);
-      doc = JSON.parse(text);
+      doc = JSON.parse(decodeUtf8(bytes));
     } else if (type === CHUNK_BIN) {
       bin = new Uint8Array(buf, start, len);
     }
@@ -187,6 +263,77 @@ function readAccessor(doc: GltfDoc, bin: Uint8Array, accessorIdx: number): {
     default: throw new Error(`parseGltf: unhandled componentType ${acc.componentType}`);
   }
   return { array, count: acc.count, componentCount };
+}
+
+/**
+ * Build URL-per-image array. Embedded images (with a `bufferView`) become
+ * `blob:` URLs via the browser's URL.createObjectURL — caller MUST revoke
+ * them when done. External-URI images pass through unchanged. Images with
+ * neither bufferView nor uri get an empty string (parser skips them).
+ *
+ * Returns `{ urls, objectUrls }` where `objectUrls` is the subset that
+ * needs revoking — convenience for the caller's cleanup logic.
+ */
+function extractImageUrls(
+  doc: GltfDoc,
+  bin: Uint8Array,
+  baseUrl?: string,
+): { urls: string[]; objectUrls: string[] } {
+  const urls: string[] = [];
+  const objectUrls: string[] = [];
+  // Cast through globalThis because the core lib targets a browser-agnostic
+  // env (no DOM lib). Node 18+ has Blob; URL.createObjectURL needs the
+  // browser. The textured-GLB path is browser-only by intent.
+  const g = globalThis as unknown as {
+    Blob: new (parts: ArrayLike<number>[] | Uint8Array[], opts?: { type?: string }) => unknown;
+    URL: { createObjectURL: (b: unknown) => string; new (u: string, base?: string): { href: string } };
+  };
+  for (const img of doc.images ?? []) {
+    if (img.uri) {
+      // External URIs are relative to the source GLB/glTF, NOT the page.
+      // Resolve against baseUrl when provided. data: and absolute URLs
+      // pass through new URL() unchanged.
+      if (baseUrl && !img.uri.startsWith("data:")) {
+        try {
+          urls.push(new g.URL(img.uri, baseUrl).href);
+        } catch {
+          urls.push(img.uri);
+        }
+      } else {
+        urls.push(img.uri);
+      }
+      continue;
+    }
+    if (img.bufferView !== undefined) {
+      const bv = doc.bufferViews?.[img.bufferView];
+      if (!bv) { urls.push(""); continue; }
+      const offset = bv.byteOffset ?? 0;
+      const bytes = bin.subarray(offset, offset + bv.byteLength);
+      const mime = img.mimeType ?? "image/png";
+      const blob = new g.Blob([bytes], { type: mime });
+      const url = g.URL.createObjectURL(blob);
+      urls.push(url);
+      objectUrls.push(url);
+    } else {
+      urls.push("");
+    }
+  }
+  return { urls, objectUrls };
+}
+
+/** Map material index → texture URL via baseColorTexture → texture → image. */
+function buildMaterialTextureMap(doc: GltfDoc, imageUrls: string[]): Map<number, string> {
+  const out = new Map<number, string>();
+  const mats = doc.materials ?? [];
+  for (let i = 0; i < mats.length; i++) {
+    const texIdx = mats[i].pbrMetallicRoughness?.baseColorTexture?.index;
+    if (texIdx === undefined) continue;
+    const sourceIdx = doc.textures?.[texIdx]?.source;
+    if (sourceIdx === undefined) continue;
+    const url = imageUrls[sourceIdx];
+    if (url) out.set(i, url);
+  }
+  return out;
 }
 
 function colorFromMaterial(mat: GltfMaterial | undefined, fallback: string): string {
@@ -262,14 +409,32 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
   const buf: ArrayBuffer = input instanceof Uint8Array
     ? input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer
     : input;
-  const { doc, bin } = parseGlbContainer(buf);
-  if (!bin) throw new Error("parseGltf: GLB has no binary chunk (external .bin not yet supported)");
+
+  // Dispatch on the first 4 bytes: GLB magic ("glTF") → binary container;
+  // anything else → JSON glTF (buffer comes from doc.buffers[0].uri, which
+  // is typically a base64 `data:` URI for self-contained exports).
+  let doc: GltfDoc;
+  let bin: Uint8Array;
+  if (buf.byteLength >= 4 && new DataView(buf).getUint32(0, true) === GLB_MAGIC) {
+    const parsed = parseGlbContainer(buf);
+    doc = parsed.doc;
+    if (!parsed.bin) throw new Error("parseGltf: GLB has no binary chunk");
+    bin = parsed.bin;
+  } else {
+    doc = JSON.parse(decodeUtf8(new Uint8Array(buf)));
+    bin = resolveJsonBuffer(doc, options?.resolveBuffer);
+  }
+
+  // Pre-extract images + material→texture URL map so emitMesh can attach
+  // textures per-primitive without re-walking the doc.
+  const { urls: imageUrls, objectUrls } = extractImageUrls(doc, bin, options?.baseUrl);
+  const matTexMap = buildMaterialTextureMap(doc, imageUrls);
 
   // Pass 1: walk the scene-graph from each scene root, accumulate world
   // matrices, and emit triangles with vertex positions already transformed
   // into world space. If the file has no scene/nodes (some exports skip
   // the graph), fall back to rendering every mesh at the identity.
-  interface RawTri { v0: Vec3; v1: Vec3; v2: Vec3; color: string; }
+  interface RawTri { v0: Vec3; v1: Vec3; v2: Vec3; color: string; texture?: string; uvs?: Vec2[]; }
   const rawTris: RawTri[] = [];
   const meshNames: string[] = (doc.meshes ?? []).map((m, i) => m.name ?? `mesh_${i}`);
   const materialNames: string[] = (doc.materials ?? []).map((m, i) => m.name ?? `material_${i}`);
@@ -287,6 +452,7 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
         prim.material !== undefined ? doc.materials?.[prim.material] : undefined,
         defaultColor
       );
+      const texture = prim.material !== undefined ? matTexMap.get(prim.material) : undefined;
 
       const { array: posArr, count: vertCount } = readAccessor(doc, bin!, prim.attributes.POSITION);
       if (!(posArr instanceof Float32Array)) continue;
@@ -294,6 +460,26 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
       for (let i = 0; i < vertCount; i++) {
         const local: Vec3 = [posArr[i * 3], posArr[i * 3 + 1], posArr[i * 3 + 2]];
         positions.push(transformPoint(world, local));
+      }
+
+      // Per-vertex UVs from TEXCOORD_0 (if present and the primitive has a
+      // texture). glTF UV convention is v=0 at TOP; OBJ has v=0 at BOTTOM.
+      // Our renderer applies (1 - v) when binding to image-y, expecting OBJ
+      // convention — so flip here so glTF UVs reach the renderer in OBJ form.
+      let uvs: Vec2[] | null = null;
+      const uvAccIdx = prim.attributes.TEXCOORD_0;
+      if (texture && uvAccIdx !== undefined) {
+        const { array: uvArr, count: uvCount } = readAccessor(doc, bin!, uvAccIdx);
+        uvs = [];
+        // Normalize integer accessor types; floats pass through.
+        let scale = 1;
+        if (uvArr instanceof Uint8Array) scale = 1 / 255;
+        else if (uvArr instanceof Uint16Array) scale = 1 / 65535;
+        for (let i = 0; i < uvCount; i++) {
+          const u = uvArr[i * 2] * scale;
+          const v = uvArr[i * 2 + 1] * scale;
+          uvs.push([u, 1 - v]);
+        }
       }
 
       let indices: number[];
@@ -310,7 +496,12 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
         const v1 = positions[indices[i + 1]];
         const v2 = positions[indices[i + 2]];
         if (!v0 || !v1 || !v2) continue;
-        rawTris.push({ v0, v1, v2, color });
+        let triUvs: Vec2[] | undefined;
+        if (uvs && texture) {
+          const u0 = uvs[indices[i]], u1 = uvs[indices[i + 1]], u2 = uvs[indices[i + 2]];
+          if (u0 && u1 && u2) triUvs = [u0, u1, u2];
+        }
+        rawTris.push({ v0, v1, v2, color, texture, uvs: triUvs });
       }
     }
   }
@@ -333,7 +524,7 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
   }
 
   if (rawTris.length === 0) {
-    return { voxels: [], triangleCount: 0, meshes: meshNames, materials: materialNames };
+    return { voxels: [], triangleCount: 0, meshes: meshNames, materials: materialNames, objectUrls };
   }
 
   // Compute global bbox + scale.
@@ -382,8 +573,10 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
       shape: "triangle",
       vertices: [v0, v1, v2],
       color: t.color,
+      ...(t.texture ? { texture: t.texture } : {}),
+      ...(t.uvs ? { uvs: t.uvs } : {}),
     });
   }
 
-  return { voxels, triangleCount: voxels.length, meshes: meshNames, materials: materialNames };
+  return { voxels, triangleCount: voxels.length, meshes: meshNames, materials: materialNames, objectUrls };
 }

@@ -25,7 +25,7 @@ interface ObjModelDef extends BaseModelDef {
 }
 
 interface GltfModelDef extends BaseModelDef {
-  format: "glb";
+  format: "glb" | "gltf";
   url: string;
   options?: GltfParseOptions;
 }
@@ -51,6 +51,62 @@ const MODELS: ModelDef[] = [
     zoom: 0.15, rotX: 74.4, rotY: 301.6,
   },
   {
+    id: "church",
+    label: "Church (UV-mapped)",
+    category: "Architecture",
+    format: "obj",
+    url: "/gallery/obj/church.obj",
+    mtlUrl: "/gallery/obj/church.mtl",
+    options: { targetSize: 60, defaultColor: "#cccccc" },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
+    id: "avocado",
+    label: "Avocado (UV-mapped)",
+    category: "Objects",
+    format: "obj",
+    url: "/gallery/obj/avocado.obj",
+    mtlUrl: "/gallery/obj/avocado.mtl",
+    options: { targetSize: 50, defaultColor: "#cccccc" },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
+    id: "sting",
+    label: "Sting Sword (UV-mapped)",
+    category: "Objects",
+    format: "obj",
+    url: "/gallery/obj/sting.obj",
+    // No MTL ships with the OBJ. The asset's "Textures" folder is PBR
+    // (Base_Color + Normal + Metallic + Roughness etc.); voxcss only uses
+    // diffuse, so bind just `Sting_Base_Color.png` to the single Sting
+    // material via materialTextures.
+    options: {
+      targetSize: 60,
+      defaultColor: "#cccccc",
+      materialTextures: { Sting: "/gallery/obj/sting-diffuse.png" },
+    },
+    zoom: 0.3, rotX: 65, rotY: 45,
+  },
+  {
+    id: "cottage",
+    label: "Cottage (UV-mapped)",
+    category: "Architecture",
+    format: "obj",
+    url: "/gallery/obj/cottage.obj",
+    // No mtlUrl — the MTL has no map_Kd lines (artist relied on material-
+    // name-matches-filename instead). Inject the texture binding directly.
+    // OBJ ships 5 objects: the cottage (Cube_Cube.002), a ground plane and
+    // three "light" planes (just gray quads from the artist's lighting
+    // setup). Keep only the cottage.
+    options: {
+      targetSize: 60,
+      defaultColor: "#a0a0a0",
+      materialTextures: { cottage_texture: "/gallery/obj/cottage-diffuse.png" },
+      includeObjects: ["Cube_Cube.002"],
+    },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
     id: "rock1",
     label: "Rock (UV-mapped)",
     category: "Environment",
@@ -66,6 +122,64 @@ const MODELS: ModelDef[] = [
     // tinted by the directional light.
     options: { targetSize: 40, defaultColor: "#8b6f47", excludeObjects: ["Plane"] },
     zoom: 0.6, rotX: 65, rotY: 45,
+  },
+  {
+    id: "insurgent",
+    label: "Insurgent (.gltf, embedded buffer)",
+    category: "Characters",
+    format: "gltf",
+    url: "/gallery/glb/insurgent.gltf",
+    // Self-contained .gltf — buffer + embedded image are inlined as a
+    // base64 `data:` URI inside the JSON. parseGltf decodes it on the fly.
+    options: { targetSize: 60 },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
+    id: "apoc-car",
+    label: "Apocalypse Car (GLB)",
+    category: "Vehicles",
+    format: "glb",
+    url: "/gallery/glb/apocalypse/car.glb",
+    options: { targetSize: 60 },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
+    id: "apoc-barrel",
+    label: "Apocalypse Barrel (GLB)",
+    category: "Objects",
+    format: "glb",
+    url: "/gallery/glb/apocalypse/barrel.glb",
+    options: { targetSize: 50 },
+    zoom: 0.5, rotX: 65, rotY: 45,
+  },
+  {
+    id: "apoc-wall",
+    label: "Apocalypse Wall (GLB)",
+    category: "Architecture",
+    format: "glb",
+    url: "/gallery/glb/apocalypse/wall_1.glb",
+    options: { targetSize: 60 },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
+    id: "apoc-spike",
+    label: "Spike Barricade (GLB)",
+    category: "Objects",
+    format: "glb",
+    url: "/gallery/glb/apocalypse/wooden_spike_barricade.glb",
+    options: { targetSize: 60 },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
+  {
+    id: "ranger",
+    label: "Ranger (GLB, UV-mapped)",
+    category: "Characters",
+    format: "glb",
+    url: "/gallery/glb/ranger.glb",
+    // KayKit asset — texture is embedded in the GLB, parseGltf extracts it
+    // via Blob → blob: URL. UVs come from TEXCOORD_0 on each primitive.
+    options: { targetSize: 60 },
+    zoom: 0.4, rotX: 65, rotY: 45,
   },
   {
     id: "tree",
@@ -134,7 +248,7 @@ function loadOptionsFor(model: ModelDef) {
   if (model.format === "obj") {
     return { format: "obj" as const, url: model.url, mtlUrl: model.mtlUrl, options: model.options };
   }
-  return { format: "glb" as const, url: model.url, options: model.options };
+  return { format: model.format, url: model.url, options: model.options };
 }
 
 export default function Meshes() {

@@ -20,7 +20,10 @@ interface ObjOptions {
   options?: ObjParseOptions;
 }
 interface GltfOptions {
-  format: "glb";
+  /** Both `.glb` (binary) and `.gltf` (JSON, possibly with embedded data:
+   * URI buffer) are handled by the same path — parseGltf dispatches on
+   * the file's first 4 bytes. */
+  format: "glb" | "gltf";
   url: string;
   options?: GltfParseOptions;
 }
@@ -38,6 +41,9 @@ export function useObjModel(load: LoadOptions): MeshModelState {
 
   useEffect(() => {
     let cancelled = false;
+    // Track blob URLs minted by parseGltf for embedded textures so we can
+    // revoke them on unmount / re-fetch. parseObj has no such artifacts.
+    let activeObjectUrls: string[] = [];
     setState({ voxels: [], loading: true, error: null });
 
     const run = async () => {
@@ -80,7 +86,11 @@ export function useObjModel(load: LoadOptions): MeshModelState {
           return r.arrayBuffer();
         });
         if (cancelled) return;
-        const parsed = parseGltf(buf, load.options);
+        // Resolve external image URIs against the file's URL — Kenney-style
+        // GLBs reference `Textures/colormap.png` relative to the glb itself.
+        const absUrl = new URL(load.url, window.location.href).href;
+        const parsed = parseGltf(buf, { ...load.options, baseUrl: absUrl });
+        activeObjectUrls = parsed.objectUrls;
         setState({ voxels: parsed.voxels, loading: false, error: null });
       } catch (err) {
         if (cancelled) return;
@@ -90,7 +100,11 @@ export function useObjModel(load: LoadOptions): MeshModelState {
     };
 
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // Revoke any GLB-embedded image blob URLs the previous parse created.
+      for (const u of activeObjectUrls) URL.revokeObjectURL(u);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(load)]);
 

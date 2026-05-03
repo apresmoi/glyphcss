@@ -1,7 +1,29 @@
-import { useId } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { ShapeInnerProps } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/**
+ * Module-level image cache so multiple textured triangles sharing the same
+ * texture URL only download / decode it once. Each cache entry is the
+ * Promise of an HTMLImageElement — late-arriving consumers `.then(img)` and
+ * draw onto their canvas as soon as the bitmap is available.
+ */
+const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
+function loadTextureImage(url: string): Promise<HTMLImageElement> {
+  let p = TEXTURE_IMAGE_CACHE.get(url);
+  if (!p) {
+    p = new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.decoding = "async";
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error(`texture load failed: ${url}`));
+      img.src = url;
+    });
+    TEXTURE_IMAGE_CACHE.set(url, p);
+  }
+  return p;
+}
 
 // Defaults for triangle/polygon Lambert shading. Direction is in scene-
 // local CSS-pixel coords: +X = right, +Y = down (CSS), +Z = toward viewer.
@@ -219,8 +241,10 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   // for the first three (vertex, uv) pairs. Three pairs uniquely determine
   // the affine; for polygons with N>3 verts we trust that all UVs are
   // consistent with the same affine (true for OBJ-exported coplanar polys).
-  let uvTransform: string | null = null;
-  let uvClipPath: string | null = null;
+  // Affine matrix (a, b, c, d, e, f) maps UV-space `[u, 1-v]` → triangle-
+  // local SVG coords. Used both by the canvas rasterizer (option 3 path)
+  // and the SVG fallback (single-tile pattern; `uvAffine` ignored there).
+  let uvAffine: { a: number; b: number; c: number; d: number; e: number; f: number } | null = null;
   if (textureUrl && voxel.uvs && voxel.uvs.length >= 3 && voxel.uvs.length === voxel.vertices.length) {
     const [uv0, uv1, uv2] = voxel.uvs;
     const sx0 = local2D[0][0] + shiftX, sy0 = local2D[0][1] + shiftY;
@@ -242,24 +266,94 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
       const d = (du1 * dy2 - du2 * dy1) / det;
       const e = sx0 - a * u0 - b * V0;
       const f = sy0 - c * u0 - d * V0;
-      // SVG matrix(a b c d e f) is column-major:
-      //   [a c e]
-      //   [b d f]
-      uvTransform = `matrix(${a} ${c} ${b} ${d} ${e} ${f})`;
-      // Clip the image to the polygon shape, expressed in UV space (0..1)
-      // since that's the image's local coord system. CSS clip-path wants
-      // pixel units inside SVG context, but for an <image width=1 height=1>
-      // user units == UV-space directly. Walks all N polygon UVs (works for
-      // triangles AND polygons with consistent UVs).
-      const clipParts: string[] = [];
-      for (let i = 0; i < voxel.uvs.length; i++) {
-        const [u, v] = voxel.uvs[i];
-        clipParts.push(`${i === 0 ? "M" : "L"}${u},${1 - v}`);
-      }
-      clipParts.push("Z");
-      uvClipPath = `path("${clipParts.join(" ")}")`;
+      uvAffine = { a, b, c, d, e, f };
     }
   }
+
+  // UV-mapped texturing pipeline:
+  //   1. Create an off-DOM canvas
+  //   2. Draw the polygon clip + UV-transformed texture into it
+  //   3. canvas.toBlob → URL.createObjectURL → set as src on a real <img>
+  //   4. Drop the canvas (GC reclaims its CPU buffer)
+  //   5. Browser composites the <img> in 3D via the same matrix3d
+  //
+  // Why <img> instead of <canvas> in the DOM: a canvas keeps its CPU pixel
+  // buffer alive as long as it's mounted (so getContext can read it back).
+  // An <img> only needs the decoded GPU texture once the browser is done
+  // with it — roughly half the per-element memory footprint, which matters
+  // a lot for high-poly UV-mapped meshes (cat = ~35k textured triangles).
+  const imgRef = useRef<HTMLImageElement>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const screenPts: number[] = [];
+  for (const [x, y] of local2D) screenPts.push(x + shiftX, y + shiftY);
+  const screenPtsKey = screenPts.join(",");
+  const affineKey = uvAffine
+    ? `${uvAffine.a},${uvAffine.b},${uvAffine.c},${uvAffine.d},${uvAffine.e},${uvAffine.f}`
+    : "";
+  const canvasW = Math.max(1, Math.ceil(w));
+  const canvasH = Math.max(1, Math.ceil(h));
+
+  useEffect(() => {
+    if (!textureUrl || !uvAffine) return;
+    let cancelled = false;
+
+    loadTextureImage(textureUrl).then((srcImg) => {
+      if (cancelled) return;
+      // Off-DOM canvas — never inserted into the document. GC reclaims it
+      // once we drop the reference at the end of this then-callback.
+      const canvas = document.createElement("canvas");
+      canvas.width = canvasW;
+      canvas.height = canvasH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.beginPath();
+      for (let i = 0; i < screenPts.length; i += 2) {
+        const x = screenPts[i], y = screenPts[i + 1];
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.clip();
+
+      // Affine: image pixel (px, py) → canvas pixel.
+      //   canvas_x = (a/imgW)·px + (b/imgH)·py + e
+      //   canvas_y = (c/imgW)·px + (d/imgH)·py + f
+      // setTransform(a, b, c, d, e, f) is column-major: [a c e; b d f]
+      ctx.setTransform(
+        uvAffine.a / srcImg.naturalWidth, uvAffine.c / srcImg.naturalWidth,
+        uvAffine.b / srcImg.naturalHeight, uvAffine.d / srcImg.naturalHeight,
+        uvAffine.e, uvAffine.f,
+      );
+      ctx.drawImage(srcImg, 0, 0);
+
+      canvas.toBlob((blob) => {
+        if (cancelled || !blob) return;
+        const url = URL.createObjectURL(blob);
+        // Revoke any previous blob URL we'd assigned — otherwise a re-render
+        // (e.g. texture URL change) would leak the old one. Set the new URL
+        // BEFORE assigning to img.src so a tiny race window doesn't show the
+        // old src after revoke.
+        const prev = blobUrlRef.current;
+        blobUrlRef.current = url;
+        if (imgRef.current) imgRef.current.src = url;
+        if (prev) URL.revokeObjectURL(prev);
+      }, "image/png");
+    }).catch(() => { /* texture failed; img stays blank */ });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textureUrl, affineKey, screenPtsKey, canvasW, canvasH]);
+
+  // Final cleanup: revoke the active blob URL when the component unmounts.
+  useEffect(() => {
+    return () => {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, []);
 
   // Stroke is helpful for solid-color triangles (visual debug of mesh
   // structure), but on textured meshes it puts a grid of dark lines across
@@ -267,7 +361,30 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   const stroke = textureUrl ? "none" : "rgba(0,0,0,0.15)";
   const strokeWidth = textureUrl ? 0 : 1;
 
-  const front = (
+  // UV-mapped textured triangle: render an <img> whose src is set
+  // imperatively from the offscreen-canvas blob. ONE element per triangle,
+  // no SVG, no clip-path. matrix3d positions the bitmap in 3D space the
+  // same way it would an SVG.
+  const front = textureUrl && uvAffine ? (
+    <img
+      ref={imgRef}
+      alt=""
+      width={canvasW}
+      height={canvasH}
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: canvasW,
+        height: canvasH,
+        transformOrigin: "0 0",
+        transform: `matrix3d(${matrix})`,
+        backfaceVisibility: "hidden",
+        pointerEvents: "none",
+        filter: `brightness(${textureBrightness.toFixed(3)})`,
+      }}
+    />
+  ) : (
     <svg
       xmlns={SVG_NS}
       viewBox={`0 0 ${w} ${h}`}
@@ -289,20 +406,8 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
         filter: textureUrl ? `brightness(${textureBrightness.toFixed(3)})` : undefined,
       }}
     >
-      {textureUrl && uvTransform ? (
-        // Clip the image in its OWN local coords (UV space, 0..1). Then the
-        // affine transform maps that clipped UV-space patch onto the triangle's
-        // local 2D plane. Inline CSS clip-path (no <defs>/<clipPath>/<path>
-        // chain) keeps the per-triangle DOM down — 2 nodes vs 5.
-        <image
-          href={textureUrl}
-          width={1}
-          height={1}
-          preserveAspectRatio="none"
-          transform={uvTransform}
-          style={{ clipPath: uvClipPath ?? undefined }}
-        />
-      ) : textureUrl ? (
+      {textureUrl ? (
+        // Texture without UVs — single-tile pattern fill (no UV mapping).
         <>
           <defs>
             <pattern
