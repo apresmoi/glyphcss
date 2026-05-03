@@ -2,10 +2,12 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import sitemap from '@astrojs/sitemap';
+import react from '@astrojs/react';
 
 export default defineConfig({
   site: 'https://voxcss.com',
   integrations: [
+    react(),
     sitemap(),
     starlight({
       title: 'VoxCSS',

@@ -83,8 +83,10 @@ type MergeVoxelsOption = false | "2d" | "3d";
 ```
 
 - **`false`** — No merging, one element per voxel.
-- **`"2d"`** — Merge voxels within each layer.
-- **`"3d"`** — Merge voxels across layers for maximum reduction.
+- **`"2d"`** — Merge voxels within each layer into rectangles.
+- **`"3d"`** — Slice-based rendering for the fewest elements (no per-voxel addressing, cubes only).
+
+See the [Performance guide](/guides/performance) for the comparison table and trade-offs.
 
 ---
 

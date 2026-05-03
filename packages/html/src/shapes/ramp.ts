@@ -16,6 +16,18 @@ export const rampShapeRenderer: ShapeRenderer = ({ voxel, context, root }) => {
   });
   if (!prepared) return;
   root.classList.add("voxcss-ramp");
+  // Internal axis differentiation matching the React VoxShape: rot 0/180 → Y-ramp,
+  // rot 90/270 → X-ramp. The X-ramp class internally handles the axis swap, so
+  // we remap the orientation class to "east"/"west" so the parent rotation only
+  // encodes drop direction (forward = 0° / reverse = 180°).
+  const rotNorm = ((((voxel.rot ?? 0) as number) % 360) + 360) % 360;
+  if (rotNorm === 90 || rotNorm === 270) {
+    root.classList.add("voxcss-ramp-x");
+    root.classList.remove("voxcss-east", "voxcss-south", "voxcss-west", "voxcss-north");
+    root.classList.add(rotNorm === 90 ? "voxcss-east" : "voxcss-west");
+  } else {
+    root.classList.add("voxcss-ramp-y");
+  }
   const doc = prepared.container.ownerDocument ?? document;
   if (shouldRenderBottom(voxel, context)) {
     const bottom = doc.createElement("div");

@@ -68,14 +68,32 @@ describe("mergeVoxels — sortByPosition tie-breaking", () => {
   });
 });
 
-describe("mergeVoxels — non-cube shapes are passthrough", () => {
-  it("does not merge ramp shapes", () => {
+describe("mergeVoxels — shape merging", () => {
+  it("merges same-orientation ramps into a wider/longer ramp", () => {
     const grid: Voxel[] = [
       { x: 0, y: 0, z: 0, shape: "ramp", color: "#ff0000" },
       { x: 1, y: 0, z: 0, shape: "ramp", color: "#ff0000" }
     ];
     const result = mergeVoxels(grid);
+    expect(result.length).toBe(1);
+    expect(result[0]).toMatchObject({ x: 0, y: 0, x2: 2, shape: "ramp" });
+  });
+
+  it("does not merge ramps with different rotations", () => {
+    const grid: Voxel[] = [
+      { x: 0, y: 0, z: 0, shape: "ramp", rot: 0, color: "#ff0000" },
+      { x: 1, y: 0, z: 0, shape: "ramp", rot: 180, color: "#ff0000" }
+    ];
+    const result = mergeVoxels(grid);
     expect(result.length).toBe(2);
+  });
+
+  it("wedges and spikes are passthrough (not merged)", () => {
+    const wedgeGrid: Voxel[] = [
+      { x: 0, y: 0, z: 0, shape: "wedge", color: "#ff0000" },
+      { x: 1, y: 0, z: 0, shape: "wedge", color: "#ff0000" }
+    ];
+    expect(mergeVoxels(wedgeGrid).length).toBe(2);
   });
 
   it("non-cube shapes block merge cells", () => {

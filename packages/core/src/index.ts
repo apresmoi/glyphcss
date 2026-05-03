@@ -1,6 +1,7 @@
 // @layoutit/voxcss-core — Pure-math voxel rendering engine (zero browser globals)
 
 export type {
+  Vec3,
   Voxel,
   VoxelGrid,
   CubeFace,
@@ -16,9 +17,24 @@ export {
   WALL_CLASS, CEILING_CLASS, STYLE_ID
 } from "./types";
 
-export { buildSceneContext, getVoxelBounds, wallMasksEqual, computeWallMask } from "./scene/context";
+export { buildSceneContext, getVoxelBounds, getVoxelZBounds, wallMasksEqual, computeWallMask } from "./scene/context";
 export type { SceneContextBuildResult } from "./scene/context";
-export { computeVisibleFaces } from "./scene/visibility";
+export { computeVisibleFaces, computeFacesWithOcclusion } from "./scene/visibility";
+export { precomputeOcclusion } from "./scene/occlusion";
+export type { OcclusionMap } from "./scene/occlusion";
+export { directionBinFromCamera, directionVectorFromBin, OCCLUSION_DIR_BINS, AZIMUTH_BINS, ELEVATION_BINS } from "./scene/occlusionDirection";
+export { isCovered, isBottomOccluded, shouldRenderBottom } from "./scene/coverage";
+export { voxelToPolygons } from "./scene/polygonModel";
+export type { Polygon } from "./scene/polygonModel";
+export { findGaps } from "./scene/manifoldCheck";
+export type { GapReport } from "./scene/manifoldCheck";
+export { extractExteriorSurface } from "./scene/exteriorSurface";
+export { findGeometricDefects } from "./scene/geometricCheck";
+export type { GeometricDefect } from "./scene/geometricCheck";
+export { simulatedAnnealing, score as scoreVoxels } from "./scene/searchSA";
+export type { SAOptions, SAResult, ScoreBreakdown } from "./scene/searchSA";
+export { computeShapeStyle } from "./shape/shapeStyle";
+export { shapeCoversFullyFace, oppositeFace } from "./shape/coverage";
 
 export { createIsometricCamera, normalizeInvertMultiplier } from "./camera/camera";
 export type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "./camera/camera";
@@ -49,10 +65,12 @@ export {
 export type { CubeFaceAppearance } from "./color/faceAppearance";
 
 export { mergeVoxels } from "./merge/mergeVoxels";
+export { mergePolygons } from "./merge/mergePolygons";
 export {
   normalizeMergeVoxelsOption,
   is2dMerge,
-  is3dMerge
+  is3dMerge,
+  isPolyMerge
 } from "./merge/mergeVoxelsOption";
 export type { MergeVoxelsOption } from "./merge/mergeVoxelsOption";
 
@@ -82,6 +100,8 @@ export type {
 
 export { parseMagicaVoxel } from "./parser/parseMagicaVoxel";
 export type { MagicaVoxelParseResult } from "./parser/parseMagicaVoxel";
+export { parseObj } from "./parser/parseObj";
+export type { ObjParseOptions, ObjParseResult } from "./parser/parseObj";
 
 export {
   encodeRgbaToPng,

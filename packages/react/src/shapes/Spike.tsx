@@ -29,6 +29,7 @@ export function Spike({ voxel, context, baseColor, lighting, showBottom }: Shape
         fill={primaryColor}
         textureUrl={primaryTexture}
         brightnessDelta={primaryDelta}
+        debugBack={!!context.debugShowBackfaces}
       />
       <SvgSlope
         className="voxcss-spike-slope voxcss-spike-slope--secondary"
@@ -38,6 +39,7 @@ export function Spike({ voxel, context, baseColor, lighting, showBottom }: Shape
         height="56"
         textureUrl={secondaryTexture}
         brightnessDelta={secondaryDelta}
+        debugBack={!!context.debugShowBackfaces}
       />
     </>
   );

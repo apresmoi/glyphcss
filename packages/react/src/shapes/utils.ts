@@ -1,6 +1,5 @@
-import type { GridContext, Voxel } from "@layoutit/voxcss-core";
-import { getVoxelBounds } from "@layoutit/voxcss-core";
-import type { ShapeSurfaceLighting } from "@layoutit/voxcss-core";
+import type { GridContext, Voxel, ShapeSurfaceLighting } from "@layoutit/voxcss-core";
+export { isCovered, isBottomOccluded, shouldRenderBottom } from "@layoutit/voxcss-core";
 
 export const ORIENTATION_MAP: Record<number, string> = {
   0: "east",
@@ -13,34 +12,6 @@ export function normalizeRotation(value: number | undefined): number {
   if (!Number.isFinite(value)) return 0;
   const snapped = Math.round((value as number) / 90) * 90;
   return ((snapped % 360) + 360) % 360;
-}
-
-export function isCovered(voxel: Voxel, context: GridContext): boolean {
-  const { x2, y2 } = getVoxelBounds(voxel);
-  const layerAbove = Math.max(0, Math.floor((voxel.z ?? 0) + 1));
-  for (let row = voxel.x; row < x2; row += 1) {
-    for (let col = voxel.y; col < y2; col += 1) {
-      if (context.getVoxel(row, col, layerAbove)) return true;
-    }
-  }
-  return false;
-}
-
-export function isBottomOccluded(voxel: Voxel, context: GridContext): boolean {
-  const targetZ = Math.floor((voxel.z ?? 0) - 1);
-  if (targetZ < 0) return false;
-  const { x2, y2 } = getVoxelBounds(voxel);
-  for (let x = voxel.x; x < x2; x += 1) {
-    for (let y = voxel.y; y < y2; y += 1) {
-      if (!context.getVoxel(x, y, targetZ)) return false;
-    }
-  }
-  return true;
-}
-
-export function shouldRenderBottom(voxel: Voxel, context: GridContext): boolean {
-  if (context.walls?.b) return false;
-  return !isBottomOccluded(voxel, context);
 }
 
 export function getSurfaceColor(lighting: ShapeSurfaceLighting[], surfaceId: string, fallback: string): string {

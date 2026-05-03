@@ -88,7 +88,7 @@ export function shadeWallFace(base: string, face: keyof WallsMask): string {
   return shadeColor(base, -delta);
 }
 
-export type ShapeType = "ramp" | "wedge" | "spike";
+export type ShapeType = "ramp" | "wedge" | "spike" | "triangle";
 
 interface ShapeSurfaceDefinition {
   id: string;
@@ -113,7 +113,8 @@ const SHAPE_SURFACE_DEFINITIONS: Record<ShapeType, ShapeSurfaceDefinition[]> = {
   spike: [
     { id: "primary", baseAngle: 0 },
     { id: "secondary", baseAngle: 270 }
-  ]
+  ],
+  triangle: [{ id: "primary", baseAngle: 0 }]
 };
 
 const SHAPE_LIGHT_SOURCE_ANGLE = 180;

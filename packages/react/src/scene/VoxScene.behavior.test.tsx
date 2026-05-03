@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { Voxel } from "@layoutit/voxcss-core";
 import { VoxCamera } from "../camera/VoxCamera";
 import { VoxScene } from "./VoxScene";
@@ -10,6 +11,23 @@ function renderToDiv(element: React.ReactElement): HTMLElement {
   const root = createRoot(container);
   act(() => root.render(element));
   return container;
+}
+
+function renderToDivWithRerender(element: React.ReactElement): {
+  container: HTMLElement;
+  rerender: (next: React.ReactElement) => void;
+  root: Root;
+} {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  act(() => root.render(element));
+  return {
+    container,
+    root,
+    rerender(next: React.ReactElement) {
+      act(() => root.render(next));
+    },
+  };
 }
 
 function renderScene(
@@ -164,6 +182,72 @@ describe("VoxScene behavior", () => {
       const container = renderScene({ voxels });
       const cubes = container.querySelectorAll(".voxcss-cube");
       expect(cubes.length).toBe(2);
+    });
+  });
+
+  describe("hook props (Phase 1e)", () => {
+    it("forwards lighting prop into the scene context", () => {
+      const lighting = vi.fn(() => ({ backgroundColor: "rgb(255, 0, 0)" }));
+      const voxels: Voxel[] = [{ x: 0, y: 0, z: 0, color: "#aaa" }];
+      renderToDiv(
+        <VoxCamera>
+          <VoxScene voxels={voxels} lighting={lighting} />
+        </VoxCamera>
+      );
+      expect(lighting).toHaveBeenCalled();
+    });
+
+    it("forwards resolveTexture prop", () => {
+      const resolveTexture = vi.fn((name: string) => `/textures/${name}.png`);
+      const voxels: Voxel[] = [{ x: 0, y: 0, z: 0, texture: "brick" }];
+      renderToDiv(
+        <VoxCamera>
+          <VoxScene voxels={voxels} resolveTexture={resolveTexture} />
+        </VoxCamera>
+      );
+      expect(resolveTexture).toHaveBeenCalledWith("brick", expect.any(String));
+    });
+
+    it("rebuilds context when lighting reference changes (cache invalidation)", () => {
+      const lightingA = vi.fn(() => ({ backgroundColor: "rgb(255, 0, 0)" }));
+      const lightingB = vi.fn(() => ({ backgroundColor: "rgb(0, 255, 0)" }));
+      const voxels: Voxel[] = [{ x: 0, y: 0, z: 0, color: "#aaa" }];
+
+      const { container, rerender } = renderToDivWithRerender(
+        <VoxCamera>
+          <VoxScene voxels={voxels} lighting={lightingA} />
+        </VoxCamera>
+      );
+      const faceA = container.querySelector(".voxcss-cube-face--t") as HTMLElement;
+      const colorA = faceA?.style.backgroundColor;
+
+      rerender(
+        <VoxCamera>
+          <VoxScene voxels={voxels} lighting={lightingB} />
+        </VoxCamera>
+      );
+      const faceB = container.querySelector(".voxcss-cube-face--t") as HTMLElement;
+      const colorB = faceB?.style.backgroundColor;
+
+      expect(colorA).toBe("rgb(255, 0, 0)");
+      expect(colorB).toBe("rgb(0, 255, 0)");
+      expect(colorA).not.toBe(colorB);
+    });
+
+    it("does NOT auto-skip merge when hooks present (per §4b)", () => {
+      const lighting = vi.fn(() => ({ backgroundColor: "rgb(255, 0, 0)" }));
+      const voxels: Voxel[] = [
+        { x: 0, y: 0, z: 0, color: "#aaa" },
+        { x: 1, y: 0, z: 0, color: "#aaa" },
+      ];
+      const container = renderToDiv(
+        <VoxCamera>
+          <VoxScene voxels={voxels} lighting={lighting} mergeVoxels="2d" />
+        </VoxCamera>
+      );
+      // With mergeVoxels="2d", two identical adjacent voxels merge into one rectangle.
+      const cubes = container.querySelectorAll(".voxcss-cube");
+      expect(cubes.length).toBe(1);
     });
   });
 });

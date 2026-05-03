@@ -1,6 +1,6 @@
 import type { CubeFace, GridContext, Voxel } from "@layoutit/voxcss-core";
 import type { ShapeRenderer } from "../types";
-import { CUBE_CLASS, FACE_CLASS, computeVisibleFaces, computeCubeFaceAppearance } from "@layoutit/voxcss-core";
+import { CUBE_CLASS, FACE_CLASS, computeVisibleFaces, computeCubeFaceAppearance, getVoxelZBounds, computeShapeStyle } from "@layoutit/voxcss-core";
 
 function applyCubeFaceAppearance(
   el: HTMLElement,
@@ -45,14 +45,27 @@ export const cubeShapeRenderer: ShapeRenderer = ({
 }) => {
   const tile = context.tileSize ?? 50;
   const layer = context.layerElevation ?? tile;
-  const spanX = Math.max(1, (voxel.x2 ?? voxel.x + 1) - voxel.x) * tile;
-  const spanY = Math.max(1, (voxel.y2 ?? voxel.y + 1) - voxel.y) * tile;
   const tileHalf = tile / 2;
-  const offsetSpanX = spanX > tile ? spanX - tileHalf : tileHalf;
-  const offsetSpanY = spanY > tile ? spanY - tileHalf : tileHalf;
-  root.style.setProperty("--voxcss-side-offset-x", `${offsetSpanX}px`);
-  root.style.setProperty("--voxcss-side-offset-y", `${offsetSpanY}px`);
-  root.style.setProperty("--voxcss-fr-offset", `${spanY}px`);
+  const spanXCells = Math.max(1, (voxel.x2 ?? voxel.x + 1) - voxel.x);
+  const spanYCells = Math.max(1, (voxel.y2 ?? voxel.y + 1) - voxel.y);
+  // Use the same formula as the React VoxCube: spanCells * halfTile.
+  // This represents the half-extent of the container in each direction; the
+  // CSS for the side faces (incl. the pre-translate fix for tall cubes) is
+  // tuned for this convention.
+  root.style.setProperty("--voxcss-side-offset-x", `${spanXCells * tileHalf}px`);
+  root.style.setProperty("--voxcss-side-offset-y", `${spanYCells * tileHalf}px`);
+  root.style.setProperty("--voxcss-fr-offset", `${spanYCells * tile}px`);
+
+  // Apply elevation override when the cube spans multiple z layers
+  // (layer-as-anchor model: one DOM element, visually extends via CSS var).
+  const { z, z2: zEnd } = getVoxelZBounds(voxel);
+  if (zEnd - z > 1) {
+    const spanStyle = computeShapeStyle(voxel, context);
+    for (const [prop, value] of Object.entries(spanStyle)) {
+      root.style.setProperty(prop, value);
+    }
+  }
+
   const faces = precomputedFaces ?? computeVisibleFaces(voxel, context);
   if (!faces.length) {
     root.style.display = "none";

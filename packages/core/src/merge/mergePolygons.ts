@@ -1,0 +1,280 @@
+/**
+ * Merge coplanar same-color adjacent triangles into N-vertex polygons.
+ *
+ * Each polygon is rendered as one DOM element (one matrix3d-transformed SVG
+ * with a multi-point path) — so a mesh whose triangles came from quads or
+ * pentagons collapses back into its original face count.
+ *
+ *   - Geodesic spheres: ~half the triangles came from quad subdivisions
+ *   - OBJ imports: many were quads/n-gons fan-triangulated by the importer
+ *   - Hand-built dodecahedra: 36 triangles → 12 pentagons
+ *
+ * Algorithm:
+ *   1. For each triangle voxel, compute its plane (unit normal + signed
+ *      distance from origin).
+ *   2. Build an undirected edge graph: every edge of every triangle indexes
+ *      the polygons it belongs to.
+ *   3. Repeatedly walk shared edges and merge the two polygons sharing that
+ *      edge if they pass the merge predicate (same color, near-coplanar,
+ *      result is convex, edge is interior). Each merge replaces two
+ *      polygons with one larger polygon and updates the edge index.
+ *   4. Iterate until no more merges fire — the fixed point grows triangles
+ *      → quads → pentagons → … as far as the geometry allows.
+ *
+ * Non-triangle voxels (cubes, ramps, …) are passed through unchanged.
+ */
+
+import type { Vec3, Voxel, VoxelGrid } from "../types";
+
+const EPS_NORMAL = 1e-3;   // dot product tolerance for "same plane"
+const EPS_DISTANCE = 0.05; // signed-distance tolerance (in cell units)
+
+interface PolyState {
+  vertices: Vec3[];
+  color: string;
+  normal: Vec3;
+  /** Plane offset: distance from origin along the normal. */
+  d: number;
+  alive: boolean;
+}
+
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const cross = (a: Vec3, b: Vec3): Vec3 => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const norm = (a: Vec3): number => Math.hypot(a[0], a[1], a[2]);
+const eqVec = (a: Vec3, b: Vec3): boolean =>
+  a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+
+/** Canonical key for an undirected edge between two vertex positions. */
+function edgeKey(a: Vec3, b: Vec3): string {
+  const ka = `${a[0]},${a[1]},${a[2]}`;
+  const kb = `${b[0]},${b[1]},${b[2]}`;
+  return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+}
+
+function planeOf(vertices: Vec3[]): { normal: Vec3; d: number } | null {
+  if (vertices.length < 3) return null;
+  const e1 = sub(vertices[1], vertices[0]);
+  const e2 = sub(vertices[2], vertices[0]);
+  const n = cross(e1, e2);
+  const len = norm(n);
+  if (len < 1e-12) return null;
+  const normal: Vec3 = [n[0] / len, n[1] / len, n[2] / len];
+  const d = dot(normal, vertices[0]);
+  return { normal, d };
+}
+
+function samePlane(a: PolyState, b: PolyState): boolean {
+  // Normals must be parallel and pointing the same way (one shared face,
+  // not two faces back-to-back), and offsets must match.
+  const dotN = dot(a.normal, b.normal);
+  if (dotN < 1 - EPS_NORMAL) return false;
+  return Math.abs(a.d - b.d) < EPS_DISTANCE;
+}
+
+/**
+ * Merge two polygons that share the edge (e0 → e1). Both polygons are
+ * stored as cyclic vertex lists. The merged polygon visits A's vertices
+ * up to e0, then walks B from e1 back to e0's mirror, then resumes A.
+ */
+function mergeAlongEdge(a: PolyState, b: PolyState, e0: Vec3, e1: Vec3): Vec3[] | null {
+  const ai0 = a.vertices.findIndex((v) => eqVec(v, e0));
+  const ai1 = a.vertices.findIndex((v) => eqVec(v, e1));
+  const bi0 = b.vertices.findIndex((v) => eqVec(v, e0));
+  const bi1 = b.vertices.findIndex((v) => eqVec(v, e1));
+  if (ai0 < 0 || ai1 < 0 || bi0 < 0 || bi1 < 0) return null;
+
+  // The shared edge must appear in opposite winding directions on the two
+  // polygons (one goes e0→e1, the other goes e1→e0). If they go the same
+  // way the merge would reverse winding for one of them.
+  const an = a.vertices.length;
+  const bn = b.vertices.length;
+  const aGoesForward = (ai0 + 1) % an === ai1;
+  const bGoesForward = (bi0 + 1) % bn === bi1;
+  if (aGoesForward === bGoesForward) return null;
+
+  // Walk A from e1 forward, around, back to e0 (skipping the e0→e1 edge),
+  // then walk B from e0's match forward, around, back to e1's match.
+  // Whichever polygon has the edge going "backwards" is the one whose
+  // forward walk we use to reach the shared boundary.
+  const aStart = aGoesForward ? ai1 : ai0;
+  const aEnd = aGoesForward ? ai0 : ai1;
+  const bStart = bGoesForward ? bi1 : bi0;
+  const bEnd = bGoesForward ? bi0 : bi1;
+
+  const merged: Vec3[] = [];
+  let i = aStart;
+  while (true) {
+    merged.push(a.vertices[i]);
+    if (i === aEnd) break;
+    i = (i + 1) % an;
+  }
+  i = bStart;
+  while (true) {
+    merged.push(b.vertices[i]);
+    if (i === bEnd) break;
+    i = (i + 1) % bn;
+  }
+
+  // The two walks each pushed the shared-edge endpoints, so the merged
+  // ring contains a duplicate at the seam (e.g. ABC + ACD → A,B,C,C,D,A).
+  // Strip consecutive duplicates AND the wraparound first/last duplicate
+  // so the collinear-cleanup pass below doesn't see degenerate C→C edges
+  // and accidentally drop the actual corner.
+  const dedup: Vec3[] = [];
+  for (const v of merged) {
+    if (dedup.length === 0 || !eqVec(v, dedup[dedup.length - 1])) {
+      dedup.push(v);
+    }
+  }
+  if (dedup.length > 1 && eqVec(dedup[0], dedup[dedup.length - 1])) {
+    dedup.pop();
+  }
+  merged.length = 0;
+  merged.push(...dedup);
+
+  // Drop collinear vertices left behind by the merge. Three consecutive
+  // vertices A, B, C are collinear if (B-A) × (C-A) ≈ 0; B contributes
+  // nothing to the polygon outline and would just be a no-op corner.
+  const cleaned: Vec3[] = [];
+  for (let k = 0; k < merged.length; k++) {
+    const prev = merged[(k - 1 + merged.length) % merged.length];
+    const cur = merged[k];
+    const next = merged[(k + 1) % merged.length];
+    const c = cross(sub(cur, prev), sub(next, prev));
+    if (norm(c) > 1e-9) cleaned.push(cur);
+  }
+  if (cleaned.length < 3) return null;
+  return cleaned;
+}
+
+/**
+ * Convexity check: walking around the polygon, every consecutive edge
+ * should turn the same way (sign of (edge_i × edge_{i+1}) projected onto
+ * the plane normal stays consistent).
+ */
+function isConvex(vertices: Vec3[], normal: Vec3): boolean {
+  const n = vertices.length;
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % n];
+    const c = vertices[(i + 2) % n];
+    const e1 = sub(b, a);
+    const e2 = sub(c, b);
+    const turn = dot(cross(e1, e2), normal);
+    if (Math.abs(turn) < 1e-9) continue; // collinear, ignore
+    const s = turn > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+export function mergePolygons(grid: VoxelGrid): VoxelGrid {
+  const out: Voxel[] = [];
+  const polys: PolyState[] = [];
+
+  // Pass 1: collect non-triangle voxels untouched, seed PolyState for triangles.
+  for (const voxel of grid ?? []) {
+    if (!voxel) continue;
+    if (voxel.shape !== "triangle" || !voxel.vertices || voxel.vertices.length < 3) {
+      out.push(voxel);
+      continue;
+    }
+    const verts = voxel.vertices.map((v) => [v[0], v[1], v[2]] as Vec3);
+    const plane = planeOf(verts);
+    if (!plane) {
+      out.push(voxel);
+      continue;
+    }
+    polys.push({
+      vertices: verts,
+      color: voxel.color ?? "#cccccc",
+      normal: plane.normal,
+      d: plane.d,
+      alive: true,
+    });
+  }
+
+  // Pass 2: edge → list of polygon indices. We rebuild this each iteration
+  // since merges invalidate it.
+  const tryMergeOnce = (): boolean => {
+    const edgeIndex = new Map<string, number[]>();
+    for (let i = 0; i < polys.length; i++) {
+      const p = polys[i];
+      if (!p.alive) continue;
+      const n = p.vertices.length;
+      for (let k = 0; k < n; k++) {
+        const a = p.vertices[k];
+        const b = p.vertices[(k + 1) % n];
+        const key = edgeKey(a, b);
+        let arr = edgeIndex.get(key);
+        if (!arr) { arr = []; edgeIndex.set(key, arr); }
+        arr.push(i);
+      }
+    }
+
+    for (const [, owners] of edgeIndex) {
+      if (owners.length !== 2) continue;
+      const [ai, bi] = owners;
+      if (ai === bi) continue;
+      const a = polys[ai];
+      const b = polys[bi];
+      if (!a.alive || !b.alive) continue;
+      if (a.color !== b.color) continue;
+      if (!samePlane(a, b)) continue;
+
+      // Find the shared edge in `a` and pull its endpoints in winding order.
+      const an = a.vertices.length;
+      let e0: Vec3 | null = null, e1: Vec3 | null = null;
+      for (let k = 0; k < an; k++) {
+        const va = a.vertices[k];
+        const vb = a.vertices[(k + 1) % an];
+        const key = edgeKey(va, vb);
+        const eo = edgeIndex.get(key);
+        if (eo && eo.length === 2 && eo.includes(ai) && eo.includes(bi)) {
+          e0 = va; e1 = vb; break;
+        }
+      }
+      if (!e0 || !e1) continue;
+
+      const merged = mergeAlongEdge(a, b, e0, e1);
+      if (!merged) continue;
+      if (!isConvex(merged, a.normal)) continue;
+
+      // Adopt the merge into `a`, retire `b`, restart the pass.
+      a.vertices = merged;
+      b.alive = false;
+      return true;
+    }
+    return false;
+  };
+
+  // Iterate to fixed point — each merge can unlock further ones.
+  while (tryMergeOnce()) { /* loop */ }
+
+  // Pass 3: emit surviving polygons as triangle voxels with N vertices.
+  for (const p of polys) {
+    if (!p.alive) continue;
+    let xMin = Infinity, yMin = Infinity, zMin = Infinity;
+    let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
+    for (const v of p.vertices) {
+      if (v[0] < xMin) xMin = v[0]; if (v[0] > xMax) xMax = v[0];
+      if (v[1] < yMin) yMin = v[1]; if (v[1] > yMax) yMax = v[1];
+      if (v[2] < zMin) zMin = v[2]; if (v[2] > zMax) zMax = v[2];
+    }
+    out.push({
+      x: Math.floor(xMin), y: Math.floor(yMin), z: Math.floor(zMin),
+      x2: Math.ceil(xMax),  y2: Math.ceil(yMax),  z2: Math.ceil(zMax),
+      shape: "triangle",
+      vertices: p.vertices,
+      color: p.color,
+    });
+  }
+  return out;
+}

@@ -155,12 +155,13 @@ describe("prepareShapeRoot — rotation and orientation edge cases", () => {
     expect(root.classList.contains("voxcss-east")).toBe(true);
   });
 
-  it("rotation 90 → south", () => {
+  it("ramp rot 90 → east + voxcss-ramp-x (axis remap; rot 90/270 map to east/west, not south/north)", () => {
     const root = makeRoot();
     const voxel: Voxel = { x: 0, y: 0, z: 0, shape: "ramp", rot: 90 };
     const context = makeContext();
     rampShapeRenderer({ voxel, context, root });
-    expect(root.classList.contains("voxcss-south")).toBe(true);
+    expect(root.classList.contains("voxcss-east")).toBe(true);
+    expect(root.classList.contains("voxcss-ramp-x")).toBe(true);
   });
 
   it("rotation 180 → west", () => {
@@ -171,12 +172,13 @@ describe("prepareShapeRoot — rotation and orientation edge cases", () => {
     expect(root.classList.contains("voxcss-west")).toBe(true);
   });
 
-  it("rotation 270 → north", () => {
+  it("ramp rot 270 → west + voxcss-ramp-x (axis remap)", () => {
     const root = makeRoot();
     const voxel: Voxel = { x: 0, y: 0, z: 0, shape: "ramp", rot: 270 };
     const context = makeContext();
     rampShapeRenderer({ voxel, context, root });
-    expect(root.classList.contains("voxcss-north")).toBe(true);
+    expect(root.classList.contains("voxcss-west")).toBe(true);
+    expect(root.classList.contains("voxcss-ramp-x")).toBe(true);
   });
 
   it("rotation 360 wraps to east", () => {
@@ -187,20 +189,22 @@ describe("prepareShapeRoot — rotation and orientation edge cases", () => {
     expect(root.classList.contains("voxcss-east")).toBe(true);
   });
 
-  it("negative rotation -90 wraps to north", () => {
+  it("ramp negative rotation -90 wraps to 270 → west + voxcss-ramp-x", () => {
     const root = makeRoot();
     const voxel: Voxel = { x: 0, y: 0, z: 0, shape: "ramp", rot: -90 };
     const context = makeContext();
     rampShapeRenderer({ voxel, context, root });
-    expect(root.classList.contains("voxcss-north")).toBe(true);
+    expect(root.classList.contains("voxcss-west")).toBe(true);
+    expect(root.classList.contains("voxcss-ramp-x")).toBe(true);
   });
 
-  it("rotation 450 wraps to south", () => {
+  it("ramp rotation 450 wraps to 90 → east + voxcss-ramp-x", () => {
     const root = makeRoot();
     const voxel: Voxel = { x: 0, y: 0, z: 0, shape: "ramp", rot: 450 };
     const context = makeContext();
     rampShapeRenderer({ voxel, context, root });
-    expect(root.classList.contains("voxcss-south")).toBe(true);
+    expect(root.classList.contains("voxcss-east")).toBe(true);
+    expect(root.classList.contains("voxcss-ramp-x")).toBe(true);
   });
 });
 

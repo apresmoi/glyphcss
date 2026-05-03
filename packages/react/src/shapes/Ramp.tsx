@@ -26,6 +26,9 @@ export function Ramp({ voxel, context, baseColor, lighting, showBottom }: ShapeI
           backgroundImage: slopeTexture ? `url(${slopeTexture})` : undefined,
           backgroundSize: "70px 50px",
           filter: slopeTexture ? textureBrightnessFilter(slopeDelta) : undefined,
+          // Exposed as a CSS var so the debug-back ::after can paint with the
+          // same front color when the user looks at the slope from behind.
+          ...(slopeTexture ? {} : { ["--voxcss-ramp-slope-color" as string]: slopeColor }),
         }}
       />
     </>

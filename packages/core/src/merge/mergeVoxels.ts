@@ -9,13 +9,24 @@ interface CellEntry {
 function buildSignature(voxel: Voxel): string {
   const color = voxel.color ?? "";
   const texture = voxel.texture ?? "";
-  return `${color}|${texture}`;
+  const shape = voxel.shape ?? "cube";
+  // Include shape + rot in the signature so ramps with the same orientation
+  // can merge with each other but not with cubes or with differently-rotated ramps.
+  // Cubes ignore rotation (rotation has no effect on a cube's geometry).
+  if (shape === "cube") return `cube|${color}|${texture}`;
+  const rot = voxel.rot ?? 0;
+  return `${shape}|${rot}|${color}|${texture}`;
 }
 
 function isMergeable(voxel: Voxel): boolean {
   const shape = voxel.shape ?? "cube";
-  if (shape !== "cube") return false;
-  return true;
+  if (shape === "cube") return true;
+  // Ramps merge in any rotation. The renderer differentiates Y-ramps (rot 0/180)
+  // and X-ramps (rot 90/270) internally so the slope CSS handles each axis
+  // correctly. See VoxShape / ramp.ts and the .voxcss-ramp-x CSS rules.
+  if (shape === "ramp") return true;
+  // Wedges and spikes are corner pieces — merging changes their geometry, so excluded.
+  return false;
 }
 
 function sortByPosition(a: Voxel, b: Voxel): number {
@@ -33,7 +44,13 @@ export function mergeVoxels(grid: VoxelGrid): VoxelGrid {
     if (!voxel) continue;
     const { z: zStart, z2 } = getVoxelZBounds(voxel);
     const hasZSpan = typeof voxel.z2 === "number" && Number.isFinite(voxel.z2) && Math.floor(voxel.z2) > zStart + 1;
-    if (!hasZSpan) {
+    // Z-slice only mergeable cubes. Splitting a multi-cell ramp/wedge/spike/
+    // triangle into per-layer copies changes their geometry (a 2-tall ramp
+    // becomes two stacked 1-tall ramps with the wrong slope; a multi-cell
+    // wedge gets duplicated; triangles get cloned with broken z bounds).
+    // Non-cubes keep their original z-span and live in the bucket of their
+    // bottom layer.
+    if (!hasZSpan || !isMergeable(voxel) || (voxel.shape ?? "cube") !== "cube") {
       const normalized = voxel.z === zStart ? voxel : { ...voxel, z: zStart };
       const bucket = byLayer.get(zStart);
       if (bucket) {

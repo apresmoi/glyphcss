@@ -19,7 +19,9 @@ export function normalizeSceneState(input: SceneComponentProps): SceneState {
     showWalls: input.showWalls ?? false,
     showFloor: input.showFloor ?? false,
     projection: input.projection ?? "cubic",
-    mergeVoxels: input.mergeVoxels ?? false
+    mergeVoxels: input.mergeVoxels ?? false,
+    lighting: input.lighting,
+    resolveTexture: input.resolveTexture
   };
 }
 
@@ -163,7 +165,9 @@ export function mountScene({
         prevState.showWalls !== nextState.showWalls ||
         prevState.showFloor !== nextState.showFloor ||
         prevState.projection !== nextState.projection ||
-        prevState.mergeVoxels !== nextState.mergeVoxels;
+        prevState.mergeVoxels !== nextState.mergeVoxels ||
+        prevState.lighting !== nextState.lighting ||
+        prevState.resolveTexture !== nextState.resolveTexture;
       if (shouldRender) scheduleRender();
     },
     destroy() {

@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { GridContext, Voxel, WallsMask, CubeFace } from "@layoutit/voxcss-core/types";
 import { DEFAULT_OFFSETS, DEFAULT_WALLS } from "@layoutit/voxcss-core/types";
+import { buildSceneContext } from "@layoutit/voxcss-core";
 
 // Import from index.ts to cover re-exports
 import {
@@ -241,11 +242,12 @@ describe("cubeShapeRenderer", () => {
 
       cubeShapeRenderer({ voxel, context, root });
 
-      // spanX = 3 * 50 = 150, spanY = 2 * 50 = 100
-      // offsetSpanX = 150 - 25 = 125
-      // offsetSpanY = 100 - 25 = 75
-      expect(root.style.getPropertyValue("--voxcss-side-offset-x")).toBe("125px");
-      expect(root.style.getPropertyValue("--voxcss-side-offset-y")).toBe("75px");
+      // spanXCells = 3, spanYCells = 2; halfTile = 25; tile = 50
+      // side-offset-x = spanXCells * halfTile = 3 * 25 = 75
+      // side-offset-y = spanYCells * halfTile = 2 * 25 = 50
+      // fr-offset = spanYCells * tile = 2 * 50 = 100
+      expect(root.style.getPropertyValue("--voxcss-side-offset-x")).toBe("75px");
+      expect(root.style.getPropertyValue("--voxcss-side-offset-y")).toBe("50px");
       expect(root.style.getPropertyValue("--voxcss-fr-offset")).toBe("100px");
     });
   });
@@ -978,5 +980,75 @@ describe("rampShapeRenderer", () => {
     const bottom = root.querySelector(".voxcss-ramp-bottom") as HTMLElement;
     expect(bottom).not.toBeNull();
     expect(bottom.style.backgroundImage).toContain("https://example.com/wood.png");
+  });
+
+  it("z2 ramp sets dynamic --voxcss-ramp-angle on root element", () => {
+    const root = makeRoot();
+    // spanZ=2, layerElevation=50 → effectiveElevation=100, spanY=1
+    // slopeParams(1, 50, 100): angle = atan(100/50)*180/PI ≈ 63.435deg
+    const voxel: Voxel = { x: 1, y: 1, z: 0, z2: 2, shape: "ramp", color: "#ff8800" };
+    const context = buildSceneContext({ grid: [voxel] }).context;
+
+    rampShapeRenderer({ voxel, context, root });
+
+    const angle = root.style.getPropertyValue("--voxcss-ramp-angle");
+    expect(angle).toBeTruthy();
+    expect(angle).toContain("deg");
+    expect(parseFloat(angle)).toBeGreaterThan(60);
+  });
+
+  it("z2 ramp renders into a single root (not multiple roots)", () => {
+    const root = makeRoot();
+    const voxel: Voxel = { x: 1, y: 1, z: 0, z2: 3, shape: "ramp", color: "#ff8800" };
+    const context = buildSceneContext({ grid: [voxel] }).context;
+
+    rampShapeRenderer({ voxel, context, root });
+
+    // rampShapeRenderer sets the class on root itself, not on child elements
+    expect(root.classList.contains("voxcss-ramp")).toBe(true);
+    // Only one slope element for the entire span
+    const slopes = root.querySelectorAll(".voxcss-ramp-slope");
+    expect(slopes.length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// z2 cube tests (Phase 1b)
+// ---------------------------------------------------------------------------
+
+describe("cubeShapeRenderer z2 span behavior", () => {
+  it("z2 cube renders as a single element (not multiple)", () => {
+    const root = makeRoot();
+    const voxel: Voxel = { x: 0, y: 0, z: 0, z2: 3, color: "#336699" };
+    const context = buildSceneContext({ grid: [voxel] }).context;
+
+    cubeShapeRenderer({ voxel, context, root });
+
+    // cubeShapeRenderer operates on a single root element and adds the class there
+    expect(root.classList.contains("voxcss-cube")).toBe(true);
+    // All face elements are direct children of root (no nested cube wrappers)
+    const faces = root.querySelectorAll(".voxcss-cube-face");
+    expect(faces.length).toBeGreaterThan(0);
+  });
+
+  it("z2 cube applies --voxcss-layer-elevation override when spanZ > 1", () => {
+    const root = makeRoot();
+    const voxel: Voxel = { x: 0, y: 0, z: 0, z2: 3, color: "#336699" };
+    const context = buildSceneContext({ grid: [voxel] }).context;
+
+    cubeShapeRenderer({ voxel, context, root });
+
+    // spanZ=3, layerElevation=50px → override = 3*50 = 150px
+    expect(root.style.getPropertyValue("--voxcss-layer-elevation")).toBe("150px");
+  });
+
+  it("cube without z2 (spanZ=1) does not set --voxcss-layer-elevation", () => {
+    const root = makeRoot();
+    const voxel: Voxel = { x: 0, y: 0, z: 0, color: "#336699" };
+    const context = buildSceneContext({ grid: [voxel] }).context;
+
+    cubeShapeRenderer({ voxel, context, root });
+
+    expect(root.style.getPropertyValue("--voxcss-layer-elevation")).toBe("");
   });
 });

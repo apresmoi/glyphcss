@@ -1,11 +1,42 @@
-import { STYLE_ID } from "@layoutit/voxcss-core";
+import { STYLE_ID, OCCLUSION_DIR_BINS } from "@layoutit/voxcss-core";
 
 export function injectBaseStyles(doc: Document): void {
   if (!doc || doc.getElementById(STYLE_ID)) return;
   const style = doc.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = CORE_BASE_STYLES;
+  style.textContent = CORE_BASE_STYLES + buildOcclusionCullRules();
   doc.head.appendChild(style);
+}
+
+/**
+ * Generate one CSS rule per camera-direction bin. The `~=` attribute selector
+ * matches voxels whose `data-occluded-dirs` token list contains the bin index.
+ * On rotation, the scene root toggles a single `voxcss-cull-dir-N` class —
+ * pure CSS, zero React re-render, zero per-frame JS.
+ *
+ * Also generates "debug-show-culled" overrides: when the scene root has both
+ * `voxcss-debug-show-culled` and the active `voxcss-cull-dir-N` class, we
+ * override `display: none` with `block` + a red outline. Higher selector
+ * specificity (2 classes on root vs 1) wins without !important.
+ */
+function buildOcclusionCullRules(): string {
+  let css = "\n/* Camera-direction occlusion cull rules (one per direction bin). */\n";
+  for (let i = 0; i < OCCLUSION_DIR_BINS; i++) {
+    css += `.voxcss-cull-dir-${i} [data-occluded-dirs~="${i}"] { display: none; }\n`;
+  }
+  // Use a DIFFERENT color (blue) than the face-level occlusion debug (red)
+  // so the two kinds of culling are visually distinguishable when both
+  // overlays are showing.
+  css += "\n/* Debug: when voxcss-debug-show-culled is on, render dir-culled cells\n";
+  css += "   with the same orange dashed style as the triangle back-face debug,\n";
+  css += "   so the unified \"show back-faces\" toggle looks consistent across\n";
+  css += "   cube/ramp/wedge/spike voxels and triangle/polygon voxels. */\n";
+  for (let i = 0; i < OCCLUSION_DIR_BINS; i++) {
+    css +=
+      `.voxcss-debug-show-culled.voxcss-cull-dir-${i} [data-occluded-dirs~="${i}"] ` +
+      `{ display: block; outline: 2px dashed rgba(249, 115, 22, 0.9); outline-offset: -2px; opacity: 0.55; }\n`;
+  }
+  return css;
 }
 
 const CORE_BASE_STYLES = `
@@ -136,11 +167,17 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-cube-face--fr {
   width: var(--voxcss-layer-elevation, 50px);
-  transform: rotateY(90deg) translateZ(var(--voxcss-side-offset-y, 25px));
+  transform:
+    translateX(calc(var(--voxcss-side-offset-y, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateY(90deg)
+    translateZ(var(--voxcss-side-offset-y, 25px));
 }
 .voxcss-cube-face--fl {
   height: var(--voxcss-layer-elevation, 50px);
-  transform: rotateX(90deg) translateZ(calc(-1 * var(--voxcss-side-offset-x, 25px)));
+  transform:
+    translateY(calc(var(--voxcss-side-offset-x, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateX(90deg)
+    translateZ(calc(-1 * var(--voxcss-side-offset-x, 25px)));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fl {
   height: var(--voxcss-layer-elevation, 50px);
@@ -149,7 +186,10 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-cube-face--bl {
   width: var(--voxcss-layer-elevation, 50px);
-  transform: rotateY(90deg) translateZ(calc(-1 * var(--voxcss-layer-half)));
+  transform:
+    translateX(calc(var(--voxcss-side-offset-y, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateY(90deg)
+    translateZ(calc(-1 * var(--voxcss-side-offset-y, 25px)));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--bl {
   transform: rotateY(90deg) translateZ(0px);
@@ -158,12 +198,15 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-cube-face--br {
   height: var(--voxcss-layer-elevation, 50px);
-  transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
+  transform:
+    translateY(calc(var(--voxcss-side-offset-x, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateX(90deg)
+    translateZ(var(--voxcss-side-offset-x, 25px));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--br {
   height: var(--voxcss-layer-elevation, 50px);
   transform-origin: bottom;
-  transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
+  transform: rotateX(90deg) translateZ(var(--voxcss-side-offset-x, 25px));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fr {
   transform: rotateY(90deg) translateZ(var(--voxcss-fr-offset, var(--voxcss-side-offset-y, 25px)));
@@ -259,6 +302,14 @@ const CORE_BASE_STYLES = `
     rotate(var(--voxcss-shape-rotation, 0deg));
 }
 
+.voxcss-triangle {
+  position: relative;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  /* No translateZ here — the SVG's matrix3d places vertices in absolute
+     wrapper-local coords; any extra wrapper transform would offset everything. */
+}
+
 .voxcss-ramp .voxcss-ramp-slope {
   position: absolute;
   inset: 0;
@@ -290,11 +341,26 @@ const CORE_BASE_STYLES = `
   --voxcss-ramp-angle: 26.565deg;
 }
 
+/* Y-ramp: slope along container CSS X (= voxcss Y axis). Default behavior. */
 .voxcss-ramp .voxcss-ramp-slope {
   width: calc(100% + var(--voxcss-ramp-offset, 21px));
   right: calc(-1 * var(--voxcss-ramp-offset, 21px));
   transform-origin: top left;
   transform: rotateY(var(--voxcss-ramp-angle, 45deg));
+}
+
+/* X-ramp: slope along container CSS Y (= voxcss X axis).
+   Swaps width/height and uses rotateX instead of rotateY so multi-cell merged
+   ramps with rot=90/270 render correctly. The parent rotation is constrained
+   to 0° (east) or 180° (west) by VoxShape's orientation remapping, so the
+   axis swap here doesn't fight an unexpected parent rotate. */
+.voxcss-ramp.voxcss-ramp-x .voxcss-ramp-slope {
+  width: 100%;
+  height: calc(100% + var(--voxcss-ramp-offset, 21px));
+  bottom: calc(-1 * var(--voxcss-ramp-offset, 21px));
+  right: auto;
+  transform-origin: top left;
+  transform: rotateX(calc(-1 * var(--voxcss-ramp-angle, 45deg)));
 }
 
 .voxcss-wedge {
@@ -383,4 +449,65 @@ const CORE_BASE_STYLES = `
 .voxcss-scene:not(.voxcss-mask-br) .voxcss-wall--backRight { display: none; }
 .voxcss-scene:not(.voxcss-mask-fl) .voxcss-wall--frontLeft { display: none; }
 .voxcss-scene:not(.voxcss-mask-fr) .voxcss-wall--frontRight { display: none; }
+
+/* Debug: faces that would normally be occluded but are rendered to expose
+   visibility-culling. Outlined in red and tinted so they're easy to spot. */
+.voxcss-debug-occluded {
+  outline: 2px solid rgba(255, 0, 0, 0.85);
+  outline-offset: -2px;
+  background-color: rgba(255, 0, 0, 0.25) !important;
+  background-image: none !important;
+}
+
+/* Debug: shapes that would normally be hidden by isCovered (a voxel above
+   them) — kept rendered with an orange outline so you can see they exist but
+   are being culled. */
+.voxcss-debug-covered {
+  outline: 2px dashed rgba(255, 165, 0, 0.9);
+  outline-offset: -2px;
+  opacity: 0.6;
+}
+.voxcss-debug-covered svg path {
+  fill: rgba(255, 165, 0, 0.5) !important;
+}
+
+/* Debug: when "show back-faces" is on, the slope wrappers go two-sided so
+   their inner front/back render layers can both render. For Wedge/Spike the
+   inner SVGs (front + back-debug) handle their own per-side culling via
+   backface-visibility: hidden inside SvgSlope. For Ramp the slope is a
+   plain div with a background-color, so we use ::before for the front
+   color and ::after for the orange back debug overlay. */
+.voxcss-debug-show-backfaces .voxcss-wedge-slope,
+.voxcss-debug-show-backfaces .voxcss-spike-slope,
+.voxcss-debug-show-backfaces .voxcss-ramp-slope {
+  backface-visibility: visible;
+}
+
+.voxcss-debug-show-backfaces .voxcss-ramp-slope {
+  /* Suppress the wrapper's own background so it doesn't paint on both sides;
+     ::before below handles the front color (per-side culled). */
+  background-color: transparent !important;
+}
+.voxcss-debug-show-backfaces .voxcss-ramp-slope::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: var(--voxcss-ramp-slope-color, #888);
+  backface-visibility: hidden;
+}
+.voxcss-debug-show-backfaces .voxcss-ramp-slope::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: rgba(249, 115, 22, 0.55);
+  outline: 2px dashed rgba(249, 115, 22, 0.9);
+  outline-offset: -2px;
+  /* Flip Z (normal) without mirroring X/Y — the orange ::after stays in the
+     same visible position as the slope's front, just facing the opposite
+     direction so backface-visibility shows it from behind. */
+  transform: scale3d(1, 1, -1);
+  transform-origin: center;
+  backface-visibility: hidden;
+}
+
 `;

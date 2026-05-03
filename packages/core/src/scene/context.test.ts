@@ -112,6 +112,20 @@ describe("buildSceneContext", () => {
       expect(result.context.getVoxel(0, 0, 2)).not.toBeNull();
       expect(result.context.getVoxel(0, 0, 3)).toBeNull();
     });
+
+    it("z2 voxel is rendered only on base layer but lookup populated at every covered z", () => {
+      const tall: Voxel = { x: 0, y: 0, z: 0, z2: 3 };
+      const result = buildSceneContext({ grid: [tall] });
+      // Lookup populated at every z
+      expect(result.context.getVoxel(0, 0, 0)).not.toBeNull();
+      expect(result.context.getVoxel(0, 0, 1)).not.toBeNull();
+      expect(result.context.getVoxel(0, 0, 2)).not.toBeNull();
+      // But voxel only listed once, in layer 0
+      const layer0 = result.layers[0].filter(v => v.x === 0 && v.y === 0).length;
+      const layer1 = result.layers[1].filter(v => v.x === 0 && v.y === 0).length;
+      expect(layer0).toBe(1);
+      expect(layer1).toBe(0);
+    });
   });
 
   it("respects dimension overrides", () => {

@@ -42,11 +42,15 @@ Merges adjacent same-color voxels **within each Z layer**. The engine finds rect
 
 **Best for:** medium scenes with large flat areas of uniform color — floors, walls, terrain surfaces.
 
-### 3D merging — `"3d"`
+### 3D slice rendering — `"3d"`
 
-Volumetric merge across **all three axes**. The engine switches to a slice-based rendering approach, producing the fewest possible elements. Adjacent same-color voxels are combined into large cuboid regions regardless of layer boundaries.
+Switches the engine to a **slice-based rendering** path. Each Z layer is painted as a small set of rectangles per face plane, producing the fewest possible elements. This is not 3D box merging — voxels are not merged into cuboids; they're flattened into face strips.
 
 **Best for:** large, dense models where raw performance matters more than per-voxel control — imported `.vox` files, detailed scenes, anything visibly laggy at the default setting.
+
+**Limitations:**
+- No per-voxel DOM addressing — individual voxels are not separate elements.
+- Shapes (`ramp`, `wedge`, `spike`) are not supported; the slice renderer treats every voxel as a cube.
 
 ## Setting merge mode
 
@@ -56,17 +60,23 @@ Volumetric merge across **all three axes**. The engine switches to a slice-based
 - **Vue:** `<VoxScene :voxels="voxels" merge-voxels="2d" />`
 - **Vanilla JS:** `scene: { voxels, mergeVoxels: "2d" }`
 
-## Automatic 3D path
+## Multi-layer spans (z2)
 
-If any voxel in your scene uses `z2` (spanning multiple Z layers with area spans like `{ x: 0, y: 0, z: 0, z2: 3 }`), the engine automatically switches to the 3D rendering path regardless of your `mergeVoxels` setting. The slice-based renderer is required to handle multi-layer spans correctly.
+Voxels can span multiple Z layers via the `z2` property — `{ x: 0, y: 0, z: 0, z2: 3 }` is a 3-layer-tall cube. All non-`"3d"` modes natively render `z2` spans as single DOM elements:
+
+- **`false`** — each authored `z2` voxel is one DOM element with its full vertical extent.
+- **`"2d"`** — cubes with `z2` render as one tall element. Shapes (`ramp`/`wedge`/`spike`) with `z2` currently render as N stacked elements per layer — a known limitation tracked in `TECH_DEBT.md`. Use `false` for shape-with-`z2` scenes.
+- **`"3d"`** — slice mode treats every voxel as a cube face for face-plane rendering. `z2` cubes render correctly across all spanned layers.
+
+There is **no automatic mode promotion** based on `z2` presence — pick the mode that fits your scene.
 
 ## Choosing a merge mode
 
 | Mode | DOM nodes | Per-voxel control | Best use case |
 |------|-----------|-------------------|---------------|
 | `false` | Most | Full | Small scenes, interactive voxels |
-| `"2d"` | Fewer | Limited | Medium scenes, flat color regions |
-| `"3d"` | Fewest | None | Large dense models, imported `.vox` files |
+| `"2d"` | Fewer | Per merged rectangle (still addressable per layer) | Medium scenes, flat color regions |
+| `"3d"` | Fewest | None — slice rendering, no per-voxel elements | Large dense models, imported `.vox` files (cubes only) |
 
 Start with the default (no merging) and switch to `"2d"` or `"3d"` if you notice rendering lag. In many cases, the automatic face culling alone is enough to keep scenes performant.
 

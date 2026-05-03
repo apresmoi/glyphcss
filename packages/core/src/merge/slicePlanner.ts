@@ -4,7 +4,7 @@
  */
 import type { CubeFace, GridContext, Voxel, WallsMask } from "../types";
 import { CUBE_FACES } from "../types";
-import { getVoxelBounds } from "../scene/context";
+import { getVoxelBounds, getVoxelZBounds } from "../scene/context";
 import { computeCubeFaceAppearance } from "../color/faceAppearance";
 import { parsePureColor, clampChannel } from "../color/color";
 
@@ -389,14 +389,18 @@ export const buildFaceDataFromSnapshot = (snapshot: { layers: Voxel[][]; context
     for (const voxel of layer) {
       if (!voxel) continue;
       const { x2, y2 } = getVoxelBounds(voxel);
+      const { z2 } = getVoxelZBounds(voxel);
       for (let x = voxel.x; x < x2; x += 1) {
         if (x < 0 || x >= rows) continue;
         for (let y = voxel.y; y < y2; y += 1) {
           if (y < 0 || y >= cols) continue;
-          const idx = z * strideXY + x * cols + y;
-          if (occupancy[idx]) continue;
-          occupancy[idx] = voxel;
-          occupiedIndices.push(idx);
+          for (let zi = voxel.z; zi < z2; zi += 1) {
+            if (zi < 0 || zi >= depth) continue;
+            const idx = zi * strideXY + x * cols + y;
+            if (occupancy[idx]) continue;
+            occupancy[idx] = voxel;
+            occupiedIndices.push(idx);
+          }
         }
       }
     }

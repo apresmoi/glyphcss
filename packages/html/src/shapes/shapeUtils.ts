@@ -1,5 +1,14 @@
 import type { GridContext, Voxel, ShapeType, ShapeSurfaceLighting } from "@layoutit/voxcss-core";
-import { computeShapeLighting, getVoxelBounds } from "@layoutit/voxcss-core";
+import {
+  computeShapeLighting,
+  computeShapeStyle,
+  isCovered,
+  isBottomOccluded,
+  shouldRenderBottom,
+  getVoxelBounds
+} from "@layoutit/voxcss-core";
+
+export { isCovered, isBottomOccluded, shouldRenderBottom };
 
 const SHAPE_INNER_CLASS = "voxcss-shape-inner";
 const ORIENTATION_CLASS_NAMES = ["voxcss-east", "voxcss-south", "voxcss-west", "voxcss-north"];
@@ -45,25 +54,6 @@ export function applyTextureBrightness(el: HTMLElement, delta: number): void {
   }
   const rounded = Math.round(brightness * 1000) / 1000;
   el.style.filter = `brightness(${rounded})`;
-}
-
-export function isBottomOccluded(voxel: Voxel, context: GridContext): boolean {
-  const targetZ = Math.floor((voxel.z ?? 0) - 1);
-  if (targetZ < 0) return false;
-  const { x2, y2 } = getVoxelBounds(voxel);
-  for (let x = voxel.x; x < x2; x += 1) {
-    for (let y = voxel.y; y < y2; y += 1) {
-      if (!context.getVoxel(x, y, targetZ)) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-export function shouldRenderBottom(voxel: Voxel, context: GridContext): boolean {
-  if (context.walls?.b) return false;
-  return !isBottomOccluded(voxel, context);
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -175,19 +165,6 @@ function rotationToOrientation(rotation: number): string {
   return mapping[normalized] ?? "east";
 }
 
-function isCovered(voxel: Voxel, context: GridContext): boolean {
-  const { x2, y2 } = getVoxelBounds(voxel);
-  const layerIndex = Math.max(0, Math.floor((voxel.z ?? 0) + 1));
-  for (let row = voxel.x; row < x2; row += 1) {
-    for (let col = voxel.y; col < y2; col += 1) {
-      if (context.getVoxel(row, col, layerIndex)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 function findShapeInner(root: HTMLElement): HTMLElement | null {
   return root.querySelector<HTMLElement>(`.${SHAPE_INNER_CLASS}`) ?? null;
 }
@@ -216,6 +193,13 @@ export function prepareShapeRoot(args: PrepareShapeArgs): PreparedShapeResult | 
     root.classList.remove(className);
   }
   root.classList.add(`voxcss-${orientation}`);
+
+  // Apply span-aware CSS variable overrides (--voxcss-layer-elevation, slope
+  // angles, etc.) so the shape element renders correctly when z2 > z+1.
+  const spanStyle = computeShapeStyle(voxel, context);
+  for (const [prop, value] of Object.entries(spanStyle)) {
+    root.style.setProperty(prop, value);
+  }
 
   let container: HTMLElement;
   if (mountToRoot) {

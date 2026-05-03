@@ -10,6 +10,18 @@ interface SvgSlopeProps {
   height?: string;
   textureUrl?: string;
   brightnessDelta?: number;
+  /**
+   * When true, render an additional sibling SVG that's rotated 180° on Y
+   * (mirroring the slope) with an orange dashed-debug fill. The front SVG
+   * gets its own `backface-visibility: hidden` so the browser hides whichever
+   * isn't facing the camera — front view shows the original, back view shows
+   * the orange copy.
+   *
+   * The wrapper div's own backface-visibility is set to `visible` in the
+   * `.voxcss-debug-show-backfaces` scope (CSS in styles.ts) so both children
+   * can render independently.
+   */
+  debugBack?: boolean;
 }
 
 export function SvgSlope({
@@ -21,6 +33,7 @@ export function SvgSlope({
   height = "50",
   textureUrl,
   brightnessDelta = 0,
+  debugBack = false,
 }: SvgSlopeProps) {
   const patternId = useId();
 
@@ -44,6 +57,7 @@ export function SvgSlope({
           height: "100%",
           display: "block",
           pointerEvents: "none",
+          backfaceVisibility: "hidden",
         }}
       >
         {textureUrl && (
@@ -72,6 +86,42 @@ export function SvgSlope({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
+      {debugBack && (
+        <svg
+          viewBox={viewBox}
+          width={width}
+          height={height}
+          preserveAspectRatio="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+          focusable={false as unknown as undefined}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            display: "block",
+            pointerEvents: "none",
+            // scale3d(1,1,-1) negates the local Z axis — that flips the
+            // outward normal so the browser treats this as the back face,
+            // but unlike rotateY(180deg) it does NOT mirror the visible
+            // X/Y geometry. The orange shape ends up in the same screen
+            // position as the front, just visible from the opposite side.
+            transform: "scale3d(1, 1, -1)",
+            transformOrigin: "center",
+            backfaceVisibility: "hidden",
+          }}
+        >
+          <path
+            d={path}
+            fill="rgba(249, 115, 22, 0.55)"
+            stroke="rgba(249, 115, 22, 0.9)"
+            strokeWidth="1"
+            strokeDasharray="3,2"
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      )}
     </div>
   );
 }

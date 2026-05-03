@@ -1,6 +1,6 @@
 import { createIsometricCamera, normalizeInvertMultiplier } from "../camera/camera";
 import type { CameraHandle, CameraState } from "../camera/camera";
-import type { ProjectionMode, SceneDimensions, WallsMask, Voxel, GridContext, VoxelGrid } from "../types";
+import type { ProjectionMode, SceneDimensions, WallsMask, Voxel, GridContext, VoxelGrid, FaceAppearanceOverride } from "../types";
 import { buildSceneContext, computeWallMask, wallMasksEqual } from "../scene/context";
 import { mergeVoxels as mergeVoxelsGrid } from "../merge/mergeVoxels";
 import { normalizeMergeVoxelsOption, is2dMerge, is3dMerge } from "../merge/mergeVoxelsOption";
@@ -15,6 +15,8 @@ export interface SceneState {
   showFloor: boolean;
   projection: ProjectionMode;
   mergeVoxels?: MergeVoxelsOption;
+  lighting?: (voxel: Voxel, face: string) => FaceAppearanceOverride | undefined;
+  resolveTexture?: (name: string, face: string) => string | undefined;
 }
 
 export type SceneRenderMode = "cubes" | "slice-renderer";
@@ -135,8 +137,10 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
     }
 
     const cubeOnly = rawVoxels.every((voxel) => !voxel || (voxel.shape ?? "cube") === "cube");
-    const shouldPreMerge = is2dMerge(mergeOption);
-    const grid = shouldPreMerge ? mergeVoxelsGrid(rawVoxels) : rawVoxels;
+    let grid: VoxelGrid = rawVoxels;
+    if (is2dMerge(mergeOption)) {
+      grid = mergeVoxelsGrid(rawVoxels);
+    }
 
     cachedRawVoxels = rawVoxels;
     cachedRawVoxelsLength = rawVoxels.length;
@@ -157,7 +161,9 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       showFloor: lastState.showFloor,
       projection: lastState.projection,
       rotX: camera.state.rotX,
-      rotY: camera.state.rotY
+      rotY: camera.state.rotY,
+      lighting: lastState.lighting,
+      resolveTexture: lastState.resolveTexture
     },
     dimensions: dimensionOverride
   });
@@ -176,7 +182,9 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
         showFloor: state.showFloor,
         projection: state.projection,
         rotX: camera.state.rotX,
-        rotY: camera.state.rotY
+        rotY: camera.state.rotY,
+        lighting: state.lighting,
+        resolveTexture: state.resolveTexture
       },
       dimensions: dimensionOverride
     });
@@ -322,7 +330,9 @@ export function sceneController(options: SceneControllerOptions = {}): SceneCont
       prevState.showWalls !== state.showWalls ||
       prevState.showFloor !== state.showFloor ||
       prevState.projection !== state.projection ||
-      prevState.mergeVoxels !== state.mergeVoxels;
+      prevState.mergeVoxels !== state.mergeVoxels ||
+      prevState.lighting !== state.lighting ||
+      prevState.resolveTexture !== state.resolveTexture;
     if (profile) profile.needsRebuild = needsRebuild;
     if (needsRebuild) {
       const buildStart = profile ? nowMs() : 0;

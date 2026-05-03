@@ -1,9 +1,9 @@
-export type MergeVoxelsOption = false | "2d" | "3d";
+export type MergeVoxelsOption = false | "2d" | "3d" | "poly";
 
 export function normalizeMergeVoxelsOption(option: MergeVoxelsOption | undefined): MergeVoxelsOption;
 export function normalizeMergeVoxelsOption(option: unknown): MergeVoxelsOption;
 export function normalizeMergeVoxelsOption(option: unknown): MergeVoxelsOption {
-  if (option === "2d" || option === "3d" || option === false) return option;
+  if (option === "2d" || option === "3d" || option === "poly" || option === false) return option;
   return false;
 }
 
@@ -13,4 +13,8 @@ export function is2dMerge(option: MergeVoxelsOption | undefined): boolean {
 
 export function is3dMerge(option: MergeVoxelsOption | undefined): boolean {
   return option === "3d";
+}
+
+export function isPolyMerge(option: MergeVoxelsOption | undefined): boolean {
+  return option === "poly";
 }

@@ -30,8 +30,10 @@ Adjust grid dimensions, toggle walls and floor, and switch projection modes. The
 | `showWalls` | `boolean` | `false` | Show floor-to-ceiling wall planes at the grid edges. The engine automatically hides walls on faces the camera is looking through. |
 | `showFloor` | `boolean` | `false` | Show the floor grid plane at `z: -1`, underneath all voxels. |
 | `projection` | `"cubic" \| "dimetric"` | `"cubic"` | Layer spacing mode. `cubic` uses 50px Z-steps (true isometric); `dimetric` halves the step to 25px for a flatter, more top-down feel. Useful for terrain and map-style scenes. |
-| `mergeVoxels` | `false \| "2d" \| "3d"` | `false` | Merge strategy for performance optimization. `"2d"` consolidates same-color voxels within each layer; `"3d"` also merges across layers. See the [Performance guide](/guides/performance). |
+| `mergeVoxels` | `false \| "2d" \| "3d"` | `false` | Merge strategy for performance optimization. `"2d"` consolidates same-color voxels within each layer; `"3d"` switches to a slice-based renderer for the fewest possible elements. See the [Performance guide](/guides/performance). |
 | `wallColor` | `string` | `"#3e3e4d"` | CSS color for structural walls when `showWalls` is enabled. |
+| `lighting` | `(voxel, face) => FaceAppearanceOverride \| undefined` | — | Per-voxel/per-face appearance hook. Called by the renderer for each visible face; return a [`FaceAppearanceOverride`](/api/types/#faceappearanceoverride) (`backgroundImage`, `backgroundColor`, `filter`) to override the default appearance, or `undefined` to leave it unchanged. Combining a per-voxel hook with `"2d"` merging may flatten per-voxel variation into the merged rectangle — use `mergeVoxels={false}` if you need full per-voxel hook fidelity. |
+| `resolveTexture` | `(name, face) => string \| undefined` | — | Texture name resolver. The renderer calls this for each `voxel.texture` value to translate the name into a URL (e.g., a CDN path or imported asset). Return `undefined` to leave the texture unresolved. |
 
 ## Voxel Object Shape
 
@@ -188,7 +190,7 @@ const voxels = [
 
 ### Scene with Merge Mode
 
-Use `mergeVoxels` to reduce DOM element count for large or dense scenes. `"2d"` merges adjacent same-color voxels within each layer; `"3d"` also merges across layers. See the [Performance guide](/guides/performance) for a live FPS/DOM demo.
+Use `mergeVoxels` to reduce DOM element count for large or dense scenes. `"2d"` merges same-color voxels within each layer; `"3d"` switches to a slice-based renderer for the fewest possible elements (no per-voxel control, cubes only). See the [Performance guide](/guides/performance) for a live FPS/DOM demo and a comparison table.
 
 <Tabs syncKey="fw">
 <TabItem label="React">

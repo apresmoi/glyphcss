@@ -200,11 +200,17 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-cube-face--fr {
   width: var(--voxcss-layer-elevation, 50px);
-  transform: rotateY(90deg) translateZ(var(--voxcss-side-offset-y, 25px));
+  transform:
+    translateX(calc(var(--voxcss-side-offset-y, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateY(90deg)
+    translateZ(var(--voxcss-side-offset-y, 25px));
 }
 .voxcss-cube-face--fl {
   height: var(--voxcss-layer-elevation, 50px);
-  transform: rotateX(90deg) translateZ(calc(-1 * var(--voxcss-side-offset-x, 25px)));
+  transform:
+    translateY(calc(var(--voxcss-side-offset-x, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateX(90deg)
+    translateZ(calc(-1 * var(--voxcss-side-offset-x, 25px)));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fl {
   height: var(--voxcss-layer-elevation, 50px);
@@ -213,7 +219,10 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-cube-face--bl {
   width: var(--voxcss-layer-elevation, 50px);
-  transform: rotateY(90deg) translateZ(calc(-1 * var(--voxcss-layer-half)));
+  transform:
+    translateX(calc(var(--voxcss-side-offset-y, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateY(90deg)
+    translateZ(calc(-1 * var(--voxcss-side-offset-y, 25px)));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--bl {
   transform: rotateY(90deg) translateZ(0px);
@@ -222,12 +231,15 @@ const CORE_BASE_STYLES = `
 }
 .voxcss-cube-face--br {
   height: var(--voxcss-layer-elevation, 50px);
-  transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
+  transform:
+    translateY(calc(var(--voxcss-side-offset-x, 25px) - var(--voxcss-layer-elevation, 50px) / 2))
+    rotateX(90deg)
+    translateZ(var(--voxcss-side-offset-x, 25px));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--br {
   height: var(--voxcss-layer-elevation, 50px);
   transform-origin: bottom;
-  transform: rotateX(90deg) translateZ(var(--voxcss-layer-half));
+  transform: rotateX(90deg) translateZ(var(--voxcss-side-offset-x, 25px));
 }
 .voxcss-projection--dimetric .voxcss-cube-face--fr {
   transform: rotateY(90deg) translateZ(var(--voxcss-fr-offset, var(--voxcss-side-offset-y, 25px)));
@@ -354,11 +366,24 @@ const CORE_BASE_STYLES = `
   --voxcss-ramp-angle: 26.565deg;
 }
 
+/* Y-ramp: slope along container CSS X (= voxcss Y axis). Default behavior. */
 .voxcss-ramp .voxcss-ramp-slope {
   width: calc(100% + var(--voxcss-ramp-offset, 21px));
   right: calc(-1 * var(--voxcss-ramp-offset, 21px));
   transform-origin: top left;
   transform: rotateY(var(--voxcss-ramp-angle, 45deg));
+}
+
+/* X-ramp: slope along container CSS Y (= voxcss X axis).
+   Swaps width/height and uses rotateX instead of rotateY so multi-cell merged
+   ramps with rot=90/270 render correctly. */
+.voxcss-ramp.voxcss-ramp-x .voxcss-ramp-slope {
+  width: 100%;
+  height: calc(100% + var(--voxcss-ramp-offset, 21px));
+  bottom: calc(-1 * var(--voxcss-ramp-offset, 21px));
+  right: auto;
+  transform-origin: top left;
+  transform: rotateX(calc(-1 * var(--voxcss-ramp-angle, 45deg)));
 }
 
 .voxcss-wedge {

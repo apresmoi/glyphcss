@@ -69,16 +69,27 @@ describe("Shape behaviors", () => {
       { rot: 270, expected: "voxcss-north" },
     ];
 
+    // Ramps have a special remapping: rot=90 → east + voxcss-ramp-x, rot=270 → west + voxcss-ramp-x.
+    // This is because the X-ramp class internally handles the axis swap, so the parent rotation
+    // only encodes drop direction (forward = 0° / reverse = 180°).
+    const rampRemap: Record<number, string> = {
+      0: "voxcss-east",
+      90: "voxcss-east",
+      180: "voxcss-west",
+      270: "voxcss-west",
+    };
+
     for (const { shape, className } of shapes) {
       for (const { rot, expected } of orientationCases) {
-        it(`${shape} at rot=${rot} has orientation class ${expected}`, () => {
+        const expectedClass = shape === "ramp" ? rampRemap[rot] : expected;
+        it(`${shape} at rot=${rot} has orientation class ${expectedClass}`, () => {
           const voxel: Voxel = { x: 0, y: 0, z: 0, shape, rot, color: "#aabbcc" };
           const context = makeContext([voxel]);
           const container = renderToDiv(<VoxShape voxel={voxel} context={context} />);
 
           const shapeEl = container.querySelector(`.${className}`);
           expect(shapeEl).toBeTruthy();
-          expect(shapeEl?.classList.contains(expected)).toBe(true);
+          expect(shapeEl?.classList.contains(expectedClass)).toBe(true);
         });
       }
     }

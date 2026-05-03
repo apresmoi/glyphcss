@@ -115,6 +115,16 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
           for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
             el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
           }
+          // Camera-direction occlusion: replace the previously-set dir class
+          // with the current one. CSS rules `.voxcss-cull-dir-N` then hide
+          // every voxel whose `data-occluded-dirs` lists bin N.
+          const dirBin = store.getState().dirBin;
+          const prev = el.dataset.voxDirBin;
+          if (prev !== undefined && prev !== String(dirBin)) {
+            el.classList.remove(`voxcss-cull-dir-${prev}`);
+          }
+          el.classList.add(`voxcss-cull-dir-${dirBin}`);
+          el.dataset.voxDirBin = String(dirBin);
         }
       }
       store.notifyAll(); // props changed — always notify
@@ -131,7 +141,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }, []);
 
-  // Apply wall mask CSS classes on scene element (bypasses React)
+  // Apply wall mask + octant cull CSS classes on scene element (bypasses React)
   const applyWallMaskDirect = useCallback(() => {
     const el = sceneElRef.current;
     if (!el) return;
@@ -139,6 +149,13 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
       el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
     }
+    const dirBin = store.getState().dirBin;
+    const prev = el.dataset.voxDirBin;
+    if (prev !== undefined && prev !== String(dirBin)) {
+      el.classList.remove(`voxcss-cull-dir-${prev}`);
+    }
+    el.classList.add(`voxcss-cull-dir-${dirBin}`);
+    el.dataset.voxDirBin = String(dirBin);
   }, [store]);
 
   // Auto-rotate

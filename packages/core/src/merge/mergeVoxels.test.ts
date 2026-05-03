@@ -102,13 +102,38 @@ describe("mergeVoxels", () => {
     expect(result).toHaveLength(1);
   });
 
-  it("does not merge non-cube shapes", () => {
+  it("merges same-orientation ramps into a wider ramp", () => {
+    // Same color + shape + rot (default 0) → mergeable.
     const grid: Voxel[] = [
       { x: 0, y: 0, z: 0, color: "#aaa", shape: "ramp" },
       { x: 1, y: 0, z: 0, color: "#aaa", shape: "ramp" },
     ];
     const result = mergeVoxels(grid);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ x: 0, y: 0, x2: 2, shape: "ramp" });
+  });
+
+  it("does not merge ramps with different rotations", () => {
+    const grid: Voxel[] = [
+      { x: 0, y: 0, z: 0, color: "#aaa", shape: "ramp", rot: 0 },
+      { x: 1, y: 0, z: 0, color: "#aaa", shape: "ramp", rot: 90 },
+    ];
+    const result = mergeVoxels(grid);
     expect(result).toHaveLength(2);
+  });
+
+  it("does not merge wedges or spikes (corner pieces — different geometry)", () => {
+    const grid: Voxel[] = [
+      { x: 0, y: 0, z: 0, color: "#aaa", shape: "wedge" },
+      { x: 1, y: 0, z: 0, color: "#aaa", shape: "wedge" },
+    ];
+    expect(mergeVoxels(grid)).toHaveLength(2);
+
+    const spikeGrid: Voxel[] = [
+      { x: 0, y: 0, z: 0, color: "#aaa", shape: "spike" },
+      { x: 1, y: 0, z: 0, color: "#aaa", shape: "spike" },
+    ];
+    expect(mergeVoxels(spikeGrid)).toHaveLength(2);
   });
 
   it("does not merge cubes into cells occupied by non-cube shapes", () => {

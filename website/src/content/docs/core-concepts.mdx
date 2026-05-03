@@ -90,7 +90,7 @@ When many adjacent voxels share a color, VoxCSS can **merge** them into fewer, l
 
 - **`false`** — No merging. Every voxel is its own element. Best for scenes where each voxel needs individual interaction.
 - **`"2d"`** — Merges adjacent same-color voxels within each Z layer.
-- **`"3d"`** — Volumetric merging across all three axes. Fewest elements, best performance.
+- **`"3d"`** — Slice-based rendering. Fewest elements, best raw performance, no per-voxel addressing (cubes only).
 
 See the **[Performance guide](/guides/performance)** for a live FPS/DOM stats demo and guidance on choosing a mode.
 

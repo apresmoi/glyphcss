@@ -83,4 +83,35 @@ describe("VoxCube", () => {
     expect(cube.style.getPropertyValue("--voxcss-side-offset-y")).toBe("75px"); // 3 * 25
     expect(cube.style.getPropertyValue("--voxcss-fr-offset")).toBe("150px"); // 3 * 50
   });
+
+  it("z2 cube renders as a single element (not multiple)", () => {
+    const voxel: Voxel = { x: 0, y: 0, z: 0, z2: 3, color: "#336699" };
+    const context = makeContext([voxel]);
+    const container = renderToDiv(<VoxCube voxel={voxel} context={context} />);
+
+    // Should produce exactly one .voxcss-cube element (not 3 stacked cubes)
+    const cubes = container.querySelectorAll(".voxcss-cube");
+    expect(cubes.length).toBe(1);
+  });
+
+  it("z2 cube applies --voxcss-layer-elevation override when spanZ > 1", () => {
+    const voxel: Voxel = { x: 0, y: 0, z: 0, z2: 3, color: "#336699" };
+    const context = makeContext([voxel]);
+    const container = renderToDiv(<VoxCube voxel={voxel} context={context} />);
+
+    const cube = container.querySelector(".voxcss-cube") as HTMLElement;
+    expect(cube).toBeTruthy();
+    // spanZ=3, layerElevation=50px → override = 3*50 = 150px
+    expect(cube.style.getPropertyValue("--voxcss-layer-elevation")).toBe("150px");
+  });
+
+  it("cube without z2 (spanZ=1) does not set --voxcss-layer-elevation", () => {
+    const voxel: Voxel = { x: 0, y: 0, z: 0, color: "#336699" };
+    const context = makeContext([voxel]);
+    const container = renderToDiv(<VoxCube voxel={voxel} context={context} />);
+
+    const cube = container.querySelector(".voxcss-cube") as HTMLElement;
+    expect(cube).toBeTruthy();
+    expect(cube.style.getPropertyValue("--voxcss-layer-elevation")).toBe("");
+  });
 });

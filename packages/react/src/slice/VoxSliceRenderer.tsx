@@ -160,6 +160,17 @@ export function useImperativeBrushRenderer(
       renderBrushesToHost(host, poolRef.current, plansRef.current, walls, tileSize, layerElevation, axisSet);
     });
   }, [store, tileSize, layerElevation, axisSet, hostRef]);
+
+  // Cleanup: remove all imperatively-appended brush elements when the
+  // component unmounts. Otherwise they stay in the DOM as leftover
+  // full-cover planes when switching from "3d" to another mode.
+  useEffect(() => {
+    const pool = poolRef.current;
+    return () => {
+      for (const el of pool) el.remove();
+      pool.length = 0;
+    };
+  }, []);
 }
 
 /**

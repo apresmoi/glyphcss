@@ -174,9 +174,13 @@ const ldJson = {
                 <span>show floor</span>
               </label>
 
-              <label class="switch">
-                <input type="checkbox" id="merge3d-toggle" checked />
-                <span>merge 3d</span>
+              <label class="control-label" style="display:flex;flex-direction:column;gap:4px;">
+                <span class="range-heading"><span>merge mode</span></span>
+                <select id="merge-select" style="padding:6px 8px;border-radius:4px;background:rgba(255,255,255,0.05);color:inherit;border:1px solid rgba(255,255,255,0.15);font:inherit;">
+                  <option value="false">off (per voxel)</option>
+                  <option value="2d">2d (per Z slice)</option>
+                  <option value="3d" selected>3d (slice render)</option>
+                </select>
               </label>
             </form>
           </div>
@@ -651,7 +655,7 @@ const ldJson = {
     const errorEl = document.getElementById("viewer-error");
     const animateToggle = document.getElementById("animate-toggle");
     const floorToggle = document.getElementById("floor-toggle");
-    const merge3dToggle = document.getElementById("merge3d-toggle");
+    const mergeSelect = document.getElementById("merge-select");
 
     const setLoading = (val) => {
       isLoading = val;
@@ -1030,8 +1034,9 @@ const ldJson = {
       updateScene();
     });
 
-    merge3dToggle.addEventListener("change", () => {
-      scene.mergeVoxels = merge3dToggle.checked ? "3d" : "2d";
+    mergeSelect.addEventListener("change", () => {
+      const v = mergeSelect.value;
+      scene.mergeVoxels = v === "false" ? false : v;
       updateScene();
     });
 

@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import type { ProjectionMode, VoxelGrid } from "@layoutit/voxcss-core";
+import type { ProjectionMode, VoxelGrid, Voxel, FaceAppearanceOverride } from "@layoutit/voxcss-core";
 import type { SceneContextBuildResult } from "@layoutit/voxcss-core";
 import { buildSceneContext } from "@layoutit/voxcss-core";
-import { mergeVoxels as mergeVoxelsGrid } from "@layoutit/voxcss-core";
+import { mergeVoxels as mergeVoxelsGrid, mergePolygons } from "@layoutit/voxcss-core";
 import type { MergeVoxelsOption, WallsMask } from "@layoutit/voxcss-core";
 
 /** All-false wall mask — topology only for 3d merge mode. */
@@ -18,6 +18,11 @@ export interface UseSceneContextOptions {
   wallColor?: string;
   wallMask?: WallsMask;
   mergeVoxels?: MergeVoxelsOption;
+  lighting?: (voxel: Voxel, face: string) => FaceAppearanceOverride | undefined;
+  resolveTexture?: (name: string, face: string) => string | undefined;
+  debugShowOccluded?: boolean;
+  debugShowLabels?: boolean;
+  debugShowBackfaces?: boolean;
 }
 
 export function useSceneContext(
@@ -33,6 +38,8 @@ export function useSceneContext(
     let grid = voxels;
     if (options.mergeVoxels === "2d") {
       grid = mergeVoxelsGrid(grid);
+    } else if (options.mergeVoxels === "poly") {
+      grid = mergePolygons(grid);
     }
     return buildSceneContext({
       grid,
@@ -45,6 +52,11 @@ export function useSceneContext(
         showWalls: options.showWalls,
         wallColor: options.wallColor,
         walls: effectiveWalls,
+        lighting: options.lighting,
+        resolveTexture: options.resolveTexture,
+        debugShowOccluded: options.debugShowOccluded,
+        debugShowLabels: options.debugShowLabels,
+        debugShowBackfaces: options.debugShowBackfaces,
       },
       dimensions: {
         rows: options.rows,
@@ -63,5 +75,10 @@ export function useSceneContext(
     options.wallColor,
     effectiveWalls,
     options.mergeVoxels,
+    options.lighting,
+    options.resolveTexture,
+    options.debugShowOccluded,
+    options.debugShowLabels,
+    options.debugShowBackfaces,
   ]);
 }
