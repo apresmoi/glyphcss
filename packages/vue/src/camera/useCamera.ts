@@ -108,7 +108,7 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     const el = sceneElRef.value;
     if (!el) return;
     const s = handle.state;
-    const depthOffset = Number(el.dataset.voxDepthOffset ?? 0);
+    const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }
 

@@ -32,6 +32,7 @@ export type {
   ObjParseOptions,
   GltfParseOptions,
   MtlParseResult,
+  NormalizeResult,
 } from "@polycss/core";
 export {
   normalizePolygons,
@@ -40,4 +41,5 @@ export {
   parseMtl,
   parseGltf,
   loadMesh,
+  createIsometricCamera,
 } from "@polycss/core";

@@ -104,7 +104,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
       const el = sceneElRef.current;
       if (el) {
         const s = handle.state;
-        const depthOffset = Number(el.dataset.voxDepthOffset ?? 0);
+        const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
         el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
       }
       store.updateCameraFromRef(handle);
@@ -118,7 +118,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     if (!el) return;
     const handle = handleRef.current!;
     const s = handle.state;
-    const depthOffset = Number(el.dataset.voxDepthOffset ?? 0);
+    const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }, []);
 

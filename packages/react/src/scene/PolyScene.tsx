@@ -153,7 +153,7 @@ function PolySceneInner({
     <div
       ref={localSceneRef}
       className={computedClassName}
-      data-vox-depth-offset={String(depthOffset)}
+      data-polycss-depth-offset={String(depthOffset)}
       style={
         {
           ...sceneStyle,

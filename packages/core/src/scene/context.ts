@@ -3,14 +3,8 @@
  * (already normalized) and returns the data the framework wrappers need
  * to render.
  *
- * Polycss inherits its name from voxcss but the shape is much smaller:
- * no cube grid, no per-Z layer bucketing, no wall mask, no neighbor-based
+ * No cube grid, no per-Z layer bucketing, no wall mask, no neighbor-based
  * occlusion. Just a polygon list and a scene bbox.
- *
- * The wallMasksEqual helper survives because the camera + render store
- * still wants a way to compare scene-shape signatures (used as React
- * memo keys); the wall-mask part of voxcss is gone but the underlying
- * "two snapshots equal?" pattern is reused.
  */
 import type { Polygon, ProjectionMode, Vec3 } from "../types";
 import { DEFAULT_PROJECTION } from "../types";

@@ -197,7 +197,7 @@ export const PolyScene = defineComponent({
         {
           ref: sceneElLocalRef,
           class: computedClass,
-          "data-vox-depth-offset": String(depthOffset.value),
+          "data-polycss-depth-offset": String(depthOffset.value),
           style: {
             ...sceneStyle.value,
             ...(attrs.style as Record<string, unknown> | undefined),
