@@ -299,6 +299,7 @@ export default function Meshes() {
         key={model.id}
         voxels={voxels}
         origin={origin}
+        autoCenter
         defaultZoom={model.zoom}
         defaultRotX={model.rotX}
         defaultRotY={model.rotY}

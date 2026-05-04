@@ -5,7 +5,6 @@ import type {
   Polygon,
   DirectionalLight,
   AutoRotateOption,
-  Vec3,
 } from "@polycss/core";
 import { createIsometricCamera } from "@polycss/core";
 import { useCameraContext } from "../camera/context";
@@ -27,6 +26,16 @@ export interface PolySceneProps extends TransformProps {
   directionalLight?: DirectionalLight;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
+  /**
+   * When `true`, rotation pivots around the mesh's bbox center instead of
+   * world (0,0,0). Polygon data is not mutated — the scene element's
+   * `transform-origin` is moved to the bbox center in CSS. Equivalent to
+   * setting Three.js's `OrbitControls.target` to the mesh centroid. Off
+   * by default to match Three.js: meshes load at their authored origin
+   * unless the user opts in. Use this for loaded OBJ/GLB assets whose
+   * origin is at a corner / feet / arbitrary point.
+   */
+  autoCenter?: boolean;
   autoRotate?: AutoRotateOption;
   interactive?: boolean;
   invert?: boolean;
@@ -39,14 +48,6 @@ export interface PolySceneProps extends TransformProps {
   debugShowBackfaces?: boolean;
 }
 
-function sceneSize(bbox: { min: Vec3; max: Vec3 }): Vec3 {
-  return [
-    bbox.max[0] - bbox.min[0],
-    bbox.max[1] - bbox.min[1],
-    bbox.max[2] - bbox.min[2],
-  ];
-}
-
 function PolySceneInner({
   polygons: polygonsProp,
   perspective: _perspective,
@@ -56,6 +57,7 @@ function PolySceneInner({
   projection = "cubic",
   directionalLight,
   merge = "off",
+  autoCenter = false,
   autoRotate: _autoRotate,
   interactive: _interactive,
   invert: _invert,
@@ -104,31 +106,27 @@ function PolySceneInner({
   // still computes a sane (empty) sceneBbox.
   const inputPolygons = useMemo(() => polygonsProp ?? [], [polygonsProp]);
 
-  // Run mesh post-processing pipeline (normalize + optional merge) and
-  // compute the scene bbox.
+  // Run mesh post-processing pipeline (normalize + optional merge).
   const { polygons, sceneBbox } = useSceneContext(inputPolygons, {
     projection,
     merge,
     directionalLight,
   });
 
-  // Compute camera style for scene positioning. Sized by the scene bbox so
-  // the camera framing math has something concrete to work with even for
-  // arbitrary-coordinate polygon meshes.
+  // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
+  // left:50% places that point at the visible center of .polycss-camera
+  // — flex centering is unreliable for position:absolute children with no
+  // flow box. transform-origin defaults to the element's own (0,0,0),
+  // so rotations pivot around world origin (Three.js convention). Polygons
+  // render around the anchor via their own matrix3d translations.
   const sceneStyle = useMemo(() => {
     const handle = createIsometricCamera(cameraState);
-    const sizeX = sceneBbox.max[0] - sceneBbox.min[0];
-    const sizeY = sceneBbox.max[1] - sceneBbox.min[1];
-    const sizeZ = sceneBbox.max[2] - sceneBbox.min[2];
-    return handle.getStyle({
-      // Map mesh bbox span into the camera's row/col/depth framing inputs.
-      // The camera is generic (per §Design.9); these names are historical.
-      rows: Math.max(1, Math.ceil(sizeX)),
-      cols: Math.max(1, Math.ceil(sizeY)),
-      depth: Math.max(1, Math.ceil(sizeZ)),
-      dimetric: projection === "dimetric",
-    });
-  }, [cameraState, sceneBbox, projection]);
+    return {
+      ...handle.getStyle(),
+      top: "50%",
+      left: "50%",
+    };
+  }, [cameraState]);
 
   const computedClassName = `polycss-scene${
     projection === "dimetric" ? ` ${DIMETRIC_CLASS}` : ""
@@ -150,10 +148,39 @@ function PolySceneInner({
     };
   }, [projection, directionalLight, debugShowBackfaces]);
 
-  const depthOffset =
-    sceneSize(sceneBbox)[2] *
-    cameraState.depthOffset *
-    (projection === "dimetric" ? 0.5 : 1);
+  // depthOffset was a voxcss-era hack that pushed the cube grid down so
+  // the tilted camera could see its floor. Centered meshes don't need it
+  // — their centroid already sits at viewport center. Set 0 so useCamera
+  // doesn't reapply a stale offset on rotation/zoom updates.
+  const depthOffset = 0;
+
+  // autoCenter wrapper transform: translate3d that brings the mesh's
+  // bbox center to the scene element's own (0,0,0). The scene then rotates
+  // around (0,0,0) which now coincides with the visual centroid — Three.js
+  // Group-wrapper trick (mesh.position = -bboxCenter, rotate the parent).
+  // Lives on a child div so useCamera can keep mutating the scene
+  // element's transform on drag/zoom without clobbering the centering.
+  // Polygon data is not mutated. World axes remap to CSS as in Poly.tsx
+  // (world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z).
+  const autoCenterTransform = useMemo(() => {
+    if (!autoCenter) return undefined;
+    const cssX = ((sceneBbox.min[1] + sceneBbox.max[1]) / 2) * polyContext.tileSize;
+    const cssY = ((sceneBbox.min[0] + sceneBbox.max[0]) / 2) * polyContext.tileSize;
+    const cssZ = ((sceneBbox.min[2] + sceneBbox.max[2]) / 2) * polyContext.layerElevation;
+    return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+  }, [autoCenter, sceneBbox, polyContext.tileSize, polyContext.layerElevation]);
+
+  const polyChildren = polygons.map((p, i) => (
+    <Poly
+      key={i}
+      vertices={p.vertices}
+      color={p.color}
+      texture={p.texture}
+      uvs={p.uvs}
+      data={p.data}
+      context={polyContext}
+    />
+  ));
 
   return (
     <div
@@ -169,18 +196,17 @@ function PolySceneInner({
         } as CSSProperties
       }
     >
-      {polygons.map((p, i) => (
-        <Poly
-          key={i}
-          vertices={p.vertices}
-          color={p.color}
-          texture={p.texture}
-          uvs={p.uvs}
-          data={p.data}
-          context={polyContext}
-        />
-      ))}
-      {children}
+      {autoCenterTransform ? (
+        <div style={{ transform: autoCenterTransform, transformStyle: "preserve-3d" }}>
+          {polyChildren}
+          {children}
+        </div>
+      ) : (
+        <>
+          {polyChildren}
+          {children}
+        </>
+      )}
     </div>
   );
 }

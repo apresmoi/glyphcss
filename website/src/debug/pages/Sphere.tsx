@@ -9,8 +9,6 @@ type Vec3 = [number, number, number];
 
 function buildSphereTriangles(radius: number, subdivisions: number, color = "#3b82f6"): Polygon[] {
   const r = Math.max(1, Math.floor(radius));
-  const PAD = 1;
-  const cx = PAD + r, cy = PAD + r, cz = PAD + r;
   const phi = (1 + Math.sqrt(5)) / 2;
 
   const initialVerts: Vec3[] = [
@@ -61,9 +59,9 @@ function buildSphereTriangles(radius: number, subdivisions: number, color = "#3b
   }
 
   const grid: Vec3[] = verts.map(([x, y, z]) => [
-    Math.round(cx + r * x),
-    Math.round(cy + r * y),
-    Math.round(cz + r * z),
+    Math.round(r * x),
+    Math.round(r * y),
+    Math.round(r * z),
   ]);
   const out: Polygon[] = [];
   for (const [i, j, k] of faces) {
@@ -84,7 +82,7 @@ export default function Sphere() {
     [radius, subdivisions]
   );
 
-  const origin: Vec3 = [radius + 1.5, radius + 1.5, radius + 1.5];
+  const origin: Vec3 = [0, 0, 0];
 
   return (
     <DebugLayout current="/debug/sphere">

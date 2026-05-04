@@ -23,16 +23,9 @@ export const PLATONIC_PALETTE = [
   "#a855f7", "#06b6d4", "#f97316", "#ec4899",
 ];
 
-/**
- * Convert a raw triangle to a polycss Polygon. `gridShift` shifts every vertex
- * +N on x and y to keep coordinates positive. Use 1 in interactive editors
- * that allow user-entered 0.
- */
-export function triangleToVoxel(t: RawTriangle, gridShift = 0): Polygon {
-  const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
-  const verts: Vec3[] = [sv(t.v0), sv(t.v1), sv(t.v2)];
+export function triangleToVoxel(t: RawTriangle): Polygon {
   return {
-    vertices: verts,
+    vertices: [t.v0, t.v1, t.v2],
     color: t.color,
     ...(t.texture ? { texture: t.texture } : {}),
   };
@@ -48,23 +41,22 @@ export interface RawPolygon {
   color: string;
 }
 
-export function polygonToVoxel(p: RawPolygon, gridShift = 0): Polygon {
-  const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
-  const verts = p.vertices.map(sv);
+export function polygonToVoxel(p: RawPolygon): Polygon {
   return {
-    vertices: verts,
+    vertices: p.vertices,
     color: p.color,
   };
 }
 
 export function genTetrahedron(): RawTriangle[] {
-  const s = 4;
-  // 4 vertices at alternating cube corners → all 6 edges = s·√2 → equilateral.
+  const s = 2;
+  // 4 vertices at alternating cube corners (cube spans [-s..+s]) →
+  // all 6 edges = 2s·√2, equilateral, centroid at origin.
   const v: Vec3[] = [
-    [0, 0, 0],
-    [s, s, 0],
-    [s, 0, s],
-    [0, s, s],
+    [-s, -s, -s],
+    [ s,  s, -s],
+    [ s, -s,  s],
+    [-s,  s,  s],
   ];
   // CCW from outside (cross product points away from centroid). The "obvious"
   // orderings [0,2,1] etc. are CW from outside, which would be hidden by
@@ -87,10 +79,10 @@ export function genTetrahedron(): RawTriangle[] {
  * triangulated triangles. Half the DOM cost for the same shape.
  */
 export function genCubePolygons(): RawPolygon[] {
-  const s = 4;
+  const s = 2;
   const c: Vec3[] = [
-    [0, 0, 0], [s, 0, 0], [s, s, 0], [0, s, 0],
-    [0, 0, s], [s, 0, s], [s, s, s], [0, s, s],
+    [-s, -s, -s], [ s, -s, -s], [ s,  s, -s], [-s,  s, -s],
+    [-s, -s,  s], [ s, -s,  s], [ s,  s,  s], [-s,  s,  s],
   ];
   // 6 faces as CCW-from-outside quads, matching the fan-triangulation order
   // in genCube so colors line up.
@@ -109,10 +101,10 @@ export function genCubePolygons(): RawPolygon[] {
 }
 
 export function genCube(): RawTriangle[] {
-  const s = 4;
+  const s = 2;
   const c: Vec3[] = [
-    [0, 0, 0], [s, 0, 0], [s, s, 0], [0, s, 0],
-    [0, 0, s], [s, 0, s], [s, s, s], [0, s, s],
+    [-s, -s, -s], [ s, -s, -s], [ s,  s, -s], [-s,  s, -s],
+    [-s, -s,  s], [ s, -s,  s], [ s,  s,  s], [-s,  s,  s],
   ];
   const faces: { tris: [number, number, number][]; color: string }[] = [
     { tris: [[0, 3, 2], [0, 2, 1]], color: PLATONIC_PALETTE[0] },
@@ -131,11 +123,10 @@ export function genCube(): RawTriangle[] {
 
 export function genOctahedron(): RawTriangle[] {
   const s = 4;
-  const cx = s, cy = s, cz = s;
   const v: Vec3[] = [
-    [cx + s, cy, cz], [cx - s, cy, cz],
-    [cx, cy + s, cz], [cx, cy - s, cz],
-    [cx, cy, cz + s], [cx, cy, cz - s],
+    [ s,  0,  0], [-s,  0,  0],
+    [ 0,  s,  0], [ 0, -s,  0],
+    [ 0,  0,  s], [ 0,  0, -s],
   ];
   const faces: [number, number, number][] = [
     [0, 2, 4], [2, 1, 4], [1, 3, 4], [3, 0, 4],
@@ -149,12 +140,12 @@ export function genOctahedron(): RawTriangle[] {
 
 export function genIcosahedron(): RawTriangle[] {
   // Fibonacci approx of φ: 21/13 ≈ 1.6154 vs φ ≈ 1.6180 (~0.16% error).
+  // All 12 vertices in the (0, ±1, ±φ) family — already centered at origin.
   const a = 13, b = 21;
-  const cx = b, cy = b, cz = b;
   const v: Vec3[] = [
-    [cx - a, cy + b, cz], [cx + a, cy + b, cz], [cx - a, cy - b, cz], [cx + a, cy - b, cz],
-    [cx, cy - a, cz + b], [cx, cy + a, cz + b], [cx, cy - a, cz - b], [cx, cy + a, cz - b],
-    [cx + b, cy, cz - a], [cx + b, cy, cz + a], [cx - b, cy, cz - a], [cx - b, cy, cz + a],
+    [-a,  b,  0], [ a,  b,  0], [-a, -b,  0], [ a, -b,  0],
+    [ 0, -a,  b], [ 0,  a,  b], [ 0, -a, -b], [ 0,  a, -b],
+    [ b,  0, -a], [ b,  0,  a], [-b,  0, -a], [-b,  0,  a],
   ];
   const faces: [number, number, number][] = [
     [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
@@ -173,20 +164,19 @@ export function genDodecahedron(): RawTriangle[] {
   // Vertex ordering matches Wikipedia's standard dodecahedron with golden
   // vertices in the (0, ±φ, ±1/φ) family.
   const s = 13, a = 8, b = 21;
-  const cx = b, cy = b, cz = b;
   const v: Vec3[] = [
-    // 8 cube corners.
-    [cx - s, cy - s, cz - s], [cx - s, cy - s, cz + s],
-    [cx - s, cy + s, cz - s], [cx - s, cy + s, cz + s],
-    [cx + s, cy - s, cz - s], [cx + s, cy - s, cz + s],
-    [cx + s, cy + s, cz - s], [cx + s, cy + s, cz + s],
+    // 8 cube corners — centered at origin.
+    [-s, -s, -s], [-s, -s,  s],
+    [-s,  s, -s], [-s,  s,  s],
+    [ s, -s, -s], [ s, -s,  s],
+    [ s,  s, -s], [ s,  s,  s],
     // 12 golden-ratio vertices, in the (0, ±φ, ±1/φ) family.
-    [cx, cy - b, cz - a], [cx, cy - b, cz + a],
-    [cx, cy + b, cz - a], [cx, cy + b, cz + a],
-    [cx - a, cy, cz - b], [cx - a, cy, cz + b],
-    [cx + a, cy, cz - b], [cx + a, cy, cz + b],
-    [cx - b, cy - a, cz], [cx - b, cy + a, cz],
-    [cx + b, cy - a, cz], [cx + b, cy + a, cz],
+    [ 0, -b, -a], [ 0, -b,  a],
+    [ 0,  b, -a], [ 0,  b,  a],
+    [-a,  0, -b], [-a,  0,  b],
+    [ a,  0, -b], [ a,  0,  b],
+    [-b, -a,  0], [-b,  a,  0],
+    [ b, -a,  0], [ b,  a,  0],
   ];
   // 12 pentagons, all CCW from outside.
   const pentagons: number[][] = [
@@ -222,18 +212,17 @@ export function genDodecahedron(): RawTriangle[] {
  */
 export function genDodecahedronPentagons(): RawPolygon[] {
   const s = 13, a = 8, b = 21;
-  const cx = b, cy = b, cz = b;
   const v: Vec3[] = [
-    [cx - s, cy - s, cz - s], [cx - s, cy - s, cz + s],
-    [cx - s, cy + s, cz - s], [cx - s, cy + s, cz + s],
-    [cx + s, cy - s, cz - s], [cx + s, cy - s, cz + s],
-    [cx + s, cy + s, cz - s], [cx + s, cy + s, cz + s],
-    [cx, cy - b, cz - a], [cx, cy - b, cz + a],
-    [cx, cy + b, cz - a], [cx, cy + b, cz + a],
-    [cx - a, cy, cz - b], [cx - a, cy, cz + b],
-    [cx + a, cy, cz - b], [cx + a, cy, cz + b],
-    [cx - b, cy - a, cz], [cx - b, cy + a, cz],
-    [cx + b, cy - a, cz], [cx + b, cy + a, cz],
+    [-s, -s, -s], [-s, -s,  s],
+    [-s,  s, -s], [-s,  s,  s],
+    [ s, -s, -s], [ s, -s,  s],
+    [ s,  s, -s], [ s,  s,  s],
+    [ 0, -b, -a], [ 0, -b,  a],
+    [ 0,  b, -a], [ 0,  b,  a],
+    [-a,  0, -b], [-a,  0,  b],
+    [ a,  0, -b], [ a,  0,  b],
+    [-b, -a,  0], [-b,  a,  0],
+    [ b, -a,  0], [ b,  a,  0],
   ];
   const pentagons: number[][] = [
     [7, 11, 3, 13, 15],
@@ -261,14 +250,13 @@ export function genDodecahedronPentagons(): RawPolygon[] {
  */
 export function genCuboctahedronPolygons(): RawPolygon[] {
   const s = 4;
-  const cx = s, cy = s, cz = s;
   const v: Vec3[] = [
-    [cx,     cy + s, cz + s], [cx,     cy + s, cz - s],
-    [cx,     cy - s, cz + s], [cx,     cy - s, cz - s],
-    [cx + s, cy,     cz + s], [cx + s, cy,     cz - s],
-    [cx - s, cy,     cz + s], [cx - s, cy,     cz - s],
-    [cx + s, cy + s, cz],     [cx + s, cy - s, cz],
-    [cx - s, cy + s, cz],     [cx - s, cy - s, cz],
+    [ 0,  s,  s], [ 0,  s, -s],
+    [ 0, -s,  s], [ 0, -s, -s],
+    [ s,  0,  s], [ s,  0, -s],
+    [-s,  0,  s], [-s,  0, -s],
+    [ s,  s,  0], [ s, -s,  0],
+    [-s,  s,  0], [-s, -s,  0],
   ];
   const squares: number[][] = [
     [8, 4, 9, 5], [10, 7, 11, 6], [8, 1, 10, 0],
@@ -295,14 +283,13 @@ export function genCuboctahedronPolygons(): RawPolygon[] {
  */
 export function genCuboctahedron(): RawTriangle[] {
   const s = 4;
-  const cx = s, cy = s, cz = s;
   const v: Vec3[] = [
-    [cx,     cy + s, cz + s], [cx,     cy + s, cz - s],
-    [cx,     cy - s, cz + s], [cx,     cy - s, cz - s],
-    [cx + s, cy,     cz + s], [cx + s, cy,     cz - s],
-    [cx - s, cy,     cz + s], [cx - s, cy,     cz - s],
-    [cx + s, cy + s, cz],     [cx + s, cy - s, cz],
-    [cx - s, cy + s, cz],     [cx - s, cy - s, cz],
+    [ 0,  s,  s], [ 0,  s, -s],
+    [ 0, -s,  s], [ 0, -s, -s],
+    [ s,  0,  s], [ s,  0, -s],
+    [-s,  0,  s], [-s,  0, -s],
+    [ s,  s,  0], [ s, -s,  0],
+    [-s,  s,  0], [-s, -s,  0],
   ];
   const squares: number[][] = [
     [8, 4, 9, 5],

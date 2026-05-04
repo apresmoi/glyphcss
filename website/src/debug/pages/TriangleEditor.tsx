@@ -23,7 +23,7 @@ let nextId = 1;
 const newId = () => `t${nextId++}`;
 
 const toVoxel = (t: TriangleDef): Polygon =>
-  triangleToVoxel({ v0: t.v0, v1: t.v1, v2: t.v2, color: t.color, texture: t.texture }, 1);
+  triangleToVoxel({ v0: t.v0, v1: t.v1, v2: t.v2, color: t.color, texture: t.texture });
 
 const wrapWithIds = (raws: RawTriangle[]): TriangleDef[] =>
   raws.map((r) => ({ id: newId(), ...r }));

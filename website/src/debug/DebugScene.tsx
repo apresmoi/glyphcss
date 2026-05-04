@@ -16,6 +16,11 @@ interface DebugSceneProps {
   voxScene?: {
     merge?: "off" | "auto";
   };
+  /**
+   * Forwarded to <PolyScene>. Pivots rotation around the mesh's bbox
+   * center — useful for loaded meshes whose origin sits at a corner.
+   */
+  autoCenter?: boolean;
   /** Initial values; the scene owns the live state from then on. */
   defaultZoom?: number;
   defaultRotX?: number;
@@ -36,6 +41,7 @@ export function DebugScene({
   voxels,
   origin,
   voxScene = {},
+  autoCenter = false,
   defaultZoom = 0.6,
   defaultRotX = 65,
   defaultRotY = 45,
@@ -127,6 +133,39 @@ export function DebugScene({
     for (const el of els) el.addEventListener("wheel", onWheel, { passive: false });
     return () => { for (const el of els) el.removeEventListener("wheel", onWheel); };
   }, [showVoxcss, showCanvas]);
+
+  // Floor: a single square polygon at world z=0, sized to the mesh bbox
+  // in X/Y plus 20% padding so it visibly extends past the shape's edge.
+  // Concatenated to the rendered polygon list when "Show floor" is on.
+  // For autoCenter-true scenes (e.g. loaded OBJ), the floor lands at the
+  // mesh's actual world z=0 which is usually at its feet. For centered
+  // procedural shapes (Platonic, Sphere) world z=0 cuts through the
+  // middle — that's the convention; user can mentally adjust.
+  const renderedPolygons = useMemo(() => {
+    if (!showFloor) return voxels;
+    if (voxels.length === 0) return voxels;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of voxels) {
+      for (const v of p.vertices) {
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+      }
+    }
+    const padX = (maxX - minX) * 0.2;
+    const padY = (maxY - minY) * 0.2;
+    const x0 = minX - padX, x1 = maxX + padX;
+    const y0 = minY - padY, y1 = maxY + padY;
+    const floor: Polygon = {
+      vertices: [
+        [x0, y0, 0],
+        [x1, y0, 0],
+        [x1, y1, 0],
+        [x0, y1, 0],
+      ],
+      color: "#3a3a3a",
+    };
+    return [...voxels, floor];
+  }, [voxels, showFloor]);
 
   // Track canvas pane size for the polygon renderer.
   useEffect(() => {
@@ -233,8 +272,9 @@ export function DebugScene({
             animate={autoRotate ? 0.5 : false}
           >
             <PolyScene
-              polygons={voxels}
+              polygons={renderedPolygons}
               merge={mergeMode}
+              autoCenter={autoCenter}
               directionalLight={directionalLight}
             />
           </PolyCamera>

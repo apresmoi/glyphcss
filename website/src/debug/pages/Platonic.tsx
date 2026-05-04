@@ -31,9 +31,9 @@ export default function Platonic() {
 
   const voxels = useMemo(() => {
     if (mode === "polygons") {
-      return POLYGON_GENERATORS[solid]().map((p) => polygonToVoxel(p, 1));
+      return POLYGON_GENERATORS[solid]().map(polygonToVoxel);
     }
-    return SHAPE_GENERATORS[solid]().map((t) => triangleToVoxel(t, 1));
+    return SHAPE_GENERATORS[solid]().map(triangleToVoxel);
   }, [solid, mode]);
   const origin = useOrigin(voxels);
 
