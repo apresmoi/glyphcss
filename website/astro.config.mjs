@@ -32,8 +32,8 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'PolyCamera', slug: 'components/vox-camera' },
-            { label: 'PolyScene', slug: 'components/vox-scene' },
+            { label: 'PolyScene', slug: 'components/poly-scene' },
+            { label: 'PolyCamera', slug: 'components/poly-camera' },
           ],
         },
         {

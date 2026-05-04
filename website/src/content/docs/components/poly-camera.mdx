@@ -72,17 +72,10 @@ import { PolyCamera, PolyScene, PolyMesh } from "@polycss/vue";
 
 ## `useCamera` hook
 
-```tsx
-import { useCamera } from "@polycss/react";
-
-function MyViewer() {
-  const { rotX, rotY, setRotX, setRotY } = useCamera();
-  // ...
-}
-```
+`useCamera` is used internally by `<PolyCamera>`. For most use cases, pass camera props directly to `<PolyScene>` — it accepts all of `PolyCamera`'s props. Use `<PolyCamera>` as a wrapper when you need to separate camera state from scene layout.
 
 ## Related
 
-- [PolyScene](/components/vox-scene) — The scene component that renders meshes.
+- [PolyScene](/components/poly-scene) — The scene component that renders meshes.
 - [Core Concepts — Camera](/core-concepts#camera) — Conceptual explanation of camera props.
 - [Quickstart](/quickstart) — Install + first scene walkthrough.
