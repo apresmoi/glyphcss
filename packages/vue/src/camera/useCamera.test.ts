@@ -63,7 +63,7 @@ describe("useCamera behavior", () => {
   });
 
   describe("prop changes update camera handle", () => {
-    it("updates the camera handle when rotation props change across a wall-mask boundary", async () => {
+    it("updates the camera handle when rotation props change across a direction-bin boundary", async () => {
       const opts = ref<UseCameraOptions>({ rotX: 65, rotY: 45 });
       let captured: UseCameraResult | null = null;
       const container = document.createElement("div");
@@ -75,13 +75,13 @@ describe("useCamera behavior", () => {
       });
       app.mount(container);
 
-      const maskBefore = captured!.store.getState().wallMask;
+      const dirBefore = captured!.store.getState().dirBin;
 
       opts.value = { rotX: 65, rotY: 135 };
       await nextTick();
 
-      const maskAfter = captured!.store.getState().wallMask;
-      expect(maskAfter).not.toEqual(maskBefore);
+      const dirAfter = captured!.store.getState().dirBin;
+      expect(dirAfter).not.toEqual(dirBefore);
       expect(captured!.cameraRef.value.state.rotY).toBe(135);
     });
 

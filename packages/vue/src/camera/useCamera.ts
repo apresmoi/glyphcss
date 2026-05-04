@@ -1,7 +1,7 @@
 import { ref, shallowRef, watch, onMounted, onBeforeUnmount } from "vue";
 import type { Ref } from "vue";
-import { createIsometricCamera } from "@layoutit/voxcss-core";
-import type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "@layoutit/voxcss-core";
+import { createIsometricCamera } from "@polycss/core";
+import type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "@polycss/core";
 import { createSceneStore, type SceneStore } from "../store";
 
 const POINTER_DRAG_SPEED = 5;
@@ -112,8 +112,6 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }
 
-
-
   // Auto-rotate
   let animFrameId = 0;
   let animStopped = false;
@@ -201,7 +199,6 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     pointer.x = e.clientX;
     pointer.y = e.clientY;
 
-    // Update store — Vue's render function handles mask classes declaratively
     store.updateCameraFromRef(handle);
   }
 

@@ -1,14 +1,19 @@
 /**
- * Lightweight reactive store for voxcss scene state.
+ * Lightweight reactive store for polycss scene state.
  * Components subscribe to specific slices via selectors,
  * so only the components that care about a changed value re-render.
  */
-import type { CameraState, WallsMask, CameraHandle } from "@layoutit/voxcss-core";
-import { computeWallMask, wallMasksEqual } from "@layoutit/voxcss-core";
+import type { CameraState, CameraHandle } from "@polycss/core";
+import { directionBinFromCamera } from "@polycss/core";
 
 export interface SceneStoreState {
   cameraState: CameraState;
-  wallMask: WallsMask;
+  /**
+   * Current camera-direction bin index.
+   * Kept as inert state for v0.2's direction-bin culling (POLY-TD-11).
+   * In v1, no CSS classes are emitted for this value.
+   */
+  dirBin: number;
 }
 
 export interface SceneStore {
@@ -16,7 +21,11 @@ export interface SceneStore {
   setState(partial: Partial<SceneStoreState>): void;
   subscribe(listener: () => void): () => void;
 
-  /** Update camera + recompute wall mask. Only notifies if wall mask changed. Returns true if mask changed. */
+  /**
+   * Update camera + recompute dirBin.
+   * Only notifies subscribers if dirBin changed.
+   * Returns true if dirBin changed.
+   */
   updateCameraFromRef(handle: CameraHandle): boolean;
 
   /** Force notify all subscribers (e.g. after prop-driven camera change). */
@@ -26,7 +35,7 @@ export interface SceneStore {
 export function createSceneStore(initial: CameraState): SceneStore {
   let state: SceneStoreState = {
     cameraState: { ...initial },
-    wallMask: computeWallMask(initial.rotX, initial.rotY),
+    dirBin: directionBinFromCamera(initial.rotX, initial.rotY),
   };
 
   const listeners = new Set<() => void>();
@@ -51,18 +60,18 @@ export function createSceneStore(initial: CameraState): SceneStore {
     },
 
     updateCameraFromRef(handle) {
-      const nextMask = computeWallMask(handle.state.rotX, handle.state.rotY);
-      const maskChanged = !wallMasksEqual(state.wallMask, nextMask);
+      const nextDirBin = directionBinFromCamera(handle.state.rotX, handle.state.rotY);
+      const dirBinChanged = state.dirBin !== nextDirBin;
 
-      if (maskChanged) {
+      if (dirBinChanged) {
         state = {
           cameraState: { ...handle.state },
-          wallMask: nextMask,
+          dirBin: nextDirBin,
         };
         notify();
       }
 
-      return maskChanged;
+      return dirBinChanged;
     },
 
     notifyAll() {

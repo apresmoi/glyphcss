@@ -1,13 +1,26 @@
 import { defineComponent, h, provide, computed } from "vue";
 import type { PropType } from "vue";
-import type { AutoRotateOption } from "@layoutit/voxcss-core";
+import type { AutoRotateOption } from "@polycss/core";
 import { useCamera } from "./useCamera";
-import { VoxCameraContextKey } from "./context";
+import { PolyCameraContextKey } from "./context";
 
 const DEFAULT_PERSPECTIVE = 8000;
 
-export const VoxCamera = defineComponent({
-  name: "VoxCamera",
+export interface PolyCameraProps {
+  zoom?: number;
+  pan?: number;
+  tilt?: number;
+  rotX?: number;
+  rotY?: number;
+  interactive?: boolean;
+  invert?: boolean | number;
+  animate?: AutoRotateOption | false;
+  perspective?: number | boolean;
+  class?: string;
+}
+
+export const PolyCamera = defineComponent({
+  name: "PolyCamera",
   props: {
     zoom: { type: Number },
     pan: { type: Number },
@@ -44,7 +57,7 @@ export const VoxCamera = defineComponent({
     } = useCamera(cameraOptions);
 
     // Provide context — stable identity
-    provide(VoxCameraContextKey, { store, cameraRef, sceneElRef });
+    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef });
 
     return () => {
       const perspectiveValue =
@@ -62,7 +75,7 @@ export const VoxCamera = defineComponent({
       return h(
         "div",
         {
-          class: `voxcss-camera${props.class ? ` ${props.class}` : ""}`,
+          class: `polycss-camera${props.class ? ` ${props.class}` : ""}`,
           style: cameraStyle,
           onPointerdown: props.interactive ? onPointerDown : undefined,
           onPointermove: props.interactive ? onPointerMove : undefined,

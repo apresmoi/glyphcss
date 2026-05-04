@@ -2,7 +2,7 @@
  * DOM-based CSS color resolver for named colors ("red", "tomato", etc).
  * Uses getComputedStyle on a hidden probe element to resolve any CSS color string.
  */
-import { parsePureColor, type ParsedColor } from "@layoutit/voxcss-core";
+import { parsePureColor, type ParsedColor } from "@polycss/core";
 
 let probeEl: HTMLElement | null = null;
 const resolvedCache = new Map<string, ParsedColor | null>();
