@@ -14,7 +14,7 @@ interface DebugSceneProps {
   origin: Vec3;
   /** Forwarded to <PolyScene>. */
   voxScene?: {
-    merge?: "off" | "auto";
+    merge?: "off" | "auto" | "slice";
   };
   /**
    * Forwarded to <PolyScene>. Pivots rotation around the mesh's bbox
@@ -57,7 +57,7 @@ export function DebugScene({
   // sidebar to A/B-test what mergePolygons does to a textured mesh. The
   // initial value comes from the page's voxScene prop (so a page that
   // hardcodes a default still respects it on first render).
-  const [mergeMode, setMergeMode] = useState<"off" | "auto">(
+  const [mergeMode, setMergeMode] = useState<"off" | "auto" | "slice">(
     voxScene.merge ?? "off",
   );
   // Single toggle drives both back-face debug paths: voxcss's per-voxel
@@ -212,12 +212,13 @@ export function DebugScene({
           <span style={{ color: debugShowLabels ? "#86efac" : undefined }}>Add data-debug attribute</span>
         </label>
         <Row label="Merge">
-          <Pills<"off" | "auto">
+          <Pills<"off" | "auto" | "slice">
             value={mergeMode}
             onChange={setMergeMode}
             options={[
               { value: "off", label: "off" },
               { value: "auto", label: "auto" },
+              { value: "slice", label: "slice" },
             ]}
           />
         </Row>

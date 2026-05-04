@@ -28,6 +28,7 @@ import type {
 } from "@polycss/core";
 import { computeSceneBbox, mergePolygons } from "@polycss/core";
 import { renderPoly, type RenderedPoly } from "../render/polyDOM";
+import { slicePolygons } from "../render/slicePolygons";
 import { injectBaseStyles } from "../styles/styles";
 
 export interface PolySceneOptions {
@@ -37,8 +38,16 @@ export interface PolySceneOptions {
   zoom?: number;
   projection?: ProjectionMode;
   directionalLight?: DirectionalLight;
-  /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
-  merge?: "off" | "auto";
+  /**
+   * Mesh post-processing.
+   *   - `"off"` (default): each polygon = one DOM element.
+   *   - `"auto"`: coplanar same-color polygons merge (`mergePolygons`).
+   *   - `"slice"`: aggressively rasterize coplanar polygons (across colors)
+   *     into one textured polygon per axis-aligned plane. Massive DOM
+   *     reduction (a 7k-poly voxel scene → ~tens of textured polys).
+   *     Trades per-polygon DOM inspection for compositor framerate.
+   */
+  merge?: "off" | "auto" | "slice";
   /**
    * When `true`, rotation pivots around the union bbox of all added meshes
    * instead of world (0,0,0). The scene wraps polygons in an inner div
@@ -292,11 +301,14 @@ export function createPolyScene(
     const css = buildMeshTransform(transform);
     if (css) wrapper.style.transform = css;
 
-    // Optional auto-merge per scene option.
-    const sourcePolygons =
-      currentOptions.merge === "auto"
-        ? mergePolygons(parseResult.polygons)
-        : parseResult.polygons;
+    let sourcePolygons: Polygon[];
+    if (currentOptions.merge === "auto") {
+      sourcePolygons = mergePolygons(parseResult.polygons);
+    } else if (currentOptions.merge === "slice") {
+      sourcePolygons = slicePolygons(parseResult.polygons, { doc: mountDoc });
+    } else {
+      sourcePolygons = parseResult.polygons;
+    }
 
     const rendered: RenderedPoly[] = [];
     for (const poly of sourcePolygons) {
