@@ -10,7 +10,7 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@voxcss-core/*": ["packages/core/src/*"]
+      "@polycss-core/*": ["packages/core/src/*"]
     }
   },
   "references": [

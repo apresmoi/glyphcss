@@ -1,7 +1,7 @@
 {
-  "name": "@layoutit/voxcss-vue",
+  "name": "@polycss/vue",
   "version": "0.1.8",
-  "description": "Native Vue 3 components for CSS voxel rendering with 60fps imperative updates.",
+  "description": "Native Vue 3 components for CSS polygon mesh rendering with 60fps imperative updates.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -9,9 +9,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LayoutitStudio/voxcss.git",
+    "url": "https://github.com/LayoutitStudio/polycss.git",
     "directory": "packages/vue"
   },
+  "bugs": {
+    "url": "https://github.com/LayoutitStudio/polycss/issues"
+  },
+  "homepage": "https://github.com/LayoutitStudio/polycss#readme",
   "files": [
     "dist"
   ],
@@ -32,7 +36,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@layoutit/voxcss-core": "workspace:^"
+    "@polycss/core": "workspace:^"
   },
   "peerDependencies": {
     "vue": "^3.0.0"

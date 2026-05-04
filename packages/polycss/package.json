@@ -1,7 +1,7 @@
 {
-  "name": "@layoutit/voxcss-html",
+  "name": "polycss",
   "version": "0.1.8",
-  "description": "HTML/DOM renderer for CSS voxel rendering. Depends on @layoutit/voxcss-core.",
+  "description": "HTML/DOM renderer for CSS polygon mesh rendering. Depends on @polycss/core.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -9,9 +9,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LayoutitStudio/voxcss.git",
-    "directory": "packages/html"
+    "url": "https://github.com/LayoutitStudio/polycss.git",
+    "directory": "packages/polycss"
   },
+  "bugs": {
+    "url": "https://github.com/LayoutitStudio/polycss/issues"
+  },
+  "homepage": "https://github.com/LayoutitStudio/polycss#readme",
   "files": [
     "dist"
   ],
@@ -32,7 +36,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@layoutit/voxcss-core": "workspace:^"
+    "@polycss/core": "workspace:^"
   },
   "devDependencies": {
     "tsup": "^8.0.1",

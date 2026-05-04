@@ -5,19 +5,19 @@ import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
 
 export default defineConfig({
-  site: 'https://voxcss.com',
+  site: 'https://polycss.com',
   integrations: [
     react(),
     sitemap(),
     starlight({
-      title: 'VoxCSS',
-      description: 'A CSS voxel engine. A 3D grid for the DOM.',
+      title: 'Polycss',
+      description: 'A CSS polygon mesh engine. DOM-native 3D rendering.',
       components: {
         ThemeSelect: './src/components/EmptyThemeSelect.astro',
         SiteTitle: './src/components/SiteTitle.astro',
       },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/LayoutitStudio/voxcss' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/LayoutitStudio/polycss' },
       ],
       customCss: ['./src/styles/custom.css'],
       sidebar: [

@@ -1,7 +1,7 @@
 {
-  "name": "@layoutit/voxcss-core",
+  "name": "@polycss/core",
   "version": "0.1.8",
-  "description": "Pure math engine for CSS voxel rendering. Zero browser globals.",
+  "description": "Pure math engine for CSS polygon mesh rendering. Zero browser globals.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -9,9 +9,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LayoutitStudio/voxcss.git",
+    "url": "https://github.com/LayoutitStudio/polycss.git",
     "directory": "packages/core"
   },
+  "bugs": {
+    "url": "https://github.com/LayoutitStudio/polycss/issues"
+  },
+  "homepage": "https://github.com/LayoutitStudio/polycss#readme",
   "files": [
     "dist"
   ],

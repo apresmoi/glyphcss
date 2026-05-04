@@ -8,7 +8,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@layoutit/voxcss-core": resolve(__dirname, "../core/src"),
+      "@polycss/core": resolve(__dirname, "../core/src"),
     },
   },
 });
