@@ -4,7 +4,7 @@ import type { Voxel } from "@layoutit/voxcss/react";
 import PolygonCanvas from "./PolygonCanvas";
 import { useDebug } from "./DebugLayout";
 import { DebugSection } from "./DebugSection";
-import { Row, Slider } from "./controls";
+import { Pills, Row, Slider } from "./controls";
 
 type Vec3 = [number, number, number];
 
@@ -47,6 +47,13 @@ export function DebugScene({
   const [showVoxcss, setShowVoxcss] = useState(true);
   const [showCanvas, setShowCanvas] = useState(false);
   const [showFloor, setShowFloor] = useState(defaultShowFloor);
+  // Live merge mode override — lets the user flip merging on/off from the
+  // sidebar to A/B-test what mergePolygons does to a textured mesh. The
+  // initial value comes from the page's voxScene prop (so a page that
+  // hardcodes a default still respects it on first render).
+  const [mergeMode, setMergeMode] = useState<false | "2d" | "3d" | "poly">(
+    voxScene.mergeVoxels ?? false,
+  );
   // Single toggle drives both back-face debug paths: voxcss's per-voxel
   // direction-cull overlay (cubes/ramps/wedges/spikes) and the triangle/
   // polygon backface render. CSS for both is unified so they look the same.
@@ -165,6 +172,18 @@ export function DebugScene({
           <input type="checkbox" checked={debugShowLabels} onChange={(e) => setDebugShowLabels(e.target.checked)} />
           <span style={{ color: debugShowLabels ? "#86efac" : undefined }}>Add data-debug attribute</span>
         </label>
+        <Row label="Merge">
+          <Pills<false | "2d" | "3d" | "poly">
+            value={mergeMode}
+            onChange={setMergeMode}
+            options={[
+              { value: false, label: "off" },
+              { value: "2d", label: "2d" },
+              { value: "3d", label: "3d" },
+              { value: "poly", label: "poly" },
+            ]}
+          />
+        </Row>
       </DebugSection>
 
       <DebugSection title="Light" dock="bottom">
@@ -218,7 +237,7 @@ export function DebugScene({
             <VoxScene
               voxels={voxels}
               showFloor={showFloor}
-              mergeVoxels={voxScene.mergeVoxels}
+              mergeVoxels={mergeMode}
               debugShowOccluded={showBackfaces}
               debugShowLabels={debugShowLabels}
               debugShowBackfaces={showBackfaces}

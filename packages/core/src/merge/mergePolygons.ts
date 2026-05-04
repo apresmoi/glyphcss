@@ -24,19 +24,32 @@
  * Non-triangle voxels (cubes, ramps, …) are passed through unchanged.
  */
 
-import type { Vec3, Voxel, VoxelGrid } from "../types";
+import type { Vec2, Vec3, Voxel, VoxelGrid } from "../types";
 
 const EPS_NORMAL = 1e-3;   // dot product tolerance for "same plane"
 const EPS_DISTANCE = 0.05; // signed-distance tolerance (in cell units)
+const EPS_UV = 1e-4;       // float UV tolerance (atlas coords are 0..1)
 
 interface PolyState {
   vertices: Vec3[];
+  /**
+   * Per-vertex UV (paired with `vertices`) when the polygon is textured.
+   * Null/undefined for untextured polys. Two polys merge across a shared
+   * edge only if their UVs at both endpoints match — otherwise the seam
+   * would visibly tear in the atlas.
+   */
+  uvs?: Vec2[];
   color: string;
+  /** Texture URL — must match between two polys for them to merge. */
+  texture?: string;
   normal: Vec3;
   /** Plane offset: distance from origin along the normal. */
   d: number;
   alive: boolean;
 }
+
+const eqUv = (a: Vec2, b: Vec2): boolean =>
+  Math.abs(a[0] - b[0]) < EPS_UV && Math.abs(a[1] - b[1]) < EPS_UV;
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a: Vec3, b: Vec3): Vec3 => [
@@ -80,8 +93,18 @@ function samePlane(a: PolyState, b: PolyState): boolean {
  * Merge two polygons that share the edge (e0 → e1). Both polygons are
  * stored as cyclic vertex lists. The merged polygon visits A's vertices
  * up to e0, then walks B from e1 back to e0's mirror, then resumes A.
+ *
+ * For textured polys: UVs are walked in lockstep with vertices so the
+ * merged polygon ends up with one UV per vertex. The caller has already
+ * verified UVs at the shared edge endpoints match between A and B (so the
+ * texture won't tear at the seam).
  */
-function mergeAlongEdge(a: PolyState, b: PolyState, e0: Vec3, e1: Vec3): Vec3[] | null {
+function mergeAlongEdge(
+  a: PolyState,
+  b: PolyState,
+  e0: Vec3,
+  e1: Vec3,
+): { vertices: Vec3[]; uvs?: Vec2[] } | null {
   const ai0 = a.vertices.findIndex((v) => eqVec(v, e0));
   const ai1 = a.vertices.findIndex((v) => eqVec(v, e1));
   const bi0 = b.vertices.findIndex((v) => eqVec(v, e0));
@@ -106,16 +129,20 @@ function mergeAlongEdge(a: PolyState, b: PolyState, e0: Vec3, e1: Vec3): Vec3[] 
   const bStart = bGoesForward ? bi1 : bi0;
   const bEnd = bGoesForward ? bi0 : bi1;
 
+  const trackUvs = !!(a.uvs && b.uvs);
   const merged: Vec3[] = [];
+  const mergedUvs: Vec2[] | undefined = trackUvs ? [] : undefined;
   let i = aStart;
   while (true) {
     merged.push(a.vertices[i]);
+    if (mergedUvs) mergedUvs.push(a.uvs![i]);
     if (i === aEnd) break;
     i = (i + 1) % an;
   }
   i = bStart;
   while (true) {
     merged.push(b.vertices[i]);
+    if (mergedUvs) mergedUvs.push(b.uvs![i]);
     if (i === bEnd) break;
     i = (i + 1) % bn;
   }
@@ -125,31 +152,36 @@ function mergeAlongEdge(a: PolyState, b: PolyState, e0: Vec3, e1: Vec3): Vec3[] 
   // Strip consecutive duplicates AND the wraparound first/last duplicate
   // so the collinear-cleanup pass below doesn't see degenerate C→C edges
   // and accidentally drop the actual corner.
-  const dedup: Vec3[] = [];
-  for (const v of merged) {
-    if (dedup.length === 0 || !eqVec(v, dedup[dedup.length - 1])) {
-      dedup.push(v);
+  const dedupV: Vec3[] = [];
+  const dedupU: Vec2[] | undefined = mergedUvs ? [] : undefined;
+  for (let k = 0; k < merged.length; k++) {
+    if (dedupV.length === 0 || !eqVec(merged[k], dedupV[dedupV.length - 1])) {
+      dedupV.push(merged[k]);
+      if (dedupU && mergedUvs) dedupU.push(mergedUvs[k]);
     }
   }
-  if (dedup.length > 1 && eqVec(dedup[0], dedup[dedup.length - 1])) {
-    dedup.pop();
+  if (dedupV.length > 1 && eqVec(dedupV[0], dedupV[dedupV.length - 1])) {
+    dedupV.pop();
+    dedupU?.pop();
   }
-  merged.length = 0;
-  merged.push(...dedup);
 
   // Drop collinear vertices left behind by the merge. Three consecutive
   // vertices A, B, C are collinear if (B-A) × (C-A) ≈ 0; B contributes
   // nothing to the polygon outline and would just be a no-op corner.
   const cleaned: Vec3[] = [];
-  for (let k = 0; k < merged.length; k++) {
-    const prev = merged[(k - 1 + merged.length) % merged.length];
-    const cur = merged[k];
-    const next = merged[(k + 1) % merged.length];
+  const cleanedUvs: Vec2[] | undefined = dedupU ? [] : undefined;
+  for (let k = 0; k < dedupV.length; k++) {
+    const prev = dedupV[(k - 1 + dedupV.length) % dedupV.length];
+    const cur = dedupV[k];
+    const next = dedupV[(k + 1) % dedupV.length];
     const c = cross(sub(cur, prev), sub(next, prev));
-    if (norm(c) > 1e-9) cleaned.push(cur);
+    if (norm(c) > 1e-9) {
+      cleaned.push(cur);
+      if (cleanedUvs && dedupU) cleanedUvs.push(dedupU[k]);
+    }
   }
   if (cleaned.length < 3) return null;
-  return cleaned;
+  return { vertices: cleaned, uvs: cleanedUvs };
 }
 
 /**
@@ -193,9 +225,18 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
       out.push(voxel);
       continue;
     }
+    // Carry texture + per-vertex UVs through the merge so textured polys
+    // can grow as long as their UVs match at the seam. UVs are skipped if
+    // they don't match the vertex count (defensive — parseObj/parseGltf
+    // emit them in lockstep, but a hand-crafted voxel could be off).
+    const uvs = (voxel.texture && voxel.uvs && voxel.uvs.length === verts.length)
+      ? voxel.uvs.map((uv) => [uv[0], uv[1]] as Vec2)
+      : undefined;
     polys.push({
       vertices: verts,
+      uvs,
       color: voxel.color ?? "#cccccc",
+      texture: voxel.texture,
       normal: plane.normal,
       d: plane.d,
       alive: true,
@@ -228,6 +269,10 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
       const b = polys[bi];
       if (!a.alive || !b.alive) continue;
       if (a.color !== b.color) continue;
+      if (a.texture !== b.texture) continue;
+      // Either both textured-with-uvs or both untextured — mismatched
+      // states can't merge cleanly.
+      if (!!a.uvs !== !!b.uvs) continue;
       if (!samePlane(a, b)) continue;
 
       // Find the shared edge in `a` and pull its endpoints in winding order.
@@ -244,12 +289,28 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
       }
       if (!e0 || !e1) continue;
 
+      // UV seam check: if both textured, the UVs at the shared edge must
+      // match between A and B. Otherwise the merged polygon would tear at
+      // the seam (the texture fills via a single affine, can't span two
+      // disjoint atlas regions). This is what limits merging to within a
+      // UV island and prevents merging across UV unwrap seams.
+      if (a.uvs && b.uvs) {
+        const ai0 = a.vertices.findIndex((v) => eqVec(v, e0));
+        const ai1 = a.vertices.findIndex((v) => eqVec(v, e1));
+        const bi0 = b.vertices.findIndex((v) => eqVec(v, e0));
+        const bi1 = b.vertices.findIndex((v) => eqVec(v, e1));
+        if (ai0 < 0 || ai1 < 0 || bi0 < 0 || bi1 < 0) continue;
+        if (!eqUv(a.uvs[ai0], b.uvs[bi0])) continue;
+        if (!eqUv(a.uvs[ai1], b.uvs[bi1])) continue;
+      }
+
       const merged = mergeAlongEdge(a, b, e0, e1);
       if (!merged) continue;
-      if (!isConvex(merged, a.normal)) continue;
+      if (!isConvex(merged.vertices, a.normal)) continue;
 
       // Adopt the merge into `a`, retire `b`, restart the pass.
-      a.vertices = merged;
+      a.vertices = merged.vertices;
+      a.uvs = merged.uvs;
       b.alive = false;
       return true;
     }
@@ -277,6 +338,8 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
       shape: p.vertices.length === 3 ? "triangle" : "polygon",
       vertices: p.vertices,
       color: p.color,
+      ...(p.texture ? { texture: p.texture } : {}),
+      ...(p.uvs ? { uvs: p.uvs } : {}),
     });
   }
   return out;
