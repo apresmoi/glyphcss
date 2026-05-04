@@ -32,6 +32,7 @@ const OBSERVED_ATTRS = [
   "light-ambient-color",
   "merge",
   "projection",
+  "auto-center",
 ] as const;
 
 function parseNumber(value: string | null): number | undefined {
@@ -87,6 +88,7 @@ export class PolySceneElement extends ELEMENT_BASE {
     if (projection === "cubic" || projection === "dimetric") {
       opts.projection = projection;
     }
+    if (this.hasAttribute("auto-center")) opts.autoCenter = true;
     if (directionalLight) opts.directionalLight = directionalLight;
     return opts;
   }

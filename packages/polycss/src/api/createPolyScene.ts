@@ -13,6 +13,11 @@
  *     `renderPoly` from `../render/polyDOM`.
  *   - `destroy()` removes the scene element and disposes every mesh
  *     (which in turn disposes per-polygon blob URLs).
+ *
+ * The scene element is a 0×0 anchor at world (0,0,0) — pinned via
+ * top:50%/left:50% so it sits at the visible center of the host. This
+ * matches React/Vue's PolyScene anchor pattern. Polygons render around
+ * the anchor via their own matrix3d translations.
  */
 import type {
   DirectionalLight,
@@ -21,7 +26,7 @@ import type {
   ProjectionMode,
   Vec3,
 } from "@polycss/core";
-import { mergePolygons } from "@polycss/core";
+import { computeSceneBbox, mergePolygons } from "@polycss/core";
 import { renderPoly, type RenderedPoly } from "../render/polyDOM";
 import { injectBaseStyles } from "../styles/styles";
 
@@ -34,6 +39,13 @@ export interface PolySceneOptions {
   directionalLight?: DirectionalLight;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
+  /**
+   * When `true`, rotation pivots around the union bbox of all added meshes
+   * instead of world (0,0,0). The scene wraps polygons in an inner div
+   * translated by `-bboxCenter`. Updates whenever a mesh is added/removed
+   * or `setOptions` is called. Mirrors React's `<PolyScene autoCenter>`.
+   */
+  autoCenter?: boolean;
 }
 
 export interface MeshTransform {
@@ -66,6 +78,7 @@ const DEFAULT_PERSPECTIVE = 1000;
 const DEFAULT_ROT_X = 65;
 const DEFAULT_ROT_Y = 45;
 const DEFAULT_ZOOM = 1;
+const DEFAULT_TILE = 50;
 
 function buildMeshTransform(t: MeshTransform): string | undefined {
   const parts: string[] = [];
@@ -110,9 +123,21 @@ export function createPolyScene(
 
   let currentOptions: PolySceneOptions = { ...options };
 
-  const sceneEl = (host.ownerDocument ?? document).createElement("div");
+  const doc = host.ownerDocument ?? document;
+  const sceneEl = doc.createElement("div");
   sceneEl.className = "polycss-scene";
+  // 0×0 anchor at the host's visible center. Polygons render around it.
   applySceneStyle(sceneEl, currentOptions);
+
+  // autoCenter wrapper: a child div translated so the union mesh bbox
+  // center coincides with the scene anchor (world (0,0,0)).
+  const centerWrapper = doc.createElement("div");
+  centerWrapper.style.transformStyle = "preserve-3d";
+  centerWrapper.setAttribute("data-polycss-auto-center-wrapper", "");
+  // Wrapper is always present so meshes append into a stable parent.
+  // When autoCenter is off, transform stays empty (identity).
+  sceneEl.appendChild(centerWrapper);
+
   host.appendChild(sceneEl);
 
   interface MeshEntry {
@@ -120,20 +145,50 @@ export function createPolyScene(
     wrapper: HTMLDivElement;
     parseResult: ParseResult;
     rendered: RenderedPoly[];
+    polygons: Polygon[];
     disposed: boolean;
   }
   const meshes = new Set<MeshEntry>();
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
-    el.style.position = "relative";
+    el.style.position = "absolute";
+    el.style.top = "50%";
+    el.style.left = "50%";
+    el.style.width = "0";
+    el.style.height = "0";
     el.style.transformStyle = "preserve-3d";
     el.style.perspective = `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
     el.style.transform = buildSceneTransform(opts);
   }
 
+  function recomputeAutoCenter(): void {
+    if (!currentOptions.autoCenter) {
+      centerWrapper.style.transform = "";
+      return;
+    }
+    // Combine all live mesh polygons into a single bbox.
+    const all: Polygon[] = [];
+    for (const m of meshes) {
+      if (!m.disposed) all.push(...m.polygons);
+    }
+    if (all.length === 0) {
+      centerWrapper.style.transform = "";
+      return;
+    }
+    const bbox = computeSceneBbox(all);
+    const tile = DEFAULT_TILE;
+    const layer =
+      currentOptions.projection === "dimetric" ? tile / 2 : tile;
+    // Match React's axis remap: world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z
+    const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * tile;
+    const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * tile;
+    const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * layer;
+    centerWrapper.style.transform = `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+  }
+
   function add(parseResult: ParseResult, transformIn: MeshTransform = {}): MeshHandle {
-    const doc = sceneEl.ownerDocument ?? document;
-    const wrapper = doc.createElement("div");
+    const mountDoc = sceneEl.ownerDocument ?? document;
+    const wrapper = mountDoc.createElement("div");
     wrapper.className = "polycss-mesh";
     wrapper.style.position = "absolute";
     wrapper.style.transformStyle = "preserve-3d";
@@ -158,13 +213,14 @@ export function createPolyScene(
       rendered.push(r);
     }
 
-    sceneEl.appendChild(wrapper);
+    centerWrapper.appendChild(wrapper);
 
     const entry: MeshEntry = {
       handle: undefined as unknown as MeshHandle,
       wrapper,
       parseResult,
       rendered,
+      polygons: sourcePolygons,
       disposed: false,
     };
 
@@ -180,6 +236,7 @@ export function createPolyScene(
         }
         rendered.length = 0;
         meshes.delete(entry);
+        recomputeAutoCenter();
       },
       setTransform(t: Partial<MeshTransform>) {
         transform = { ...transform, ...t };
@@ -196,17 +253,20 @@ export function createPolyScene(
         rendered.length = 0;
         try { parseResult.dispose(); } catch { /* ignore */ }
         meshes.delete(entry);
+        recomputeAutoCenter();
       },
     };
 
     entry.handle = handle;
     meshes.add(entry);
+    recomputeAutoCenter();
     return handle;
   }
 
   function setOptions(partial: Partial<PolySceneOptions>): void {
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
+    recomputeAutoCenter();
   }
 
   function destroy(): void {
