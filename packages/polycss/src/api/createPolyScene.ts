@@ -140,12 +140,14 @@ function classifyNormal(p: Polygon): DirCode | null {
   const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
   const max = Math.max(ax, ay, az);
   if (max < 1e-9) return null;
-  // Axis-aligned iff the dominant component is >>>> the others (face is
-  // parallel to one of the cardinal planes within ~1% tolerance).
+  // Axis-aligned iff the OTHER two components are ~0 relative to the
+  // dominant one. Voxel faces have other == 0 exactly; curved meshes
+  // (apples, characters) fall through to "always render" so they don't
+  // get incorrectly bucketed and culled.
   const TOL = 0.01;
-  if (ax > max * (1 - TOL)) return nx > 0 ? "px" : "nx";
-  if (ay > max * (1 - TOL)) return ny > 0 ? "py" : "ny";
-  if (az > max * (1 - TOL)) return nz > 0 ? "pz" : "nz";
+  if (ax === max && ay < ax * TOL && az < ax * TOL) return nx > 0 ? "px" : "nx";
+  if (ay === max && ax < ay * TOL && az < ay * TOL) return ny > 0 ? "py" : "ny";
+  if (az === max && ax < az * TOL && ay < az * TOL) return nz > 0 ? "pz" : "nz";
   return null;
 }
 
