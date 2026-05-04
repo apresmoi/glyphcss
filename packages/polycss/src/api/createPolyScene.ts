@@ -110,6 +110,61 @@ function buildMeshTransform(t: MeshTransform): string | undefined {
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
+// ─── Direction-binned face culling ───────────────────────────────────────────
+// Each axis-aligned polygon is classified into one of 6 face-direction
+// buckets (±X, ±Y, ±Z). On every camera change, we compute which 3 of the
+// 6 directions face AWAY from the camera and toggle CSS classes on the
+// scene element to `display: none` those buckets — removes them from the
+// compositor entirely (vs `backface-visibility: hidden` which keeps the
+// layer alive). Off-axis polygons get no class; they always render.
+const DIR_CLASSES = ["px", "nx", "py", "ny", "pz", "nz"] as const;
+type DirCode = (typeof DIR_CLASSES)[number];
+
+function classifyNormal(p: Polygon): DirCode | null {
+  if (p.vertices.length < 3) return null;
+  const v0 = p.vertices[0], v1 = p.vertices[1], v2 = p.vertices[2];
+  const e1x = v1[0] - v0[0], e1y = v1[1] - v0[1], e1z = v1[2] - v0[2];
+  const e2x = v2[0] - v0[0], e2y = v2[1] - v0[1], e2z = v2[2] - v0[2];
+  const nx = e1y * e2z - e1z * e2y;
+  const ny = e1z * e2x - e1x * e2z;
+  const nz = e1x * e2y - e1y * e2x;
+  const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+  const max = Math.max(ax, ay, az);
+  if (max < 1e-9) return null;
+  // Axis-aligned iff the dominant component is >>>> the others (face is
+  // parallel to one of the cardinal planes within ~1% tolerance).
+  const TOL = 0.01;
+  if (ax > max * (1 - TOL)) return nx > 0 ? "px" : "nx";
+  if (ay > max * (1 - TOL)) return ny > 0 ? "py" : "ny";
+  if (az > max * (1 - TOL)) return nz > 0 ? "pz" : "nz";
+  return null;
+}
+
+/**
+ * Return the set of direction codes whose faces point AWAY from a camera
+ * at the given (rotX, rotY) — those bins get culled. Camera convention:
+ *   rotY = azimuth around vertical world-Z axis (degrees)
+ *   rotX = polar angle from straight-down (0 = top-down view, 90 = horizon)
+ */
+function cullSetFromCamera(rotX: number, rotY: number): Set<DirCode> {
+  const az = ((rotY % 360) + 360) % 360 * Math.PI / 180;
+  const el = Math.max(0, Math.min(180, rotX)) * Math.PI / 180;
+  // Camera position unit vector: standard spherical with elevation from +Z.
+  const horiz = Math.sin(el);
+  const cx = horiz * Math.cos(az);
+  const cy = horiz * Math.sin(az);
+  const cz = Math.cos(el);
+  const cull = new Set<DirCode>();
+  // A face direction is BACK-facing iff dot(faceNormal, camera) < 0.
+  if (cx <= 0) cull.add("px");
+  if (cx >= 0) cull.add("nx");
+  if (cy <= 0) cull.add("py");
+  if (cy >= 0) cull.add("ny");
+  if (cz <= 0) cull.add("pz");
+  if (cz >= 0) cull.add("nz");
+  return cull;
+}
+
 function buildSceneTransform(opts: PolySceneOptions): string {
   const rotX = opts.rotX ?? DEFAULT_ROT_X;
   const rotY = opts.rotY ?? DEFAULT_ROT_Y;
@@ -180,6 +235,14 @@ export function createPolyScene(
     el.style.transformStyle = "preserve-3d";
     el.style.perspective = `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
     el.style.transform = buildSceneTransform(opts);
+    applyCullClasses(el, opts);
+  }
+
+  function applyCullClasses(el: HTMLElement, opts: PolySceneOptions): void {
+    const cull = cullSetFromCamera(opts.rotX ?? DEFAULT_ROT_X, opts.rotY ?? DEFAULT_ROT_Y);
+    for (const code of DIR_CLASSES) {
+      el.classList.toggle(`polycss-cull-${code}`, cull.has(code));
+    }
   }
 
   function recomputeAutoCenter(): void {
@@ -241,6 +304,8 @@ export function createPolyScene(
         directionalLight: currentOptions.directionalLight,
       });
       if (!r) continue;
+      const dir = classifyNormal(poly);
+      if (dir) r.element.classList.add(`polycss-dir-${dir}`);
       wrapper.appendChild(r.element);
       rendered.push(r);
     }
