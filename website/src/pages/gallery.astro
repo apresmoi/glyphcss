@@ -183,13 +183,14 @@ const ldJson = {
                 <span>show floor</span>
               </label>
 
-              <label class="control-label" style="display:flex;flex-direction:column;gap:4px;">
+              <div class="control-label">
                 <span class="range-heading"><span>merge mode</span></span>
-                <select id="merge-select" style="padding:6px 8px;border-radius:4px;background:rgba(255,255,255,0.05);color:inherit;border:1px solid rgba(255,255,255,0.15);font:inherit;">
-                  <option value="off" selected>off</option>
-                  <option value="auto">auto (merge coplanar)</option>
-                </select>
-              </label>
+                <div class="merge-pills" id="merge-pills" role="radiogroup" aria-label="merge mode">
+                  <button type="button" class="merge-pill active" data-merge="off"   role="radio" aria-checked="true">off</button>
+                  <button type="button" class="merge-pill"        data-merge="auto"  role="radio" aria-checked="false">auto</button>
+                  <button type="button" class="merge-pill"        data-merge="slice" role="radio" aria-checked="false">slice</button>
+                </div>
+              </div>
             </form>
           </div>
         </div>
@@ -490,7 +491,7 @@ const ldJson = {
     const errorEl = document.getElementById("viewer-error");
     const animateToggle = document.getElementById("animate-toggle");
     const floorToggle = document.getElementById("floor-toggle");
-    const mergeSelect = document.getElementById("merge-select");
+    const mergePillsEl = document.getElementById("merge-pills");
 
     const setLoading = (val) => {
       isLoading = val;
@@ -936,8 +937,17 @@ const ldJson = {
       remountCurrentMesh();
     });
 
-    mergeSelect.addEventListener("change", async () => {
-      currentMerge = mergeSelect.value;
+    mergePillsEl.addEventListener("click", async (e) => {
+      const pill = e.target.closest("button[data-merge]");
+      if (!pill) return;
+      const next = pill.dataset.merge;
+      if (next === currentMerge) return;
+      currentMerge = next;
+      for (const b of mergePillsEl.querySelectorAll("button[data-merge]")) {
+        const on = b.dataset.merge === currentMerge;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-checked", on ? "true" : "false");
+      }
       // Re-mount: scene.add() honors options.merge at mount time, so we
       // need to remove + re-add (cheap, parseResult is cached).
       if (polyScene) polyScene.setOptions({ merge: currentMerge });
@@ -1553,6 +1563,43 @@ const ldJson = {
       border-radius: 50%;
       background: #94a3b8;
       border: 1px solid #94a3b8;
+    }
+
+    .control-label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+    }
+
+    .merge-pills {
+      display: inline-flex;
+      gap: 4px;
+      padding: 3px;
+      background: #0b0f18;
+      border-radius: 8px;
+    }
+
+    .merge-pill {
+      flex: 1 1 auto;
+      border: 0;
+      background: transparent;
+      color: #94a3b8;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .merge-pill:hover {
+      color: #e2e8f0;
+    }
+
+    .merge-pill.active {
+      background: #1a2435;
+      color: #f1f5f9;
+      font-weight: 600;
     }
 
     .switch {
