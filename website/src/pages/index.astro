@@ -22,6 +22,16 @@ const ogImage = `${siteUrl}/voxcss-intro.png`;
 
 const frameworkTabs = [
   {
+    id: "vanilla",
+    label: "vanilla js",
+    language: "html",
+    code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene perspective="1000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>`,
+  },
+  {
     id: "react",
     label: "React",
     language: "tsx",
@@ -48,25 +58,15 @@ export function App() {
 import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>`,
   },
-  {
-    id: "vanilla",
-    label: "vanilla js",
-    language: "html",
-    code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
-
-<poly-scene perspective="1000" rot-x="65" rot-y="45">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>`,
-  },
 ].map(tab => ({
   ...tab,
   highlighted: highlight(tab.code, tab.language),
 }));
 
 const installCmds = [
+  "npm install polycss",
   "npm install @polycss/react",
   "npm install @polycss/vue",
-  "npm install polycss",
 ].map(cmd => ({ code: cmd, highlighted: highlight(cmd, "javascript") }));
 
 const ldJson = {
@@ -234,7 +234,7 @@ const ldJson = {
             </div>
           </header>
           <div class="getting-lede">
-            <p>polycss provides lightweight components and a headless API. Use <code>PolyScene</code> to set up the 3D viewport and <code>PolyMesh</code> to load and render a mesh file. Each polygon in the mesh becomes a DOM element you can style and interact with.</p>
+            <p>polycss provides custom elements (<code>&lt;poly-scene&gt;</code>, <code>&lt;poly-mesh&gt;</code>), an imperative <code>createPolyScene</code> API, and optional React / Vue bindings. Each polygon in the mesh becomes a DOM element you can style and interact with — use whichever entry point fits your stack.</p>
           </div>
           <div class="getting-grid">
             <div class="getting-content">

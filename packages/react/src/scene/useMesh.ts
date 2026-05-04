@@ -18,12 +18,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   Polygon,
   ParseResult,
-  ObjParseOptions,
-  GltfParseOptions,
+  LoadMeshOptions,
 } from "@polycss/core";
 import { loadMesh } from "@polycss/core";
 
-export type UseMeshOptions = ObjParseOptions | GltfParseOptions;
+export type UseMeshOptions = LoadMeshOptions;
 
 export interface UseMeshResult {
   polygons: Polygon[];
@@ -37,7 +36,7 @@ export interface UseMeshResult {
 const EMPTY_POLYGONS: Polygon[] = [];
 const EMPTY_WARNINGS: string[] = [];
 
-export function useMesh(src: string, _options?: UseMeshOptions): UseMeshResult {
+export function useMesh(src: string, options?: UseMeshOptions): UseMeshResult {
   const [state, setState] = useState<{
     polygons: Polygon[];
     loading: boolean;
@@ -90,7 +89,7 @@ export function useMesh(src: string, _options?: UseMeshOptions): UseMeshResult {
     // promise resolution (or rejection).
     const prevResult = activeResultRef.current;
 
-    loadMesh(src)
+    loadMesh(src, options)
       .then((result) => {
         if (cancelled) {
           // Race: this result is stale — clean it up immediately and keep

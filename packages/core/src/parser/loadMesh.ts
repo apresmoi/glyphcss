@@ -14,8 +14,11 @@
  * Other extensions throw. Future formats (STL, PLY) plug in here.
  */
 import type { ParseResult } from "./types";
+import type { ObjParseOptions } from "./parseObj";
+import type { GltfParseOptions } from "./parseGltf";
 import { parseObj } from "./parseObj";
 import { parseGltf } from "./parseGltf";
+import { parseMtl } from "./parseMtl";
 
 export interface LoadMeshOptions {
   /**
@@ -24,6 +27,18 @@ export interface LoadMeshOptions {
    * omitted, the URL passed to `loadMesh` is used as the base.
    */
   baseUrl?: string;
+  /**
+   * Companion `.mtl` URL for OBJ files. When set, loadMesh fetches the
+   * mtl, runs `parseMtl`, and threads `materialColors` + `materialTextures`
+   * into `parseObj` — so the OBJ renders with its authored materials.
+   * Texture paths inside the mtl are resolved against the mtl URL.
+   * Ignored for `.glb` / `.gltf` (they carry materials inline).
+   */
+  mtlUrl?: string;
+  /** Forwarded to `parseObj` (merged with materials derived from `mtlUrl`). */
+  objOptions?: ObjParseOptions;
+  /** Forwarded to `parseGltf`. */
+  gltfOptions?: GltfParseOptions;
 }
 
 const FETCH_NAME = "loadMesh";
@@ -52,14 +67,43 @@ export async function loadMesh(url: string, options?: LoadMeshOptions): Promise<
     const res = await fetchFn(url);
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const text = await res.text();
-    return parseObj(text);
+
+    let objOptions: ObjParseOptions | undefined = options?.objOptions;
+    if (options?.mtlUrl) {
+      const mtlRes = await fetchFn(options.mtlUrl);
+      if (!mtlRes.ok) throw new Error(`${FETCH_NAME}: ${options.mtlUrl} → ${mtlRes.status}`);
+      const mtlText = await mtlRes.text();
+      const { colors, textures } = parseMtl(mtlText);
+      // Resolve texture paths against the mtl's own URL so relative paths
+      // like "wood.png" inside the mtl become absolute under the mtl's dir.
+      const resolvedTextures: Record<string, string> = {};
+      // URL is a global in both browsers and Node; cast to sidestep core's
+      // ES2020-only lib config (no DOM types).
+      const URLCtor = (globalThis as { URL?: new (url: string, base?: string) => { toString(): string } }).URL;
+      for (const [name, path] of Object.entries(textures)) {
+        if (URLCtor) {
+          try {
+            resolvedTextures[name] = new URLCtor(path, options.mtlUrl).toString();
+            continue;
+          } catch { /* fall through */ }
+        }
+        resolvedTextures[name] = path;
+      }
+      objOptions = {
+        ...(objOptions ?? {}),
+        materialColors: { ...colors, ...(objOptions?.materialColors ?? {}) },
+        materialTextures: { ...resolvedTextures, ...(objOptions?.materialTextures ?? {}) },
+      };
+    }
+
+    return parseObj(text, objOptions);
   }
 
   if (ext === "glb" || ext === "gltf") {
     const res = await fetchFn(url);
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const buf = await res.arrayBuffer();
-    return parseGltf(buf, { baseUrl });
+    return parseGltf(buf, { baseUrl, ...(options?.gltfOptions ?? {}) });
   }
 
   throw new Error(`${FETCH_NAME}: unsupported extension ".${ext}" (supported: obj, glb, gltf)`);

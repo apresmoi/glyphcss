@@ -4,14 +4,46 @@ description: Choosing perspective depth and camera angles for different visual s
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import PolyDemo from '../../../components/PolyDemo.astro';
 
-polycss uses CSS 3D perspective to project the scene. The `perspective` prop on `PolyScene` (or `PolyCamera`) controls the depth illusion, and `rotX` / `rotY` control the camera angle.
+polycss uses CSS 3D perspective to project the scene. The `perspective` attribute on `<poly-scene>` (or `perspective` prop on `PolyScene` / `PolyCamera`) controls the depth illusion, and `rot-x` / `rot-y` control the camera angle.
+
+## Live demo — camera & projection controls
+
+Use the sliders below to explore how `perspective`, `rotX`, and `rotY` interact. Toggle **dimetric** to switch to the dimetric projection mode.
+
+<PolyDemo
+  id="projections-demo"
+  model="/gallery/glb/tree.glb"
+  controls='["perspective","rotX","rotY","zoom","projection","animate"]'
+  defaults='{"rotX":65,"rotY":45,"perspective":1000}'
+/>
 
 ## Perspective depth
 
 Higher `perspective` values feel flatter (more isometric-like); lower values exaggerate depth. A value of `false` gives orthographic projection (no perspective distortion).
 
 <Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<!-- Standard perspective -->
+<poly-scene perspective="1000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+
+<!-- Very flat / near-isometric -->
+<poly-scene perspective="8000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+
+<!-- Orthographic -->
+<poly-scene perspective="false" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+</TabItem>
 <TabItem label="React">
 ```tsx
 import { PolyScene, PolyMesh } from "@polycss/react";
@@ -50,19 +82,22 @@ import { PolyScene, PolyMesh } from "@polycss/vue";
 
 ## Camera angles
 
-Use `rotX` and `rotY` to position the camera:
+Use `rot-x` and `rot-y` (vanilla) / `rotX` and `rotY` (React, Vue) to position the camera:
 
 - `rotX` — vertical tilt. `90` is straight-down top view; `0` is horizontal.
 - `rotY` — horizontal rotation (0–360). Controls which face of the scene is forward.
 
+```html
+<!-- Vanilla -->
+<poly-scene rot-x="65" rot-y="45">…</poly-scene>   <!-- Classic isometric angle -->
+<poly-scene rot-x="80" rot-y="45">…</poly-scene>   <!-- More top-down (map view) -->
+<poly-scene rot-x="20" rot-y="0">…</poly-scene>    <!-- Front-facing -->
+```
+
 ```tsx
-// Classic isometric angle
+// React
 <PolyScene rotX={65} rotY={45}>…</PolyScene>
-
-// More top-down (map view)
 <PolyScene rotX={80} rotY={45}>…</PolyScene>
-
-// Front-facing
 <PolyScene rotX={20} rotY={0}>…</PolyScene>
 ```
 

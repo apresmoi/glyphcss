@@ -5,9 +5,13 @@ description: Scene component that sets up the 3D viewport, camera, and lighting 
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`PolyScene` is the root of every polycss render tree. It sets up CSS 3D perspective, accepts camera props, applies directional lighting, and renders its children (typically `PolyMesh` or `Poly` elements) in 3D space.
+The scene is the root of every polycss render tree. It sets up CSS 3D perspective, accepts camera props, applies directional lighting, and renders its children (typically meshes or individual polygons) in 3D space.
 
-## `PolyScene` props
+It's available as a custom element (`<poly-scene>`), via the imperative `createPolyScene(host, opts)` API, and as React / Vue components (`<PolyScene>`).
+
+## Scene props / attributes
+
+(React / Vue prop names use camelCase; the `<poly-scene>` custom element accepts the kebab-case form, e.g. `rotX` → `rot-x`.)
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
@@ -16,26 +20,28 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 | `rotY` | `number` | `45` | Camera rotation around the Y axis in degrees (0–360). |
 | `zoom` | `number` | `1` | Scene scale factor. |
 | `directionalLight` | `DirectionalLight` | — | Directional light source. See [DirectionalLight](#directionallight). |
-| `polygons` | `Polygon[]` | — | Optional flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
+| `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
 | `merge` | `"off" \| "auto"` | `"off"` | Merge strategy. `"auto"` merges coplanar same-material polygons before rendering. |
 | `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation. |
 | `autoRotate` | `AutoRotateOption` | — | Auto-rotate camera. Pass `true` for default Y-axis rotation, a speed number, or `{ axis, speed, pauseOnInteraction }`. |
-| `children` | `ReactNode` | — | `PolyMesh` and/or `Poly` components. |
+| `children` | — | — | `<poly-mesh>` / `<poly-polygon>` (vanilla) or `<PolyMesh>` / `<Poly>` (React / Vue). |
 
-## `PolyMesh` props
+## Mesh props / attributes
+
+(`<poly-mesh>` accepts the same fields as `<PolyMesh>`; kebab-case attributes map to camelCase props.)
 
 | Prop | Type | Description |
 |------|------|-------------|
 | `src` | `string` | URL to `.obj`, `.glb`, or `.gltf`. |
-| `polygons` | `Polygon[]` | Pre-parsed polygons (alternative to `src`). |
+| `polygons` | `Polygon[]` | Pre-parsed polygons (alternative to `src`). Framework only. |
 | `position` | `Vec3` | `[x, y, z]` offset in scene space. |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale. |
 | `rotation` | `Vec3` | Euler rotation in degrees `[x, y, z]`. |
 | `autoCenter` | `boolean` | Shift the loaded mesh so its bounding-box center sits at the local origin before applying `position`. Useful when assets aren't centered in their file coordinates. |
 | `parseOptions` | `ObjParseOptions \| GltfParseOptions` | Parser options forwarded to `parseObj` or `parseGltf`. |
-| `fallback` | `ReactNode` | Rendered while `src` is loading. |
-| `errorFallback` | `(error: Error) => ReactNode` | Rendered if parse fails. |
-| `children` | `(polygon, index) => ReactNode` | Per-polygon render prop / scoped slot. |
+| `fallback` | `ReactNode` | Rendered while `src` is loading. (React / Vue only.) |
+| `errorFallback` | `(error: Error) => ReactNode` | Rendered if parse fails. (React / Vue only.) |
+| `children` | `(polygon, index) => ReactNode` | Per-polygon render prop / scoped slot. (React / Vue only.) |
 
 ## DirectionalLight
 
@@ -55,6 +61,15 @@ interface DirectionalLight {
 A scene with a single GLB mesh at default camera angle.
 
 <Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene>
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+</TabItem>
 <TabItem label="React">
 ```tsx
 import { PolyScene, PolyMesh } from "@polycss/react";
@@ -79,15 +94,6 @@ export function App() {
 <script setup lang="ts">
 import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
-
-<poly-scene>
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
 ```
 </TabItem>
 </Tabs>

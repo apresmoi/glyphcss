@@ -4,14 +4,35 @@ description: Loading OBJ, GLB, and glTF meshes into polycss with UV textures and
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import PolyDemo from '../../../components/PolyDemo.astro';
 
 polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and applied to each polygon via a one-time off-DOM canvas pass, producing a blob URL that becomes the `<img>` source.
 
-## `PolyMesh` — declarative loading
+## Live demo — UV-textured GLB
 
-The simplest way to render a mesh is `<PolyMesh src="...">`. It fetches the file, parses it, and renders a `Poly` per polygon automatically.
+The tree below uses `tree.glb`, which has embedded UV textures. Each triangle is an `<img>` whose source is a blob URL produced by an off-DOM canvas pass at load time.
+
+<PolyDemo
+  id="textures-tree-demo"
+  model="/gallery/glb/tree.glb"
+  controls='["zoom","rotX","rotY","perspective","animate"]'
+  defaults='{"rotX":65,"rotY":45,"perspective":1000}'
+/>
+
+## Declarative loading — the mesh element
+
+The simplest way to render a mesh is the mesh element with a `src`. It fetches the file, parses it, and renders one polygon element per polygon automatically.
 
 <Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+</TabItem>
 <TabItem label="React">
 ```tsx
 import { PolyScene, PolyMesh } from "@polycss/react";
@@ -38,15 +59,6 @@ import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>
 ```
 </TabItem>
-<TabItem label="Vanilla JS">
-```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
-
-<poly-scene rot-x="65" rot-y="45">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
-```
-</TabItem>
 </Tabs>
 
 ## Supported formats
@@ -59,9 +71,15 @@ import { PolyScene, PolyMesh } from "@polycss/vue";
 
 ## OBJ with MTL
 
-When your OBJ has a companion MTL file with textures, polycss reads `map_Kd` entries and applies them as UV-mapped textures. Pass `mtlUrl` to `PolyMesh` or `useObjModel`:
+When your OBJ has a companion MTL file with textures, polycss reads `map_Kd` entries and applies them as UV-mapped textures. Pass `mtlUrl` (vanilla attribute) or `mtlUrl` prop:
+
+```html
+<!-- Vanilla -->
+<poly-mesh src="/rock.obj" mtl-url="/rock.mtl" target-size="40"></poly-mesh>
+```
 
 ```tsx
+// React / Vue
 <PolyMesh
   src="/rock.obj"
   mtlUrl="/rock.mtl"
@@ -71,7 +89,7 @@ When your OBJ has a companion MTL file with textures, polycss reads `map_Kd` ent
 
 ## Material overrides
 
-Override material colors or textures without modifying the source files:
+Override material colors or textures without modifying the source files (React / Vue prop form):
 
 ```tsx
 <PolyMesh
@@ -84,17 +102,28 @@ Override material colors or textures without modifying the source files:
 />
 ```
 
-## `useMesh` hook — imperative loading
+## Imperative loading
 
-For finer control over loading state (custom spinners, error handling, etc.), use `useMesh`:
+For programmatic loading with explicit lifecycle, use `loadMesh` from the core parser. This is the universal vanilla path; React adds a `useMesh` hook on top:
 
-<Tabs syncKey="fw">
-<TabItem label="React">
+```ts
+// Vanilla — works anywhere, no framework
+import { loadMesh, createPolyScene } from "polycss";
+
+const result = await loadMesh("/cottage.glb", { targetSize: 60 });
+const scene = createPolyScene(document.getElementById("host")!);
+scene.add(result);
+// later:
+result.dispose(); // revoke blob URLs
+scene.remove();
+```
+
 ```tsx
+// React — useMesh wraps loadMesh + dispose() on unmount
 import { PolyScene, Poly, useMesh } from "@polycss/react";
 
 function Viewer() {
-  const { polygons, loading, error, dispose } = useMesh("/cottage.glb");
+  const { polygons, loading, error } = useMesh("/cottage.glb");
 
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error}</div>;
@@ -105,20 +134,6 @@ function Viewer() {
     </PolyScene>
   );
 }
-```
-</TabItem>
-</Tabs>
-
-## `loadMesh` — core parser (no React/Vue)
-
-Load a mesh directly using the core parser:
-
-```ts
-import { loadMesh } from "@polycss/core";
-
-const result = await loadMesh("/cottage.glb", { targetSize: 60 });
-// result.polygons — Polygon[]
-// result.dispose() — revoke blob URLs when done
 ```
 
 ## UV texture pipeline

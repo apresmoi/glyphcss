@@ -160,6 +160,123 @@ describe("loadMesh", () => {
     });
   });
 
+  describe("mtlUrl option (OBJ companion materials)", () => {
+    // OBJ that references a material named "Wood" — without an mtl, the
+    // parser falls back to the auto-palette; with the mtl, "Wood" → Kd.
+    const OBJ_WITH_MTL = [
+      "v 0 0 0",
+      "v 1 0 0",
+      "v 0 1 0",
+      "usemtl Wood",
+      "f 1 2 3",
+      "",
+    ].join("\n");
+
+    function makeMultiFetch(map: Record<string, { text?: string; ok?: boolean; status?: number }>) {
+      return vi.fn().mockImplementation((url: string) => {
+        const entry = map[url];
+        if (!entry) {
+          return Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve(""), arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)) });
+        }
+        return Promise.resolve({
+          ok: entry.ok ?? true,
+          status: entry.status ?? 200,
+          text: () => Promise.resolve(entry.text ?? ""),
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        });
+      });
+    }
+
+    it("fetches mtl, parses Kd, and applies the color to the matching usemtl group", async () => {
+      vi.stubGlobal("fetch", makeMultiFetch({
+        "https://example.com/m.obj": { text: OBJ_WITH_MTL },
+        "https://example.com/m.mtl": { text: "newmtl Wood\nKd 0.8 0.4 0.2\n" },
+      }));
+
+      const result = await loadMesh("https://example.com/m.obj", {
+        mtlUrl: "https://example.com/m.mtl",
+      });
+
+      expect(result.polygons.length).toBe(1);
+      // Kd 0.8 0.4 0.2 → toHex round → cc 66 33
+      expect(result.polygons[0].color?.toLowerCase()).toBe("#cc6633");
+    });
+
+    it("propagates map_Kd as a texture, resolving relative paths against the mtl URL", async () => {
+      vi.stubGlobal("fetch", makeMultiFetch({
+        "https://example.com/models/m.obj": { text: OBJ_WITH_MTL },
+        "https://example.com/models/m.mtl": {
+          text: "newmtl Wood\nKd 1 1 1\nmap_Kd wood.png\n",
+        },
+      }));
+
+      const result = await loadMesh("https://example.com/models/m.obj", {
+        mtlUrl: "https://example.com/models/m.mtl",
+      });
+
+      expect(result.polygons.length).toBe(1);
+      expect(result.polygons[0].texture).toBe("https://example.com/models/wood.png");
+    });
+
+    it("fails loudly when the mtl URL 404s instead of silently rendering without materials", async () => {
+      vi.stubGlobal("fetch", makeMultiFetch({
+        "m.obj": { text: OBJ_WITH_MTL },
+        "missing.mtl": { ok: false, status: 404 },
+      }));
+
+      await expect(
+        loadMesh("m.obj", { mtlUrl: "missing.mtl" })
+      ).rejects.toThrow(/missing\.mtl/);
+    });
+
+    it("ignores mtlUrl for GLB (materials embedded in the glTF JSON)", async () => {
+      // GLB carries its own materials. Passing mtlUrl shouldn't fetch it
+      // OR throw — it's just irrelevant.
+      const glb = buildMinimalGlb();
+      const fetchMock = makeMultiFetch({
+        "model.glb": {},
+      });
+      // Override the model.glb branch to return arrayBuffer
+      fetchMock.mockImplementation((url: string) => {
+        if (url === "model.glb") {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            text: () => Promise.resolve(""),
+            arrayBuffer: () => Promise.resolve(glb),
+          });
+        }
+        // Any other URL (e.g., the mtl we shouldn't fetch) → 404
+        return Promise.resolve({
+          ok: false, status: 404,
+          text: () => Promise.resolve(""),
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await loadMesh("model.glb", { mtlUrl: "ignored.mtl" });
+      expect(result).toHaveProperty("polygons");
+      // Only the GLB itself should have been fetched; the mtl ignored.
+      const fetchedUrls = fetchMock.mock.calls.map((c: unknown[]) => c[0]);
+      expect(fetchedUrls).toEqual(["model.glb"]);
+    });
+
+    it("user-supplied objOptions.materialColors override mtl-derived colors for the same name", async () => {
+      vi.stubGlobal("fetch", makeMultiFetch({
+        "m.obj": { text: OBJ_WITH_MTL },
+        "m.mtl": { text: "newmtl Wood\nKd 0.8 0.4 0.2\n" },
+      }));
+
+      const result = await loadMesh("m.obj", {
+        mtlUrl: "m.mtl",
+        objOptions: { materialColors: { Wood: "#000000" } },
+      });
+
+      expect(result.polygons[0].color).toBe("#000000");
+    });
+  });
+
   describe("URL with query params and hash", () => {
     it("extracts extension from URL with ?query", async () => {
       vi.stubGlobal("fetch", makeMockFetch({ text: SIMPLE_OBJ }));
