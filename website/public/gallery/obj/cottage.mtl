@@ -1,0 +1,6 @@
+# Companion material file for cottage.obj.
+# Hand-authored — the original asset shipped without one.
+
+newmtl cottage_texture
+Kd 1 1 1
+map_Kd cottage-diffuse.png

@@ -172,7 +172,10 @@ const ldJson = {
             </div>
           </div>
           <div class="hero-canvas" id="hero-root">
-            <!-- mesh viewer placeholder — Phase 8 will add a live PolyMesh demo -->
+            <!-- Half-apple polygons: voxcss's halfapple.json voxels
+                 converted to triangles offline, then Taubin-smoothed
+                 (see /gallery/halfapple-smooth.json). Mounted
+                 with createPolyScene + autoCenter + drag-to-rotate. -->
           </div>
         </section>
 
@@ -294,6 +297,50 @@ const ldJson = {
       } catch (_) {}
     }
     fetchStars();
+
+    // Hero apple — fetches the converted voxel-to-triangles JSON and mounts
+    // it with createPolyScene. autoCenter pivots rotation around the mesh
+    // centroid (Three.js convention); the small RAF loop spins it slowly.
+    async function mountHeroApple() {
+      const host = document.getElementById("hero-root");
+      if (!host) return;
+      try {
+        const [{ createPolyScene }, polyRes] = await Promise.all([
+          import("polycss"),
+          fetch("/gallery/halfapple-smooth.json"),
+        ]);
+        if (!polyRes.ok) return;
+        const polygons = await polyRes.json();
+
+        let rotY = 45;
+        const scene = createPolyScene(host, {
+          rotX: 65,
+          rotY,
+          zoom: 0.63,
+          autoCenter: true,
+          interactive: true,
+          perspective: 8000,
+        });
+        scene.add({ polygons, dispose: () => {} });
+
+        let last = 0;
+        let paused = false;
+        host.addEventListener("pointerdown", () => { paused = true; });
+        function tick(now: number) {
+          if (!paused) {
+            const dt = last ? Math.min(50, now - last) : 0;
+            rotY = (rotY + (dt / 16.67) * 0.3) % 360;
+            scene.setOptions({ rotY });
+          }
+          last = now;
+          requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      } catch (err) {
+        console.error("hero apple mount failed", err);
+      }
+    }
+    mountHeroApple();
 
     // Framework tabs
     const tablist = document.getElementById("framework-tablist");
@@ -511,6 +558,11 @@ const ldJson = {
     min-height: 320px;
     margin-top: 10px;
     height: 100%;
+    /* createPolyScene mounts its 0×0 scene anchor at top:50%/left:50% —
+       requires the host to be a positioned ancestor or it'll snap to the
+       document root. */
+    position: relative;
+    overflow: hidden;
   }
   .install-logos {
     display: flex;

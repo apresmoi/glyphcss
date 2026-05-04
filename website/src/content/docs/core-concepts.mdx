@@ -9,14 +9,14 @@ This page covers the mental model behind polycss. Each section describes a build
 
 ## A single block
 
-Where voxcss used to render a single voxel cube, polycss renders any polygon — a primitive shape, a hand-authored polygon list, or a loaded mesh. The block below is six quad faces composed at runtime; switch the shape selector or drag the rotation sliders to see how the same renderer handles every primitive.
+Where voxcss used to render a single voxel cube, polycss renders any regular polyhedron the same way: each face becomes one DOM element. The dodecahedron below is 12 native pentagons (not 36 triangles) — flip the shape selector to see how the same renderer handles every Platonic solid.
 
 <PolyDemo
   id="block-demo"
-  generator="cube"
-  generatorParams='{"radius":4}'
-  controls='["radius","rotX","rotY","zoom","animate"]'
-  defaults='{"rotX":65,"rotY":45}'
+  generator="dodecahedron"
+  generatorParams='{"radius":16}'
+  controls='["shape","rotX","rotY","zoom","animate","interactive"]'
+  defaults='{"rotX":65,"rotY":45,"interactive":true,"zoom":0.1,"animate":true}'
 />
 
 ## Three building blocks
