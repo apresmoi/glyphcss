@@ -17,7 +17,8 @@ function highlight(code: string, lang: string): string {
 const title = "polycss — CSS polygon-mesh renderer for the DOM";
 const description = "Render textured 3D meshes in the DOM. No WebGL — each polygon is a real DOM element you can style, click, and inspect in DevTools.";
 const siteUrl = "https://polycss.com";
-const ogImage = `${siteUrl}/polycss-intro.png`;
+// Reusing the legacy voxcss social card until a polycss-specific image lands.
+const ogImage = `${siteUrl}/voxcss-intro.png`;
 
 const frameworkTabs = [
   {
@@ -135,7 +136,7 @@ const ldJson = {
       <div class="home">
         <section class="hero" id="hero">
           <div class="hero-copy">
-            <h1>polycss</h1>
+            <h1><img width="300" height="72" style="width: 300px; height: auto" src="/voxisologo.png" alt="polycss" /></h1>
             <p>
               Render textured 3D meshes in the DOM. No WebGL, no canvas-as-scene.
               Each polygon is a real DOM element — style it with CSS, click it,
