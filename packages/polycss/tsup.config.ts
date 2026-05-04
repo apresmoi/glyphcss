@@ -1,7 +1,10 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: { index: "src/index.ts" },
+  entry: {
+    index: "src/index.ts",
+    elements: "src/elements/index.ts",
+  },
   format: ["esm", "cjs"],
   dts: true,
   splitting: false,
@@ -10,5 +13,5 @@ export default defineConfig({
   minify: true,
   target: "es2020",
   tsconfig: "tsconfig.build.json",
-  external: ["@polycss/core"]
+  external: ["@polycss/core"],
 });

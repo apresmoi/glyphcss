@@ -1,7 +1,7 @@
 {
   "name": "polycss",
   "version": "0.1.8",
-  "description": "HTML/DOM renderer for CSS polygon mesh rendering. Depends on @polycss/core.",
+  "description": "Polycss vanilla / custom-elements + imperative API. Renders OBJ / glTF / GLB mesh polygons as DOM via CSS matrix3d.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -24,6 +24,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./elements": {
+      "types": "./dist/elements.d.ts",
+      "import": "./dist/elements.js",
+      "require": "./dist/elements.cjs"
     }
   },
   "scripts": {
