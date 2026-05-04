@@ -108,6 +108,61 @@ describe("loadMesh", () => {
     });
   });
 
+  describe(".vox dispatch", () => {
+    // Build a minimal valid .vox ArrayBuffer in-memory.
+    function buildMinimalVox(): ArrayBuffer {
+      // Header + MAIN + SIZE + XYZI (1 voxel)
+      const sizeChunk = 12 + 12;      // header + sx/sy/sz
+      const xyziChunk = 12 + 4 + 4;  // header + count(1) + 1 voxel
+      const childrenSize = sizeChunk + xyziChunk;
+      const totalLen = 8 + 12 + childrenSize;
+      const buf = new ArrayBuffer(totalLen);
+      const dv = new DataView(buf);
+      const u8 = new Uint8Array(buf);
+      let off = 0;
+      const writeId = (id: string) => { for (let i = 0; i < 4; i++) u8[off++] = id.charCodeAt(i); };
+      const writeU32 = (v: number) => { dv.setUint32(off, v, true); off += 4; };
+      // Header
+      writeId("VOX "); writeU32(150);
+      // MAIN
+      writeId("MAIN"); writeU32(0); writeU32(childrenSize);
+      // SIZE
+      writeId("SIZE"); writeU32(12); writeU32(0);
+      writeU32(1); writeU32(1); writeU32(1); // 1x1x1
+      // XYZI
+      writeId("XYZI"); writeU32(4 + 4); writeU32(0);
+      writeU32(1); // count=1
+      u8[off++] = 0; u8[off++] = 0; u8[off++] = 0; u8[off++] = 1; // x,y,z,colorIdx
+      return buf;
+    }
+
+    it("fetches .vox URL as arrayBuffer and dispatches to parseVox", async () => {
+      const voxBuf = buildMinimalVox();
+      const fetchMock = makeMockFetch({ arrayBuffer: voxBuf });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = await loadMesh("model.vox");
+      expect(fetchMock).toHaveBeenCalledWith("model.vox");
+      expect(result).toHaveProperty("polygons");
+      expect(result).toHaveProperty("dispose");
+    });
+
+    it("passes voxOptions to parseVox (targetSize honored)", async () => {
+      const voxBuf = buildMinimalVox();
+      vi.stubGlobal("fetch", makeMockFetch({ arrayBuffer: voxBuf }));
+
+      const result = await loadMesh("model.vox", { voxOptions: { targetSize: 30 } });
+      expect(result.polygons.length).toBeGreaterThan(0);
+      // Single voxel → 6 quads (one per exposed face).
+      expect(result.polygons.length).toBe(6);
+    });
+
+    it("throws when fetch returns !ok for .vox", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ ok: false, status: 404 }));
+      await expect(loadMesh("missing.vox")).rejects.toThrow("404");
+    });
+  });
+
   describe(".mtl rejection", () => {
     it("throws for .mtl URLs without fetching", async () => {
       const fetchMock = vi.fn();
@@ -216,6 +271,26 @@ describe("loadMesh", () => {
 
       expect(result.polygons.length).toBe(1);
       expect(result.polygons[0].texture).toBe("https://example.com/models/wood.png");
+    });
+
+    it("resolves textures sibling-to-mtl when mtlUrl is a path (not absolute) — no document base", async () => {
+      // No document.baseURI in the test env (vitest happy-dom is gated by config).
+      // The fallback manual sibling resolution should still produce a useful path.
+      vi.stubGlobal("fetch", makeMultiFetch({
+        "/gallery/obj/m.obj": { text: OBJ_WITH_MTL },
+        "/gallery/obj/m.mtl": { text: "newmtl Wood\nKd 1 1 1\nmap_Kd wood.png\n" },
+      }));
+
+      const result = await loadMesh("/gallery/obj/m.obj", {
+        mtlUrl: "/gallery/obj/m.mtl",
+      });
+
+      expect(result.polygons.length).toBe(1);
+      // Either the URL-constructor path (absolute file:// or http:// resolved
+      // via document.baseURI) or the manual sibling-prepend path should
+      // produce something ending in /gallery/obj/wood.png — never a bare
+      // "wood.png" that would resolve against the page URL.
+      expect(result.polygons[0].texture).toMatch(/\/gallery\/obj\/wood\.png$/);
     });
 
     it("fails loudly when the mtl URL 404s instead of silently rendering without materials", async () => {

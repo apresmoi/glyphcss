@@ -81,5 +81,7 @@ export { parseMtl } from "./parser/parseMtl";
 export type { MtlParseResult } from "./parser/parseMtl";
 export { parseGltf } from "./parser/parseGltf";
 export type { GltfParseOptions } from "./parser/parseGltf";
+export { parseVox } from "./parser/parseVox";
+export type { VoxParseOptions } from "./parser/parseVox";
 export { loadMesh } from "./parser/loadMesh";
 export type { LoadMeshOptions } from "./parser/loadMesh";

@@ -33,6 +33,7 @@ const OBSERVED_ATTRS = [
   "merge",
   "projection",
   "auto-center",
+  "interactive",
 ] as const;
 
 function parseNumber(value: string | null): number | undefined {
@@ -82,13 +83,15 @@ export class PolySceneElement extends ELEMENT_BASE {
     if (rotY !== undefined) opts.rotY = rotY;
     const zoom = parseNumber(this.getAttribute("zoom"));
     if (zoom !== undefined) opts.zoom = zoom;
+    // Always emit projection + merge so removing the attribute resets to
+    // the default — without this, `setOptions({...partial})` would retain
+    // the prior value because the spread merge only overwrites present keys.
     const merge = parseMerge(this.getAttribute("merge"));
-    if (merge !== undefined) opts.merge = merge;
+    opts.merge = merge ?? "off";
     const projection = this.getAttribute("projection");
-    if (projection === "cubic" || projection === "dimetric") {
-      opts.projection = projection;
-    }
-    if (this.hasAttribute("auto-center")) opts.autoCenter = true;
+    opts.projection = projection === "dimetric" ? "dimetric" : "cubic";
+    opts.autoCenter = this.hasAttribute("auto-center");
+    opts.interactive = this.hasAttribute("interactive");
     if (directionalLight) opts.directionalLight = directionalLight;
     return opts;
   }

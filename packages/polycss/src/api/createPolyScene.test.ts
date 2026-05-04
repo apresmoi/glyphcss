@@ -85,7 +85,9 @@ describe("createPolyScene", () => {
       expect(sceneEl.style.perspective).toBe("1500px");
       expect(sceneEl.style.transform).toContain("scale(2)");
       expect(sceneEl.style.transform).toContain("rotateX(30deg)");
-      expect(sceneEl.style.transform).toContain("rotateY(60deg)");
+      // rotY in our API maps to CSS rotate() (i.e. rotateZ) so the model
+      // spins around its vertical world-Z axis, matching React's PolyCamera.
+      expect(sceneEl.style.transform).toContain("rotate(60deg)");
     });
 
     it("injects base styles into the document", () => {

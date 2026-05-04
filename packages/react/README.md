@@ -52,7 +52,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 
 | Prop | Type | Description |
 |---|---|---|
-| `src` | `string` | URL to `.obj`, `.glb`, or `.gltf` |
+| `src` | `string` | URL to `.obj`, `.glb`, `.gltf`, or `.vox` |
 | `polygons` | `Polygon[]` | Pre-parsed polygons (alternative to `src`) |
 | `position` | `Vec3` | `[x, y, z]` offset in scene space |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
@@ -107,7 +107,7 @@ All types and core functions are re-exported for convenience, so you never need 
 
 ```ts
 import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@polycss/react";
-import { parseObj, parseGltf, loadMesh, normalizePolygons, mergePolygons } from "@polycss/react";
+import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@polycss/react";
 ```
 
 ## Per-polygon interactivity example

@@ -92,6 +92,7 @@ The DOM-native approach means every polygon is a real element:
 
 - OBJ + MTL (including `map_Kd` textures, UV coordinates)
 - glTF / GLB (including embedded images, TEXCOORD_0 UV decoding)
+- MagicaVoxel `.vox` (face-culled voxel grids → triangle meshes; custom and default palette)
 
 ## License
 

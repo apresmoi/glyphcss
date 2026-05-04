@@ -102,7 +102,7 @@ Note: `auto-rotate` and `interactive` are not supported in the v1 vanilla packag
 
 | Attribute | Description |
 |---|---|
-| `src` | URL to `.obj`, `.glb`, or `.gltf` |
+| `src` | URL to `.obj`, `.glb`, `.gltf`, or `.vox` |
 | `position` | Comma-separated `x, y, z` |
 | `scale` | Uniform scale factor |
 | `rotation` | Comma-separated euler degrees `x, y, z` |
@@ -167,7 +167,7 @@ interface SceneHandle {
 
 **`loadMesh(url, options?)`**
 
-Fetches and parses a mesh by URL (dispatches by extension). Returns `Promise<ParseResult>`.
+Fetches and parses a mesh by URL (dispatches by extension: `.obj`, `.glb`, `.gltf`, `.vox`). Returns `Promise<ParseResult>`.
 
 ## Subpath imports
 
@@ -181,7 +181,7 @@ Fetches and parses a mesh by URL (dispatches by extension). Returns `Promise<Par
 All `@polycss/core` exports are re-exported from `polycss`, so vanilla users install one package:
 
 ```ts
-import { parseObj, parseGltf, loadMesh, normalizePolygons } from "polycss";
+import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons } from "polycss";
 import type { Polygon, Vec3, ParseResult } from "polycss";
 ```
 

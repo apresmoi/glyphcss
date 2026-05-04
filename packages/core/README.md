@@ -4,7 +4,7 @@
 
 Framework-agnostic math, parsers, and helpers for CSS polygon-mesh rendering. Zero browser globals — runs in Node, workers, or any JS environment.
 
-This package contains the entire non-rendering side of polycss: OBJ / glTF / GLB parsers, polygon normalization, coplanar merge, Lambert lighting, isometric camera state, and all shared TypeScript types.
+This package contains the entire non-rendering side of polycss: OBJ / glTF / GLB / MagicaVoxel parsers, polygon normalization, coplanar merge, Lambert lighting, isometric camera state, and all shared TypeScript types.
 
 ## When to use directly
 
@@ -34,6 +34,7 @@ npm install @polycss/core
 | `ParseResult` | Unified parser return: `polygons`, `objectUrls`, `dispose()`, `warnings` |
 | `ObjParseOptions` | Options for `parseObj` |
 | `GltfParseOptions` | Options for `parseGltf` |
+| `VoxParseOptions` | Options for `parseVox` |
 | `MtlParseResult` | `{ colors, textures }` from `parseMtl` |
 | `NormalizeResult` | `{ polygons, warnings }` from `normalizePolygons` |
 | `CameraState` | Camera angles, zoom, perspective |
@@ -51,7 +52,8 @@ npm install @polycss/core
 | `parseObj(text, options?)` | Parses OBJ text into `ParseResult`. Supports UV (`vt`), materials, `map_Kd` textures. |
 | `parseMtl(text)` | Parses MTL text into `{ colors, textures }`. |
 | `parseGltf(buffer, options?)` | Parses GLB or glTF `ArrayBuffer` into `ParseResult`. Extracts embedded textures as blob URLs. |
-| `loadMesh(url, options?)` | Fetches a URL, dispatches to the right parser by extension (`.obj`, `.glb`, `.gltf`). Returns `Promise<ParseResult>`. |
+| `parseVox(buffer, options?)` | Parses MagicaVoxel `.vox` `ArrayBuffer` into `ParseResult`. Face-culls interior voxel faces and fan-triangulates exposed quads. |
+| `loadMesh(url, options?)` | Fetches a URL, dispatches to the right parser by extension (`.obj`, `.glb`, `.gltf`, `.vox`). Returns `Promise<ParseResult>`. |
 | `parseColor(input)` | Parse any CSS color string to `{ r, g, b, a }`. |
 | `shadeColor(input, lambert, ...)` | Apply Lambert shading factor to a color. |
 | `computeShapeLighting(normal, baseColor, light?)` | Compute shaded color for a polygon face given a directional light and surface normal. |

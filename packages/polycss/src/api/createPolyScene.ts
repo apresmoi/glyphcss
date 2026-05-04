@@ -46,6 +46,12 @@ export interface PolySceneOptions {
    * or `setOptions` is called. Mirrors React's `<PolyScene autoCenter>`.
    */
   autoCenter?: boolean;
+  /**
+   * When `true`, attach pointerdown/move/up handlers to the host so the
+   * user can drag-rotate the scene (drag-X = yaw / rotY, drag-Y = pitch
+   * / rotX). Mirrors React's `<PolyCamera interactive>`. Default false.
+   */
+  interactive?: boolean;
 }
 
 export interface MeshTransform {
@@ -74,7 +80,9 @@ export interface SceneHandle {
   destroy(): void;
 }
 
-const DEFAULT_PERSPECTIVE = 1000;
+// Match React's PolyCamera default — 1000px is a strong fish-eye that
+// distorts loaded meshes; 8000px gives the gentle iso look users expect.
+const DEFAULT_PERSPECTIVE = 8000;
 const DEFAULT_ROT_X = 65;
 const DEFAULT_ROT_Y = 45;
 const DEFAULT_ZOOM = 1;
@@ -106,7 +114,11 @@ function buildSceneTransform(opts: PolySceneOptions): string {
   const rotX = opts.rotX ?? DEFAULT_ROT_X;
   const rotY = opts.rotY ?? DEFAULT_ROT_Y;
   const zoom = opts.zoom ?? DEFAULT_ZOOM;
-  return `scale(${zoom}) rotateX(${rotX}deg) rotateY(${rotY}deg)`;
+  // Match React's PolyCamera transform: rotate() (i.e. rotateZ) — NOT
+  // rotateY. After the rotateX tilt, the world's Z axis is what reads
+  // as "spin in place"; rotateY rotates around an oblique axis and
+  // makes the mesh wobble. Names line up: rotY in our API == CSS rotate.
+  return `scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg)`;
 }
 
 export function createPolyScene(
@@ -120,6 +132,15 @@ export function createPolyScene(
   // Inject base styles into the host's owning document so .polycss-scene
   // has perspective + preserve-3d defaults.
   if (host.ownerDocument) injectBaseStyles(host.ownerDocument);
+
+  // The scene element pins itself at top:50%/left:50% — needs the host to
+  // be a positioned ancestor or the offsets resolve against the document.
+  // Force `position: relative` only if the host has no positioning yet, so
+  // we don't clobber a deliberate `absolute`/`fixed`/`sticky` from the user.
+  if (host.ownerDocument?.defaultView) {
+    const computed = host.ownerDocument.defaultView.getComputedStyle(host);
+    if (computed.position === "static") host.style.position = "relative";
+  }
 
   let currentOptions: PolySceneOptions = { ...options };
 
@@ -162,8 +183,15 @@ export function createPolyScene(
   }
 
   function recomputeAutoCenter(): void {
+    // Build the wrapper transform in two parts (CSS reads right-to-left):
+    //   scaleZ(0.5)?           ← projection=dimetric squashes Z to half
+    //   translate3d(-cx,-cy,-cz)  ← autoCenter brings bbox center to origin
+    // The translation runs in unscaled world units; scaleZ pivots at the
+    // wrapper's own origin (which IS world (0,0,0) after centering).
+    const dimetricSquash = currentOptions.projection === "dimetric" ? "scaleZ(0.5)" : "";
+
     if (!currentOptions.autoCenter) {
-      centerWrapper.style.transform = "";
+      centerWrapper.style.transform = dimetricSquash;
       return;
     }
     // Combine all live mesh polygons into a single bbox.
@@ -172,18 +200,22 @@ export function createPolyScene(
       if (!m.disposed) all.push(...m.polygons);
     }
     if (all.length === 0) {
-      centerWrapper.style.transform = "";
+      centerWrapper.style.transform = dimetricSquash;
       return;
     }
     const bbox = computeSceneBbox(all);
     const tile = DEFAULT_TILE;
-    const layer =
-      currentOptions.projection === "dimetric" ? tile / 2 : tile;
-    // Match React's axis remap: world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z
+    // Match React's axis remap: world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z.
+    // Z translation uses unscaled tile — the scaleZ(0.5) wrapper handles
+    // dimetric compression after the translation has placed bbox center at
+    // wrapper origin.
     const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * tile;
     const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * tile;
-    const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * layer;
-    centerWrapper.style.transform = `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * tile;
+    const translate = `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    centerWrapper.style.transform = dimetricSquash
+      ? `${dimetricSquash} ${translate}`
+      : translate;
   }
 
   function add(parseResult: ParseResult, transformIn: MeshTransform = {}): MeshHandle {
@@ -266,10 +298,103 @@ export function createPolyScene(
   function setOptions(partial: Partial<PolySceneOptions>): void {
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
+    syncInteractive();
     recomputeAutoCenter();
   }
 
+  // ─── Pointer-drag rotation when options.interactive is true ───────────────
+  // Mirrors React's useCamera drag handling: drag-X rotates around the
+  // world Z (yaw / rotY), drag-Y tilts around screen X (pitch / rotX).
+  // Touch + mouse via pointer events; prior listener removed on toggle so
+  // setOptions({ interactive: false }) cleanly detaches.
+
+  const POINTER_DRAG_SPEED = 4; // px per degree (lower = more sensitive)
+  let activePointerId: number | null = null;
+  let pointer = { x: 0, y: 0 };
+  let interactiveAttached = false;
+
+  const onPointerDown = (e: PointerEvent): void => {
+    if (!currentOptions.interactive) return;
+    if (activePointerId !== null) return;
+    if (e.isPrimary === false) return;
+    e.preventDefault();
+    activePointerId = e.pointerId;
+    pointer = { x: e.clientX, y: e.clientY };
+    host.style.cursor = "grabbing";
+    try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  const onPointerMove = (e: PointerEvent): void => {
+    if (activePointerId === null || e.pointerId !== activePointerId) return;
+    e.preventDefault();
+    const dX = (e.clientX - pointer.x) / POINTER_DRAG_SPEED;
+    const dY = (e.clientY - pointer.y) / POINTER_DRAG_SPEED;
+    const rotX = Math.max(0, Math.min(100, (currentOptions.rotX ?? DEFAULT_ROT_X) - dY));
+    const rotY = ((currentOptions.rotY ?? DEFAULT_ROT_Y) - dX + 360) % 360;
+    currentOptions = { ...currentOptions, rotX, rotY };
+    applySceneStyle(sceneEl, currentOptions);
+    pointer = { x: e.clientX, y: e.clientY };
+  };
+
+  const onPointerUp = (e: PointerEvent): void => {
+    if (activePointerId === null || e.pointerId !== activePointerId) return;
+    activePointerId = null;
+    host.style.cursor = currentOptions.interactive ? "grab" : "";
+    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+
+  // Wheel → zoom. Browsers translate trackpad pinch into wheel events with
+  // ctrlKey=true, so this covers desktop scroll + Mac pinch in one path.
+  // Multiplicative step gives smooth zooming across the full range.
+  const ZOOM_MIN = 0.05;
+  const ZOOM_MAX = 8;
+  const ZOOM_STEP = 0.0015; // tuned for unit `deltaY` per wheel notch
+  const onWheel = (e: WheelEvent): void => {
+    if (!currentOptions.interactive) return;
+    e.preventDefault();
+    const current = currentOptions.zoom ?? DEFAULT_ZOOM;
+    // Normalize across wheel-line / wheel-pixel modes (deltaMode 0 = px,
+    // 1 = lines, 2 = pages). Lines ≈ 33 px, pages ≈ 800 px.
+    const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
+    const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, current * factor));
+    currentOptions = { ...currentOptions, zoom: next };
+    applySceneStyle(sceneEl, currentOptions);
+  };
+
+  function syncInteractive(): void {
+    const want = !!currentOptions.interactive;
+    if (want === interactiveAttached) return;
+    if (want) {
+      host.addEventListener("pointerdown", onPointerDown);
+      host.addEventListener("pointermove", onPointerMove);
+      host.addEventListener("pointerup", onPointerUp);
+      host.addEventListener("pointercancel", onPointerUp);
+      // passive:false because we call preventDefault() to stop the page
+      // from scrolling while the user is zooming the scene.
+      host.addEventListener("wheel", onWheel, { passive: false });
+      host.style.cursor = "grab";
+      host.style.touchAction = "none";
+      host.style.userSelect = "none";
+    } else {
+      host.removeEventListener("pointerdown", onPointerDown);
+      host.removeEventListener("pointermove", onPointerMove);
+      host.removeEventListener("pointerup", onPointerUp);
+      host.removeEventListener("pointercancel", onPointerUp);
+      host.removeEventListener("wheel", onWheel);
+      host.style.cursor = "";
+      host.style.touchAction = "";
+      host.style.userSelect = "";
+    }
+    interactiveAttached = want;
+  }
+
+  syncInteractive();
+
   function destroy(): void {
+    // Detach pointer listeners before tearing down meshes.
+    currentOptions = { ...currentOptions, interactive: false };
+    syncInteractive();
     // Dispose all meshes (revokes blob URLs) before removing the scene.
     // Snapshot first since dispose() mutates the set.
     const snapshot = Array.from(meshes);
