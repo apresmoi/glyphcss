@@ -1,5 +1,6 @@
-export { VoxCamera } from "./VoxCamera";
+export { PolyCamera } from "./PolyCamera";
+export type { PolyCameraProps } from "./PolyCamera";
 export { useCamera } from "./useCamera";
 export type { UseCameraOptions, UseCameraResult } from "./useCamera";
-export { VoxCameraContextKey } from "./context";
-export type { VoxCameraContextValue } from "./context";
+export { PolyCameraContextKey } from "./context";
+export type { PolyCameraContextValue } from "./context";

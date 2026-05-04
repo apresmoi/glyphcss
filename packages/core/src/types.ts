@@ -1,104 +1,76 @@
-/* Core type and constant definitions shared across voxcss runtime modules. */
+/* Core type and constant definitions shared across polycss runtime modules. */
 export type ProjectionMode = "cubic" | "dimetric";
 export const DEFAULT_PROJECTION: ProjectionMode = "cubic";
 
-export interface Voxel {
-  x: number;
-  y: number;
-  z: number;
-  x2?: number;
-  y2?: number;
-  z2?: number;
+/**
+ * 3D point/vector, stored as a `[x, y, z]` tuple. Tuple (rather than
+ * `{x, y, z}`) for compact JSON: meshes serialize to thousands of vertices
+ * and the difference adds up. Destructure with `const [x, y, z] = v` when
+ * you need named axes.
+ *
+ * Polycss world space convention: +X right, +Y forward, +Z up.
+ */
+export type Vec3 = [number, number, number];
+
+/**
+ * 2D point/vector — `[u, v]`. Used for texture-atlas UV coordinates on
+ * polygons. Convention follows OBJ: u is horizontal (0=left, 1=right),
+ * v is vertical (0=bottom, 1=top). Renderers flip v when binding to an
+ * `<img>` whose Y-axis points down.
+ */
+export type Vec2 = [number, number];
+
+/**
+ * Directional light setup used by the polygon renderer for per-face Lambert
+ * shading. Direction is in scene-local CSS-pixel coords. Vector doesn't
+ * need to be pre-normalized. Color is multiplied into the surface color
+ * for the directional contribution; ambient (RGB) provides the floor for
+ * faces pointing away from the light.
+ */
+export interface DirectionalLight {
+  /** Direction the light shines TOWARD (typical convention). */
+  direction: Vec3;
+  /** Light tint, hex string. White by default. */
   color?: string;
+  /** Ambient light tint, hex string. Pre-multiplied by `ambient` strength. */
+  ambientColor?: string;
+  /** Ambient strength 0..1 — floor brightness for back-of-light faces. */
+  ambient?: number;
+}
+
+/**
+ * The single polygon type for polycss. N coplanar vertices in 3D space,
+ * CCW winding from outside. No bbox field, no shape discriminator, no
+ * input/output distinction — one type, used by parsers, by the merge
+ * pass, and by the renderer.
+ *
+ * See §Design.3 in POLYCSS_MIGRATION.md for the rationale.
+ */
+export interface Polygon {
+  /** N coplanar vertices in 3D space, CCW winding from outside. */
+  vertices: Vec3[];
+  /**
+   * Solid base color. Falls back to "#cccccc" when neither color nor
+   * texture is set (and acts as the `<img>.onerror` fallback when texture
+   * fails to load).
+   */
+  color?: string;
+  /**
+   * Texture URL. When set with `uvs`, UV-mapped via affine; without
+   * `uvs`, single-tile fill. If the load fails, renderer falls back to
+   * `color` (or default gray).
+   */
   texture?: string;
-  shape?: string;
-  data?: Record<string, unknown>;
-  rot?: number;
-}
-
-export type VoxelGrid = Voxel[];
-
-export const BASE_TILE = 50;
-
-export interface SceneDimensions {
-  rows?: number;
-  cols?: number;
-  depth?: number;
-}
-
-export interface WallsMask {
-  t: boolean;
-  b: boolean;
-  bl: boolean;
-  br: boolean;
-  fl: boolean;
-  fr: boolean;
-}
-
-export type OffsetMap = Record<string, [number, number, number]>;
-
-export interface FaceAppearanceOverride {
-  backgroundImage?: string | null;
-  backgroundColor?: string | null;
-  filter?: string | null;
-}
-
-export interface GridContext {
-  rows: number;
-  cols: number;
-  depth: number;
-  tileSize: number;
-  layerElevation: number;
-  projection?: ProjectionMode;
-  walls: WallsMask;
-  offsets: OffsetMap;
-  showWalls: boolean;
-  showFloor: boolean;
-  rotX?: number;
-  rotY?: number;
-  renderVersion?: number;
-  wallColor: string;
-  getVoxel(x: number, y: number, z: number): Voxel | null;
-  resolveTexture?(name: string, face: string): string | undefined;
-  lighting?(voxel: Voxel, face: string): FaceAppearanceOverride | undefined;
-}
-
-
-export const DEFAULT_OFFSETS: OffsetMap = {
-  t: [0, 0, 1],
-  b: [0, 0, -1],
-  fr: [0, 1, 0],
-  fl: [1, 0, 0],
-  bl: [0, -1, 0],
-  br: [-1, 0, 0],
-  f: [0, 0, 0]
-};
-
-export const DEFAULT_WALLS: WallsMask = {
-  t: false,
-  b: true,
-  bl: true,
-  br: true,
-  fl: false,
-  fr: false
-};
-
-export const DEFAULT_WALL_COLOR = "#3e3e4d";
-
-export const LAYER_CLASS = "voxcss-layer";
-export const FLOOR_CLASS = "voxcss-floor-z";
-export const CUBE_CLASS = "voxcss-cube";
-export const FACE_CLASS = "voxcss-cube-face";
-export const CUBE_FACES = ["t", "b", "bl", "br", "fr", "fl"] as const;
-export type CubeFace = (typeof CUBE_FACES)[number];
-export const WALL_CLASS = "voxcss-wall";
-export const CEILING_CLASS = "voxcss-ceiling";
-export const STYLE_ID = "voxcss-base-styles";
-export const SCENE_CLASS = "voxcss-camera";
-
-export interface WallDimensionsSnapshot {
-  rows: number;
-  cols: number;
-  depth: number;
-  tileSize: number;
+  /**
+   * Per-vertex UV coords (0..1, OBJ convention with v=0 at bottom).
+   * Length MUST equal vertices.length when set; mismatched UVs are
+   * stripped by `normalizePolygons`.
+   */
+  uvs?: Vec2[];
+  /**
+   * User-controlled metadata. Reflected to DOM as `data-*` attributes via
+   * stringification by the framework wrappers. Only string|number|boolean
+   * values are kept; other shapes are dropped by `normalizePolygons`.
+   */
+  data?: Record<string, string | number | boolean>;
 }

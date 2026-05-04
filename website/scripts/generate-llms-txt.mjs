@@ -8,7 +8,7 @@ import { join, relative, dirname } from 'path';
 
 const DOCS_DIR = new URL('../src/content/docs', import.meta.url).pathname;
 const DIST_DIR = new URL('../dist', import.meta.url).pathname;
-const SITE_URL = 'https://voxcss.com';
+const SITE_URL = 'https://polycss.com';
 
 function walkDir(dir) {
   const files = [];
@@ -56,9 +56,9 @@ for (const file of files) {
 }
 
 const indexLines = [
-  '# VoxCSS',
+  '# Polycss',
   '',
-  '> A CSS voxel engine. A 3D grid for the DOM. MIT licensed.',
+  '> A CSS polygon mesh engine. DOM-native 3D rendering. MIT licensed.',
   '',
   '## Documentation',
   '',
@@ -74,14 +74,14 @@ for (const file of files) {
   indexLines.push(`- [${title}](${url})`);
 }
 
-indexLines.push('', '## Source', '', '- GitHub: https://github.com/LayoutitStudio/voxcss', '- License: MIT', '');
+indexLines.push('', '## Source', '', '- GitHub: https://github.com/LayoutitStudio/polycss', '- License: MIT', '');
 
 writeFileSync(join(DIST_DIR, 'llms.txt'), indexLines.join('\n'));
 
 const fullLines = [
-  '# VoxCSS -- Full Documentation',
+  '# Polycss -- Full Documentation',
   '',
-  '> A CSS voxel engine. A 3D grid for the DOM.',
+  '> A CSS polygon mesh engine. DOM-native 3D rendering.',
   '',
 ];
 

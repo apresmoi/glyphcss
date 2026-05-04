@@ -1,77 +1,88 @@
 ---
 title: Performance
-description: Optimizing VoxCSS scenes with merge modes and understanding DOM-based rendering tradeoffs.
+description: Optimizing polycss scenes with merge modes and understanding DOM-based rendering tradeoffs.
 ---
 
-import VoxDemo from '../../../components/VoxDemo.astro';
+polycss renders everything as real DOM elements — every polygon of every mesh is an HTML element with CSS transforms. That gives you DevTools inspection, DOM events, and CSS styling on every polygon, but it means **performance scales with element count**. Understanding how to manage that count is key to building smooth scenes.
 
-VoxCSS renders everything as real DOM elements — every face of every voxel is an HTML element with CSS transforms. That gives you DevTools inspection, DOM events, and CSS styling on every voxel, but it means **performance scales with element count**. Understanding how to manage that count is key to building smooth scenes.
+## Polygon count matters
 
-Watch the FPS and DOM element count on the live demo below — the scene is auto-rotating the `dual.vox` spaceship with 3D merging enabled:
+The dominant rendering cost in polycss is **style recalc + layout** (not paint or compositing). Each camera rotation triggers a CSS class change on the scene root, which re-evaluates descendant selectors. The more DOM nodes, the heavier this recalc.
 
-<VoxDemo
-  id="perf-demo"
-  model="vox/dual.vox"
-  controls='[]'
-  defaults='{"zoom":0.1,"interactive":true,"showFloor":false,"mergeVoxels":"3d","animate":true}'
-  showStats={true}
-/>
-
-## Face culling
-
-The engine automatically hides faces that aren't visible. Two types of culling happen out of the box:
-
-- **Camera culling** — faces pointing away from the current camera rotation are hidden via CSS.
-- **Neighbor occlusion** — when two voxels share a face (e.g., a voxel at `(1,1,0)` sits next to one at `(2,1,0)`), the shared faces between them are removed. They'd never be seen, so there's no reason to render them.
-
-This culling is automatic and requires no configuration. It significantly reduces the number of rendered elements in dense scenes.
+Confirmed during benchmarking on a 10k-triangle mesh with auto-rotate:
+- **Scripting**: ~579ms / 7s (mostly React re-renders)
+- **Rendering (style recalc + layout)**: ~2,130ms / 7s — the dominant cost
 
 ## Merge modes
 
-The `mergeVoxels` prop on `<VoxScene>` controls how aggressively the engine consolidates adjacent same-color voxels into larger elements.
+The `merge` prop on `<PolyScene>` controls how aggressively the engine consolidates coplanar adjacent polygons.
 
-### No merging (default)
+### `"off"` (default)
 
-Each voxel is its own DOM element. Full per-voxel control — every voxel can be individually targeted with CSS selectors, event listeners, or animations.
+No merging. Every parsed polygon is its own DOM element. Full per-polygon control — every polygon can be individually targeted with CSS selectors, event listeners, or animations.
 
-**Best for:** small scenes, interactive voxels, scenes where each voxel needs distinct behavior.
+**Best for:** small meshes, interactive polygons, scenes where each polygon needs distinct behavior.
 
-### 2D merging — `"2d"`
+### `"auto"`
 
-Merges adjacent same-color voxels **within each Z layer**. The engine finds rectangular regions of identical voxels on each flat layer and combines them into single, larger elements.
+Merges coplanar adjacent polygons that share the same material (color + texture). The engine finds contiguous flat regions and combines them into single, larger elements.
 
-**Best for:** medium scenes with large flat areas of uniform color — floors, walls, terrain surfaces.
+**Best for:** architectural meshes with large flat surfaces (walls, floors, ceilings), where many coplanar same-material triangles can be collapsed without visual change.
 
-### 3D merging — `"3d"`
-
-Volumetric merge across **all three axes**. The engine switches to a slice-based rendering approach, producing the fewest possible elements. Adjacent same-color voxels are combined into large cuboid regions regardless of layer boundaries.
-
-**Best for:** large, dense models where raw performance matters more than per-voxel control — imported `.vox` files, detailed scenes, anything visibly laggy at the default setting.
+**Limitations:**
+- Per-polygon DOM addressing is lost for merged groups.
+- UV-textured triangles can only merge with other triangles sharing the same texture and coplanar normal.
 
 ## Setting merge mode
 
-`mergeVoxels` is a prop on `<VoxScene>`. See [VoxScene reference](/components/vox-scene#props) for the full prop table.
+```tsx
+// React
+<PolyScene merge="auto">
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
 
-- **React:** `<VoxScene voxels={voxels} mergeVoxels="2d" />`
-- **Vue:** `<VoxScene :voxels="voxels" merge-voxels="2d" />`
-- **Vanilla JS:** `scene: { voxels, mergeVoxels: "2d" }`
+// Vue
+<PolyScene merge="auto">
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
 
-## Automatic 3D path
-
-If any voxel in your scene uses `z2` (spanning multiple Z layers with area spans like `{ x: 0, y: 0, z: 0, z2: 3 }`), the engine automatically switches to the 3D rendering path regardless of your `mergeVoxels` setting. The slice-based renderer is required to handle multi-layer spans correctly.
+// Custom elements
+<poly-scene merge="auto">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
 
 ## Choosing a merge mode
 
-| Mode | DOM nodes | Per-voxel control | Best use case |
-|------|-----------|-------------------|---------------|
-| `false` | Most | Full | Small scenes, interactive voxels |
-| `"2d"` | Fewer | Limited | Medium scenes, flat color regions |
-| `"3d"` | Fewest | None | Large dense models, imported `.vox` files |
+| Mode | DOM nodes | Per-polygon control | Best use case |
+|------|-----------|---------------------|---------------|
+| `"off"` | Most | Full | Small meshes, interactive polygons |
+| `"auto"` | Fewer | Lost for merged groups | Dense architectural meshes, large flat surfaces |
 
-Start with the default (no merging) and switch to `"2d"` or `"3d"` if you notice rendering lag. In many cases, the automatic face culling alone is enough to keep scenes performant.
+Start with the default (`"off"`) and switch to `"auto"` if you notice rendering lag on dense meshes.
+
+## `targetSize` and polygon count
+
+The single most effective way to reduce polygon count is to choose a smaller `targetSize` when parsing. This scales the model to fewer world-space units, and the parser (especially for OBJ) can skip triangles below the minimum renderable size.
+
+```tsx
+// Fewer polygons → faster
+<PolyMesh src="/castle.obj" options={{ targetSize: 30 }} />
+
+// More detail
+<PolyMesh src="/castle.obj" options={{ targetSize: 80 }} />
+```
+
+## Blob URL lifecycle
+
+UV-textured polygons each hold a blob URL (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:
+
+- Don't render thousands of UV-textured polygons if you can use a flat-color mesh — blob URL creation is synchronous canvas work.
+- Call `dispose()` on `ParseResult` / `useMesh` results when they're no longer needed.
+- `PolyMesh` handles disposal automatically on unmount or `src` change.
 
 ## Related
 
-- [VoxScene](/components/vox-scene) — Full `mergeVoxels` prop reference.
-- [Loading .vox Files](/guides/vox-files) — Large imported models typically need 3D merging.
+- [PolyScene](/components/vox-scene) — Full `merge` prop reference.
+- [Loading Meshes](/guides/textures) — Parsing options including `targetSize`.
 - [Core Concepts — Merge Modes](/core-concepts#merge-modes) — Conceptual overview.

@@ -1,100 +1,85 @@
-// @layoutit/voxcss-core — Pure-math voxel rendering engine (zero browser globals)
+// @polycss/core — Pure-math polygon rendering engine (zero browser globals).
+//
+// Public surface follows the API freeze in POLYCSS_MIGRATION.md §1543.
+// Anything not exported here is implementation detail.
 
+// ── Types ─────────────────────────────────────────────────────────
 export type {
-  Voxel,
-  VoxelGrid,
-  CubeFace,
-  GridContext,
-  WallsMask,
-  OffsetMap,
+  Vec2,
+  Vec3,
+  Polygon,
+  DirectionalLight,
   ProjectionMode,
-  FaceAppearanceOverride
 } from "./types";
+export { DEFAULT_PROJECTION } from "./types";
+
+// ── Scene context + normalization ────────────────────────────────
 export {
-  CUBE_FACES, DEFAULT_WALLS, DEFAULT_OFFSETS, BASE_TILE, SCENE_CLASS,
-  DEFAULT_WALL_COLOR, LAYER_CLASS, FLOOR_CLASS, FACE_CLASS, CUBE_CLASS,
-  WALL_CLASS, CEILING_CLASS, STYLE_ID
-} from "./types";
+  buildSceneContext,
+  computeSceneBbox,
+  normalizePolygons,
+} from "./scene/context";
+export type {
+  SceneContext,
+  SceneContextBuildArgs,
+  SceneContextBuildResult,
+  SceneBbox,
+  NormalizeResult,
+} from "./scene/context";
 
-export { buildSceneContext, getVoxelBounds, wallMasksEqual, computeWallMask } from "./scene/context";
-export type { SceneContextBuildResult } from "./scene/context";
-export { computeVisibleFaces } from "./scene/visibility";
+// ── Polygon geometry helper ──────────────────────────────────────
+export { polygonFaces } from "./scene/polygonGeometry";
+export type { PolygonFace } from "./scene/polygonGeometry";
 
-export { createIsometricCamera, normalizeInvertMultiplier } from "./camera/camera";
-export type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "./camera/camera";
+// ── Direction binning (camera quantization, used for back-face culling) ─
+export {
+  directionBinFromCamera,
+  directionVectorFromBin,
+  OCCLUSION_DIR_BINS,
+  AZIMUTH_BINS,
+  ELEVATION_BINS,
+} from "./scene/occlusionDirection";
 
+// ── Camera ────────────────────────────────────────────────────────
+export {
+  createIsometricCamera,
+  normalizeInvertMultiplier,
+  DEFAULT_CAMERA_STATE,
+} from "./camera/camera";
+export type {
+  CameraState,
+  CameraHandle,
+  AutoRotateOption,
+  AutoRotateConfig,
+  CameraStyleInput,
+} from "./camera/camera";
+
+// ── Color & lighting ─────────────────────────────────────────────
 export {
   parseColor,
   shadeColor,
-  shadeCubeFace,
-  shadeWallFace,
-  getCubeFaceLightDelta,
   computeShapeLighting,
-  setColorResolver
 } from "./color/lighting";
-export type { ParsedColor, ShapeType, ShapeSurfaceLighting, ColorResolver } from "./color/lighting";
+export type { ParsedColor } from "./color/lighting";
 
 export {
   parsePureColor,
   parseHexColor,
   parseRgbColor,
   clampChannel,
-  formatColor
+  formatColor,
 } from "./color/color";
 
-export {
-  computeCubeFaceAppearance,
-  getCubeFaceAppearanceSignature
-} from "./color/faceAppearance";
-export type { CubeFaceAppearance } from "./color/faceAppearance";
+// ── Mesh post-processing ──────────────────────────────────────────
+export { mergePolygons } from "./merge/mergePolygons";
 
-export { mergeVoxels } from "./merge/mergeVoxels";
-export {
-  normalizeMergeVoxelsOption,
-  is2dMerge,
-  is3dMerge
-} from "./merge/mergeVoxelsOption";
-export type { MergeVoxelsOption } from "./merge/mergeVoxelsOption";
-
-export {
-  buildSlicePlan,
-  buildFaceDataFromSnapshot,
-  buildSliceCacheKey,
-  buffersEqual,
-  holeFillVariants,
-  runRects,
-  mergeAlignedRects,
-  verify,
-  wallsToSig,
-  SLICE_RENDERER_VERSION,
-  AXIS_ORDER,
-  FACE_ORDER,
-  NEXT_LAYER_STEP
-} from "./merge/slicePlanner";
-export type {
-  PlaneAxis,
-  FaceKey,
-  FaceBuffer,
-  FaceData,
-  Brush,
-  SlicePlan
-} from "./merge/slicePlanner";
-
-export { parseMagicaVoxel } from "./parser/parseMagicaVoxel";
-export type { MagicaVoxelParseResult } from "./parser/parseMagicaVoxel";
-
-export {
-  encodeRgbaToPng,
-  encodeRgbToPng
-} from "./encoding/png";
-
-export {
-  sceneController
-} from "./controller/sceneController";
-export type {
-  SceneController,
-  SceneControllerOptions,
-  PointerInput,
-  SceneState,
-  ControllerSnapshot
-} from "./controller/sceneController";
+// ── Parsers ───────────────────────────────────────────────────────
+export type { ParseResult } from "./parser/types";
+export { parseObj } from "./parser/parseObj";
+export type { ObjParseOptions } from "./parser/parseObj";
+export { parseMtl } from "./parser/parseMtl";
+export type { MtlParseResult } from "./parser/parseMtl";
+export { parseGltf } from "./parser/parseGltf";
+export type { GltfParseOptions } from "./parser/parseGltf";
+export { loadMesh } from "./parser/loadMesh";
+export type { LoadMeshOptions } from "./parser/loadMesh";

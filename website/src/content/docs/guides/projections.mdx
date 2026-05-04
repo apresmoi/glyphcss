@@ -1,92 +1,79 @@
 ---
 title: Projections
-description: Choosing between cubic and dimetric projection modes for different visual styles.
+description: Choosing perspective depth and camera angles for different visual styles.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-VoxCSS supports two projection modes that control how Z layers are spaced in the scene. The projection affects the overall feel of your voxel world without changing any voxel data.
+polycss uses CSS 3D perspective to project the scene. The `perspective` prop on `PolyScene` (or `PolyCamera`) controls the depth illusion, and `rotX` / `rotY` control the camera angle.
 
-## Cubic (default)
+## Perspective depth
 
-Each Z layer is spaced **50px** apart — the same as the voxel width and height. This gives a balanced, uniform isometric look where voxels appear as true cubes. Cubic is the default, so you don't need to set it explicitly. Every [Quickstart](/quickstart) example is cubic.
-
-## Dimetric
-
-Dimetric projection halves the Z spacing to **25px**, producing a flatter, more top-down perspective. Vertical height is visually compressed — good when your scene is about the ground plane more than the vertical axis.
+Higher `perspective` values feel flatter (more isometric-like); lower values exaggerate depth. A value of `false` gives orthographic projection (no perspective distortion).
 
 <Tabs syncKey="fw">
 <TabItem label="React">
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+import { PolyScene, PolyMesh } from "@polycss/react";
 
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#94a3b8" },
-  { x: 1, y: 1, z: 1, color: "#64748b" },
-  { x: 1, y: 1, z: 2, color: "#475569" },
-];
+// Standard perspective
+<PolyScene perspective={1000} rotX={65} rotY={45}>
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
 
-export function App() {
-  return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} projection="dimetric" />
-    </VoxCamera>
-  );
-}
+// Very flat / near-isometric
+<PolyScene perspective={8000} rotX={65} rotY={45}>
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
+
+// Orthographic
+<PolyScene perspective={false} rotX={65} rotY={45}>
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
 ```
 </TabItem>
 <TabItem label="Vue">
 ```vue
 <template>
-  <VoxCamera interactive>
-    <VoxScene :voxels="voxels" projection="dimetric" />
-  </VoxCamera>
+  <!-- Standard perspective -->
+  <PolyScene :perspective="1000" :rot-x="65" :rot-y="45">
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
 </template>
 
 <script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#94a3b8" },
-  { x: 1, y: 1, z: 1, color: "#64748b" },
-  { x: 1, y: 1, z: 2, color: "#475569" },
-];
-</script>
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```html
-<div id="voxcss"></div>
-<script type="module">
-  import { renderScene } from "@layoutit/voxcss";
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { interactive: true },
-    scene: {
-      voxels: [
-        { x: 1, y: 1, z: 0, color: "#94a3b8" },
-        { x: 1, y: 1, z: 1, color: "#64748b" },
-        { x: 1, y: 1, z: 2, color: "#475569" },
-      ],
-      projection: "dimetric",
-    },
-  });
+import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>
 ```
 </TabItem>
 </Tabs>
 
-## When to use dimetric
+## Camera angles
 
-Dimetric works especially well for:
+Use `rotX` and `rotY` to position the camera:
 
-- **Terrain and landscapes** — flattened height gives a map-like overview.
-- **Strategy game boards** — the top-down feel suits tile-based UIs.
-- **Architectural floor plans** — emphasizes X/Y layout over vertical height.
+- `rotX` — vertical tilt. `90` is straight-down top view; `0` is horizontal.
+- `rotY` — horizontal rotation (0–360). Controls which face of the scene is forward.
 
-If your scene is mostly about the ground plane and vertical detail is secondary, dimetric gives you a cleaner read of the spatial layout.
+```tsx
+// Classic isometric angle
+<PolyScene rotX={65} rotY={45}>…</PolyScene>
+
+// More top-down (map view)
+<PolyScene rotX={80} rotY={45}>…</PolyScene>
+
+// Front-facing
+<PolyScene rotX={20} rotY={0}>…</PolyScene>
+```
+
+## When to adjust perspective
+
+- **High perspective (≥ 4000):** Near-isometric feel, minimal depth distortion. Good for architectural renders or strategy-game-style views.
+- **Low perspective (500–1000):** Strong depth foreshortening. Good for dramatic close-up shots or first-person-adjacent views.
+- **Orthographic (`false`):** Perfect isometric, no depth distortion at all. Good when you need pixel-perfect isometric scenes.
 
 ## Related
 
-- [VoxScene](/components/vox-scene) — Full `projection` prop reference.
-- [Shapes](/guides/shapes) — The shape showcase defaults to dimetric for its terrain-like composition.
+- [PolyScene](/components/vox-scene) — Full `perspective`, `rotX`, `rotY` prop reference.
+- [PolyCamera](/components/vox-camera) — Imperative camera control.
 - [Performance](/guides/performance) — Merge modes and DOM tuning.

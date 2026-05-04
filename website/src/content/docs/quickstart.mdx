@@ -1,56 +1,48 @@
 ---
 title: Quickstart
-description: Build your first VoxCSS scene in under a minute.
+description: Render your first polycss 3D mesh in under a minute.
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
-import VoxDemo from '../../components/VoxDemo.astro';
 
-Get a 3D voxel scene running in your project in two steps.
+Get a 3D mesh rendering in your project in two steps.
 
 <Steps>
 
 1. **Install the package**
 
-   <Tabs syncKey="pkg">
-   <TabItem label="npm">
+   <Tabs syncKey="fw">
+   <TabItem label="React">
    ```bash
-   npm install @layoutit/voxcss
+   npm install @polycss/react
    ```
    </TabItem>
-   <TabItem label="yarn">
+   <TabItem label="Vue">
    ```bash
-   yarn add @layoutit/voxcss
+   npm install @polycss/vue
    ```
    </TabItem>
-   <TabItem label="pnpm">
+   <TabItem label="Vanilla JS">
    ```bash
-   pnpm add @layoutit/voxcss
+   npm install polycss
    ```
    </TabItem>
    </Tabs>
 
-2. **Add a camera and scene**
+2. **Add a scene and load a mesh**
 
-   The camera controls the viewport (zoom, rotation, drag interaction). The scene holds your voxels. Pass `interactive` to let users drag to rotate, or `animate` for auto-rotation — see [VoxCamera](/components/vox-camera) for the full prop list.
+   `PolyScene` sets up the 3D viewport (perspective, camera, lighting). `PolyMesh` loads an OBJ or GLB file and renders its polygons. Pass `rotX` / `rotY` to set the camera angle.
 
    <Tabs syncKey="fw">
    <TabItem label="React">
    ```tsx
-   import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
-   const voxels = [
-     { x: 0, y: 0, z: 0, color: "#f97316" },
-     { x: 1, y: 0, z: 0, color: "#fb923c" },
-     { x: 0, y: 1, z: 0, color: "#fdba74" },
-     { x: 0, y: 0, z: 1, color: "#ef4444" },
-   ];
+   import { PolyScene, PolyMesh } from "@polycss/react";
 
    export function App() {
      return (
-       <VoxCamera interactive zoom={0.8}>
-         <VoxScene voxels={voxels} showFloor />
-       </VoxCamera>
+       <PolyScene rotX={65} rotY={45} perspective={1000}>
+         <PolyMesh src="/cottage.glb" />
+       </PolyScene>
      );
    }
    ```
@@ -58,64 +50,41 @@ Get a 3D voxel scene running in your project in two steps.
    <TabItem label="Vue">
    ```vue
    <template>
-     <VoxCamera interactive :zoom="0.8">
-       <VoxScene :voxels="voxels" show-floor />
-     </VoxCamera>
+     <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
+       <PolyMesh src="/cottage.glb" />
+     </PolyScene>
    </template>
 
    <script setup lang="ts">
-   import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-
-   const voxels = [
-     { x: 0, y: 0, z: 0, color: "#f97316" },
-     { x: 1, y: 0, z: 0, color: "#fb923c" },
-     { x: 0, y: 1, z: 0, color: "#fdba74" },
-     { x: 0, y: 0, z: 1, color: "#ef4444" },
-   ];
+   import { PolyScene, PolyMesh } from "@polycss/vue";
    </script>
    ```
    </TabItem>
    <TabItem label="Vanilla JS">
    ```html
-   <div id="voxcss"></div>
-   <script type="module">
-     import { renderScene } from "@layoutit/voxcss";
+   <script type="module" src="https://esm.sh/polycss/elements"></script>
 
-     renderScene({
-       element: document.getElementById("voxcss"),
-       camera: { interactive: true, zoom: 0.8 },
-       scene: {
-         voxels: [
-           { x: 0, y: 0, z: 0, color: "#f97316" },
-           { x: 1, y: 0, z: 0, color: "#fb923c" },
-           { x: 0, y: 1, z: 0, color: "#fdba74" },
-           { x: 0, y: 0, z: 1, color: "#ef4444" },
-         ],
-         showFloor: true,
-       },
-     });
-   </script>
+   <poly-scene perspective="1000" rot-x="65" rot-y="45">
+     <poly-mesh src="/cottage.glb"></poly-mesh>
+   </poly-scene>
    ```
    </TabItem>
    </Tabs>
 
 </Steps>
 
-## Try it live
+## What you get
 
-Drag to rotate. Use the controls on the right to change camera and scene properties — the code below updates in real time.
+Every polygon in the loaded mesh becomes a real DOM element — an `<img>` (for UV-textured triangles) or `<svg>` (for flat-color polygons) positioned with `transform: matrix3d(...)`. You can:
 
-<VoxDemo
-  id="quickstart-demo"
-  model="apple"
-  controls='["zoom","rotX","rotY","interactive","animate","showFloor","showWalls"]'
-  defaults='{"zoom":0.5,"interactive":true,"showFloor":false}'
-/>
+- Inspect individual polygons in DevTools.
+- Target them with CSS selectors.
+- Attach `onClick`, `onMouseEnter`, and other standard DOM event handlers.
 
 ## Related
 
-- [Core Concepts](/core-concepts) — The mental model: grid, camera, scene, voxel data, pipeline.
-- [VoxCamera](/components/vox-camera) — Camera props and usage reference.
-- [VoxScene](/components/vox-scene) — Scene props, dimensions, walls, floor, merge modes.
-- [Shapes](/guides/shapes) — Ramps, wedges, and spikes for richer scenes.
-- [Gallery](/gallery) — Browse 100+ voxel models for inspiration.
+- [Core Concepts](/core-concepts) — The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
+- [PolyCamera](/components/vox-camera) — Camera props and usage reference.
+- [PolyScene](/components/vox-scene) — Scene props and mesh options.
+- [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading and UV textures.
+- [Gallery](/gallery) — Browse mesh models for inspiration.

@@ -1,77 +1,170 @@
 ---
-title: Shapes
-description: Using cube, ramp, wedge, and spike shapes to build detailed voxel scenes.
+title: Per-polygon Interaction
+description: Using the Poly component for per-polygon click handlers, hover states, and CSS styling.
 ---
 
-import VoxDemo from '../../../components/VoxDemo.astro';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Every voxel has a **shape** that determines its geometry. If you don't specify one, you get the default cube — but VoxCSS ships with four built-in shapes that let you build far more expressive scenes. Drag the scene below to inspect each shape from different angles; the code tabs under the demo show the full voxel array.
+Every polygon rendered by polycss is a real DOM element. You can attach standard event handlers, apply CSS classes, and inspect them in DevTools. The `Poly` component exposes this directly.
 
-<VoxDemo
-  id="shapes-overview"
-  voxels='[{"shape":"spike","x":7,"y":7,"z":0,"rot":90},{"shape":"ramp","x":6,"y":7,"z":0},{"shape":"ramp","x":5,"y":7,"z":0},{"shape":"spike","x":4,"y":7,"z":0},{"shape":"ramp","x":7,"y":6,"z":0,"rot":90},{"shape":"cube","x":6,"y":6,"z":0},{"shape":"cube","x":5,"y":6,"z":0},{"shape":"ramp","x":4,"y":6,"z":0,"rot":270},{"shape":"ramp","x":7,"y":5,"z":0,"rot":90},{"shape":"cube","x":6,"y":5,"z":0},{"shape":"cube","x":5,"y":5,"z":0},{"shape":"spike","x":2,"y":5,"z":0},{"shape":"ramp","x":7,"y":4,"z":0,"rot":90},{"shape":"cube","x":6,"y":4,"z":0},{"shape":"cube","x":5,"y":4,"z":0},{"shape":"cube","x":4,"y":4,"z":0},{"shape":"cube","x":3,"y":4,"z":0},{"shape":"ramp","x":3,"y":5,"z":0},{"shape":"ramp","x":7,"y":3,"z":0,"rot":90},{"shape":"cube","x":6,"y":3,"z":0},{"shape":"cube","x":5,"y":3,"z":0},{"shape":"cube","x":4,"y":3,"z":0},{"shape":"cube","x":3,"y":3,"z":0},{"shape":"ramp","x":2,"y":3,"z":0,"rot":270},{"shape":"spike","x":7,"y":2,"z":0,"rot":180},{"shape":"ramp","x":6,"y":2,"z":0,"rot":180},{"shape":"ramp","x":5,"y":2,"z":0,"rot":180},{"shape":"ramp","x":4,"y":2,"z":0,"rot":180},{"shape":"ramp","x":3,"y":2,"z":0,"rot":180},{"shape":"spike","x":2,"y":2,"z":0,"rot":270},{"shape":"ramp","x":2,"y":4,"z":0,"rot":270},{"shape":"wedge","x":4,"y":5,"z":0},{"shape":"ramp","x":4,"y":4,"z":1},{"shape":"spike","x":3,"y":4,"z":1},{"shape":"ramp","x":4,"y":3,"z":1,"rot":180},{"shape":"spike","x":3,"y":3,"z":1,"rot":270},{"shape":"spike","x":5,"y":3,"z":1,"rot":180},{"shape":"spike","x":5,"y":4,"z":1,"rot":90}]'
-  controls='["zoom","interactive","projection"]'
-  defaults='{"zoom":0.8,"interactive":true,"showFloor":true,"projection":"dimetric"}'
-/>
+## The `Poly` component
 
-## Cube (default)
+`Poly` renders a single polygon as an `<img>` (UV-textured) or `<svg>` (flat color). It forwards all standard DOM props: `onClick`, `onMouseEnter`, `className`, `style`, `aria-*`, and more.
 
-The standard cuboid — 50×50×50px with six faces. This is what you get when you omit the `shape` property entirely.
+```tsx
+import { PolyScene, Poly } from "@polycss/react";
 
-```ts
-{ x: 1, y: 1, z: 0, color: "#f97316" }
+const triangle: Vec3[] = [[0,0,0], [1,0,0], [0,1,0]];
+
+<PolyScene>
+  <Poly vertices={triangle} color="#ff0000" />
+  <Poly vertices={triangle} color="#0000ff" texture="/wood.png" uvs={[...]} />
+</PolyScene>
 ```
 
-Cubes are the workhorse of any voxel scene. Walls, floors, characters, furniture — most things start as cubes.
+## Interactive per-polygon example
 
-## Ramp
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { useState } from "react";
+import { PolyScene, PolyMesh, Poly } from "@polycss/react";
+import type { Polygon } from "@polycss/react";
 
-A diagonal slope with a bottom face and a sloped surface. Ramps are ideal for roofs, hillsides, and smooth terrain transitions.
+export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
+  const [hoveredId, setHoveredId] = useState<number | null>(null);
 
-```ts
-{ x: 1, y: 1, z: 0, color: "#94a3b8", shape: "ramp" }
+  return (
+    <PolyScene rotX={65} rotY={45}>
+      {polygons.map((p, i) => (
+        <Poly
+          key={i}
+          {...p}
+          onClick={() => alert(`clicked polygon ${i}`)}
+          onMouseEnter={() => setHoveredId(i)}
+          onMouseLeave={() => setHoveredId(null)}
+          className={hoveredId === i ? "highlight" : ""}
+          style={{ transition: "filter 0.2s" }}
+        />
+      ))}
+    </PolyScene>
+  );
+}
 ```
-
-Use `rot` (`0`, `90`, `180`, `270`) to orient the ramp in four directions.
-
-```ts
-{ x: 1, y: 1, z: 0, color: "#94a3b8", shape: "ramp", rot: 90 }
+```css
+/* highlight.css */
+.highlight { filter: brightness(1.5); }
 ```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <PolyScene :rot-x="65" :rot-y="45">
+    <Poly
+      v-for="(p, i) in polygons"
+      :key="i"
+      v-bind="p"
+      @click="onClickPoly(i)"
+      @mouseenter="hoveredId = i"
+      @mouseleave="hoveredId = null"
+      :class="{ highlight: hoveredId === i }"
+    />
+  </PolyScene>
+</template>
 
-## Wedge
+<script setup lang="ts">
+import { ref } from "vue";
+import { PolyScene, Poly } from "@polycss/vue";
+import type { Polygon } from "@polycss/vue";
 
-Two angled surfaces meeting at an edge — like a cube cut diagonally. Useful for peaked roofs, angled corners, and decorative trim.
+defineProps<{ polygons: Polygon[] }>();
+const hoveredId = ref<number | null>(null);
+const onClickPoly = (i: number) => alert(`clicked polygon ${i}`);
+</script>
 
-```ts
-{ x: 1, y: 1, z: 0, color: "#22c55e", shape: "wedge" }
+<style>
+.highlight { filter: brightness(1.5); }
+</style>
 ```
+</TabItem>
+</Tabs>
 
-Wedges support `rot` for four orientations.
+## `PolyMesh` with render prop
 
-## Spike
+Use a render prop (React) or scoped slot (Vue) to override individual polygons inside a loaded mesh:
 
-A pointed pyramid tapering to a tip. Great for treetops, crystals, towers, and decorative peaks.
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { useState } from "react";
+import { PolyScene, PolyMesh, Poly } from "@polycss/react";
 
-```ts
-{ x: 1, y: 1, z: 0, color: "#3b82f6", shape: "spike" }
+export function SelectableMesh() {
+  const [selected, setSelected] = useState<number | null>(null);
+
+  return (
+    <PolyScene rotX={65} rotY={45}>
+      <PolyMesh src="/character.glb" position={[5, 0, 0]} scale={2}>
+        {(polygon, index) => (
+          <Poly
+            {...polygon}
+            onClick={() => setSelected(index)}
+            className={selected === index ? "outlined" : ""}
+          />
+        )}
+      </PolyMesh>
+    </PolyScene>
+  );
+}
 ```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <PolyScene :rot-x="65" :rot-y="45">
+    <PolyMesh src="/character.glb" :position="[5, 0, 0]" :scale="2"
+      v-slot="{ polygon, index }">
+      <Poly
+        v-bind="polygon"
+        @click="selected = index"
+        :class="{ outlined: selected === index }"
+      />
+    </PolyMesh>
+  </PolyScene>
+</template>
 
-Spikes also support `rot` for rotated orientations.
+<script setup lang="ts">
+import { ref } from "vue";
+import { PolyScene, PolyMesh, Poly } from "@polycss/vue";
+const selected = ref<number | null>(null);
+</script>
+```
+</TabItem>
+</Tabs>
 
-## Rotation
+## `useMesh` hook — imperative loading
 
-All non-cube shapes support the `rot` property with values snapped to 90-degree increments: **0**, **90**, **180**, and **270**. This lets you orient ramps, wedges, and spikes in four directions without dealing with arbitrary angles.
+Load a mesh imperatively when you need finer control over loading state:
 
-```ts
-// A ramp facing each direction
-{ x: 0, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 0 }
-{ x: 1, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 90 }
-{ x: 2, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 180 }
-{ x: 3, y: 0, z: 0, color: "#94a3b8", shape: "ramp", rot: 270 }
+```tsx
+import { PolyScene, Poly, useMesh } from "@polycss/react";
+
+function Viewer() {
+  const { polygons, loading, error, dispose } = useMesh("/cottage.glb");
+
+  if (loading) return <Spinner />;
+  if (error) return <div>Error: {error}</div>;
+
+  return (
+    <PolyScene>
+      {polygons.map((p, i) => <Poly key={i} {...p} />)}
+    </PolyScene>
+  );
+}
 ```
 
 ## Related
 
-- [VoxScene](/components/vox-scene) — The `voxels` prop and full voxel object reference.
-- [Textures](/guides/textures) — Apply images to shaped voxels for extra detail.
-- [Projections](/guides/projections) — Dimetric projection pairs well with shape compositions.
+- [PolyScene](/components/vox-scene) — Scene props and polygon data reference.
+- [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading and UV textures.
+- [Performance](/guides/performance) — Merge modes and DOM tuning.

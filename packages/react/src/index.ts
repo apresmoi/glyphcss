@@ -1,28 +1,58 @@
-// Register DOM-based color resolver for named CSS colors
-import { setColorResolver } from "@layoutit/voxcss-core";
-import { resolveColor } from "./styles";
-setColorResolver(resolveColor);
+// @polycss/react — React bindings for the polycss CSS-based polygon mesh
+// rendering engine.
+//
+// Public surface follows §API freeze in POLYCSS_MIGRATION.md
+// (`@polycss/react — full surface`). Anything not exported here is an
+// implementation detail.
 
-export { VoxCamera, useCamera, VoxCameraContext, useCameraContext } from "./camera";
-export type { VoxCameraProps, UseCameraOptions, UseCameraResult, VoxCameraContextValue } from "./camera";
+// ── Components & hooks ─────────────────────────────────────────────
+export {
+  PolyCamera,
+  useCamera,
+  PolyCameraContext,
+  useCameraContext,
+} from "./camera";
+export type {
+  PolyCameraProps,
+  UseCameraOptions,
+  UseCameraResult,
+  PolyCameraContextValue,
+} from "./camera";
 
-export { VoxScene, VoxLayer, useSceneContext } from "./scene";
-export type { VoxSceneProps, UseSceneContextOptions } from "./scene";
+export { PolyScene, PolyMesh, useSceneContext, useMesh } from "./scene";
+export type {
+  PolySceneProps,
+  PolyMeshProps,
+  UseSceneContextOptions,
+  UseSceneContextResult,
+  UseMeshResult,
+  UseMeshOptions,
+} from "./scene";
 
-export { VoxCube, VoxShape } from "./shapes";
-
-export { useSliceBrushes, SliceZBrushes, SliceAxisHost } from "./slice";
-export type { VoxSliceRendererProps, SliceBrushData } from "./slice";
+export { Poly } from "./shapes";
+export type { PolyProps, TransformProps, DOMPassthroughProps } from "./shapes";
 
 export { injectBaseStyles } from "./styles";
 
-// Re-export commonly used core types for convenience
+// ── Re-exports from @polycss/core for convenience ──────────────────
 export type {
-  Voxel,
-  VoxelGrid,
-  CubeFace,
-  GridContext,
+  Vec2,
+  Vec3,
+  Polygon,
+  DirectionalLight,
   ProjectionMode,
-  AutoRotateOption,
-  MergeVoxelsOption,
-} from "@layoutit/voxcss-core";
+  ParseResult,
+  ObjParseOptions,
+  GltfParseOptions,
+  MtlParseResult,
+  NormalizeResult,
+} from "@polycss/core";
+export {
+  normalizePolygons,
+  mergePolygons,
+  parseObj,
+  parseMtl,
+  parseGltf,
+  loadMesh,
+  createIsometricCamera,
+} from "@polycss/core";

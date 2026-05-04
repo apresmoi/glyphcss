@@ -1,102 +1,77 @@
 ---
 title: Core Concepts
-description: The mental model behind VoxCSS — grid, camera, scene, voxel data, and rendering pipeline.
+description: The mental model behind polycss — PolyScene, PolyCamera, PolyMesh, Poly, and the rendering pipeline.
 ---
 
-import VoxDemo from '../../components/VoxDemo.astro';
+This page covers the mental model behind polycss. Each section describes a building block and how it composes with the others.
 
-This page covers the mental model behind VoxCSS. Each section has a live demo — drag the scenes and tweak the controls to see how things work. The framework tabs beneath every demo show the exact runnable code for the current control values, so you can copy and paste whatever you see.
+## Three building blocks
 
-## Voxel Grid
+polycss exposes three composable concepts:
 
-VoxCSS works on a **3D coordinate system** defined by three axes: **x** (columns), **y** (rows), and **z** (depth/layers). Every voxel occupies a cell in this grid.
+- **`PolyScene`** — the 3D viewport. Sets up perspective, camera angle, and lighting. Fills its parent element.
+- **`PolyMesh`** — loads a mesh from a URL (OBJ / glTF / GLB). Internally expands to a list of `Poly` children. Convenience wrapper around the parser + renderer.
+- **`Poly`** — one polygon. The atomic primitive. Renders one `<img>` or `<svg>` with `transform: matrix3d(...)`. Accepts standard DOM event handlers, `className`, `style` — this is what makes polycss "DOM-native 3D" rather than "3D inside a black-box canvas".
 
-Internally, the engine stacks flat CSS grid layers along the Z axis. Each layer is a 2D grid positioned with a CSS `translateZ` transform. The result is a fully 3D structure built entirely from nested HTML elements — no canvas or WebGL involved.
-
-Coordinates are zero-indexed integers. `z: 0` is the ground layer, and higher Z values move upward.
+A `PolyMesh` is internally a `polygons.map(p => <Poly {...p} />)`, so any rendered mesh can be inspected, styled, or handled per-polygon.
 
 ## Camera
 
-The camera controls how you view the scene — zoom, rotation, perspective, and whether the user can drag to rotate. Drag the apple below or adjust the sliders to see each camera prop in action.
+`PolyScene` accepts camera props directly: `rotX`, `rotY`, `perspective`, and `directionalLight`. There is also a `PolyCamera` component for imperative or headless control.
 
-<VoxDemo
-  id="concept-camera"
-  model="apple"
-  controls='["zoom","pan","tilt","rotX","rotY","perspective","interactive","animate"]'
-  defaults='{"zoom":0.5,"interactive":true,"showFloor":false}'
-/>
+```tsx
+<PolyScene
+  perspective={1000}
+  rotX={65}
+  rotY={45}
+  directionalLight={{
+    direction: [0.5, -0.7, 0.6],
+    color: "#ffe4a8",
+    ambient: 0.4,
+  }}
+>
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
+```
 
-See **[VoxCamera](/components/vox-camera)** for the full prop table, defaults, and usage patterns.
+See **[PolyCamera](/components/vox-camera)** for the full prop table, defaults, and usage patterns.
 
-## Scene
+## Polygon Data Model
 
-The scene manages the 3D grid itself — its size, optional walls and floor, and the projection style. Try the controls below to resize the grid and toggle structural elements.
+Each polygon is a plain object. The only required field is `vertices` (three or more `[x, y, z]` points in world space):
 
-<VoxDemo
-  id="concept-scene"
-  voxels='[{"x":1,"y":1,"z":0,"color":"#f97316"}]'
-  controls='["rows","cols","depth","showFloor","showWalls","projection"]'
-  defaults='{"zoom":0.65,"interactive":true,"showFloor":true,"showWalls":true,"rows":8,"cols":8,"depth":6}'
-/>
+```ts
+interface Polygon {
+  vertices: [number, number, number][];  // Required — 3+ points
+  color?: string;                        // CSS color ("#f97316", "tomato")
+  texture?: string;                      // Image URL for UV-mapped face
+  uvs?: [number, number][];             // UV coordinates (one per vertex)
+  normal?: [number, number, number];    // Surface normal for lighting
+}
+```
 
-See **[VoxScene](/components/vox-scene)** for the full prop table, voxel data reference, and usage patterns.
-
-## Voxel Data Model
-
-Each voxel is a plain object. The only required fields are grid coordinates:
-
-- **`x`, `y`, `z`** — position in the grid (required).
-- **`x2`, `y2`, `z2`** — extend the voxel into a rectangular area spanning from `(x, y, z)` to `(x2, y2, z2)`. Useful for floors, walls, or any multi-cell block.
-- **`color`** — any CSS color value.
-- **`texture`** — apply an image or pattern to the voxel faces.
-- **`shape`** — the geometry to render (see Shapes below).
-- **`rot`** — rotation of the shape, snapped to 90-degree increments.
-
-Because voxels are plain objects, you can generate them from loops, load them from JSON, or compute them from any data source.
-
-## Shapes
-
-VoxCSS supports four built-in shapes: **cube** (default), **ramp**, **wedge**, and **spike**. All of them snap to 90-degree rotations via the `rot` property.
-
-<VoxDemo
-  id="concept-shapes"
-  voxels='[{"shape":"spike","x":7,"y":7,"z":0,"rot":90},{"shape":"ramp","x":6,"y":7,"z":0},{"shape":"ramp","x":5,"y":7,"z":0},{"shape":"spike","x":4,"y":7,"z":0},{"shape":"ramp","x":7,"y":6,"z":0,"rot":90},{"shape":"cube","x":6,"y":6,"z":0},{"shape":"cube","x":5,"y":6,"z":0},{"shape":"ramp","x":4,"y":6,"z":0,"rot":270},{"shape":"ramp","x":7,"y":5,"z":0,"rot":90},{"shape":"cube","x":6,"y":5,"z":0},{"shape":"cube","x":5,"y":5,"z":0},{"shape":"spike","x":2,"y":5,"z":0},{"shape":"ramp","x":7,"y":4,"z":0,"rot":90},{"shape":"cube","x":6,"y":4,"z":0},{"shape":"cube","x":5,"y":4,"z":0},{"shape":"cube","x":4,"y":4,"z":0},{"shape":"cube","x":3,"y":4,"z":0},{"shape":"ramp","x":3,"y":5,"z":0},{"shape":"ramp","x":7,"y":3,"z":0,"rot":90},{"shape":"cube","x":6,"y":3,"z":0},{"shape":"cube","x":5,"y":3,"z":0},{"shape":"cube","x":4,"y":3,"z":0},{"shape":"cube","x":3,"y":3,"z":0},{"shape":"ramp","x":2,"y":3,"z":0,"rot":270},{"shape":"spike","x":7,"y":2,"z":0,"rot":180},{"shape":"ramp","x":6,"y":2,"z":0,"rot":180},{"shape":"ramp","x":5,"y":2,"z":0,"rot":180},{"shape":"ramp","x":4,"y":2,"z":0,"rot":180},{"shape":"ramp","x":3,"y":2,"z":0,"rot":180},{"shape":"spike","x":2,"y":2,"z":0,"rot":270},{"shape":"ramp","x":2,"y":4,"z":0,"rot":270},{"shape":"wedge","x":4,"y":5,"z":0},{"shape":"ramp","x":4,"y":4,"z":1},{"shape":"spike","x":3,"y":4,"z":1},{"shape":"ramp","x":4,"y":3,"z":1,"rot":180},{"shape":"spike","x":3,"y":3,"z":1,"rot":270},{"shape":"spike","x":5,"y":3,"z":1,"rot":180},{"shape":"spike","x":5,"y":4,"z":1,"rot":90}]'
-  controls='["zoom","interactive","projection"]'
-  defaults='{"zoom":0.8,"interactive":true,"showFloor":true,"projection":"dimetric"}'
-/>
-
-See the **[Shapes guide](/guides/shapes)** for details on each shape, rotation values, and when to reach for them.
+Because polygons are plain objects, you can generate them from loops, load them from parsers, or compute them from any data source.
 
 ## Rendering Pipeline
 
-VoxCSS is structured in three layers:
+polycss is structured in three layers:
 
-1. **Core** — Pure math and data. Computes merged geometries, face visibility, and grid layout. No DOM dependency — this layer can run anywhere.
-2. **HTML Renderer** — Takes the core output and produces real DOM elements. It creates the CSS grid layers, positions cuboids with transforms, and applies colors and textures.
-3. **Framework Wrappers** — Thin bindings for React and Vue that expose the engine as declarative components (`VoxCamera`, `VoxScene`). These wrap the HTML renderer and handle reactivity, lifecycle, and prop updates for you.
-
-The vanilla JS `renderScene` function uses the HTML renderer directly, skipping the framework layer entirely.
+1. **Core** — Pure math and parsing. Handles OBJ / glTF / GLB parsing, UV decoding, lighting math, and polygon normalization. No DOM dependency.
+2. **Triangle Renderer** — Takes parsed polygons and produces DOM elements. For UV-textured triangles, it runs a one-time off-DOM canvas pass per polygon (UV affine transform → clip → drawImage → Blob URL → `<img>.src`). For flat-color polygons, it renders an `<svg>`.
+3. **Framework Wrappers** — Thin bindings for React and Vue (`PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`). These wrap the renderer and handle reactivity, lifecycle, and prop updates. The vanilla `polycss` package exposes custom elements (`<poly-scene>`, `<poly-mesh>`) plus an imperative `createPolyScene` API.
 
 ## Merge Modes
 
-When many adjacent voxels share a color, VoxCSS can **merge** them into fewer, larger HTML elements. Toggle merge 3d below to see the difference — keep an eye on how the rendered DOM reacts in DevTools.
+The `merge` prop on `<PolyScene>` controls whether coplanar same-material polygons are merged before rendering:
 
-<VoxDemo
-  id="concept-merge"
-  model="apple"
-  controls='["zoom","mergeVoxels","showFloor"]'
-  defaults='{"zoom":0.5,"interactive":true,"showFloor":false,"mergeVoxels":"3d"}'
-/>
+- **`"off"`** (default) — No merging. Every parsed polygon is its own DOM element. Full per-polygon control.
+- **`"auto"`** — Merge coplanar adjacent polygons with identical material. Reduces DOM element count for dense flat surfaces without changing visual output.
 
-- **`false`** — No merging. Every voxel is its own element. Best for scenes where each voxel needs individual interaction.
-- **`"2d"`** — Merges adjacent same-color voxels within each Z layer.
-- **`"3d"`** — Volumetric merging across all three axes. Fewest elements, best performance.
-
-See the **[Performance guide](/guides/performance)** for a live FPS/DOM stats demo and guidance on choosing a mode.
+See the **[Performance guide](/guides/performance)** for guidance on choosing a mode.
 
 ## Related
 
 - [Quickstart](/quickstart) — Install + first scene walkthrough.
-- [VoxCamera](/components/vox-camera) — Camera props reference.
-- [VoxScene](/components/vox-scene) — Scene props and voxel data reference.
-- [Performance](/guides/performance) — Merge modes with FPS/DOM counter.
+- [PolyCamera](/components/vox-camera) — Camera props reference.
+- [PolyScene](/components/vox-scene) — Scene props and polygon data reference.
+- [Performance](/guides/performance) — Merge modes and DOM tuning.

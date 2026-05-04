@@ -1,136 +1,127 @@
 ---
 title: Headless API
-description: Vanilla JavaScript API for creating cameras, scenes, and rendering voxels without a framework.
+description: Vanilla JavaScript API for loading meshes and rendering polygon scenes without a framework.
 ---
 
-The headless API lets you use VoxCSS without React, Vue, or any framework. It provides direct control over camera, scene, and rendering through plain JavaScript functions.
+The headless API (`@polycss/core`) gives you direct access to polycss parsers and utilities without React, Vue, or any framework.
 
-## `createCamera(options)`
+## `parseObj(text, options?)`
 
-Creates a camera instance that controls the viewport orientation and zoom.
+Parses an OBJ file text string into a polygon array.
 
 ```ts
-import { createCamera } from "@layoutit/voxcss";
+import { parseObj } from "@polycss/core";
 
-const camera = createCamera({
-  element: document.getElementById("camera"),
-  zoom: 0.65,
+const result = parseObj(objText, {
+  targetSize: 60,
+  defaultColor: "#cccccc",
+  mtlText: mtlFileText,           // optional .mtl file contents
+});
+// result.polygons — Polygon[]
+// result.dispose() — revoke any blob URLs
+```
+
+**Options:** See [`ObjParseOptions`](/api/types/#objparseoptions).
+
+---
+
+## `parseGltf(buffer, options?)`
+
+Parses a GLB or glTF file into a polygon array. Accepts `ArrayBuffer`.
+
+```ts
+import { parseGltf } from "@polycss/core";
+
+const buf = await fetch("/model.glb").then(r => r.arrayBuffer());
+const result = parseGltf(buf, {
+  targetSize: 60,
+  baseUrl: new URL("/model.glb", location.href).href,
+});
+// result.polygons — Polygon[]
+// result.objectUrls — blob: URLs for embedded textures
+// result.dispose() — revoke all objectUrls
+```
+
+**Options:** See [`GltfParseOptions`](/api/types/#gltfparseoptions).
+
+---
+
+## `parseMtl(text)`
+
+Parses an MTL file text string into a material map.
+
+```ts
+import { parseMtl } from "@polycss/core";
+
+const { colors, textures } = parseMtl(mtlText);
+// colors — Record<materialName, cssColor>
+// textures — Record<materialName, imagePath>
+```
+
+---
+
+## `loadMesh(url, options?)`
+
+High-level convenience function: fetches a URL, detects OBJ vs GLB/glTF by extension, parses it, and returns a `ParseResult`.
+
+```ts
+import { loadMesh } from "@polycss/core";
+
+const result = await loadMesh("/cottage.glb", { targetSize: 60 });
+// result.polygons — Polygon[]
+// result.dispose() — call on cleanup
+```
+
+---
+
+## `normalizePolygons(polygons)`
+
+Computes bounding boxes and fills in any missing derived fields.
+
+```ts
+import { normalizePolygons } from "@polycss/core";
+
+const normalized = normalizePolygons(rawPolygons);
+```
+
+---
+
+## `createIsometricCamera(options)`
+
+Creates an isometric-style camera state object (useful for the imperative rendering API).
+
+```ts
+import { createIsometricCamera } from "@polycss/core";
+
+const cam = createIsometricCamera({
   rotX: 65,
   rotY: 45,
-  interactive: true,
-  perspective: 8000,
-  animate: { axis: "y", speed: 0.3, pauseOnInteraction: true },
+  perspective: 1000,
 });
 ```
 
-**Options:** Same as `VoxCamera` props, plus:
-
-| Option    | Type          | Description                  |
-| --------- | ------------- | ---------------------------- |
-| `element` | `HTMLElement`  | **Required.** Mount target. |
-
-**Returns** a `CameraHandle`:
-
-| Method                    | Description                              |
-| ------------------------- | ---------------------------------------- |
-| `update(props)`           | Update camera properties.                |
-| `setInteractive(boolean)` | Toggle pointer controls.                |
-| `setAnimate(option)`      | Change auto-rotation configuration.      |
-| `setPerspective(value)`   | Change perspective distance.             |
-| `destroy()`               | Clean up event listeners and animation.  |
-
 ---
 
-## `createScene(options)`
+## Custom elements (vanilla)
 
-Creates a voxel scene and renders it into a DOM element.
+Register the `<poly-scene>` and `<poly-mesh>` custom elements by importing the side-effect entry point:
 
-```ts
-import { createScene } from "@layoutit/voxcss";
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
 
-const scene = createScene({
-  element: document.getElementById("scene"),
-  voxels: [...],
-  showFloor: true,
-  showWalls: false,
-  projection: "cubic",
-  mergeVoxels: "3d",
-});
+<poly-scene perspective="1000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
 ```
-
-**Options:** Same as `VoxScene` props, plus:
-
-| Option    | Type          | Description                  |
-| --------- | ------------- | ---------------------------- |
-| `element` | `HTMLElement`  | **Required.** Mount target. |
-
----
-
-## `renderScene(options)`
-
-All-in-one function that creates and connects a camera + scene together. This is the simplest way to get a voxel scene on screen.
-
-```ts
-import { renderScene } from "@layoutit/voxcss";
-
-const handle = renderScene({
-  element: document.getElementById("root"),
-  camera: {
-    interactive: true,
-    zoom: 0.65,
-    animate: true,
-  },
-  scene: {
-    voxels: [...],
-    showFloor: true,
-  },
-});
-```
-
-**Returns** a `RenderHandle`:
-
-| Method              | Description                    |
-| ------------------- | ------------------------------ |
-| `setVoxels(voxels)` | Replace the voxel array.       |
-| `setScene(options)`  | Update scene properties.      |
-| `destroy()`          | Clean up everything.          |
-
----
-
-## `parseMagicaVoxel(buffer)`
-
-Parses a MagicaVoxel `.vox` binary file into a voxel array with dimensions.
-
-```ts
-import { parseMagicaVoxel } from "@layoutit/voxcss";
-
-const result = parseMagicaVoxel(arrayBuffer);
-// { voxels: Voxel[], rows: number, cols: number, depth: number }
-```
-
-Accepts `ArrayBuffer` or `Uint8Array`. See [`MagicaVoxelParseResult`](/api/types/#magicavoxelparseresult) for the return type.
 
 ---
 
 ## Package Exports
 
-VoxCSS is published as a single package with multiple entry points, plus individual packages for fine-grained control.
-
-### Combined package
-
-| Import path              | Contents                              |
-| ------------------------ | ------------------------------------- |
-| `@layoutit/voxcss`       | Headless API (core + HTML bundled)   |
-| `@layoutit/voxcss/react` | React components                     |
-| `@layoutit/voxcss/vue`   | Vue components                       |
-
-### Individual packages
-
-| Package                | Contents                |
-| ---------------------- | ----------------------- |
-| `@layoutit/voxcss-core`  | Pure math, zero DOM   |
-| `@layoutit/voxcss-html`  | DOM renderer           |
-| `@layoutit/voxcss-react` | React bindings         |
-| `@layoutit/voxcss-vue`   | Vue bindings           |
-
-Use the individual packages when you want to minimize bundle size or avoid pulling in DOM dependencies (e.g., in a server-side context where you only need the math utilities from `@layoutit/voxcss-core`).
+| Import path         | Contents                                    |
+| ------------------- | ------------------------------------------- |
+| `@polycss/react`    | React components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`, hooks |
+| `@polycss/vue`      | Vue components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`         |
+| `polycss`           | Vanilla imperative API + custom elements    |
+| `polycss/elements`  | Side-effect: registers `<poly-scene>` etc.  |
+| `@polycss/core`     | Pure parsers / math, zero DOM — `parseObj`, `parseGltf`, `loadMesh`, types |

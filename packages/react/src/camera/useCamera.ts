@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { createIsometricCamera } from "@layoutit/voxcss-core";
-import type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "@layoutit/voxcss-core";
+import { createIsometricCamera } from "@polycss/core";
+import type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "@polycss/core";
 import { createSceneStore, type SceneStore } from "../store/sceneStore";
 
 const POINTER_DRAG_SPEED = 5;
@@ -104,19 +104,10 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
       const el = sceneElRef.current;
       if (el) {
         const s = handle.state;
-        const depthOffset = Number(el.dataset.voxDepthOffset ?? 0);
+        const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
         el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
       }
-      if (store.updateCameraFromRef(handle)) {
-        // Apply wall mask classes directly
-        const el = sceneElRef.current;
-        if (el) {
-          const mask = store.getState().wallMask;
-          for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
-            el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
-          }
-        }
-      }
+      store.updateCameraFromRef(handle);
       store.notifyAll(); // props changed — always notify
     }
   }, [options.zoom, options.pan, options.tilt, options.rotX, options.rotY, store]);
@@ -127,19 +118,10 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     if (!el) return;
     const handle = handleRef.current!;
     const s = handle.state;
-    const depthOffset = Number(el.dataset.voxDepthOffset ?? 0);
+    const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }, []);
 
-  // Apply wall mask CSS classes on scene element (bypasses React)
-  const applyWallMaskDirect = useCallback(() => {
-    const el = sceneElRef.current;
-    if (!el) return;
-    const mask = store.getState().wallMask;
-    for (const face of ["t", "b", "bl", "br", "fl", "fr"] as const) {
-      el.classList.toggle(`voxcss-mask-${face}`, mask[face]);
-    }
-  }, [store]);
 
   // Auto-rotate
   useEffect(() => {
@@ -159,9 +141,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
           handle.update({ rotY: normalizeAngle(handle.state.rotY + config.speed) });
         }
         applyTransformDirect();
-        if (store.updateCameraFromRef(handle)) {
-          applyWallMaskDirect();
-        }
+        store.updateCameraFromRef(handle);
       }
       frameId = requestAnimationFrame(tick);
     };
@@ -170,7 +150,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
       stopped = true;
       cancelAnimationFrame(frameId);
     };
-  }, [options.animate, applyTransformDirect, applyWallMaskDirect, store]);
+  }, [options.animate, applyTransformDirect, store]);
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -209,11 +189,9 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     applyTransformDirect();
     pointerRef.current = { x: e.clientX, y: e.clientY };
 
-    // Update store + toggle CSS classes if wall mask changed
-    if (store.updateCameraFromRef(handle)) {
-      applyWallMaskDirect();
-    }
-  }, [applyTransformDirect, applyWallMaskDirect, store]);
+    // Update store dirBin state (kept as inert state for v0.2)
+    store.updateCameraFromRef(handle);
+  }, [applyTransformDirect, store]);
 
   const onPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     if (activePointerIdRef.current === null || e.pointerId !== activePointerIdRef.current) return;
