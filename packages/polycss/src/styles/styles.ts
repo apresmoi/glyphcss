@@ -21,7 +21,6 @@ const CORE_BASE_STYLES = `
 .polycss-scene {
   position: relative;
   transform-style: preserve-3d;
-  perspective: var(--polycss-perspective, 1000px);
 }
 
 /* ── Mesh wrapper ───────────────────────────────────────────────────────── */

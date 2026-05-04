@@ -134,15 +134,21 @@ function PolySceneInner({
     projection === "dimetric" ? ` ${DIMETRIC_CLASS}` : ""
   }${className ? ` ${className}` : ""}`;
 
-  // Per-polygon context: just lighting + debug flags. tileSize/elevation
-  // default inside <Poly> since polygon vertices are already in world units.
-  const polyContext = useMemo(
-    () => ({
+  // Per-polygon context: lighting + debug + projection-derived units.
+  // Dimetric squashes the Z (elevation) axis to half the tile size so a
+  // unit cube renders as the classic isometric block — same convention
+  // voxcss shipped. Cubic keeps Z = tile, so polygon vertices in 1:1
+  // world units render with no axis distortion.
+  const polyContext = useMemo(() => {
+    const tileSize = 50;
+    const layerElevation = projection === "dimetric" ? tileSize / 2 : tileSize;
+    return {
+      tileSize,
+      layerElevation,
       directionalLight,
       debugShowBackfaces,
-    }),
-    [directionalLight, debugShowBackfaces]
-  );
+    };
+  }, [projection, directionalLight, debugShowBackfaces]);
 
   const depthOffset =
     sceneSize(sceneBbox)[2] *
