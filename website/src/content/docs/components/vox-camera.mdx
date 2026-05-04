@@ -1,56 +1,41 @@
 ---
-title: VoxCamera
-description: Camera component for controlling the 3D viewport — zoom, rotation, perspective, and pointer interaction.
+title: PolyCamera
+description: Camera component for controlling the 3D viewport — perspective, rotation, and pointer interaction.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
-import VoxDemo from '../../../components/VoxDemo.astro';
 
-`VoxCamera` wraps your scene and controls how it is viewed — zoom level, rotation angles, perspective depth, and optional pointer-driven interaction. Every `VoxScene` must be placed inside a `VoxCamera`.
-
-## Interactive Demo
-
-Drag to rotate, and adjust the sliders to explore every camera prop in real time. The code tabs below the demo update to match the current values.
-
-<VoxDemo
-  id="camera-demo"
-  model="apple"
-  controls='["zoom","pan","tilt","rotX","rotY","perspective","interactive","animate"]'
-  defaults='{"zoom":0.5,"interactive":true,"showFloor":false}'
-/>
+`PolyCamera` wraps a scene and controls how it is viewed — perspective depth, rotation angles, zoom, and optional pointer-driven interaction. For most use cases, you can pass camera props directly to `PolyScene` instead. `PolyCamera` is useful when you need imperative camera control (e.g., animating the camera from code or syncing it to an external state).
 
 ## Props
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `zoom` | `number` | `0.65` | Scales the scene. `1` is the natural size; values above 1 zoom in, below 1 zoom out. Typical useful range `0.1`–`2`. |
-| `pan` | `number` | `0` | Horizontal translation of the viewport in pixels. Positive values shift the scene right. |
-| `tilt` | `number` | `0` | Vertical translation in pixels. Positive values shift the scene down. |
-| `rotX` | `number` | `65` | Rotation around the X axis in degrees (0–100 is the practical range). `90` is straight-down top view. |
-| `rotY` | `number` | `45` | Rotation around the Y axis in degrees (0–360). Controls which face of the scene is forward. |
-| `perspective` | `number \| false` | `8000` | CSS perspective depth in pixels. Higher values feel flatter (more isometric); lower values exaggerate depth. Pass `false` for orthographic projection (no perspective distortion). |
-| `invert` | `boolean \| number` | `false` | Flip pointer drag direction. Pass `true` or `-1` when your scene feels backwards under drag. |
-| `interactive` | `boolean` | `false` | When `true`, users can click and drag to rotate the camera. Required for most viewer-style experiences. |
-| `animate` | `boolean \| number \| object` | `false` | Auto-rotate. `true` uses defaults, a number sets the speed, or pass `{ axis, speed, pauseOnInteraction }` for full control. See [Animate Prop Details](#animate-prop-details). |
+| `zoom` | `number` | `1` | Scales the scene. `1` is the natural size; values above 1 zoom in, below 1 zoom out. |
+| `rotX` | `number` | `65` | Rotation around the X axis in degrees. |
+| `rotY` | `number` | `45` | Rotation around the Y axis in degrees (0–360). |
+| `perspective` | `number \| false` | `1000` | CSS perspective depth in pixels. Pass `false` for orthographic projection. |
+| `interactive` | `boolean` | `false` | When `true`, users can click and drag to rotate the camera. |
+| `animate` | `boolean \| number \| object` | `false` | Auto-rotate. `true` uses defaults, a number sets the speed, or pass `{ axis, speed, pauseOnInteraction }`. |
 
 ## Usage
 
 ### Basic Camera
 
-Set an initial angle and zoom.
+Set an initial angle and perspective.
 
 <Tabs syncKey="fw">
 <TabItem label="React">
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
-const voxels = [{ x: 1, y: 1, z: 0, color: "#f97316" }];
+import { PolyCamera, PolyScene, PolyMesh } from "@polycss/react";
 
 export function App() {
   return (
-    <VoxCamera zoom={0.8} rotX={70} rotY={30}>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
+    <PolyCamera zoom={0.8} rotX={70} rotY={30}>
+      <PolyScene>
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -58,136 +43,46 @@ export function App() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <VoxCamera :zoom="0.8" :rot-x="70" :rot-y="30">
-    <VoxScene :voxels="voxels" />
-  </VoxCamera>
+  <PolyCamera :zoom="0.8" :rot-x="70" :rot-y="30">
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [{ x: 1, y: 1, z: 0, color: "#f97316" }];
-</script>
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```html
-<div id="voxcss"></div>
-<script type="module">
-  import { renderScene } from "@layoutit/voxcss";
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { zoom: 0.8, rotX: 70, rotY: 30 },
-    scene: {
-      voxels: [{ x: 1, y: 1, z: 0, color: "#f97316" }],
-    },
-  });
+import { PolyCamera, PolyScene, PolyMesh } from "@polycss/vue";
 </script>
 ```
 </TabItem>
 </Tabs>
 
-### Interactive Camera with Custom Starting Angle
-
-Combine `interactive` with initial `rotX`/`rotY` to let users rotate from a specific starting viewpoint.
-
-<Tabs syncKey="fw">
-<TabItem label="React">
-```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#f97316" },
-  { x: 2, y: 1, z: 0, color: "#facc15" },
-];
-
-export function App() {
-  return (
-    <VoxCamera interactive rotX={50} rotY={120} zoom={1}>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
-  );
-}
-```
-</TabItem>
-<TabItem label="Vue">
-```vue
-<template>
-  <VoxCamera interactive :rot-x="50" :rot-y="120" :zoom="1">
-    <VoxScene :voxels="voxels" />
-  </VoxCamera>
-</template>
-
-<script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#f97316" },
-  { x: 2, y: 1, z: 0, color: "#facc15" },
-];
-</script>
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```html
-<div id="voxcss"></div>
-<script type="module">
-  import { renderScene } from "@layoutit/voxcss";
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { interactive: true, rotX: 50, rotY: 120, zoom: 1 },
-    scene: {
-      voxels: [
-        { x: 1, y: 1, z: 0, color: "#f97316" },
-        { x: 2, y: 1, z: 0, color: "#facc15" },
-      ],
-    },
-  });
-</script>
-```
-</TabItem>
-</Tabs>
-
-## Animate Prop Details
-
-When `animate` is an object, the following properties are available:
-
-```ts
-{
-  axis: "x" | "y",
-  speed: number,
-  pauseOnInteraction: boolean,
-}
-```
-
-| Property | Type | Default | Description |
-|----------|------|---------|-------------|
-| `axis` | `"x" \| "y"` | `"y"` | The rotation axis to animate. `"y"` spins around the vertical axis (showcase turntable), `"x"` tumbles forward. |
-| `speed` | `number` | `0.3` | Rotation speed in degrees per frame. Useful range roughly `0.05`–`1.5`. |
-| `pauseOnInteraction` | `boolean` | `true` | Stops the animation while the user is dragging, resumes on release. |
-
-Shorthand forms:
-
-- `animate` or `animate={true}` — spins around the Y axis at `0.3` deg/frame, pausing on interaction.
-- `animate={0.6}` — same as above but at `0.6` deg/frame.
-
-A minimal auto-rotating camera:
+### Interactive Camera with Auto-rotation
 
 ```tsx
-<VoxCamera animate={{ axis: "y", speed: 0.5 }}>
-  <VoxScene voxels={voxels} />
-</VoxCamera>
+<PolyCamera
+  interactive
+  animate={{ axis: "y", speed: 0.5, pauseOnInteraction: true }}
+>
+  <PolyScene>
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
+</PolyCamera>
 ```
 
-## Interactive Prop Details
+## `useCamera` hook
 
-Passing `interactive` enables pointer-driven rotation using pointerdown, pointermove, and pointerup on the camera element. No extra listeners required on your side.
+```tsx
+import { useCamera } from "@polycss/react";
 
-- Works on mouse, touch, and pen inputs.
-- Drag horizontally rotates around the Y axis; drag vertically rotates around the X axis.
-- Combine with `animate` and `pauseOnInteraction: true` (the default) for viewers that spin but pause while users explore.
-- Use `invert` to reverse the drag direction if your scene feels reversed.
+function MyViewer() {
+  const { rotX, rotY, setRotX, setRotY } = useCamera();
+  // ...
+}
+```
 
 ## Related
 
-- [VoxScene](/components/vox-scene) — The scene component that must be nested inside every camera.
-- [Core Concepts — Camera](/core-concepts#camera) — Conceptual explanation of what the camera does.
+- [PolyScene](/components/vox-scene) — The scene component that renders meshes.
+- [Core Concepts — Camera](/core-concepts#camera) — Conceptual explanation of camera props.
 - [Quickstart](/quickstart) — Install + first scene walkthrough.

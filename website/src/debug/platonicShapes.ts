@@ -1,13 +1,13 @@
-import type { Voxel } from "@layoutit/voxcss/react";
+import type { Polygon } from "@polycss/react";
 
 export type Vec3 = [number, number, number];
 
 /**
  * Raw triangle: three vertices in voxel-grid coords plus a color.
- * No grid-shift, no bbox — those are applied by `triangleToVoxel`.
+ * No grid-shift — applied by `triangleToVoxel`.
  *
  * All gen* functions emit triangles with CCW-from-outside winding so
- * voxcss's backface-visibility hides the back side correctly.
+ * polycss's backface-visibility hides the back side correctly.
  */
 export interface RawTriangle {
   v0: Vec3;
@@ -24,41 +24,23 @@ export const PLATONIC_PALETTE = [
 ];
 
 /**
- * Convert a raw triangle to a voxcss Voxel. `gridShift` shifts every vertex
- * +N on x and y to avoid CSS Grid line "0" (which the spec treats as
- * auto-placement). Use 1 in interactive editors that allow user-entered 0.
+ * Convert a raw triangle to a polycss Polygon. `gridShift` shifts every vertex
+ * +N on x and y to keep coordinates positive. Use 1 in interactive editors
+ * that allow user-entered 0.
  */
-export function triangleToVoxel(t: RawTriangle, gridShift = 0): Voxel {
+export function triangleToVoxel(t: RawTriangle, gridShift = 0): Polygon {
   const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
   const verts: Vec3[] = [sv(t.v0), sv(t.v1), sv(t.v2)];
-  const bbox = bboxOfVertices(verts);
   return {
-    shape: "triangle",
     vertices: verts,
     color: t.color,
-    ...bbox,
     ...(t.texture ? { texture: t.texture } : {}),
-  };
-}
-
-function bboxOfVertices(verts: Vec3[]) {
-  let minX = verts[0][0], minY = verts[0][1], minZ = verts[0][2];
-  let maxX = minX, maxY = minY, maxZ = minZ;
-  for (let i = 1; i < verts.length; i++) {
-    const [x, y, z] = verts[i];
-    if (x < minX) minX = x; else if (x > maxX) maxX = x;
-    if (y < minY) minY = y; else if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z; else if (z > maxZ) maxZ = z;
-  }
-  return {
-    x: Math.floor(minX), y: Math.floor(minY), z: Math.floor(minZ),
-    x2: Math.ceil(maxX), y2: Math.ceil(maxY), z2: Math.ceil(maxZ),
   };
 }
 
 /**
  * Same idea as RawTriangle but with N vertices (≥3). Renders as a single
- * polygon — the Triangle renderer projects all vertices onto the polygon's
+ * polygon — the Poly renderer projects all vertices onto the polygon's
  * plane and emits one SVG <path>. Vertices must be coplanar.
  */
 export interface RawPolygon {
@@ -66,16 +48,12 @@ export interface RawPolygon {
   color: string;
 }
 
-export function polygonToVoxel(p: RawPolygon, gridShift = 0): Voxel {
-  // Use "polygon" for N != 3 and "triangle" for N == 3 to keep the shape
-  // name accurate.
+export function polygonToVoxel(p: RawPolygon, gridShift = 0): Polygon {
   const sv = (v: Vec3): Vec3 => [v[0] + gridShift, v[1] + gridShift, v[2]];
   const verts = p.vertices.map(sv);
   return {
-    shape: verts.length === 3 ? "triangle" : "polygon",
     vertices: verts,
     color: p.color,
-    ...bboxOfVertices(verts),
   };
 }
 

@@ -1,13 +1,11 @@
 import { useMemo, useState } from "react";
-import { normalizeVoxels } from "@layoutit/voxcss";
-import type { InputVoxel, Voxel } from "@layoutit/voxcss";
+import type { Polygon } from "@polycss/react";
 import { DebugSection } from "../DebugSection";
 import { Row, Slider, Pills } from "../controls";
 import { decimateClustering, decimateEdgeLength, decimateQEM } from "../decimation";
 
 type Method = "none" | "clustering" | "edge-length" | "qem";
 
-// Short labels — pills are space-constrained; details belong in tooltips/help.
 const METHOD_OPTIONS: { value: Method; label: string }[] = [
   { value: "none", label: "none" },
   { value: "clustering", label: "cluster" },
@@ -23,55 +21,38 @@ const METHOD_DESCRIPTIONS: Record<Method, { name: string; body: string }> = {
   clustering: {
     name: "Vertex clustering",
     body:
-      "Snap every vertex to a grid of size N (in voxcss cells), then drop triangles whose two snapped endpoints coincide. Cheap and uniform — collapses fine detail and flat regions equally, so silhouettes get chunky fast.",
+      "Snap every vertex to a grid of size N, then drop triangles whose two snapped endpoints coincide. Cheap and uniform — collapses fine detail and flat regions equally.",
   },
   "edge-length": {
     name: "Shortest-edge collapse",
     body:
-      "Iteratively merge the two endpoints of the shortest edge into their midpoint until the target triangle count is reached. Faster than QEM and preserves the silhouette better than clustering, since long boundary edges survive.",
+      "Iteratively merge the two endpoints of the shortest edge into their midpoint until the target triangle count is reached. Preserves silhouette better than clustering.",
   },
   qem: {
     name: "Quadric edge collapse (QEM)",
     body:
-      "Garland-Heckbert: each vertex carries a quadratic error matrix summed from its incident face planes. Collapses the edge whose collapse would shift the surface the least. Best shape preservation at low triangle counts; slowest of the three.",
+      "Garland-Heckbert: each vertex carries a quadratic error matrix summed from its incident face planes. Best shape preservation at low triangle counts; slowest of the three.",
   },
 };
 
 export interface UseDecimationResult {
-  /** Decimated voxel array. */
-  voxels: Voxel[];
-  /** Current method, for stats display. */
+  voxels: Polygon[];
   method: Method;
-  /** Percent reduction vs source.length. */
   reduction: number;
-  /** Render this anywhere inside <DebugLayout> to expose the controls. */
   panel: React.ReactNode;
 }
 
-/**
- * Wires the decimation method controls + memoized voxel transform together.
- * Returns the derived voxels plus a JSX panel for the sidebar — every OBJ
- * page becomes:
- *
- *   const { voxels, method, reduction, panel } = useDecimation(SOURCE);
- *   return <>{panel}<DebugStats ... /><DebugScene voxels={voxels} ... /></>;
- */
-export function useDecimation(source: Voxel[] | InputVoxel[]): UseDecimationResult {
+export function useDecimation(source: Polygon[]): UseDecimationResult {
   const [method, setMethod] = useState<Method>("none");
   const [snap, setSnap] = useState(0);
   const [ratio, setRatio] = useState(1);
 
-  // Decimation needs strict voxels (with bbox) to roundtrip cleanly. Run
-  // voxcss's normalize step so triangle/polygon inputs that ship just
-  // `vertices` get their bbox derived before we touch them.
-  const normalized = useMemo(() => normalizeVoxels(source), [source]);
-
   const voxels = useMemo(() => {
-    if (method === "clustering") return decimateClustering(normalized, snap);
-    if (method === "edge-length") return decimateEdgeLength(normalized, ratio);
-    if (method === "qem") return decimateQEM(normalized, ratio);
-    return normalized;
-  }, [normalized, method, snap, ratio]);
+    if (method === "clustering") return decimateClustering(source as any, snap) as any as Polygon[];
+    if (method === "edge-length") return decimateEdgeLength(source as any, ratio) as any as Polygon[];
+    if (method === "qem") return decimateQEM(source as any, ratio) as any as Polygon[];
+    return source;
+  }, [source, method, snap, ratio]);
 
   const reduction = source.length === 0
     ? 0
@@ -81,8 +62,7 @@ export function useDecimation(source: Voxel[] | InputVoxel[]): UseDecimationResu
   const panel = (
     <DebugSection title="Decimation">
       <div className="debug-help">
-        Decimation reduces a mesh's triangle count while trying to preserve its
-        silhouette — useful for cutting voxcss DOM cost on heavy OBJ imports.
+        Decimation reduces a mesh's triangle count while preserving its silhouette — useful for cutting DOM cost on heavy mesh imports.
       </div>
       <Row label="Method">
         <Pills<Method> value={method} onChange={setMethod} options={METHOD_OPTIONS} />
@@ -93,26 +73,12 @@ export function useDecimation(source: Voxel[] | InputVoxel[]): UseDecimationResu
       </div>
       {method === "clustering" && (
         <Row label="Snap">
-          <Slider
-            value={snap}
-            onChange={setSnap}
-            min={0}
-            max={8}
-            step={0.25}
-            format={(v) => v.toFixed(2)}
-          />
+          <Slider value={snap} onChange={setSnap} min={0} max={8} step={0.25} format={(v) => v.toFixed(2)} />
         </Row>
       )}
       {(method === "edge-length" || method === "qem") && (
         <Row label="Keep">
-          <Slider
-            value={ratio}
-            onChange={setRatio}
-            min={0.01}
-            max={1}
-            step={0.01}
-            format={(v) => `${Math.round(v * 100)}%`}
-          />
+          <Slider value={ratio} onChange={setRatio} min={0.01} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} />
         </Row>
       )}
     </DebugSection>

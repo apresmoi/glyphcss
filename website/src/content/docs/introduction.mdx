@@ -1,71 +1,67 @@
 ---
 title: Introduction
-description: VoxCSS is a CSS voxel engine — a 3D grid for the DOM.
+description: polycss is a CSS polygon-mesh renderer — DOM-native 3D without WebGL.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-VoxCSS is a **CSS voxel engine** — a 3D grid for the DOM. It renders HTML cuboids by stacking CSS grid layers and applying CSS transforms. No `<canvas>`, no WebGL, no dependencies — just pure DOM and CSS.
+**polycss** renders textured 3D meshes in the DOM. No WebGL, no canvas-as-scene — the rendered output is a tree of standard DOM elements (`<img>`, `<svg>`) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach event handlers to, and inspect in DevTools.
 
-Every voxel is a real HTML element. You can inspect it in DevTools, style it with CSS, and interact with it using standard DOM events. VoxCSS brings the simplicity of pixel art into three dimensions, right inside your web page.
+Internally, polycss uses an off-DOM canvas to pre-rasterize each UV-mapped textured triangle into a blob URL once at mount; that blob becomes the `<img>` source. So the user-visible runtime tree is plain DOM, with a one-time canvas pass per textured polygon at load.
 
 ## Framework Support
 
-VoxCSS ships with first-class bindings for **React** and **Vue**, plus a vanilla JavaScript API that works anywhere. Pick whatever fits your stack.
+polycss ships with first-class bindings for **React** and **Vue**, plus a **vanilla JS / custom elements** API that works anywhere. Pick whatever fits your stack.
 
 ## Installation
 
 <Tabs syncKey="pkg">
-<TabItem label="npm">
+<TabItem label="React">
 ```bash
-npm install @layoutit/voxcss
+npm install @polycss/react
 ```
 </TabItem>
-<TabItem label="yarn">
+<TabItem label="Vue">
 ```bash
-yarn add @layoutit/voxcss
+npm install @polycss/vue
 ```
 </TabItem>
-<TabItem label="pnpm">
+<TabItem label="Vanilla JS">
 ```bash
-pnpm add @layoutit/voxcss
+npm install polycss
 ```
 </TabItem>
 </Tabs>
 
-### CDN
+### CDN (custom elements)
 
-You can also load VoxCSS directly from a CDN with no build step:
+You can also load polycss directly from a CDN with no build step:
 
 ```html
-<script type="module">
-  import { renderScene } from "https://unpkg.com/@layoutit/voxcss";
-</script>
+<script type="module" src="https://esm.sh/polycss/elements"></script>
 ```
 
 ## A quick taste
 
-A single orange voxel with an interactive camera. Drag it to rotate.
+Load a GLB mesh into an interactive scene:
 
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
-const voxels = [{ x: 1, y: 1, z: 0, color: "#f97316" }];
+import { PolyScene, PolyMesh } from "@polycss/react";
 
 export function App() {
   return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
   );
 }
 ```
 
-Continue to **[Quickstart →](/quickstart)** for the full walkthrough with React, Vue, and Vanilla JS versions plus a live interactive demo.
+Continue to **[Quickstart →](/quickstart)** for the full walkthrough with React, Vue, and Vanilla JS versions.
 
 ## Related
 
-- [Quickstart](/quickstart) — Full install + first scene walkthrough with a live demo.
-- [Core Concepts](/core-concepts) — The mental model behind VoxCSS: grid, camera, scene, pipeline.
-- [VoxCamera](/components/vox-camera) — Camera component reference.
-- [VoxScene](/components/vox-scene) — Scene component reference.
+- [Quickstart](/quickstart) — Full install + first scene walkthrough.
+- [Core Concepts](/core-concepts) — The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
+- [PolyCamera](/components/vox-camera) — Camera component reference.
+- [PolyScene](/components/vox-scene) — Scene component reference.

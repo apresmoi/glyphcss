@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Voxel } from "@layoutit/voxcss/react";
+import type { Polygon } from "@polycss/react";
 import {
   DebugLayout, DebugSection, DebugStats, DebugScene,
   useOrigin,
@@ -22,7 +22,7 @@ interface TriangleDef {
 let nextId = 1;
 const newId = () => `t${nextId++}`;
 
-const toVoxel = (t: TriangleDef): Voxel =>
+const toVoxel = (t: TriangleDef): Polygon =>
   triangleToVoxel({ v0: t.v0, v1: t.v1, v2: t.v2, color: t.color, texture: t.texture }, 1);
 
 const wrapWithIds = (raws: RawTriangle[]): TriangleDef[] =>
@@ -194,7 +194,7 @@ export default function TriangleEditor() {
       </DebugSection>
 
       <DebugStats voxelCount={voxels.length} extra={{ triangles: triangles.length }} />
-      <DebugScene voxels={voxels} origin={origin} defaultShowFloor />
+      <DebugScene voxels={voxels} origin={origin} />
     </DebugLayout>
   );
 }

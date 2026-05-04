@@ -32,18 +32,17 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'VoxCamera', slug: 'components/vox-camera' },
-            { label: 'VoxScene', slug: 'components/vox-scene' },
+            { label: 'PolyCamera', slug: 'components/vox-camera' },
+            { label: 'PolyScene', slug: 'components/vox-scene' },
           ],
         },
         {
           label: 'Guides',
           items: [
-            { label: 'Shapes', slug: 'guides/shapes' },
-            { label: 'Textures', slug: 'guides/textures' },
-            { label: 'Projections', slug: 'guides/projections' },
+            { label: 'Loading Meshes', slug: 'guides/textures' },
+            { label: 'Per-polygon Interaction', slug: 'guides/shapes' },
             { label: 'Performance', slug: 'guides/performance' },
-            { label: 'Loading .vox Files', slug: 'guides/vox-files' },
+            { label: 'Projections', slug: 'guides/projections' },
           ],
         },
         {

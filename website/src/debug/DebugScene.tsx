@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-import type { Voxel } from "@layoutit/voxcss/react";
+import { PolyCamera, PolyScene } from "@polycss/react";
+import type { Polygon } from "@polycss/react";
 import PolygonCanvas from "./PolygonCanvas";
 import { useDebug } from "./DebugLayout";
 import { DebugSection } from "./DebugSection";
@@ -9,12 +9,12 @@ import { Pills, Row, Slider } from "./controls";
 type Vec3 = [number, number, number];
 
 interface DebugSceneProps {
-  voxels: Voxel[];
+  voxels: Polygon[];
   /** Origin in voxel coords for canvas projection — usually the mesh centroid. */
   origin: Vec3;
-  /** Forwarded to <VoxScene>. */
+  /** Forwarded to <PolyScene>. */
   voxScene?: {
-    mergeVoxels?: false | "2d" | "3d" | "poly";
+    merge?: "off" | "auto";
   };
   /** Initial values; the scene owns the live state from then on. */
   defaultZoom?: number;
@@ -51,8 +51,8 @@ export function DebugScene({
   // sidebar to A/B-test what mergePolygons does to a textured mesh. The
   // initial value comes from the page's voxScene prop (so a page that
   // hardcodes a default still respects it on first render).
-  const [mergeMode, setMergeMode] = useState<false | "2d" | "3d" | "poly">(
-    voxScene.mergeVoxels ?? false,
+  const [mergeMode, setMergeMode] = useState<"off" | "auto">(
+    voxScene.merge ?? "off",
   );
   // Single toggle drives both back-face debug paths: voxcss's per-voxel
   // direction-cull overlay (cubes/ramps/wedges/spikes) and the triangle/
@@ -104,7 +104,7 @@ export function DebugScene({
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
 
-  // Wire the rendered VoxScene container up to the layout's ref so DebugStats
+  // Wire the rendered PolyScene container up to the layout's ref so DebugStats
   // can count its DOM elements.
   useEffect(() => {
     voxSceneRef.current = sceneContainerRef.current;
@@ -154,7 +154,7 @@ export function DebugScene({
         </label>
         <label className="debug-checkbox">
           <input type="checkbox" checked={showVoxcss} onChange={(e) => setShowVoxcss(e.target.checked)} />
-          <span>voxcss pane</span>
+          <span>polycss pane</span>
         </label>
         <label className="debug-checkbox">
           <input type="checkbox" checked={showCanvas} onChange={(e) => setShowCanvas(e.target.checked)} />
@@ -173,14 +173,12 @@ export function DebugScene({
           <span style={{ color: debugShowLabels ? "#86efac" : undefined }}>Add data-debug attribute</span>
         </label>
         <Row label="Merge">
-          <Pills<false | "2d" | "3d" | "poly">
+          <Pills<"off" | "auto">
             value={mergeMode}
             onChange={setMergeMode}
             options={[
-              { value: false, label: "off" },
-              { value: "2d", label: "2d" },
-              { value: "3d", label: "3d" },
-              { value: "poly", label: "poly" },
+              { value: "off", label: "off" },
+              { value: "auto", label: "auto" },
             ]}
           />
         </Row>
@@ -226,24 +224,20 @@ export function DebugScene({
 
       {showVoxcss && (
         <div ref={sceneContainerRef} className="debug-pane">
-          <div className="debug-pane-label">voxcss</div>
-          <VoxCamera
+          <div className="debug-pane-label">polycss</div>
+          <PolyCamera
             interactive
             zoom={zoom}
             rotX={defaultRotX}
             rotY={defaultRotY}
             animate={autoRotate ? 0.5 : false}
           >
-            <VoxScene
-              voxels={voxels}
-              showFloor={showFloor}
-              mergeVoxels={mergeMode}
-              debugShowOccluded={showBackfaces}
-              debugShowLabels={debugShowLabels}
-              debugShowBackfaces={showBackfaces}
+            <PolyScene
+              polygons={voxels}
+              merge={mergeMode}
               directionalLight={directionalLight}
             />
-          </VoxCamera>
+          </PolyCamera>
         </div>
       )}
       {showCanvas && (

@@ -1,40 +1,26 @@
 ---
-title: Textures
-description: Applying image textures to voxel faces for richer visual detail.
+title: Loading Meshes
+description: Loading OBJ, GLB, and glTF meshes into polycss with UV textures and material colors.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
-import VoxDemo from '../../../components/VoxDemo.astro';
 
-VoxCSS lets you apply image textures to voxels using the `texture` property. The texture is mapped onto all visible faces of the voxel, giving you a simple way to add visual detail beyond flat colors.
+polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and applied to each polygon via a one-time off-DOM canvas pass, producing a blob URL that becomes the `<img>` source.
 
-<VoxDemo
-  id="textures-demo"
-  voxels='[{"shape":"spike","x":7,"y":7,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"ramp","x":6,"y":7,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":5,"y":7,"z":0,"texture":"/grass2.png"},{"shape":"spike","x":4,"y":7,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":6,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":6,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":6,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":6,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":5,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"spike","x":2,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":4,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":4,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":3,"y":4,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":3,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":7,"y":3,"z":0,"rot":90,"texture":"/grass2.png"},{"shape":"cube","x":6,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":5,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":4,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"cube","x":3,"y":3,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":2,"y":3,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"spike","x":7,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":6,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":5,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"ramp","x":3,"y":2,"z":0,"rot":180,"texture":"/grass2.png"},{"shape":"spike","x":2,"y":2,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"ramp","x":2,"y":4,"z":0,"rot":270,"texture":"/grass2.png"},{"shape":"wedge","x":4,"y":5,"z":0,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":4,"z":1,"texture":"/grass2.png"},{"shape":"spike","x":3,"y":4,"z":1,"texture":"/grass2.png"},{"shape":"ramp","x":4,"y":3,"z":1,"rot":180,"texture":"/grass2.png"},{"shape":"spike","x":3,"y":3,"z":1,"rot":270,"texture":"/grass2.png"},{"shape":"spike","x":5,"y":3,"z":1,"rot":180,"texture":"/grass2.png"},{"shape":"spike","x":5,"y":4,"z":1,"rot":90,"texture":"/grass2.png"}]'
-  controls='["zoom","interactive","projection"]'
-  defaults='{"zoom":0.8,"interactive":true,"showFloor":true,"projection":"dimetric"}'
-/>
+## `PolyMesh` — declarative loading
 
-## Basic usage
-
-Set the `texture` property to an image URL. The image is applied as a CSS background on each face of the voxel.
+The simplest way to render a mesh is `<PolyMesh src="...">`. It fetches the file, parses it, and renders a `Poly` per polygon automatically.
 
 <Tabs syncKey="fw">
 <TabItem label="React">
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
-const voxels = [
-  { x: 1, y: 1, z: 0, texture: "/grass.png" },
-  { x: 2, y: 1, z: 0, texture: "/grass.png" },
-  { x: 1, y: 2, z: 0, texture: "/grass.png" },
-];
+import { PolyScene, PolyMesh } from "@polycss/react";
 
 export function App() {
   return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
+    <PolyScene rotX={65} rotY={45}>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
   );
 }
 ```
@@ -42,66 +28,119 @@ export function App() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <VoxCamera interactive>
-    <VoxScene :voxels="voxels" />
-  </VoxCamera>
+  <PolyScene :rot-x="65" :rot-y="45">
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
 </template>
 
 <script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [
-  { x: 1, y: 1, z: 0, texture: "/grass.png" },
-  { x: 2, y: 1, z: 0, texture: "/grass.png" },
-  { x: 1, y: 2, z: 0, texture: "/grass.png" },
-];
+import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>
 ```
 </TabItem>
 <TabItem label="Vanilla JS">
 ```html
-<div id="voxcss"></div>
-<script type="module">
-  import { renderScene } from "@layoutit/voxcss";
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { interactive: true },
-    scene: {
-      voxels: [
-        { x: 1, y: 1, z: 0, texture: "/grass.png" },
-        { x: 2, y: 1, z: 0, texture: "/grass.png" },
-        { x: 1, y: 2, z: 0, texture: "/grass.png" },
-      ],
-    },
-  });
-</script>
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
 ```
 </TabItem>
 </Tabs>
 
-## Combining texture and color
+## Supported formats
 
-You can set both `texture` and `color` on the same voxel. The color acts as a **fallback** while the image loads (so voxels don't flash white) and as a **tint** that blends with the texture.
+| Format | Extension | Notes |
+|--------|-----------|-------|
+| OBJ + MTL | `.obj` + `.mtl` | Text format. UV maps via `vt`. Material textures from `map_Kd`. |
+| glTF | `.gltf` | JSON format. Embedded or external buffers. TEXCOORD_0 UVs. |
+| GLB | `.glb` | Binary glTF. Embedded textures extracted as blob URLs. |
 
-```ts
-{ x: 1, y: 1, z: 0, color: "#8B4513", texture: "/wood.png" }
+## OBJ with MTL
+
+When your OBJ has a companion MTL file with textures, polycss reads `map_Kd` entries and applies them as UV-mapped textures. Pass `mtlUrl` to `PolyMesh` or `useObjModel`:
+
+```tsx
+<PolyMesh
+  src="/rock.obj"
+  mtlUrl="/rock.mtl"
+  options={{ targetSize: 40 }}
+/>
 ```
 
-## Texture sources
+## Material overrides
 
-The `texture` value is any valid CSS image URL:
+Override material colors or textures without modifying the source files:
 
-- **Relative paths** — files in your project's public directory (e.g., `/grass.png`)
-- **Absolute URLs** — hosted images (e.g., `https://example.com/texture.png`)
-- **Data URIs** — inline base64-encoded images
+```tsx
+<PolyMesh
+  src="/character.obj"
+  options={{
+    materialColors: { Skin: "#f4c2a1" },
+    materialTextures: { Body: "/body-diffuse.png" },
+    includeObjects: ["Body", "Head"],  // only these objects
+  }}
+/>
+```
+
+## `useMesh` hook — imperative loading
+
+For finer control over loading state (custom spinners, error handling, etc.), use `useMesh`:
+
+<Tabs syncKey="fw">
+<TabItem label="React">
+```tsx
+import { PolyScene, Poly, useMesh } from "@polycss/react";
+
+function Viewer() {
+  const { polygons, loading, error, dispose } = useMesh("/cottage.glb");
+
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
+
+  return (
+    <PolyScene>
+      {polygons.map((p, i) => <Poly key={i} {...p} />)}
+    </PolyScene>
+  );
+}
+```
+</TabItem>
+</Tabs>
+
+## `loadMesh` — core parser (no React/Vue)
+
+Load a mesh directly using the core parser:
+
+```ts
+import { loadMesh } from "@polycss/core";
+
+const result = await loadMesh("/cottage.glb", { targetSize: 60 });
+// result.polygons — Polygon[]
+// result.dispose() — revoke blob URLs when done
+```
+
+## UV texture pipeline
+
+For UV-textured polygons, polycss runs a one-time canvas pass per polygon at mount:
+
+1. Extract the texture image from the file (or fetch it by URL).
+2. Solve a 6-DOF affine transform from the polygon's UV coordinates to its 2D screen footprint.
+3. Clip, draw, and export to a blob URL via `canvas.toBlob()`.
+4. Set `<img>.src = blobUrl`.
+
+The blob URL is revoked on unmount (call `dispose()` or let `PolyMesh` / `useMesh` handle it).
 
 ## Tips
 
-- Use **small, tileable images** (e.g., 16×16 or 32×32 pixels) for the best look at voxel scale.
-- Textures render via CSS `background-image`, so they benefit from browser caching automatically.
-- For scenes with many textured voxels, reuse the same image URL — the browser only fetches it once.
+- **`targetSize`** — scale the model so its longest axis fits this many world units (default: no scaling). Set it to roughly match the scale of your other scene content.
+- **`baseUrl`** — for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
+- For large meshes: blob URLs for embedded textures are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
 
 ## Related
 
-- [VoxScene](/components/vox-scene) — The `voxels` prop and full voxel object reference.
-- [Shapes](/guides/shapes) — Textures apply to ramps, wedges, and spikes too.
-- [Performance](/guides/performance) — Merge modes work with textured voxels.
+- [PolyScene](/components/vox-scene) — Scene props.
+- [Per-polygon Interaction](/guides/shapes) — Click handlers and hover states on individual polygons.
+- [Performance](/guides/performance) — Merge modes and DOM tuning.
+- [Headless API](/api/headless) — `loadMesh`, `parseObj`, `parseGltf` signatures.

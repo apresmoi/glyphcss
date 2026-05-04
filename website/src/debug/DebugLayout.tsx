@@ -10,7 +10,6 @@ export interface DebugRoute {
 export const DEBUG_ROUTES: DebugRoute[] = [
   { path: "/debug/sphere", label: "Sphere" },
   { path: "/debug/platonic", label: "Platonic solids" },
-  { path: "/debug/spans", label: "Spans" },
   { path: "/debug/triangle-editor", label: "Triangle editor" },
   { path: "/debug/meshes", label: "Meshes (OBJ · GLB)" },
 ];
@@ -47,13 +46,10 @@ export function DebugLayout({ current, children }: DebugLayoutProps) {
     <DebugContext.Provider value={{ sectionsHost, bottomHost, rightHost, statsHost, voxSceneRef }}>
       <div className="debug-root">
         <aside className="debug-sidebar">
-          <a href="/" className="debug-logo" title="Back to voxcss home">
-            <img src="/voxisologo.png" alt="VoxCSS" />
+          <a href="/" className="debug-logo" title="Back to polycss home" style={{ fontFamily: "monospace", fontSize: 18, fontWeight: "bold", color: "#7dd3fc", textDecoration: "none" }}>
+            polycss
           </a>
           <nav className="debug-nav">
-            <a href="/debug" className={current === "/debug" ? "active" : undefined}>
-              Index
-            </a>
             {DEBUG_ROUTES.map((r) => (
               <a key={r.path} href={r.path} className={r.path === current ? "active" : undefined}>
                 {r.label}

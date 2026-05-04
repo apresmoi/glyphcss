@@ -1,84 +1,50 @@
 ---
-title: VoxScene
-description: Scene component that renders a 3D voxel grid — voxel data, grid dimensions, walls, floor, and merge strategies.
+title: PolyScene
+description: Scene component that sets up the 3D viewport, camera, and lighting for polygon-mesh rendering.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
-import VoxDemo from '../../../components/VoxDemo.astro';
 
-`VoxScene` renders the voxel grid itself. It takes an array of voxel objects and draws them as CSS cuboids on a 3D grid. **VoxScene must always be placed inside a [VoxCamera](/components/vox-camera).**
-
-## Interactive Demo
-
-Adjust grid dimensions, toggle walls and floor, and switch projection modes. The code tabs below the demo update to match the current values.
-
-<VoxDemo
-  id="scene-demo"
-  voxels='[{"x":1,"y":1,"z":0,"color":"#f97316"}]'
-  controls='["rows","cols","depth","showFloor","showWalls","projection"]'
-  defaults='{"zoom":0.65,"interactive":true,"showFloor":true,"showWalls":true,"rows":8,"cols":8,"depth":6}'
-/>
+`PolyScene` is the root of every polycss render tree. It sets up CSS 3D perspective, accepts camera props, applies directional lighting, and renders its children (typically `PolyMesh` or `Poly` elements) in 3D space.
 
 ## Props
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `voxels` | `Voxel[]` | `[]` | Array of voxel objects (see [Voxel Object Shape](#voxel-object-shape)). Replacing the array triggers a re-render; mutating it in place does not. |
-| `rows` | `number` | auto | Grid height on the Y axis. Inferred from the voxel coordinates if omitted. Set explicitly when you want extra empty space around your voxels. |
-| `cols` | `number` | auto | Grid width on the X axis. Inferred from the voxel coordinates if omitted. |
-| `depth` | `number` | auto | Layer count on the Z axis. Inferred from the voxel coordinates if omitted. |
-| `showWalls` | `boolean` | `false` | Show floor-to-ceiling wall planes at the grid edges. The engine automatically hides walls on faces the camera is looking through. |
-| `showFloor` | `boolean` | `false` | Show the floor grid plane at `z: -1`, underneath all voxels. |
-| `projection` | `"cubic" \| "dimetric"` | `"cubic"` | Layer spacing mode. `cubic` uses 50px Z-steps (true isometric); `dimetric` halves the step to 25px for a flatter, more top-down feel. Useful for terrain and map-style scenes. |
-| `mergeVoxels` | `false \| "2d" \| "3d"` | `false` | Merge strategy for performance optimization. `"2d"` consolidates same-color voxels within each layer; `"3d"` switches to a slice-based renderer for the fewest possible elements. See the [Performance guide](/guides/performance). |
-| `wallColor` | `string` | `"#3e3e4d"` | CSS color for structural walls when `showWalls` is enabled. |
-| `lighting` | `(voxel, face) => FaceAppearanceOverride \| undefined` | — | Per-voxel/per-face appearance hook. Called by the renderer for each visible face; return a [`FaceAppearanceOverride`](/api/types/#faceappearanceoverride) (`backgroundImage`, `backgroundColor`, `filter`) to override the default appearance, or `undefined` to leave it unchanged. Combining a per-voxel hook with `"2d"` merging may flatten per-voxel variation into the merged rectangle — use `mergeVoxels={false}` if you need full per-voxel hook fidelity. |
-| `resolveTexture` | `(name, face) => string \| undefined` | — | Texture name resolver. The renderer calls this for each `voxel.texture` value to translate the name into a URL (e.g., a CDN path or imported asset). Return `undefined` to leave the texture unresolved. |
+| `perspective` | `number` | `1000` | CSS perspective distance in pixels. Higher values feel flatter (more isometric); lower values exaggerate depth. |
+| `rotX` | `number` | `65` | Camera rotation around the X axis in degrees. |
+| `rotY` | `number` | `45` | Camera rotation around the Y axis in degrees (0–360). |
+| `directionalLight` | `DirectionalLight` | — | Directional light source. See [DirectionalLight](#directionallight). |
+| `polygons` | `Polygon[]` | — | Optional flat array of polygon objects rendered as direct children. Composes with JSX children. |
+| `merge` | `"off" \| "auto"` | `"off"` | Merge strategy. `"auto"` merges coplanar same-material polygons before rendering. |
+| `children` | `ReactNode` | — | `PolyMesh` and/or `Poly` components. |
 
-## Voxel Object Shape
-
-Each item in the `voxels` array describes one cuboid (or a span of cuboids when area properties are used).
+## DirectionalLight
 
 ```ts
-interface Voxel {
-  x: number;        // Required — column
-  y: number;        // Required — row
-  z: number;        // Required — layer (depth)
-  x2?: number;      // End column for area spans
-  y2?: number;      // End row for area spans
-  z2?: number;      // End layer for area spans
-  color?: string;   // CSS color ("#f97316", "tomato", "rgb(255,0,0)")
-  texture?: string; // Image URL for face textures
-  shape?: string;   // "cube" | "ramp" | "wedge" | "spike"
-  rot?: number;     // Rotation in degrees (snaps to 90° for shapes)
+interface DirectionalLight {
+  direction: [number, number, number];  // Normalized direction vector
+  color?: string;                       // Light color (default: "#ffffff")
+  ambient?: number;                     // Ambient intensity 0–1 (default: 0.4)
 }
 ```
-
-The only required fields are `x`, `y`, and `z`. Everything else is optional — a voxel with no `color` or `shape` renders as the default grey cube.
 
 ## Usage
 
 ### Basic Scene
 
-A handful of colored voxels inside an interactive camera.
+A scene with a single GLB mesh at default camera angle.
 
 <Tabs syncKey="fw">
 <TabItem label="React">
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
-
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#f97316" },
-  { x: 2, y: 1, z: 0, color: "#facc15" },
-  { x: 1, y: 2, z: 0, color: "#22c55e" },
-  { x: 2, y: 2, z: 0, color: "#3b82f6" },
-];
+import { PolyScene, PolyMesh } from "@polycss/react";
 
 export function App() {
   return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
   );
 }
 ```
@@ -86,142 +52,70 @@ export function App() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <VoxCamera interactive>
-    <VoxScene :voxels="voxels" />
-  </VoxCamera>
+  <PolyScene>
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
 </template>
 
 <script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#f97316" },
-  { x: 2, y: 1, z: 0, color: "#facc15" },
-  { x: 1, y: 2, z: 0, color: "#22c55e" },
-  { x: 2, y: 2, z: 0, color: "#3b82f6" },
-];
+import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>
 ```
 </TabItem>
 <TabItem label="Vanilla JS">
 ```html
-<div id="voxcss"></div>
-<script type="module">
-  import { renderScene } from "@layoutit/voxcss";
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { interactive: true },
-    scene: {
-      voxels: [
-        { x: 1, y: 1, z: 0, color: "#f97316" },
-        { x: 2, y: 1, z: 0, color: "#facc15" },
-        { x: 1, y: 2, z: 0, color: "#22c55e" },
-        { x: 2, y: 2, z: 0, color: "#3b82f6" },
-      ],
-    },
-  });
-</script>
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene>
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
 ```
 </TabItem>
 </Tabs>
 
-### Scene with Walls and Floor
+### Scene with Camera and Lighting
 
-Enable structural boundaries for a room-like look. The engine auto-hides walls on whichever faces the camera is looking through.
-
-<Tabs syncKey="fw">
-<TabItem label="React">
 ```tsx
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+<PolyScene
+  perspective={1000}
+  rotX={65}
+  rotY={45}
+  directionalLight={{
+    direction: [0.5, -0.7, 0.6],
+    color: "#ffe4a8",
+    ambient: 0.4,
+  }}
+>
+  <PolyMesh src="/cottage.glb" position={[0, 0, 0]} />
+  <PolyMesh src="/tree.glb"    position={[8, 0, 0]} scale={0.5} />
+</PolyScene>
+```
 
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#f97316" },
-  { x: 1, y: 1, z: 1, color: "#ef4444" },
+### Multiple Meshes
+
+```tsx
+<PolyScene rotX={65} rotY={45}>
+  <PolyMesh src="/cottage.glb" position={[0, 0, 0]} />
+  <PolyMesh src="/tree.glb"    position={[8, 0, 0]} scale={0.5} />
+</PolyScene>
+```
+
+### Flat Polygon Array
+
+Pass a `polygons` array directly to render static geometry without a file loader.
+
+```tsx
+const polygons: Polygon[] = [
+  { vertices: [[0,0,0],[1,0,0],[0,1,0]], color: "#f00" },
+  { vertices: [[2,0,0],[3,0,0],[2,1,0]], color: "#00f" },
 ];
 
-export function App() {
-  return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} showWalls showFloor wallColor="#4a4a5a" />
-    </VoxCamera>
-  );
-}
+<PolyScene polygons={polygons} />
 ```
-</TabItem>
-<TabItem label="Vue">
-```vue
-<template>
-  <VoxCamera interactive>
-    <VoxScene :voxels="voxels" show-walls show-floor wall-color="#4a4a5a" />
-  </VoxCamera>
-</template>
-
-<script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [
-  { x: 1, y: 1, z: 0, color: "#f97316" },
-  { x: 1, y: 1, z: 1, color: "#ef4444" },
-];
-</script>
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```html
-<div id="voxcss"></div>
-<script type="module">
-  import { renderScene } from "@layoutit/voxcss";
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { interactive: true },
-    scene: {
-      voxels: [
-        { x: 1, y: 1, z: 0, color: "#f97316" },
-        { x: 1, y: 1, z: 1, color: "#ef4444" },
-      ],
-      showWalls: true,
-      showFloor: true,
-      wallColor: "#4a4a5a",
-    },
-  });
-</script>
-```
-</TabItem>
-</Tabs>
-
-### Scene with Merge Mode
-
-Use `mergeVoxels` to reduce DOM element count for large or dense scenes. `"2d"` merges same-color voxels within each layer; `"3d"` switches to a slice-based renderer for the fewest possible elements (no per-voxel control, cubes only). See the [Performance guide](/guides/performance) for a live FPS/DOM demo and a comparison table.
-
-<Tabs syncKey="fw">
-<TabItem label="React">
-```tsx
-<VoxCamera interactive>
-  <VoxScene voxels={voxels} mergeVoxels="3d" />
-</VoxCamera>
-```
-</TabItem>
-<TabItem label="Vue">
-```vue
-<VoxCamera interactive>
-  <VoxScene :voxels="voxels" merge-voxels="3d" />
-</VoxCamera>
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```js
-renderScene({
-  element: document.getElementById("voxcss"),
-  camera: { interactive: true },
-  scene: { voxels, mergeVoxels: "3d" },
-});
-```
-</TabItem>
-</Tabs>
 
 ## Related
 
-- [VoxCamera](/components/vox-camera) — The required parent component.
-- [Performance](/guides/performance) — Merge modes with a live FPS/DOM stats demo.
-- [Shapes](/guides/shapes) — Using `shape` and `rot` to build richer geometry.
-- [Textures](/guides/textures) — Applying images to voxel faces.
-- [Projections](/guides/projections) — Cubic vs dimetric layer spacing.
+- [PolyCamera](/components/vox-camera) — Imperative camera control.
+- [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading.
+- [Per-polygon Interaction](/guides/shapes) — Using `Poly` for interactive per-polygon control.
+- [Performance](/guides/performance) — Merge modes and DOM tuning.

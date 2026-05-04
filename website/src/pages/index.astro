@@ -1,11 +1,9 @@
 ---
 import hljs from "highlight.js/lib/core";
-import bash from "highlight.js/lib/languages/bash";
 import xml from "highlight.js/lib/languages/xml";
 import javascript from "highlight.js/lib/languages/javascript";
 import typescript from "highlight.js/lib/languages/typescript";
 
-hljs.registerLanguage("bash", bash);
 hljs.registerLanguage("html", xml);
 hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("javascript", javascript);
@@ -16,32 +14,23 @@ function highlight(code: string, lang: string): string {
   return hljs.highlight(code, { language: lang }).value;
 }
 
-const title = "VoxCSS — CSS voxel engine for the DOM";
-const description = "A DOM-based voxel engine that renders HTML cuboids with CSS grids, transforms, textures, and dimetric projections.";
-const siteUrl = "https://voxcss.com";
-const ogImage = `${siteUrl}/voxcss-intro.png`;
-
-const cdnCode = `<script type="module">
-  import { renderScene } from "https://unpkg.com/@layoutit/voxcss@latest/dist/index.js";
-</script>`;
-
-const cdnHighlighted = highlight(cdnCode, "html");
+const title = "polycss — CSS polygon-mesh renderer for the DOM";
+const description = "Render textured 3D meshes in the DOM. No WebGL — each polygon is a real DOM element you can style, click, and inspect in DevTools.";
+const siteUrl = "https://polycss.com";
+const ogImage = `${siteUrl}/polycss-intro.png`;
 
 const frameworkTabs = [
   {
     id: "react",
     label: "React",
     language: "tsx",
-    code: `import { VoxCamera, VoxScene } from "@layoutit/voxcss/react";
+    code: `import { PolyScene, PolyMesh } from "@polycss/react";
 
 export function App() {
-  const voxels = [
-    { x: 1, y: 1, z: 0, color: "#f97316" }
-  ];
   return (
-    <VoxCamera interactive>
-      <VoxScene voxels={voxels} />
-    </VoxCamera>
+    <PolyScene rotX={65} rotY={45} perspective={1000}>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
   );
 }`,
   },
@@ -50,38 +39,23 @@ export function App() {
     label: "Vue",
     language: "vue",
     code: `<template>
-  <VoxCamera interactive>
-    <VoxScene :voxels="voxels" />
-  </VoxCamera>
+  <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
 </template>
 <script setup lang="ts">
-import { VoxCamera, VoxScene } from "@layoutit/voxcss/vue";
-const voxels = [
-  { x: 1, y: 1, z: 0, color: '#f97316' }
-];
+import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>`,
   },
   {
     id: "vanilla",
     label: "vanilla js",
     language: "html",
-    code: `<div id="voxcss"></div>
+    code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
 
-<script type="module">
-  import { renderScene } from "https://unpkg.com/@layoutit/voxcss@latest/dist/index.js";
-
-  renderScene({
-    element: document.getElementById("voxcss"),
-    camera: { interactive: true },
-    scene: {
-      voxels: [
-        { x: 3, y: 3, z: 0 },
-        { x: 3, y: 3, z: 1 }
-      ],
-      showFloor: true
-    }
-  });
-</script>`,
+<poly-scene perspective="1000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>`,
   },
 ].map(tab => ({
   ...tab,
@@ -89,25 +63,25 @@ const voxels = [
 }));
 
 const installCmds = [
-  "npm install @layoutit/voxcss",
-  "yarn add @layoutit/voxcss",
-  "pnpm add @layoutit/voxcss",
-].map(cmd => ({ code: cmd, highlighted: highlight(cmd, "bash") }));
+  "npm install @polycss/react",
+  "npm install @polycss/vue",
+  "npm install polycss",
+].map(cmd => ({ code: cmd, highlighted: highlight(cmd, "javascript") }));
 
 const ldJson = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "VoxCSS",
+  name: "polycss",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "Web",
   description,
   url: siteUrl,
   image: ogImage,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  sameAs: ["https://github.com/LayoutitStudio/voxcss"],
+  sameAs: ["https://github.com/LayoutitStudio/polycss"],
   publisher: {
     "@type": "Organization",
-    name: "VoxCSS",
+    name: "polycss",
     url: siteUrl,
   },
 };
@@ -161,20 +135,23 @@ const ldJson = {
       <div class="home">
         <section class="hero" id="hero">
           <div class="hero-copy">
-            <h1><img width="300" height="72" style="width: 300px; height: auto" src="/voxisologo.png" alt="VoxCSS" /></h1>
+            <h1>polycss</h1>
             <p>
-              A CSS voxel engine. A 3D grid for the DOM. Renders HTML cuboids by
-              stacking CSS grid layers and applying transforms.
+              Render textured 3D meshes in the DOM. No WebGL, no canvas-as-scene.
+              Each polygon is a real DOM element — style it with CSS, click it,
+              inspect it in DevTools.
             </p>
             <p>
-              Supports colors and textures, interactions and culling, plus shapes,
-              areas and projections. All without &lt;/canvas&gt;.
+              Loads OBJ, glTF, and GLB. UV-textured triangles rasterized via
+              offscreen canvas. DOM tree of <code>&lt;img&gt;</code> and
+              <code>&lt;svg&gt;</code> elements positioned with
+              <code>transform: matrix3d(...)</code>.
             </p>
             <hr />
             <div class="cta">
               <a
                 class="github-social"
-                href="https://github.com/LayoutitStudio/voxcss"
+                href="https://github.com/LayoutitStudio/polycss"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -194,9 +171,7 @@ const ldJson = {
             </div>
           </div>
           <div class="hero-canvas" id="hero-root">
-            <div class="headless-camera" id="hero-camera">
-              <div class="headless-scene" id="hero-scene"></div>
-            </div>
+            <!-- mesh viewer placeholder — Phase 8 will add a live PolyMesh demo -->
           </div>
         </section>
 
@@ -218,7 +193,7 @@ const ldJson = {
             <div class="install-row">
               <p class="install-label">CDN</p>
               <div class="install-content">
-                <pre class="dark-scrollbar"><code class="language-html hljs" set:html={cdnHighlighted} /></pre>
+                <pre class="dark-scrollbar"><code class="language-html hljs" set:html={highlight('<script type="module" src="https://esm.sh/polycss/elements"></script>', "html")} /></pre>
               </div>
             </div>
           </div>
@@ -228,23 +203,26 @@ const ldJson = {
           <div class="stacking-copy">
             <h2>How It Works</h2>
             <p>
-              voxCSS builds a 3D space in the DOM using stacked CSS grids and
-              transforms. A root element sets up perspective and transform-style:
-              preserve-3d, while another container defines the scene bounds and
-              receives the camera rotations.
+              polycss loads OBJ, glTF, and GLB mesh files. Each triangle becomes
+              one <code>&lt;img&gt;</code> element positioned with
+              <code>transform: matrix3d(...)</code>. UV-textured triangles are
+              rasterized once via an offscreen canvas; the blob URL is the image
+              source. The browser's compositor handles the 3D layering.
             </p>
             <p>
-              Then, each level is a CSS Grid, translated along the Z axis in fixed
-              steps. Their cells define a slice at that depth, so (x, y, z) refers
-              to one point. Voxels are HTML cuboids: a single container plus
-              absolutely positioned faces.
+              The rendered scene is a tree of standard DOM elements — no shadow
+              DOM, no WebGL context, no canvas-as-the-whole-scene. Every polygon
+              is individually addressable: attach click handlers, apply CSS
+              classes, animate with CSS transitions.
             </p>
             <p class="stacking-actions" style="margin: 0">
               <a class="btn ghost" href="/quickstart">View Usage Guidelines &raquo;</a>
             </p>
           </div>
           <div class="stacking-media">
-            <video src="/stacked.mp4" autoplay loop muted playsinline></video>
+            <div style="background:#090b10;height:350px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#475569;font-family:monospace;font-size:13px;">
+              mesh demo — Phase 8
+            </div>
           </div>
         </section>
 
@@ -255,7 +233,7 @@ const ldJson = {
             </div>
           </header>
           <div class="getting-lede">
-            <p>voxCSS provides lightweight components and a headless API. Use the <code>VoxCamera</code> component to set up the viewport (pass <code>interactive</code> when you want drag controls) and the <code>VoxScene</code> component to mount and render your voxels. A voxel scene is a flat array of voxel objects with integer <code>x</code>, <code>y</code>, and <code>z</code> coordinates; bounds are inferred unless you override <code>rows</code>, <code>cols</code>, or <code>depth</code>.</p>
+            <p>polycss provides lightweight components and a headless API. Use <code>PolyScene</code> to set up the 3D viewport and <code>PolyMesh</code> to load and render a mesh file. Each polygon in the mesh becomes a DOM element you can style and interact with.</p>
           </div>
           <div class="getting-grid">
             <div class="getting-content">
@@ -290,29 +268,8 @@ const ldJson = {
 
         <section class="gallery made-with" id="made-with">
           <div class="gallery-header">
-            <h2>Made with VoxCSS</h2>
+            <h2>Gallery</h2>
           </div>
-          <div class="grid grid--logos">
-            <a class="card card--logo" href="https://terra.layoutit.com" target="_blank" rel="noopener">
-              <div class="card-media">
-                <img src="/layoutit-terra.png" alt="Layoutit Terra voxel terrain editor screenshot" loading="lazy" />
-              </div>
-              <div class="card-info">
-                <h3>Layoutit Terra</h3>
-                <p>A CSS Terrain Generator.</p>
-              </div>
-            </a>
-            <a class="card card--logo" href="https://voxels.layoutit.com" target="_blank" rel="noopener">
-              <div class="card-media">
-                <img src="/layoutit-voxels.png" alt="Layoutit Voxels playground screenshot" loading="lazy" />
-              </div>
-              <div class="card-info">
-                <h3>Layoutit Voxels</h3>
-                <p>A CSS Voxel Editor.</p>
-              </div>
-            </a>
-          </div>
-          <br />
           <div class="gallery-actions">
             <a class="btn ghost" href="/gallery">View Model Gallery &raquo;</a>
           </div>
@@ -325,11 +282,11 @@ const ldJson = {
     // GitHub star count
     async function fetchStars() {
       try {
-        const res = await fetch("https://api.github.com/repos/LayoutitStudio/voxcss");
+        const res = await fetch("https://api.github.com/repos/LayoutitStudio/polycss");
         if (!res.ok) return;
         const json = await res.json();
         if (typeof json?.stargazers_count === "number") {
-          const text = `\u2605 ${json.stargazers_count}`;
+          const text = `★ ${json.stargazers_count}`;
           const elHero = document.getElementById("star-count-hero");
           if (elHero) elHero.textContent = text;
         }
@@ -355,37 +312,6 @@ const ldJson = {
         });
       });
     }
-
-    // Hero 3D renderer
-    async function initHero() {
-      try {
-        const lib = await import("@layoutit/voxcss");
-        const rootEl = document.getElementById("hero-root");
-        const cameraEl = document.getElementById("hero-camera");
-        const sceneEl = document.getElementById("hero-scene");
-        if (!rootEl || !cameraEl || !sceneEl) return;
-
-        const res = await fetch("/gallery/halfapple.json");
-        const voxels = await res.json();
-
-        const camera = lib.createCamera({
-          element: cameraEl,
-          interactive: true,
-          zoom: 0.63,
-          rotX: 65,
-          rotY: 45,
-          animate: { axis: "y", speed: 0.3, pauseOnInteraction: true },
-        });
-        const scene = lib.createScene({
-          element: sceneEl,
-          voxels: Array.isArray(voxels) ? voxels : [],
-          showWalls: false,
-          showFloor: false,
-        });
-        lib.renderScene({ element: rootEl, camera, scene });
-      } catch (_) {}
-    }
-    initHero();
   </script>
 </body>
 </html>
@@ -523,15 +449,6 @@ const ldJson = {
     color: #24292f;
     font-size: 14px;
   }
-  .github-social--compact .github-social__main {
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-  .github-social--compact .github-social__count {
-    min-width: 40px;
-    padding: 6px 8px;
-    font-size: 13px;
-  }
 
   /* ── Content ────────────────────────────────────── */
   .docs-content {
@@ -568,10 +485,8 @@ const ldJson = {
     font-size: 4rem;
     line-height: 1.1;
     margin: 5px 0 12px;
-  }
-  .hero-copy h1 img {
-    max-width: 100%;
-    height: auto;
+    font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+    color: #7dd3fc;
   }
   .hero-copy p {
     color: #ccc;
@@ -595,12 +510,6 @@ const ldJson = {
     min-height: 320px;
     margin-top: 10px;
     height: 100%;
-  }
-  .headless-camera,
-  .headless-scene {
-    width: 100%;
-    height: 100%;
-    min-height: 320px;
   }
   .install-logos {
     display: flex;
@@ -716,7 +625,7 @@ const ldJson = {
     min-width: 0;
   }
 
-  /* ── Stacking / How It Works ────────────────────── */
+  /* ── How It Works ───────────────────────────────── */
   .stacking {
     display: grid;
     grid-template-columns: 1.1fr 1fr;
@@ -744,13 +653,6 @@ const ldJson = {
     border-radius: 12px;
     overflow: hidden;
     height: 350px;
-  }
-  .stacking-media video {
-    width: 100%;
-    display: block;
-    position: absolute;
-    top: -50px;
-    background: #090b10;
   }
 
   /* ── Getting Started ────────────────────────────── */
@@ -840,7 +742,7 @@ const ldJson = {
     display: none;
   }
 
-  /* ── Gallery / Made With ────────────────────────── */
+  /* ── Gallery ────────────────────────────────────── */
   .gallery {
     background: #11141a;
     border: 1px solid rgba(255, 255, 255, 0.05);
@@ -861,48 +763,8 @@ const ldJson = {
     margin-top: 12px;
     display: flex;
   }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
-  }
-  .grid--logos {
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    margin-top: 24px;
-  }
-  .card--logo {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    text-decoration: none;
-  }
-  .card--logo .card-media {
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: #05070b;
-  }
-  .card--logo img {
-    display: block;
-    width: 100%;
-    height: auto;
-  }
-  .card--logo .card-info h3 {
-    margin: 0;
-    font-size: 1rem;
-    color: #94a3b8;
-  }
-  .card--logo .card-info p {
-    margin: 6px 0 0;
-    color: #94a3b8;
-    font-size: 0.95rem;
-  }
-  .card--logo:hover {
-    border-color: rgba(125, 211, 252, 0.4);
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.45);
-  }
 
-  /* ── hljs overrides — reset hljs padding/bg so our rules win ── */
+  /* ── hljs overrides ─────────────────────────────── */
   .install-content pre code.hljs {
     padding: 6px 12px;
     background: #050709;
@@ -1035,18 +897,6 @@ const ldJson = {
     .hero-copy h1 {
       font-size: 2.4rem;
     }
-    .hero-copy p {
-      font-size: 16px;
-      line-height: 1.6;
-    }
-    .cta {
-      width: 100%;
-      gap: 10px;
-    }
-    .cta .btn {
-      width: 100%;
-      justify-content: center;
-    }
     .install-content {
       flex-direction: column;
       align-items: stretch;
@@ -1090,8 +940,7 @@ const ldJson = {
     }
     .stacking-copy p,
     .getting-grid p,
-    .gallery-header p,
-    .card--logo .card-info p {
+    .gallery-header p {
       font-size: 16px;
     }
   }
@@ -1108,18 +957,6 @@ const ldJson = {
     }
     .docs-nav .nav-group a {
       font-size: 14px;
-    }
-    .github-social--compact .github-social__main span {
-      display: none;
-    }
-    .github-social--compact .github-social__main {
-      padding: 6px 8px;
-    }
-  }
-
-  @media (max-width: 360px) {
-    .github-social--compact .github-social__count {
-      display: none;
     }
   }
 </style>

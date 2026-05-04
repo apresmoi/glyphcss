@@ -1,98 +1,111 @@
 ---
 title: Core Types
-description: TypeScript type definitions for voxels, camera state, walls, projections, and more.
+description: TypeScript type definitions for polygons, camera state, lighting, and parse results.
 ---
 
-All types are exported from `@layoutit/voxcss` and `@layoutit/voxcss-core`.
+All types are exported from `@polycss/react`, `@polycss/vue`, and `@polycss/core`.
 
-## `Voxel`
+## `Polygon`
 
-Represents a single voxel or a merged region of voxels. Use `x2`/`y2`/`z2` to define multi-cell blocks.
+Represents a single polygon (triangle or quad) in 3D space.
 
 ```ts
-interface Voxel {
-  x: number;
-  y: number;
-  z: number;
-  x2?: number;
-  y2?: number;
-  z2?: number;
-  color?: string;
-  texture?: string;
-  shape?: "cube" | "ramp" | "wedge" | "spike";
-  rot?: number;
-  data?: Record<string, unknown>;
+interface Polygon {
+  vertices: [number, number, number][];  // Required — 3+ points in world space
+  color?: string;                        // CSS color value
+  texture?: string;                      // Image URL for UV-mapped face
+  uvs?: [number, number][];             // UV coordinates (one per vertex)
+  normal?: [number, number, number];    // Surface normal for lighting
+  data?: Record<string, unknown>;       // User-defined metadata
 }
 ```
 
 ---
 
-## `CameraState`
+## `DirectionalLight`
 
-Describes the full state of a camera viewport.
+Controls directional and ambient lighting for the scene.
 
 ```ts
-interface CameraState {
-  zoom: number;        // Default: 0.65
-  pan: number;         // Default: 0
-  tilt: number;        // Default: 0
-  rotX: number;        // Default: 65
-  rotY: number;        // Default: 45
-  depthOffset: number; // Default: 20
+interface DirectionalLight {
+  direction: [number, number, number];  // Direction FROM surface TO light (normalized)
+  color?: string;                       // Directional light color (default: "#ffffff")
+  ambient?: number;                     // Ambient intensity 0–1 (default: 0.4)
+  ambientColor?: string;               // Ambient light color (default: "#ffffff")
 }
 ```
 
 ---
 
-## `WallsMask`
+## `Vec2`
 
-Controls which walls are visible around the scene. Each property corresponds to a face of the bounding box.
+A 2D point or vector.
 
 ```ts
-interface WallsMask {
-  t: boolean;   // Top
-  b: boolean;   // Bottom
-  bl: boolean;  // Back-left
-  br: boolean;  // Back-right
-  fl: boolean;  // Front-left
-  fr: boolean;  // Front-right
+type Vec2 = [number, number];
+```
+
+---
+
+## `Vec3`
+
+A 3D point or vector.
+
+```ts
+type Vec3 = [number, number, number];
+```
+
+---
+
+## `ParseResult`
+
+Unified return shape from all mesh parsers (`parseObj`, `parseGltf`).
+
+```ts
+interface ParseResult {
+  polygons: Polygon[];          // Parsed polygon array
+  objectUrls: string[];         // Blob URLs minted for embedded textures
+  dispose: () => void;          // Revoke all objectUrls (call on unmount)
+  warnings: string[];           // Non-fatal parse warnings
 }
 ```
 
 ---
 
-## `ProjectionMode`
+## `ObjParseOptions`
 
-The projection style used for rendering.
+Options for `parseObj`.
 
 ```ts
-type ProjectionMode = "cubic" | "dimetric";
+interface ObjParseOptions {
+  targetSize?: number;                          // Scale model to this world-unit size
+  defaultColor?: string;                        // Fallback color for un-colored faces
+  materialColors?: Record<string, string>;      // Material name → CSS color overrides
+  materialTextures?: Record<string, string>;    // Material name → image URL overrides
+  includeObjects?: string[];                    // Only include these named objects
+  excludeObjects?: string[];                    // Exclude these named objects
+  palette?: string[];                           // Quantize colors to this palette
+}
 ```
-
-- **`"cubic"`** — Standard isometric-like projection.
-- **`"dimetric"`** — Dimetric projection with adjusted axis ratios.
 
 ---
 
-## `MergeVoxelsOption`
+## `GltfParseOptions`
 
-Controls whether adjacent same-color voxels are merged to reduce DOM nodes.
+Options for `parseGltf`.
 
 ```ts
-type MergeVoxelsOption = false | "2d" | "3d";
+interface GltfParseOptions {
+  targetSize?: number;   // Scale model to this world-unit size
+  baseUrl?: string;      // Base URL for resolving external texture references
+}
 ```
-
-- **`false`** — No merging, one element per voxel.
-- **`"2d"`** — Merge voxels within each layer into rectangles.
-- **`"3d"`** — Slice-based rendering for the fewest elements (no per-voxel addressing, cubes only).
-
-See the [Performance guide](/guides/performance) for the comparison table and trade-offs.
 
 ---
 
 ## `AutoRotateOption`
 
-Configures automatic camera rotation. Pass `true` for defaults, a number for custom speed, or an object for full control.
+Configures automatic camera rotation.
 
 ```ts
 type AutoRotateOption =
@@ -107,62 +120,10 @@ type AutoRotateOption =
 
 ---
 
-## `SceneDimensions`
+## `ProjectionMode`
 
-Explicit dimensions for the scene grid. When omitted, dimensions are inferred from the voxel data.
-
-```ts
-interface SceneDimensions {
-  rows?: number;
-  cols?: number;
-  depth?: number;
-}
-```
-
----
-
-## `MagicaVoxelParseResult`
-
-Returned by [`parseMagicaVoxel`](/api/headless/#parsemagicavoxelbuffer).
+Projection style (currently isometric-like via CSS perspective).
 
 ```ts
-interface MagicaVoxelParseResult {
-  voxels: Voxel[];
-  rows: number;
-  cols: number;
-  depth: number;
-}
+type ProjectionMode = "perspective" | "orthographic";
 ```
-
----
-
-## `FaceAppearanceOverride`
-
-Overrides the visual appearance of individual cube faces.
-
-```ts
-interface FaceAppearanceOverride {
-  backgroundImage?: string | null;
-  backgroundColor?: string | null;
-  filter?: string | null;
-}
-```
-
----
-
-## `CubeFace`
-
-Identifies one of the six faces of a cube. Uses the same keys as `WallsMask`.
-
-```ts
-type CubeFace = "t" | "b" | "bl" | "br" | "fr" | "fl";
-```
-
-| Value  | Face        |
-| ------ | ----------- |
-| `"t"`  | Top         |
-| `"b"`  | Bottom      |
-| `"bl"` | Back-left   |
-| `"br"` | Back-right  |
-| `"fr"` | Front-right |
-| `"fl"` | Front-left  |

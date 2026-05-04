@@ -1,4 +1,6 @@
-import type { Voxel } from "@layoutit/voxcss/react";
+import type { Polygon } from "@polycss/react";
+// Decimation works on polygon arrays; Voxel is aliased for internal use.
+type Voxel = Polygon & { x?: number; y?: number; z?: number; x2?: number; y2?: number; z2?: number; shape?: string; vertices?: [number,number,number][] };
 
 type Vec3 = [number, number, number];
 

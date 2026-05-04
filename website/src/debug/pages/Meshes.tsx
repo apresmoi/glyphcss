@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { GltfParseOptions, ObjParseOptions } from "@layoutit/voxcss";
+import type { GltfParseOptions, ObjParseOptions } from "@polycss/react";
 import {
   DebugLayout, DebugSection, DebugStats, DebugScene,
   ModelPicker, useDecimation, useObjModel, useOrigin,
@@ -255,8 +255,8 @@ export default function Meshes() {
   const [modelId, setModelId] = useState("chicken");
   const model = MODEL_BY_ID[modelId] ?? MODELS[0];
 
-  const { voxels: rawVoxels, loading, error } = useObjModel(loadOptionsFor(model));
-  const { voxels, method, reduction, panel } = useDecimation(rawVoxels);
+  const { voxels: rawPolygons, loading, error } = useObjModel(loadOptionsFor(model));
+  const { voxels, method, reduction, panel } = useDecimation(rawPolygons);
   const origin = useOrigin(voxels);
 
   const pickerItems = useMemo(
@@ -278,7 +278,7 @@ export default function Meshes() {
         {!loading && !error && (
           <div className="debug-help">
             Loaded {model.format.toUpperCase()} from <code>{model.url}</code>
-            {" · "}{rawVoxels.length.toLocaleString()} triangles.
+            {" · "}{rawPolygons.length.toLocaleString()} polygons.
           </div>
         )}
       </DebugSection>
@@ -291,7 +291,7 @@ export default function Meshes() {
           model: model.label,
           format: model.format,
           method,
-          source: rawVoxels.length.toLocaleString(),
+          source: rawPolygons.length.toLocaleString(),
           reduction: `${reduction}%`,
         }}
       />
@@ -299,7 +299,6 @@ export default function Meshes() {
         key={model.id}
         voxels={voxels}
         origin={origin}
-        defaultShowFloor
         defaultZoom={model.zoom}
         defaultRotX={model.rotX}
         defaultRotY={model.rotY}

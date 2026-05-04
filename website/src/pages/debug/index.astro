@@ -1,13 +1,14 @@
 ---
-import Index from '../../debug/pages/Index.tsx';
+// Redirect debug index to the meshes page (primary debug surface)
 ---
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>VoxCSS Debug</title>
-    <style>* { margin: 0; padding: 0; box-sizing: border-box; }</style>
+    <title>polycss Debug</title>
+    <meta http-equiv="refresh" content="0; url=/debug/meshes" />
+    <style>* { margin: 0; padding: 0; box-sizing: border-box; } body { background: #0b0d10; color: #e2e8f0; font-family: monospace; display: flex; align-items: center; justify-content: center; height: 100vh; }</style>
   </head>
   <body>
-    <Index client:only="react" />
+    <p>Redirecting to <a href="/debug/meshes" style="color:#7dd3fc">/debug/meshes</a>...</p>
   </body>
 </html>

@@ -1,34 +1,13 @@
 import { useMemo, useState } from "react";
-import type { Voxel } from "@layoutit/voxcss/react";
+import type { Polygon } from "@polycss/react";
 import {
   DebugLayout, DebugSection, DebugStats, DebugScene,
-  Row, Slider, Pills,
+  Row, Slider,
 } from "..";
 
 type Vec3 = [number, number, number];
 
-function buildSphereCubes(radius: number, color = "#3b82f6"): Voxel[] {
-  const r = Math.max(1, Math.floor(radius));
-  const r2 = r * r;
-  const PAD = 1;
-  const span = r * 2 + PAD * 2;
-  const out: Voxel[] = [];
-  for (let x = 0; x < span; x++) {
-    for (let y = 0; y < span; y++) {
-      for (let z = 0; z < span; z++) {
-        const dx = x - PAD - r + 0.5;
-        const dy = y - PAD - r + 0.5;
-        const dz = z - PAD - r + 0.5;
-        if (dx * dx + dy * dy + dz * dz <= r2) {
-          out.push({ x, y, z, color });
-        }
-      }
-    }
-  }
-  return out;
-}
-
-function buildSphereTriangles(radius: number, subdivisions: number, color = "#3b82f6"): Voxel[] {
+function buildSphereTriangles(radius: number, subdivisions: number, color = "#3b82f6"): Polygon[] {
   const r = Math.max(1, Math.floor(radius));
   const PAD = 1;
   const cx = PAD + r, cy = PAD + r, cz = PAD + r;
@@ -86,34 +65,23 @@ function buildSphereTriangles(radius: number, subdivisions: number, color = "#3b
     Math.round(cy + r * y),
     Math.round(cz + r * z),
   ]);
-  const out: Voxel[] = [];
+  const out: Polygon[] = [];
   for (const [i, j, k] of faces) {
-    const v0 = grid[i], v1 = grid[j], v2 = grid[k];
-    const xs = [v0[0], v1[0], v2[0]];
-    const ys = [v0[1], v1[1], v2[1]];
-    const zs = [v0[2], v1[2], v2[2]];
     out.push({
-      x: Math.min(...xs), y: Math.min(...ys), z: Math.min(...zs),
-      x2: Math.max(...xs), y2: Math.max(...ys), z2: Math.max(...zs),
-      shape: "triangle",
-      vertices: [v0, v1, v2],
+      vertices: [grid[i], grid[j], grid[k]],
       color,
     });
   }
   return out;
 }
 
-type SphereMode = "cubes" | "triangles";
-
 export default function Sphere() {
-  const [mode, setMode] = useState<SphereMode>("cubes");
   const [radius, setRadius] = useState(8);
   const [subdivisions, setSubdivisions] = useState(2);
-  const [merge, setMerge] = useState<false | "2d" | "3d" | "poly">(false);
 
   const voxels = useMemo(
-    () => (mode === "cubes" ? buildSphereCubes(radius) : buildSphereTriangles(radius, subdivisions)),
-    [radius, mode, subdivisions]
+    () => buildSphereTriangles(radius, subdivisions),
+    [radius, subdivisions]
   );
 
   const origin: Vec3 = [radius + 1.5, radius + 1.5, radius + 1.5];
@@ -124,47 +92,15 @@ export default function Sphere() {
         <Row label="Radius">
           <Slider value={radius} onChange={setRadius} min={1} max={32} />
         </Row>
-        <Row label="Mode">
-          <Pills value={mode} onChange={setMode} options={["cubes", "triangles"]} />
+        <Row label="Subdiv">
+          <Slider value={subdivisions} onChange={setSubdivisions} min={0} max={5} />
         </Row>
-        {mode === "triangles" && (
-          <Row label="Subdiv">
-            <Slider value={subdivisions} onChange={setSubdivisions} min={0} max={5} />
-          </Row>
-        )}
-        {mode === "cubes" && (
-          <Row label="Merge">
-            <Pills
-              value={merge}
-              onChange={setMerge}
-              options={[
-                { value: false, label: "off" },
-                { value: "2d", label: "2d" },
-                { value: "3d", label: "3d" },
-              ]}
-            />
-          </Row>
-        )}
-        {mode === "triangles" && (
-          <Row label="Merge">
-            <Pills
-              value={merge}
-              onChange={setMerge}
-              options={[
-                { value: false, label: "off" },
-                { value: "poly", label: "poly" },
-              ]}
-            />
-          </Row>
-        )}
       </DebugSection>
 
-      <DebugStats voxelCount={voxels.length} extra={{ mode, merge: merge || "off" }} />
+      <DebugStats voxelCount={voxels.length} extra={{ radius, subdivisions }} />
       <DebugScene
         voxels={voxels}
         origin={origin}
-        defaultShowFloor
-        voxScene={{ mergeVoxels: merge }}
       />
     </DebugLayout>
   );

@@ -1,34 +1,24 @@
 import { useEffect, useRef } from "react";
-import type { Voxel } from "@layoutit/voxcss/react";
-import { voxelToPolygons, findGaps, findGeometricDefects } from "@layoutit/voxcss";
-import type { Vec3 as CoreVec3 } from "@layoutit/voxcss";
+import type { Polygon } from "@polycss/react";
 
 type Vec3 = [number, number, number];
 
 interface Props {
-  voxels: Voxel[];
+  voxels: Polygon[];
   zoom: number;
   width: number;
   height: number;
-  /** Center-of-scene in voxel coords. Polygon coords are translated relative to this. */
+  /** Center-of-scene in world coords. Polygon coords are translated relative to this. */
   origin: Vec3;
   /**
-   * When true, run the manifold check on the rendered polygons and overlay
-   * any defective edges (open or non-manifold) in red. Sphere v3 should show
-   * none; v1/v2 may show some, depending on the configuration.
-   */
-  showGaps?: boolean;
-  /**
-   * Selector for the voxcss scene element to read live rotation from. The
-   * canvas re-reads the transform on every animation frame so dragging the
-   * voxcss view stays perfectly in sync without React re-renders.
+   * Selector for the polycss scene element to read live rotation from.
    */
   voxSceneSelector?: string;
 }
 
 const TILE = 50;
 
-export default function PolygonCanvas({ voxels, zoom, width, height, origin, showGaps = false, voxSceneSelector = ".voxcss-scene" }: Props) {
+export default function PolygonCanvas({ voxels, zoom, width, height, origin, voxSceneSelector = ".polycss-scene" }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -43,25 +33,20 @@ export default function PolygonCanvas({ voxels, zoom, width, height, origin, sho
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
 
-    // Pre-build polygons once per voxel set, plus any gap segments to overlay.
-    const polys = voxels.flatMap((v) => voxelToPolygons(v));
-    const gaps = showGaps ? findGaps(polys) : [];
-    // Geometric defects: exposed flat walls that face into a neighbor's
-    // filled cell — visible kinks where shapes don't tile cleanly.
-    const geometricDefects = showGaps ? findGeometricDefects(voxels) : [];
+    // Build screen-space polygon list from the polygon data.
+    const polys = voxels.map(p => ({
+      v: p.vertices as Vec3[],
+      color: p.color ?? "#3b82f6",
+    }));
 
     let rafId = 0;
     let lastRotX = -1, lastRotY = -1;
 
     const project = (
-      p: Vec3 | CoreVec3,
+      p: Vec3,
       cosX: number, sinX: number, cosY: number, sinY: number,
       cellSize: number, cx: number, cy: number,
     ): { sx: number; sy: number; depth: number } => {
-      // Voxcss positions wrappers via `gridArea: "${voxel.x} / ${voxel.y}"` —
-      // voxel.x = ROW (vertical/depth axis after tilt), voxel.y = COLUMN
-      // (horizontal). Vertex projections must use that convention to match
-      // voxcss's rendered orientation, especially for asymmetric shapes.
       const horiz = p[1] - origin[1];
       const depthAxis = p[0] - origin[0];
       const elev = p[2] - origin[2];
@@ -99,11 +84,6 @@ export default function PolygonCanvas({ voxels, zoom, width, height, origin, sho
         return { p, screen, depth: avg };
       });
 
-      // Back-face cull then back-to-front sort. Voxcss is left-handed (CSS y
-      // is down), and our voxel.x↔voxel.y axis swap inverts handedness — so
-      // a triangle that's CCW-from-outside in voxel space ends up rendering
-      // as CW in canvas screen coords when its outward normal faces camera.
-      // Keep cross<0 (those are the front faces) and cull the rest.
       const visible = projected.filter((item) => {
         const s = item.screen;
         if (s.length < 3) return true;
@@ -119,6 +99,7 @@ export default function PolygonCanvas({ voxels, zoom, width, height, origin, sho
 
       for (const item of visible) {
         const verts = item.p.v;
+        if (verts.length < 3) continue;
         const a = verts[0], b = verts[1], c = verts[2];
         const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
         const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
@@ -143,56 +124,6 @@ export default function PolygonCanvas({ voxels, zoom, width, height, origin, sho
         ctx.fill();
         ctx.stroke();
       }
-
-      // Overlay topological gap edges in bright red.
-      if (gaps.length) {
-        ctx.lineWidth = 2.5;
-        ctx.strokeStyle = "#ef4444";
-        for (const g of gaps) {
-          const a = project(g.segment[0], cosX, sinX, cosY, sinY, cellSize, cx, cy);
-          const b = project(g.segment[1], cosX, sinX, cosY, sinY, cellSize, cx, cy);
-          ctx.beginPath();
-          ctx.moveTo(a.sx, a.sy);
-          ctx.lineTo(b.sx, b.sy);
-          ctx.stroke();
-        }
-      }
-      // Overlay geometric defects (inward-facing wall cells) as orange filled
-      // quads with a thicker outline — distinct from topological gaps.
-      if (geometricDefects.length) {
-        for (const d of geometricDefects) {
-          const verts = d.polygon.v.map((vert) =>
-            project(vert, cosX, sinX, cosY, sinY, cellSize, cx, cy)
-          );
-          ctx.beginPath();
-          ctx.moveTo(verts[0].sx, verts[0].sy);
-          for (let i = 1; i < verts.length; i++) ctx.lineTo(verts[i].sx, verts[i].sy);
-          ctx.closePath();
-          ctx.fillStyle = "rgba(249, 115, 22, 0.55)";
-          ctx.fill();
-          ctx.strokeStyle = "#fb923c";
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
-      }
-      // Status badge.
-      if (showGaps) {
-        const total = gaps.length + geometricDefects.length;
-        if (total === 0) {
-          ctx.fillStyle = "rgba(34, 197, 94, 0.85)";
-          ctx.fillRect(8, 8, 180, 22);
-          ctx.fillStyle = "white";
-          ctx.font = "12px monospace";
-          ctx.fillText("✓ no gaps, no defects", 14, 23);
-        } else {
-          ctx.fillStyle = "rgba(239, 68, 68, 0.85)";
-          ctx.fillRect(8, 8, 220, 38);
-          ctx.fillStyle = "white";
-          ctx.font = "12px monospace";
-          ctx.fillText(`topological gaps: ${gaps.length}`, 14, 22);
-          ctx.fillText(`geometric defects: ${geometricDefects.length}`, 14, 38);
-        }
-      }
     };
 
     const tick = () => {
@@ -214,13 +145,14 @@ export default function PolygonCanvas({ voxels, zoom, width, height, origin, sho
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [voxels, zoom, width, height, origin, showGaps, voxSceneSelector]);
+  }, [voxels, zoom, width, height, origin, voxSceneSelector]);
 
   return <canvas ref={canvasRef} style={{ display: "block" }} />;
 }
 
 function shade(baseHex: string, intensity: number): string {
-  const c = parseInt(baseHex.slice(1), 16);
+  if (!baseHex.startsWith("#") || baseHex.length < 7) return baseHex;
+  const c = parseInt(baseHex.slice(1, 7), 16);
   const r = (c >> 16) & 0xff;
   const g = (c >> 8) & 0xff;
   const b = c & 0xff;
