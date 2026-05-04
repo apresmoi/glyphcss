@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef } from "react";
-import type { ShapeInnerProps } from "./types";
+import type React from "react";
+import type { PolyProps } from "./types";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /**
- * Module-level image cache so multiple textured triangles sharing the same
+ * Module-level image cache so multiple textured polygons sharing the same
  * texture URL only download / decode it once. Each cache entry is the
  * Promise of an HTMLImageElement — late-arriving consumers `.then(img)` and
  * draw onto their canvas as soon as the bitmap is available.
@@ -25,7 +26,7 @@ function loadTextureImage(url: string): Promise<HTMLImageElement> {
   return p;
 }
 
-// Defaults for triangle/polygon Lambert shading. Direction is in scene-
+// Defaults for polygon Lambert shading. Direction is in scene-
 // local CSS-pixel coords: +X = right, +Y = down (CSS), +Z = toward viewer.
 // "Upper-front-right" key light. Override per-scene via VoxScene's
 // `directionalLight` prop.
@@ -60,7 +61,7 @@ function rgbToHex({ r, g, b }: RGB): string {
  *
  *   shaded = (ambientStrength · ambientColor + lambert · lightColor) · base
  */
-function shadeTriangle(
+function shadePolygon(
   baseColor: string,
   lambert: number,
   lightColor: string,
@@ -83,25 +84,67 @@ function shadeTriangle(
 }
 
 /**
- * Triangle shape — renders an arbitrary 3D triangle from `voxel.vertices`.
+ * Poly — renders an arbitrary 3D polygon from `vertices`.
  *
- * Public API: `{ shape: "triangle", vertices: [v0, v1, v2], color }`.
- * The bbox (x, y, z, x2, y2, z2) is auto-computed from vertex extents and
- * is what voxcss uses to position the wrapper element via CSS Grid.
+ * Public API: `{ vertices: Vec3[], color?, texture?, uvs?, data? }`.
+ * Also accepts DOM passthrough props (className, style, onClick, etc.) —
+ * this is the polycss DOM-native pitch: every polygon is a real DOM node
+ * that CSS, event handlers, and accessibility hooks can target directly.
  *
- * Implementation: builds an ORTHONORMAL coordinate frame from the triangle's
+ * Implementation: builds an ORTHONORMAL coordinate frame from the polygon's
  * own geometry (x-axis along v1-v0, y-axis perpendicular within the plane,
  * z-axis = plane normal) and uses CSS matrix3d to map the SVG's flat 2D
- * content onto that frame. SVG path coords are computed in the triangle's
- * own 2D plane, so the output is always exactly the triangle described.
+ * content onto that frame. SVG path coords are computed in the polygon's
+ * own 2D plane, so the output is always exactly the polygon described.
+ *
+ * Transforms (position, scale, rotation) are accepted as props per the
+ * Phase 4 design; in Phase 3 they are accepted but not applied — the
+ * rendered transform is computed from vertices in scene-root space.
+ * Phase 4 wires these into matrix3d composition with parent PolyMesh.
  */
-export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
+export function Poly({
+  // Polygon fields
+  vertices,
+  color,
+  texture,
+  uvs,
+  data,
+  // Transform props (accepted; Phase 4 wires them into matrix composition)
+  position: _position,
+  scale: _scale,
+  rotation: _rotation,
+  // DOM passthrough props
+  className,
+  style: styleProp,
+  id,
+  onClick,
+  onDoubleClick,
+  onMouseEnter,
+  onMouseLeave,
+  onMouseMove,
+  onPointerDown,
+  onPointerUp,
+  onPointerEnter,
+  onPointerLeave,
+  onFocus,
+  onBlur,
+  onKeyDown,
+  tabIndex,
+  role,
+  "aria-label": ariaLabel,
+  "aria-hidden": ariaHidden,
+  pointerEvents: pointerEventsProp,
+  // Scene context (forwarded from VoxScene/PolyScene)
+  context,
+  baseColor: baseColorProp,
+  ...dataAttrs
+}: PolyProps) {
   // SVG <pattern> needs a unique id; useId is stable per element so the
   // <defs>/url(#id) reference matches even across React re-renders.
   const patternId = useId().replace(/:/g, "_");
-  if (!voxel.vertices || voxel.vertices.length < 3) return null;
-  const tile = context.tileSize ?? 50;
-  const elev = context.layerElevation ?? 50;
+  const tile = context?.tileSize ?? 50;
+  const elev = context?.layerElevation ?? 50;
+  const baseColor = baseColorProp ?? color ?? "#cccccc";
 
   // POLYCSS PHASE 3.0 — vertices are interpreted as scene-root world space
   // (not cell-relative). The wrapper element no longer sits at a CSS Grid
@@ -119,7 +162,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     v[0] * tile, // world-X → CSS-y (depth)
     v[2] * elev, // world-Z → CSS-z (elevation)
   ];
-  const pts = voxel.vertices.map(toCss);
+  const pts = vertices.map(toCss);
   const p0 = pts[0];
   const p1 = pts[1];
   const p2 = pts[2];
@@ -130,7 +173,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   const L01 = Math.hypot(e1[0], e1[1], e1[2]);
   if (L01 === 0) return null;
 
-  // Orthonormal basis of the triangle's plane.
+  // Orthonormal basis of the polygon's plane.
   const xAxis = [e1[0] / L01, e1[1] / L01, e1[2] / L01];
   // Plane normal: -(e1 × e2). Right-hand cross product on a CCW-in-voxel-space
   // polygon gives a normal in the WRONG direction once we map to CSS coords —
@@ -195,12 +238,12 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     tx, ty, tz, 1,
   ].join(",");
 
-  // Per-triangle directional lighting. Pull config from the scene context
+  // Per-polygon directional lighting. Pull config from the scene context
   // (set by VoxScene's `directionalLight` prop) with sane defaults.
   // Computed once at render — no per-frame work, no GPU shaders. As the
-  // user rotates the scene, different triangles become visible (others get
+  // user rotates the scene, different polygons become visible (others get
   // backface-culled), each with the brightness it was assigned at mount.
-  const lightCfg = context.directionalLight;
+  const lightCfg = context?.directionalLight;
   const lightDir = lightCfg?.direction ?? DEFAULT_LIGHT_DIR;
   const lightColor = lightCfg?.color ?? DEFAULT_LIGHT_COLOR;
   const ambientColor = lightCfg?.ambientColor ?? DEFAULT_AMBIENT_COLOR;
@@ -209,11 +252,11 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
   const direct = Math.max(0, 1 - ambient);
   const lambert = direct * Math.max(0, nx * lx + ny * ly + nz * lz);
-  const shadedColor = shadeTriangle(baseColor, lambert, lightColor, ambientColor, ambient);
+  const shadedColor = shadePolygon(baseColor, lambert, lightColor, ambientColor, ambient);
 
   // Same matrix3d but with the normal flipped — represents the BACK face.
   // We render it as a second sibling SVG when debugShowBackfaces is on, so
-  // when the camera looks at the back of the triangle (where the front SVG
+  // when the camera looks at the back of the polygon (where the front SVG
   // gets backface-hidden), this one comes into view tinted in a debug color.
   const backMatrix = [
     xAxis[0], xAxis[1], xAxis[2], 0,
@@ -224,10 +267,10 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
 
   // Optional texture handling. Two paths:
   //
-  // 1. UV-mapped (voxel.uvs supplied): compute a 2D affine that maps
-  //    UV-space [u, 1-v] → triangle-local SVG coords. Render the image
+  // 1. UV-mapped (uvs supplied): compute a 2D affine that maps
+  //    UV-space [u, 1-v] → polygon-local SVG coords. Render the image
   //    in a 1×1 unit box transformed by that affine, clipped to the
-  //    triangle. The atlas's per-triangle region lands in the right
+  //    polygon. The atlas's per-polygon region lands in the right
   //    place — works for proper textured meshes (parseObj output, etc.).
   //
   // 2. Single-tile fill (no UVs): wrap the image in an SVG <pattern>
@@ -236,9 +279,9 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   //
   // Lighting is reapplied via CSS `filter: brightness(...)` so the
   // textured face still responds to the directional light.
-  const textureUrl = voxel.texture;
+  const textureUrl = texture;
   // Light strength = ambient floor + lambert contribution (channel-agnostic
-  // approximation of `shadeTriangle`). For a white light this matches the
+  // approximation of `shadePolygon`). For a white light this matches the
   // shaded color's brightness exactly; for tinted lights it's a reasonable
   // proxy without per-pixel multiplication.
   const textureBrightness = ambient + lambert;
@@ -249,12 +292,12 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   // for the first three (vertex, uv) pairs. Three pairs uniquely determine
   // the affine; for polygons with N>3 verts we trust that all UVs are
   // consistent with the same affine (true for OBJ-exported coplanar polys).
-  // Affine matrix (a, b, c, d, e, f) maps UV-space `[u, 1-v]` → triangle-
+  // Affine matrix (a, b, c, d, e, f) maps UV-space `[u, 1-v]` → polygon-
   // local SVG coords. Used both by the canvas rasterizer (option 3 path)
   // and the SVG fallback (single-tile pattern; `uvAffine` ignored there).
   let uvAffine: { a: number; b: number; c: number; d: number; e: number; f: number } | null = null;
-  if (textureUrl && voxel.uvs && voxel.uvs.length >= 3 && voxel.uvs.length === voxel.vertices.length) {
-    const [uv0, uv1, uv2] = voxel.uvs;
+  if (textureUrl && uvs && uvs.length >= 3 && uvs.length === vertices.length) {
+    const [uv0, uv1, uv2] = uvs;
     const sx0 = local2D[0][0] + shiftX, sy0 = local2D[0][1] + shiftY;
     const sx1 = local2D[1][0] + shiftX, sy1 = local2D[1][1] + shiftY;
     const sx2 = local2D[2][0] + shiftX, sy2 = local2D[2][1] + shiftY;
@@ -289,7 +332,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   // buffer alive as long as it's mounted (so getContext can read it back).
   // An <img> only needs the decoded GPU texture once the browser is done
   // with it — roughly half the per-element memory footprint, which matters
-  // a lot for high-poly UV-mapped meshes (cat = ~35k textured triangles).
+  // a lot for high-poly UV-mapped meshes (cat = ~35k textured polygons).
   const imgRef = useRef<HTMLImageElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const screenPts: number[] = [];
@@ -363,14 +406,56 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     };
   }, []);
 
-  // Stroke is helpful for solid-color triangles (visual debug of mesh
+  // Stroke is helpful for solid-color polygons (visual debug of mesh
   // structure), but on textured meshes it puts a grid of dark lines across
   // the surface. Drop it when textured.
   const stroke = textureUrl ? "none" : "rgba(0,0,0,0.15)";
   const strokeWidth = textureUrl ? 0 : 1;
 
-  // UV-mapped textured triangle: render an <img> whose src is set
-  // imperatively from the offscreen-canvas blob. ONE element per triangle,
+  // DOM passthrough event handlers to forward to the rendered element.
+  // Typed as React.DOMAttributes<Element> so the same object can be spread
+  // onto both <img> (HTMLImageElement) and <svg> (SVGSVGElement) without
+  // TypeScript complaining about element-specific handler signatures.
+  const domEventHandlers: React.DOMAttributes<Element> = {
+    onClick: onClick as React.MouseEventHandler<Element> | undefined,
+    onDoubleClick: onDoubleClick as React.MouseEventHandler<Element> | undefined,
+    onMouseEnter: onMouseEnter as React.MouseEventHandler<Element> | undefined,
+    onMouseLeave: onMouseLeave as React.MouseEventHandler<Element> | undefined,
+    onMouseMove: onMouseMove as React.MouseEventHandler<Element> | undefined,
+    onPointerDown: onPointerDown as React.PointerEventHandler<Element> | undefined,
+    onPointerUp: onPointerUp as React.PointerEventHandler<Element> | undefined,
+    onPointerEnter: onPointerEnter as React.PointerEventHandler<Element> | undefined,
+    onPointerLeave: onPointerLeave as React.PointerEventHandler<Element> | undefined,
+    onFocus: onFocus as React.FocusEventHandler<Element> | undefined,
+    onBlur: onBlur as React.FocusEventHandler<Element> | undefined,
+    onKeyDown: onKeyDown as React.KeyboardEventHandler<Element> | undefined,
+  };
+
+  const domAttrs = {
+    id,
+    tabIndex,
+    role,
+    "aria-label": ariaLabel,
+    "aria-hidden": ariaHidden,
+    // Forward data-* attributes passed directly as props
+    ...Object.fromEntries(
+      Object.entries(dataAttrs).filter(([k]) => k.startsWith("data-"))
+    ),
+    // Also reflect polygon's data field as data-* attributes
+    ...(data
+      ? Object.fromEntries(
+          Object.entries(data).map(([k, v]) => [`data-${k}`, String(v)])
+        )
+      : {}),
+  };
+
+  // Resolved pointerEvents — default "auto" (DOM-native pitch: polygons
+  // receive pointer events by default). Pass `pointerEvents="none"` as an
+  // opt-out escape hatch for purely decorative polygons.
+  const resolvedPointerEvents = pointerEventsProp ?? "auto";
+
+  // UV-mapped textured polygon: render an <img> whose src is set
+  // imperatively from the offscreen-canvas blob. ONE element per polygon,
   // no SVG, no clip-path. matrix3d positions the bitmap in 3D space the
   // same way it would an SVG.
   const front = textureUrl && uvAffine ? (
@@ -379,6 +464,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
       alt=""
       width={canvasW}
       height={canvasH}
+      className={["polycss-poly", "polycss-poly-textured", className].filter(Boolean).join(" ")}
       style={{
         position: "absolute",
         left: 0,
@@ -388,9 +474,12 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
         transformOrigin: "0 0",
         transform: `matrix3d(${matrix})`,
         backfaceVisibility: "hidden",
-        pointerEvents: "none",
+        pointerEvents: resolvedPointerEvents,
         filter: `brightness(${textureBrightness.toFixed(3)})`,
+        ...styleProp,
       }}
+      {...domEventHandlers}
+      {...domAttrs}
     />
   ) : (
     <svg
@@ -399,6 +488,11 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
       width={w}
       height={h}
       preserveAspectRatio="none"
+      className={[
+        "polycss-poly",
+        textureUrl ? "polycss-poly-textured" : "",
+        className,
+      ].filter(Boolean).join(" ")}
       style={{
         position: "absolute",
         left: 0,
@@ -406,13 +500,16 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
         overflow: "visible",
         transformOrigin: "0 0",
         transform: `matrix3d(${matrix})`,
-        // Hide the back side. Without this, voxcss renders BOTH sides of every
-        // triangle — so when a face is back-facing the camera, you still see a
+        // Hide the back side. Without this, polycss renders BOTH sides of every
+        // polygon — so when a face is back-facing the camera, you still see a
         // mirrored copy of it overlapping front faces from other angles.
         backfaceVisibility: "hidden",
-        pointerEvents: "none",
+        pointerEvents: resolvedPointerEvents,
         filter: textureUrl ? `brightness(${textureBrightness.toFixed(3)})` : undefined,
+        ...styleProp,
       }}
+      {...domEventHandlers}
+      {...domAttrs}
     >
       {textureUrl ? (
         // Texture without UVs — single-tile pattern fill (no UV mapping).
@@ -440,7 +537,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
     </svg>
   );
 
-  if (!context.debugShowBackfaces) return front;
+  if (!context?.debugShowBackfaces) return front;
 
   return (
     <>
@@ -451,6 +548,7 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
         width={w}
         height={h}
         preserveAspectRatio="none"
+        className="polycss-poly polycss-debug-backface"
         style={{
           position: "absolute",
           left: 0,
