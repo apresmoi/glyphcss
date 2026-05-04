@@ -1,7 +1,17 @@
+import type * as React from "react";
 import { memo } from "react";
-import type { GridContext, Voxel } from "@layoutit/voxcss-core";
+// Phase 3.0: type imports route through the local shim in `./types` until
+// Phase 3 deletes this file. The runtime helpers (getVoxelBounds, etc.) are
+// also pre-Phase-2 surfaces — Phase 3 strips the cube path entirely, so we
+// keep the broken imports here as TODO markers; this file's only Phase-3.0
+// edit is the wrapper-style branch for triangle/polygon shapes (below).
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — Phase-3 will delete @layoutit/voxcss-core entirely.
 import { getVoxelBounds, getVoxelZBounds, computeShapeLighting, computeShapeStyle } from "@layoutit/voxcss-core";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — Phase-3 will delete @layoutit/voxcss-core entirely.
 import type { ShapeType } from "@layoutit/voxcss-core";
+import type { GridContext, Voxel } from "./types";
 import { Ramp, Wedge, Spike, Triangle, normalizeRotation, ORIENTATION_MAP, isCovered, shouldRenderBottom } from "./index";
 
 interface VoxShapeProps {
@@ -77,11 +87,21 @@ function VoxShapeInner({ voxel, context }: VoxShapeProps) {
   const { z: vz } = getVoxelZBounds(voxel);
   const occlDirs = context.occlusionMap?.get(`${voxel.x}:${voxel.y}:${vz}`);
 
+  // POLYCSS PHASE 3.0 — triangle / polygon shapes render in scene-root
+  // space; their wrapper drops `gridArea` and pins to (0, 0) absolutely.
+  // The inner Triangle's matrix3d carries the full scene-space translation.
+  // Cube-era shapes (cube/ramp/wedge/spike) still use CSS Grid for now;
+  // Phase 3 strips them entirely.
+  const isPolygon = shape === "triangle" || shape === "polygon";
+  const wrapperStyle: React.CSSProperties = isPolygon
+    ? { position: "absolute", left: 0, top: 0, ...shapeStyle }
+    : { gridArea: `${voxel.x} / ${voxel.y} / ${x2} / ${y2}`, ...shapeStyle };
+
   return (
     <div
       className={`voxcss-${effectiveOrientation} ${shapeClass}${covered ? " voxcss-debug-covered" : ""}`}
       data-occluded-dirs={occlDirs}
-      style={{ gridArea: `${voxel.x} / ${voxel.y} / ${x2} / ${y2}`, ...shapeStyle }}
+      style={wrapperStyle}
       {...dataAttrs}
     >
       <ShapeComponent

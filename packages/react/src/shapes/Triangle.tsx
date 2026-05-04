@@ -103,13 +103,21 @@ export function Triangle({ voxel, context, baseColor }: ShapeInnerProps) {
   const tile = context.tileSize ?? 50;
   const elev = context.layerElevation ?? 50;
 
-  // Voxcss's CSS Grid puts voxel.x at row (CSS-y axis), voxel.y at column
-  // (CSS-x axis). So when converting voxel-coord vertices to CSS pixels
-  // (relative to the wrapper, which sits at the bbox-min corner), we swap.
+  // POLYCSS PHASE 3.0 — vertices are interpreted as scene-root world space
+  // (not cell-relative). The wrapper element no longer sits at a CSS Grid
+  // cell origin; it sits at scene-root (0,0,0) and matrix3d carries the full
+  // translation to the polygon's actual scene position.
+  //
+  // Polycss world-space convention: +X right, +Y forward, +Z up.
+  // CSS pixel space: +X right (horizontal), +Y down (depth into page in
+  // perspective), +Z toward viewer. The renderer maps world(y) → css(x) and
+  // world(x) → css(y), preserving the swap that makes polycss's "forward"
+  // axis line up with CSS's depth axis. Z scales by elevation independent
+  // of the tile size.
   const toCss = (v: [number, number, number]): [number, number, number] => [
-    (v[1] - voxel.y) * tile, // voxel.y → CSS-x (horizontal)
-    (v[0] - voxel.x) * tile, // voxel.x → CSS-y (depth)
-    (v[2] - voxel.z) * elev, // voxel.z → CSS-z (elevation)
+    v[1] * tile, // world-Y → CSS-x (horizontal)
+    v[0] * tile, // world-X → CSS-y (depth)
+    v[2] * elev, // world-Z → CSS-z (elevation)
   ];
   const pts = voxel.vertices.map(toCss);
   const p0 = pts[0];
