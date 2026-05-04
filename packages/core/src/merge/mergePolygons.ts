@@ -10,9 +10,9 @@
  *   - Hand-built dodecahedra: 36 triangles → 12 pentagons
  *
  * Algorithm:
- *   1. For each triangle voxel, compute its plane (unit normal + signed
+ *   1. For each input polygon, compute its plane (unit normal + signed
  *      distance from origin).
- *   2. Build an undirected edge graph: every edge of every triangle indexes
+ *   2. Build an undirected edge graph: every edge of every polygon indexes
  *      the polygons it belongs to.
  *   3. Repeatedly walk shared edges and merge the two polygons sharing that
  *      edge if they pass the merge predicate (same color, near-coplanar,
@@ -21,13 +21,14 @@
  *   4. Iterate until no more merges fire — the fixed point grows triangles
  *      → quads → pentagons → … as far as the geometry allows.
  *
- * Non-triangle voxels (cubes, ramps, …) are passed through unchanged.
+ * Polygons with < 3 vertices are passed through unchanged (the caller is
+ * expected to have run `normalizePolygons` first; this is a defensive copy).
  */
 
-import type { Vec2, Vec3, Voxel, VoxelGrid } from "../types";
+import type { Polygon, Vec2, Vec3 } from "../types";
 
 const EPS_NORMAL = 1e-3;   // dot product tolerance for "same plane"
-const EPS_DISTANCE = 0.05; // signed-distance tolerance (in cell units)
+const EPS_DISTANCE = 0.05; // signed-distance tolerance (in scene-space units)
 const EPS_UV = 1e-4;       // float UV tolerance (atlas coords are 0..1)
 
 interface PolyState {
@@ -46,6 +47,8 @@ interface PolyState {
   /** Plane offset: distance from origin along the normal. */
   d: number;
   alive: boolean;
+  /** Original Polygon's `data` field, preserved through the merge. */
+  data?: Record<string, string | number | boolean>;
 }
 
 const eqUv = (a: Vec2, b: Vec2): boolean =>
@@ -207,39 +210,39 @@ function isConvex(vertices: Vec3[], normal: Vec3): boolean {
   return true;
 }
 
-export function mergePolygons(grid: VoxelGrid): VoxelGrid {
-  const out: Voxel[] = [];
+export function mergePolygons(input: Polygon[]): Polygon[] {
+  const out: Polygon[] = [];
   const polys: PolyState[] = [];
 
-  // Pass 1: collect non-polygon voxels untouched, seed PolyState for triangle/polygon.
-  for (const voxel of grid ?? []) {
-    if (!voxel) continue;
-    const isPolyShape = voxel.shape === "triangle" || voxel.shape === "polygon";
-    if (!isPolyShape || !voxel.vertices || voxel.vertices.length < 3) {
-      out.push(voxel);
+  // Pass 1: collect each polygon, seed PolyState. Skip polygons without
+  // a usable plane (degenerate; should have been removed by normalize).
+  for (const polygon of input ?? []) {
+    if (!polygon || !polygon.vertices || polygon.vertices.length < 3) {
+      if (polygon) out.push(polygon);
       continue;
     }
-    const verts = voxel.vertices.map((v) => [v[0], v[1], v[2]] as Vec3);
+    const verts = polygon.vertices.map((v) => [v[0], v[1], v[2]] as Vec3);
     const plane = planeOf(verts);
     if (!plane) {
-      out.push(voxel);
+      out.push(polygon);
       continue;
     }
     // Carry texture + per-vertex UVs through the merge so textured polys
     // can grow as long as their UVs match at the seam. UVs are skipped if
-    // they don't match the vertex count (defensive — parseObj/parseGltf
-    // emit them in lockstep, but a hand-crafted voxel could be off).
-    const uvs = (voxel.texture && voxel.uvs && voxel.uvs.length === verts.length)
-      ? voxel.uvs.map((uv) => [uv[0], uv[1]] as Vec2)
+    // they don't match the vertex count (defensive — parsers/normalize
+    // emit them in lockstep, but a hand-crafted polygon could be off).
+    const uvs = (polygon.texture && polygon.uvs && polygon.uvs.length === verts.length)
+      ? polygon.uvs.map((uv) => [uv[0], uv[1]] as Vec2)
       : undefined;
     polys.push({
       vertices: verts,
       uvs,
-      color: voxel.color ?? "#cccccc",
-      texture: voxel.texture,
+      color: polygon.color ?? "#cccccc",
+      texture: polygon.texture,
       normal: plane.normal,
       d: plane.d,
       alive: true,
+      data: polygon.data,
     });
   }
 
@@ -320,27 +323,17 @@ export function mergePolygons(grid: VoxelGrid): VoxelGrid {
   // Iterate to fixed point — each merge can unlock further ones.
   while (tryMergeOnce()) { /* loop */ }
 
-  // Pass 3: emit surviving polygons as triangle voxels with N vertices.
+  // Pass 3: emit surviving polygons.
   for (const p of polys) {
     if (!p.alive) continue;
-    let xMin = Infinity, yMin = Infinity, zMin = Infinity;
-    let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
-    for (const v of p.vertices) {
-      if (v[0] < xMin) xMin = v[0]; if (v[0] > xMax) xMax = v[0];
-      if (v[1] < yMin) yMin = v[1]; if (v[1] > yMax) yMax = v[1];
-      if (v[2] < zMin) zMin = v[2]; if (v[2] > zMax) zMax = v[2];
-    }
-    // Emit "polygon" if the merge grew past 3 vertices, "triangle" if it's
-    // still 3 — keeps the shape name semantically accurate downstream.
-    out.push({
-      x: Math.floor(xMin), y: Math.floor(yMin), z: Math.floor(zMin),
-      x2: Math.ceil(xMax),  y2: Math.ceil(yMax),  z2: Math.ceil(zMax),
-      shape: p.vertices.length === 3 ? "triangle" : "polygon",
+    const out_p: Polygon = {
       vertices: p.vertices,
       color: p.color,
-      ...(p.texture ? { texture: p.texture } : {}),
-      ...(p.uvs ? { uvs: p.uvs } : {}),
-    });
+    };
+    if (p.texture) out_p.texture = p.texture;
+    if (p.uvs) out_p.uvs = p.uvs;
+    if (p.data) out_p.data = p.data;
+    out.push(out_p);
   }
   return out;
 }

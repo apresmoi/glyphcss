@@ -1,8 +1,8 @@
 /**
  * Minimal glTF 2.0 / GLB loader — extracts triangle meshes (positions +
- * indices + per-material color) into voxcss triangle voxels. Skips
- * animations, skins, skeletons, PBR-extras textures: the goal is to render
- * the static surface, not be a complete glTF runtime.
+ * indices + per-material color) into polycss polygons. Skips animations,
+ * skins, skeletons, PBR-extras textures: the goal is to render the static
+ * surface, not be a complete glTF runtime.
  *
  * Supports both .glb (binary container with magic "glTF") and .gltf (JSON
  * with separate .bin) — for .gltf the caller must supply the buffers via
@@ -13,19 +13,20 @@
  *   2. Read the indices accessor → triangle index array.
  *   3. Pick the material's pbrMetallicRoughness.baseColorFactor as a
  *      sRGB color, fall back to the override or palette if missing.
- *   4. Emit one triangle voxel per (i, i+1, i+2).
+ *   4. Emit one triangle Polygon per (i, i+1, i+2).
  *
- * After parsing, the mesh is uniformly scaled to fit `targetSize` cells
+ * After parsing, the mesh is uniformly scaled to fit `targetSize` units
  * and the y/z axes are cyclically permuted (so glTF's +Y-up becomes
- * voxcss's +Z-up without inverting handedness — a single y↔z swap would
+ * polycss's +Z-up without inverting handedness — a single y↔z swap would
  * flip every triangle's winding and break backface culling).
  */
-import type { InputVoxel, Vec2, Vec3 } from "../types";
+import type { Polygon, Vec2, Vec3 } from "../types";
+import type { ParseResult } from "./types";
 
 export interface GltfParseOptions {
-  /** Largest grid extent (cells). Mesh is uniformly scaled to fit. Default 60. */
+  /** Largest mesh extent (units). Mesh is uniformly scaled to fit. Default 60. */
   targetSize?: number;
-  /** Padding offset (avoids CSS Grid line "0"). Default 1. */
+  /** Padding offset (avoids coordinate "0"). Default 1. */
   gridShift?: number;
   /** Color used when a primitive has no material or no baseColorFactor. */
   defaultColor?: string;
@@ -37,7 +38,7 @@ export interface GltfParseOptions {
   /**
    * Which axis is "up" in the source mesh.
    *  - "y" (default, glTF spec): cyclic permutation (x,y,z) → (z,x,y) so
-   *    OBJ.y ends up on voxcss.z (elevation).
+   *    +Y ends up on polycss's +Z (elevation).
    *  - "z" (Blender-style, FBX2glTF often emits this): identity, no swap.
    * Pick "z" if the model lands on its side / lies down instead of
    * standing.
@@ -56,22 +57,6 @@ export interface GltfParseOptions {
    * which 404s. Pass the same URL you fetched the file from.
    */
   baseUrl?: string;
-}
-
-export interface GltfParseResult {
-  voxels: InputVoxel[];
-  triangleCount: number;
-  /** Mesh names from the file (one per mesh, primitives flattened). */
-  meshes: string[];
-  /** Material names from the file. */
-  materials: string[];
-  /**
-   * Blob/object URLs created for embedded GLB images (one per `doc.images[]`
-   * entry that had a `bufferView`). Callers MUST `URL.revokeObjectURL` each
-   * one when the result is no longer needed, otherwise they leak memory.
-   * Empty for files with only external `uri`-style image references.
-   */
-  objectUrls: string[];
 }
 
 const GLB_MAGIC = 0x46546c67; // "glTF" little-endian
@@ -137,7 +122,7 @@ interface GltfNode {
   name?: string;
   mesh?: number;
   children?: number[];
-  /** TRS — voxcss reads either matrix or these three components. */
+  /** TRS — polycss reads either matrix or these three components. */
   matrix?: number[];
   translation?: number[];
   rotation?: number[]; // quaternion (x, y, z, w)
@@ -174,25 +159,17 @@ function dataUriToBytes(uri: string): Uint8Array {
   const meta = uri.slice(5, comma); // strip "data:"
   const payload = uri.slice(comma + 1);
   if (!meta.includes(";base64")) {
-    // URL-encoded payload — rare for glTF buffers but spec-allowed.
     const text = decodeURIComponent(payload);
     const out = new Uint8Array(text.length);
     for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xff;
     return out;
   }
-  // Base64 — `atob` is universal in browsers and Node 16+.
   const bin = (globalThis as unknown as { atob: (s: string) => string }).atob(payload);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
 
-/**
- * Resolve a glTF JSON document's buffers[0] into raw bytes. Three sources:
- *   - `data:` URI (typical for self-contained .gltf exports)
- *   - external URI → `resolveBuffer` callback
- *   - no URI (only valid in GLB context where bin comes from the chunk)
- */
 function resolveJsonBuffer(
   doc: GltfDoc,
   resolveBuffer?: (uri: string) => Uint8Array | Promise<Uint8Array>,
@@ -210,7 +187,6 @@ function resolveJsonBuffer(
   throw new Error(`parseGltf: external buffer URI "${uri}" — provide options.resolveBuffer`);
 }
 
-/** Parse a .glb (binary) buffer. Returns the JSON doc + the BIN bytes. */
 function parseGlbContainer(buf: ArrayBuffer): { doc: GltfDoc; bin: Uint8Array | null } {
   const view = new DataView(buf);
   if (view.getUint32(0, true) !== GLB_MAGIC) throw new Error("parseGltf: not a GLB (bad magic)");
@@ -236,7 +212,6 @@ function parseGlbContainer(buf: ArrayBuffer): { doc: GltfDoc; bin: Uint8Array | 
   return { doc, bin };
 }
 
-/** Read an accessor's raw bytes from the BIN buffer as a typed array. */
 function readAccessor(doc: GltfDoc, bin: Uint8Array, accessorIdx: number): {
   array: Float32Array | Uint16Array | Uint32Array | Uint8Array;
   count: number;
@@ -265,15 +240,6 @@ function readAccessor(doc: GltfDoc, bin: Uint8Array, accessorIdx: number): {
   return { array, count: acc.count, componentCount };
 }
 
-/**
- * Build URL-per-image array. Embedded images (with a `bufferView`) become
- * `blob:` URLs via the browser's URL.createObjectURL — caller MUST revoke
- * them when done. External-URI images pass through unchanged. Images with
- * neither bufferView nor uri get an empty string (parser skips them).
- *
- * Returns `{ urls, objectUrls }` where `objectUrls` is the subset that
- * needs revoking — convenience for the caller's cleanup logic.
- */
 function extractImageUrls(
   doc: GltfDoc,
   bin: Uint8Array,
@@ -281,18 +247,12 @@ function extractImageUrls(
 ): { urls: string[]; objectUrls: string[] } {
   const urls: string[] = [];
   const objectUrls: string[] = [];
-  // Cast through globalThis because the core lib targets a browser-agnostic
-  // env (no DOM lib). Node 18+ has Blob; URL.createObjectURL needs the
-  // browser. The textured-GLB path is browser-only by intent.
   const g = globalThis as unknown as {
     Blob: new (parts: ArrayLike<number>[] | Uint8Array[], opts?: { type?: string }) => unknown;
     URL: { createObjectURL: (b: unknown) => string; new (u: string, base?: string): { href: string } };
   };
   for (const img of doc.images ?? []) {
     if (img.uri) {
-      // External URIs are relative to the source GLB/glTF, NOT the page.
-      // Resolve against baseUrl when provided. data: and absolute URLs
-      // pass through new URL() unchanged.
       if (baseUrl && !img.uri.startsWith("data:")) {
         try {
           urls.push(new g.URL(img.uri, baseUrl).href);
@@ -321,7 +281,6 @@ function extractImageUrls(
   return { urls, objectUrls };
 }
 
-/** Map material index → texture URL via baseColorTexture → texture → image. */
 function buildMaterialTextureMap(doc: GltfDoc, imageUrls: string[]): Map<number, string> {
   const out = new Map<number, string>();
   const mats = doc.materials ?? [];
@@ -344,10 +303,6 @@ function colorFromMaterial(mat: GltfMaterial | undefined, fallback: string): str
 }
 
 // ── Node transform math ─────────────────────────────────────────────────
-// glTF nodes carry a TRS (translation, rotation-quaternion, scale) or an
-// explicit 4×4 matrix. To get a vertex's world-space position we walk
-// down from the scene root multiplying parent matrices, then transform the
-// raw mesh-local vertex by the accumulated matrix.
 
 type Mat4 = number[]; // length 16, column-major like glTF
 
@@ -375,7 +330,6 @@ function transformPoint(m: Mat4, p: Vec3): Vec3 {
   ];
 }
 
-/** Build a column-major 4×4 from translation, quaternion (xyzw), and scale. */
 function trsToMat4(t?: number[], r?: number[], s?: number[]): Mat4 {
   const tx = t?.[0] ?? 0, ty = t?.[1] ?? 0, tz = t?.[2] ?? 0;
   const qx = r?.[0] ?? 0, qy = r?.[1] ?? 0, qz = r?.[2] ?? 0, qw = r?.[3] ?? 1;
@@ -386,7 +340,6 @@ function trsToMat4(t?: number[], r?: number[], s?: number[]): Mat4 {
   const yy = qy * y2, yz = qy * z2, zz = qz * z2;
   const wx = qw * x2, wy = qw * y2, wz = qw * z2;
 
-  // Column-major: m[col*4 + row]. Combined T·R·S.
   return [
     (1 - (yy + zz)) * sx, (xy + wz) * sx,       (xz - wy) * sx,       0,
     (xy - wz) * sy,       (1 - (xx + zz)) * sy, (yz + wx) * sy,       0,
@@ -400,7 +353,7 @@ function nodeLocalMatrix(n: GltfNode): Mat4 {
   return trsToMat4(n.translation, n.rotation, n.scale);
 }
 
-export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOptions): GltfParseResult {
+export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOptions): ParseResult {
   const targetSize = options?.targetSize ?? 60;
   const gridShift = options?.gridShift ?? 1;
   const defaultColor = options?.defaultColor ?? "#888888";
@@ -409,10 +362,8 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
   const buf: ArrayBuffer = input instanceof Uint8Array
     ? input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength) as ArrayBuffer
     : input;
+  const sourceBytes = buf.byteLength;
 
-  // Dispatch on the first 4 bytes: GLB magic ("glTF") → binary container;
-  // anything else → JSON glTF (buffer comes from doc.buffers[0].uri, which
-  // is typically a base64 `data:` URI for self-contained exports).
   let doc: GltfDoc;
   let bin: Uint8Array;
   if (buf.byteLength >= 4 && new DataView(buf).getUint32(0, true) === GLB_MAGIC) {
@@ -425,15 +376,9 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
     bin = resolveJsonBuffer(doc, options?.resolveBuffer);
   }
 
-  // Pre-extract images + material→texture URL map so emitMesh can attach
-  // textures per-primitive without re-walking the doc.
   const { urls: imageUrls, objectUrls } = extractImageUrls(doc, bin, options?.baseUrl);
   const matTexMap = buildMaterialTextureMap(doc, imageUrls);
 
-  // Pass 1: walk the scene-graph from each scene root, accumulate world
-  // matrices, and emit triangles with vertex positions already transformed
-  // into world space. If the file has no scene/nodes (some exports skip
-  // the graph), fall back to rendering every mesh at the identity.
   interface RawTri { v0: Vec3; v1: Vec3; v2: Vec3; color: string; texture?: string; uvs?: Vec2[]; }
   const rawTris: RawTri[] = [];
   const meshNames: string[] = (doc.meshes ?? []).map((m, i) => m.name ?? `mesh_${i}`);
@@ -444,7 +389,7 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
     if (!mesh) return;
     for (const prim of mesh.primitives) {
       const mode = prim.mode ?? 4;
-      if (mode !== 4) continue; // triangles only; skip strips/fans for now
+      if (mode !== 4) continue;
 
       const matName = prim.material !== undefined ? doc.materials?.[prim.material]?.name : undefined;
       const matOverride = matName ? materialOverrides[matName] : undefined;
@@ -462,16 +407,11 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
         positions.push(transformPoint(world, local));
       }
 
-      // Per-vertex UVs from TEXCOORD_0 (if present and the primitive has a
-      // texture). glTF UV convention is v=0 at TOP; OBJ has v=0 at BOTTOM.
-      // Our renderer applies (1 - v) when binding to image-y, expecting OBJ
-      // convention — so flip here so glTF UVs reach the renderer in OBJ form.
       let uvs: Vec2[] | null = null;
       const uvAccIdx = prim.attributes.TEXCOORD_0;
       if (texture && uvAccIdx !== undefined) {
         const { array: uvArr, count: uvCount } = readAccessor(doc, bin!, uvAccIdx);
         uvs = [];
-        // Normalize integer accessor types; floats pass through.
         let scale = 1;
         if (uvArr instanceof Uint8Array) scale = 1 / 255;
         else if (uvArr instanceof Uint16Array) scale = 1 / 65535;
@@ -519,15 +459,26 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
   if (sceneRoots && sceneRoots.length > 0) {
     for (const r of sceneRoots) walkNode(r, IDENTITY4);
   } else {
-    // No scene graph — render every mesh at the identity.
     for (let i = 0; i < (doc.meshes?.length ?? 0); i++) emitMesh(i, IDENTITY4);
   }
 
+  const dispose = makeDispose(objectUrls);
+
   if (rawTris.length === 0) {
-    return { voxels: [], triangleCount: 0, meshes: meshNames, materials: materialNames, objectUrls };
+    return {
+      polygons: [],
+      objectUrls,
+      dispose,
+      warnings: [],
+      metadata: {
+        triangleCount: 0,
+        meshes: meshNames,
+        materials: materialNames,
+        sourceBytes,
+      },
+    };
   }
 
-  // Compute global bbox + scale.
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (const t of rawTris) {
@@ -540,10 +491,6 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
   const maxDim = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
   const scale = maxDim > 0 ? targetSize / maxDim : 1;
 
-  // Axis remapping. Both options are even permutations (preserve handedness
-  // so triangle winding stays CCW-from-outside and backface culling works).
-  //   "y": (x,y,z) → (z,x,y)  — glTF spec, +Y is up
-  //   "z": (x,y,z) → (x,y,z)  — identity, source already has +Z up (Blender)
   const round = (n: number) => Math.round(n * 1000) / 1000;
   const upAxis = options?.upAxis ?? "y";
   const project: (v: Vec3) => Vec3 = upAxis === "z"
@@ -558,25 +505,53 @@ export function parseGltf(input: ArrayBuffer | Uint8Array, options?: GltfParseOp
         round((y - minY) * scale + gridShift),
       ];
 
-  const voxels: InputVoxel[] = [];
+  const polygons: Polygon[] = [];
   for (const t of rawTris) {
     const v0 = project(t.v0);
     const v1 = project(t.v1);
     const v2 = project(t.v2);
-    // Skip degenerates (collapsed to the same point after rounding).
     if (
       (v0[0] === v1[0] && v0[1] === v1[1] && v0[2] === v1[2]) ||
       (v0[0] === v2[0] && v0[1] === v2[1] && v0[2] === v2[2]) ||
       (v1[0] === v2[0] && v1[1] === v2[1] && v1[2] === v2[2])
     ) continue;
-    voxels.push({
-      shape: "triangle",
+    const p: Polygon = {
       vertices: [v0, v1, v2],
       color: t.color,
-      ...(t.texture ? { texture: t.texture } : {}),
-      ...(t.uvs ? { uvs: t.uvs } : {}),
-    });
+    };
+    if (t.texture) p.texture = t.texture;
+    if (t.uvs) p.uvs = t.uvs;
+    polygons.push(p);
   }
 
-  return { voxels, triangleCount: voxels.length, meshes: meshNames, materials: materialNames, objectUrls };
+  return {
+    polygons,
+    objectUrls,
+    dispose,
+    warnings: [],
+    metadata: {
+      triangleCount: polygons.length,
+      meshes: meshNames,
+      materials: materialNames,
+      sourceBytes,
+    },
+  };
+}
+
+/**
+ * Build an idempotent disposer that revokes each minted blob URL exactly
+ * once. Subsequent calls are no-ops, so component unmount paths can call
+ * `dispose()` defensively without worrying about double-revoke errors.
+ */
+function makeDispose(objectUrls: string[]): () => void {
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    const URL = (globalThis as unknown as { URL?: { revokeObjectURL?: (url: string) => void } }).URL;
+    if (!URL?.revokeObjectURL) return;
+    for (const url of objectUrls) {
+      try { URL.revokeObjectURL(url); } catch { /* swallow — best effort */ }
+    }
+  };
 }

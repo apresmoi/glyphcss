@@ -7,11 +7,18 @@
  *   const mtl = await fetch("/foo.mtl").then(r => r.text());
  *   const { colors, textures } = parseMtl(mtl);
  *   const obj = await fetch("/foo.obj").then(r => r.text());
- *   const { voxels } = parseObj(obj, { materialColors: colors, materialTextures: textures });
+ *   const { polygons } = parseObj(obj, { materialColors: colors, materialTextures: textures });
  *
  * Texture paths are returned exactly as written in the .mtl — relative paths,
  * Windows backslashes etc. are not normalized. Callers are expected to
  * resolve them against the .mtl's base URL.
+ *
+ * NOTE: parseMtl intentionally returns its own `MtlParseResult` shape
+ * (NOT the unified `ParseResult`). It's an asymmetric helper — it emits
+ * materials, not polygons — and forcing it into ParseResult would mean
+ * an empty `polygons[]` and a misleading `dispose()`. The migration plan
+ * (POLYCSS_MIGRATION.md §"parseMtl special case") calls out this carve-out
+ * explicitly.
  */
 
 const toHex = (n: number): string =>

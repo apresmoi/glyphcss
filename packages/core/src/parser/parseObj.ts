@@ -1,15 +1,40 @@
-import type { InputVoxel, Vec2, Vec3 } from "../types";
+/**
+ * Wavefront `.obj` parser. Returns the unified `ParseResult` shape — a flat
+ * polygon list with optional `metadata` for per-format diagnostics.
+ *
+ * Handles:
+ *  - `v x y z` vertex lines (ignores `vn`, `vp`).
+ *  - `vt u v` texture-coordinate lines (kept for `f` entries that reference them).
+ *  - `f a b c [d ...]` face lines with optional `v/vt/vn` indices. n-gons are
+ *    fan-triangulated. Per-face vt indices become per-triangle `uvs` on the
+ *    output polygon — needed by the renderer's UV-mapped texture path.
+ *  - `usemtl <name>` material switches. Material names that look like 6-char
+ *    hex are used as colors directly; otherwise they get assigned a palette
+ *    slot in first-seen order. Override either via `materialColors`.
+ *  - `o <name>` object groupings — for filtering via `includeObjects` /
+ *    `excludeObjects`. Useful when an OBJ ships scenery (e.g. a ground
+ *    `Plane` next to the actual model) that shouldn't render.
+ *
+ * The mesh is fit to `targetSize` units and remapped from OBJ's +Y-up
+ * convention to polycss's +Z-up via the cyclic permutation (x,y,z) → (z,x,y),
+ * which preserves handedness so triangle winding stays consistent.
+ *
+ * Vertex coords are kept as floats; bbox is NOT computed per-polygon
+ * (polycss has no per-polygon bbox; the scene container derives the overall
+ * mesh bbox from all polygons in `buildSceneContext`).
+ */
+import type { Polygon, Vec2, Vec3 } from "../types";
+import type { ParseResult } from "./types";
 
 export interface ObjParseOptions {
   /**
-   * Largest grid extent (in voxel cells). The mesh is uniformly scaled so its
-   * longest bbox dimension equals this. Default: 60.
+   * Largest mesh extent (in scene-space units). The mesh is uniformly
+   * scaled so its longest bbox dimension equals this. Default: 60.
    */
   targetSize?: number;
   /**
-   * Padding added to the integer bbox of every emitted voxel so they don't
-   * land at CSS Grid line "0" (which the spec treats as auto-placement).
-   * Default: 1. Set to 0 if you handle padding upstream.
+   * Padding added to the bbox of every emitted polygon so they don't land
+   * at coordinate "0". Default: 1.
    */
   gridShift?: number;
   /**
@@ -37,8 +62,7 @@ export interface ObjParseOptions {
   palette?: string[];
   /**
    * Names of `o <name>` objects to KEEP. When set, faces outside these
-   * objects are dropped. Common use: an OBJ ships scenery (a ground Plane,
-   * a backdrop) alongside the actual model — filter to the real geometry.
+   * objects are dropped.
    */
   includeObjects?: string[];
   /**
@@ -48,19 +72,6 @@ export interface ObjParseOptions {
   excludeObjects?: string[];
 }
 
-export interface ObjParseResult {
-  /**
-   * Triangle voxels with `vertices` set and the bbox fields omitted —
-   * voxcss derives x/y/z/x2/y2/z2 from the vertices when these voxels
-   * enter a scene, so the parser doesn't need to compute them.
-   */
-  voxels: InputVoxel[];
-  /** Triangle voxel count after fan-triangulation and degenerate filtering. */
-  triangleCount: number;
-  /** Materials encountered, in first-seen order. */
-  materials: string[];
-}
-
 const HEX6 = /^[0-9A-Fa-f]{6}$/;
 
 const DEFAULT_PALETTE = [
@@ -68,29 +79,7 @@ const DEFAULT_PALETTE = [
   "#a855f7", "#06b6d4", "#f97316", "#ec4899",
 ];
 
-/**
- * Parse a Wavefront `.obj` file into voxcss triangle voxels. Handles:
- *
- *  - `v x y z` vertex lines (ignores `vn`, `vp`).
- *  - `vt u v` texture-coordinate lines (kept for `f` entries that reference them).
- *  - `f a b c [d ...]` face lines with optional `v/vt/vn` indices. n-gons
- *    are fan-triangulated. Per-face vt indices become per-triangle `uvs`
- *    on the output voxel — needed by the renderer's UV-mapped texture path.
- *  - `usemtl <name>` material switches. Material names that look like 6-char
- *    hex are used as colors directly; otherwise they get assigned a palette
- *    slot in first-seen order. Override either via `materialColors`.
- *  - `o <name>` object groupings — for filtering via `includeObjects` /
- *    `excludeObjects`. Useful when an OBJ ships scenery (e.g. a ground
- *    `Plane` next to the actual model) that shouldn't render.
- *
- * The mesh is fit to `targetSize` cells and remapped from OBJ's +Y-up
- * convention to voxcss's +Z-up via the cyclic permutation (x,y,z) → (z,x,y),
- * which preserves handedness so triangle winding stays consistent.
- *
- * Vertex coords are kept as floats for sub-cell precision (only the bbox of
- * each triangle voxel needs to be integer for CSS Grid).
- */
-export function parseObj(text: string, options?: ObjParseOptions): ObjParseResult {
+export function parseObj(text: string, options?: ObjParseOptions): ParseResult {
   const targetSize = options?.targetSize ?? 60;
   const gridShift = options?.gridShift ?? 1;
   const defaultColor = options?.defaultColor ?? "#888888";
@@ -100,21 +89,16 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
 
   const verts: Vec3[] = [];
   const uvs: Vec2[] = [];
-  // vt indices per face vertex; null if the face had no v/vt/vn slash form.
   const rawFaces: { idx: number[]; uvIdx: (number | null)[]; color: string; texture: string | undefined }[] = [];
   const materialOrder: string[] = [];
   const materialColor = new Map<string, string>();
   let currentColor = defaultColor;
   let currentTexture: string | undefined = undefined;
 
-  // Current `o` group name and the include/exclude filter test. The filter
-  // gates `f` lines: faces emitted under a dropped object are skipped
-  // entirely (their vertices remain in the buffer but go unreferenced).
   const includeSet = options?.includeObjects ? new Set(options.includeObjects) : null;
   const excludeSet = options?.excludeObjects ? new Set(options.excludeObjects) : null;
   let currentObject: string | null = null;
   const objectAllowed = (): boolean => {
-    // Faces before any `o` line: allowed unless includeObjects is set.
     if (currentObject === null) return includeSet === null;
     if (includeSet && !includeSet.has(currentObject)) return false;
     if (excludeSet && excludeSet.has(currentObject)) return false;
@@ -138,8 +122,6 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
       const parts = raw.trim().split(/\s+/);
       verts.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
     } else if (raw.startsWith("vt ")) {
-      // OBJ vt is (u, v) in 0..1, with v=0 at bottom. The renderer flips
-      // v on consumption (SVG y axis points down) — we keep the raw value.
       const parts = raw.trim().split(/\s+/);
       uvs.push([parseFloat(parts[1]), parseFloat(parts[2])]);
     } else if (raw.startsWith("o ")) {
@@ -156,7 +138,6 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
       for (const p of parts) {
         const slash = p.split("/");
         idx.push(parseInt(slash[0], 10) - 1);
-        // slash[1] is the vt index (1-based) or empty if absent.
         const vtRaw = slash[1];
         if (vtRaw && vtRaw.length > 0) {
           const v = parseInt(vtRaw, 10) - 1;
@@ -170,7 +151,7 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
   }
 
   if (verts.length === 0 || rawFaces.length === 0) {
-    return { voxels: [], triangleCount: 0, materials: materialOrder };
+    return makeEmptyResult(materialOrder, text.length);
   }
 
   // Bounding box — only count vertices actually referenced by surviving
@@ -192,8 +173,8 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
   const scale = maxDim > 0 ? targetSize / maxDim : 1;
 
   // Cyclic axis permutation (x,y,z) → (z,x,y) puts OBJ's +Y up axis into
-  // voxel.z (voxcss's elevation axis). Single axis swaps invert handedness;
-  // a cyclic shift doesn't, so triangle CCW-from-outside winding survives.
+  // polycss's +Z (elevation). Single axis swaps invert handedness; a cyclic
+  // shift doesn't, so triangle CCW-from-outside winding survives.
   const round = (n: number) => Math.round(n * 1000) / 1000;
   const grid: Vec3[] = verts.map(([x, y, z]) => [
     round((z - minZ) * scale + gridShift),
@@ -201,7 +182,7 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
     round((y - minY) * scale + gridShift),
   ]);
 
-  const voxels: InputVoxel[] = [];
+  const polygons: Polygon[] = [];
   for (const { idx, uvIdx, color, texture } of rawFaces) {
     // Fan-triangulate: (i0, i1, i2), (i0, i2, i3), ...
     for (let i = 1; i < idx.length - 1; i++) {
@@ -215,10 +196,6 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
         (v1[0] === v2[0] && v1[1] === v2[1] && v1[2] === v2[2])
       ) continue;
 
-      // Pull UVs for this fan triangle from the same indices that built
-      // the vertices. Only emit `uvs` when ALL three slots resolved — a
-      // partial UV trio is worse than none (the renderer would do garbage
-      // affine math).
       let triUvs: Vec2[] | undefined = undefined;
       if (texture) {
         const uA = uvIdx[0], uB = uvIdx[i], uC = uvIdx[i + 1];
@@ -228,15 +205,39 @@ export function parseObj(text: string, options?: ObjParseOptions): ObjParseResul
         }
       }
 
-      voxels.push({
-        shape: "triangle",
+      const polygon: Polygon = {
         vertices: [v0, v1, v2],
         color,
-        ...(texture ? { texture } : {}),
-        ...(triUvs ? { uvs: triUvs } : {}),
-      });
+      };
+      if (texture) polygon.texture = texture;
+      if (triUvs) polygon.uvs = triUvs;
+      polygons.push(polygon);
     }
   }
 
-  return { voxels, triangleCount: voxels.length, materials: materialOrder };
+  return {
+    polygons,
+    objectUrls: [],
+    dispose: () => { /* no-op: parseObj has no minted blob URLs */ },
+    warnings: [],
+    metadata: {
+      triangleCount: polygons.length,
+      materials: materialOrder,
+      sourceBytes: text.length,
+    },
+  };
+}
+
+function makeEmptyResult(materials: string[], sourceBytes: number): ParseResult {
+  return {
+    polygons: [],
+    objectUrls: [],
+    dispose: () => { /* no-op */ },
+    warnings: [],
+    metadata: {
+      triangleCount: 0,
+      materials,
+      sourceBytes,
+    },
+  };
 }

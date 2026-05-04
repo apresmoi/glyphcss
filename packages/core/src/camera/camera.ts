@@ -1,5 +1,12 @@
 /* Isometric camera state + helpers used by scene controllers and UIs. */
-import { BASE_TILE } from "../types";
+
+/**
+ * Base tile size in CSS pixels. Carried over from voxcss as the unit that
+ * `getStyle` multiplies rows/cols by when sizing the scene container.
+ * In Phase 3 the scene container will size from the polygon-mesh bbox
+ * instead, at which point this constant goes away.
+ */
+const BASE_TILE = 50;
 
 export interface AutoRotateConfig {
   axis?: "x" | "y";
