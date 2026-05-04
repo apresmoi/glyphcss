@@ -110,12 +110,14 @@ describe("parseVox — real fixture (obj_candle.vox)", () => {
     expect(() => parseVox(buf)).not.toThrow();
   });
 
-  it("returns correct face count for a 3-voxel column (face-culled)", () => {
+  it("returns correct face count for a 3-voxel column (greedy-meshed)", () => {
     const buf = loadVoxFile("obj_candle.vox");
     const result = parseVox(buf);
-    // 3 voxels stacked on Z: 14 visible quad faces (no fan triangulation —
-    // each face is a single 4-vertex polygon).
-    expect(result.polygons.length).toBe(14);
+    // 3 voxels stacked on Z but with TWO materials (brown wax + orange
+    // flame): each material section has 4 side faces + an end cap → 5
+    // polys per color × 2 colors = 10. Greedy mesh can't merge across
+    // material boundaries, which is correct.
+    expect(result.polygons.length).toBe(10);
   });
 
   it("metadata.triangleCount matches polygons.length", () => {
@@ -246,9 +248,11 @@ describe("parseVox — minimal synthetic buffer", () => {
     expect(result.polygons.length).toBe(6);
   });
 
-  it("two adjacent voxels share one face — culled to 10 visible quads", () => {
-    // Two voxels side by side on X: (0,0,0) and (1,0,0)
-    // Each loses 1 face (shared face) → 5+5=10 visible quad polygons.
+  it("two adjacent voxels share one face — greedy-meshed to 6 polys", () => {
+    // Two voxels side by side on X: (0,0,0) and (1,0,0). Same material →
+    // greedy mesh runs each long face as a single 2×1 rectangle:
+    //   2 end faces (px of right + nx of left) + 4 long faces
+    //   (py, ny, pz, nz spanning the 2-cell run) = 6 total.
     const buf = buildVoxBuffer(
       [2, 1, 1],
       [
@@ -257,12 +261,12 @@ describe("parseVox — minimal synthetic buffer", () => {
       ],
     );
     const result = parseVox(buf);
-    expect(result.polygons.length).toBe(10);
+    expect(result.polygons.length).toBe(6);
   });
 
-  it("2×2×2 solid cube exposes only exterior faces", () => {
-    // 2×2×2 = 8 voxels. Exterior surface = 6 sides × 4 quads = 24 quads.
-    // No interior face is visible since every voxel has a neighbor on all shared sides.
+  it("2×2×2 solid cube exposes only exterior faces, greedy-meshed to 6", () => {
+    // 2×2×2 = 8 voxels, same material. Each of the 6 cube faces is a 2×2
+    // contiguous patch → greedy mesh emits 1 polygon per side, total 6.
     const voxels: VoxelInput[] = [];
     for (let x = 0; x < 2; x++)
       for (let y = 0; y < 2; y++)
@@ -271,7 +275,7 @@ describe("parseVox — minimal synthetic buffer", () => {
 
     const buf = buildVoxBuffer([2, 2, 2], voxels);
     const result = parseVox(buf);
-    expect(result.polygons.length).toBe(24);
+    expect(result.polygons.length).toBe(6);
   });
 
   it("hollow cube shell exposes inner and outer faces", () => {

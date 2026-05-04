@@ -264,28 +264,116 @@ export function parseVox(buffer: ArrayBuffer, options?: VoxParseOptions): ParseR
   const hasNeighbor = (x: number, y: number, z: number): boolean =>
     occupied.has(`${x},${y},${z}`);
 
-  // 5. Emit visible faces as native quads (4-vertex polygons) — polycss
-  // renders N-vertex polygons natively, so a cube face is one polygon, not
-  // two fan-triangulated triangles. Halves the polygon count and skips an
-  // unnecessary first merge step (tri+tri → quad).
-  interface RawPolygon { vertices: Vec3[]; color: string }
-  const rawPolygons: RawPolygon[] = [];
+  // 5. Collect visible faces grouped by (direction, plane offset, color).
+  // Greedy meshing per group emits one quad per maximal axis-aligned
+  // rectangle — provably optimal for axis-aligned grids, where the generic
+  // edge-based mergePolygons gets stuck at a non-optimal tiling (greedy
+  // local merges produce L-shape candidates that fail the convex check).
+  // Six face directions, indexed 0..5: +X, -X, +Y, -Y, +Z, -Z.
+  // For each, in-plane axes (u, v) and the constant axis are:
+  //   +X / -X: plane = x, in-plane = (y, z)
+  //   +Y / -Y: plane = y, in-plane = (x, z)
+  //   +Z / -Z: plane = z, in-plane = (x, y)
+  type GroupKey = string; // `${dir}:${plane}:${color}`
+  const groups = new Map<GroupKey, Set<string>>(); // key → set of "u,v" cells
 
-  const emitQuad = (quad: Quad, color: string): void => {
-    rawPolygons.push({ vertices: [quad[0], quad[1], quad[2], quad[3]], color });
+  const addCell = (dir: number, plane: number, u: number, v: number, color: string): void => {
+    const key = `${dir}:${plane}:${color}`;
+    let cells = groups.get(key);
+    if (!cells) { cells = new Set(); groups.set(key, cells); }
+    cells.add(`${u},${v}`);
   };
 
   for (const v of voxels) {
     const { x, y, z } = v;
     const color = resolveColor(v.colorIndex);
-    const quads = faceQuads(x, y, z);
 
-    if (!hasNeighbor(x + 1, y, z)) emitQuad(quads.px, color);
-    if (!hasNeighbor(x - 1, y, z)) emitQuad(quads.nx, color);
-    if (!hasNeighbor(x, y + 1, z)) emitQuad(quads.py, color);
-    if (!hasNeighbor(x, y - 1, z)) emitQuad(quads.ny, color);
-    if (!hasNeighbor(x, y, z + 1)) emitQuad(quads.pz, color);
-    if (!hasNeighbor(x, y, z - 1)) emitQuad(quads.nz, color);
+    if (!hasNeighbor(x + 1, y, z)) addCell(0, x + 1, y, z, color); // +X
+    if (!hasNeighbor(x - 1, y, z)) addCell(1, x,     y, z, color); // -X
+    if (!hasNeighbor(x, y + 1, z)) addCell(2, y + 1, x, z, color); // +Y
+    if (!hasNeighbor(x, y - 1, z)) addCell(3, y,     x, z, color); // -Y
+    if (!hasNeighbor(x, y, z + 1)) addCell(4, z + 1, x, y, color); // +Z
+    if (!hasNeighbor(x, y, z - 1)) addCell(5, z,     x, y, color); // -Z
+  }
+
+  // Greedy-mesh a 2D occupancy set into maximal axis-aligned rectangles.
+  // Standard algorithm: scan in (v, u) order; for each unvisited cell,
+  // extend right (u++) until a gap, then extend down (v++) while the
+  // entire row matches. Mark all covered cells visited. Optimal for
+  // axis-aligned material grids — same algorithm Minecraft / voxel
+  // engines use for their chunk meshing pass.
+  function greedyMesh(cells: Set<string>): Array<{ u: number; v: number; w: number; h: number }> {
+    const visited = new Set<string>();
+    const rects: Array<{ u: number; v: number; w: number; h: number }> = [];
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+    for (const k of cells) {
+      const [us, vs] = k.split(",");
+      const u = +us, vv = +vs;
+      if (u < minU) minU = u; if (u > maxU) maxU = u;
+      if (vv < minV) minV = vv; if (vv > maxV) maxV = vv;
+    }
+    for (let vv = minV; vv <= maxV; vv++) {
+      for (let u = minU; u <= maxU; u++) {
+        const k0 = `${u},${vv}`;
+        if (!cells.has(k0) || visited.has(k0)) continue;
+        // Extend width.
+        let w = 1;
+        while (u + w <= maxU) {
+          const k = `${u + w},${vv}`;
+          if (!cells.has(k) || visited.has(k)) break;
+          w++;
+        }
+        // Extend height while the entire row [u, u+w) is filled and unvisited.
+        let h = 1;
+        rowLoop: while (vv + h <= maxV) {
+          for (let i = 0; i < w; i++) {
+            const k = `${u + i},${vv + h}`;
+            if (!cells.has(k) || visited.has(k)) break rowLoop;
+          }
+          h++;
+        }
+        for (let dh = 0; dh < h; dh++) for (let dw = 0; dw < w; dw++) {
+          visited.add(`${u + dw},${vv + dh}`);
+        }
+        rects.push({ u, v: vv, w, h });
+      }
+    }
+    return rects;
+  }
+
+  // Quad winding per face direction (CCW from outside, matches faceQuads()
+  // when w=h=1). u,v are the in-plane lower-left corner; w,h are the
+  // rectangle extent in the in-plane axes.
+  const rectToQuad = (dir: number, plane: number, u: number, v: number, w: number, h: number): Vec3[] => {
+    const u2 = u + w, v2 = v + h;
+    switch (dir) {
+      case 0: // +X face at x=plane, in-plane (y, z)
+        return [[plane, u, v], [plane, u2, v], [plane, u2, v2], [plane, u, v2]];
+      case 1: // -X face at x=plane, in-plane (y, z), reverse
+        return [[plane, u2, v], [plane, u, v], [plane, u, v2], [plane, u2, v2]];
+      case 2: // +Y face at y=plane, in-plane (x, z)
+        return [[u, plane, v], [u, plane, v2], [u2, plane, v2], [u2, plane, v]];
+      case 3: // -Y face at y=plane, in-plane (x, z), reverse
+        return [[u2, plane, v], [u2, plane, v2], [u, plane, v2], [u, plane, v]];
+      case 4: // +Z face at z=plane, in-plane (x, y)
+        return [[u, v, plane], [u2, v, plane], [u2, v2, plane], [u, v2, plane]];
+      default: // 5, -Z face at z=plane, in-plane (x, y), reverse
+        return [[u, v2, plane], [u2, v2, plane], [u2, v, plane], [u, v, plane]];
+    }
+  };
+
+  interface RawPolygon { vertices: Vec3[]; color: string }
+  const rawPolygons: RawPolygon[] = [];
+
+  for (const [key, cells] of groups) {
+    const sep1 = key.indexOf(":");
+    const sep2 = key.indexOf(":", sep1 + 1);
+    const dir = +key.slice(0, sep1);
+    const plane = +key.slice(sep1 + 1, sep2);
+    const color = key.slice(sep2 + 1);
+    for (const { u, v, w, h } of greedyMesh(cells)) {
+      rawPolygons.push({ vertices: rectToQuad(dir, plane, u, v, w, h), color });
+    }
   }
 
   if (rawPolygons.length === 0) {
