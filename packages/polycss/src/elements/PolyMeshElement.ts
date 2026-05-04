@@ -22,6 +22,7 @@ const ELEMENT_BASE: typeof HTMLElement =
 
 const OBSERVED_ATTRS = [
   "src",
+  "mtl",
   "position",
   "scale",
   "rotation",
@@ -92,7 +93,7 @@ export class PolyMeshElement extends ELEMENT_BASE {
     newValue: string | null,
   ): void {
     if (oldValue === newValue) return;
-    if (name === "src") {
+    if (name === "src" || name === "mtl") {
       this._tearDown();
       this._maybeLoad();
       return;
@@ -123,9 +124,10 @@ export class PolyMeshElement extends ELEMENT_BASE {
 
     const token = ++this._loadToken;
 
+    const mtl = this.getAttribute("mtl") || undefined;
     let parsed: ParseResult;
     try {
-      parsed = await loadMesh(src);
+      parsed = await loadMesh(src, mtl ? { mtlUrl: mtl } : undefined);
     } catch (err) {
       this.dispatchEvent(
         new CustomEvent("polycss:error", { detail: err, bubbles: true }),

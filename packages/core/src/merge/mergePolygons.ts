@@ -246,9 +246,19 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
     });
   }
 
-  // Pass 2: edge → list of polygon indices. We rebuild this each iteration
-  // since merges invalidate it.
-  const tryMergeOnce = (): boolean => {
+  // Pass 2: batch-merge to fixed point. Each call to `tryMergePass` rebuilds
+  // the edge index ONCE, then iterates every shared-edge candidate. The
+  // index is treated as a CANDIDATE list — we re-validate the shared edge
+  // by scanning a's current vertices against b's at merge time, because
+  // a previous merge in this pass may have mutated either polygon.
+  //
+  // Earlier this returned after a single merge → 12k full O(n) index
+  // rebuilds for the bus mesh = ~150s. Earlier still, a `touched` set
+  // skipped any poly that had been merged this pass — that prevented chain
+  // merges (flat roof → alternating "stripes" because every other quad-pair
+  // wouldn't merge). Re-validation per candidate gives both speed AND the
+  // chain merging the original (slow) algo had.
+  const tryMergePass = (): boolean => {
     const edgeIndex = new Map<string, number[]>();
     for (let i = 0; i < polys.length; i++) {
       const p = polys[i];
@@ -264,8 +274,31 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
       }
     }
 
+    let mergedThisPass = false;
+
+    // findSharedEdge returns the (e0, e1) endpoints of the edge a and b
+    // currently share, or null if a's vertex list has been mutated since
+    // edgeIndex was built and no longer touches b. Because polycss CCW
+    // winding faces opposite directions on the two sides of a shared edge,
+    // a's edge va→vb matches b's edge vb→va.
+    const findSharedEdge = (a: PolyState, b: PolyState): [Vec3, Vec3] | null => {
+      for (let k = 0; k < a.vertices.length; k++) {
+        const va = a.vertices[k];
+        const vb = a.vertices[(k + 1) % a.vertices.length];
+        for (let j = 0; j < b.vertices.length; j++) {
+          const ub = b.vertices[j];
+          const uc = b.vertices[(j + 1) % b.vertices.length];
+          if (eqVec(va, uc) && eqVec(vb, ub)) return [va, vb];
+        }
+      }
+      return null;
+    };
+
     for (const [, owners] of edgeIndex) {
-      if (owners.length !== 2) continue;
+      // owners can have >2 if a degenerate input had three+ polys sharing
+      // an edge; we still try each pair below — but the simple dedupe
+      // skips index entries where both polys were already merged away.
+      if (owners.length < 2) continue;
       const [ai, bi] = owners;
       if (ai === bi) continue;
       const a = polys[ai];
@@ -278,19 +311,11 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
       if (!!a.uvs !== !!b.uvs) continue;
       if (!samePlane(a, b)) continue;
 
-      // Find the shared edge in `a` and pull its endpoints in winding order.
-      const an = a.vertices.length;
-      let e0: Vec3 | null = null, e1: Vec3 | null = null;
-      for (let k = 0; k < an; k++) {
-        const va = a.vertices[k];
-        const vb = a.vertices[(k + 1) % an];
-        const key = edgeKey(va, vb);
-        const eo = edgeIndex.get(key);
-        if (eo && eo.length === 2 && eo.includes(ai) && eo.includes(bi)) {
-          e0 = va; e1 = vb; break;
-        }
-      }
-      if (!e0 || !e1) continue;
+      // Re-validate the shared edge — a or b may have grown since the
+      // edge index was built (chain merge within this pass).
+      const shared = findSharedEdge(a, b);
+      if (!shared) continue;
+      const [e0, e1] = shared;
 
       // UV seam check: if both textured, the UVs at the shared edge must
       // match between A and B. Otherwise the merged polygon would tear at
@@ -311,17 +336,17 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
       if (!merged) continue;
       if (!isConvex(merged.vertices, a.normal)) continue;
 
-      // Adopt the merge into `a`, retire `b`, restart the pass.
       a.vertices = merged.vertices;
       a.uvs = merged.uvs;
       b.alive = false;
-      return true;
+      mergedThisPass = true;
     }
-    return false;
+    return mergedThisPass;
   };
 
-  // Iterate to fixed point — each merge can unlock further ones.
-  while (tryMergeOnce()) { /* loop */ }
+  // Iterate to fixed point — each pass merges as much as it can while
+  // working from a single snapshot of the edge index.
+  while (tryMergePass()) { /* loop */ }
 
   // Pass 3: emit surviving polygons.
   for (const p of polys) {

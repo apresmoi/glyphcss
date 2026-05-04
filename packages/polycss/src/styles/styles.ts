@@ -47,4 +47,15 @@ const CORE_BASE_STYLES = `
   opacity: 0.5;
   outline: 1px dashed rgba(255, 0, 0, 0.6);
 }
+
+/* Direction-binned face culling: scene element gets a polycss-cull-DIR
+   class for each face direction pointing AWAY from the camera; the matching
+   .polycss-dir-DIR elements are removed from compositing entirely (not
+   just visually hidden). Recomputed on every camera update. */
+.polycss-cull-px .polycss-dir-px,
+.polycss-cull-nx .polycss-dir-nx,
+.polycss-cull-py .polycss-dir-py,
+.polycss-cull-ny .polycss-dir-ny,
+.polycss-cull-pz .polycss-dir-pz,
+.polycss-cull-nz .polycss-dir-nz { display: none; }
 `;

@@ -42,6 +42,13 @@ export interface PolySceneProps {
   directionalLight?: DirectionalLight;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
+  /**
+   * When `true`, rotation pivots around the mesh's bbox center instead of
+   * world (0,0,0). Polygon data is not mutated — a wrapper div translates
+   * the polygons so the bbox center coincides with the scene anchor (0,0,0).
+   * Mirrors React's PolyScene autoCenter prop.
+   */
+  autoCenter?: boolean;
   autoRotate?: AutoRotateOption;
   interactive?: boolean;
   invert?: boolean;
@@ -76,6 +83,7 @@ export const PolyScene = defineComponent({
       type: String as PropType<"off" | "auto">,
       default: "off",
     },
+    autoCenter: { type: Boolean, default: false },
     autoRotate: {
       type: [Boolean, Number, Object] as PropType<AutoRotateOption>,
       default: undefined,
@@ -140,31 +148,45 @@ export const PolyScene = defineComponent({
 
     const sceneResult = useSceneContext(inputPolygons, sceneContextOptions);
 
-    // Compute camera style (transform + sizing) from the scene bbox.
+    // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
+    // left:50% places that point at the visible center of .polycss-camera —
+    // mirrors React's PolyScene anchor pattern.
     const sceneStyle = computed(() => {
       const handle = createIsometricCamera(cameraState);
-      const bbox = sceneResult.value.sceneBbox;
-      const sizeX = bbox.max[0] - bbox.min[0];
-      const sizeY = bbox.max[1] - bbox.min[1];
-      const sizeZ = bbox.max[2] - bbox.min[2];
-      return handle.getStyle({
-        rows: Math.max(1, Math.ceil(sizeX)),
-        cols: Math.max(1, Math.ceil(sizeY)),
-        depth: Math.max(1, Math.ceil(sizeZ)),
-        dimetric: props.projection === "dimetric",
-      });
+      return {
+        ...handle.getStyle(),
+        top: "50%",
+        left: "50%",
+      };
     });
 
-    const depthOffset = computed(() => {
-      const bbox = sceneResult.value.sceneBbox;
-      const sizeZ = bbox.max[2] - bbox.min[2];
-      return sizeZ * cameraState.depthOffset * (props.projection === "dimetric" ? 0.5 : 1);
+    // Per-polygon context: lighting + debug + projection-derived units.
+    const polyContext = computed(() => {
+      const tileSize = 50;
+      const layerElevation = props.projection === "dimetric" ? tileSize / 2 : tileSize;
+      return {
+        tileSize,
+        layerElevation,
+        directionalLight: props.directionalLight,
+        debugShowBackfaces: props.debugShowBackfaces,
+      };
     });
 
-    const polyContext = computed(() => ({
-      directionalLight: props.directionalLight,
-      debugShowBackfaces: props.debugShowBackfaces,
-    }));
+    // depthOffset was a voxcss-era hack; centered meshes don't need it.
+    const depthOffset = 0;
+
+    // autoCenter wrapper transform: translate3d that brings the mesh's
+    // bbox center to the scene element's own (0,0,0). Mirrors React's
+    // autoCenterTransform useMemo.
+    const autoCenterTransform = computed<string | undefined>(() => {
+      if (!props.autoCenter) return undefined;
+      const bbox = sceneResult.value.sceneBbox;
+      const ctx = polyContext.value;
+      const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * ctx.tileSize;
+      const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * ctx.tileSize;
+      const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * ctx.layerElevation;
+      return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    });
 
     // Cleanup hook placeholder — nothing to unsubscribe in PolyScene currently.
     onBeforeUnmount(() => {
@@ -192,12 +214,29 @@ export const PolyScene = defineComponent({
         })
       );
 
+      const slotChildren = slots.default?.() ?? [];
+
+      const innerChildren = autoCenterTransform.value
+        ? [
+            h(
+              "div",
+              {
+                style: {
+                  transform: autoCenterTransform.value,
+                  transformStyle: "preserve-3d",
+                },
+              },
+              [...polyNodes, ...slotChildren]
+            ),
+          ]
+        : [...polyNodes, ...slotChildren];
+
       return h(
         "div",
         {
           ref: sceneElLocalRef,
           class: computedClass,
-          "data-polycss-depth-offset": String(depthOffset.value),
+          "data-polycss-depth-offset": String(depthOffset),
           style: {
             ...sceneStyle.value,
             ...(attrs.style as Record<string, unknown> | undefined),
@@ -206,7 +245,7 @@ export const PolyScene = defineComponent({
             Object.entries(attrs).filter(([k]) => k !== "style" && k !== "class")
           ),
         },
-        [...polyNodes, ...(slots.default?.() ?? [])]
+        innerChildren
       );
     };
   },

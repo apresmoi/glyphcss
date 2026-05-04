@@ -25,6 +25,11 @@ import { useMesh } from "./useMesh";
 
 export interface PolyMeshProps {
   src?: string;
+  /**
+   * Companion `.mtl` URL for OBJ models. When set, materials defined in
+   * the mtl are applied to the loaded mesh. Ignored for GLB/GLTF.
+   */
+  mtl?: string;
   polygons?: Polygon[];
   autoCenter?: boolean;
   class?: string;
@@ -77,6 +82,7 @@ export const PolyMesh = defineComponent({
   inheritAttrs: false,
   props: {
     src: { type: String, default: undefined },
+    mtl: { type: String, default: undefined },
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
     autoCenter: { type: Boolean, default: false },
     class: { type: String },
@@ -87,7 +93,8 @@ export const PolyMesh = defineComponent({
   setup(props, { slots, attrs }) {
     // useMesh requires a Ref<string>. Computed ref wraps the src prop.
     const srcRef = computed(() => props.src ?? "");
-    const fetched = useMesh(srcRef);
+    const meshOptions = computed(() => (props.mtl ? { mtlUrl: props.mtl } : undefined));
+    const fetched = useMesh(srcRef, meshOptions.value);
 
     const sourcePolygons = computed<Polygon[]>(() =>
       props.src ? fetched.polygons.value : (props.polygons ?? [])

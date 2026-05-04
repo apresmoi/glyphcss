@@ -17,9 +17,20 @@ function highlight(code: string, lang: string): string {
 const title = "polycss — CSS polygon-mesh renderer for the DOM";
 const description = "Render textured 3D meshes in the DOM. No WebGL — each polygon is a real DOM element you can style, click, and inspect in DevTools.";
 const siteUrl = "https://polycss.com";
-const ogImage = `${siteUrl}/polycss-intro.png`;
+// Reusing the legacy voxcss social card until a polycss-specific image lands.
+const ogImage = `${siteUrl}/voxcss-intro.png`;
 
 const frameworkTabs = [
+  {
+    id: "vanilla",
+    label: "vanilla js",
+    language: "html",
+    code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene perspective="1000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>`,
+  },
   {
     id: "react",
     label: "React",
@@ -47,25 +58,15 @@ export function App() {
 import { PolyScene, PolyMesh } from "@polycss/vue";
 </script>`,
   },
-  {
-    id: "vanilla",
-    label: "vanilla js",
-    language: "html",
-    code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
-
-<poly-scene perspective="1000" rot-x="65" rot-y="45">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>`,
-  },
 ].map(tab => ({
   ...tab,
   highlighted: highlight(tab.code, tab.language),
 }));
 
 const installCmds = [
+  "npm install polycss",
   "npm install @polycss/react",
   "npm install @polycss/vue",
-  "npm install polycss",
 ].map(cmd => ({ code: cmd, highlighted: highlight(cmd, "javascript") }));
 
 const ldJson = {
@@ -135,7 +136,7 @@ const ldJson = {
       <div class="home">
         <section class="hero" id="hero">
           <div class="hero-copy">
-            <h1>polycss</h1>
+            <h1><img width="300" height="72" style="width: 300px; height: auto" src="/voxisologo.png" alt="polycss" /></h1>
             <p>
               Render textured 3D meshes in the DOM. No WebGL, no canvas-as-scene.
               Each polygon is a real DOM element — style it with CSS, click it,
@@ -171,7 +172,10 @@ const ldJson = {
             </div>
           </div>
           <div class="hero-canvas" id="hero-root">
-            <!-- mesh viewer placeholder — Phase 8 will add a live PolyMesh demo -->
+            <!-- Half-apple polygons: voxcss's halfapple.json voxels
+                 converted to triangles offline, then Taubin-smoothed
+                 (see /gallery/halfapple-smooth.json). Mounted
+                 with createPolyScene + autoCenter + drag-to-rotate. -->
           </div>
         </section>
 
@@ -233,7 +237,7 @@ const ldJson = {
             </div>
           </header>
           <div class="getting-lede">
-            <p>polycss provides lightweight components and a headless API. Use <code>PolyScene</code> to set up the 3D viewport and <code>PolyMesh</code> to load and render a mesh file. Each polygon in the mesh becomes a DOM element you can style and interact with.</p>
+            <p>polycss provides custom elements (<code>&lt;poly-scene&gt;</code>, <code>&lt;poly-mesh&gt;</code>), an imperative <code>createPolyScene</code> API, and optional React / Vue bindings. Each polygon in the mesh becomes a DOM element you can style and interact with — use whichever entry point fits your stack.</p>
           </div>
           <div class="getting-grid">
             <div class="getting-content">
@@ -293,6 +297,50 @@ const ldJson = {
       } catch (_) {}
     }
     fetchStars();
+
+    // Hero apple — fetches the converted voxel-to-triangles JSON and mounts
+    // it with createPolyScene. autoCenter pivots rotation around the mesh
+    // centroid (Three.js convention); the small RAF loop spins it slowly.
+    async function mountHeroApple() {
+      const host = document.getElementById("hero-root");
+      if (!host) return;
+      try {
+        const [{ createPolyScene }, polyRes] = await Promise.all([
+          import("polycss"),
+          fetch("/gallery/halfapple-smooth.json"),
+        ]);
+        if (!polyRes.ok) return;
+        const polygons = await polyRes.json();
+
+        let rotY = 45;
+        const scene = createPolyScene(host, {
+          rotX: 65,
+          rotY,
+          zoom: 0.63,
+          autoCenter: true,
+          interactive: true,
+          perspective: 8000,
+        });
+        scene.add({ polygons, dispose: () => {} });
+
+        let last = 0;
+        let paused = false;
+        host.addEventListener("pointerdown", () => { paused = true; });
+        function tick(now: number) {
+          if (!paused) {
+            const dt = last ? Math.min(50, now - last) : 0;
+            rotY = (rotY + (dt / 16.67) * 0.3) % 360;
+            scene.setOptions({ rotY });
+          }
+          last = now;
+          requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      } catch (err) {
+        console.error("hero apple mount failed", err);
+      }
+    }
+    mountHeroApple();
 
     // Framework tabs
     const tablist = document.getElementById("framework-tablist");
@@ -510,6 +558,11 @@ const ldJson = {
     min-height: 320px;
     margin-top: 10px;
     height: 100%;
+    /* createPolyScene mounts its 0×0 scene anchor at top:50%/left:50% —
+       requires the host to be a positioned ancestor or it'll snap to the
+       document root. */
+    position: relative;
+    overflow: hidden;
   }
   .install-logos {
     display: flex;

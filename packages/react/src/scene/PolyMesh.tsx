@@ -26,6 +26,12 @@ import { useMesh, type UseMeshOptions } from "./useMesh";
 export interface PolyMeshProps extends TransformProps {
   /** URL to .obj / .glb / .gltf. Mutually exclusive with `polygons`. */
   src?: string;
+  /**
+   * Companion `.mtl` URL for OBJ models. When set, materials defined in
+   * the mtl (Kd colors, map_Kd textures) are applied to the loaded mesh.
+   * Ignored for GLB/GLTF (they carry materials inline).
+   */
+  mtl?: string;
   /** Pre-parsed polygons. Mutually exclusive with `src`. */
   polygons?: Polygon[];
   /** Translate so mesh's bbox center is at local origin before applying `position`. */
@@ -83,6 +89,7 @@ function recenterPolygons(polygons: Polygon[]): Polygon[] {
 
 export function PolyMesh({
   src,
+  mtl,
   polygons: polygonsProp,
   autoCenter,
   children,
@@ -95,10 +102,16 @@ export function PolyMesh({
   className,
   style,
 }: PolyMeshProps) {
+  // Compose mtl prop into the parser options threaded to useMesh.
+  const mergedOptions = useMemo<UseMeshOptions | undefined>(() => {
+    if (!mtl && !parseOptions) return undefined;
+    return { ...(parseOptions ?? {}), ...(mtl ? { mtlUrl: mtl } : {}) };
+  }, [mtl, parseOptions]);
+
   // Either fetch via useMesh, or use the supplied polygons array.
   // useMesh tolerates an empty src (sits idle) so we always call it for
   // hook-rules consistency.
-  const fetched = useMesh(src ?? "", parseOptions);
+  const fetched = useMesh(src ?? "", mergedOptions);
 
   const sourcePolygons = src ? fetched.polygons : (polygonsProp ?? []);
 

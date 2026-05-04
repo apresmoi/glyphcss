@@ -3,7 +3,22 @@ title: Performance
 description: Optimizing polycss scenes with merge modes and understanding DOM-based rendering tradeoffs.
 ---
 
+import PolyDemo from '../../../components/PolyDemo.astro';
+
 polycss renders everything as real DOM elements — every polygon of every mesh is an HTML element with CSS transforms. That gives you DevTools inspection, DOM events, and CSS styling on every polygon, but it means **performance scales with element count**. Understanding how to manage that count is key to building smooth scenes.
+
+## Live demo — polygon count vs. performance
+
+The sphere below starts at subdivision level 3 (320 triangles). Bump subdivisions up to 4 (1,280) or 5 (5,120) and watch the frame rate drop. This illustrates how quadrupling the subdivision level quadruples the DOM node count — and rendering cost.
+
+<PolyDemo
+  id="perf-sphere-demo"
+  generator="sphere"
+  generatorParams='{"subdivisions":2,"radius":15}'
+  controls='["subdivisions","radius","zoom","rotX","rotY","animate"]'
+  defaults='{"rotX":65,"rotY":45,"zoom":0.15,"animate":true}'
+  showStats
+/>
 
 ## Polygon count matters
 
@@ -15,7 +30,7 @@ Confirmed during benchmarking on a 10k-triangle mesh with auto-rotate:
 
 ## Merge modes
 
-The `merge` prop on `<PolyScene>` controls how aggressively the engine consolidates coplanar adjacent polygons.
+The `merge` attribute on `<poly-scene>` (or `merge` prop on `PolyScene`) controls how aggressively the engine consolidates coplanar adjacent polygons.
 
 ### `"off"` (default)
 
@@ -35,6 +50,13 @@ Merges coplanar adjacent polygons that share the same material (color + texture)
 
 ## Setting merge mode
 
+```html
+<!-- Vanilla -->
+<poly-scene merge="auto">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+
 ```tsx
 // React
 <PolyScene merge="auto">
@@ -45,11 +67,6 @@ Merges coplanar adjacent polygons that share the same material (color + texture)
 <PolyScene merge="auto">
   <PolyMesh src="/cottage.glb" />
 </PolyScene>
-
-// Custom elements
-<poly-scene merge="auto">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
 ```
 
 ## Choosing a merge mode
@@ -65,11 +82,15 @@ Start with the default (`"off"`) and switch to `"auto"` if you notice rendering 
 
 The single most effective way to reduce polygon count is to choose a smaller `targetSize` when parsing. This scales the model to fewer world-space units, and the parser (especially for OBJ) can skip triangles below the minimum renderable size.
 
-```tsx
-// Fewer polygons → faster
-<PolyMesh src="/castle.obj" options={{ targetSize: 30 }} />
+```html
+<!-- Vanilla -->
+<poly-mesh src="/castle.obj" target-size="30"></poly-mesh>  <!-- fewer polygons → faster -->
+<poly-mesh src="/castle.obj" target-size="80"></poly-mesh>  <!-- more detail -->
+```
 
-// More detail
+```tsx
+// React / Vue
+<PolyMesh src="/castle.obj" options={{ targetSize: 30 }} />
 <PolyMesh src="/castle.obj" options={{ targetSize: 80 }} />
 ```
 
@@ -78,11 +99,11 @@ The single most effective way to reduce polygon count is to choose a smaller `ta
 UV-textured polygons each hold a blob URL (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:
 
 - Don't render thousands of UV-textured polygons if you can use a flat-color mesh — blob URL creation is synchronous canvas work.
-- Call `dispose()` on `ParseResult` / `useMesh` results when they're no longer needed.
-- `PolyMesh` handles disposal automatically on unmount or `src` change.
+- Call `dispose()` on `ParseResult` (or `useMesh` result) when you've loaded the mesh imperatively.
+- The mesh element (`<poly-mesh>` / `<PolyMesh>`) handles disposal automatically on unmount or `src` change.
 
 ## Related
 
-- [PolyScene](/components/vox-scene) — Full `merge` prop reference.
+- [PolyScene](/components/poly-scene) — Full `merge` prop reference.
 - [Loading Meshes](/guides/textures) — Parsing options including `targetSize`.
 - [Core Concepts — Merge Modes](/core-concepts#merge-modes) — Conceptual overview.

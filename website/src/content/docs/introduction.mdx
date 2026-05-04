@@ -11,11 +11,16 @@ Internally, polycss uses an off-DOM canvas to pre-rasterize each UV-mapped textu
 
 ## Framework Support
 
-polycss ships with first-class bindings for **React** and **Vue**, plus a **vanilla JS / custom elements** API that works anywhere. Pick whatever fits your stack.
+polycss is **vanilla-first**. The default entry point is custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API — no framework required. First-class bindings for **React** and **Vue** ship as separate packages on top of the same engine. Pick whatever fits your stack.
 
 ## Installation
 
 <Tabs syncKey="pkg">
+<TabItem label="Vanilla JS">
+```bash
+npm install polycss
+```
+</TabItem>
 <TabItem label="React">
 ```bash
 npm install @polycss/react
@@ -24,11 +29,6 @@ npm install @polycss/react
 <TabItem label="Vue">
 ```bash
 npm install @polycss/vue
-```
-</TabItem>
-<TabItem label="Vanilla JS">
-```bash
-npm install polycss
 ```
 </TabItem>
 </Tabs>
@@ -43,7 +43,17 @@ You can also load polycss directly from a CDN with no build step:
 
 ## A quick taste
 
-Load a GLB mesh into an interactive scene:
+Load a GLB mesh into an interactive scene with zero JS — just custom elements:
+
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene rot-x="65" rot-y="45" perspective="1000">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+
+Or with React:
 
 ```tsx
 import { PolyScene, PolyMesh } from "@polycss/react";
@@ -57,11 +67,11 @@ export function App() {
 }
 ```
 
-Continue to **[Quickstart →](/quickstart)** for the full walkthrough with React, Vue, and Vanilla JS versions.
+Continue to **[Quickstart →](/quickstart)** for the full walkthrough with Vanilla JS, React, and Vue versions.
 
 ## Related
 
 - [Quickstart](/quickstart) — Full install + first scene walkthrough.
 - [Core Concepts](/core-concepts) — The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
-- [PolyCamera](/components/vox-camera) — Camera component reference.
-- [PolyScene](/components/vox-scene) — Scene component reference.
+- [PolyCamera](/components/poly-camera) — Camera component reference.
+- [PolyScene](/components/poly-scene) — Scene component reference.

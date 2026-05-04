@@ -7,16 +7,23 @@ All types are exported from `@polycss/react`, `@polycss/vue`, and `@polycss/core
 
 ## `Polygon`
 
-Represents a single polygon (triangle or quad) in 3D space.
+The atomic renderable primitive. Each polygon becomes one DOM element (`<img>` or `<svg>`).
 
 ```ts
 interface Polygon {
-  vertices: [number, number, number][];  // Required — 3+ points in world space
-  color?: string;                        // CSS color value
-  texture?: string;                      // Image URL for UV-mapped face
-  uvs?: [number, number][];             // UV coordinates (one per vertex)
-  normal?: [number, number, number];    // Surface normal for lighting
-  data?: Record<string, unknown>;       // User-defined metadata
+  /** Three or more [x, y, z] world-space points, CCW winding from the outside. */
+  vertices: [number, number, number][];
+  /** CSS color. Falls back to "#cccccc" when neither color nor texture is set. */
+  color?: string;
+  /** Image URL for UV-mapped rendering. When set with `uvs`, the renderer
+   *  applies an affine UV transform. Without `uvs`, single-tile fill. */
+  texture?: string;
+  /** UV coordinates — one per vertex. Must match vertices.length.
+   *  Mismatched arrays are stripped during normalizePolygons(). */
+  uvs?: [number, number][];
+  /** User-controlled metadata. Reflected to the DOM as data-* attributes
+   *  when rendering via <Poly>. Keys must have string, number, or boolean values. */
+  data?: Record<string, string | number | boolean>;
 }
 ```
 
@@ -28,10 +35,14 @@ Controls directional and ambient lighting for the scene.
 
 ```ts
 interface DirectionalLight {
-  direction: [number, number, number];  // Direction FROM surface TO light (normalized)
-  color?: string;                       // Directional light color (default: "#ffffff")
-  ambient?: number;                     // Ambient intensity 0–1 (default: 0.4)
-  ambientColor?: string;               // Ambient light color (default: "#ffffff")
+  /** Direction the light shines toward (normalized). */
+  direction: [number, number, number];
+  /** Directional light color hex (default: "#ffffff"). */
+  color?: string;
+  /** Ambient light intensity 0–1 (default: 0.4). */
+  ambient?: number;
+  /** Ambient light tint hex (default: "#ffffff"). */
+  ambientColor?: string;
 }
 ```
 
@@ -39,7 +50,7 @@ interface DirectionalLight {
 
 ## `Vec2`
 
-A 2D point or vector.
+A 2D point or UV coordinate.
 
 ```ts
 type Vec2 = [number, number];
@@ -49,7 +60,7 @@ type Vec2 = [number, number];
 
 ## `Vec3`
 
-A 3D point or vector.
+A 3D point or direction.
 
 ```ts
 type Vec3 = [number, number, number];
@@ -59,14 +70,39 @@ type Vec3 = [number, number, number];
 
 ## `ParseResult`
 
-Unified return shape from all mesh parsers (`parseObj`, `parseGltf`).
+Unified return shape from all mesh parsers (`parseObj`, `parseGltf`, `loadMesh`).
 
 ```ts
 interface ParseResult {
-  polygons: Polygon[];          // Parsed polygon array
-  objectUrls: string[];         // Blob URLs minted for embedded textures
-  dispose: () => void;          // Revoke all objectUrls (call on unmount)
-  warnings: string[];           // Non-fatal parse warnings
+  /** Parsed and validated polygon array, ready for rendering. */
+  polygons: Polygon[];
+  /** Blob URLs minted during parse (e.g. embedded GLB textures).
+   *  Revoked when dispose() is called. */
+  objectUrls: string[];
+  /** Revoke all objectUrls. Idempotent. Safe to call on unmount. */
+  dispose: () => void;
+  /** Non-fatal warnings raised during parse (dropped polygons, UV mismatches, etc.). */
+  warnings: string[];
+  /** Optional format-specific metadata. */
+  metadata?: {
+    triangleCount?: number;
+    meshes?: string[];
+    materials?: string[];
+    sourceBytes?: number;
+  };
+}
+```
+
+---
+
+## `NormalizeResult`
+
+Return type of `normalizePolygons`.
+
+```ts
+interface NormalizeResult {
+  polygons: Polygon[];
+  warnings: string[];
 }
 ```
 
@@ -78,13 +114,22 @@ Options for `parseObj`.
 
 ```ts
 interface ObjParseOptions {
-  targetSize?: number;                          // Scale model to this world-unit size
-  defaultColor?: string;                        // Fallback color for un-colored faces
-  materialColors?: Record<string, string>;      // Material name → CSS color overrides
-  materialTextures?: Record<string, string>;    // Material name → image URL overrides
-  includeObjects?: string[];                    // Only include these named objects
-  excludeObjects?: string[];                    // Exclude these named objects
-  palette?: string[];                           // Quantize colors to this palette
+  /** Scale the model so its longest axis is this many world units. */
+  targetSize?: number;
+  /** Shift all vertices by this amount after scaling. */
+  gridShift?: number;
+  /** Fallback color for un-colored faces (default: "#cccccc"). */
+  defaultColor?: string;
+  /** Override per-material colors (material name → CSS color). */
+  materialColors?: Record<string, string>;
+  /** Override per-material textures (material name → image URL). */
+  materialTextures?: Record<string, string>;
+  /** Only include these named OBJ objects. */
+  includeObjects?: string[];
+  /** Exclude these named OBJ objects. */
+  excludeObjects?: string[];
+  /** Quantize vertex colors to this palette. */
+  palette?: string[];
 }
 ```
 
@@ -96,8 +141,35 @@ Options for `parseGltf`.
 
 ```ts
 interface GltfParseOptions {
-  targetSize?: number;   // Scale model to this world-unit size
-  baseUrl?: string;      // Base URL for resolving external texture references
+  /** Scale the model so its longest axis is this many world units. */
+  targetSize?: number;
+  /** Shift all vertices by this amount after scaling. */
+  gridShift?: number;
+  /** Fallback color for un-colored faces. */
+  defaultColor?: string;
+  /** Override per-material colors. */
+  materialColors?: Record<string, string>;
+  /** Treat the model's up axis as Y or Z. Most GLB files use Y. */
+  upAxis?: "y" | "z";
+  /** Base URL for resolving external texture references in .gltf files. */
+  baseUrl?: string;
+  /** Custom buffer resolver for external .bin files. */
+  resolveBuffer?: (uri: string) => Promise<Uint8Array> | Uint8Array;
+}
+```
+
+---
+
+## `MtlParseResult`
+
+Return type of `parseMtl`.
+
+```ts
+interface MtlParseResult {
+  /** Material name → CSS color. */
+  colors: Record<string, string>;
+  /** Material name → texture image path. */
+  textures: Record<string, string>;
 }
 ```
 
@@ -109,8 +181,8 @@ Configures automatic camera rotation.
 
 ```ts
 type AutoRotateOption =
-  | boolean
-  | number
+  | boolean          // true = default Y-axis at speed 0.3, pauseOnInteraction
+  | number           // speed in degrees/frame on Y axis
   | {
       axis?: "x" | "y";
       speed?: number;
@@ -122,8 +194,28 @@ type AutoRotateOption =
 
 ## `ProjectionMode`
 
-Projection style (currently isometric-like via CSS perspective).
+Projection style for the scene.
 
 ```ts
-type ProjectionMode = "perspective" | "orthographic";
+type ProjectionMode = "cubic" | "dimetric";
+```
+
+---
+
+## `CameraState`
+
+Internal camera state (used by `createIsometricCamera`).
+
+```ts
+interface CameraState {
+  rotX: number;
+  rotY: number;
+  zoom: number;
+  pan: number;
+  tilt: number;
+  perspective: number | null;  // null = parallel projection
+  invertMultiplier: 1 | -1;
+  depthOffset: number;
+  invert?: boolean;
+}
 ```

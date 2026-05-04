@@ -1,4 +1,10 @@
+<p align="center">
+  <img src="website/public/voxisologo.png" alt="polycss" width="300" />
+</p>
+
 # polycss
+
+> Currently using the legacy voxcss logo as a placeholder until a polycss-specific identity is designed.
 
 Render textured 3D meshes in the DOM. No WebGL, no 3D library — the rendered scene is a tree of standard DOM elements (`<img>`, `<svg>`) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach handlers to, and inspect in DevTools.
 
@@ -86,6 +92,7 @@ The DOM-native approach means every polygon is a real element:
 
 - OBJ + MTL (including `map_Kd` textures, UV coordinates)
 - glTF / GLB (including embedded images, TEXCOORD_0 UV decoding)
+- MagicaVoxel `.vox` (face-culled voxel grids → triangle meshes; custom and default palette)
 
 ## License
 

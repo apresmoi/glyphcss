@@ -3,23 +3,49 @@ title: Core Concepts
 description: The mental model behind polycss — PolyScene, PolyCamera, PolyMesh, Poly, and the rendering pipeline.
 ---
 
+import PolyDemo from '../../components/PolyDemo.astro';
+
 This page covers the mental model behind polycss. Each section describes a building block and how it composes with the others.
+
+## A single block
+
+Where voxcss used to render a single voxel cube, polycss renders any regular polyhedron the same way: each face becomes one DOM element. The dodecahedron below is 12 native pentagons (not 36 triangles) — flip the shape selector to see how the same renderer handles every Platonic solid.
+
+<PolyDemo
+  id="block-demo"
+  generator="dodecahedron"
+  generatorParams='{"radius":16}'
+  controls='["shape","rotX","rotY","zoom","animate","interactive"]'
+  defaults='{"rotX":65,"rotY":45,"interactive":true,"zoom":0.1,"animate":true}'
+/>
 
 ## Three building blocks
 
-polycss exposes three composable concepts:
+polycss exposes three composable concepts. Each one ships as a custom element (vanilla) and as a React / Vue component:
 
-- **`PolyScene`** — the 3D viewport. Sets up perspective, camera angle, and lighting. Fills its parent element.
-- **`PolyMesh`** — loads a mesh from a URL (OBJ / glTF / GLB). Internally expands to a list of `Poly` children. Convenience wrapper around the parser + renderer.
-- **`Poly`** — one polygon. The atomic primitive. Renders one `<img>` or `<svg>` with `transform: matrix3d(...)`. Accepts standard DOM event handlers, `className`, `style` — this is what makes polycss "DOM-native 3D" rather than "3D inside a black-box canvas".
+- **Scene** (`<poly-scene>` / `PolyScene`) — the 3D viewport. Sets up perspective, camera angle, and lighting. Fills its parent element.
+- **Mesh** (`<poly-mesh>` / `PolyMesh`) — loads a mesh from a URL (OBJ / glTF / GLB). Internally expands to one polygon child per face. Convenience wrapper around the parser + renderer.
+- **Polygon** (`<poly-polygon>` / `Poly`) — one polygon. The atomic primitive. Renders one `<img>` or `<svg>` with `transform: matrix3d(...)`. Accepts standard DOM event handlers, classes, and styles — this is what makes polycss "DOM-native 3D" rather than "3D inside a black-box canvas".
 
-A `PolyMesh` is internally a `polygons.map(p => <Poly {...p} />)`, so any rendered mesh can be inspected, styled, or handled per-polygon.
+A mesh element is internally `polygons.map(p => <poly-polygon …>)`, so any rendered mesh can be inspected, styled, or handled per-polygon.
 
 ## Camera
 
-`PolyScene` accepts camera props directly: `rotX`, `rotY`, `perspective`, and `directionalLight`. There is also a `PolyCamera` component for imperative or headless control.
+The scene element accepts camera attributes / props directly: `rot-x` / `rotX`, `rot-y` / `rotY`, `perspective`, and `directional-light` / `directionalLight`. There is also a `PolyCamera` React / Vue wrapper for separating camera state from scene layout — vanilla users set the same fields directly on `<poly-scene>`.
+
+```html
+<!-- Vanilla -->
+<poly-scene
+  perspective="1000"
+  rot-x="65"
+  rot-y="45"
+  directional-light='{"direction":[0.5,-0.7,0.6],"color":"#ffe4a8","ambient":0.4}'>
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
 
 ```tsx
+// React
 <PolyScene
   perspective={1000}
   rotX={65}
@@ -34,7 +60,7 @@ A `PolyMesh` is internally a `polygons.map(p => <Poly {...p} />)`, so any render
 </PolyScene>
 ```
 
-See **[PolyCamera](/components/vox-camera)** for the full prop table, defaults, and usage patterns.
+See **[PolyCamera](/components/poly-camera)** for the full prop table, defaults, and usage patterns.
 
 ## Polygon Data Model
 
@@ -42,27 +68,45 @@ Each polygon is a plain object. The only required field is `vertices` (three or 
 
 ```ts
 interface Polygon {
-  vertices: [number, number, number][];  // Required — 3+ points
+  vertices: [number, number, number][];  // Required — 3+ [x, y, z] points in world space
   color?: string;                        // CSS color ("#f97316", "tomato")
   texture?: string;                      // Image URL for UV-mapped face
   uvs?: [number, number][];             // UV coordinates (one per vertex)
-  normal?: [number, number, number];    // Surface normal for lighting
+  data?: Record<string, string | number | boolean>;  // Reflected as data-* DOM attributes
 }
 ```
 
 Because polygons are plain objects, you can generate them from loops, load them from parsers, or compute them from any data source.
 
+### World coordinate convention
+
+Polycss world space: **+X right, +Y forward (into screen), +Z up**. The camera's default `rotX=65, rotY=45` gives a classic isometric angle. Parsers (`parseObj`, `parseGltf`) normalize imported coordinates to this convention.
+
+### `(0,0,0)` origin and `autoCenter`
+
+Scene content renders relative to the (0,0,0) origin. Most mesh files are authored with the model at an arbitrary offset. Use `autoCenter` (vanilla: `auto-center`) on the mesh element to shift the mesh's bounding-box center to the origin before applying your `position` offset:
+
+```html
+<!-- Vanilla -->
+<poly-mesh src="/cottage.glb" auto-center position="[0,0,0]"></poly-mesh>
+```
+
+```tsx
+// React
+<PolyMesh src="/cottage.glb" autoCenter position={[0, 0, 0]} />
+```
+
 ## Rendering Pipeline
 
 polycss is structured in three layers:
 
-1. **Core** — Pure math and parsing. Handles OBJ / glTF / GLB parsing, UV decoding, lighting math, and polygon normalization. No DOM dependency.
+1. **Core** (`@polycss/core`) — Pure math and parsing. Handles OBJ / glTF / GLB parsing, UV decoding, lighting math, and polygon normalization. No DOM dependency.
 2. **Triangle Renderer** — Takes parsed polygons and produces DOM elements. For UV-textured triangles, it runs a one-time off-DOM canvas pass per polygon (UV affine transform → clip → drawImage → Blob URL → `<img>.src`). For flat-color polygons, it renders an `<svg>`.
-3. **Framework Wrappers** — Thin bindings for React and Vue (`PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`). These wrap the renderer and handle reactivity, lifecycle, and prop updates. The vanilla `polycss` package exposes custom elements (`<poly-scene>`, `<poly-mesh>`) plus an imperative `createPolyScene` API.
+3. **Entry points** — The vanilla `polycss` package exposes custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API; this is the default surface and what the rest of these docs use first. Thin React (`@polycss/react`) and Vue (`@polycss/vue`) bindings (`PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`) wrap the same renderer with framework-native reactivity, lifecycle, and prop updates.
 
 ## Merge Modes
 
-The `merge` prop on `<PolyScene>` controls whether coplanar same-material polygons are merged before rendering:
+The `merge` attribute / prop on the scene controls whether coplanar same-material polygons are merged before rendering:
 
 - **`"off"`** (default) — No merging. Every parsed polygon is its own DOM element. Full per-polygon control.
 - **`"auto"`** — Merge coplanar adjacent polygons with identical material. Reduces DOM element count for dense flat surfaces without changing visual output.
@@ -72,6 +116,6 @@ See the **[Performance guide](/guides/performance)** for guidance on choosing a 
 ## Related
 
 - [Quickstart](/quickstart) — Install + first scene walkthrough.
-- [PolyCamera](/components/vox-camera) — Camera props reference.
-- [PolyScene](/components/vox-scene) — Scene props and polygon data reference.
+- [PolyCamera](/components/poly-camera) — Camera props reference.
+- [PolyScene](/components/poly-scene) — Scene props and polygon data reference.
 - [Performance](/guides/performance) — Merge modes and DOM tuning.

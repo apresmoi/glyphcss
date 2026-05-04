@@ -4,6 +4,7 @@ description: Render your first polycss 3D mesh in under a minute.
 ---
 
 import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+import PolyDemo from '../../components/PolyDemo.astro';
 
 Get a 3D mesh rendering in your project in two steps.
 
@@ -12,6 +13,11 @@ Get a 3D mesh rendering in your project in two steps.
 1. **Install the package**
 
    <Tabs syncKey="fw">
+   <TabItem label="Vanilla JS">
+   ```bash
+   npm install polycss
+   ```
+   </TabItem>
    <TabItem label="React">
    ```bash
    npm install @polycss/react
@@ -22,18 +28,22 @@ Get a 3D mesh rendering in your project in two steps.
    npm install @polycss/vue
    ```
    </TabItem>
-   <TabItem label="Vanilla JS">
-   ```bash
-   npm install polycss
-   ```
-   </TabItem>
    </Tabs>
 
 2. **Add a scene and load a mesh**
 
-   `PolyScene` sets up the 3D viewport (perspective, camera, lighting). `PolyMesh` loads an OBJ or GLB file and renders its polygons. Pass `rotX` / `rotY` to set the camera angle.
+   The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — perspective, camera, lighting. The mesh element (`<poly-mesh>` / `PolyMesh`) loads an OBJ or GLB file and renders its polygons. Pass `rot-x` / `rot-y` to set the camera angle.
 
    <Tabs syncKey="fw">
+   <TabItem label="Vanilla JS">
+   ```html
+   <script type="module" src="https://esm.sh/polycss/elements"></script>
+
+   <poly-scene perspective="1000" rot-x="65" rot-y="45">
+     <poly-mesh src="/cottage.glb"></poly-mesh>
+   </poly-scene>
+   ```
+   </TabItem>
    <TabItem label="React">
    ```tsx
    import { PolyScene, PolyMesh } from "@polycss/react";
@@ -60,18 +70,19 @@ Get a 3D mesh rendering in your project in two steps.
    </script>
    ```
    </TabItem>
-   <TabItem label="Vanilla JS">
-   ```html
-   <script type="module" src="https://esm.sh/polycss/elements"></script>
-
-   <poly-scene perspective="1000" rot-x="65" rot-y="45">
-     <poly-mesh src="/cottage.glb"></poly-mesh>
-   </poly-scene>
-   ```
-   </TabItem>
    </Tabs>
 
 </Steps>
+
+## Live preview
+
+<PolyDemo
+  id="quickstart-demo"
+  model="/gallery/obj/cottage.obj"
+  mtl="/gallery/obj/cottage.mtl"
+  controls='["zoom","rotX","rotY","rotZ","animate","interactive"]'
+  defaults='{"rotX":80,"rotY":50,"zoom":0.15,"interactive":true}'
+/>
 
 ## What you get
 
@@ -84,7 +95,7 @@ Every polygon in the loaded mesh becomes a real DOM element — an `<img>` (for 
 ## Related
 
 - [Core Concepts](/core-concepts) — The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
-- [PolyCamera](/components/vox-camera) — Camera props and usage reference.
-- [PolyScene](/components/vox-scene) — Scene props and mesh options.
+- [PolyCamera](/components/poly-camera) — Camera props and usage reference.
+- [PolyScene](/components/poly-scene) — Scene props and mesh options.
 - [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading and UV textures.
 - [Gallery](/gallery) — Browse mesh models for inspiration.

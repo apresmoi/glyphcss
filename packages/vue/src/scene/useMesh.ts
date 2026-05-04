@@ -17,12 +17,11 @@ import type { Ref } from "vue";
 import type {
   Polygon,
   ParseResult,
-  ObjParseOptions,
-  GltfParseOptions,
+  LoadMeshOptions,
 } from "@polycss/core";
 import { loadMesh } from "@polycss/core";
 
-export type UseMeshOptions = ObjParseOptions | GltfParseOptions;
+export type UseMeshOptions = LoadMeshOptions;
 
 export interface UseMeshResult {
   polygons: Ref<Polygon[]>;
@@ -36,7 +35,7 @@ export interface UseMeshResult {
 const EMPTY_POLYGONS: Polygon[] = [];
 const EMPTY_WARNINGS: string[] = [];
 
-export function useMesh(src: Ref<string>, _options?: UseMeshOptions): UseMeshResult {
+export function useMesh(src: Ref<string>, options?: UseMeshOptions): UseMeshResult {
   const polygons = ref<Polygon[]>(EMPTY_POLYGONS);
   const loading = ref<boolean>(!!src.value);
   const error = ref<Error | null>(null);
@@ -79,7 +78,7 @@ export function useMesh(src: Ref<string>, _options?: UseMeshOptions): UseMeshRes
       // parse resolves — same pattern as React's useMesh.
       const prevResult = activeResult;
 
-      loadMesh(newSrc)
+      loadMesh(newSrc, options)
         .then((result) => {
           if (cancelled) {
             // Race: stale result — clean it up immediately.
