@@ -28,7 +28,7 @@ function loadTextureImage(url: string): Promise<HTMLImageElement> {
 
 // Defaults for polygon Lambert shading. Direction is in scene-
 // local CSS-pixel coords: +X = right, +Y = down (CSS), +Z = toward viewer.
-// "Upper-front-right" key light. Override per-scene via VoxScene's
+// "Upper-front-right" key light. Override per-scene via PolyScene's
 // `directionalLight` prop.
 const DEFAULT_LIGHT_DIR: [number, number, number] = [0.4, -0.7, 0.59];
 const DEFAULT_LIGHT_COLOR = "#ffffff";
@@ -109,10 +109,12 @@ export function Poly({
   texture,
   uvs,
   data,
-  // Transform props (accepted; Phase 4 wires them into matrix composition)
-  position: _position,
-  scale: _scale,
-  rotation: _rotation,
+  // Transform props — composed into a wrapper div per §Design.4c (nested DOM,
+  // not flat-baked). When all defaults, the wrapper is skipped for perf and
+  // the SVG/img renders directly with the polycss-poly class.
+  position,
+  scale,
+  rotation,
   // DOM passthrough props
   className,
   style: styleProp,
@@ -134,7 +136,7 @@ export function Poly({
   "aria-label": ariaLabel,
   "aria-hidden": ariaHidden,
   pointerEvents: pointerEventsProp,
-  // Scene context (forwarded from VoxScene/PolyScene)
+  // Scene context (forwarded from PolyScene)
   context,
   baseColor: baseColorProp,
   ...dataAttrs
@@ -239,7 +241,7 @@ export function Poly({
   ].join(",");
 
   // Per-polygon directional lighting. Pull config from the scene context
-  // (set by VoxScene's `directionalLight` prop) with sane defaults.
+  // (set by PolyScene's `directionalLight` prop) with sane defaults.
   // Computed once at render — no per-frame work, no GPU shaders. As the
   // user rotates the scene, different polygons become visible (others get
   // backface-culled), each with the brightness it was assigned at mount.
@@ -454,6 +456,30 @@ export function Poly({
   // opt-out escape hatch for purely decorative polygons.
   const resolvedPointerEvents = pointerEventsProp ?? "auto";
 
+  // Build the per-Poly wrapper transform from position/scale/rotation. Per
+  // §Design.4c the wrapper is a real DOM element (not a flat-baked matrix)
+  // so CSS preserve-3d composes its transform with the inner matrix3d AND
+  // any ancestor PolyMesh/PolyScene transforms automatically.
+  const transformParts: string[] = [];
+  if (position) {
+    transformParts.push(
+      `translate3d(${position[0]}px, ${position[1]}px, ${position[2]}px)`
+    );
+  }
+  if (scale !== undefined) {
+    if (typeof scale === "number") {
+      if (scale !== 1) transformParts.push(`scale3d(${scale}, ${scale}, ${scale})`);
+    } else {
+      transformParts.push(`scale3d(${scale[0]}, ${scale[1]}, ${scale[2]})`);
+    }
+  }
+  if (rotation) {
+    if (rotation[0]) transformParts.push(`rotateX(${rotation[0]}deg)`);
+    if (rotation[1]) transformParts.push(`rotateY(${rotation[1]}deg)`);
+    if (rotation[2]) transformParts.push(`rotateZ(${rotation[2]}deg)`);
+  }
+  const wrapperTransform = transformParts.length > 0 ? transformParts.join(" ") : undefined;
+
   // UV-mapped textured polygon: render an <img> whose src is set
   // imperatively from the offscreen-canvas blob. ONE element per polygon,
   // no SVG, no clip-path. matrix3d positions the bitmap in 3D space the
@@ -537,38 +563,62 @@ export function Poly({
     </svg>
   );
 
-  if (!context?.debugShowBackfaces) return front;
+  const debugBackface = context?.debugShowBackfaces ? (
+    <svg
+      xmlns={SVG_NS}
+      viewBox={`0 0 ${w} ${h}`}
+      width={w}
+      height={h}
+      preserveAspectRatio="none"
+      className="polycss-poly polycss-debug-backface"
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        overflow: "visible",
+        transformOrigin: "0 0",
+        transform: `matrix3d(${backMatrix})`,
+        backfaceVisibility: "hidden",
+        pointerEvents: "none",
+      }}
+    >
+      <path
+        d={pathStr}
+        fill="rgba(249, 115, 22, 0.55)"
+        stroke="rgba(249, 115, 22, 0.9)"
+        strokeWidth={1}
+        strokeDasharray="3,2"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  ) : null;
 
+  // No transforms → render the leaf element(s) directly. Skips the wrapper
+  // div for the common case (most polygons in a parsed mesh have identity
+  // transforms — the mesh's wrapper carries the positioning).
+  if (!wrapperTransform) {
+    if (!debugBackface) return front;
+    return (
+      <>
+        {front}
+        {debugBackface}
+      </>
+    );
+  }
+
+  // Wrapped: an extra div carries the per-Poly transform. The inner SVG/img
+  // keeps its vertex-derived matrix3d unchanged; preserve-3d composes them.
   return (
-    <>
+    <div
+      className="polycss-poly-wrapper"
+      style={{
+        position: "absolute",
+        transformStyle: "preserve-3d",
+        transform: wrapperTransform,
+      }}
+    >
       {front}
-      <svg
-        xmlns={SVG_NS}
-        viewBox={`0 0 ${w} ${h}`}
-        width={w}
-        height={h}
-        preserveAspectRatio="none"
-        className="polycss-poly polycss-debug-backface"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          overflow: "visible",
-          transformOrigin: "0 0",
-          transform: `matrix3d(${backMatrix})`,
-          backfaceVisibility: "hidden",
-          pointerEvents: "none",
-        }}
-      >
-        <path
-          d={pathStr}
-          fill="rgba(249, 115, 22, 0.55)"
-          stroke="rgba(249, 115, 22, 0.9)"
-          strokeWidth={1}
-          strokeDasharray="3,2"
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-    </>
+      {debugBackface}
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { VoxCamera } from "./VoxCamera";
+import { PolyCamera as VoxCamera } from "./PolyCamera";
 
 function renderToDiv(element: React.ReactElement): HTMLElement {
   const container = document.createElement("div");
@@ -10,15 +10,15 @@ function renderToDiv(element: React.ReactElement): HTMLElement {
   return container;
 }
 
-describe("VoxCamera behavior", () => {
+describe("PolyCamera behavior", () => {
   describe("renders camera wrapper", () => {
-    it("has the voxcss-camera class", () => {
+    it("has the polycss-camera class", () => {
       const container = renderToDiv(
         <VoxCamera>
           <div />
         </VoxCamera>
       );
-      expect(container.querySelector(".voxcss-camera")).toBeTruthy();
+      expect(container.querySelector(".polycss-camera")).toBeTruthy();
     });
   });
 
@@ -29,7 +29,7 @@ describe("VoxCamera behavior", () => {
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+      const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.perspective).toBe("8000px");
     });
 
@@ -39,7 +39,7 @@ describe("VoxCamera behavior", () => {
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+      const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.perspective).toBe("3000px");
     });
 
@@ -49,7 +49,7 @@ describe("VoxCamera behavior", () => {
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+      const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.perspective).toBe("none");
     });
   });
@@ -61,7 +61,7 @@ describe("VoxCamera behavior", () => {
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+      const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.cursor).toBe("grab");
     });
 
@@ -71,7 +71,7 @@ describe("VoxCamera behavior", () => {
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+      const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.touchAction).toBe("none");
     });
 
@@ -81,7 +81,7 @@ describe("VoxCamera behavior", () => {
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+      const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.cursor).toBe("");
       expect(camera.style.touchAction).toBe("");
     });
@@ -94,7 +94,7 @@ describe("VoxCamera behavior", () => {
           <span className="inner-child">Hello</span>
         </VoxCamera>
       );
-      const child = container.querySelector(".voxcss-camera .inner-child");
+      const child = container.querySelector(".polycss-camera .inner-child");
       expect(child).toBeTruthy();
       expect(child?.textContent).toBe("Hello");
     });
@@ -112,15 +112,15 @@ describe("VoxCamera behavior", () => {
   });
 
   describe("custom className", () => {
-    it("appends custom className alongside voxcss-camera", () => {
+    it("appends custom className alongside polycss-camera", () => {
       const container = renderToDiv(
         <VoxCamera className="my-custom-class">
           <div />
         </VoxCamera>
       );
-      const camera = container.querySelector(".voxcss-camera");
+      const camera = container.querySelector(".polycss-camera");
       expect(camera?.classList.contains("my-custom-class")).toBe(true);
-      expect(camera?.classList.contains("voxcss-camera")).toBe(true);
+      expect(camera?.classList.contains("polycss-camera")).toBe(true);
     });
   });
 });

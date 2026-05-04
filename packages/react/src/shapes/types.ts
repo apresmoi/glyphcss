@@ -83,7 +83,7 @@ export interface PolyProps extends TransformProps, DOMPassthroughProps {
   data?: Record<string, string | number | boolean>;
 
   // Internal props forwarded from parent scene/context.
-  // These are set by VoxScene/PolyScene, not by end users.
+  // These are set by PolyScene, not by end users.
   context?: {
     tileSize?: number;
     layerElevation?: number;

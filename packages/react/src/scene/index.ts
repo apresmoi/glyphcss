@@ -1,4 +1,8 @@
-export { VoxScene } from "./VoxScene";
-export type { VoxSceneProps } from "./VoxScene";
+export { PolyScene } from "./PolyScene";
+export type { PolySceneProps } from "./PolyScene";
+export { PolyMesh } from "./PolyMesh";
+export type { PolyMeshProps } from "./PolyMesh";
 export { useSceneContext } from "./useSceneContext";
-export type { UseSceneContextOptions } from "./useSceneContext";
+export type { UseSceneContextOptions, UseSceneContextResult } from "./useSceneContext";
+export { useMesh } from "./useMesh";
+export type { UseMeshResult, UseMeshOptions } from "./useMesh";

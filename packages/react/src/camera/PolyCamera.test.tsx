@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { VoxCamera } from "./VoxCamera";
+import { PolyCamera as VoxCamera } from "./PolyCamera";
 
 function renderToDiv(element: React.ReactElement): HTMLElement {
   const container = document.createElement("div");
@@ -10,15 +10,15 @@ function renderToDiv(element: React.ReactElement): HTMLElement {
   return container;
 }
 
-describe("VoxCamera", () => {
-  it("renders with voxcss-camera class", () => {
+describe("PolyCamera", () => {
+  it("renders with polycss-camera class", () => {
     const container = renderToDiv(
       <VoxCamera>
         <div data-testid="child">content</div>
       </VoxCamera>
     );
 
-    const camera = container.querySelector(".voxcss-camera");
+    const camera = container.querySelector(".polycss-camera");
     expect(camera).toBeTruthy();
   });
 
@@ -41,7 +41,7 @@ describe("VoxCamera", () => {
       </VoxCamera>
     );
 
-    const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+    const camera = container.querySelector(".polycss-camera") as HTMLElement;
     expect(camera.style.perspective).toBe("5000px");
   });
 
@@ -52,7 +52,7 @@ describe("VoxCamera", () => {
       </VoxCamera>
     );
 
-    const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+    const camera = container.querySelector(".polycss-camera") as HTMLElement;
     expect(camera.style.perspective).toBe("none");
   });
 
@@ -63,7 +63,7 @@ describe("VoxCamera", () => {
       </VoxCamera>
     );
 
-    const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+    const camera = container.querySelector(".polycss-camera") as HTMLElement;
     expect(camera.style.cursor).toBe("grab");
   });
 
@@ -74,7 +74,7 @@ describe("VoxCamera", () => {
       </VoxCamera>
     );
 
-    const camera = container.querySelector(".voxcss-camera");
+    const camera = container.querySelector(".polycss-camera");
     expect(camera?.classList.contains("my-scene")).toBe(true);
   });
 
@@ -85,7 +85,7 @@ describe("VoxCamera", () => {
       </VoxCamera>
     );
 
-    const camera = container.querySelector(".voxcss-camera") as HTMLElement;
+    const camera = container.querySelector(".polycss-camera") as HTMLElement;
     expect(camera.style.touchAction).toBe("none");
   });
 });

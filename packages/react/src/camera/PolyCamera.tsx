@@ -1,10 +1,10 @@
 import { memo, useMemo } from "react";
 import type { ReactNode } from "react";
-import type { AutoRotateOption } from "@layoutit/voxcss-core";
-import { VoxCameraContext } from "./context";
+import type { AutoRotateOption } from "@polycss/core";
+import { PolyCameraContext } from "./context";
 import { useCamera } from "./useCamera";
 
-export interface VoxCameraProps {
+export interface PolyCameraProps {
   zoom?: number;
   pan?: number;
   tilt?: number;
@@ -21,7 +21,7 @@ export interface VoxCameraProps {
 
 const DEFAULT_PERSPECTIVE = 8000;
 
-function VoxCameraInner({
+function PolyCameraInner({
   zoom,
   pan,
   tilt,
@@ -34,7 +34,7 @@ function VoxCameraInner({
   children,
   className,
   style,
-}: VoxCameraProps) {
+}: PolyCameraProps) {
   const {
     store,
     cameraRef,
@@ -66,9 +66,9 @@ function VoxCameraInner({
   };
 
   return (
-    <VoxCameraContext.Provider value={contextValue}>
+    <PolyCameraContext.Provider value={contextValue}>
       <div
-        className={`voxcss-camera${className ? ` ${className}` : ""}`}
+        className={`polycss-camera${className ? ` ${className}` : ""}`}
         style={cameraStyle}
         onPointerDown={interactive ? onPointerDown : undefined}
         onPointerMove={interactive ? onPointerMove : undefined}
@@ -77,8 +77,8 @@ function VoxCameraInner({
       >
         {children}
       </div>
-    </VoxCameraContext.Provider>
+    </PolyCameraContext.Provider>
   );
 }
 
-export const VoxCamera = memo(VoxCameraInner);
+export const PolyCamera = memo(PolyCameraInner);
