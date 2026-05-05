@@ -3,10 +3,11 @@ import type { CSSProperties, ReactNode } from "react";
 import type {
   Polygon,
   DirectionalLight,
+  AmbientLight,
   AutoRotateOption,
   TextureLightingMode,
 } from "@polycss/core";
-import { createIsometricCamera } from "@polycss/core";
+import { createIsometricCamera, parseHexColor } from "@polycss/core";
 import { useCameraContext } from "../camera/context";
 import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles/styles";
@@ -17,6 +18,7 @@ import {
   TextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
+import { PolySceneContext } from "./sceneContext";
 
 export interface PolySceneProps extends TransformProps {
   /** Polygons to render. Composes additively with `children`. */
@@ -26,6 +28,7 @@ export interface PolySceneProps extends TransformProps {
   rotY?: number;
   zoom?: number;
   directionalLight?: DirectionalLight;
+  ambientLight?: AmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: TextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
@@ -61,6 +64,7 @@ function PolySceneInner({
   rotY: _rotY,
   zoom: _zoom,
   directionalLight,
+  ambientLight,
   textureLighting = "baked",
   atlasScale,
   merge = "off",
@@ -135,22 +139,58 @@ function PolySceneInner({
 
   const computedClassName = `polycss-scene${className ? ` ${className}` : ""}`;
 
-  // Per-polygon context: lighting + scene units.
+  // Per-polygon context: lighting + scene units. In dynamic mode the
+  // atlas is light-independent (CSS does the shading), so we deliberately
+  // drop both lights from the plan inputs — that prevents the atlas from
+  // rebuilding (and the polygons from blanking) every time the user moves
+  // a light slider.
+  const directionalForAtlas = textureLighting === "dynamic" ? undefined : directionalLight;
+  const ambientForAtlas = textureLighting === "dynamic" ? undefined : ambientLight;
   const polyContext = useMemo(() => {
     const tileSize = 50;
     return {
       tileSize,
       layerElevation: tileSize,
-      directionalLight,
+      directionalLight: directionalForAtlas,
+      ambientLight: ambientForAtlas,
       textureLighting,
     };
-  }, [directionalLight, textureLighting]);
+  }, [directionalForAtlas, ambientForAtlas, textureLighting]);
 
   const textureAtlasPlans = useMemo(
     () => polygons.map((p, i) => computeTextureAtlasPlan(p, i, polyContext)),
     [polygons, polyContext],
   );
   const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, atlasScale);
+
+  // Dynamic mode plumbing: emit normalized light direction + light/ambient
+  // color/intensity as CSS custom properties on the scene root. They
+  // cascade into every polygon, where a per-element calc resolves the
+  // Lambert dot product and tints via background-blend-mode.
+  const dynamicLightVars = useMemo<CSSProperties | null>(() => {
+    if (textureLighting !== "dynamic") return null;
+    const dir = directionalLight?.direction ?? [0.4, -0.7, 0.59];
+    const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    const lx = dir[0] / len, ly = dir[1] / len, lz = dir[2] / len;
+    const lightRgb = parseHexColor(directionalLight?.color ?? "#ffffff")?.rgb ?? [255, 255, 255];
+    const ambRgb = parseHexColor(ambientLight?.color ?? "#ffffff")?.rgb ?? [255, 255, 255];
+    const lightIntensity = directionalLight?.intensity ?? 1;
+    const ambientIntensity = ambientLight?.intensity ?? 0.4;
+    const ch = (n: number) => (n / 255).toFixed(4);
+    return {
+      ["--polycss-lx" as string]: lx.toFixed(4),
+      ["--polycss-ly" as string]: ly.toFixed(4),
+      ["--polycss-lz" as string]: lz.toFixed(4),
+      ["--polycss-lr" as string]: ch(lightRgb[0]),
+      ["--polycss-lg" as string]: ch(lightRgb[1]),
+      ["--polycss-lb" as string]: ch(lightRgb[2]),
+      ["--polycss-li" as string]: lightIntensity.toFixed(4),
+      ["--polycss-ar" as string]: ch(ambRgb[0]),
+      ["--polycss-ag" as string]: ch(ambRgb[1]),
+      ["--polycss-ab" as string]: ch(ambRgb[2]),
+      ["--polycss-ai" as string]: ambientIntensity.toFixed(4),
+    };
+  }, [textureLighting, directionalLight, ambientLight]);
 
   // depthOffset was a voxcss-era hack that pushed the cube grid down so
   // the tilted camera could see its floor. Centered meshes don't need it
@@ -187,32 +227,46 @@ function PolySceneInner({
     )
   );
 
+  // Propagate scene-level rendering options to descendants (PolyMesh /
+  // helpers) so they pick up the same dynamic mode + lights as the scene.
+  // Without this, a helper PolyMesh would default to baked rendering
+  // while the scene's global CSS rule paints over it with the dynamic
+  // calc — producing corrupt tints.
+  const sceneCtxValue = useMemo(
+    () => ({ textureLighting, directionalLight, ambientLight }),
+    [textureLighting, directionalLight, ambientLight],
+  );
+
   return (
-    <div
-      ref={localSceneRef}
-      className={computedClassName}
-      data-polycss-depth-offset={String(depthOffset)}
-      style={
-        {
-          ...sceneStyle,
-          ...style,
-          // No more --polycss-rows / --polycss-cols — CSS Grid was dropped
-          // in Phase 4 (per §Design.4a).
-        } as CSSProperties
-      }
-    >
-      {autoCenterTransform ? (
-        <div style={{ transform: autoCenterTransform, transformStyle: "preserve-3d" }}>
-          {polyChildren}
-          {children}
-        </div>
-      ) : (
-        <>
-          {polyChildren}
-          {children}
-        </>
-      )}
-    </div>
+    <PolySceneContext.Provider value={sceneCtxValue}>
+      <div
+        ref={localSceneRef}
+        className={computedClassName}
+        data-polycss-depth-offset={String(depthOffset)}
+        data-polycss-lighting={textureLighting}
+        style={
+          {
+            ...sceneStyle,
+            ...(dynamicLightVars ?? null),
+            ...style,
+            // No more --polycss-rows / --polycss-cols — CSS Grid was dropped
+            // in Phase 4 (per §Design.4a).
+          } as CSSProperties
+        }
+      >
+        {autoCenterTransform ? (
+          <div style={{ transform: autoCenterTransform, transformStyle: "preserve-3d" }}>
+            {polyChildren}
+            {children}
+          </div>
+        ) : (
+          <>
+            {polyChildren}
+            {children}
+          </>
+        )}
+      </div>
+    </PolySceneContext.Provider>
   );
 }
 

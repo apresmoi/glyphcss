@@ -36,10 +36,11 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("zoom");
       expect(observed).toContain("merge");
       expect(observed).toContain("atlas-scale");
-      expect(observed).toContain("light-direction");
-      expect(observed).toContain("light-color");
-      expect(observed).toContain("light-ambient");
-      expect(observed).toContain("light-ambient-color");
+      expect(observed).toContain("directional-direction");
+      expect(observed).toContain("directional-color");
+      expect(observed).toContain("directional-intensity");
+      expect(observed).toContain("ambient-color");
+      expect(observed).toContain("ambient-intensity");
       expect(observed).toContain("auto-center");
     });
   });
@@ -134,19 +135,21 @@ describe("PolySceneElement", () => {
       expect(sceneEl.style.perspective).toBe("8000px");
     });
 
-    it("parses light-direction as a comma-separated Vec3", () => {
+    it("parses directional + ambient light attributes independently", () => {
       const el = document.createElement("poly-scene") as PolySceneElement;
-      el.setAttribute("light-direction", "1, 0, 0");
-      el.setAttribute("light-color", "#ff0000");
-      el.setAttribute("light-ambient", "0.5");
+      el.setAttribute("directional-direction", "1, 0, 0");
+      el.setAttribute("directional-color", "#ff0000");
+      el.setAttribute("directional-intensity", "1.5");
+      el.setAttribute("ambient-color", "#222222");
+      el.setAttribute("ambient-intensity", "0.3");
       host.appendChild(el);
       // No throw means parse succeeded.
       expect(el.getScene()).not.toBeNull();
     });
 
-    it("ignores malformed light-direction", () => {
+    it("ignores malformed directional-direction", () => {
       const el = document.createElement("poly-scene") as PolySceneElement;
-      el.setAttribute("light-direction", "1, 0");
+      el.setAttribute("directional-direction", "1, 0");
       host.appendChild(el);
       expect(el.getScene()).not.toBeNull();
     });

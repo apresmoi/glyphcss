@@ -1,14 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PolyCamera, PolyScene, parseGltf, parseMtl, parseObj } from "@polycss/react";
+import {
+  PolyAxesHelper,
+  PolyCamera,
+  PolyDirectionalLightHelper,
+  PolyScene,
+  parseGltf,
+  parseMtl,
+  parseObj,
+} from "@polycss/react";
 import type {
+  AmbientLight,
   DirectionalLight,
   GltfParseOptions,
   ObjParseOptions,
   Polygon,
   TextureLightingMode,
 } from "@polycss/react";
-import { createPolyScene } from "polycss";
-import type { PolySceneOptions } from "polycss";
+import {
+  axesHelperPolygons,
+  createPolyScene,
+  octahedronPolygons,
+} from "polycss";
+import type { MeshHandle, PolySceneOptions, SceneHandle, Vec3 } from "polycss";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
@@ -48,14 +61,17 @@ interface SceneOptionsState {
   animate: boolean;
   showFloor: boolean;
   showBackfaces: boolean;
+  showAxes: boolean;
+  showLight: boolean;
   zoom: number;
   rotX: number;
   rotY: number;
   perspective: number | false;
   lightAzimuth: number;
   lightElevation: number;
-  ambient: number;
+  lightIntensity: number;
   lightColor: string;
+  ambientIntensity: number;
   ambientColor: string;
   textureLighting: TextureLightingMode;
   textureQuality: TextureQuality;
@@ -310,14 +326,17 @@ const DEFAULT_SCENE: SceneOptionsState = {
   animate: false,
   showFloor: false,
   showBackfaces: false,
+  showAxes: false,
+  showLight: false,
   zoom: PRESETS[0].zoom ?? 0.35,
   rotX: PRESETS[0].rotX ?? 65,
   rotY: PRESETS[0].rotY ?? 45,
   perspective: false,
   lightAzimuth: 50,
   lightElevation: 45,
-  ambient: 0.45,
+  lightIntensity: 1,
   lightColor: "#ffffff",
+  ambientIntensity: 0.4,
   ambientColor: "#ffffff",
   textureLighting: "baked",
   textureQuality: "auto",
@@ -473,7 +492,7 @@ function buildFloor(polygons: Polygon[]): Polygon | null {
   };
 }
 
-function lightFromOptions(options: SceneOptionsState): DirectionalLight {
+function directionalFromOptions(options: SceneOptionsState): DirectionalLight {
   const az = (options.lightAzimuth * Math.PI) / 180;
   const el = (options.lightElevation * Math.PI) / 180;
   const cosEl = Math.cos(el);
@@ -484,8 +503,14 @@ function lightFromOptions(options: SceneOptionsState): DirectionalLight {
       Math.sin(el),
     ],
     color: options.lightColor,
-    ambientColor: options.ambientColor,
-    ambient: options.ambient,
+    intensity: options.lightIntensity,
+  };
+}
+
+function ambientFromOptions(options: SceneOptionsState): AmbientLight {
+  return {
+    color: options.ambientColor,
+    intensity: options.ambientIntensity,
   };
 }
 
@@ -577,19 +602,64 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: "wa
   );
 }
 
+// Light helper world units → CSS pixels conversion (matches the helper
+// components in @polycss/react and @polycss/vue).
+const LIGHT_HELPER_TILE = 50;
+
+function lightHelperPosition(
+  light: DirectionalLight,
+  target: Vec3,
+  distance: number,
+): Vec3 {
+  const [dx, dy, dz] = light.direction;
+  const len = Math.hypot(dx, dy, dz) || 1;
+  return [
+    (target[1] + (dx / len) * distance) * LIGHT_HELPER_TILE,
+    (target[0] + (dy / len) * distance) * LIGHT_HELPER_TILE,
+    (target[2] + (dz / len) * distance) * LIGHT_HELPER_TILE,
+  ];
+}
+
 function VanillaScene({
   polygons,
   options,
   directionalLight,
+  ambientLight,
+  showAxes,
+  showLight,
+  helperScale,
+  helperTarget,
   onBuild,
 }: {
   polygons: Polygon[];
   options: SceneOptionsState;
   directionalLight: DirectionalLight;
+  ambientLight: AmbientLight;
+  showAxes: boolean;
+  showLight: boolean;
+  helperScale: number;
+  helperTarget: Vec3;
   onBuild: (ms: number) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const sceneRef = useRef<SceneHandle | null>(null);
+  const meshHandleRef = useRef<MeshHandle | null>(null);
+  const axesHandleRef = useRef<MeshHandle | null>(null);
+  const lightHandleRef = useRef<MeshHandle | null>(null);
+  const onBuildRef = useRef(onBuild);
+  onBuildRef.current = onBuild;
 
+  // Split things into "structural" (require destroying the scene) vs
+  // "incremental" (can be applied via setOptions / setTransform). In
+  // dynamic mode the chicken's atlas is light-independent, so we drop the
+  // light from the structural deps — sliding the light then only flows
+  // through the cheap setOptions effect, no flicker.
+  const stableDirectionalForRebuild =
+    options.textureLighting === "dynamic" ? null : directionalLight;
+  const stableAmbientForRebuild =
+    options.textureLighting === "dynamic" ? null : ambientLight;
+
+  // Effect 1 — heavy: create the scene + add the chicken polygons.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -600,6 +670,7 @@ function VanillaScene({
       rotY: options.rotY,
       zoom: options.zoom,
       directionalLight,
+      ambientLight,
       textureLighting: options.textureLighting,
       perspective: options.perspective,
       merge: options.merge,
@@ -608,15 +679,134 @@ function VanillaScene({
       atlasScale: atlasScaleForQuality(options.textureQuality),
     };
     const scene = createPolyScene(host, sceneOptions);
-    scene.add({
+    sceneRef.current = scene;
+    meshHandleRef.current = scene.add({
       polygons,
       objectUrls: [],
       warnings: [],
       dispose: () => {},
     });
-    requestAnimationFrame(() => onBuild(performance.now() - started));
-    return () => scene.destroy();
-  }, [polygons, options, directionalLight, onBuild]);
+    requestAnimationFrame(() =>
+      onBuildRef.current(performance.now() - started),
+    );
+    return () => {
+      axesHandleRef.current = null;
+      lightHandleRef.current = null;
+      meshHandleRef.current = null;
+      sceneRef.current = null;
+      scene.destroy();
+    };
+  }, [
+    polygons,
+    options.merge,
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+  ]);
+
+  // Effect 2 — cheap: live transform + lighting updates via setOptions.
+  // Sliding sliders only flows through this path.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions({
+      rotX: options.rotX,
+      rotY: options.rotY,
+      zoom: options.zoom,
+      interactive: options.interactive,
+      directionalLight,
+      ambientLight,
+      textureLighting: options.textureLighting,
+    });
+  }, [
+    options.rotX,
+    options.rotY,
+    options.zoom,
+    options.interactive,
+    options.textureLighting,
+    directionalLight,
+    ambientLight,
+  ]);
+
+  // Effect 3 — axes helper. Add/remove based on toggle; rebuild when scale
+  // changes (different bar lengths bake into different polygons).
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!showAxes) {
+      axesHandleRef.current?.dispose();
+      axesHandleRef.current = null;
+      return;
+    }
+    axesHandleRef.current = scene.add(
+      {
+        polygons: axesHelperPolygons({ size: helperScale * 0.6 }),
+        objectUrls: [],
+        warnings: [],
+        dispose: () => {},
+      },
+      { excludeFromAutoCenter: true },
+    );
+    return () => {
+      axesHandleRef.current?.dispose();
+      axesHandleRef.current = null;
+    };
+  }, [showAxes, helperScale, polygons]);
+
+  // Effect 4 — light helper. Octahedron at LOCAL origin so polygons stay
+  // stable across light moves; the light direction only updates the
+  // mesh wrapper transform.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!showLight) {
+      lightHandleRef.current?.dispose();
+      lightHandleRef.current = null;
+      return;
+    }
+    const swatch = directionalLight.color ?? "#ffd54a";
+    lightHandleRef.current = scene.add(
+      {
+        polygons: octahedronPolygons([0, 0, 0], helperScale * 0.05, swatch),
+        objectUrls: [],
+        warnings: [],
+        dispose: () => {},
+      },
+      {
+        position: lightHelperPosition(
+          directionalLight,
+          helperTarget,
+          helperScale * 0.7,
+        ),
+        excludeFromAutoCenter: true,
+      },
+    );
+    return () => {
+      lightHandleRef.current?.dispose();
+      lightHandleRef.current = null;
+    };
+    // directionalLight.color triggers a remount because the swatch is
+    // baked into polygon data; direction is handled by Effect 5 below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showLight, helperScale, directionalLight.color, polygons]);
+
+  // Effect 5 — slide the light helper to the new orbit position whenever
+  // direction or target/distance change. Only updates the wrapper
+  // transform, no atlas work.
+  useEffect(() => {
+    const handle = lightHandleRef.current;
+    if (!handle) return;
+    handle.setTransform({
+      position: lightHelperPosition(
+        directionalLight,
+        helperTarget,
+        helperScale * 0.7,
+      ),
+    });
+  }, [directionalLight, helperTarget, helperScale]);
 
   return <div className="dn-vanilla-host" ref={hostRef} />;
 }
@@ -681,7 +871,8 @@ export default function DebugWorkbench() {
     };
   }, []);
 
-  const directionalLight = useMemo(() => lightFromOptions(sceneOptions), [sceneOptions]);
+  const directionalLight = useMemo(() => directionalFromOptions(sceneOptions), [sceneOptions]);
+  const ambientLight = useMemo(() => ambientFromOptions(sceneOptions), [sceneOptions]);
   const atlasScale = atlasScaleForQuality(sceneOptions.textureQuality);
 
   const scenePolygons = useMemo(() => {
@@ -690,6 +881,40 @@ export default function DebugWorkbench() {
     const floor = buildFloor(base);
     return floor ? [...base, floor] : base;
   }, [loaded, sceneOptions.showFloor]);
+
+  const helperBbox = useMemo(() => {
+    const polygons = loaded?.polygons ?? [];
+    if (polygons.length === 0) return null;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const polygon of polygons) {
+      for (const v of polygon.vertices) {
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+        if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+      }
+    }
+    return { minX, minY, minZ, maxX, maxY, maxZ };
+  }, [loaded]);
+
+  const helperScale = useMemo(() => {
+    if (!helperBbox) return 30;
+    return Math.max(
+      helperBbox.maxX - helperBbox.minX,
+      helperBbox.maxY - helperBbox.minY,
+      helperBbox.maxZ - helperBbox.minZ,
+      1,
+    );
+  }, [helperBbox]);
+
+  const helperTarget = useMemo<[number, number, number]>(() => {
+    if (!helperBbox) return [0, 0, 0];
+    return [
+      (helperBbox.minX + helperBbox.maxX) / 2,
+      (helperBbox.minY + helperBbox.maxY) / 2,
+      (helperBbox.minZ + helperBbox.maxZ) / 2,
+    ];
+  }, [helperBbox]);
 
   const atlasEstimate = useMemo(
     () => estimateAtlasFootprint(scenePolygons),
@@ -838,7 +1063,7 @@ export default function DebugWorkbench() {
           <div className="dn-field dn-field--segment">
             <span>Texture</span>
             <div className="dn-segment">
-              {(["baked", "filter"] as TextureLightingMode[]).map((mode) => (
+              {(["baked", "dynamic"] as TextureLightingMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -867,6 +1092,8 @@ export default function DebugWorkbench() {
           <Toggle label="Auto rotate" checked={sceneOptions.animate} onChange={(value) => updateScene({ animate: value })} />
           <Toggle label="Floor" checked={sceneOptions.showFloor} onChange={(value) => updateScene({ showFloor: value })} />
           <Toggle label="Backfaces" checked={sceneOptions.showBackfaces} onChange={(value) => updateScene({ showBackfaces: value })} />
+          <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
+          <Toggle label="Light" checked={sceneOptions.showLight} onChange={(value) => updateScene({ showLight: value })} />
           {sceneOptions.renderer === "react" && sceneOptions.merge === "slice" && (
             <p className="dn-note">Slice merge runs through the vanilla API in this build.</p>
           )}
@@ -918,6 +1145,11 @@ export default function DebugWorkbench() {
               polygons={scenePolygons}
               options={sceneOptions}
               directionalLight={directionalLight}
+              ambientLight={ambientLight}
+              showAxes={sceneOptions.showAxes}
+              showLight={sceneOptions.showLight}
+              helperScale={helperScale}
+              helperTarget={helperTarget}
               onBuild={setVanillaBuildMs}
             />
           ) : (
@@ -934,10 +1166,21 @@ export default function DebugWorkbench() {
                 merge={sceneOptions.merge === "auto" ? "auto" : "off"}
                 autoCenter={sceneOptions.autoCenter}
                 directionalLight={directionalLight}
+                ambientLight={ambientLight}
                 textureLighting={sceneOptions.textureLighting}
                 atlasScale={atlasScale}
                 debugShowBackfaces={sceneOptions.showBackfaces}
-              />
+              >
+                {sceneOptions.showAxes && <PolyAxesHelper size={helperScale * 0.6} />}
+                {sceneOptions.showLight && (
+                  <PolyDirectionalLightHelper
+                    light={directionalLight}
+                    target={helperTarget}
+                    distance={helperScale * 0.7}
+                    size={helperScale * 0.05}
+                  />
+                )}
+              </PolyScene>
             </PolyCamera>
           )}
         </div>
@@ -959,17 +1202,22 @@ export default function DebugWorkbench() {
         </section>
 
         <section className="dn-panel">
-          <h2>Light</h2>
+          <h2>Directional light</h2>
           <RangeControl label="Azimuth" value={sceneOptions.lightAzimuth} min={0} max={360} step={1} onChange={(value) => updateScene({ lightAzimuth: value })} format={(value) => `${value.toFixed(0)} deg`} />
           <RangeControl label="Elev." value={sceneOptions.lightElevation} min={-90} max={90} step={1} onChange={(value) => updateScene({ lightElevation: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Ambient" value={sceneOptions.ambient} min={0} max={1} step={0.01} onChange={(value) => updateScene({ ambient: value })} format={(value) => value.toFixed(2)} />
+          <RangeControl label="Intensity" value={sceneOptions.lightIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ lightIntensity: value })} format={(value) => value.toFixed(2)} />
           <label className="dn-field dn-field--color">
-            <span>Light</span>
+            <span>Color</span>
             <input type="color" value={sceneOptions.lightColor} onChange={(event) => updateScene({ lightColor: event.currentTarget.value })} />
             <code>{sceneOptions.lightColor}</code>
           </label>
+        </section>
+
+        <section className="dn-panel">
+          <h2>Ambient light</h2>
+          <RangeControl label="Intensity" value={sceneOptions.ambientIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ ambientIntensity: value })} format={(value) => value.toFixed(2)} />
           <label className="dn-field dn-field--color">
-            <span>Ambient</span>
+            <span>Color</span>
             <input type="color" value={sceneOptions.ambientColor} onChange={(event) => updateScene({ ambientColor: event.currentTarget.value })} />
             <code>{sceneOptions.ambientColor}</code>
           </label>

@@ -32,6 +32,12 @@ export type {
 export { Poly } from "./shapes";
 export type { PolyProps, TransformProps, DOMPassthroughProps } from "./shapes";
 
+export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
+export type {
+  PolyAxesHelperProps,
+  PolyDirectionalLightHelperProps,
+} from "./helpers";
+
 export { injectBaseStyles } from "./styles";
 
 // ── Re-exports from @polycss/core for convenience ──────────────────
@@ -40,6 +46,7 @@ export type {
   Vec3,
   Polygon,
   DirectionalLight,
+  AmbientLight,
   TextureLightingMode,
   ParseResult,
   ObjParseOptions,

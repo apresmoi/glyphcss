@@ -9,7 +9,7 @@
  * Attribute parsing — minimal-footprint string → typed conversion. Unknown
  * attributes are ignored (HTML semantics, not validation).
  */
-import type { DirectionalLight, TextureLightingMode, Vec3 } from "@polycss/core";
+import type { AmbientLight, DirectionalLight, TextureLightingMode, Vec3 } from "@polycss/core";
 import {
   createPolyScene,
   type PolySceneOptions,
@@ -26,10 +26,11 @@ const OBSERVED_ATTRS = [
   "rot-x",
   "rot-y",
   "zoom",
-  "light-direction",
-  "light-color",
-  "light-ambient",
-  "light-ambient-color",
+  "directional-direction",
+  "directional-color",
+  "directional-intensity",
+  "ambient-color",
+  "ambient-intensity",
   "merge",
   "texture-lighting",
   "atlas-scale",
@@ -64,7 +65,7 @@ function parseMerge(value: string | null): "off" | "auto" | undefined {
 }
 
 function parseTextureLighting(value: string | null): TextureLightingMode | undefined {
-  if (value === "baked" || value === "filter") return value;
+  if (value === "baked" || value === "dynamic") return value;
   return undefined;
 }
 
@@ -89,7 +90,8 @@ export class PolySceneElement extends ELEMENT_BASE {
   }
 
   private _readOptions(): PolySceneOptions {
-    const directionalLight = this._readLight();
+    const directionalLight = this._readDirectionalLight();
+    const ambientLight = this._readAmbientLight();
     const opts: PolySceneOptions = {};
     const perspective = parsePerspective(this.getAttribute("perspective"));
     if (perspective !== undefined) opts.perspective = perspective;
@@ -108,24 +110,31 @@ export class PolySceneElement extends ELEMENT_BASE {
     opts.autoCenter = this.hasAttribute("auto-center");
     opts.interactive = this.hasAttribute("interactive");
     if (directionalLight) opts.directionalLight = directionalLight;
+    if (ambientLight) opts.ambientLight = ambientLight;
     return opts;
   }
 
-  private _readLight(): DirectionalLight | undefined {
-    const direction = parseVec3(this.getAttribute("light-direction"));
-    const color = this.getAttribute("light-color") || undefined;
-    const ambientColor = this.getAttribute("light-ambient-color") || undefined;
-    const ambient = parseNumber(this.getAttribute("light-ambient"));
-    if (!direction && !color && !ambientColor && ambient === undefined) {
-      return undefined;
-    }
+  private _readDirectionalLight(): DirectionalLight | undefined {
+    const direction = parseVec3(this.getAttribute("directional-direction"));
+    const color = this.getAttribute("directional-color") || undefined;
+    const intensity = parseNumber(this.getAttribute("directional-intensity"));
+    if (!direction && !color && intensity === undefined) return undefined;
     const light: DirectionalLight = {
       direction: direction ?? [0.4, -0.7, 0.59],
     };
     if (color) light.color = color;
-    if (ambientColor) light.ambientColor = ambientColor;
-    if (ambient !== undefined) light.ambient = ambient;
+    if (intensity !== undefined) light.intensity = intensity;
     return light;
+  }
+
+  private _readAmbientLight(): AmbientLight | undefined {
+    const color = this.getAttribute("ambient-color") || undefined;
+    const intensity = parseNumber(this.getAttribute("ambient-intensity"));
+    if (!color && intensity === undefined) return undefined;
+    const ambient: AmbientLight = {};
+    if (color) ambient.color = color;
+    if (intensity !== undefined) ambient.intensity = intensity;
+    return ambient;
   }
 
   connectedCallback(): void {

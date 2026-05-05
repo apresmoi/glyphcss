@@ -28,6 +28,7 @@ import {
   TextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
+import { usePolySceneContext } from "./sceneContext";
 
 export interface PolyMeshProps extends TransformProps {
   /** URL to .obj / .glb / .gltf. Mutually exclusive with `polygons`. */
@@ -142,11 +143,27 @@ export function PolyMesh({
     ...style,
   };
 
+  // Inherit textureLighting + lights from the parent <PolyScene> so that
+  // helper polygons (e.g. light marker octahedron) participate in the
+  // scene's dynamic mode instead of getting overpainted by the scene's
+  // global CSS rule with default normals.
+  const sceneCtx = usePolySceneContext();
+  const effectiveTextureLighting = textureLighting ?? sceneCtx?.textureLighting ?? "baked";
+  const effectiveDirectional =
+    effectiveTextureLighting === "dynamic" ? undefined : sceneCtx?.directionalLight;
+  const effectiveAmbient =
+    effectiveTextureLighting === "dynamic" ? undefined : sceneCtx?.ambientLight;
+
   const atlasPlans = useMemo(
-    () => !children ? polygons.map((p, i) => computeTextureAtlasPlan(p, i)) : [],
-    [children, polygons],
+    () => !children
+      ? polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
+          directionalLight: effectiveDirectional,
+          ambientLight: effectiveAmbient,
+        }))
+      : [],
+    [children, polygons, effectiveDirectional, effectiveAmbient],
   );
-  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting ?? "baked", atlasScale);
+  const textureAtlas = useTextureAtlas(atlasPlans, effectiveTextureLighting, atlasScale);
 
   // Loading + error slots only apply when we're fetching from `src`.
   if (src) {
@@ -189,7 +206,7 @@ export function PolyMesh({
             key={entry.index}
             entry={entry}
             page={textureAtlas.pages[entry.pageIndex]}
-            textureLighting={textureLighting ?? "baked"}
+            textureLighting={effectiveTextureLighting}
           />
         ) : (
           null

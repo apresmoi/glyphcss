@@ -49,6 +49,7 @@ export const PolyCamera = defineComponent({
       store,
       cameraRef,
       sceneElRef,
+      cameraElRef,
       onPointerDown,
       onPointerMove,
       onPointerUp,
@@ -75,6 +76,7 @@ export const PolyCamera = defineComponent({
       return h(
         "div",
         {
+          ref: cameraElRef,
           class: `polycss-camera${props.class ? ` ${props.class}` : ""}`,
           style: cameraStyle,
           onPointerdown: props.interactive ? onPointerDown : undefined,

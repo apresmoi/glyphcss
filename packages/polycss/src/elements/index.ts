@@ -1,6 +1,6 @@
 /**
- * polycss/elements — side-effect entry that registers <poly-scene>,
- * <poly-mesh>, <poly-polygon> with `customElements`.
+ * polycss/elements — side-effect entry that registers the polycss custom
+ * elements with `customElements`.
  *
  * Importing this module has the effect of making the elements available
  * in HTML. Re-imports are safe (idempotent registration check).
@@ -12,6 +12,8 @@
 import { PolySceneElement } from "./PolySceneElement";
 import { PolyMeshElement } from "./PolyMeshElement";
 import { PolyPolygonElement } from "./PolyPolygonElement";
+import { PolyAxesHelperElement } from "./PolyAxesHelperElement";
+import { PolyDirectionalLightHelperElement } from "./PolyDirectionalLightHelperElement";
 
 if (typeof customElements !== "undefined") {
   if (!customElements.get("poly-scene")) {
@@ -23,6 +25,21 @@ if (typeof customElements !== "undefined") {
   if (!customElements.get("poly-polygon")) {
     customElements.define("poly-polygon", PolyPolygonElement);
   }
+  if (!customElements.get("poly-axes-helper")) {
+    customElements.define("poly-axes-helper", PolyAxesHelperElement);
+  }
+  if (!customElements.get("poly-directional-light-helper")) {
+    customElements.define(
+      "poly-directional-light-helper",
+      PolyDirectionalLightHelperElement,
+    );
+  }
 }
 
-export { PolySceneElement, PolyMeshElement, PolyPolygonElement };
+export {
+  PolySceneElement,
+  PolyMeshElement,
+  PolyPolygonElement,
+  PolyAxesHelperElement,
+  PolyDirectionalLightHelperElement,
+};

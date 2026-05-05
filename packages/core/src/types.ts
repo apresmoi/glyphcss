@@ -2,13 +2,17 @@
 export const DEFAULT_PROJECTION = "cubic" as const;
 
 /**
- * How textured polygon lighting is applied by DOM renderers.
+ * How polygon lighting is applied by DOM renderers.
  * - "baked": multiply the light tint into the off-DOM canvas before the
- *   polygon becomes an atlas sprite.
- * - "filter": leave the texture pixels unbaked and apply a CSS brightness()
- *   filter to the atlas sprite.
+ *   polygon becomes an atlas sprite. Best fidelity (full RGB tint) but
+ *   the atlas re-rasterizes whenever the light changes.
+ * - "dynamic": lighting computed entirely in CSS via per-polygon normals
+ *   embedded in calc() and scene-root light vars (background-color +
+ *   background-blend-mode multiply, masked by the atlas alpha). Atlas
+ *   stays light-independent — sliding the light only writes a few CSS
+ *   variables, no JS work, no atlas re-rasterization.
  */
-export type TextureLightingMode = "baked" | "filter";
+export type TextureLightingMode = "baked" | "dynamic";
 
 /**
  * 3D point/vector, stored as a `[x, y, z]` tuple. Tuple (rather than
@@ -29,21 +33,31 @@ export type Vec3 = [number, number, number];
 export type Vec2 = [number, number];
 
 /**
- * Directional light setup used by the polygon renderer for polygon Lambert
- * shading. Direction is in scene-local CSS-pixel coords. Vector doesn't
- * need to be pre-normalized. Color is multiplied into the surface color
- * for the directional contribution; ambient (RGB) provides the floor for
- * faces pointing away from the light.
+ * Directional light — simulates a single distant source (sun, key light).
+ * Contributes Lambert shading scaled by `intensity`. `direction` is in
+ * scene-local CSS-pixel coords and does not need to be pre-normalized.
+ * Mirrors three.js's `DirectionalLight`.
  */
 export interface DirectionalLight {
   /** Direction the light shines TOWARD (typical convention). */
   direction: Vec3;
   /** Light tint, hex string. White by default. */
   color?: string;
-  /** Ambient light tint, hex string. Pre-multiplied by `ambient` strength. */
-  ambientColor?: string;
-  /** Ambient strength 0..1 — floor brightness for back-of-light faces. */
-  ambient?: number;
+  /** Scalar multiplier on the directional contribution. Default 1. */
+  intensity?: number;
+}
+
+/**
+ * Ambient light — uniform fill that adds to every polygon regardless of
+ * orientation. Mirrors three.js's `AmbientLight`. Decoupled from the
+ * directional contribution: the two add independently rather than
+ * splitting a fixed energy budget.
+ */
+export interface AmbientLight {
+  /** Tint, hex string. White by default. */
+  color?: string;
+  /** Scalar multiplier on the ambient contribution. Default 0.4. */
+  intensity?: number;
 }
 
 /**

@@ -252,15 +252,25 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("uses CSS filter for textured faces when textureLighting=filter", () => {
-    const uvPoly: Polygon = {
-      vertices: FLAT_TRIANGLE.vertices,
-      texture: "https://example.com/tex.png",
-      uvs: [[0, 0], [1, 0], [0, 1]],
-    };
-    const result = renderPolygonsWithTextureAtlas([uvPoly], { textureLighting: "filter" });
+  it("emits per-polygon normal vars in dynamic mode", () => {
+    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { textureLighting: "dynamic" });
     const element = result.rendered[0].element;
-    expect(element.style.filter).toContain("brightness(");
+    // The calc-driven background-color + background-blend-mode now live
+    // in the global stylesheet (scoped to data-polycss-lighting="dynamic"
+    // on the scene). Per-polygon style only carries the surface normal
+    // — much smaller payload per element on big meshes.
+    expect(element.style.getPropertyValue("--polycss-nx")).not.toBe("");
+    expect(element.style.getPropertyValue("--polycss-ny")).not.toBe("");
+    expect(element.style.getPropertyValue("--polycss-nz")).not.toBe("");
+    result.dispose();
+  });
+
+  it("does not emit dynamic style hooks in baked mode", () => {
+    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { textureLighting: "baked" });
+    const element = result.rendered[0].element;
+    expect(element.style.backgroundColor).toBe("");
+    expect(element.style.backgroundBlendMode).toBe("");
+    expect(element.style.getPropertyValue("--polycss-nx")).toBe("");
     result.dispose();
   });
 

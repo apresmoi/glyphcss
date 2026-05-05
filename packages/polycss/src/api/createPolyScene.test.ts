@@ -276,6 +276,33 @@ describe("createPolyScene", () => {
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
       expect(sceneEl.style.perspective).toBe("none");
     });
+
+    it("emits dynamic light cascade vars on the scene element when textureLighting='dynamic'", () => {
+      scene = createPolyScene(host, {
+        textureLighting: "dynamic",
+        directionalLight: { direction: [0, 0, 1], color: "#ff8800", intensity: 1.5 },
+        ambientLight: { color: "#222222", intensity: 0.3 },
+      });
+      const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
+      expect(sceneEl.dataset.polycssLighting).toBe("dynamic");
+      expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("1.0000");
+      expect(sceneEl.style.getPropertyValue("--polycss-li")).toBe("1.5000");
+      expect(sceneEl.style.getPropertyValue("--polycss-ai")).toBe("0.3000");
+      // #ff8800 → r=255 (1), g=136 (0.5333), b=0 (0).
+      expect(sceneEl.style.getPropertyValue("--polycss-lr")).toBe("1.0000");
+      expect(sceneEl.style.getPropertyValue("--polycss-lb")).toBe("0.0000");
+      // #222222 → r=g=b=34 (0.1333).
+      expect(sceneEl.style.getPropertyValue("--polycss-ar")).toBe("0.1333");
+    });
+
+    it("removes dynamic light vars when textureLighting flips back to baked", () => {
+      scene = createPolyScene(host, { textureLighting: "dynamic" });
+      const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
+      expect(sceneEl.style.getPropertyValue("--polycss-lz")).not.toBe("");
+      scene.setOptions({ textureLighting: "baked" });
+      expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("");
+      expect(sceneEl.dataset.polycssLighting).toBe("baked");
+    });
   });
 
   describe("destroy", () => {
@@ -386,6 +413,38 @@ describe("createPolyScene", () => {
       scene.add(makeParseResult([tri]));
       const centerWrapper = getCenterWrapper(host);
       expect(centerWrapper.style.transform).toContain("-50px");
+    });
+
+    it("excludeFromAutoCenter meshes do not shift the bbox", () => {
+      // The chicken (one triangle) defines the bbox. An overlay mesh added
+      // far from the origin would normally pull the center toward itself
+      // — but with excludeFromAutoCenter:true the overlay is ignored.
+      const chicken: Polygon = {
+        vertices: [
+          [0, 0, 0],
+          [1, 0, 0],
+          [0, 1, 0],
+        ],
+        color: "#fff",
+      };
+      const farAway: Polygon = {
+        vertices: [
+          [100, 100, 0],
+          [101, 100, 0],
+          [100, 101, 0],
+        ],
+        color: "#fff",
+      };
+      scene = createPolyScene(host, { autoCenter: true });
+      scene.add(makeParseResult([chicken]));
+      const centerWrapper = getCenterWrapper(host);
+      const before = centerWrapper.style.transform;
+      scene.add(makeParseResult([farAway]), { excludeFromAutoCenter: true });
+      expect(centerWrapper.style.transform).toBe(before);
+
+      // Sanity check: without the flag, the same overlay DOES shift the bbox.
+      scene.add(makeParseResult([farAway]));
+      expect(centerWrapper.style.transform).not.toBe(before);
     });
   });
 });

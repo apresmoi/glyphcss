@@ -6,6 +6,14 @@ import { createSceneStore, type SceneStore } from "../store";
 
 const POINTER_DRAG_SPEED = 5;
 
+// Wheel-zoom tuning. Mirrors createPolyScene (vanilla) so all three
+// renderers feel identical. Multiplicative step (exp(-deltaY * k)) gives
+// smooth zooming across the full range; deltaMode normalization handles
+// browsers that report wheel deltas in lines (33 px/line) or pages (~800).
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 8;
+const ZOOM_STEP = 0.0015;
+
 export interface UseCameraOptions {
   zoom?: number;
   pan?: number;
@@ -21,6 +29,12 @@ export interface UseCameraResult {
   store: SceneStore;
   cameraRef: Ref<CameraHandle>;
   sceneElRef: Ref<HTMLElement | null>;
+  /**
+   * Bind to the camera root element. We need the underlying ref so we can
+   * wire a non-passive `wheel` listener (Vue's `@wheel` is passive by
+   * default in modern versions and can't `preventDefault()`).
+   */
+  cameraElRef: Ref<HTMLDivElement | null>;
   onPointerDown: (e: PointerEvent) => void;
   onPointerMove: (e: PointerEvent) => void;
   onPointerUp: (e: PointerEvent) => void;
@@ -65,6 +79,7 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
 
   const cameraRef = shallowRef<CameraHandle>(handle);
   const sceneElRef = ref<HTMLElement | null>(null);
+  const cameraElRef = ref<HTMLDivElement | null>(null);
   const store = createSceneStore(handle.state);
 
   const isDragging = ref(false);
@@ -152,12 +167,39 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     startAnimation();
   });
 
+  // Wheel → zoom. Browsers translate trackpad pinch into wheel events with
+  // ctrlKey=true, so this covers desktop scroll + Mac pinch in one path.
+  // Attached as a native, non-passive listener so we can preventDefault()
+  // (Vue's @wheel is passive by default in modern versions).
+  let detachWheel: (() => void) | null = null;
+  function attachWheel(): void {
+    detachWheel?.();
+    const el = cameraElRef.value;
+    if (!el) return;
+    const onWheel = (e: WheelEvent): void => {
+      if (!options.value.interactive) return;
+      e.preventDefault();
+      const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
+      const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
+      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, handle.state.zoom * factor));
+      handle.update({ zoom: next });
+      applyTransformDirect();
+      store.updateCameraFromRef(handle);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    detachWheel = () => el.removeEventListener("wheel", onWheel);
+  }
+
+  watch(cameraElRef, () => attachWheel());
+
   onMounted(() => {
     startAnimation();
+    attachWheel();
   });
 
   onBeforeUnmount(() => {
     stopAnimation();
+    detachWheel?.();
   });
 
   const cursor = ref("grab");
@@ -219,6 +261,7 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     store,
     cameraRef,
     sceneElRef,
+    cameraElRef,
     onPointerDown,
     onPointerMove,
     onPointerUp,

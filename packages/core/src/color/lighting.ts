@@ -11,7 +11,7 @@
  * for performance, but the helper exists for users who want to shade
  * polygons outside the renderer (e.g. SSR, validators, alternate backends).
  */
-import type { DirectionalLight, Vec3 } from "../types";
+import type { AmbientLight, DirectionalLight, Vec3 } from "../types";
 import {
   type ParsedColor,
   parsePureColor,
@@ -54,11 +54,15 @@ export function shadeColor(base: string, delta: number): string {
   return formatColor({ rgb, alpha: parsed.alpha });
 }
 
-const DEFAULT_LIGHT: Required<Omit<DirectionalLight, "ambientColor">> & { ambientColor: string } = {
+const DEFAULT_DIRECTIONAL: Required<DirectionalLight> = {
   direction: [0, 0, -1],
   color: "#ffffff",
-  ambientColor: "#ffffff",
-  ambient: 0.35
+  intensity: 1,
+};
+
+const DEFAULT_AMBIENT: Required<AmbientLight> = {
+  color: "#ffffff",
+  intensity: 0.4,
 };
 
 function normalizeVec3(v: Vec3): Vec3 {
@@ -74,40 +78,42 @@ function tintChannel(base: number, tintHex: string, channel: 0 | 1 | 2): number 
 }
 
 /**
- * Per-polygon Lambert shading. Given a polygon's outward normal and a
- * directional light, returns the shaded color as a CSS rgb string.
+ * Per-polygon Lambert shading. Given a polygon's outward normal and the
+ * scene's lights, returns the shaded color as a CSS rgb string.
  *
- * Math: lambert = max(0, normal · (-lightDir)). Final color =
- *   ambientContribution + (lambert * (1 - ambient) * directionalContribution)
- * where each contribution is base color tinted by light color (or ambient
- * color) per-channel.
+ * Math (decoupled, three.js convention):
+ *   tint = ambient.color · ambient.intensity
+ *        + directional.color · directional.intensity · max(0, n · (−L))
+ *   final = baseColor × tint
  *
- * Pass `light` undefined to use the default light (top-down white,
- * ambient 0.35) — useful for static SSR/validator renders where the
- * caller just wants "looks shaded, doesn't matter how".
+ * Pass `directional` and/or `ambient` undefined to fall back to defaults
+ * (top-down white directional with intensity 1, white ambient with
+ * intensity 0.4) — useful for static SSR/validator renders.
  */
 export function computeShapeLighting(
   normal: Vec3,
   baseColor: string,
-  light?: DirectionalLight,
+  directional?: DirectionalLight,
+  ambient?: AmbientLight,
 ): string {
   const base = parseColor(baseColor) ?? defaultColor;
-  const dir = normalizeVec3(light?.direction ?? DEFAULT_LIGHT.direction);
-  const lightHex = light?.color ?? DEFAULT_LIGHT.color;
-  const ambientHex = light?.ambientColor ?? DEFAULT_LIGHT.ambientColor;
-  const ambient = Math.max(0, Math.min(1, light?.ambient ?? DEFAULT_LIGHT.ambient));
+  const dir = normalizeVec3(directional?.direction ?? DEFAULT_DIRECTIONAL.direction);
+  const lightHex = directional?.color ?? DEFAULT_DIRECTIONAL.color;
+  const lightIntensity = Math.max(0, directional?.intensity ?? DEFAULT_DIRECTIONAL.intensity);
+  const ambientHex = ambient?.color ?? DEFAULT_AMBIENT.color;
+  const ambientIntensity = Math.max(0, ambient?.intensity ?? DEFAULT_AMBIENT.intensity);
 
   const n = normalizeVec3(normal);
   // Light shines TOWARD `dir`; surface receives light when its outward
   // normal points back toward the source (-dir).
   const lambert = Math.max(0, -(n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]));
-  const directional = (1 - ambient) * lambert;
+  const directionalScale = lightIntensity * lambert;
 
   const out: [number, number, number] = [0, 0, 0];
   for (let c = 0 as 0 | 1 | 2; c < 3; c = (c + 1) as 0 | 1 | 2) {
     const baseC = base.rgb[c];
-    const ambContrib = tintChannel(baseC, ambientHex, c) * ambient;
-    const dirContrib = tintChannel(baseC, lightHex, c) * directional;
+    const ambContrib = tintChannel(baseC, ambientHex, c) * ambientIntensity;
+    const dirContrib = tintChannel(baseC, lightHex, c) * directionalScale;
     out[c] = clampChannel(ambContrib + dirContrib);
   }
   return formatColor({ rgb: out, alpha: base.alpha });

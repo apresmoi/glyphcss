@@ -86,15 +86,6 @@ describe("Poly — solid color polygon", () => {
     expect(poly.style.backgroundRepeat).toBe("");
   });
 
-  it("does not apply texture filter to solid faces", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      textureLighting: "filter",
-    });
-    const poly = getPoly(container);
-    expect(poly.style.filter).toBe("");
-  });
-
   it("renders null for degenerate vertices", () => {
     const container = renderPoly({
       vertices: [
@@ -152,15 +143,6 @@ describe("Poly — texture without UVs", () => {
     });
     expect(getPoly(container).style.filter).toBe("");
   });
-
-  it("uses CSS filter when textureLighting=filter", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      texture: "https://example.com/tex.png",
-      textureLighting: "filter",
-    });
-    expect(getPoly(container).style.filter).toContain("brightness(");
-  });
 });
 
 describe("Poly — UV-mapped texture", () => {
@@ -187,14 +169,45 @@ describe("Poly — UV-mapped texture", () => {
     expect(poly.style.transform).toContain("matrix3d(");
   });
 
-  it("uses CSS filter when textureLighting=filter", () => {
+});
+
+describe("Poly — dynamic lighting", () => {
+  beforeEach(() => {
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:dyn-test"),
+      revokeObjectURL: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("emits per-polygon normal vars in dynamic mode", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
-      texture: "https://example.com/tex.png",
-      textureLighting: "filter",
-      uvs: [[0, 0], [1, 0], [0, 1]],
+      textureLighting: "dynamic",
     });
-    expect(getPoly(container).style.filter).toContain("brightness(");
+    const poly = getPoly(container);
+    // The calc-driven background-color + background-blend-mode now live
+    // in the global stylesheet (scoped to data-polycss-lighting="dynamic"
+    // on the scene). Per-polygon style only carries the surface normal —
+    // much smaller payload per element on big meshes.
+    expect(poly.style.getPropertyValue("--polycss-nx")).not.toBe("");
+    expect(poly.style.getPropertyValue("--polycss-ny")).not.toBe("");
+    expect(poly.style.getPropertyValue("--polycss-nz")).not.toBe("");
+  });
+
+  it("does not emit the dynamic style hooks in baked mode", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+    });
+    const poly = getPoly(container);
+    expect(poly.style.backgroundColor).toBe("");
+    expect(poly.style.backgroundBlendMode).toBe("");
+    expect(poly.style.getPropertyValue("--polycss-nx")).toBe("");
+    expect(poly.getAttribute("style") ?? "").not.toContain("mask-image");
   });
 });
 

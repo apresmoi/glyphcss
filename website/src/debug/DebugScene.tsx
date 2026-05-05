@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PolyCamera, PolyScene } from "@polycss/react";
-import type { Polygon } from "@polycss/react";
+import {
+  PolyAxesHelper,
+  PolyCamera,
+  PolyDirectionalLightHelper,
+  PolyScene,
+} from "@polycss/react";
+import type { Polygon, TextureLightingMode } from "@polycss/react";
 import PolygonCanvas from "./PolygonCanvas";
 import { useDebug } from "./DebugLayout";
 import { DebugSection } from "./DebugSection";
@@ -65,6 +70,9 @@ export function DebugScene({
   // second polygon backface element.
   const [showBackfaces, setShowBackfaces] = useState(false);
   const [debugShowLabels, setDebugShowLabels] = useState(false);
+  const [showAxes, setShowAxes] = useState(false);
+  const [showLightHelper, setShowLightHelper] = useState(false);
+  const [textureLighting, setTextureLighting] = useState<TextureLightingMode>("baked");
 
   // Lighting controls (for triangle/polygon shading). Direction is held as
   // azimuth (0..360°, rotation around vertical) + elevation (-90..90°,
@@ -73,8 +81,9 @@ export function DebugScene({
   // (+X right, +Y down, +Z toward viewer).
   const [lightAzimuth, setLightAzimuth] = useState(50);
   const [lightElevation, setLightElevation] = useState(45);
-  const [ambient, setAmbient] = useState(0.45);
+  const [lightIntensity, setLightIntensity] = useState(1);
   const [lightColor, setLightColor] = useState("#ffffff");
+  const [ambientIntensity, setAmbientIntensity] = useState(0.4);
   const [ambientColor, setAmbientColor] = useState("#ffffff");
   const [directionalEnabled, setDirectionalEnabled] = useState(true);
   const [ambientEnabled, setAmbientEnabled] = useState(true);
@@ -82,11 +91,8 @@ export function DebugScene({
   const directionalLight = useMemo(() => {
     const az = (lightAzimuth * Math.PI) / 180;
     const el = (lightElevation * Math.PI) / 180;
-    // CSS-pixel space inside Triangle.tsx (after the voxel.x↔voxel.y axis
-    // swap):
-    //   CSS-x = voxcss horizontal
-    //   CSS-y = voxcss depth (forward / back)
-    //   CSS-z = voxcss elevation ("up")
+    // CSS-pixel space:
+    //   CSS-x = horizontal, CSS-y = depth, CSS-z = elevation ("up").
     // "Direction" is from the surface TO the light source, so elevation=90°
     // means light is directly overhead → +CSS-z.
     const cosEl = Math.cos(el);
@@ -95,16 +101,20 @@ export function DebugScene({
       cosEl * Math.cos(az),
       Math.sin(el),
     ];
-    // Disabling either contribution = zero out its tint. Since the renderer
-    // multiplies channel-wise, an effective color of "#000000" makes the
-    // contribution drop to zero without removing the field.
     return {
       direction,
-      color: directionalEnabled ? lightColor : "#000000",
-      ambientColor: ambientEnabled ? ambientColor : "#000000",
-      ambient: ambientEnabled ? ambient : 0,
+      color: lightColor,
+      intensity: directionalEnabled ? lightIntensity : 0,
     };
-  }, [lightAzimuth, lightElevation, ambient, lightColor, ambientColor, directionalEnabled, ambientEnabled]);
+  }, [lightAzimuth, lightElevation, lightIntensity, lightColor, directionalEnabled]);
+
+  const ambientLight = useMemo(
+    () => ({
+      color: ambientColor,
+      intensity: ambientEnabled ? ambientIntensity : 0,
+    }),
+    [ambientColor, ambientIntensity, ambientEnabled],
+  );
 
   const sceneContainerRef = useRef<HTMLDivElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
@@ -134,6 +144,45 @@ export function DebugScene({
     return () => { for (const el of els) el.removeEventListener("wheel", onWheel); };
   }, [showVoxcss, showCanvas]);
 
+  // Mesh bbox in world coords, used to size both the floor and the axis /
+  // light helpers so they visually fit the current model.
+  const meshBbox = useMemo(() => {
+    if (voxels.length === 0) return null;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const p of voxels) {
+      for (const v of p.vertices) {
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+        if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+      }
+    }
+    return { minX, minY, minZ, maxX, maxY, maxZ };
+  }, [voxels]);
+
+  // Largest mesh extent — drives helper sizing so axes / light marker scale
+  // with the model. Falls back to a sane default when the mesh is empty.
+  const helperScale = useMemo(() => {
+    if (!meshBbox) return 4;
+    return Math.max(
+      meshBbox.maxX - meshBbox.minX,
+      meshBbox.maxY - meshBbox.minY,
+      meshBbox.maxZ - meshBbox.minZ,
+      1,
+    );
+  }, [meshBbox]);
+
+  // Bbox center — light helper orbits around this so the marker lands
+  // outside the mesh even when its authored origin is at a corner.
+  const helperTarget = useMemo<Vec3>(() => {
+    if (!meshBbox) return [0, 0, 0];
+    return [
+      (meshBbox.minX + meshBbox.maxX) / 2,
+      (meshBbox.minY + meshBbox.maxY) / 2,
+      (meshBbox.minZ + meshBbox.maxZ) / 2,
+    ];
+  }, [meshBbox]);
+
   // Floor: a single square polygon at world z=0, sized to the mesh bbox
   // in X/Y plus 20% padding so it visibly extends past the shape's edge.
   // Concatenated to the rendered polygon list when "Show floor" is on.
@@ -142,15 +191,8 @@ export function DebugScene({
   // procedural shapes (Platonic, Sphere) world z=0 cuts through the
   // middle — that's the convention; user can mentally adjust.
   const renderedPolygons = useMemo(() => {
-    if (!showFloor) return voxels;
-    if (voxels.length === 0) return voxels;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of voxels) {
-      for (const v of p.vertices) {
-        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
-        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
-      }
-    }
+    if (!showFloor || !meshBbox) return voxels;
+    const { minX, minY, maxX, maxY } = meshBbox;
     const padX = (maxX - minX) * 0.2;
     const padY = (maxY - minY) * 0.2;
     const x0 = minX - padX, x1 = maxX + padX;
@@ -165,7 +207,7 @@ export function DebugScene({
       color: "#3a3a3a",
     };
     return [...voxels, floor];
-  }, [voxels, showFloor]);
+  }, [voxels, showFloor, meshBbox]);
 
   // Track canvas pane size for the polygon renderer.
   useEffect(() => {
@@ -203,6 +245,14 @@ export function DebugScene({
           <input type="checkbox" checked={showFloor} onChange={(e) => setShowFloor(e.target.checked)} />
           <span>Show floor</span>
         </label>
+        <label className="debug-checkbox" title="X=red, Y=green, Z=blue (world axes from origin)">
+          <input type="checkbox" checked={showAxes} onChange={(e) => setShowAxes(e.target.checked)} />
+          <span>Show axes</span>
+        </label>
+        <label className="debug-checkbox" title="Marker placed along the directional light's source direction">
+          <input type="checkbox" checked={showLightHelper} onChange={(e) => setShowLightHelper(e.target.checked)} />
+          <span>Show light</span>
+        </label>
         <label className="debug-checkbox" title="Show the back side of every shape (wall-mask culled cube faces + triangle/polygon back faces) tinted in orange">
           <input type="checkbox" checked={showBackfaces} onChange={(e) => setShowBackfaces(e.target.checked)} />
           <span style={{ color: showBackfaces ? "#fdba74" : undefined }}>Show back-faces</span>
@@ -225,6 +275,16 @@ export function DebugScene({
       </DebugSection>
 
       <DebugSection title="Light" dock="bottom">
+        <Row label="Mode">
+          <Pills<TextureLightingMode>
+            value={textureLighting}
+            onChange={setTextureLighting}
+            options={[
+              { value: "baked", label: "baked" },
+              { value: "dynamic", label: "dynamic" },
+            ]}
+          />
+        </Row>
         <label className="debug-checkbox">
           <input type="checkbox" checked={directionalEnabled} onChange={(e) => setDirectionalEnabled(e.target.checked)} />
           <span>Directional</span>
@@ -236,6 +296,9 @@ export function DebugScene({
             </Row>
             <Row label="Elev.">
               <Slider value={lightElevation} onChange={setLightElevation} min={-90} max={90} step={1} format={(v) => `${v.toFixed(0)}°`} />
+            </Row>
+            <Row label="Intensity">
+              <Slider value={lightIntensity} onChange={setLightIntensity} min={0} max={2} step={0.05} format={(v) => v.toFixed(2)} />
             </Row>
             <div className="debug-row">
               <span>Color</span>
@@ -250,8 +313,8 @@ export function DebugScene({
         </label>
         {ambientEnabled && (
           <>
-            <Row label="Strength">
-              <Slider value={ambient} onChange={setAmbient} min={0} max={1} step={0.05} format={(v) => v.toFixed(2)} />
+            <Row label="Intensity">
+              <Slider value={ambientIntensity} onChange={setAmbientIntensity} min={0} max={2} step={0.05} format={(v) => v.toFixed(2)} />
             </Row>
             <div className="debug-row">
               <span>Color</span>
@@ -277,7 +340,19 @@ export function DebugScene({
               merge={mergeMode === "auto" ? "auto" : "off"}
               autoCenter={autoCenter}
               directionalLight={directionalLight}
-            />
+              ambientLight={ambientLight}
+              textureLighting={textureLighting}
+            >
+              {showAxes && <PolyAxesHelper size={helperScale * 0.6} />}
+              {showLightHelper && (
+                <PolyDirectionalLightHelper
+                  light={directionalLight}
+                  target={helperTarget}
+                  distance={helperScale * 0.7}
+                  size={helperScale * 0.05}
+                />
+              )}
+            </PolyScene>
           </PolyCamera>
         </div>
       )}

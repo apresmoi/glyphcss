@@ -39,6 +39,7 @@ function PolyCameraInner({
     store,
     cameraRef,
     sceneElRef,
+    cameraElRef,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -68,6 +69,7 @@ function PolyCameraInner({
   return (
     <PolyCameraContext.Provider value={contextValue}>
       <div
+        ref={cameraElRef}
         className={`polycss-camera${className ? ` ${className}` : ""}`}
         style={cameraStyle}
         onPointerDown={interactive ? onPointerDown : undefined}

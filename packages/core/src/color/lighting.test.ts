@@ -72,46 +72,56 @@ describe("shadeColor", () => {
 describe("computeShapeLighting", () => {
   it("face pointing toward light is fully lit (lambert = 1)", () => {
     // Light shines toward [0,0,-1] (down). A face whose normal is [0,0,1] (up)
-    // catches the light fully.
-    const result = computeShapeLighting([0, 0, 1], "#808080", {
-      direction: [0, 0, -1],
-      color: "#ffffff",
-      ambientColor: "#ffffff",
-      ambient: 0
-    });
+    // catches the light fully. With ambient intensity 0, only the
+    // directional contribution applies.
+    const result = computeShapeLighting(
+      [0, 0, 1],
+      "#808080",
+      { direction: [0, 0, -1], color: "#ffffff", intensity: 1 },
+      { color: "#ffffff", intensity: 0 },
+    );
     expect(result).toBe("rgb(128, 128, 128)");
   });
 
   it("face pointing away from light gets ambient only", () => {
-    const result = computeShapeLighting([0, 0, -1], "#808080", {
-      direction: [0, 0, -1],
-      color: "#ffffff",
-      ambientColor: "#ffffff",
-      ambient: 0.5
-    });
+    const result = computeShapeLighting(
+      [0, 0, -1],
+      "#808080",
+      { direction: [0, 0, -1], color: "#ffffff", intensity: 1 },
+      { color: "#ffffff", intensity: 0.5 },
+    );
     // ambient * base = 0.5 * 128 = 64
     expect(result).toBe("rgb(64, 64, 64)");
   });
 
   it("perpendicular face gets ambient only", () => {
-    const result = computeShapeLighting([1, 0, 0], "#808080", {
-      direction: [0, 0, -1],
-      color: "#ffffff",
-      ambientColor: "#ffffff",
-      ambient: 0.4
-    });
-    // perpendicular: lambert = 0; only ambient applies
-    // 0.4 * 128 = 51.2 → 51
+    const result = computeShapeLighting(
+      [1, 0, 0],
+      "#808080",
+      { direction: [0, 0, -1], color: "#ffffff", intensity: 1 },
+      { color: "#ffffff", intensity: 0.4 },
+    );
+    // perpendicular: lambert = 0; only ambient applies → 0.4 * 128 = 51
     expect(result).toBe("rgb(51, 51, 51)");
   });
 
-  it("uses default light when light arg is omitted", () => {
-    // Default has direction [0,0,-1], ambient 0.35; face up gets full light.
+  it("uses default lights when args are omitted", () => {
+    // Defaults: directional intensity 1 + ambient intensity 0.4. Face up gets
+    // full light from a top-down default direction.
+    // tint = 0.4 + 1*1 = 1.4; channel = 128 * 1.4 = 179.2 → 179.
     const result = computeShapeLighting([0, 0, 1], "#808080");
-    // ambient 0.35 * 128 = 44.8 → 45
-    // directional 0.65 * 128 = 83.2 → 83
-    // total = 128 (clamped)
-    expect(result).toBe("rgb(128, 128, 128)");
+    expect(result).toBe("rgb(179, 179, 179)");
+  });
+
+  it("directional intensity scales the lit contribution independently of ambient", () => {
+    const half = computeShapeLighting(
+      [0, 0, 1],
+      "#808080",
+      { direction: [0, 0, -1], color: "#ffffff", intensity: 0.5 },
+      { color: "#ffffff", intensity: 0 },
+    );
+    // tint = 0 + 0.5*1 = 0.5 → 128 * 0.5 = 64
+    expect(half).toBe("rgb(64, 64, 64)");
   });
 
   it("returns shaded color string", () => {

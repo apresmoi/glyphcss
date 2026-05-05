@@ -27,6 +27,7 @@ import {
   renderTextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
+import { usePolySceneContext } from "./sceneContext";
 
 export interface PolyMeshProps {
   src?: string;
@@ -114,10 +115,31 @@ export const PolyMesh = defineComponent({
       props.autoCenter ? recenterPolygons(sourcePolygons.value) : sourcePolygons.value
     );
     const atlasAutoRender = !slots.polygon;
-    const textureAtlasPlans = computed(() =>
-      atlasAutoRender ? polygons.value.map((p, i) => computeTextureAtlasPlan(p, i)) : []
+
+    // Inherit textureLighting + lights from the parent <PolyScene> so that
+    // helper polygons (e.g. light marker octahedron) participate in the
+    // scene's dynamic mode instead of getting overpainted by the scene's
+    // global CSS rule with default normals.
+    const sceneCtx = usePolySceneContext();
+    const atlasTextureLighting = computed<TextureLightingMode>(
+      () => props.textureLighting ?? sceneCtx?.value.textureLighting ?? "baked",
     );
-    const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
+    const atlasDirectional = computed(() =>
+      atlasTextureLighting.value === "dynamic" ? undefined : sceneCtx?.value.directionalLight,
+    );
+    const atlasAmbient = computed(() =>
+      atlasTextureLighting.value === "dynamic" ? undefined : sceneCtx?.value.ambientLight,
+    );
+    const textureAtlasPlans = computed(() =>
+      atlasAutoRender
+        ? polygons.value.map((p, i) =>
+            computeTextureAtlasPlan(p, i, {
+              directionalLight: atlasDirectional.value,
+              ambientLight: atlasAmbient.value,
+            }),
+          )
+        : []
+    );
     const atlasScale = computed(() => props.atlasScale);
     const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 
@@ -172,7 +194,7 @@ export const PolyMesh = defineComponent({
               ? renderTextureAtlasPoly({
                   entry,
                   page: textureAtlas.pages.value[entry.pageIndex],
-                  textureLighting: props.textureLighting ?? "baked",
+                  textureLighting: atlasTextureLighting.value,
                 })
               : null
           );

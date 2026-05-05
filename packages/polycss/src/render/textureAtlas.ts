@@ -1,4 +1,5 @@
 import type {
+  AmbientLight,
   DirectionalLight,
   Polygon,
   TextureLightingMode,
@@ -8,8 +9,9 @@ import type {
 const DEFAULT_TILE = 50;
 const DEFAULT_LIGHT_DIR: Vec3 = [0.4, -0.7, 0.59];
 const DEFAULT_LIGHT_COLOR = "#ffffff";
+const DEFAULT_LIGHT_INTENSITY = 1;
 const DEFAULT_AMBIENT_COLOR = "#ffffff";
-const DEFAULT_AMBIENT = 0.45;
+const DEFAULT_AMBIENT_INTENSITY = 0.4;
 const ATLAS_MAX_SIZE = 4096;
 const ATLAS_PADDING = 1;
 const MIN_ATLAS_SCALE = 0.1;
@@ -40,8 +42,9 @@ interface TextureAtlasPlan {
   canvasH: number;
   screenPts: number[];
   uvAffine: UvAffine | null;
+  /** World-space surface normal — stable across light changes, used by dynamic mode. */
+  normal: Vec3;
   textureTint: RGBFactors;
-  textureBrightness: number;
   shadedColor: string;
 }
 
@@ -84,6 +87,7 @@ export interface RenderTextureAtlasOptions {
   tileSize?: number;
   layerElevation?: number;
   directionalLight?: DirectionalLight;
+  ambientLight?: AmbientLight;
   textureLighting?: TextureLightingMode;
   /**
    * Raster scale for generated atlas pages. `1` keeps one bitmap pixel per CSS
@@ -204,17 +208,17 @@ function rgbToHex({ r, g, b }: RGB): string {
 
 function shadePolygon(
   baseColor: string,
-  lambert: number,
+  directScale: number,
   lightColor: string,
   ambientColor: string,
-  ambientStrength: number,
+  ambientIntensity: number,
 ): string {
   const base = parseHex(baseColor);
   const light = parseHex(lightColor);
   const amb = parseHex(ambientColor);
-  const tintR = (amb.r / 255) * ambientStrength + (light.r / 255) * lambert;
-  const tintG = (amb.g / 255) * ambientStrength + (light.g / 255) * lambert;
-  const tintB = (amb.b / 255) * ambientStrength + (light.b / 255) * lambert;
+  const tintR = (amb.r / 255) * ambientIntensity + (light.r / 255) * directScale;
+  const tintG = (amb.g / 255) * ambientIntensity + (light.g / 255) * directScale;
+  const tintB = (amb.b / 255) * ambientIntensity + (light.b / 255) * directScale;
   return rgbToHex({
     r: base.r * tintR,
     g: base.g * tintG,
@@ -223,17 +227,17 @@ function shadePolygon(
 }
 
 function textureTintFactors(
-  lambert: number,
+  directScale: number,
   lightColor: string,
   ambientColor: string,
-  ambientStrength: number,
+  ambientIntensity: number,
 ): RGBFactors {
   const light = parseHex(lightColor);
   const amb = parseHex(ambientColor);
   return {
-    r: (amb.r / 255) * ambientStrength + (light.r / 255) * lambert,
-    g: (amb.g / 255) * ambientStrength + (light.g / 255) * lambert,
-    b: (amb.b / 255) * ambientStrength + (light.b / 255) * lambert,
+    r: (amb.r / 255) * ambientIntensity + (light.r / 255) * directScale,
+    g: (amb.g / 255) * ambientIntensity + (light.g / 255) * directScale,
+    b: (amb.b / 255) * ambientIntensity + (light.b / 255) * directScale,
   };
 }
 
@@ -366,17 +370,20 @@ function computeTextureAtlasPlan(
     tx, ty, tz, 1,
   ].join(",");
 
-  const lightCfg = options.directionalLight;
-  const lightDir = lightCfg?.direction ?? DEFAULT_LIGHT_DIR;
-  const lightColor = lightCfg?.color ?? DEFAULT_LIGHT_COLOR;
-  const ambientColor = lightCfg?.ambientColor ?? DEFAULT_AMBIENT_COLOR;
-  const ambient = lightCfg?.ambient ?? DEFAULT_AMBIENT;
+  const directionalCfg = options.directionalLight;
+  const ambientCfg = options.ambientLight;
+  const lightDir = directionalCfg?.direction ?? DEFAULT_LIGHT_DIR;
+  const lightColor = directionalCfg?.color ?? DEFAULT_LIGHT_COLOR;
+  const lightIntensity = Math.max(0, directionalCfg?.intensity ?? DEFAULT_LIGHT_INTENSITY);
+  const ambientColor = ambientCfg?.color ?? DEFAULT_AMBIENT_COLOR;
+  const ambientIntensity = Math.max(0, ambientCfg?.intensity ?? DEFAULT_AMBIENT_INTENSITY);
   const lLen = Math.hypot(lightDir[0], lightDir[1], lightDir[2]) || 1;
   const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
-  const direct = Math.max(0, 1 - ambient);
-  const lambert = direct * Math.max(0, nx * lx + ny * ly + nz * lz);
-  const textureTint = textureTintFactors(lambert, lightColor, ambientColor, ambient);
-  const shadedColor = shadePolygon(polygon.color ?? "#cccccc", lambert, lightColor, ambientColor, ambient);
+  // Decoupled: directional and ambient sum independently. No (1 - ambient)
+  // budget — matches three.js's lighting model.
+  const directScale = lightIntensity * Math.max(0, nx * lx + ny * ly + nz * lz);
+  const textureTint = textureTintFactors(directScale, lightColor, ambientColor, ambientIntensity);
+  const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
 
   let uvAffine: UvAffine | null = null;
   if (texture && uvs && uvs.length >= 3 && uvs.length === vertices.length) {
@@ -415,8 +422,8 @@ function computeTextureAtlasPlan(
     canvasH: Math.max(1, Math.ceil(h)),
     screenPts,
     uvAffine,
+    normal: [nx, ny, nz],
     textureTint,
-    textureBrightness: ambient + lambert,
     shadedColor,
   };
 }
@@ -552,7 +559,12 @@ async function buildAtlasPage(
 
     if (!entry.texture) {
       setCssTransform(ctx, atlasScale);
-      ctx.fillStyle = entry.shadedColor;
+      // Dynamic mode multiplies the tint at render time via
+      // background-blend-mode, so the atlas keeps the polygon's unshaded
+      // base color. Baked bakes the JS-computed shadedColor.
+      ctx.fillStyle = textureLighting === "dynamic"
+        ? (entry.polygon.color ?? "#cccccc")
+        : entry.shadedColor;
       ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
     } else if (srcImg && entry.uvAffine) {
       const imgW = srcImg.naturalWidth || srcImg.width || 1;
@@ -603,10 +615,31 @@ async function buildAtlasPages(
 function applyAtlasBackground(
   el: HTMLElement,
   page: TextureAtlasPage,
+  textureLighting: TextureLightingMode,
+  entry: PackedTextureAtlasEntry,
 ): void {
   if (!page.url) return;
   el.style.backgroundImage = `url(${page.url})`;
   el.style.backgroundSize = `${page.width}px ${page.height}px`;
+  // Dynamic mode also masks the entire <i> by the atlas image so the
+  // background-color tint only paints inside the polygon shape (W3C
+  // multiply with transparent backdrop reduces to source).
+  if (textureLighting === "dynamic") {
+    const url = `url(${page.url})`;
+    const pos = `-${entry.x}px -${entry.y}px`;
+    const size = `${page.width}px ${page.height}px`;
+    el.style.maskImage = url;
+    el.style.maskMode = "alpha";
+    el.style.maskPosition = pos;
+    el.style.maskSize = size;
+    el.style.maskRepeat = "no-repeat";
+    // Vendor-prefixed twins for older Safari. setProperty avoids the
+    // deprecation warnings on the camelCase properties in lib.dom.
+    el.style.setProperty("-webkit-mask-image", url);
+    el.style.setProperty("-webkit-mask-position", pos);
+    el.style.setProperty("-webkit-mask-size", size);
+    el.style.setProperty("-webkit-mask-repeat", "no-repeat");
+  }
 }
 
 function createAtlasElement(
@@ -620,9 +653,18 @@ function createAtlasElement(
   el.style.transform = `matrix3d(${entry.matrix})`;
   el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
   el.style.opacity = "0";
-  if (entry.texture && textureLighting === "filter") {
-    el.style.filter = `brightness(${entry.textureBrightness.toFixed(3)})`;
+
+  // Dynamic mode: emit ONLY the per-polygon normal vars inline. The
+  // calc-driven background-color + background-blend-mode multiply live
+  // in the global stylesheet's
+  // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
+  // the per-element style stays tiny (~50 chars instead of ~600).
+  if (textureLighting === "dynamic") {
+    el.style.setProperty("--polycss-nx", entry.normal[0].toFixed(4));
+    el.style.setProperty("--polycss-ny", entry.normal[1].toFixed(4));
+    el.style.setProperty("--polycss-nz", entry.normal[2].toFixed(4));
   }
+
   if (entry.polygon.data) {
     for (const [k, v] of Object.entries(entry.polygon.data)) {
       el.setAttribute(`data-${k}`, String(v));
@@ -671,7 +713,7 @@ export function renderPolygonsWithTextureAtlas(
         for (const entry of page.entries) {
           const el = atlasElements.get(entry.index);
           if (!el || !built.url) continue;
-          applyAtlasBackground(el, built);
+          applyAtlasBackground(el, built, textureLighting, entry);
           el.style.opacity = "";
         }
       }

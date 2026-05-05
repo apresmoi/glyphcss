@@ -19,6 +19,12 @@ export type { UseMeshOptions, UseMeshResult } from "./scene";
 export { Poly } from "./shapes";
 export type { PolyProps } from "./shapes";
 
+export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
+export type {
+  PolyAxesHelperProps,
+  PolyDirectionalLightHelperProps,
+} from "./helpers";
+
 export { injectBaseStyles } from "./styles";
 
 // ── Re-exports from @polycss/core ─────────────────────────────────────────────
@@ -27,6 +33,7 @@ export type {
   Vec2,
   Vec3,
   DirectionalLight,
+  AmbientLight,
   TextureLightingMode,
   ParseResult,
   ObjParseOptions,

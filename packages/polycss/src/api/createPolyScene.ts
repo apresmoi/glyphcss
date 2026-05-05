@@ -20,13 +20,14 @@
  * the anchor via their own matrix3d translations.
  */
 import type {
+  AmbientLight,
   DirectionalLight,
   ParseResult,
   Polygon,
   TextureLightingMode,
   Vec3,
 } from "@polycss/core";
-import { computeSceneBbox, mergePolygons } from "@polycss/core";
+import { computeSceneBbox, mergePolygons, parseHexColor } from "@polycss/core";
 import {
   renderPolygonsWithTextureAtlas,
   type AtlasScale,
@@ -41,6 +42,7 @@ export interface PolySceneOptions {
   rotY?: number;
   zoom?: number;
   directionalLight?: DirectionalLight;
+  ambientLight?: AmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: TextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
@@ -74,6 +76,12 @@ export interface MeshTransform {
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
+  /**
+   * When `true`, this mesh's polygons are NOT included in the scene's
+   * auto-center bbox. Use for debug overlays / helpers that shouldn't
+   * shift the camera target when toggled. Defaults to `false`.
+   */
+  excludeFromAutoCenter?: boolean;
 }
 
 export interface MeshHandle {
@@ -241,6 +249,7 @@ export function createPolyScene(
     disposeAtlas?: () => void;
     polygons: Polygon[];
     disposed: boolean;
+    excludeFromAutoCenter: boolean;
   }
   const meshes = new Set<MeshEntry>();
 
@@ -256,6 +265,45 @@ export function createPolyScene(
       : `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
     el.style.transform = buildSceneTransform(opts);
     applyCullClasses(el, opts);
+    applyDynamicLightVars(el, opts);
+  }
+
+  // Dynamic lighting cascade vars: PolyScene writes the directional + ambient
+  // light setup to these custom properties on the scene root. Each polygon's
+  // <i> bakes its own normal directly into an inline calc() that reads these
+  // vars to resolve the Lambert dot product and per-channel tint. Sliding
+  // the light only writes these scene-root vars — no JS, no atlas redraw.
+  function applyDynamicLightVars(el: HTMLElement, opts: PolySceneOptions): void {
+    const dynamic = opts.textureLighting === "dynamic";
+    el.dataset.polycssLighting = opts.textureLighting ?? "baked";
+    const vars = [
+      "--polycss-lx", "--polycss-ly", "--polycss-lz",
+      "--polycss-lr", "--polycss-lg", "--polycss-lb", "--polycss-li",
+      "--polycss-ar", "--polycss-ag", "--polycss-ab", "--polycss-ai",
+    ] as const;
+    if (!dynamic) {
+      for (const v of vars) el.style.removeProperty(v);
+      return;
+    }
+    const dir = opts.directionalLight?.direction ?? [0.4, -0.7, 0.59];
+    const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+    const lx = dir[0] / len, ly = dir[1] / len, lz = dir[2] / len;
+    const lightRgb = parseHexColor(opts.directionalLight?.color ?? "#ffffff")?.rgb ?? [255, 255, 255];
+    const ambRgb = parseHexColor(opts.ambientLight?.color ?? "#ffffff")?.rgb ?? [255, 255, 255];
+    const lightIntensity = opts.directionalLight?.intensity ?? 1;
+    const ambientIntensity = opts.ambientLight?.intensity ?? 0.4;
+    const ch = (n: number) => (n / 255).toFixed(4);
+    el.style.setProperty("--polycss-lx", lx.toFixed(4));
+    el.style.setProperty("--polycss-ly", ly.toFixed(4));
+    el.style.setProperty("--polycss-lz", lz.toFixed(4));
+    el.style.setProperty("--polycss-lr", ch(lightRgb[0]));
+    el.style.setProperty("--polycss-lg", ch(lightRgb[1]));
+    el.style.setProperty("--polycss-lb", ch(lightRgb[2]));
+    el.style.setProperty("--polycss-li", lightIntensity.toFixed(4));
+    el.style.setProperty("--polycss-ar", ch(ambRgb[0]));
+    el.style.setProperty("--polycss-ag", ch(ambRgb[1]));
+    el.style.setProperty("--polycss-ab", ch(ambRgb[2]));
+    el.style.setProperty("--polycss-ai", ambientIntensity.toFixed(4));
   }
 
   function applyCullClasses(el: HTMLElement, opts: PolySceneOptions): void {
@@ -270,10 +318,12 @@ export function createPolyScene(
       centerWrapper.style.transform = "";
       return;
     }
-    // Combine all live mesh polygons into a single bbox.
+    // Combine all live mesh polygons into a single bbox. Helper meshes
+    // (axes, light marker) opt out via `excludeFromAutoCenter` so they
+    // don't shift the camera target when toggled.
     const all: Polygon[] = [];
     for (const m of meshes) {
-      if (!m.disposed) all.push(...m.polygons);
+      if (!m.disposed && !m.excludeFromAutoCenter) all.push(...m.polygons);
     }
     if (all.length === 0) {
       centerWrapper.style.transform = "";
@@ -311,6 +361,7 @@ export function createPolyScene(
     const atlas = renderPolygonsWithTextureAtlas(sourcePolygons, {
       doc: mountDoc,
       directionalLight: currentOptions.directionalLight,
+      ambientLight: currentOptions.ambientLight,
       textureLighting: currentOptions.textureLighting,
       atlasScale: currentOptions.atlasScale,
     });
@@ -333,6 +384,7 @@ export function createPolyScene(
       disposeAtlas,
       polygons: sourcePolygons,
       disposed: false,
+      excludeFromAutoCenter: !!transformIn.excludeFromAutoCenter,
     };
 
     const handle: MeshHandle = {

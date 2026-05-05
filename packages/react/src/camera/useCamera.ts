@@ -6,6 +6,14 @@ import { createSceneStore, type SceneStore } from "../store/sceneStore";
 
 const POINTER_DRAG_SPEED = 5;
 
+// Wheel-zoom tuning. Mirrors createPolyScene (vanilla) so React + vanilla
+// renderers feel identical. Multiplicative step (exp(-deltaY * k)) gives
+// smooth zooming across the full range; deltaMode normalization handles
+// browsers that report wheel deltas in lines (33 px/line) or pages (~800).
+const ZOOM_MIN = 0.05;
+const ZOOM_MAX = 8;
+const ZOOM_STEP = 0.0015;
+
 export interface UseCameraOptions {
   zoom?: number;
   pan?: number;
@@ -21,6 +29,12 @@ export interface UseCameraResult {
   store: SceneStore;
   cameraRef: React.MutableRefObject<CameraHandle>;
   sceneElRef: React.MutableRefObject<HTMLElement | null>;
+  /**
+   * Attach to the camera root element. We need the underlying ref so we
+   * can wire a non-passive `wheel` listener (React's `onWheel` defaults
+   * to passive in modern versions and can't `preventDefault()`).
+   */
+  cameraElRef: React.MutableRefObject<HTMLDivElement | null>;
   onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -67,6 +81,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
   }
 
   const sceneElRef = useRef<HTMLElement | null>(null);
+  const cameraElRef = useRef<HTMLDivElement | null>(null);
 
   // Create store once — only notifies subscribers when wall mask changes
   const store = useMemo(
@@ -152,6 +167,32 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     };
   }, [options.animate, applyTransformDirect, store]);
 
+  // Wheel → zoom. Browsers translate trackpad pinch into wheel events with
+  // ctrlKey=true, so this covers desktop scroll + Mac pinch in one path.
+  // Attached as a native, non-passive listener via useEffect so we can
+  // call preventDefault() (React's `onWheel` is passive in modern versions
+  // and silently no-ops the preventDefault).
+  useEffect(() => {
+    if (!options.interactive) return;
+    const el = cameraElRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      const handle = handleRef.current;
+      if (!handle) return;
+      // Normalize across wheel-line / wheel-pixel modes (deltaMode 0 = px,
+      // 1 = lines, 2 = pages). Lines ≈ 33 px, pages ≈ 800 px.
+      const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
+      const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
+      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, handle.state.zoom * factor));
+      handle.update({ zoom: next });
+      applyTransformDirect();
+      store.updateCameraFromRef(handle);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [options.interactive, applyTransformDirect, store]);
+
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (!options.interactive) return;
@@ -209,6 +250,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     store,
     cameraRef: handleRef as React.MutableRefObject<CameraHandle>,
     sceneElRef,
+    cameraElRef,
     onPointerDown,
     onPointerMove,
     onPointerUp,

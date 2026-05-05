@@ -10,6 +10,7 @@ import {
   defineComponent,
   h,
   inject,
+  provide,
   computed,
   ref,
   watch,
@@ -20,14 +21,16 @@ import type { PropType } from "vue";
 import type {
   Polygon,
   DirectionalLight,
+  AmbientLight,
   AutoRotateOption,
   TextureLightingMode,
   Vec3,
 } from "@polycss/core";
-import { createIsometricCamera } from "@polycss/core";
+import { createIsometricCamera, parseHexColor } from "@polycss/core";
 import { PolyCameraContextKey } from "../camera";
 import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles";
+import { PolySceneContextKey } from "./sceneContext";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
@@ -42,6 +45,7 @@ export interface PolySceneProps {
   rotY?: number;
   zoom?: number;
   directionalLight?: DirectionalLight;
+  ambientLight?: AmbientLight;
   textureLighting?: TextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
@@ -80,6 +84,10 @@ export const PolyScene = defineComponent({
       type: Object as PropType<DirectionalLight>,
       default: undefined,
     },
+    ambientLight: {
+      type: Object as PropType<AmbientLight>,
+      default: undefined,
+    },
     textureLighting: {
       type: String as PropType<TextureLightingMode>,
       default: "baked",
@@ -113,6 +121,18 @@ export const PolyScene = defineComponent({
     }
 
     const { store, sceneElRef } = cameraCtx;
+
+    // Propagate scene-level rendering options to descendants (PolyMesh /
+    // helpers) so they pick up the same dynamic mode + lights as the
+    // scene. Without this, a helper PolyMesh would default to baked
+    // rendering while the scene's global CSS rule paints over it with
+    // the dynamic calc — producing corrupt tints.
+    const sceneCtxValue = computed(() => ({
+      textureLighting: props.textureLighting ?? "baked",
+      directionalLight: props.directionalLight,
+      ambientLight: props.ambientLight,
+    }));
+    provide(PolySceneContextKey, sceneCtxValue);
 
     // Read camera state once for initial render — transform updates go via direct DOM
     const cameraState = store.getState().cameraState;
@@ -178,18 +198,55 @@ export const PolyScene = defineComponent({
       };
     });
 
-    const textureAtlasPlans = computed(() =>
-      sceneResult.value.polygons.map((p, i) =>
+    // In dynamic mode the atlas is light-independent (CSS does the
+    // shading), so we deliberately drop both lights from the plan inputs
+    // — that prevents the atlas from rebuilding (and the polygons from
+    // blanking) every time the user moves a light slider.
+    const textureAtlasPlans = computed(() => {
+      const dynamic = props.textureLighting === "dynamic";
+      const directionalForAtlas = dynamic ? undefined : props.directionalLight;
+      const ambientForAtlas = dynamic ? undefined : props.ambientLight;
+      return sceneResult.value.polygons.map((p, i) =>
         computeTextureAtlasPlan(p, i, {
           tileSize: polyContext.value.tileSize,
           layerElevation: polyContext.value.layerElevation,
-          directionalLight: props.directionalLight,
+          directionalLight: directionalForAtlas,
+          ambientLight: ambientForAtlas,
         })
-      )
-    );
+      );
+    });
     const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
     const atlasScale = computed(() => props.atlasScale);
     const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
+
+    // Dynamic mode plumbing: emit normalized light direction + light/ambient
+    // color/intensity as CSS custom properties on the scene root. They cascade
+    // into every polygon, where a per-element calc resolves the Lambert dot
+    // product and tints via background-blend-mode.
+    const dynamicLightVars = computed<Record<string, string> | null>(() => {
+      if (props.textureLighting !== "dynamic") return null;
+      const dir = props.directionalLight?.direction ?? [0.4, -0.7, 0.59];
+      const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+      const lx = dir[0] / len, ly = dir[1] / len, lz = dir[2] / len;
+      const lightRgb = parseHexColor(props.directionalLight?.color ?? "#ffffff")?.rgb ?? [255, 255, 255];
+      const ambRgb = parseHexColor(props.ambientLight?.color ?? "#ffffff")?.rgb ?? [255, 255, 255];
+      const lightIntensity = props.directionalLight?.intensity ?? 1;
+      const ambientIntensity = props.ambientLight?.intensity ?? 0.4;
+      const ch = (n: number) => (n / 255).toFixed(4);
+      return {
+        "--polycss-lx": lx.toFixed(4),
+        "--polycss-ly": ly.toFixed(4),
+        "--polycss-lz": lz.toFixed(4),
+        "--polycss-lr": ch(lightRgb[0]),
+        "--polycss-lg": ch(lightRgb[1]),
+        "--polycss-lb": ch(lightRgb[2]),
+        "--polycss-li": lightIntensity.toFixed(4),
+        "--polycss-ar": ch(ambRgb[0]),
+        "--polycss-ag": ch(ambRgb[1]),
+        "--polycss-ab": ch(ambRgb[2]),
+        "--polycss-ai": ambientIntensity.toFixed(4),
+      };
+    });
 
     // depthOffset was a voxcss-era hack; centered meshes don't need it.
     const depthOffset = 0;
@@ -250,8 +307,10 @@ export const PolyScene = defineComponent({
           ref: sceneElLocalRef,
           class: computedClass,
           "data-polycss-depth-offset": String(depthOffset),
+          "data-polycss-lighting": ctx.textureLighting ?? "baked",
           style: {
             ...sceneStyle.value,
+            ...(dynamicLightVars.value ?? null),
             ...(attrs.style as Record<string, unknown> | undefined),
           },
           ...Object.fromEntries(

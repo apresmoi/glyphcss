@@ -9,6 +9,7 @@ export type {
   Vec3,
   Polygon,
   DirectionalLight,
+  AmbientLight,
   TextureLightingMode,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
@@ -72,6 +73,10 @@ export {
 
 // ── Mesh post-processing ──────────────────────────────────────────
 export { mergePolygons } from "./merge/mergePolygons";
+
+// ── Helper-gizmo geometry (axes, light marker) ───────────────────
+export { axesHelperPolygons, octahedronPolygons } from "./helpers";
+export type { AxesHelperOptions } from "./helpers";
 
 // ── Parsers ───────────────────────────────────────────────────────
 export type { ParseResult } from "./parser/types";
