@@ -1,11 +1,41 @@
 // @ts-check
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
 
+/** @param {string} path */
+const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
+
 export default defineConfig({
   site: 'https://polycss.com',
+  vite: {
+    resolve: {
+      alias: [
+        {
+          find: /^@polycss\/core$/,
+          replacement: repoPath('../packages/core/src/index.ts'),
+        },
+        {
+          find: /^@polycss\/react$/,
+          replacement: repoPath('../packages/react/src/index.ts'),
+        },
+        {
+          find: /^@polycss\/vue$/,
+          replacement: repoPath('../packages/vue/src/index.ts'),
+        },
+        {
+          find: /^polycss\/elements$/,
+          replacement: repoPath('../packages/polycss/src/elements/index.ts'),
+        },
+        {
+          find: /^polycss$/,
+          replacement: repoPath('../packages/polycss/src/index.ts'),
+        },
+      ],
+    },
+  },
   integrations: [
     react(),
     sitemap(),

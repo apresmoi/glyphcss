@@ -149,7 +149,7 @@ export default function SliceTest() {
         perspective: 8000,
         merge,
       });
-      s.add({ polygons, dispose: () => {} });
+      s.add({ polygons, objectUrls: [], warnings: [], dispose: () => {} });
       sceneRef.current = s;
     })();
 

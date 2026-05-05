@@ -18,7 +18,7 @@ export const DEBUG_ROUTES: DebugRoute[] = [
 interface DebugContextValue {
   sectionsHost: HTMLDivElement | null;
   bottomHost: HTMLDivElement | null;
-  rightHost: HTMLDivElement | null;
+  rightHost: HTMLElement | null;
   statsHost: HTMLDivElement | null;
   voxSceneRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -39,7 +39,7 @@ interface DebugLayoutProps {
 export function DebugLayout({ current, children }: DebugLayoutProps) {
   const [sectionsHost, setSectionsHost] = useState<HTMLDivElement | null>(null);
   const [bottomHost, setBottomHost] = useState<HTMLDivElement | null>(null);
-  const [rightHost, setRightHost] = useState<HTMLDivElement | null>(null);
+  const [rightHost, setRightHost] = useState<HTMLElement | null>(null);
   const [statsHost, setStatsHost] = useState<HTMLDivElement | null>(null);
   const voxSceneRef = useRef<HTMLDivElement | null>(null);
 

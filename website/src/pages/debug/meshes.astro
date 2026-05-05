@@ -1,13 +1,17 @@
 ---
-import Meshes from '../../debug/pages/Meshes.tsx';
+import DebugWorkbench from '../../debug/DebugWorkbench.tsx';
 ---
 <html>
   <head>
     <meta charset="utf-8" />
     <title>Debug: Meshes</title>
-    <style>* { margin: 0; padding: 0; box-sizing: border-box; }</style>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { min-height: 100%; background: #0a0b0d; }
+      body { overflow: hidden; }
+    </style>
   </head>
   <body>
-    <Meshes client:only="react" />
+    <DebugWorkbench client:only="react" />
   </body>
 </html>

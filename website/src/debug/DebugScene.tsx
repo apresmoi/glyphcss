@@ -274,7 +274,7 @@ export function DebugScene({
           >
             <PolyScene
               polygons={renderedPolygons}
-              merge={mergeMode}
+              merge={mergeMode === "auto" ? "auto" : "off"}
               autoCenter={autoCenter}
               directionalLight={directionalLight}
             />
