@@ -2,6 +2,7 @@ import type {
   Vec2,
   Vec3,
   DirectionalLight,
+  TextureLightingMode,
 } from "@polycss/core";
 import type {
   CSSProperties,
@@ -88,9 +89,12 @@ export interface PolyProps extends TransformProps, DOMPassthroughProps {
     tileSize?: number;
     layerElevation?: number;
     directionalLight?: DirectionalLight;
+    textureLighting?: TextureLightingMode;
     debugShowBackfaces?: boolean;
     [key: string]: unknown;
   };
+  /** Textured polygon lighting mode. Defaults to scene context, then "baked". */
+  textureLighting?: TextureLightingMode;
   /** Pre-computed shaded base color from the parent (optional override). */
   baseColor?: string;
 }

@@ -40,6 +40,7 @@ export type {
   Vec3,
   Polygon,
   DirectionalLight,
+  TextureLightingMode,
   ParseResult,
   ObjParseOptions,
   GltfParseOptions,

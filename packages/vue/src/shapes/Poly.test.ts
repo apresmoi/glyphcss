@@ -155,21 +155,32 @@ describe("Poly (Vue) — off-axis triangle", () => {
   });
 });
 
-describe("Poly (Vue) — texture without UVs (pattern fill)", () => {
-  it("renders svg with polycss-poly-textured class", () => {
+describe("Poly (Vue) — texture without UVs (baked image fill)", () => {
+  it("renders img with polycss-poly-textured class", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE,
       texture: "https://example.com/tex.png",
     });
-    expect(container.querySelector(".polycss-poly-textured")).toBeTruthy();
+    expect(container.querySelector("img.polycss-poly-textured")).toBeTruthy();
   });
 
-  it("svg contains a <pattern> element for texture", () => {
+  it("does not use CSS filter for baked texture lighting", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE,
       texture: "https://example.com/tex.png",
     });
-    expect(container.querySelector("pattern")).toBeTruthy();
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toBe("");
+  });
+
+  it("uses CSS filter when textureLighting=filter", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE,
+      texture: "https://example.com/tex.png",
+      textureLighting: "filter",
+    });
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toContain("brightness(");
   });
 });
 
@@ -226,6 +237,35 @@ describe("Poly (Vue) — UV-mapped texture (renders <img>)", () => {
     });
     const img = container.querySelector("img") as HTMLImageElement;
     expect(img.style.transform).toContain("matrix3d(");
+  });
+
+  it("img does not use CSS filter for lighting", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE,
+      texture: "https://example.com/tex.png",
+      uvs: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    });
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toBe("");
+  });
+
+  it("img uses CSS filter when textureLighting=filter", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE,
+      texture: "https://example.com/tex.png",
+      textureLighting: "filter",
+      uvs: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    });
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toContain("brightness(");
   });
 });
 

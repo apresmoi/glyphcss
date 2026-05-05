@@ -9,6 +9,7 @@ export type {
   Vec3,
   Polygon,
   DirectionalLight,
+  TextureLightingMode,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
 

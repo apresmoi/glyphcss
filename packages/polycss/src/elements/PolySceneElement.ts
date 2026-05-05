@@ -9,7 +9,7 @@
  * Attribute parsing — minimal-footprint string → typed conversion. Unknown
  * attributes are ignored (HTML semantics, not validation).
  */
-import type { DirectionalLight, Vec3 } from "@polycss/core";
+import type { DirectionalLight, TextureLightingMode, Vec3 } from "@polycss/core";
 import {
   createPolyScene,
   type PolySceneOptions,
@@ -31,6 +31,7 @@ const OBSERVED_ATTRS = [
   "light-ambient",
   "light-ambient-color",
   "merge",
+  "texture-lighting",
   "auto-center",
   "interactive",
 ] as const;
@@ -53,6 +54,11 @@ function parseVec3(value: string | null): Vec3 | undefined {
 function parseMerge(value: string | null): "off" | "auto" | undefined {
   if (!value) return undefined;
   if (value === "off" || value === "auto") return value;
+  return undefined;
+}
+
+function parseTextureLighting(value: string | null): TextureLightingMode | undefined {
+  if (value === "baked" || value === "filter") return value;
   return undefined;
 }
 
@@ -85,6 +91,7 @@ export class PolySceneElement extends ELEMENT_BASE {
     // Always emit merge so removing the attribute resets to the default.
     const merge = parseMerge(this.getAttribute("merge"));
     opts.merge = merge ?? "off";
+    opts.textureLighting = parseTextureLighting(this.getAttribute("texture-lighting")) ?? "baked";
     opts.autoCenter = this.hasAttribute("auto-center");
     opts.interactive = this.hasAttribute("interactive");
     if (directionalLight) opts.directionalLight = directionalLight;

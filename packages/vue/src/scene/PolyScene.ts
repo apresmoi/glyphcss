@@ -21,6 +21,7 @@ import type {
   Polygon,
   DirectionalLight,
   AutoRotateOption,
+  TextureLightingMode,
   Vec3,
 } from "@polycss/core";
 import { createIsometricCamera } from "@polycss/core";
@@ -36,6 +37,7 @@ export interface PolySceneProps {
   rotY?: number;
   zoom?: number;
   directionalLight?: DirectionalLight;
+  textureLighting?: TextureLightingMode;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
   /**
@@ -70,6 +72,10 @@ export const PolyScene = defineComponent({
     directionalLight: {
       type: Object as PropType<DirectionalLight>,
       default: undefined,
+    },
+    textureLighting: {
+      type: String as PropType<TextureLightingMode>,
+      default: "baked",
     },
     merge: {
       type: String as PropType<"off" | "auto">,
@@ -158,6 +164,7 @@ export const PolyScene = defineComponent({
         tileSize,
         layerElevation: tileSize,
         directionalLight: props.directionalLight,
+        textureLighting: props.textureLighting,
         debugShowBackfaces: props.debugShowBackfaces,
       };
     });

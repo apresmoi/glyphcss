@@ -16,6 +16,7 @@ import { useMemo } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type {
   Polygon,
+  TextureLightingMode,
   Vec3,
 } from "@polycss/core";
 import { computeSceneBbox } from "@polycss/core";
@@ -36,6 +37,8 @@ export interface PolyMeshProps extends TransformProps {
   polygons?: Polygon[];
   /** Translate so mesh's bbox center is at local origin before applying `position`. */
   autoCenter?: boolean;
+  /** Textured polygon lighting mode. Defaults to "baked". */
+  textureLighting?: TextureLightingMode;
   /** Per-polygon override render. Receives the polygon + its index. */
   children?: (polygon: Polygon, index: number) => ReactNode;
   /** Loading slot — rendered while `src` is being fetched/parsed. */
@@ -92,6 +95,7 @@ export function PolyMesh({
   mtl,
   polygons: polygonsProp,
   autoCenter,
+  textureLighting,
   children,
   fallback,
   errorFallback,
@@ -174,6 +178,7 @@ export function PolyMesh({
             texture={p.texture}
             uvs={p.uvs}
             data={p.data}
+            textureLighting={textureLighting}
           />
         )
       )}

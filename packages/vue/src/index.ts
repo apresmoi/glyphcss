@@ -27,6 +27,7 @@ export type {
   Vec2,
   Vec3,
   DirectionalLight,
+  TextureLightingMode,
   ParseResult,
   ObjParseOptions,
   GltfParseOptions,

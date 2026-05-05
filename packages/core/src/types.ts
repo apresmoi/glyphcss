@@ -2,6 +2,15 @@
 export const DEFAULT_PROJECTION = "cubic" as const;
 
 /**
+ * How textured polygon lighting is applied by DOM renderers.
+ * - "baked": multiply the light tint into the off-DOM canvas before the
+ *   polygon becomes an <img>.
+ * - "filter": leave the texture pixels unbaked and apply a CSS brightness()
+ *   filter to the <img>, matching the earlier textured path.
+ */
+export type TextureLightingMode = "baked" | "filter";
+
+/**
  * 3D point/vector, stored as a `[x, y, z]` tuple. Tuple (rather than
  * `{x, y, z}`) for compact JSON: meshes serialize to thousands of vertices
  * and the difference adds up. Destructure with `const [x, y, z] = v` when

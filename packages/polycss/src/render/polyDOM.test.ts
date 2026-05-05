@@ -285,7 +285,7 @@ describe("renderPoly — render math parity with React Poly.tsx", () => {
     }
   });
 
-  it("custom layerElevation=25 (dimetric) — Z translation scaled by 0.5", () => {
+  it("custom layerElevation=25 scales Z translation", () => {
     const poly: Polygon = {
       vertices: [
         [0, 0, 1],
@@ -302,26 +302,33 @@ describe("renderPoly — render math parity with React Poly.tsx", () => {
   });
 });
 
-describe("renderPoly — texture without UVs (pattern fill)", () => {
-  it("returns SVG element with polycss-poly-textured class", () => {
+describe("renderPoly — texture without UVs (baked image fill)", () => {
+  it("returns IMG element with polycss-poly-textured class", () => {
     const texturedPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
       texture: "https://example.com/tex.png",
     };
     const result = renderPoly(texturedPoly)!;
+    expect(result.element.tagName.toLowerCase()).toBe("img");
     expect(result.element.className).toContain("polycss-poly-textured");
   });
 
-  it("SVG contains a <defs> and <pattern> for the texture", () => {
+  it("does not use CSS filter for baked texture lighting", () => {
     const texturedPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
       texture: "https://example.com/tex.png",
     };
     const result = renderPoly(texturedPoly)!;
-    const defs = result.element.querySelector("defs");
-    const pattern = result.element.querySelector("pattern");
-    expect(defs).toBeTruthy();
-    expect(pattern).toBeTruthy();
+    expect((result.element as HTMLImageElement).style.filter).toBe("");
+  });
+
+  it("uses CSS filter when textureLighting=filter", () => {
+    const texturedPoly: Polygon = {
+      vertices: FLAT_TRIANGLE.vertices,
+      texture: "https://example.com/tex.png",
+    };
+    const result = renderPoly(texturedPoly, { textureLighting: "filter" })!;
+    expect((result.element as HTMLImageElement).style.filter).toContain("brightness(");
   });
 });
 
@@ -379,6 +386,34 @@ describe("renderPoly — UV-mapped texture (renders <img>)", () => {
     };
     const result = renderPoly(uvPoly)!;
     expect(result.element.className).toContain("polycss-poly-textured");
+  });
+
+  it("img does not use CSS filter for lighting", () => {
+    const uvPoly: Polygon = {
+      vertices: FLAT_TRIANGLE.vertices,
+      texture: "https://example.com/tex.png",
+      uvs: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    };
+    const result = renderPoly(uvPoly)!;
+    expect((result.element as HTMLImageElement).style.filter).toBe("");
+  });
+
+  it("img uses CSS filter when textureLighting=filter", () => {
+    const uvPoly: Polygon = {
+      vertices: FLAT_TRIANGLE.vertices,
+      texture: "https://example.com/tex.png",
+      uvs: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    };
+    const result = renderPoly(uvPoly, { textureLighting: "filter" })!;
+    expect((result.element as HTMLImageElement).style.filter).toContain("brightness(");
   });
 
   it("dispose() revokes blob URL when one is set", async () => {

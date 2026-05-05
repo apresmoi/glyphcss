@@ -23,6 +23,7 @@ import type {
   DirectionalLight,
   ParseResult,
   Polygon,
+  TextureLightingMode,
   Vec3,
 } from "@polycss/core";
 import { computeSceneBbox, mergePolygons } from "@polycss/core";
@@ -36,6 +37,8 @@ export interface PolySceneOptions {
   rotY?: number;
   zoom?: number;
   directionalLight?: DirectionalLight;
+  /** Textured polygon lighting mode. Defaults to "baked". */
+  textureLighting?: TextureLightingMode;
   /**
    * Mesh post-processing.
    *   - `"off"` (default): each polygon = one DOM element.
@@ -301,6 +304,7 @@ export function createPolyScene(
     for (const poly of sourcePolygons) {
       const r = renderPoly(poly, {
         directionalLight: currentOptions.directionalLight,
+        textureLighting: currentOptions.textureLighting,
       });
       if (!r) continue;
       const dir = classifyNormal(poly);

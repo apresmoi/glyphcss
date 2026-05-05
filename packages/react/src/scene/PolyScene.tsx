@@ -4,6 +4,7 @@ import type {
   Polygon,
   DirectionalLight,
   AutoRotateOption,
+  TextureLightingMode,
 } from "@polycss/core";
 import { createIsometricCamera } from "@polycss/core";
 import { useCameraContext } from "../camera/context";
@@ -20,6 +21,8 @@ export interface PolySceneProps extends TransformProps {
   rotY?: number;
   zoom?: number;
   directionalLight?: DirectionalLight;
+  /** Textured polygon lighting mode. Defaults to "baked". */
+  textureLighting?: TextureLightingMode;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
   /**
@@ -51,6 +54,7 @@ function PolySceneInner({
   rotY: _rotY,
   zoom: _zoom,
   directionalLight,
+  textureLighting = "baked",
   merge = "off",
   autoCenter = false,
   autoRotate: _autoRotate,
@@ -131,9 +135,10 @@ function PolySceneInner({
       tileSize,
       layerElevation: tileSize,
       directionalLight,
+      textureLighting,
       debugShowBackfaces,
     };
-  }, [directionalLight, debugShowBackfaces]);
+  }, [directionalLight, textureLighting, debugShowBackfaces]);
 
   // depthOffset was a voxcss-era hack that pushed the cube grid down so
   // the tilted camera could see its floor. Centered meshes don't need it

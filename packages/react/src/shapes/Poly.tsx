@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type React from "react";
 import type { PolyProps } from "./types";
 
@@ -36,6 +36,7 @@ const DEFAULT_AMBIENT_COLOR = "#ffffff";
 const DEFAULT_AMBIENT = 0.45;
 
 interface RGB { r: number; g: number; b: number; }
+interface RGBFactors { r: number; g: number; b: number; }
 
 function parseHex(hex: string): RGB {
   const c = hex.startsWith("#") ? hex.slice(1) : hex;
@@ -81,6 +82,61 @@ function shadePolygon(
     g: base.g * tintG,
     b: base.b * tintB,
   });
+}
+
+function textureTintFactors(
+  lambert: number,
+  lightColor: string,
+  ambientColor: string,
+  ambientStrength: number,
+): RGBFactors {
+  const light = parseHex(lightColor);
+  const amb = parseHex(ambientColor);
+  return {
+    r: (amb.r / 255) * ambientStrength + (light.r / 255) * lambert,
+    g: (amb.g / 255) * ambientStrength + (light.g / 255) * lambert,
+    b: (amb.b / 255) * ambientStrength + (light.b / 255) * lambert,
+  };
+}
+
+function tintToCss({ r, g, b }: RGBFactors): string {
+  const f = (n: number) => Math.round(Math.max(0, Math.min(1, n)) * 255);
+  return `rgb(${f(r)} ${f(g)} ${f(b)})`;
+}
+
+function applyTextureTint(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  tint: RGBFactors,
+): void {
+  if (
+    Math.abs(tint.r - 1) < 0.001 &&
+    Math.abs(tint.g - 1) < 0.001 &&
+    Math.abs(tint.b - 1) < 0.001
+  ) {
+    return;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = tintToCss(tint);
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  width: number,
+  height: number,
+): void {
+  const srcW = img.naturalWidth || img.width || 1;
+  const srcH = img.naturalHeight || img.height || 1;
+  const scale = Math.max(width / srcW, height / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  ctx.drawImage(img, (width - drawW) / 2, (height - drawH) / 2, drawW, drawH);
 }
 
 /**
@@ -138,15 +194,14 @@ export function Poly({
   pointerEvents: pointerEventsProp,
   // Scene context (forwarded from PolyScene)
   context,
+  textureLighting: textureLightingProp,
   baseColor: baseColorProp,
   ...dataAttrs
 }: PolyProps) {
-  // SVG <pattern> needs a unique id; useId is stable per element so the
-  // <defs>/url(#id) reference matches even across React re-renders.
-  const patternId = useId().replace(/:/g, "_");
   const tile = context?.tileSize ?? 50;
   const elev = context?.layerElevation ?? 50;
   const baseColor = baseColorProp ?? color ?? "#cccccc";
+  const textureLighting = textureLightingProp ?? context?.textureLighting ?? "baked";
 
   // POLYCSS PHASE 3.0 — vertices are interpreted as scene-root world space
   // (not cell-relative). The wrapper element no longer sits at a CSS Grid
@@ -275,18 +330,20 @@ export function Poly({
   //    polygon. The atlas's per-polygon region lands in the right
   //    place — works for proper textured meshes (parseObj output, etc.).
   //
-  // 2. Single-tile fill (no UVs): wrap the image in an SVG <pattern>
-  //    that stretches it across the polygon's bbox. The image gets
-  //    stamped on the face without UV awareness.
+  // 2. Single-tile fill (no UVs): draw the image cover-style across the
+  //    polygon's bbox. The image gets stamped on the face without UV
+  //    awareness.
   //
-  // Lighting is reapplied via CSS `filter: brightness(...)` so the
-  // textured face still responds to the directional light.
+  // Lighting is either baked into the off-DOM canvas before it becomes an
+  // <img>, or left unbaked and applied via CSS brightness() for comparison.
   const textureUrl = texture;
-  // Light strength = ambient floor + lambert contribution (channel-agnostic
-  // approximation of `shadePolygon`). For a white light this matches the
-  // shaded color's brightness exactly; for tinted lights it's a reasonable
-  // proxy without per-pixel multiplication.
+  const textureTint = textureTintFactors(lambert, lightColor, ambientColor, ambient);
+  const textureTintKey = `${textureTint.r.toFixed(4)},${textureTint.g.toFixed(4)},${textureTint.b.toFixed(4)}`;
+  const textureBakeKey = textureLighting === "baked" ? textureTintKey : "filter";
   const textureBrightness = ambient + lambert;
+  const textureFilter = textureLighting === "filter"
+    ? `brightness(${textureBrightness.toFixed(3)})`
+    : undefined;
 
   // UV affine: solve for (a, b, c, d, e, f) such that
   //   s_i.x = a·u_i + b·(1-v_i) + e
@@ -323,12 +380,13 @@ export function Poly({
     }
   }
 
-  // UV-mapped texturing pipeline:
+  // Texturing pipeline:
   //   1. Create an off-DOM canvas
-  //   2. Draw the polygon clip + UV-transformed texture into it
-  //   3. canvas.toBlob → URL.createObjectURL → set as src on a real <img>
-  //   4. Drop the canvas (GC reclaims its CPU buffer)
-  //   5. Browser composites the <img> in 3D via the same matrix3d
+  //   2. Draw the polygon clip + UV-transformed or cover texture into it
+  //   3. In baked mode, multiply by the per-face light tint while still off-DOM
+  //   4. canvas.toBlob → URL.createObjectURL → set as src on a real <img>
+  //   5. Drop the canvas (GC reclaims its CPU buffer)
+  //   6. Browser composites the <img> in 3D via the same matrix3d
   //
   // Why <img> instead of <canvas> in the DOM: a canvas keeps its CPU pixel
   // buffer alive as long as it's mounted (so getContext can read it back).
@@ -347,7 +405,7 @@ export function Poly({
   const canvasH = Math.max(1, Math.ceil(h));
 
   useEffect(() => {
-    if (!textureUrl || !uvAffine) return;
+    if (!textureUrl) return;
     let cancelled = false;
 
     loadTextureImage(textureUrl).then((srcImg) => {
@@ -369,16 +427,23 @@ export function Poly({
       ctx.closePath();
       ctx.clip();
 
-      // Affine: image pixel (px, py) → canvas pixel.
-      //   canvas_x = (a/imgW)·px + (b/imgH)·py + e
-      //   canvas_y = (c/imgW)·px + (d/imgH)·py + f
-      // setTransform(a, b, c, d, e, f) is column-major: [a c e; b d f]
-      ctx.setTransform(
-        uvAffine.a / srcImg.naturalWidth, uvAffine.c / srcImg.naturalWidth,
-        uvAffine.b / srcImg.naturalHeight, uvAffine.d / srcImg.naturalHeight,
-        uvAffine.e, uvAffine.f,
-      );
-      ctx.drawImage(srcImg, 0, 0);
+      if (uvAffine) {
+        // Affine: image pixel (px, py) → canvas pixel.
+        //   canvas_x = (a/imgW)·px + (b/imgH)·py + e
+        //   canvas_y = (c/imgW)·px + (d/imgH)·py + f
+        // setTransform(a, b, c, d, e, f) is column-major: [a c e; b d f]
+        ctx.setTransform(
+          uvAffine.a / srcImg.naturalWidth, uvAffine.c / srcImg.naturalWidth,
+          uvAffine.b / srcImg.naturalHeight, uvAffine.d / srcImg.naturalHeight,
+          uvAffine.e, uvAffine.f,
+        );
+        ctx.drawImage(srcImg, 0, 0);
+      } else {
+        drawImageCover(ctx, srcImg, canvasW, canvasH);
+      }
+      if (textureLighting === "baked") {
+        applyTextureTint(ctx, canvasW, canvasH, textureTint);
+      }
 
       canvas.toBlob((blob) => {
         if (cancelled || !blob) return;
@@ -396,7 +461,7 @@ export function Poly({
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textureUrl, affineKey, screenPtsKey, canvasW, canvasH]);
+  }, [textureUrl, affineKey, screenPtsKey, canvasW, canvasH, textureBakeKey]);
 
   // Final cleanup: revoke the active blob URL when the component unmounts.
   useEffect(() => {
@@ -409,10 +474,9 @@ export function Poly({
   }, []);
 
   // Stroke is helpful for solid-color polygons (visual debug of mesh
-  // structure), but on textured meshes it puts a grid of dark lines across
-  // the surface. Drop it when textured.
-  const stroke = textureUrl ? "none" : "rgba(0,0,0,0.15)";
-  const strokeWidth = textureUrl ? 0 : 1;
+  // structure). Textured polygons render as <img>, so no stroke path.
+  const stroke = "rgba(0,0,0,0.15)";
+  const strokeWidth = 1;
 
   // DOM passthrough event handlers to forward to the rendered element.
   // Typed as React.DOMAttributes<Element> so the same object can be spread
@@ -480,11 +544,10 @@ export function Poly({
   }
   const wrapperTransform = transformParts.length > 0 ? transformParts.join(" ") : undefined;
 
-  // UV-mapped textured polygon: render an <img> whose src is set
-  // imperatively from the offscreen-canvas blob. ONE element per polygon,
-  // no SVG, no clip-path. matrix3d positions the bitmap in 3D space the
-  // same way it would an SVG.
-  const front = textureUrl && uvAffine ? (
+  // Textured polygon: render an <img> whose src is set imperatively from the
+  // offscreen-canvas blob. ONE element per polygon, no SVG, no clip-path.
+  // In filter mode, lighting is applied here with CSS brightness().
+  const front = textureUrl ? (
     <img
       ref={imgRef}
       alt=""
@@ -501,7 +564,7 @@ export function Poly({
         transform: `matrix3d(${matrix})`,
         backfaceVisibility: "hidden",
         pointerEvents: resolvedPointerEvents,
-        filter: `brightness(${textureBrightness.toFixed(3)})`,
+        filter: textureFilter,
         ...styleProp,
       }}
       {...domEventHandlers}
@@ -516,7 +579,6 @@ export function Poly({
       preserveAspectRatio="none"
       className={[
         "polycss-poly",
-        textureUrl ? "polycss-poly-textured" : "",
         className,
       ].filter(Boolean).join(" ")}
       style={{
@@ -531,35 +593,12 @@ export function Poly({
         // mirrored copy of it overlapping front faces from other angles.
         backfaceVisibility: "hidden",
         pointerEvents: resolvedPointerEvents,
-        filter: textureUrl ? `brightness(${textureBrightness.toFixed(3)})` : undefined,
         ...styleProp,
       }}
       {...domEventHandlers}
       {...domAttrs}
     >
-      {textureUrl ? (
-        // Texture without UVs — single-tile pattern fill (no UV mapping).
-        <>
-          <defs>
-            <pattern
-              id={patternId}
-              patternUnits="userSpaceOnUse"
-              width={w}
-              height={h}
-            >
-              <image
-                href={textureUrl}
-                width={w}
-                height={h}
-                preserveAspectRatio="xMidYMid slice"
-              />
-            </pattern>
-          </defs>
-          <path d={pathStr} fill={`url(#${patternId})`} stroke={stroke} strokeWidth={strokeWidth} vectorEffect="non-scaling-stroke" />
-        </>
-      ) : (
-        <path d={pathStr} fill={shadedColor} stroke={stroke} strokeWidth={strokeWidth} vectorEffect="non-scaling-stroke" />
-      )}
+      <path d={pathStr} fill={shadedColor} stroke={stroke} strokeWidth={strokeWidth} vectorEffect="non-scaling-stroke" />
     </svg>
   );
 

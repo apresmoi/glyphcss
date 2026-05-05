@@ -18,7 +18,7 @@
  */
 import { defineComponent, h, computed } from "vue";
 import type { PropType, VNode, CSSProperties } from "vue";
-import type { Polygon, Vec3 } from "@polycss/core";
+import type { Polygon, TextureLightingMode, Vec3 } from "@polycss/core";
 import { computeSceneBbox } from "@polycss/core";
 import { Poly } from "../shapes/Poly";
 import { useMesh } from "./useMesh";
@@ -32,6 +32,7 @@ export interface PolyMeshProps {
   mtl?: string;
   polygons?: Polygon[];
   autoCenter?: boolean;
+  textureLighting?: TextureLightingMode;
   class?: string;
   position?: Vec3;
   scale?: number | Vec3;
@@ -85,6 +86,7 @@ export const PolyMesh = defineComponent({
     mtl: { type: String, default: undefined },
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
     autoCenter: { type: Boolean, default: false },
+    textureLighting: { type: String as PropType<TextureLightingMode>, default: undefined },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
@@ -160,6 +162,7 @@ export const PolyMesh = defineComponent({
           texture: p.texture,
           uvs: p.uvs,
           data: p.data,
+          textureLighting: props.textureLighting,
         });
       });
 

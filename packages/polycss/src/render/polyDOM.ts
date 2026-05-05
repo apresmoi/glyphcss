@@ -10,7 +10,7 @@
  * packages, and Phase 5b is explicitly scoped to NOT restructure core. We
  * can deduplicate later if a third consumer needs the same math.
  */
-import type { DirectionalLight, Polygon, Vec3 } from "@polycss/core";
+import type { DirectionalLight, Polygon, TextureLightingMode, Vec3 } from "@polycss/core";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const DEFAULT_TILE = 50;
@@ -22,6 +22,7 @@ const DEFAULT_AMBIENT_COLOR = "#ffffff";
 const DEFAULT_AMBIENT = 0.45;
 
 interface RGB { r: number; g: number; b: number; }
+interface RGBFactors { r: number; g: number; b: number; }
 
 function parseHex(hex: string): RGB {
   const c = hex.startsWith("#") ? hex.slice(1) : hex;
@@ -59,6 +60,61 @@ function shadePolygon(
   });
 }
 
+function textureTintFactors(
+  lambert: number,
+  lightColor: string,
+  ambientColor: string,
+  ambientStrength: number,
+): RGBFactors {
+  const light = parseHex(lightColor);
+  const amb = parseHex(ambientColor);
+  return {
+    r: (amb.r / 255) * ambientStrength + (light.r / 255) * lambert,
+    g: (amb.g / 255) * ambientStrength + (light.g / 255) * lambert,
+    b: (amb.b / 255) * ambientStrength + (light.b / 255) * lambert,
+  };
+}
+
+function tintToCss({ r, g, b }: RGBFactors): string {
+  const f = (n: number) => Math.round(Math.max(0, Math.min(1, n)) * 255);
+  return `rgb(${f(r)} ${f(g)} ${f(b)})`;
+}
+
+function applyTextureTint(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  tint: RGBFactors,
+): void {
+  if (
+    Math.abs(tint.r - 1) < 0.001 &&
+    Math.abs(tint.g - 1) < 0.001 &&
+    Math.abs(tint.b - 1) < 0.001
+  ) {
+    return;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = tintToCss(tint);
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  width: number,
+  height: number,
+): void {
+  const srcW = img.naturalWidth || img.width || 1;
+  const srcH = img.naturalHeight || img.height || 1;
+  const scale = Math.max(width / srcW, height / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  ctx.drawImage(img, (width - drawW) / 2, (height - drawH) / 2, drawW, drawH);
+}
+
 /**
  * Module-level texture image cache so multiple polygons sharing the same
  * texture URL only download / decode once. Same idea as React's `Poly.tsx`.
@@ -86,6 +142,8 @@ export interface RenderPolyOptions {
   layerElevation?: number;
   /** Per-scene directional light. */
   directionalLight?: DirectionalLight;
+  /** Textured polygon lighting mode. Defaults to "baked". */
+  textureLighting?: TextureLightingMode;
 }
 
 export interface RenderedPoly {
@@ -190,6 +248,8 @@ export function renderPoly(
   const direct = Math.max(0, 1 - ambient);
   const lambert = direct * Math.max(0, nx * lx + ny * ly + nz * lz);
   const shadedColor = shadePolygon(baseColor, lambert, lightColor, ambientColor, ambient);
+  const textureTint = textureTintFactors(lambert, lightColor, ambientColor, ambient);
+  const textureLighting = options.textureLighting ?? "baked";
   const textureBrightness = ambient + lambert;
 
   // UV-affine for textured polygons.
@@ -228,9 +288,9 @@ export function renderPoly(
   let blobUrl: string | null = null;
   let cancelled = false;
 
-  if (texture && uvAffine) {
-    // UV-mapped textured polygon: <img> with src set imperatively from an
-    // off-DOM canvas blob. One element per polygon; no SVG.
+  if (texture) {
+    // Textured polygon: <img> with src set imperatively from a baked off-DOM
+    // canvas blob. One element per polygon; no SVG, no CSS filter.
     const canvasW = Math.max(1, Math.ceil(w));
     const canvasH = Math.max(1, Math.ceil(h));
     const img = doc.createElement("img");
@@ -247,7 +307,9 @@ export function renderPoly(
     img.style.transformOrigin = "0 0";
     img.style.transform = `matrix3d(${matrix})`;
     img.style.backfaceVisibility = "hidden";
-    img.style.filter = `brightness(${textureBrightness.toFixed(3)})`;
+    if (textureLighting === "filter") {
+      img.style.filter = `brightness(${textureBrightness.toFixed(3)})`;
+    }
 
     const screenPts: number[] = [];
     for (const [x, y] of local2D) screenPts.push(x + shiftX, y + shiftY);
@@ -269,12 +331,19 @@ export function renderPoly(
       ctx.closePath();
       ctx.clip();
 
-      ctx.setTransform(
-        uvAffine!.a / srcImg.naturalWidth, uvAffine!.c / srcImg.naturalWidth,
-        uvAffine!.b / srcImg.naturalHeight, uvAffine!.d / srcImg.naturalHeight,
-        uvAffine!.e, uvAffine!.f,
-      );
-      ctx.drawImage(srcImg, 0, 0);
+      if (uvAffine) {
+        ctx.setTransform(
+          uvAffine.a / srcImg.naturalWidth, uvAffine.c / srcImg.naturalWidth,
+          uvAffine.b / srcImg.naturalHeight, uvAffine.d / srcImg.naturalHeight,
+          uvAffine.e, uvAffine.f,
+        );
+        ctx.drawImage(srcImg, 0, 0);
+      } else {
+        drawImageCover(ctx, srcImg, canvasW, canvasH);
+      }
+      if (textureLighting === "baked") {
+        applyTextureTint(ctx, canvasW, canvasH, textureTint);
+      }
 
       canvas.toBlob((blob) => {
         if (cancelled || !blob) return;
@@ -288,9 +357,9 @@ export function renderPoly(
 
     element = img;
   } else {
-    // Solid color (or texture without UVs) → SVG with shaded fill.
-    const stroke = texture ? "none" : "rgba(0,0,0,0.15)";
-    const strokeWidth = texture ? 0 : 1;
+    // Solid color → SVG with shaded fill.
+    const stroke = "rgba(0,0,0,0.15)";
+    const strokeWidth = 1;
 
     const svg = doc.createElementNS(SVG_NS, "svg") as SVGSVGElement;
     svg.setAttribute("xmlns", SVG_NS);
@@ -308,49 +377,14 @@ export function renderPoly(
     svg.style.transformOrigin = "0 0";
     svg.style.transform = `matrix3d(${matrix})`;
     svg.style.backfaceVisibility = "hidden";
-    if (texture) {
-      svg.style.filter = `brightness(${textureBrightness.toFixed(3)})`;
-    }
 
-    if (texture) {
-      // Single-tile pattern fill (no UV mapping).
-      const patternId = `polycss-pattern-${Math.random().toString(36).slice(2, 10)}`;
-      const defs = doc.createElementNS(SVG_NS, "defs");
-      const pattern = doc.createElementNS(SVG_NS, "pattern");
-      pattern.setAttribute("id", patternId);
-      pattern.setAttribute("patternUnits", "userSpaceOnUse");
-      pattern.setAttribute("width", String(w));
-      pattern.setAttribute("height", String(h));
-      const image = doc.createElementNS(SVG_NS, "image");
-      image.setAttributeNS(
-        "http://www.w3.org/1999/xlink",
-        "xlink:href",
-        texture,
-      );
-      image.setAttribute("href", texture);
-      image.setAttribute("width", String(w));
-      image.setAttribute("height", String(h));
-      image.setAttribute("preserveAspectRatio", "xMidYMid slice");
-      pattern.appendChild(image);
-      defs.appendChild(pattern);
-      svg.appendChild(defs);
-
-      const path = doc.createElementNS(SVG_NS, "path");
-      path.setAttribute("d", pathStr);
-      path.setAttribute("fill", `url(#${patternId})`);
-      path.setAttribute("stroke", stroke);
-      path.setAttribute("stroke-width", String(strokeWidth));
-      path.setAttribute("vector-effect", "non-scaling-stroke");
-      svg.appendChild(path);
-    } else {
-      const path = doc.createElementNS(SVG_NS, "path");
-      path.setAttribute("d", pathStr);
-      path.setAttribute("fill", shadedColor);
-      path.setAttribute("stroke", stroke);
-      path.setAttribute("stroke-width", String(strokeWidth));
-      path.setAttribute("vector-effect", "non-scaling-stroke");
-      svg.appendChild(path);
-    }
+    const path = doc.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", pathStr);
+    path.setAttribute("fill", shadedColor);
+    path.setAttribute("stroke", stroke);
+    path.setAttribute("stroke-width", String(strokeWidth));
+    path.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.appendChild(path);
 
     element = svg;
   }

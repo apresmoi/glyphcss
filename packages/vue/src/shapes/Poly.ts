@@ -18,7 +18,7 @@ import {
   computed,
 } from "vue";
 import type { PropType, CSSProperties } from "vue";
-import type { Vec2, Vec3, DirectionalLight } from "@polycss/core";
+import type { Vec2, Vec3, DirectionalLight, TextureLightingMode } from "@polycss/core";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -46,6 +46,7 @@ const DEFAULT_AMBIENT_COLOR = "#ffffff";
 const DEFAULT_AMBIENT = 0.45;
 
 interface RGB { r: number; g: number; b: number; }
+interface RGBFactors { r: number; g: number; b: number; }
 
 function parseHex(hex: string): RGB {
   const c = hex.startsWith("#") ? hex.slice(1) : hex;
@@ -83,12 +84,66 @@ function shadePolygon(
   });
 }
 
-let _polyIdCounter = 0;
+function textureTintFactors(
+  lambert: number,
+  lightColor: string,
+  ambientColor: string,
+  ambientStrength: number,
+): RGBFactors {
+  const light = parseHex(lightColor);
+  const amb = parseHex(ambientColor);
+  return {
+    r: (amb.r / 255) * ambientStrength + (light.r / 255) * lambert,
+    g: (amb.g / 255) * ambientStrength + (light.g / 255) * lambert,
+    b: (amb.b / 255) * ambientStrength + (light.b / 255) * lambert,
+  };
+}
+
+function tintToCss({ r, g, b }: RGBFactors): string {
+  const f = (n: number) => Math.round(Math.max(0, Math.min(1, n)) * 255);
+  return `rgb(${f(r)} ${f(g)} ${f(b)})`;
+}
+
+function applyTextureTint(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  tint: RGBFactors,
+): void {
+  if (
+    Math.abs(tint.r - 1) < 0.001 &&
+    Math.abs(tint.g - 1) < 0.001 &&
+    Math.abs(tint.b - 1) < 0.001
+  ) {
+    return;
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = tintToCss(tint);
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  width: number,
+  height: number,
+): void {
+  const srcW = img.naturalWidth || img.width || 1;
+  const srcH = img.naturalHeight || img.height || 1;
+  const scale = Math.max(width / srcW, height / srcH);
+  const drawW = srcW * scale;
+  const drawH = srcH * scale;
+  ctx.drawImage(img, (width - drawW) / 2, (height - drawH) / 2, drawW, drawH);
+}
 
 export interface PolyContext {
   tileSize?: number;
   layerElevation?: number;
   directionalLight?: DirectionalLight;
+  textureLighting?: TextureLightingMode;
   debugShowBackfaces?: boolean;
   [key: string]: unknown;
 }
@@ -103,6 +158,7 @@ export interface PolyProps {
   scale?: number | Vec3;
   rotation?: Vec3;
   context?: PolyContext;
+  textureLighting?: TextureLightingMode;
   baseColor?: string;
   pointerEvents?: "auto" | "none";
 }
@@ -119,6 +175,10 @@ export const Poly = defineComponent({
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
+    textureLighting: {
+      type: String as PropType<TextureLightingMode>,
+      default: undefined,
+    },
     context: {
       type: Object as PropType<PolyContext>,
       default: undefined,
@@ -130,8 +190,6 @@ export const Poly = defineComponent({
     },
   },
   setup(props, { attrs }) {
-    // Unique pattern id for SVG <defs> — stable per element instance.
-    const patternId = `poly-${++_polyIdCounter}`;
     const imgRef = ref<HTMLImageElement | null>(null);
     const blobUrlRef = ref<string | null>(null);
 
@@ -225,6 +283,9 @@ export const Poly = defineComponent({
       const lambert = direct * Math.max(0, nx * lx + ny * ly + nz * lz);
       const baseColor = props.baseColor ?? props.color ?? "#cccccc";
       const shadedColor = shadePolygon(baseColor, lambert, lightColor, ambientColor, ambient);
+      const textureLighting = props.textureLighting ?? props.context?.textureLighting ?? "baked";
+      const textureTint = textureTintFactors(lambert, lightColor, ambientColor, ambient);
+      const textureTintKey = `${textureTint.r.toFixed(4)},${textureTint.g.toFixed(4)},${textureTint.b.toFixed(4)}`;
       const textureBrightness = ambient + lambert;
 
       // UV affine
@@ -259,7 +320,8 @@ export const Poly = defineComponent({
       for (const [x, y] of local2D) screenPts.push(x + shiftX, y + shiftY);
 
       return {
-        matrix, backMatrix, pathStr, w, h, shadedColor, textureBrightness,
+        matrix, backMatrix, pathStr, w, h, shadedColor,
+        textureLighting, textureTint, textureTintKey, textureBrightness,
         textureUrl, uvAffine, shiftX, shiftY, local2D,
         canvasW: Math.max(1, Math.ceil(w)),
         canvasH: Math.max(1, Math.ceil(h)),
@@ -273,16 +335,17 @@ export const Poly = defineComponent({
       };
     });
 
-    // UV-mapped texture: canvas → blob → img.src
+    // Textured polygons: canvas → baked light tint → blob → img.src
     watch(
       () => {
         const g = geo.value;
         if (!g) return null;
-        return `${g.textureUrl}||${g.affineKey}||${g.screenPtsKey}||${g.canvasW}x${g.canvasH}`;
+        const bakeKey = g.textureLighting === "baked" ? g.textureTintKey : "filter";
+        return `${g.textureUrl}||${g.affineKey}||${g.screenPtsKey}||${g.canvasW}x${g.canvasH}||${bakeKey}`;
       },
       () => {
         const g = geo.value;
-        if (!g || !g.textureUrl || !g.uvAffine) return;
+        if (!g || !g.textureUrl) return;
         let cancelled = false;
 
         loadTextureImage(g.textureUrl).then((srcImg) => {
@@ -302,12 +365,19 @@ export const Poly = defineComponent({
           ctx.closePath();
           ctx.clip();
 
-          ctx.setTransform(
-            g.uvAffine!.a / srcImg.naturalWidth, g.uvAffine!.c / srcImg.naturalWidth,
-            g.uvAffine!.b / srcImg.naturalHeight, g.uvAffine!.d / srcImg.naturalHeight,
-            g.uvAffine!.e, g.uvAffine!.f,
-          );
-          ctx.drawImage(srcImg, 0, 0);
+          if (g.uvAffine) {
+            ctx.setTransform(
+              g.uvAffine.a / srcImg.naturalWidth, g.uvAffine.c / srcImg.naturalWidth,
+              g.uvAffine.b / srcImg.naturalHeight, g.uvAffine.d / srcImg.naturalHeight,
+              g.uvAffine.e, g.uvAffine.f,
+            );
+            ctx.drawImage(srcImg, 0, 0);
+          } else {
+            drawImageCover(ctx, srcImg, g.canvasW, g.canvasH);
+          }
+          if (g.textureLighting === "baked") {
+            applyTextureTint(ctx, g.canvasW, g.canvasH, g.textureTint);
+          }
 
           canvas.toBlob((blob) => {
             if (cancelled || !blob) return;
@@ -338,6 +408,9 @@ export const Poly = defineComponent({
       const resolvedPointerEvents = props.pointerEvents ?? "auto";
       const stroke = g.textureUrl ? "none" : "rgba(0,0,0,0.15)";
       const strokeWidth = g.textureUrl ? 0 : 1;
+      const textureFilter = g.textureLighting === "filter"
+        ? `brightness(${g.textureBrightness.toFixed(3)})`
+        : undefined;
 
       // Build wrapper transform from position/scale/rotation
       const transformParts: string[] = [];
@@ -372,7 +445,7 @@ export const Poly = defineComponent({
       const forwardedAttrs = { ...attrs, ...dataAttrs };
 
       // Front element — textured (img) or solid color (svg)
-      const front = g.textureUrl && g.uvAffine
+      const front = g.textureUrl
         ? h("img", {
             ref: imgRef,
             alt: "",
@@ -389,7 +462,7 @@ export const Poly = defineComponent({
               transform: `matrix3d(${g.matrix})`,
               backfaceVisibility: "hidden",
               pointerEvents: resolvedPointerEvents,
-              filter: `brightness(${g.textureBrightness.toFixed(3)})`,
+              filter: textureFilter,
               ...(forwardedAttrs.style as CSSProperties | undefined),
             } as CSSProperties,
             ...Object.fromEntries(
@@ -406,7 +479,6 @@ export const Poly = defineComponent({
               preserveAspectRatio: "none",
               class: [
                 "polycss-poly",
-                g.textureUrl ? "polycss-poly-textured" : "",
                 (forwardedAttrs.class as string) ?? "",
               ].filter(Boolean).join(" "),
               style: {
@@ -418,47 +490,21 @@ export const Poly = defineComponent({
                 transform: `matrix3d(${g.matrix})`,
                 backfaceVisibility: "hidden",
                 pointerEvents: resolvedPointerEvents,
-                filter: g.textureUrl ? `brightness(${g.textureBrightness.toFixed(3)})` : undefined,
                 ...(forwardedAttrs.style as CSSProperties | undefined),
               } as CSSProperties,
               ...Object.fromEntries(
                 Object.entries(forwardedAttrs).filter(([k]) => k !== "class" && k !== "style")
               ),
             },
-            g.textureUrl
-              ? [
-                  h("defs", [
-                    h("pattern", {
-                      id: patternId,
-                      patternUnits: "userSpaceOnUse",
-                      width: g.w,
-                      height: g.h,
-                    }, [
-                      h("image", {
-                        href: g.textureUrl,
-                        width: g.w,
-                        height: g.h,
-                        preserveAspectRatio: "xMidYMid slice",
-                      }),
-                    ]),
-                  ]),
-                  h("path", {
-                    d: g.pathStr,
-                    fill: `url(#${patternId})`,
-                    stroke,
-                    "stroke-width": strokeWidth,
-                    "vector-effect": "non-scaling-stroke",
-                  }),
-                ]
-              : [
-                  h("path", {
-                    d: g.pathStr,
-                    fill: g.shadedColor,
-                    stroke,
-                    "stroke-width": strokeWidth,
-                    "vector-effect": "non-scaling-stroke",
-                  }),
-                ]
+            [
+              h("path", {
+                d: g.pathStr,
+                fill: g.shadedColor,
+                stroke,
+                "stroke-width": strokeWidth,
+                "vector-effect": "non-scaling-stroke",
+              }),
+            ]
           );
 
       // Debug backface overlay

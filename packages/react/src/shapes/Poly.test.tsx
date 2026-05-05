@@ -166,23 +166,33 @@ describe("Poly — off-axis triangle", () => {
   });
 });
 
-describe("Poly — texture without UVs (pattern fill)", () => {
-  it("renders svg with polycss-poly-textured class", () => {
+describe("Poly — texture without UVs (baked image fill)", () => {
+  it("renders img with polycss-poly-textured class", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
     });
-    const textured = container.querySelector(".polycss-poly-textured");
-    expect(textured).toBeTruthy();
+    const img = container.querySelector("img.polycss-poly-textured");
+    expect(img).toBeTruthy();
   });
 
-  it("svg contains a <pattern> element for texture", () => {
+  it("does not use CSS filter for baked texture lighting", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
     });
-    const pattern = container.querySelector("pattern");
-    expect(pattern).toBeTruthy();
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toBe("");
+  });
+
+  it("uses CSS filter when textureLighting=filter", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+      texture: "https://example.com/tex.png",
+      textureLighting: "filter",
+    });
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toContain("brightness(");
   });
 });
 
@@ -240,6 +250,35 @@ describe("Poly — UV-mapped texture (renders <img>)", () => {
     });
     const img = container.querySelector("img") as HTMLImageElement;
     expect(img.style.transform).toContain("matrix3d(");
+  });
+
+  it("img does not use CSS filter for lighting", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+      texture: "https://example.com/tex.png",
+      uvs: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    });
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toBe("");
+  });
+
+  it("img uses CSS filter when textureLighting=filter", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+      texture: "https://example.com/tex.png",
+      textureLighting: "filter",
+      uvs: [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+      ],
+    });
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img.style.filter).toContain("brightness(");
   });
 });
 
@@ -364,13 +403,13 @@ describe("Poly — DOM passthrough", () => {
   });
 });
 
-describe("Poly — dimetric projection context", () => {
-  it("renders with dimetric layerElevation (half tile)", () => {
+describe("Poly — custom layer elevation context", () => {
+  it("renders with a custom layerElevation", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       context: {
         tileSize: 50,
-        layerElevation: 25, // dimetric = tileSize / 2
+        layerElevation: 25,
       },
     });
     const svg = container.querySelector("svg");
