@@ -31,7 +31,6 @@ const OBSERVED_ATTRS = [
   "light-ambient",
   "light-ambient-color",
   "merge",
-  "projection",
   "auto-center",
   "interactive",
 ] as const;
@@ -83,13 +82,9 @@ export class PolySceneElement extends ELEMENT_BASE {
     if (rotY !== undefined) opts.rotY = rotY;
     const zoom = parseNumber(this.getAttribute("zoom"));
     if (zoom !== undefined) opts.zoom = zoom;
-    // Always emit projection + merge so removing the attribute resets to
-    // the default — without this, `setOptions({...partial})` would retain
-    // the prior value because the spread merge only overwrites present keys.
+    // Always emit merge so removing the attribute resets to the default.
     const merge = parseMerge(this.getAttribute("merge"));
     opts.merge = merge ?? "off";
-    const projection = this.getAttribute("projection");
-    opts.projection = projection === "dimetric" ? "dimetric" : "cubic";
     opts.autoCenter = this.hasAttribute("auto-center");
     opts.interactive = this.hasAttribute("interactive");
     if (directionalLight) opts.directionalLight = directionalLight;

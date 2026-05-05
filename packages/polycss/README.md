@@ -89,7 +89,6 @@ poly-polygon.hover { filter: brightness(1.5); }
 | `rot-x` | Camera X-axis rotation in degrees |
 | `rot-y` | Camera Y-axis rotation in degrees |
 | `zoom` | Scale factor |
-| `projection` | `"cubic"` or `"dimetric"` |
 | `light-direction` | Comma-separated `x, y, z` e.g. `"0.5, -0.7, 0.6"` |
 | `light-color` | Directional light color hex |
 | `light-ambient` | Ambient intensity `0`–`1` |

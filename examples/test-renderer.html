@@ -35,7 +35,6 @@
     const depth = Number(params.get("depth")) || 6;
     const showFloor = params.get("showFloor") !== "false";
     const showWalls = params.get("showWalls") !== "false";
-    const projection = params.get("projection") || "cubic";
     const merge = params.get("merge") || "off";
     const model = params.get("model") || "base";
 
@@ -93,7 +92,7 @@
     const voxels = getVoxels();
 
     const cameraProps = { zoom, rotX, rotY, pan, tilt, interactive: true, perspective: false };
-    const sceneProps = { voxels, rows, cols, depth, showFloor, showWalls, projection, mergeVoxels: mergeOption };
+    const sceneProps = { voxels, rows, cols, depth, showFloor, showWalls, mergeVoxels: mergeOption };
 
     const el = document.getElementById("scene");
 

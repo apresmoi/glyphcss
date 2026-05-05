@@ -29,7 +29,6 @@ export interface CameraStyleInput {
   depth?: number;
   rows?: number;
   cols?: number;
-  dimetric?: boolean;
 }
 
 export interface CameraHandle {
@@ -88,8 +87,7 @@ export function createIsometricCamera(initial: Partial<CameraState> = {}): Camer
 
   function getStyle(input: CameraStyleInput = {}) {
     const depth = input.depth ?? 0;
-    const depthMultiplier = input.dimetric ? 0.5 : 1;
-    const depthOffset = depth * state.depthOffset * depthMultiplier;
+    const depthOffset = depth * state.depthOffset;
     const tileSize = BASE_TILE;
     const width = (input.cols ?? 0) * tileSize;
     const height = (input.rows ?? 0) * tileSize;

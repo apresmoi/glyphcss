@@ -327,8 +327,8 @@ describe("createPolyScene", () => {
       expect(centerWrapper.style.transform).toMatch(/^translate3d\(.+\)$/);
     });
 
-    it("autoCenter halves the Z elevation in dimetric projection", () => {
-      // Triangle whose bbox in Z is [0, 2]. cubic: cz = 1 * 50 = 50; dimetric: cz = 1 * 25.
+    it("autoCenter uses the fixed default Z elevation", () => {
+      // Triangle whose bbox in Z is [0, 2]. Center Z is 1 * 50 = 50.
       const tri: Polygon = {
         vertices: [
           [0, 0, 0],
@@ -337,15 +337,12 @@ describe("createPolyScene", () => {
         ],
         color: "#fff",
       };
-      scene = createPolyScene(host, { autoCenter: true, projection: "cubic" });
+      scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([tri]));
       const centerWrapper = host.querySelector(
         "[data-polycss-auto-center-wrapper]",
       ) as HTMLElement;
-      const cubicTransform = centerWrapper.style.transform;
-      scene.setOptions({ projection: "dimetric" });
-      const dimetricTransform = centerWrapper.style.transform;
-      expect(cubicTransform).not.toBe(dimetricTransform);
+      expect(centerWrapper.style.transform).toContain("-50px");
     });
   });
 });

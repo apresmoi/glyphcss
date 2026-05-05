@@ -1,6 +1,5 @@
 /* Core type and constant definitions shared across polycss runtime modules. */
-export type ProjectionMode = "cubic" | "dimetric";
-export const DEFAULT_PROJECTION: ProjectionMode = "cubic";
+export const DEFAULT_PROJECTION = "cubic" as const;
 
 /**
  * 3D point/vector, stored as a `[x, y, z]` tuple. Tuple (rather than

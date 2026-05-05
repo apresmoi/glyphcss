@@ -1,10 +1,9 @@
 import { computed } from "vue";
 import type { Ref } from "vue";
-import type { Polygon, ProjectionMode, DirectionalLight, Vec3 } from "@polycss/core";
+import type { Polygon, DirectionalLight, Vec3 } from "@polycss/core";
 import { buildSceneContext, mergePolygons } from "@polycss/core";
 
 export interface UseSceneContextOptions {
-  projection?: ProjectionMode;
   /** `"auto"` runs `mergePolygons`; `"off"` passes through unchanged. */
   merge?: "off" | "auto";
   directionalLight?: DirectionalLight;
@@ -29,10 +28,7 @@ export function useSceneContext(
   return computed(() => {
     const opts = options.value;
 
-    const built = buildSceneContext({
-      polygons: polygons.value,
-      projection: opts.projection,
-    });
+    const built = buildSceneContext({ polygons: polygons.value });
 
     const finalPolygons =
       opts.merge === "auto"

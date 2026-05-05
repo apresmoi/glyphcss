@@ -35,7 +35,6 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("rot-y");
       expect(observed).toContain("zoom");
       expect(observed).toContain("merge");
-      expect(observed).toContain("projection");
       expect(observed).toContain("light-direction");
       expect(observed).toContain("light-color");
       expect(observed).toContain("light-ambient");
@@ -153,13 +152,6 @@ describe("PolySceneElement", () => {
       elB.setAttribute("merge", "garbage");
       host.appendChild(elB);
       expect(elB.getScene()).not.toBeNull();
-    });
-
-    it("parses projection=cubic and projection=dimetric", () => {
-      const el = document.createElement("poly-scene") as PolySceneElement;
-      el.setAttribute("projection", "dimetric");
-      host.appendChild(el);
-      expect(el.getScene()).not.toBeNull();
     });
 
     it("parses auto-center as a boolean (presence)", () => {

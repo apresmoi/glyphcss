@@ -40,7 +40,6 @@ export type {
   Vec3,
   Polygon,
   DirectionalLight,
-  ProjectionMode,
   ParseResult,
   ObjParseOptions,
   GltfParseOptions,

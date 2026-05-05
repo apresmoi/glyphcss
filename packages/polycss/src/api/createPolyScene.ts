@@ -23,7 +23,6 @@ import type {
   DirectionalLight,
   ParseResult,
   Polygon,
-  ProjectionMode,
   Vec3,
 } from "@polycss/core";
 import { computeSceneBbox, mergePolygons } from "@polycss/core";
@@ -36,7 +35,6 @@ export interface PolySceneOptions {
   rotX?: number;
   rotY?: number;
   zoom?: number;
-  projection?: ProjectionMode;
   directionalLight?: DirectionalLight;
   /**
    * Mesh post-processing.
@@ -257,15 +255,8 @@ export function createPolyScene(
   }
 
   function recomputeAutoCenter(): void {
-    // Build the wrapper transform in two parts (CSS reads right-to-left):
-    //   scaleZ(0.5)?           ← projection=dimetric squashes Z to half
-    //   translate3d(-cx,-cy,-cz)  ← autoCenter brings bbox center to origin
-    // The translation runs in unscaled world units; scaleZ pivots at the
-    // wrapper's own origin (which IS world (0,0,0) after centering).
-    const dimetricSquash = currentOptions.projection === "dimetric" ? "scaleZ(0.5)" : "";
-
     if (!currentOptions.autoCenter) {
-      centerWrapper.style.transform = dimetricSquash;
+      centerWrapper.style.transform = "";
       return;
     }
     // Combine all live mesh polygons into a single bbox.
@@ -274,22 +265,16 @@ export function createPolyScene(
       if (!m.disposed) all.push(...m.polygons);
     }
     if (all.length === 0) {
-      centerWrapper.style.transform = dimetricSquash;
+      centerWrapper.style.transform = "";
       return;
     }
     const bbox = computeSceneBbox(all);
     const tile = DEFAULT_TILE;
     // Match React's axis remap: world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z.
-    // Z translation uses unscaled tile — the scaleZ(0.5) wrapper handles
-    // dimetric compression after the translation has placed bbox center at
-    // wrapper origin.
     const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * tile;
     const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * tile;
     const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * tile;
-    const translate = `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
-    centerWrapper.style.transform = dimetricSquash
-      ? `${dimetricSquash} ${translate}`
-      : translate;
+    centerWrapper.style.transform = `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }
 
   function add(parseResult: ParseResult, transformIn: MeshTransform = {}): MeshHandle {

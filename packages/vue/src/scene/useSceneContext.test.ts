@@ -26,7 +26,7 @@ const QUAD: Polygon = {
 
 function captureSceneContext(
   polygons: Polygon[],
-  options: { projection?: "cubic" | "dimetric"; merge?: "off" | "auto" } = {}
+  options: { merge?: "off" | "auto" } = {}
 ): UseSceneContextResult {
   let captured!: UseSceneContextResult;
   const container = document.createElement("div");
@@ -70,16 +70,6 @@ describe("useSceneContext", () => {
 
   it("merge='auto' still returns polygons (may reduce count)", () => {
     const result = captureSceneContext([TRIANGLE, QUAD], { merge: "auto" });
-    expect(result.polygons.length).toBeGreaterThan(0);
-  });
-
-  it("projection='dimetric' works without throwing", () => {
-    const result = captureSceneContext([TRIANGLE], { projection: "dimetric" });
-    expect(result.polygons.length).toBeGreaterThan(0);
-  });
-
-  it("projection='cubic' works without throwing", () => {
-    const result = captureSceneContext([TRIANGLE], { projection: "cubic" });
     expect(result.polygons.length).toBeGreaterThan(0);
   });
 

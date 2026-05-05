@@ -163,11 +163,5 @@ describe("createIsometricCamera", () => {
       expect(style.transform).toContain("translateY(100px)");
     });
 
-    it("halves depth offset in dimetric mode", () => {
-      const camera = createIsometricCamera({ depthOffset: 20 });
-      const style = camera.getStyle({ depth: 5, dimetric: true });
-      // depthOffset = 5 * 20 * 0.5 = 50
-      expect(style.transform).toContain("translateY(50px)");
-    });
   });
 });

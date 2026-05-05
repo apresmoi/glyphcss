@@ -92,16 +92,6 @@ describe("useSceneContext", () => {
     expect(result.polygons.length).toBeGreaterThan(0);
   });
 
-  it("uses projection 'dimetric' without throwing", () => {
-    const result = captureHook([TRIANGLE], { projection: "dimetric" });
-    expect(result.polygons.length).toBeGreaterThan(0);
-  });
-
-  it("uses projection 'cubic' without throwing", () => {
-    const result = captureHook([TRIANGLE], { projection: "cubic" });
-    expect(result.polygons.length).toBeGreaterThan(0);
-  });
-
   it("sceneBbox covers multiple polygons", () => {
     const result = captureHook([TRIANGLE, QUAD]);
     // QUAD goes to 2 on X and Y

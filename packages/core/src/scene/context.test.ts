@@ -61,16 +61,6 @@ describe("buildSceneContext", () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it("uses cubic projection by default", () => {
-    const result = buildSceneContext({ polygons: [] });
-    expect(result.context.projection).toBe("cubic");
-  });
-
-  it("respects projection override", () => {
-    const result = buildSceneContext({ polygons: [], projection: "dimetric" });
-    expect(result.context.projection).toBe("dimetric");
-  });
-
   it("computes scene bbox + size from polygon vertices", () => {
     const polys: Polygon[] = [
       { vertices: [[0, 0, 0], [10, 0, 0], [0, 5, 0]] },

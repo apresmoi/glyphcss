@@ -18,7 +18,6 @@ import {
 } from "vue";
 import type { PropType } from "vue";
 import type {
-  ProjectionMode,
   Polygon,
   DirectionalLight,
   AutoRotateOption,
@@ -30,15 +29,12 @@ import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles";
 import { Poly } from "../shapes/Poly";
 
-const DIMETRIC_CLASS = "polycss-projection--dimetric";
-
 export interface PolySceneProps {
   polygons?: Polygon[];
   perspective?: number;
   rotX?: number;
   rotY?: number;
   zoom?: number;
-  projection?: ProjectionMode;
   directionalLight?: DirectionalLight;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
@@ -71,10 +67,6 @@ export const PolyScene = defineComponent({
     rotX: { type: Number },
     rotY: { type: Number },
     zoom: { type: Number },
-    projection: {
-      type: String as PropType<ProjectionMode>,
-      default: "cubic",
-    },
     directionalLight: {
       type: Object as PropType<DirectionalLight>,
       default: undefined,
@@ -141,7 +133,6 @@ export const PolyScene = defineComponent({
     const inputPolygons = computed(() => props.polygons ?? []);
 
     const sceneContextOptions = computed(() => ({
-      projection: props.projection,
       merge: props.merge,
       directionalLight: props.directionalLight,
     }));
@@ -160,13 +151,12 @@ export const PolyScene = defineComponent({
       };
     });
 
-    // Per-polygon context: lighting + debug + projection-derived units.
+    // Per-polygon context: lighting + debug + scene units.
     const polyContext = computed(() => {
       const tileSize = 50;
-      const layerElevation = props.projection === "dimetric" ? tileSize / 2 : tileSize;
       return {
         tileSize,
-        layerElevation,
+        layerElevation: tileSize,
         directionalLight: props.directionalLight,
         debugShowBackfaces: props.debugShowBackfaces,
       };
@@ -194,10 +184,7 @@ export const PolyScene = defineComponent({
     });
 
     return () => {
-      const projection = props.projection ?? "cubic";
-      const computedClass = `polycss-scene${
-        projection === "dimetric" ? ` ${DIMETRIC_CLASS}` : ""
-      }${props.class ? ` ${props.class}` : ""}`;
+      const computedClass = `polycss-scene${props.class ? ` ${props.class}` : ""}`;
 
       const polygons = sceneResult.value.polygons;
       const ctx = polyContext.value;

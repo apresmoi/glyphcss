@@ -71,18 +71,6 @@ describe("PolyScene (Vue) — basic rendering", () => {
     expect(scene?.classList.contains("my-scene")).toBe(true);
   });
 
-  it("includes dimetric class when projection=dimetric", () => {
-    const { container } = renderScene({ projection: "dimetric" });
-    const scene = container.querySelector(".polycss-scene");
-    expect(scene?.classList.contains("polycss-projection--dimetric")).toBe(true);
-  });
-
-  it("does NOT include dimetric class when projection=cubic", () => {
-    const { container } = renderScene({ projection: "cubic" });
-    const scene = container.querySelector(".polycss-scene");
-    expect(scene?.classList.contains("polycss-projection--dimetric")).toBe(false);
-  });
-
   it("scene has data-polycss-depth-offset='0'", () => {
     const { container } = renderScene();
     const scene = container.querySelector(".polycss-scene");

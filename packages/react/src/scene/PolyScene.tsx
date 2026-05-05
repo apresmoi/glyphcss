@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type {
-  ProjectionMode,
   Polygon,
   DirectionalLight,
   AutoRotateOption,
@@ -13,8 +12,6 @@ import { injectBaseStyles } from "../styles/styles";
 import { Poly } from "../shapes";
 import type { TransformProps } from "../shapes/types";
 
-const DIMETRIC_CLASS = "polycss-projection--dimetric";
-
 export interface PolySceneProps extends TransformProps {
   /** Polygons to render. Composes additively with `children`. */
   polygons?: Polygon[];
@@ -22,7 +19,6 @@ export interface PolySceneProps extends TransformProps {
   rotX?: number;
   rotY?: number;
   zoom?: number;
-  projection?: ProjectionMode;
   directionalLight?: DirectionalLight;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
@@ -54,7 +50,6 @@ function PolySceneInner({
   rotX: _rotX,
   rotY: _rotY,
   zoom: _zoom,
-  projection = "cubic",
   directionalLight,
   merge = "off",
   autoCenter = false,
@@ -108,7 +103,6 @@ function PolySceneInner({
 
   // Run mesh post-processing pipeline (normalize + optional merge).
   const { polygons, sceneBbox } = useSceneContext(inputPolygons, {
-    projection,
     merge,
     directionalLight,
   });
@@ -128,25 +122,18 @@ function PolySceneInner({
     };
   }, [cameraState]);
 
-  const computedClassName = `polycss-scene${
-    projection === "dimetric" ? ` ${DIMETRIC_CLASS}` : ""
-  }${className ? ` ${className}` : ""}`;
+  const computedClassName = `polycss-scene${className ? ` ${className}` : ""}`;
 
-  // Per-polygon context: lighting + debug + projection-derived units.
-  // Dimetric squashes the Z (elevation) axis to half the tile size so a
-  // unit cube renders as the classic isometric block — same convention
-  // voxcss shipped. Cubic keeps Z = tile, so polygon vertices in 1:1
-  // world units render with no axis distortion.
+  // Per-polygon context: lighting + debug + scene units.
   const polyContext = useMemo(() => {
     const tileSize = 50;
-    const layerElevation = projection === "dimetric" ? tileSize / 2 : tileSize;
     return {
       tileSize,
-      layerElevation,
+      layerElevation: tileSize,
       directionalLight,
       debugShowBackfaces,
     };
-  }, [projection, directionalLight, debugShowBackfaces]);
+  }, [directionalLight, debugShowBackfaces]);
 
   // depthOffset was a voxcss-era hack that pushed the cube grid down so
   // the tilted camera could see its floor. Centered meshes don't need it

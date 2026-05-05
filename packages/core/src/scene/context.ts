@@ -6,8 +6,7 @@
  * No cube grid, no per-Z layer bucketing, no wall mask, no neighbor-based
  * occlusion. Just a polygon list and a scene bbox.
  */
-import type { Polygon, ProjectionMode, Vec3 } from "../types";
-import { DEFAULT_PROJECTION } from "../types";
+import type { Polygon, Vec3 } from "../types";
 import { normalizePolygons, type NormalizeResult } from "./normalize";
 
 export interface SceneBbox {
@@ -22,8 +21,6 @@ export interface SceneContext {
   polygons: Polygon[];
   /** Polygon-mesh bbox in world space. Used to size the scene container. */
   sceneBbox: SceneBbox;
-  /** Projection mode. */
-  projection: ProjectionMode;
   /** Warnings raised during normalization (already-applied fixes). */
   warnings: string[];
 }
@@ -34,8 +31,6 @@ export interface SceneContextBuildArgs {
    * `normalizePolygons` for you.
    */
   polygons: Polygon[];
-  /** Optional projection override. Defaults to "cubic". */
-  projection?: ProjectionMode;
   /**
    * If true, skip the normalize pass (caller has already validated). Useful
    * when chaining `mergePolygons` after a manual `normalizePolygons` call.
@@ -106,7 +101,6 @@ export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuil
   const context: SceneContext = {
     polygons,
     sceneBbox,
-    projection: args.projection ?? DEFAULT_PROJECTION,
     warnings,
   };
 

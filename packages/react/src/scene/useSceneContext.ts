@@ -1,14 +1,12 @@
 import { useMemo } from "react";
 import type {
   Polygon,
-  ProjectionMode,
   DirectionalLight,
   Vec3,
 } from "@polycss/core";
 import { buildSceneContext, mergePolygons } from "@polycss/core";
 
 export interface UseSceneContextOptions {
-  projection?: ProjectionMode;
   /** `"auto"` runs `mergePolygons`; `"off"` passes through unchanged. */
   merge?: "off" | "auto";
   directionalLight?: DirectionalLight;
@@ -30,16 +28,13 @@ export function useSceneContext(
   polygons: Polygon[],
   options: UseSceneContextOptions
 ): UseSceneContextResult {
-  const { projection, merge, directionalLight: _directionalLight } = options;
+  const { merge, directionalLight: _directionalLight } = options;
 
   return useMemo(() => {
     // Normalize first via buildSceneContext (it runs normalizePolygons),
     // then optionally merge. Merge runs AFTER normalize so it sees a
     // clean polygon list (no degenerates, valid UVs).
-    const built = buildSceneContext({
-      polygons,
-      projection,
-    });
+    const built = buildSceneContext({ polygons });
 
     const finalPolygons =
       merge === "auto" ? mergePolygons(built.context.polygons) : built.context.polygons;
@@ -48,5 +43,5 @@ export function useSceneContext(
       polygons: finalPolygons,
       sceneBbox: built.context.sceneBbox,
     };
-  }, [polygons, projection, merge]);
+  }, [polygons, merge]);
 }

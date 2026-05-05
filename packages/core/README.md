@@ -30,7 +30,6 @@ npm install @polycss/core
 | `Vec3` | `[number, number, number]` — 3D point or direction |
 | `Polygon` | Single renderable polygon: `vertices`, optional `color`, `texture`, `uvs`, `data` |
 | `DirectionalLight` | Directional + ambient light: `direction`, `color`, `ambientColor`, `ambient` |
-| `ProjectionMode` | `"cubic" | "dimetric"` |
 | `ParseResult` | Unified parser return: `polygons`, `objectUrls`, `dispose()`, `warnings` |
 | `ObjParseOptions` | Options for `parseObj` |
 | `GltfParseOptions` | Options for `parseGltf` |

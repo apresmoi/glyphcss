@@ -8,14 +8,14 @@ import PolyDemo from '../../../components/PolyDemo.astro';
 
 polycss uses CSS 3D perspective to project the scene. The `perspective` attribute on `<poly-scene>` (or `perspective` prop on `PolyScene` / `PolyCamera`) controls the depth illusion, and `rot-x` / `rot-y` control the camera angle.
 
-## Live demo — camera & projection controls
+## Live demo — camera controls
 
-Use the sliders below to explore how `perspective`, `rotX`, and `rotY` interact. Toggle **dimetric** to switch to the dimetric projection mode.
+Use the sliders below to explore how `perspective`, `rotX`, and `rotY` interact.
 
 <PolyDemo
   id="projections-demo"
   model="/gallery/glb/tree.glb"
-  controls='["perspective","rotX","rotY","zoom","projection","animate"]'
+  controls='["perspective","rotX","rotY","zoom","animate"]'
   defaults='{"rotX":65,"animate": true,"rotY":45,"perspective":8000,"zoom":0.1,"light":{"ambient":0.7}}'
 />
 
