@@ -15,6 +15,7 @@ import {
   computeTextureAtlasPlan,
   renderTextureAtlasPoly,
   useTextureAtlas,
+  type AtlasScale,
   type TextureAtlasPlan,
 } from "../scene/textureAtlas";
 
@@ -23,6 +24,7 @@ export interface PolyContext {
   layerElevation?: number;
   directionalLight?: DirectionalLight;
   textureLighting?: TextureLightingMode;
+  atlasScale?: AtlasScale;
   debugShowBackfaces?: boolean;
   [key: string]: unknown;
 }
@@ -38,6 +40,8 @@ export interface PolyProps {
   rotation?: Vec3;
   context?: PolyContext;
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   baseColor?: string;
   pointerEvents?: "auto" | "none";
 }
@@ -58,6 +62,7 @@ export const Poly = defineComponent({
       type: String as PropType<TextureLightingMode>,
       default: undefined,
     },
+    atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
     context: {
       type: Object as PropType<PolyContext>,
       default: undefined,
@@ -72,6 +77,7 @@ export const Poly = defineComponent({
     const atlasTextureLighting = computed<TextureLightingMode>(
       () => props.textureLighting ?? props.context?.textureLighting ?? "baked",
     );
+    const atlasScale = computed(() => props.atlasScale ?? props.context?.atlasScale);
 
     const textureAtlasPlans = computed<Array<TextureAtlasPlan | null>>(() => {
       const tileSize = props.context?.tileSize ?? 50;
@@ -93,7 +99,7 @@ export const Poly = defineComponent({
         ),
       ];
     });
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 
     return () => {
       const atlasEntry = textureAtlas.entries.value[0];

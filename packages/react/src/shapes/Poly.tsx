@@ -45,12 +45,14 @@ export function Poly({
   pointerEvents: pointerEventsProp,
   context,
   textureLighting: textureLightingProp,
+  atlasScale: atlasScaleProp,
   baseColor: baseColorProp,
   ...dataAttrs
 }: PolyProps) {
   const tileSize = context?.tileSize ?? 50;
   const layerElevation = context?.layerElevation ?? tileSize;
   const textureLighting = textureLightingProp ?? context?.textureLighting ?? "baked";
+  const atlasScale = atlasScaleProp ?? context?.atlasScale;
   const polygonColor = baseColorProp ?? color;
 
   const atlasPlan = useMemo(
@@ -75,7 +77,7 @@ export function Poly({
     ],
   );
   const atlasPlans = useMemo(() => [atlasPlan], [atlasPlan]);
-  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting);
+  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting, atlasScale);
 
   const domEventHandlers: React.DOMAttributes<Element> = {
     onClick: onClick as React.MouseEventHandler<Element> | undefined,

@@ -102,11 +102,11 @@ describe("PolyScene — polygon rendering", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders polygon divs from the polygons prop", () => {
+  it("renders polygon i elements from the polygons prop", () => {
     const container = renderScene({ polygons: [TRIANGLE] });
-    const poly = container.querySelector(".polycss-poly");
+    const poly = container.querySelector("i");
     expect(poly).toBeTruthy();
-    expect(poly?.tagName.toLowerCase()).toBe("div");
+    expect(poly?.tagName.toLowerCase()).toBe("i");
     expect(poly?.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(poly?.classList.contains("polycss-poly-solid")).toBe(false);
     expect(poly?.classList.contains("polycss-poly-textured")).toBe(false);
@@ -115,28 +115,28 @@ describe("PolyScene — polygon rendering", () => {
 
   it("renders multiple polygons", () => {
     const container = renderScene({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(2);
   });
 
-  it("renders textured polygons as polygon divs", () => {
+  it("renders textured polygons as polygon i elements", () => {
     const container = renderScene({
       polygons: [TEXTURED_TRIANGLE],
     });
-    const poly = container.querySelector(".polycss-poly");
+    const poly = container.querySelector("i");
     expect(poly).toBeTruthy();
-    expect(poly?.tagName.toLowerCase()).toBe("div");
+    expect(poly?.tagName.toLowerCase()).toBe("i");
   });
 
   it("renders no poly elements when polygons prop is empty", () => {
     const container = renderScene({ polygons: [] });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(0);
   });
 
   it("renders no poly elements when polygons prop is omitted", () => {
     const container = renderScene({});
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(0);
   });
 });
@@ -228,7 +228,7 @@ describe("PolyScene — merge option", () => {
       polygons: [TRIANGLE, QUAD],
       merge: "off",
     });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(2);
   });
 
@@ -237,7 +237,7 @@ describe("PolyScene — merge option", () => {
       polygons: [TRIANGLE, QUAD],
       merge: "auto",
     });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBeGreaterThan(0);
   });
 });

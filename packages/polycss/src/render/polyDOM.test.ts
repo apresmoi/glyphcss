@@ -93,11 +93,11 @@ describe("renderPoly — atlas-backed solid polygons", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns a polygon div for a solid color polygon", () => {
+  it("returns a polygon i element for a solid color polygon", () => {
     const result = renderPoly(FLAT_TRIANGLE)!;
     expect(result).not.toBeNull();
-    expect(result.element.tagName.toLowerCase()).toBe("div");
-    expect(result.element.classList.contains("polycss-poly")).toBe(true);
+    expect(result.element.tagName.toLowerCase()).toBe("i");
+    expect(result.element.classList.contains("polycss-poly")).toBe(false);
     expect(result.element.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(result.element.classList.contains("polycss-poly-solid")).toBe(false);
     expect(result.element.classList.contains("polycss-poly-textured")).toBe(false);
@@ -117,11 +117,11 @@ describe("renderPoly — atlas-backed solid polygons", () => {
     result.dispose();
   });
 
-  it("returns polygon divs for vertical and off-axis polygons", () => {
+  it("returns polygon i elements for vertical and off-axis polygons", () => {
     const vertical = renderPoly(VERTICAL_QUAD)!;
     const offAxis = renderPoly(OFFAXIS_TRIANGLE)!;
-    expect(vertical.element.tagName.toLowerCase()).toBe("div");
-    expect(offAxis.element.tagName.toLowerCase()).toBe("div");
+    expect(vertical.element.tagName.toLowerCase()).toBe("i");
+    expect(offAxis.element.tagName.toLowerCase()).toBe("i");
     vertical.dispose();
     offAxis.dispose();
   });
@@ -211,11 +211,11 @@ describe("renderPoly — matrix math parity", () => {
 });
 
 describe("renderPolygonsWithTextureAtlas", () => {
-  it("returns a polygon div for a solid polygon", () => {
+  it("returns a polygon i element for a solid polygon", () => {
     const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("div");
-    expect(element.classList.contains("polycss-poly")).toBe(true);
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(element.classList.contains("polycss-poly-solid")).toBe(false);
     expect(element.classList.contains("polycss-poly-textured")).toBe(false);
@@ -223,22 +223,22 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("returns a polygon div for texture without UVs", () => {
+  it("returns a polygon i element for texture without UVs", () => {
     const texturedPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
       texture: "https://example.com/tex.png",
     };
     const result = renderPolygonsWithTextureAtlas([texturedPoly]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("div");
-    expect(element.classList.contains("polycss-poly")).toBe(true);
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.classList.contains("polycss-poly-textured")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
     expect(element.style.filter).toBe("");
     result.dispose();
   });
 
-  it("returns a polygon div for UV-mapped texture", () => {
+  it("returns a polygon i element for UV-mapped texture", () => {
     const uvPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
       texture: "https://example.com/tex.png",
@@ -246,8 +246,8 @@ describe("renderPolygonsWithTextureAtlas", () => {
     };
     const result = renderPolygonsWithTextureAtlas([uvPoly]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("div");
-    expect(element.classList.contains("polycss-poly")).toBe(true);
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
     result.dispose();
   });
@@ -262,6 +262,73 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const element = result.rendered[0].element;
     expect(element.style.filter).toContain("brightness(");
     result.dispose();
+  });
+
+  it("scales generated atlas canvas dimensions when atlasScale is set", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const full = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc, atlasScale: 1 });
+    const half = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc, atlasScale: 0.5 });
+
+    expect(canvases).toHaveLength(2);
+    expect(canvases[1].width).toBeLessThan(canvases[0].width);
+    expect(canvases[1].height).toBeLessThan(canvases[0].height);
+
+    full.dispose();
+    half.dispose();
+  });
+
+  it("auto atlasScale downscales large packed atlas pages", () => {
+    const collectCanvasSizes = (
+      polygons: Polygon[],
+      atlasScale: number | "auto",
+    ): Array<{ width: number; height: number }> => {
+      const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+      const doc = {
+        createElement(tagName: string) {
+          if (tagName === "canvas") {
+            const canvas = { width: 0, height: 0, getContext: () => null };
+            canvases.push(canvas);
+            return canvas;
+          }
+          return document.createElement(tagName);
+        },
+      } as unknown as Document;
+      const result = renderPolygonsWithTextureAtlas(polygons, { doc, atlasScale });
+      result.dispose();
+      return canvases.map(({ width, height }) => ({ width, height }));
+    };
+
+    const largeQuad: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [80, 0, 0],
+        [80, 80, 0],
+        [0, 80, 0],
+      ],
+      color: "#ffffff",
+    };
+    const largeScene = [largeQuad, largeQuad, largeQuad, largeQuad];
+
+    const auto = collectCanvasSizes(largeScene, "auto");
+    const half = collectCanvasSizes(largeScene, 0.5);
+    const full = collectCanvasSizes(largeScene, 1);
+
+    expect(auto).toHaveLength(half.length);
+    expect(auto[0].width).toBe(half[0].width);
+    expect(auto[0].height).toBe(half[0].height);
+    expect(auto[0].width).toBeLessThan(full[0].width);
+    expect(auto[0].height).toBeLessThan(full[0].height);
   });
 });
 

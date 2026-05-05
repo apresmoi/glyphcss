@@ -32,23 +32,16 @@ const CORE_BASE_STYLES = `
 
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
 
-.polycss-poly {
+.polycss-scene i {
+  display: block;
   position: absolute;
   left: 0;
   top: 0;
+  font-style: normal;
   transform-origin: 0 0;
   transform-style: preserve-3d;
   backface-visibility: hidden;
   background-repeat: no-repeat;
-}
-
-.polycss-poly-loading {
-  opacity: 0;
-}
-
-.polycss-poly-error {
-  opacity: 0.5;
-  outline: 1px dashed rgba(255, 0, 0, 0.6);
 }
 
 /* Direction-binned face culling: scene element gets a polycss-cull-DIR

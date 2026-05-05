@@ -39,29 +39,19 @@ const CORE_BASE_STYLES = `
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
 
 /*
- * .polycss-poly — applied to every polygon face rendered by <Poly>.
+ * Polygon faces render as internal <i> elements inside .polycss-scene.
  * The element is positioned absolutely within the scene root; its
  * transform: matrix3d(...) carries the full world-space placement.
  */
-.polycss-poly {
+.polycss-scene i {
+  display: block;
   position: absolute;
   left: 0;
   top: 0;
+  font-style: normal;
   transform-origin: 0 0;
   transform-style: preserve-3d;
   backface-visibility: hidden;
   background-repeat: no-repeat;
-}
-
-/* State modifier classes applied while an atlas page is being generated. */
-.polycss-poly-loading {
-  /* Brief state while the atlas sprite is being generated. */
-  opacity: 0;
-}
-
-.polycss-poly-error {
-  /* Applied when atlas rasterization fails. */
-  opacity: 0.5;
-  outline: 1px dashed rgba(255, 0, 0, 0.6);
 }
 `;

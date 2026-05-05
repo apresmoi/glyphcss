@@ -2,7 +2,7 @@
 
 # @polycss/react
 
-Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<div>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
@@ -40,6 +40,7 @@ Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, 
 | `rotX` | `number` | `65` | Camera X-axis rotation in degrees |
 | `rotY` | `number` | `45` | Camera Y-axis rotation in degrees |
 | `directionalLight` | `DirectionalLight` | — | Directional + ambient light |
+| `atlasScale` | `number` | `1` | Raster scale for generated atlas pages |
 | `merge` | `"off" \| "auto"` | `"off"` | Coplanar polygon merge strategy |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with `children`) |
 | `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation |
@@ -57,6 +58,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `position` | `Vec3` | `[x, y, z]` offset in scene space |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
 | `rotation` | `Vec3` | Euler angles in degrees `[x, y, z]` |
+| `atlasScale` | `number` | Raster scale for generated atlas pages |
 | `autoCenter` | `boolean` | Shift mesh so its bbox center is at origin |
 | `parseOptions` | `ObjParseOptions \| GltfParseOptions` | Forwarded to the parser |
 | `fallback` | `ReactNode` | Rendered while loading |
@@ -65,7 +67,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 
 ### `<Poly>`
 
-Single polygon. The atomic primitive — renders one atlas-backed `<div>` for UV-textured and flat-color faces. Forwards all standard DOM props.
+Single polygon. The atomic primitive — renders one atlas-backed `<i>` for UV-textured and flat-color faces. Forwards all standard DOM props.
 
 | Prop | Type | Description |
 |---|---|---|
@@ -77,6 +79,7 @@ Single polygon. The atomic primitive — renders one atlas-backed `<div>` for UV
 | `position` | `Vec3` | Local offset |
 | `scale` | `number \| Vec3` | Scale |
 | `rotation` | `Vec3` | Euler rotation in degrees |
+| `atlasScale` | `number` | Raster scale for generated atlas pages |
 | `onClick` | `MouseEventHandler` | Standard DOM event handler |
 | `onMouseEnter` | `MouseEventHandler` | |
 | `className` | `string` | CSS class |
@@ -99,7 +102,7 @@ Camera controls wrapper — perspective, rotation, zoom, interaction, and auto-r
 
 | Export | Description |
 |---|---|
-| `injectBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. Called automatically by `<PolyScene>`; manual call only needed when mounting a polycss element outside a scene. |
+| `injectBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. Called automatically by `<PolyScene>`; manual call only needed for custom scene hosts. Polygon defaults are scoped to `.polycss-scene`. |
 
 ## Re-exports from `@polycss/core`
 

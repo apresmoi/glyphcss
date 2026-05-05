@@ -126,12 +126,12 @@ describe("createPolyScene", () => {
   });
 
   describe("add / remove mesh", () => {
-    it("adds a .polycss-mesh wrapper with one polygon div per polygon", () => {
+    it("adds a .polycss-mesh wrapper with one polygon i element per polygon", () => {
       scene = createPolyScene(host);
       const handle = scene.add(makeParseResult([triangle(), triangle("#00ff00")]));
       const wrappers = host.querySelectorAll(".polycss-mesh");
       expect(wrappers.length).toBe(1);
-      const polys = host.querySelectorAll(".polycss-poly");
+      const polys = host.querySelectorAll("i");
       expect(polys.length).toBe(2);
       expect(host.querySelector(".polycss-poly-atlas")).toBeNull();
       expect(host.querySelector(".polycss-poly-solid")).toBeNull();
@@ -140,12 +140,12 @@ describe("createPolyScene", () => {
       expect(handle.polygons.length).toBe(2);
     });
 
-    it("renders textured polygons as polygon divs", () => {
+    it("renders textured polygons as polygon i elements", () => {
       scene = createPolyScene(host);
       scene.add(makeParseResult([texturedTriangle()]));
-      const poly = host.querySelector(".polycss-poly");
+      const poly = host.querySelector("i");
       expect(poly).not.toBeNull();
-      expect(poly?.tagName.toLowerCase()).toBe("div");
+      expect(poly?.tagName.toLowerCase()).toBe("i");
     });
 
     it("applies mesh transform CSS", () => {
@@ -205,7 +205,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate]));
-      const polys = host.querySelectorAll(".polycss-poly");
+      const polys = host.querySelectorAll("i");
       expect(polys.length).toBe(0);
     });
 
@@ -213,7 +213,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate, triangle()]));
-      const poly = host.querySelector(".polycss-poly") as HTMLElement;
+      const poly = host.querySelector("i") as HTMLElement;
       expect(poly).not.toBeNull();
       expect(poly.classList.contains("polycss-dir-pz")).toBe(true);
     });

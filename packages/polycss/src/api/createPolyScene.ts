@@ -27,7 +27,11 @@ import type {
   Vec3,
 } from "@polycss/core";
 import { computeSceneBbox, mergePolygons } from "@polycss/core";
-import { renderPolygonsWithTextureAtlas, type RenderedPoly } from "../render/textureAtlas";
+import {
+  renderPolygonsWithTextureAtlas,
+  type AtlasScale,
+  type RenderedPoly,
+} from "../render/textureAtlas";
 import { slicePolygons } from "../render/slicePolygons";
 import { injectBaseStyles } from "../styles/styles";
 
@@ -39,6 +43,8 @@ export interface PolySceneOptions {
   directionalLight?: DirectionalLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   /**
    * Mesh post-processing.
    *   - `"off"` (default): each polygon = one DOM element.
@@ -306,6 +312,7 @@ export function createPolyScene(
       doc: mountDoc,
       directionalLight: currentOptions.directionalLight,
       textureLighting: currentOptions.textureLighting,
+      atlasScale: currentOptions.atlasScale,
     });
     const rendered = atlas.rendered;
     const disposeAtlas = atlas.dispose;

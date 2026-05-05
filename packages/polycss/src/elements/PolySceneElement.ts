@@ -32,6 +32,7 @@ const OBSERVED_ATTRS = [
   "light-ambient-color",
   "merge",
   "texture-lighting",
+  "atlas-scale",
   "auto-center",
   "interactive",
 ] as const;
@@ -67,6 +68,11 @@ function parseTextureLighting(value: string | null): TextureLightingMode | undef
   return undefined;
 }
 
+function parseAtlasScale(value: string | null): PolySceneOptions["atlasScale"] | undefined {
+  if (value === "auto") return "auto";
+  return parseNumber(value);
+}
+
 export class PolySceneElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
     return [...OBSERVED_ATTRS];
@@ -97,6 +103,8 @@ export class PolySceneElement extends ELEMENT_BASE {
     const merge = parseMerge(this.getAttribute("merge"));
     opts.merge = merge ?? "off";
     opts.textureLighting = parseTextureLighting(this.getAttribute("texture-lighting")) ?? "baked";
+    const atlasScale = parseAtlasScale(this.getAttribute("atlas-scale"));
+    if (atlasScale !== undefined) opts.atlasScale = atlasScale;
     opts.autoCenter = this.hasAttribute("auto-center");
     opts.interactive = this.hasAttribute("interactive");
     if (directionalLight) opts.directionalLight = directionalLight;

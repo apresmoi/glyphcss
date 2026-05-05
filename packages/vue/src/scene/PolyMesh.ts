@@ -13,7 +13,7 @@
  *   - Named slot `fallback`: rendered while loading.
  *   - Named slot `error({ error })`: rendered on parse failure.
  *
- * When no `polygon` slot is provided, atlas-backed polygon divs are rendered
+ * When no `polygon` slot is provided, atlas-backed polygon i elements are rendered
  * automatically for each polygon.
  */
 import { defineComponent, h, computed } from "vue";
@@ -23,6 +23,7 @@ import { computeSceneBbox } from "@polycss/core";
 import { useMesh } from "./useMesh";
 import {
   computeTextureAtlasPlan,
+  type AtlasScale,
   renderTextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -37,6 +38,8 @@ export interface PolyMeshProps {
   polygons?: Polygon[];
   autoCenter?: boolean;
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   class?: string;
   position?: Vec3;
   scale?: number | Vec3;
@@ -91,6 +94,7 @@ export const PolyMesh = defineComponent({
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
     autoCenter: { type: Boolean, default: false },
     textureLighting: { type: String as PropType<TextureLightingMode>, default: undefined },
+    atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
@@ -114,7 +118,8 @@ export const PolyMesh = defineComponent({
       atlasAutoRender ? polygons.value.map((p, i) => computeTextureAtlasPlan(p, i)) : []
     );
     const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting);
+    const atlasScale = computed(() => props.atlasScale);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 
     return () => {
       const transform = buildTransform(props.position, props.scale, props.rotation);
@@ -159,7 +164,7 @@ export const PolyMesh = defineComponent({
 
       const polys = polygons.value;
 
-      // Build polygon nodes: use `polygon` scoped slot if provided, else auto-render atlas divs.
+      // Build polygon nodes: use `polygon` scoped slot if provided, else auto-render atlas elements.
       const polyNodes: Array<VNode | null> = slots.polygon
         ? polys.map((p, i) => h("template", { key: i }, slots.polygon?.({ polygon: p, index: i })))
         : textureAtlas.entries.value.map((entry) =>

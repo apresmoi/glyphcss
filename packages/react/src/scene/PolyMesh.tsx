@@ -24,6 +24,7 @@ import type { TransformProps } from "../shapes/types";
 import { useMesh, type UseMeshOptions } from "./useMesh";
 import {
   computeTextureAtlasPlan,
+  type AtlasScale,
   TextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -43,6 +44,8 @@ export interface PolyMeshProps extends TransformProps {
   autoCenter?: boolean;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   /** Per-polygon override render. Receives the polygon + its index. */
   children?: (polygon: Polygon, index: number) => ReactNode;
   /** Loading slot — rendered while `src` is being fetched/parsed. */
@@ -100,6 +103,7 @@ export function PolyMesh({
   polygons: polygonsProp,
   autoCenter,
   textureLighting,
+  atlasScale,
   children,
   fallback,
   errorFallback,
@@ -142,7 +146,7 @@ export function PolyMesh({
     () => !children ? polygons.map((p, i) => computeTextureAtlasPlan(p, i)) : [],
     [children, polygons],
   );
-  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting ?? "baked");
+  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting ?? "baked", atlasScale);
 
   // Loading + error slots only apply when we're fetching from `src`.
   if (src) {

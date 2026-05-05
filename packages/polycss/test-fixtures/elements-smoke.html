@@ -31,8 +31,8 @@
     queueMicrotask(() => {
       const scene = document.getElementById("scene");
       out("scene.getScene() returns SceneHandle: " + !!scene.getScene());
-      const polyEls = scene.querySelectorAll(".polycss-poly");
-      out("rendered .polycss-poly elements: " + polyEls.length);
+      const polyEls = scene.querySelectorAll(".polycss-scene i");
+      out("rendered polygon i elements: " + polyEls.length);
     });
   </script>
 </body>

@@ -109,8 +109,8 @@ export class PolyPolygonElement extends ELEMENT_BASE {
     const texture = this.getAttribute("texture") || undefined;
     const uvs = parseJsonOrNull<Vec2[]>(this.getAttribute("uvs")) ?? undefined;
 
-    // data-* attributes flow through to polygon.data → reflected as data-*
-    // on the rendered polygon div.
+    // data-* attributes flow through to polygon.data -> reflected as data-*
+    // on the rendered polygon element.
     const data: Record<string, string | number | boolean> = {};
     for (const attr of Array.from(this.attributes)) {
       if (attr.name.startsWith("data-")) {

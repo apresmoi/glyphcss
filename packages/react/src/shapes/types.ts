@@ -11,6 +11,7 @@ import type {
   FocusEventHandler,
   KeyboardEventHandler,
 } from "react";
+import type { AtlasScale } from "../scene/textureAtlas";
 
 // ── TransformProps ──────────────────────────────────────────────────────────
 
@@ -90,11 +91,14 @@ export interface PolyProps extends TransformProps, DOMPassthroughProps {
     layerElevation?: number;
     directionalLight?: DirectionalLight;
     textureLighting?: TextureLightingMode;
+    atlasScale?: AtlasScale;
     debugShowBackfaces?: boolean;
     [key: string]: unknown;
   };
   /** Textured polygon lighting mode. Defaults to scene context, then "baked". */
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   /** Pre-computed shaded base color from the parent (optional override). */
   baseColor?: string;
 }

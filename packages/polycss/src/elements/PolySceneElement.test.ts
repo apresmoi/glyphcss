@@ -35,6 +35,7 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("rot-y");
       expect(observed).toContain("zoom");
       expect(observed).toContain("merge");
+      expect(observed).toContain("atlas-scale");
       expect(observed).toContain("light-direction");
       expect(observed).toContain("light-color");
       expect(observed).toContain("light-ambient");

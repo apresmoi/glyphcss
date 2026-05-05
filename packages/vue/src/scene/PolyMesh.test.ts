@@ -65,22 +65,22 @@ describe("PolyMesh (Vue) — with polygons prop", () => {
     expect(mesh).toBeTruthy();
   });
 
-  it("renders polygon divs for each polygon", () => {
+  it("renders polygon i elements for each polygon", () => {
     const { container } = renderMesh({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(2);
   });
 
-  it("renders textured polygons as polygon divs", () => {
+  it("renders textured polygons as polygon i elements", () => {
     const { container } = renderMesh({ polygons: [TEXTURED_TRIANGLE] });
-    const poly = container.querySelector(".polycss-poly");
+    const poly = container.querySelector("i");
     expect(poly).toBeTruthy();
-    expect(poly?.tagName.toLowerCase()).toBe("div");
+    expect(poly?.tagName.toLowerCase()).toBe("i");
   });
 
   it("renders no poly elements for empty polygons", () => {
     const { container } = renderMesh({ polygons: [] });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(0);
   });
 
@@ -163,13 +163,13 @@ describe("PolyMesh (Vue) — autoCenter", () => {
 
   it("autoCenter=true still renders polygons (vertices recentered)", () => {
     const { container } = renderMesh({ polygons: [QUAD], autoCenter: true });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(1);
   });
 
   it("autoCenter=false renders polygons unmodified", () => {
     const { container } = renderMesh({ polygons: [QUAD], autoCenter: false });
-    const polys = container.querySelectorAll(".polycss-poly");
+    const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(1);
   });
 });

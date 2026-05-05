@@ -30,6 +30,7 @@ import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles";
 import {
   computeTextureAtlasPlan,
+  type AtlasScale,
   renderTextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -42,6 +43,8 @@ export interface PolySceneProps {
   zoom?: number;
   directionalLight?: DirectionalLight;
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
   /**
@@ -81,6 +84,7 @@ export const PolyScene = defineComponent({
       type: String as PropType<TextureLightingMode>,
       default: "baked",
     },
+    atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
     merge: {
       type: String as PropType<"off" | "auto">,
       default: "off",
@@ -170,6 +174,7 @@ export const PolyScene = defineComponent({
         layerElevation: tileSize,
         directionalLight: props.directionalLight,
         textureLighting: props.textureLighting,
+        atlasScale: props.atlasScale,
       };
     });
 
@@ -183,7 +188,8 @@ export const PolyScene = defineComponent({
       )
     );
     const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting);
+    const atlasScale = computed(() => props.atlasScale);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 
     // depthOffset was a voxcss-era hack; centered meshes don't need it.
     const depthOffset = 0;

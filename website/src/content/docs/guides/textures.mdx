@@ -6,7 +6,7 @@ description: Loading OBJ, GLB, and glTF meshes into polycss with UV textures and
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import PolyDemo from '../../../components/PolyDemo.astro';
 
-polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and packed into generated atlas pages; each textured polygon is an atlas-backed `<div>` that uses CSS background positioning.
+polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and packed into generated atlas pages; each textured polygon is an atlas-backed `<i>` that uses CSS background positioning.
 
 ## Live demo — UV-textured GLB
 
@@ -143,14 +143,15 @@ For both textured and flat-color polygons, polycss runs a one-time atlas canvas 
 1. Extract the texture image from the file (or fetch it by URL) when the polygon has a texture.
 2. Solve a 6-DOF affine transform from the polygon's UV coordinates to its 2D screen footprint when UVs are available.
 3. Pack polygon footprints into one or more atlas pages.
-4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`.
-5. Render each polygon as a `<div>` with `background-image`, `background-size`, and `background-position`.
+4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`. `atlasScale` can rasterize these pages below full CSS resolution to reduce memory.
+5. Render each polygon as an `<i>` with `background-image`, `background-size`, and `background-position`.
 
 Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyMesh` / `useMesh` handle it).
 
 ## Tips
 
 - **`targetSize`** — scale the model so its longest axis fits this many world units (default: no scaling). Set it to roughly match the scale of your other scene content.
+- **`atlasScale`** — lower the generated atlas bitmap scale for dense or distant textured assets. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
 - **`baseUrl`** — for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
 - For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
 

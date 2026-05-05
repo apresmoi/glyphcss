@@ -5,7 +5,7 @@ description: polycss is a CSS polygon-mesh renderer — DOM-native 3D without We
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-**polycss** renders textured 3D meshes in the DOM. No WebGL, no canvas-as-scene — the rendered output is a tree of standard DOM elements (atlas-backed `<div>` sprites for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach event handlers to, and inspect in DevTools.
+**polycss** renders textured 3D meshes in the DOM. No WebGL, no canvas-as-scene — the rendered output is a tree of standard DOM elements (atlas-backed `<i>` sprites for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach event handlers to, and inspect in DevTools.
 
 Internally, polycss uses an off-DOM canvas to pack textured and flat-color polygons into atlas pages once at mount; each polygon then references its atlas region with CSS background positioning. So the user-visible runtime tree is plain DOM, with one-time atlas generation at load.
 

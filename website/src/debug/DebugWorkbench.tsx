@@ -11,10 +11,10 @@ import { createPolyScene } from "polycss";
 import type { PolySceneOptions } from "polycss";
 import "./debug-workbench.css";
 
-type Vec3 = [number, number, number];
 type Renderer = "react" | "vanilla";
 type MergeMode = "off" | "auto" | "slice";
 type ModelKind = "obj" | "glb" | "gltf";
+type TextureQuality = "auto" | "full" | "balanced" | "draft";
 
 interface PresetModel {
   id: string;
@@ -58,6 +58,7 @@ interface SceneOptionsState {
   lightColor: string;
   ambientColor: string;
   textureLighting: TextureLightingMode;
+  textureQuality: TextureQuality;
 }
 
 interface ParserOptionsState {
@@ -74,9 +75,8 @@ interface DomMetrics {
   visiblePolyCount: number;
 }
 
-interface TextureEstimate {
-  texturedPolygons: number;
-  rgbaMb: number;
+interface AtlasEstimate {
+  atlasPolygons: number;
 }
 
 const PRESETS: PresetModel[] = [
@@ -320,6 +320,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   lightColor: "#ffffff",
   ambientColor: "#ffffff",
   textureLighting: "baked",
+  textureQuality: "auto",
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -351,6 +352,20 @@ function formatNumber(value: number): string {
 
 function formatMs(value: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ms`;
+}
+
+function atlasScaleForQuality(quality: TextureQuality): PolySceneOptions["atlasScale"] {
+  switch (quality) {
+    case "auto":
+      return "auto";
+    case "draft":
+      return 0.25;
+    case "balanced":
+      return 0.75;
+    case "full":
+    default:
+      return 1;
+  }
 }
 
 function mergeParserOptions(
@@ -474,67 +489,22 @@ function lightFromOptions(options: SceneOptionsState): DirectionalLight {
   };
 }
 
-function estimateTextureFootprint(polygons: Polygon[]): TextureEstimate {
-  const dpr = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
-  const tile = 50;
-  const elev = tile;
-  let texturedPolygons = 0;
-  let pixels = 0;
+function estimateAtlasFootprint(polygons: Polygon[]): AtlasEstimate {
+  let atlasPolygons = 0;
 
   for (const polygon of polygons) {
-    if (!polygon.texture || !polygon.uvs || polygon.vertices.length < 3) continue;
-    const pts = polygon.vertices.map((v): Vec3 => [v[1] * tile, v[0] * tile, v[2] * elev]);
-    const p0 = pts[0];
-    const p1 = pts[1];
-    const p2 = pts[2];
-    const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-    const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
-    const e1Len = Math.hypot(e1[0], e1[1], e1[2]);
-    if (e1Len === 0) continue;
-    const xAxis: Vec3 = [e1[0] / e1Len, e1[1] / e1Len, e1[2] / e1Len];
-    let nx = -(e1[1] * e2[2] - e1[2] * e2[1]);
-    let ny = -(e1[2] * e2[0] - e1[0] * e2[2]);
-    let nz = -(e1[0] * e2[1] - e1[1] * e2[0]);
-    const nLen = Math.hypot(nx, ny, nz);
-    if (nLen === 0) continue;
-    nx /= nLen;
-    ny /= nLen;
-    nz /= nLen;
-    const yAxis: Vec3 = [
-      ny * xAxis[2] - nz * xAxis[1],
-      nz * xAxis[0] - nx * xAxis[2],
-      nx * xAxis[1] - ny * xAxis[0],
-    ];
-    let xMin = Infinity;
-    let xMax = -Infinity;
-    let yMin = Infinity;
-    let yMax = -Infinity;
-    for (const p of pts) {
-      const dx = p[0] - p0[0];
-      const dy = p[1] - p0[1];
-      const dz = p[2] - p0[2];
-      const x = dx * xAxis[0] + dy * xAxis[1] + dz * xAxis[2];
-      const y = dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2];
-      xMin = Math.min(xMin, x);
-      xMax = Math.max(xMax, x);
-      yMin = Math.min(yMin, y);
-      yMax = Math.max(yMax, y);
-    }
-    const area = Math.max(1, Math.ceil((xMax - xMin) * dpr)) *
-      Math.max(1, Math.ceil((yMax - yMin) * dpr));
-    texturedPolygons += 1;
-    pixels += area;
+    if (polygon.vertices.length < 3) continue;
+    atlasPolygons += 1;
   }
 
   return {
-    texturedPolygons,
-    rgbaMb: (pixels * 4) / (1024 * 1024),
+    atlasPolygons,
   };
 }
 
 function measureDom(root: HTMLElement | null, renderMs: number): DomMetrics {
   if (!root) return { ...EMPTY_METRICS, renderMs };
-  const polyEls = Array.from(root.querySelectorAll<HTMLElement>(".polycss-poly"));
+  const polyEls = Array.from(root.querySelectorAll<HTMLElement>(".polycss-scene i"));
   return {
     measuredAt: performance.now(),
     renderMs,
@@ -635,6 +605,7 @@ function VanillaScene({
       merge: options.merge,
       autoCenter: options.autoCenter,
       interactive: options.interactive,
+      atlasScale: atlasScaleForQuality(options.textureQuality),
     };
     const scene = createPolyScene(host, sceneOptions);
     scene.add({
@@ -711,6 +682,7 @@ export default function DebugWorkbench() {
   }, []);
 
   const directionalLight = useMemo(() => lightFromOptions(sceneOptions), [sceneOptions]);
+  const atlasScale = atlasScaleForQuality(sceneOptions.textureQuality);
 
   const scenePolygons = useMemo(() => {
     const base = loaded?.polygons ?? [];
@@ -719,11 +691,11 @@ export default function DebugWorkbench() {
     return floor ? [...base, floor] : base;
   }, [loaded, sceneOptions.showFloor]);
 
-  const textureEstimate = useMemo(
-    () => estimateTextureFootprint(scenePolygons),
+  const atlasEstimate = useMemo(
+    () => estimateAtlasFootprint(scenePolygons),
     [scenePolygons],
   );
-  const hasTextureFootprint = textureEstimate.texturedPolygons > 0;
+  const hasAtlasFootprint = atlasEstimate.atlasPolygons > 0;
 
   useEffect(() => {
     renderStartRef.current = performance.now();
@@ -760,9 +732,9 @@ export default function DebugWorkbench() {
   }, []);
 
   const budgetTone =
-    metrics.polyCount > 2500 || textureEstimate.rgbaMb > 128
+    metrics.polyCount > 2500
       ? "warn"
-      : metrics.polyCount < 900 && textureEstimate.rgbaMb < 48
+      : metrics.polyCount < 900
         ? "good"
         : undefined;
 
@@ -878,6 +850,18 @@ export default function DebugWorkbench() {
               ))}
             </div>
           </div>
+          <label className="dn-field">
+            <span>Quality</span>
+            <select
+              value={sceneOptions.textureQuality}
+              onChange={(event) => updateScene({ textureQuality: event.currentTarget.value as TextureQuality })}
+            >
+              <option value="auto">Auto</option>
+              <option value="full">Full - 1x atlas</option>
+              <option value="balanced">Balanced - 0.75x</option>
+              <option value="draft">Draft - 0.25x</option>
+            </select>
+          </label>
           <Toggle label="Auto center" checked={sceneOptions.autoCenter} onChange={(value) => updateScene({ autoCenter: value })} />
           <Toggle label="Interactive" checked={sceneOptions.interactive} onChange={(value) => updateScene({ interactive: value })} />
           <Toggle label="Auto rotate" checked={sceneOptions.animate} onChange={(value) => updateScene({ animate: value })} />
@@ -893,7 +877,22 @@ export default function DebugWorkbench() {
           <RangeControl label="Zoom" value={sceneOptions.zoom} min={0.05} max={2.5} step={0.01} onChange={(value) => updateScene({ zoom: value })} format={(value) => value.toFixed(2)} />
           <RangeControl label="Rot X" value={sceneOptions.rotX} min={0} max={100} step={1} onChange={(value) => updateScene({ rotX: value })} format={(value) => `${value.toFixed(0)} deg`} />
           <RangeControl label="Rot Y" value={sceneOptions.rotY} min={0} max={360} step={1} onChange={(value) => updateScene({ rotY: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Perspective" value={sceneOptions.perspective === false ? 8000 : sceneOptions.perspective} min={500} max={12000} step={100} onChange={(value) => updateScene({ perspective: value })} format={(value) => `${value.toFixed(0)}px`} />
+          <label className="dn-field">
+            <span>Perspective</span>
+            <select
+              value={sceneOptions.perspective === false ? "none" : String(sceneOptions.perspective)}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                updateScene({ perspective: value === "none" ? false : Number(value) });
+              }}
+            >
+              <option value="none">None</option>
+              <option value="1000">1000px</option>
+              <option value="2000">2000px</option>
+              <option value="4000">4000px</option>
+              <option value="8000">8000px</option>
+            </select>
+          </label>
         </section>
       </aside>
 
@@ -909,7 +908,7 @@ export default function DebugWorkbench() {
             <span>{sceneOptions.renderer}</span>
             <span>merge {sceneOptions.merge}</span>
             <span>light {sceneOptions.textureLighting}</span>
-            <span>textures atlas</span>
+            <span>quality {sceneOptions.textureQuality}</span>
           </div>
         </div>
 
@@ -936,6 +935,7 @@ export default function DebugWorkbench() {
                 autoCenter={sceneOptions.autoCenter}
                 directionalLight={directionalLight}
                 textureLighting={sceneOptions.textureLighting}
+                atlasScale={atlasScale}
                 debugShowBackfaces={sceneOptions.showBackfaces}
               />
             </PolyCamera>
@@ -950,10 +950,9 @@ export default function DebugWorkbench() {
             <Stat label={sceneOptions.renderer === "vanilla" ? "Build" : "Render"} value={formatMs(sceneOptions.renderer === "vanilla" ? vanillaBuildMs : metrics.renderMs)} />
             <Stat label="DOM nodes" value={formatNumber(metrics.nodeCount)} tone={budgetTone} />
             <Stat label="Polys" value={formatNumber(metrics.polyCount)} tone={budgetTone} />
-            {hasTextureFootprint && (
+            {hasAtlasFootprint && (
               <>
-                <Stat label="Texture est." value={`${textureEstimate.rgbaMb.toFixed(1)} MB`} tone={textureEstimate.rgbaMb > 128 ? "warn" : undefined} />
-                <Stat label="Texture faces" value={formatNumber(textureEstimate.texturedPolygons)} tone={textureEstimate.texturedPolygons > 1200 ? "warn" : undefined} />
+                <Stat label="Atlas polys" value={formatNumber(atlasEstimate.atlasPolygons)} tone={atlasEstimate.atlasPolygons > 2500 ? "warn" : undefined} />
               </>
             )}
           </div>

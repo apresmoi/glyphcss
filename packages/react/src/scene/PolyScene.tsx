@@ -13,6 +13,7 @@ import { injectBaseStyles } from "../styles/styles";
 import type { TransformProps } from "../shapes/types";
 import {
   computeTextureAtlasPlan,
+  type AtlasScale,
   TextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -27,6 +28,8 @@ export interface PolySceneProps extends TransformProps {
   directionalLight?: DirectionalLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: TextureLightingMode;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
+  atlasScale?: AtlasScale;
   /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
   merge?: "off" | "auto";
   /**
@@ -59,6 +62,7 @@ function PolySceneInner({
   zoom: _zoom,
   directionalLight,
   textureLighting = "baked",
+  atlasScale,
   merge = "off",
   autoCenter = false,
   autoRotate: _autoRotate,
@@ -146,7 +150,7 @@ function PolySceneInner({
     () => polygons.map((p, i) => computeTextureAtlasPlan(p, i, polyContext)),
     [polygons, polyContext],
   );
-  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting);
+  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, atlasScale);
 
   // depthOffset was a voxcss-era hack that pushed the cube grid down so
   // the tilted camera could see its floor. Centered meshes don't need it

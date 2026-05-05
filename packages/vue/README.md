@@ -2,7 +2,7 @@
 
 # @polycss/vue
 
-Native Vue 3 components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<div>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Native Vue 3 components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
@@ -38,6 +38,7 @@ Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, 
 | `rot-x` | `number` | `65` | Camera X-axis rotation in degrees |
 | `rot-y` | `number` | `45` | Camera Y-axis rotation in degrees |
 | `directional-light` | `DirectionalLight` | — | Directional + ambient light |
+| `atlas-scale` | `number` | `1` | Raster scale for generated atlas pages |
 | `merge` | `"off" \| "auto"` | `"off"` | Coplanar polygon merge strategy |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with slot) |
 | `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation |
@@ -54,6 +55,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `position` | `Vec3` | `[x, y, z]` offset in scene space |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
 | `rotation` | `Vec3` | Euler angles in degrees `[x, y, z]` |
+| `atlas-scale` | `number` | Raster scale for generated atlas pages |
 | `auto-center` | `boolean` | Shift mesh so its bbox center is at origin |
 | `parse-options` | `ObjParseOptions \| GltfParseOptions` | Forwarded to the parser |
 
@@ -61,7 +63,7 @@ Default slot: `v-slot="{ polygon, index }"` — per-polygon scoped slot for rend
 
 ### `<Poly>`
 
-Single polygon. Renders one atlas-backed `<div>` for UV-textured and flat-color faces. Accepts standard Vue event bindings and class/style.
+Single polygon. Renders one atlas-backed `<i>` for UV-textured and flat-color faces. Accepts standard Vue event bindings and class/style.
 
 | Prop | Type | Description |
 |---|---|---|
@@ -73,6 +75,7 @@ Single polygon. Renders one atlas-backed `<div>` for UV-textured and flat-color 
 | `position` | `Vec3` | Local offset |
 | `scale` | `number \| Vec3` | Scale |
 | `rotation` | `Vec3` | Euler rotation in degrees |
+| `atlas-scale` | `number` | Raster scale for generated atlas pages |
 
 ### `<PolyCamera>`
 

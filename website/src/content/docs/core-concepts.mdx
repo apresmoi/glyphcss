@@ -25,7 +25,7 @@ polycss exposes three composable concepts. Each one ships as a custom element (v
 
 - **Scene** (`<poly-scene>` / `PolyScene`) — the 3D viewport. Sets up perspective, camera angle, and lighting. Fills its parent element.
 - **Mesh** (`<poly-mesh>` / `PolyMesh`) — loads a mesh from a URL (OBJ / glTF / GLB). Internally expands to one polygon child per face. Convenience wrapper around the parser + renderer.
-- **Polygon** (`<poly-polygon>` / `Poly`) — one polygon. The atomic primitive. Renders one atlas-backed `<div>` with `transform: matrix3d(...)`. Accepts standard DOM event handlers, classes, and styles — this is what makes polycss "DOM-native 3D" rather than "3D inside a black-box canvas".
+- **Polygon** (`<poly-polygon>` / `Poly`) — one polygon. The atomic primitive. Renders one atlas-backed `<i>` with `transform: matrix3d(...)`. Accepts standard DOM event handlers, classes, and styles — this is what makes polycss "DOM-native 3D" rather than "3D inside a black-box canvas".
 
 A mesh element is internally `polygons.map(p => <poly-polygon …>)`, so any rendered mesh can be inspected, styled, or handled per-polygon.
 

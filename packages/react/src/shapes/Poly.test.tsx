@@ -46,7 +46,7 @@ function renderPoly(props: Partial<PolyProps> & { vertices: [number, number, num
 }
 
 function getPoly(container: HTMLElement): HTMLElement {
-  const poly = container.querySelector(".polycss-poly") as HTMLElement | null;
+  const poly = container.querySelector("i") as HTMLElement | null;
   expect(poly).toBeTruthy();
   return poly!;
 }
@@ -56,18 +56,18 @@ describe("Poly — solid color polygon", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a polygon div and no SVG", () => {
+  it("renders a polygon i element and no SVG", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("div");
-    expect(poly.classList.contains("polycss-poly")).toBe(true);
+    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.classList.contains("polycss-poly")).toBe(false);
     expect(poly.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(poly.classList.contains("polycss-poly-solid")).toBe(false);
     expect(poly.classList.contains("polycss-poly-textured")).toBe(false);
     expect(container.querySelector("svg")).toBeNull();
   });
 
-  it("polygon div has a matrix3d transform with 16 values", () => {
+  it("polygon i element has a matrix3d transform with 16 values", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
     const poly = getPoly(container);
     const match = poly.style.transform.match(/matrix3d\(([^)]+)\)/);
@@ -103,7 +103,7 @@ describe("Poly — solid color polygon", () => {
         [1, 0, 0],
       ],
     });
-    expect(container.querySelector(".polycss-poly")).toBeNull();
+    expect(container.querySelector("i")).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 
@@ -115,34 +115,34 @@ describe("Poly — solid color polygon", () => {
         [2, 0, 0],
       ],
     });
-    expect(container.querySelector(".polycss-poly")).toBeNull();
+    expect(container.querySelector("i")).toBeNull();
   });
 });
 
 describe("Poly — non-horizontal geometry", () => {
-  it("renders a vertical quad as a polygon div", () => {
+  it("renders a vertical quad as a polygon i element", () => {
     const container = renderPoly({ vertices: VERTICAL_QUAD_VERTS });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.tagName.toLowerCase()).toBe("i");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 
-  it("renders an off-axis triangle as a polygon div", () => {
+  it("renders an off-axis triangle as a polygon i element", () => {
     const container = renderPoly({ vertices: OFFAXIS_TRIANGLE_VERTS });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.tagName.toLowerCase()).toBe("i");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 });
 
 describe("Poly — texture without UVs", () => {
-  it("renders a polygon div", () => {
+  it("renders a polygon i element", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
     });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.tagName.toLowerCase()).toBe("i");
   });
 
   it("does not use CSS filter for baked texture lighting", () => {
@@ -176,14 +176,14 @@ describe("Poly — UV-mapped texture", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a polygon div when uvs + texture are provided", () => {
+  it("renders a polygon i element when uvs + texture are provided", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
       uvs: [[0, 0], [1, 0], [0, 1]],
     });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.tagName.toLowerCase()).toBe("i");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 
@@ -283,7 +283,7 @@ describe("Poly — DOM passthrough", () => {
     expect(getPoly(container).style.pointerEvents).toBe("none");
   });
 
-  it("appends custom className to polycss-poly", () => {
+  it("appends custom className to the polygon element", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       className: "my-custom-class",

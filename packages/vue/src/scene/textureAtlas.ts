@@ -20,6 +20,12 @@ const DEFAULT_AMBIENT_COLOR = "#ffffff";
 const DEFAULT_AMBIENT = 0.45;
 const ATLAS_MAX_SIZE = 4096;
 const ATLAS_PADDING = 1;
+const MIN_ATLAS_SCALE = 0.1;
+const MAX_ATLAS_SCALE = 1;
+const AUTO_ATLAS_LOW_AREA = ATLAS_MAX_SIZE * ATLAS_MAX_SIZE;
+const AUTO_ATLAS_MEDIUM_AREA = AUTO_ATLAS_LOW_AREA * 3;
+
+export type AtlasScale = number | "auto";
 
 interface RGB { r: number; g: number; b: number; }
 interface RGBFactors { r: number; g: number; b: number; }
@@ -65,6 +71,17 @@ interface PackedPage {
   entries: PackedTextureAtlasEntry[];
 }
 
+interface PackingShelf {
+  x: number;
+  y: number;
+  height: number;
+}
+
+interface PackingPage extends PackedPage {
+  shelves: PackingShelf[];
+  sealed?: boolean;
+}
+
 interface PackedAtlas {
   entries: Array<PackedTextureAtlasEntry | null>;
   pages: PackedPage[];
@@ -91,6 +108,62 @@ function loadTextureImage(url: string): Promise<HTMLImageElement> {
     TEXTURE_IMAGE_CACHE.set(url, p);
   }
   return p;
+}
+
+function normalizeAtlasScale(scale: number | string | undefined): number {
+  const value = typeof scale === "string" ? Number(scale) : scale;
+  if (value === undefined || !Number.isFinite(value)) return 1;
+  return Math.min(MAX_ATLAS_SCALE, Math.max(MIN_ATLAS_SCALE, value));
+}
+
+function atlasArea(pages: PackedPage[]): number {
+  return pages.reduce((sum, page) => sum + page.width * page.height, 0);
+}
+
+function autoAtlasScale(pages: PackedPage[]): number {
+  const area = atlasArea(pages);
+  if (area <= AUTO_ATLAS_LOW_AREA) return 1;
+  if (area <= AUTO_ATLAS_MEDIUM_AREA) return 0.75;
+  return 0.5;
+}
+
+function packTextureAtlasPlansWithScale(
+  plans: Array<TextureAtlasPlan | null>,
+  atlasScaleInput: AtlasScale | undefined,
+): { packed: PackedAtlas; atlasScale: number } {
+  if (atlasScaleInput !== undefined && atlasScaleInput !== "auto") {
+    const atlasScale = normalizeAtlasScale(atlasScaleInput);
+    return { packed: packTextureAtlasPlans(plans, atlasScale), atlasScale };
+  }
+
+  const fullScalePacked = packTextureAtlasPlans(plans, 1);
+  const atlasScale = autoAtlasScale(fullScalePacked.pages);
+  if (atlasScale === 1) return { packed: fullScalePacked, atlasScale };
+  return { packed: packTextureAtlasPlans(plans, atlasScale), atlasScale };
+}
+
+function atlasPadding(atlasScale: number): number {
+  return Math.max(ATLAS_PADDING, Math.ceil(ATLAS_PADDING / atlasScale));
+}
+
+function setCssTransform(
+  ctx: CanvasRenderingContext2D,
+  atlasScale: number,
+  a = 1,
+  b = 0,
+  c = 0,
+  d = 1,
+  e = 0,
+  f = 0,
+): void {
+  ctx.setTransform(
+    a * atlasScale,
+    b * atlasScale,
+    c * atlasScale,
+    d * atlasScale,
+    e * atlasScale,
+    f * atlasScale,
+  );
 }
 
 function parseHex(hex: string): RGB {
@@ -156,6 +229,7 @@ function applyTextureTint(
   width: number,
   height: number,
   tint: RGBFactors,
+  atlasScale: number,
 ): void {
   if (
     Math.abs(tint.r - 1) < 0.001 &&
@@ -165,7 +239,7 @@ function applyTextureTint(
     return;
   }
   ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  setCssTransform(ctx, atlasScale);
   ctx.globalCompositeOperation = "multiply";
   ctx.fillStyle = tintToCss(tint);
   ctx.fillRect(x, y, width, height);
@@ -179,13 +253,14 @@ function drawImageCover(
   y: number,
   width: number,
   height: number,
+  atlasScale: number,
 ): void {
   const srcW = img.naturalWidth || img.width || 1;
   const srcH = img.naturalHeight || img.height || 1;
   const scale = Math.max(width / srcW, height / srcH);
   const drawW = srcW * scale;
   const drawH = srcH * scale;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  setCssTransform(ctx, atlasScale);
   ctx.drawImage(img, x + (width - drawW) / 2, y + (height - drawH) / 2, drawW, drawH);
 }
 
@@ -339,78 +414,115 @@ export function computeTextureAtlasPlan(
   };
 }
 
-function packTextureAtlasPlans(plans: Array<TextureAtlasPlan | null>): PackedAtlas {
+function packTextureAtlasPlans(
+  plans: Array<TextureAtlasPlan | null>,
+  atlasScale = 1,
+): PackedAtlas {
   const entries: Array<PackedTextureAtlasEntry | null> = Array(plans.length).fill(null);
-  const pages: PackedPage[] = [];
-  let current: PackedPage = { width: ATLAS_PADDING, height: ATLAS_PADDING, entries: [] };
-  let x = ATLAS_PADDING;
-  let y = ATLAS_PADDING;
-  let rowH = 0;
+  const pages: PackingPage[] = [];
+  const padding = atlasPadding(atlasScale);
+  const sortedPlans = plans
+    .filter((plan): plan is TextureAtlasPlan => !!plan)
+    .sort((a, b) =>
+      b.canvasH - a.canvasH ||
+      b.canvasW - a.canvasW ||
+      a.index - b.index
+    );
 
-  const flush = () => {
-    if (current.entries.length === 0) return;
-    pages.push(current);
-    current = { width: ATLAS_PADDING, height: ATLAS_PADDING, entries: [] };
-    x = ATLAS_PADDING;
-    y = ATLAS_PADDING;
-    rowH = 0;
+  const createPage = (): PackingPage => ({
+    width: padding,
+    height: padding,
+    entries: [],
+    shelves: [],
+  });
+
+  const placeOnPage = (
+    page: PackingPage,
+    plan: TextureAtlasPlan,
+    pageIndex: number,
+  ): PackedTextureAtlasEntry | null => {
+    if (page.sealed) return null;
+    for (const shelf of page.shelves) {
+      if (
+        plan.canvasH <= shelf.height &&
+        shelf.x + plan.canvasW + padding <= ATLAS_MAX_SIZE
+      ) {
+        const entry = { ...plan, pageIndex, x: shelf.x, y: shelf.y };
+        shelf.x += plan.canvasW + padding;
+        page.entries.push(entry);
+        page.width = Math.max(page.width, entry.x + plan.canvasW + padding);
+        return entry;
+      }
+    }
+
+    const shelfY = page.shelves.length === 0 ? padding : page.height;
+    if (shelfY + plan.canvasH + padding > ATLAS_MAX_SIZE) return null;
+
+    const entry = { ...plan, pageIndex, x: padding, y: shelfY };
+    page.shelves.push({
+      x: padding + plan.canvasW + padding,
+      y: shelfY,
+      height: plan.canvasH,
+    });
+    page.entries.push(entry);
+    page.width = Math.max(page.width, entry.x + plan.canvasW + padding);
+    page.height = Math.max(page.height, shelfY + plan.canvasH + padding);
+    return entry;
   };
 
-  for (const plan of plans) {
-    if (!plan) continue;
+  for (const plan of sortedPlans) {
     const tooLarge =
-      plan.canvasW + ATLAS_PADDING * 2 > ATLAS_MAX_SIZE ||
-      plan.canvasH + ATLAS_PADDING * 2 > ATLAS_MAX_SIZE;
+      plan.canvasW + padding * 2 > ATLAS_MAX_SIZE ||
+      plan.canvasH + padding * 2 > ATLAS_MAX_SIZE;
 
     if (tooLarge) {
-      flush();
       const pageIndex = pages.length;
       const entry = {
         ...plan,
         pageIndex,
-        x: ATLAS_PADDING,
-        y: ATLAS_PADDING,
+        x: padding,
+        y: padding,
       };
       entries[plan.index] = entry;
       pages.push({
-        width: plan.canvasW + ATLAS_PADDING * 2,
-        height: plan.canvasH + ATLAS_PADDING * 2,
+        width: plan.canvasW + padding * 2,
+        height: plan.canvasH + padding * 2,
         entries: [entry],
+        shelves: [],
+        sealed: true,
       });
       continue;
     }
 
-    if (x + plan.canvasW + ATLAS_PADDING > ATLAS_MAX_SIZE) {
-      x = ATLAS_PADDING;
-      y += rowH + ATLAS_PADDING;
-      rowH = 0;
+    let placed: PackedTextureAtlasEntry | null = null;
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      placed = placeOnPage(pages[pageIndex], plan, pageIndex);
+      if (placed) break;
     }
-    if (y + plan.canvasH + ATLAS_PADDING > ATLAS_MAX_SIZE) {
-      flush();
+    if (!placed) {
+      const page = createPage();
+      const pageIndex = pages.length;
+      pages.push(page);
+      placed = placeOnPage(page, plan, pageIndex);
     }
-
-    const pageIndex = pages.length;
-    const entry = { ...plan, pageIndex, x, y };
-    entries[plan.index] = entry;
-    current.entries.push(entry);
-    current.width = Math.max(current.width, x + plan.canvasW + ATLAS_PADDING);
-    current.height = Math.max(current.height, y + plan.canvasH + ATLAS_PADDING);
-    x += plan.canvasW + ATLAS_PADDING;
-    rowH = Math.max(rowH, plan.canvasH);
+    if (placed) entries[plan.index] = placed;
   }
 
-  flush();
-  return { entries, pages };
+  return {
+    entries,
+    pages: pages.map(({ width, height, entries }) => ({ width, height, entries })),
+  };
 }
 
 async function buildAtlasPage(
   page: PackedPage,
   textureLighting: TextureLightingMode,
   doc: Document,
+  atlasScale: number,
 ): Promise<TextureAtlasPage> {
   const canvas = doc.createElement("canvas");
-  canvas.width = page.width;
-  canvas.height = page.height;
+  canvas.width = Math.max(1, Math.ceil(page.width * atlasScale));
+  canvas.height = Math.max(1, Math.ceil(page.height * atlasScale));
   const ctx = canvas.getContext("2d");
   if (!ctx) return { width: page.width, height: page.height, url: null };
 
@@ -425,6 +537,7 @@ async function buildAtlasPage(
   for (const entry of page.entries) {
     const srcImg = entry.texture ? loaded.get(entry.texture) : null;
     ctx.save();
+    setCssTransform(ctx, atlasScale);
     ctx.beginPath();
     for (let i = 0; i < entry.screenPts.length; i += 2) {
       const px = entry.x + entry.screenPts[i];
@@ -436,23 +549,25 @@ async function buildAtlasPage(
     ctx.clip();
 
     if (!entry.texture) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      setCssTransform(ctx, atlasScale);
       ctx.fillStyle = entry.shadedColor;
       ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
     } else if (srcImg && entry.uvAffine) {
       const imgW = srcImg.naturalWidth || srcImg.width || 1;
       const imgH = srcImg.naturalHeight || srcImg.height || 1;
-      ctx.setTransform(
+      setCssTransform(
+        ctx,
+        atlasScale,
         entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
         entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
         entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
       );
       ctx.drawImage(srcImg, 0, 0);
     } else if (srcImg) {
-      drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH);
+      drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
     }
     if (entry.texture && textureLighting === "baked") {
-      applyTextureTint(ctx, entry.x, entry.y, entry.canvasW, entry.canvasH, entry.textureTint);
+      applyTextureTint(ctx, entry.x, entry.y, entry.canvasW, entry.canvasH, entry.textureTint, atlasScale);
     }
     ctx.restore();
   }
@@ -471,16 +586,18 @@ function revokeUrls(urls: string[]): void {
 export function useTextureAtlas(
   plans: ComputedRef<Array<TextureAtlasPlan | null>>,
   textureLighting: ComputedRef<TextureLightingMode>,
+  atlasScale: ComputedRef<AtlasScale | undefined> = computed(() => undefined),
 ): TextureAtlasResult {
-  const packed = computed(() => packTextureAtlasPlans(plans.value));
+  const atlasState = computed(() => packTextureAtlasPlansWithScale(plans.value, atlasScale.value));
   const pages = ref<TextureAtlasPage[]>(
-    packed.value.pages.map((page) => ({ width: page.width, height: page.height, url: null })),
+    atlasState.value.packed.pages.map((page) => ({ width: page.width, height: page.height, url: null })),
   );
   let activeUrls: string[] = [];
 
   watch(
-    () => [packed.value, textureLighting.value] as const,
-    ([nextPacked, nextTextureLighting], _prev, onCleanup) => {
+    () => [atlasState.value, textureLighting.value] as const,
+    ([nextAtlasState, nextTextureLighting], _prev, onCleanup) => {
+      const { packed: nextPacked, atlasScale: nextAtlasScale } = nextAtlasState;
       let cancelled = false;
       revokeUrls(activeUrls);
       activeUrls = [];
@@ -498,7 +615,7 @@ export function useTextureAtlas(
 
       if (nextPacked.pages.length === 0 || typeof document === "undefined") return;
 
-      Promise.all(nextPacked.pages.map((page) => buildAtlasPage(page, nextTextureLighting, document)))
+      Promise.all(nextPacked.pages.map((page) => buildAtlasPage(page, nextTextureLighting, document, nextAtlasScale)))
         .then((nextPages) => {
           if (cancelled) {
             revokeUrls(nextPages.flatMap((page) => page.url?.startsWith("blob:") ? [page.url] : []));
@@ -526,7 +643,7 @@ export function useTextureAtlas(
   });
 
   return {
-    entries: computed(() => packed.value.entries),
+    entries: computed(() => atlasState.value.packed.entries),
     pages,
     ready: computed(() => pages.value.length === 0 || pages.value.every((page) => !!page.url)),
   };
@@ -556,6 +673,7 @@ export function renderTextureAtlasPoly({
     backgroundImage: page?.url ? `url(${page.url})` : undefined,
     backgroundPosition: `-${entry.x}px -${entry.y}px`,
     backgroundSize: page ? `${page.width}px ${page.height}px` : undefined,
+    opacity: page?.url ? undefined : 0,
     pointerEvents: pointerEvents === "none" ? "none" : undefined,
     filter: entry.texture && textureLighting === "filter"
       ? `brightness(${entry.textureBrightness.toFixed(3)})`
@@ -568,13 +686,10 @@ export function renderTextureAtlasPoly({
         Object.entries(entry.polygon.data).map(([k, v]) => [`data-${k}`, String(v)]),
       )
     : {};
+  const elementClassName = className?.trim() || undefined;
 
-  return h("div", {
-    class: [
-      "polycss-poly",
-      page?.url ? "" : "polycss-poly-loading",
-      className,
-    ].filter(Boolean).join(" "),
+  return h("i", {
+    class: elementClassName,
     style,
     ...dataAttrs,
     ...domAttrs,

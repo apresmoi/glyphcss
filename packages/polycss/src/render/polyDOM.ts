@@ -1,9 +1,9 @@
 /**
  * polyDOM — compatibility wrapper for rendering a single Polygon.
  *
- * The vanilla package now uses the div atlas for every valid polygon. This
- * helper keeps the older single-polygon render contract without carrying a
- * separate SVG implementation.
+ * The vanilla package now uses the atlas-backed i element for every valid
+ * polygon. This helper keeps the older single-polygon render contract without
+ * carrying a separate SVG implementation.
  */
 import type { Polygon } from "@polycss/core";
 import {

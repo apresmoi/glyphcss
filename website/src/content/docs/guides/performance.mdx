@@ -94,6 +94,29 @@ The single most effective way to reduce polygon count is to choose a smaller `ta
 <PolyMesh src="/castle.obj" options={{ targetSize: 80 }} />
 ```
 
+## `atlasScale` and texture memory
+
+Generated atlas pages default to one bitmap pixel per CSS pixel. For large textured meshes, set `atlasScale` below `1` to reduce atlas memory and PNG encode time while keeping DOM geometry and hit areas unchanged.
+
+```html
+<!-- Vanilla -->
+<poly-scene atlas-scale="0.5">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+
+```tsx
+// React / Vue
+<PolyScene atlasScale={0.5}>
+  <PolyMesh src="/cottage.glb" />
+</PolyScene>
+
+// Or per mesh:
+<PolyMesh src="/cottage.glb" atlasScale={0.5} />
+```
+
+Use `0.5` or `0.75` for distant or dense assets; keep `1` for close-up inspection.
+
 ## Atlas and Blob URL Lifecycle
 
 UV-textured polygons share generated atlas blob URLs (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:

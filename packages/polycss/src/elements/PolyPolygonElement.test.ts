@@ -128,7 +128,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("color", "#ff0000");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector(".polycss-poly");
+    const rendered = sceneEl.querySelector("i");
     expect(rendered).toBeTruthy();
     cleanup();
   });
@@ -139,7 +139,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("color", "#00ff00");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector(".polycss-poly");
+    const rendered = sceneEl.querySelector("i");
     expect(rendered).toBeTruthy();
     cleanup();
   });
@@ -150,7 +150,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("texture", "https://example.com/tex.png");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector(".polycss-poly");
+    const rendered = sceneEl.querySelector("i");
     expect(rendered).toBeTruthy();
     cleanup();
   });
@@ -173,7 +173,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("data-foo", "bar");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector(".polycss-poly") as HTMLElement;
+    const rendered = sceneEl.querySelector("i") as HTMLElement;
     expect(rendered?.getAttribute("data-foo")).toBe("bar");
     cleanup();
   });
@@ -183,9 +183,9 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("vertices", TRIANGLE_VERTICES);
     sceneEl.appendChild(poly);
 
-    const beforeCount = sceneEl.querySelectorAll(".polycss-poly").length;
+    const beforeCount = sceneEl.querySelectorAll("i").length;
     sceneEl.removeChild(poly);
-    const afterCount = sceneEl.querySelectorAll(".polycss-poly").length;
+    const afterCount = sceneEl.querySelectorAll("i").length;
 
     expect(beforeCount).toBeGreaterThan(0);
     expect(afterCount).toBeLessThan(beforeCount);
@@ -198,13 +198,13 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("color", "#ff0000");
     sceneEl.appendChild(poly);
 
-    const beforePoly = sceneEl.querySelector(".polycss-poly");
+    const beforePoly = sceneEl.querySelector("i");
     expect(beforePoly).toBeTruthy();
 
     // Changing color should trigger re-mount
     poly.setAttribute("color", "#0000ff");
 
-    const afterPoly = sceneEl.querySelector(".polycss-poly");
+    const afterPoly = sceneEl.querySelector("i");
     expect(afterPoly).toBeTruthy();
     cleanup();
   });

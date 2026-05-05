@@ -2,7 +2,7 @@
 
 # polycss
 
-Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<div>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 Two entry points:
 
@@ -94,6 +94,7 @@ poly-polygon.hover { filter: brightness(1.5); }
 | `light-ambient` | Ambient intensity `0`–`1` |
 | `light-ambient-color` | Ambient light color hex |
 | `merge` | `"off"` (default) or `"auto"` |
+| `atlas-scale` | Raster scale for generated atlas pages; lower values reduce memory/detail |
 
 Note: `auto-rotate` and `interactive` are not supported in the v1 vanilla package. Use `@polycss/react` or `@polycss/vue` for animated or interactive scenes.
 
