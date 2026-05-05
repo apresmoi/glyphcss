@@ -1,6 +1,6 @@
 {
   "name": "@polycss/core",
-  "version": "0.1.8",
+  "version": "0.0.1",
   "description": "Pure math engine for CSS polygon mesh rendering. Zero browser globals.",
   "type": "module",
   "main": "dist/index.cjs",
