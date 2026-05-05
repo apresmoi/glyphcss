@@ -24,6 +24,16 @@ const QUAD: Polygon = {
   color: "#00ff00",
 };
 
+const TEXTURED_TRIANGLE: Polygon = {
+  vertices: TRIANGLE.vertices,
+  texture: "https://example.com/tex.png",
+  uvs: [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+  ],
+};
+
 function renderScene(
   sceneProps: React.ComponentProps<typeof PolyScene>,
   children?: React.ReactNode
@@ -92,16 +102,30 @@ describe("PolyScene — polygon rendering", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders SVG polygons from the polygons prop", () => {
+  it("renders polygon divs from the polygons prop", () => {
     const container = renderScene({ polygons: [TRIANGLE] });
-    const svgs = container.querySelectorAll(".polycss-poly");
-    expect(svgs.length).toBeGreaterThan(0);
+    const poly = container.querySelector(".polycss-poly");
+    expect(poly).toBeTruthy();
+    expect(poly?.tagName.toLowerCase()).toBe("div");
+    expect(poly?.classList.contains("polycss-poly-atlas")).toBe(false);
+    expect(poly?.classList.contains("polycss-poly-solid")).toBe(false);
+    expect(poly?.classList.contains("polycss-poly-textured")).toBe(false);
+    expect(container.querySelector("svg")).toBeNull();
   });
 
   it("renders multiple polygons", () => {
     const container = renderScene({ polygons: [TRIANGLE, QUAD] });
     const polys = container.querySelectorAll(".polycss-poly");
     expect(polys.length).toBe(2);
+  });
+
+  it("renders textured polygons as polygon divs", () => {
+    const container = renderScene({
+      polygons: [TEXTURED_TRIANGLE],
+    });
+    const poly = container.querySelector(".polycss-poly");
+    expect(poly).toBeTruthy();
+    expect(poly?.tagName.toLowerCase()).toBe("div");
   });
 
   it("renders no poly elements when polygons prop is empty", () => {
@@ -182,13 +206,14 @@ describe("PolyScene — debugShowBackfaces", () => {
     expect(scene?.classList.contains("polycss-debug-show-backfaces")).toBe(false);
   });
 
-  it("adds debug backfaces SVGs when debugShowBackfaces=true", () => {
+  it("does not add SVG debug overlays when debugShowBackfaces=true", () => {
     const container = renderScene({
       polygons: [TRIANGLE],
       debugShowBackfaces: true,
     });
     const debugFaces = container.querySelectorAll(".polycss-debug-backface");
-    expect(debugFaces.length).toBeGreaterThan(0);
+    expect(debugFaces.length).toBe(0);
+    expect(container.querySelector("svg")).toBeNull();
   });
 });
 

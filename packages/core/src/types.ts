@@ -4,9 +4,9 @@ export const DEFAULT_PROJECTION = "cubic" as const;
 /**
  * How textured polygon lighting is applied by DOM renderers.
  * - "baked": multiply the light tint into the off-DOM canvas before the
- *   polygon becomes an <img>.
+ *   polygon becomes an atlas sprite.
  * - "filter": leave the texture pixels unbaked and apply a CSS brightness()
- *   filter to the <img>, matching the earlier textured path.
+ *   filter to the atlas sprite.
  */
 export type TextureLightingMode = "baked" | "filter";
 
@@ -23,13 +23,13 @@ export type Vec3 = [number, number, number];
 /**
  * 2D point/vector — `[u, v]`. Used for texture-atlas UV coordinates on
  * polygons. Convention follows OBJ: u is horizontal (0=left, 1=right),
- * v is vertical (0=bottom, 1=top). Renderers flip v when binding to an
- * `<img>` whose Y-axis points down.
+ * v is vertical (0=bottom, 1=top). Renderers flip v when binding to raster
+ * image space whose Y-axis points down.
  */
 export type Vec2 = [number, number];
 
 /**
- * Directional light setup used by the polygon renderer for per-face Lambert
+ * Directional light setup used by the polygon renderer for polygon Lambert
  * shading. Direction is in scene-local CSS-pixel coords. Vector doesn't
  * need to be pre-normalized. Color is multiplied into the surface color
  * for the directional contribution; ambient (RGB) provides the floor for
@@ -59,8 +59,7 @@ export interface Polygon {
   vertices: Vec3[];
   /**
    * Solid base color. Falls back to "#cccccc" when neither color nor
-   * texture is set (and acts as the `<img>.onerror` fallback when texture
-   * fails to load).
+   * texture is set.
    */
   color?: string;
   /**

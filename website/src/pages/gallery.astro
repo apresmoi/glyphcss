@@ -7,15 +7,14 @@ const OG_IMAGE = `${SITE_URL}/voxcss-intro.png`;
 const SITE_NAME = "polycss";
 
 const galleryDir = path.resolve(process.cwd(), 'public/gallery');
-const voxDir = path.join(galleryDir, 'vox');
+const objDir = path.join(galleryDir, 'obj');
 
 let triangleFiles: string[] = [];
-let voxFiles: string[] = [];
+let objFiles: { name: string; hasMtl: boolean }[] = [];
 
 try {
-  // Voxel JSONs were converted in-place to polycss polygon format (face-
-  // culled quads). The smooth halfapple variant is excluded — it's a
-  // separate landing-page asset (post-Taubin-smoothed triangles).
+  // Legacy polygon JSONs remain as a fallback for clean checkouts where the
+  // OBJ fixture folder is absent.
   triangleFiles = fs.readdirSync(galleryDir)
     .filter(f => f.endsWith('.json')
       && f !== 'vox-manifest.json'
@@ -26,11 +25,21 @@ try {
 }
 
 try {
-  voxFiles = fs.readdirSync(voxDir)
-    .filter(f => f.toLowerCase().endsWith('.vox'))
-    .map(f => f.replace(/\.vox$/i, ''));
+  const entries = fs.readdirSync(objDir);
+  const mtlNames = new Set(
+    entries
+      .filter(f => f.toLowerCase().endsWith('.mtl'))
+      .map(f => f.replace(/\.mtl$/i, ''))
+  );
+  objFiles = entries
+    .filter(f => f.toLowerCase().endsWith('.obj'))
+    .map(f => {
+      const name = f.replace(/\.obj$/i, '');
+      return { name, hasMtl: mtlNames.has(name) };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 } catch {
-  // No vox/ subdir — gallery still works with triangle JSONs only
+  // No obj/ subdir — gallery still works with triangle JSONs only
 }
 
 const title = "polycss Gallery — CSS polygon mesh models";
@@ -150,11 +159,7 @@ const ldJson = {
 
             <p class="model-credit">
               Sources:
-              <a href="https://github.com/mikelovesrobots/mmmm" target="_blank" rel="noopener noreferrer">mmmm</a>
-              &middot;
-              <a href="https://github.com/ephtracy/voxel-model/" target="_blank" rel="noopener noreferrer">voxel-model</a>
-              &middot;
-              <a href="https://github.com/kluchek/vox-models" target="_blank" rel="noopener noreferrer">vox-models</a>
+              <span>OBJ fixture models</span>
             </p>
           </div>
         </aside>
@@ -182,15 +187,6 @@ const ldJson = {
                 <input type="checkbox" id="floor-toggle" />
                 <span>show floor</span>
               </label>
-
-              <div class="control-label">
-                <span class="range-heading"><span>merge mode</span></span>
-                <div class="merge-pills" id="merge-pills" role="radiogroup" aria-label="merge mode">
-                  <button type="button" class="merge-pill active" data-merge="off"   role="radio" aria-checked="true">off</button>
-                  <button type="button" class="merge-pill"        data-merge="auto"  role="radio" aria-checked="false">auto</button>
-                  <button type="button" class="merge-pill"        data-merge="slice" role="radio" aria-checked="false">slice</button>
-                </div>
-              </div>
             </form>
           </div>
         </div>
@@ -199,7 +195,7 @@ const ldJson = {
   </div>
 
   <script type="application/json" id="gallery-triangle-files" set:html={JSON.stringify(triangleFiles)} />
-  <script type="application/json" id="gallery-vox-files" set:html={JSON.stringify(voxFiles)} />
+  <script type="application/json" id="gallery-obj-files" set:html={JSON.stringify(objFiles)} />
 
   <script>
     // ── Utilities ────────────────────────────────────────────────────────────
@@ -222,66 +218,96 @@ const ldJson = {
       return cleaned.replace(/\b[a-z]/gi, (char) => char.toUpperCase());
     };
 
-    // VOX filename prefix → category (mirrors the original voxcss gallery's
-    // mmmm/voxel-model naming convention).
-    const VOX_PREFIX_CATEGORY = {
-      chr: "characters",
-      scene: "scenes",
-      obj: "objects",
-      veh: "vehicles",
-      mob: "mobs",
-      alien: "aliens",
-      cat: "characters",
-      env: "scenes",
-      ff: "scenes",
-      christmas: "scenes",
+    const OBJ_MODEL_CONFIG = {
+      avocado: {
+        label: "Avocado",
+        category: "objects",
+        options: { targetSize: 50, defaultColor: "#cccccc" },
+        camera: { zoom: 0.4, rotX: 65, rotY: 45 },
+      },
+      castle: {
+        label: "Castle",
+        category: "architecture",
+        options: { targetSize: 60 },
+        camera: { zoom: 0.15, rotX: 66.9, rotY: 68.5 },
+      },
+      chicken: {
+        label: "Chicken",
+        category: "characters",
+        options: { targetSize: 60, defaultColor: "#cccccc" },
+        camera: { zoom: 0.15, rotX: 74.4, rotY: 301.6 },
+      },
+      church: {
+        label: "Church",
+        category: "architecture",
+        options: { targetSize: 60, defaultColor: "#cccccc" },
+        camera: { zoom: 0.4, rotX: 65, rotY: 45 },
+      },
+      coliseum: {
+        label: "Coliseum",
+        category: "architecture",
+        options: { targetSize: 80, palette: ["#c9a876", "#a78760", "#8b6f47", "#6b5538"] },
+        camera: { zoom: 0.15, rotX: 65, rotY: 45 },
+      },
+      cottage: {
+        label: "Cottage",
+        category: "architecture",
+        options: {
+          targetSize: 60,
+          defaultColor: "#a0a0a0",
+          materialTextures: { cottage_texture: "/gallery/obj/cottage-diffuse.png" },
+          includeObjects: ["Cube_Cube.002"],
+        },
+        camera: { zoom: 0.4, rotX: 65, rotY: 45 },
+      },
+      rock1: {
+        label: "Rock",
+        category: "environment",
+        options: { targetSize: 40, defaultColor: "#8b6f47", excludeObjects: ["Plane"] },
+        camera: { zoom: 0.6, rotX: 65, rotY: 45 },
+      },
+      saucer: {
+        label: "Flying Saucer",
+        category: "vehicles",
+        options: { targetSize: 60, defaultColor: "#94a3b8" },
+        camera: { zoom: 0.2, rotX: 67, rotY: 42.3 },
+      },
+      sting: {
+        label: "Sting Sword",
+        category: "objects",
+        options: {
+          targetSize: 60,
+          defaultColor: "#cccccc",
+          materialTextures: { Sting: "/gallery/obj/sting-diffuse.png" },
+        },
+        camera: { zoom: 0.3, rotX: 65, rotY: 45 },
+      },
+      teapot: {
+        label: "Teapot",
+        category: "objects",
+        options: { targetSize: 60, defaultColor: "#a3a3a3" },
+        camera: { zoom: 0.2, rotX: 65, rotY: 45 },
+      },
+      wheelbarrow: {
+        label: "Wheelbarrow",
+        category: "objects",
+        options: { targetSize: 60 },
+        camera: { zoom: 0.2, rotX: 66.2, rotY: 36.1 },
+      },
     };
 
-    // Per-name override for vox files with no underscore prefix (e.g.
-    // `dual.vox`, `pyramid.vox`). Falls back to "objects" if absent.
-    const VOX_MODEL_CATEGORY = {
-      dual: "scenes",
-      pyramid: "objects",
-      armchair: "objects",
-      couch: "objects",
-      door: "objects",
-      gifts: "objects",
-      lantern: "objects",
-      mailbox: "objects",
-      piano: "objects",
-      santa: "characters",
-      snowman: "characters",
-      spacesuit: "characters",
-      man: "characters",
-      woman: "characters",
-      paperboy: "characters",
-      dog: "characters",
-      horse: "characters",
-    };
-
-    const splitVoxKey = (name) => {
-      const us = name.indexOf("_");
-      if (us < 0) return { prefix: "", rest: name };
-      return { prefix: name.slice(0, us).toLowerCase(), rest: name.slice(us + 1) };
-    };
-
-    const createModelEntry = (name, type = "json") => {
-      // For vox files we drop the category prefix from the label (e.g.
-      // chr_army4a → "Army4a") so the sidebar reads cleanly under each
-      // category heading. JSON-converted models keep their full name.
-      let label;
-      if (type === "vox") {
-        const { rest } = splitVoxKey(name);
-        label = humanizeToken(rest);
-      } else {
-        label = humanizeToken(name);
-      }
+    const createModelEntry = (entry, type = "json") => {
+      const name = typeof entry === "string" ? entry : entry?.name;
+      const hasMtl = typeof entry === "object" && entry ? Boolean(entry.hasMtl) : false;
+      const config = type === "obj" ? OBJ_MODEL_CONFIG[name] || {} : {};
+      const label = config.label || humanizeToken(name);
       const id = `${type}:${name}`;
       return {
         id,
         type,
         name,
         label,
+        hasMtl,
         urlId: hashStringToUint32(id),
         legacyUrlKey: `${type}:${name}`,
       };
@@ -292,14 +318,15 @@ const ldJson = {
     const triangleFiles = JSON.parse(
       document.getElementById("gallery-triangle-files").textContent
     );
-    const voxFiles = JSON.parse(
-      document.getElementById("gallery-vox-files").textContent
+    const objFiles = JSON.parse(
+      document.getElementById("gallery-obj-files").textContent
     );
 
-    const MODELS = [
-      ...triangleFiles.map((name) => createModelEntry(name, "json")),
-      ...voxFiles.map((name) => createModelEntry(name, "vox")),
-    ].sort((a, b) => a.label.localeCompare(b.label));
+    const objModels = objFiles.map((entry) => createModelEntry(entry, "obj"));
+    const MODELS = (objModels.length
+      ? objModels
+      : triangleFiles.map((name) => createModelEntry(name, "json"))
+    ).sort((a, b) => a.label.localeCompare(b.label));
 
     const DEFAULT_MODEL = MODELS[0] || null;
 
@@ -307,11 +334,10 @@ const ldJson = {
 
     const CATEGORY_DEFINITIONS = [
       { key: "characters", label: "Characters" },
-      { key: "mobs", label: "Mobs" },
-      { key: "aliens", label: "Aliens" },
+      { key: "architecture", label: "Architecture" },
       { key: "vehicles", label: "Vehicles" },
       { key: "objects", label: "Objects" },
-      { key: "scenes", label: "Scenes" },
+      { key: "environment", label: "Environment" },
     ];
 
     const CATEGORY_ORDER = CATEGORY_DEFINITIONS.map((c) => c.key);
@@ -339,12 +365,7 @@ const ldJson = {
 
     const getModelCategoryKey = (model) => {
       if (!model) return "objects";
-      if (model.type === "vox") {
-        const { prefix, rest } = splitVoxKey(model.name);
-        if (prefix && VOX_PREFIX_CATEGORY[prefix]) return VOX_PREFIX_CATEGORY[prefix];
-        const flat = (prefix ? rest : model.name).toLowerCase();
-        return VOX_MODEL_CATEGORY[flat] || "objects";
-      }
+      if (model.type === "obj") return OBJ_MODEL_CONFIG[model.name]?.category || "objects";
       return JSON_MODEL_CATEGORY[model.name] || "objects";
     };
 
@@ -352,6 +373,9 @@ const ldJson = {
 
     const DEFAULT_CAMERA = { zoom: 0.2, rotX: 65, rotY: 45 };
     const MODEL_CAMERAS = {
+      ...Object.fromEntries(
+        Object.entries(OBJ_MODEL_CONFIG).map(([name, config]) => [name, config.camera || {}])
+      ),
       halfapple: { zoom: 1.35 },
       apple: { zoom: 1.25 },
       cat: { zoom: 1, rotY: 220 },
@@ -373,25 +397,6 @@ const ldJson = {
     const MODEL_SCENE_OVERRIDES = {
       dual: { showFloor: false },
       pyramid: { showFloor: false },
-    };
-
-    // iOS detection — Safari on big models (>~30k voxels) silently OOMs the
-    // tab. We pre-warn the user instead of crashing the page.
-    const IOS_VOXEL_LIMIT = 30000;
-    const isProbablyIOS = () => {
-      if (typeof navigator === "undefined") return false;
-      const ua = navigator.userAgent || "";
-      const platform = navigator.platform || "";
-      return (
-        /iPad|iPhone|iPod/.test(ua) ||
-        (platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1)
-      );
-    };
-
-    const safeNumberString = (value) => {
-      const num = typeof value === "number" ? value : Number(value);
-      if (!Number.isFinite(num)) return "";
-      try { return num.toLocaleString(); } catch (_) { return String(num); }
     };
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -416,7 +421,7 @@ const ldJson = {
     let currentZoom = DEFAULT_CAMERA.zoom;
     let currentRotX = DEFAULT_CAMERA.rotX;
     let currentRotY = DEFAULT_CAMERA.rotY;
-    let currentMerge = "off";
+    let currentMerge = "auto";
     // Floor toggle — polycss has no floor primitive, so we synthesize a
     // single shaded polygon at z = bbox.min.z sized to the mesh footprint.
     // Mirrors the DebugScene approach in website/src/debug/DebugScene.tsx.
@@ -474,6 +479,8 @@ const ldJson = {
 
     const getActiveModel = () => models.find((m) => m.id === activeModelId) || null;
 
+    const getModelMergeMode = (model) => (model?.type === "vox" ? "slice" : "auto");
+
     const isCategoryOpen = (categoryId) => {
       if (modelQuery.trim()) return true;
       const value = openCategories[categoryId];
@@ -491,7 +498,6 @@ const ldJson = {
     const errorEl = document.getElementById("viewer-error");
     const animateToggle = document.getElementById("animate-toggle");
     const floorToggle = document.getElementById("floor-toggle");
-    const mergePillsEl = document.getElementById("merge-pills");
 
     const setLoading = (val) => {
       isLoading = val;
@@ -563,7 +569,7 @@ const ldJson = {
         zoom: currentZoom,
         autoCenter: true,
         interactive: true,
-        perspective: 8000,
+        perspective: false,
         merge: currentMerge,
       });
       return polyScene;
@@ -603,8 +609,8 @@ const ldJson = {
     };
 
     // Mount the cached parseResult (optionally augmented with a floor poly)
-    // onto the scene. Reused by loadModel(), the floor toggle, and the merge
-    // toggle so we don't refetch/reparse on UI changes.
+    // onto the scene. Reused by loadModel() and the floor toggle so we don't
+    // refetch/reparse on UI changes.
     const remountCurrentMesh = async () => {
       if (!currentParseResult) return;
       const scene = await ensureScene();
@@ -779,41 +785,17 @@ const ldJson = {
 
       try {
         // Two loaders, one shape:
+        //   "obj"  → loadMesh() dispatches to parseObj, with MTL when present.
         //   "json" → fetch a pre-baked Polygon[] file (face-culled offline).
-        //   "vox"  → loadMesh() dispatches to parseVox in @polycss/core
-        //            (binary MagicaVoxel decode + face-culling + palette).
         // Both yield a ParseResult that scene.add() consumes the same way.
         let parseResult;
-        if (model.type === "vox") {
+        if (model.type === "obj") {
           const polycss = await import("polycss");
-          // Pre-fetch so we can size-check the buffer on iOS (Safari OOMs
-          // on huge models). On other browsers the extra fetch is cheap and
-          // gives us the same byte-level inspection point.
-          const res = await fetch(
-            `/gallery/vox/${model.name}.vox`,
-            abortController ? { signal: abortController.signal } : undefined
-          );
-          if (!res.ok) throw new Error(`VOX fetch failed: ${res.status}`);
-          const buffer = await res.arrayBuffer();
-          if (abortController?.signal?.aborted) return;
-          if (token !== requestToken) return;
-
-          parseResult = await polycss.parseVox(buffer);
-
-          if (isProbablyIOS()) {
-            const voxelCount = parseResult?.metadata?.voxelCount;
-            if (typeof voxelCount === "number" && voxelCount > IOS_VOXEL_LIMIT) {
-              try { parseResult.dispose(); } catch (_) {}
-              setLoading(false);
-              setError(`Model too large for iPhone (${safeNumberString(voxelCount)} voxels).`);
-              if (loadedModelId) {
-                activeModelId = loadedModelId;
-                renderTree();
-                if (getRouteModelId()) setRouteModelId(loadedModelId);
-              }
-              return;
-            }
-          }
+          const config = OBJ_MODEL_CONFIG[model.name] || {};
+          const loadOptions = {};
+          if (model.hasMtl) loadOptions.mtlUrl = `/gallery/obj/${model.name}.mtl`;
+          if (config.options) loadOptions.objOptions = config.options;
+          parseResult = await polycss.loadMesh(`/gallery/obj/${model.name}.obj`, loadOptions);
         } else {
           const res = await fetch(
             `/gallery/${model.name}.json`,
@@ -834,6 +816,7 @@ const ldJson = {
         currentParseResult = parseResult;
 
         applyModelDefaults(model);
+        currentMerge = getModelMergeMode(model);
 
         const scene = await ensureScene();
         scene.setOptions({
@@ -937,23 +920,6 @@ const ldJson = {
       remountCurrentMesh();
     });
 
-    mergePillsEl.addEventListener("click", async (e) => {
-      const pill = e.target.closest("button[data-merge]");
-      if (!pill) return;
-      const next = pill.dataset.merge;
-      if (next === currentMerge) return;
-      currentMerge = next;
-      for (const b of mergePillsEl.querySelectorAll("button[data-merge]")) {
-        const on = b.dataset.merge === currentMerge;
-        b.classList.toggle("active", on);
-        b.setAttribute("aria-checked", on ? "true" : "false");
-      }
-      // Re-mount: scene.add() honors options.merge at mount time, so we
-      // need to remove + re-add (cheap, parseResult is cached).
-      if (polyScene) polyScene.setOptions({ merge: currentMerge });
-      await remountCurrentMesh();
-    });
-
     // Delegate model selection and category toggle from tree
     treeEl.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-model-id]");
@@ -996,12 +962,10 @@ const ldJson = {
         } else {
           setRouteModelId(null);
         }
-      } else if (models.length && !isProbablyIOS()) {
-        // No `?model=` on URL — pick a random "scenes" model so the page
-        // opens with something visually interesting. iOS skipped: the bigger
-        // scene models trip the voxel-limit guard, so it's nicer to wait
-        // for an explicit user pick on iPhone.
-        const scenePool = models.filter((m) => getModelCategoryKey(m) === "scenes");
+      } else if (models.length) {
+        // No `?model=` on URL — pick a random architecture model so the page
+        // opens with something visually interesting.
+        const scenePool = models.filter((m) => getModelCategoryKey(m) === "architecture");
         const pool = scenePool.length ? scenePool : models;
         const pick = pool[Math.floor(Math.random() * pool.length)] || pool[0];
         if (pick?.id) activeModelId = pick.id;
@@ -1123,10 +1087,10 @@ const ldJson = {
       padding: 0;
       margin: 0;
       display: flex;
-      gap: 44px;
+      gap: 4px;
       justify-content: center;
       flex-wrap: wrap;
-      row-gap: 12px;
+      row-gap: 8px;
     }
 
     .nav-group li {
@@ -1135,24 +1099,26 @@ const ldJson = {
 
     .nav-group a {
       display: block;
-      padding: 6px 0;
-      font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
-      color: #cbd5f5;
-      opacity: 0.7;
+      padding: 0.55rem 0.7rem;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #94a3b8;
+      opacity: 1;
       text-decoration: none;
-      font-size: 15px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+      border-radius: 999px;
     }
 
     .nav-group a:hover {
-      opacity: 1;
-      font-weight: bold;
+      color: #e2e8f0;
+      background: rgba(56, 189, 248, 0.14);
     }
 
     .nav-group a.active {
-      opacity: 1;
       color: #fff;
-      font-weight: bold;
-      text-decoration: underline;
+      background: rgba(56, 189, 248, 0.14);
     }
 
     /* ── GitHub social ────────────────────────────────────────────────────── */
@@ -1565,43 +1531,6 @@ const ldJson = {
       border: 1px solid #94a3b8;
     }
 
-    .control-label {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
-    }
-
-    .merge-pills {
-      display: inline-flex;
-      gap: 4px;
-      padding: 3px;
-      background: #0b0f18;
-      border-radius: 8px;
-    }
-
-    .merge-pill {
-      flex: 1 1 auto;
-      border: 0;
-      background: transparent;
-      color: #94a3b8;
-      padding: 5px 10px;
-      border-radius: 6px;
-      font: inherit;
-      font-size: 12px;
-      cursor: pointer;
-    }
-
-    .merge-pill:hover {
-      color: #e2e8f0;
-    }
-
-    .merge-pill.active {
-      background: #1a2435;
-      color: #f1f5f9;
-      font-weight: 600;
-    }
-
     .switch {
       flex-direction: row;
       align-items: center;
@@ -1787,7 +1716,7 @@ const ldJson = {
       }
 
       .docs-nav .nav-group ul {
-        gap: 16px;
+        gap: 4px;
         justify-content: flex-start;
         flex-wrap: nowrap;
         overflow-x: auto;
@@ -1893,7 +1822,7 @@ const ldJson = {
       }
 
       .docs-nav .nav-group ul {
-        gap: 12px;
+        gap: 2px;
       }
 
       .docs-nav .nav-group .nav-label__long {
@@ -1901,7 +1830,8 @@ const ldJson = {
       }
 
       .docs-nav .nav-group a {
-        font-size: 14px;
+        font-size: 0.78rem;
+        padding-inline: 0.45rem;
       }
 
       .models-sidebar__header {

@@ -33,8 +33,8 @@ export function triangleToVoxel(t: RawTriangle): Polygon {
 
 /**
  * Same idea as RawTriangle but with N vertices (≥3). Renders as a single
- * polygon — the Poly renderer projects all vertices onto the polygon's
- * plane and emits one SVG <path>. Vertices must be coplanar.
+ * atlas-backed polygon — the Poly renderer projects all vertices onto the
+ * polygon's plane. Vertices must be coplanar.
  */
 export interface RawPolygon {
   vertices: Vec3[];

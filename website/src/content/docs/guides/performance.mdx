@@ -94,11 +94,11 @@ The single most effective way to reduce polygon count is to choose a smaller `ta
 <PolyMesh src="/castle.obj" options={{ targetSize: 80 }} />
 ```
 
-## Blob URL lifecycle
+## Atlas and Blob URL Lifecycle
 
-UV-textured polygons each hold a blob URL (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:
+UV-textured polygons share generated atlas blob URLs (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:
 
-- Don't render thousands of UV-textured polygons if you can use a flat-color mesh — blob URL creation is synchronous canvas work.
+- Textured meshes do a one-time atlas generation pass at mount; very large texture footprints can still cost memory and startup time.
 - Call `dispose()` on `ParseResult` (or `useMesh` result) when you've loaded the mesh imperatively.
 - The mesh element (`<poly-mesh>` / `<PolyMesh>`) handles disposal automatically on unmount or `src` change.
 

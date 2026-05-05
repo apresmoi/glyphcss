@@ -42,6 +42,11 @@ function parseNumber(value: string | null): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function parsePerspective(value: string | null): number | false | undefined {
+  if (value === "false") return false;
+  return parseNumber(value);
+}
+
 function parseVec3(value: string | null): Vec3 | undefined {
   if (!value) return undefined;
   const parts = value.split(",").map((p) => parseFloat(p.trim()));
@@ -80,7 +85,7 @@ export class PolySceneElement extends ELEMENT_BASE {
   private _readOptions(): PolySceneOptions {
     const directionalLight = this._readLight();
     const opts: PolySceneOptions = {};
-    const perspective = parseNumber(this.getAttribute("perspective"));
+    const perspective = parsePerspective(this.getAttribute("perspective"));
     if (perspective !== undefined) opts.perspective = perspective;
     const rotX = parseNumber(this.getAttribute("rot-x"));
     if (rotX !== undefined) opts.rotX = rotX;

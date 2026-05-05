@@ -4,7 +4,7 @@
  * position/scale/rotation transform. Per §API freeze and §Design.4c.
  *
  * Uses nested DOM (preserve-3d) so the wrapper transform composes with each
- * child <Poly>'s vertex matrix3d via CSS without JS doing the matrix math.
+ * atlas polygon's vertex matrix3d via CSS without JS doing the matrix math.
  *
  * Scoped slot semantics (Vue equivalent of React's render-prop child):
  *   - Named scoped slot `polygon({ polygon, index })`: called once per parsed
@@ -13,15 +13,19 @@
  *   - Named slot `fallback`: rendered while loading.
  *   - Named slot `error({ error })`: rendered on parse failure.
  *
- * When neither `polygon` slot nor `default` slot is provided, <Poly> elements
- * are rendered automatically for each polygon.
+ * When no `polygon` slot is provided, atlas-backed polygon divs are rendered
+ * automatically for each polygon.
  */
 import { defineComponent, h, computed } from "vue";
 import type { PropType, VNode, CSSProperties } from "vue";
 import type { Polygon, TextureLightingMode, Vec3 } from "@polycss/core";
 import { computeSceneBbox } from "@polycss/core";
-import { Poly } from "../shapes/Poly";
 import { useMesh } from "./useMesh";
+import {
+  computeTextureAtlasPlan,
+  renderTextureAtlasPoly,
+  useTextureAtlas,
+} from "./textureAtlas";
 
 export interface PolyMeshProps {
   src?: string;
@@ -105,6 +109,12 @@ export const PolyMesh = defineComponent({
     const polygons = computed<Polygon[]>(() =>
       props.autoCenter ? recenterPolygons(sourcePolygons.value) : sourcePolygons.value
     );
+    const atlasAutoRender = !slots.polygon;
+    const textureAtlasPlans = computed(() =>
+      atlasAutoRender ? polygons.value.map((p, i) => computeTextureAtlasPlan(p, i)) : []
+    );
+    const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting);
 
     return () => {
       const transform = buildTransform(props.position, props.scale, props.rotation);
@@ -149,22 +159,18 @@ export const PolyMesh = defineComponent({
 
       const polys = polygons.value;
 
-      // Build polygon nodes: use `polygon` scoped slot if provided, else auto-render <Poly>.
-      const polyNodes: VNode[] = polys.map((p, i) => {
-        const slotContent = slots.polygon?.({ polygon: p, index: i });
-        if (slotContent && slotContent.length > 0) {
-          return h("template", { key: i }, slotContent);
-        }
-        return h(Poly, {
-          key: i,
-          vertices: p.vertices,
-          color: p.color,
-          texture: p.texture,
-          uvs: p.uvs,
-          data: p.data,
-          textureLighting: props.textureLighting,
-        });
-      });
+      // Build polygon nodes: use `polygon` scoped slot if provided, else auto-render atlas divs.
+      const polyNodes: Array<VNode | null> = slots.polygon
+        ? polys.map((p, i) => h("template", { key: i }, slots.polygon?.({ polygon: p, index: i })))
+        : textureAtlas.entries.value.map((entry) =>
+            entry
+              ? renderTextureAtlasPoly({
+                  entry,
+                  page: textureAtlas.pages.value[entry.pageIndex],
+                  textureLighting: props.textureLighting ?? "baked",
+                })
+              : null
+          );
 
       // Static default slot children (e.g. additional <PolyMesh> children)
       const defaultChildren = slots.default?.() ?? [];

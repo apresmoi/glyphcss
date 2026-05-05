@@ -9,10 +9,10 @@
  * Implementation:
  *   - Inserts a `<div class="polycss-scene">` into the host.
  *   - Each `add(...)` creates a `<div class="polycss-mesh">` with the
- *     mesh transform; mounts each polygon as a child SVG/img via
- *     `renderPoly` from `../render/polyDOM`.
+ *     mesh transform; mounts every valid polygon as an atlas-backed
+ *     background sprite.
  *   - `destroy()` removes the scene element and disposes every mesh
- *     (which in turn disposes per-polygon blob URLs).
+ *     (which in turn disposes generated atlas blob URLs).
  *
  * The scene element is a 0×0 anchor at world (0,0,0) — pinned via
  * top:50%/left:50% so it sits at the visible center of the host. This
@@ -27,12 +27,12 @@ import type {
   Vec3,
 } from "@polycss/core";
 import { computeSceneBbox, mergePolygons } from "@polycss/core";
-import { renderPoly, type RenderedPoly } from "../render/polyDOM";
+import { renderPolygonsWithTextureAtlas, type RenderedPoly } from "../render/textureAtlas";
 import { slicePolygons } from "../render/slicePolygons";
 import { injectBaseStyles } from "../styles/styles";
 
 export interface PolySceneOptions {
-  perspective?: number;
+  perspective?: number | false;
   rotX?: number;
   rotY?: number;
   zoom?: number;
@@ -221,7 +221,6 @@ export function createPolyScene(
   // center coincides with the scene anchor (world (0,0,0)).
   const centerWrapper = doc.createElement("div");
   centerWrapper.style.transformStyle = "preserve-3d";
-  centerWrapper.setAttribute("data-polycss-auto-center-wrapper", "");
   // Wrapper is always present so meshes append into a stable parent.
   // When autoCenter is off, transform stays empty (identity).
   sceneEl.appendChild(centerWrapper);
@@ -233,6 +232,7 @@ export function createPolyScene(
     wrapper: HTMLDivElement;
     parseResult: ParseResult;
     rendered: RenderedPoly[];
+    disposeAtlas?: () => void;
     polygons: Polygon[];
     disposed: boolean;
   }
@@ -245,7 +245,9 @@ export function createPolyScene(
     el.style.width = "0";
     el.style.height = "0";
     el.style.transformStyle = "preserve-3d";
-    el.style.perspective = `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
+    el.style.perspective = opts.perspective === false
+      ? "none"
+      : `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
     el.style.transform = buildSceneTransform(opts);
     applyCullClasses(el, opts);
   }
@@ -300,18 +302,19 @@ export function createPolyScene(
       sourcePolygons = parseResult.polygons;
     }
 
-    const rendered: RenderedPoly[] = [];
-    for (const poly of sourcePolygons) {
-      const r = renderPoly(poly, {
-        directionalLight: currentOptions.directionalLight,
-        textureLighting: currentOptions.textureLighting,
-      });
-      if (!r) continue;
-      const dir = classifyNormal(poly);
-      if (dir) r.element.classList.add(`polycss-dir-${dir}`);
-      wrapper.appendChild(r.element);
-      rendered.push(r);
+    const atlas = renderPolygonsWithTextureAtlas(sourcePolygons, {
+      doc: mountDoc,
+      directionalLight: currentOptions.directionalLight,
+      textureLighting: currentOptions.textureLighting,
+    });
+    const rendered = atlas.rendered;
+    const disposeAtlas = atlas.dispose;
+    for (let i = 0; i < rendered.length; i++) {
+      const poly = sourcePolygons[rendered[i].polygonIndex] ?? sourcePolygons[i];
+      const dir = poly ? classifyNormal(poly) : null;
+      if (dir) rendered[i].element.classList.add(`polycss-dir-${dir}`);
     }
+    for (const item of rendered) wrapper.appendChild(item.element);
 
     centerWrapper.appendChild(wrapper);
 
@@ -320,6 +323,7 @@ export function createPolyScene(
       wrapper,
       parseResult,
       rendered,
+      disposeAtlas,
       polygons: sourcePolygons,
       disposed: false,
     };
@@ -328,9 +332,8 @@ export function createPolyScene(
       polygons: sourcePolygons,
       remove() {
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
-        // Removing from DOM doesn't auto-dispose blob URLs — call dispose()
-        // for that. But we DO drop the per-poly cleanup so a re-mount
-        // doesn't leak.
+        // Removing from DOM doesn't auto-dispose generated atlas/blob URLs.
+        disposeAtlas?.();
         for (const r of rendered) {
           try { r.dispose(); } catch { /* ignore */ }
         }
@@ -347,6 +350,7 @@ export function createPolyScene(
         if (entry.disposed) return;
         entry.disposed = true;
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+        disposeAtlas?.();
         for (const r of rendered) {
           try { r.dispose(); } catch { /* ignore */ }
         }

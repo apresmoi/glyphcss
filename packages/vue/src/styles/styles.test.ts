@@ -33,6 +33,15 @@ describe("injectBaseStyles", () => {
     expect(el.textContent).toContain(".polycss-camera");
   });
 
+  it("puts static polygon rendering defaults in .polycss-poly", () => {
+    injectBaseStyles(document);
+    const el = document.getElementById("polycss-styles")!;
+    expect(el.textContent).toContain(".polycss-poly");
+    expect(el.textContent).toContain("transform-origin: 0 0");
+    expect(el.textContent).toContain("backface-visibility: hidden");
+    expect(el.textContent).toContain("background-repeat: no-repeat");
+  });
+
   it("does nothing when doc is null-ish", () => {
     expect(() =>
       injectBaseStyles(null as unknown as Document)

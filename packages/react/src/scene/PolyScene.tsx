@@ -10,8 +10,12 @@ import { createIsometricCamera } from "@polycss/core";
 import { useCameraContext } from "../camera/context";
 import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles/styles";
-import { Poly } from "../shapes";
 import type { TransformProps } from "../shapes/types";
+import {
+  computeTextureAtlasPlan,
+  TextureAtlasPoly,
+  useTextureAtlas,
+} from "./textureAtlas";
 
 export interface PolySceneProps extends TransformProps {
   /** Polygons to render. Composes additively with `children`. */
@@ -82,9 +86,8 @@ function PolySceneInner({
     [sceneElRef]
   );
 
-  // Toggle the back-faces debug class on the scene element. CSS uses this
-  // root-level class to flip backface-visibility on poly elements so users
-  // can see backfaces during debugging.
+  // Retain the debug class for external tooling. The atlas renderer no longer
+  // emits separate backface elements.
   useEffect(() => {
     const el = sceneElRef.current;
     if (!el) return;
@@ -128,7 +131,7 @@ function PolySceneInner({
 
   const computedClassName = `polycss-scene${className ? ` ${className}` : ""}`;
 
-  // Per-polygon context: lighting + debug + scene units.
+  // Per-polygon context: lighting + scene units.
   const polyContext = useMemo(() => {
     const tileSize = 50;
     return {
@@ -136,9 +139,14 @@ function PolySceneInner({
       layerElevation: tileSize,
       directionalLight,
       textureLighting,
-      debugShowBackfaces,
     };
-  }, [directionalLight, textureLighting, debugShowBackfaces]);
+  }, [directionalLight, textureLighting]);
+
+  const textureAtlasPlans = useMemo(
+    () => polygons.map((p, i) => computeTextureAtlasPlan(p, i, polyContext)),
+    [polygons, polyContext],
+  );
+  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting);
 
   // depthOffset was a voxcss-era hack that pushed the cube grid down so
   // the tilted camera could see its floor. Centered meshes don't need it
@@ -162,17 +170,18 @@ function PolySceneInner({
     return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }, [autoCenter, sceneBbox, polyContext.tileSize, polyContext.layerElevation]);
 
-  const polyChildren = polygons.map((p, i) => (
-    <Poly
-      key={i}
-      vertices={p.vertices}
-      color={p.color}
-      texture={p.texture}
-      uvs={p.uvs}
-      data={p.data}
-      context={polyContext}
-    />
-  ));
+  const polyChildren = textureAtlas.entries.map((entry) =>
+    entry ? (
+      <TextureAtlasPoly
+        key={entry.index}
+        entry={entry}
+        page={textureAtlas.pages[entry.pageIndex]}
+        textureLighting={textureLighting}
+      />
+    ) : (
+      null
+    )
+  );
 
   return (
     <div

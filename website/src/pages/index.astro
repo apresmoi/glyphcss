@@ -138,15 +138,12 @@ const ldJson = {
           <div class="hero-copy">
             <h1><img width="300" height="72" style="width: 300px; height: auto" src="/voxisologo.png" alt="polycss" /></h1>
             <p>
-              Render textured 3D meshes in the DOM. No WebGL, no canvas-as-scene.
-              Each polygon is a real DOM element — style it with CSS, click it,
-              inspect it in DevTools.
+              Render textured 3D meshes in the DOM with CSS.
+              No WebGL or &lt;canvas&gt; needed: each polygon is a real DOM element.
             </p>
             <p>
-              Loads OBJ, glTF, and GLB. UV-textured triangles rasterized via
-              offscreen canvas. DOM tree of <code>&lt;img&gt;</code> and
-              <code>&lt;svg&gt;</code> elements positioned with
-              <code>transform: matrix3d(...)</code>.
+              Supports OBJ, glTF, and GLB file formats, including UV textures
+              and material colors. Works with vanilla JS, React, and Vue.
             </p>
             <hr />
             <div class="cta">
@@ -172,10 +169,8 @@ const ldJson = {
             </div>
           </div>
           <div class="hero-canvas" id="hero-root">
-            <!-- Half-apple polygons: voxcss's halfapple.json voxels
-                 converted to triangles offline, then Taubin-smoothed
-                 (see /gallery/halfapple-smooth.json). Mounted
-                 with createPolyScene + autoCenter + drag-to-rotate. -->
+            <!-- Rock environment OBJ mounted with createPolyScene + loadMesh,
+                 autoCenter, and drag-to-rotate. -->
           </div>
         </section>
 
@@ -208,10 +203,10 @@ const ldJson = {
             <h2>How It Works</h2>
             <p>
               polycss loads OBJ, glTF, and GLB mesh files. Each triangle becomes
-              one <code>&lt;img&gt;</code> element positioned with
-              <code>transform: matrix3d(...)</code>. UV-textured triangles are
-              rasterized once via an offscreen canvas; the blob URL is the image
-              source. The browser's compositor handles the 3D layering.
+              a DOM element positioned with <code>transform: matrix3d(...)</code>.
+              UV-textured triangles are packed into generated atlas sprites with
+              CSS background positioning. The browser's compositor handles the
+              3D layering.
             </p>
             <p>
               The rendered scene is a tree of standard DOM elements — no shadow
@@ -298,30 +293,34 @@ const ldJson = {
     }
     fetchStars();
 
-    // Hero apple — fetches the converted voxel-to-triangles JSON and mounts
-    // it with createPolyScene. autoCenter pivots rotation around the mesh
-    // centroid (Three.js convention); the small RAF loop spins it slowly.
-    async function mountHeroApple() {
+    // Hero model — loads the rock environment OBJ and mounts it with
+    // createPolyScene. autoCenter pivots rotation around the mesh centroid;
+    // the small RAF loop spins it slowly.
+    async function mountHeroModel() {
       const host = document.getElementById("hero-root");
       if (!host) return;
       try {
-        const [{ createPolyScene }, polyRes] = await Promise.all([
-          import("polycss"),
-          fetch("/gallery/halfapple-smooth.json"),
-        ]);
-        if (!polyRes.ok) return;
-        const polygons = await polyRes.json();
+        const { createPolyScene, loadMesh } = await import("polycss");
+        const parseResult = await loadMesh("/gallery/obj/rock1.obj", {
+          mtlUrl: "/gallery/obj/rock1.mtl",
+          objOptions: {
+            targetSize: 40,
+            defaultColor: "#8b6f47",
+            excludeObjects: ["Plane"],
+          },
+        });
 
         let rotY = 45;
         const scene = createPolyScene(host, {
           rotX: 65,
           rotY,
-          zoom: 0.63,
+          zoom: 0.2,
           autoCenter: true,
           interactive: true,
-          perspective: 8000,
+          perspective: false,
+          merge: "auto",
         });
-        scene.add({ polygons, dispose: () => {} });
+        scene.add(parseResult);
 
         let last = 0;
         let paused = false;
@@ -337,10 +336,10 @@ const ldJson = {
         }
         requestAnimationFrame(tick);
       } catch (err) {
-        console.error("hero apple mount failed", err);
+        console.error("hero model mount failed", err);
       }
     }
-    mountHeroApple();
+    mountHeroModel();
 
     // Framework tabs
     const tablist = document.getElementById("framework-tablist");
@@ -426,32 +425,34 @@ const ldJson = {
     padding: 0;
     margin: 0;
     display: flex;
-    gap: 44px;
+    gap: 4px;
     justify-content: center;
     flex-wrap: wrap;
-    row-gap: 12px;
+    row-gap: 8px;
   }
   .nav-group li {
     padding: 0;
   }
   .nav-group a {
     display: block;
-    padding: 6px 0;
-    font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
-    color: #cbd5f5;
-    opacity: 0.7;
+    padding: 0.55rem 0.7rem;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", sans-serif;
+    color: #94a3b8;
+    opacity: 1;
     text-decoration: none;
-    font-size: 15px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    border-radius: 999px;
   }
   .nav-group a:hover {
-    opacity: 1;
-    font-weight: bold;
+    color: #e2e8f0;
+    background: rgba(56, 189, 248, 0.14);
   }
   .nav-group a.active {
-    opacity: 1;
     color: #fff;
-    font-weight: bold;
-    text-decoration: underline;
+    background: rgba(56, 189, 248, 0.14);
   }
 
   /* ── GitHub Social ──────────────────────────────── */
@@ -562,7 +563,6 @@ const ldJson = {
        requires the host to be a positioned ancestor or it'll snap to the
        document root. */
     position: relative;
-    overflow: hidden;
   }
   .install-logos {
     display: flex;
@@ -879,7 +879,7 @@ const ldJson = {
       width: 100%;
     }
     .docs-nav .nav-group ul {
-      gap: 16px;
+      gap: 4px;
       justify-content: flex-start;
       flex-wrap: nowrap;
       overflow-x: auto;
@@ -1003,13 +1003,14 @@ const ldJson = {
       padding: 10px 12px;
     }
     .docs-nav .nav-group ul {
-      gap: 12px;
+      gap: 2px;
     }
     .docs-nav .nav-group .nav-label__long {
       display: none;
     }
     .docs-nav .nav-group a {
-      font-size: 14px;
+      font-size: 0.78rem;
+      padding-inline: 0.45rem;
     }
   }
 </style>

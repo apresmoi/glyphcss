@@ -81,7 +81,7 @@ describe("PolyMesh — with polygons prop", () => {
     expect(mesh).toBeTruthy();
   });
 
-  it("renders Poly elements for each polygon", () => {
+  it("renders polygon divs for each polygon", () => {
     const container = renderMesh({ polygons: [TRIANGLE, QUAD] });
     const polys = container.querySelectorAll(".polycss-poly");
     expect(polys.length).toBe(2);

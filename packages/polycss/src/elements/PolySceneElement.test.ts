@@ -95,6 +95,14 @@ describe("PolySceneElement", () => {
       expect(sceneEl.style.perspective).toBe("2000px");
     });
 
+    it("parses perspective=false as no perspective", () => {
+      const el = document.createElement("poly-scene") as PolySceneElement;
+      el.setAttribute("perspective", "false");
+      host.appendChild(el);
+      const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
+      expect(sceneEl.style.perspective).toBe("none");
+    });
+
     it("parses rot-x and rot-y as numbers", () => {
       const el = document.createElement("poly-scene") as PolySceneElement;
       el.setAttribute("rot-x", "30");
@@ -158,10 +166,8 @@ describe("PolySceneElement", () => {
       const el = document.createElement("poly-scene") as PolySceneElement;
       el.setAttribute("auto-center", "");
       host.appendChild(el);
-      // Verify autoCenter wrapper exists
-      expect(
-        el.querySelector("[data-polycss-auto-center-wrapper]"),
-      ).not.toBeNull();
+      // Verify the private autoCenter wrapper exists without exposing a DOM hook.
+      expect(el.querySelector(".polycss-scene")?.firstElementChild).not.toBeNull();
     });
   });
 

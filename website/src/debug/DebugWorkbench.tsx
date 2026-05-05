@@ -51,7 +51,7 @@ interface SceneOptionsState {
   zoom: number;
   rotX: number;
   rotY: number;
-  perspective: number;
+  perspective: number | false;
   lightAzimuth: number;
   lightElevation: number;
   ambient: number;
@@ -313,7 +313,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   zoom: PRESETS[0].zoom ?? 0.35,
   rotX: PRESETS[0].rotX ?? 65,
   rotY: PRESETS[0].rotY ?? 45,
-  perspective: 8000,
+  perspective: false,
   lightAzimuth: 50,
   lightElevation: 45,
   ambient: 0.45,
@@ -626,12 +626,12 @@ function VanillaScene({
     host.innerHTML = "";
     const started = performance.now();
     const sceneOptions: PolySceneOptions = {
-      perspective: options.perspective,
       rotX: options.rotX,
       rotY: options.rotY,
       zoom: options.zoom,
       directionalLight,
       textureLighting: options.textureLighting,
+      perspective: options.perspective,
       merge: options.merge,
       autoCenter: options.autoCenter,
       interactive: options.interactive,
@@ -893,7 +893,7 @@ export default function DebugWorkbench() {
           <RangeControl label="Zoom" value={sceneOptions.zoom} min={0.05} max={2.5} step={0.01} onChange={(value) => updateScene({ zoom: value })} format={(value) => value.toFixed(2)} />
           <RangeControl label="Rot X" value={sceneOptions.rotX} min={0} max={100} step={1} onChange={(value) => updateScene({ rotX: value })} format={(value) => `${value.toFixed(0)} deg`} />
           <RangeControl label="Rot Y" value={sceneOptions.rotY} min={0} max={360} step={1} onChange={(value) => updateScene({ rotY: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Perspective" value={sceneOptions.perspective} min={500} max={12000} step={100} onChange={(value) => updateScene({ perspective: value })} format={(value) => `${value.toFixed(0)}px`} />
+          <RangeControl label="Perspective" value={sceneOptions.perspective === false ? 8000 : sceneOptions.perspective} min={500} max={12000} step={100} onChange={(value) => updateScene({ perspective: value })} format={(value) => `${value.toFixed(0)}px`} />
         </section>
       </aside>
 
@@ -909,6 +909,7 @@ export default function DebugWorkbench() {
             <span>{sceneOptions.renderer}</span>
             <span>merge {sceneOptions.merge}</span>
             <span>light {sceneOptions.textureLighting}</span>
+            <span>textures atlas</span>
           </div>
         </div>
 

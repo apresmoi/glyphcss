@@ -36,7 +36,10 @@ const CORE_BASE_STYLES = `
   position: absolute;
   left: 0;
   top: 0;
+  transform-origin: 0 0;
   transform-style: preserve-3d;
+  backface-visibility: hidden;
+  background-repeat: no-repeat;
 }
 
 .polycss-poly-loading {

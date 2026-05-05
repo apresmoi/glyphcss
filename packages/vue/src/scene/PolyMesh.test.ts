@@ -15,6 +15,12 @@ const TRIANGLE: Polygon = {
   color: "#ff0000",
 };
 
+const TEXTURED_TRIANGLE: Polygon = {
+  vertices: TRIANGLE.vertices,
+  texture: "https://example.com/tex.png",
+  uvs: [[0, 0], [1, 0], [0, 1]],
+};
+
 const QUAD: Polygon = {
   vertices: [
     [0, 0, 1],
@@ -59,10 +65,17 @@ describe("PolyMesh (Vue) — with polygons prop", () => {
     expect(mesh).toBeTruthy();
   });
 
-  it("renders Poly elements for each polygon", () => {
+  it("renders polygon divs for each polygon", () => {
     const { container } = renderMesh({ polygons: [TRIANGLE, QUAD] });
     const polys = container.querySelectorAll(".polycss-poly");
     expect(polys.length).toBe(2);
+  });
+
+  it("renders textured polygons as polygon divs", () => {
+    const { container } = renderMesh({ polygons: [TEXTURED_TRIANGLE] });
+    const poly = container.querySelector(".polycss-poly");
+    expect(poly).toBeTruthy();
+    expect(poly?.tagName.toLowerCase()).toBe("div");
   });
 
   it("renders no poly elements for empty polygons", () => {

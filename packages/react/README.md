@@ -2,7 +2,7 @@
 
 # @polycss/react
 
-Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (`<img>` or `<svg>`) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<div>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
@@ -65,12 +65,12 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 
 ### `<Poly>`
 
-Single polygon. The atomic primitive — renders one `<img>` (UV-textured) or `<svg>` (flat-color). Forwards all standard DOM props.
+Single polygon. The atomic primitive — renders one atlas-backed `<div>` for UV-textured and flat-color faces. Forwards all standard DOM props.
 
 | Prop | Type | Description |
 |---|---|---|
 | `vertices` | `Vec3[]` | Required — 3+ `[x, y, z]` points |
-| `color` | `string` | CSS color; fallback if texture fails |
+| `color` | `string` | CSS color; used when no texture is set |
 | `texture` | `string` | Image URL for UV-mapped rendering |
 | `uvs` | `Vec2[]` | UV coordinates, one per vertex |
 | `data` | `Record<string, string \| number \| boolean>` | Reflected as `data-*` DOM attributes |

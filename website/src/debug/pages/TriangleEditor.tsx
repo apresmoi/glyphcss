@@ -75,8 +75,8 @@ export default function TriangleEditor() {
   const updateTexture = (id: string, texture: string) =>
     setTriangles((prev) => prev.map((t) => {
       if (t.id !== id) return t;
-      // Empty string clears the texture so we fall back to the per-channel
-      // shaded color path. We strip `texture` from the object entirely so a
+      // Empty string clears the texture so the atlas uses the shaded color
+      // fill path. We strip `texture` from the object entirely so a
       // serialized voxel doesn't carry an empty texture URL.
       if (texture.length === 0) {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars

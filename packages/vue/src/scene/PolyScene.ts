@@ -28,7 +28,11 @@ import { createIsometricCamera } from "@polycss/core";
 import { PolyCameraContextKey } from "../camera";
 import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles";
-import { Poly } from "../shapes/Poly";
+import {
+  computeTextureAtlasPlan,
+  renderTextureAtlasPoly,
+  useTextureAtlas,
+} from "./textureAtlas";
 
 export interface PolySceneProps {
   polygons?: Polygon[];
@@ -126,7 +130,8 @@ export const PolyScene = defineComponent({
       }
     });
 
-    // Toggle debugShowBackfaces class directly on the scene element
+    // Retain the debug class for external tooling. The atlas renderer no
+    // longer emits separate backface elements.
     watch(
       () => props.debugShowBackfaces,
       (val) => {
@@ -157,7 +162,7 @@ export const PolyScene = defineComponent({
       };
     });
 
-    // Per-polygon context: lighting + debug + scene units.
+    // Per-polygon context: lighting + scene units.
     const polyContext = computed(() => {
       const tileSize = 50;
       return {
@@ -165,9 +170,20 @@ export const PolyScene = defineComponent({
         layerElevation: tileSize,
         directionalLight: props.directionalLight,
         textureLighting: props.textureLighting,
-        debugShowBackfaces: props.debugShowBackfaces,
       };
     });
+
+    const textureAtlasPlans = computed(() =>
+      sceneResult.value.polygons.map((p, i) =>
+        computeTextureAtlasPlan(p, i, {
+          tileSize: polyContext.value.tileSize,
+          layerElevation: polyContext.value.layerElevation,
+          directionalLight: props.directionalLight,
+        })
+      )
+    );
+    const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting);
 
     // depthOffset was a voxcss-era hack; centered meshes don't need it.
     const depthOffset = 0;
@@ -193,19 +209,16 @@ export const PolyScene = defineComponent({
     return () => {
       const computedClass = `polycss-scene${props.class ? ` ${props.class}` : ""}`;
 
-      const polygons = sceneResult.value.polygons;
       const ctx = polyContext.value;
 
-      const polyNodes = polygons.map((p, i) =>
-        h(Poly, {
-          key: i,
-          vertices: p.vertices,
-          color: p.color,
-          texture: p.texture,
-          uvs: p.uvs,
-          data: p.data,
-          context: ctx,
-        })
+      const polyNodes = textureAtlas.entries.value.map((entry) =>
+        entry
+          ? renderTextureAtlasPoly({
+              entry,
+              page: textureAtlas.pages.value[entry.pageIndex],
+              textureLighting: ctx.textureLighting ?? "baked",
+            })
+          : null
       );
 
       const slotChildren = slots.default?.() ?? [];

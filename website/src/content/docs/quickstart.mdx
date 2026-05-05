@@ -3,76 +3,72 @@ title: Quickstart
 description: Render your first polycss 3D mesh in under a minute.
 ---
 
-import { Tabs, TabItem, Steps } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 import PolyDemo from '../../components/PolyDemo.astro';
 
 Get a 3D mesh rendering in your project in two steps.
 
-<Steps>
+## 1. Install the package
 
-1. **Install the package**
+<Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```bash
+npm install polycss
+```
+</TabItem>
+<TabItem label="React">
+```bash
+npm install @polycss/react
+```
+</TabItem>
+<TabItem label="Vue">
+```bash
+npm install @polycss/vue
+```
+</TabItem>
+</Tabs>
 
-   <Tabs syncKey="fw">
-   <TabItem label="Vanilla JS">
-   ```bash
-   npm install polycss
-   ```
-   </TabItem>
-   <TabItem label="React">
-   ```bash
-   npm install @polycss/react
-   ```
-   </TabItem>
-   <TabItem label="Vue">
-   ```bash
-   npm install @polycss/vue
-   ```
-   </TabItem>
-   </Tabs>
+## 2. Add a scene and load a mesh
 
-2. **Add a scene and load a mesh**
+The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — perspective, camera, lighting. The mesh element (`<poly-mesh>` / `PolyMesh`) loads an OBJ or GLB file and renders its polygons. Pass `rot-x` / `rot-y` to set the camera angle.
 
-   The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — perspective, camera, lighting. The mesh element (`<poly-mesh>` / `PolyMesh`) loads an OBJ or GLB file and renders its polygons. Pass `rot-x` / `rot-y` to set the camera angle.
+<Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
 
-   <Tabs syncKey="fw">
-   <TabItem label="Vanilla JS">
-   ```html
-   <script type="module" src="https://esm.sh/polycss/elements"></script>
+<poly-scene perspective="1000" rot-x="65" rot-y="45">
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+</TabItem>
+<TabItem label="React">
+```tsx
+import { PolyScene, PolyMesh } from "@polycss/react";
 
-   <poly-scene perspective="1000" rot-x="65" rot-y="45">
-     <poly-mesh src="/cottage.glb"></poly-mesh>
-   </poly-scene>
-   ```
-   </TabItem>
-   <TabItem label="React">
-   ```tsx
-   import { PolyScene, PolyMesh } from "@polycss/react";
+export function App() {
+  return (
+    <PolyScene rotX={65} rotY={45} perspective={1000}>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
+</template>
 
-   export function App() {
-     return (
-       <PolyScene rotX={65} rotY={45} perspective={1000}>
-         <PolyMesh src="/cottage.glb" />
-       </PolyScene>
-     );
-   }
-   ```
-   </TabItem>
-   <TabItem label="Vue">
-   ```vue
-   <template>
-     <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
-       <PolyMesh src="/cottage.glb" />
-     </PolyScene>
-   </template>
-
-   <script setup lang="ts">
-   import { PolyScene, PolyMesh } from "@polycss/vue";
-   </script>
-   ```
-   </TabItem>
-   </Tabs>
-
-</Steps>
+<script setup lang="ts">
+import { PolyScene, PolyMesh } from "@polycss/vue";
+</script>
+```
+</TabItem>
+</Tabs>
 
 ## Live preview
 
@@ -86,7 +82,7 @@ Get a 3D mesh rendering in your project in two steps.
 
 ## What you get
 
-Every polygon in the loaded mesh becomes a real DOM element — an `<img>` (for UV-textured triangles) or `<svg>` (for flat-color polygons) positioned with `transform: matrix3d(...)`. You can:
+Every polygon in the loaded mesh becomes a real DOM element — an atlas-backed `<div>` for UV-textured and flat-color polygons, positioned with `transform: matrix3d(...)`. You can:
 
 - Inspect individual polygons in DevTools.
 - Target them with CSS selectors.

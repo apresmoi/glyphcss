@@ -2,7 +2,7 @@
 
 # polycss
 
-Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (`<img>` or `<svg>`) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<div>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 Two entry points:
 

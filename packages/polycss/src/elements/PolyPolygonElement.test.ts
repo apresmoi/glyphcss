@@ -150,7 +150,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("texture", "https://example.com/tex.png");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector(".polycss-poly-textured");
+    const rendered = sceneEl.querySelector(".polycss-poly");
     expect(rendered).toBeTruthy();
     cleanup();
   });
@@ -160,7 +160,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("vertices", TRIANGLE_VERTICES);
     poly.setAttribute("texture", "https://example.com/tex.png");
     poly.setAttribute("uvs", JSON.stringify([[0, 0], [1, 0], [0, 1]]));
-    // Should not throw — UV-mapped path creates img
+    // Should not throw — UV-mapped path creates an atlas sprite.
     expect(() => {
       sceneEl.appendChild(poly);
     }).not.toThrow();

@@ -4,7 +4,7 @@
  * position/scale/rotation transform. Per §API freeze and §Design.4c.
  *
  * Uses nested DOM (preserve-3d) so the wrapper transform composes with each
- * child <Poly>'s vertex matrix3d via CSS without JS doing the matrix math.
+ * atlas polygon's vertex matrix3d via CSS without JS doing the matrix math.
  *
  * Render-prop semantics (per §2a "Render-prop semantics"):
  *   - `children(polygon, index)` is called once per parsed polygon.
@@ -20,9 +20,13 @@ import type {
   Vec3,
 } from "@polycss/core";
 import { computeSceneBbox } from "@polycss/core";
-import { Poly } from "../shapes";
 import type { TransformProps } from "../shapes/types";
 import { useMesh, type UseMeshOptions } from "./useMesh";
+import {
+  computeTextureAtlasPlan,
+  TextureAtlasPoly,
+  useTextureAtlas,
+} from "./textureAtlas";
 
 export interface PolyMeshProps extends TransformProps {
   /** URL to .obj / .glb / .gltf. Mutually exclusive with `polygons`. */
@@ -134,6 +138,12 @@ export function PolyMesh({
     ...style,
   };
 
+  const atlasPlans = useMemo(
+    () => !children ? polygons.map((p, i) => computeTextureAtlasPlan(p, i)) : [],
+    [children, polygons],
+  );
+  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting ?? "baked");
+
   // Loading + error slots only apply when we're fetching from `src`.
   if (src) {
     if (fetched.loading && fetched.polygons.length === 0) {
@@ -163,23 +173,22 @@ export function PolyMesh({
       className={`polycss-mesh${className ? ` ${className}` : ""}`}
       style={wrapperStyle}
     >
-      {polygons.map((p, i) =>
-        children ? (
+      {children ? polygons.map((p, i) => (
           // Render-prop: caller controls how each polygon renders. We still
           // wrap in a fragment with key so React reconciliation works.
           <RenderPropPolygon key={i} polygon={p} index={i}>
             {children}
           </RenderPropPolygon>
-        ) : (
-          <Poly
-            key={i}
-            vertices={p.vertices}
-            color={p.color}
-            texture={p.texture}
-            uvs={p.uvs}
-            data={p.data}
-            textureLighting={textureLighting}
+      )) : textureAtlas.entries.map((entry) =>
+        entry ? (
+          <TextureAtlasPoly
+            key={entry.index}
+            entry={entry}
+            page={textureAtlas.pages[entry.pageIndex]}
+            textureLighting={textureLighting ?? "baked"}
           />
+        ) : (
+          null
         )
       )}
     </div>

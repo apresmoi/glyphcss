@@ -146,7 +146,7 @@ export default function SliceTest() {
         zoom: 0.5,
         autoCenter: true,
         interactive: true,
-        perspective: 8000,
+        perspective: false,
         merge,
       });
       s.add({ polygons, objectUrls: [], warnings: [], dispose: () => {} });

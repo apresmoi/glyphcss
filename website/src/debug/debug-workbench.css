@@ -154,7 +154,6 @@
 .dn-vanilla-host {
   position: relative;
   overflow: hidden;
-  perspective: 8000px;
 }
 
 .dn-field,

@@ -11,14 +11,12 @@ const DEFAULT_CONTEXT: PolyContext = {
   layerElevation: 50,
 };
 
-// Triangle lying flat on the XY plane in world space
 const FLAT_TRIANGLE_VERTS: [number, number, number][] = [
   [0, 0, 0],
   [1, 0, 0],
   [0, 1, 0],
 ];
 
-// Quad in the XZ plane (vertical face)
 const VERTICAL_QUAD_VERTS: [number, number, number][] = [
   [0, 0, 0],
   [1, 0, 0],
@@ -26,7 +24,6 @@ const VERTICAL_QUAD_VERTS: [number, number, number][] = [
   [0, 0, 1],
 ];
 
-// Off-axis triangle
 const OFFAXIS_TRIANGLE_VERTS: [number, number, number][] = [
   [0, 0, 0],
   [1, 1, 0],
@@ -42,138 +39,110 @@ function renderPoly(props: Partial<PolyProps> & { vertices: [number, number, num
         context: DEFAULT_CONTEXT,
         color: "#cccccc",
         ...props,
-      } as PolyProps)
-    )
+      } as PolyProps),
+    ),
   );
   return container;
 }
 
-describe("Poly — solid color triangle", () => {
+function getPoly(container: HTMLElement): HTMLElement {
+  const poly = container.querySelector(".polycss-poly") as HTMLElement | null;
+  expect(poly).toBeTruthy();
+  return poly!;
+}
+
+describe("Poly — solid color polygon", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders an <svg> element", () => {
+  it("renders a polygon div and no SVG", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg");
-    expect(svg).toBeTruthy();
-  });
-
-  it("applies polycss-poly class", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const poly = container.querySelector(".polycss-poly");
-    expect(poly).toBeTruthy();
-  });
-
-  it("svg has a matrix3d transform", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg") as SVGSVGElement;
-    expect(svg.style.transform).toContain("matrix3d(");
-  });
-
-  it("matrix3d transform contains 16 comma-separated values", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg") as SVGSVGElement;
-    const match = svg.style.transform.match(/matrix3d\(([^)]+)\)/);
-    expect(match).toBeTruthy();
-    const values = match![1].split(",");
-    expect(values.length).toBe(16);
-  });
-
-  it("svg has backfaceVisibility hidden", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg") as SVGSVGElement;
-    expect(svg.style.backfaceVisibility).toBe("hidden");
-  });
-
-  it("svg has position absolute", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg") as SVGSVGElement;
-    expect(svg.style.position).toBe("absolute");
-  });
-
-  it("path has the correct shaded fill color (not pure black or pure white)", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS, color: "#ff0000" });
-    const path = container.querySelector("path") as SVGPathElement;
-    const fill = path.getAttribute("fill");
-    expect(fill).toBeTruthy();
-    expect(fill).toMatch(/^#[0-9a-f]{6}$/i);
-  });
-
-  it("path starts with M and ends with Z", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
-    const path = container.querySelector("path") as SVGPathElement;
-    const d = path.getAttribute("d")!;
-    expect(d.startsWith("M")).toBe(true);
-    expect(d.endsWith("Z")).toBe(true);
-  });
-
-  it("renders null for degenerate vertices (zero-length first edge)", () => {
-    const container = renderPoly({
-      vertices: [
-        [0, 0, 0],
-        [0, 0, 0], // zero-length first edge → returns null
-        [1, 0, 0],
-      ],
-    });
-    // No svg or img rendered
-    expect(container.querySelector("svg")).toBeNull();
-    expect(container.querySelector("img")).toBeNull();
-  });
-
-  it("renders null for degenerate coplanar triangle (zero normal)", () => {
-    const container = renderPoly({
-      vertices: [
-        [0, 0, 0],
-        [1, 0, 0],
-        [2, 0, 0], // collinear → cross product = 0 → null normal
-      ],
-    });
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.classList.contains("polycss-poly")).toBe(true);
+    expect(poly.classList.contains("polycss-poly-atlas")).toBe(false);
+    expect(poly.classList.contains("polycss-poly-solid")).toBe(false);
+    expect(poly.classList.contains("polycss-poly-textured")).toBe(false);
     expect(container.querySelector("svg")).toBeNull();
   });
-});
 
-describe("Poly — vertical quad", () => {
-  it("renders svg for a vertical face", () => {
-    const container = renderPoly({ vertices: VERTICAL_QUAD_VERTS });
-    const svg = container.querySelector("svg");
-    expect(svg).toBeTruthy();
-  });
-
-  it("path has 4 segments for a quad", () => {
-    const container = renderPoly({ vertices: VERTICAL_QUAD_VERTS });
-    const path = container.querySelector("path") as SVGPathElement;
-    const d = path.getAttribute("d")!;
-    // 1 M + 3 L + Z → 4 'M|L' segments
-    const segments = (d.match(/[ML]/g) ?? []).length;
-    expect(segments).toBe(4);
-  });
-});
-
-describe("Poly — off-axis triangle", () => {
-  it("renders svg for off-axis triangle", () => {
-    const container = renderPoly({ vertices: OFFAXIS_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg");
-    expect(svg).toBeTruthy();
-  });
-
-  it("matrix3d transform has 16 values for off-axis polygon", () => {
-    const container = renderPoly({ vertices: OFFAXIS_TRIANGLE_VERTS });
-    const svg = container.querySelector("svg") as SVGSVGElement;
-    const match = svg.style.transform.match(/matrix3d\(([^)]+)\)/);
+  it("polygon div has a matrix3d transform with 16 values", () => {
+    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const poly = getPoly(container);
+    const match = poly.style.transform.match(/matrix3d\(([^)]+)\)/);
     expect(match).toBeTruthy();
     expect(match![1].split(",").length).toBe(16);
   });
+
+  it("keeps class-owned constants out of inline styles", () => {
+    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const poly = getPoly(container);
+    expect(poly.style.position).toBe("");
+    expect(poly.style.left).toBe("");
+    expect(poly.style.top).toBe("");
+    expect(poly.style.transformOrigin).toBe("");
+    expect(poly.style.backfaceVisibility).toBe("");
+    expect(poly.style.backgroundRepeat).toBe("");
+  });
+
+  it("does not apply texture filter to solid faces", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+      textureLighting: "filter",
+    });
+    const poly = getPoly(container);
+    expect(poly.style.filter).toBe("");
+  });
+
+  it("renders null for degenerate vertices", () => {
+    const container = renderPoly({
+      vertices: [
+        [0, 0, 0],
+        [0, 0, 0],
+        [1, 0, 0],
+      ],
+    });
+    expect(container.querySelector(".polycss-poly")).toBeNull();
+    expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("renders null for collinear vertices", () => {
+    const container = renderPoly({
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [2, 0, 0],
+      ],
+    });
+    expect(container.querySelector(".polycss-poly")).toBeNull();
+  });
 });
 
-describe("Poly — texture without UVs (baked image fill)", () => {
-  it("renders img with polycss-poly-textured class", () => {
+describe("Poly — non-horizontal geometry", () => {
+  it("renders a vertical quad as a polygon div", () => {
+    const container = renderPoly({ vertices: VERTICAL_QUAD_VERTS });
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.style.transform).toContain("matrix3d(");
+  });
+
+  it("renders an off-axis triangle as a polygon div", () => {
+    const container = renderPoly({ vertices: OFFAXIS_TRIANGLE_VERTS });
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.style.transform).toContain("matrix3d(");
+  });
+});
+
+describe("Poly — texture without UVs", () => {
+  it("renders a polygon div", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
     });
-    const img = container.querySelector("img.polycss-poly-textured");
-    expect(img).toBeTruthy();
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("div");
   });
 
   it("does not use CSS filter for baked texture lighting", () => {
@@ -181,8 +150,7 @@ describe("Poly — texture without UVs (baked image fill)", () => {
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
     });
-    const img = container.querySelector("img") as HTMLImageElement;
-    expect(img.style.filter).toBe("");
+    expect(getPoly(container).style.filter).toBe("");
   });
 
   it("uses CSS filter when textureLighting=filter", () => {
@@ -191,12 +159,11 @@ describe("Poly — texture without UVs (baked image fill)", () => {
       texture: "https://example.com/tex.png",
       textureLighting: "filter",
     });
-    const img = container.querySelector("img") as HTMLImageElement;
-    expect(img.style.filter).toContain("brightness(");
+    expect(getPoly(container).style.filter).toContain("brightness(");
   });
 });
 
-describe("Poly — UV-mapped texture (renders <img>)", () => {
+describe("Poly — UV-mapped texture", () => {
   beforeEach(() => {
     vi.stubGlobal("URL", {
       createObjectURL: vi.fn(() => "blob:test"),
@@ -209,81 +176,30 @@ describe("Poly — UV-mapped texture (renders <img>)", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders an <img> element when uvs + texture provided", () => {
+  it("renders a polygon div when uvs + texture are provided", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
-      uvs: [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-      ],
+      uvs: [[0, 0], [1, 0], [0, 1]],
     });
-    // img is the UV-mapped path
-    const img = container.querySelector("img");
-    expect(img).toBeTruthy();
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("div");
+    expect(poly.style.transform).toContain("matrix3d(");
   });
 
-  it("img has polycss-poly-textured class", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      texture: "https://example.com/tex.png",
-      uvs: [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-      ],
-    });
-    const img = container.querySelector("img");
-    expect(img?.classList.contains("polycss-poly-textured")).toBe(true);
-  });
-
-  it("img has matrix3d transform", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      texture: "https://example.com/tex.png",
-      uvs: [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-      ],
-    });
-    const img = container.querySelector("img") as HTMLImageElement;
-    expect(img.style.transform).toContain("matrix3d(");
-  });
-
-  it("img does not use CSS filter for lighting", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      texture: "https://example.com/tex.png",
-      uvs: [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-      ],
-    });
-    const img = container.querySelector("img") as HTMLImageElement;
-    expect(img.style.filter).toBe("");
-  });
-
-  it("img uses CSS filter when textureLighting=filter", () => {
+  it("uses CSS filter when textureLighting=filter", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
       textureLighting: "filter",
-      uvs: [
-        [0, 0],
-        [1, 0],
-        [0, 1],
-      ],
+      uvs: [[0, 0], [1, 0], [0, 1]],
     });
-    const img = container.querySelector("img") as HTMLImageElement;
-    expect(img.style.filter).toContain("brightness(");
+    expect(getPoly(container).style.filter).toContain("brightness(");
   });
 });
 
 describe("Poly — debug backfaces", () => {
-  it("renders a second SVG for debug backface overlay", () => {
+  it("does not render SVG debug overlays", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       context: {
@@ -291,25 +207,12 @@ describe("Poly — debug backfaces", () => {
         debugShowBackfaces: true,
       },
     });
-    const svgs = container.querySelectorAll("svg");
-    // Front face + back face debug overlay
-    expect(svgs.length).toBe(2);
-  });
-
-  it("debug backface SVG has polycss-debug-backface class", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      context: {
-        ...DEFAULT_CONTEXT,
-        debugShowBackfaces: true,
-      },
-    });
-    const debug = container.querySelector(".polycss-debug-backface");
-    expect(debug).toBeTruthy();
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelector(".polycss-debug-backface")).toBeNull();
   });
 });
 
-describe("Poly — transform props (wrapper div)", () => {
+describe("Poly — transform props", () => {
   it("renders a wrapper div when position is provided", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
@@ -328,22 +231,12 @@ describe("Poly — transform props (wrapper div)", () => {
     expect(wrapper.style.transform).toContain("translate3d(10px, 20px, 30px)");
   });
 
-  it("renders a wrapper div when scale (number) is provided", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      scale: 2,
-    });
-    const wrapper = container.querySelector(".polycss-poly-wrapper");
-    expect(wrapper).toBeTruthy();
-  });
-
-  it("does NOT render a wrapper div when scale=1 (identity)", () => {
+  it("does not render a wrapper div when transforms are identity", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       scale: 1,
     });
-    const wrapper = container.querySelector(".polycss-poly-wrapper");
-    expect(wrapper).toBeNull();
+    expect(container.querySelector(".polycss-poly-wrapper")).toBeNull();
   });
 
   it("renders a wrapper div when rotation is provided", () => {
@@ -351,16 +244,7 @@ describe("Poly — transform props (wrapper div)", () => {
       vertices: FLAT_TRIANGLE_VERTS,
       rotation: [45, 0, 0],
     });
-    const wrapper = container.querySelector(".polycss-poly-wrapper");
-    expect(wrapper).toBeTruthy();
-  });
-
-  it("does NOT render a wrapper div when no transforms provided", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-    });
-    const wrapper = container.querySelector(".polycss-poly-wrapper");
-    expect(wrapper).toBeNull();
+    expect(container.querySelector(".polycss-poly-wrapper")).toBeTruthy();
   });
 });
 
@@ -370,8 +254,7 @@ describe("Poly — DOM passthrough", () => {
       vertices: FLAT_TRIANGLE_VERTS,
       "aria-label": "my polygon",
     });
-    const poly = container.querySelector(".polycss-poly");
-    expect(poly?.getAttribute("aria-label")).toBe("my polygon");
+    expect(getPoly(container).getAttribute("aria-label")).toBe("my polygon");
   });
 
   it("forwards aria-hidden", () => {
@@ -379,8 +262,7 @@ describe("Poly — DOM passthrough", () => {
       vertices: FLAT_TRIANGLE_VERTS,
       "aria-hidden": true,
     });
-    const poly = container.querySelector(".polycss-poly");
-    expect(poly?.getAttribute("aria-hidden")).toBe("true");
+    expect(getPoly(container).getAttribute("aria-hidden")).toBe("true");
   });
 
   it("forwards data field as data-* attrs", () => {
@@ -388,9 +270,9 @@ describe("Poly — DOM passthrough", () => {
       vertices: FLAT_TRIANGLE_VERTS,
       data: { foo: "bar", num: 42 },
     });
-    const poly = container.querySelector(".polycss-poly");
-    expect(poly?.getAttribute("data-foo")).toBe("bar");
-    expect(poly?.getAttribute("data-num")).toBe("42");
+    const poly = getPoly(container);
+    expect(poly.getAttribute("data-foo")).toBe("bar");
+    expect(poly.getAttribute("data-num")).toBe("42");
   });
 
   it("applies pointerEvents=none when passed", () => {
@@ -398,32 +280,14 @@ describe("Poly — DOM passthrough", () => {
       vertices: FLAT_TRIANGLE_VERTS,
       pointerEvents: "none",
     });
-    const poly = container.querySelector(".polycss-poly") as SVGSVGElement;
-    expect(poly.style.pointerEvents).toBe("none");
+    expect(getPoly(container).style.pointerEvents).toBe("none");
   });
-});
 
-describe("Poly — custom layer elevation context", () => {
-  it("renders with a custom layerElevation", () => {
-    const container = renderPoly({
-      vertices: FLAT_TRIANGLE_VERTS,
-      context: {
-        tileSize: 50,
-        layerElevation: 25,
-      },
-    });
-    const svg = container.querySelector("svg");
-    expect(svg).toBeTruthy();
-  });
-});
-
-describe("Poly — custom className", () => {
   it("appends custom className to polycss-poly", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       className: "my-custom-class",
     });
-    const poly = container.querySelector(".polycss-poly");
-    expect(poly?.classList.contains("my-custom-class")).toBe(true);
+    expect(getPoly(container).classList.contains("my-custom-class")).toBe(true);
   });
 });

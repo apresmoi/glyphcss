@@ -1,0 +1,274 @@
+---
+import config from 'virtual:starlight/user-config';
+
+import Search from 'virtual:starlight/components/Search';
+import SiteTitle from 'virtual:starlight/components/SiteTitle';
+
+const shouldRenderSearch =
+  config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
+
+const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
+const topLinks = [
+  { href: '/', label: 'Home', active: pathname === '/' },
+  {
+    href: '/quickstart',
+    label: 'Usage',
+    active: ['/quickstart', '/introduction', '/core-concepts'].some((path) => pathname === path),
+  },
+  {
+    href: '/api/headless',
+    label: 'API Reference',
+    labelShort: 'API',
+    labelLong: ' Reference',
+    active: pathname.startsWith('/api'),
+  },
+  { href: '/gallery', label: 'Gallery', active: pathname === '/gallery' },
+];
+---
+
+<div class="header">
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+  </div>
+  <div class="sidebar-search-dock print:hidden">
+    {shouldRenderSearch && <Search />}
+  </div>
+  <nav class="docs-top-nav print:hidden" aria-label="Site sections">
+    {topLinks.map((link) => (
+      <a href={link.href} class:list={[{ active: link.active }]}>
+        <span class="nav-label">
+          <span class="nav-label__short">{link.labelShort ?? link.label}</span>
+          {link.labelLong && <span class="nav-label__long">{link.labelLong}</span>}
+        </span>
+      </a>
+    ))}
+  </nav>
+  <div class="header-spacer print:hidden">
+    <a
+      class="github-social github-social--compact"
+      href="https://github.com/LayoutitStudio/polycss"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="View polycss on GitHub"
+    >
+      <span class="github-social__main">
+        <svg class="github-social__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+        </svg>
+        <span>GitHub</span>
+      </span>
+      <span class="github-social__count" id="star-count-docs">&#9733; &hellip;</span>
+    </a>
+  </div>
+</div>
+
+<script>
+  async function fetchStars() {
+    try {
+      const res = await fetch("https://api.github.com/repos/LayoutitStudio/polycss");
+      if (!res.ok) return;
+      const json = await res.json();
+      if (typeof json?.stargazers_count === "number") {
+        const el = document.getElementById("star-count-docs");
+        if (el) el.textContent = `★ ${json.stargazers_count}`;
+      }
+    } catch (_) {}
+  }
+
+  fetchStars();
+</script>
+
+<style>
+  @layer starlight.core {
+    :global(.page > header.header) {
+      padding: 11px 0;
+      background: #0f1115;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    :global(:root) {
+      --sl-nav-height: 72px;
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      gap: 24px;
+      height: 100%;
+      font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+    }
+
+    .title-wrapper {
+      justify-self: start;
+      padding-left: 16px;
+      min-width: 0;
+      overflow: clip;
+    }
+
+    .docs-top-nav {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      justify-self: center;
+      min-width: 0;
+    }
+
+    .docs-top-nav a {
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #94a3b8;
+      font-size: 0.9rem;
+      font-weight: 700;
+      line-height: 1;
+      text-decoration: none;
+      white-space: nowrap;
+      border-radius: 999px;
+      padding: 0.55rem 0.7rem;
+    }
+
+    .docs-top-nav a:hover,
+    .docs-top-nav a.active {
+      color: #fff;
+      background: rgba(56, 189, 248, 0.14);
+    }
+
+    .sidebar-search-dock {
+      display: none;
+    }
+
+    .header-spacer {
+      justify-self: end;
+      padding-right: 16px;
+      min-width: 0;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .github-social {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      border-radius: 6px;
+      border: 1px solid #d0d7de;
+      overflow: hidden;
+      background: #f6f8fa;
+      color: #1f2328;
+      font-weight: 500;
+    }
+
+    .github-social__main {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-right: 1px solid #d0d7de;
+      font-size: 13px;
+    }
+
+    .github-social__icon {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    .github-social__count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 40px;
+      padding: 6px 8px;
+      background: #ffffff;
+      border-radius: 0 6px 6px 0;
+      color: #24292f;
+      font-size: 13px;
+    }
+
+    @media (max-width: 38rem) {
+      .header {
+        grid-template-areas:
+          "brand spacer"
+          "links links";
+        grid-template-columns: minmax(0, 1fr) auto;
+        row-gap: 10px;
+        column-gap: 12px;
+      }
+
+      .title-wrapper {
+        grid-area: brand;
+        padding-left: 0;
+      }
+
+      .header-spacer {
+        grid-area: spacer;
+        padding-right: 0;
+      }
+
+      .docs-top-nav {
+        grid-area: links;
+        justify-self: start;
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+
+      .docs-top-nav::-webkit-scrollbar {
+        display: none;
+      }
+
+      .docs-top-nav a {
+        font-size: 0.78rem;
+        padding-inline: 0.45rem;
+      }
+
+      .docs-top-nav .nav-label__long {
+        display: none;
+      }
+
+      .github-social {
+        display: none;
+      }
+    }
+
+    @media (min-width: 50rem) {
+      :global(:root[data-has-sidebar]) {
+        --__sidebar-pad: calc(2 * var(--sl-nav-pad-x));
+      }
+      :global(:root:not([data-has-toc])) {
+        --__toc-width: 0rem;
+      }
+      .sidebar-search-dock {
+        display: block;
+        position: fixed;
+        z-index: calc(var(--sl-z-index-menu) + 1);
+        inset-block-start: calc(var(--sl-nav-height) + 1rem);
+        inset-inline-start: var(--sl-sidebar-pad-x);
+        width: calc(var(--sl-sidebar-width) - (2 * var(--sl-sidebar-pad-x)));
+      }
+
+      .sidebar-search-dock :global(button[data-open-modal]) {
+        width: 100%;
+        max-width: none;
+        justify-content: flex-start;
+        border-color: rgba(56, 189, 248, 0.24);
+        border-radius: 999px;
+        background: rgba(56, 189, 248, 0.08);
+        color: var(--sl-color-gray-2);
+        padding-inline: 0.85rem 0.65rem;
+      }
+
+      .sidebar-search-dock :global(button[data-open-modal]:hover) {
+        border-color: rgba(125, 211, 252, 0.5);
+        background: rgba(56, 189, 248, 0.14);
+        color: var(--sl-color-white);
+      }
+
+      .sidebar-search-dock :global(button[data-open-modal] > :last-child) {
+        margin-inline-start: auto;
+      }
+
+      :global(#starlight__sidebar .sidebar-content) {
+        padding-top: calc(1rem + 2.75rem);
+      }
+    }
+  }
+</style>

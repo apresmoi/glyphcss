@@ -182,7 +182,7 @@ function sanitizeFields(p: Polygon, originalIndex: number, warnings: string[]): 
   // Rule: color + texture coexistence → keep both, dev-mode warn.
   if (p.color !== undefined && texture !== undefined) {
     if (isDevMode()) {
-      warnings.push(`Polygon ${originalIndex}: color and texture both set; texture wins, color is fallback`);
+      warnings.push(`Polygon ${originalIndex}: color and texture both set; texture wins`);
     }
   }
 

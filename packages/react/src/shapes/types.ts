@@ -30,7 +30,7 @@ export interface TransformProps {
 
 /**
  * DOM event handlers, ARIA, and style props forwarded to the rendered
- * element (<img> or <svg>) by every Poly component.
+ * element (atlas-backed <div>) by every Poly component.
  *
  * This is the DOM-native pitch: polygons are real DOM nodes you can
  * target with CSS, attach event handlers to, and inspect in DevTools.

@@ -43,6 +43,7 @@ export default defineConfig({
       title: 'Polycss',
       description: 'A CSS polygon mesh engine. DOM-native 3D rendering.',
       components: {
+        Header: './src/components/DocsHeader.astro',
         ThemeSelect: './src/components/EmptyThemeSelect.astro',
         SiteTitle: './src/components/SiteTitle.astro',
       },

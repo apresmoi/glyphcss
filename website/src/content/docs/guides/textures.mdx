@@ -6,11 +6,11 @@ description: Loading OBJ, GLB, and glTF meshes into polycss with UV textures and
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import PolyDemo from '../../../components/PolyDemo.astro';
 
-polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and applied to each polygon via a one-time off-DOM canvas pass, producing a blob URL that becomes the `<img>` source.
+polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and packed into generated atlas pages; each textured polygon is an atlas-backed `<div>` that uses CSS background positioning.
 
 ## Live demo — UV-textured GLB
 
-The tree below uses `tree.glb`, which has embedded UV textures. Each triangle is an `<img>` whose source is a blob URL produced by an off-DOM canvas pass at load time.
+The tree below uses `tree.glb`, which has embedded UV textures. Each textured triangle is a DOM sprite whose background is a generated atlas page.
 
 <PolyDemo
   id="textures-tree-demo"
@@ -136,22 +136,23 @@ function Viewer() {
 }
 ```
 
-## UV texture pipeline
+## Atlas pipeline
 
-For UV-textured polygons, polycss runs a one-time canvas pass per polygon at mount:
+For both textured and flat-color polygons, polycss runs a one-time atlas canvas pass at mount:
 
-1. Extract the texture image from the file (or fetch it by URL).
-2. Solve a 6-DOF affine transform from the polygon's UV coordinates to its 2D screen footprint.
-3. Clip, draw, and export to a blob URL via `canvas.toBlob()`.
-4. Set `<img>.src = blobUrl`.
+1. Extract the texture image from the file (or fetch it by URL) when the polygon has a texture.
+2. Solve a 6-DOF affine transform from the polygon's UV coordinates to its 2D screen footprint when UVs are available.
+3. Pack polygon footprints into one or more atlas pages.
+4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`.
+5. Render each polygon as a `<div>` with `background-image`, `background-size`, and `background-position`.
 
-The blob URL is revoked on unmount (call `dispose()` or let `PolyMesh` / `useMesh` handle it).
+Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyMesh` / `useMesh` handle it).
 
 ## Tips
 
 - **`targetSize`** — scale the model so its longest axis fits this many world units (default: no scaling). Set it to roughly match the scale of your other scene content.
 - **`baseUrl`** — for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
-- For large meshes: blob URLs for embedded textures are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
+- For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
 
 ## Related
 

@@ -218,7 +218,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
   function buildDodecahedronPolygons(size: number): Polygon[] {
     // Fibonacci triple (s, a, b) ≈ φ ratios. Same vertex layout as
     // /debug/platonicShapes; emitted as 12 native pentagons (NOT
-    // fan-triangulated) so each face is a single SVG <path>. Shows off
+    // fan-triangulated) so each face is a single atlas-backed polygon. Shows off
     // polycss's N-vertex polygon support — voxcss couldn't do this.
     const s = size;
     const a = Math.round(size * 8 / 13);
@@ -349,11 +349,12 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
       // ambientColor? }) — `undefined` falls through to the renderer's
       // default (ambient 0.35, key direction [0.4,-0.7,0.59], white). Demos
       // bump ambient to brighten dim assets like trees / dark GLBs.
+      const rendererDefaultPerspective = 8000;
       const state: Record<string, any> = {
         zoom: defaults.zoom ?? 1,
         rotX: defaults.rotX ?? 65,
         rotY: defaults.rotY ?? 45,
-        perspective: defaults.perspective ?? 8000,
+        perspective: defaults.perspective ?? false,
         interactive: defaults.interactive ?? false,
         animate: defaults.animate ?? false,
         merge: defaults.merge ?? "off",
@@ -387,14 +388,19 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
       let animFrameId: number | null = null;
       let sceneHandle: any = null; // createPolyScene handle for generator mode
 
+      function perspectiveOverride() {
+        return state.perspective === rendererDefaultPerspective ? undefined : state.perspective;
+      }
+
       function buildSceneAttrs() {
         const attrs: Record<string, string> = {
           "rot-x": String(state.rotX),
           "rot-y": String(state.rotY),
-          "perspective": String(state.perspective),
           "zoom": String(state.zoom),
           "auto-center": "",
         };
+        const perspective = perspectiveOverride();
+        if (perspective !== undefined) attrs["perspective"] = String(perspective);
         if (state.merge && state.merge !== "off") attrs["merge"] = state.merge;
         if (state.interactive) attrs["interactive"] = "";
         if (state.light) {
@@ -414,6 +420,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         }
         // Remove attrs that should be absent
         if (!state.merge || state.merge === "off") sceneEl.removeAttribute("merge");
+        if (perspectiveOverride() === undefined) sceneEl.removeAttribute("perspective");
         if (!state.interactive) sceneEl.removeAttribute("interactive");
       }
 
@@ -525,11 +532,12 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         const sceneOptions: Record<string, any> = {
           rotX: state.rotX,
           rotY: state.rotY,
-          perspective: state.perspective,
           zoom: state.zoom,
           autoCenter: true,
           interactive: state.interactive,
         };
+        const perspective = perspectiveOverride();
+        if (perspective !== undefined) sceneOptions.perspective = perspective;
         if (state.merge && state.merge !== "off") sceneOptions.merge = state.merge;
         if (state.light) sceneOptions.directionalLight = state.light;
 
@@ -570,7 +578,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           sceneHandle.setOptions({
             rotX: state.rotX,
             rotY: state.rotY,
-            perspective: state.perspective,
+            perspective: perspectiveOverride(),
             zoom: state.zoom,
             autoCenter: true,
             interactive: state.interactive,
@@ -604,7 +612,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         if (state.zoom !== 1) cp.zoom = state.zoom.toFixed(2);
         if (state.rotX !== 65) cp.rotX = String(state.rotX);
         if (state.rotY !== 45) cp.rotY = String(state.rotY);
-        if (state.perspective !== 8000) cp.perspective = String(state.perspective);
+        if (state.perspective !== rendererDefaultPerspective) cp.perspective = String(state.perspective);
         if (state.animate) cp.animate = "true";
 
         const sp: Record<string, string> = {};
@@ -719,7 +727,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           if (state.zoom !== 1) htmlAttrs.push(`  zoom="${state.zoom.toFixed(2)}"`);
           if (state.rotX !== 65) htmlAttrs.push(`  rot-x="${state.rotX}"`);
           if (state.rotY !== 45) htmlAttrs.push(`  rot-y="${state.rotY}"`);
-          if (state.perspective !== 8000) htmlAttrs.push(`  perspective="${state.perspective}"`);
+          if (state.perspective !== rendererDefaultPerspective) htmlAttrs.push(`  perspective="${state.perspective}"`);
           if (state.merge && state.merge !== "off") htmlAttrs.push(`  merge="${state.merge}"`);
           htmlAttrs.push('  auto-center');
 
@@ -748,7 +756,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
             j.push("const scene = createPolyScene(host, {");
             if (state.rotX !== 65) j.push(`  rotX: ${state.rotX},`);
             if (state.rotY !== 45) j.push(`  rotY: ${state.rotY},`);
-            if (state.perspective !== 8000) j.push(`  perspective: ${state.perspective},`);
+            if (state.perspective !== rendererDefaultPerspective) j.push(`  perspective: ${state.perspective},`);
             j.push("  autoCenter: true,");
             j.push("});");
             j.push(`const polygons = ${fnCall};`);
@@ -843,7 +851,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         zoom: () => makeRange("zoom", 0.1, 3, 0.01, state.zoom, (v) => { state.zoom = v; updateCamera(); }),
         rotX: () => makeRange("rotX", 0, 90, 1, state.rotX, (v) => { state.rotX = v; updateCamera(); }, "°"),
         rotY: () => makeRange("rotY", 0, 360, 1, state.rotY, (v) => { state.rotY = v; animRotY = v; updateCamera(); }, "°"),
-        perspective: () => makeRange("perspective", 200, 12000, 100, state.perspective, (v) => { state.perspective = v; updateCamera(); }, "px"),
+        perspective: () => makeRange("perspective", 200, 12000, 100, state.perspective === false ? rendererDefaultPerspective : state.perspective, (v) => { state.perspective = v; updateCamera(); }, "px"),
         interactive: () => makeSwitch("interactive", state.interactive, (v) => { state.interactive = v; updateCamera(); }),
         animate: () => makeSwitch("animate", state.animate, (v) => { state.animate = v; updateCamera(); }),
         merge: () => makeSwitch("merge coplanar", state.merge === "auto", (v) => { state.merge = v ? "auto" : "off"; updateScene(); }),

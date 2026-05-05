@@ -21,6 +21,18 @@ function triangle(color = "#ff0000"): Polygon {
   };
 }
 
+function texturedTriangle(): Polygon {
+  return {
+    vertices: triangle().vertices,
+    texture: "https://example.com/tex.png",
+    uvs: [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+    ],
+  };
+}
+
 function makeParseResult(polygons: Polygon[] = [triangle()]): ParseResult {
   let disposed = false;
   return {
@@ -34,6 +46,13 @@ function makeParseResult(polygons: Polygon[] = [triangle()]): ParseResult {
       return disposed;
     },
   } as ParseResult & { readonly _disposed: boolean };
+}
+
+function getCenterWrapper(host: HTMLElement): HTMLElement {
+  const sceneEl = host.querySelector(".polycss-scene") as HTMLElement | null;
+  const wrapper = sceneEl?.firstElementChild as HTMLElement | null;
+  expect(wrapper).not.toBeNull();
+  return wrapper!;
 }
 
 describe("createPolyScene", () => {
@@ -90,22 +109,43 @@ describe("createPolyScene", () => {
       expect(sceneEl.style.transform).toContain("rotate(60deg)");
     });
 
+    it("sets perspective to none when perspective=false", () => {
+      scene = createPolyScene(host, { perspective: false });
+      const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
+      expect(sceneEl.style.perspective).toBe("none");
+    });
+
     it("injects base styles into the document", () => {
       scene = createPolyScene(host);
       const styleEl = document.getElementById("polycss-styles");
       expect(styleEl).not.toBeNull();
+      expect(styleEl?.textContent).toContain("transform-origin: 0 0");
+      expect(styleEl?.textContent).toContain("backface-visibility: hidden");
+      expect(styleEl?.textContent).toContain("background-repeat: no-repeat");
     });
   });
 
   describe("add / remove mesh", () => {
-    it("adds a .polycss-mesh wrapper with one SVG per polygon", () => {
+    it("adds a .polycss-mesh wrapper with one polygon div per polygon", () => {
       scene = createPolyScene(host);
       const handle = scene.add(makeParseResult([triangle(), triangle("#00ff00")]));
       const wrappers = host.querySelectorAll(".polycss-mesh");
       expect(wrappers.length).toBe(1);
       const polys = host.querySelectorAll(".polycss-poly");
       expect(polys.length).toBe(2);
+      expect(host.querySelector(".polycss-poly-atlas")).toBeNull();
+      expect(host.querySelector(".polycss-poly-solid")).toBeNull();
+      expect(host.querySelector(".polycss-poly-textured")).toBeNull();
+      expect(host.querySelector("svg")).toBeNull();
       expect(handle.polygons.length).toBe(2);
+    });
+
+    it("renders textured polygons as polygon divs", () => {
+      scene = createPolyScene(host);
+      scene.add(makeParseResult([texturedTriangle()]));
+      const poly = host.querySelector(".polycss-poly");
+      expect(poly).not.toBeNull();
+      expect(poly?.tagName.toLowerCase()).toBe("div");
     });
 
     it("applies mesh transform CSS", () => {
@@ -161,12 +201,21 @@ describe("createPolyScene", () => {
       expect(wrapper.style.transform).toContain("scale3d(1, 2, 3)");
     });
 
-    it("renders nothing for polygons that fail renderPoly (degenerate)", () => {
+    it("renders nothing for degenerate polygons", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate]));
       const polys = host.querySelectorAll(".polycss-poly");
       expect(polys.length).toBe(0);
+    });
+
+    it("keeps source polygon alignment when degenerate polygons are skipped", () => {
+      scene = createPolyScene(host);
+      const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
+      scene.add(makeParseResult([degenerate, triangle()]));
+      const poly = host.querySelector(".polycss-poly") as HTMLElement;
+      expect(poly).not.toBeNull();
+      expect(poly.classList.contains("polycss-dir-pz")).toBe(true);
     });
   });
 
@@ -220,6 +269,13 @@ describe("createPolyScene", () => {
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
       expect(sceneEl.style.perspective).toBe("2500px");
     });
+
+    it("updates perspective to none", () => {
+      scene = createPolyScene(host, { perspective: 1000 });
+      scene.setOptions({ perspective: false });
+      const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
+      expect(sceneEl.style.perspective).toBe("none");
+    });
   });
 
   describe("destroy", () => {
@@ -248,10 +304,7 @@ describe("createPolyScene", () => {
     it("default (no autoCenter) does not transform the wrapper", () => {
       scene = createPolyScene(host);
       scene.add(makeParseResult());
-      const centerWrapper = host.querySelector(
-        "[data-polycss-auto-center-wrapper]",
-      ) as HTMLElement;
-      expect(centerWrapper).not.toBeNull();
+      const centerWrapper = getCenterWrapper(host);
       expect(centerWrapper.style.transform).toBe("");
     });
 
@@ -267,9 +320,7 @@ describe("createPolyScene", () => {
       };
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([t]));
-      const centerWrapper = host.querySelector(
-        "[data-polycss-auto-center-wrapper]",
-      ) as HTMLElement;
+      const centerWrapper = getCenterWrapper(host);
       expect(centerWrapper.style.transform).toMatch(/^translate3d\(.+\)$/);
       // World-Y → CSS-x means cssX = ((0 + 1) / 2) * 50 = 25.
       // We translate by -cssX, so expect "-25".
@@ -279,9 +330,7 @@ describe("createPolyScene", () => {
     it("autoCenter recomputes when meshes change", () => {
       scene = createPolyScene(host, { autoCenter: true });
       const handle = scene.add(makeParseResult([triangle()]));
-      const centerWrapper = host.querySelector(
-        "[data-polycss-auto-center-wrapper]",
-      ) as HTMLElement;
+      const centerWrapper = getCenterWrapper(host);
       const t1 = centerWrapper.style.transform;
 
       // Add a second mesh with different bbox.
@@ -310,18 +359,14 @@ describe("createPolyScene", () => {
 
     it("autoCenter=true with no meshes leaves transform empty", () => {
       scene = createPolyScene(host, { autoCenter: true });
-      const centerWrapper = host.querySelector(
-        "[data-polycss-auto-center-wrapper]",
-      ) as HTMLElement;
+      const centerWrapper = getCenterWrapper(host);
       expect(centerWrapper.style.transform).toBe("");
     });
 
     it("setOptions({autoCenter: true}) enables centering after the fact", () => {
       scene = createPolyScene(host, { autoCenter: false });
       scene.add(makeParseResult([triangle()]));
-      const centerWrapper = host.querySelector(
-        "[data-polycss-auto-center-wrapper]",
-      ) as HTMLElement;
+      const centerWrapper = getCenterWrapper(host);
       expect(centerWrapper.style.transform).toBe("");
       scene.setOptions({ autoCenter: true });
       expect(centerWrapper.style.transform).toMatch(/^translate3d\(.+\)$/);
@@ -339,9 +384,7 @@ describe("createPolyScene", () => {
       };
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([tri]));
-      const centerWrapper = host.querySelector(
-        "[data-polycss-auto-center-wrapper]",
-      ) as HTMLElement;
+      const centerWrapper = getCenterWrapper(host);
       expect(centerWrapper.style.transform).toContain("-50px");
     });
   });

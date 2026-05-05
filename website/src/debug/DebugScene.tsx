@@ -60,9 +60,9 @@ export function DebugScene({
   const [mergeMode, setMergeMode] = useState<"off" | "auto" | "slice">(
     voxScene.merge ?? "off",
   );
-  // Single toggle drives both back-face debug paths: voxcss's per-voxel
-  // direction-cull overlay (cubes/ramps/wedges/spikes) and the triangle/
-  // polygon backface render. CSS for both is unified so they look the same.
+  // Single toggle drives voxcss's per-voxel direction-cull overlay. Polycss
+  // polygons render through atlas sprites only, so this no longer adds a
+  // second polygon backface element.
   const [showBackfaces, setShowBackfaces] = useState(false);
   const [debugShowLabels, setDebugShowLabels] = useState(false);
 
