@@ -1,6 +1,6 @@
 {
   "name": "polycss",
-  "version": "0.1.8",
+  "version": "0.0.1",
   "description": "Polycss vanilla / custom-elements + imperative API. Renders OBJ / glTF / GLB mesh polygons as DOM via CSS matrix3d.",
   "type": "module",
   "main": "dist/index.cjs",
