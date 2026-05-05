@@ -106,6 +106,14 @@ function loadTextureImage(url: string): Promise<HTMLImageElement> {
       img.src = url;
     });
     TEXTURE_IMAGE_CACHE.set(url, p);
+    p.then(
+      () => {
+        if (TEXTURE_IMAGE_CACHE.get(url) === p) TEXTURE_IMAGE_CACHE.delete(url);
+      },
+      () => {
+        if (TEXTURE_IMAGE_CACHE.get(url) === p) TEXTURE_IMAGE_CACHE.delete(url);
+      },
+    );
   }
   return p;
 }
@@ -572,11 +580,30 @@ async function buildAtlasPage(
     ctx.restore();
   }
 
+  const url = await canvasToUrl(canvas);
+  canvas.width = 1;
+  canvas.height = 1;
+
   return {
     width: page.width,
     height: page.height,
-    url: await canvasToUrl(canvas),
+    url,
   };
+}
+
+async function buildAtlasPages(
+  pages: PackedPage[],
+  textureLighting: TextureLightingMode,
+  doc: Document,
+  atlasScale: number,
+  isCancelled: () => boolean,
+): Promise<TextureAtlasPage[]> {
+  const built: TextureAtlasPage[] = [];
+  for (const page of pages) {
+    if (isCancelled()) break;
+    built.push(await buildAtlasPage(page, textureLighting, doc, atlasScale));
+  }
+  return built;
 }
 
 function revokeUrls(urls: string[]): void {
@@ -615,7 +642,7 @@ export function useTextureAtlas(
 
       if (nextPacked.pages.length === 0 || typeof document === "undefined") return;
 
-      Promise.all(nextPacked.pages.map((page) => buildAtlasPage(page, nextTextureLighting, document, nextAtlasScale)))
+      buildAtlasPages(nextPacked.pages, nextTextureLighting, document, nextAtlasScale, () => cancelled)
         .then((nextPages) => {
           if (cancelled) {
             revokeUrls(nextPages.flatMap((page) => page.url?.startsWith("blob:") ? [page.url] : []));

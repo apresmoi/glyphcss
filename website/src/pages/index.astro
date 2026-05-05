@@ -296,6 +296,10 @@ const ldJson = {
     // Hero model — loads the rock environment OBJ and mounts it with
     // createPolyScene. autoCenter pivots rotation around the mesh centroid;
     // the small RAF loop spins it slowly.
+    function isMobileHeroViewport() {
+      return window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
+    }
+
     async function mountHeroModel() {
       const host = document.getElementById("hero-root");
       if (!host) return;
@@ -311,6 +315,7 @@ const ldJson = {
         });
 
         let rotY = 45;
+        const atlasScale = isMobileHeroViewport() ? 0.25 : undefined;
         const scene = createPolyScene(host, {
           rotX: 65,
           rotY,
@@ -319,6 +324,7 @@ const ldJson = {
           interactive: true,
           perspective: false,
           merge: "auto",
+          atlasScale,
         });
         scene.add(parseResult);
 
