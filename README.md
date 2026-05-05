@@ -4,8 +4,6 @@
 
 # polycss
 
-> Currently using the legacy voxcss logo as a placeholder until a polycss-specific identity is designed.
-
 Render textured 3D meshes in the DOM. No WebGL, no 3D library — the rendered scene is a tree of standard DOM elements (`<img>`, `<svg>`) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach handlers to, and inspect in DevTools.
 
 Visit [polycss.com](https://polycss.com) for docs and model examples.
