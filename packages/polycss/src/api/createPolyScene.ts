@@ -64,12 +64,6 @@ export interface PolySceneOptions {
    * or `setOptions` is called. Mirrors React's `<PolyScene autoCenter>`.
    */
   autoCenter?: boolean;
-  /**
-   * When `true`, attach pointerdown/move/up handlers to the host so the
-   * user can drag-rotate the scene (drag-X = yaw / rotY, drag-Y = pitch
-   * / rotX). Mirrors React's `<PolyCamera interactive>`. Default false.
-   */
-  interactive?: boolean;
 }
 
 export interface MeshTransform {
@@ -102,6 +96,20 @@ export interface SceneHandle {
   setOptions(partial: Partial<PolySceneOptions>): void;
   /** Tear down the scene; revokes all blob URLs of registered meshes. */
   destroy(): void;
+  /**
+   * The host element passed to `createPolyScene`. Exposed for layered
+   * helpers like `createPolyControls` that need to attach event listeners
+   * without tracking the host separately.
+   */
+  readonly host: HTMLElement;
+  /**
+   * Snapshot of the current options (camera, lighting, merge, autoCenter,
+   * textureLighting, atlasScale, perspective). Returned by reference, so
+   * callers must treat it as read-only — mutations won't propagate. Used
+   * by helpers that need to read the current camera state without
+   * duplicating it.
+   */
+  getOptions(): Readonly<PolySceneOptions>;
 }
 
 // Match React's PolyCamera default — 1000px is a strong fish-eye that
@@ -477,107 +485,17 @@ export function createPolyScene(
     if (prevDomCull !== nextDomCull || (nextDomCull && prevCull !== nextCull)) {
       syncMeshesForCull();
     }
-    syncInteractive();
+    // No syncInteractive — pointer/wheel input now lives in createPolyControls
+    // (an additive layer). createPolyScene is the pure renderer + camera-state
+    // owner.
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
   }
 
-  // ─── Pointer-drag rotation when options.interactive is true ───────────────
-  // Mirrors React's useCamera drag handling: drag-X rotates around the
-  // world Z (yaw / rotY), drag-Y tilts around screen X (pitch / rotX).
-  // Touch + mouse via pointer events; prior listener removed on toggle so
-  // setOptions({ interactive: false }) cleanly detaches.
-
-  const POINTER_DRAG_SPEED = 4; // px per degree (lower = more sensitive)
-  let activePointerId: number | null = null;
-  let pointer = { x: 0, y: 0 };
-  let interactiveAttached = false;
-
-  const onPointerDown = (e: PointerEvent): void => {
-    if (!currentOptions.interactive) return;
-    if (activePointerId !== null) return;
-    if (e.isPrimary === false) return;
-    e.preventDefault();
-    activePointerId = e.pointerId;
-    pointer = { x: e.clientX, y: e.clientY };
-    host.style.cursor = "grabbing";
-    try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  };
-
-  const onPointerMove = (e: PointerEvent): void => {
-    if (activePointerId === null || e.pointerId !== activePointerId) return;
-    e.preventDefault();
-    const dX = (e.clientX - pointer.x) / POINTER_DRAG_SPEED;
-    const dY = (e.clientY - pointer.y) / POINTER_DRAG_SPEED;
-    const rotX = Math.max(0, Math.min(100, (currentOptions.rotX ?? DEFAULT_ROT_X) - dY));
-    const rotY = ((currentOptions.rotY ?? DEFAULT_ROT_Y) - dX + 360) % 360;
-    const prevCull = cullSignature(currentOptions);
-    currentOptions = { ...currentOptions, rotX, rotY };
-    applySceneStyle(sceneEl, currentOptions);
-    if (currentOptions.domCullBackfaces && prevCull !== cullSignature(currentOptions)) {
-      syncMeshesForCull();
-    }
-    pointer = { x: e.clientX, y: e.clientY };
-  };
-
-  const onPointerUp = (e: PointerEvent): void => {
-    if (activePointerId === null || e.pointerId !== activePointerId) return;
-    activePointerId = null;
-    host.style.cursor = currentOptions.interactive ? "grab" : "";
-    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-  };
-
-  // Wheel → zoom. Browsers translate trackpad pinch into wheel events with
-  // ctrlKey=true, so this covers desktop scroll + Mac pinch in one path.
-  // Multiplicative step gives smooth zooming across the full range.
-  const ZOOM_MIN = 0.05;
-  const ZOOM_MAX = 8;
-  const ZOOM_STEP = 0.0015; // tuned for unit `deltaY` per wheel notch
-  const onWheel = (e: WheelEvent): void => {
-    if (!currentOptions.interactive) return;
-    e.preventDefault();
-    const current = currentOptions.zoom ?? DEFAULT_ZOOM;
-    // Normalize across wheel-line / wheel-pixel modes (deltaMode 0 = px,
-    // 1 = lines, 2 = pages). Lines ≈ 33 px, pages ≈ 800 px.
-    const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
-    const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
-    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, current * factor));
-    currentOptions = { ...currentOptions, zoom: next };
-    applySceneStyle(sceneEl, currentOptions);
-  };
-
-  function syncInteractive(): void {
-    const want = !!currentOptions.interactive;
-    if (want === interactiveAttached) return;
-    if (want) {
-      host.addEventListener("pointerdown", onPointerDown);
-      host.addEventListener("pointermove", onPointerMove);
-      host.addEventListener("pointerup", onPointerUp);
-      host.addEventListener("pointercancel", onPointerUp);
-      // passive:false because we call preventDefault() to stop the page
-      // from scrolling while the user is zooming the scene.
-      host.addEventListener("wheel", onWheel, { passive: false });
-      host.style.cursor = "grab";
-      host.style.touchAction = "none";
-      host.style.userSelect = "none";
-    } else {
-      host.removeEventListener("pointerdown", onPointerDown);
-      host.removeEventListener("pointermove", onPointerMove);
-      host.removeEventListener("pointerup", onPointerUp);
-      host.removeEventListener("pointercancel", onPointerUp);
-      host.removeEventListener("wheel", onWheel);
-      host.style.cursor = "";
-      host.style.touchAction = "";
-      host.style.userSelect = "";
-    }
-    interactiveAttached = want;
+  function getOptions(): Readonly<PolySceneOptions> {
+    return currentOptions;
   }
 
-  syncInteractive();
-
   function destroy(): void {
-    // Detach pointer listeners before tearing down meshes.
-    currentOptions = { ...currentOptions, interactive: false };
-    syncInteractive();
     // Dispose all meshes (revokes blob URLs) before removing the scene.
     // Snapshot first since dispose() mutates the set.
     const snapshot = Array.from(meshes);
@@ -587,5 +505,5 @@ export function createPolyScene(
     if (sceneEl.parentNode) sceneEl.parentNode.removeChild(sceneEl);
   }
 
-  return { add, setOptions, destroy };
+  return { add, setOptions, destroy, host, getOptions };
 }

@@ -39,7 +39,6 @@ const CORE_BASE_STYLES = `
   top: 0;
   font-style: normal;
   transform-origin: 0 0;
-  transform-style: preserve-3d;
   backface-visibility: hidden;
   background-repeat: no-repeat;
 }
@@ -90,26 +89,34 @@ const CORE_BASE_STYLES = `
 @property --polycss-sg { syntax: "<number>"; inherits: false; initial-value: 1; }
 @property --polycss-sb { syntax: "<number>"; inherits: false; initial-value: 1; }
 
+/* Hoisted Lambert dot product — computed once per polygon, reused for all
+   three color channels. inherits:false because each <i> has its own normal. */
+@property --polycss-lambert { syntax: "<number>"; inherits: false; initial-value: 0; }
+
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
    here (not inline per polygon) so each <i> only carries its tiny normal
-   declarations — ~12× smaller per-polygon style payload on big meshes. */
+   declarations — ~12× smaller per-polygon style payload on big meshes.
+   --polycss-lambert is computed once and reused 3× (one per channel),
+   cutting the dot-product calc count from 3 → 1 per polygon per frame. */
 .polycss-scene[data-polycss-lighting="dynamic"] i {
+  /* Isolate each <i>'s layout/style/paint walks from siblings. Works
+     because the leaf transform-style:preserve-3d was dropped above —
+     the 3D context lives on .polycss-scene / .polycss-mesh, not the
+     leaves, so there's nothing inside an <i> that needs to participate
+     in 3D compositing across the contain boundary. */
+  contain: strict;
+  --polycss-lambert: max(0, calc(
+    var(--polycss-nx) * var(--polycss-lx) +
+    var(--polycss-ny) * var(--polycss-ly) +
+    var(--polycss-nz) * var(--polycss-lz)
+  ));
   background-color: rgb(
     calc(255 * (var(--polycss-ar) * var(--polycss-ai)
-         + var(--polycss-lr) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
+         + var(--polycss-lr) * var(--polycss-li) * var(--polycss-lambert)))
     calc(255 * (var(--polycss-ag) * var(--polycss-ai)
-         + var(--polycss-lg) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
+         + var(--polycss-lg) * var(--polycss-li) * var(--polycss-lambert)))
     calc(255 * (var(--polycss-ab) * var(--polycss-ai)
-         + var(--polycss-lb) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
+         + var(--polycss-lb) * var(--polycss-li) * var(--polycss-lambert)))
   );
   background-blend-mode: multiply;
 }

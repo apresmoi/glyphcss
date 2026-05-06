@@ -412,9 +412,10 @@ const ldJson = {
 
     // polycss scene handle
     let polyScene = null;
+    let polyControls = null;
     let currentMesh = null;
-    let animFrameId = null;
-    let animRotY = DEFAULT_CAMERA.rotY;
+    // Animation state lives on createPolyControls now — this page only tracks
+    // whether the toolbar toggle is on (so re-mounts can restore the choice).
     let isAnimating = false;
 
     // Current camera/scene settings
@@ -558,15 +559,21 @@ const ldJson = {
 
     const ensureScene = async () => {
       if (polyScene) return polyScene;
-      const { createPolyScene } = await import("polycss");
+      const { createPolyScene, createPolyControls } = await import("polycss");
       const rootEl = document.getElementById("viewer-root");
       polyScene = createPolyScene(rootEl, {
         rotX: currentRotX,
         rotY: currentRotY,
         zoom: currentZoom,
         autoCenter: true,
-        interactive: true,
         perspective: false,
+      });
+      // Drag + wheel on by default (the gallery viewer should always be
+      // interactive); animate flips on/off via the toolbar toggle below.
+      polyControls = createPolyControls(polyScene, {
+        drag: true,
+        wheel: true,
+        animate: false,
       });
       return polyScene;
     };
@@ -693,34 +700,21 @@ const ldJson = {
     };
 
     // ── Animation loop ───────────────────────────────────────────────────────
-
-    const ANIM_SPEED = 0.3; // deg/frame at 60fps
-    let lastAnimTime = 0;
-
-    function animTick(now) {
-      if (!isAnimating || !polyScene) { animFrameId = null; return; }
-      const dt = Math.min(50, now - (lastAnimTime || now));
-      lastAnimTime = now;
-      animRotY = (animRotY + ANIM_SPEED * (dt / 16.67)) % 360;
-      currentRotY = animRotY;
-      polyScene.setOptions({ rotY: currentRotY });
-      animFrameId = requestAnimationFrame(animTick);
-    }
+    // Delegated to createPolyControls — it owns the dt-clamped rAF tick. The
+    // start/stop helpers here just flip its `animate` option on/off.
 
     function startAnim() {
-      if (isAnimating) return;
+      if (isAnimating || !polyControls) return;
       isAnimating = true;
-      lastAnimTime = 0;
-      animRotY = currentRotY;
-      animFrameId = requestAnimationFrame(animTick);
+      polyControls.update({
+        animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
+      });
     }
 
     function stopAnim() {
+      if (!polyControls) { isAnimating = false; return; }
       isAnimating = false;
-      if (animFrameId !== null) {
-        cancelAnimationFrame(animFrameId);
-        animFrameId = null;
-      }
+      polyControls.update({ animate: false });
     }
 
     // ── Model loading ────────────────────────────────────────────────────────
@@ -747,7 +741,6 @@ const ldJson = {
           : 0;
       currentRotX = base.rotX + mobileTilt;
       currentRotY = base.rotY;
-      animRotY = currentRotY;
 
       // Per-model floor default: floating models (e.g. dual, pyramid) look
       // wrong with a floor, so force it off when the user hasn't opted in.

@@ -19,10 +19,19 @@ export type {
   PolySceneOptions,
 } from "./api/createPolyScene";
 
+// ── Camera input + autorotate (additive, optional layer) ──────────
+export { createPolyControls } from "./api/createPolyControls";
+export type {
+  ControlsHandle,
+  PolyControlsOptions,
+  PolyControlsAnimateOptions,
+} from "./api/createPolyControls";
+
 // ── Custom element classes (without auto-registering — that's polycss/elements) ──
 export { PolySceneElement } from "./elements/PolySceneElement";
 export { PolyMeshElement } from "./elements/PolyMeshElement";
 export { PolyPolygonElement } from "./elements/PolyPolygonElement";
+export { PolyControlsElement } from "./elements/PolyControlsElement";
 
 // ── Style injection ───────────────────────────────────────────────
 export { injectBaseStyles } from "./styles/styles";

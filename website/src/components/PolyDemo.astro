@@ -380,11 +380,11 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         tag("poly-scene", polycss.PolySceneElement);
         tag("poly-mesh", polycss.PolyMeshElement);
         tag("poly-polygon", polycss.PolyPolygonElement);
+        tag("poly-controls", polycss.PolyControlsElement);
       }
 
       let sceneEl: HTMLElement | null = null;
       let meshEl: HTMLElement | null = null;
-      let animFrameId: number | null = null;
       let sceneHandle: any = null; // createPolyScene handle for generator mode
 
       function perspectiveOverride() {
@@ -400,7 +400,8 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         };
         const perspective = perspectiveOverride();
         if (perspective !== undefined) attrs["perspective"] = String(perspective);
-        if (state.interactive) attrs["interactive"] = "";
+        // merge is automatic-only on main → no attribute to forward.
+        // interactive is owned by <poly-controls> (appended below in init).
         if (state.light) {
           if (state.light.direction) attrs["light-direction"] = state.light.direction.join(",");
           if (state.light.color) attrs["light-color"] = state.light.color;
@@ -418,40 +419,45 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         }
         // Remove attrs that should be absent
         if (perspectiveOverride() === undefined) sceneEl.removeAttribute("perspective");
-        if (!state.interactive) sceneEl.removeAttribute("interactive");
       }
 
-      // ── Animation loop ──────────────────────────────────────────────────────
-      let animRotY = state.rotY;
-      let lastAnimTime = 0;
-      const ANIM_SPEED = 0.3; // deg/frame at 60fps ≈ 18 deg/s
+      // ── Controls — replace the previous local rAF / interactive plumbing.
+      // Generator mode owns a createPolyControls handle; model mode appends
+      // a <poly-controls> child to the <poly-scene> element. Both paths get
+      // dt-clamped autorotate and the same drag/wheel behavior for free.
+      let controlsHandle: any = null;        // generator mode (vanilla)
+      let polyControlsEl: HTMLElement | null = null;  // model mode (custom element)
 
-      function animTick(now: number) {
-        if (animFrameId === null) return;
-        const dt = Math.min(50, now - (lastAnimTime || now));
-        lastAnimTime = now;
-        animRotY = (animRotY + ANIM_SPEED * (dt / 16.67)) % 360;
-        // Generator mode: sceneEl is a plain <div> wrapping the imperative
-        // scene handle — drive rotation via setOptions, not attributes.
-        // Model mode: sceneEl is <poly-scene> and attribute changes trigger
-        // its own re-render path.
-        if (sceneHandle) {
-          sceneHandle.setOptions({ rotY: animRotY });
-        } else if (sceneEl) {
-          sceneEl.setAttribute("rot-y", String(animRotY.toFixed(2)));
+      function buildControlsAttrs(): Record<string, string> {
+        const a: Record<string, string> = {};
+        if (state.interactive) {
+          a["drag"] = "";
+          a["wheel"] = "";
+        } else {
+          a["drag"] = "false";
+          a["wheel"] = "false";
         }
-        animFrameId = requestAnimationFrame(animTick);
+        if (state.animate) a["animate-speed"] = "0.3";
+        return a;
       }
 
-      function startAnim() {
-        if (animFrameId !== null) return;
-        lastAnimTime = 0;
-        animFrameId = requestAnimationFrame(animTick);
+      function applyControlsAttrs() {
+        if (!polyControlsEl) return;
+        const wanted = buildControlsAttrs();
+        for (const [k, v] of Object.entries(wanted)) polyControlsEl.setAttribute(k, v);
+        // Remove animate-speed cleanly when animate is off so the rAF stops.
+        if (!state.animate) polyControlsEl.removeAttribute("animate-speed");
       }
-      function stopAnim() {
-        if (animFrameId !== null) {
-          cancelAnimationFrame(animFrameId);
-          animFrameId = null;
+
+      function syncControls() {
+        if (controlsHandle) {
+          controlsHandle.update({
+            drag: state.interactive,
+            wheel: state.interactive,
+            animate: state.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
+          });
+        } else if (polyControlsEl) {
+          applyControlsAttrs();
         }
       }
 
@@ -516,11 +522,19 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
 
         sceneEl.appendChild(meshEl);
         sceneHost.appendChild(sceneEl);
+
+        // Append <poly-controls> as a child of <poly-scene>. It walks up
+        // to find the parent scene and wires drag/wheel/animate from
+        // attributes. Initial attribute set + applyControlsAttrs keeps
+        // it in sync with state on subsequent toggles.
+        polyControlsEl = document.createElement("poly-controls");
+        applyControlsAttrs();
+        sceneEl.appendChild(polyControlsEl);
       }
 
       // ── Scene init for generator mode ─────────────────────────────────────
       async function initGeneratorScene() {
-        const { createPolyScene } = await import("polycss");
+        const { createPolyScene, createPolyControls } = await import("polycss");
 
         sceneEl = document.createElement("div");
         sceneEl.style.cssText = "width:100%;height:100%;position:absolute;inset:0;";
@@ -531,13 +545,19 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           rotY: state.rotY,
           zoom: state.zoom,
           autoCenter: true,
-          interactive: state.interactive,
         };
         const perspective = perspectiveOverride();
         if (perspective !== undefined) sceneOptions.perspective = perspective;
         if (state.light) sceneOptions.directionalLight = state.light;
 
         sceneHandle = createPolyScene(sceneEl as HTMLElement, sceneOptions);
+        // Vanilla controls layer — drag + wheel + animate. Updated by
+        // syncControls() whenever state.interactive / state.animate flip.
+        controlsHandle = createPolyControls(sceneHandle, {
+          drag: state.interactive,
+          wheel: state.interactive,
+          animate: state.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
+        });
         await rebuildGeneratorMesh();
         loadingEl.style.display = "none";
       }
@@ -577,18 +597,15 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
             perspective: perspectiveOverride(),
             zoom: state.zoom,
             autoCenter: true,
-            interactive: state.interactive,
           });
         } else {
-          // applySceneAttrs handles `interactive` alongside the rotation/zoom attrs.
+          // applySceneAttrs handles rotation/zoom/light attrs on the
+          // <poly-scene>. drag/wheel/animate flow through <poly-controls>
+          // via syncControls() below.
           applySceneAttrs();
         }
-        if (state.animate) {
-          animRotY = state.rotY;
-          startAnim();
-        } else {
-          stopAnim();
-        }
+        // Drag/wheel/animate now live on the controls layer.
+        syncControls();
         updateCode();
       }
 
@@ -743,7 +760,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
                 : `build${generatorName.charAt(0).toUpperCase()}${generatorName.slice(1)}Polygons(${state.radius})`;
             j.push(`<!-- Polygons generated client-side via the imperative API: -->`);
             j.push('<script type="module">');
-            j.push('import { createPolyScene } from "https://esm.sh/polycss";');
+            j.push('import { createPolyScene, createPolyControls } from "https://esm.sh/polycss";');
             j.push("");
             j.push("const host = document.getElementById(\"scene\");");
             j.push("const scene = createPolyScene(host, {");
@@ -754,6 +771,12 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
             j.push("});");
             j.push(`const polygons = ${fnCall};`);
             j.push("scene.add({ polygons, dispose: () => {} });");
+            // Reflect the same drag/wheel/animate state the demo's controls
+            // toolbar shows, so the snippet matches what the user sees.
+            const animBlock = state.animate
+              ? "{ speed: 0.3, axis: \"y\", pauseOnInteraction: true }"
+              : "false";
+            j.push(`createPolyControls(scene, { drag: ${state.interactive}, wheel: ${state.interactive}, animate: ${animBlock} });`);
             j.push("<" + "/script>");
           }
 
@@ -894,7 +917,13 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
 
       // ── Cleanup for Astro view transitions ────────────────────────────────
       polyDemoCleanups.push(function() {
-        stopAnim();
+        // Tear controls down BEFORE the scene — the rAF tick (if running)
+        // would otherwise fire one more time against a dying handle.
+        if (controlsHandle) {
+          try { controlsHandle.destroy(); } catch (_) {}
+          controlsHandle = null;
+        }
+        polyControlsEl = null; // <poly-controls> dies with its parent <poly-scene>
         if (fpsFrameId !== null) {
           try { cancelAnimationFrame(fpsFrameId); } catch (_) {}
           fpsFrameId = null;

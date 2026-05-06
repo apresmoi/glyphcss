@@ -50,6 +50,7 @@ export const PolyCamera = defineComponent({
       cameraRef,
       sceneElRef,
       cameraElRef,
+      applyTransformDirect,
       onPointerDown,
       onPointerMove,
       onPointerUp,
@@ -57,8 +58,8 @@ export const PolyCamera = defineComponent({
       cursor,
     } = useCamera(cameraOptions);
 
-    // Provide context — stable identity
-    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef });
+    // Provide context — stable identity (refs + applyTransformDirect)
+    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef, cameraElRef, applyTransformDirect });
 
     return () => {
       const perspectiveValue =

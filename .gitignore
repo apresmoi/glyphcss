@@ -18,3 +18,11 @@ TECH_DEBT.md
 Z2_REFACTOR.md
 packages/react/tsconfig.tsbuildinfo
 packages/vue/tsconfig.tsbuildinfo
+
+# Perf bench — generated artifacts (the harness scripts in bench/ ARE
+# tracked, but the bundled output and per-run results are local-only).
+/bench/polycss.js
+/bench/results/
+
+# Agent-tool internal state — worktree refs, scheduled-task locks, etc.
+/.claude/

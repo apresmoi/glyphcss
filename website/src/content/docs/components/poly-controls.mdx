@@ -1,0 +1,174 @@
+---
+title: PolyControls
+description: Additive camera input — pointer drag, wheel zoom, and frame-rate-independent autorotate.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+`PolyControls` adds **camera input** to a scene without bloating the renderer with input concerns. It's modelled on the Three.js `OrbitControls` pattern: the renderer (`<poly-scene>` / `<PolyScene>` / `createPolyScene`) owns the geometry and camera state; `PolyControls` listens for pointer/wheel input and runs an optional `requestAnimationFrame` autorotate loop, calling back into the scene to mutate camera state.
+
+It's available as a custom element (`<poly-controls>`), via the imperative `createPolyControls(scene, opts)` API, and as React / Vue components (`<PolyControls>`).
+
+## Props
+
+(React / Vue prop names use camelCase; the `<poly-controls>` custom element accepts the kebab-case form, e.g. `animate.speed` → `animate-speed`.)
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `drag` | `boolean` | `true` | Pointer-drag rotation. Drag-right turns the front of the scene rightward, drag-down tilts the top toward the user — the visible object tracks the pointer. |
+| `wheel` | `boolean` | `true` | Wheel / pinch zoom. Trackpad pinch is delivered as `wheel` with `ctrlKey=true`, so this covers desktop scroll + Mac pinch in one path. |
+| `invert` | `boolean \| number` | `false` | Drag-direction inversion. `true` reverses; a number scales sensitivity in the default direction (negative = invert). |
+| `zoom` | `{ min?: number, max?: number }` | `{ min: 0.1, max: 10 }` | Zoom range clamps. |
+| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotate. Pass `false` (or omit) to disable. See **Animate options** below. |
+
+### Animate options
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `speed` | `number` | `0.3` | Degrees per 60 Hz-equivalent frame. The tick is `dt`-clamped (max 50 ms per frame), so `0.3` ≈ 18 deg/sec on every refresh rate. |
+| `axis` | `"x" \| "y"` | `"y"` | Rotation axis. `"y"` orbits the camera horizontally; `"x"` tilts vertically. |
+| `pauseOnInteraction` | `boolean` | `true` | Halt the animate loop while a pointer drag is in progress; resume on pointer-up. |
+
+## Usage
+
+### Basic — drag + wheel + slow autorotate
+
+<Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<script type="module" src="https://esm.sh/polycss/elements"></script>
+
+<poly-scene rot-x="65" rot-y="45">
+  <poly-controls drag wheel animate-speed="0.3"></poly-controls>
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+
+The presence of any `animate-*` attribute (`animate-speed`, `animate-axis`, `animate-pause-on-interaction`) implies `animate` is enabled. Removing them all turns animate off.
+</TabItem>
+<TabItem label="React">
+```tsx
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/react";
+
+export function App() {
+  return (
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        <PolyControls drag wheel animate={{ speed: 0.3 }} />
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
+  );
+}
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<template>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyControls drag wheel :animate="{ speed: 0.3 }" />
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
+</template>
+
+<script setup lang="ts">
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
+</script>
+```
+</TabItem>
+</Tabs>
+
+### Imperative — vanilla JS
+
+When you mount a scene through the `createPolyScene` imperative API, pair it with `createPolyControls(scene, options)`. The controls handle returns a small lifecycle interface for live updates.
+
+```ts
+import { createPolyScene, createPolyControls, loadMesh } from "polycss";
+
+const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
+scene.add(await loadMesh("/cottage.glb"));
+
+const controls = createPolyControls(scene, {
+  drag: true,
+  wheel: true,
+  animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
+});
+
+// Later — toggle features live without re-creating:
+controls.update({ animate: false });    // stop auto-rotate
+controls.update({ drag: false });        // also disable pointer drag
+
+// Pause everything (detaches listeners + cancels rAF) — reversible:
+controls.stop();
+controls.start();
+
+// Hard teardown:
+controls.destroy();
+```
+
+### Read-only / tour mode
+
+Disable input but keep autorotate running:
+
+<Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<poly-scene rot-x="65" rot-y="45">
+  <poly-controls drag="false" wheel="false" animate-speed="0.5"></poly-controls>
+  <poly-mesh src="/cottage.glb"></poly-mesh>
+</poly-scene>
+```
+</TabItem>
+<TabItem label="React">
+```tsx
+<PolyControls drag={false} wheel={false} animate={{ speed: 0.5 }} />
+```
+</TabItem>
+<TabItem label="Vue">
+```vue
+<PolyControls :drag="false" :wheel="false" :animate="{ speed: 0.5 }" />
+```
+</TabItem>
+</Tabs>
+
+### Inverted / sensitive drag
+
+<Tabs syncKey="fw">
+<TabItem label="Vanilla JS">
+```html
+<!-- 2× drag sensitivity -->
+<poly-controls invert="2"></poly-controls>
+
+<!-- Reverse direction -->
+<poly-controls invert></poly-controls>
+```
+</TabItem>
+<TabItem label="React">
+```tsx
+<PolyControls invert={2} />          {/* 2× sensitivity */}
+<PolyControls invert />              {/* reverse */}
+```
+</TabItem>
+</Tabs>
+
+## How it works
+
+`PolyControls` is purely additive — it attaches its own pointer/wheel listeners to the scene's host element and runs its own `requestAnimationFrame` loop when `animate` is on. State changes flow through the scene's normal `setOptions({ rotX, rotY, zoom })` path, so anything that observes scene state (atlas, lighting, custom-element attribute reflection) sees the same updates as if you had set them yourself.
+
+The animate tick is `dt`-clamped at 50 ms per frame and normalized to 60 Hz. That makes `speed: 0.3` produce the same ~18 deg/sec on every monitor refresh rate (60, 120, 144 Hz) and survives a tab regaining focus without a giant catch-up jump.
+
+## Combining with PolyCamera's built-in `interactive` / `animate` props
+
+For back-compat, `<PolyCamera>` (React / Vue) still accepts `interactive` and `animate` props that drive its own input handlers. **Use one or the other**, not both — combining them double-attaches handlers and the autorotate loops will fight. The new `<PolyControls>` path is recommended because:
+
+- It separates camera state (owned by the scene) from camera input (owned by controls), matching the Three.js OrbitControls split.
+- The animate tick is `dt`-clamped and frame-rate-independent.
+- You can compose multiple input behaviors (e.g. drag-only with no wheel) without juggling props on the camera wrapper.
+
+## Related
+
+- [PolyScene](/components/poly-scene) — The scene component that owns camera state.
+- [PolyCamera](/components/poly-camera) — Optional state wrapper; useful when you want camera state in a separate component from scene layout.
+- [Headless API — `createPolyControls`](/api/headless#createpolycontrols) — Full imperative API reference.

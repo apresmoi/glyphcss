@@ -34,7 +34,6 @@ const OBSERVED_ATTRS = [
   "texture-lighting",
   "atlas-scale",
   "auto-center",
-  "interactive",
 ] as const;
 
 function parseNumber(value: string | null): number | undefined {
@@ -98,7 +97,6 @@ export class PolySceneElement extends ELEMENT_BASE {
     const atlasScale = parseAtlasScale(this.getAttribute("atlas-scale"));
     if (atlasScale !== undefined) opts.atlasScale = atlasScale;
     opts.autoCenter = this.hasAttribute("auto-center");
-    opts.interactive = this.hasAttribute("interactive");
     if (directionalLight) opts.directionalLight = directionalLight;
     if (ambientLight) opts.ambientLight = ambientLight;
     return opts;

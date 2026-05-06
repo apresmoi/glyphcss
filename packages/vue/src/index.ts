@@ -19,6 +19,9 @@ export type { UseMeshOptions, UseMeshResult } from "./scene";
 export { Poly } from "./shapes";
 export type { PolyProps } from "./shapes";
 
+export { PolyControls } from "./controls";
+export type { PolyControlsProps, PolyControlsAnimateOptions } from "./controls";
+
 export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
 export type {
   PolyAxesHelperProps,

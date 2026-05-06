@@ -94,6 +94,25 @@ describe("createPolyScene", () => {
       ).toThrow(/host must be an HTMLElement/);
     });
 
+    it("exposes the host element on the returned handle", () => {
+      scene = createPolyScene(host);
+      expect(scene.host).toBe(host);
+    });
+
+    it("getOptions() returns the current options snapshot including defaults that were passed", () => {
+      scene = createPolyScene(host, { rotX: 30, rotY: 60, zoom: 2 });
+      const opts = scene.getOptions();
+      expect(opts.rotX).toBe(30);
+      expect(opts.rotY).toBe(60);
+      expect(opts.zoom).toBe(2);
+    });
+
+    it("getOptions() reflects updates made via setOptions", () => {
+      scene = createPolyScene(host, { rotY: 0 });
+      scene.setOptions({ rotY: 90 });
+      expect(scene.getOptions().rotY).toBe(90);
+    });
+
     it("creates a .polycss-scene child under the host", () => {
       scene = createPolyScene(host);
       const sceneEl = host.querySelector(".polycss-scene");
@@ -311,6 +330,91 @@ describe("createPolyScene", () => {
       scene.setOptions({ textureLighting: "baked" });
       expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("");
       expect(sceneEl.dataset.polycssLighting).toBe("baked");
+    });
+
+    // Perf-fix tests: setOptions used to call recomputeAutoCenter() on every
+    // call, which is O(N polys) and would be paid 60×/sec by an autorotate
+    // loop. The smart-diff version only recomputes when `autoCenter` itself
+    // changes (mesh add/remove paths still trigger their own recomputation,
+    // so geometry changes are correctly reflected).
+    //
+    // We can't spy on the closure-private `recomputeAutoCenter` directly, so
+    // we observe its side effect: it writes to centerWrapper.style.transform.
+    // Pre-clearing that string and asserting it stays empty after a
+    // setOptions({rotY}) proves the function did not run.
+    describe("autoCenter recomputation diff", () => {
+      it("does not recompute autoCenter on a camera-only setOptions", () => {
+        scene = createPolyScene(host, { autoCenter: true });
+        scene.add(makeParseResult([triangle()]));
+        const centerWrapper = getCenterWrapper(host);
+        expect(centerWrapper.style.transform).toMatch(/^translate3d/);
+        // Clear the transform; if recomputeAutoCenter runs it'll be re-set.
+        centerWrapper.style.transform = "";
+        scene.setOptions({ rotY: 90 });
+        expect(centerWrapper.style.transform).toBe("");
+      });
+
+      it("does not recompute autoCenter on a lighting-only setOptions", () => {
+        scene = createPolyScene(host, { autoCenter: true });
+        scene.add(makeParseResult([triangle()]));
+        const centerWrapper = getCenterWrapper(host);
+        centerWrapper.style.transform = "";
+        scene.setOptions({
+          directionalLight: { direction: [1, 0, 0], color: "#fff", intensity: 1 },
+        });
+        expect(centerWrapper.style.transform).toBe("");
+      });
+
+      it("does not recompute autoCenter on textureLighting changes", () => {
+        scene = createPolyScene(host, { autoCenter: true, textureLighting: "dynamic" });
+        scene.add(makeParseResult([triangle()]));
+        const centerWrapper = getCenterWrapper(host);
+        centerWrapper.style.transform = "";
+        scene.setOptions({ textureLighting: "baked" });
+        expect(centerWrapper.style.transform).toBe("");
+      });
+
+      it("does not recompute autoCenter on perspective changes", () => {
+        scene = createPolyScene(host, { autoCenter: true });
+        scene.add(makeParseResult([triangle()]));
+        const centerWrapper = getCenterWrapper(host);
+        centerWrapper.style.transform = "";
+        scene.setOptions({ perspective: 4000 });
+        expect(centerWrapper.style.transform).toBe("");
+      });
+
+      it("DOES recompute autoCenter when autoCenter itself toggles", () => {
+        scene = createPolyScene(host, { autoCenter: false });
+        scene.add(makeParseResult([triangle()]));
+        const centerWrapper = getCenterWrapper(host);
+        // Was disabled, so initial state is empty. Flip on → must recompute.
+        scene.setOptions({ autoCenter: true });
+        expect(centerWrapper.style.transform).toMatch(/^translate3d/);
+      });
+
+      it("does NOT recompute autoCenter when autoCenter is re-set to its current value", () => {
+        // The diff is value-based (prevAutoCenter !== nextAutoCenter), so
+        // setting autoCenter to its existing value is a no-op. Callers
+        // that need to force a refresh should toggle off-then-on, or
+        // change the underlying mesh (which triggers its own recompute
+        // via add()/remove()).
+        scene = createPolyScene(host, { autoCenter: true });
+        scene.add(makeParseResult([triangle()]));
+        const centerWrapper = getCenterWrapper(host);
+        centerWrapper.style.transform = "";
+        scene.setOptions({ autoCenter: true });
+        expect(centerWrapper.style.transform).toBe("");
+      });
+
+      it("still updates the scene transform on a camera-only setOptions", () => {
+        // Sanity check: skipping recomputeAutoCenter must NOT skip the camera
+        // transform update — the scene element should still reflect new rotY.
+        scene = createPolyScene(host, { autoCenter: true, rotY: 0 });
+        scene.add(makeParseResult([triangle()]));
+        const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
+        scene.setOptions({ rotY: 137 });
+        expect(sceneEl.style.transform).toContain("rotate(137deg)");
+      });
     });
   });
 

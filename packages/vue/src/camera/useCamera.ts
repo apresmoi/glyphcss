@@ -35,6 +35,12 @@ export interface UseCameraResult {
    * default in modern versions and can't `preventDefault()`).
    */
   cameraElRef: Ref<HTMLDivElement | null>;
+  /**
+   * Apply the current camera state (from cameraRef.value.state) directly
+   * to sceneEl.style.transform. Exposed so layered components like
+   * <PolyControls> can call it after mutating cameraRef.value.
+   */
+  applyTransformDirect: () => void;
   onPointerDown: (e: PointerEvent) => void;
   onPointerMove: (e: PointerEvent) => void;
   onPointerUp: (e: PointerEvent) => void;
@@ -262,6 +268,7 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     cameraRef,
     sceneElRef,
     cameraElRef,
+    applyTransformDirect,
     onPointerDown,
     onPointerMove,
     onPointerUp,

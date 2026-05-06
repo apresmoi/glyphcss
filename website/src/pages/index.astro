@@ -27,7 +27,8 @@ const frameworkTabs = [
     language: "html",
     code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
 
-<poly-scene perspective="1000" rot-x="65" rot-y="45">
+<poly-scene rot-x="65" rot-y="45">
+  <poly-controls drag wheel animate-speed="0.3"></poly-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>`,
   },
@@ -35,13 +36,16 @@ const frameworkTabs = [
     id: "react",
     label: "React",
     language: "tsx",
-    code: `import { PolyScene, PolyMesh } from "@polycss/react";
+    code: `import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/react";
 
 export function App() {
   return (
-    <PolyScene rotX={65} rotY={45} perspective={1000}>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        <PolyControls drag wheel animate={{ speed: 0.3 }} />
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }`,
   },
@@ -50,12 +54,15 @@ export function App() {
     label: "Vue",
     language: "vue",
     code: `<template>
-  <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyControls drag wheel :animate="{ speed: 0.3 }" />
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
 </script>`,
   },
 ].map(tab => ({
@@ -304,7 +311,7 @@ const ldJson = {
       const host = document.getElementById("hero-root");
       if (!host) return;
       try {
-        const { createPolyScene, loadMesh } = await import("polycss");
+        const { createPolyScene, createPolyControls, loadMesh } = await import("polycss");
         const parseResult = await loadMesh("/gallery/obj/rock1.obj", {
           mtlUrl: "/gallery/obj/rock1.mtl",
           objOptions: {
@@ -314,32 +321,24 @@ const ldJson = {
           },
         });
 
-        let rotY = 45;
         const atlasScale = isMobileHeroViewport() ? 0.25 : undefined;
         const scene = createPolyScene(host, {
           rotX: 65,
-          rotY,
+          rotY: 45,
           zoom: 0.2,
           autoCenter: true,
-          interactive: true,
           perspective: false,
           atlasScale,
         });
         scene.add(parseResult);
-
-        let last = 0;
-        let paused = false;
-        host.addEventListener("pointerdown", () => { paused = true; });
-        function tick(now: number) {
-          if (!paused) {
-            const dt = last ? Math.min(50, now - last) : 0;
-            rotY = (rotY + (dt / 16.67) * 0.3) % 360;
-            scene.setOptions({ rotY });
-          }
-          last = now;
-          requestAnimationFrame(tick);
-        }
-        requestAnimationFrame(tick);
+        // Drag + wheel + slow autorotate via the additive controls layer.
+        // pauseOnInteraction (default true) freezes the spin while the user
+        // is dragging, just like the previous manual implementation did.
+        createPolyControls(scene, {
+          drag: true,
+          wheel: true,
+          animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
+        });
       } catch (err) {
         console.error("hero model mount failed", err);
       }

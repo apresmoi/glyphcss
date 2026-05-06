@@ -15,16 +15,16 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `perspective` | `number` | `1000` | CSS perspective distance in pixels. Higher values feel flatter (more isometric); lower values exaggerate depth. |
+| `perspective` | `number \| false` | `8000` | CSS perspective distance in pixels. Higher values feel flatter (more isometric); lower values exaggerate depth. `false` gives orthographic projection. |
 | `rotX` | `number` | `65` | Camera rotation around the X axis in degrees. |
 | `rotY` | `number` | `45` | Camera rotation around the Y axis in degrees (0–360). |
 | `zoom` | `number` | `1` | Scene scale factor. |
 | `directionalLight` | `DirectionalLight` | — | Directional light source. See [DirectionalLight](#directionallight). |
 | `atlasScale` | `number` | `1` | Raster scale for generated atlas pages. Lower values reduce texture memory and detail. |
 | `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
-| `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation. |
-| `autoRotate` | `AutoRotateOption` | — | Auto-rotate camera. Pass `true` for default Y-axis rotation, a speed number, or `{ axis, speed, pauseOnInteraction }`. |
-| `children` | — | — | `<poly-mesh>` / `<poly-polygon>` (vanilla) or `<PolyMesh>` / `<Poly>` (React / Vue). |
+| `children` | — | — | `<poly-mesh>` / `<poly-polygon>` / `<poly-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyControls>` (React / Vue). |
+
+**Camera input** (drag, wheel, autorotate) is a separate, additive layer. Add a child `<poly-controls>` / `<PolyControls>` to enable any of those — see [PolyControls](/components/poly-controls).
 
 ## Mesh props / attributes
 

@@ -5,7 +5,11 @@ description: Camera component for controlling the 3D viewport — perspective, r
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-The camera component wraps a scene and controls how it is viewed — perspective depth, rotation angles, zoom, and optional pointer-driven interaction. For most use cases, pass camera attributes directly to the scene element / `PolyScene` component instead. The camera wrapper is useful when you need imperative camera control (e.g., animating the camera from code or syncing it to an external state) — it's available as a React / Vue component (`<PolyCamera>`); vanilla users should set the same attributes (`rot-x`, `rot-y`, `perspective`, `zoom`, `interactive`) directly on `<poly-scene>`.
+The camera component wraps a scene and controls how it is viewed — perspective depth, rotation angles, and zoom. It's available as a React / Vue component (`<PolyCamera>`); vanilla users should set the same attributes (`rot-x`, `rot-y`, `perspective`, `zoom`) directly on `<poly-scene>`.
+
+For most use cases, pass camera attributes directly to the scene element / `PolyScene` component instead. The camera wrapper is useful when you need imperative camera control (animating the camera from code, syncing it to external state, or splitting camera state and scene layout into separate React/Vue components).
+
+For pointer drag, wheel zoom, and autorotate, drop a `<PolyControls>` child inside the scene — see **[PolyControls](/components/poly-controls)**.
 
 ## Props
 
@@ -14,9 +18,9 @@ The camera component wraps a scene and controls how it is viewed — perspective
 | `zoom` | `number` | `1` | Scales the scene. `1` is the natural size; values above 1 zoom in, below 1 zoom out. |
 | `rotX` | `number` | `65` | Rotation around the X axis in degrees. |
 | `rotY` | `number` | `45` | Rotation around the Y axis in degrees (0–360). |
-| `perspective` | `number \| false` | `1000` | CSS perspective depth in pixels. Pass `false` for orthographic projection. |
-| `interactive` | `boolean` | `false` | When `true`, users can click and drag to rotate the camera. |
-| `animate` | `boolean \| number \| object` | `false` | Auto-rotate. `true` uses defaults, a number sets the speed, or pass `{ axis, speed, pauseOnInteraction }`. |
+| `perspective` | `number \| false` | `8000` | CSS perspective depth in pixels. Pass `false` for orthographic projection. |
+| `interactive` | `boolean` | `false` | **Back-compat.** Enable PolyCamera's built-in pointer drag. Prefer `<PolyControls drag>` instead — they double-attach if combined. |
+| `animate` | `boolean \| number \| object` | `false` | **Back-compat.** PolyCamera's built-in autorotate. Frame-rate-naive — prefer `<PolyControls animate={...}>` for `dt`-clamped behavior. |
 
 ## Usage
 
@@ -67,33 +71,37 @@ import { PolyCamera, PolyScene, PolyMesh } from "@polycss/vue";
 </TabItem>
 </Tabs>
 
-### Interactive Camera with Auto-rotation
+### Interactive Camera with Auto-rotation (recommended)
+
+Drop a `<PolyControls>` child for drag, wheel, and `dt`-clamped autorotate. Works the same across vanilla, React, and Vue.
 
 ```html
 <!-- Vanilla -->
-<poly-scene interactive animate>
+<poly-scene rot-x="65" rot-y="45">
+  <poly-controls drag wheel animate-speed="0.5"></poly-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
 
 ```tsx
 // React
-<PolyCamera
-  interactive
-  animate={{ axis: "y", speed: 0.5, pauseOnInteraction: true }}
->
+<PolyCamera rotX={65} rotY={45}>
   <PolyScene>
+    <PolyControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
     <PolyMesh src="/cottage.glb" />
   </PolyScene>
 </PolyCamera>
 ```
 
+Full options reference: **[PolyControls](/components/poly-controls)**.
+
 ## `useCamera` hook (React)
 
-`useCamera` is used internally by `<PolyCamera>`. For most use cases, pass camera props directly to `<PolyScene>` — it accepts all of `PolyCamera`'s props. Use `<PolyCamera>` as a wrapper when you need to separate camera state from scene layout.
+`useCamera` is used internally by `<PolyCamera>`. For most use cases, pass camera props directly to `<PolyScene>` — it accepts all of `PolyCamera`'s state-shaping props. Use `<PolyCamera>` as a wrapper when you need to separate camera state from scene layout.
 
 ## Related
 
 - [PolyScene](/components/poly-scene) — The scene component that renders meshes.
+- [PolyControls](/components/poly-controls) — Pointer drag, wheel zoom, and autorotate.
 - [Core Concepts — Camera](/core-concepts#camera) — Conceptual explanation of camera props.
 - [Quickstart](/quickstart) — Install + first scene walkthrough.

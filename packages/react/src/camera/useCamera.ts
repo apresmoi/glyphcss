@@ -35,6 +35,12 @@ export interface UseCameraResult {
    * to passive in modern versions and can't `preventDefault()`).
    */
   cameraElRef: React.MutableRefObject<HTMLDivElement | null>;
+  /**
+   * Apply the current camera state (from cameraRef.current.state) directly
+   * to sceneEl.style.transform — bypasses React. Exposed so layered
+   * components like <PolyControls> can call it after mutating state.
+   */
+  applyTransformDirect: () => void;
   onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -251,6 +257,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     cameraRef: handleRef as React.MutableRefObject<CameraHandle>,
     sceneElRef,
     cameraElRef,
+    applyTransformDirect,
     onPointerDown,
     onPointerMove,
     onPointerUp,

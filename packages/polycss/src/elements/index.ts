@@ -14,6 +14,7 @@ import { PolyMeshElement } from "./PolyMeshElement";
 import { PolyPolygonElement } from "./PolyPolygonElement";
 import { PolyAxesHelperElement } from "./PolyAxesHelperElement";
 import { PolyDirectionalLightHelperElement } from "./PolyDirectionalLightHelperElement";
+import { PolyControlsElement } from "./PolyControlsElement";
 
 if (typeof customElements !== "undefined") {
   if (!customElements.get("poly-scene")) {
@@ -34,6 +35,9 @@ if (typeof customElements !== "undefined") {
       PolyDirectionalLightHelperElement,
     );
   }
+  if (!customElements.get("poly-controls")) {
+    customElements.define("poly-controls", PolyControlsElement);
+  }
 }
 
 export {
@@ -42,4 +46,5 @@ export {
   PolyPolygonElement,
   PolyAxesHelperElement,
   PolyDirectionalLightHelperElement,
+  PolyControlsElement,
 };

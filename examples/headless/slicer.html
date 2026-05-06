@@ -428,7 +428,7 @@
   <input id="file-input" type="file" accept=".vox" />
 
   <script type="module">
-    import { computeSceneBbox, createPolyScene, parseVox } from "../../packages/polycss/dist/index.js";
+    import { computeSceneBbox, createPolyScene, createPolyControls, parseVox } from "../../packages/polycss/dist/index.js";
 
     const SAMPLES = [
       ["army", "/examples/models/army.vox"],
@@ -514,7 +514,6 @@
         zoom: state.zoom,
         domCullBackfaces: true,
         autoCenter: true,
-        interactive: true,
         atlasScale: "auto"
       };
     }
@@ -597,6 +596,10 @@
     }
 
     function destroyScene() {
+      if (state.controls) {
+        state.controls.destroy();
+        state.controls = null;
+      }
       if (!state.scene) return;
       state.scene.destroy();
       state.scene = null;
@@ -613,6 +616,7 @@
 
       viewport.classList.remove("empty");
       state.scene = createPolyScene(sceneHost, sceneOptions());
+      state.controls = createPolyControls(state.scene, { drag: true, wheel: true });
       state.mesh = state.scene.add(state.parsed);
       titleDetail.textContent = state.label;
       updateControls();

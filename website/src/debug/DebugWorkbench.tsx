@@ -18,10 +18,17 @@ import type {
 } from "@polycss/react";
 import {
   axesHelperPolygons,
+  createPolyControls,
   createPolyScene,
   octahedronPolygons,
 } from "polycss";
-import type { MeshHandle, PolySceneOptions, SceneHandle, Vec3 } from "polycss";
+import type {
+  ControlsHandle,
+  MeshHandle,
+  PolySceneOptions,
+  SceneHandle,
+  Vec3,
+} from "polycss";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
@@ -639,6 +646,7 @@ function VanillaScene({
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneHandle | null>(null);
+  const controlsRef = useRef<ControlsHandle | null>(null);
   const meshHandleRef = useRef<MeshHandle | null>(null);
   const axesHandleRef = useRef<MeshHandle | null>(null);
   const lightHandleRef = useRef<MeshHandle | null>(null);
@@ -670,7 +678,6 @@ function VanillaScene({
       textureLighting: options.textureLighting,
       perspective: options.perspective,
       autoCenter: options.autoCenter,
-      interactive: options.interactive,
       atlasScale: atlasScaleForQuality(options.textureQuality),
     };
     const scene = createPolyScene(host, sceneOptions);
@@ -685,6 +692,10 @@ function VanillaScene({
       onBuildRef.current(performance.now() - started),
     );
     return () => {
+      // Tear controls down BEFORE destroying the scene — otherwise the
+      // controls' rAF tick could fire one more time against a stale handle.
+      controlsRef.current?.destroy();
+      controlsRef.current = null;
       axesHandleRef.current = null;
       lightHandleRef.current = null;
       meshHandleRef.current = null;
@@ -710,7 +721,6 @@ function VanillaScene({
       rotX: options.rotX,
       rotY: options.rotY,
       zoom: options.zoom,
-      interactive: options.interactive,
       directionalLight,
       ambientLight,
       textureLighting: options.textureLighting,
@@ -719,11 +729,42 @@ function VanillaScene({
     options.rotX,
     options.rotY,
     options.zoom,
-    options.interactive,
     options.textureLighting,
     directionalLight,
     ambientLight,
   ]);
+
+  // Effect 2.5 — vanilla controls. The React renderer wires interactive +
+  // animate through <PolyCamera>; the vanilla path uses createPolyControls.
+  // The handle is created lazily once the scene is ready and we're on the
+  // vanilla renderer; subsequent prop changes flow through controls.update().
+  useEffect(() => {
+    if (options.renderer !== "vanilla") {
+      controlsRef.current?.destroy();
+      controlsRef.current = null;
+      return;
+    }
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!controlsRef.current) {
+      controlsRef.current = createPolyControls(scene, {
+        drag: options.interactive,
+        wheel: options.interactive,
+        animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
+      });
+    } else {
+      controlsRef.current.update({
+        drag: options.interactive,
+        wheel: options.interactive,
+        animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
+      });
+    }
+    return () => {
+      // Effect re-runs when deps change — destroy only on full unmount,
+      // which is signaled by the scene Effect 1 cleanup destroying scene.
+      // Until then, the next effect run will reuse + update controlsRef.
+    };
+  }, [options.renderer, options.interactive, options.animate, polygons]);
 
   // Effect 3 — axes helper. Add/remove based on toggle; rebuild when scale
   // changes (different bar lengths bake into different polygons).

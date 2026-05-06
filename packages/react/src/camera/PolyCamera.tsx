@@ -40,6 +40,7 @@ function PolyCameraInner({
     cameraRef,
     sceneElRef,
     cameraElRef,
+    applyTransformDirect,
     onPointerDown,
     onPointerMove,
     onPointerUp,
@@ -47,10 +48,11 @@ function PolyCameraInner({
     cursor,
   } = useCamera({ zoom, pan, tilt, rotX, rotY, interactive, invert, animate });
 
-  // Context is stable — store/cameraRef/sceneElRef never change identity
+  // Context is stable — refs never change identity, applyTransformDirect
+  // is memoized in useCamera.
   const contextValue = useMemo(
-    () => ({ store, cameraRef, sceneElRef }),
-    [store, cameraRef, sceneElRef]
+    () => ({ store, cameraRef, sceneElRef, cameraElRef, applyTransformDirect }),
+    [store, cameraRef, sceneElRef, cameraElRef, applyTransformDirect]
   );
 
   const perspectiveValue =

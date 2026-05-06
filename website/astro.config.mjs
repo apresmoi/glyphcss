@@ -65,6 +65,7 @@ export default defineConfig({
           items: [
             { label: 'PolyScene', slug: 'components/poly-scene' },
             { label: 'PolyCamera', slug: 'components/poly-camera' },
+            { label: 'PolyControls', slug: 'components/poly-controls' },
           ],
         },
         {
