@@ -273,6 +273,34 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
+  it("uses the atlas fallback for solid non-rect polygons on non-desktop pointers", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: {
+          supports: (property: string) => property === "border-shape",
+        },
+        matchMedia: (query: string) => ({
+          matches: query.includes("pointer: coarse") || query.includes("hover: none"),
+        }),
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
+    const element = result.rendered[0].element;
+    expect(canvases).toHaveLength(1);
+    expect(element.style.getPropertyValue("border-shape")).toBe("");
+    result.dispose();
+  });
+
   it("keeps textured polygons on atlas even when border-shape is supported", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {

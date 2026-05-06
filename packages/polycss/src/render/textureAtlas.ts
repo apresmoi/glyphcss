@@ -796,10 +796,17 @@ function isFullRectSolid(entry: TextureAtlasPlan): boolean {
 
 function borderShapeSupported(doc: Document): boolean {
   const css = doc.defaultView?.CSS ?? (typeof CSS !== "undefined" ? CSS : undefined);
-  return !!css?.supports?.(
+  const supportsBorderShape = !!css?.supports?.(
     "border-shape",
     "polygon(0 0, 100% 0, 0 100%) polygon(50% 50%, 50% 50%, 50% 50%)",
   );
+  if (!supportsBorderShape) return false;
+
+  const win = doc.defaultView ?? (typeof window !== "undefined" ? window : undefined);
+  const media = win?.matchMedia;
+  if (!media) return true;
+
+  return media("(pointer: fine)").matches && media("(hover: hover)").matches;
 }
 
 function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {

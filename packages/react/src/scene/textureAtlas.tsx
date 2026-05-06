@@ -293,10 +293,16 @@ function isFullRectSolid(entry: TextureAtlasPlan): boolean {
 }
 
 function borderShapeSupported(): boolean {
-  return !!globalThis.CSS?.supports?.(
+  const supportsBorderShape = !!globalThis.CSS?.supports?.(
     "border-shape",
     "polygon(0 0, 100% 0, 0 100%) polygon(50% 50%, 50% 50%, 50% 50%)",
   );
+  if (!supportsBorderShape) return false;
+
+  const media = globalThis.matchMedia;
+  if (typeof media !== "function") return true;
+
+  return media("(pointer: fine)").matches && media("(hover: hover)").matches;
 }
 
 function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {

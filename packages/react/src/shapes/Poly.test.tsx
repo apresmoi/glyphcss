@@ -191,6 +191,16 @@ describe("Poly — border-shape", () => {
     const poly = getPoly(container);
     expect(poly.style.getPropertyValue("border-shape")).toBe("");
   });
+
+  it("falls back to atlas for solid non-rect polygons on non-desktop pointers", () => {
+    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+      matches: query.includes("pointer: coarse") || query.includes("hover: none"),
+    })));
+
+    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const poly = getPoly(container);
+    expect(poly.style.getPropertyValue("border-shape")).toBe("");
+  });
 });
 
 describe("Poly — UV-mapped texture", () => {
