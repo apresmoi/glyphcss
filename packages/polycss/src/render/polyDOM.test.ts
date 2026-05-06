@@ -439,12 +439,51 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const auto = collectCanvasSizes(largeScene, "auto");
     const half = collectCanvasSizes(largeScene, 0.5);
     const full = collectCanvasSizes(largeScene, 1);
+    const autoMaxSide = Math.max(...auto.flatMap((page) => [page.width, page.height]));
+    const halfMaxSide = Math.max(...half.flatMap((page) => [page.width, page.height]));
+    const fullMaxSide = Math.max(...full.flatMap((page) => [page.width, page.height]));
 
     expect(auto).toHaveLength(half.length);
-    expect(auto[0].width).toBe(half[0].width);
-    expect(auto[0].height).toBe(half[0].height);
-    expect(auto[0].width).toBeLessThan(full[0].width);
-    expect(auto[0].height).toBeLessThan(full[0].height);
+    expect(autoMaxSide).toBeLessThanOrEqual(halfMaxSide);
+    expect(autoMaxSide).toBeLessThan(fullMaxSide);
+  });
+
+  it("auto atlasScale caps oversized runtime atlas bitmaps by workload", () => {
+    const collectCanvasSizes = (
+      polygons: Polygon[],
+    ): Array<{ width: number; height: number }> => {
+      const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+      const doc = {
+        createElement(tagName: string) {
+          if (tagName === "canvas") {
+            const canvas = { width: 0, height: 0, getContext: () => null };
+            canvases.push(canvas);
+            return canvas;
+          }
+          return document.createElement(tagName);
+        },
+      } as unknown as Document;
+      const result = renderPolygonsWithTextureAtlas(polygons, { doc, atlasScale: "auto" });
+      result.dispose();
+      return canvases.map(({ width, height }) => ({ width, height }));
+    };
+
+    const hugeQuad: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [80, 0, 0],
+        [80, 80, 0],
+        [0, 80, 0],
+      ],
+      color: "#ffffff",
+      texture: "https://example.com/tex.png",
+    };
+    const auto = collectCanvasSizes([hugeQuad]);
+    const maxSide = Math.max(...auto.flatMap((page) => [page.width, page.height]));
+    const decodedBytes = auto.reduce((sum, page) => sum + page.width * page.height * 4, 0);
+
+    expect(maxSide).toBeLessThanOrEqual(2048);
+    expect(decodedBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
   });
 });
 

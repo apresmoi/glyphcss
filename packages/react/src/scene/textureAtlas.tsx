@@ -21,6 +21,9 @@ const MIN_ATLAS_SCALE = 0.1;
 const MAX_ATLAS_SCALE = 1;
 const AUTO_ATLAS_LOW_AREA = ATLAS_MAX_SIZE * ATLAS_MAX_SIZE;
 const AUTO_ATLAS_MEDIUM_AREA = AUTO_ATLAS_LOW_AREA * 3;
+const AUTO_ATLAS_MAX_BITMAP_SIDE = 2048;
+const AUTO_ATLAS_MAX_DECODED_BYTES = 16 * 1024 * 1024;
+const AUTO_ATLAS_SCALE_GUARD = 0.995;
 
 export type AtlasScale = number | "auto";
 
@@ -127,11 +130,79 @@ function atlasArea(pages: PackedPage[]): number {
   return pages.reduce((sum, page) => sum + page.width * page.height, 0);
 }
 
+function autoAtlasScaleCap(pages: PackedPage[]): number {
+  const area = atlasArea(pages);
+  if (area <= 0) return 1;
+
+  const maxSide = Math.max(
+    1,
+    ...pages.map((page) => Math.max(page.width, page.height)),
+  );
+  const sideScale = AUTO_ATLAS_MAX_BITMAP_SIDE / maxSide;
+  const memoryScale = Math.sqrt(AUTO_ATLAS_MAX_DECODED_BYTES / (area * 4));
+
+  return normalizeAtlasScale(Math.min(sideScale, memoryScale));
+}
+
 function autoAtlasScale(pages: PackedPage[]): number {
   const area = atlasArea(pages);
-  if (area <= AUTO_ATLAS_LOW_AREA) return 1;
-  if (area <= AUTO_ATLAS_MEDIUM_AREA) return 0.75;
-  return 0.5;
+  let atlasScale = 0.5;
+  if (area <= AUTO_ATLAS_LOW_AREA) atlasScale = 1;
+  else if (area <= AUTO_ATLAS_MEDIUM_AREA) atlasScale = 0.75;
+
+  return normalizeAtlasScale(Math.min(atlasScale, autoAtlasScaleCap(pages)));
+}
+
+function atlasBitmapMaxSide(pages: PackedPage[], atlasScale: number): number {
+  return pages.reduce((max, page) => Math.max(
+    max,
+    Math.ceil(page.width * atlasScale),
+    Math.ceil(page.height * atlasScale),
+  ), 0);
+}
+
+function atlasDecodedBytes(pages: PackedPage[], atlasScale: number): number {
+  return pages.reduce((sum, page) =>
+    sum +
+    Math.ceil(page.width * atlasScale) *
+    Math.ceil(page.height * atlasScale) *
+    4
+  , 0);
+}
+
+function autoAtlasBudgetFactor(pages: PackedPage[], atlasScale: number): number {
+  const maxSide = atlasBitmapMaxSide(pages, atlasScale);
+  const decodedBytes = atlasDecodedBytes(pages, atlasScale);
+  const sideFactor = maxSide > AUTO_ATLAS_MAX_BITMAP_SIDE
+    ? AUTO_ATLAS_MAX_BITMAP_SIDE / maxSide
+    : 1;
+  const memoryFactor = decodedBytes > AUTO_ATLAS_MAX_DECODED_BYTES
+    ? Math.sqrt(AUTO_ATLAS_MAX_DECODED_BYTES / decodedBytes)
+    : 1;
+  return Math.min(sideFactor, memoryFactor);
+}
+
+function packTextureAtlasPlansAuto(
+  plans: Array<TextureAtlasPlan | null>,
+  fullScalePacked: PackedAtlas,
+): { packed: PackedAtlas; atlasScale: number } {
+  let atlasScale = autoAtlasScale(fullScalePacked.pages);
+  let packed = atlasScale === 1
+    ? fullScalePacked
+    : packTextureAtlasPlans(plans, atlasScale);
+
+  // Lower scales increase padding, so verify the final packed bitmap budget.
+  for (let i = 0; i < 4; i++) {
+    const factor = autoAtlasBudgetFactor(packed.pages, atlasScale);
+    if (factor >= 1) break;
+
+    const nextAtlasScale = normalizeAtlasScale(atlasScale * factor * AUTO_ATLAS_SCALE_GUARD);
+    if (nextAtlasScale >= atlasScale) break;
+    atlasScale = nextAtlasScale;
+    packed = packTextureAtlasPlans(plans, atlasScale);
+  }
+
+  return { packed, atlasScale };
 }
 
 function packTextureAtlasPlansWithScale(
@@ -144,9 +215,7 @@ function packTextureAtlasPlansWithScale(
   }
 
   const fullScalePacked = packTextureAtlasPlans(plans, 1);
-  const atlasScale = autoAtlasScale(fullScalePacked.pages);
-  if (atlasScale === 1) return { packed: fullScalePacked, atlasScale };
-  return { packed: packTextureAtlasPlans(plans, atlasScale), atlasScale };
+  return packTextureAtlasPlansAuto(plans, fullScalePacked);
 }
 
 function atlasPadding(atlasScale: number): number {

@@ -138,12 +138,12 @@ function Viewer() {
 
 ## Atlas pipeline
 
-For both textured and flat-color polygons, polycss runs a one-time atlas canvas pass at mount:
+For textured polygons, polycss runs a one-time atlas canvas pass at mount. Flat-color polygons can bypass the atlas when they can render as CSS solids or `border-shape` polygons.
 
 1. Extract the texture image from the file (or fetch it by URL) when the polygon has a texture.
 2. Solve a 6-DOF affine transform from the polygon's UV coordinates to its 2D screen footprint when UVs are available.
 3. Pack polygon footprints into one or more atlas pages.
-4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`. `atlasScale` can rasterize these pages below full CSS resolution to reduce memory.
+4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`. `atlasScale="auto"` can rasterize these pages below full CSS resolution when packed pages would create oversized runtime bitmaps.
 5. Render each polygon as an `<i>` with `background-image`, `background-size`, and `background-position`.
 
 Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyMesh` / `useMesh` handle it).
@@ -151,7 +151,7 @@ Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyM
 ## Tips
 
 - **`targetSize`** — scale the model so its longest axis fits this many world units (default: no scaling). Set it to roughly match the scale of your other scene content.
-- **`atlasScale`** — lower the generated atlas bitmap scale for dense or distant textured assets. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
+- **`atlasScale`** — leave at `"auto"` for workload-based bitmap caps, or set a numeric scale for explicit quality. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
 - **`baseUrl`** — for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
 - For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
 

@@ -176,7 +176,7 @@ const ldJson = {
             </div>
           </div>
           <div class="hero-canvas" id="hero-root">
-            <!-- Rock environment OBJ mounted with createPolyScene + loadMesh,
+            <!-- Chicken OBJ mounted with createPolyScene + loadMesh,
                  autoCenter, and drag-to-rotate. -->
           </div>
         </section>
@@ -300,35 +300,28 @@ const ldJson = {
     }
     fetchStars();
 
-    // Hero model — loads the rock environment OBJ and mounts it with
+    // Hero model — loads the chicken OBJ and mounts it with
     // createPolyScene. autoCenter pivots rotation around the mesh centroid;
     // the small RAF loop spins it slowly.
-    function isMobileHeroViewport() {
-      return window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
-    }
-
     async function mountHeroModel() {
       const host = document.getElementById("hero-root");
       if (!host) return;
       try {
         const { createPolyScene, createPolyControls, loadMesh } = await import("polycss");
-        const parseResult = await loadMesh("/gallery/obj/rock1.obj", {
-          mtlUrl: "/gallery/obj/rock1.mtl",
+        const parseResult = await loadMesh("/gallery/obj/chicken.obj", {
+          mtlUrl: "/gallery/obj/chicken.mtl",
           objOptions: {
-            targetSize: 40,
-            defaultColor: "#8b6f47",
-            excludeObjects: ["Plane"],
+            targetSize: 60,
+            defaultColor: "#cccccc",
           },
         });
 
-        const atlasScale = isMobileHeroViewport() ? 0.25 : undefined;
         const scene = createPolyScene(host, {
-          rotX: 65,
-          rotY: 45,
-          zoom: 0.2,
+          rotX: 74.4,
+          rotY: 301.6,
+          zoom: 0.15,
           autoCenter: true,
           perspective: false,
-          atlasScale,
         });
         scene.add(parseResult);
         // Drag + wheel + slow autorotate via the additive controls layer.

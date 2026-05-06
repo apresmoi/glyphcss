@@ -20,7 +20,7 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 | `rotY` | `number` | `45` | Camera rotation around the Y axis in degrees (0–360). |
 | `zoom` | `number` | `1` | Scene scale factor. |
 | `directionalLight` | `DirectionalLight` | — | Directional light source. See [DirectionalLight](#directionallight). |
-| `atlasScale` | `number` | `1` | Raster scale for generated atlas pages. Lower values reduce texture memory and detail. |
+| `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
 | `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
 | `children` | — | — | `<poly-mesh>` / `<poly-polygon>` / `<poly-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyControls>` (React / Vue). |
 
@@ -37,7 +37,7 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 | `position` | `Vec3` | `[x, y, z]` offset in scene space. |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale. |
 | `rotation` | `Vec3` | Euler rotation in degrees `[x, y, z]`. |
-| `atlasScale` | `number` | Raster scale for generated atlas pages. React / Vue only; vanilla meshes inherit the scene's `atlas-scale`. |
+| `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages. React / Vue only; vanilla meshes inherit the scene's `atlas-scale`. |
 | `autoCenter` | `boolean` | Shift the loaded mesh so its bounding-box center sits at the local origin before applying `position`. Useful when assets aren't centered in their file coordinates. |
 | `parseOptions` | `ObjParseOptions \| GltfParseOptions` | Parser options forwarded to `parseObj` or `parseGltf`. |
 | `fallback` | `ReactNode` | Rendered while `src` is loading. (React / Vue only.) |

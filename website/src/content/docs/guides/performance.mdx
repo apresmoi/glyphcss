@@ -56,7 +56,7 @@ The single most effective way to reduce polygon count is to choose a smaller `ta
 
 ## `atlasScale` and texture memory
 
-Generated atlas pages default to one bitmap pixel per CSS pixel. For large textured meshes, set `atlasScale` below `1` to reduce atlas memory and PNG encode time while keeping DOM geometry and hit areas unchanged.
+Generated atlas pages default to `atlasScale="auto"`. Auto starts from the packed atlas area and then caps oversized runtime bitmaps by page side length and decoded-memory budget. For dense textured meshes this prevents very large canvas/PNG work at mount while keeping DOM geometry and hit areas unchanged.
 
 ```html
 <!-- Vanilla -->
@@ -75,7 +75,7 @@ Generated atlas pages default to one bitmap pixel per CSS pixel. For large textu
 <PolyMesh src="/cottage.glb" atlasScale={0.5} />
 ```
 
-Use `0.5` or `0.75` for distant or dense assets; keep `1` for close-up inspection.
+Use explicit numeric values when you want to override auto: `0.5` or `0.75` for distant or dense assets, `1` for close-up inspection when the runtime bitmap cost is acceptable.
 
 ## Atlas and Blob URL Lifecycle
 
