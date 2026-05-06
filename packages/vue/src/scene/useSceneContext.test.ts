@@ -26,7 +26,7 @@ const QUAD: Polygon = {
 
 function captureSceneContext(
   polygons: Polygon[],
-  options: { merge?: "off" | "auto" } = {}
+  options: Parameters<typeof useSceneContext>[1]["value"] = {}
 ): UseSceneContextResult {
   let captured!: UseSceneContextResult;
   const container = document.createElement("div");
@@ -52,8 +52,8 @@ describe("useSceneContext", () => {
     expect(result.sceneBbox.max).toBeDefined();
   });
 
-  it("returns polygons for valid input (merge=off)", () => {
-    const result = captureSceneContext([TRIANGLE], { merge: "off" });
+  it("returns polygons for valid input", () => {
+    const result = captureSceneContext([TRIANGLE]);
     expect(result.polygons.length).toBeGreaterThan(0);
   });
 
@@ -63,14 +63,22 @@ describe("useSceneContext", () => {
     expect(result.sceneBbox.max[0]).toBeCloseTo(1, 3);
   });
 
-  it("passes through 2 polygons when merge='off'", () => {
-    const result = captureSceneContext([TRIANGLE, QUAD], { merge: "off" });
-    expect(result.polygons.length).toBe(2);
+  it("automatically runs mergePolygons", () => {
+    const result = captureSceneContext([TRIANGLE, QUAD]);
+    expect(result.polygons.length).toBeGreaterThan(0);
   });
 
-  it("merge='auto' still returns polygons (may reduce count)", () => {
-    const result = captureSceneContext([TRIANGLE, QUAD], { merge: "auto" });
-    expect(result.polygons.length).toBeGreaterThan(0);
+  it("collapses coplanar same-color triangles", () => {
+    const tri1: Polygon = {
+      vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
+      color: "#ff0000",
+    };
+    const tri2: Polygon = {
+      vertices: [[0, 0, 0], [1, 1, 0], [0, 1, 0]],
+      color: "#ff0000",
+    };
+    const result = captureSceneContext([tri1, tri2]);
+    expect(result.polygons.length).toBe(1);
   });
 
   it("sceneBbox covers multiple polygons", () => {
@@ -80,7 +88,7 @@ describe("useSceneContext", () => {
 
   it("returns a reactive computed ref that updates when polygons change", () => {
     const polygonsRef = ref<Polygon[]>([TRIANGLE]);
-    const optionsRef = computed(() => ({ merge: "off" as const }));
+    const optionsRef = computed(() => ({}));
     let capturedRef: ReturnType<typeof useSceneContext> | null = null;
 
     const container = document.createElement("div");

@@ -39,7 +39,6 @@ Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, 
 | `rot-y` | `number` | `45` | Camera Y-axis rotation in degrees |
 | `directional-light` | `DirectionalLight` | — | Directional + ambient light |
 | `atlas-scale` | `number` | `1` | Raster scale for generated atlas pages |
-| `merge` | `"off" \| "auto"` | `"off"` | Coplanar polygon merge strategy |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with slot) |
 | `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation |
 | `auto-rotate` | `AutoRotateOption` | — | Auto-rotate camera |

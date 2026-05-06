@@ -33,8 +33,6 @@ export interface PolySceneProps extends TransformProps {
   textureLighting?: TextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
-  /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
-  merge?: "off" | "auto";
   /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — the scene element's
@@ -67,7 +65,6 @@ function PolySceneInner({
   ambientLight,
   textureLighting = "baked",
   atlasScale,
-  merge = "off",
   autoCenter = false,
   autoRotate: _autoRotate,
   interactive: _interactive,
@@ -116,9 +113,8 @@ function PolySceneInner({
   // still computes a sane (empty) sceneBbox.
   const inputPolygons = useMemo(() => polygonsProp ?? [], [polygonsProp]);
 
-  // Run mesh post-processing pipeline (normalize + optional merge).
+  // Run mesh post-processing pipeline (normalize + automatic merge).
   const { polygons, sceneBbox } = useSceneContext(inputPolygons, {
-    merge,
     directionalLight,
   });
 

@@ -33,6 +33,17 @@ function texturedTriangle(): Polygon {
   };
 }
 
+function cubeFaces(): Polygon[] {
+  return [
+    { vertices: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], color: "#ff0000" },
+    { vertices: [[0, 1, 0], [0, 0, 0], [0, 0, 1], [0, 1, 1]], color: "#00ff00" },
+    { vertices: [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]], color: "#0000ff" },
+    { vertices: [[1, 0, 0], [1, 0, 1], [0, 0, 1], [0, 0, 0]], color: "#ffff00" },
+    { vertices: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], color: "#ff00ff" },
+    { vertices: [[0, 1, 0], [1, 1, 0], [1, 0, 0], [0, 0, 0]], color: "#00ffff" },
+  ];
+}
+
 function makeParseResult(polygons: Polygon[] = [triangle()]): ParseResult {
   let disposed = false;
   return {
@@ -53,6 +64,12 @@ function getCenterWrapper(host: HTMLElement): HTMLElement {
   const wrapper = sceneEl?.firstElementChild as HTMLElement | null;
   expect(wrapper).not.toBeNull();
   return wrapper!;
+}
+
+async function flushAtlasWork(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("createPolyScene", () => {
@@ -219,8 +236,8 @@ describe("createPolyScene", () => {
     });
   });
 
-  describe("merge option", () => {
-    it("merge=auto runs mergePolygons (collapses coplanar same-color triangles)", () => {
+  describe("automatic merge", () => {
+    it("collapses coplanar same-color triangles", () => {
       // Two triangles forming a quad, both red, should merge to 1 polygon.
       const tri1: Polygon = {
         vertices: [
@@ -238,18 +255,10 @@ describe("createPolyScene", () => {
         ],
         color: "#ff0000",
       };
-      scene = createPolyScene(host, { merge: "auto" });
+      scene = createPolyScene(host);
       const handle = scene.add(makeParseResult([tri1, tri2]));
       // After merge there should be 1 polygon, not 2.
       expect(handle.polygons.length).toBe(1);
-    });
-
-    it("merge=off (default) keeps polygons as-is", () => {
-      const tri1 = triangle();
-      const tri2 = triangle("#00ff00");
-      scene = createPolyScene(host, { merge: "off" });
-      const handle = scene.add(makeParseResult([tri1, tri2]));
-      expect(handle.polygons.length).toBe(2);
     });
   });
 
@@ -302,6 +311,57 @@ describe("createPolyScene", () => {
       scene.setOptions({ textureLighting: "baked" });
       expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("");
       expect(sceneEl.dataset.polycssLighting).toBe("baked");
+    });
+  });
+
+  describe("domCullBackfaces", () => {
+    it("mounts only camera-visible face directions when enabled", () => {
+      scene = createPolyScene(host, {
+        domCullBackfaces: true,
+        rotX: 65,
+        rotY: 45,
+      });
+      const handle = scene.add(makeParseResult(cubeFaces()));
+      const polys = Array.from(host.querySelectorAll("i"));
+      expect(handle.polygons.length).toBe(6);
+      expect(polys.length).toBe(3);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-px"))).toBe(true);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-py"))).toBe(true);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-pz"))).toBe(true);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-nx"))).toBe(false);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-ny"))).toBe(false);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-nz"))).toBe(false);
+    });
+
+    it("swaps mounted faces synchronously when the camera direction changes", async () => {
+      scene = createPolyScene(host, {
+        domCullBackfaces: true,
+        rotX: 65,
+        rotY: 45,
+      });
+      scene.add(makeParseResult(cubeFaces()));
+      scene.setOptions({ rotY: 225 });
+      expect(host.querySelectorAll("i").length).toBe(3);
+      await flushAtlasWork();
+
+      const polys = Array.from(host.querySelectorAll("i"));
+      expect(polys.length).toBe(3);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-nx"))).toBe(true);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-ny"))).toBe(true);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-pz"))).toBe(true);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-px"))).toBe(false);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-py"))).toBe(false);
+      expect(polys.some((el) => el.classList.contains("polycss-dir-nz"))).toBe(false);
+    });
+
+    it("restores all faces when disabled after mount", async () => {
+      scene = createPolyScene(host, { domCullBackfaces: true });
+      scene.add(makeParseResult(cubeFaces()));
+      expect(host.querySelectorAll("i").length).toBe(3);
+      scene.setOptions({ domCullBackfaces: false });
+      expect(host.querySelectorAll("i").length).toBe(6);
+      await flushAtlasWork();
+      expect(host.querySelectorAll("i").length).toBe(6);
     });
   });
 

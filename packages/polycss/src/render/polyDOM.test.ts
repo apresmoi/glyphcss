@@ -88,7 +88,7 @@ function computeExpectedMatrix(
   ];
 }
 
-describe("renderPoly — atlas-backed solid polygons", () => {
+describe("renderPoly — solid polygons", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -223,6 +223,26 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
+  it("uses background-color, not an atlas canvas, for full rectangular solid polygons", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas([VERTICAL_QUAD], { doc });
+    const element = result.rendered[0].element;
+    expect(canvases).toHaveLength(0);
+    expect(element.style.backgroundColor).not.toBe("");
+    result.dispose();
+  });
+
   it("returns a polygon i element for texture without UVs", () => {
     const texturedPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
@@ -287,8 +307,9 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const full = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc, atlasScale: 1 });
-    const half = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc, atlasScale: 0.5 });
+    const texturedTriangle = { ...FLAT_TRIANGLE, texture: "https://example.com/tex.png" };
+    const full = renderPolygonsWithTextureAtlas([texturedTriangle], { doc, atlasScale: 1 });
+    const half = renderPolygonsWithTextureAtlas([texturedTriangle], { doc, atlasScale: 0.5 });
 
     expect(canvases).toHaveLength(2);
     expect(canvases[1].width).toBeLessThan(canvases[0].width);
@@ -327,6 +348,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
         [0, 80, 0],
       ],
       color: "#ffffff",
+      texture: "https://example.com/tex.png",
     };
     const largeScene = [largeQuad, largeQuad, largeQuad, largeQuad];
 

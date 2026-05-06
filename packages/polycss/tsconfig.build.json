@@ -12,6 +12,7 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "paths": {
+      "@polycss/core": ["../core/src/index.ts"],
       "@polycss/core/*": ["../core/src/*"]
     }
   },

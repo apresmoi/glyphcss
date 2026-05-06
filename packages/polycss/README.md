@@ -93,7 +93,6 @@ poly-polygon.hover { filter: brightness(1.5); }
 | `light-color` | Directional light color hex |
 | `light-ambient` | Ambient intensity `0`–`1` |
 | `light-ambient-color` | Ambient light color hex |
-| `merge` | `"off"` (default) or `"auto"` |
 | `atlas-scale` | Raster scale for generated atlas pages; lower values reduce memory/detail |
 
 Note: `auto-rotate` and `interactive` are not supported in the v1 vanilla package. Use `@polycss/react` or `@polycss/vue` for animated or interactive scenes.
@@ -153,7 +152,6 @@ mesh.dispose();
 | `rotX` | `number` | Camera X rotation in degrees |
 | `rotY` | `number` | Camera Y rotation in degrees |
 | `directionalLight` | `DirectionalLight` | Lighting config |
-| `merge` | `"off" \| "auto"` | Merge strategy |
 
 Returns a `SceneHandle`:
 

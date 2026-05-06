@@ -86,6 +86,9 @@ const CORE_BASE_STYLES = `
 @property --polycss-nx { syntax: "<number>"; inherits: false; initial-value: 0; }
 @property --polycss-ny { syntax: "<number>"; inherits: false; initial-value: 0; }
 @property --polycss-nz { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --polycss-sr { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --polycss-sg { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --polycss-sb { syntax: "<number>"; inherits: false; initial-value: 1; }
 
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
    here (not inline per polygon) so each <i> only carries its tiny normal
@@ -109,5 +112,26 @@ const CORE_BASE_STYLES = `
            var(--polycss-nz) * var(--polycss-lz))))
   );
   background-blend-mode: multiply;
+}
+
+.polycss-scene[data-polycss-lighting="dynamic"] i.polycss-solid-css {
+  background-color: rgb(
+    calc(255 * var(--polycss-sr) * (var(--polycss-ar) * var(--polycss-ai)
+         + var(--polycss-lr) * var(--polycss-li) * max(0,
+           var(--polycss-nx) * var(--polycss-lx) +
+           var(--polycss-ny) * var(--polycss-ly) +
+           var(--polycss-nz) * var(--polycss-lz))))
+    calc(255 * var(--polycss-sg) * (var(--polycss-ag) * var(--polycss-ai)
+         + var(--polycss-lg) * var(--polycss-li) * max(0,
+           var(--polycss-nx) * var(--polycss-lx) +
+           var(--polycss-ny) * var(--polycss-ly) +
+           var(--polycss-nz) * var(--polycss-lz))))
+    calc(255 * var(--polycss-sb) * (var(--polycss-ab) * var(--polycss-ai)
+         + var(--polycss-lb) * var(--polycss-li) * max(0,
+           var(--polycss-nx) * var(--polycss-lx) +
+           var(--polycss-ny) * var(--polycss-ly) +
+           var(--polycss-nz) * var(--polycss-lz))))
+  );
+  background-blend-mode: normal;
 }
 `;

@@ -22,7 +22,6 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 | `directionalLight` | `DirectionalLight` | — | Directional light source. See [DirectionalLight](#directionallight). |
 | `atlasScale` | `number` | `1` | Raster scale for generated atlas pages. Lower values reduce texture memory and detail. |
 | `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
-| `merge` | `"off" \| "auto"` | `"off"` | Merge strategy. `"auto"` merges coplanar same-material polygons before rendering. |
 | `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation. |
 | `autoRotate` | `AutoRotateOption` | — | Auto-rotate camera. Pass `true` for default Y-axis rotation, a speed number, or `{ axis, speed, pauseOnInteraction }`. |
 | `children` | — | — | `<poly-mesh>` / `<poly-polygon>` (vanilla) or `<PolyMesh>` / `<Poly>` (React / Vue). |

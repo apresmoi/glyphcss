@@ -4,8 +4,6 @@ import type { Polygon, DirectionalLight, Vec3 } from "@polycss/core";
 import { buildSceneContext, mergePolygons } from "@polycss/core";
 
 export interface UseSceneContextOptions {
-  /** `"auto"` runs `mergePolygons`; `"off"` passes through unchanged. */
-  merge?: "off" | "auto";
   directionalLight?: DirectionalLight;
 }
 
@@ -16,7 +14,7 @@ export interface UseSceneContextResult {
 
 /**
  * Vue 3 composable that runs the polycss scene-context pipeline:
- *   normalizePolygons → (optional) mergePolygons → bbox compute.
+ *   normalizePolygons → mergePolygons by default → bbox compute.
  *
  * Returns a Ref to the processed polygons + the scene-wide axis-aligned bbox.
  * Recomputes when `polygons` or relevant options change.
@@ -26,14 +24,10 @@ export function useSceneContext(
   options: Ref<UseSceneContextOptions>
 ): Ref<UseSceneContextResult> {
   return computed(() => {
-    const opts = options.value;
+    const { directionalLight: _directionalLight } = options.value;
 
     const built = buildSceneContext({ polygons: polygons.value });
-
-    const finalPolygons =
-      opts.merge === "auto"
-        ? mergePolygons(built.context.polygons)
-        : built.context.polygons;
+    const finalPolygons = mergePolygons(built.context.polygons);
 
     return {
       polygons: finalPolygons,

@@ -217,28 +217,34 @@ describe("PolyScene — debugShowBackfaces", () => {
   });
 });
 
-describe("PolyScene — merge option", () => {
+describe("PolyScene — automatic merge", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
-  it("merge='off' passes polygons through without merging", () => {
+  it("renders polygons without a merge prop", () => {
     const container = renderScene({
       polygons: [TRIANGLE, QUAD],
-      merge: "off",
     });
     const polys = container.querySelectorAll("i");
     expect(polys.length).toBe(2);
   });
 
-  it("merge='auto' still renders polygons (may reduce count)", () => {
+  it("collapses coplanar same-color triangles", () => {
+    const tri1: Polygon = {
+      vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
+      color: "#ff0000",
+    };
+    const tri2: Polygon = {
+      vertices: [[0, 0, 0], [1, 1, 0], [0, 1, 0]],
+      color: "#ff0000",
+    };
     const container = renderScene({
-      polygons: [TRIANGLE, QUAD],
-      merge: "auto",
+      polygons: [tri1, tri2],
     });
     const polys = container.querySelectorAll("i");
-    expect(polys.length).toBeGreaterThan(0);
+    expect(polys.length).toBe(1);
   });
 });
 

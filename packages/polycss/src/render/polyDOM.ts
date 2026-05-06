@@ -1,9 +1,10 @@
 /**
  * polyDOM — compatibility wrapper for rendering a single Polygon.
  *
- * The vanilla package now uses the atlas-backed i element for every valid
- * polygon. This helper keeps the older single-polygon render contract without
- * carrying a separate SVG implementation.
+ * The vanilla package renders every valid polygon as an <i>: full rectangular
+ * solid polygons can use CSS background-color directly, while textured or
+ * irregular polygons use the atlas path. This helper keeps the older
+ * single-polygon render contract without carrying a separate SVG implementation.
  */
 import type { Polygon } from "@polycss/core";
 import {

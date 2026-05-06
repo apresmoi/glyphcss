@@ -68,8 +68,8 @@ describe("useSceneContext", () => {
     expect(result.sceneBbox.max).toBeDefined();
   });
 
-  it("returns polygons for valid input (merge=off)", () => {
-    const result = captureHook([TRIANGLE], { merge: "off" });
+  it("returns polygons for valid input", () => {
+    const result = captureHook([TRIANGLE]);
     expect(result.polygons.length).toBeGreaterThan(0);
   });
 
@@ -80,16 +80,23 @@ describe("useSceneContext", () => {
     expect(result.sceneBbox.max[0]).toBeCloseTo(1, 3);
   });
 
-  it("passes through polygons when merge='off'", () => {
-    const result = captureHook([TRIANGLE, QUAD], { merge: "off" });
-    // Two polygons in, same count out (off = no merge)
-    expect(result.polygons.length).toBe(2);
+  it("automatically runs mergePolygons", () => {
+    // mergePolygons is allowed to return same or fewer polygons
+    const result = captureHook([TRIANGLE, QUAD]);
+    expect(result.polygons.length).toBeGreaterThan(0);
   });
 
-  it("merge='auto' runs mergePolygons (may reduce or keep count)", () => {
-    // mergePolygons is allowed to return same or fewer polygons
-    const result = captureHook([TRIANGLE, QUAD], { merge: "auto" });
-    expect(result.polygons.length).toBeGreaterThan(0);
+  it("collapses coplanar same-color triangles", () => {
+    const tri1: Polygon = {
+      vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
+      color: "#ff0000",
+    };
+    const tri2: Polygon = {
+      vertices: [[0, 0, 0], [1, 1, 0], [0, 1, 0]],
+      color: "#ff0000",
+    };
+    const result = captureHook([tri1, tri2]);
+    expect(result.polygons.length).toBe(1);
   });
 
   it("sceneBbox covers multiple polygons", () => {

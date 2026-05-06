@@ -33,7 +33,6 @@ import {
   type AtlasScale,
   type RenderedPoly,
 } from "../render/textureAtlas";
-import { slicePolygons } from "../render/slicePolygons";
 import { injectBaseStyles } from "../styles/styles";
 
 export interface PolySceneOptions {
@@ -48,15 +47,16 @@ export interface PolySceneOptions {
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /**
-   * Mesh post-processing.
-   *   - `"off"` (default): each polygon = one DOM element.
-   *   - `"auto"`: coplanar same-color polygons merge (`mergePolygons`).
-   *   - `"slice"`: aggressively rasterize coplanar polygons (across colors)
-   *     into one textured polygon per axis-aligned plane. Massive DOM
-   *     reduction (a 7k-poly voxel scene → ~tens of textured polys).
-   *     Trades per-polygon DOM inspection for compositor framerate.
+   * When `true`, only mount polygons whose face direction is visible from
+   * the current camera. This reduces DOM nodes substantially for voxel
+   * scenes. All face elements are still atlas-rendered once and retained
+   * off-DOM, so camera-direction changes can mount the next visible set
+   * synchronously without waiting for a new atlas.
+   *
+   * Defaults to `false`, which keeps all face DOM mounted and uses CSS
+   * classes to hide back-facing directions so camera changes are cheap.
    */
-  merge?: "off" | "auto" | "slice";
+  domCullBackfaces?: boolean;
   /**
    * When `true`, rotation pivots around the union bbox of all added meshes
    * instead of world (0,0,0). The scene wraps polygons in an inner div
@@ -85,7 +85,7 @@ export interface MeshTransform {
 }
 
 export interface MeshHandle {
-  /** The polygons that were loaded (post-merge if scene merge is enabled). */
+  /** The polygons that were loaded after normalization and automatic merge. */
   polygons: Polygon[];
   /** Remove the mesh from the scene. */
   remove(): void;
@@ -307,9 +307,79 @@ export function createPolyScene(
   }
 
   function applyCullClasses(el: HTMLElement, opts: PolySceneOptions): void {
+    if (opts.domCullBackfaces) {
+      for (const code of DIR_CLASSES) el.classList.remove(`polycss-cull-${code}`);
+      return;
+    }
     const cull = cullSetFromCamera(opts.rotX ?? DEFAULT_ROT_X, opts.rotY ?? DEFAULT_ROT_Y);
     for (const code of DIR_CLASSES) {
       el.classList.toggle(`polycss-cull-${code}`, cull.has(code));
+    }
+  }
+
+  function cullSignature(opts: PolySceneOptions): string {
+    const cull = cullSetFromCamera(opts.rotX ?? DEFAULT_ROT_X, opts.rotY ?? DEFAULT_ROT_Y);
+    return DIR_CLASSES.filter((code) => cull.has(code)).join(",");
+  }
+
+  function shouldMountPolygonForDom(polygon: Polygon | undefined): boolean {
+    if (!polygon) return false;
+    if (!currentOptions.domCullBackfaces) return true;
+    const cull = cullSetFromCamera(currentOptions.rotX ?? DEFAULT_ROT_X, currentOptions.rotY ?? DEFAULT_ROT_Y);
+    const dir = classifyNormal(polygon);
+    return !dir || !cull.has(dir);
+  }
+
+  function clearRendered(entry: MeshEntry): void {
+    disposeRendered(entry.rendered, entry.disposeAtlas);
+    entry.disposeAtlas = undefined;
+    entry.rendered.length = 0;
+  }
+
+  function disposeRendered(rendered: RenderedPoly[], disposeAtlas?: () => void): void {
+    disposeAtlas?.();
+    for (const r of rendered) {
+      try { r.dispose(); } catch { /* ignore */ }
+      if (r.element.parentNode) r.element.parentNode.removeChild(r.element);
+    }
+  }
+
+  function syncMountedRendered(entry: MeshEntry): void {
+    const fragment = doc.createDocumentFragment();
+    for (const item of entry.rendered) {
+      if (shouldMountPolygonForDom(entry.polygons[item.polygonIndex])) {
+        fragment.appendChild(item.element);
+      } else if (item.element.parentNode) {
+        item.element.parentNode.removeChild(item.element);
+      }
+    }
+    entry.wrapper.appendChild(fragment);
+  }
+
+  function renderEntry(entry: MeshEntry): void {
+    clearRendered(entry);
+    const atlas = renderPolygonsWithTextureAtlas(entry.polygons, {
+      doc,
+      directionalLight: currentOptions.directionalLight,
+      ambientLight: currentOptions.ambientLight,
+      textureLighting: currentOptions.textureLighting,
+      atlasScale: currentOptions.atlasScale,
+    });
+    const rendered = atlas.rendered;
+    for (let i = 0; i < rendered.length; i++) {
+      const poly = entry.polygons[rendered[i].polygonIndex] ?? entry.polygons[i];
+      const dir = poly ? classifyNormal(poly) : null;
+      if (dir) rendered[i].element.classList.add(`polycss-dir-${dir}`);
+    }
+
+    entry.rendered = rendered;
+    entry.disposeAtlas = atlas.dispose;
+    syncMountedRendered(entry);
+  }
+
+  function syncMeshesForCull(): void {
+    for (const entry of meshes) {
+      if (!entry.disposed) syncMountedRendered(entry);
     }
   }
 
@@ -349,30 +419,7 @@ export function createPolyScene(
     const css = buildMeshTransform(transform);
     if (css) wrapper.style.transform = css;
 
-    let sourcePolygons: Polygon[];
-    if (currentOptions.merge === "auto") {
-      sourcePolygons = mergePolygons(parseResult.polygons);
-    } else if (currentOptions.merge === "slice") {
-      sourcePolygons = slicePolygons(parseResult.polygons, { doc: mountDoc });
-    } else {
-      sourcePolygons = parseResult.polygons;
-    }
-
-    const atlas = renderPolygonsWithTextureAtlas(sourcePolygons, {
-      doc: mountDoc,
-      directionalLight: currentOptions.directionalLight,
-      ambientLight: currentOptions.ambientLight,
-      textureLighting: currentOptions.textureLighting,
-      atlasScale: currentOptions.atlasScale,
-    });
-    const rendered = atlas.rendered;
-    const disposeAtlas = atlas.dispose;
-    for (let i = 0; i < rendered.length; i++) {
-      const poly = sourcePolygons[rendered[i].polygonIndex] ?? sourcePolygons[i];
-      const dir = poly ? classifyNormal(poly) : null;
-      if (dir) rendered[i].element.classList.add(`polycss-dir-${dir}`);
-    }
-    for (const item of rendered) wrapper.appendChild(item.element);
+    const sourcePolygons = mergePolygons(parseResult.polygons);
 
     centerWrapper.appendChild(wrapper);
 
@@ -380,8 +427,7 @@ export function createPolyScene(
       handle: undefined as unknown as MeshHandle,
       wrapper,
       parseResult,
-      rendered,
-      disposeAtlas,
+      rendered: [],
       polygons: sourcePolygons,
       disposed: false,
       excludeFromAutoCenter: !!transformIn.excludeFromAutoCenter,
@@ -392,11 +438,7 @@ export function createPolyScene(
       remove() {
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
         // Removing from DOM doesn't auto-dispose generated atlas/blob URLs.
-        disposeAtlas?.();
-        for (const r of rendered) {
-          try { r.dispose(); } catch { /* ignore */ }
-        }
-        rendered.length = 0;
+        clearRendered(entry);
         meshes.delete(entry);
         recomputeAutoCenter();
       },
@@ -409,11 +451,7 @@ export function createPolyScene(
         if (entry.disposed) return;
         entry.disposed = true;
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
-        disposeAtlas?.();
-        for (const r of rendered) {
-          try { r.dispose(); } catch { /* ignore */ }
-        }
-        rendered.length = 0;
+        clearRendered(entry);
         try { parseResult.dispose(); } catch { /* ignore */ }
         meshes.delete(entry);
         recomputeAutoCenter();
@@ -422,15 +460,25 @@ export function createPolyScene(
 
     entry.handle = handle;
     meshes.add(entry);
+    renderEntry(entry);
     recomputeAutoCenter();
     return handle;
   }
 
   function setOptions(partial: Partial<PolySceneOptions>): void {
+    const prevDomCull = !!currentOptions.domCullBackfaces;
+    const prevCull = cullSignature(currentOptions);
+    const prevAutoCenter = !!currentOptions.autoCenter;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
+    const nextDomCull = !!currentOptions.domCullBackfaces;
+    const nextCull = cullSignature(currentOptions);
+    const nextAutoCenter = !!currentOptions.autoCenter;
+    if (prevDomCull !== nextDomCull || (nextDomCull && prevCull !== nextCull)) {
+      syncMeshesForCull();
+    }
     syncInteractive();
-    recomputeAutoCenter();
+    if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
   }
 
   // ─── Pointer-drag rotation when options.interactive is true ───────────────
@@ -462,8 +510,12 @@ export function createPolyScene(
     const dY = (e.clientY - pointer.y) / POINTER_DRAG_SPEED;
     const rotX = Math.max(0, Math.min(100, (currentOptions.rotX ?? DEFAULT_ROT_X) - dY));
     const rotY = ((currentOptions.rotY ?? DEFAULT_ROT_Y) - dX + 360) % 360;
+    const prevCull = cullSignature(currentOptions);
     currentOptions = { ...currentOptions, rotX, rotY };
     applySceneStyle(sceneEl, currentOptions);
+    if (currentOptions.domCullBackfaces && prevCull !== cullSignature(currentOptions)) {
+      syncMeshesForCull();
+    }
     pointer = { x: e.clientX, y: e.clientY };
   };
 

@@ -34,7 +34,6 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("rot-x");
       expect(observed).toContain("rot-y");
       expect(observed).toContain("zoom");
-      expect(observed).toContain("merge");
       expect(observed).toContain("atlas-scale");
       expect(observed).toContain("directional-direction");
       expect(observed).toContain("directional-color");
@@ -152,18 +151,6 @@ describe("PolySceneElement", () => {
       el.setAttribute("directional-direction", "1, 0");
       host.appendChild(el);
       expect(el.getScene()).not.toBeNull();
-    });
-
-    it("accepts merge=auto and merge=off; ignores other values", () => {
-      const elA = document.createElement("poly-scene") as PolySceneElement;
-      elA.setAttribute("merge", "auto");
-      host.appendChild(elA);
-      expect(elA.getScene()).not.toBeNull();
-
-      const elB = document.createElement("poly-scene") as PolySceneElement;
-      elB.setAttribute("merge", "garbage");
-      host.appendChild(elB);
-      expect(elB.getScene()).not.toBeNull();
     });
 
     it("parses auto-center as a boolean (presence)", () => {

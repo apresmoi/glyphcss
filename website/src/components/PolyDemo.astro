@@ -357,7 +357,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         perspective: defaults.perspective ?? false,
         interactive: defaults.interactive ?? false,
         animate: defaults.animate ?? false,
-        merge: defaults.merge ?? "off",
         light: defaults.light,
         // Generator-specific state (sphere)
         subdivisions: generatorParams.subdivisions ?? defaults.subdivisions ?? 3,
@@ -401,7 +400,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         };
         const perspective = perspectiveOverride();
         if (perspective !== undefined) attrs["perspective"] = String(perspective);
-        if (state.merge && state.merge !== "off") attrs["merge"] = state.merge;
         if (state.interactive) attrs["interactive"] = "";
         if (state.light) {
           if (state.light.direction) attrs["light-direction"] = state.light.direction.join(",");
@@ -419,7 +417,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           sceneEl.setAttribute(k, v);
         }
         // Remove attrs that should be absent
-        if (!state.merge || state.merge === "off") sceneEl.removeAttribute("merge");
         if (perspectiveOverride() === undefined) sceneEl.removeAttribute("perspective");
         if (!state.interactive) sceneEl.removeAttribute("interactive");
       }
@@ -538,7 +535,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         };
         const perspective = perspectiveOverride();
         if (perspective !== undefined) sceneOptions.perspective = perspective;
-        if (state.merge && state.merge !== "off") sceneOptions.merge = state.merge;
         if (state.light) sceneOptions.directionalLight = state.light;
 
         sceneHandle = createPolyScene(sceneEl as HTMLElement, sceneOptions);
@@ -584,8 +580,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
             interactive: state.interactive,
           });
         } else {
-          // applySceneAttrs handles `interactive` and merge
-          // alongside the rotation/zoom attrs.
+          // applySceneAttrs handles `interactive` alongside the rotation/zoom attrs.
           applySceneAttrs();
         }
         if (state.animate) {
@@ -616,7 +611,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         if (state.animate) cp.animate = "true";
 
         const sp: Record<string, string> = {};
-        if (state.merge && state.merge !== "off") sp.merge = `"${state.merge}"`;
 
         // ── React snippet ──────────────────────────────────────────────────
         if (codeEls.react) {
@@ -728,7 +722,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           if (state.rotX !== 65) htmlAttrs.push(`  rot-x="${state.rotX}"`);
           if (state.rotY !== 45) htmlAttrs.push(`  rot-y="${state.rotY}"`);
           if (state.perspective !== rendererDefaultPerspective) htmlAttrs.push(`  perspective="${state.perspective}"`);
-          if (state.merge && state.merge !== "off") htmlAttrs.push(`  merge="${state.merge}"`);
           htmlAttrs.push('  auto-center');
 
           j.push('<script type="module" src="https://esm.sh/polycss/elements"><' + "/script>");
@@ -854,7 +847,6 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         perspective: () => makeRange("perspective", 200, 12000, 100, state.perspective === false ? rendererDefaultPerspective : state.perspective, (v) => { state.perspective = v; updateCamera(); }, "px"),
         interactive: () => makeSwitch("interactive", state.interactive, (v) => { state.interactive = v; updateCamera(); }),
         animate: () => makeSwitch("animate", state.animate, (v) => { state.animate = v; updateCamera(); }),
-        merge: () => makeSwitch("merge coplanar", state.merge === "auto", (v) => { state.merge = v ? "auto" : "off"; updateScene(); }),
         // Sphere-specific controls
         subdivisions: () => makeRange("subdivisions", 0, 5, 1, state.subdivisions, (v) => { state.subdivisions = Math.round(v); rebuildGeneratorMesh(); updateCode(); }),
         radius: () => makeRange("radius", 2, 20, 1, state.radius, (v) => { state.radius = Math.round(v); rebuildGeneratorMesh(); updateCode(); }),
@@ -887,9 +879,8 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           loadingEl.style.display = "none";
         }
         // Canonical "apply state → scene" pass. Picks up any defaults that
-        // wouldn't otherwise be applied at first mount: animate (starts the
-        // RAF loop), interactive (model mode attaches the attribute), merge
-        // and merge (re-applied through the same path the sliders use).
+        // wouldn't otherwise be applied at first mount: animate starts the
+        // RAF loop, and interactive attaches the model-mode attribute.
         // Without this, `defaults: { animate: true }` only takes effect after
         // the user toggles the slider.
         updateCamera();

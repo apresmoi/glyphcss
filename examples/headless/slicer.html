@@ -3,3430 +3,765 @@
 
 <head>
   <meta charset="utf-8" />
-  <title>VoxCSS - Slicer</title>
+  <title>polycss - VOX viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script type="importmap">
     {
       "imports": {
-        "react": "https://esm.sh/react@18.2.0",
-        "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
-        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "vue": "https://unpkg.com/vue@3.5.12/dist/vue.esm-browser.prod.js"
+        "@polycss/core": "../../packages/core/dist/index.js"
       }
     }
   </script>
   <style>
     :root {
-      font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color-scheme: dark;
-      background: #020617;
-      --hud-width: min(360px, 90vw);
-      --analysis-width: 320px;
-      --reference-size: 200px;
-      --reference-width: calc(var(--reference-size) + 32px);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --bg: #11100d;
+      --panel: #1b1a16;
+      --panel-2: #242219;
+      --line: #3a3528;
+      --text: #f4efe4;
+      --muted: #b8ad96;
+      --subtle: #817865;
+      --accent: #7dd3a7;
+      --accent-2: #f6c177;
+      --danger: #ff7a7a;
     }
 
     * {
       box-sizing: border-box;
     }
 
+    html,
     body {
+      width: 100%;
+      height: 100%;
       margin: 0;
-      min-height: 100vh;
-      background: #020617;
-      color: #e2e8f0;
+      background: var(--bg);
+      color: var(--text);
     }
 
-    .slicer-layout {
-      display: flex;
-      min-height: 100vh;
-      width: 100%;
-    }
-
-    .slicer-main {
-      flex: 1;
-      min-width: 0;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .slicer-reference {
-      width: var(--reference-width);
-      flex-shrink: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 16px;
-      border-right: 1px solid #1f2937;
-      background: #020617;
-      min-height: 0;
-    }
-
-    .slicer-reference-title {
-      font-size: 0.72rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: #94a3b8;
-    }
-
-    #voxcss-reference {
-      position: relative;
-      inset: auto;
-      width: 100%;
-      max-width: var(--reference-size);
-      aspect-ratio: 1 / 1;
-      height: auto;
-      margin: 0 auto;
+    body {
       overflow: hidden;
-      background: #000000;
-      border: 1px solid #334155;
     }
 
-    #voxcss-slice {
-      position: fixed;
-      top: -9999px;
-      left: -9999px;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .hud {
-      position: sticky;
-      top: 0;
-      left: 0;
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      padding: 16px 24px;
-      background: #020617;
-      border-bottom: 1px solid #1f2937;
-      box-shadow: none;
-      overflow-y: auto;
-      border-radius: 0;
-    }
-
-    .hud-top-actions {
-      position: sticky;
-      top: 12px;
-      z-index: 5;
-      display: flex;
-      justify-content: flex-end;
-      pointer-events: auto;
-    }
-
-    .hud-content {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 12px 18px;
-      padding-top: 0;
-    }
-
-    .hud.hud--spacious .hud-content {
-      padding-top: 130px;
-    }
-
-    .hud h1 {
-      margin: 0;
-      font-size: 1rem;
-      letter-spacing: 0.02em;
-    }
-
-    .hud p {
-      margin: 0;
-      color: #cbd5e1;
-      font-size: 0.9rem;
-      line-height: 1.35;
-    }
-
-    .buttons {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
+    button,
+    input {
+      font: inherit;
     }
 
     button {
       appearance: none;
-      border: 1px solid #475569;
-      border-radius: 0;
-      background: #020617;
-      color: #e2e8f0;
-      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #181713;
+      color: var(--text);
+      min-height: 34px;
+      padding: 0 12px;
       cursor: pointer;
-      font-size: 0.85rem;
-      font-weight: 600;
-      transition: border-color 0.2s ease, background 0.2s ease;
-      pointer-events: auto;
     }
 
-    button:hover {
-      border-color: #38bdf8;
-      background: #0f1c2e;
+    button:hover,
+    button:focus-visible {
+      border-color: var(--accent);
+      outline: none;
     }
 
     button.active {
-      border-color: #38bdf8;
-      background: #0f1c2e;
+      border-color: var(--accent);
+      background: #173027;
+      color: #dcffeb;
     }
 
-    .control {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin: 0;
-      min-width: 0;
-      pointer-events: auto;
-    }
-
-    .hud-section {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 8px 0;
-      border-radius: 0;
-      background: #020617;
-      border-top: 1px solid #334155;
-      box-shadow: none;
-    }
-
-    .hud-section:first-of-type {
-      border-top: none;
-      padding-top: 0;
-    }
-
-    .hud-section-title {
-      font-size: 0.72rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: #94a3b8;
-      margin-bottom: 0;
-    }
-
-    .hud-grid {
+    .app {
+      height: 100%;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 12px;
-      align-items: start;
+      grid-template-rows: 56px minmax(0, 1fr);
+      background: var(--bg);
     }
 
-    .control--span {
-      grid-column: 1 / -1;
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: #151410;
+      min-width: 0;
     }
 
-    .control--toggle label {
-      display: inline-flex;
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .brand strong {
+      font-size: 15px;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .brand span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
       align-items: center;
       gap: 8px;
-      cursor: pointer;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
-    .control label {
-      font-size: 0.78rem;
-      color: #cbd5e1;
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
     }
 
-    .control input[type="range"] {
-      width: 100%;
-      accent-color: #38bdf8;
-      cursor: pointer;
+    .viewport {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background-color: #13120f;
+      background-image:
+        linear-gradient(rgba(244, 239, 228, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(244, 239, 228, 0.045) 1px, transparent 1px);
+      background-size: 40px 40px;
     }
 
-    .control input[type="checkbox"] {
-      accent-color: #38bdf8;
+    #scene {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
     }
 
-    .control select {
-      width: 100%;
-      padding: 6px 10px;
-      border-radius: 0;
-      border: 1px solid #475569;
-      background: #020617;
-      color: #e2e8f0;
-      font-size: 0.85rem;
-      pointer-events: auto;
+    .drop-overlay {
+      position: absolute;
+      inset: 18px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed transparent;
+      border-radius: 8px;
+      color: var(--muted);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 120ms ease, border-color 120ms ease, background 120ms ease;
+      background: rgba(17, 16, 13, 0.72);
+      z-index: 5;
     }
 
-    @media (max-width: 520px) {
-      .hud-grid {
-        grid-template-columns: 1fr;
-      }
+    .drop-overlay strong {
+      font-size: clamp(22px, 4vw, 44px);
+      letter-spacing: 0;
+      color: var(--text);
     }
 
-    @media (max-width: 900px) {
-      .slicer-layout {
-        flex-direction: column;
-      }
-
-      .slicer-reference {
-        width: 100%;
-        border-right: none;
-        border-top: 1px solid #1f2937;
-        align-items: center;
-      }
-
-      .slice-workspace {
-        grid-template-columns: 1fr;
-      }
-
-      .slice-analysis {
-        border-right: none;
-        border-bottom: 1px solid #1f2937;
-      }
-
-      .slice-grid {
-        padding: 16px 18px 24px;
-      }
-
-      #voxcss-reference {
-        max-width: 180px;
-      }
+    .drop-overlay span {
+      display: block;
+      margin-top: 8px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
     }
 
-    .value {
-      font-size: 0.82rem;
-      color: #94a3b8;
+    .viewport.dragging .drop-overlay,
+    .viewport.empty .drop-overlay {
+      opacity: 1;
+      border-color: var(--accent);
+    }
+
+    .viewport.empty .drop-overlay {
+      background: rgba(17, 16, 13, 0.54);
     }
 
     .status {
-      color: #a5b4fc;
-      font-size: 0.9rem;
+      position: absolute;
+      left: 18px;
+      bottom: 18px;
+      max-width: min(580px, calc(100% - 36px));
+      padding: 10px 12px;
+      border: 1px solid rgba(58, 53, 40, 0.85);
+      border-radius: 8px;
+      background: rgba(21, 20, 16, 0.86);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+      z-index: 4;
     }
 
-    .status small {
-      display: block;
-      color: #cbd5e1;
-      margin-top: 2px;
+    .status[data-tone="error"] {
+      border-color: rgba(255, 122, 122, 0.55);
+      color: #ffd7d7;
     }
 
-    .stats {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      position: static;
-      align-items: flex-start;
-      text-align: left;
-      padding: 0 0 12px;
-      border-radius: 0;
-      background: #020617;
-      border-bottom: 1px solid #1f2937;
-      box-shadow: none;
+    .side {
+      min-width: 0;
+      overflow: auto;
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      padding: 18px;
     }
 
-    .stats-title {
-      font-size: 0.9rem;
-      color: #94a3b8;
-      letter-spacing: 0.08em;
+    .section {
+      padding: 0 0 18px;
+      margin: 0 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section:last-child {
+      margin-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .section h2 {
+      margin: 0 0 12px;
+      color: var(--subtle);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      margin-bottom: 6px;
     }
 
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 4px 12px;
-      margin: 0;
-    }
-
-    .stats-kpi {
+    .sample-list,
+    .segmented,
+    .view-buttons {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
-    .stats-kpi-value {
-      font-size: clamp(1.8rem, 4.5vw, 3.2rem);
-      font-weight: 800;
-      letter-spacing: -0.05em;
-      line-height: 0.9;
-      color: #e2e8f0;
-      font-variant-numeric: tabular-nums;
+    .segmented button {
+      flex: 1 1 74px;
     }
 
-    .stats-grid dt {
-      margin: 0;
-      font-size: 0.78rem;
-      color: #cbd5e1;
+    .view-buttons button {
+      flex: 1 1 64px;
     }
 
-    .stats-grid dd {
-      margin: 0;
-      font-size: 0.78rem;
-      color: #e2e8f0;
+    .field {
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr) 52px;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .field input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .field output {
+      color: var(--text);
       font-variant-numeric: tabular-nums;
       text-align: right;
     }
 
-    .stats-grid dd.emph {
-      color: #a5b4fc;
-      font-weight: 600;
-    }
-
-    .stats-grid .stat-subtle {
-      color: #64748b;
-    }
-
-    .stats-grid .stat-hidden {
-      display: none;
-    }
-
-    .error {
-      color: #fda4af;
-    }
-
-    .slice-panel {
-      position: relative;
-      inset: auto;
-      z-index: 12;
-      width: auto;
-      max-width: none;
-      display: flex;
-      flex-direction: column;
-      background: #020617;
-      border: none;
-      border-radius: 0;
-      box-shadow: none;
-      overflow: hidden;
-      pointer-events: auto;
-      flex: 1;
-      min-height: 0;
-    }
-
-    .slice-workspace {
+    .stats {
       display: grid;
-      grid-template-columns: minmax(260px, var(--analysis-width)) minmax(0, 1fr);
-      flex: 1;
-      min-height: 0;
-    }
-
-    .slice-analysis {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      padding: 16px 20px 24px;
-      border-right: 1px solid #1f2937;
-      background: #020617;
-      min-height: 0;
-      overflow: auto;
-    }
-
-    .slice-panel[hidden] {
-      display: none;
-    }
-
-    body.voxcss-xray-slices #voxcss-slice {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    body.voxcss-pe-all * {
-      pointer-events: all !important;
-    }
-
-    .slice-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px 18px;
-      padding: 16px 24px 14px;
-      margin: 0;
-      border-bottom: 1px solid #1f2937;
-      background: #020617;
-    }
-
-    .slice-header-info {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      min-width: 200px;
-    }
-
-    .slice-kpis {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 10px 12px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #1f2937;
-    }
-
-    .slice-kpi {
-      padding-top: 8px;
-      border-radius: 0;
-      border: none;
-      border-top: 1px solid #334155;
-      background: #020617;
-      min-width: 0;
-    }
-
-    .slice-kpi-label {
-      font-size: 0.7rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #94a3b8;
-    }
-
-    .slice-kpi-value {
-      font-size: 1.05rem;
-      font-weight: 600;
-      color: #e2e8f0;
-      margin-top: 2px;
-    }
-
-    .slice-title {
-      font-size: 0.85rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: #cbd5e1;
-    }
-
-    .slice-meta {
-      font-size: 0.78rem;
-      color: #94a3b8;
-      text-align: left;
-    }
-
-    .slice-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-    }
-
-    .slice-actions .control {
-      margin: 0;
-    }
-
-    .slice-actions .control label {
-      margin-bottom: 4px;
-      display: block;
-    }
-
-    .slice-grid {
-      flex: 1;
-      overflow: auto;
-      padding: 16px 24px 24px;
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      min-height: 0;
-    }
-
-    .slice-row {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 12px;
-      border-radius: 0;
-      border: 1px solid #334155;
-      background: #020617;
-    }
-
-    .slice-row.is-selected {
-      border-color: #38bdf8;
-    }
-
-    .slice-row[data-worst="true"] {
-      box-shadow: none;
-    }
-
-    .slice-row[data-worst="true"] .slice-row-label {
-      color: #fdba74;
-    }
-
-    .slice-row-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      grid-template-columns: 1fr;
       gap: 8px;
     }
 
-    .slice-row-label {
-      font-size: 0.78rem;
-      color: #e2e8f0;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-
-    .slice-row-badges {
+    .stat {
       display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(58, 53, 40, 0.55);
+      min-width: 0;
     }
 
-    .slice-badge {
-      font-size: 0.68rem;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: #0f172a;
-      background: #f8fafc;
-      border-radius: 0;
-      padding: 2px 6px;
+    .stat:last-child {
+      border-bottom: 0;
     }
 
-    .slice-badge.badge-worst {
-      background: #fdba74;
+    .stat span {
+      color: var(--muted);
+      font-size: 13px;
     }
 
-    .slice-badge.badge-fallback {
-      background: #fca5a5;
-    }
-
-    .slice-stats {
-      font-size: 0.72rem;
-      color: #94a3b8;
-      letter-spacing: 0.02em;
-    }
-
-    .slice-row-metrics {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px 10px;
-      color: #cbd5e1;
-      font-size: 0.72rem;
-      letter-spacing: 0.02em;
-    }
-
-    .slice-row-metrics span {
-      padding: 0;
-      border-radius: 0;
-      background: #020617;
-      border: none;
-      white-space: nowrap;
-    }
-
-    .slice-preview {
-      position: relative;
-      margin-top: 8px;
-      border-radius: 0;
-      border: none;
-      background: #020617;
+    .stat b {
+      min-width: 0;
       overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
     }
 
-    .slice-metrics {
-      margin-top: 4px;
-      font-size: 0.7rem;
-      color: #94a3b8;
-      letter-spacing: 0.02em;
+    .warnings {
+      margin: 10px 0 0;
+      padding: 0;
+      list-style: none;
+      color: var(--danger);
+      font-size: 12px;
+      line-height: 1.35;
     }
 
-    .slice-preview-content {
-      position: absolute;
-      top: 0;
-      left: 0;
-      transform-origin: top left;
+    .warnings li + li {
+      margin-top: 6px;
     }
 
-    .slice-preview-rotator {
-      position: absolute;
-      top: 0;
-      left: 0;
-      transform-origin: top left;
+    #file-input {
+      display: none;
     }
 
-    .slice-scene {
-      position: absolute;
-      top: 0;
-      left: 0;
-      background-color: #020617;
-      z-index: 1;
-    }
+    @media (max-width: 860px) {
+      .app {
+        grid-template-rows: auto minmax(0, 1fr);
+      }
 
-    .slice-grid-overlay {
-      position: absolute;
-      inset: 0;
-      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'><rect width='20' height='20' fill='none'/><path d='M20 0H0V20' fill='none' stroke='%23334155' stroke-width='1'/></svg>");
-      background-size: var(--voxcss-grid-x, 20px) var(--voxcss-grid-y, 20px);
-      background-repeat: repeat;
-      pointer-events: none;
-      z-index: 2;
-    }
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 12px;
+      }
 
-    .slice-scene>* {
-      z-index: 1;
-    }
+      .actions {
+        justify-content: flex-start;
+      }
 
-    .slice-scene .voxcss-layer,
-    .slice-scene .voxcss-plane,
-    .slice-scene .voxcss-brush {
-      transform: none !important;
-    }
+      .main {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) minmax(220px, 38vh);
+      }
 
-    .slice-scene .voxcss-layer>* {
-      outline: 4px solid #ef4444;
-      outline-offset: -4px;
-    }
-
-    .slice-scene .voxcss-plane,
-    .slice-scene .voxcss-brush {
-      outline: 4px solid #ef4444;
-      outline-offset: -4px;
-    }
-
-    .slice-scene .voxcss-plane::before,
-    .slice-scene .voxcss-plane::after,
-    .slice-scene .voxcss-brush::before,
-    .slice-scene .voxcss-brush::after,
-    .slice-scene .voxcss-cube-face::before,
-    .slice-scene .voxcss-cube-face::after,
-    .slice-scene .voxcss-shape-inner::before,
-    .slice-scene .voxcss-shape-inner::after {
-      outline: 3px solid #3b82f6;
-      outline-offset: -3px;
-      background-color: transparent;
-    }
-
-    .slice-scene .voxcss-plane::after,
-    .slice-scene .voxcss-brush::after,
-    .slice-scene .voxcss-cube-face::after,
-    .slice-scene .voxcss-shape-inner::after {
-      outline: 3px solid #10b981;
-      outline-offset: -3px;
-      background-color: transparent;
-    }
-
-    .voxcss-plane {
-      pointer-events: none !important;
-    }
-
-    .slice-scene .voxcss-floor-x,
-    .slice-scene .voxcss-floor-y,
-    .slice-scene .voxcss-floor-z {
-      position: relative;
-      inset: auto;
-      transform: none !important;
-    }
-
-    body.voxcss-xray-slices .slice-scene .voxcss-floor-z {
-      background-color: transparent !important;
-    }
-
-
-    .voxcss-scene.voxcss-debug-plane-outline .voxcss-brush {
-      outline: 3px solid #ef4444 !important;
-      outline-offset: -3px;
-      background-color: transparent !important;
-      pointer-events: all !important;
-    }
-
-    .voxcss-scene.voxcss-debug-plane-outline .voxcss-brush::before {
-      outline: 3px solid #10b981 !important;
-      outline-offset: -3px;
-      background-color: transparent !important;
-    }
-
-    .voxcss-scene.voxcss-debug-plane-outline .voxcss-brush::after {
-      outline: 3px solid #3b82f6 !important;
-      outline-offset: -3px;
-      background-color: transparent !important;
-    }
-
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-cube-face--fr,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-cube-face--fl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-cube-face--bl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-cube-face--br,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-plane--fr,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-plane--fl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-plane--bl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="z"] .voxcss-plane--br {
-      display: none !important;
-    }
-
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-cube-face--t,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-cube-face--b,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-cube-face--fr,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-cube-face--bl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-plane--t,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-plane--b,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-plane--fr,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="x"] .voxcss-plane--bl {
-      display: none !important;
-    }
-
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-cube-face--t,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-cube-face--b,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-cube-face--fl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-cube-face--br,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-plane--t,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-plane--b,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-plane--fl,
-    .voxcss-scene.voxcss-plane-xray[data-xray-axis="y"] .voxcss-plane--br {
-      display: none !important;
-    }
-
-    .voxcss-scene.voxcss-plane-xray .voxcss-brush,
-    .slice-scene.voxcss-plane-xray .voxcss-brush {
-      background-color: transparent !important;
+      .side {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        padding: 14px;
+      }
     }
   </style>
 </head>
 
 <body>
-  <div class="slicer-layout">
-    <aside class="slicer-reference">
-      <div class="slicer-reference-title">3D Reference</div>
-      <div id="voxcss-reference"></div>
-    </aside>
-    <div class="slicer-main">
-      <div class="hud">
-        <div class="hud-content">
-          <div class="hud-section">
-            <div class="hud-section-title">Setup</div>
-            <div class="control">
-              <label>Model</label>
-              <div class="buttons" id="model-buttons">
-                <button type="button" data-model="/examples/models/army.vox">army</button>
-                <button type="button" data-model="/examples/models/bus.vox">bus</button>
-                <button type="button" data-model="/examples/models/house.vox">house</button>
-                <button type="button" data-model="/examples/models/skyscraper.vox">sky</button>
-                <button type="button" data-model="/examples/models/tank.vox">tank</button>
-              </div>
-            </div>
-            <div class="hud-grid">
-              <div class="control">
-                <label for="preset-select">Preset</label>
-                <select id="preset-select">
-                  <option value="" selected>Select a preset...</option>
-                </select>
-              </div>
-              <div class="control">
-                <label>Floor</label>
-                <div class="buttons">
-                  <button type="button" id="floor-toggle">Toggle floor</button>
-                </div>
-              </div>
-              <div class="control control--span">
-                <label>Merge voxels</label>
-                <div class="buttons" id="merge-modes">
-                  <button type="button" data-merge="off">Off</button>
-                  <button type="button" data-merge="2d">2D</button>
-                  <button type="button" data-merge="3d">3D</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-section-title">View</div>
-            <div class="control">
-              <label>Camera</label>
-              <div class="buttons" id="camera-buttons">
-                <button type="button" data-camera="iso">Iso</button>
-                <button type="button" data-camera="left">Left</button>
-                <button type="button" data-camera="right">Right</button>
-                <button type="button" data-camera="top">Top</button>
-              </div>
-            </div>
-            <div class="control">
-              <label for="zoom">Zoom <span class="value" id="zoom-value"></span></label>
-              <input id="zoom" type="range" min="0.01" max="2.4" step="0.01" />
-            </div>
-            <div class="control control--toggle">
-              <label for="animate">
-                <input id="animate" type="checkbox" />
-                Animate camera
-              </label>
-            </div>
-          </div>
-          <div class="hud-section">
-            <div class="hud-section-title">Debug + Render</div>
-            <div class="control">
-              <label>Inspect</label>
-              <div class="buttons">
-                <button type="button" id="plane-outline">Plane outline</button>
-              </div>
-            </div>
-            <div class="control">
-              <label>Renderer</label>
-              <div class="buttons" id="renderer-modes">
-                <button type="button" data-renderer="headless">Headless</button>
-                <button type="button" data-renderer="react">React</button>
-                <button type="button" data-renderer="vue">Vue</button>
-              </div>
-            </div>
-            <div class="hud-grid">
-              <div class="control">
-                <label for="engine-select">Engine</label>
-                <select id="engine-select">
-                  <option value="auto">Auto</option>
-                  <option value="shell">Shell renderer</option>
-                  <option value="slice" selected>Slice renderer</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <strong>VOX Viewer</strong>
+        <span id="title-detail">Loading sample</span>
       </div>
-      <div class="slice-panel" id="slice-panel">
-        <div class="slice-header">
-          <div class="slice-header-info">
-            <div class="slice-title">Slice Analysis</div>
-            <div class="slice-meta" id="slice-meta"></div>
-          </div>
-          <div class="slice-actions">
-            <div class="control" id="plane-xray-controls" hidden>
-              <label>Plane Axis</label>
-              <div class="buttons" id="plane-xray-axis">
-                <button type="button" data-axis="z">Z</button>
-                <button type="button" data-axis="x">X</button>
-                <button type="button" data-axis="y">Y</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="slice-workspace">
-          <div class="slice-analysis">
-            <div class="slice-kpis" id="slice-kpis"></div>
-            <div class="stats" id="stats">
-              <div class="stats-kpi">
-                <div class="stats-title">Scene Elements</div>
-                <div class="stats-kpi-value" id="stat-total">0</div>
-              </div>
-              <dl class="stats-grid">
-                <dt>SVGs</dt>
-                <dd id="stat-svgs">0</dd>
-                <dt>Stamps</dt>
-                <dd id="stat-stamps">0</dd>
-                <dt>Brushes</dt>
-                <dd id="stat-brushes">0</dd>
-                <dt class="stat-subtle">Brushes (pseudos)</dt>
-                <dd id="stat-brushes-pseudos" class="stat-subtle">0</dd>
-                <dt class="stat-subtle">Brushes (gradients)</dt>
-                <dd id="stat-brushes-gradients" class="stat-subtle">0</dd>
-                <dt class="stat-subtle">Paint cost</dt>
-                <dd id="stat-paint-cost" class="stat-subtle">0</dd>
-                <dt class="stat-subtle">Wasted paint</dt>
-                <dd id="stat-wasted-paint" class="stat-subtle">0</dd>
-                <dt class="stat-subtle">Composite</dt>
-                <dd id="stat-composite" class="stat-subtle">0</dd>
-                <dt class="stat-cube-faces">Cube faces</dt>
-                <dd id="stat-cube-faces" class="stat-cube-faces">0</dd>
-                <dt class="stat-cubes">Cubes</dt>
-                <dd id="stat-cubes" class="stat-cubes">0</dd>
-                <dt class="stat-layers">Layers</dt>
-                <dd id="stat-layers" class="stat-layers">0</dd>
-                <dt>FPS (animate)</dt>
-                <dd id="stat-fps">-</dd>
-              </dl>
-            </div>
-          </div>
-          <div class="slice-grid" id="slice-grid"></div>
-        </div>
+      <div class="actions">
+        <button id="browse" type="button">Browse</button>
+        <button id="fit" type="button">Fit</button>
+        <button id="reset" type="button">Reset</button>
       </div>
-    </div>
+    </header>
+
+    <main class="main">
+      <section id="viewport" class="viewport empty" aria-label="VOX model viewport">
+        <div id="scene"></div>
+        <div class="drop-overlay" aria-hidden="true">
+          <div>
+            <strong>Drop .vox</strong>
+            <span>or use Browse</span>
+          </div>
+        </div>
+        <div id="status" class="status">Loading bundled sample...</div>
+      </section>
+
+      <aside class="side">
+        <section class="section">
+          <h2>Samples</h2>
+          <div id="samples" class="sample-list"></div>
+        </section>
+
+        <section class="section">
+          <h2>View</h2>
+          <div id="views" class="view-buttons" role="group" aria-label="View preset">
+            <button type="button" data-view="iso" class="active">Iso</button>
+            <button type="button" data-view="front">Front</button>
+            <button type="button" data-view="side">Side</button>
+            <button type="button" data-view="top">Top</button>
+          </div>
+          <label class="field">
+            <span>Zoom</span>
+            <input id="zoom" type="range" min="0.04" max="1.2" step="0.01" value="0.18" />
+            <output id="zoom-out">0.18</output>
+          </label>
+          <label class="field">
+            <span>Tilt</span>
+            <input id="rot-x" type="range" min="0" max="100" step="1" value="65" />
+            <output id="rot-x-out">65</output>
+          </label>
+          <label class="field">
+            <span>Spin</span>
+            <input id="rot-y" type="range" min="0" max="359" step="1" value="45" />
+            <output id="rot-y-out">45</output>
+          </label>
+        </section>
+
+        <section class="section">
+          <h2>Stats</h2>
+          <div class="stats">
+            <div class="stat"><span>File</span><b id="stat-file">-</b></div>
+            <div class="stat"><span>Voxels</span><b id="stat-voxels">-</b></div>
+            <div class="stat"><span>Polygons</span><b id="stat-polygons">-</b></div>
+            <div class="stat"><span>DOM nodes</span><b id="stat-dom">-</b></div>
+            <div class="stat"><span>Bounds</span><b id="stat-bounds">-</b></div>
+            <div class="stat"><span>Parse</span><b id="stat-parse">-</b></div>
+            <div class="stat"><span>Bytes</span><b id="stat-bytes">-</b></div>
+          </div>
+          <ul id="warnings" class="warnings"></ul>
+        </section>
+      </aside>
+    </main>
   </div>
-  <div id="voxcss-slice" aria-hidden="true"></div>
-  <input id="file-input" type="file" accept=".vox" hidden />
+
+  <input id="file-input" type="file" accept=".vox" />
 
   <script type="module">
-    import { parseMagicaVoxel, renderScene, createCamera, mergeVoxels } from "../../packages/voxcss/dist/index.js";
-
-    const referenceRoot = document.getElementById("voxcss-reference");
-    const sliceRoot = document.getElementById("voxcss-slice");
-    const root = sliceRoot ?? referenceRoot;
-    const fileInput = document.getElementById("file-input");
-    const statsEl = document.getElementById("stats");
-    const statTotalEl = document.getElementById("stat-total");
-    const statBrushesEl = document.getElementById("stat-brushes");
-    const statBrushesPseudosEl = document.getElementById("stat-brushes-pseudos");
-    const statBrushesGradientsEl = document.getElementById("stat-brushes-gradients");
-    const statPaintCostEl = document.getElementById("stat-paint-cost");
-    const statWastedPaintEl = document.getElementById("stat-wasted-paint");
-    const statCompositeEl = document.getElementById("stat-composite");
-    const statStampsEl = document.getElementById("stat-stamps");
-    const statSvgsEl = document.getElementById("stat-svgs");
-    const statCubeFaceEl = document.getElementById("stat-cube-faces");
-    const statCubeEl = document.getElementById("stat-cubes");
-    const statLayerEl = document.getElementById("stat-layers");
-    const statFpsEl = document.getElementById("stat-fps");
-    const zoomInput = document.getElementById("zoom");
-    const zoomValue = document.getElementById("zoom-value");
-    const presetSelect = document.getElementById("preset-select");
-    const modelButtons = document.getElementById("model-buttons");
-    const cameraButtons = document.getElementById("camera-buttons");
-    const animateInput = document.getElementById("animate");
-    const mergeModes = document.getElementById("merge-modes");
-    const rendererModes = document.getElementById("renderer-modes");
-    const engineSelect = document.getElementById("engine-select");
-    const hudPanel = document.querySelector(".hud");
-    const viewModes = document.getElementById("view-modes");
-    const planeXrayControls = document.getElementById("plane-xray-controls");
-    const planeXrayAxisButtons = document.getElementById("plane-xray-axis");
-    const openXrayButton = document.getElementById("open-xray");
-    const hudPaddingToggleButton = document.getElementById("hud-padding-toggle");
-    const slicePanel = document.getElementById("slice-panel");
-    const sliceMeta = document.getElementById("slice-meta");
-    const sliceKpis = document.getElementById("slice-kpis");
-    const sliceGrid = document.getElementById("slice-grid");
-    const planeOutlineButton = document.getElementById("plane-outline");
-    const floorToggleButton = document.getElementById("floor-toggle");
-
-    const SAMPLE = buildSampleCube(2);
-    const DEFAULT_MODEL_URL = "/examples/models/army.vox";
-
-    let rendererMode = "headless";
-    let engineMode = "slice";
-    let lastEngineMode = engineMode;
-    let mountedRenderer = null;
-    let referenceRenderer = null;
-    let renderSeq = 0;
-
-    let reactRuntimePromise = null;
-    let vueRuntimePromise = null;
-
-    let lastData = SAMPLE;
-    let lastLabel = SAMPLE.label;
-    let currentZoom = null;
-    let mergeMode = "3d";
-    const projection = "cubic";
-    let animate = false;
-    let planeOutline = false;
-    let showFloor = false;
-    let cameraPreset = "iso";
-    let viewMode = "xray";
-    let planeXrayAxis = "x";
-
-    const XRAY_SPACING = 3;
-    const BASE_TILE_SIZE = 50;
-    const SLICE_FACE_OFFSETS = {
-      t: 0.12,
-      b: 0.12,
-      fr: -0.12,
-      fl: -0.12,
-      br: 0.12,
-      bl: 0.12
-    };
-
-    const stripVoxExtension = (value) => {
-      if (!value) return "";
-      const lower = value.toLowerCase();
-      if (lower.endsWith(".vox")) return value.slice(0, -4);
-      if (lower.endsWith(".json")) return value.slice(0, -5);
-      return value;
-    };
-
-    function setStat(el, value) {
-      if (!el) return;
-      el.textContent = Number.isFinite(value) ? String(value) : String(value ?? "");
-    }
-
-    const FPS_SAMPLE_WINDOW = 1000;
-    let fpsFrameId = null;
-    let fpsFrames = 0;
-    let fpsSampleStart = 0;
-
-    function setFpsValue(value) {
-      if (!statFpsEl) return;
-      if (!Number.isFinite(value)) {
-        statFpsEl.textContent = "-";
-        return;
-      }
-      statFpsEl.textContent = String(Math.round(value));
-    }
-
-    function fpsTick(now) {
-      if (fpsFrameId === null) return;
-      if (!fpsSampleStart) fpsSampleStart = now;
-      fpsFrames += 1;
-      const elapsed = now - fpsSampleStart;
-      if (elapsed >= FPS_SAMPLE_WINDOW) {
-        setFpsValue((fpsFrames * 1000) / elapsed);
-        fpsFrames = 0;
-        fpsSampleStart = now;
-      }
-      fpsFrameId = requestAnimationFrame(fpsTick);
-    }
-
-    function startFpsMonitor() {
-      if (!statFpsEl || fpsFrameId !== null) return;
-      if (typeof requestAnimationFrame !== "function") return;
-      fpsFrames = 0;
-      fpsSampleStart = 0;
-      fpsFrameId = requestAnimationFrame(fpsTick);
-    }
-
-    function stopFpsMonitor() {
-      if (fpsFrameId === null) return;
-      if (typeof cancelAnimationFrame === "function") {
-        cancelAnimationFrame(fpsFrameId);
-      }
-      fpsFrameId = null;
-      fpsFrames = 0;
-      fpsSampleStart = 0;
-      setFpsValue(Number.NaN);
-    }
-
-    function getSliceBrushCounts(report) {
-      const slices = Array.isArray(report?.slices) ? report.slices : [];
-      const renderStats = report?.renderStats;
-      if (renderStats && Number.isFinite(renderStats.brushNodes)) {
-        const brushBase = Number.isFinite(renderStats.brushBase) ? renderStats.brushBase : 0;
-        const brushCombo = Number.isFinite(renderStats.brushCombo) ? renderStats.brushCombo : 0;
-        const brush = Number.isFinite(renderStats.brush) ? renderStats.brush : brushBase + brushCombo;
-        const stamp = Number.isFinite(renderStats.brushStamp) ? renderStats.brushStamp : 0;
-        const svg = Number.isFinite(renderStats.brushSvg) ? renderStats.brushSvg : 0;
-        const gradient = Number.isFinite(renderStats.brushGradient) ? renderStats.brushGradient : 0;
-        const total = Number.isFinite(renderStats.brushNodes)
-          ? renderStats.brushNodes
-          : brush + stamp + svg;
-        const pseudoLayers = Number.isFinite(renderStats.pseudoLayers) ? renderStats.pseudoLayers : 0;
-        return {
-          brush,
-          total,
-          stamp,
-          svg,
-          gradient,
-          pseudoLayers
-        };
-      }
-      if (!slices.length) return null;
-      let brush = 0;
-      let stamp = 0;
-      let svg = 0;
-      let total = 0;
-      let gradient = 0;
-      for (const slice of slices) {
-        if (!slice) continue;
-        const sliceBrush = Number.isFinite(slice.brush) ? slice.brush : 0;
-        const sliceStamp = Number.isFinite(slice.stamp) ? slice.stamp : 0;
-        const sliceSvg = Number.isFinite(slice.svg) ? slice.svg : 0;
-        const sliceGradient = Number.isFinite(slice.gradient) ? slice.gradient : 0;
-        const sliceTotal = Number.isFinite(slice.brushTotal)
-          ? slice.brushTotal
-          : sliceBrush + sliceStamp + sliceSvg;
-        brush += sliceBrush;
-        stamp += sliceStamp;
-        svg += sliceSvg;
-        total += sliceTotal;
-        gradient += sliceGradient;
-      }
-      const pseudoLayers = Number.isFinite(report?.renderStats?.pseudoLayers) ? report.renderStats.pseudoLayers : 0;
-      return {
-        brush,
-        total,
-        stamp,
-        svg,
-        gradient,
-        pseudoLayers
-      };
-    }
-
-    function updateDomStats(stats) {
-      if (!statsEl) return;
-      if (!stats) {
-        setStat(statTotalEl, 0);
-        setStat(statBrushesEl, 0);
-        setStat(statBrushesPseudosEl, 0);
-        setStat(statBrushesGradientsEl, 0);
-        setStat(statPaintCostEl, "-");
-        setStat(statWastedPaintEl, "-");
-        setStat(statCompositeEl, "-");
-        setStat(statStampsEl, 0);
-        setStat(statSvgsEl, 0);
-        setStat(statCubeFaceEl, 0);
-        setStat(statCubeEl, 0);
-        setStat(statLayerEl, 0);
-        statCubeFaceEl?.classList.remove("stat-hidden");
-        statCubeEl?.classList.remove("stat-hidden");
-        statLayerEl?.classList.remove("stat-hidden");
-        statCubeFaceEl?.previousElementSibling?.classList.remove("stat-hidden");
-        statCubeEl?.previousElementSibling?.classList.remove("stat-hidden");
-        statLayerEl?.previousElementSibling?.classList.remove("stat-hidden");
-        setFpsValue(Number.NaN);
-        return;
-      }
-      const cubeCount = stats.cubes ?? 0;
-      const cubeFaceCount = stats.cubeFaces ?? 0;
-      const layerCount = stats.layers ?? 0;
-      const svgCount = stats.svgs ?? 0;
-      const totalBrushCount = stats.totalBrushes ?? 0;
-      const brushCount = stats.brushes ?? 0;
-      const brushPseudos = stats.brushPseudos ?? 0;
-      const brushGradients = stats.brushGradients ?? 0;
-      const stampCount = stats.stamps ?? 0;
-      const svgBrushCount = stats.svgBrushes ?? svgCount;
-      const domCount = stats.totalElements ?? 0;
-      const paintCost = Number.isFinite(stats.paintCost) ? Math.round(stats.paintCost) : null;
-      const wastedPaint = Number.isFinite(stats.wastedPaint) ? Math.round(stats.wastedPaint) : null;
-      const wastedPaintRatio = Number.isFinite(stats.wastedPaintRatio) ? stats.wastedPaintRatio : null;
-      const compositeNodes = Number.isFinite(stats.compositeNodes) ? stats.compositeNodes : null;
-      setStat(statTotalEl, domCount);
-      setStat(statBrushesEl, brushCount);
-      setStat(statBrushesPseudosEl, brushPseudos);
-      setStat(statBrushesGradientsEl, brushGradients);
-      setStat(statPaintCostEl, paintCost ?? "-");
-      setStat(
-        statWastedPaintEl,
-        wastedPaint === null
-          ? "-"
-          : wastedPaintRatio === null
-            ? `${wastedPaint}`
-            : `${wastedPaint} (${Math.round(wastedPaintRatio * 100)}%)`
-      );
-      setStat(statCompositeEl, compositeNodes ?? "-");
-      setStat(statStampsEl, stampCount);
-      setStat(statSvgsEl, svgBrushCount);
-      const hideCubeStats = totalBrushCount > 0;
-      statCubeFaceEl?.classList.toggle("stat-hidden", hideCubeStats);
-      statCubeEl?.classList.toggle("stat-hidden", hideCubeStats);
-      statLayerEl?.classList.toggle("stat-hidden", hideCubeStats);
-      statCubeFaceEl?.previousElementSibling?.classList.toggle("stat-hidden", hideCubeStats);
-      statCubeEl?.previousElementSibling?.classList.toggle("stat-hidden", hideCubeStats);
-      statLayerEl?.previousElementSibling?.classList.toggle("stat-hidden", hideCubeStats);
-      setStat(statCubeFaceEl, cubeFaceCount);
-      setStat(statCubeEl, cubeCount);
-      setStat(statLayerEl, layerCount);
-    }
-
-    function computeZoom(data) {
-      const maxDim = Math.max(data.rows || 1, data.cols || 1, data.depth || 1);
-      const target = 14;
-      const scaled = (target / Math.max(4, maxDim)) * 0.4;
-      return Math.max(0.1, Math.min(0.25, scaled));
-    }
-
-    function resolveDimensions(data) {
-      const voxels = data?.voxels ?? [];
-      let maxX = 0;
-      let maxY = 0;
-      let maxZ = 0;
-      for (const voxel of voxels) {
-        if (!voxel) continue;
-        const x2 = Number.isFinite(voxel.x2) ? voxel.x2 : voxel.x + 1;
-        const y2 = Number.isFinite(voxel.y2) ? voxel.y2 : voxel.y + 1;
-        const z2 = Number.isFinite(voxel.z2) ? voxel.z2 : voxel.z + 1;
-        maxX = Math.max(maxX, x2);
-        maxY = Math.max(maxY, y2);
-        maxZ = Math.max(maxZ, z2);
-      }
-      const rows = Number.isFinite(data?.rows) ? data.rows : maxX;
-      const cols = Number.isFinite(data?.cols) ? data.cols : maxY;
-      const depth = Number.isFinite(data?.depth) ? data.depth : maxZ;
-      return { rows, cols, depth };
-    }
-
-    function parseTranslateZ(transform) {
-      if (!transform) return null;
-      const match = transform.match(/translateZ\((-?\d+(?:\.\d+)?)px\)/);
-      if (!match) return null;
-      const value = Number(match[1]);
-      return Number.isFinite(value) ? value : null;
-    }
-
-    function parseCssPx(value) {
-      if (!value) return null;
-      const parsed = Number.parseFloat(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    }
-
-    function getXrayBaseZ(face) {
-      const baseTransform = face.dataset.xrayBaseTransform ?? face.style.transform;
-      const transformValue = parseTranslateZ(baseTransform);
-      if (transformValue !== null) return transformValue;
-      const baseZ = face.dataset.xrayBaseZ ?? face.style.getPropertyValue("--vox-z");
-      return parseCssPx(baseZ);
-    }
-
-    function groupFacesByPlaneWithOffsets(faces) {
-      const groups = new Map();
-      for (const face of faces) {
-        if (!(face instanceof HTMLElement) && !(face instanceof SVGElement)) continue;
-        const offset = getXrayBaseZ(face);
-        if (offset === null) continue;
-        const key = Number(offset.toFixed(3));
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(face);
-      }
-      return Array.from(groups.entries())
-        .sort((a, b) => a[0] - b[0])
-        .map(([offset, grouped]) => ({ offset, faces: grouped }));
-    }
-
-    function groupFacesByPlane(faces) {
-      return groupFacesByPlaneWithOffsets(faces).map((entry) => entry.faces);
-    }
-
-    function resolveLayerElevation(sceneEl) {
-      if (!sceneEl) return BASE_TILE_SIZE;
-      const cameraEl = sceneEl.closest(".voxcss-camera") ?? sceneEl.parentElement;
-      if (!cameraEl) return BASE_TILE_SIZE;
-      const value = getComputedStyle(cameraEl).getPropertyValue("--voxcss-layer-elevation");
-      const parsed = Number.parseFloat(value);
-      return Number.isFinite(parsed) ? parsed : BASE_TILE_SIZE;
-    }
-
-    function getZSlicePaintedCounts(dims, voxels) {
-      const rows = Math.max(0, Math.floor(dims.rows ?? 0));
-      const cols = Math.max(0, Math.floor(dims.cols ?? 0));
-      const depth = Math.max(0, Math.floor(dims.depth ?? 0));
-      const sets = Array.from({ length: depth }, () => new Set());
-      for (const voxel of voxels ?? []) {
-        if (!voxel) continue;
-        const x0 = Math.max(0, Math.floor(voxel.x));
-        const x1 = Math.max(x0, Math.floor(Number.isFinite(voxel.x2) ? voxel.x2 : voxel.x + 1));
-        const y0 = Math.max(0, Math.floor(voxel.y));
-        const y1 = Math.max(y0, Math.floor(Number.isFinite(voxel.y2) ? voxel.y2 : voxel.y + 1));
-        const z0 = Math.max(0, Math.floor(voxel.z));
-        const z1 = Math.max(z0, Math.floor(Number.isFinite(voxel.z2) ? voxel.z2 : voxel.z + 1));
-        const xStart = Math.min(x0, rows);
-        const xEnd = Math.min(x1, rows);
-        const yStart = Math.min(y0, cols);
-        const yEnd = Math.min(y1, cols);
-        const zStart = Math.min(z0, depth);
-        const zEnd = Math.min(z1, depth);
-        if (xStart >= xEnd || yStart >= yEnd || zStart >= zEnd) continue;
-        for (let z = zStart; z < zEnd; z += 1) {
-          const set = sets[z];
-          if (!set) continue;
-          for (let x = xStart; x < xEnd; x += 1) {
-            for (let y = yStart; y < yEnd; y += 1) {
-              set.add(`${x}:${y}`);
-            }
-          }
-        }
-      }
-      return sets.map((set) => set.size);
-    }
-
-    function getXSlicePaintedCounts(dims, voxels) {
-      const rows = Math.max(0, Math.floor(dims.rows ?? 0));
-      const cols = Math.max(0, Math.floor(dims.cols ?? 0));
-      const depth = Math.max(0, Math.floor(dims.depth ?? 0));
-      const sets = Array.from({ length: rows }, () => new Set());
-      for (const voxel of voxels ?? []) {
-        if (!voxel) continue;
-        const x0 = Math.max(0, Math.floor(voxel.x));
-        const x1 = Math.max(x0, Math.floor(Number.isFinite(voxel.x2) ? voxel.x2 : voxel.x + 1));
-        const y0 = Math.max(0, Math.floor(voxel.y));
-        const y1 = Math.max(y0, Math.floor(Number.isFinite(voxel.y2) ? voxel.y2 : voxel.y + 1));
-        const z0 = Math.max(0, Math.floor(voxel.z));
-        const z1 = Math.max(z0, Math.floor(Number.isFinite(voxel.z2) ? voxel.z2 : voxel.z + 1));
-        const xStart = Math.min(x0, rows);
-        const xEnd = Math.min(x1, rows);
-        const yStart = Math.min(y0, cols);
-        const yEnd = Math.min(y1, cols);
-        const zStart = Math.min(z0, depth);
-        const zEnd = Math.min(z1, depth);
-        if (xStart >= xEnd || yStart >= yEnd || zStart >= zEnd) continue;
-        for (let x = xStart; x < xEnd; x += 1) {
-          const set = sets[x];
-          if (!set) continue;
-          for (let y = yStart; y < yEnd; y += 1) {
-            for (let z = zStart; z < zEnd; z += 1) {
-              set.add(`${y}:${z}`);
-            }
-          }
-        }
-      }
-      return sets.map((set) => set.size);
-    }
-
-    function getYSlicePaintedCounts(dims, voxels) {
-      const rows = Math.max(0, Math.floor(dims.rows ?? 0));
-      const cols = Math.max(0, Math.floor(dims.cols ?? 0));
-      const depth = Math.max(0, Math.floor(dims.depth ?? 0));
-      const sets = Array.from({ length: cols }, () => new Set());
-      for (const voxel of voxels ?? []) {
-        if (!voxel) continue;
-        const x0 = Math.max(0, Math.floor(voxel.x));
-        const x1 = Math.max(x0, Math.floor(Number.isFinite(voxel.x2) ? voxel.x2 : voxel.x + 1));
-        const y0 = Math.max(0, Math.floor(voxel.y));
-        const y1 = Math.max(y0, Math.floor(Number.isFinite(voxel.y2) ? voxel.y2 : voxel.y + 1));
-        const z0 = Math.max(0, Math.floor(voxel.z));
-        const z1 = Math.max(z0, Math.floor(Number.isFinite(voxel.z2) ? voxel.z2 : voxel.z + 1));
-        const xStart = Math.min(x0, rows);
-        const xEnd = Math.min(x1, rows);
-        const yStart = Math.min(y0, cols);
-        const yEnd = Math.min(y1, cols);
-        const zStart = Math.min(z0, depth);
-        const zEnd = Math.min(z1, depth);
-        if (xStart >= xEnd || yStart >= yEnd || zStart >= zEnd) continue;
-        for (let y = yStart; y < yEnd; y += 1) {
-          const set = sets[y];
-          if (!set) continue;
-          for (let x = xStart; x < xEnd; x += 1) {
-            for (let z = zStart; z < zEnd; z += 1) {
-              set.add(`${x}:${z}`);
-            }
-          }
-        }
-      }
-      return sets.map((set) => set.size);
-    }
-
-    function formatCellStats(painted, totalCells) {
-      if (!Number.isFinite(totalCells) || totalCells <= 0) {
-        return "Cells 0/0";
-      }
-      const safePainted = Number.isFinite(painted) ? painted : 0;
-      const pct = totalCells ? Math.round((safePainted / totalCells) * 1000) / 10 : 0;
-      return `Cells ${safePainted}/${totalCells} (${pct.toFixed(1)}%)`;
-    }
-
-    function formatDomPerCell(value) {
-      if (!Number.isFinite(value) || value <= 0) return "DOM/cell 0.00";
-      if (value < 0.01) return "DOM/cell <0.01";
-      return `DOM/cell ${value.toFixed(2)}`;
-    }
-
-    function formatScore(value) {
-      if (!Number.isFinite(value)) return "Score --";
-      const clamped = Math.max(0, Math.min(100, value));
-      return `Score ${clamped.toFixed(1)}`;
-    }
-
-    function getSlicePlaneOffset(axis, plane, tileSize, layerElevation) {
-      return axis === "z"
-        ? plane * layerElevation
-        : -1 * (plane - 1) * tileSize;
-    }
-
-    function getSliceOffsetKey(axis, plane, face, tileSize, layerElevation) {
-      const faceOffset = SLICE_FACE_OFFSETS[face];
-      if (faceOffset === undefined) return null;
-      const base = getSlicePlaneOffset(axis, plane, tileSize, layerElevation);
-      return Number((base + faceOffset).toFixed(3));
-    }
-
-    function buildSliceMetricLookup(slices, axis, tileSize, layerElevation) {
-      const map = new Map();
-      if (!Array.isArray(slices)) return map;
-      for (const slice of slices) {
-        if (!slice || slice.axis !== axis) continue;
-        const key = getSliceOffsetKey(axis, slice.plane, slice.face, tileSize, layerElevation);
-        if (key === null) continue;
-        map.set(key, slice);
-      }
-      return map;
-    }
-
-    function buildWorstSliceLookup(worstSlices, axis, tileSize, layerElevation) {
-      const set = new Set();
-      if (!Array.isArray(worstSlices)) return set;
-      for (const slice of worstSlices) {
-        if (!slice || slice.axis !== axis) continue;
-        const key = getSliceOffsetKey(axis, slice.plane, slice.face, tileSize, layerElevation);
-        if (key === null) continue;
-        set.add(key);
-      }
-      return set;
-    }
-
-    function summarizeSliceElements(slice) {
-      const summary = {
-        elements: 0,
-        planes: 0,
-        brushes: 0,
-        cubeFaces: 0,
-        svgHosts: 0,
-        svgPaths: 0
-      };
-      if (slice.type === "layer" && slice.node instanceof HTMLElement) {
-        summary.planes = slice.node.querySelectorAll(".voxcss-plane").length;
-        summary.brushes = slice.node.querySelectorAll(".voxcss-brush").length;
-        summary.cubeFaces = slice.node.querySelectorAll(".voxcss-cube-face").length;
-        summary.svgHosts = slice.node.querySelectorAll("svg").length;
-        summary.svgPaths = slice.node.querySelectorAll("svg path").length;
-        summary.elements = summary.planes + summary.brushes + summary.cubeFaces + summary.svgHosts;
-        return summary;
-      }
-      const faces = slice.faces ?? [];
-      summary.elements = faces.length;
-      for (const face of faces) {
-        if (!(face instanceof Element)) continue;
-        if (face.classList.contains("voxcss-plane")) summary.planes += 1;
-        if (face.classList.contains("voxcss-brush")) summary.brushes += 1;
-        if (face.classList.contains("voxcss-cube-face")) summary.cubeFaces += 1;
-        if (face instanceof SVGElement) {
-          summary.svgHosts += 1;
-          summary.svgPaths += face.querySelectorAll("path").length;
-        }
-      }
-      return summary;
-    }
-
-    function parseGridArea(value) {
-      if (!value) return null;
-      const match = value.match(/(-?\d+)\s*\/\s*(-?\d+)\s*\/\s*(-?\d+)\s*\/\s*(-?\d+)/);
-      if (!match) return null;
-      const r0 = Number(match[1]);
-      const c0 = Number(match[2]);
-      const r1 = Number(match[3]);
-      const c1 = Number(match[4]);
-      if (![r0, c0, r1, c1].every((entry) => Number.isFinite(entry))) return null;
-      const areaCells = Math.max(0, (r1 - r0) * (c1 - c0));
-      return { r0, c0, r1, c1, areaCells };
-    }
-
-    function parseGridTemplate(value) {
-      if (!value) return null;
-      const repeatMatch = value.match(/repeat\(\s*(\d+)\s*,\s*([\d.]+)px\s*\)/);
-      if (repeatMatch) {
-        return {
-          count: Number(repeatMatch[1]),
-          sizePx: Number(repeatMatch[2]),
-          raw: value
-        };
-      }
-      const parts = value.split(/\s+/).filter(Boolean);
-      const sizes = parts.map((part) => Number.parseFloat(part)).filter((entry) => Number.isFinite(entry));
-      if (!sizes.length) return null;
-      return { count: sizes.length, sizePx: sizes[0], sizes, raw: value };
-    }
-
-    function resolveTileSize(sceneEl) {
-      if (!sceneEl) return BASE_TILE_SIZE;
-      const zHost = sceneEl.querySelector(".voxcss-floor-z");
-      if (zHost instanceof HTMLElement) {
-        const computed = getComputedStyle(zHost);
-        const template = computed.gridTemplateColumns || zHost.style.gridTemplateColumns;
-        const parsed = parseGridTemplate(template);
-        if (parsed?.sizePx) return parsed.sizePx;
-      }
-      return BASE_TILE_SIZE;
-    }
-
-    function hasCssVar(value) {
-      const raw = (value ?? "").trim();
-      return !!raw && raw !== "none";
-    }
-
-    function getBrushInfo(brush) {
-      const gridAreaValue = brush.style.gridArea || getComputedStyle(brush).gridArea;
-      const gridArea = parseGridArea(gridAreaValue);
-      const beforeValue = brush.style.getPropertyValue("--vox-bc");
-      const afterValue = brush.style.getPropertyValue("--vox-ac");
-      const before = hasCssVar(beforeValue);
-      const after = hasCssVar(afterValue);
-      const baseZRaw = brush.dataset.xrayBaseZ ?? brush.style.getPropertyValue("--vox-z");
-      const baseZ = parseCssPx(baseZRaw);
-      const nestedChildren = Array.from(brush.children).filter((child) =>
-        child instanceof HTMLElement && child.classList.contains("voxcss-brush")
-      ).length;
-      const isNestedChild = brush.parentElement instanceof HTMLElement &&
-        brush.parentElement.classList.contains("voxcss-brush");
-      return {
-        gridAreaValue,
-        gridArea,
-        baseZRaw,
-        baseZ,
-        backgroundColor: brush.style.backgroundColor || getComputedStyle(brush).backgroundColor,
-        pseudo: { before, after },
-        nestedChildren,
-        isNestedChild
-      };
-    }
-
-    function analyzeBrushElements(brushes) {
-      const details = [];
-      let totalArea = 0;
-      let minArea = Number.POSITIVE_INFINITY;
-      let maxArea = 0;
-      let beforeCount = 0;
-      let afterCount = 0;
-      let bothCount = 0;
-      let noneCount = 0;
-      let nestedChildCount = 0;
-      let nestedChildrenTotal = 0;
-      for (const brush of brushes) {
-        if (!(brush instanceof HTMLElement)) continue;
-        const info = getBrushInfo(brush);
-        details.push(info);
-        if (info.pseudo.before) beforeCount += 1;
-        if (info.pseudo.after) afterCount += 1;
-        if (info.pseudo.before && info.pseudo.after) bothCount += 1;
-        if (!info.pseudo.before && !info.pseudo.after) noneCount += 1;
-        if (info.isNestedChild) nestedChildCount += 1;
-        nestedChildrenTotal += info.nestedChildren;
-        if (!info.isNestedChild && info.gridArea?.areaCells) {
-          totalArea += info.gridArea.areaCells;
-          minArea = Math.min(minArea, info.gridArea.areaCells);
-          maxArea = Math.max(maxArea, info.gridArea.areaCells);
-        }
-      }
-      const topLevelCount = Math.max(0, brushes.length - nestedChildCount);
-      const avgArea = topLevelCount ? totalArea / topLevelCount : 0;
-      return {
-        count: brushes.length,
-        topLevelCount,
-        nestedChildCount,
-        nestedChildrenTotal,
-        beforeCount,
-        afterCount,
-        bothCount,
-        noneCount,
-        totalArea,
-        minArea: Number.isFinite(minArea) ? minArea : 0,
-        maxArea,
-        avgArea,
-        details
-      };
-    }
-
-    function analyzeSvgElements(svgs) {
-      const details = [];
-      let pathCount = 0;
-      let pathBytes = 0;
-      for (const svg of svgs) {
-        if (!(svg instanceof SVGElement)) continue;
-        const paths = Array.from(svg.querySelectorAll("path"));
-        let localBytes = 0;
-        for (const path of paths) {
-          const d = path.getAttribute("d") ?? "";
-          localBytes += d.length;
-        }
-        pathCount += paths.length;
-        pathBytes += localBytes;
-        details.push({
-          viewBox: svg.getAttribute("viewBox"),
-          pathCount: paths.length,
-          pathBytes: localBytes
-        });
-      }
-      return { count: svgs.length, pathCount, pathBytes, details };
-    }
-
-    function collectFaceElementDetails(faces) {
-      const details = [];
-      for (const face of faces) {
-        if (!(face instanceof Element)) continue;
-        const tag = face.tagName.toLowerCase();
-        const className = face.className;
-        const type = face.classList.contains("voxcss-brush")
-          ? "brush"
-          : face.classList.contains("voxcss-plane")
-            ? "plane"
-            : face.classList.contains("voxcss-cube-face")
-              ? "cube-face"
-              : face instanceof SVGElement
-                ? "svg"
-                : "other";
-        const baseZ = getXrayBaseZ(face);
-        const gridAreaValue = face instanceof HTMLElement
-          ? face.style.gridArea || getComputedStyle(face).gridArea
-          : null;
-        const gridArea = face instanceof HTMLElement ? parseGridArea(gridAreaValue) : null;
-        const dataset = face instanceof HTMLElement || face instanceof SVGElement ? { ...face.dataset } : {};
-        const brushInfo = type === "brush" && face instanceof HTMLElement ? getBrushInfo(face) : null;
-        const svgInfo = type === "svg" && face instanceof SVGElement ? analyzeSvgElements([face]) : null;
-        details.push({
-          tag,
-          type,
-          className,
-          baseZ,
-          gridAreaValue,
-          gridArea,
-          dataset,
-          brush: brushInfo,
-          svg: svgInfo
-        });
-      }
-      return details;
-    }
-
-    function collectLayerDetails(layer) {
-      if (!(layer instanceof HTMLElement)) return null;
-      const childTags = {};
-      for (const child of Array.from(layer.children)) {
-        const tag = child.tagName.toLowerCase();
-        childTags[tag] = (childTags[tag] ?? 0) + 1;
-      }
-      return {
-        className: layer.className,
-        childCount: layer.children.length,
-        childTags
-      };
-    }
-
-    function getAxisTotalCells(axis, dims) {
-      const rows = Math.max(0, Math.floor(dims.rows ?? 0));
-      const cols = Math.max(0, Math.floor(dims.cols ?? 0));
-      const depth = Math.max(0, Math.floor(dims.depth ?? 0));
-      if (axis === "z") return rows * cols;
-      if (axis === "x") return cols * depth;
-      return rows * depth;
-    }
-
-    function computeVoxelStats(data) {
-      const voxels = data?.voxels ?? [];
-      let count = 0;
-      let volume = 0;
-      let minX = Number.POSITIVE_INFINITY;
-      let minY = Number.POSITIVE_INFINITY;
-      let minZ = Number.POSITIVE_INFINITY;
-      let maxX = Number.NEGATIVE_INFINITY;
-      let maxY = Number.NEGATIVE_INFINITY;
-      let maxZ = Number.NEGATIVE_INFINITY;
-      let minSpan = Number.POSITIVE_INFINITY;
-      let maxSpan = 0;
-      const colors = new Set();
-      for (const voxel of voxels) {
-        if (!voxel) continue;
-        count += 1;
-        const x2 = Number.isFinite(voxel.x2) ? voxel.x2 : voxel.x + 1;
-        const y2 = Number.isFinite(voxel.y2) ? voxel.y2 : voxel.y + 1;
-        const z2 = Number.isFinite(voxel.z2) ? voxel.z2 : voxel.z + 1;
-        minX = Math.min(minX, voxel.x);
-        minY = Math.min(minY, voxel.y);
-        minZ = Math.min(minZ, voxel.z);
-        maxX = Math.max(maxX, x2);
-        maxY = Math.max(maxY, y2);
-        maxZ = Math.max(maxZ, z2);
-        const spanX = Math.max(0, x2 - voxel.x);
-        const spanY = Math.max(0, y2 - voxel.y);
-        const spanZ = Math.max(0, z2 - voxel.z);
-        const spanMax = Math.max(spanX, spanY, spanZ);
-        minSpan = Math.min(minSpan, spanMax);
-        maxSpan = Math.max(maxSpan, spanMax);
-        volume += spanX * spanY * spanZ;
-        const colorIndex = voxel.colorIndex ?? voxel.color ?? voxel.colorId;
-        if (colorIndex !== undefined) colors.add(colorIndex);
-      }
-      const bounds = Number.isFinite(minX)
-        ? { minX, minY, minZ, maxX, maxY, maxZ }
-        : { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
-      return {
-        count,
-        volume,
-        bounds,
-        minSpan: Number.isFinite(minSpan) ? minSpan : 0,
-        maxSpan,
-        uniqueColors: colors.size
-      };
-    }
-
-    function collectSceneDomStats(sceneEl) {
-      if (!sceneEl) return null;
-      return {
-        totalElements: sceneEl.querySelectorAll("*").length,
-        planes: sceneEl.querySelectorAll(".voxcss-plane").length,
-        brushes: sceneEl.querySelectorAll(".voxcss-brush").length,
-        cubeFaces: sceneEl.querySelectorAll(".voxcss-cube-face").length,
-        layers: sceneEl.querySelectorAll(".voxcss-layer").length,
-        svgHosts: sceneEl.querySelectorAll("svg").length,
-        svgPaths: sceneEl.querySelectorAll("svg path").length,
-        shapes: sceneEl.querySelectorAll(".voxcss-shape").length,
-        shapeInners: sceneEl.querySelectorAll(".voxcss-shape-inner").length
-      };
-    }
-
-    function collectSceneDataset(rootEl) {
-      if (!(rootEl instanceof HTMLElement)) return null;
-      const entries = {};
-      for (const [key, value] of Object.entries(rootEl.dataset)) {
-        if (!key.startsWith("voxcss")) continue;
-        const parsed = Number(value);
-        entries[key] = Number.isFinite(parsed) ? parsed : value;
-      }
-      return entries;
-    }
-
-    const DOM_REPORT_NODE_LIMIT = 8192;
-
-    function createDomReportContext() {
-      return {
-        nodeCount: 0,
-        truncatedPath: null,
-        stats: {
-          totalElements: 0,
-          maxDepth: 0,
-          textNodeParents: 0,
-          textLength: 0,
-          totalArea: 0,
-          maxArea: 0,
-          svgHosts: 0,
-          svgPaths: 0,
-          planes: 0,
-          brushes: 0,
-          cubeFaces: 0,
-          layers: 0,
-          shapes: 0,
-          shapeInners: 0,
-          classCounts: {},
-          tagCounts: {}
-        }
-      };
-    }
-
-    function collectDomStats(element, context, depth, path) {
-      if (!(element instanceof Element)) return;
-      if (context.nodeCount >= DOM_REPORT_NODE_LIMIT) {
-        if (!context.truncatedPath) context.truncatedPath = path;
-        return;
-      }
-      context.nodeCount += 1;
-      const stats = context.stats;
-      stats.totalElements += 1;
-      stats.maxDepth = Math.max(stats.maxDepth, depth);
-      const tag = (element.tagName || "").toLowerCase();
-      if (tag) {
-        stats.tagCounts[tag] = (stats.tagCounts[tag] ?? 0) + 1;
-      }
-      const classes = Array.from(element.classList ?? []);
-      for (const className of classes) {
-        stats.classCounts[className] = (stats.classCounts[className] ?? 0) + 1;
-      }
-      if (tag === "svg") stats.svgHosts += 1;
-      if (tag === "path") stats.svgPaths += 1;
-      let textLength = 0;
-      for (const childNode of Array.from(element.childNodes)) {
-        if (childNode.nodeType !== Node.TEXT_NODE) continue;
-        const trimmed = (childNode.textContent ?? "").trim();
-        if (!trimmed) continue;
-        textLength += trimmed.length;
-      }
-      if (textLength > 0) {
-        stats.textNodeParents += 1;
-        stats.textLength += textLength;
-      }
-      const rect =
-        typeof element.getBoundingClientRect === "function"
-          ? element.getBoundingClientRect()
-          : null;
-      if (rect && Number.isFinite(rect.width) && Number.isFinite(rect.height)) {
-        const area = Math.max(0, rect.width * rect.height);
-        stats.totalArea += area;
-        stats.maxArea = Math.max(stats.maxArea, area);
-      }
-      for (let i = 0; i < element.children.length; i += 1) {
-        collectDomStats(element.children[i], context, depth + 1, `${path}.${i}`);
-        if (context.nodeCount >= DOM_REPORT_NODE_LIMIT) break;
-      }
-    }
-
-    function getTopEntries(map, limit = 6) {
-      return Object.entries(map)
-        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, limit)
-        .map(([key, count]) => ({ key, count }));
-    }
-
-    function mergeCountMap(target, source) {
-      for (const [key, value] of Object.entries(source ?? {})) {
-        if (!Number.isFinite(value)) continue;
-        target[key] = (target[key] ?? 0) + value;
-      }
-    }
-
-    function buildDomSummary(cameraReports) {
-      const totals = { totalElements: 0, nodeCount: 0, pseudoHosts: 0 };
-      const heaviness = {
-        totalArea: 0,
-        maxArea: 0,
-        textLength: 0,
-        maxDepth: 0,
-        textNodeParents: 0
-      };
-      const elementTotals = {
-        totalElements: 0,
-        planes: 0,
-        brushes: 0,
-        cubeFaces: 0,
-        layers: 0,
-        svgHosts: 0,
-        svgPaths: 0,
-        shapes: 0,
-        shapeInners: 0
-      };
-      const classCounts = {};
-      const tagCounts = {};
-      for (const camera of cameraReports) {
-        const cameraTotals = camera.totals ?? {};
-        totals.totalElements += cameraTotals.totalElements ?? 0;
-        totals.nodeCount += cameraTotals.nodeCount ?? 0;
-        totals.pseudoHosts += cameraTotals.pseudoHosts ?? 0;
-        const weight = camera.weight ?? {};
-        heaviness.totalArea += weight.totalArea ?? 0;
-        heaviness.maxArea = Math.max(heaviness.maxArea, weight.maxArea ?? 0);
-        heaviness.textLength += weight.textLength ?? 0;
-        heaviness.maxDepth = Math.max(heaviness.maxDepth, weight.maxDepth ?? 0);
-        heaviness.textNodeParents += weight.textNodeParents ?? 0;
-        mergeCountMap(elementTotals, camera.sceneDom);
-        mergeCountMap(classCounts, camera.classCounts);
-        mergeCountMap(tagCounts, camera.tagCounts);
-      }
-      const summary = {
-        cameraCount: cameraReports.length,
-        totals,
-        heaviness,
-        elementBreakdown: elementTotals,
-        uniqueClasses: Object.keys(classCounts).length,
-        uniqueTags: Object.keys(tagCounts).length,
-        topClasses: getTopEntries(classCounts),
-        topTags: getTopEntries(tagCounts)
-      };
-      return summary;
-    }
-
-    function createSliceHostClone(host, faces) {
-      const clone = document.createElement("div");
-      clone.className = host.className;
-      clone.style.display = host.style.display;
-      clone.style.gridTemplateColumns = host.style.gridTemplateColumns;
-      clone.style.gridTemplateRows = host.style.gridTemplateRows;
-      clone.style.width = host.style.width;
-      clone.style.height = host.style.height;
-      const gridX = host.style.getPropertyValue("--voxcss-grid-x");
-      const gridY = host.style.getPropertyValue("--voxcss-grid-y");
-      const floorBase = host.style.getPropertyValue("--voxcss-floor-base");
-      if (gridX) clone.style.setProperty("--voxcss-grid-x", gridX);
-      if (gridY) clone.style.setProperty("--voxcss-grid-y", gridY);
-      if (floorBase) clone.style.setProperty("--voxcss-floor-base", floorBase);
-      for (const face of faces) {
-        if (!(face instanceof HTMLElement) && !(face instanceof SVGElement)) continue;
-        const faceClone = face.cloneNode(true);
-        const styledClone =
-          faceClone instanceof HTMLElement || faceClone instanceof SVGElement ? faceClone : null;
-        if (styledClone) {
-          const base = face.dataset.xrayBaseTransform ?? face.style.transform;
-          if (base) styledClone.style.transform = base;
-          const baseZ = face.dataset.xrayBaseZ;
-          if (baseZ) styledClone.style.setProperty("--vox-z", baseZ);
-        }
-        clone.appendChild(faceClone);
-      }
-      return clone;
-    }
-
-    function collectCssText() {
-      const sheets = Array.from(document.styleSheets ?? []);
-      const blocks = [];
-      for (const sheet of sheets) {
-        let rules;
-        try {
-          rules = sheet.cssRules;
-        } catch (err) {
-          continue;
-        }
-        if (!rules) continue;
-        for (const rule of Array.from(rules)) {
-          blocks.push(rule.cssText);
-        }
-      }
-      return blocks.join("\n");
-    }
-
-    function downloadDataUrl(dataUrl, filename) {
-      const link = document.createElement("a");
-      link.href = dataUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    }
-
-    async function exportSlicePreview(preview, cssText, filename) {
-      const rect = preview.getBoundingClientRect();
-      const width = Math.max(1, Math.round(rect.width));
-      const height = Math.max(1, Math.round(rect.height));
-      const clone = preview.cloneNode(true);
-      if (!(clone instanceof HTMLElement)) return;
-      clone.style.width = `${width}px`;
-      clone.style.height = `${height}px`;
-      const wrapper = document.createElement("div");
-      wrapper.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-      wrapper.appendChild(clone);
-      const svg = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
-          <foreignObject width="100%" height="100%">
-            <style>${cssText}</style>
-            ${wrapper.outerHTML}
-          </foreignObject>
-        </svg>
-      `;
-      const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      try {
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-          img.onload = () => resolve();
-          img.onerror = () => reject(new Error("Failed to load slice image."));
-          img.src = url;
-        });
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        ctx.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/png");
-        downloadDataUrl(dataUrl, filename);
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    }
-
-    async function exportAllSlices() {
-      if (!sliceGrid) return;
-      const previews = Array.from(sliceGrid.querySelectorAll(".slice-preview"));
-      if (!previews.length) return;
-      const cssText = collectCssText();
-      let index = 0;
-      for (const preview of previews) {
-        const card = preview.closest(".slice-card");
-        const label = card?.dataset.sliceLabel ?? `slice-${index}`;
-        const safeLabel = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-        await exportSlicePreview(preview, cssText, `${safeLabel || "slice"}-${index + 1}.png`);
-        index += 1;
-      }
-    }
-
-    function buildSlicePanel() {
-      if (!slicePanel || !sliceGrid) return;
-      const sceneEl = root ? root.querySelector(".voxcss-scene") : null;
-      if (viewMode !== "xray" || !sceneEl) {
-        slicePanel.hidden = false;
-        sliceGrid.innerHTML = "";
-        if (sliceMeta) sliceMeta.textContent = "";
-        if (sliceKpis) sliceKpis.innerHTML = "";
-        return;
-      }
-      const dims = resolveDimensions(lastData);
-      const layerElevation = resolveLayerElevation(sceneEl);
-      const tileSize = resolveTileSize(sceneEl);
-      const zPaintedCounts = planeXrayAxis === "z" ? getZSlicePaintedCounts(dims, lastData?.voxels ?? []) : null;
-      const xPaintedCounts = planeXrayAxis === "x" ? getXSlicePaintedCounts(dims, lastData?.voxels ?? []) : null;
-      const yPaintedCounts = planeXrayAxis === "y" ? getYSlicePaintedCounts(dims, lastData?.voxels ?? []) : null;
-      const paintedCounts =
-        planeXrayAxis === "z" ? zPaintedCounts : planeXrayAxis === "x" ? xPaintedCounts : yPaintedCounts;
-      const slices = [];
-      let sliceWidth = 0;
-      let sliceHeight = 0;
-      let cellWidth = tileSize;
-      let cellHeight = tileSize;
-      const axisLabel = planeXrayAxis.toUpperCase();
-      const sliceReport = window.__voxcssLastSliceRendererReport;
-      const sliceMetricLookup = buildSliceMetricLookup(
-        sliceReport?.slices,
-        planeXrayAxis,
-        tileSize,
-        layerElevation
-      );
-      const worstSliceLookup = buildWorstSliceLookup(
-        sliceReport?.worstSlices,
-        planeXrayAxis,
-        tileSize,
-        layerElevation
-      );
-      const rowCount = Math.max(0, Math.floor(dims.rows ?? 0));
-      const colCount = Math.max(0, Math.floor(dims.cols ?? 0));
-      const depthCount = Math.max(0, Math.floor(dims.depth ?? 0));
-      const axisCellCount =
-        planeXrayAxis === "z" ? rowCount * colCount : planeXrayAxis === "x" ? colCount * depthCount : rowCount * depthCount;
-
-      if (planeXrayAxis === "z") {
-        const zHost = sceneEl.querySelector(".voxcss-floor-z");
-        if (zHost instanceof HTMLElement) {
-          const layers = Array.from(zHost.querySelectorAll(".voxcss-layer"));
-          if (layers.length) {
-            sliceWidth = colCount * tileSize;
-            sliceHeight = rowCount * tileSize;
-            cellWidth = tileSize;
-            cellHeight = tileSize;
-            layers.forEach((layer, index) => {
-              slices.push({
-                label: `Z ${index}`,
-                type: "layer",
-                host: zHost,
-                node: layer,
-                elements: layer.children.length,
-                offset: null
-              });
-            });
-          } else {
-            const faces = Array.from(zHost.querySelectorAll(".voxcss-plane, .voxcss-brush, svg"));
-            const groups = groupFacesByPlaneWithOffsets(faces);
-            sliceWidth = colCount * tileSize;
-            sliceHeight = rowCount * tileSize;
-            cellWidth = tileSize;
-            cellHeight = tileSize;
-            groups.forEach((group, index) => {
-              slices.push({
-                label: `Z ${index}`,
-                type: "faces",
-                host: zHost,
-                faces: group.faces,
-                elements: group.faces.length,
-                offset: group.offset
-              });
-            });
-          }
-        }
-      } else if (planeXrayAxis === "x") {
-        const xHost = sceneEl.querySelector(".voxcss-floor-x");
-        if (xHost instanceof HTMLElement) {
-          const faces = Array.from(xHost.querySelectorAll(".voxcss-plane, .voxcss-brush, svg"));
-          const groups = groupFacesByPlaneWithOffsets(faces);
-          sliceWidth = colCount * tileSize;
-          sliceHeight = depthCount * layerElevation;
-          cellWidth = tileSize;
-          cellHeight = layerElevation;
-          groups.forEach((group, index) => {
-            slices.push({
-              label: `X ${index}`,
-              type: "faces",
-              host: xHost,
-              faces: group.faces,
-              elements: group.faces.length,
-              offset: group.offset
-            });
-          });
-        }
-      } else {
-        const yHost = sceneEl.querySelector(".voxcss-floor-y");
-        if (yHost instanceof HTMLElement) {
-          const faces = Array.from(yHost.querySelectorAll(".voxcss-plane, .voxcss-brush, svg"));
-          const groups = groupFacesByPlaneWithOffsets(faces);
-          sliceWidth = depthCount * layerElevation;
-          sliceHeight = rowCount * tileSize;
-          cellWidth = layerElevation;
-          cellHeight = tileSize;
-          groups.forEach((group, index) => {
-            slices.push({
-              label: `Y ${index}`,
-              type: "faces",
-              host: yHost,
-              faces: group.faces,
-              elements: group.faces.length,
-              offset: group.offset
-            });
-          });
-        }
-      }
-
-      if (!slices.length) {
-        slicePanel.hidden = false;
-        sliceGrid.innerHTML = "";
-        if (sliceMeta) sliceMeta.textContent = "";
-        return;
-      }
-
-      slicePanel.hidden = false;
-      sliceGrid.innerHTML = "";
-
-      if (sliceKpis) {
-        sliceKpis.innerHTML = "";
-        const reportSlices = Array.isArray(sliceReport?.slices) ? sliceReport.slices : [];
-        let totalBrushes = 0;
-        let totalDom = 0;
-        let fallbackCount = 0;
-        let scoreSum = 0;
-        let scoreCount = 0;
-        const sceneDomCount = sceneEl ? sceneEl.querySelectorAll("*").length : 0;
-        for (const slice of reportSlices) {
-          totalBrushes += Number.isFinite(slice.brushTotal)
-            ? slice.brushTotal
-            : (Number.isFinite(slice.brush) ? slice.brush : 0) +
-              (Number.isFinite(slice.stamp) ? slice.stamp : 0) +
-              (Number.isFinite(slice.svg) ? slice.svg : 0);
-          totalDom += Number.isFinite(slice.domEstimate) ? slice.domEstimate : 0;
-          if (slice.fallback) fallbackCount += 1;
-          if (Number.isFinite(slice.scoreTotal)) {
-            scoreSum += slice.scoreTotal;
-            scoreCount += 1;
-          }
-        }
-        const avgScore = scoreCount ? scoreSum / scoreCount : null;
-        const renderStats = sliceReport?.renderStats;
-        const fallbackPaintCost = Number.isFinite(renderStats?.paintCells) && Number.isFinite(renderStats?.pseudoArea)
-          ? renderStats.paintCells + renderStats.pseudoArea
-          : null;
-        const paintCost = Number.isFinite(renderStats?.paintCost) ? renderStats.paintCost : fallbackPaintCost;
-        const wastedPaint = Number.isFinite(renderStats?.wastedPaint) ? renderStats.wastedPaint : null;
-        const wastedPaintRatio = Number.isFinite(renderStats?.wastedPaintRatio)
-          ? renderStats.wastedPaintRatio
-          : null;
-        const compositeNodes = Number.isFinite(renderStats?.compositeNodes) ? renderStats.compositeNodes : null;
-        const kpis = [
-          { label: "Slices", value: String(slices.length) },
-          { label: "Scene DOM", value: String(sceneDomCount) },
-          { label: "Plan DOM", value: String(totalDom) },
-          { label: "Paint cost", value: paintCost !== null ? String(Math.round(paintCost)) : "--" },
-          {
-            label: "Wasted paint",
-            value:
-              wastedPaint === null
-                ? "--"
-                : wastedPaintRatio === null
-                  ? String(Math.round(wastedPaint))
-                  : `${Math.round(wastedPaint)} (${Math.round(wastedPaintRatio * 100)}%)`
-          },
-          { label: "Composite", value: compositeNodes !== null ? String(compositeNodes) : "--" },
-          { label: "Brushes", value: String(totalBrushes) },
-          { label: "Avg Score", value: avgScore !== null ? avgScore.toFixed(1) : "--" },
-          { label: "Fallback", value: String(fallbackCount) }
-        ];
-        for (const kpi of kpis) {
-          const card = document.createElement("div");
-          card.className = "slice-kpi";
-          const label = document.createElement("div");
-          label.className = "slice-kpi-label";
-          label.textContent = kpi.label;
-          const value = document.createElement("div");
-          value.className = "slice-kpi-value";
-          value.textContent = kpi.value;
-          card.appendChild(label);
-          card.appendChild(value);
-          sliceKpis.appendChild(card);
-        }
-      }
-
-      const gridWidth = sliceGrid.clientWidth || slicePanel.clientWidth || window.innerWidth;
-      const maxWidth = Math.max(1, gridWidth - 64);
-      const rotatePreview = planeXrayAxis === "y";
-      const previewBaseWidth = rotatePreview ? sliceHeight : sliceWidth;
-      const previewBaseHeight = rotatePreview ? sliceWidth : sliceHeight;
-      const scale = previewBaseWidth > 0 ? (maxWidth / previewBaseWidth) : 1;
-      const scaledWidth = Math.max(1, previewBaseWidth * scale);
-      const scaledHeight = Math.max(1, previewBaseHeight * scale);
-      const gridLine = Math.max(1, Math.min(10, Math.ceil(1 / Math.max(scale, 0.01))));
-      const projectionClass = sceneEl.classList.contains("voxcss-projection--dimetric")
-        ? " voxcss-projection--dimetric"
-        : "";
-
-      const entries = slices.map((slice, index) => {
-        const sliceMetrics = slice.offset !== null ? sliceMetricLookup.get(slice.offset) : null;
-        const isWorst = slice.offset !== null && worstSliceLookup.has(slice.offset);
-        const painted = sliceMetrics?.paintedCells ?? (paintedCounts ? paintedCounts[index] ?? 0 : 0);
-        const totalCells = sliceMetrics?.idealCells ?? axisCellCount;
-        const scoreTotal = Number.isFinite(sliceMetrics?.scoreTotal) ? sliceMetrics.scoreTotal : null;
-        return { slice, index, sliceMetrics, isWorst, painted, totalCells, scoreTotal };
-      });
-
-      if (sliceReport?.slices?.length) {
-        entries.sort((a, b) => {
-          const aScore = Number.isFinite(a.scoreTotal) ? a.scoreTotal : Number.NEGATIVE_INFINITY;
-          const bScore = Number.isFinite(b.scoreTotal) ? b.scoreTotal : Number.NEGATIVE_INFINITY;
-          if (aScore !== bScore) return bScore - aScore;
-          return a.index - b.index;
-        });
-      }
-
-      for (const entry of entries) {
-        const { slice, sliceMetrics, isWorst, painted, totalCells } = entry;
-        const row = document.createElement("div");
-        row.className = "slice-row";
-        row.dataset.sliceLabel = slice.label;
-        if (isWorst) row.dataset.worst = "true";
-
-        const rowTop = document.createElement("div");
-        rowTop.className = "slice-row-top";
-        const label = document.createElement("div");
-        label.className = "slice-row-label";
-        label.textContent = slice.label;
-        const badges = document.createElement("div");
-        badges.className = "slice-row-badges";
-
-        if (isWorst) {
-          const badge = document.createElement("span");
-          badge.className = "slice-badge badge-worst";
-          badge.textContent = "Worst";
-          badges.appendChild(badge);
-        }
-
-        if (sliceMetrics?.fallback) {
-          const badge = document.createElement("span");
-          badge.className = "slice-badge badge-fallback";
-          badge.textContent = "Fallback";
-          badges.appendChild(badge);
-        }
-
-        rowTop.appendChild(label);
-        rowTop.appendChild(badges);
-        row.appendChild(rowTop);
-
-        const statsEl = document.createElement("div");
-        statsEl.className = "slice-stats";
-        statsEl.textContent = formatCellStats(painted, totalCells);
-        row.appendChild(statsEl);
-
-        const metricsRow = document.createElement("div");
-        metricsRow.className = "slice-row-metrics";
-        const metrics = [];
-        if (sliceMetrics) {
-          if (Number.isFinite(sliceMetrics.scoreTotal)) metrics.push(formatScore(sliceMetrics.scoreTotal));
-          const brush = Number.isFinite(sliceMetrics.brush) ? sliceMetrics.brush : 0;
-          const brushStamp = Number.isFinite(sliceMetrics.stamp) ? sliceMetrics.stamp : 0;
-          const brushSvg = Number.isFinite(sliceMetrics.svg) ? sliceMetrics.svg : 0;
-          const brushGradient = Number.isFinite(sliceMetrics.gradient) ? sliceMetrics.gradient : 0;
-          const brushTotal = Number.isFinite(sliceMetrics.brushTotal)
-            ? sliceMetrics.brushTotal
-            : brush + brushStamp + brushSvg;
-          metrics.push(`Total ${brushTotal}`);
-          metrics.push(`BRUSH ${brush}`);
-          metrics.push(`STAMP ${brushStamp}`);
-          metrics.push(`SVG ${brushSvg}`);
-          metrics.push(`GRAD ${brushGradient}`);
-          if (Number.isFinite(sliceMetrics.uniqueColors)) metrics.push(`Colors ${sliceMetrics.uniqueColors}`);
-        } else {
-          const elementSummary = summarizeSliceElements(slice);
-          metrics.push(`DOM ${elementSummary.elements}`);
-          if (elementSummary.planes) metrics.push(`Planes ${elementSummary.planes}`);
-          if (elementSummary.brushes) metrics.push(`Brushes ${elementSummary.brushes}`);
-          if (elementSummary.cubeFaces) metrics.push(`Faces ${elementSummary.cubeFaces}`);
-          if (elementSummary.svgHosts || elementSummary.svgPaths) {
-            metrics.push(`SVG ${elementSummary.svgHosts}/${elementSummary.svgPaths}`);
-          }
-          if (painted > 0 && elementSummary.elements > 0) {
-            const domPerCell = elementSummary.elements / painted;
-            metrics.push(formatDomPerCell(domPerCell));
-          }
-        }
-
-        if (!metrics.length) metrics.push("No metrics");
-        for (const metric of metrics) {
-          const chip = document.createElement("span");
-          chip.textContent = metric;
-          metricsRow.appendChild(chip);
-        }
-
-        row.appendChild(metricsRow);
-
-        if (sliceWidth > 0 && sliceHeight > 0) {
-          const preview = document.createElement("div");
-          preview.className = "slice-preview";
-          preview.style.width = `${scaledWidth.toFixed(2)}px`;
-          preview.style.height = `${scaledHeight.toFixed(2)}px`;
-
-          const content = document.createElement("div");
-          content.className = "slice-preview-content";
-          content.style.width = `${previewBaseWidth}px`;
-          content.style.height = `${previewBaseHeight}px`;
-          content.style.transform = `scale(${scale})`;
-
-          const rotator = document.createElement("div");
-          rotator.className = "slice-preview-rotator";
-          rotator.style.width = `${sliceWidth}px`;
-          rotator.style.height = `${sliceHeight}px`;
-          if (rotatePreview) {
-            rotator.style.transform = `translate(${sliceHeight}px, 0) rotate(90deg)`;
-          }
-
-          const scene = document.createElement("div");
-          scene.className = `slice-scene voxcss-plane-xray${projectionClass}`;
-          scene.dataset.xrayAxis = planeXrayAxis;
-          scene.style.width = `${sliceWidth}px`;
-          scene.style.height = `${sliceHeight}px`;
-          scene.style.setProperty("--voxcss-rows", String(dims.rows));
-          scene.style.setProperty("--voxcss-cols", String(dims.cols));
-          scene.style.setProperty("--voxcss-layer-elevation", `${layerElevation}px`);
-          scene.style.setProperty("--voxcss-grid-x", `${cellWidth}px`);
-          scene.style.setProperty("--voxcss-grid-y", `${cellHeight}px`);
-
-          const gridOverlay = document.createElement("div");
-          gridOverlay.className = "slice-grid-overlay";
-          gridOverlay.style.setProperty("--voxcss-grid-x", `${cellWidth}px`);
-          gridOverlay.style.setProperty("--voxcss-grid-y", `${cellHeight}px`);
-          gridOverlay.style.setProperty("--voxcss-grid-line", `${gridLine}px`);
-
-          if (slice.type === "layer") {
-            const hostClone = slice.host instanceof HTMLElement
-              ? createSliceHostClone(slice.host, [])
-              : document.createElement("div");
-            const clone = slice.node.cloneNode(true);
-            if (clone instanceof HTMLElement) {
-              clone.style.transform = "none";
-            }
-            hostClone.appendChild(clone);
-            scene.appendChild(hostClone);
-          } else {
-            const hostClone = createSliceHostClone(slice.host, slice.faces);
-            scene.appendChild(hostClone);
-          }
-
-          rotator.appendChild(scene);
-          rotator.appendChild(gridOverlay);
-          content.appendChild(rotator);
-          preview.appendChild(content);
-          row.appendChild(preview);
-        }
-
-        sliceGrid.appendChild(row);
-      }
-
-      if (sliceMeta) {
-        const gridText =
-          planeXrayAxis === "z"
-            ? `${rowCount}x${colCount}`
-            : planeXrayAxis === "x"
-              ? `${colCount}x${depthCount}`
-              : `${rowCount}x${depthCount}`;
-        const sortLabel = sliceReport?.slices?.length ? "score-sorted" : "DOM-derived";
-        sliceMeta.textContent = `Axis ${axisLabel} · ${slices.length} slices · grid ${gridText} · ${sortLabel}`;
-      }
-    }
-
-    const PRESET_BUILDERS = [
-      { id: "sample-2", label: "Sample 2x2", build: () => buildSampleCube(2) },
-      { id: "sample-3", label: "Sample 3x3", build: () => buildSampleCube(3) },
-      { id: "sample-4", label: "Sample 4x4", build: () => buildSampleCube(4) },
-      { id: "sample-5", label: "Sample 5x5", build: () => buildSampleCube(5) },
-      { id: "sample-6", label: "Sample 6x6", build: () => buildSampleCube(6) },
-      { id: "sample-7", label: "Sample 7x7", build: () => buildSampleCube(7) },
-      { id: "sample-8", label: "Sample 8x8", build: () => buildSampleCube(8) },
-      { id: "sample-9", label: "Sample 9x9", build: () => buildSampleCube(9) },
-      { id: "sample-10", label: "Sample 10x10", build: () => buildSampleCube(10) },
-      { id: "rect-1x2", label: "Rect 1x2", build: () => buildSampleRect(1, 2) },
-      { id: "rect-3x2", label: "Rect 3x2", build: () => buildSampleRect(3, 2) },
-      { id: "rect-3x5", label: "Rect 3x5", build: () => buildSampleRect(3, 5) },
-      { id: "rect-2x5", label: "Rect 2x5", build: () => buildSampleRect(2, 5) },
-      { id: "area-2x2", label: "Area 2x2 (x2/y2)", build: () => buildPremergedRect(2, 2) },
-      { id: "area-3x5", label: "Area 3x5 (x2/y2)", build: () => buildPremergedRect(3, 5) },
-      { id: "z2-pillar", label: "Z2 Pillar 1x1x8", build: () => buildZ2Pillar(8) },
-      { id: "z2-steps", label: "Z2 Steps 8", build: () => buildZ2Steps(8) },
-      { id: "z2-block", label: "Z2 Block 6x6x6", build: () => buildZ2Block(6, 6) },
-      { id: "z2-wall", label: "Z2 Wall 1x12x8", build: () => buildZ2Wall(12, 8) },
-      { id: "z2-columns", label: "Z2 Columns 6x8", build: () => buildZ2Columns(6, 8) },
-      { id: "z2-terrain", label: "Z2 Terrain 10x10", build: () => buildZ2Terrain(10, 8) },
-      { id: "z2-floating", label: "Z2 Floating slab 8x8", build: () => buildZ2FloatingSlab(8, 4, 2) },
-      { id: "z2-bridge", label: "Z2 Bridge span 10", build: () => buildZ2Bridge(10, 8) }
+    import { computeSceneBbox, createPolyScene, parseVox } from "../../packages/polycss/dist/index.js";
+
+    const SAMPLES = [
+      ["army", "/examples/models/army.vox"],
+      ["bus", "/examples/models/bus.vox"],
+      ["house", "/examples/models/house.vox"],
+      ["sky", "/examples/models/skyscraper.vox"],
+      ["tank", "/examples/models/tank.vox"],
+      ["tree", "/examples/models/tree.vox"]
     ];
 
-    const populatePresetSelect = () => {
-      if (!presetSelect) return;
-      for (const preset of PRESET_BUILDERS) {
-        const option = document.createElement("option");
-        option.value = preset.id;
-        option.textContent = preset.label;
-        presetSelect.appendChild(option);
-      }
+    const sceneHost = document.getElementById("scene");
+    const viewport = document.getElementById("viewport");
+    const fileInput = document.getElementById("file-input");
+    const browseButton = document.getElementById("browse");
+    const fitButton = document.getElementById("fit");
+    const resetButton = document.getElementById("reset");
+    const titleDetail = document.getElementById("title-detail");
+    const status = document.getElementById("status");
+    const sampleList = document.getElementById("samples");
+    const viewGroup = document.getElementById("views");
+    const zoomInput = document.getElementById("zoom");
+    const rotXInput = document.getElementById("rot-x");
+    const rotYInput = document.getElementById("rot-y");
+    const zoomOut = document.getElementById("zoom-out");
+    const rotXOut = document.getElementById("rot-x-out");
+    const rotYOut = document.getElementById("rot-y-out");
+    const warningsEl = document.getElementById("warnings");
+
+    const statFile = document.getElementById("stat-file");
+    const statVoxels = document.getElementById("stat-voxels");
+    const statPolygons = document.getElementById("stat-polygons");
+    const statDom = document.getElementById("stat-dom");
+    const statBounds = document.getElementById("stat-bounds");
+    const statParse = document.getElementById("stat-parse");
+    const statBytes = document.getElementById("stat-bytes");
+
+    const state = {
+      scene: null,
+      mesh: null,
+      parsed: null,
+      label: "",
+      activeSample: "",
+      parseMs: 0,
+      rotX: 65,
+      rotY: 45,
+      zoom: 0.18
     };
 
-    const getCameraPreset = (preset) => {
-      switch (preset) {
-        case "left":
-          return { rotX: 90, rotY: 270 };
-        case "right":
-          return { rotX: 90, rotY: 90 };
-        case "top":
-          return { rotX: 0, rotY: 0 };
-        case "iso":
-        default:
-          return { rotX: 65, rotY: 45 };
-      }
-    };
-
-    async function loadModelFromUrl(url) {
-      const label = stripVoxExtension(url.split("/").pop() || "model");
-      updateStatus(`Loading ${label}...`, "Downloading model");
-      try {
-        currentZoom = null;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to load ${url}`);
-        const buffer = await response.arrayBuffer();
-        const parsed = parseMagicaVoxel(buffer);
-        await renderVoxScene(parsed, label);
-      } catch (err) {
-        console.error(err);
-        updateDomStats(null);
-        updateStatus("Failed to load model", err instanceof Error ? err.message : String(err), true);
-      }
+    for (const [label, url] of SAMPLES) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.url = url;
+      button.dataset.label = label;
+      sampleList.appendChild(button);
     }
 
-    function destroyRenderer() {
-      if (!mountedRenderer) return;
-      try {
-        mountedRenderer.destroy();
-      } catch (err) {
-        console.error(err);
-      }
-      mountedRenderer = null;
-      if (root) root.innerHTML = "";
+    function formatNumber(value) {
+      return Number.isFinite(value) ? value.toLocaleString() : "-";
     }
 
-    function destroyReferenceRenderer() {
-      if (!referenceRenderer) return;
-      try {
-        referenceRenderer.destroy();
-      } catch (err) {
-        console.error(err);
-      }
-      referenceRenderer = null;
-      if (referenceRoot) referenceRoot.innerHTML = "";
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes)) return "-";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
     }
 
-    function normalizeRenderer(value) {
-      if (value === "react" || value === "vue") return value;
-      return "headless";
+    function formatMs(ms) {
+      return Number.isFinite(ms) ? `${ms.toFixed(ms < 10 ? 1 : 0)} ms` : "-";
     }
 
-    function normalizeEngine(value) {
-      if (value === "slice") return "slice";
-      if (value === "shell") return "shell";
-      return "auto";
+    function setStatus(message, tone = "normal") {
+      status.textContent = message;
+      status.dataset.tone = tone;
     }
 
-    function applyEngineOverride(mode) {
-      const rootGlobal = typeof globalThis === "undefined" ? null : globalThis;
-      if (!rootGlobal) return;
-      if (mode === "slice") {
-        rootGlobal.__VOXCSS_PLANE_SHELL_RENDERER__ = "slice-renderer";
-        rootGlobal.__voxcssSliceVerify = true;
-        return;
-      }
-      if (mode === "shell") {
-        rootGlobal.__VOXCSS_PLANE_SHELL_RENDERER__ = "shell";
-        rootGlobal.__voxcssSliceVerify = false;
-        return;
-      }
-      delete rootGlobal.__VOXCSS_PLANE_SHELL_RENDERER__;
-      delete rootGlobal.__voxcssSliceVerify;
-    }
-
-    async function loadReactRuntime() {
-      if (!reactRuntimePromise) {
-        reactRuntimePromise = Promise.all([
-          import("react"),
-          import("react-dom/client"),
-          import("../../packages/voxcss/dist/react/index.js")
-        ]).then(([reactModule, reactDomModule, voxModule]) => ({
-          React: reactModule.default ?? reactModule,
-          createRoot: reactDomModule.createRoot,
-          VoxCamera: voxModule.VoxCamera,
-          VoxScene: voxModule.VoxScene
-        }));
-      }
-      return reactRuntimePromise;
-    }
-
-    async function loadVueRuntime() {
-      if (!vueRuntimePromise) {
-        vueRuntimePromise = Promise.all([import("vue"), import("../../packages/voxcss/dist/vue/index.js")]).then(([vueModule, voxModule]) => ({
-          createApp: vueModule.createApp,
-          h: vueModule.h,
-          reactive: vueModule.reactive,
-          VoxCamera: voxModule.VoxCamera,
-          VoxScene: voxModule.VoxScene
-        }));
-      }
-      return vueRuntimePromise;
-    }
-
-    function createHeadlessRenderer() {
-      root.innerHTML = "";
-      const cameraElement = document.createElement("div");
-      const camera = createCamera({ element: cameraElement, interactive: true });
-      const handle = renderScene({
-        element: root,
-        camera,
-        scene: { voxels: [], showFloor, projection: "cubic", mergeVoxels: false }
-      });
-
+    function sceneOptions() {
       return {
-        mode: "headless",
-        update({ camera: cameraProps, scene: sceneProps }) {
-          camera.update(cameraProps);
-          handle.setScene(sceneProps);
-        },
-        destroy() {
-          handle.destroy();
-          cameraElement.remove();
-          root.innerHTML = "";
-        }
+        perspective: false,
+        rotX: state.rotX,
+        rotY: state.rotY,
+        zoom: state.zoom,
+        domCullBackfaces: true,
+        autoCenter: true,
+        interactive: true,
+        atlasScale: "auto"
       };
     }
 
-    function createReferenceRenderer() {
-      if (!referenceRoot) return null;
-      referenceRoot.innerHTML = "";
-      const cameraElement = document.createElement("div");
-      const camera = createCamera({ element: cameraElement, interactive: true });
-      const handle = renderScene({
-        element: referenceRoot,
-        camera,
-        scene: { voxels: [], showFloor, projection: "cubic", mergeVoxels: false }
-      });
-
-      return {
-        mode: "reference",
-        update({ camera: cameraProps, scene: sceneProps }) {
-          camera.update(cameraProps);
-          handle.setScene(sceneProps);
-        },
-        destroy() {
-          handle.destroy();
-          referenceRoot.innerHTML = "";
-        }
-      };
+    function fitZoom() {
+      const rect = viewport.getBoundingClientRect();
+      const shortSide = Math.max(240, Math.min(rect.width, rect.height));
+      const modelPixels = 60 * 50;
+      return clamp(shortSide * 0.74 / modelPixels, 0.06, 0.48);
     }
 
-    function ensureReferenceRenderer() {
-      if (!referenceRoot) return null;
-      if (!referenceRenderer) {
-        referenceRenderer = createReferenceRenderer();
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function updateControls() {
+      zoomInput.value = state.zoom.toFixed(2);
+      rotXInput.value = String(Math.round(state.rotX));
+      rotYInput.value = String(Math.round(state.rotY));
+      zoomOut.textContent = state.zoom.toFixed(2);
+      rotXOut.textContent = String(Math.round(state.rotX));
+      rotYOut.textContent = String(Math.round(state.rotY));
+    }
+
+    function setActiveSample(url) {
+      state.activeSample = url;
+      for (const button of sampleList.querySelectorAll("button")) {
+        button.classList.toggle("active", button.dataset.url === url);
       }
-      return referenceRenderer;
     }
 
-    async function createReactRenderer() {
-      const runtime = await loadReactRuntime();
-      root.innerHTML = "";
-      const reactRoot = runtime.createRoot(root);
-      return {
-        mode: "react",
-        update({ camera: cameraProps, scene: sceneProps }) {
-          reactRoot.render(
-            runtime.React.createElement(
-              runtime.VoxCamera,
-              cameraProps,
-              runtime.React.createElement(runtime.VoxScene, sceneProps)
-            )
-          );
-        },
-        destroy() {
-          reactRoot.unmount();
-        }
-      };
+    function setActiveView(view) {
+      for (const button of viewGroup.querySelectorAll("button")) {
+        button.classList.toggle("active", button.dataset.view === view);
+      }
     }
 
-    async function createVueRenderer() {
-      const runtime = await loadVueRuntime();
-      root.innerHTML = "";
-      const state = runtime.reactive({ camera: {}, scene: {} });
-      const app = runtime.createApp({
-        setup() {
-          return () =>
-            runtime.h(runtime.VoxCamera, state.camera, {
-              default: () => runtime.h(runtime.VoxScene, state.scene)
-            });
-        }
-      });
-      app.mount(root);
-
-      return {
-        mode: "vue",
-        update({ camera: cameraProps, scene: sceneProps }) {
-          Object.assign(state.camera, cameraProps);
-          Object.assign(state.scene, sceneProps);
-        },
-        destroy() {
-          app.unmount();
-        }
-      };
-    }
-
-    async function ensureRenderer() {
-      const nextMode = normalizeRenderer(rendererMode);
-      if (mountedRenderer?.mode === nextMode) return;
-      destroyRenderer();
-      if (nextMode === "react") {
-        mountedRenderer = await createReactRenderer();
+    function updateStats() {
+      const parsed = state.parsed;
+      if (!parsed) {
+        statFile.textContent = "-";
+        statVoxels.textContent = "-";
+        statPolygons.textContent = "-";
+        statDom.textContent = "-";
+        statBounds.textContent = "-";
+        statParse.textContent = "-";
+        statBytes.textContent = "-";
+        warningsEl.replaceChildren();
         return;
       }
-      if (nextMode === "vue") {
-        mountedRenderer = await createVueRenderer();
-        return;
-      }
-      mountedRenderer = createHeadlessRenderer();
+
+      const bbox = computeSceneBbox(parsed.polygons);
+      const size = [
+        bbox.max[0] - bbox.min[0],
+        bbox.max[1] - bbox.min[1],
+        bbox.max[2] - bbox.min[2]
+      ].map((n) => Math.round(n * 10) / 10);
+      const voxelCount = parsed.metadata?.voxelCount;
+
+      statFile.textContent = state.label;
+      statVoxels.textContent = formatNumber(typeof voxelCount === "number" ? voxelCount : NaN);
+      statPolygons.textContent = formatNumber(parsed.polygons.length);
+      statBounds.textContent = size.join(" x ");
+      statParse.textContent = formatMs(state.parseMs);
+      statBytes.textContent = formatBytes(parsed.metadata?.sourceBytes);
+
+      const warnings = parsed.warnings ?? [];
+      warningsEl.replaceChildren(...warnings.slice(0, 4).map((warning) => {
+        const li = document.createElement("li");
+        li.textContent = warning;
+        return li;
+      }));
     }
 
-    async function renderVoxScene(data, label = "Loaded file") {
-      const seq = (renderSeq += 1);
-      const sourceVoxels = data?.voxels ?? [];
-      const forceRender = engineMode !== lastEngineMode;
-      const voxels = forceRender ? sourceVoxels.slice() : sourceVoxels;
-      const rows = data?.rows;
-      const cols = data?.cols;
-      const depth = data?.depth;
-      const cameraPresetState = getCameraPreset(cameraPreset);
-
-      const zoom = currentZoom ?? computeZoom({ rows, cols, depth });
-      currentZoom = zoom;
-      syncZoomControl(zoom);
-      lastData = { ...data, voxels, rows, cols, depth };
-      lastLabel = label;
-      lastEngineMode = engineMode;
-      applyEngineOverride(engineMode);
-
-      const mergeOption = mergeMode === "2d" || mergeMode === "3d" ? mergeMode : false;
-      const hasZ2 = voxels.some((voxel) => voxel && typeof voxel.z2 === "number" && Number.isFinite(voxel.z2));
-      const preview2d = mergeMode === "2d" && !hasZ2 ? mergeVoxels(voxels) : null;
-
-      try {
-        await ensureRenderer();
-      } catch (err) {
-        console.error(err);
-        updateStatus(
-          "Failed to load renderer",
-          err instanceof Error ? err.message : `Unknown error while loading ${rendererMode}`,
-          true
-        );
-        return;
-      }
-      if (seq !== renderSeq) return;
-      if (!mountedRenderer) return;
-
-      mountedRenderer.update({
-        camera: {
-          zoom,
-          perspective: false,
-          interactive: true,
-          rotX: cameraPresetState.rotX,
-          rotY: cameraPresetState.rotY,
-          animate: animate ? true : false
-        },
-        scene: {
-          voxels,
-          rows,
-          cols,
-          depth,
-          showFloor,
-          projection,
-          mergeVoxels: mergeOption
-        }
-      });
-
-      const referenceHandle = ensureReferenceRenderer();
-      if (referenceHandle) {
-        referenceHandle.update({
-          camera: {
-            zoom,
-            perspective: false,
-            interactive: true,
-            rotX: cameraPresetState.rotX,
-            rotY: cameraPresetState.rotY,
-            animate: animate ? true : false
-          },
-          scene: {
-            voxels,
-            rows,
-            cols,
-            depth,
-            showFloor,
-            projection,
-            mergeVoxels: mergeOption
-          }
-        });
-      }
-
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      if (seq !== renderSeq) return;
-
-      const sliceSceneEl = root ? root.querySelector(".voxcss-scene") : null;
-      const referenceSceneEl = referenceRoot ? referenceRoot.querySelector(".voxcss-scene") : null;
-      syncPlaneOutline(sliceSceneEl);
-      syncPlaneOutline(referenceSceneEl);
-      syncPlaneXray(true);
-      buildSlicePanel();
-      const totalElements = sliceSceneEl ? sliceSceneEl.querySelectorAll("*").length : 0;
-      const voxelElements = sliceSceneEl ? sliceSceneEl.querySelectorAll(".voxcss-cube").length : 0;
-      const cubeFaceElements = sliceSceneEl ? sliceSceneEl.querySelectorAll(".voxcss-cube-face").length : 0;
-      const layerElements = sliceSceneEl ? sliceSceneEl.querySelectorAll(".voxcss-layer").length : 0;
-      const svgElements = sliceSceneEl ? sliceSceneEl.querySelectorAll("svg").length : 0;
-      const hasPlaneHosts = sliceSceneEl
-        ? !!(sliceSceneEl.querySelector(".voxcss-floor-x") || sliceSceneEl.querySelector(".voxcss-floor-y"))
-        : false;
-      const sliceReport = engineMode === "slice" ? window.__voxcssLastSliceRendererReport : null;
-      const sliceBrushCounts = getSliceBrushCounts(sliceReport);
-      const useSliceBrushCounts = engineMode === "slice" && !!sliceBrushCounts;
-      const sliceRenderStats = useSliceBrushCounts ? sliceReport?.renderStats : null;
-      const totalBrushes = useSliceBrushCounts ? sliceBrushCounts.total : 0;
-      const brushes = useSliceBrushCounts ? sliceBrushCounts.brush : 0;
-      const stampBrushes = useSliceBrushCounts ? sliceBrushCounts.stamp : 0;
-      const svgBrushes = useSliceBrushCounts ? sliceBrushCounts.svg : svgElements;
-      const brushPseudos = useSliceBrushCounts ? sliceBrushCounts.pseudoLayers : 0;
-      const brushGradients = useSliceBrushCounts ? sliceBrushCounts.gradient : 0;
-      const paintCost = Number.isFinite(sliceRenderStats?.paintCost) ? sliceRenderStats.paintCost : null;
-      const wastedPaint = Number.isFinite(sliceRenderStats?.wastedPaint) ? sliceRenderStats.wastedPaint : null;
-      const wastedPaintRatio = Number.isFinite(sliceRenderStats?.wastedPaintRatio)
-        ? sliceRenderStats.wastedPaintRatio
-        : null;
-      const compositeNodes = Number.isFinite(sliceRenderStats?.compositeNodes) ? sliceRenderStats.compositeNodes : null;
-      const forced3d = hasZ2 && (mergeOption === false || mergeOption === "2d");
-
-      updateDomStats({
-        totalElements,
-        cubes: voxelElements,
-        cubeFaces: cubeFaceElements,
-        layers: layerElements,
-        svgs: svgElements,
-        brushPseudos,
-        brushGradients,
-        paintCost,
-        wastedPaint,
-        wastedPaintRatio,
-        compositeNodes,
-        brushes,
-        totalBrushes,
-        stamps: stampBrushes,
-        svgBrushes,
-        mergeMode,
-        forced3d
-      });
-
-      updateStatus(
-        `Rendering ${label}`,
-        `source ${voxels.length} voxels${preview2d ? ` · 2d merged ${preview2d.length}` : ""}${hasZ2 ? " · z2" : ""} · ${cols}x${rows}x${depth} (mergeVoxels ${mergeMode}${forced3d ? "→3d" : ""}, ${projection}, ${rendererMode}, ${engineMode})`
-      );
+    function updateDomStatsSoon() {
+      window.setTimeout(() => {
+        const count = sceneHost.querySelectorAll(".polycss-scene i").length;
+        statDom.textContent = formatNumber(count);
+      }, 120);
     }
 
-    async function handleFiles(fileList) {
-      const file = fileList?.[0];
+    function destroyScene() {
+      if (!state.scene) return;
+      state.scene.destroy();
+      state.scene = null;
+      state.mesh = null;
+      sceneHost.innerHTML = "";
+    }
+
+    function mountScene() {
+      destroyScene();
+      if (!state.parsed) {
+        viewport.classList.add("empty");
+        return;
+      }
+
+      viewport.classList.remove("empty");
+      state.scene = createPolyScene(sceneHost, sceneOptions());
+      state.mesh = state.scene.add(state.parsed);
+      titleDetail.textContent = state.label;
+      updateControls();
+      updateStats();
+      updateDomStatsSoon();
+      setStatus(`${state.label} ready`);
+    }
+
+    function applyView(partial) {
+      Object.assign(state, partial);
+      state.scene?.setOptions(sceneOptions());
+      updateControls();
+      updateDomStatsSoon();
+    }
+
+    function resetView() {
+      applyView({ rotX: 65, rotY: 45, zoom: fitZoom() });
+      setActiveView("iso");
+    }
+
+    function parseBuffer(buffer, label) {
+      const started = performance.now();
+      const parsed = parseVox(buffer, { targetSize: 60 });
+      const parseMs = performance.now() - started;
+      if (!parsed.polygons.length) {
+        const warning = parsed.warnings?.[0] ?? "No visible voxels found";
+        throw new Error(warning);
+      }
+      state.parsed = parsed;
+      state.label = label;
+      state.parseMs = parseMs;
+      state.zoom = fitZoom();
+      state.rotX = 65;
+      state.rotY = 45;
+      setActiveView("iso");
+      mountScene();
+    }
+
+    async function loadUrl(url, label) {
+      setStatus(`Loading ${label}...`);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+      const buffer = await response.arrayBuffer();
+      parseBuffer(buffer, label);
+      setActiveSample(url);
+    }
+
+    async function loadFile(file) {
       if (!file) return;
-      const rawName = file.name || "file.vox";
-      const name = stripVoxExtension(rawName);
-      const isJson = rawName.toLowerCase().endsWith(".json");
-      updateStatus(`Loading ${name}...`, "Reading file");
-      try {
-        currentZoom = null;
-        if (isJson) {
-          const text = await file.text();
-          const parsed = JSON.parse(text);
-          if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.voxels)) {
-            throw new Error("Invalid JSON payload (expected { voxels: [...] })");
-          }
-          await renderVoxScene(parsed, name);
-          return;
-        }
-        const buffer = await file.arrayBuffer();
-        const parsed = parseMagicaVoxel(buffer);
-        await renderVoxScene(parsed, name);
-      } catch (err) {
-        console.error(err);
-        updateDomStats(null);
-        updateStatus(`Failed to load ${name}`, err instanceof Error ? err.message : String(err), true);
-      }
-    }
-
-    function syncZoomControl(value) {
-      if (!Number.isFinite(value)) return;
-      zoomInput.value = value.toFixed(2);
-      zoomValue.textContent = value.toFixed(2);
-    }
-
-    function updateStatus(line, detail, isError = false) {
-      if (!statsEl) return;
-      const status = [line, detail].filter(Boolean).join(" · ");
-      statsEl.title = status;
-      statsEl.classList.toggle("error", isError);
-    }
-
-    function setActiveButton(group, key, value) {
-      if (!group) return;
-      for (const button of group.querySelectorAll("button")) {
-        button.classList.toggle("active", button.dataset[key] === String(value));
-      }
-    }
-
-    function syncPlaneOutline(sceneEl) {
-      if (sceneEl && sceneEl instanceof HTMLElement) {
-        sceneEl.classList.toggle("voxcss-debug-plane-outline", planeOutline);
-      }
-    }
-
-    function syncPlaneOutlineAll() {
-      syncPlaneOutline(root ? root.querySelector(".voxcss-scene") : null);
-      syncPlaneOutline(referenceRoot ? referenceRoot.querySelector(".voxcss-scene") : null);
-    }
-
-    function syncPlaneXrayControls() {
-      if (!planeXrayControls) return;
-      planeXrayControls.hidden = viewMode !== "xray";
-    }
-
-    function syncXrayFocus() {
-      if (document?.body) {
-        document.body.classList.toggle("voxcss-xray-slices", viewMode === "xray");
-      }
-    }
-
-    function syncSlicePanelOffset() {
-      if (!document?.body) return;
-      if (viewMode !== "xray") {
-        document.body.style.removeProperty("--slice-offset-left");
+      if (!file.name.toLowerCase().endsWith(".vox")) {
+        setStatus("Only .vox files are supported", "error");
         return;
       }
-      const hudRect = hudPanel instanceof HTMLElement ? hudPanel.getBoundingClientRect() : null;
-      const left = Math.min((hudRect?.right ?? 0) + 16, window.innerWidth);
-      document.body.style.setProperty("--slice-offset-left", `${left}px`);
+      setStatus(`Loading ${file.name}...`);
+      const buffer = await file.arrayBuffer();
+      parseBuffer(buffer, file.name);
+      setActiveSample("");
     }
 
+    sampleList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-url]");
+      if (!button) return;
+      loadUrl(button.dataset.url, button.dataset.label).catch((error) => {
+        console.error(error);
+        setStatus(error instanceof Error ? error.message : String(error), "error");
+      });
+    });
 
-    function scaleTranslateZ(transform, multiplier) {
-      if (!transform) return transform;
-      const match = transform.match(/translateZ\((-?\d+(?:\.\d+)?)px\)/);
-      if (!match) return transform;
-      const base = Number(match[1]);
-      if (!Number.isFinite(base)) return transform;
-      const scaled = base * multiplier;
-      const formatted = Number.isInteger(scaled) ? String(scaled) : scaled.toFixed(2);
-      return transform.replace(match[0], `translateZ(${formatted}px)`);
-    }
+    browseButton.addEventListener("click", () => fileInput.click());
 
-    function resetPlaneXray(sceneEl) {
-      if (!sceneEl) return;
-      if (!sceneEl.classList.contains("voxcss-plane-xray") && sceneEl.dataset.xrayAxis === undefined) {
-        return;
-      }
-      sceneEl.classList.remove("voxcss-plane-xray");
-      delete sceneEl.dataset.xrayAxis;
-      const hosts = [
-        sceneEl.querySelector(".voxcss-floor-x"),
-        sceneEl.querySelector(".voxcss-floor-y"),
-        sceneEl.querySelector(".voxcss-floor-z")
-      ];
-      for (const host of hosts) {
-        if (!(host instanceof HTMLElement)) continue;
-        if (host.dataset.xrayDisplay === undefined) continue;
-        const prior = host.dataset.xrayDisplay;
-        if (prior) {
-          host.style.display = prior;
-        } else {
-          host.style.removeProperty("display");
-        }
-        delete host.dataset.xrayDisplay;
-      }
-      const adjusted = sceneEl.querySelectorAll("[data-xray-base-transform], [data-xray-base-z]");
-      for (const el of adjusted) {
-        if (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) continue;
-        const baseTransform = el.dataset.xrayBaseTransform;
-        if (baseTransform !== undefined) {
-          if (baseTransform) el.style.transform = baseTransform;
-          else el.style.removeProperty("transform");
-          delete el.dataset.xrayBaseTransform;
-        }
-        const baseZ = el.dataset.xrayBaseZ;
-        if (baseZ !== undefined) {
-          if (baseZ) el.style.setProperty("--vox-z", baseZ);
-          else el.style.removeProperty("--vox-z");
-          delete el.dataset.xrayBaseZ;
-        }
-      }
-    }
+    fileInput.addEventListener("change", (event) => {
+      const input = event.currentTarget;
+      loadFile(input.files?.[0]).catch((error) => {
+        console.error(error);
+        setStatus(error instanceof Error ? error.message : String(error), "error");
+      }).finally(() => {
+        input.value = "";
+      });
+    });
 
-    function getSceneElements() {
-      if (!root) return [];
-      return Array.from(root.querySelectorAll(".voxcss-scene")).filter((el) => el instanceof HTMLElement);
-    }
+    fitButton.addEventListener("click", () => applyView({ zoom: fitZoom() }));
+    resetButton.addEventListener("click", resetView);
 
-    function syncPlaneXray(refreshBase = false) {
-      const scenes = getSceneElements();
-      if (!scenes.length) return;
-      if (viewMode !== "xray") {
-        for (const sceneEl of scenes) {
-          resetPlaneXray(sceneEl);
-        }
-        return;
-      }
-      for (const sceneEl of scenes) {
-        sceneEl.classList.add("voxcss-plane-xray");
-        sceneEl.dataset.xrayAxis = planeXrayAxis;
-        if (refreshBase) {
-          const stale = sceneEl.querySelectorAll("[data-xray-base-transform]");
-          for (const el of stale) {
-            if (el instanceof HTMLElement || el instanceof SVGElement) {
-              delete el.dataset.xrayBaseTransform;
-            }
-          }
-        }
-        const xHost = sceneEl.querySelector(".voxcss-floor-x");
-        const yHost = sceneEl.querySelector(".voxcss-floor-y");
-        const zHost = sceneEl.querySelector(".voxcss-floor-z");
-        const hasPlaneHosts = !!xHost || !!yHost;
+    viewGroup.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-view]");
+      if (!button) return;
+      const view = button.dataset.view;
+      setActiveView(view);
+      if (view === "top") applyView({ rotX: 0, rotY: 0 });
+      else if (view === "front") applyView({ rotX: 90, rotY: 0 });
+      else if (view === "side") applyView({ rotX: 90, rotY: 90 });
+      else resetView();
+    });
 
-        const setHostVisibility = (host, visible) => {
-          if (!(host instanceof HTMLElement)) return;
-          if (host.dataset.xrayDisplay === undefined) {
-            host.dataset.xrayDisplay = host.style.display;
-          }
-          if (visible) {
-            const prior = host.dataset.xrayDisplay;
-            if (prior) {
-              host.style.display = prior;
-            } else if (hasPlaneHosts) {
-              host.style.display = "grid";
-            } else {
-              host.style.removeProperty("display");
-            }
-          } else {
-            host.style.display = "none";
-          }
-        };
+    zoomInput.addEventListener("input", () => applyView({ zoom: Number(zoomInput.value) }));
+    rotXInput.addEventListener("input", () => {
+      setActiveView("");
+      applyView({ rotX: Number(rotXInput.value) });
+    });
+    rotYInput.addEventListener("input", () => {
+      setActiveView("");
+      applyView({ rotY: Number(rotYInput.value) });
+    });
 
-        setHostVisibility(xHost, planeXrayAxis === "x");
-        setHostVisibility(yHost, planeXrayAxis === "y");
-        setHostVisibility(zHost, planeXrayAxis === "z");
+    let dragDepth = 0;
 
-        const selector =
-          planeXrayAxis === "x"
-            ? ".voxcss-floor-x .voxcss-plane, .voxcss-floor-x .voxcss-brush, .voxcss-floor-x svg"
-            : planeXrayAxis === "y"
-              ? ".voxcss-floor-y .voxcss-plane, .voxcss-floor-y .voxcss-brush, .voxcss-floor-y svg"
-              : ".voxcss-floor-z .voxcss-layer, .voxcss-floor-z .voxcss-plane, .voxcss-floor-z .voxcss-brush, .voxcss-floor-z svg";
-        const targets = sceneEl.querySelectorAll(selector);
-        for (const el of targets) {
-          if (!(el instanceof HTMLElement) && !(el instanceof SVGElement)) continue;
-          if (el.classList.contains("voxcss-brush")) {
-            const baseZ = el.dataset.xrayBaseZ ?? el.style.getPropertyValue("--vox-z");
-            const parsed = parseCssPx(baseZ);
-            if (parsed === null) continue;
-            if (el.dataset.xrayBaseZ === undefined || refreshBase) {
-              el.dataset.xrayBaseZ = baseZ;
-            }
-            el.style.setProperty("--vox-z", `${(parsed * XRAY_SPACING).toFixed(3)}px`);
-            continue;
-          }
-          const base = el.dataset.xrayBaseTransform ?? el.style.transform;
-          if (!base || !base.includes("translateZ")) continue;
-          if (el.dataset.xrayBaseTransform === undefined || refreshBase) {
-            el.dataset.xrayBaseTransform = base;
-          }
-          el.style.transform = scaleTranslateZ(base, XRAY_SPACING);
-        }
-      }
+    function isFileDrag(event) {
+      return Array.from(event.dataTransfer?.types ?? []).includes("Files");
     }
 
     window.addEventListener("dragenter", (event) => {
+      if (!isFileDrag(event)) return;
       event.preventDefault();
+      dragDepth += 1;
+      viewport.classList.add("dragging");
     });
 
     window.addEventListener("dragover", (event) => {
+      if (!isFileDrag(event)) return;
       event.preventDefault();
     });
 
     window.addEventListener("dragleave", (event) => {
+      if (!isFileDrag(event)) return;
       event.preventDefault();
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) viewport.classList.remove("dragging");
     });
 
     window.addEventListener("drop", (event) => {
+      if (!isFileDrag(event)) return;
       event.preventDefault();
-      void handleFiles(event.dataTransfer?.files);
-    });
-
-    fileInput.addEventListener("change", (event) => {
-      const input = event.target;
-      void handleFiles(input.files);
-      input.value = "";
-    });
-
-    setActiveButton(mergeModes, "merge", mergeMode);
-    setActiveButton(rendererModes, "renderer", rendererMode);
-    setActiveButton(viewModes, "view", viewMode);
-    setActiveButton(planeXrayAxisButtons, "axis", planeXrayAxis);
-    if (engineSelect) {
-      engineSelect.value = engineMode;
-      applyEngineOverride(engineMode);
-    }
-    syncPlaneXrayControls();
-    if (planeOutlineButton) {
-      planeOutlineButton.classList.toggle("active", planeOutline);
-    }
-    syncPlaneOutlineAll();
-    syncPlaneXray();
-    syncXrayFocus();
-    buildSlicePanel();
-    if (hudPaddingToggleButton && hudPanel) {
-      hudPaddingToggleButton.classList.toggle("active", hudPanel.classList.contains("hud--spacious"));
-    }
-    if (floorToggleButton) {
-      floorToggleButton.classList.toggle("active", showFloor);
-    }
-    setActiveButton(cameraButtons, "camera", cameraPreset);
-    populatePresetSelect();
-
-    document.body.classList.add("voxcss-pe-all");
-
-    zoomInput.addEventListener("input", (event) => {
-      const value = Number(event.target.value);
-      if (!Number.isFinite(value)) return;
-      currentZoom = value;
-      syncZoomControl(value);
-      void renderVoxScene(lastData, lastLabel);
-    });
-
-    planeOutlineButton.addEventListener("click", () => {
-      planeOutline = !planeOutline;
-      planeOutlineButton.classList.toggle("active", planeOutline);
-      syncPlaneOutlineAll();
-    });
-
-    floorToggleButton.addEventListener("click", () => {
-      showFloor = !showFloor;
-      floorToggleButton.classList.toggle("active", showFloor);
-      void renderVoxScene(lastData, lastLabel);
-    });
-
-    if (hudPaddingToggleButton && hudPanel) {
-      hudPaddingToggleButton.addEventListener("click", () => {
-        const isSpacious = hudPanel.classList.toggle("hud--spacious");
-        hudPaddingToggleButton.classList.toggle("active", isSpacious);
+      dragDepth = 0;
+      viewport.classList.remove("dragging");
+      loadFile(event.dataTransfer?.files?.[0]).catch((error) => {
+        console.error(error);
+        setStatus(error instanceof Error ? error.message : String(error), "error");
       });
-    }
-
-    animateInput.addEventListener("change", (event) => {
-      animate = event.target.checked;
-      if (animate) startFpsMonitor();
-      else stopFpsMonitor();
-      void renderVoxScene(lastData, lastLabel);
     });
-
-    if (animate) startFpsMonitor();
-
-    mergeModes.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLButtonElement)) return;
-      const mode = target.dataset.merge;
-      if (!mode) return;
-      mergeMode = mode;
-      setActiveButton(mergeModes, "merge", mergeMode);
-      void renderVoxScene(lastData, lastLabel);
-    });
-
-
-    rendererModes.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLButtonElement)) return;
-      const value = target.dataset.renderer;
-      if (!value) return;
-      const nextMode = normalizeRenderer(value);
-      if (nextMode === rendererMode) return;
-      rendererMode = nextMode;
-      setActiveButton(rendererModes, "renderer", rendererMode);
-      void renderVoxScene(lastData, lastLabel);
-    });
-
-    if (engineSelect) {
-      engineSelect.addEventListener("change", (event) => {
-        const value = event.target.value;
-        const nextMode = normalizeEngine(value);
-        if (nextMode === engineMode) return;
-        engineMode = nextMode;
-        applyEngineOverride(engineMode);
-        void renderVoxScene(lastData, lastLabel);
-      });
-    }
-
-    if (viewModes) {
-      viewModes.addEventListener("click", (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) return;
-        const value = target.dataset.view;
-        if (!value) return;
-        if (value === viewMode) return;
-        viewMode = value;
-        setActiveButton(viewModes, "view", viewMode);
-        syncPlaneXrayControls();
-        syncPlaneXray();
-        syncXrayFocus();
-        syncSlicePanelOffset();
-        buildSlicePanel();
-      });
-    }
-
-    if (openXrayButton) {
-      openXrayButton.addEventListener("click", () => {
-        if (viewMode === "xray") return;
-        viewMode = "xray";
-        syncPlaneXrayControls();
-        syncPlaneXray();
-        syncXrayFocus();
-        syncSlicePanelOffset();
-        buildSlicePanel();
-      });
-    }
-
-    if (planeXrayAxisButtons) {
-      planeXrayAxisButtons.addEventListener("click", (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) return;
-        const value = target.dataset.axis;
-        if (!value) return;
-        if (value === planeXrayAxis) return;
-        planeXrayAxis = value;
-        setActiveButton(planeXrayAxisButtons, "axis", planeXrayAxis);
-        syncPlaneXray();
-        buildSlicePanel();
-      });
-    }
-
-    presetSelect.addEventListener("change", async (event) => {
-      const value = event.target.value;
-      if (!value) return;
-      const preset = PRESET_BUILDERS.find((entry) => entry.id === value);
-      if (!preset) return;
-      const sample = preset.build();
-      await renderVoxScene(sample, sample.label);
-      updateStatus(`Loaded ${preset.label}`, "Preset loaded.");
-    });
-
-    modelButtons.addEventListener("click", async (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLButtonElement)) return;
-      const value = target.dataset.model;
-      if (!value) return;
-      await loadModelFromUrl(value);
-    });
-
-    if (cameraButtons) {
-      cameraButtons.addEventListener("click", (event) => {
-        const target = event.target;
-        if (!(target instanceof HTMLButtonElement)) return;
-        const value = target.dataset.camera;
-        if (!value) return;
-        cameraPreset = value;
-        setActiveButton(cameraButtons, "camera", cameraPreset);
-        void renderVoxScene(lastData, lastLabel);
-      });
-    }
 
     window.addEventListener("resize", () => {
-      if (viewMode !== "xray") return;
-      buildSlicePanel();
+      if (!state.parsed) return;
+      applyView({ zoom: fitZoom() });
     });
 
-    function buildSampleCube(size) {
-      const offset = 2;
-      const voxels = [];
-      const bottom = "#38bdf8";
-      const top = "#fb7185";
-      for (let x = offset; x < offset + size; x += 1) {
-        for (let y = offset; y < offset + size; y += 1) {
-          voxels.push({ x, y, z: 0, color: bottom });
-          voxels.push({ x, y, z: 1, color: top });
-        }
-      }
-      const span = size + offset;
-      return {
-        voxels,
-        rows: span + 2,
-        cols: span + 2,
-        depth: size + 2,
-        label: `${size}x${size} sample`
-      };
-    }
-
-    function buildSampleRect(width, height) {
-      const offset = 2;
-      const voxels = [];
-      const bottom = "#38bdf8";
-      const top = "#fb7185";
-      for (let x = offset; x < offset + height; x += 1) {
-        for (let y = offset; y < offset + width; y += 1) {
-          voxels.push({ x, y, z: 0, color: bottom });
-          voxels.push({ x, y, z: 1, color: top });
-        }
-      }
-      const rows = height + offset + 2;
-      const cols = width + offset + 2;
-      const depth = Math.max(height, width) + 2;
-      return {
-        voxels,
-        rows,
-        cols,
-        depth,
-        label: `${width}x${height} sample`
-      };
-    }
-
-    function buildPremergedRect(width, height) {
-      const offset = 2;
-      const bottom = "#38bdf8";
-      const top = "#fb7185";
-      const voxels = [
-        { x: offset, y: offset, z: 0, x2: offset + height, y2: offset + width, color: bottom },
-        { x: offset, y: offset, z: 1, x2: offset + height, y2: offset + width, color: top }
-      ];
-      const rows = height + offset + 2;
-      const cols = width + offset + 2;
-      const depth = Math.max(height, width) + 2;
-      return {
-        voxels,
-        rows,
-        cols,
-        depth,
-        label: `${width}x${height} premerged`
-      };
-    }
-
-    function buildZ2Pillar(height) {
-      const offset = 2;
-      const x = offset + 2;
-      const y = offset + 2;
-      const voxels = [{ x, y, z: 0, z2: height, color: "#a78bfa" }];
-      return {
-        voxels,
-        rows: x + 4,
-        cols: y + 4,
-        depth: height + 2,
-        label: `z2 pillar ${height}`
-      };
-    }
-
-    function buildZ2Steps(steps) {
-      const offset = 2;
-      const startX = offset + 2;
-      const startY = offset + 1;
-      const voxels = [];
-      for (let i = 0; i < steps; i += 1) {
-        const t = steps <= 1 ? 0 : i / (steps - 1);
-        const hue = Math.round(200 - t * 120);
-        voxels.push({
-          x: startX,
-          y: startY + i,
-          z: 0,
-          z2: i + 1,
-          color: `hsl(${hue} 90% 70%)`
-        });
-      }
-      return {
-        voxels,
-        rows: startX + 5,
-        cols: startY + steps + 3,
-        depth: steps + 2,
-        label: `z2 steps ${steps}`
-      };
-    }
-
-    function buildZ2Block(size, height) {
-      const offset = 2;
-      const voxels = [
-        {
-          x: offset,
-          y: offset,
-          z: 0,
-          x2: offset + size,
-          y2: offset + size,
-          z2: height,
-          color: "#22c55e"
-        }
-      ];
-      return {
-        voxels,
-        rows: offset + size + 2,
-        cols: offset + size + 2,
-        depth: height + 2,
-        label: `z2 block ${size}x${size}x${height}`
-      };
-    }
-
-    function buildZ2Wall(length, height) {
-      const offset = 2;
-      const x = offset + 2;
-      const y = offset + 1;
-      const voxels = [
-        {
-          x,
-          y,
-          z: 0,
-          x2: x + 1,
-          y2: y + length,
-          z2: height,
-          color: "#f97316"
-        }
-      ];
-      return {
-        voxels,
-        rows: x + 4,
-        cols: y + length + 2,
-        depth: height + 2,
-        label: `z2 wall ${length}x${height}`
-      };
-    }
-
-    function buildZ2Columns(count, height) {
-      const offset = 2;
-      const x = offset + 2;
-      const startY = offset;
-      const spacing = 2;
-      const voxels = [];
-      for (let i = 0; i < count; i += 1) {
-        const y = startY + i * spacing;
-        const hue = Math.round(260 - (i / Math.max(1, count - 1)) * 160);
-        voxels.push({ x, y, z: 0, z2: height, color: `hsl(${hue} 90% 70%)` });
-      }
-      return {
-        voxels,
-        rows: x + 4,
-        cols: startY + (count - 1) * spacing + 3,
-        depth: height + 2,
-        label: `z2 columns ${count}x${height}`
-      };
-    }
-
-    function buildZ2Terrain(size, maxHeight) {
-      const offset = 2;
-      const voxels = [];
-      for (let x = 0; x < size; x += 1) {
-        for (let y = 0; y < size; y += 1) {
-          const wave = (Math.sin(x * 0.7) + Math.cos(y * 0.6) + 2) / 4;
-          const h = 1 + Math.max(0, Math.floor(wave * maxHeight));
-          const lightness = 55 + Math.round((h / Math.max(1, maxHeight)) * 20);
-          voxels.push({
-            x: offset + x,
-            y: offset + y,
-            z: 0,
-            z2: h,
-            color: `hsl(140 70% ${lightness}%)`
-          });
-        }
-      }
-      return {
-        voxels,
-        rows: offset + size + 2,
-        cols: offset + size + 2,
-        depth: maxHeight + 2,
-        label: `z2 terrain ${size}x${size}`
-      };
-    }
-
-    function buildZ2FloatingSlab(size, zStart, thickness) {
-      const offset = 2;
-      const z2 = zStart + Math.max(1, thickness);
-      const voxels = [
-        {
-          x: offset,
-          y: offset,
-          z: zStart,
-          x2: offset + size,
-          y2: offset + size,
-          z2,
-          color: "#60a5fa"
-        }
-      ];
-      return {
-        voxels,
-        rows: offset + size + 2,
-        cols: offset + size + 2,
-        depth: z2 + 2,
-        label: `z2 floating ${size}x${size} z${zStart}..${z2}`
-      };
-    }
-
-    function buildZ2Bridge(span, height) {
-      const offset = 2;
-      const x = offset + 3;
-      const y1 = offset + 2;
-      const y2 = y1 + Math.max(2, span) - 1;
-      const deckStart = Math.max(0, height - 2);
-      const voxels = [
-        { x, y: y1, z: 0, z2: height, color: "#f472b6" },
-        { x, y: y2, z: 0, z2: height, color: "#f472b6" },
-        {
-          x,
-          y: y1,
-          z: deckStart,
-          x2: x + 1,
-          y2: y2 + 1,
-          z2: height,
-          color: "#fb7185"
-        }
-      ];
-      return {
-        voxels,
-        rows: x + 4,
-        cols: y2 + 4,
-        depth: height + 2,
-        label: `z2 bridge span ${span} height ${height}`
-      };
-    }
-
-    // Initial mount with default model.
-    void loadModelFromUrl(DEFAULT_MODEL_URL).catch(() => {
-      void renderVoxScene(SAMPLE, SAMPLE.label);
+    loadUrl(SAMPLES[0][1], SAMPLES[0][0]).catch((error) => {
+      console.error(error);
+      setStatus(error instanceof Error ? error.message : String(error), "error");
+      viewport.classList.add("empty");
     });
   </script>
 </body>

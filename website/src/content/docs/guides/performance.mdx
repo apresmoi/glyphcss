@@ -1,6 +1,6 @@
 ---
 title: Performance
-description: Optimizing polycss scenes with merge modes and understanding DOM-based rendering tradeoffs.
+description: Optimizing polycss scenes and understanding DOM-based rendering tradeoffs.
 ---
 
 import PolyDemo from '../../../components/PolyDemo.astro';
@@ -28,55 +28,15 @@ Confirmed during benchmarking on a 10k-triangle mesh with auto-rotate:
 - **Scripting**: ~579ms / 7s (mostly React re-renders)
 - **Rendering (style recalc + layout)**: ~2,130ms / 7s — the dominant cost
 
-## Merge modes
+## Automatic polygon merge
 
-The `merge` attribute on `<poly-scene>` (or `merge` prop on `PolyScene`) controls how aggressively the engine consolidates coplanar adjacent polygons.
+polycss automatically merges contiguous coplanar polygons that share the same material (color + texture). The engine finds flat regions and combines them into larger elements before rendering.
 
-### `"off"` (default)
-
-No merging. Every parsed polygon is its own DOM element. Full per-polygon control — every polygon can be individually targeted with CSS selectors, event listeners, or animations.
-
-**Best for:** small meshes, interactive polygons, scenes where each polygon needs distinct behavior.
-
-### `"auto"`
-
-Merges coplanar adjacent polygons that share the same material (color + texture). The engine finds contiguous flat regions and combines them into single, larger elements.
-
-**Best for:** architectural meshes with large flat surfaces (walls, floors, ceilings), where many coplanar same-material triangles can be collapsed without visual change.
+This is most useful for architectural meshes with large flat surfaces: walls, floors, ceilings, voxel faces, and other areas where many same-material triangles can collapse without visual change.
 
 **Limitations:**
 - Per-polygon DOM addressing is lost for merged groups.
 - UV-textured triangles can only merge with other triangles sharing the same texture and coplanar normal.
-
-## Setting merge mode
-
-```html
-<!-- Vanilla -->
-<poly-scene merge="auto">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
-```
-
-```tsx
-// React
-<PolyScene merge="auto">
-  <PolyMesh src="/cottage.glb" />
-</PolyScene>
-
-// Vue
-<PolyScene merge="auto">
-  <PolyMesh src="/cottage.glb" />
-</PolyScene>
-```
-
-## Choosing a merge mode
-
-| Mode | DOM nodes | Per-polygon control | Best use case |
-|------|-----------|---------------------|---------------|
-| `"off"` | Most | Full | Small meshes, interactive polygons |
-| `"auto"` | Fewer | Lost for merged groups | Dense architectural meshes, large flat surfaces |
-
-Start with the default (`"off"`) and switch to `"auto"` if you notice rendering lag on dense meshes.
 
 ## `targetSize` and polygon count
 
@@ -127,6 +87,6 @@ UV-textured polygons share generated atlas blob URLs (created during the canvas 
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — Full `merge` prop reference.
+- [PolyScene](/components/poly-scene) — Scene props reference.
 - [Loading Meshes](/guides/textures) — Parsing options including `targetSize`.
-- [Core Concepts — Merge Modes](/core-concepts#merge-modes) — Conceptual overview.
+- [Core Concepts — Automatic Polygon Merge](/core-concepts#automatic-polygon-merge) — Conceptual overview.

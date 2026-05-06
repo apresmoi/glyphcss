@@ -25,7 +25,6 @@ import type { MeshHandle, PolySceneOptions, SceneHandle, Vec3 } from "polycss";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
-type MergeMode = "off" | "auto" | "slice";
 type ModelKind = "obj" | "glb" | "gltf";
 type TextureQuality = "auto" | "full" | "balanced" | "draft";
 
@@ -55,7 +54,6 @@ interface LoadedModel {
 
 interface SceneOptionsState {
   renderer: Renderer;
-  merge: MergeMode;
   autoCenter: boolean;
   interactive: boolean;
   animate: boolean;
@@ -315,12 +313,10 @@ const DEBUG_NAV = [
   { path: "/debug/platonic", label: "Platonic solids" },
   { path: "/debug/triangle-editor", label: "Triangle editor" },
   { path: "/debug/meshes", label: "Meshes (OBJ / GLB)" },
-  { path: "/debug/slice-test", label: "Slice test" },
 ];
 
 const DEFAULT_SCENE: SceneOptionsState = {
   renderer: "vanilla",
-  merge: "auto",
   autoCenter: true,
   interactive: true,
   animate: false,
@@ -673,7 +669,6 @@ function VanillaScene({
       ambientLight,
       textureLighting: options.textureLighting,
       perspective: options.perspective,
-      merge: options.merge,
       autoCenter: options.autoCenter,
       interactive: options.interactive,
       atlasScale: atlasScaleForQuality(options.textureQuality),
@@ -698,7 +693,6 @@ function VanillaScene({
     };
   }, [
     polygons,
-    options.merge,
     options.autoCenter,
     options.textureQuality,
     options.textureLighting,
@@ -948,14 +942,6 @@ export default function DebugWorkbench() {
     }));
   }, []);
 
-  const setMerge = useCallback((merge: MergeMode) => {
-    setSceneOptions((current) => ({
-      ...current,
-      merge,
-      renderer: merge === "slice" ? "vanilla" : current.renderer,
-    }));
-  }, []);
-
   const budgetTone =
     metrics.polyCount > 2500
       ? "warn"
@@ -1036,7 +1022,7 @@ export default function DebugWorkbench() {
             <button
               type="button"
               className={sceneOptions.renderer === "react" ? "active" : ""}
-              onClick={() => updateScene({ renderer: "react", merge: sceneOptions.merge === "slice" ? "off" : sceneOptions.merge })}
+              onClick={() => updateScene({ renderer: "react" })}
             >
               React
             </button>
@@ -1047,18 +1033,6 @@ export default function DebugWorkbench() {
             >
               Vanilla
             </button>
-          </div>
-          <div className="dn-segment">
-            {(["off", "auto", "slice"] as MergeMode[]).map((merge) => (
-              <button
-                key={merge}
-                type="button"
-                className={sceneOptions.merge === merge ? "active" : ""}
-                onClick={() => setMerge(merge)}
-              >
-                {merge}
-              </button>
-            ))}
           </div>
           <div className="dn-field dn-field--segment">
             <span>Texture</span>
@@ -1094,9 +1068,6 @@ export default function DebugWorkbench() {
           <Toggle label="Backfaces" checked={sceneOptions.showBackfaces} onChange={(value) => updateScene({ showBackfaces: value })} />
           <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
           <Toggle label="Light" checked={sceneOptions.showLight} onChange={(value) => updateScene({ showLight: value })} />
-          {sceneOptions.renderer === "react" && sceneOptions.merge === "slice" && (
-            <p className="dn-note">Slice merge runs through the vanilla API in this build.</p>
-          )}
         </section>
 
         <section className="dn-panel">
@@ -1133,7 +1104,6 @@ export default function DebugWorkbench() {
           </div>
           <div className="dn-toolbar__chips">
             <span>{sceneOptions.renderer}</span>
-            <span>merge {sceneOptions.merge}</span>
             <span>light {sceneOptions.textureLighting}</span>
             <span>quality {sceneOptions.textureQuality}</span>
           </div>
@@ -1163,7 +1133,6 @@ export default function DebugWorkbench() {
             >
               <PolyScene
                 polygons={scenePolygons}
-                merge={sceneOptions.merge === "auto" ? "auto" : "off"}
                 autoCenter={sceneOptions.autoCenter}
                 directionalLight={directionalLight}
                 ambientLight={ambientLight}
@@ -1227,7 +1196,7 @@ export default function DebugWorkbench() {
           <h2>Notes</h2>
           <ul className="dn-list">
             <li>React mode tests `@polycss/react` components.</li>
-            <li>Vanilla mode tests `polycss` and enables slice merge.</li>
+            <li>Vanilla mode tests the imperative `polycss` API.</li>
           </ul>
           {loaded?.warnings.length ? (
             <ul className="dn-list dn-list--warn">

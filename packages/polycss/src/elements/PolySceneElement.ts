@@ -31,7 +31,6 @@ const OBSERVED_ATTRS = [
   "directional-intensity",
   "ambient-color",
   "ambient-intensity",
-  "merge",
   "texture-lighting",
   "atlas-scale",
   "auto-center",
@@ -56,12 +55,6 @@ function parseVec3(value: string | null): Vec3 | undefined {
     return undefined;
   }
   return [parts[0], parts[1], parts[2]];
-}
-
-function parseMerge(value: string | null): "off" | "auto" | undefined {
-  if (!value) return undefined;
-  if (value === "off" || value === "auto") return value;
-  return undefined;
 }
 
 function parseTextureLighting(value: string | null): TextureLightingMode | undefined {
@@ -101,9 +94,6 @@ export class PolySceneElement extends ELEMENT_BASE {
     if (rotY !== undefined) opts.rotY = rotY;
     const zoom = parseNumber(this.getAttribute("zoom"));
     if (zoom !== undefined) opts.zoom = zoom;
-    // Always emit merge so removing the attribute resets to the default.
-    const merge = parseMerge(this.getAttribute("merge"));
-    opts.merge = merge ?? "off";
     opts.textureLighting = parseTextureLighting(this.getAttribute("texture-lighting")) ?? "baked";
     const atlasScale = parseAtlasScale(this.getAttribute("atlas-scale"));
     if (atlasScale !== undefined) opts.atlasScale = atlasScale;

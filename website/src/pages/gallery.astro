@@ -421,7 +421,6 @@ const ldJson = {
     let currentZoom = DEFAULT_CAMERA.zoom;
     let currentRotX = DEFAULT_CAMERA.rotX;
     let currentRotY = DEFAULT_CAMERA.rotY;
-    let currentMerge = "auto";
     // Floor toggle — polycss has no floor primitive, so we synthesize a
     // single shaded polygon at z = bbox.min.z sized to the mesh footprint.
     // Mirrors the DebugScene approach in website/src/debug/DebugScene.tsx.
@@ -478,8 +477,6 @@ const ldJson = {
     };
 
     const getActiveModel = () => models.find((m) => m.id === activeModelId) || null;
-
-    const getModelMergeMode = (model) => (model?.type === "vox" ? "slice" : "auto");
 
     const isCategoryOpen = (categoryId) => {
       if (modelQuery.trim()) return true;
@@ -570,7 +567,6 @@ const ldJson = {
         autoCenter: true,
         interactive: true,
         perspective: false,
-        merge: currentMerge,
       });
       return polyScene;
     };
@@ -816,14 +812,11 @@ const ldJson = {
         currentParseResult = parseResult;
 
         applyModelDefaults(model);
-        currentMerge = getModelMergeMode(model);
-
         const scene = await ensureScene();
         scene.setOptions({
           rotX: currentRotX,
           rotY: currentRotY,
           zoom: currentZoom,
-          merge: currentMerge,
         });
 
         await remountCurrentMesh();

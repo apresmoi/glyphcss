@@ -6,12 +6,14 @@
  *  - MAIN chunk nesting: SIZE, XYZI, RGBA (all optional PACK chunk handled).
  *  - SIZE: voxel grid dimensions (sx, sy, sz).
  *  - XYZI: per-voxel (x, y, z, colorIndex) — colorIndex is 1-based.
+ *    Files may contain multiple SIZE/XYZI model chunks; coordinates are
+ *    flattened into one occupancy grid, matching current voxcss behavior.
  *  - RGBA: 256×4 bytes custom palette (r, g, b, a). Falls back to the
  *    built-in default palette when this chunk is absent.
  *
  * Face culling: for each voxel, each of its 6 neighbours is checked. When a
  * neighbour cell is empty (or out of grid bounds) the shared face is visible
- * and emitted as a quad. Quads are fan-triangulated into 2 triangles each.
+ * and emitted as a quad polygon.
  * Winding follows CCW-from-outside convention, consistent with polycss's
  * backface culling.
  *
@@ -201,7 +203,7 @@ export function parseVox(buffer: ArrayBuffer, options?: VoxParseOptions): ParseR
       if (contentSize >= 4 && contentStart + 4 <= buffer.byteLength) {
         const count = dv.getUint32(contentStart, true);
         const voxels: VoxelEntry[] = [];
-        const maxI = Math.min(count, Math.floor((buffer.byteLength - contentStart - 4) / 4));
+        const maxI = Math.min(count, Math.floor((contentSize - 4) / 4));
         for (let i = 0; i < maxI; i++) {
           const base = contentStart + 4 + i * 4;
           voxels.push({
@@ -232,8 +234,21 @@ export function parseVox(buffer: ArrayBuffer, options?: VoxParseOptions): ParseR
     offset = chunkEnd;
   }
 
-  // Use the first XYZI chunk (single-model files have exactly one).
-  const voxels = xyziChunks[0] ?? [];
+  // Flatten all XYZI chunks. Multi-model VOX files can carry several
+  // SIZE/XYZI pairs; without scene-graph transform support the least
+  // surprising behavior is the same flattened occupancy grid voxcss uses.
+  // If chunks overlap, keep the first voxel/color at that coordinate.
+  const voxels: VoxelEntry[] = [];
+  const occupied = new Set<string>();
+  for (const chunk of xyziChunks) {
+    for (const voxel of chunk) {
+      if (voxel.colorIndex === 0) continue;
+      const key = `${voxel.x},${voxel.y},${voxel.z}`;
+      if (occupied.has(key)) continue;
+      occupied.add(key);
+      voxels.push(voxel);
+    }
+  }
 
   if (voxels.length === 0) {
     return makeEmptyResult(sourceBytes, []);
@@ -254,13 +269,7 @@ export function parseVox(buffer: ArrayBuffer, options?: VoxParseOptions): ParseR
     return colorFromRgb(r, g, b);
   };
 
-  // 4. Build occupancy set for face-culling.
-  // Key = "x,y,z" string.
-  const occupied = new Set<string>();
-  for (const v of voxels) {
-    occupied.add(`${v.x},${v.y},${v.z}`);
-  }
-
+  // 4. Use the deduped occupancy set for face-culling.
   const hasNeighbor = (x: number, y: number, z: number): boolean =>
     occupied.has(`${x},${y},${z}`);
 
@@ -445,4 +454,3 @@ function makeEmptyResult(
     metadata: { triangleCount: 0, sourceBytes },
   };
 }
-

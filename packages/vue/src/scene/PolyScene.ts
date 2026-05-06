@@ -49,8 +49,6 @@ export interface PolySceneProps {
   textureLighting?: TextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
-  /** Mesh post-processing — `"auto"` runs `mergePolygons`, `"off"` passes through. */
-  merge?: "off" | "auto";
   /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — a wrapper div translates
@@ -93,10 +91,6 @@ export const PolyScene = defineComponent({
       default: "baked",
     },
     atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
-    merge: {
-      type: String as PropType<"off" | "auto">,
-      default: "off",
-    },
     autoCenter: { type: Boolean, default: false },
     autoRotate: {
       type: [Boolean, Number, Object] as PropType<AutoRotateOption>,
@@ -168,7 +162,6 @@ export const PolyScene = defineComponent({
     const inputPolygons = computed(() => props.polygons ?? []);
 
     const sceneContextOptions = computed(() => ({
-      merge: props.merge,
       directionalLight: props.directionalLight,
     }));
 

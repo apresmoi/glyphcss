@@ -13,6 +13,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
+      "@polycss/core": ["../core/src/index.ts"],
       "@polycss/core/*": ["../core/src/*"]
     }
   },

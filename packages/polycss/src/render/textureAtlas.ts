@@ -82,6 +82,13 @@ interface TextureAtlasPage {
   url: string | null;
 }
 
+interface RectBrush {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface RenderTextureAtlasOptions {
   doc?: Document;
   tileSize?: number;
@@ -110,6 +117,7 @@ export interface RenderTextureAtlasResult {
 }
 
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
+const RECT_EPS = 1e-3;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -462,19 +470,19 @@ function packTextureAtlasPlans(
         shelf.x + plan.canvasW + padding <= ATLAS_MAX_SIZE
       ) {
         const entry = { ...plan, pageIndex, x: shelf.x, y: shelf.y };
-        shelf.x += plan.canvasW + padding;
+        shelf.x += plan.canvasW + padding * 2;
         page.entries.push(entry);
         page.width = Math.max(page.width, entry.x + plan.canvasW + padding);
         return entry;
       }
     }
 
-    const shelfY = page.shelves.length === 0 ? padding : page.height;
+    const shelfY = page.shelves.length === 0 ? padding : page.height + padding;
     if (shelfY + plan.canvasH + padding > ATLAS_MAX_SIZE) return null;
 
     const entry = { ...plan, pageIndex, x: padding, y: shelfY };
     page.shelves.push({
-      x: padding + plan.canvasW + padding,
+      x: padding + plan.canvasW + padding * 2,
       y: shelfY,
       height: plan.canvasH,
     });
@@ -642,34 +650,111 @@ function applyAtlasBackground(
   }
 }
 
-function createAtlasElement(
-  entry: PackedTextureAtlasEntry,
-  textureLighting: TextureLightingMode,
-  doc: Document,
-): HTMLElement {
-  const el = doc.createElement("i");
+function applyPlanElementBase(el: HTMLElement, entry: TextureAtlasPlan): void {
   el.style.width = `${entry.canvasW}px`;
   el.style.height = `${entry.canvasH}px`;
   el.style.transform = `matrix3d(${entry.matrix})`;
-  el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
-  el.style.opacity = "0";
-
-  // Dynamic mode: emit ONLY the per-polygon normal vars inline. The
-  // calc-driven background-color + background-blend-mode multiply live
-  // in the global stylesheet's
-  // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
-  // the per-element style stays tiny (~50 chars instead of ~600).
-  if (textureLighting === "dynamic") {
-    el.style.setProperty("--polycss-nx", entry.normal[0].toFixed(4));
-    el.style.setProperty("--polycss-ny", entry.normal[1].toFixed(4));
-    el.style.setProperty("--polycss-nz", entry.normal[2].toFixed(4));
-  }
 
   if (entry.polygon.data) {
     for (const [k, v] of Object.entries(entry.polygon.data)) {
       el.setAttribute(`data-${k}`, String(v));
     }
   }
+}
+
+function applyDynamicNormalVars(el: HTMLElement, entry: TextureAtlasPlan): void {
+  // Dynamic mode: emit ONLY the per-polygon normal vars inline. The
+  // calc-driven background-color + background-blend-mode multiply live
+  // in the global stylesheet's
+  // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
+  // the per-element style stays tiny (~50 chars instead of ~600).
+  el.style.setProperty("--polycss-nx", entry.normal[0].toFixed(4));
+  el.style.setProperty("--polycss-ny", entry.normal[1].toFixed(4));
+  el.style.setProperty("--polycss-nz", entry.normal[2].toFixed(4));
+}
+
+function fullRectBounds(entry: TextureAtlasPlan): RectBrush | null {
+  if (entry.screenPts.length !== 8) return null;
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const addUnique = (list: number[], value: number): void => {
+    for (const existing of list) {
+      if (Math.abs(existing - value) <= RECT_EPS) return;
+    }
+    list.push(value);
+  };
+
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    addUnique(xs, entry.screenPts[i]);
+    addUnique(ys, entry.screenPts[i + 1]);
+  }
+  if (xs.length !== 2 || ys.length !== 2) return null;
+
+  xs.sort((a, b) => a - b);
+  ys.sort((a, b) => a - b);
+  if (
+    Math.abs(xs[0]) > RECT_EPS ||
+    Math.abs(ys[0]) > RECT_EPS ||
+    xs[1] - xs[0] <= RECT_EPS ||
+    ys[1] - ys[0] <= RECT_EPS
+  ) {
+    return null;
+  }
+
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    const x = entry.screenPts[i];
+    const y = entry.screenPts[i + 1];
+    const onX = Math.abs(x - xs[0]) <= RECT_EPS || Math.abs(x - xs[1]) <= RECT_EPS;
+    const onY = Math.abs(y - ys[0]) <= RECT_EPS || Math.abs(y - ys[1]) <= RECT_EPS;
+    if (!onX || !onY) return null;
+  }
+
+  return {
+    left: xs[0],
+    top: ys[0],
+    width: xs[1] - xs[0],
+    height: ys[1] - ys[0],
+  };
+}
+
+function isFullRectSolid(entry: TextureAtlasPlan): boolean {
+  return !!fullRectBounds(entry);
+}
+
+function createSolidElement(
+  entry: TextureAtlasPlan,
+  textureLighting: TextureLightingMode,
+  doc: Document,
+): HTMLElement {
+  const el = doc.createElement("i");
+  applyPlanElementBase(el, entry);
+  el.classList.add("polycss-solid-css");
+
+  if (textureLighting === "dynamic") {
+    applyDynamicNormalVars(el, entry);
+    const base = parseHex(entry.polygon.color ?? "#cccccc");
+    el.style.setProperty("--polycss-sr", (base.r / 255).toFixed(4));
+    el.style.setProperty("--polycss-sg", (base.g / 255).toFixed(4));
+    el.style.setProperty("--polycss-sb", (base.b / 255).toFixed(4));
+  } else {
+    el.style.backgroundColor = entry.shadedColor;
+  }
+
+  return el;
+}
+
+function createAtlasElement(
+  entry: PackedTextureAtlasEntry,
+  textureLighting: TextureLightingMode,
+  doc: Document,
+): HTMLElement {
+  const el = doc.createElement("i");
+  applyPlanElementBase(el, entry);
+  el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
+  el.style.opacity = "0";
+
+  if (textureLighting === "dynamic") applyDynamicNormalVars(el, entry);
   return el;
 }
 
@@ -682,20 +767,32 @@ export function renderPolygonsWithTextureAtlas(
 
   const textureLighting = options.textureLighting ?? "baked";
   const plans = polygons.map((polygon, index) => computeTextureAtlasPlan(polygon, index, options));
-  const { packed, atlasScale } = packTextureAtlasPlansWithScale(plans, options.atlasScale);
+  const atlasPlans = plans.map((plan) =>
+    plan &&
+    (plan.texture || !isFullRectSolid(plan)) ? plan : null
+  );
+  const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.atlasScale);
   const atlasElements = new Map<number, HTMLElement>();
   const rendered: RenderedPoly[] = [];
   let cancelled = false;
   let urls: string[] = [];
 
   for (let i = 0; i < polygons.length; i++) {
+    const plan = plans[i];
+    if (!plan) continue;
+
     const entry = packed.entries[i];
     if (entry) {
       const element = createAtlasElement(entry, textureLighting, doc);
       atlasElements.set(i, element);
       rendered.push({ polygonIndex: i, element, dispose: () => {} });
+    } else if (!plan.texture && isFullRectSolid(plan)) {
+      const element = createSolidElement(plan, textureLighting, doc);
+      rendered.push({ polygonIndex: i, element, dispose: () => {} });
     }
   }
+
+  rendered.sort((a, b) => a.polygonIndex - b.polygonIndex);
 
   buildAtlasPages(packed.pages, textureLighting, doc, atlasScale, () => cancelled)
     .then((pages) => {
@@ -719,6 +816,7 @@ export function renderPolygonsWithTextureAtlas(
       }
     })
     .catch(() => {
+      if (cancelled) return;
       for (const element of atlasElements.values()) {
         element.style.opacity = "0.5";
         element.style.outline = "1px dashed rgba(255, 0, 0, 0.6)";

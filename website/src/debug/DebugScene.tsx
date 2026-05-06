@@ -17,10 +17,6 @@ interface DebugSceneProps {
   voxels: Polygon[];
   /** Origin in voxel coords for canvas projection — usually the mesh centroid. */
   origin: Vec3;
-  /** Forwarded to <PolyScene>. */
-  voxScene?: {
-    merge?: "off" | "auto" | "slice";
-  };
   /**
    * Forwarded to <PolyScene>. Pivots rotation around the mesh's bbox
    * center — useful for loaded meshes whose origin sits at a corner.
@@ -45,7 +41,6 @@ const ZOOM_STEP = 0.05;
 export function DebugScene({
   voxels,
   origin,
-  voxScene = {},
   autoCenter = false,
   defaultZoom = 0.6,
   defaultRotX = 65,
@@ -58,13 +53,6 @@ export function DebugScene({
   const [showVoxcss, setShowVoxcss] = useState(true);
   const [showCanvas, setShowCanvas] = useState(false);
   const [showFloor, setShowFloor] = useState(defaultShowFloor);
-  // Live merge mode override — lets the user flip merging on/off from the
-  // sidebar to A/B-test what mergePolygons does to a textured mesh. The
-  // initial value comes from the page's voxScene prop (so a page that
-  // hardcodes a default still respects it on first render).
-  const [mergeMode, setMergeMode] = useState<"off" | "auto" | "slice">(
-    voxScene.merge ?? "off",
-  );
   // Single toggle drives voxcss's per-voxel direction-cull overlay. Polycss
   // polygons render through atlas sprites only, so this no longer adds a
   // second polygon backface element.
@@ -261,17 +249,6 @@ export function DebugScene({
           <input type="checkbox" checked={debugShowLabels} onChange={(e) => setDebugShowLabels(e.target.checked)} />
           <span style={{ color: debugShowLabels ? "#86efac" : undefined }}>Add data-debug attribute</span>
         </label>
-        <Row label="Merge">
-          <Pills<"off" | "auto" | "slice">
-            value={mergeMode}
-            onChange={setMergeMode}
-            options={[
-              { value: "off", label: "off" },
-              { value: "auto", label: "auto" },
-              { value: "slice", label: "slice" },
-            ]}
-          />
-        </Row>
       </DebugSection>
 
       <DebugSection title="Light" dock="bottom">
@@ -337,7 +314,6 @@ export function DebugScene({
           >
             <PolyScene
               polygons={renderedPolygons}
-              merge={mergeMode === "auto" ? "auto" : "off"}
               autoCenter={autoCenter}
               directionalLight={directionalLight}
               ambientLight={ambientLight}

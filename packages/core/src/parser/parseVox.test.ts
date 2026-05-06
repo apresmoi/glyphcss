@@ -99,6 +99,68 @@ function buildVoxBuffer(
   return buf;
 }
 
+function buildMultiModelVoxBuffer(
+  models: Array<{ size: [number, number, number]; voxels: VoxelInput[] }>,
+  palette?: [number, number, number, number][], // 256 RGBA entries
+): ArrayBuffer {
+  const modelBytes = models.reduce(
+    (sum, model) => sum + 12 + 12 + 12 + 4 + model.voxels.length * 4,
+    0,
+  );
+  const rgbaChunkBytes = palette ? 12 + 1024 : 0;
+  const childrenSize = modelBytes + rgbaChunkBytes;
+  const totalBytes = 8 + 12 + childrenSize;
+
+  const buf = new ArrayBuffer(totalBytes);
+  const dv = new DataView(buf);
+  const u8 = new Uint8Array(buf);
+  let off = 0;
+
+  const writeId = (id: string) => {
+    for (let i = 0; i < 4; i++) u8[off++] = id.charCodeAt(i);
+  };
+  const writeU32 = (v: number) => { dv.setUint32(off, v, true); off += 4; };
+  const writeU8 = (v: number) => { u8[off++] = v; };
+
+  writeId("VOX ");
+  writeU32(150);
+  writeId("MAIN");
+  writeU32(0);
+  writeU32(childrenSize);
+
+  for (const model of models) {
+    writeId("SIZE");
+    writeU32(12);
+    writeU32(0);
+    writeU32(model.size[0]);
+    writeU32(model.size[1]);
+    writeU32(model.size[2]);
+
+    writeId("XYZI");
+    writeU32(4 + model.voxels.length * 4);
+    writeU32(0);
+    writeU32(model.voxels.length);
+    for (const v of model.voxels) {
+      writeU8(v.x);
+      writeU8(v.y);
+      writeU8(v.z);
+      writeU8(v.colorIndex);
+    }
+  }
+
+  if (palette) {
+    writeId("RGBA");
+    writeU32(1024);
+    writeU32(0);
+    for (let i = 0; i < 256; i++) {
+      const [r, g, b, a] = palette[i] ?? [0, 0, 0, 255];
+      writeU8(r); writeU8(g); writeU8(b); writeU8(a);
+    }
+  }
+
+  return buf;
+}
+
 // ── Real fixture tests ────────────────────────────────────────────────────────
 
 describe("parseVox — real fixture (obj_candle.vox)", () => {
@@ -299,6 +361,36 @@ describe("parseVox — minimal synthetic buffer", () => {
     const solidBuf = buildVoxBuffer([3, 3, 3], solidVoxels);
     const solidResult = parseVox(solidBuf);
     expect(result.polygons.length).toBeGreaterThan(solidResult.polygons.length);
+  });
+
+  it("parses all XYZI chunks in a multi-model VOX file", () => {
+    const buf = buildMultiModelVoxBuffer([
+      { size: [1, 1, 1], voxels: [{ x: 0, y: 0, z: 0, colorIndex: 1 }] },
+      { size: [3, 1, 1], voxels: [{ x: 2, y: 0, z: 0, colorIndex: 37 }] },
+    ]);
+
+    const result = parseVox(buf);
+    const voxelCount = (result.metadata as { voxelCount?: number } | undefined)?.voxelCount ?? 0;
+    const colors = new Set(result.polygons.map((p) => p.color));
+
+    expect(voxelCount).toBe(2);
+    expect(result.polygons.length).toBe(12);
+    expect(colors.size).toBe(2);
+  });
+
+  it("dedupes overlapping voxels across XYZI chunks using the first color", () => {
+    const buf = buildMultiModelVoxBuffer([
+      { size: [1, 1, 1], voxels: [{ x: 0, y: 0, z: 0, colorIndex: 1 }] },
+      { size: [1, 1, 1], voxels: [{ x: 0, y: 0, z: 0, colorIndex: 37 }] },
+    ]);
+
+    const result = parseVox(buf);
+    const voxelCount = (result.metadata as { voxelCount?: number } | undefined)?.voxelCount ?? 0;
+    const colors = new Set(result.polygons.map((p) => p.color));
+
+    expect(voxelCount).toBe(1);
+    expect(result.polygons.length).toBe(6);
+    expect(colors).toEqual(new Set(["#ffffff"]));
   });
 });
 
