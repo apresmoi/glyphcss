@@ -12,6 +12,7 @@ export default defineConfig({
   site: 'https://polycss.com',
   vite: {
     resolve: {
+      dedupe: ['react', 'react-dom'],
       alias: [
         {
           find: /^@polycss\/core$/,

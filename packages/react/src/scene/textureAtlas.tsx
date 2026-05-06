@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type React from "react";
 import type {
@@ -92,6 +92,7 @@ export interface TextureAtlasResult {
 }
 
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
+const RECT_EPS = 1e-3;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -180,6 +181,84 @@ function parseHex(hex: string): RGB {
     g: parseInt(c.slice(2, 4), 16),
     b: parseInt(c.slice(4, 6), 16),
   };
+}
+
+function isFullRectSolid(entry: TextureAtlasPlan): boolean {
+  if (entry.screenPts.length !== 8) return false;
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const addUnique = (list: number[], value: number): void => {
+    for (const existing of list) {
+      if (Math.abs(existing - value) <= RECT_EPS) return;
+    }
+    list.push(value);
+  };
+
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    addUnique(xs, entry.screenPts[i]);
+    addUnique(ys, entry.screenPts[i + 1]);
+  }
+  if (xs.length !== 2 || ys.length !== 2) return false;
+
+  xs.sort((a, b) => a - b);
+  ys.sort((a, b) => a - b);
+  if (
+    Math.abs(xs[0]) > RECT_EPS ||
+    Math.abs(ys[0]) > RECT_EPS ||
+    xs[1] - xs[0] <= RECT_EPS ||
+    ys[1] - ys[0] <= RECT_EPS
+  ) {
+    return false;
+  }
+
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    const x = entry.screenPts[i];
+    const y = entry.screenPts[i + 1];
+    const onX = Math.abs(x - xs[0]) <= RECT_EPS || Math.abs(x - xs[1]) <= RECT_EPS;
+    const onY = Math.abs(y - ys[0]) <= RECT_EPS || Math.abs(y - ys[1]) <= RECT_EPS;
+    if (!onX || !onY) return false;
+  }
+
+  return true;
+}
+
+function borderShapeSupported(): boolean {
+  return !!globalThis.CSS?.supports?.(
+    "border-shape",
+    "polygon(0 0, 100% 0, 0 100%) polygon(50% 50%, 50% 50%, 50% 50%)",
+  );
+}
+
+function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
+  const pts: string[] = [];
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
+    const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
+    pts.push(`${x.toFixed(4)}% ${y.toFixed(4)}%`);
+  }
+  return `polygon(${pts.join(", ")})`;
+}
+
+function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
+  let xSum = 0;
+  let ySum = 0;
+  const points = Math.max(1, entry.screenPts.length / 2);
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    xSum += entry.screenPts[i];
+    ySum += entry.screenPts[i + 1];
+  }
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  const x = Math.max(0, Math.min(100, (xSum / points / width) * 100)).toFixed(4);
+  const y = Math.max(0, Math.min(100, (ySum / points / height) * 100)).toFixed(4);
+  return `polygon(${Array.from({ length: points }, () => `${x}% ${y}%`).join(", ")})`;
+}
+
+function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
+  return `${cssPolygonShapeForPlan(entry)} ${cssCollapsedInnerShapeForPlan(entry)}`;
 }
 
 function rgbToHex({ r, g, b }: RGB): string {
@@ -567,19 +646,21 @@ async function buildAtlasPage(
         ? (entry.polygon.color ?? "#cccccc")
         : entry.shadedColor;
       ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
-    } else if (srcImg && entry.uvAffine) {
-      const imgW = srcImg.naturalWidth || srcImg.width || 1;
-      const imgH = srcImg.naturalHeight || srcImg.height || 1;
-      setCssTransform(
-        ctx,
-        atlasScale,
-        entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
-        entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
-        entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
-      );
-      ctx.drawImage(srcImg, 0, 0);
-    } else if (srcImg) {
-      drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
+    } else {
+      if (srcImg && entry.uvAffine) {
+        const imgW = srcImg.naturalWidth || srcImg.width || 1;
+        const imgH = srcImg.naturalHeight || srcImg.height || 1;
+        setCssTransform(
+          ctx,
+          atlasScale,
+          entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
+          entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
+          entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
+        );
+        ctx.drawImage(srcImg, 0, 0);
+      } else if (srcImg) {
+        drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
+      }
     }
     if (entry.texture && textureLighting === "baked") {
       applyTextureTint(ctx, entry.x, entry.y, entry.canvasW, entry.canvasH, entry.textureTint, atlasScale);
@@ -618,9 +699,19 @@ export function useTextureAtlas(
   textureLighting: TextureLightingMode,
   atlasScaleInput?: AtlasScale,
 ): TextureAtlasResult {
+  const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported();
+  const atlasPlans = useMemo(
+    () => plans.map((plan) => {
+      if (!plan) return plan;
+      if (plan.texture) return plan;
+      if (textureLighting !== "dynamic" && (useBorderShape || isFullRectSolid(plan))) return null;
+      return plan;
+    }),
+    [plans, textureLighting, useBorderShape],
+  );
   const { packed, atlasScale } = useMemo(
-    () => packTextureAtlasPlansWithScale(plans, atlasScaleInput),
-    [plans, atlasScaleInput],
+    () => packTextureAtlasPlansWithScale(atlasPlans, atlasScaleInput),
+    [atlasPlans, atlasScaleInput],
   );
   const [pages, setPages] = useState<TextureAtlasPage[]>(
     () => packed.pages.map((page) => ({ width: page.width, height: page.height, url: null })),
@@ -663,6 +754,71 @@ export function useTextureAtlas(
     pages,
     ready: pages.length === 0 || pages.every((page) => !!page.url),
   };
+}
+
+export function TextureBorderShapePoly({
+  entry,
+  className,
+  style: styleProp,
+  domAttrs,
+  domEventHandlers,
+  pointerEvents = "auto",
+}: {
+  entry: TextureAtlasPlan;
+  className?: string;
+  style?: CSSProperties;
+  domAttrs?: Record<string, unknown>;
+  domEventHandlers?: React.DOMAttributes<Element>;
+  pointerEvents?: "auto" | "none";
+}) {
+  const fullRect = isFullRectSolid(entry);
+  const borderShape = fullRect ? null : cssBorderShapeForPlan(entry);
+  const setElementRef = useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    if (borderShape) el.style.setProperty("border-shape", borderShape);
+    else el.style.removeProperty("border-shape");
+  }, [borderShape]);
+  const style: CSSProperties = fullRect
+    ? {
+        width: entry.canvasW,
+        height: entry.canvasH,
+        transform: `matrix3d(${entry.matrix})`,
+        backgroundColor: entry.shadedColor,
+        pointerEvents: pointerEvents === "none" ? "none" : undefined,
+        ...styleProp,
+      }
+    : {
+        width: entry.canvasW,
+        height: entry.canvasH,
+        transform: `matrix3d(${entry.matrix})`,
+        boxSizing: "border-box",
+        borderStyle: "solid",
+        borderWidth: 1,
+        borderColor: entry.shadedColor,
+        pointerEvents: pointerEvents === "none" ? "none" : undefined,
+        ...styleProp,
+      };
+
+  const dataAttrs = entry.polygon.data
+    ? Object.fromEntries(
+        Object.entries(entry.polygon.data).map(([k, v]) => [`data-${k}`, String(v)]),
+      )
+    : {};
+  const elementClassName = [
+    fullRect ? "polycss-solid-css" : "",
+    className?.trim() || "",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <i
+      ref={setElementRef}
+      className={elementClassName}
+      style={style}
+      {...domEventHandlers}
+      {...dataAttrs}
+      {...domAttrs}
+    />
+  );
 }
 
 export function TextureAtlasPoly({

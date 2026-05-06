@@ -25,6 +25,7 @@ import { useMesh, type UseMeshOptions } from "./useMesh";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
+  TextureBorderShapePoly,
   TextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -163,7 +164,37 @@ export function PolyMesh({
       : [],
     [children, polygons, effectiveDirectional, effectiveAmbient],
   );
-  const textureAtlas = useTextureAtlas(atlasPlans, effectiveTextureLighting, atlasScale);
+  const textureAtlas = useTextureAtlas(
+    atlasPlans,
+    effectiveTextureLighting,
+    atlasScale,
+  );
+
+  const renderedPolygons = children
+    ? polygons.map((p, i) => (
+        // Render-prop: caller controls how each polygon renders. We still
+        // wrap in a fragment with key so React reconciliation works.
+        <RenderPropPolygon key={i} polygon={p} index={i}>
+          {children}
+        </RenderPropPolygon>
+      ))
+    : textureAtlas.entries.map((entry, index) => {
+        if (entry) {
+          return (
+            <TextureAtlasPoly
+              key={entry.index}
+              entry={entry}
+              page={textureAtlas.pages[entry.pageIndex]}
+              textureLighting={effectiveTextureLighting}
+            />
+          );
+        }
+
+        const plan = atlasPlans[index];
+        return plan && !plan.texture ? (
+          <TextureBorderShapePoly key={plan.index} entry={plan} />
+        ) : null;
+      });
 
   // Loading + error slots only apply when we're fetching from `src`.
   if (src) {
@@ -194,24 +225,7 @@ export function PolyMesh({
       className={`polycss-mesh${className ? ` ${className}` : ""}`}
       style={wrapperStyle}
     >
-      {children ? polygons.map((p, i) => (
-          // Render-prop: caller controls how each polygon renders. We still
-          // wrap in a fragment with key so React reconciliation works.
-          <RenderPropPolygon key={i} polygon={p} index={i}>
-            {children}
-          </RenderPropPolygon>
-      )) : textureAtlas.entries.map((entry) =>
-        entry ? (
-          <TextureAtlasPoly
-            key={entry.index}
-            entry={entry}
-            page={textureAtlas.pages[entry.pageIndex]}
-            textureLighting={effectiveTextureLighting}
-          />
-        ) : (
-          null
-        )
-      )}
+      {renderedPolygons}
     </div>
   );
 }

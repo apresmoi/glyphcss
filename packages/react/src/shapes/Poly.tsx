@@ -3,6 +3,7 @@ import type React from "react";
 import type { PolyProps } from "./types";
 import {
   computeTextureAtlasPlan,
+  TextureBorderShapePoly,
   TextureAtlasPoly,
   useTextureAtlas,
 } from "../scene/textureAtlas";
@@ -131,20 +132,35 @@ export function Poly({
   const wrapperTransform = transformParts.length > 0 ? transformParts.join(" ") : undefined;
 
   const atlasEntry = textureAtlas.entries[0];
-  if (!atlasEntry) return null;
+  let front: React.ReactNode = null;
 
-  const front = (
-    <TextureAtlasPoly
-      entry={atlasEntry}
-      page={textureAtlas.pages[atlasEntry.pageIndex]}
-      textureLighting={textureLighting}
-      className={className}
-      style={styleProp}
-      domAttrs={domAttrs}
-      domEventHandlers={domEventHandlers}
-      pointerEvents={pointerEventsProp ?? "auto"}
-    />
-  );
+  if (atlasEntry) {
+    front = (
+      <TextureAtlasPoly
+        entry={atlasEntry}
+        page={textureAtlas.pages[atlasEntry.pageIndex]}
+        textureLighting={textureLighting}
+        className={className}
+        style={styleProp}
+        domAttrs={domAttrs}
+        domEventHandlers={domEventHandlers}
+        pointerEvents={pointerEventsProp ?? "auto"}
+      />
+    );
+  } else if (atlasPlan && !atlasPlan.texture) {
+    front = (
+      <TextureBorderShapePoly
+        entry={atlasPlan}
+        className={className}
+        style={styleProp}
+        domAttrs={domAttrs}
+        domEventHandlers={domEventHandlers}
+        pointerEvents={pointerEventsProp ?? "auto"}
+      />
+    );
+  }
+
+  if (!front) return null;
 
   if (!wrapperTransform) return front;
 

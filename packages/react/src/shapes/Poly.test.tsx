@@ -145,6 +145,54 @@ describe("Poly — texture without UVs", () => {
   });
 });
 
+describe("Poly — border-shape", () => {
+  beforeEach(() => {
+    vi.stubGlobal("CSS", {
+      supports: vi.fn((property: string) => property === "border-shape"),
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("renders solid non-rect polygons with border-shape when supported", () => {
+    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const poly = getPoly(container);
+    expect(poly.className).toBe("");
+    expect(poly.style.boxSizing).toBe("border-box");
+    expect(poly.style.borderStyle).toBe("solid");
+    expect(poly.style.borderWidth).toBe("1px");
+    expect(poly.style.borderColor).not.toBe("");
+    expect(poly.style.getPropertyValue("border-shape")).toContain("polygon(");
+    expect(poly.style.backgroundImage).toBe("");
+  });
+
+  it("keeps textured polygons on atlas when border-shape is supported", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+      texture: "https://example.com/tex.png",
+    });
+    const poly = getPoly(container);
+    expect(poly.style.boxSizing).toBe("");
+    expect(poly.style.borderStyle).toBe("");
+    expect(poly.style.borderWidth).toBe("");
+    expect(poly.style.borderColor).toBe("");
+    expect(poly.style.backgroundClip).toBe("");
+  });
+
+  it("falls back to atlas for solid non-rect polygons when border-shape is unsupported", () => {
+    vi.stubGlobal("CSS", {
+      supports: vi.fn(() => false),
+    });
+
+    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const poly = getPoly(container);
+    expect(poly.style.getPropertyValue("border-shape")).toBe("");
+  });
+});
+
 describe("Poly — UV-mapped texture", () => {
   beforeEach(() => {
     vi.stubGlobal("URL", {

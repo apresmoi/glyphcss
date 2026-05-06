@@ -243,6 +243,90 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
+  it("can render solid non-rect polygons with border-shape instead of an atlas canvas", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: {
+          supports: (property: string) => property === "border-shape",
+        },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
+    const element = result.rendered[0].element;
+    expect(canvases).toHaveLength(0);
+    expect(element.style.getPropertyValue("border-shape")).toContain("polygon(");
+    expect(element.style.boxSizing).toBe("border-box");
+    expect(element.style.borderStyle).toBe("solid");
+    expect(element.style.borderWidth).toBe("1px");
+    expect(element.style.borderColor).not.toBe("");
+    expect(element.style.backgroundImage).toBe("");
+    result.dispose();
+  });
+
+  it("keeps textured polygons on atlas even when border-shape is supported", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: {
+          supports: (property: string) => property === "border-shape",
+        },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [{ ...FLAT_TRIANGLE, texture: "https://example.com/tex.png" }],
+      { doc },
+    );
+    const element = result.rendered[0].element;
+    expect(canvases).toHaveLength(1);
+    expect(element.style.getPropertyValue("border-shape")).toBe("");
+    expect(element.style.backgroundClip).toBe("");
+    result.dispose();
+  });
+
+  it("falls back to atlas for solid non-rect polygons when border-shape is unsupported", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: {
+          supports: () => false,
+        },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
+    const element = result.rendered[0].element;
+    expect(canvases).toHaveLength(1);
+    expect(element.style.getPropertyValue("border-shape")).toBe("");
+    result.dispose();
+  });
+
   it("returns a polygon i element for texture without UVs", () => {
     const texturedPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,

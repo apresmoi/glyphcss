@@ -574,19 +574,21 @@ async function buildAtlasPage(
         ? (entry.polygon.color ?? "#cccccc")
         : entry.shadedColor;
       ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
-    } else if (srcImg && entry.uvAffine) {
-      const imgW = srcImg.naturalWidth || srcImg.width || 1;
-      const imgH = srcImg.naturalHeight || srcImg.height || 1;
-      setCssTransform(
-        ctx,
-        atlasScale,
-        entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
-        entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
-        entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
-      );
-      ctx.drawImage(srcImg, 0, 0);
-    } else if (srcImg) {
-      drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
+    } else {
+      if (srcImg && entry.uvAffine) {
+        const imgW = srcImg.naturalWidth || srcImg.width || 1;
+        const imgH = srcImg.naturalHeight || srcImg.height || 1;
+        setCssTransform(
+          ctx,
+          atlasScale,
+          entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
+          entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
+          entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
+        );
+        ctx.drawImage(srcImg, 0, 0);
+      } else if (srcImg) {
+        drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
+      }
     }
     if (entry.texture && textureLighting === "baked") {
       applyTextureTint(ctx, entry.x, entry.y, entry.canvasW, entry.canvasH, entry.textureTint, atlasScale);
@@ -722,15 +724,50 @@ function isFullRectSolid(entry: TextureAtlasPlan): boolean {
   return !!fullRectBounds(entry);
 }
 
-function createSolidElement(
+function borderShapeSupported(doc: Document): boolean {
+  const css = doc.defaultView?.CSS ?? (typeof CSS !== "undefined" ? CSS : undefined);
+  return !!css?.supports?.(
+    "border-shape",
+    "polygon(0 0, 100% 0, 0 100%) polygon(50% 50%, 50% 50%, 50% 50%)",
+  );
+}
+
+function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
+  const pts: string[] = [];
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
+    const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
+    pts.push(`${x.toFixed(4)}% ${y.toFixed(4)}%`);
+  }
+  return `polygon(${pts.join(", ")})`;
+}
+
+function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
+  let xSum = 0;
+  let ySum = 0;
+  const points = Math.max(1, entry.screenPts.length / 2);
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    xSum += entry.screenPts[i];
+    ySum += entry.screenPts[i + 1];
+  }
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  const x = Math.max(0, Math.min(100, (xSum / points / width) * 100)).toFixed(4);
+  const y = Math.max(0, Math.min(100, (ySum / points / height) * 100)).toFixed(4);
+  return `polygon(${Array.from({ length: points }, () => `${x}% ${y}%`).join(", ")})`;
+}
+
+function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
+  return `${cssPolygonShapeForPlan(entry)} ${cssCollapsedInnerShapeForPlan(entry)}`;
+}
+
+function applySolidPaint(
+  el: HTMLElement,
   entry: TextureAtlasPlan,
   textureLighting: TextureLightingMode,
-  doc: Document,
-): HTMLElement {
-  const el = doc.createElement("i");
-  applyPlanElementBase(el, entry);
-  el.classList.add("polycss-solid-css");
-
+): void {
   if (textureLighting === "dynamic") {
     applyDynamicNormalVars(el, entry);
     const base = parseHex(entry.polygon.color ?? "#cccccc");
@@ -740,6 +777,32 @@ function createSolidElement(
   } else {
     el.style.backgroundColor = entry.shadedColor;
   }
+}
+
+function createSolidElement(
+  entry: TextureAtlasPlan,
+  textureLighting: TextureLightingMode,
+  doc: Document,
+): HTMLElement {
+  const el = doc.createElement("i");
+  applyPlanElementBase(el, entry);
+  el.classList.add("polycss-solid-css");
+  applySolidPaint(el, entry, textureLighting);
+
+  return el;
+}
+
+function createBorderShapeSolidElement(
+  entry: TextureAtlasPlan,
+  doc: Document,
+): HTMLElement {
+  const el = doc.createElement("i");
+  applyPlanElementBase(el, entry);
+  el.style.boxSizing = "border-box";
+  el.style.borderStyle = "solid";
+  el.style.borderWidth = "1px";
+  el.style.borderColor = entry.shadedColor;
+  el.style.setProperty("border-shape", cssBorderShapeForPlan(entry));
 
   return el;
 }
@@ -766,10 +829,15 @@ export function renderPolygonsWithTextureAtlas(
   if (!doc) return { rendered: [], dispose: () => {} };
 
   const textureLighting = options.textureLighting ?? "baked";
+  const useBorderShape =
+    textureLighting !== "dynamic" &&
+    borderShapeSupported(doc);
   const plans = polygons.map((polygon, index) => computeTextureAtlasPlan(polygon, index, options));
   const atlasPlans = plans.map((plan) =>
     plan &&
-    (plan.texture || !isFullRectSolid(plan)) ? plan : null
+    (plan.texture
+      ? plan
+      : (!isFullRectSolid(plan) && !useBorderShape) ? plan : null)
   );
   const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.atlasScale);
   const atlasElements = new Map<number, HTMLElement>();
@@ -788,6 +856,9 @@ export function renderPolygonsWithTextureAtlas(
       rendered.push({ polygonIndex: i, element, dispose: () => {} });
     } else if (!plan.texture && isFullRectSolid(plan)) {
       const element = createSolidElement(plan, textureLighting, doc);
+      rendered.push({ polygonIndex: i, element, dispose: () => {} });
+    } else if (!plan.texture && useBorderShape) {
+      const element = createBorderShapeSolidElement(plan, doc);
       rendered.push({ polygonIndex: i, element, dispose: () => {} });
     }
   }

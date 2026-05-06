@@ -15,6 +15,7 @@ import type { TransformProps } from "../shapes/types";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
+  TextureBorderShapePoly,
   TextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -210,18 +211,23 @@ function PolySceneInner({
     return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }, [autoCenter, sceneBbox, polyContext.tileSize, polyContext.layerElevation]);
 
-  const polyChildren = textureAtlas.entries.map((entry) =>
-    entry ? (
-      <TextureAtlasPoly
-        key={entry.index}
-        entry={entry}
-        page={textureAtlas.pages[entry.pageIndex]}
-        textureLighting={textureLighting}
-      />
-    ) : (
-      null
-    )
-  );
+  const polyChildren = textureAtlas.entries.map((entry, index) => {
+    if (entry) {
+      return (
+        <TextureAtlasPoly
+          key={entry.index}
+          entry={entry}
+          page={textureAtlas.pages[entry.pageIndex]}
+          textureLighting={textureLighting}
+        />
+      );
+    }
+
+    const plan = textureAtlasPlans[index];
+    return plan && !plan.texture ? (
+      <TextureBorderShapePoly key={plan.index} entry={plan} />
+    ) : null;
+  });
 
   // Propagate scene-level rendering options to descendants (PolyMesh /
   // helpers) so they pick up the same dynamic mode + lights as the scene.
