@@ -16,11 +16,14 @@ import type {
   Polygon,
   TextureLightingMode,
 } from "@polycss/react";
+import { ModelPicker } from "./ModelPicker";
 import {
   axesHelperPolygons,
+  computeTexturePaintMetrics,
   createPolyControls,
   createPolyScene,
   octahedronPolygons,
+  parseVox,
 } from "polycss";
 import type {
   ControlsHandle,
@@ -28,29 +31,32 @@ import type {
   PolySceneOptions,
   SceneHandle,
   Vec3,
+  VoxParseOptions,
 } from "polycss";
+import { preprocessModelPolygons } from "./meshDomNormalize";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
-type ModelKind = "obj" | "glb" | "gltf";
+type ModelKind = "obj" | "glb" | "gltf" | "vox";
 type TextureQuality = "auto" | "full" | "balanced" | "draft";
 
 interface PresetModel {
   id: string;
   label: string;
-  kind: "obj" | "glb" | "gltf";
+  kind: ModelKind;
   category: string;
   url: string;
   mtlUrl?: string;
   zoom?: number;
   rotX?: number;
   rotY?: number;
-  options?: ObjParseOptions | GltfParseOptions;
+  options?: ObjParseOptions | GltfParseOptions | VoxParseOptions;
 }
 
 interface LoadedModel {
   label: string;
   kind: ModelKind;
+  rawPolygons: Polygon[];
   polygons: Polygon[];
   sourcePolygons: number;
   sourceBytes: number;
@@ -80,6 +86,8 @@ interface SceneOptionsState {
   ambientColor: string;
   textureLighting: TextureLightingMode;
   textureQuality: TextureQuality;
+  normalizeGeometry: boolean;
+  outlinePolygons: boolean;
 }
 
 interface ParserOptionsState {
@@ -99,6 +107,164 @@ interface DomMetrics {
 interface AtlasEstimate {
   atlasPolygons: number;
 }
+
+const EMPTY_TEXTURE_PAINT_METRICS = {
+  totalPolygons: 0,
+  measuredPolygons: 0,
+  texturedPolygons: 0,
+  elementArea: 0,
+  polygonArea: 0,
+  transparentArea: 0,
+  transparentRatio: 0,
+  overdrawRatio: 0,
+  worstTransparentRatio: 0,
+};
+
+interface GalleryPresetFile {
+  file: string;
+  label?: string;
+  category: string;
+  targetSize?: number;
+  zoom?: number;
+  rotX?: number;
+  rotY?: number;
+}
+
+function galleryFileUrl(folder: "glb" | "vox", file: string): string {
+  return `/gallery/${folder}/${file.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function presetIdFromFile(prefix: string, file: string): string {
+  return `${prefix}-${file
+    .split("/")
+    .pop()!
+    .replace(/\.[^.]+$/, "")
+    .replace(/([a-z])([A-Z])/g, "$1-$2")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase()}`;
+}
+
+function labelFromFile(file: string): string {
+  const base = file
+    .split("/")
+    .pop()!
+    .replace(/\.[^.]+$/, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ");
+  return base
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function glbPreset(input: GalleryPresetFile): PresetModel {
+  return {
+    id: presetIdFromFile("glb", input.file),
+    label: input.label ?? labelFromFile(input.file),
+    category: input.category,
+    kind: "glb",
+    url: galleryFileUrl("glb", input.file),
+    options: { targetSize: input.targetSize ?? 60 },
+    zoom: input.zoom ?? 0.4,
+    rotX: input.rotX ?? 65,
+    rotY: input.rotY ?? 45,
+  };
+}
+
+function voxPreset(input: GalleryPresetFile): PresetModel {
+  return {
+    id: presetIdFromFile("vox", input.file),
+    label: input.label ?? labelFromFile(input.file),
+    category: input.category,
+    kind: "vox",
+    url: galleryFileUrl("vox", input.file),
+    options: { targetSize: input.targetSize ?? 60, gridShift: 0 },
+    zoom: input.zoom ?? 0.4,
+    rotX: input.rotX ?? 65,
+    rotY: input.rotY ?? 45,
+  };
+}
+
+const GLB_PRESET_FILES: GalleryPresetFile[] = [
+  { file: "Bat.glb", category: "Animals" },
+  { file: "Bear.glb", category: "Animals" },
+  { file: "Cat.glb", category: "Animals" },
+  { file: "Cheetah.glb", category: "Animals" },
+  { file: "Deer.glb", category: "Animals" },
+  { file: "Dinosaur.glb", category: "Animals" },
+  { file: "Dog.glb", category: "Animals" },
+  { file: "Dolphin.glb", category: "Animals" },
+  { file: "Dragon.glb", category: "Animals" },
+  { file: "Duck.glb", category: "Animals" },
+  { file: "Elephant.glb", category: "Animals" },
+  { file: "Fly.glb", category: "Animals" },
+  { file: "Frog.glb", category: "Animals" },
+  { file: "Gorilla.glb", category: "Animals" },
+  { file: "Hippo.glb", category: "Animals" },
+  { file: "Horse.glb", category: "Animals" },
+  { file: "Koala.glb", category: "Animals" },
+  { file: "Lobster.glb", category: "Animals" },
+  { file: "Octopus.glb", category: "Animals" },
+  { file: "Owl.glb", category: "Animals" },
+  { file: "Pig.glb", category: "Animals" },
+  { file: "Poodle.glb", category: "Animals" },
+  { file: "Rat.glb", category: "Animals" },
+  { file: "Robin.glb", category: "Animals" },
+  { file: "Scorpion.glb", category: "Animals" },
+  { file: "Shark.glb", category: "Animals" },
+  { file: "Snail.glb", category: "Animals" },
+  { file: "Spider.glb", category: "Animals" },
+  { file: "Wolf.glb", category: "Animals" },
+  { file: "Zebra.glb", category: "Animals" },
+  { file: "Bicycle.glb", category: "Vehicles" },
+  { file: "Dump truck.glb", label: "Dump Truck", category: "Vehicles" },
+  { file: "Policecar.glb", label: "Police Car", category: "Vehicles" },
+  { file: "Taxi.glb", category: "Vehicles" },
+  { file: "Truck.glb", category: "Vehicles" },
+  { file: "Acousticguitar.glb", label: "Acoustic Guitar", category: "Instruments" },
+  { file: "Electricguitar.glb", label: "Electric Guitar", category: "Instruments" },
+  { file: "Saxophone.glb", category: "Instruments" },
+  { file: "Trumpet.glb", category: "Instruments" },
+  { file: "Violin.glb", category: "Instruments" },
+  { file: "apple.glb", label: "Apple", category: "Food & Drink" },
+  { file: "BottleChampagne.glb", label: "Champagne Bottle", category: "Food & Drink" },
+  { file: "Eggplant.glb", category: "Food & Drink" },
+  { file: "Grapes.glb", category: "Food & Drink" },
+  { file: "Hot dog.glb", label: "Hot Dog", category: "Food & Drink" },
+  { file: "Watermelon.glb", category: "Food & Drink" },
+  { file: "Cactus.glb", category: "Environment" },
+  { file: "Campfire.glb", category: "Environment" },
+  { file: "Drill.glb", category: "Objects" },
+  { file: "Globe.glb", category: "Objects" },
+  { file: "Treasuretrunk.glb", label: "Treasure Trunk", category: "Objects" },
+];
+
+const VOX_PRESET_FILES: GalleryPresetFile[] = [
+  { file: "AncientCrashSite.vox", label: "Ancient Crash Site", category: "VOX", targetSize: 70, zoom: 0.35 },
+  { file: "army.vox", label: "Army", category: "VOX" },
+  { file: "desert.vox", label: "Desert", category: "VOX" },
+  { file: "desert2.vox", label: "Desert 2", category: "VOX" },
+  { file: "Garden.vox", category: "VOX" },
+  { file: "Building03.vox", label: "Building 03", category: "VOX" },
+  { file: "HUT.vox", label: "Hut", category: "VOX" },
+  { file: "house.vox", label: "House", category: "VOX" },
+  { file: "pyramid.vox", label: "Pyramid", category: "VOX" },
+  { file: "skyscraper.vox", label: "Skyscraper", category: "VOX" },
+  { file: "stairs.vox", label: "Stairs", category: "VOX" },
+  { file: "Plane_03.vox", label: "Plane 03", category: "VOX" },
+  { file: "bus.vox", label: "Bus", category: "VOX" },
+  { file: "tank.vox", label: "Tank", category: "VOX" },
+  { file: "arachnoid.vox", label: "Arachnoid", category: "VOX" },
+  { file: "MechaGolem.vox", label: "Mecha Golem", category: "VOX" },
+  { file: "mecha.vox", label: "Mecha", category: "VOX" },
+  { file: "StarMarineTrooper.vox", label: "Star Marine Trooper", category: "VOX" },
+  { file: "apple.vox", label: "Apple", category: "VOX" },
+  { file: "dual.vox", label: "Dual", category: "VOX" },
+  { file: "Treasure.vox", category: "VOX" },
+  { file: "tree.vox", label: "Tree", category: "VOX" },
+];
 
 const PRESETS: PresetModel[] = [
   {
@@ -313,14 +479,15 @@ const PRESETS: PresetModel[] = [
     rotX: 65,
     rotY: 45,
   },
+  ...GLB_PRESET_FILES.map(glbPreset),
+  ...VOX_PRESET_FILES.map(voxPreset),
 ];
 
-const DEBUG_NAV = [
-  { path: "/debug/sphere", label: "Sphere" },
-  { path: "/debug/platonic", label: "Platonic solids" },
-  { path: "/debug/triangle-editor", label: "Triangle editor" },
-  { path: "/debug/meshes", label: "Meshes (OBJ / GLB)" },
-];
+const PRESET_PICKER_ITEMS = PRESETS.map(({ id, label, category }) => ({
+  id,
+  label,
+  category,
+}));
 
 const DEFAULT_SCENE: SceneOptionsState = {
   renderer: "vanilla",
@@ -343,6 +510,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   ambientColor: "#ffffff",
   textureLighting: "baked",
   textureQuality: "auto",
+  normalizeGeometry: false,
+  outlinePolygons: false,
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -352,7 +521,7 @@ const DEFAULT_PARSER: ParserOptionsState = {
 };
 
 function parserDefaultsFor(model: PresetModel): Partial<ParserOptionsState> {
-  const options = model.options as (ObjParseOptions & GltfParseOptions) | undefined;
+  const options = model.options as (ObjParseOptions & GltfParseOptions & VoxParseOptions) | undefined;
   return {
     ...(typeof options?.targetSize === "number" ? { targetSize: options.targetSize } : {}),
     ...(typeof options?.gridShift === "number" ? { gridShift: options.gridShift } : {}),
@@ -376,6 +545,14 @@ function formatMs(value: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ms`;
 }
 
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatRatio(value: number): string {
+  return `${value.toFixed(2)}x`;
+}
+
 function atlasScaleForQuality(quality: TextureQuality): PolySceneOptions["atlasScale"] {
   switch (quality) {
     case "auto":
@@ -391,9 +568,9 @@ function atlasScaleForQuality(quality: TextureQuality): PolySceneOptions["atlasS
 }
 
 function mergeParserOptions(
-  base: ObjParseOptions | GltfParseOptions | undefined,
+  base: ObjParseOptions | GltfParseOptions | VoxParseOptions | undefined,
   parser: ParserOptionsState,
-): ObjParseOptions & GltfParseOptions {
+): ObjParseOptions & GltfParseOptions & VoxParseOptions {
   return {
     ...(base ?? {}),
     targetSize: parser.targetSize,
@@ -435,10 +612,12 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
         ...((model.options as ObjParseOptions | undefined)?.materialTextures ?? {}),
       },
     });
+    const finalPolys = preprocessModelPolygons(parsed.polygons, false);
     return {
       label: model.label,
       kind: "obj",
-      polygons: parsed.polygons,
+      rawPolygons: parsed.polygons,
+      polygons: finalPolys,
       sourcePolygons: parsed.polygons.length,
       sourceBytes: objText.length + (mtlText?.length ?? 0),
       warnings: parsed.warnings ?? [],
@@ -451,14 +630,33 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
     if (!res.ok) throw new Error(`fetch ${model.url} -> ${res.status}`);
     return res.arrayBuffer();
   });
+
+  if (model.kind === "vox") {
+    const parsed = parseVox(buf, mergeParserOptions(model.options, parser));
+    const finalPolys = preprocessModelPolygons(parsed.polygons, false);
+    return {
+      label: model.label,
+      kind: "vox",
+      rawPolygons: parsed.polygons,
+      polygons: finalPolys,
+      sourcePolygons: parsed.polygons.length,
+      sourceBytes: buf.byteLength,
+      warnings: parsed.warnings ?? [],
+      parseMs: performance.now() - started,
+      dispose: parsed.dispose,
+    };
+  }
+
   const parsed = parseGltf(buf, {
     ...mergeParserOptions(model.options, parser),
     baseUrl: new URL(model.url, window.location.href).href,
   });
+  const finalPolys = preprocessModelPolygons(parsed.polygons, false);
   return {
     label: model.label,
     kind: model.kind,
-    polygons: parsed.polygons,
+    rawPolygons: parsed.polygons,
+    polygons: finalPolys,
     sourcePolygons: parsed.polygons.length,
     sourceBytes: buf.byteLength,
     warnings: parsed.warnings ?? [],
@@ -596,9 +794,9 @@ function Toggle({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "warn" | "good" }) {
+function Kpi({ label, value, tone }: { label: string; value: string; tone?: "warn" | "good" }) {
   return (
-    <div className={`dn-stat${tone ? ` dn-stat--${tone}` : ""}`}>
+    <div className={`dn-toolbar__kpi${tone ? ` dn-toolbar__kpi--${tone}` : ""}`}>
       <span>{label}</span>
       <b>{value}</b>
     </div>
@@ -764,7 +962,18 @@ function VanillaScene({
       // which is signaled by the scene Effect 1 cleanup destroying scene.
       // Until then, the next effect run will reuse + update controlsRef.
     };
-  }, [options.renderer, options.interactive, options.animate, polygons]);
+  }, [
+    options.renderer,
+    options.interactive,
+    options.animate,
+    polygons,
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+  ]);
 
   // Effect 3 — axes helper. Add/remove based on toggle; rebuild when scale
   // changes (different bar lengths bake into different polygons).
@@ -789,7 +998,17 @@ function VanillaScene({
       axesHandleRef.current?.dispose();
       axesHandleRef.current = null;
     };
-  }, [showAxes, helperScale, polygons]);
+  }, [
+    showAxes,
+    helperScale,
+    polygons,
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+  ]);
 
   // Effect 4 — light helper. Octahedron at LOCAL origin so polygons stay
   // stable across light moves; the light direction only updates the
@@ -826,7 +1045,18 @@ function VanillaScene({
     // directionalLight.color triggers a remount because the swatch is
     // baked into polygon data; direction is handled by Effect 5 below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLight, helperScale, directionalLight.color, polygons]);
+  }, [
+    showLight,
+    helperScale,
+    directionalLight.color,
+    polygons,
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+  ]);
 
   // Effect 5 — slide the light helper to the new orbit position whenever
   // direction or target/distance change. Only updates the wrapper
@@ -850,6 +1080,7 @@ export default function DebugWorkbench() {
   const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(DEFAULT_SCENE);
   const [parserOptions, setParserOptions] = useState<ParserOptionsState>(DEFAULT_PARSER);
   const [presetId, setPresetId] = useState(PRESETS[0].id);
+  const [sidebarTopPadding, setSidebarTopPadding] = useState(false);
   const [loaded, setLoaded] = useState<LoadedModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -906,19 +1137,36 @@ export default function DebugWorkbench() {
     };
   }, []);
 
-  const directionalLight = useMemo(() => directionalFromOptions(sceneOptions), [sceneOptions]);
-  const ambientLight = useMemo(() => ambientFromOptions(sceneOptions), [sceneOptions]);
+  const directionalLight = useMemo(
+    () => directionalFromOptions(sceneOptions),
+    [
+      sceneOptions.lightAzimuth,
+      sceneOptions.lightElevation,
+      sceneOptions.lightColor,
+      sceneOptions.lightIntensity,
+    ],
+  );
+  const ambientLight = useMemo(
+    () => ambientFromOptions(sceneOptions),
+    [sceneOptions.ambientColor, sceneOptions.ambientIntensity],
+  );
   const atlasScale = atlasScaleForQuality(sceneOptions.textureQuality);
 
+  const modelPolygons = useMemo(() => {
+    if (!loaded) return [];
+    if (!sceneOptions.normalizeGeometry) return loaded.polygons;
+    return preprocessModelPolygons(loaded.rawPolygons, true);
+  }, [loaded, sceneOptions.normalizeGeometry]);
+
   const scenePolygons = useMemo(() => {
-    const base = loaded?.polygons ?? [];
+    const base = modelPolygons;
     if (!sceneOptions.showFloor) return base;
     const floor = buildFloor(base);
     return floor ? [...base, floor] : base;
-  }, [loaded, sceneOptions.showFloor]);
+  }, [modelPolygons, sceneOptions.showFloor]);
 
   const helperBbox = useMemo(() => {
-    const polygons = loaded?.polygons ?? [];
+    const polygons = modelPolygons;
     if (polygons.length === 0) return null;
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -930,7 +1178,7 @@ export default function DebugWorkbench() {
       }
     }
     return { minX, minY, minZ, maxX, maxY, maxZ };
-  }, [loaded]);
+  }, [modelPolygons]);
 
   const helperScale = useMemo(() => {
     if (!helperBbox) return 30;
@@ -956,6 +1204,23 @@ export default function DebugWorkbench() {
     [scenePolygons],
   );
   const hasAtlasFootprint = atlasEstimate.atlasPolygons > 0;
+  const texturePaintMetrics = useMemo(
+    () => {
+      try {
+        return computeTexturePaintMetrics(scenePolygons, {
+          texturedOnly: false,
+        });
+      } catch (error) {
+        console.warn("Texture paint metrics failed", error);
+        return { ...EMPTY_TEXTURE_PAINT_METRICS, totalPolygons: scenePolygons.length };
+      }
+    },
+    [
+      scenePolygons,
+      sceneOptions.renderer,
+    ],
+  );
+  const hasTexturePaintMetrics = texturePaintMetrics.measuredPolygons > 0;
 
   useEffect(() => {
     renderStartRef.current = performance.now();
@@ -992,40 +1257,14 @@ export default function DebugWorkbench() {
 
   return (
     <div className="dn-root">
-      <aside className="dn-sidebar dn-sidebar--left">
-        <header className="dn-brand">
-          <a href="/">polycss</a>
-          <span>/debug/meshes</span>
-        </header>
-        <nav className="dn-debug-nav" aria-label="Debug pages">
-          {DEBUG_NAV.map((item) => (
-            <a
-              key={item.path}
-              href={item.path}
-              className={item.path === "/debug/meshes" ? "active" : undefined}
-            >
-              {item.label}
-            </a>
-          ))}
-        </nav>
-
+      <aside className={`dn-sidebar dn-sidebar--left${sidebarTopPadding ? " dn-sidebar--top-padded" : ""}`}>
         <section className="dn-panel">
           <h2>Model</h2>
-          <label className="dn-field">
-            <span>Preset</span>
-            <select
-              value={presetId}
-              onChange={(event) => {
-                resetToPreset(event.currentTarget.value);
-              }}
-            >
-              {PRESETS.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.category} - {preset.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Toggle
+            label="Sidebar top padding"
+            checked={sidebarTopPadding}
+            onChange={setSidebarTopPadding}
+          />
           <RangeControl
             label="Target"
             value={parserOptions.targetSize}
@@ -1053,6 +1292,11 @@ export default function DebugWorkbench() {
             />
             <code>{parserOptions.defaultColor}</code>
           </label>
+          <Toggle
+            label="Normalize geometry"
+            checked={sceneOptions.normalizeGeometry}
+            onChange={(value) => updateScene({ normalizeGeometry: value })}
+          />
           {loading && <p className="dn-note">Loading model...</p>}
           {loadError && <p className="dn-note dn-note--error">{loadError}</p>}
         </section>
@@ -1105,10 +1349,10 @@ export default function DebugWorkbench() {
           <Toggle label="Auto center" checked={sceneOptions.autoCenter} onChange={(value) => updateScene({ autoCenter: value })} />
           <Toggle label="Interactive" checked={sceneOptions.interactive} onChange={(value) => updateScene({ interactive: value })} />
           <Toggle label="Auto rotate" checked={sceneOptions.animate} onChange={(value) => updateScene({ animate: value })} />
+          <Toggle label="Red i outline" checked={sceneOptions.outlinePolygons} onChange={(value) => updateScene({ outlinePolygons: value })} />
           <Toggle label="Floor" checked={sceneOptions.showFloor} onChange={(value) => updateScene({ showFloor: value })} />
           <Toggle label="Backfaces" checked={sceneOptions.showBackfaces} onChange={(value) => updateScene({ showBackfaces: value })} />
           <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
-          <Toggle label="Light" checked={sceneOptions.showLight} onChange={(value) => updateScene({ showLight: value })} />
         </section>
 
         <section className="dn-panel">
@@ -1133,24 +1377,70 @@ export default function DebugWorkbench() {
             </select>
           </label>
         </section>
+
+        <section className="dn-panel">
+          <h2>Lights</h2>
+          <Toggle label="Light helper" checked={sceneOptions.showLight} onChange={(value) => updateScene({ showLight: value })} />
+          <RangeControl label="Azimuth" value={sceneOptions.lightAzimuth} min={0} max={360} step={1} onChange={(value) => updateScene({ lightAzimuth: value })} format={(value) => `${value.toFixed(0)} deg`} />
+          <RangeControl label="Elev." value={sceneOptions.lightElevation} min={-90} max={90} step={1} onChange={(value) => updateScene({ lightElevation: value })} format={(value) => `${value.toFixed(0)} deg`} />
+          <RangeControl label="Key" value={sceneOptions.lightIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ lightIntensity: value })} format={(value) => value.toFixed(2)} />
+          <label className="dn-field dn-field--color">
+            <span>Key color</span>
+            <input type="color" value={sceneOptions.lightColor} onChange={(event) => updateScene({ lightColor: event.currentTarget.value })} />
+            <code>{sceneOptions.lightColor}</code>
+          </label>
+          <RangeControl label="Ambient" value={sceneOptions.ambientIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ ambientIntensity: value })} format={(value) => value.toFixed(2)} />
+          <label className="dn-field dn-field--color">
+            <span>Amb. color</span>
+            <input type="color" value={sceneOptions.ambientColor} onChange={(event) => updateScene({ ambientColor: event.currentTarget.value })} />
+            <code>{sceneOptions.ambientColor}</code>
+          </label>
+        </section>
       </aside>
 
       <main className="dn-main">
         <div className="dn-toolbar">
-          <div>
+          <div className="dn-toolbar__model">
             <b>{loaded?.label ?? "No model"}</b>
             <span>
-              {loaded ? `${loaded.kind.toUpperCase()} - ${formatNumber(loaded.sourcePolygons)} source polygons` : "Drop a model or pick a preset"}
+              {loaded
+                ? `${loaded.kind.toUpperCase()} - ${formatNumber(loaded.sourcePolygons)} source / ${formatNumber(modelPolygons.length)} merged polygons`
+                : "Drop a model or pick a preset"}
             </span>
           </div>
-          <div className="dn-toolbar__chips">
-            <span>{sceneOptions.renderer}</span>
-            <span>light {sceneOptions.textureLighting}</span>
-            <span>quality {sceneOptions.textureQuality}</span>
+          <div className="dn-toolbar__kpis" aria-label="Performance KPIs">
+            <Kpi label={sceneOptions.renderer === "vanilla" ? "Build" : "Render"} value={formatMs(sceneOptions.renderer === "vanilla" ? vanillaBuildMs : metrics.renderMs)} />
+            <Kpi label="DOM" value={formatNumber(metrics.nodeCount)} tone={budgetTone} />
+            <Kpi label="Polys" value={formatNumber(metrics.polyCount)} tone={budgetTone} />
+            <Kpi label="Visible" value={formatNumber(metrics.visiblePolyCount)} tone={metrics.visiblePolyCount > 2500 ? "warn" : metrics.visiblePolyCount < 900 ? "good" : undefined} />
+            {hasAtlasFootprint && (
+              <Kpi label="Atlas" value={formatNumber(atlasEstimate.atlasPolygons)} tone={atlasEstimate.atlasPolygons > 2500 ? "warn" : undefined} />
+            )}
+            {hasTexturePaintMetrics && (
+              <>
+                <Kpi label="Paint" value={formatNumber(texturePaintMetrics.measuredPolygons)} />
+                {texturePaintMetrics.texturedPolygons > 0 && (
+                  <Kpi label="Texture" value={formatNumber(texturePaintMetrics.texturedPolygons)} />
+                )}
+                <Kpi
+                  label="Alpha"
+                  value={formatPercent(texturePaintMetrics.transparentRatio)}
+                  tone={texturePaintMetrics.transparentRatio > 0.45 ? "warn" : texturePaintMetrics.transparentRatio < 0.2 ? "good" : undefined}
+                />
+                <Kpi
+                  label="Overdraw"
+                  value={formatRatio(texturePaintMetrics.overdrawRatio)}
+                  tone={texturePaintMetrics.overdrawRatio > 1.8 ? "warn" : texturePaintMetrics.overdrawRatio < 1.25 ? "good" : undefined}
+                />
+              </>
+            )}
           </div>
         </div>
 
-        <div className="dn-viewport" ref={viewportRef}>
+        <div
+          className={`dn-viewport${sceneOptions.outlinePolygons ? " dn-viewport--outline-polygons" : ""}`}
+          ref={viewportRef}
+        >
           {sceneOptions.renderer === "vanilla" ? (
             <VanillaScene
               polygons={scenePolygons}
@@ -1197,53 +1487,15 @@ export default function DebugWorkbench() {
       </main>
 
       <aside className="dn-sidebar dn-sidebar--right">
-        <section className="dn-panel">
-          <h2>Performance</h2>
-          <div className="dn-stats">
-            <Stat label={sceneOptions.renderer === "vanilla" ? "Build" : "Render"} value={formatMs(sceneOptions.renderer === "vanilla" ? vanillaBuildMs : metrics.renderMs)} />
-            <Stat label="DOM nodes" value={formatNumber(metrics.nodeCount)} tone={budgetTone} />
-            <Stat label="Polys" value={formatNumber(metrics.polyCount)} tone={budgetTone} />
-            {hasAtlasFootprint && (
-              <>
-                <Stat label="Atlas polys" value={formatNumber(atlasEstimate.atlasPolygons)} tone={atlasEstimate.atlasPolygons > 2500 ? "warn" : undefined} />
-              </>
-            )}
+        <section className="dn-panel dn-panel--model-selector">
+          <div className="dn-preset-picker">
+            <ModelPicker
+              items={PRESET_PICKER_ITEMS}
+              value={presetId}
+              onChange={resetToPreset}
+              searchPlaceholder="Search presets"
+            />
           </div>
-        </section>
-
-        <section className="dn-panel">
-          <h2>Directional light</h2>
-          <RangeControl label="Azimuth" value={sceneOptions.lightAzimuth} min={0} max={360} step={1} onChange={(value) => updateScene({ lightAzimuth: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Elev." value={sceneOptions.lightElevation} min={-90} max={90} step={1} onChange={(value) => updateScene({ lightElevation: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Intensity" value={sceneOptions.lightIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ lightIntensity: value })} format={(value) => value.toFixed(2)} />
-          <label className="dn-field dn-field--color">
-            <span>Color</span>
-            <input type="color" value={sceneOptions.lightColor} onChange={(event) => updateScene({ lightColor: event.currentTarget.value })} />
-            <code>{sceneOptions.lightColor}</code>
-          </label>
-        </section>
-
-        <section className="dn-panel">
-          <h2>Ambient light</h2>
-          <RangeControl label="Intensity" value={sceneOptions.ambientIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ ambientIntensity: value })} format={(value) => value.toFixed(2)} />
-          <label className="dn-field dn-field--color">
-            <span>Color</span>
-            <input type="color" value={sceneOptions.ambientColor} onChange={(event) => updateScene({ ambientColor: event.currentTarget.value })} />
-            <code>{sceneOptions.ambientColor}</code>
-          </label>
-        </section>
-
-        <section className="dn-panel">
-          <h2>Notes</h2>
-          <ul className="dn-list">
-            <li>React mode tests `@polycss/react` components.</li>
-            <li>Vanilla mode tests the imperative `polycss` API.</li>
-          </ul>
-          {loaded?.warnings.length ? (
-            <ul className="dn-list dn-list--warn">
-              {loaded.warnings.map((warning, index) => <li key={index}>{warning}</li>)}
-            </ul>
-          ) : null}
         </section>
       </aside>
     </div>

@@ -11,7 +11,7 @@ export const DEBUG_ROUTES: DebugRoute[] = [
   { path: "/debug/sphere", label: "Sphere" },
   { path: "/debug/platonic", label: "Platonic solids" },
   { path: "/debug/triangle-editor", label: "Triangle editor" },
-  { path: "/debug/meshes", label: "Meshes (OBJ · GLB)" },
+  { path: "/debug/meshes", label: "Meshes (OBJ · GLB · VOX)" },
 ];
 
 interface DebugContextValue {

@@ -22,6 +22,8 @@ import { parseObj } from "./parseObj";
 import { parseGltf } from "./parseGltf";
 import { parseMtl } from "./parseMtl";
 import { parseVox } from "./parseVox";
+import { mergePolygons } from "../merge/mergePolygons";
+import { cullInteriorPolygons } from "../cull/cullInteriorPolygons";
 
 export interface LoadMeshOptions {
   /**
@@ -47,6 +49,26 @@ export interface LoadMeshOptions {
 }
 
 const FETCH_NAME = "loadMesh";
+
+/**
+ * Wrap a ParseResult, replacing its polygon list with the post-processed
+ * version: first cull polygons that are fully interior (never visible from
+ * any external camera direction — saves cascade walk on hidden geometry),
+ * then merge coplanar same-color triangles into n-gons (reduces N further
+ * for the cascade walk). Both passes run once at parse time so every
+ * downstream consumer (vanilla createPolyScene, React/Vue Poly children,
+ * custom renderers) benefits without per-frame cost.
+ *
+ * Order matters: interior cull runs FIRST so it sees the original triangle
+ * topology (with crisp inside/outside boundaries via Möller-Trumbore on
+ * triangles). mergePolygons then collapses what's left.
+ */
+function withMergedPolygons(result: ParseResult): ParseResult {
+  const surface = cullInteriorPolygons(result.polygons);
+  const merged = mergePolygons(surface);
+  if (merged.length === result.polygons.length) return result; // nothing changed
+  return { ...result, polygons: merged };
+}
 
 function extensionOf(url: string): string {
   const clean = url.split("?")[0].split("#")[0];
@@ -119,21 +141,21 @@ export async function loadMesh(url: string, options?: LoadMeshOptions): Promise<
       };
     }
 
-    return parseObj(text, objOptions);
+    return withMergedPolygons(parseObj(text, objOptions));
   }
 
   if (ext === "glb" || ext === "gltf") {
     const res = await fetchFn(url);
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const buf = await res.arrayBuffer();
-    return parseGltf(buf, { baseUrl, ...(options?.gltfOptions ?? {}) });
+    return withMergedPolygons(parseGltf(buf, { baseUrl, ...(options?.gltfOptions ?? {}) }));
   }
 
   if (ext === "vox") {
     const res = await fetchFn(url);
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const buf = await res.arrayBuffer();
-    return parseVox(buf, options?.voxOptions);
+    return withMergedPolygons(parseVox(buf, options?.voxOptions));
   }
 
   throw new Error(`${FETCH_NAME}: unsupported extension ".${ext}" (supported: obj, glb, gltf, vox)`);

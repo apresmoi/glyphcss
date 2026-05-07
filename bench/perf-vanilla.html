@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>polycss perf — vanilla JS</title>
+  <style id="overlay-css"></style>
+</head>
+<body>
+  <div id="host"></div>
+
+  <script type="module">
+    // Vanilla path: createPolyScene(host, opts) + createPolyControls + loadMesh.
+    // Per-frame state changes go through scene.setOptions(...) — exercises
+    // only the imperative API + the renderer's internal cascade.
+    import { createPolyScene, createPolyControls, loadMesh } from "./polycss.js";
+    import { getSynthMesh } from "./synth-mesh.mjs";
+    import {
+      parseUrlParams, dirFromAzEl, createPerfRecorder,
+      PERF_OVERLAY_HTML, PERF_OVERLAY_CSS,
+    } from "./perf-shared.mjs";
+
+    document.getElementById("overlay-css").textContent = PERF_OVERLAY_CSS;
+    document.body.insertAdjacentHTML("beforeend", PERF_OVERLAY_HTML);
+
+    const { meshId, mode, motion, az, el, isSynth, preset } = parseUrlParams();
+    let azimuth = az;
+
+    const host = document.getElementById("host");
+    const scene = createPolyScene(host, {
+      rotX: preset.rotX, rotY: preset.rotY, zoom: preset.zoom,
+      directionalLight: { direction: dirFromAzEl(azimuth, el), color: "#ffffff", intensity: 1 },
+      ambientLight: { color: "#ffffff", intensity: 0.4 },
+      textureLighting: mode,
+      autoCenter: true,
+    });
+    // Drag + wheel for human inspection via perf-serve. Headless bench
+    // doesn't dispatch input events, so listeners stay idle. animate=false
+    // because the page's own loop drives lighting/camera directly.
+    createPolyControls(scene, { drag: true, wheel: true, animate: false });
+
+    const meshPromise = isSynth
+      ? Promise.resolve(getSynthMesh(meshId))
+      : loadMesh(preset.url, {
+          ...(preset.mtlUrl ? { mtlUrl: preset.mtlUrl } : {}),
+          objOptions: preset.options,  // targetSize, excludeObjects, defaultColor, ...
+        });
+
+    meshPromise.then((parseResult) => {
+      if (!parseResult) throw new Error(`Unknown synth mesh: ${meshId}`);
+      scene.add(parseResult);
+
+      const recorder = createPerfRecorder({
+        rendererLabel: "vanilla",
+        meshId, mode, motion,
+        polyCount: parseResult.polygons.length,
+      });
+
+      let frameCount = 0;
+      function tick(now) {
+        recorder.onFrame(now);
+        frameCount += 1;
+        if (motion === "light") {
+          azimuth = (azimuth + 0.5) % 360;
+          scene.setOptions({
+            directionalLight: { direction: dirFromAzEl(azimuth, el), color: "#ffffff", intensity: 1 },
+          });
+        } else if (motion === "rot") {
+          const newRotY = ((preset.rotY + frameCount * 0.5) + 360) % 360;
+          scene.setOptions({ rotY: newRotY });
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }).catch((err) => {
+      console.error("perf-vanilla mesh load failed", err);
+      document.getElementById("fps-now").textContent = "ERR";
+    });
+  </script>
+</body>
+</html>

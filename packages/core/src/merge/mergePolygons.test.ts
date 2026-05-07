@@ -29,6 +29,16 @@ function fanArea(verts: Vec3[]): number {
   return total;
 }
 
+function firstTriangleArea(verts: Vec3[]): number {
+  const a = verts[0], b = verts[1], c = verts[2];
+  const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const cx = ab[1] * ac[2] - ab[2] * ac[1];
+  const cy = ab[2] * ac[0] - ab[0] * ac[2];
+  const cz = ab[0] * ac[1] - ab[1] * ac[0];
+  return 0.5 * Math.hypot(cx, cy, cz);
+}
+
 describe("mergePolygons — real fixture (chicken.obj)", () => {
   it("reduces triangle count when fed a quad-mesh that was fan-triangulated", () => {
     // chicken.obj is mostly quads from Blender. parseObj fan-triangulates them
@@ -66,6 +76,19 @@ describe("mergePolygons — real fixture (chicken.obj)", () => {
     const inputColors = new Set(parsed.polygons.map((p) => p.color));
     const mergedColors = new Set(merged.map((p) => p.color));
     expect(mergedColors).toEqual(inputColors);
+  });
+
+  it("keeps merged textured Sting polygons renderable from their first three vertices", () => {
+    const objText = loadObjGalleryFile("sting.obj");
+    const parsed = parseObj(objText, {
+      materialTextures: { Sting: "/gallery/obj/sting-diffuse.png" },
+    });
+    const merged = mergePolygons(parsed.polygons);
+
+    for (const polygon of merged) {
+      if (!polygon.texture) continue;
+      expect(firstTriangleArea(polygon.vertices)).toBeGreaterThan(1e-9);
+    }
   });
 });
 
@@ -170,9 +193,7 @@ describe("mergePolygons", () => {
   });
 
   describe("texture matching", () => {
-    // Two textured triangles on the same plane, same texture — their UVs must
-    // match at the shared edge for them to merge.
-    it("same-texture polygons with matching edge UVs are merged", () => {
+    it("same-texture source triangles on one plane are merged", () => {
       // Same geometry as TRI_A + TRI_B but textured
       // Shared edge: (1,0,0) and (1,1,0)
       // In TRI_A: those are vertices[1] and vertices[2]
@@ -193,8 +214,8 @@ describe("mergePolygons", () => {
       // Shared edge is (0,0,0)↔(1,1,0):
       // in a: idx0=0 (UV 0,0), idx2=2 (UV 1,1)
       // in b: idx0=0 (UV 0,0), idx1=1 (UV 1,1)
-      // UVs match → should merge
       expect(result).toHaveLength(1);
+      expect(result[0].textureTriangles).toHaveLength(2);
     });
 
     it("different textures are NOT merged", () => {
@@ -228,6 +249,55 @@ describe("mergePolygons", () => {
       expect(result.length).toBeGreaterThanOrEqual(1);
     });
 
+    it("textured polygons without usable UVs are not merged", () => {
+      const a: Polygon = {
+        vertices: [[0,0,0],[1,0,0],[1,1,0]],
+        texture: "tex.png",
+        color: "#ffffff",
+      };
+      const b: Polygon = {
+        vertices: [[0,0,0],[1,1,0],[0,1,0]],
+        texture: "tex.png",
+        color: "#ffffff",
+      };
+
+      const result = mergePolygons([a, b]);
+      expect(result).toHaveLength(2);
+    });
+
+    it("textured polygons with non-affine combined UVs merge as source texture triangles", () => {
+      const a: Polygon = makeTexPoly(
+        [[0,0,0],[1,0,0],[1,1,0]],
+        [[0,0],[1,0],[1,1]],
+        "tex.png"
+      );
+      const b: Polygon = makeTexPoly(
+        [[0,0,0],[1,1,0],[0,1,0]],
+        [[0,0],[1,1],[0.2,1]],
+        "tex.png"
+      );
+
+      const result = mergePolygons([a, b]);
+      expect(result).toHaveLength(1);
+      expect(result[0].textureTriangles).toHaveLength(2);
+    });
+
+    it("near-coplanar textured polygons are not merged into one DOM plane", () => {
+      const a: Polygon = makeTexPoly(
+        [[0,0,0],[1,0,0],[1,1,0]],
+        [[0,0],[1,0],[1,1]],
+        "tex.png"
+      );
+      const b: Polygon = makeTexPoly(
+        [[0,0,0],[1,1,0],[0,1,0.01]],
+        [[0,0],[1,1],[0,1]],
+        "tex.png"
+      );
+
+      const result = mergePolygons([a, b]);
+      expect(result).toHaveLength(2);
+    });
+
     it("textured polygon preserves texture after merge", () => {
       const a: Polygon = makeTexPoly(
         [[0,0,0],[1,0,0],[1,1,0]],
@@ -243,7 +313,29 @@ describe("mergePolygons", () => {
       if (result.length === 1) {
         expect(result[0].texture).toBe("tex.png");
         expect(result[0].uvs).toBeDefined();
+        expect(result[0].textureTriangles).toHaveLength(2);
       }
+    });
+
+    it("textured merge preserves collinear boundary vertices to avoid T-junctions", () => {
+      const left: Polygon = makeTexPoly(
+        [[0,0,0],[1,0,0],[1,1,0],[0,1,0]],
+        [[0,0],[0.5,0],[0.5,1],[0,1]],
+        "tex.png"
+      );
+      const right: Polygon = makeTexPoly(
+        [[1,0,0],[2,0,0],[2,1,0],[1,1,0]],
+        [[0.5,0],[1,0],[1,1],[0.5,1]],
+        "tex.png"
+      );
+
+      const result = mergePolygons([left, right]);
+      expect(result).toHaveLength(1);
+      expect(result[0].vertices).toHaveLength(6);
+      expect(result[0].uvs).toHaveLength(6);
+      expect(firstTriangleArea(result[0].vertices)).toBeGreaterThan(1e-9);
+      expect(result[0].vertices).toContainEqual([1,0,0]);
+      expect(result[0].vertices).toContainEqual([1,1,0]);
     });
   });
 

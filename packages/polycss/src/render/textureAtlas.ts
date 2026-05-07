@@ -2,7 +2,9 @@ import type {
   AmbientLight,
   DirectionalLight,
   Polygon,
+  TextureTriangle,
   TextureLightingMode,
+  Vec2,
   Vec3,
 } from "@polycss/core";
 
@@ -45,10 +47,17 @@ interface TextureAtlasPlan {
   canvasH: number;
   screenPts: number[];
   uvAffine: UvAffine | null;
+  textureTriangles: TextureTrianglePlan[] | null;
+  seamEdges: Set<number> | null;
   /** World-space surface normal — stable across light changes, used by dynamic mode. */
   normal: Vec3;
   textureTint: RGBFactors;
   shadedColor: string;
+}
+
+interface TextureTrianglePlan {
+  screenPts: number[];
+  uvAffine: UvAffine;
 }
 
 interface PackedTextureAtlasEntry extends TextureAtlasPlan {
@@ -92,6 +101,39 @@ interface RectBrush {
   height: number;
 }
 
+interface LocalBasis {
+  xAxis: Vec3;
+  yAxis: Vec3;
+  local2D: Vec2[];
+  shiftX: number;
+  shiftY: number;
+  canvasW: number;
+  canvasH: number;
+  pixelArea: number;
+  rawArea: number;
+}
+
+interface BasisOptions {
+  optimize: boolean;
+  fixedXAxis?: Vec3;
+  boundsOrigin?: Vec3;
+  snapBounds?: boolean;
+  seamEdges?: Set<number>;
+}
+
+interface BasisHint {
+  xAxis?: Vec3;
+  boundsOrigin?: Vec3;
+  seamEdges: Set<number>;
+}
+
+interface PolygonBasisInfo {
+  pts: Vec3[];
+  normal: Vec3;
+  planeD: number;
+  optimizable: boolean;
+}
+
 export interface RenderTextureAtlasOptions {
   doc?: Document;
   tileSize?: number;
@@ -122,6 +164,11 @@ export interface RenderTextureAtlasResult {
 
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
 const RECT_EPS = 1e-3;
+const BASIS_EPS = 1e-9;
+const SURFACE_NORMAL_EPS = 1e-4;
+const SURFACE_DISTANCE_EPS = 0.1;
+const TEXTURE_TRIANGLE_BLEED = 0.75;
+const TEXTURE_SEAM_BLEED = 0;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -366,6 +413,329 @@ function drawImageCover(
   ctx.drawImage(img, x + (width - drawW) / 2, y + (height - drawH) / 2, drawW, drawH);
 }
 
+function pointKey(point: Vec3): string {
+  return `${point[0]},${point[1]},${point[2]}`;
+}
+
+function edgeKey(a: Vec3, b: Vec3): string {
+  const ak = pointKey(a);
+  const bk = pointKey(b);
+  return ak < bk ? `${ak}|${bk}` : `${bk}|${ak}`;
+}
+
+function canonicalEdgeVector(a: Vec3, b: Vec3): Vec3 {
+  return pointKey(a) < pointKey(b)
+    ? [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+    : [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function isBasisOptimizable(polygon: Polygon): boolean {
+  return !polygon.texture;
+}
+
+function cssPoints(vertices: Vec3[], tile: number, elev: number): Vec3[] {
+  return vertices.map((v): Vec3 => [v[1] * tile, v[0] * tile, v[2] * elev]);
+}
+
+function computeSurfaceNormal(pts: Vec3[]): Vec3 | null {
+  if (pts.length < 3) return null;
+  const p0 = pts[0];
+  const p1 = pts[1];
+  const p2 = pts[2];
+  const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+  let nx = -(e1[1] * e2[2] - e1[2] * e2[1]);
+  let ny = -(e1[2] * e2[0] - e1[0] * e2[2]);
+  let nz = -(e1[0] * e2[1] - e1[1] * e2[0]);
+  const nLen = Math.hypot(nx, ny, nz);
+  if (nLen <= BASIS_EPS) return null;
+  nx /= nLen; ny /= nLen; nz /= nLen;
+  return [nx, ny, nz];
+}
+
+function dotVec(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function getPolygonBasisInfo(
+  polygon: Polygon,
+  tile: number,
+  elev: number,
+): PolygonBasisInfo | null {
+  if (!polygon.vertices || polygon.vertices.length < 3) return null;
+  const pts = cssPoints(polygon.vertices, tile, elev);
+  const normal = computeSurfaceNormal(pts);
+  if (!normal) return null;
+  return {
+    pts,
+    normal,
+    planeD: dotVec(normal, pts[0]),
+    optimizable: isBasisOptimizable(polygon),
+  };
+}
+
+function compatibleSurface(
+  a: PolygonBasisInfo | null,
+  b: PolygonBasisInfo | null,
+): boolean {
+  if (!a || !b || !a.optimizable || !b.optimizable) return false;
+  if (dotVec(a.normal, b.normal) < 1 - SURFACE_NORMAL_EPS) return false;
+  return Math.abs(a.planeD - b.planeD) <= SURFACE_DISTANCE_EPS;
+}
+
+function basisAxisKey(axis: Vec3): string {
+  const canonical: Vec3 = [...axis] as Vec3;
+  const first = Math.abs(canonical[0]) > BASIS_EPS
+    ? 0
+    : Math.abs(canonical[1]) > BASIS_EPS
+      ? 1
+      : 2;
+  if (canonical[first] < 0) {
+    canonical[0] *= -1;
+    canonical[1] *= -1;
+    canonical[2] *= -1;
+  }
+  return `${canonical[0].toFixed(6)},${canonical[1].toFixed(6)},${canonical[2].toFixed(6)}`;
+}
+
+function makeLocalBasis(
+  pts: Vec3[],
+  origin: Vec3,
+  normal: Vec3,
+  rawXAxis: Vec3,
+  options: { boundsOrigin?: Vec3; snapBounds?: boolean } = {},
+): LocalBasis | null {
+  const dot = dotVec(rawXAxis, normal);
+  const planeX: Vec3 = [
+    rawXAxis[0] - dot * normal[0],
+    rawXAxis[1] - dot * normal[1],
+    rawXAxis[2] - dot * normal[2],
+  ];
+  const xLength = Math.hypot(planeX[0], planeX[1], planeX[2]);
+  if (xLength <= BASIS_EPS) return null;
+
+  const xAxis: Vec3 = [
+    planeX[0] / xLength,
+    planeX[1] / xLength,
+    planeX[2] / xLength,
+  ];
+  const yAxisRaw: Vec3 = [
+    normal[1] * xAxis[2] - normal[2] * xAxis[1],
+    normal[2] * xAxis[0] - normal[0] * xAxis[2],
+    normal[0] * xAxis[1] - normal[1] * xAxis[0],
+  ];
+  const yLength = Math.hypot(yAxisRaw[0], yAxisRaw[1], yAxisRaw[2]);
+  if (yLength <= BASIS_EPS) return null;
+  const yAxis: Vec3 = [
+    yAxisRaw[0] / yLength,
+    yAxisRaw[1] / yLength,
+    yAxisRaw[2] / yLength,
+  ];
+
+  const local2D = pts.map((p): Vec2 => {
+    const dx = p[0] - origin[0], dy = p[1] - origin[1], dz = p[2] - origin[2];
+    return [
+      dx * xAxis[0] + dy * xAxis[1] + dz * xAxis[2],
+      dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2],
+    ];
+  });
+
+  const boundsOrigin = options.boundsOrigin ?? origin;
+  const odx = origin[0] - boundsOrigin[0];
+  const ody = origin[1] - boundsOrigin[1];
+  const odz = origin[2] - boundsOrigin[2];
+  const originOffsetX = odx * xAxis[0] + ody * xAxis[1] + odz * xAxis[2];
+  const originOffsetY = odx * yAxis[0] + ody * yAxis[1] + odz * yAxis[2];
+  let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
+  for (const [x, y] of local2D) {
+    const boundsX = x + originOffsetX;
+    const boundsY = y + originOffsetY;
+    if (boundsX < xMin) xMin = boundsX; if (boundsX > xMax) xMax = boundsX;
+    if (boundsY < yMin) yMin = boundsY; if (boundsY > yMax) yMax = boundsY;
+  }
+
+  const w = xMax - xMin;
+  const h = yMax - yMin;
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+
+  const boxMinX = options.snapBounds ? Math.floor(xMin + RECT_EPS) : xMin;
+  const boxMinY = options.snapBounds ? Math.floor(yMin + RECT_EPS) : yMin;
+  const boxMaxX = options.snapBounds ? Math.ceil(xMax - RECT_EPS) : xMax;
+  const boxMaxY = options.snapBounds ? Math.ceil(yMax - RECT_EPS) : yMax;
+  const canvasW = Math.max(1, options.snapBounds ? boxMaxX - boxMinX : Math.ceil(w));
+  const canvasH = Math.max(1, options.snapBounds ? boxMaxY - boxMinY : Math.ceil(h));
+  return {
+    xAxis,
+    yAxis,
+    local2D,
+    shiftX: originOffsetX - boxMinX,
+    shiftY: originOffsetY - boxMinY,
+    canvasW,
+    canvasH,
+    pixelArea: canvasW * canvasH,
+    rawArea: w * h,
+  };
+}
+
+function evaluateIslandAxis(
+  component: number[],
+  infos: Array<PolygonBasisInfo | null>,
+  axis: Vec3,
+  boundsOrigin: Vec3,
+): { pixelArea: number; rawArea: number } | null {
+  let pixelArea = 0;
+  let rawArea = 0;
+  for (const index of component) {
+    const info = infos[index];
+    if (!info) return null;
+    const basis = makeLocalBasis(info.pts, info.pts[0], info.normal, axis, {
+      boundsOrigin,
+      snapBounds: true,
+    });
+    if (!basis) return null;
+    pixelArea += basis.pixelArea;
+    rawArea += basis.rawArea;
+  }
+  return { pixelArea, rawArea };
+}
+
+function chooseIslandXAxis(
+  component: number[],
+  infos: Array<PolygonBasisInfo | null>,
+): BasisHint | null {
+  const boundsOrigin = infos[component[0]]?.pts[0];
+  if (!boundsOrigin) return null;
+  let baseline: { pixelArea: number; rawArea: number } | null = { pixelArea: 0, rawArea: 0 };
+  let best: { xAxis: Vec3; pixelArea: number; rawArea: number } | null = null;
+  const seen = new Set<string>();
+
+  for (const polygonIndex of component) {
+    const info = infos[polygonIndex];
+    if (!info) continue;
+
+    const firstEdge: Vec3 = [
+      info.pts[1][0] - info.pts[0][0],
+      info.pts[1][1] - info.pts[0][1],
+      info.pts[1][2] - info.pts[0][2],
+    ];
+    const firstBasis = makeLocalBasis(info.pts, info.pts[0], info.normal, firstEdge);
+    if (baseline && firstBasis) {
+      baseline.pixelArea += firstBasis.pixelArea;
+      baseline.rawArea += firstBasis.rawArea;
+    } else {
+      baseline = null;
+    }
+
+    for (let i = 0; i < info.pts.length; i++) {
+      const rawAxis = canonicalEdgeVector(info.pts[i], info.pts[(i + 1) % info.pts.length]);
+      const basis = makeLocalBasis(info.pts, info.pts[0], info.normal, rawAxis);
+      if (!basis) continue;
+      const key = basisAxisKey(basis.xAxis);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const candidate = evaluateIslandAxis(component, infos, basis.xAxis, boundsOrigin);
+      if (!candidate) continue;
+      if (
+        !best ||
+        candidate.pixelArea < best.pixelArea ||
+        (candidate.pixelArea === best.pixelArea && candidate.rawArea < best.rawArea - RECT_EPS)
+      ) {
+        best = { xAxis: basis.xAxis, ...candidate };
+      }
+    }
+  }
+
+  if (!best) return null;
+  if (
+    baseline &&
+    (
+      best.pixelArea < baseline.pixelArea ||
+      (best.pixelArea === baseline.pixelArea && best.rawArea <= baseline.rawArea + RECT_EPS)
+    )
+  ) {
+    return { xAxis: best.xAxis, boundsOrigin, seamEdges: new Set<number>() };
+  }
+  return null;
+}
+
+function buildBasisHints(
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions,
+): Array<BasisHint | undefined> {
+  const tile = options.tileSize ?? DEFAULT_TILE;
+  const elev = options.layerElevation ?? tile;
+  const infos = polygons.map((polygon) => getPolygonBasisInfo(polygon, tile, elev));
+  const edgeOwners = new Map<string, Array<{ polygon: number; edge: number }>>();
+  const seamEdges = polygons.map(() => new Set<number>());
+  for (let polygonIndex = 0; polygonIndex < polygons.length; polygonIndex++) {
+    const vertices = polygons[polygonIndex].vertices;
+    if (!vertices || vertices.length < 3) continue;
+    for (let edgeIndex = 0; edgeIndex < vertices.length; edgeIndex++) {
+      const key = edgeKey(
+        vertices[edgeIndex],
+        vertices[(edgeIndex + 1) % vertices.length],
+      );
+      const owners = edgeOwners.get(key);
+      const owner = { polygon: polygonIndex, edge: edgeIndex };
+      if (owners) owners.push(owner);
+      else edgeOwners.set(key, [owner]);
+    }
+  }
+
+  const adjacency = polygons.map(() => new Set<number>());
+  for (const owners of edgeOwners.values()) {
+    if (owners.length < 2) continue;
+    for (const owner of owners) seamEdges[owner.polygon].add(owner.edge);
+    for (let i = 0; i < owners.length; i++) {
+      for (let j = i + 1; j < owners.length; j++) {
+        const a = owners[i].polygon;
+        const b = owners[j].polygon;
+        if (!compatibleSurface(infos[a], infos[b])) continue;
+        adjacency[a].add(b);
+        adjacency[b].add(a);
+      }
+    }
+  }
+
+  const hints: Array<BasisHint | undefined> = Array(polygons.length).fill(undefined);
+  const visited = new Set<number>();
+  for (let i = 0; i < polygons.length; i++) {
+    if (visited.has(i) || !infos[i]?.optimizable) continue;
+    const component: number[] = [];
+    const stack = [i];
+    visited.add(i);
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      component.push(current);
+      for (const next of adjacency[current]) {
+        if (visited.has(next)) continue;
+        visited.add(next);
+        stack.push(next);
+      }
+    }
+
+    if (component.length < 2) continue;
+    const hint = chooseIslandXAxis(component, infos);
+    if (!hint) continue;
+    for (const index of component) {
+      hints[index] = {
+        xAxis: hint.xAxis,
+        boundsOrigin: hint.boundsOrigin,
+        seamEdges: seamEdges[index],
+      };
+    }
+  }
+
+  for (let i = 0; i < polygons.length; i++) {
+    if (!hints[i] && seamEdges[i].size > 0) {
+      hints[i] = { seamEdges: seamEdges[i] };
+    }
+  }
+
+  return hints;
+}
+
 function canvasToUrl(canvas: HTMLCanvasElement): Promise<string | null> {
   if (typeof canvas.toBlob === "function") {
     return new Promise((resolve) => {
@@ -381,59 +751,271 @@ function canvasToUrl(canvas: HTMLCanvasElement): Promise<string | null> {
   }
 }
 
+function chooseLocalBasis(
+  pts: Vec3[],
+  origin: Vec3,
+  normal: Vec3,
+  options: BasisOptions,
+): LocalBasis | null {
+  if (options.optimize && options.fixedXAxis) {
+    return makeLocalBasis(pts, origin, normal, options.fixedXAxis, {
+      boundsOrigin: options.boundsOrigin,
+      snapBounds: options.snapBounds,
+    });
+  }
+
+  let best: LocalBasis | null = null;
+  const seamCandidates = options.optimize && options.seamEdges && options.seamEdges.size > 0
+    ? Array.from(options.seamEdges)
+    : null;
+  const candidateEdges = seamCandidates ?? (
+    options.optimize
+      ? pts.map((_, edgeIndex) => edgeIndex)
+      : [0]
+  );
+
+  for (const i of candidateEdges) {
+    const next = (i + 1) % pts.length;
+    const edge = seamCandidates
+      ? canonicalEdgeVector(pts[i], pts[next])
+      : [
+          pts[next][0] - pts[i][0],
+          pts[next][1] - pts[i][1],
+          pts[next][2] - pts[i][2],
+        ] as Vec3;
+    const candidate = makeLocalBasis(pts, origin, normal, edge, {
+      boundsOrigin: options.boundsOrigin,
+      snapBounds: options.snapBounds,
+    });
+    if (!candidate) continue;
+
+    if (
+      !best ||
+      candidate.pixelArea < best.pixelArea ||
+      (candidate.pixelArea === best.pixelArea && candidate.rawArea < best.rawArea - RECT_EPS)
+    ) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function isFullRectBasis(basis: LocalBasis): boolean {
+  if (basis.local2D.length !== 4) return false;
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const addUnique = (list: number[], value: number): void => {
+    for (const existing of list) {
+      if (Math.abs(existing - value) <= RECT_EPS) return;
+    }
+    list.push(value);
+  };
+
+  for (const [x, y] of basis.local2D) {
+    addUnique(xs, x + basis.shiftX);
+    addUnique(ys, y + basis.shiftY);
+  }
+  if (xs.length !== 2 || ys.length !== 2) return false;
+
+  xs.sort((a, b) => a - b);
+  ys.sort((a, b) => a - b);
+  if (
+    Math.abs(xs[0]) > RECT_EPS ||
+    Math.abs(ys[0]) > RECT_EPS ||
+    xs[1] - xs[0] <= RECT_EPS ||
+    ys[1] - ys[0] <= RECT_EPS
+  ) {
+    return false;
+  }
+
+  for (const [rawX, rawY] of basis.local2D) {
+    const x = rawX + basis.shiftX;
+    const y = rawY + basis.shiftY;
+    const onX = Math.abs(x - xs[0]) <= RECT_EPS || Math.abs(x - xs[1]) <= RECT_EPS;
+    const onY = Math.abs(y - ys[0]) <= RECT_EPS || Math.abs(y - ys[1]) <= RECT_EPS;
+    if (!onX || !onY) return false;
+  }
+  return true;
+}
+
+function computeUvAffine(points: Vec2[], uvs: Vec2[]): UvAffine | null {
+  if (points.length < 3 || uvs.length < 3) return null;
+  const [p0, p1, p2] = points;
+  const [uv0, uv1, uv2] = uvs;
+  const sx0 = p0[0], sy0 = p0[1];
+  const sx1 = p1[0], sy1 = p1[1];
+  const sx2 = p2[0], sy2 = p2[1];
+  const u0 = uv0[0], V0 = 1 - uv0[1];
+  const u1 = uv1[0], V1 = 1 - uv1[1];
+  const u2 = uv2[0], V2 = 1 - uv2[1];
+  const du1 = u1 - u0, dV1 = V1 - V0;
+  const du2 = u2 - u0, dV2 = V2 - V0;
+  const det = du1 * dV2 - du2 * dV1;
+  if (Math.abs(det) <= 1e-9) return null;
+
+  const dx1 = sx1 - sx0, dx2 = sx2 - sx0;
+  const dy1 = sy1 - sy0, dy2 = sy2 - sy0;
+  const affine = {
+    a: (dx1 * dV2 - dx2 * dV1) / det,
+    b: (du1 * dx2 - du2 * dx1) / det,
+    c: (dy1 * dV2 - dy2 * dV1) / det,
+    d: (du1 * dy2 - du2 * dy1) / det,
+    e: 0,
+    f: 0,
+  };
+  affine.e = sx0 - affine.a * u0 - affine.b * V0;
+  affine.f = sy0 - affine.c * u0 - affine.d * V0;
+  return affine;
+}
+
+function projectTextureTriangle(
+  triangle: TextureTriangle,
+  tile: number,
+  elev: number,
+  origin: Vec3,
+  xAxis: Vec3,
+  yAxis: Vec3,
+  shiftX: number,
+  shiftY: number,
+): TextureTrianglePlan | null {
+  const pts = cssPoints(triangle.vertices, tile, elev);
+  const points = pts.map((point): Vec2 => {
+    const dx = point[0] - origin[0];
+    const dy = point[1] - origin[1];
+    const dz = point[2] - origin[2];
+    return [
+      dx * xAxis[0] + dy * xAxis[1] + dz * xAxis[2] + shiftX,
+      dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2] + shiftY,
+    ];
+  });
+  const uvAffine = computeUvAffine(points, triangle.uvs);
+  if (!uvAffine) return null;
+  return {
+    screenPts: points.flatMap(([x, y]) => [x, y]),
+    uvAffine,
+  };
+}
+
+function expandClipPoints(points: number[], amount: number): number[] {
+  if (points.length < 6 || amount <= 0) return points;
+  let cx = 0;
+  let cy = 0;
+  const count = points.length / 2;
+  for (let i = 0; i < points.length; i += 2) {
+    cx += points[i];
+    cy += points[i + 1];
+  }
+  cx /= count;
+  cy /= count;
+
+  const expanded = points.slice();
+  for (let i = 0; i < expanded.length; i += 2) {
+    const dx = expanded[i] - cx;
+    const dy = expanded[i + 1] - cy;
+    const length = Math.hypot(dx, dy);
+    if (length <= RECT_EPS) continue;
+    expanded[i] += (dx / length) * amount;
+    expanded[i + 1] += (dy / length) * amount;
+  }
+  return expanded;
+}
+
+function signedArea2D(points: number[]): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i += 2) {
+    const next = (i + 2) % points.length;
+    area += points[i] * points[next + 1] - points[next] * points[i + 1];
+  }
+  return area / 2;
+}
+
+function tracePolygonPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  points: number[],
+): void {
+  for (let i = 0; i < points.length; i += 2) {
+    const px = x + points[i];
+    const py = y + points[i + 1];
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function traceTextureClipPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  points: number[],
+  seamEdges: Set<number> | null,
+  bleed: number,
+): void {
+  tracePolygonPath(ctx, x, y, points);
+  if (!seamEdges || seamEdges.size === 0 || bleed <= 0) return;
+
+  const count = points.length / 2;
+  const area = signedArea2D(points);
+  for (const edgeIndex of seamEdges) {
+    const i = edgeIndex * 2;
+    const next = ((edgeIndex + 1) % count) * 2;
+    const ax = points[i];
+    const ay = points[i + 1];
+    const bx = points[next];
+    const by = points[next + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const length = Math.hypot(dx, dy);
+    if (length <= RECT_EPS) continue;
+    const outwardX = area >= 0 ? dy / length : -dy / length;
+    const outwardY = area >= 0 ? -dx / length : dx / length;
+    ctx.moveTo(x + ax, y + ay);
+    ctx.lineTo(x + bx, y + by);
+    ctx.lineTo(x + bx + outwardX * bleed, y + by + outwardY * bleed);
+    ctx.lineTo(x + ax + outwardX * bleed, y + ay + outwardY * bleed);
+    ctx.closePath();
+  }
+}
+
 function computeTextureAtlasPlan(
   polygon: Polygon,
   index: number,
   options: RenderTextureAtlasOptions,
+  basisHint?: BasisHint,
 ): TextureAtlasPlan | null {
   const { vertices, texture, uvs } = polygon;
   if (!vertices || vertices.length < 3) return null;
 
   const tile = options.tileSize ?? DEFAULT_TILE;
   const elev = options.layerElevation ?? tile;
-  const toCss = (v: Vec3): Vec3 => [v[1] * tile, v[0] * tile, v[2] * elev];
-  const pts = vertices.map(toCss);
+  const pts = cssPoints(vertices, tile, elev);
   const p0 = pts[0];
   const p1 = pts[1];
-  const p2 = pts[2];
 
   const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-  const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
   const l01 = Math.hypot(e1[0], e1[1], e1[2]);
   if (l01 === 0) return null;
 
-  const xAxis: Vec3 = [e1[0] / l01, e1[1] / l01, e1[2] / l01];
-  let nx = -(e1[1] * e2[2] - e1[2] * e2[1]);
-  let ny = -(e1[2] * e2[0] - e1[0] * e2[2]);
-  let nz = -(e1[0] * e2[1] - e1[1] * e2[0]);
-  const nLen = Math.hypot(nx, ny, nz);
-  if (nLen === 0) return null;
-  nx /= nLen; ny /= nLen; nz /= nLen;
+  const normal = computeSurfaceNormal(pts);
+  if (!normal) return null;
 
-  const yAxis: Vec3 = [
-    ny * xAxis[2] - nz * xAxis[1],
-    nz * xAxis[0] - nx * xAxis[2],
-    nx * xAxis[1] - ny * xAxis[0],
-  ];
-
-  const local2D = pts.map((p): [number, number] => {
-    const dx = p[0] - p0[0], dy = p[1] - p0[1], dz = p[2] - p0[2];
-    return [
-      dx * xAxis[0] + dy * xAxis[1] + dz * xAxis[2],
-      dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2],
-    ];
-  });
-
-  let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
-  for (const [x, y] of local2D) {
-    if (x < xMin) xMin = x; if (x > xMax) xMax = x;
-    if (y < yMin) yMin = y; if (y > yMax) yMax = y;
-  }
-  const shiftX = -xMin;
-  const shiftY = -yMin;
-  const w = xMax - xMin;
-  const h = yMax - yMin;
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+  const firstEdgeBasis = chooseLocalBasis(pts, p0, normal, { optimize: false });
+  const basis = texture
+    ? firstEdgeBasis
+    : firstEdgeBasis && isFullRectBasis(firstEdgeBasis)
+      ? firstEdgeBasis
+      : chooseLocalBasis(pts, p0, normal, {
+          optimize: true,
+          fixedXAxis: basisHint?.xAxis,
+          boundsOrigin: basisHint?.boundsOrigin,
+          snapBounds: Boolean(basisHint),
+          seamEdges: basisHint?.seamEdges,
+        });
+  if (!basis) return null;
+  const { xAxis, yAxis, local2D, shiftX, shiftY } = basis;
 
   const screenPts: number[] = [];
   for (const [x, y] of local2D) screenPts.push(x + shiftX, y + shiftY);
@@ -444,7 +1026,7 @@ function computeTextureAtlasPlan(
   const matrix = [
     xAxis[0], xAxis[1], xAxis[2], 0,
     yAxis[0], yAxis[1], yAxis[2], 0,
-    nx, ny, nz, 0,
+    normal[0], normal[1], normal[2], 0,
     tx, ty, tz, 1,
   ].join(",");
 
@@ -459,48 +1041,37 @@ function computeTextureAtlasPlan(
   const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
   // Decoupled: directional and ambient sum independently. No (1 - ambient)
   // budget — matches three.js's lighting model.
-  const directScale = lightIntensity * Math.max(0, nx * lx + ny * ly + nz * lz);
+  const directScale = lightIntensity * Math.max(0, normal[0] * lx + normal[1] * ly + normal[2] * lz);
   const textureTint = textureTintFactors(directScale, lightColor, ambientColor, ambientIntensity);
   const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
 
   let uvAffine: UvAffine | null = null;
   if (texture && uvs && uvs.length >= 3 && uvs.length === vertices.length) {
-    const [uv0, uv1, uv2] = uvs;
-    const sx0 = local2D[0][0] + shiftX, sy0 = local2D[0][1] + shiftY;
-    const sx1 = local2D[1][0] + shiftX, sy1 = local2D[1][1] + shiftY;
-    const sx2 = local2D[2][0] + shiftX, sy2 = local2D[2][1] + shiftY;
-    const u0 = uv0[0], V0 = 1 - uv0[1];
-    const u1 = uv1[0], V1 = 1 - uv1[1];
-    const u2 = uv2[0], V2 = 1 - uv2[1];
-    const du1 = u1 - u0, dV1 = V1 - V0;
-    const du2 = u2 - u0, dV2 = V2 - V0;
-    const det = du1 * dV2 - du2 * dV1;
-    if (Math.abs(det) > 1e-9) {
-      const dx1 = sx1 - sx0, dx2 = sx2 - sx0;
-      const dy1 = sy1 - sy0, dy2 = sy2 - sy0;
-      uvAffine = {
-        a: (dx1 * dV2 - dx2 * dV1) / det,
-        b: (du1 * dx2 - du2 * dx1) / det,
-        c: (dy1 * dV2 - dy2 * dV1) / det,
-        d: (du1 * dy2 - du2 * dy1) / det,
-        e: 0,
-        f: 0,
-      };
-      uvAffine.e = sx0 - uvAffine.a * u0 - uvAffine.b * V0;
-      uvAffine.f = sy0 - uvAffine.c * u0 - uvAffine.d * V0;
-    }
+    uvAffine = computeUvAffine(
+      local2D.map(([x, y]) => [x + shiftX, y + shiftY]),
+      uvs,
+    );
   }
+  const textureTriangles = texture && polygon.textureTriangles?.length
+    ? polygon.textureTriangles
+        .map((triangle) =>
+          projectTextureTriangle(triangle, tile, elev, p0, xAxis, yAxis, shiftX, shiftY)
+        )
+        .filter((triangle): triangle is TextureTrianglePlan => !!triangle)
+    : null;
 
   return {
     index,
     polygon,
     texture,
     matrix,
-    canvasW: Math.max(1, Math.ceil(w)),
-    canvasH: Math.max(1, Math.ceil(h)),
+    canvasW: basis.canvasW,
+    canvasH: basis.canvasH,
     screenPts,
     uvAffine,
-    normal: [nx, ny, nz],
+    textureTriangles,
+    seamEdges: basisHint?.seamEdges.size ? basisHint.seamEdges : null,
+    normal,
     textureTint,
     shadedColor,
   };
@@ -626,13 +1197,11 @@ async function buildAtlasPage(
     ctx.save();
     setCssTransform(ctx, atlasScale);
     ctx.beginPath();
-    for (let i = 0; i < entry.screenPts.length; i += 2) {
-      const px = entry.x + entry.screenPts[i];
-      const py = entry.y + entry.screenPts[i + 1];
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
+    if (entry.texture) {
+      traceTextureClipPath(ctx, entry.x, entry.y, entry.screenPts, entry.seamEdges, TEXTURE_SEAM_BLEED);
+    } else {
+      tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
     }
-    ctx.closePath();
     ctx.clip();
 
     if (!entry.texture) {
@@ -644,21 +1213,45 @@ async function buildAtlasPage(
         ? (entry.polygon.color ?? "#cccccc")
         : entry.shadedColor;
       ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
-    } else {
-      if (srcImg && entry.uvAffine) {
-        const imgW = srcImg.naturalWidth || srcImg.width || 1;
-        const imgH = srcImg.naturalHeight || srcImg.height || 1;
+    } else if (srcImg && entry.textureTriangles?.length) {
+      const imgW = srcImg.naturalWidth || srcImg.width || 1;
+      const imgH = srcImg.naturalHeight || srcImg.height || 1;
+      for (const triangle of entry.textureTriangles) {
+        const clipPts = expandClipPoints(triangle.screenPts, TEXTURE_TRIANGLE_BLEED);
+        ctx.save();
+        setCssTransform(ctx, atlasScale);
+        ctx.beginPath();
+        for (let i = 0; i < clipPts.length; i += 2) {
+          const px = entry.x + clipPts[i];
+          const py = entry.y + clipPts[i + 1];
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.clip();
         setCssTransform(
           ctx,
           atlasScale,
-          entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
-          entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
-          entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
+          triangle.uvAffine.a / imgW, triangle.uvAffine.c / imgW,
+          triangle.uvAffine.b / imgH, triangle.uvAffine.d / imgH,
+          entry.x + triangle.uvAffine.e, entry.y + triangle.uvAffine.f,
         );
         ctx.drawImage(srcImg, 0, 0);
-      } else if (srcImg) {
-        drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
+        ctx.restore();
       }
+    } else if (srcImg && entry.uvAffine) {
+      const imgW = srcImg.naturalWidth || srcImg.width || 1;
+      const imgH = srcImg.naturalHeight || srcImg.height || 1;
+      setCssTransform(
+        ctx,
+        atlasScale,
+        entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
+        entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
+        entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
+      );
+      ctx.drawImage(srcImg, 0, 0);
+    } else if (srcImg) {
+      drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
     }
     if (entry.texture && textureLighting === "baked") {
       applyTextureTint(ctx, entry.x, entry.y, entry.canvasW, entry.canvasH, entry.textureTint, atlasScale);
@@ -909,7 +1502,10 @@ export function renderPolygonsWithTextureAtlas(
   const useBorderShape =
     textureLighting !== "dynamic" &&
     borderShapeSupported(doc);
-  const plans = polygons.map((polygon, index) => computeTextureAtlasPlan(polygon, index, options));
+  const basisHints = buildBasisHints(polygons, options);
+  const plans = polygons.map((polygon, index) =>
+    computeTextureAtlasPlan(polygon, index, options, basisHints[index])
+  );
   const atlasPlans = plans.map((plan) =>
     plan &&
     (plan.texture

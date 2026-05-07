@@ -25,11 +25,11 @@
  * expected to have run `normalizePolygons` first; this is a defensive copy).
  */
 
-import type { Polygon, Vec2, Vec3 } from "../types";
+import type { Polygon, TextureTriangle, Vec2, Vec3 } from "../types";
 
 const EPS_NORMAL = 1e-3;   // dot product tolerance for "same plane"
 const EPS_DISTANCE = 0.05; // signed-distance tolerance (in scene-space units)
-const EPS_UV = 1e-4;       // float UV tolerance (atlas coords are 0..1)
+const EPS_TEXTURE_DISTANCE = 1e-3;
 
 interface PolyState {
   vertices: Vec3[];
@@ -43,6 +43,7 @@ interface PolyState {
   color: string;
   /** Texture URL — must match between two polys for them to merge. */
   texture?: string;
+  textureTriangles?: TextureTriangle[];
   normal: Vec3;
   /** Plane offset: distance from origin along the normal. */
   d: number;
@@ -50,9 +51,6 @@ interface PolyState {
   /** Original Polygon's `data` field, preserved through the merge. */
   data?: Record<string, string | number | boolean>;
 }
-
-const eqUv = (a: Vec2, b: Vec2): boolean =>
-  Math.abs(a[0] - b[0]) < EPS_UV && Math.abs(a[1] - b[1]) < EPS_UV;
 
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const cross = (a: Vec3, b: Vec3): Vec3 => [
@@ -90,6 +88,12 @@ function samePlane(a: PolyState, b: PolyState): boolean {
   const dotN = dot(a.normal, b.normal);
   if (dotN < 1 - EPS_NORMAL) return false;
   return Math.abs(a.d - b.d) < EPS_DISTANCE;
+}
+
+function sameTexturePlane(a: PolyState, b: PolyState): boolean {
+  const dotN = dot(a.normal, b.normal);
+  if (dotN < 1 - EPS_NORMAL) return false;
+  return Math.abs(a.d - b.d) < EPS_TEXTURE_DISTANCE;
 }
 
 /**
@@ -168,9 +172,15 @@ function mergeAlongEdge(
     dedupU?.pop();
   }
 
-  // Drop collinear vertices left behind by the merge. Three consecutive
-  // vertices A, B, C are collinear if (B-A) × (C-A) ≈ 0; B contributes
-  // nothing to the polygon outline and would just be a no-op corner.
+  // For textured polygons, collinear boundary vertices can still be important:
+  // they preserve neighboring seam splits after merging and avoid T-junctions
+  // in the DOM renderer. For untextured polygons they only add redundant
+  // corners, so keep the old cleanup there.
+  if (trackUvs) return rotateToNonCollinearStart(dedupV, dedupU);
+
+  // Drop collinear vertices left behind by untextured merges. Three
+  // consecutive vertices A, B, C are collinear if (B-A) × (C-A) ≈ 0; B
+  // contributes nothing to the polygon outline and would just be a no-op corner.
   const cleaned: Vec3[] = [];
   const cleanedUvs: Vec2[] | undefined = dedupU ? [] : undefined;
   for (let k = 0; k < dedupV.length; k++) {
@@ -210,6 +220,59 @@ function isConvex(vertices: Vec3[], normal: Vec3): boolean {
   return true;
 }
 
+function texturedMergeIsPlanar(vertices: Vec3[]): boolean {
+  if (vertices.length < 3) return false;
+  const plane = planeOf(vertices);
+  if (!plane) return false;
+  for (const vertex of vertices) {
+    if (Math.abs(dot(plane.normal, vertex) - plane.d) > EPS_TEXTURE_DISTANCE) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function cloneTextureTriangles(triangles: TextureTriangle[]): TextureTriangle[] {
+  return triangles.map((triangle) => ({
+    vertices: triangle.vertices.map((vertex) => [...vertex] as Vec3) as [Vec3, Vec3, Vec3],
+    uvs: triangle.uvs.map((uv) => [...uv] as Vec2) as [Vec2, Vec2, Vec2],
+  }));
+}
+
+function fanTextureTriangles(vertices: Vec3[], uvs: Vec2[]): TextureTriangle[] {
+  const triangles: TextureTriangle[] = [];
+  for (let i = 1; i < vertices.length - 1; i++) {
+    triangles.push({
+      vertices: [
+        [...vertices[0]] as Vec3,
+        [...vertices[i]] as Vec3,
+        [...vertices[i + 1]] as Vec3,
+      ],
+      uvs: [
+        [...uvs[0]] as Vec2,
+        [...uvs[i]] as Vec2,
+        [...uvs[i + 1]] as Vec2,
+      ],
+    });
+  }
+  return triangles;
+}
+
+function rotateToNonCollinearStart(vertices: Vec3[], uvs?: Vec2[]): { vertices: Vec3[]; uvs?: Vec2[] } {
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    const c = vertices[(i + 2) % vertices.length];
+    if (norm(cross(sub(b, a), sub(c, a))) <= 1e-9) continue;
+    if (i === 0) return { vertices, uvs };
+    return {
+      vertices: [...vertices.slice(i), ...vertices.slice(0, i)],
+      uvs: uvs ? [...uvs.slice(i), ...uvs.slice(0, i)] : undefined,
+    };
+  }
+  return { vertices, uvs };
+}
+
 export function mergePolygons(input: Polygon[]): Polygon[] {
   const out: Polygon[] = [];
   const polys: PolyState[] = [];
@@ -234,11 +297,17 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
     const uvs = (polygon.texture && polygon.uvs && polygon.uvs.length === verts.length)
       ? polygon.uvs.map((uv) => [uv[0], uv[1]] as Vec2)
       : undefined;
+    const textureTriangles = polygon.texture && uvs
+      ? polygon.textureTriangles?.length
+        ? cloneTextureTriangles(polygon.textureTriangles)
+        : fanTextureTriangles(verts, uvs)
+      : undefined;
     polys.push({
       vertices: verts,
       uvs,
       color: polygon.color ?? "#cccccc",
       texture: polygon.texture,
+      textureTriangles,
       normal: plane.normal,
       d: plane.d,
       alive: true,
@@ -306,10 +375,12 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
       if (!a.alive || !b.alive) continue;
       if (a.color !== b.color) continue;
       if (a.texture !== b.texture) continue;
+      const hasTexture = Boolean(a.texture || b.texture);
+      if (hasTexture && (!a.textureTriangles || !b.textureTriangles)) continue;
       // Either both textured-with-uvs or both untextured — mismatched
       // states can't merge cleanly.
       if (!!a.uvs !== !!b.uvs) continue;
-      if (!samePlane(a, b)) continue;
+      if (hasTexture ? !sameTexturePlane(a, b) : !samePlane(a, b)) continue;
 
       // Re-validate the shared edge — a or b may have grown since the
       // edge index was built (chain merge within this pass).
@@ -317,27 +388,16 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
       if (!shared) continue;
       const [e0, e1] = shared;
 
-      // UV seam check: if both textured, the UVs at the shared edge must
-      // match between A and B. Otherwise the merged polygon would tear at
-      // the seam (the texture fills via a single affine, can't span two
-      // disjoint atlas regions). This is what limits merging to within a
-      // UV island and prevents merging across UV unwrap seams.
-      if (a.uvs && b.uvs) {
-        const ai0 = a.vertices.findIndex((v) => eqVec(v, e0));
-        const ai1 = a.vertices.findIndex((v) => eqVec(v, e1));
-        const bi0 = b.vertices.findIndex((v) => eqVec(v, e0));
-        const bi1 = b.vertices.findIndex((v) => eqVec(v, e1));
-        if (ai0 < 0 || ai1 < 0 || bi0 < 0 || bi1 < 0) continue;
-        if (!eqUv(a.uvs[ai0], b.uvs[bi0])) continue;
-        if (!eqUv(a.uvs[ai1], b.uvs[bi1])) continue;
-      }
-
       const merged = mergeAlongEdge(a, b, e0, e1);
       if (!merged) continue;
+      if (hasTexture && !texturedMergeIsPlanar(merged.vertices)) continue;
       if (!isConvex(merged.vertices, a.normal)) continue;
 
       a.vertices = merged.vertices;
       a.uvs = merged.uvs;
+      a.textureTriangles = hasTexture
+        ? [...(a.textureTriangles ?? []), ...(b.textureTriangles ?? [])]
+        : undefined;
       b.alive = false;
       mergedThisPass = true;
     }
@@ -357,6 +417,7 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
     };
     if (p.texture) out_p.texture = p.texture;
     if (p.uvs) out_p.uvs = p.uvs;
+    if (p.textureTriangles?.length) out_p.textureTriangles = p.textureTriangles;
     if (p.data) out_p.data = p.data;
     out.push(out_p);
   }

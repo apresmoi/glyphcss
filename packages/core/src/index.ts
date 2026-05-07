@@ -7,6 +7,7 @@
 export type {
   Vec2,
   Vec3,
+  TextureTriangle,
   Polygon,
   DirectionalLight,
   AmbientLight,
@@ -29,8 +30,12 @@ export type {
 } from "./scene/context";
 
 // ── Polygon geometry helper ──────────────────────────────────────
-export { polygonFaces } from "./scene/polygonGeometry";
-export type { PolygonFace } from "./scene/polygonGeometry";
+export { polygonFaces, computeTexturePaintMetrics } from "./scene/polygonGeometry";
+export type {
+  PolygonFace,
+  TexturePaintMetrics,
+  TexturePaintMetricsOptions,
+} from "./scene/polygonGeometry";
 
 // ── Direction binning (camera quantization, used for back-face culling) ─
 export {
@@ -73,6 +78,8 @@ export {
 
 // ── Mesh post-processing ──────────────────────────────────────────
 export { mergePolygons } from "./merge/mergePolygons";
+export { cullInteriorPolygons } from "./cull/cullInteriorPolygons";
+export type { CullInteriorOptions } from "./cull/cullInteriorPolygons";
 
 // ── Helper-gizmo geometry (axes, light marker) ───────────────────
 export { axesHelperPolygons, octahedronPolygons } from "./helpers";

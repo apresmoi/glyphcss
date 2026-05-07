@@ -370,6 +370,121 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
+  it("uses the smallest in-plane DOM box for untextured oblique polygons", () => {
+    const obliqueTriangle: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [1, 9, 0],
+        [0, 10, 0],
+      ],
+      color: "#ffffff",
+    };
+
+    const result = renderPolygonsWithTextureAtlas([obliqueTriangle], { tileSize: 1 });
+    const element = result.rendered[0].element;
+    const matrix = extractMatrix(element);
+
+    expect(parseFloat(element.style.width)).toBe(10);
+    expect(parseFloat(element.style.height)).toBe(1);
+    expect(matrix[0]).toBeCloseTo(-1, 6);
+    expect(matrix[1]).toBeCloseTo(0, 6);
+    expect(matrix[4]).toBeCloseTo(0, 6);
+    expect(matrix[5]).toBeCloseTo(-1, 6);
+    result.dispose();
+  });
+
+  it("keeps the first-edge transform basis for UV-mapped textured polygons", () => {
+    const obliqueTriangle: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [1, 9, 0],
+        [0, 10, 0],
+      ],
+      color: "#ffffff",
+      texture: "https://example.com/tex.png",
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    };
+
+    const result = renderPolygonsWithTextureAtlas([obliqueTriangle], { tileSize: 1 });
+    const element = result.rendered[0].element;
+    const matrix = extractMatrix(element);
+    const expected = computeExpectedMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1);
+
+    expect(parseFloat(element.style.width)).toBe(10);
+    expect(parseFloat(element.style.height)).toBe(2);
+    for (let i = 0; i < expected.length; i++) {
+      expect(matrix[i]).toBeCloseTo(expected[i], 6);
+    }
+    result.dispose();
+  });
+
+  it("uses one basis for an untextured coplanar island when it keeps the DOM box tight", () => {
+    const left: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [0, 10, 0],
+        [1, 10, 0],
+      ],
+      color: "#ff0000",
+    };
+    const right: Polygon = {
+      vertices: [
+        [0, 10, 0],
+        [1, 20, 0],
+        [1, 10, 0],
+      ],
+      color: "#ff0000",
+    };
+
+    const result = renderPolygonsWithTextureAtlas([left, right], { tileSize: 1 });
+    const leftMatrix = extractMatrix(result.rendered[0].element);
+    const rightMatrix = extractMatrix(result.rendered[1].element);
+
+    expect(leftMatrix[0]).toBeCloseTo(rightMatrix[0], 6);
+    expect(leftMatrix[1]).toBeCloseTo(rightMatrix[1], 6);
+    expect(leftMatrix[4]).toBeCloseTo(rightMatrix[4], 6);
+    expect(leftMatrix[5]).toBeCloseTo(rightMatrix[5], 6);
+    result.dispose();
+  });
+
+  it("keeps the first-edge transform basis for shared textured seams", () => {
+    const bladeFace: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [1, 9, 0],
+        [0, 10, 0],
+      ],
+      texture: "https://example.com/tex.png",
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    };
+    const bevelFace: Polygon = {
+      vertices: [
+        [1, 9, 0],
+        [0, 0, 0],
+        [0, 0, 1],
+      ],
+      texture: "https://example.com/tex.png",
+      uvs: [[1, 0], [0, 0], [0, 1]],
+    };
+
+    const isolated = renderPolygonsWithTextureAtlas([bladeFace], { tileSize: 1 });
+    const shared = renderPolygonsWithTextureAtlas([bladeFace, bevelFace], { tileSize: 1 });
+    const sharedMatrix = extractMatrix(shared.rendered[0].element);
+    const sharedEdgeMatrix = computeExpectedMatrix(bladeFace.vertices as [number, number, number][], 1, 1);
+
+    const isolatedMatrix = extractMatrix(isolated.rendered[0].element);
+    expect(isolatedMatrix[0]).toBeCloseTo(sharedEdgeMatrix[0], 6);
+    expect(isolatedMatrix[1]).toBeCloseTo(sharedEdgeMatrix[1], 6);
+    expect(isolatedMatrix[4]).toBeCloseTo(sharedEdgeMatrix[4], 6);
+    expect(isolatedMatrix[5]).toBeCloseTo(sharedEdgeMatrix[5], 6);
+    expect(sharedMatrix[0]).toBeCloseTo(sharedEdgeMatrix[0], 6);
+    expect(sharedMatrix[1]).toBeCloseTo(sharedEdgeMatrix[1], 6);
+    expect(sharedMatrix[4]).toBeCloseTo(sharedEdgeMatrix[4], 6);
+    expect(sharedMatrix[5]).toBeCloseTo(sharedEdgeMatrix[5], 6);
+    isolated.dispose();
+    shared.dispose();
+  });
+
   it("returns a polygon i element for UV-mapped texture", () => {
     const uvPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,

@@ -50,8 +50,9 @@ export function ModelPicker<T extends string>({
     return Array.from(buckets.entries()).map(([label, models]) => ({ label, models }));
   }, [filtered]);
 
+  const defaultOpenCategory = categories[0]?.label;
   const isOpen = (cat: string) =>
-    query.trim() ? true : openMap[cat] !== false; // default open; explicit false collapses
+    query.trim() ? true : (openMap[cat] ?? cat === defaultOpenCategory);
 
   const toggle = (cat: string) =>
     setOpenMap((m) => ({ ...m, [cat]: !isOpen(cat) }));

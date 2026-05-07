@@ -60,6 +60,7 @@ export type {
 export {
   normalizePolygons,
   mergePolygons,
+  cullInteriorPolygons,
   parseObj,
   parseMtl,
   parseGltf,

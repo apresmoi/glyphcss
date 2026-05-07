@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type React from "react";
 import type { PolyProps } from "./types";
 import {
@@ -14,8 +14,13 @@ import {
  * Public API: `{ vertices, color?, texture?, uvs?, data? }` plus DOM
  * passthrough props. The atlas renderer handles both textured and solid-color
  * faces, so `<Poly>` never emits SVG in the normal render path.
+ *
+ * Wrapped in React.memo so parent re-renders (e.g. camera rotation updating
+ * rotY state) do not re-render stable polygon children. The shallow-equality
+ * check is sound here because polygon data (vertices, color, texture) is
+ * typically created once at parse time and passed by reference.
  */
-export function Poly({
+function PolyInner({
   vertices,
   color,
   texture,
@@ -177,3 +182,5 @@ export function Poly({
     </div>
   );
 }
+
+export const Poly = memo(PolyInner);

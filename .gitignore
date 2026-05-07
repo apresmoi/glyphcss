@@ -2,12 +2,6 @@ node_modules/
 dist/
 /docs/
 /scripts/
-examples/models
-examples/headless/testsuite.html
-examples/headless/vox-drop.html
-examples/headless/slicer.html
-examples/react/testsuite.html
-examples/vue/testsuite.html
 coverage/
 .DS_Store
 package-lock.json
@@ -22,6 +16,9 @@ packages/vue/tsconfig.tsbuildinfo
 # Perf bench — generated artifacts (the harness scripts in bench/ ARE
 # tracked, but the bundled output and per-run results are local-only).
 /bench/polycss.js
+/bench/polycss-elements.js
+/bench/polycss-react.js
+/bench/polycss-vue.js
 /bench/results/
 
 # Agent-tool internal state — worktree refs, scheduled-task locks, etc.

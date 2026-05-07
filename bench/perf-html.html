@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>polycss perf — HTML / custom elements</title>
+  <style id="overlay-css"></style>
+</head>
+<body>
+  <!-- The scene is built declaratively at script time below — done in JS
+       so the mesh URL + camera defaults can come from URL params. -->
+  <div id="host"></div>
+
+  <script type="module">
+    // HTML / custom-element path. Uses <poly-scene> + <poly-mesh> +
+    // <poly-controls> declaratively. Per-frame state changes go through
+    // setAttribute() — exercises the custom element's attribute observer
+    // pipeline plus everything underneath.
+    //
+    // Imports the same bundle as perf-vanilla, but only for the side effect
+    // of registering the custom elements (polycss/elements is auto-registered
+    // via the bundle's elements entry).
+    import "./polycss-elements.js";
+    import { getSynthMesh } from "./synth-mesh.mjs";
+    import {
+      parseUrlParams, dirFromAzEl, createPerfRecorder,
+      PERF_OVERLAY_HTML, PERF_OVERLAY_CSS,
+    } from "./perf-shared.mjs";
+
+    document.getElementById("overlay-css").textContent = PERF_OVERLAY_CSS;
+    document.body.insertAdjacentHTML("beforeend", PERF_OVERLAY_HTML);
+
+    const { meshId, mode, motion, az, el, isSynth, preset } = parseUrlParams();
+    let azimuth = az;
+
+    const host = document.getElementById("host");
+    const sceneEl = document.createElement("poly-scene");
+    sceneEl.setAttribute("rot-x", String(preset.rotX));
+    sceneEl.setAttribute("rot-y", String(preset.rotY));
+    sceneEl.setAttribute("zoom", String(preset.zoom));
+    sceneEl.setAttribute("texture-lighting", mode);
+    sceneEl.setAttribute("auto-center", "");
+    sceneEl.setAttribute("directional-direction", dirFromAzEl(azimuth, el).join(","));
+    sceneEl.setAttribute("directional-color", "#ffffff");
+    sceneEl.setAttribute("directional-intensity", "1");
+    sceneEl.setAttribute("ambient-color", "#ffffff");
+    sceneEl.setAttribute("ambient-intensity", "0.4");
+    sceneEl.style.cssText = "width:100%;height:100%;position:absolute;inset:0;";
+    host.appendChild(sceneEl);
+
+    // Add <poly-controls> for drag+wheel (human inspection only — bench
+    // doesn't fire pointer/wheel events).
+    const controlsEl = document.createElement("poly-controls");
+    controlsEl.setAttribute("drag", "");
+    controlsEl.setAttribute("wheel", "");
+    sceneEl.appendChild(controlsEl);
+
+    // For declarative perf, OBJ mesh loading goes through <poly-mesh src=...>
+    // which kicks off its own fetch. Synth meshes don't have a URL — we have
+    // to attach a parseResult after the mesh loads. To keep the comparison
+    // honest we always go through the element pipeline: synth meshes are
+    // injected via an empty <poly-mesh> + a setOptions-style add().
+    let mountedPromise;
+    if (isSynth) {
+      mountedPromise = Promise.resolve(getSynthMesh(meshId)).then((parseResult) => {
+        // For synth: bypass <poly-mesh> by reaching into the scene's
+        // imperative handle. This is the only escape hatch for client-
+        // generated meshes; real OBJ loading still uses the element.
+        // We still pay the custom-element + setAttribute cost on every
+        // per-frame state change below.
+        const handle = sceneEl.getScene();
+        handle.add(parseResult);
+        return parseResult;
+      });
+    } else {
+      const meshEl = document.createElement("poly-mesh");
+      meshEl.setAttribute("src", preset.url);
+      if (preset.mtlUrl) meshEl.setAttribute("mtl-url", preset.mtlUrl);
+      if (preset.options?.targetSize) meshEl.setAttribute("target-size", String(preset.options.targetSize));
+      sceneEl.appendChild(meshEl);
+      mountedPromise = new Promise((resolve, reject) => {
+        meshEl.addEventListener("polycss:loaded", (e) => resolve(e.detail), { once: true });
+        meshEl.addEventListener("polycss:error", (e) => reject(e.detail), { once: true });
+      });
+    }
+
+    mountedPromise.then((mesh) => {
+      const polyCount = mesh?.polygons?.length ?? 0;
+      const recorder = createPerfRecorder({
+        rendererLabel: "html",
+        meshId, mode, motion, polyCount,
+      });
+
+      let frameCount = 0;
+      function tick(now) {
+        recorder.onFrame(now);
+        frameCount += 1;
+        if (motion === "light") {
+          azimuth = (azimuth + 0.5) % 360;
+          sceneEl.setAttribute("directional-direction", dirFromAzEl(azimuth, el).join(","));
+        } else if (motion === "rot") {
+          const newRotY = ((preset.rotY + frameCount * 0.5) + 360) % 360;
+          sceneEl.setAttribute("rot-y", newRotY.toFixed(2));
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }).catch((err) => {
+      console.error("perf-html mesh load failed", err);
+      document.getElementById("fps-now").textContent = "ERR";
+    });
+  </script>
+</body>
+</html>

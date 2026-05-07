@@ -32,6 +32,11 @@ export type Vec3 = [number, number, number];
  */
 export type Vec2 = [number, number];
 
+export interface TextureTriangle {
+  vertices: [Vec3, Vec3, Vec3];
+  uvs: [Vec2, Vec2, Vec2];
+}
+
 /**
  * Directional light — simulates a single distant source (sun, key light).
  * Contributes Lambert shading scaled by `intensity`. `direction` is in
@@ -88,6 +93,13 @@ export interface Polygon {
    * stripped by `normalizePolygons`.
    */
   uvs?: Vec2[];
+  /**
+   * Renderer-internal source triangles for UV textures. Merge passes use this
+   * to reduce DOM planes while preserving per-triangle texture mapping in the
+   * generated atlas.
+   * @internal
+   */
+  textureTriangles?: TextureTriangle[];
   /**
    * User-controlled metadata. Reflected to DOM as `data-*` attributes via
    * stringification by the framework wrappers. Only string|number|boolean

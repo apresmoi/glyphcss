@@ -210,6 +210,56 @@ function buildSceneTransform(opts: PolySceneOptions): string {
   return `scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg)`;
 }
 
+// ─── Lambert-bucket grouping ────────────────────────────────────────────────
+// For dynamic-mode scenes: group polygons by quantized face normal + color
+// into wrapper divs. The wrapper has the bucket's normal as inline CSS
+// vars; the per-bucket cascade rule computes `--polycss-lambert` ONCE per
+// wrapper. Polys inside inherit the lambert and skip the per-poly dot
+// product. For voxel meshes (chicken, castle walls) this collapses
+// thousands of per-frame calc()s into a few dozen; for organic meshes
+// (saucer) the quantization gives ~7× fewer dot products at sub-1 %
+// lighting error per channel.
+//
+// Quantization precision: each normal component is rounded to the nearest
+// LAMBERT_BUCKET_PRECISION step then re-normalized. Voxel face normals
+// (±1, 0, 0) are already on the grid so they bucket exactly; curved-mesh
+// normals snap to the nearest cell on the unit sphere. With precision 0.1
+// the worst-case angular error is ~6° → cos delta < 0.005, visually
+// imperceptible.
+const LAMBERT_BUCKET_PRECISION = 0.1;
+
+function quantizeNormalKey(p: Polygon): { key: string; vec: Vec3 } | null {
+  if (p.vertices.length < 3) return null;
+  const v0 = p.vertices[0], v1 = p.vertices[1], v2 = p.vertices[2];
+  // CSS-space edges — must match `computeTextureAtlasPlan` exactly so the
+  // bucket's normal sits in the same frame as `--polycss-lx/ly/lz`. The
+  // atlas applies `toCss(v) = [v.y, v.x, v.z]` (x↔y swap) and then takes
+  // a NEGATED cross product. Reproducing both here means the cascade
+  // dot(normal, light) computes the same value as the original per-poly
+  // path that was set inline by `applyDynamicNormalVars`.
+  const e1x = v1[1] - v0[1], e1y = v1[0] - v0[0], e1z = v1[2] - v0[2];
+  const e2x = v2[1] - v0[1], e2y = v2[0] - v0[0], e2z = v2[2] - v0[2];
+  let nx = -(e1y * e2z - e1z * e2y);
+  let ny = -(e1z * e2x - e1x * e2z);
+  let nz = -(e1x * e2y - e1y * e2x);
+  const len = Math.hypot(nx, ny, nz);
+  if (len < 1e-9) return null;
+  nx /= len; ny /= len; nz /= len;
+  // Quantize each component to the precision grid, then renormalize so the
+  // bucket's normal stays a true unit vector. Two polys with identical
+  // quantized triples land in the same bucket.
+  const inv = 1 / LAMBERT_BUCKET_PRECISION;
+  const qx = Math.round(nx * inv) / inv;
+  const qy = Math.round(ny * inv) / inv;
+  const qz = Math.round(nz * inv) / inv;
+  const qLen = Math.hypot(qx, qy, qz);
+  if (qLen < 1e-9) return null;
+  return {
+    key: qx + "," + qy + "," + qz,
+    vec: [qx / qLen, qy / qLen, qz / qLen],
+  };
+}
+
 export function createPolyScene(
   host: HTMLElement,
   options: PolySceneOptions = {},
@@ -354,13 +404,67 @@ export function createPolyScene(
 
   function syncMountedRendered(entry: MeshEntry): void {
     const fragment = doc.createDocumentFragment();
-    for (const item of entry.rendered) {
-      if (shouldMountPolygonForDom(entry.polygons[item.polygonIndex])) {
-        fragment.appendChild(item.element);
-      } else if (item.element.parentNode) {
-        item.element.parentNode.removeChild(item.element);
-      }
+
+    // Lambert-bucketing only pays off in dynamic mode, where the cascade
+    // recomputes lambert per polygon every frame. Baked mode bakes lambert
+    // into atlas pixels at parse time — no per-frame computation to save.
+    const useBuckets = currentOptions.textureLighting === "dynamic";
+
+    interface BucketGroup {
+      vec: Vec3;
+      items: RenderedPoly[];
     }
+    const groups = new Map<string, BucketGroup>();
+    const soloItems: RenderedPoly[] = [];
+
+    // Pass 1 — gather per (quantized-normal × color) keys.
+    for (const item of entry.rendered) {
+      const poly = entry.polygons[item.polygonIndex];
+      if (!shouldMountPolygonForDom(poly)) {
+        if (item.element.parentNode) item.element.parentNode.removeChild(item.element);
+        continue;
+      }
+      const q = useBuckets && poly ? quantizeNormalKey(poly) : null;
+      if (!q) {
+        soloItems.push(item);
+        continue;
+      }
+      const key = q.key + "|" + (poly.color ?? "");
+      let group = groups.get(key);
+      if (!group) {
+        group = { vec: q.vec, items: [] };
+        groups.set(key, group);
+      }
+      group.items.push(item);
+    }
+
+    // Pass 2 — wrap groups of ≥ 2 (where one bucket-level lambert calc
+    // beats the per-poly calcs it replaces). Singletons fall back to the
+    // per-poly path so we don't add a wrapper that costs more than it saves.
+    for (const item of soloItems) fragment.appendChild(item.element);
+    for (const group of groups.values()) {
+      if (group.items.length < 2) {
+        for (const item of group.items) fragment.appendChild(item.element);
+        continue;
+      }
+      const bucketEl = doc.createElement("div");
+      bucketEl.className = "polycss-bucket";
+      bucketEl.style.setProperty("--polycss-nx", String(group.vec[0]));
+      bucketEl.style.setProperty("--polycss-ny", String(group.vec[1]));
+      bucketEl.style.setProperty("--polycss-nz", String(group.vec[2]));
+      for (const item of group.items) {
+        bucketEl.appendChild(item.element);
+        // Atlas sets per-poly --polycss-nx/y/z inline (for the non-bucketed
+        // dynamic-lighting path used by other consumers). Inside a bucket
+        // those inline values are dead weight — the lambert is computed at
+        // the wrapper and inherited. Strip them.
+        item.element.style.removeProperty("--polycss-nx");
+        item.element.style.removeProperty("--polycss-ny");
+        item.element.style.removeProperty("--polycss-nz");
+      }
+      fragment.appendChild(bucketEl);
+    }
+
     entry.wrapper.appendChild(fragment);
   }
 
