@@ -79,6 +79,11 @@ const targets = [
     entry: resolve(__dirname, "entries/vue.ts"),
     out: resolve(__dirname, "polycss-vue.js"),
   },
+  {
+    label: "normalize (preprocessModelPolygons + paint helper)",
+    entry: resolve(__dirname, "entries/normalize.ts"),
+    out: resolve(__dirname, "polycss-normalize.js"),
+  },
 ];
 
 const t0 = performance.now();
