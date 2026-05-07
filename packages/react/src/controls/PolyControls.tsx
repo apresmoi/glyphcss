@@ -30,6 +30,12 @@ export interface PolyControlsAnimateOptions {
   pauseOnInteraction?: boolean;
 }
 
+export interface PolyControlsCamera {
+  rotX: number;
+  rotY: number;
+  zoom: number;
+}
+
 export interface PolyControlsProps {
   /** Pointer-drag rotation. Default true. */
   drag?: boolean;
@@ -41,7 +47,29 @@ export interface PolyControlsProps {
   zoom?: { min?: number; max?: number };
   /** Auto-rotate. Pass false (or omit) to disable. */
   animate?: false | PolyControlsAnimateOptions;
+  /**
+   * Fires whenever the controls mutate camera state — pointer drag,
+   * wheel zoom, or an autorotate tick. Mirrors Three.js OrbitControls'
+   * `change` event, with the post-mutation camera passed as the argument.
+   * Autorotate fires this every frame; throttle, or use `onInteractionEnd`
+   * instead if you only need the final position.
+   */
+  onChange?: (camera: PolyControlsCamera) => void;
+  /**
+   * Fires on first user gesture of an interaction (pointerdown / first
+   * wheel of a burst). Receives the camera at gesture start so handlers
+   * can stash the pre-drag state if needed.
+   */
+  onInteractionStart?: (camera: PolyControlsCamera) => void;
+  /**
+   * Fires when the gesture concludes (pointerup / wheel idle ~150 ms),
+   * with the final camera. Use this instead of `onChange` when you want
+   * to commit state once per gesture (avoids per-frame React re-renders).
+   */
+  onInteractionEnd?: (camera: PolyControlsCamera) => void;
 }
+
+const WHEEL_IDLE_END_MS = 150;
 
 const POINTER_DRAG_SPEED = 4;
 const ZOOM_STEP = 0.0008;
@@ -64,6 +92,9 @@ export function PolyControls({
   invert = false,
   zoom,
   animate = false,
+  onChange,
+  onInteractionStart,
+  onInteractionEnd,
 }: PolyControlsProps): null {
   const { store, cameraRef, cameraElRef, applyTransformDirect } = useCameraContext();
 
@@ -76,6 +107,9 @@ export function PolyControls({
   const zoomMinRef = useRef(zoom?.min ?? DEFAULT_ZOOM_MIN);
   const zoomMaxRef = useRef(zoom?.max ?? DEFAULT_ZOOM_MAX);
   const animateRef = useRef(animate);
+  const onChangeRef = useRef(onChange);
+  const onInteractionStartRef = useRef(onInteractionStart);
+  const onInteractionEndRef = useRef(onInteractionEnd);
   useEffect(() => {
     dragRef.current = drag;
     wheelRef.current = wheel;
@@ -83,7 +117,32 @@ export function PolyControls({
     zoomMinRef.current = zoom?.min ?? DEFAULT_ZOOM_MIN;
     zoomMaxRef.current = zoom?.max ?? DEFAULT_ZOOM_MAX;
     animateRef.current = animate;
+    onChangeRef.current = onChange;
+    onInteractionStartRef.current = onInteractionStart;
+    onInteractionEndRef.current = onInteractionEnd;
   });
+
+  const fireChange = (): void => {
+    const fn = onChangeRef.current;
+    if (!fn) return;
+    const s = cameraRef.current.state;
+    try { fn({ rotX: s.rotX, rotY: s.rotY, zoom: s.zoom }); }
+    catch (err) { console.error("[polycss/react] PolyControls onChange threw:", err); }
+  };
+  const cameraSnapshot = (): PolyControlsCamera => {
+    const s = cameraRef.current.state;
+    return { rotX: s.rotX, rotY: s.rotY, zoom: s.zoom };
+  };
+  const fireStart = (): void => {
+    const fn = onInteractionStartRef.current;
+    if (!fn) return;
+    try { fn(cameraSnapshot()); } catch (err) { console.error("[polycss/react] PolyControls onInteractionStart threw:", err); }
+  };
+  const fireEnd = (): void => {
+    const fn = onInteractionEndRef.current;
+    if (!fn) return;
+    try { fn(cameraSnapshot()); } catch (err) { console.error("[polycss/react] PolyControls onInteractionEnd threw:", err); }
+  };
 
   // ── Pointer drag ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -111,6 +170,7 @@ export function PolyControls({
         animationPaused = true;
         animationPausedShared.value = true;
       }
+      fireStart();
     };
 
     const onMove = (e: PointerEvent): void => {
@@ -130,6 +190,7 @@ export function PolyControls({
       handle.update({ rotX, rotY });
       applyTransformDirect();
       store.updateCameraFromRef(handle);
+      fireChange();
     };
 
     const onUp = (e: PointerEvent): void => {
@@ -143,6 +204,7 @@ export function PolyControls({
         animationPaused = false;
         animationPausedShared.value = false;
       }
+      fireEnd();
     };
 
     el.style.cursor = "grab";
@@ -175,6 +237,9 @@ export function PolyControls({
     const el = cameraElRef.current;
     if (!el) return;
 
+    let wheelActive = false;
+    let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
     const onWheel = (e: WheelEvent): void => {
       if (!wheelRef.current) return;
       e.preventDefault();
@@ -188,11 +253,23 @@ export function PolyControls({
       handle.update({ zoom: next });
       applyTransformDirect();
       store.updateCameraFromRef(handle);
+      if (!wheelActive) {
+        wheelActive = true;
+        fireStart();
+      }
+      fireChange();
+      if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = setTimeout(() => {
+        wheelIdleTimer = null;
+        wheelActive = false;
+        fireEnd();
+      }, WHEEL_IDLE_END_MS);
     };
 
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("wheel", onWheel);
+      if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
     };
   }, [wheel, applyTransformDirect, cameraElRef, cameraRef, store]);
 
@@ -229,6 +306,7 @@ export function PolyControls({
         }
         applyTransformDirect();
         store.updateCameraFromRef(handle);
+        fireChange();
       } else {
         lastTime = now;
       }

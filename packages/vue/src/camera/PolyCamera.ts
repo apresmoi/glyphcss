@@ -1,6 +1,5 @@
 import { defineComponent, h, provide, computed } from "vue";
 import type { PropType } from "vue";
-import type { AutoRotateOption } from "@polycss/core";
 import { useCamera } from "./useCamera";
 import { PolyCameraContextKey } from "./context";
 
@@ -12,9 +11,6 @@ export interface PolyCameraProps {
   tilt?: number;
   rotX?: number;
   rotY?: number;
-  interactive?: boolean;
-  invert?: boolean | number;
-  animate?: AutoRotateOption | false;
   perspective?: number | boolean;
   class?: string;
 }
@@ -27,9 +23,6 @@ export const PolyCamera = defineComponent({
     tilt: { type: Number },
     rotX: { type: Number },
     rotY: { type: Number },
-    interactive: { type: Boolean },
-    invert: { type: [Boolean, Number] as PropType<boolean | number> },
-    animate: { type: [Boolean, Number, Object] as PropType<AutoRotateOption | false> },
     perspective: { type: [Number, Boolean] as PropType<number | boolean>, default: undefined },
     class: { type: String },
   },
@@ -40,9 +33,6 @@ export const PolyCamera = defineComponent({
       tilt: props.tilt,
       rotX: props.rotX,
       rotY: props.rotY,
-      interactive: props.interactive,
-      invert: props.invert,
-      animate: props.animate,
     }));
 
     const {
@@ -51,11 +41,6 @@ export const PolyCamera = defineComponent({
       sceneElRef,
       cameraElRef,
       applyTransformDirect,
-      onPointerDown,
-      onPointerMove,
-      onPointerUp,
-      onPointerCancel,
-      cursor,
     } = useCamera(cameraOptions);
 
     // Provide context — stable identity (refs + applyTransformDirect)
@@ -67,23 +52,12 @@ export const PolyCamera = defineComponent({
           ? "none"
           : `${typeof props.perspective === "number" ? props.perspective : DEFAULT_PERSPECTIVE}px`;
 
-      const cameraStyle: Record<string, string | undefined> = {
-        perspective: perspectiveValue,
-        cursor: props.interactive ? cursor.value : undefined,
-        touchAction: props.interactive ? "none" : undefined,
-        userSelect: props.interactive ? "none" : undefined,
-      };
-
       return h(
         "div",
         {
           ref: cameraElRef,
           class: `polycss-camera${props.class ? ` ${props.class}` : ""}`,
-          style: cameraStyle,
-          onPointerdown: props.interactive ? onPointerDown : undefined,
-          onPointermove: props.interactive ? onPointerMove : undefined,
-          onPointerup: props.interactive ? onPointerUp : undefined,
-          onPointercancel: props.interactive ? onPointerCancel : undefined,
+          style: { perspective: perspectiveValue },
         },
         slots.default?.()
       );

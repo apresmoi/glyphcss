@@ -56,17 +56,6 @@ describe("PolyCamera", () => {
     expect(camera.style.perspective).toBe("none");
   });
 
-  it("sets interactive cursor", () => {
-    const container = renderToDiv(
-      <VoxCamera interactive>
-        <div />
-      </VoxCamera>
-    );
-
-    const camera = container.querySelector(".polycss-camera") as HTMLElement;
-    expect(camera.style.cursor).toBe("grab");
-  });
-
   it("applies custom className", () => {
     const container = renderToDiv(
       <VoxCamera className="my-scene">
@@ -76,16 +65,5 @@ describe("PolyCamera", () => {
 
     const camera = container.querySelector(".polycss-camera");
     expect(camera?.classList.contains("my-scene")).toBe(true);
-  });
-
-  it("applies touch-action none when interactive", () => {
-    const container = renderToDiv(
-      <VoxCamera interactive>
-        <div />
-      </VoxCamera>
-    );
-
-    const camera = container.querySelector(".polycss-camera") as HTMLElement;
-    expect(camera.style.touchAction).toBe("none");
   });
 });

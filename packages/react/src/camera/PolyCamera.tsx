@@ -1,6 +1,5 @@
 import { memo, useMemo } from "react";
 import type { ReactNode } from "react";
-import type { AutoRotateOption } from "@polycss/core";
 import { PolyCameraContext } from "./context";
 import { useCamera } from "./useCamera";
 
@@ -10,9 +9,6 @@ export interface PolyCameraProps {
   tilt?: number;
   rotX?: number;
   rotY?: number;
-  interactive?: boolean;
-  invert?: boolean | number;
-  animate?: AutoRotateOption | false;
   perspective?: number | boolean;
   children?: ReactNode;
   className?: string;
@@ -27,9 +23,6 @@ function PolyCameraInner({
   tilt,
   rotX,
   rotY,
-  interactive,
-  invert,
-  animate,
   perspective,
   children,
   className,
@@ -41,12 +34,7 @@ function PolyCameraInner({
     sceneElRef,
     cameraElRef,
     applyTransformDirect,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
-    onPointerCancel,
-    cursor,
-  } = useCamera({ zoom, pan, tilt, rotX, rotY, interactive, invert, animate });
+  } = useCamera({ zoom, pan, tilt, rotX, rotY });
 
   // Context is stable — refs never change identity, applyTransformDirect
   // is memoized in useCamera.
@@ -63,9 +51,6 @@ function PolyCameraInner({
   const cameraStyle: React.CSSProperties = {
     ...style,
     perspective: perspectiveValue,
-    cursor: interactive ? cursor : undefined,
-    touchAction: interactive ? "none" : undefined,
-    userSelect: interactive ? "none" : undefined,
   };
 
   return (
@@ -74,10 +59,6 @@ function PolyCameraInner({
         ref={cameraElRef}
         className={`polycss-camera${className ? ` ${className}` : ""}`}
         style={cameraStyle}
-        onPointerDown={interactive ? onPointerDown : undefined}
-        onPointerMove={interactive ? onPointerMove : undefined}
-        onPointerUp={interactive ? onPointerUp : undefined}
-        onPointerCancel={interactive ? onPointerCancel : undefined}
       >
         {children}
       </div>

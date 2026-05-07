@@ -1,18 +1,8 @@
-import { ref, shallowRef, watch, onMounted, onBeforeUnmount } from "vue";
+import { ref, shallowRef, watch } from "vue";
 import type { Ref } from "vue";
 import { createIsometricCamera } from "@polycss/core";
-import type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "@polycss/core";
+import type { CameraState, CameraHandle } from "@polycss/core";
 import { createSceneStore, type SceneStore } from "../store";
-
-const POINTER_DRAG_SPEED = 5;
-
-// Wheel-zoom tuning. Mirrors createPolyScene (vanilla) so all three
-// renderers feel identical. Multiplicative step (exp(-deltaY * k)) gives
-// smooth zooming across the full range; deltaMode normalization handles
-// browsers that report wheel deltas in lines (33 px/line) or pages (~800).
-const ZOOM_MIN = 0.05;
-const ZOOM_MAX = 8;
-const ZOOM_STEP = 0.0015;
 
 export interface UseCameraOptions {
   zoom?: number;
@@ -20,9 +10,6 @@ export interface UseCameraOptions {
   tilt?: number;
   rotX?: number;
   rotY?: number;
-  interactive?: boolean;
-  invert?: boolean | number;
-  animate?: AutoRotateOption | false;
 }
 
 export interface UseCameraResult {
@@ -30,9 +17,10 @@ export interface UseCameraResult {
   cameraRef: Ref<CameraHandle>;
   sceneElRef: Ref<HTMLElement | null>;
   /**
-   * Bind to the camera root element. We need the underlying ref so we can
-   * wire a non-passive `wheel` listener (Vue's `@wheel` is passive by
-   * default in modern versions and can't `preventDefault()`).
+   * Bind to the camera root element. Layered components like
+   * <PolyControls> need the underlying ref to wire non-passive wheel /
+   * pointer listeners (Vue's @wheel is passive by default in modern
+   * versions and can't preventDefault).
    */
   cameraElRef: Ref<HTMLDivElement | null>;
   /**
@@ -41,37 +29,6 @@ export interface UseCameraResult {
    * <PolyControls> can call it after mutating cameraRef.value.
    */
   applyTransformDirect: () => void;
-  onPointerDown: (e: PointerEvent) => void;
-  onPointerMove: (e: PointerEvent) => void;
-  onPointerUp: (e: PointerEvent) => void;
-  onPointerCancel: (e: PointerEvent) => void;
-  cursor: Ref<string>;
-}
-
-function normalizeAngle(value: number): number {
-  let normalized = value % 360;
-  if (normalized < 0) normalized += 360;
-  return normalized;
-}
-
-function normalizeAutoRotateOption(
-  option: AutoRotateOption
-): { axis: "x" | "y"; speed: number; pauseOnInteraction: boolean } | null {
-  if (!option) return null;
-  if (option === true) return { axis: "y", speed: 0.3, pauseOnInteraction: true };
-  if (typeof option === "number") {
-    if (!Number.isFinite(option) || option === 0) return null;
-    return { axis: "y", speed: option, pauseOnInteraction: true };
-  }
-  const config = option as AutoRotateConfig;
-  const speed =
-    typeof config.speed === "number" && Number.isFinite(config.speed) ? config.speed : 0.3;
-  if (!speed) return null;
-  return {
-    axis: config.axis === "x" ? "x" : "y",
-    speed,
-    pauseOnInteraction: config.pauseOnInteraction !== false,
-  };
 }
 
 export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
@@ -87,17 +44,6 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
   const sceneElRef = ref<HTMLElement | null>(null);
   const cameraElRef = ref<HTMLDivElement | null>(null);
   const store = createSceneStore(handle.state);
-
-  const isDragging = ref(false);
-  let activePointerId: number | null = null;
-  const pointer = { x: 0, y: 0 };
-  let animationPaused = false;
-
-  function getInvertSign(): number {
-    const inv = options.value.invert;
-    if (typeof inv === "number") return inv < 0 ? -1 : 1;
-    return inv === true ? -1 : 1;
-  }
 
   // Sync prop changes to camera handle — only update when values actually change
   watch(
@@ -133,146 +79,11 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }
 
-  // Auto-rotate
-  let animFrameId = 0;
-  let animStopped = false;
-
-  function startAnimation(): void {
-    stopAnimation();
-    const animOpt = options.value.animate;
-    if (!animOpt) return;
-    const config = normalizeAutoRotateOption(animOpt);
-    if (!config) return;
-
-    animStopped = false;
-    const tick = () => {
-      if (animStopped) return;
-      if (!animationPaused) {
-        if (config.axis === "x") {
-          handle.update({ rotX: normalizeAngle(handle.state.rotX + config.speed) });
-        } else {
-          handle.update({ rotY: normalizeAngle(handle.state.rotY + config.speed) });
-        }
-        applyTransformDirect();
-        store.updateCameraFromRef(handle);
-      }
-      animFrameId = requestAnimationFrame(tick);
-    };
-    animFrameId = requestAnimationFrame(tick);
-  }
-
-  function stopAnimation(): void {
-    animStopped = true;
-    if (animFrameId) {
-      cancelAnimationFrame(animFrameId);
-      animFrameId = 0;
-    }
-  }
-
-  watch(() => options.value.animate, () => {
-    startAnimation();
-  });
-
-  // Wheel → zoom. Browsers translate trackpad pinch into wheel events with
-  // ctrlKey=true, so this covers desktop scroll + Mac pinch in one path.
-  // Attached as a native, non-passive listener so we can preventDefault()
-  // (Vue's @wheel is passive by default in modern versions).
-  let detachWheel: (() => void) | null = null;
-  function attachWheel(): void {
-    detachWheel?.();
-    const el = cameraElRef.value;
-    if (!el) return;
-    const onWheel = (e: WheelEvent): void => {
-      if (!options.value.interactive) return;
-      e.preventDefault();
-      const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
-      const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
-      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, handle.state.zoom * factor));
-      handle.update({ zoom: next });
-      applyTransformDirect();
-      store.updateCameraFromRef(handle);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    detachWheel = () => el.removeEventListener("wheel", onWheel);
-  }
-
-  watch(cameraElRef, () => attachWheel());
-
-  onMounted(() => {
-    startAnimation();
-    attachWheel();
-  });
-
-  onBeforeUnmount(() => {
-    stopAnimation();
-    detachWheel?.();
-  });
-
-  const cursor = ref("grab");
-
-  function onPointerDown(e: PointerEvent): void {
-    if (!options.value.interactive) return;
-    if (activePointerId !== null) return;
-    if (e.isPrimary === false) return;
-
-    const animConfig = options.value.animate ? normalizeAutoRotateOption(options.value.animate) : null;
-    if (animConfig?.pauseOnInteraction) {
-      animationPaused = true;
-    }
-
-    e.preventDefault();
-    activePointerId = e.pointerId;
-    pointer.x = e.clientX;
-    pointer.y = e.clientY;
-    isDragging.value = true;
-    cursor.value = "grabbing";
-    try {
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    } catch {
-      // Ignore capture errors
-    }
-  }
-
-  function onPointerMove(e: PointerEvent): void {
-    if (activePointerId === null || e.pointerId !== activePointerId) return;
-    e.preventDefault();
-    const inv = getInvertSign();
-    const dX = ((e.clientX - pointer.x) * inv) / POINTER_DRAG_SPEED;
-    const dY = ((e.clientY - pointer.y) * inv) / POINTER_DRAG_SPEED;
-    handle.update({
-      rotX: Math.max(0, Math.min(100, handle.state.rotX - dY)),
-      rotY: (handle.state.rotY - dX + 360) % 360,
-    });
-    applyTransformDirect();
-    pointer.x = e.clientX;
-    pointer.y = e.clientY;
-
-    store.updateCameraFromRef(handle);
-  }
-
-  function onPointerUp(e: PointerEvent): void {
-    if (activePointerId === null || e.pointerId !== activePointerId) return;
-    activePointerId = null;
-    isDragging.value = false;
-    cursor.value = "grab";
-    animationPaused = false;
-    try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // Ignore capture errors
-    }
-  }
-
   return {
     store,
     cameraRef,
     sceneElRef,
     cameraElRef,
     applyTransformDirect,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
-    onPointerCancel: onPointerUp,
-    cursor,
   };
 }

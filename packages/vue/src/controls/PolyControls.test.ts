@@ -443,4 +443,87 @@ describe("PolyControls (Vue)", () => {
       container.remove();
     });
   });
+
+  // ── Three.js OrbitControls-style emits (change / interaction-start / -end)
+  describe("event emits", () => {
+    it("@change fires per pointermove with the post-mutation camera", () => {
+      // Vue maps `onChange` listener prop → `change` emit subscription.
+      const onChange = vi.fn();
+      mounted = mount(
+        { onChange } as PolyControlsProps & Record<string, unknown>,
+        { rotY: 45 },
+      );
+      const cameraEl = findCameraEl(mounted.container);
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 250, y: 100 });
+      dispatchPointer(cameraEl, "pointerup", { x: 250, y: 100 });
+      expect(onChange).toHaveBeenCalledTimes(2);
+      const last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
+      // Final rotY = 45 - (250-100)/4 = 7.5
+      expect(last.rotY).toBeCloseTo(7.5, 4);
+      expect(typeof last.rotX).toBe("number");
+      expect(typeof last.zoom).toBe("number");
+    });
+
+    it("@interaction-start / -end fire once per drag gesture and carry camera", () => {
+      const onInteractionStart = vi.fn();
+      const onInteractionEnd = vi.fn();
+      mounted = mount(
+        { onInteractionStart, onInteractionEnd } as PolyControlsProps & Record<string, unknown>,
+        { rotY: 45 },
+      );
+      const cameraEl = findCameraEl(mounted.container);
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 250, y: 100 });
+      dispatchPointer(cameraEl, "pointerup", { x: 250, y: 100 });
+      expect(onInteractionStart).toHaveBeenCalledTimes(1);
+      expect(onInteractionEnd).toHaveBeenCalledTimes(1);
+      const startCam = onInteractionStart.mock.calls[0][0];
+      const endCam = onInteractionEnd.mock.calls[0][0];
+      expect(startCam.rotY).toBeCloseTo(45, 4);
+      // After dragging right by 150 px, rotY = 45 - 150/4 = 7.5
+      expect(endCam.rotY).toBeCloseTo(7.5, 4);
+    });
+
+    it("wheel emits @interaction-start, @change per event, @interaction-end after idle", () => {
+      vi.useFakeTimers();
+      const onInteractionStart = vi.fn();
+      const onChange = vi.fn();
+      const onInteractionEnd = vi.fn();
+      mounted = mount({
+        onChange,
+        onInteractionStart,
+        onInteractionEnd,
+      } as PolyControlsProps & Record<string, unknown>);
+      const cameraEl = findCameraEl(mounted.container);
+      dispatchWheel(cameraEl, -50);
+      dispatchWheel(cameraEl, -50);
+      expect(onInteractionStart).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onInteractionEnd).toHaveBeenCalledTimes(0);
+      vi.advanceTimersByTime(160);
+      expect(onInteractionEnd).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it("autorotate fires @change per tick but no interaction start/end", () => {
+      const onChange = vi.fn();
+      const onInteractionStart = vi.fn();
+      const onInteractionEnd = vi.fn();
+      mounted = mount({
+        animate: { speed: 1 },
+        onChange,
+        onInteractionStart,
+        onInteractionEnd,
+      } as PolyControlsProps & Record<string, unknown>);
+      const baseTime = { now: 0 };
+      tickFrame(16.67, baseTime);
+      tickFrame(16.67, baseTime);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onInteractionStart).not.toHaveBeenCalled();
+      expect(onInteractionEnd).not.toHaveBeenCalled();
+    });
+  });
 });

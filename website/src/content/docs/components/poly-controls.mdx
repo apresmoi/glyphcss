@@ -101,11 +101,16 @@ controls.update({ animate: false });    // stop auto-rotate
 controls.update({ drag: false });        // also disable pointer drag
 
 // Pause everything (detaches listeners + cancels rAF) — reversible:
-controls.stop();
-controls.start();
+controls.pause();
+controls.resume();
 
 // Hard teardown:
 controls.destroy();
+
+// Three.js OrbitControls-style event subscription:
+controls.addEventListener("change", (e) => console.log(e.camera));
+controls.addEventListener("start", () => console.log("interaction begin"));
+controls.addEventListener("end", () => console.log("interaction end"));
 ```
 
 ### Read-only / tour mode
@@ -158,14 +163,6 @@ Disable input but keep autorotate running:
 `PolyControls` is purely additive — it attaches its own pointer/wheel listeners to the scene's host element and runs its own `requestAnimationFrame` loop when `animate` is on. State changes flow through the scene's normal `setOptions({ rotX, rotY, zoom })` path, so anything that observes scene state (atlas, lighting, custom-element attribute reflection) sees the same updates as if you had set them yourself.
 
 The animate tick is `dt`-clamped at 50 ms per frame and normalized to 60 Hz. That makes `speed: 0.3` produce the same ~18 deg/sec on every monitor refresh rate (60, 120, 144 Hz) and survives a tab regaining focus without a giant catch-up jump.
-
-## Combining with PolyCamera's built-in `interactive` / `animate` props
-
-For back-compat, `<PolyCamera>` (React / Vue) still accepts `interactive` and `animate` props that drive its own input handlers. **Use one or the other**, not both — combining them double-attaches handlers and the autorotate loops will fight. The new `<PolyControls>` path is recommended because:
-
-- It separates camera state (owned by the scene) from camera input (owned by controls), matching the Three.js OrbitControls split.
-- The animate tick is `dt`-clamped and frame-rate-independent.
-- You can compose multiple input behaviors (e.g. drag-only with no wheel) without juggling props on the camera wrapper.
 
 ## Related
 

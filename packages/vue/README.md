@@ -40,8 +40,8 @@ Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, 
 | `directional-light` | `DirectionalLight` | — | Directional + ambient light |
 | `atlas-scale` | `number` | `1` | Raster scale for generated atlas pages |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with slot) |
-| `interactive` | `boolean` | `false` | Enable pointer-drag camera rotation |
-| `auto-rotate` | `AutoRotateOption` | — | Auto-rotate camera |
+
+For pointer drag, wheel zoom, and autorotate, mount `<PolyControls>` inside `<PolyCamera>` (it receives the camera context). Mirrors Three.js's split between camera state and input.
 
 ### `<PolyMesh>`
 

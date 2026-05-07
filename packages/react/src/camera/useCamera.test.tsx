@@ -54,13 +54,4 @@ describe("useCamera", () => {
     expect(state.rotY).toBe(180);
   });
 
-  it("returns grab cursor when interactive", () => {
-    const result = captureHook({ interactive: true });
-    expect(result.cursor).toBe("grab");
-  });
-
-  it("returns default cursor when not interactive", () => {
-    const result = captureHook({ interactive: false });
-    expect(result.cursor).toBe("default");
-  });
 });

@@ -147,9 +147,14 @@ const controls = createPolyControls(scene, {
 });
 
 controls.update({ animate: false });   // mutate options live
-controls.stop();                        // pause loop + detach listeners (reversible)
-controls.start();                       // resume after stop()
+controls.pause();                       // pause loop + detach listeners (reversible)
+controls.resume();                      // re-attach after pause()
 controls.destroy();                     // hard teardown
+
+// Three.js OrbitControls-style event subscription
+controls.addEventListener("change", (e) => updateUi(e.camera));
+controls.addEventListener("start", () => beginInteraction());
+controls.addEventListener("end",   () => endInteraction());
 ```
 
 ### Options
@@ -167,9 +172,14 @@ controls.destroy();                     // hard teardown
 | Method | Description |
 |--------|-------------|
 | `update(partial)` | Mutate options live (toggle drag/wheel/animate, change speed, etc.). |
-| `start()` | Resume after `stop()`. Re-attaches listeners and re-arms the rAF if `animate` is on. |
-| `stop()` | Pause the animate loop and detach input listeners. Reversible by `start()`. |
-| `destroy()` | Hard teardown. Functionally identical to `stop()` in this implementation. |
+| `resume()` | Re-attach input listeners and (re)start autorotate after `pause()`. |
+| `pause()` | Detach input listeners and halt the autorotate loop. Reversible by `resume()`. |
+| `destroy()` | Hard teardown. Drops all event listeners; functionally identical to `pause()` for input/animate state. |
+| `addEventListener(type, fn)` | Subscribe to `'change'` (carries `{ camera: { rotX, rotY, zoom } }`) or `'start'` / `'end'` interaction-boundary events. Mirrors Three.js OrbitControls. |
+| `removeEventListener(type, fn)` | Unsubscribe by exact listener reference. |
+| `hasEventListener(type, fn)` | Returns `true` if the listener is currently subscribed. |
+
+`'change'` fires on every camera mutation the controls trigger — pointer drag (per `pointermove`), wheel zoom (per wheel event), and autorotate (per rAF tick). `'start'` / `'end'` fire once per gesture: pointerdown→pointerup for drags, first-wheel→idle (~150 ms) for wheel bursts. Autorotate emits `'change'` only — no `'start'` / `'end'`, since there's no user gesture.
 
 ### Required scene surface
 

@@ -19,8 +19,8 @@ For pointer drag, wheel zoom, and autorotate, drop a `<PolyControls>` child insi
 | `rotX` | `number` | `65` | Rotation around the X axis in degrees. |
 | `rotY` | `number` | `45` | Rotation around the Y axis in degrees (0–360). |
 | `perspective` | `number \| false` | `8000` | CSS perspective depth in pixels. Pass `false` for orthographic projection. |
-| `interactive` | `boolean` | `false` | **Back-compat.** Enable PolyCamera's built-in pointer drag. Prefer `<PolyControls drag>` instead — they double-attach if combined. |
-| `animate` | `boolean \| number \| object` | `false` | **Back-compat.** PolyCamera's built-in autorotate. Frame-rate-naive — prefer `<PolyControls animate={...}>` for `dt`-clamped behavior. |
+
+`<PolyCamera>` is a state holder — it owns the camera transform and exposes it to descendants via context. For pointer drag, wheel zoom, and autorotate, mount [`<PolyControls>`](/components/poly-controls) inside `<PolyCamera>`. This mirrors Three.js's split between `PerspectiveCamera` (state) and `OrbitControls` (input).
 
 ## Usage
 

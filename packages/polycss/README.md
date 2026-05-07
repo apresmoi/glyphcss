@@ -95,7 +95,7 @@ poly-polygon.hover { filter: brightness(1.5); }
 | `light-ambient-color` | Ambient light color hex |
 | `atlas-scale` | Raster scale for generated atlas pages; lower values reduce memory/detail |
 
-Note: `auto-rotate` and `interactive` are not supported in the v1 vanilla package. Use `@polycss/react` or `@polycss/vue` for animated or interactive scenes.
+For pointer drag, wheel zoom, and autorotate, drop a `<poly-controls>` child inside the scene (or wire `createPolyControls(scene, ...)` against the imperative API). Mirrors Three.js's split between camera state (`<poly-scene>`) and camera input (`<poly-controls>` / `createPolyControls`).
 
 **`<poly-mesh>`**
 

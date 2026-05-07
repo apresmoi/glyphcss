@@ -270,4 +270,114 @@ describe("PolyControls", () => {
     queuedTick(16.67);
     expect(rafQueue.length).toBe(0);
   });
+
+  // ── Event prop callbacks (Three.js OrbitControls-style start/change/end) ─
+  describe("event prop callbacks", () => {
+    it("onChange fires per pointermove with the post-mutation camera", () => {
+      const onChange = vi.fn();
+      root = createRoot(container);
+      act(() => root.render(tree({ onChange }, { rotY: 45 })));
+      const cameraEl = findCameraEl(container);
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 250, y: 100 });
+      dispatchPointer(cameraEl, "pointerup", { x: 250, y: 100 });
+      expect(onChange).toHaveBeenCalledTimes(2);
+      const [{ rotY }] = onChange.mock.calls[onChange.mock.calls.length - 1];
+      // Final rotY = 45 - (250-100)/4 = 45 - 37.5 = 7.5
+      expect(rotY).toBeCloseTo(7.5, 4);
+    });
+
+    it("onInteractionStart / End fire once per drag gesture and carry camera", () => {
+      const onInteractionStart = vi.fn();
+      const onInteractionEnd = vi.fn();
+      root = createRoot(container);
+      act(() => root.render(tree({ onInteractionStart, onInteractionEnd }, { rotY: 45 })));
+      const cameraEl = findCameraEl(container);
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 250, y: 100 });
+      dispatchPointer(cameraEl, "pointerup", { x: 250, y: 100 });
+      expect(onInteractionStart).toHaveBeenCalledTimes(1);
+      expect(onInteractionEnd).toHaveBeenCalledTimes(1);
+      // start camera = pre-drag state; end camera = post-drag state.
+      const startCam = onInteractionStart.mock.calls[0][0];
+      const endCam = onInteractionEnd.mock.calls[0][0];
+      expect(startCam.rotY).toBeCloseTo(45, 4);
+      // After dragging right by 150 px, rotY = 45 - 150/4 = 7.5
+      expect(endCam.rotY).toBeCloseTo(7.5, 4);
+    });
+
+    it("wheel emits onInteractionStart, onChange per event, onInteractionEnd after idle", () => {
+      vi.useFakeTimers();
+      const onInteractionStart = vi.fn();
+      const onChange = vi.fn();
+      const onInteractionEnd = vi.fn();
+      root = createRoot(container);
+      act(() => root.render(tree({ onChange, onInteractionStart, onInteractionEnd })));
+      const cameraEl = findCameraEl(container);
+      dispatchWheel(cameraEl, -50);
+      dispatchWheel(cameraEl, -50);
+      expect(onInteractionStart).toHaveBeenCalledTimes(1);
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onInteractionEnd).toHaveBeenCalledTimes(0);
+      vi.advanceTimersByTime(160);
+      expect(onInteractionEnd).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it("autorotate fires onChange per tick but no interaction start/end", () => {
+      const onChange = vi.fn();
+      const onInteractionStart = vi.fn();
+      const onInteractionEnd = vi.fn();
+      root = createRoot(container);
+      act(() => root.render(tree({
+        animate: { speed: 1 },
+        onChange,
+        onInteractionStart,
+        onInteractionEnd,
+      })));
+      const baseTime = { now: 0 };
+      act(() => tickFrame(16.67, baseTime));
+      act(() => tickFrame(16.67, baseTime));
+      expect(onChange).toHaveBeenCalledTimes(2);
+      expect(onInteractionStart).not.toHaveBeenCalled();
+      expect(onInteractionEnd).not.toHaveBeenCalled();
+    });
+
+    it("re-rendering with a new onChange swaps to the new fn without re-attaching listeners", () => {
+      const first = vi.fn();
+      const second = vi.fn();
+      root = createRoot(container);
+      act(() => root.render(tree({ onChange: first }, { rotY: 0 })));
+      const cameraEl = findCameraEl(container);
+      // First drag — first callback fires.
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
+      expect(first).toHaveBeenCalledTimes(1);
+      // Re-render with new callback. Second drag — only the second fires.
+      act(() => root.render(tree({ onChange: second }, { rotY: 0 })));
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
+      expect(first).toHaveBeenCalledTimes(1); // unchanged
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+
+    it("a throwing onChange listener doesn't break siblings or future events", () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const bad = (): void => { throw new Error("boom"); };
+      root = createRoot(container);
+      act(() => root.render(tree({ onChange: bad })));
+      const cameraEl = findCameraEl(container);
+      dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+      // Should not throw out of the event handler.
+      expect(() => {
+        dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+      }).not.toThrow();
+      dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
+      consoleSpy.mockRestore();
+    });
+  });
 });

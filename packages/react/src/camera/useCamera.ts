@@ -1,18 +1,7 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useCallback, useEffect, useMemo } from "react";
 import { createIsometricCamera } from "@polycss/core";
-import type { CameraState, CameraHandle, AutoRotateOption, AutoRotateConfig } from "@polycss/core";
+import type { CameraState, CameraHandle } from "@polycss/core";
 import { createSceneStore, type SceneStore } from "../store/sceneStore";
-
-const POINTER_DRAG_SPEED = 5;
-
-// Wheel-zoom tuning. Mirrors createPolyScene (vanilla) so React + vanilla
-// renderers feel identical. Multiplicative step (exp(-deltaY * k)) gives
-// smooth zooming across the full range; deltaMode normalization handles
-// browsers that report wheel deltas in lines (33 px/line) or pages (~800).
-const ZOOM_MIN = 0.05;
-const ZOOM_MAX = 8;
-const ZOOM_STEP = 0.0015;
 
 export interface UseCameraOptions {
   zoom?: number;
@@ -20,9 +9,6 @@ export interface UseCameraOptions {
   tilt?: number;
   rotX?: number;
   rotY?: number;
-  interactive?: boolean;
-  invert?: boolean | number;
-  animate?: AutoRotateOption | false;
 }
 
 export interface UseCameraResult {
@@ -30,9 +16,10 @@ export interface UseCameraResult {
   cameraRef: React.MutableRefObject<CameraHandle>;
   sceneElRef: React.MutableRefObject<HTMLElement | null>;
   /**
-   * Attach to the camera root element. We need the underlying ref so we
-   * can wire a non-passive `wheel` listener (React's `onWheel` defaults
-   * to passive in modern versions and can't `preventDefault()`).
+   * Attach to the camera root element. Layered components like
+   * <PolyControls> need the underlying ref to wire non-passive wheel /
+   * pointer listeners (React's synthetic onWheel is passive in modern
+   * versions and can't preventDefault).
    */
   cameraElRef: React.MutableRefObject<HTMLDivElement | null>;
   /**
@@ -41,37 +28,6 @@ export interface UseCameraResult {
    * components like <PolyControls> can call it after mutating state.
    */
   applyTransformDirect: () => void;
-  onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerCancel: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  cursor: string;
-}
-
-function normalizeAngle(value: number): number {
-  let normalized = value % 360;
-  if (normalized < 0) normalized += 360;
-  return normalized;
-}
-
-function normalizeAutoRotateOption(
-  option: AutoRotateOption
-): { axis: "x" | "y"; speed: number; pauseOnInteraction: boolean } | null {
-  if (!option) return null;
-  if (option === true) return { axis: "y", speed: 0.3, pauseOnInteraction: true };
-  if (typeof option === "number") {
-    if (!Number.isFinite(option) || option === 0) return null;
-    return { axis: "y", speed: option, pauseOnInteraction: true };
-  }
-  const config = option as AutoRotateConfig;
-  const speed =
-    typeof config.speed === "number" && Number.isFinite(config.speed) ? config.speed : 0.3;
-  if (!speed) return null;
-  return {
-    axis: config.axis === "x" ? "x" : "y",
-    speed,
-    pauseOnInteraction: config.pauseOnInteraction !== false,
-  };
 }
 
 export function useCamera(options: UseCameraOptions): UseCameraResult {
@@ -94,21 +50,6 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     () => createSceneStore(handleRef.current!.state),
     []
   );
-
-  const [isDragging, setIsDragging] = useState(false);
-  const activePointerIdRef = useRef<number | null>(null);
-  const pointerRef = useRef({ x: 0, y: 0 });
-  const animationPausedRef = useRef(false);
-
-  const invertRef = useRef(1);
-  invertRef.current =
-    typeof options.invert === "number"
-      ? options.invert < 0
-        ? -1
-        : 1
-      : options.invert === true
-        ? -1
-        : 1;
 
   // Sync prop changes to camera handle
   useEffect(() => {
@@ -143,125 +84,11 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
   }, []);
 
-
-  // Auto-rotate
-  useEffect(() => {
-    if (!options.animate) return;
-    const config = normalizeAutoRotateOption(options.animate);
-    if (!config) return;
-
-    let frameId: number;
-    let stopped = false;
-    const tick = () => {
-      if (stopped) return;
-      if (!animationPausedRef.current) {
-        const handle = handleRef.current!;
-        if (config.axis === "x") {
-          handle.update({ rotX: normalizeAngle(handle.state.rotX + config.speed) });
-        } else {
-          handle.update({ rotY: normalizeAngle(handle.state.rotY + config.speed) });
-        }
-        applyTransformDirect();
-        store.updateCameraFromRef(handle);
-      }
-      frameId = requestAnimationFrame(tick);
-    };
-    frameId = requestAnimationFrame(tick);
-    return () => {
-      stopped = true;
-      cancelAnimationFrame(frameId);
-    };
-  }, [options.animate, applyTransformDirect, store]);
-
-  // Wheel → zoom. Browsers translate trackpad pinch into wheel events with
-  // ctrlKey=true, so this covers desktop scroll + Mac pinch in one path.
-  // Attached as a native, non-passive listener via useEffect so we can
-  // call preventDefault() (React's `onWheel` is passive in modern versions
-  // and silently no-ops the preventDefault).
-  useEffect(() => {
-    if (!options.interactive) return;
-    const el = cameraElRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent): void => {
-      e.preventDefault();
-      const handle = handleRef.current;
-      if (!handle) return;
-      // Normalize across wheel-line / wheel-pixel modes (deltaMode 0 = px,
-      // 1 = lines, 2 = pages). Lines ≈ 33 px, pages ≈ 800 px.
-      const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
-      const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
-      const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, handle.state.zoom * factor));
-      handle.update({ zoom: next });
-      applyTransformDirect();
-      store.updateCameraFromRef(handle);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [options.interactive, applyTransformDirect, store]);
-
-  const onPointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!options.interactive) return;
-      if (activePointerIdRef.current !== null) return;
-      if (e.isPrimary === false) return;
-
-      const animConfig = options.animate ? normalizeAutoRotateOption(options.animate) : null;
-      if (animConfig?.pauseOnInteraction) {
-        animationPausedRef.current = true;
-      }
-
-      e.preventDefault();
-      activePointerIdRef.current = e.pointerId;
-      pointerRef.current = { x: e.clientX, y: e.clientY };
-      setIsDragging(true);
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        // Ignore capture errors
-      }
-    },
-    [options.interactive, options.animate]
-  );
-
-  const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (activePointerIdRef.current === null || e.pointerId !== activePointerIdRef.current) return;
-    e.preventDefault();
-    const handle = handleRef.current!;
-    const dX = ((e.clientX - pointerRef.current.x) * invertRef.current) / POINTER_DRAG_SPEED;
-    const dY = ((e.clientY - pointerRef.current.y) * invertRef.current) / POINTER_DRAG_SPEED;
-    handle.update({
-      rotX: Math.max(0, Math.min(100, handle.state.rotX - dY)),
-      rotY: (handle.state.rotY - dX + 360) % 360,
-    });
-    applyTransformDirect();
-    pointerRef.current = { x: e.clientX, y: e.clientY };
-
-    // Update store dirBin state (kept as inert state for v0.2)
-    store.updateCameraFromRef(handle);
-  }, [applyTransformDirect, store]);
-
-  const onPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (activePointerIdRef.current === null || e.pointerId !== activePointerIdRef.current) return;
-    activePointerIdRef.current = null;
-    setIsDragging(false);
-    animationPausedRef.current = false;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // Ignore capture errors
-    }
-  }, []);
-
   return {
     store,
     cameraRef: handleRef as React.MutableRefObject<CameraHandle>,
     sceneElRef,
     cameraElRef,
     applyTransformDirect,
-    onPointerDown,
-    onPointerMove,
-    onPointerUp,
-    onPointerCancel: onPointerUp,
-    cursor: !options.interactive ? "default" : isDragging ? "grabbing" : "grab",
   };
 }

@@ -124,12 +124,18 @@ const CORE_BASE_STYLES = `
   ));
 }
 
-/* Per-poly lambert calc — only for polys NOT inside a bucket (i.e. direct
-   children of .polycss-mesh, like off-axis curved polys). Specificity
-   (0,3,1) beats the all-<i> bg-color rule below, but the > combinator
-   means it doesn't reach polys inside a .polycss-bucket — those
-   inherit from the bucket. */
-.polycss-scene[data-polycss-lighting="dynamic"] .polycss-mesh > i {
+/* Per-poly lambert calc — applies to any <i> whose direct parent is NOT
+   a .polycss-bucket. Covers:
+     - vanilla createPolyScene polys not inside a bucket (e.g. off-axis
+       curved polys that didn't make a bucket group)
+     - React <PolyScene polygons> path (leaves are direct children of
+       .polycss-scene; no <PolyMesh> wrapper)
+     - React <PolyScene><PolyMesh polygons></PolyMesh> path (leaves are
+       direct children of .polycss-mesh)
+   Bucketed leaves are skipped — their parent IS .polycss-bucket so they
+   inherit the bucket's hoisted lambert (one calc per bucket, not per
+   leaf). */
+.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > i {
   --polycss-lambert: max(0, calc(
     var(--polycss-nx) * var(--polycss-lx) +
     var(--polycss-ny) * var(--polycss-ly) +

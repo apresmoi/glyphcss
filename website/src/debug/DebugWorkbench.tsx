@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PolyAxesHelper,
   PolyCamera,
+  PolyControls,
   PolyDirectionalLightHelper,
   PolyScene,
   parseGltf,
@@ -831,6 +832,7 @@ function VanillaScene({
   helperScale,
   helperTarget,
   onBuild,
+  onCameraChange,
 }: {
   polygons: Polygon[];
   options: SceneOptionsState;
@@ -841,6 +843,7 @@ function VanillaScene({
   helperScale: number;
   helperTarget: Vec3;
   onBuild: (ms: number) => void;
+  onCameraChange?: (camera: { rotX: number; rotY: number; zoom: number }) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneHandle | null>(null);
@@ -850,6 +853,8 @@ function VanillaScene({
   const lightHandleRef = useRef<MeshHandle | null>(null);
   const onBuildRef = useRef(onBuild);
   onBuildRef.current = onBuild;
+  const onCameraChangeRef = useRef(onCameraChange);
+  onCameraChangeRef.current = onCameraChange;
 
   // Split things into "structural" (require destroying the scene) vs
   // "incremental" (can be applied via setOptions / setTransform). In
@@ -945,11 +950,22 @@ function VanillaScene({
     const scene = sceneRef.current;
     if (!scene) return;
     if (!controlsRef.current) {
-      controlsRef.current = createPolyControls(scene, {
+      const controls = createPolyControls(scene, {
         drag: options.interactive,
         wheel: options.interactive,
         animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
       });
+      // Sync the camera back to React state ONCE per gesture (pointerup /
+      // wheel-idle) instead of every move. Per-frame React renders during
+      // a drag re-fire Effect 2 below, which re-applies directionalLight /
+      // ambientLight on every render → cascade walk competes with the
+      // drag's compositor frame in dynamic-lighting mode → flicker.
+      // Sliders snap to position on release; the camera moving IS the
+      // visual feedback during drag.
+      controls.addEventListener("end", (e) => {
+        onCameraChangeRef.current?.(e.camera);
+      });
+      controlsRef.current = controls;
     } else {
       controlsRef.current.update({
         drag: options.interactive,
@@ -1092,6 +1108,21 @@ export default function DebugWorkbench() {
 
   const updateScene = useCallback((partial: Partial<SceneOptionsState>) => {
     setSceneOptions((current) => ({ ...current, ...partial }));
+  }, []);
+
+  // Mirror controls-driven camera changes (drag/wheel/autorotate) back into
+  // React state. Without this, the sliders don't track the live drag and a
+  // subsequent scene rebuild (baked → dynamic, mesh swap, etc.) reads the
+  // stale slider value and resets the user's camera.
+  const handleCameraChange = useCallback((camera: { rotX: number; rotY: number; zoom: number }) => {
+    setSceneOptions((current) => {
+      if (
+        current.rotX === camera.rotX &&
+        current.rotY === camera.rotY &&
+        current.zoom === camera.zoom
+      ) return current;
+      return { ...current, rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom };
+    });
   }, []);
 
   const updateParser = useCallback((partial: Partial<ParserOptionsState>) => {
@@ -1452,16 +1483,21 @@ export default function DebugWorkbench() {
               helperScale={helperScale}
               helperTarget={helperTarget}
               onBuild={setVanillaBuildMs}
+              onCameraChange={handleCameraChange}
             />
           ) : (
             <PolyCamera
-              interactive={sceneOptions.interactive}
               zoom={sceneOptions.zoom}
               rotX={sceneOptions.rotX}
               rotY={sceneOptions.rotY}
               perspective={sceneOptions.perspective}
-              animate={sceneOptions.animate ? 0.35 : false}
             >
+              <PolyControls
+                drag={sceneOptions.interactive}
+                wheel={sceneOptions.interactive}
+                animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
+                onInteractionEnd={handleCameraChange}
+              />
               <PolyScene
                 polygons={scenePolygons}
                 autoCenter={sceneOptions.autoCenter}

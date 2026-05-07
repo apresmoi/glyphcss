@@ -40,16 +40,73 @@ export interface PolyControlsOptions {
   animate?: false | PolyControlsAnimateOptions;
 }
 
+export interface PolyControlsCamera {
+  rotX: number;
+  rotY: number;
+  zoom: number;
+}
+
+/**
+ * `change` fires whenever the controls mutate scene camera state — pointer
+ * drag, wheel zoom, or an autorotate tick. Carries the post-mutation
+ * camera snapshot so listeners don't have to reach back into the scene.
+ */
+export interface PolyControlsChangeEvent {
+  type: "change";
+  camera: PolyControlsCamera;
+}
+
+/**
+ * `start` fires on the first user gesture of an interaction (pointerdown
+ * or first wheel of a burst). `end` fires when that gesture concludes
+ * (pointerup or after the wheel has been idle for ~150 ms). Drag and
+ * wheel are independent — each emits its own start/end pair. Both carry
+ * the current camera so consumers using `'end'` to commit final state
+ * don't need a separate `'change'` listener to track it.
+ */
+export interface PolyControlsInteractionEvent {
+  type: "start" | "end";
+  camera: PolyControlsCamera;
+}
+
+export type PolyControlsEvent = PolyControlsChangeEvent | PolyControlsInteractionEvent;
+
+export type PolyControlsListener<E extends PolyControlsEvent = PolyControlsEvent> = (event: E) => void;
+
 export interface ControlsHandle {
   /** Mutate options live without re-creating. Diff-applies. */
   update(partial: PolyControlsOptions): void;
-  /** Resume after stop(). Re-attaches listeners and (re)starts rAF if animate is on. */
-  start(): void;
-  /** Pause the animate loop and detach input listeners. Reversible by start(). */
-  stop(): void;
-  /** Hard teardown; functionally identical to stop() in this implementation. */
+  /** Re-attach input listeners and (re)start the autorotate rAF after pause(). */
+  resume(): void;
+  /** Detach input listeners and halt the autorotate loop. Reversible by resume(). */
+  pause(): void;
+  /** Hard teardown; functionally identical to pause() in this implementation. */
   destroy(): void;
+  /**
+   * Subscribe to controls events. Modeled on Three.js OrbitControls'
+   * `addEventListener`. The listener type narrows based on `type`:
+   * `'change'` listeners receive a {@link PolyControlsChangeEvent} (with
+   * camera snapshot), `'start'` / `'end'` listeners receive a
+   * {@link PolyControlsInteractionEvent}.
+   */
+  addEventListener<T extends PolyControlsEvent["type"]>(
+    type: T,
+    listener: PolyControlsListener<Extract<PolyControlsEvent, { type: T }>>,
+  ): void;
+  removeEventListener<T extends PolyControlsEvent["type"]>(
+    type: T,
+    listener: PolyControlsListener<Extract<PolyControlsEvent, { type: T }>>,
+  ): void;
+  hasEventListener<T extends PolyControlsEvent["type"]>(
+    type: T,
+    listener: PolyControlsListener<Extract<PolyControlsEvent, { type: T }>>,
+  ): boolean;
 }
+
+// Wheel events have no native "wheel up" — emit `end` once no new wheel
+// event has arrived for this many milliseconds. Matches Three.js's
+// internal idle threshold so feel matches.
+const WHEEL_IDLE_END_MS = 150;
 
 // Tunables — mirror the values in the previous in-scene implementation so
 // existing apps that switch to controls feel identical at default settings.
@@ -125,8 +182,58 @@ export function createPolyControls(
   let animLastTime = 0;
   let animPaused = false; // by interaction
 
-  // Whether stop() has been called. start() flips it back.
+  // Whether pause() has been called. resume() flips it back.
   let stopped = false;
+
+  // Wheel idle-detection: each wheel event refreshes the timer. When it
+  // fires, we emit `end` for the wheel gesture. wheelActive tracks whether
+  // we've already emitted `start` for the current burst.
+  let wheelActive = false;
+  let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Event subscription registry ─────────────────────────────────────────
+  // Three.js-style start / change / end. Listeners are stored in arrays
+  // (not Sets) so we iterate a snapshot — letting a listener remove itself
+  // mid-emit without skipping siblings.
+  const changeListeners: PolyControlsListener<PolyControlsChangeEvent>[] = [];
+  const startListeners: PolyControlsListener<PolyControlsInteractionEvent>[] = [];
+  const endListeners: PolyControlsListener<PolyControlsInteractionEvent>[] = [];
+
+  function listenerArray(type: PolyControlsEvent["type"]): PolyControlsListener[] {
+    if (type === "change") return changeListeners as PolyControlsListener[];
+    if (type === "start") return startListeners as PolyControlsListener[];
+    return endListeners as PolyControlsListener[];
+  }
+
+  function cameraSnapshot(): PolyControlsCamera {
+    const sceneOpts = scene.getOptions();
+    return {
+      rotX: sceneOpts.rotX ?? 0,
+      rotY: sceneOpts.rotY ?? 0,
+      zoom: sceneOpts.zoom ?? 1,
+    };
+  }
+
+  function emitChange(): void {
+    if (changeListeners.length === 0) return;
+    const event: PolyControlsChangeEvent = { type: "change", camera: cameraSnapshot() };
+    // Snapshot before iterating so removals during dispatch don't skip
+    // the next listener.
+    const snapshot = changeListeners.slice();
+    for (const fn of snapshot) {
+      try { fn(event); } catch (err) { console.error("[polycss] controls 'change' listener threw:", err); }
+    }
+  }
+
+  function emitInteraction(type: "start" | "end"): void {
+    const list = type === "start" ? startListeners : endListeners;
+    if (list.length === 0) return;
+    const event: PolyControlsInteractionEvent = { type, camera: cameraSnapshot() };
+    const snapshot = list.slice();
+    for (const fn of snapshot) {
+      try { fn(event); } catch (err) { console.error(`[polycss] controls '${type}' listener threw:`, err); }
+    }
+  }
 
   // ── Pointer drag ────────────────────────────────────────────────────────
   const onPointerDown = (e: PointerEvent): void => {
@@ -145,6 +252,7 @@ export function createPolyControls(
     if (opts.animate && opts.animate.pauseOnInteraction) {
       animPaused = true;
     }
+    emitInteraction("start");
   };
 
   const onPointerMove = (e: PointerEvent): void => {
@@ -163,6 +271,7 @@ export function createPolyControls(
     const rotX = Math.max(0, Math.min(100, (sceneOpts.rotX ?? 65) - dY));
     const rotY = ((((sceneOpts.rotY ?? 45) - dX) % 360) + 360) % 360;
     scene.setOptions({ rotX, rotY });
+    emitChange();
   };
 
   const onPointerUp = (e: PointerEvent): void => {
@@ -180,6 +289,7 @@ export function createPolyControls(
       // we'd see a "catch-up" jump equal to however long the drag lasted.
       animLastTime = 0;
     }
+    emitInteraction("end");
   };
 
   // ── Wheel zoom ──────────────────────────────────────────────────────────
@@ -193,6 +303,18 @@ export function createPolyControls(
     const cur = sceneOpts.zoom ?? 1;
     const next = Math.max(opts.zoom.min, Math.min(opts.zoom.max, cur * factor));
     scene.setOptions({ zoom: next });
+    if (!wheelActive) {
+      wheelActive = true;
+      emitInteraction("start");
+    }
+    emitChange();
+    // Refresh idle timer — last wheel event in a burst triggers `end`.
+    if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
+    wheelIdleTimer = setTimeout(() => {
+      wheelIdleTimer = null;
+      wheelActive = false;
+      emitInteraction("end");
+    }, WHEEL_IDLE_END_MS);
   };
 
   // ── Animate tick ────────────────────────────────────────────────────────
@@ -214,6 +336,9 @@ export function createPolyControls(
         const next = (((sceneOpts.rotY ?? 45) + delta) % 360 + 360) % 360;
         scene.setOptions({ rotY: next });
       }
+      // Autorotate is a programmatic mutation — fire `change` per Three.js
+      // OrbitControls semantics, but no `start` / `end` (no user gesture).
+      emitChange();
     } else {
       // Keep lastTime fresh so resume doesn't see a huge pause-length dt.
       animLastTime = now;
@@ -276,25 +401,65 @@ export function createPolyControls(
     }
   }
 
-  function start(): void {
+  function resume(): void {
     if (!stopped) return;
     stopped = false;
     attach();
     startAnim();
   }
 
-  function stop(): void {
+  function pause(): void {
     if (stopped) return;
     stopped = true;
     detach();
     stopAnim();
     activePointerId = null;
     animPaused = false;
+    if (wheelIdleTimer !== null) {
+      clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = null;
+    }
+    wheelActive = false;
   }
 
   function destroy(): void {
-    stop();
+    pause();
+    changeListeners.length = 0;
+    startListeners.length = 0;
+    endListeners.length = 0;
   }
 
-  return { update, start, stop, destroy };
+  function addEventListener<T extends PolyControlsEvent["type"]>(
+    type: T,
+    listener: PolyControlsListener<Extract<PolyControlsEvent, { type: T }>>,
+  ): void {
+    const arr = listenerArray(type);
+    if (!arr.includes(listener as PolyControlsListener)) arr.push(listener as PolyControlsListener);
+  }
+
+  function removeEventListener<T extends PolyControlsEvent["type"]>(
+    type: T,
+    listener: PolyControlsListener<Extract<PolyControlsEvent, { type: T }>>,
+  ): void {
+    const arr = listenerArray(type);
+    const idx = arr.indexOf(listener as PolyControlsListener);
+    if (idx >= 0) arr.splice(idx, 1);
+  }
+
+  function hasEventListener<T extends PolyControlsEvent["type"]>(
+    type: T,
+    listener: PolyControlsListener<Extract<PolyControlsEvent, { type: T }>>,
+  ): boolean {
+    return listenerArray(type).includes(listener as PolyControlsListener);
+  }
+
+  return {
+    update,
+    resume,
+    pause,
+    destroy,
+    addEventListener,
+    removeEventListener,
+    hasEventListener,
+  };
 }

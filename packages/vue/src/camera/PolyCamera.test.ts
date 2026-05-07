@@ -53,27 +53,6 @@ describe("PolyCamera (Vue)", () => {
     });
   });
 
-  describe("interactive mode", () => {
-    it("sets cursor to grab when interactive", () => {
-      const container = renderCamera({ interactive: true });
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.cursor).toBe("grab");
-    });
-
-    it("sets touch-action to none when interactive", () => {
-      const container = renderCamera({ interactive: true });
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.touchAction).toBe("none");
-    });
-
-    it("does not set cursor or touch-action when not interactive", () => {
-      const container = renderCamera();
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.cursor).toBe("");
-      expect(camera.style.touchAction).toBe("");
-    });
-  });
-
   describe("children", () => {
     it("renders children inside the camera wrapper", () => {
       const container = renderCamera({}, h("span", { class: "inner-child" }, "Hello"));

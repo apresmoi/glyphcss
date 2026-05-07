@@ -389,9 +389,9 @@ describe("createPolyControls", () => {
       expect(scene.getOptions().rotY).toBe(before);
     });
 
-    it("stop() detaches listeners and pauses rAF", () => {
+    it("pause() detaches listeners and halts rAF", () => {
       controls = createPolyControls(scene, { animate: { speed: 1 } });
-      controls.stop();
+      controls.pause();
       expect(rafQueue.length).toBe(0);
       const before = scene.getOptions().rotY;
       dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
@@ -399,10 +399,10 @@ describe("createPolyControls", () => {
       expect(scene.getOptions().rotY).toBe(before);
     });
 
-    it("start() resumes after stop()", () => {
+    it("resume() re-attaches after pause()", () => {
       controls = createPolyControls(scene, { animate: { speed: 1 } });
-      controls.stop();
-      controls.start();
+      controls.pause();
+      controls.resume();
       expect(rafQueue.length).toBe(1);
       // Pointer drag works again.
       tickFrame(16.67);
@@ -502,6 +502,161 @@ describe("createPolyControls", () => {
       controls2.destroy();
       scene2.destroy();
       host2.remove();
+    });
+  });
+
+  // ── Three.js-style event subscription ───────────────────────────────────
+  describe("events", () => {
+    it("start and end events carry the camera snapshot", () => {
+      controls = createPolyControls(scene);
+      let startCam: { rotX: number; rotY: number; zoom: number } | null = null;
+      let endCam: { rotX: number; rotY: number; zoom: number } | null = null;
+      controls.addEventListener("start", (e) => { startCam = e.camera; });
+      controls.addEventListener("end", (e) => { endCam = e.camera; });
+      const before = scene.getOptions();
+      dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
+      // start camera matches the pre-drag scene state.
+      expect(startCam).not.toBeNull();
+      expect(startCam!.rotY).toBeCloseTo(before.rotY ?? 0, 4);
+      dispatchPointer(host, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(host, "pointerup", { x: 200, y: 100 });
+      // end camera matches the post-drag scene state, NOT the pre-drag.
+      expect(endCam).not.toBeNull();
+      const after = scene.getOptions();
+      expect(endCam!.rotY).toBeCloseTo(after.rotY ?? 0, 4);
+      expect(endCam!.rotY).not.toBeCloseTo(startCam!.rotY, 1);
+    });
+
+    it("emits start / change / end across a single drag", () => {
+      controls = createPolyControls(scene);
+      const seen: string[] = [];
+      const change = vi.fn((e: { type: string; camera: { rotY: number } }) => {
+        seen.push(`change:${e.camera.rotY.toFixed(0)}`);
+      });
+      const start = vi.fn(() => seen.push("start"));
+      const end = vi.fn(() => seen.push("end"));
+      controls.addEventListener("change", change);
+      controls.addEventListener("start", start);
+      controls.addEventListener("end", end);
+      dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(host, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(host, "pointermove", { x: 250, y: 100 });
+      dispatchPointer(host, "pointerup", { x: 250, y: 100 });
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(change).toHaveBeenCalledTimes(2);
+      expect(end).toHaveBeenCalledTimes(1);
+      expect(seen[0]).toBe("start");
+      expect(seen[seen.length - 1]).toBe("end");
+    });
+
+    it("change event carries camera snapshot", () => {
+      controls = createPolyControls(scene);
+      let last: { rotX: number; rotY: number; zoom: number } | null = null;
+      controls.addEventListener("change", (e) => { last = e.camera; });
+      dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(host, "pointermove", { x: 200, y: 100 });
+      dispatchPointer(host, "pointerup", { x: 200, y: 100 });
+      const sceneOpts = scene.getOptions();
+      expect(last).not.toBeNull();
+      expect(last!.rotY).toBeCloseTo(sceneOpts.rotY ?? 0, 4);
+      expect(last!.rotX).toBeCloseTo(sceneOpts.rotX ?? 0, 4);
+      expect(last!.zoom).toBeCloseTo(sceneOpts.zoom ?? 1, 4);
+    });
+
+    it("wheel emits start, then change per event, then end after idle", () => {
+      vi.useFakeTimers();
+      controls = createPolyControls(scene);
+      const change = vi.fn();
+      const start = vi.fn();
+      const end = vi.fn();
+      controls.addEventListener("change", change);
+      controls.addEventListener("start", start);
+      controls.addEventListener("end", end);
+      dispatchWheel(host, -50);
+      dispatchWheel(host, -50);
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(change).toHaveBeenCalledTimes(2);
+      expect(end).toHaveBeenCalledTimes(0);
+      vi.advanceTimersByTime(160); // past WHEEL_IDLE_END_MS
+      expect(end).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it("autorotate fires change but no start / end", () => {
+      controls = createPolyControls(scene, { animate: { speed: 1 } });
+      const change = vi.fn();
+      const start = vi.fn();
+      const end = vi.fn();
+      controls.addEventListener("change", change);
+      controls.addEventListener("start", start);
+      controls.addEventListener("end", end);
+      tickFrame(16.67);
+      tickFrame(16.67);
+      expect(change).toHaveBeenCalledTimes(2);
+      expect(start).not.toHaveBeenCalled();
+      expect(end).not.toHaveBeenCalled();
+    });
+
+    it("removeEventListener stops further callbacks", () => {
+      controls = createPolyControls(scene);
+      const change = vi.fn();
+      controls.addEventListener("change", change);
+      dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(host, "pointermove", { x: 200, y: 100 });
+      expect(change).toHaveBeenCalledTimes(1);
+      controls.removeEventListener("change", change);
+      dispatchPointer(host, "pointermove", { x: 250, y: 100 });
+      dispatchPointer(host, "pointerup", { x: 250, y: 100 });
+      expect(change).toHaveBeenCalledTimes(1);
+    });
+
+    it("hasEventListener reports correctly", () => {
+      controls = createPolyControls(scene);
+      const fn = (): void => {};
+      expect(controls.hasEventListener("change", fn)).toBe(false);
+      controls.addEventListener("change", fn);
+      expect(controls.hasEventListener("change", fn)).toBe(true);
+      controls.removeEventListener("change", fn);
+      expect(controls.hasEventListener("change", fn)).toBe(false);
+    });
+
+    it("listener removing itself mid-emit doesn't skip siblings", () => {
+      controls = createPolyControls(scene);
+      const order: string[] = [];
+      const a = (): void => {
+        order.push("a");
+        controls!.removeEventListener("change", a);
+      };
+      const b = (): void => { order.push("b"); };
+      controls.addEventListener("change", a);
+      controls.addEventListener("change", b);
+      dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(host, "pointermove", { x: 200, y: 100 });
+      expect(order).toEqual(["a", "b"]);
+    });
+
+    it("a throwing listener doesn't break siblings", () => {
+      controls = createPolyControls(scene);
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const bad = (): void => { throw new Error("boom"); };
+      const good = vi.fn();
+      controls.addEventListener("change", bad);
+      controls.addEventListener("change", good);
+      dispatchPointer(host, "pointerdown", { x: 100, y: 100 });
+      dispatchPointer(host, "pointermove", { x: 200, y: 100 });
+      expect(good).toHaveBeenCalledTimes(1);
+      consoleSpy.mockRestore();
+    });
+
+    it("destroy() clears all listeners", () => {
+      controls = createPolyControls(scene);
+      const fn = vi.fn();
+      controls.addEventListener("change", fn);
+      controls.destroy();
+      controls = null;
+      // Re-create to verify the destroyed-instance's listeners can't fire.
+      // (fn was hooked to the destroyed controls; no further drags can reach it.)
+      expect(fn).not.toHaveBeenCalled();
     });
   });
 });

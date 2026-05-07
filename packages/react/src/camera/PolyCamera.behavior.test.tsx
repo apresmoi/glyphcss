@@ -54,39 +54,6 @@ describe("PolyCamera behavior", () => {
     });
   });
 
-  describe("interactive mode", () => {
-    it("sets cursor to grab when interactive", () => {
-      const container = renderToDiv(
-        <VoxCamera interactive>
-          <div />
-        </VoxCamera>
-      );
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.cursor).toBe("grab");
-    });
-
-    it("sets touch-action to none when interactive", () => {
-      const container = renderToDiv(
-        <VoxCamera interactive>
-          <div />
-        </VoxCamera>
-      );
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.touchAction).toBe("none");
-    });
-
-    it("does not set cursor or touch-action when not interactive", () => {
-      const container = renderToDiv(
-        <VoxCamera>
-          <div />
-        </VoxCamera>
-      );
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.cursor).toBe("");
-      expect(camera.style.touchAction).toBe("");
-    });
-  });
-
   describe("children", () => {
     it("renders children inside the camera wrapper", () => {
       const container = renderToDiv(

@@ -47,10 +47,6 @@ describe("useCamera behavior", () => {
       expect(state.depthOffset).toBe(20);
     });
 
-    it("returns default cursor when not interactive", () => {
-      const result = captureHook();
-      expect(result.cursor).toBe("default");
-    });
   });
 
   describe("initial camera props", () => {
@@ -138,86 +134,4 @@ describe("useCamera behavior", () => {
     });
   });
 
-  describe("cursor changes based on interaction state", () => {
-    it("shows grab cursor when interactive and not dragging", () => {
-      const result = captureHook({ interactive: true });
-      expect(result.cursor).toBe("grab");
-    });
-
-    it("shows default cursor when not interactive", () => {
-      const result = captureHook({ interactive: false });
-      expect(result.cursor).toBe("default");
-    });
-  });
-
-  describe("auto-rotate", () => {
-    it("schedules animation frame when animate is true", () => {
-      const rafSpy = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(() => 1);
-
-      const container = document.createElement("div");
-      const root = createRoot(container);
-      act(() =>
-        root.render(
-          <CameraTestHarness
-            animate={true}
-            onResult={() => {}}
-          />
-        )
-      );
-
-      expect(rafSpy).toHaveBeenCalled();
-    });
-
-    it("does not schedule animation when animate is false", () => {
-      const rafSpy = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(() => 1);
-
-      const container = document.createElement("div");
-      const root = createRoot(container);
-      act(() =>
-        root.render(
-          <CameraTestHarness
-            animate={false}
-            onResult={() => {}}
-          />
-        )
-      );
-
-      expect(rafSpy).not.toHaveBeenCalled();
-    });
-
-    it("updates the camera handle rotation over time via animation frames", () => {
-      let captured: UseCameraResult | null = null;
-      const callbacks: FrameRequestCallback[] = [];
-      vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
-        callbacks.push(cb);
-        return callbacks.length;
-      });
-
-      const container = document.createElement("div");
-      const root = createRoot(container);
-      act(() =>
-        root.render(
-          <CameraTestHarness
-            rotY={0}
-            animate={true}
-            onResult={(r) => { captured = r; }}
-          />
-        )
-      );
-
-      const initialRotY = captured!.cameraRef.current.state.rotY;
-
-      // Simulate several animation frames
-      act(() => {
-        for (let i = 0; i < 10 && callbacks.length > 0; i++) {
-          const cb = callbacks.shift()!;
-          cb(performance.now());
-        }
-      });
-
-      const updatedRotY = captured!.cameraRef.current.state.rotY;
-      // Camera handle rotation should have advanced
-      expect(updatedRotY).not.toBe(initialRotY);
-    });
-  });
 });

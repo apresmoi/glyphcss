@@ -40,6 +40,12 @@ export interface PolyControlsAnimateOptions {
   pauseOnInteraction?: boolean;
 }
 
+export interface PolyControlsCamera {
+  rotX: number;
+  rotY: number;
+  zoom: number;
+}
+
 export interface PolyControlsProps {
   drag?: boolean;
   wheel?: boolean;
@@ -47,6 +53,8 @@ export interface PolyControlsProps {
   zoom?: { min?: number; max?: number };
   animate?: false | PolyControlsAnimateOptions;
 }
+
+const WHEEL_IDLE_END_MS = 150;
 
 const POINTER_DRAG_SPEED = 4;
 const ZOOM_STEP = 0.0008;
@@ -75,7 +83,42 @@ export const PolyControls = defineComponent({
       default: false,
     },
   },
-  setup(props) {
+  emits: {
+    /**
+     * Fires whenever the controls mutate camera state — pointer drag,
+     * wheel zoom, or autorotate tick. Mirrors Three.js OrbitControls'
+     * `change` event. Autorotate fires this every frame; throttle, or
+     * use `interaction-end` instead if you only need the final position.
+     */
+    change: (_camera: PolyControlsCamera) => true,
+    /**
+     * Fires on first user gesture of an interaction (pointerdown / first
+     * wheel of a burst). Carries the camera at gesture start.
+     */
+    "interaction-start": (_camera: PolyControlsCamera) => true,
+    /**
+     * Fires when the gesture concludes (pointerup / wheel idle ~150 ms),
+     * with the final camera. Use this instead of `change` to commit state
+     * once per gesture (avoids per-frame Vue re-renders).
+     */
+    "interaction-end": (_camera: PolyControlsCamera) => true,
+  },
+  setup(props, { emit }) {
+    const cameraSnapshot = (handle: { state: { rotX: number; rotY: number; zoom: number } }): PolyControlsCamera => ({
+      rotX: handle.state.rotX,
+      rotY: handle.state.rotY,
+      zoom: handle.state.zoom,
+    });
+    const fireChange = (handle: { state: { rotX: number; rotY: number; zoom: number } }): void => {
+      emit("change", cameraSnapshot(handle));
+    };
+    const fireStart = (handle: { state: { rotX: number; rotY: number; zoom: number } }): void => {
+      emit("interaction-start", cameraSnapshot(handle));
+    };
+    const fireEnd = (handle: { state: { rotX: number; rotY: number; zoom: number } }): void => {
+      emit("interaction-end", cameraSnapshot(handle));
+    };
+
     const ctx = inject(PolyCameraContextKey, null);
     if (!ctx) {
       // Render-only behavior; warn but stay safe (no throw — the demo
@@ -113,6 +156,7 @@ export const PolyControls = defineComponent({
         if (props.animate && (props.animate.pauseOnInteraction ?? true)) {
           animationPaused.value = true;
         }
+        fireStart(cameraRef.value);
       };
 
       const onMove = (e: PointerEvent): void => {
@@ -132,6 +176,7 @@ export const PolyControls = defineComponent({
         handle.update({ rotX, rotY });
         applyTransformDirect();
         store.updateCameraFromRef(handle);
+        fireChange(handle);
       };
 
       const onUp = (e: PointerEvent): void => {
@@ -142,6 +187,7 @@ export const PolyControls = defineComponent({
           (e.target as Element).releasePointerCapture(e.pointerId);
         } catch { /* ignore */ }
         animationPaused.value = false;
+        fireEnd(cameraRef.value);
       };
 
       el.style.cursor = "grab";
@@ -166,6 +212,8 @@ export const PolyControls = defineComponent({
     function attachWheel(): void {
       const el = cameraElRef.value;
       if (!el) return;
+      let wheelActive = false;
+      let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
       const onWheel = (e: WheelEvent): void => {
         if (!props.wheel) return;
         e.preventDefault();
@@ -178,9 +226,23 @@ export const PolyControls = defineComponent({
         handle.update({ zoom: next });
         applyTransformDirect();
         store.updateCameraFromRef(handle);
+        if (!wheelActive) {
+          wheelActive = true;
+          fireStart(handle);
+        }
+        fireChange(handle);
+        if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
+        wheelIdleTimer = setTimeout(() => {
+          wheelIdleTimer = null;
+          wheelActive = false;
+          fireEnd(cameraRef.value);
+        }, WHEEL_IDLE_END_MS);
       };
       el.addEventListener("wheel", onWheel, { passive: false });
-      detachWheel = (): void => el.removeEventListener("wheel", onWheel);
+      detachWheel = (): void => {
+        el.removeEventListener("wheel", onWheel);
+        if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
+      };
     }
 
     function startAnim(): void {
@@ -210,6 +272,7 @@ export const PolyControls = defineComponent({
           }
           applyTransformDirect();
           store.updateCameraFromRef(handle);
+          fireChange(handle);
         } else {
           lastTime = now;
         }
