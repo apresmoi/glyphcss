@@ -71,14 +71,11 @@ describe("useCamera behavior", () => {
       });
       app.mount(container);
 
-      const dirBefore = captured!.store.getState().dirBin;
-
       opts.value = { rotX: 65, rotY: 135 };
       await nextTick();
 
-      const dirAfter = captured!.store.getState().dirBin;
-      expect(dirAfter).not.toEqual(dirBefore);
       expect(captured!.cameraRef.value.state.rotY).toBe(135);
+      expect(captured!.store.getState().cameraState.rotY).toBe(135);
     });
 
     it("updates the camera handle zoom directly", async () => {

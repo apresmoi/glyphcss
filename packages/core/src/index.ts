@@ -37,15 +37,6 @@ export type {
   TexturePaintMetricsOptions,
 } from "./scene/polygonGeometry";
 
-// ── Direction binning (camera quantization, used for back-face culling) ─
-export {
-  directionBinFromCamera,
-  directionVectorFromBin,
-  OCCLUSION_DIR_BINS,
-  AZIMUTH_BINS,
-  ELEVATION_BINS,
-} from "./scene/occlusionDirection";
-
 // ── Camera ────────────────────────────────────────────────────────
 export {
   createIsometricCamera,
@@ -86,7 +77,11 @@ export { axesHelperPolygons, octahedronPolygons } from "./helpers";
 export type { AxesHelperOptions } from "./helpers";
 
 // ── Parsers ───────────────────────────────────────────────────────
-export type { ParseResult } from "./parser/types";
+export type {
+  ParseAnimationClip,
+  ParseAnimationController,
+  ParseResult,
+} from "./parser/types";
 export { parseObj } from "./parser/parseObj";
 export type { ObjParseOptions } from "./parser/parseObj";
 export { parseMtl } from "./parser/parseMtl";

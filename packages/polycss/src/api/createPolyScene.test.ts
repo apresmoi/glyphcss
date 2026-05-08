@@ -33,17 +33,6 @@ function texturedTriangle(): Polygon {
   };
 }
 
-function cubeFaces(): Polygon[] {
-  return [
-    { vertices: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]], color: "#ff0000" },
-    { vertices: [[0, 1, 0], [0, 0, 0], [0, 0, 1], [0, 1, 1]], color: "#00ff00" },
-    { vertices: [[0, 1, 0], [0, 1, 1], [1, 1, 1], [1, 1, 0]], color: "#0000ff" },
-    { vertices: [[1, 0, 0], [1, 0, 1], [0, 0, 1], [0, 0, 0]], color: "#ffff00" },
-    { vertices: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], color: "#ff00ff" },
-    { vertices: [[0, 1, 0], [1, 1, 0], [1, 0, 0], [0, 0, 0]], color: "#00ffff" },
-  ];
-}
-
 function makeParseResult(polygons: Polygon[] = [triangle()]): ParseResult {
   let disposed = false;
   return {
@@ -64,12 +53,6 @@ function getCenterWrapper(host: HTMLElement): HTMLElement {
   const wrapper = sceneEl?.firstElementChild as HTMLElement | null;
   expect(wrapper).not.toBeNull();
   return wrapper!;
-}
-
-async function flushAtlasWork(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("createPolyScene", () => {
@@ -213,6 +196,31 @@ describe("createPolyScene", () => {
       expect(wrapper.style.transform).toContain("translate3d(5px, 5px, 5px)");
     });
 
+    it("can update stableDom mesh geometry without replacing polygon elements", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle()]), {
+        merge: false,
+        stableDom: true,
+      });
+      const before = Array.from(host.querySelectorAll("i")) as HTMLElement[];
+      expect(before.length).toBe(1);
+      const beforeTransform = before[0].style.transform;
+
+      handle.setPolygons([{
+        vertices: [
+          [0, 0, 0],
+          [2, 0, 0],
+          [0, 1, 0],
+        ],
+        color: "#ff0000",
+      }], { merge: false, stableDom: true });
+
+      const after = Array.from(host.querySelectorAll("i")) as HTMLElement[];
+      expect(after.length).toBe(1);
+      expect(after[0]).toBe(before[0]);
+      expect(after[0].style.transform).not.toBe(beforeTransform);
+    });
+
     it("handle.dispose() detaches the wrapper AND calls parseResult.dispose()", () => {
       scene = createPolyScene(host);
       const pr = makeParseResult();
@@ -251,7 +259,7 @@ describe("createPolyScene", () => {
       scene.add(makeParseResult([degenerate, triangle()]));
       const poly = host.querySelector("i") as HTMLElement;
       expect(poly).not.toBeNull();
-      expect(poly.classList.contains("polycss-dir-pz")).toBe(true);
+      expect(poly.style.width).not.toBe("");
     });
   });
 
@@ -415,57 +423,6 @@ describe("createPolyScene", () => {
         scene.setOptions({ rotY: 137 });
         expect(sceneEl.style.transform).toContain("rotate(137deg)");
       });
-    });
-  });
-
-  describe("domCullBackfaces", () => {
-    it("mounts only camera-visible face directions when enabled", () => {
-      scene = createPolyScene(host, {
-        domCullBackfaces: true,
-        rotX: 65,
-        rotY: 45,
-      });
-      const handle = scene.add(makeParseResult(cubeFaces()));
-      const polys = Array.from(host.querySelectorAll("i"));
-      expect(handle.polygons.length).toBe(6);
-      expect(polys.length).toBe(3);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-px"))).toBe(true);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-py"))).toBe(true);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-pz"))).toBe(true);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-nx"))).toBe(false);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-ny"))).toBe(false);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-nz"))).toBe(false);
-    });
-
-    it("swaps mounted faces synchronously when the camera direction changes", async () => {
-      scene = createPolyScene(host, {
-        domCullBackfaces: true,
-        rotX: 65,
-        rotY: 45,
-      });
-      scene.add(makeParseResult(cubeFaces()));
-      scene.setOptions({ rotY: 225 });
-      expect(host.querySelectorAll("i").length).toBe(3);
-      await flushAtlasWork();
-
-      const polys = Array.from(host.querySelectorAll("i"));
-      expect(polys.length).toBe(3);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-nx"))).toBe(true);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-ny"))).toBe(true);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-pz"))).toBe(true);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-px"))).toBe(false);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-py"))).toBe(false);
-      expect(polys.some((el) => el.classList.contains("polycss-dir-nz"))).toBe(false);
-    });
-
-    it("restores all faces when disabled after mount", async () => {
-      scene = createPolyScene(host, { domCullBackfaces: true });
-      scene.add(makeParseResult(cubeFaces()));
-      expect(host.querySelectorAll("i").length).toBe(3);
-      scene.setOptions({ domCullBackfaces: false });
-      expect(host.querySelectorAll("i").length).toBe(6);
-      await flushAtlasWork();
-      expect(host.querySelectorAll("i").length).toBe(6);
     });
   });
 

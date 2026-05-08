@@ -30,6 +30,8 @@ import type {
 import { computeSceneBbox, mergePolygons, parseHexColor } from "@polycss/core";
 import {
   renderPolygonsWithTextureAtlas,
+  renderPolygonsWithStableTriangles,
+  updatePolygonsWithStableTriangles,
   type AtlasScale,
   type RenderedPoly,
 } from "../render/textureAtlas";
@@ -47,17 +49,6 @@ export interface PolySceneOptions {
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /**
-   * When `true`, only mount polygons whose face direction is visible from
-   * the current camera. This reduces DOM nodes substantially for voxel
-   * scenes. All face elements are still atlas-rendered once and retained
-   * off-DOM, so camera-direction changes can mount the next visible set
-   * synchronously without waiting for a new atlas.
-   *
-   * Defaults to `false`, which keeps all face DOM mounted and uses CSS
-   * classes to hide back-facing directions so camera changes are cheap.
-   */
-  domCullBackfaces?: boolean;
-  /**
    * When `true`, rotation pivots around the union bbox of all added meshes
    * instead of world (0,0,0). The scene wraps polygons in an inner div
    * translated by `-bboxCenter`. Updates whenever a mesh is added/removed
@@ -71,6 +62,17 @@ export interface MeshTransform {
   scale?: number | Vec3;
   rotation?: Vec3;
   /**
+   * Whether `scene.add()` should merge coplanar polygons before rendering.
+   * Defaults to `true`. Set `false` for animated/deforming meshes whose
+   * triangle topology must remain stable from frame to frame.
+   */
+  merge?: boolean;
+  /**
+   * Keep polygon leaf DOM nodes stable across setPolygons() calls when the
+   * mesh topology is unchanged. Intended for animated/deforming meshes.
+   */
+  stableDom?: boolean;
+  /**
    * When `true`, this mesh's polygons are NOT included in the scene's
    * auto-center bbox. Use for debug overlays / helpers that shouldn't
    * shift the camera target when toggled. Defaults to `false`.
@@ -83,6 +85,12 @@ export interface MeshHandle {
   polygons: Polygon[];
   /** Remove the mesh from the scene. */
   remove(): void;
+  /** Replace polygon geometry without tearing down the scene or controls. */
+  setPolygons(polygons: Polygon[], options?: {
+    merge?: boolean;
+    stableDom?: boolean;
+    recomputeAutoCenter?: boolean;
+  }): void;
   /** Update transform without re-parsing. */
   setTransform(t: Partial<MeshTransform>): void;
   /** Revoke any blob URLs the parse created. Idempotent. */
@@ -140,63 +148,6 @@ function buildMeshTransform(t: MeshTransform): string | undefined {
     if (t.rotation[2]) parts.push(`rotateZ(${t.rotation[2]}deg)`);
   }
   return parts.length > 0 ? parts.join(" ") : undefined;
-}
-
-// ─── Direction-binned face culling ───────────────────────────────────────────
-// Each axis-aligned polygon is classified into one of 6 face-direction
-// buckets (±X, ±Y, ±Z). On every camera change, we compute which 3 of the
-// 6 directions face AWAY from the camera and toggle CSS classes on the
-// scene element to `display: none` those buckets — removes them from the
-// compositor entirely (vs `backface-visibility: hidden` which keeps the
-// layer alive). Off-axis polygons get no class; they always render.
-const DIR_CLASSES = ["px", "nx", "py", "ny", "pz", "nz"] as const;
-type DirCode = (typeof DIR_CLASSES)[number];
-
-function classifyNormal(p: Polygon): DirCode | null {
-  if (p.vertices.length < 3) return null;
-  const v0 = p.vertices[0], v1 = p.vertices[1], v2 = p.vertices[2];
-  const e1x = v1[0] - v0[0], e1y = v1[1] - v0[1], e1z = v1[2] - v0[2];
-  const e2x = v2[0] - v0[0], e2y = v2[1] - v0[1], e2z = v2[2] - v0[2];
-  const nx = e1y * e2z - e1z * e2y;
-  const ny = e1z * e2x - e1x * e2z;
-  const nz = e1x * e2y - e1y * e2x;
-  const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
-  const max = Math.max(ax, ay, az);
-  if (max < 1e-9) return null;
-  // Axis-aligned iff the OTHER two components are ~0 relative to the
-  // dominant one. Voxel faces have other == 0 exactly; curved meshes
-  // (apples, characters) fall through to "always render" so they don't
-  // get incorrectly bucketed and culled.
-  const TOL = 0.01;
-  if (ax === max && ay < ax * TOL && az < ax * TOL) return nx > 0 ? "px" : "nx";
-  if (ay === max && ax < ay * TOL && az < ay * TOL) return ny > 0 ? "py" : "ny";
-  if (az === max && ax < az * TOL && ay < az * TOL) return nz > 0 ? "pz" : "nz";
-  return null;
-}
-
-/**
- * Return the set of direction codes whose faces point AWAY from a camera
- * at the given (rotX, rotY) — those bins get culled. Camera convention:
- *   rotY = azimuth around vertical world-Z axis (degrees)
- *   rotX = polar angle from straight-down (0 = top-down view, 90 = horizon)
- */
-function cullSetFromCamera(rotX: number, rotY: number): Set<DirCode> {
-  const az = ((rotY % 360) + 360) % 360 * Math.PI / 180;
-  const el = Math.max(0, Math.min(180, rotX)) * Math.PI / 180;
-  // Camera position unit vector: standard spherical with elevation from +Z.
-  const horiz = Math.sin(el);
-  const cx = horiz * Math.cos(az);
-  const cy = horiz * Math.sin(az);
-  const cz = Math.cos(el);
-  const cull = new Set<DirCode>();
-  // A face direction is BACK-facing iff dot(faceNormal, camera) < 0.
-  if (cx <= 0) cull.add("px");
-  if (cx >= 0) cull.add("nx");
-  if (cy <= 0) cull.add("py");
-  if (cy >= 0) cull.add("ny");
-  if (cz <= 0) cull.add("pz");
-  if (cz >= 0) cull.add("nz");
-  return cull;
 }
 
 function buildSceneTransform(opts: PolySceneOptions): string {
@@ -307,6 +258,7 @@ export function createPolyScene(
     disposeAtlas?: () => void;
     polygons: Polygon[];
     disposed: boolean;
+    stableDom: boolean;
     excludeFromAutoCenter: boolean;
   }
   const meshes = new Set<MeshEntry>();
@@ -322,7 +274,6 @@ export function createPolyScene(
       ? "none"
       : `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
     el.style.transform = buildSceneTransform(opts);
-    applyCullClasses(el, opts);
     applyDynamicLightVars(el, opts);
   }
 
@@ -364,34 +315,11 @@ export function createPolyScene(
     el.style.setProperty("--polycss-ai", ambientIntensity.toFixed(4));
   }
 
-  function applyCullClasses(el: HTMLElement, opts: PolySceneOptions): void {
-    if (opts.domCullBackfaces) {
-      for (const code of DIR_CLASSES) el.classList.remove(`polycss-cull-${code}`);
-      return;
-    }
-    const cull = cullSetFromCamera(opts.rotX ?? DEFAULT_ROT_X, opts.rotY ?? DEFAULT_ROT_Y);
-    for (const code of DIR_CLASSES) {
-      el.classList.toggle(`polycss-cull-${code}`, cull.has(code));
-    }
-  }
-
-  function cullSignature(opts: PolySceneOptions): string {
-    const cull = cullSetFromCamera(opts.rotX ?? DEFAULT_ROT_X, opts.rotY ?? DEFAULT_ROT_Y);
-    return DIR_CLASSES.filter((code) => cull.has(code)).join(",");
-  }
-
-  function shouldMountPolygonForDom(polygon: Polygon | undefined): boolean {
-    if (!polygon) return false;
-    if (!currentOptions.domCullBackfaces) return true;
-    const cull = cullSetFromCamera(currentOptions.rotX ?? DEFAULT_ROT_X, currentOptions.rotY ?? DEFAULT_ROT_Y);
-    const dir = classifyNormal(polygon);
-    return !dir || !cull.has(dir);
-  }
-
   function clearRendered(entry: MeshEntry): void {
     disposeRendered(entry.rendered, entry.disposeAtlas);
     entry.disposeAtlas = undefined;
     entry.rendered.length = 0;
+    while (entry.wrapper.firstChild) entry.wrapper.removeChild(entry.wrapper.firstChild);
   }
 
   function disposeRendered(rendered: RenderedPoly[], disposeAtlas?: () => void): void {
@@ -408,7 +336,8 @@ export function createPolyScene(
     // Lambert-bucketing only pays off in dynamic mode, where the cascade
     // recomputes lambert per polygon every frame. Baked mode bakes lambert
     // into atlas pixels at parse time — no per-frame computation to save.
-    const useBuckets = currentOptions.textureLighting === "dynamic";
+    const useBuckets =
+      currentOptions.textureLighting === "dynamic" && !entry.stableDom;
 
     interface BucketGroup {
       vec: Vec3;
@@ -420,10 +349,6 @@ export function createPolyScene(
     // Pass 1 — gather per (quantized-normal × color) keys.
     for (const item of entry.rendered) {
       const poly = entry.polygons[item.polygonIndex];
-      if (!shouldMountPolygonForDom(poly)) {
-        if (item.element.parentNode) item.element.parentNode.removeChild(item.element);
-        continue;
-      }
       const q = useBuckets && poly ? quantizeNormalKey(poly) : null;
       if (!q) {
         soloItems.push(item);
@@ -470,29 +395,21 @@ export function createPolyScene(
 
   function renderEntry(entry: MeshEntry): void {
     clearRendered(entry);
-    const atlas = renderPolygonsWithTextureAtlas(entry.polygons, {
+    const renderOptions = {
       doc,
       directionalLight: currentOptions.directionalLight,
       ambientLight: currentOptions.ambientLight,
       textureLighting: currentOptions.textureLighting,
       atlasScale: currentOptions.atlasScale,
-    });
-    const rendered = atlas.rendered;
-    for (let i = 0; i < rendered.length; i++) {
-      const poly = entry.polygons[rendered[i].polygonIndex] ?? entry.polygons[i];
-      const dir = poly ? classifyNormal(poly) : null;
-      if (dir) rendered[i].element.classList.add(`polycss-dir-${dir}`);
-    }
-
-    entry.rendered = rendered;
+    };
+    const atlas = (
+      entry.stableDom
+        ? renderPolygonsWithStableTriangles(entry.polygons, renderOptions)
+        : null
+    ) ?? renderPolygonsWithTextureAtlas(entry.polygons, renderOptions);
+    entry.rendered = atlas.rendered;
     entry.disposeAtlas = atlas.dispose;
     syncMountedRendered(entry);
-  }
-
-  function syncMeshesForCull(): void {
-    for (const entry of meshes) {
-      if (!entry.disposed) syncMountedRendered(entry);
-    }
   }
 
   function recomputeAutoCenter(): void {
@@ -528,10 +445,14 @@ export function createPolyScene(
     wrapper.style.transformStyle = "preserve-3d";
 
     let transform: MeshTransform = { ...transformIn };
+    let mergeOnUpdate = transformIn.merge !== false;
+    let stableDomOnUpdate = !!transformIn.stableDom;
     const css = buildMeshTransform(transform);
     if (css) wrapper.style.transform = css;
 
-    const sourcePolygons = mergePolygons(parseResult.polygons);
+    const preparePolygons = (polygons: Polygon[], merge: boolean): Polygon[] =>
+      merge ? mergePolygons(polygons) : polygons;
+    const sourcePolygons = preparePolygons(parseResult.polygons, mergeOnUpdate);
 
     centerWrapper.appendChild(wrapper);
 
@@ -542,6 +463,7 @@ export function createPolyScene(
       rendered: [],
       polygons: sourcePolygons,
       disposed: false,
+      stableDom: stableDomOnUpdate,
       excludeFromAutoCenter: !!transformIn.excludeFromAutoCenter,
     };
 
@@ -553,6 +475,41 @@ export function createPolyScene(
         clearRendered(entry);
         meshes.delete(entry);
         recomputeAutoCenter();
+      },
+      setPolygons(polygons: Polygon[], options?: {
+        merge?: boolean;
+        stableDom?: boolean;
+        recomputeAutoCenter?: boolean;
+      }) {
+        mergeOnUpdate = options?.merge ?? mergeOnUpdate;
+        stableDomOnUpdate = options?.stableDom ?? stableDomOnUpdate;
+        entry.stableDom = stableDomOnUpdate;
+        entry.polygons = preparePolygons(polygons, mergeOnUpdate);
+        handle.polygons = entry.polygons;
+        const shouldRecomputeAutoCenter = options?.recomputeAutoCenter ?? true;
+        if (entry.stableDom && !entry.wrapper.querySelector(".polycss-bucket")) {
+          const renderOptions = {
+            doc,
+            directionalLight: currentOptions.directionalLight,
+            ambientLight: currentOptions.ambientLight,
+            textureLighting: currentOptions.textureLighting,
+            atlasScale: currentOptions.atlasScale,
+          };
+          const atlas = updatePolygonsWithStableTriangles(
+            entry.rendered,
+            entry.polygons,
+            renderOptions,
+          );
+          if (atlas) {
+            entry.disposeAtlas?.();
+            entry.rendered = atlas.rendered;
+            entry.disposeAtlas = atlas.dispose;
+            if (shouldRecomputeAutoCenter) recomputeAutoCenter();
+            return;
+          }
+        }
+        renderEntry(entry);
+        if (shouldRecomputeAutoCenter) recomputeAutoCenter();
       },
       setTransform(t: Partial<MeshTransform>) {
         transform = { ...transform, ...t };
@@ -578,17 +535,10 @@ export function createPolyScene(
   }
 
   function setOptions(partial: Partial<PolySceneOptions>): void {
-    const prevDomCull = !!currentOptions.domCullBackfaces;
-    const prevCull = cullSignature(currentOptions);
     const prevAutoCenter = !!currentOptions.autoCenter;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
-    const nextDomCull = !!currentOptions.domCullBackfaces;
-    const nextCull = cullSignature(currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
-    if (prevDomCull !== nextDomCull || (nextDomCull && prevCull !== nextCull)) {
-      syncMeshesForCull();
-    }
     // No syncInteractive — pointer/wheel input now lives in createPolyControls
     // (an additive layer). createPolyScene is the pure renderer + camera-state
     // owner.

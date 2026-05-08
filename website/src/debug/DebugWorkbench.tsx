@@ -14,6 +14,7 @@ import type {
   DirectionalLight,
   GltfParseOptions,
   ObjParseOptions,
+  ParseAnimationController,
   Polygon,
   TextureLightingMode,
 } from "@polycss/react";
@@ -64,6 +65,7 @@ interface LoadedModel {
   warnings: string[];
   parseMs: number;
   dispose: () => void;
+  animation?: ParseAnimationController;
 }
 
 interface SceneOptionsState {
@@ -189,6 +191,10 @@ function voxPreset(input: GalleryPresetFile): PresetModel {
 }
 
 const GLB_PRESET_FILES: GalleryPresetFile[] = [
+  { file: "FishAnimated.glb", label: "Animated Fish", category: "Animated" },
+  { file: "AnimatedMushnub.glb", label: "Animated Mushnub", category: "Animated" },
+  { file: "AnimatedWizard.glb", label: "Animated Wizard", category: "Animated" },
+  { file: "AnimatedSnake.glb", label: "Animated Snake", category: "Animated" },
   { file: "Bat.glb", category: "Animals" },
   { file: "Bear.glb", category: "Animals" },
   { file: "Cat.glb", category: "Animals" },
@@ -663,6 +669,7 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
     warnings: parsed.warnings ?? [],
     parseMs: performance.now() - started,
     dispose: parsed.dispose,
+    animation: parsed.animation,
   };
 }
 
@@ -831,6 +838,9 @@ function VanillaScene({
   showLight,
   helperScale,
   helperTarget,
+  mergePolygonsForMesh,
+  animationKey,
+  animationFrameFactory,
   onBuild,
   onCameraChange,
 }: {
@@ -842,6 +852,9 @@ function VanillaScene({
   showLight: boolean;
   helperScale: number;
   helperTarget: Vec3;
+  mergePolygonsForMesh: boolean;
+  animationKey?: string;
+  animationFrameFactory?: (timeSeconds: number) => Polygon[];
   onBuild: (ms: number) => void;
   onCameraChange?: (camera: { rotX: number; rotY: number; zoom: number }) => void;
 }) {
@@ -866,12 +879,13 @@ function VanillaScene({
   const stableAmbientForRebuild =
     options.textureLighting === "dynamic" ? null : ambientLight;
 
-  // Effect 1 — heavy: create the scene + add the chicken polygons.
+  // Effect 1 — heavy: create the scene + add the current polygons once.
+  // Polygon replacement is handled by Effect 1.5 so animation frames do not
+  // tear down controls/helpers.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     host.innerHTML = "";
-    const started = performance.now();
     const sceneOptions: PolySceneOptions = {
       rotX: options.rotX,
       rotY: options.rotY,
@@ -890,10 +904,7 @@ function VanillaScene({
       objectUrls: [],
       warnings: [],
       dispose: () => {},
-    });
-    requestAnimationFrame(() =>
-      onBuildRef.current(performance.now() - started),
-    );
+    }, { merge: mergePolygonsForMesh, stableDom: !!animationFrameFactory });
     return () => {
       // Tear controls down BEFORE destroying the scene — otherwise the
       // controls' rAF tick could fire one more time against a stale handle.
@@ -906,14 +917,50 @@ function VanillaScene({
       scene.destroy();
     };
   }, [
-    polygons,
     options.autoCenter,
     options.textureQuality,
     options.textureLighting,
     options.perspective,
     stableDirectionalForRebuild,
     stableAmbientForRebuild,
+    animationFrameFactory,
   ]);
+
+  // Effect 1.5 — replace geometry on the existing mesh. This is the path
+  // used by animated GLB playback.
+  useEffect(() => {
+    const handle = meshHandleRef.current;
+    if (!handle) return;
+    const started = performance.now();
+    handle.setPolygons(polygons, {
+      merge: mergePolygonsForMesh,
+      stableDom: !!animationFrameFactory,
+    });
+    requestAnimationFrame(() =>
+      onBuildRef.current(performance.now() - started),
+    );
+  }, [polygons, mergePolygonsForMesh, animationFrameFactory]);
+
+  useEffect(() => {
+    if (!animationFrameFactory || !animationKey) return;
+    let raf = 0;
+    const started = performance.now();
+
+    const tick = (now: number) => {
+      const handle = meshHandleRef.current;
+      if (handle) {
+        handle.setPolygons(animationFrameFactory((now - started) / 1000), {
+          merge: false,
+          stableDom: true,
+          recomputeAutoCenter: false,
+        });
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [animationKey, animationFrameFactory]);
 
   // Effect 2 — cheap: live transform + lighting updates via setOptions.
   // Sliding sliders only flows through this path.
@@ -1100,6 +1147,8 @@ export default function DebugWorkbench() {
   const [loaded, setLoaded] = useState<LoadedModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedAnimation, setSelectedAnimation] = useState("");
+  const [reactAnimatedPolygons, setReactAnimatedPolygons] = useState<Polygon[] | null>(null);
   const [metrics, setMetrics] = useState<DomMetrics>(EMPTY_METRICS);
   const [vanillaBuildMs, setVanillaBuildMs] = useState(0);
   const disposeRef = useRef<(() => void) | null>(null);
@@ -1183,18 +1232,61 @@ export default function DebugWorkbench() {
   );
   const atlasScale = atlasScaleForQuality(sceneOptions.textureQuality);
 
+  const animationClips = loaded?.animation?.clips ?? [];
+  const activeAnimation = useMemo(
+    () => animationClips.find((clip) => String(clip.index) === selectedAnimation) ?? null,
+    [animationClips, selectedAnimation],
+  );
+  useEffect(() => {
+    setReactAnimatedPolygons(null);
+    if (!loaded?.animation || !activeAnimation || sceneOptions.renderer !== "react") return;
+    let raf = 0;
+    const started = performance.now();
+
+    const tick = (now: number) => {
+      setReactAnimatedPolygons(loaded.animation!.sample(activeAnimation.index, (now - started) / 1000));
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [loaded, activeAnimation, sceneOptions.renderer]);
+
+  const vanillaAnimationFrameFactory = useMemo(() => {
+    if (!loaded?.animation || !activeAnimation || sceneOptions.renderer !== "vanilla") return undefined;
+    return (timeSeconds: number) => {
+      return loaded.animation!.sample(activeAnimation.index, timeSeconds);
+    };
+  }, [
+    loaded,
+    activeAnimation,
+    sceneOptions.renderer,
+  ]);
+
   const modelPolygons = useMemo(() => {
     if (!loaded) return [];
+    if (activeAnimation) {
+      return sceneOptions.renderer === "react" && reactAnimatedPolygons
+        ? reactAnimatedPolygons
+        : loaded.rawPolygons;
+    }
     if (!sceneOptions.normalizeGeometry) return loaded.polygons;
     return preprocessModelPolygons(loaded.rawPolygons, true);
-  }, [loaded, sceneOptions.normalizeGeometry]);
+  }, [
+    loaded,
+    sceneOptions.normalizeGeometry,
+    activeAnimation,
+    sceneOptions.renderer,
+    reactAnimatedPolygons,
+  ]);
 
   const scenePolygons = useMemo(() => {
     const base = modelPolygons;
+    if (activeAnimation && sceneOptions.renderer === "vanilla") return base;
     if (!sceneOptions.showFloor) return base;
     const floor = buildFloor(base);
     return floor ? [...base, floor] : base;
-  }, [modelPolygons, sceneOptions.showFloor]);
+  }, [modelPolygons, sceneOptions.showFloor, activeAnimation, sceneOptions.renderer]);
 
   const helperBbox = useMemo(() => {
     const polygons = modelPolygons;
@@ -1266,6 +1358,8 @@ export default function DebugWorkbench() {
   const resetToPreset = useCallback((id: string) => {
     const next = PRESETS.find((preset) => preset.id === id);
     setPresetId(id);
+    setSelectedAnimation("");
+    setReactAnimatedPolygons(null);
     if (!next) return;
     setParserOptions((current) => ({
       ...current,
@@ -1322,6 +1416,24 @@ export default function DebugWorkbench() {
               onChange={(event) => updateParser({ defaultColor: event.currentTarget.value })}
             />
             <code>{parserOptions.defaultColor}</code>
+          </label>
+          <label className="dn-field">
+            <span>Animation</span>
+            <select
+              value={selectedAnimation}
+              onChange={(event) => {
+                setSelectedAnimation(event.currentTarget.value);
+                setReactAnimatedPolygons(null);
+              }}
+              disabled={animationClips.length === 0}
+            >
+              <option value="">None</option>
+              {animationClips.map((clip) => (
+                <option key={clip.index} value={String(clip.index)}>
+                  {clip.name} ({clip.duration.toFixed(2)}s)
+                </option>
+              ))}
+            </select>
           </label>
           <Toggle
             label="Normalize geometry"
@@ -1482,6 +1594,9 @@ export default function DebugWorkbench() {
               showLight={sceneOptions.showLight}
               helperScale={helperScale}
               helperTarget={helperTarget}
+              mergePolygonsForMesh={!activeAnimation}
+              animationKey={activeAnimation ? `${selectedAnimation}:${loaded?.label ?? ""}` : undefined}
+              animationFrameFactory={vanillaAnimationFrameFactory}
               onBuild={setVanillaBuildMs}
               onCameraChange={handleCameraChange}
             />

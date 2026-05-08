@@ -89,6 +89,72 @@ describe("parseGltf — real fixture (tree.glb)", () => {
   });
 });
 
+describe("parseGltf — animated fixture (FishAnimated.glb)", () => {
+  const animatedGalleryFixtures = [
+    ["FishAnimated.glb", 1],
+    ["AnimatedMushnub.glb", 9],
+    ["AnimatedWizard.glb", 9],
+    ["AnimatedSnake.glb", 4],
+  ] as const;
+
+  it.each(animatedGalleryFixtures)(
+    "exposes usable animation clips for %s",
+    (file, clipCount) => {
+      const result = parseGltf(loadGlbFile(file), { gridShift: 0 });
+      expect(result.animation?.clips).toHaveLength(clipCount);
+      const frame = result.animation!.sample(0, 0.25);
+      expect(frame).toHaveLength(result.polygons.length);
+      expect(frame.length).toBeGreaterThan(0);
+      for (const polygon of frame) {
+        expect(polygon.vertices).toHaveLength(3);
+        for (const vertex of polygon.vertices) {
+          expect(Number.isFinite(vertex[0])).toBe(true);
+          expect(Number.isFinite(vertex[1])).toBe(true);
+          expect(Number.isFinite(vertex[2])).toBe(true);
+        }
+      }
+    },
+  );
+
+  it("exposes animation clips for a skinned GLB", () => {
+    const result = parseGltf(loadGlbFile("FishAnimated.glb"));
+    expect(result.animation?.clips).toHaveLength(1);
+    expect(result.animation?.clips[0].name).toBe("Armature|Swim");
+    expect(result.metadata?.animations?.[0].name).toBe("Armature|Swim");
+  });
+
+  it("samples animated polygons with stable triangle count", () => {
+    const result = parseGltf(loadGlbFile("FishAnimated.glb"));
+    const frame = result.animation!.sample(0, 0.25);
+    expect(frame).toHaveLength(result.polygons.length);
+    for (const polygon of frame) {
+      expect(polygon.vertices).toHaveLength(3);
+      for (const vertex of polygon.vertices) {
+        expect(Number.isFinite(vertex[0])).toBe(true);
+        expect(Number.isFinite(vertex[1])).toBe(true);
+        expect(Number.isFinite(vertex[2])).toBe(true);
+      }
+    }
+  });
+
+  it("sampled animation changes vertex positions over time", () => {
+    const result = parseGltf(loadGlbFile("FishAnimated.glb"));
+    const a = result.animation!.sample(0, 0);
+    const b = result.animation!.sample(0, 0.25);
+    let totalDelta = 0;
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      for (let j = 0; j < 3; j++) {
+        totalDelta += Math.hypot(
+          a[i].vertices[j][0] - b[i].vertices[j][0],
+          a[i].vertices[j][1] - b[i].vertices[j][1],
+          a[i].vertices[j][2] - b[i].vertices[j][2],
+        );
+      }
+    }
+    expect(totalDelta).toBeGreaterThan(1);
+  });
+});
+
 // ── GLB / glTF binary builder helpers ─────────────────────────────────────
 
 const CHUNK_JSON = 0x4e4f534a;

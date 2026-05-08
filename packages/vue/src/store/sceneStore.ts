@@ -4,16 +4,9 @@
  * so only the components that care about a changed value re-render.
  */
 import type { CameraState, CameraHandle } from "@polycss/core";
-import { directionBinFromCamera } from "@polycss/core";
 
 export interface SceneStoreState {
   cameraState: CameraState;
-  /**
-   * Current camera-direction bin index.
-   * Kept as inert state for v0.2's direction-bin culling (POLY-TD-11).
-   * In v1, no CSS classes are emitted for this value.
-   */
-  dirBin: number;
 }
 
 export interface SceneStore {
@@ -21,11 +14,7 @@ export interface SceneStore {
   setState(partial: Partial<SceneStoreState>): void;
   subscribe(listener: () => void): () => void;
 
-  /**
-   * Update camera + recompute dirBin.
-   * Only notifies subscribers if dirBin changed.
-   * Returns true if dirBin changed.
-   */
+  /** Update camera state from the current imperative camera handle. */
   updateCameraFromRef(handle: CameraHandle): boolean;
 
   /** Force notify all subscribers (e.g. after prop-driven camera change). */
@@ -35,7 +24,6 @@ export interface SceneStore {
 export function createSceneStore(initial: CameraState): SceneStore {
   let state: SceneStoreState = {
     cameraState: { ...initial },
-    dirBin: directionBinFromCamera(initial.rotX, initial.rotY),
   };
 
   const listeners = new Set<() => void>();
@@ -60,18 +48,9 @@ export function createSceneStore(initial: CameraState): SceneStore {
     },
 
     updateCameraFromRef(handle) {
-      const nextDirBin = directionBinFromCamera(handle.state.rotX, handle.state.rotY);
-      const dirBinChanged = state.dirBin !== nextDirBin;
-
-      if (dirBinChanged) {
-        state = {
-          cameraState: { ...handle.state },
-          dirBin: nextDirBin,
-        };
-        notify();
-      }
-
-      return dirBinChanged;
+      state = { cameraState: { ...handle.state } };
+      notify();
+      return true;
     },
 
     notifyAll() {

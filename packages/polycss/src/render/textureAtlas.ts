@@ -88,6 +88,12 @@ interface PackedAtlas {
   pages: PackedPage[];
 }
 
+interface SolidTrianglePlan {
+  index: number;
+  polygon: Polygon;
+  styleText: string;
+}
+
 interface TextureAtlasPage {
   width: number;
   height: number;
@@ -154,6 +160,7 @@ export interface RenderTextureAtlasOptions {
 export interface RenderedPoly {
   polygonIndex: number;
   element: HTMLElement;
+  kind?: "atlas" | "solid" | "border" | "triangle";
   dispose(): void;
 }
 
@@ -163,12 +170,14 @@ export interface RenderTextureAtlasResult {
 }
 
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
+const ELEMENT_DATA_KEYS = new WeakMap<HTMLElement, string[]>();
 const RECT_EPS = 1e-3;
 const BASIS_EPS = 1e-9;
 const SURFACE_NORMAL_EPS = 1e-4;
 const SURFACE_DISTANCE_EPS = 0.1;
 const TEXTURE_TRIANGLE_BLEED = 0.75;
 const TEXTURE_SEAM_BLEED = 0;
+const SOLID_TRIANGLE_BLEED = 0.45;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -455,6 +464,14 @@ function computeSurfaceNormal(pts: Vec3[]): Vec3 | null {
 
 function dotVec(a: Vec3, b: Vec3): number {
   return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function crossVec(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
 }
 
 function getPolygonBasisInfo(
@@ -1077,6 +1094,140 @@ function computeTextureAtlasPlan(
   };
 }
 
+function computeSolidTrianglePlan(
+  polygon: Polygon,
+  index: number,
+  options: RenderTextureAtlasOptions,
+): SolidTrianglePlan | null {
+  if (polygon.texture || polygon.vertices.length !== 3) return null;
+
+  const tile = options.tileSize ?? DEFAULT_TILE;
+  const elev = options.layerElevation ?? tile;
+  const pts = cssPoints(polygon.vertices, tile, elev);
+  const normal = computeSurfaceNormal(pts);
+  if (!normal) return null;
+
+  const edges = [
+    { a: 0, b: 1, c: 2 },
+    { a: 1, b: 2, c: 0 },
+    { a: 2, b: 0, c: 1 },
+  ].map((edge) => {
+    const av = pts[edge.a];
+    const bv = pts[edge.b];
+    return {
+      ...edge,
+      length: Math.hypot(bv[0] - av[0], bv[1] - av[1], bv[2] - av[2]),
+    };
+  }).sort((a, b) => b.length - a.length);
+
+  let a = edges[0].a;
+  let b = edges[0].b;
+  const c = edges[0].c;
+  let av = pts[a];
+  let bv = pts[b];
+  const cv = pts[c];
+  let baseLength = edges[0].length;
+  if (baseLength <= BASIS_EPS) return null;
+
+  let xAxis: Vec3 = [
+    (bv[0] - av[0]) / baseLength,
+    (bv[1] - av[1]) / baseLength,
+    (bv[2] - av[2]) / baseLength,
+  ];
+  const ac: Vec3 = [cv[0] - av[0], cv[1] - av[1], cv[2] - av[2]];
+  let apexX = dotVec(ac, xAxis);
+  let foot: Vec3 = [
+    av[0] + xAxis[0] * apexX,
+    av[1] + xAxis[1] * apexX,
+    av[2] + xAxis[2] * apexX,
+  ];
+  let yAxisRaw: Vec3 = [
+    foot[0] - cv[0],
+    foot[1] - cv[1],
+    foot[2] - cv[2],
+  ];
+  const height = Math.hypot(yAxisRaw[0], yAxisRaw[1], yAxisRaw[2]);
+  if (height <= BASIS_EPS) return null;
+  let yAxis: Vec3 = [
+    yAxisRaw[0] / height,
+    yAxisRaw[1] / height,
+    yAxisRaw[2] / height,
+  ];
+
+  if (dotVec(crossVec(xAxis, yAxis), normal) < 0) {
+    const nextA = b;
+    b = a;
+    a = nextA;
+    av = pts[a];
+    bv = pts[b];
+    baseLength = Math.hypot(bv[0] - av[0], bv[1] - av[1], bv[2] - av[2]);
+    if (baseLength <= BASIS_EPS) return null;
+    xAxis = [
+      (bv[0] - av[0]) / baseLength,
+      (bv[1] - av[1]) / baseLength,
+      (bv[2] - av[2]) / baseLength,
+    ];
+    const nextAc: Vec3 = [cv[0] - av[0], cv[1] - av[1], cv[2] - av[2]];
+    apexX = dotVec(nextAc, xAxis);
+    foot = [
+      av[0] + xAxis[0] * apexX,
+      av[1] + xAxis[1] * apexX,
+      av[2] + xAxis[2] * apexX,
+    ];
+    yAxisRaw = [
+      foot[0] - cv[0],
+      foot[1] - cv[1],
+      foot[2] - cv[2],
+    ];
+    const nextHeight = Math.hypot(yAxisRaw[0], yAxisRaw[1], yAxisRaw[2]);
+    if (nextHeight <= BASIS_EPS) return null;
+    yAxis = [
+      yAxisRaw[0] / nextHeight,
+      yAxisRaw[1] / nextHeight,
+      yAxisRaw[2] / nextHeight,
+    ];
+  }
+
+  const left = Math.max(0, Math.min(baseLength, apexX));
+  const right = Math.max(0, baseLength - left);
+  const bleed = SOLID_TRIANGLE_BLEED;
+  const leftPx = left + bleed;
+  const rightPx = right + bleed;
+  const heightPx = height + bleed * 2;
+  const tx = cv[0] - leftPx * xAxis[0] - bleed * yAxis[0];
+  const ty = cv[1] - leftPx * xAxis[1] - bleed * yAxis[1];
+  const tz = cv[2] - leftPx * xAxis[2] - bleed * yAxis[2];
+  const matrix = [
+    xAxis[0], xAxis[1], xAxis[2], 0,
+    yAxis[0], yAxis[1], yAxis[2], 0,
+    normal[0], normal[1], normal[2], 0,
+    tx, ty, tz, 1,
+  ].join(",");
+
+  const directionalCfg = options.directionalLight;
+  const ambientCfg = options.ambientLight;
+  const lightDir = directionalCfg?.direction ?? DEFAULT_LIGHT_DIR;
+  const lightColor = directionalCfg?.color ?? DEFAULT_LIGHT_COLOR;
+  const lightIntensity = Math.max(0, directionalCfg?.intensity ?? DEFAULT_LIGHT_INTENSITY);
+  const ambientColor = ambientCfg?.color ?? DEFAULT_AMBIENT_COLOR;
+  const ambientIntensity = Math.max(0, ambientCfg?.intensity ?? DEFAULT_AMBIENT_INTENSITY);
+  const lLen = Math.hypot(lightDir[0], lightDir[1], lightDir[2]) || 1;
+  const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
+  const directScale = lightIntensity * Math.max(0, normal[0] * lx + normal[1] * ly + normal[2] * lz);
+  const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
+  const styleText =
+    `width:0;height:0;transform:matrix3d(${matrix});` +
+    `box-sizing:content-box;border-style:solid;` +
+    `border-width:0 ${rightPx}px ${heightPx}px ${leftPx}px;` +
+    `border-color:transparent transparent ${shadedColor} transparent;`;
+
+  return {
+    index,
+    polygon,
+    styleText,
+  };
+}
+
 function packTextureAtlasPlans(
   plans: Array<TextureAtlasPlan | null>,
   atlasScale = 1,
@@ -1172,6 +1323,25 @@ function packTextureAtlasPlans(
   };
 }
 
+function paintSolidAtlasEntry(
+  ctx: CanvasRenderingContext2D,
+  entry: PackedTextureAtlasEntry,
+  textureLighting: TextureLightingMode,
+  atlasScale: number,
+): void {
+  setCssTransform(ctx, atlasScale);
+  ctx.beginPath();
+  tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
+  ctx.clip();
+  setCssTransform(ctx, atlasScale);
+  // Dynamic mode multiplies the tint at render time via background-blend-mode,
+  // so the atlas keeps the polygon's unshaded base color.
+  ctx.fillStyle = textureLighting === "dynamic"
+    ? (entry.polygon.color ?? "#cccccc")
+    : entry.shadedColor;
+  ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
+}
+
 async function buildAtlasPage(
   page: PackedPage,
   textureLighting: TextureLightingMode,
@@ -1205,14 +1375,7 @@ async function buildAtlasPage(
     ctx.clip();
 
     if (!entry.texture) {
-      setCssTransform(ctx, atlasScale);
-      // Dynamic mode multiplies the tint at render time via
-      // background-blend-mode, so the atlas keeps the polygon's unshaded
-      // base color. Baked bakes the JS-computed shadedColor.
-      ctx.fillStyle = textureLighting === "dynamic"
-        ? (entry.polygon.color ?? "#cccccc")
-        : entry.shadedColor;
-      ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
+      paintSolidAtlasEntry(ctx, entry, textureLighting, atlasScale);
     } else if (srcImg && entry.textureTriangles?.length) {
       const imgW = srcImg.naturalWidth || srcImg.width || 1;
       const imgH = srcImg.naturalHeight || srcImg.height || 1;
@@ -1293,6 +1456,7 @@ function applyAtlasBackground(
 ): void {
   if (!page.url) return;
   el.style.backgroundImage = `url(${page.url})`;
+  el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
   el.style.backgroundSize = `${page.width}px ${page.height}px`;
   // Dynamic mode also masks the entire <i> by the atlas image so the
   // background-color tint only paints inside the polygon shape (W3C
@@ -1312,19 +1476,39 @@ function applyAtlasBackground(
     el.style.setProperty("-webkit-mask-position", pos);
     el.style.setProperty("-webkit-mask-size", size);
     el.style.setProperty("-webkit-mask-repeat", "no-repeat");
+  } else {
+    el.style.maskImage = "";
+    el.style.maskMode = "";
+    el.style.maskPosition = "";
+    el.style.maskSize = "";
+    el.style.maskRepeat = "";
+    el.style.removeProperty("-webkit-mask-image");
+    el.style.removeProperty("-webkit-mask-position");
+    el.style.removeProperty("-webkit-mask-size");
+    el.style.removeProperty("-webkit-mask-repeat");
   }
+}
+
+function applyPolygonDataAttrs(el: HTMLElement, polygon: Polygon): void {
+  const previousDataKeys = ELEMENT_DATA_KEYS.get(el);
+  if (previousDataKeys) {
+    for (const key of previousDataKeys) el.removeAttribute(`data-${key}`);
+  }
+  const nextDataKeys: string[] = [];
+  if (polygon.data) {
+    for (const [k, v] of Object.entries(polygon.data)) {
+      el.setAttribute(`data-${k}`, String(v));
+      nextDataKeys.push(k);
+    }
+  }
+  ELEMENT_DATA_KEYS.set(el, nextDataKeys);
 }
 
 function applyPlanElementBase(el: HTMLElement, entry: TextureAtlasPlan): void {
   el.style.width = `${entry.canvasW}px`;
   el.style.height = `${entry.canvasH}px`;
   el.style.transform = `matrix3d(${entry.matrix})`;
-
-  if (entry.polygon.data) {
-    for (const [k, v] of Object.entries(entry.polygon.data)) {
-      el.setAttribute(`data-${k}`, String(v));
-    }
-  }
+  applyPolygonDataAttrs(el, entry.polygon);
 }
 
 function applyDynamicNormalVars(el: HTMLElement, entry: TextureAtlasPlan): void {
@@ -1526,13 +1710,13 @@ export function renderPolygonsWithTextureAtlas(
     if (entry) {
       const element = createAtlasElement(entry, textureLighting, doc);
       atlasElements.set(i, element);
-      rendered.push({ polygonIndex: i, element, dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "atlas", dispose: () => {} });
     } else if (!plan.texture && isFullRectSolid(plan)) {
       const element = createSolidElement(plan, textureLighting, doc);
-      rendered.push({ polygonIndex: i, element, dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "solid", dispose: () => {} });
     } else if (!plan.texture && useBorderShape) {
       const element = createBorderShapeSolidElement(plan, doc);
-      rendered.push({ polygonIndex: i, element, dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "border", dispose: () => {} });
     }
   }
 
@@ -1574,5 +1758,102 @@ export function renderPolygonsWithTextureAtlas(
       for (const url of urls) URL.revokeObjectURL(url);
       urls = [];
     },
+  };
+}
+
+function computeStableSolidTriangles(
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions,
+): SolidTrianglePlan[] | null {
+  const plans = polygons.map((polygon, index) =>
+    computeSolidTrianglePlan(polygon, index, options)
+  );
+  if (plans.some((plan) => !plan)) return null;
+  return plans as SolidTrianglePlan[];
+}
+
+function clearAtlasImageStyles(el: HTMLElement): void {
+  el.style.backgroundImage = "";
+  el.style.backgroundPosition = "";
+  el.style.backgroundSize = "";
+  el.style.maskImage = "";
+  el.style.maskMode = "";
+  el.style.maskPosition = "";
+  el.style.maskSize = "";
+  el.style.maskRepeat = "";
+  el.style.removeProperty("-webkit-mask-image");
+  el.style.removeProperty("-webkit-mask-position");
+  el.style.removeProperty("-webkit-mask-size");
+  el.style.removeProperty("-webkit-mask-repeat");
+}
+
+function applySolidTriangleElement(
+  el: HTMLElement,
+  entry: SolidTrianglePlan,
+): void {
+  el.style.cssText = entry.styleText;
+  if (entry.polygon.data || ELEMENT_DATA_KEYS.get(el)?.length) {
+    applyPolygonDataAttrs(el, entry.polygon);
+  }
+}
+
+function createSolidTriangleElement(
+  entry: SolidTrianglePlan,
+  doc: Document,
+): HTMLElement {
+  const el = doc.createElement("i");
+  el.classList.add("polycss-solid-triangle");
+  clearAtlasImageStyles(el);
+  applySolidTriangleElement(el, entry);
+  applyPolygonDataAttrs(el, entry.polygon);
+  return el;
+}
+
+export function renderPolygonsWithStableTriangles(
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions = {},
+): RenderTextureAtlasResult | null {
+  const doc = options.doc ?? (typeof document !== "undefined" ? document : null);
+  if (!doc) return { rendered: [], dispose: () => {} };
+
+  const plans = computeStableSolidTriangles(polygons, options);
+  if (!plans) return null;
+  const rendered: RenderedPoly[] = [];
+
+  for (const plan of plans) {
+    const element = createSolidTriangleElement(plan, doc);
+    rendered.push({ polygonIndex: plan.index, element, kind: "triangle", dispose: () => {} });
+  }
+
+  rendered.sort((a, b) => a.polygonIndex - b.polygonIndex);
+
+  return {
+    rendered,
+    dispose() {},
+  };
+}
+
+export function updatePolygonsWithStableTriangles(
+  rendered: RenderedPoly[],
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions = {},
+): RenderTextureAtlasResult | null {
+  const doc = options.doc ?? (typeof document !== "undefined" ? document : null);
+  if (!doc) return { rendered, dispose: () => {} };
+  if (rendered.some((item) => item.kind !== "triangle")) return null;
+
+  const plans = computeStableSolidTriangles(polygons, options);
+  if (!plans || plans.length !== rendered.length) return null;
+  for (let i = 0; i < rendered.length; i++) {
+    if (rendered[i].polygonIndex !== plans[i].index) return null;
+  }
+
+  for (let i = 0; i < rendered.length; i++) {
+    applySolidTriangleElement(rendered[i].element, plans[i]);
+  }
+
+  return {
+    rendered,
+    dispose() {},
   };
 }

@@ -11,9 +11,32 @@
  */
 import type { Polygon } from "../types";
 
+export interface ParseAnimationClip {
+  /** Stable numeric index in the source file's animation array. */
+  index: number;
+  /** Human-readable clip name. Falls back to `animation_N` when omitted. */
+  name: string;
+  /** Clip duration in seconds, derived from its sampler input accessors. */
+  duration: number;
+  /** Number of glTF animation channels in the clip. */
+  channelCount: number;
+}
+
+export interface ParseAnimationController {
+  /** Animation clips exposed by the parsed mesh. Empty when none are usable. */
+  clips: ParseAnimationClip[];
+  /**
+   * Sample a clip at `timeSeconds` and return a fresh polygon list.
+   * `clip` accepts either the clip index or its name. Time wraps by duration.
+   */
+  sample: (clip: number | string, timeSeconds: number) => Polygon[];
+}
+
 export interface ParseResult {
   /** The mesh, as a flat polygon list. Already vertex-permuted to polycss space. */
   polygons: Polygon[];
+  /** Optional animation sampler for formats that carry timeline data. */
+  animation?: ParseAnimationController;
   /**
    * Blob/object URLs minted during parse (e.g. embedded GLB images). Pass-by-
    * reference — the same array is exposed on the result for visibility, and
@@ -39,6 +62,8 @@ export interface ParseResult {
     meshes?: string[];
     /** Material names (in first-seen order). */
     materials?: string[];
+    /** Animation clips from the file, mirrored from `animation.clips`. */
+    animations?: ParseAnimationClip[];
     /** Source file size in bytes (for diagnostics). */
     sourceBytes?: number;
   };

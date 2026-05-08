@@ -45,7 +45,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
   const sceneElRef = useRef<HTMLElement | null>(null);
   const cameraElRef = useRef<HTMLDivElement | null>(null);
 
-  // Create store once — only notifies subscribers when wall mask changes
+  // Create store once; camera props and controls sync into this store.
   const store = useMemo(
     () => createSceneStore(handleRef.current!.state),
     []

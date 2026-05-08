@@ -71,12 +71,11 @@ describe("useCamera behavior", () => {
   });
 
   describe("prop changes update camera handle", () => {
-    it("updates the camera handle when rotation props change across a direction-bin boundary", () => {
+    it("updates the camera handle when rotation props change", () => {
       let captured: UseCameraResult | null = null;
       const container = document.createElement("div");
       const root = createRoot(container);
 
-      // Start at rotY=45
       act(() =>
         root.render(
           <CameraTestHarness
@@ -87,9 +86,6 @@ describe("useCamera behavior", () => {
         )
       );
 
-      const dirBinBefore = captured!.store.getState().dirBin;
-
-      // Move to rotY=135 — crosses a quadrant boundary so dirBin changes
       act(() =>
         root.render(
           <CameraTestHarness
@@ -100,11 +96,8 @@ describe("useCamera behavior", () => {
         )
       );
 
-      const dirBinAfter = captured!.store.getState().dirBin;
-      // Direction bin should have changed
-      expect(dirBinAfter).not.toEqual(dirBinBefore);
-      // Camera handle reflects the new rotation
       expect(captured!.cameraRef.current.state.rotY).toBe(135);
+      expect(captured!.store.getState().cameraState.rotY).toBe(135);
     });
 
     it("updates the camera handle zoom directly", () => {

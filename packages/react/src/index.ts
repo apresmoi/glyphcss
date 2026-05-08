@@ -51,6 +51,8 @@ export type {
   DirectionalLight,
   AmbientLight,
   TextureLightingMode,
+  ParseAnimationClip,
+  ParseAnimationController,
   ParseResult,
   ObjParseOptions,
   GltfParseOptions,
