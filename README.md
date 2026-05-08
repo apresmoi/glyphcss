@@ -4,7 +4,7 @@
 
 # polycss
 
-Render textured 3D meshes as inspectable DOM. No WebGL, no scene canvas, no runtime 3D engine: polycss turns meshes into atlas-backed DOM polygons positioned with CSS `matrix3d(...)`. You can inspect them in DevTools, style them with CSS, and make them interactive through framework components, custom elements, or render props.
+Render textured 3D meshes as inspectable DOM. No WebGL, no scene canvas, no runtime 3D engine. Style the generated polygons with CSS, inspect them in DevTools, and make them interactive through framework components, custom elements, or render props.
 
 Visit [polycss.com](https://polycss.com) for docs and model examples.
 
