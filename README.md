@@ -4,7 +4,7 @@
 
 # polycss
 
-Render textured 3D meshes in the DOM. No WebGL, no 3D library — the rendered scene is a tree of standard DOM elements (`<img>`, `<svg>`) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach handlers to, and inspect in DevTools.
+Render textured 3D meshes as inspectable DOM. No WebGL, no scene canvas, no runtime 3D engine: polycss turns meshes into atlas-backed DOM polygons positioned with CSS `matrix3d(...)`. You can inspect them in DevTools, style them with CSS, and make them interactive through framework components, custom elements, or render props.
 
 Visit [polycss.com](https://polycss.com) for docs and model examples.
 
@@ -24,13 +24,16 @@ npm install polycss
 ## Quick start — React
 
 ```tsx
-import { PolyScene, PolyMesh } from "@polycss/react";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/react";
 
 export function App() {
   return (
-    <PolyScene rotX={65} rotY={45} interactive>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        <PolyControls />
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -39,13 +42,16 @@ export function App() {
 
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45" interactive>
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyControls />
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
 </script>
 ```
 
@@ -55,42 +61,44 @@ import { PolyScene, PolyMesh } from "@polycss/vue";
 <script type="module" src="https://esm.sh/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
+  <poly-controls></poly-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
 
 ## Per-polygon interactivity
 
-The DOM-native approach means every polygon is a real element:
+Render polygons directly when you need per-face DOM events or custom styling:
 
 ```tsx
-<PolyScene>
-  {polygons.map(p => (
-    <Poly
-      key={p.id}
-      vertices={p.vertices}
-      color={p.color}
-      onClick={() => alert(`clicked ${p.id}`)}
-      className="my-polygon"
-    />
-  ))}
-</PolyScene>
+<PolyCamera>
+  <PolyScene>
+    {polygons.map((p, index) => (
+      <Poly
+        key={index}
+        {...p}
+        onClick={() => alert(`clicked polygon ${index}`)}
+        className="my-polygon"
+      />
+    ))}
+  </PolyScene>
+</PolyCamera>
 ```
 
 ## Packages
 
 | Package | Description |
 |---|---|
-| `@polycss/core` | Pure math: parsers, lighting, camera. Zero browser globals. |
-| `@polycss/react` | React components (`PolyScene`, `PolyMesh`, `Poly`, `useMesh`). |
-| `@polycss/vue` | Vue 3 components (same surface as React, Vue idioms). |
+| `@polycss/core` | Parsers, geometry, lighting, and camera helpers. |
+| `@polycss/react` | React components (`PolyCamera`, `PolyScene`, `PolyControls`, `PolyMesh`, `Poly`). |
+| `@polycss/vue` | Vue 3 components with the same rendering surface. |
 | `polycss` | Vanilla custom elements + imperative `createPolyScene` API. |
 
 ## Supported formats
 
-- OBJ + MTL (including `map_Kd` textures, UV coordinates)
-- glTF / GLB (including embedded images, TEXCOORD_0 UV decoding)
-- MagicaVoxel `.vox` (face-culled voxel grids → triangle meshes; custom and default palette)
+- OBJ + MTL, including `map_Kd` textures and UV coordinates
+- GLB and self-contained glTF, including embedded images and `TEXCOORD_0`
+- MagicaVoxel `.vox`, with face-culling and custom/default palettes
 
 ## License
 
