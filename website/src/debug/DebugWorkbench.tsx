@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PolyAxesHelper,
   PolyCamera,
-  PolyControls,
+  PolyMapControls,
+  PolyOrbitControls,
   PolyDirectionalLightHelper,
   PolyMesh,
   PolyScene,
@@ -102,6 +103,8 @@ interface SceneOptionsState {
   textureQuality: TextureQuality;
   normalizeGeometry: boolean;
   outlinePolygons: boolean;
+  dragMode: "orbit" | "pan";
+  target: ReactVec3;
 }
 
 interface ParserOptionsState {
@@ -532,6 +535,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   textureQuality: "auto",
   normalizeGeometry: false,
   outlinePolygons: false,
+  dragMode: "orbit",
+  target: [0, 0, 0],
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -875,7 +880,7 @@ function VanillaScene({
   animationKey?: string;
   animationFrameFactory?: (timeSeconds: number) => Polygon[];
   onBuild: (ms: number) => void;
-  onCameraChange?: (camera: { rotX: number; rotY: number; zoom: number }) => void;
+  onCameraChange?: (camera: { rotX: number; rotY: number; zoom: number; target?: ReactVec3 }) => void;
   enableSelection?: boolean;
   meshId?: string;
   onSelectionChange?: (selectedIds: string[]) => void;
@@ -1096,6 +1101,7 @@ function VanillaScene({
       rotX: options.rotX,
       rotY: options.rotY,
       zoom: options.zoom,
+      target: options.target as Vec3,
       directionalLight,
       ambientLight,
       textureLighting: options.textureLighting,
@@ -1104,6 +1110,7 @@ function VanillaScene({
     options.rotX,
     options.rotY,
     options.zoom,
+    options.target,
     options.textureLighting,
     directionalLight,
     ambientLight,
@@ -1125,6 +1132,7 @@ function VanillaScene({
       const controls = createPolyControls(scene, {
         drag: options.interactive,
         wheel: options.interactive,
+        mode: options.dragMode,
         animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
       });
       // Sync the camera back to React state ONCE per gesture (pointerup /
@@ -1142,6 +1150,7 @@ function VanillaScene({
       controlsRef.current.update({
         drag: options.interactive,
         wheel: options.interactive,
+        mode: options.dragMode,
         animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
       });
     }
@@ -1154,6 +1163,7 @@ function VanillaScene({
     options.renderer,
     options.interactive,
     options.animate,
+    options.dragMode,
     polygons,
     options.autoCenter,
     options.textureQuality,
@@ -1313,14 +1323,24 @@ export default function DebugWorkbench() {
   // React state. Without this, the sliders don't track the live drag and a
   // subsequent scene rebuild (baked → dynamic, mesh swap, etc.) reads the
   // stale slider value and resets the user's camera.
-  const handleCameraChange = useCallback((camera: { rotX: number; rotY: number; zoom: number }) => {
+  const handleCameraChange = useCallback((camera: { rotX: number; rotY: number; zoom: number; target?: ReactVec3 }) => {
     setSceneOptions((current) => {
+      const nextTarget = camera.target ?? current.target;
       if (
         current.rotX === camera.rotX &&
         current.rotY === camera.rotY &&
-        current.zoom === camera.zoom
+        current.zoom === camera.zoom &&
+        current.target[0] === nextTarget[0] &&
+        current.target[1] === nextTarget[1] &&
+        current.target[2] === nextTarget[2]
       ) return current;
-      return { ...current, rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom };
+      return {
+        ...current,
+        rotX: camera.rotX,
+        rotY: camera.rotY,
+        zoom: camera.zoom,
+        target: [nextTarget[0], nextTarget[1], nextTarget[2]],
+      };
     });
   }, []);
 
@@ -1686,10 +1706,43 @@ export default function DebugWorkbench() {
         </section>
 
         <section className="dn-panel">
-          <h2>Camera</h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+            <h2 style={{ margin: 0 }}>Camera</h2>
+            <div className="dn-segment" style={{ marginTop: 0 }}>
+              <button
+                type="button"
+                onClick={() => updateScene({
+                  zoom: selectedPreset.zoom ?? 0.35,
+                  rotX: selectedPreset.rotX ?? 65,
+                  rotY: selectedPreset.rotY ?? 45,
+                  target: [0, 0, 0],
+                })}
+              >
+                Reset camera
+              </button>
+            </div>
+          </div>
+          <label className="dn-field dn-field--segment">
+            <span>Drag</span>
+            <div className="dn-segment">
+              {(["orbit", "pan"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={sceneOptions.dragMode === m ? "active" : ""}
+                  onClick={() => updateScene({ dragMode: m })}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </label>
           <RangeControl label="Zoom" value={sceneOptions.zoom} min={0.05} max={2.5} step={0.01} onChange={(value) => updateScene({ zoom: value })} format={(value) => value.toFixed(2)} />
           <RangeControl label="Rot X" value={sceneOptions.rotX} min={0} max={100} step={1} onChange={(value) => updateScene({ rotX: value })} format={(value) => `${value.toFixed(0)} deg`} />
           <RangeControl label="Rot Y" value={sceneOptions.rotY} min={0} max={360} step={1} onChange={(value) => updateScene({ rotY: value })} format={(value) => `${value.toFixed(0)} deg`} />
+          <RangeControl label="Target X" value={sceneOptions.target[0]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [value, sceneOptions.target[1], sceneOptions.target[2]] })} format={(value) => value.toFixed(2)} />
+          <RangeControl label="Target Y" value={sceneOptions.target[1]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [sceneOptions.target[0], value, sceneOptions.target[2]] })} format={(value) => value.toFixed(2)} />
+          <RangeControl label="Target Z" value={sceneOptions.target[2]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [sceneOptions.target[0], sceneOptions.target[1], value] })} format={(value) => value.toFixed(2)} />
           <label className="dn-field">
             <span>Perspective</span>
             <select
@@ -1806,17 +1859,28 @@ export default function DebugWorkbench() {
               zoom={sceneOptions.zoom}
               rotX={sceneOptions.rotX}
               rotY={sceneOptions.rotY}
+              target={sceneOptions.target}
               perspective={sceneOptions.perspective}
             >
-              <PolyControls
-                drag={sceneOptions.interactive && !gizmoDragging}
-                wheel={sceneOptions.interactive && !gizmoDragging}
-                animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
-                onInteractionEnd={handleCameraChange}
-              />
+              {sceneOptions.dragMode === "pan" ? (
+                <PolyMapControls
+                  drag={sceneOptions.interactive && !gizmoDragging}
+                  wheel={sceneOptions.interactive && !gizmoDragging}
+                  animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
+                  onInteractionEnd={handleCameraChange}
+                />
+              ) : (
+                <PolyOrbitControls
+                  drag={sceneOptions.interactive && !gizmoDragging}
+                  wheel={sceneOptions.interactive && !gizmoDragging}
+                  animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
+                  onInteractionEnd={handleCameraChange}
+                />
+              )}
               <PolyScene
                 polygons={sceneOptions.selection ? [] : scenePolygons}
-                autoCenter={sceneOptions.selection ? false : sceneOptions.autoCenter}
+                centerPolygons={sceneOptions.selection ? scenePolygons : undefined}
+                autoCenter={sceneOptions.autoCenter}
                 directionalLight={directionalLight}
                 ambientLight={ambientLight}
                 textureLighting={sceneOptions.textureLighting}
@@ -1829,7 +1893,6 @@ export default function DebugWorkbench() {
                       ref={meshRef}
                       id={loaded?.label ?? "model"}
                       polygons={scenePolygons}
-                      autoCenter={sceneOptions.autoCenter}
                       position={meshPosition}
                       rotation={meshRotation}
                       className={

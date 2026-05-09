@@ -2,7 +2,7 @@
  * PolyMesh dynamic lighting override tests.
  *
  * Verifies that when textureLighting="dynamic" and a mesh has a non-zero
- * rotation, the mesh wrapper emits per-mesh --polycss-lx/ly/lz CSS var
+ * rotation, the mesh wrapper emits per-mesh --plx/ly/lz CSS var
  * overrides computed by inverseRotateVec3(sceneDirectionalLight, rotation).
  */
 import { describe, it, expect, afterEach } from "vitest";
@@ -59,7 +59,7 @@ afterEach(() => {
 
 // ── 1. Dynamic mode with rotation: override vars are emitted ─────────────
 describe("PolyMesh (Vue) — dynamic lighting override", () => {
-  it("emits --polycss-lx/ly/lz on the wrapper when textureLighting=dynamic and rotation is non-zero", () => {
+  it("emits --plx/ly/lz on the wrapper when textureLighting=dynamic and rotation is non-zero", () => {
     const rotation: [number, number, number] = [0, 90, 0];
     const { container } = mountDynamic(
       { textureLighting: "dynamic", directionalLight: DYNAMIC_LIGHT },
@@ -76,9 +76,9 @@ describe("PolyMesh (Vue) — dynamic lighting override", () => {
     const expectedLy = (localDir[1] / len).toFixed(4);
     const expectedLz = (localDir[2] / len).toFixed(4);
 
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe(expectedLx);
-    expect(meshEl.style.getPropertyValue("--polycss-ly")).toBe(expectedLy);
-    expect(meshEl.style.getPropertyValue("--polycss-lz")).toBe(expectedLz);
+    expect(meshEl.style.getPropertyValue("--plx")).toBe(expectedLx);
+    expect(meshEl.style.getPropertyValue("--ply")).toBe(expectedLy);
+    expect(meshEl.style.getPropertyValue("--plz")).toBe(expectedLz);
   });
 
   // Sanity-check concrete values: [0,90,0] with light [1,0,0] → local [0,0,1]
@@ -89,56 +89,56 @@ describe("PolyMesh (Vue) — dynamic lighting override", () => {
     );
 
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe("0.0000");
-    expect(meshEl.style.getPropertyValue("--polycss-ly")).toBe("0.0000");
-    expect(meshEl.style.getPropertyValue("--polycss-lz")).toBe("1.0000");
+    expect(meshEl.style.getPropertyValue("--plx")).toBe("0.0000");
+    expect(meshEl.style.getPropertyValue("--ply")).toBe("0.0000");
+    expect(meshEl.style.getPropertyValue("--plz")).toBe("1.0000");
   });
 
   // ── 2. No rotation: no override emitted ─────────────────────────────────
-  it("does NOT emit --polycss-lx override when rotation prop is absent", () => {
+  it("does NOT emit --plx override when rotation prop is absent", () => {
     const { container } = mountDynamic(
       { textureLighting: "dynamic", directionalLight: DYNAMIC_LIGHT },
       { polygons: [TRIANGLE] }, // no rotation
     );
 
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(meshEl.style.getPropertyValue("--plx")).toBe("");
   });
 
-  it("does NOT emit --polycss-lx override when rotation is [0,0,0]", () => {
+  it("does NOT emit --plx override when rotation is [0,0,0]", () => {
     const { container } = mountDynamic(
       { textureLighting: "dynamic", directionalLight: DYNAMIC_LIGHT },
       { polygons: [TRIANGLE], rotation: [0, 0, 0] },
     );
 
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(meshEl.style.getPropertyValue("--plx")).toBe("");
   });
 
   // ── 3. Baked mode: no override even with rotation ────────────────────────
-  it("does NOT emit --polycss-lx override when textureLighting=baked (even with rotation)", () => {
+  it("does NOT emit --plx override when textureLighting=baked (even with rotation)", () => {
     const { container } = mountDynamic(
       { textureLighting: "baked", directionalLight: DYNAMIC_LIGHT },
       { polygons: [TRIANGLE], rotation: [0, 90, 0] },
     );
 
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(meshEl.style.getPropertyValue("--plx")).toBe("");
   });
 
   // ── 4. No directionalLight: no override ──────────────────────────────────
-  it("does NOT emit --polycss-lx override when scene has no directionalLight", () => {
+  it("does NOT emit --plx override when scene has no directionalLight", () => {
     const { container } = mountDynamic(
       { textureLighting: "dynamic" }, // no directionalLight
       { polygons: [TRIANGLE], rotation: [0, 45, 0] },
     );
 
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(meshEl.style.getPropertyValue("--plx")).toBe("");
   });
 
   // ── 5. Reactive: override updates when rotation changes ──────────────────
-  it("updates --polycss-lx/ly/lz in real time when rotation prop changes", async () => {
+  it("updates --plx/ly/lz in real time when rotation prop changes", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
 
@@ -161,12 +161,12 @@ describe("PolyMesh (Vue) — dynamic lighting override", () => {
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
 
     // Initial: [0, 90, 0] → localDir ≈ [0, 0, 1]
-    expect(meshEl.style.getPropertyValue("--polycss-lz")).toBe("1.0000");
+    expect(meshEl.style.getPropertyValue("--plz")).toBe("1.0000");
 
     // Change to [0, 0, 0] — rotation becomes zero → no override
     rotation.value = [0, 0, 0];
     await nextTick();
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(meshEl.style.getPropertyValue("--plx")).toBe("");
 
     // Change to [0, -90, 0] → inverseRotateVec3([1,0,0], [0,-90,0])
     //   rotateY(+90): x'=cos90*1=0, z'=-sin90*1=-1  → localDir=[0,0,-1]
@@ -174,12 +174,12 @@ describe("PolyMesh (Vue) — dynamic lighting override", () => {
     await nextTick();
     const localDir2 = inverseRotateVec3([1, 0, 0], [0, -90, 0]);
     const len2 = Math.hypot(...localDir2) || 1;
-    expect(meshEl.style.getPropertyValue("--polycss-lx")).toBe((localDir2[0] / len2).toFixed(4));
-    expect(meshEl.style.getPropertyValue("--polycss-lz")).toBe((localDir2[2] / len2).toFixed(4));
+    expect(meshEl.style.getPropertyValue("--plx")).toBe((localDir2[0] / len2).toFixed(4));
+    expect(meshEl.style.getPropertyValue("--plz")).toBe((localDir2[2] / len2).toFixed(4));
   });
 
   // ── 6. Per-mesh override does not affect scene-level vars ────────────────
-  it("does not modify scene-level --polycss-lx vars on the scene element", () => {
+  it("does not modify scene-level --plx vars on the scene element", () => {
     const { container } = mountDynamic(
       { textureLighting: "dynamic", directionalLight: DYNAMIC_LIGHT },
       { polygons: [TRIANGLE], rotation: [0, 90, 0] },
@@ -187,8 +187,8 @@ describe("PolyMesh (Vue) — dynamic lighting override", () => {
 
     const sceneEl = container.querySelector(".polycss-scene") as HTMLElement;
     // Scene emits world-space lx for direction [1,0,0], normalized → 1.0000
-    expect(sceneEl.style.getPropertyValue("--polycss-lx")).toBe("1.0000");
-    expect(sceneEl.style.getPropertyValue("--polycss-ly")).toBe("0.0000");
-    expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("0.0000");
+    expect(sceneEl.style.getPropertyValue("--plx")).toBe("1.0000");
+    expect(sceneEl.style.getPropertyValue("--ply")).toBe("0.0000");
+    expect(sceneEl.style.getPropertyValue("--plz")).toBe("0.0000");
   });
 });

@@ -27,7 +27,7 @@ import type {
   TextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
-import { computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@layoutit/polycss-core";
+import { BASE_TILE, computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@layoutit/polycss-core";
 import {
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,
@@ -42,6 +42,16 @@ export interface PolySceneOptions {
   rotX?: number;
   rotY?: number;
   zoom?: number;
+  /**
+   * World-coordinate camera target — the world point that appears at the
+   * viewport centre. Matches React's `CameraState.target`. Defaults to
+   * `[0, 0, 0]` so existing scenes that don't set it keep working.
+   *
+   * Internally encoded as the innermost translate in the scene transform:
+   * `scale(zoom) rotateX(rotX) rotate(rotY) translate3d(-ty*tile, -tx*tile, -tz*tile)`
+   * (world→CSS axis swap: world-X→CSS-Y, world-Y→CSS-X, world-Z→CSS-Z).
+   */
+  target?: Vec3;
   directionalLight?: DirectionalLight;
   ambientLight?: AmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
@@ -167,7 +177,7 @@ const DEFAULT_PERSPECTIVE = 8000;
 const DEFAULT_ROT_X = 65;
 const DEFAULT_ROT_Y = 45;
 const DEFAULT_ZOOM = 1;
-const DEFAULT_TILE = 50;
+const DEFAULT_TILE = BASE_TILE;
 
 function buildMeshTransform(t: MeshTransform): string | undefined {
   const parts: string[] = [];
@@ -195,17 +205,24 @@ function buildSceneTransform(opts: PolySceneOptions): string {
   const rotX = opts.rotX ?? DEFAULT_ROT_X;
   const rotY = opts.rotY ?? DEFAULT_ROT_Y;
   const zoom = opts.zoom ?? DEFAULT_ZOOM;
+  const target = opts.target ?? [0, 0, 0];
+  // World→CSS axis swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
+  // Negate so the scene moves such that `target` appears at viewport centre.
+  const cssX = target[1] * DEFAULT_TILE;  // world Y → CSS X
+  const cssY = target[0] * DEFAULT_TILE;  // world X → CSS Y
+  const cssZ = target[2] * DEFAULT_TILE;  // world Z → CSS Z
   // Match React's PolyCamera transform: rotate() (i.e. rotateZ) — NOT
   // rotateY. After the rotateX tilt, the world's Z axis is what reads
   // as "spin in place"; rotateY rotates around an oblique axis and
   // makes the mesh wobble. Names line up: rotY in our API == CSS rotate.
-  return `scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg)`;
+  // translate3d is innermost (applied first) → world-space pan at any tilt.
+  return `scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
 }
 
 // ─── Lambert-bucket grouping ────────────────────────────────────────────────
 // For dynamic-mode scenes: group polygons by quantized face normal + color
 // into wrapper divs. The wrapper has the bucket's normal as inline CSS
-// vars; the per-bucket cascade rule computes `--polycss-lambert` ONCE per
+// vars; the per-bucket cascade rule computes `--plam` ONCE per
 // wrapper. Polys inside inherit the lambert and skip the per-poly dot
 // product. For voxel meshes (chicken, castle walls) this collapses
 // thousands of per-frame calc()s into a few dozen; for organic meshes
@@ -224,7 +241,7 @@ function quantizeNormalKey(p: Polygon): { key: string; vec: Vec3 } | null {
   if (p.vertices.length < 3) return null;
   const v0 = p.vertices[0], v1 = p.vertices[1], v2 = p.vertices[2];
   // CSS-space edges — must match `computeTextureAtlasPlan` exactly so the
-  // bucket's normal sits in the same frame as `--polycss-lx/ly/lz`. The
+  // bucket's normal sits in the same frame as `--plx/ly/lz`. The
   // atlas applies `toCss(v) = [v.y, v.x, v.z]` (x↔y swap) and then takes
   // a NEGATED cross product. Reproducing both here means the cascade
   // dot(normal, light) computes the same value as the original per-poly
@@ -330,9 +347,9 @@ export function createPolyScene(
     const dynamic = opts.textureLighting === "dynamic";
     el.dataset.polycssLighting = opts.textureLighting ?? "baked";
     const vars = [
-      "--polycss-lx", "--polycss-ly", "--polycss-lz",
-      "--polycss-lr", "--polycss-lg", "--polycss-lb", "--polycss-li",
-      "--polycss-ar", "--polycss-ag", "--polycss-ab", "--polycss-ai",
+      "--plx", "--ply", "--plz",
+      "--plr", "--plg", "--plb", "--pli",
+      "--par", "--pag", "--pab", "--pai",
     ] as const;
     if (!dynamic) {
       for (const v of vars) el.style.removeProperty(v);
@@ -346,17 +363,17 @@ export function createPolyScene(
     const lightIntensity = opts.directionalLight?.intensity ?? 1;
     const ambientIntensity = opts.ambientLight?.intensity ?? 0.4;
     const ch = (n: number) => (n / 255).toFixed(4);
-    el.style.setProperty("--polycss-lx", lx.toFixed(4));
-    el.style.setProperty("--polycss-ly", ly.toFixed(4));
-    el.style.setProperty("--polycss-lz", lz.toFixed(4));
-    el.style.setProperty("--polycss-lr", ch(lightRgb[0]));
-    el.style.setProperty("--polycss-lg", ch(lightRgb[1]));
-    el.style.setProperty("--polycss-lb", ch(lightRgb[2]));
-    el.style.setProperty("--polycss-li", lightIntensity.toFixed(4));
-    el.style.setProperty("--polycss-ar", ch(ambRgb[0]));
-    el.style.setProperty("--polycss-ag", ch(ambRgb[1]));
-    el.style.setProperty("--polycss-ab", ch(ambRgb[2]));
-    el.style.setProperty("--polycss-ai", ambientIntensity.toFixed(4));
+    el.style.setProperty("--plx", lx.toFixed(4));
+    el.style.setProperty("--ply", ly.toFixed(4));
+    el.style.setProperty("--plz", lz.toFixed(4));
+    el.style.setProperty("--plr", ch(lightRgb[0]));
+    el.style.setProperty("--plg", ch(lightRgb[1]));
+    el.style.setProperty("--plb", ch(lightRgb[2]));
+    el.style.setProperty("--pli", lightIntensity.toFixed(4));
+    el.style.setProperty("--par", ch(ambRgb[0]));
+    el.style.setProperty("--pag", ch(ambRgb[1]));
+    el.style.setProperty("--pab", ch(ambRgb[2]));
+    el.style.setProperty("--pai", ambientIntensity.toFixed(4));
   }
 
   function clearRendered(entry: MeshEntry): void {
@@ -418,18 +435,18 @@ export function createPolyScene(
       }
       const bucketEl = doc.createElement("div");
       bucketEl.className = "polycss-bucket";
-      bucketEl.style.setProperty("--polycss-nx", String(group.vec[0]));
-      bucketEl.style.setProperty("--polycss-ny", String(group.vec[1]));
-      bucketEl.style.setProperty("--polycss-nz", String(group.vec[2]));
+      bucketEl.style.setProperty("--pnx", String(group.vec[0]));
+      bucketEl.style.setProperty("--pny", String(group.vec[1]));
+      bucketEl.style.setProperty("--pnz", String(group.vec[2]));
       for (const item of group.items) {
         bucketEl.appendChild(item.element);
-        // Atlas sets per-poly --polycss-nx/y/z inline (for the non-bucketed
+        // Atlas sets per-poly --pnx/y/z inline (for the non-bucketed
         // dynamic-lighting path used by other consumers). Inside a bucket
         // those inline values are dead weight — the lambert is computed at
         // the wrapper and inherited. Strip them.
-        item.element.style.removeProperty("--polycss-nx");
-        item.element.style.removeProperty("--polycss-ny");
-        item.element.style.removeProperty("--polycss-nz");
+        item.element.style.removeProperty("--pnx");
+        item.element.style.removeProperty("--pny");
+        item.element.style.removeProperty("--pnz");
       }
       fragment.appendChild(bucketEl);
     }
@@ -438,7 +455,7 @@ export function createPolyScene(
   }
 
   // Dynamic-mode per-mesh light override: when the mesh has a non-zero rotation
-  // and the scene is in dynamic lighting mode, emit --polycss-lx/ly/lz on the
+  // and the scene is in dynamic lighting mode, emit --plx/ly/lz on the
   // wrapper element, computed by inverse-rotating the world-space light into the
   // mesh's local frame. The cascade means these override the scene-level vars
   // only for polygons inside this wrapper. Cleared when conditions are not met.
@@ -448,17 +465,17 @@ export function createPolyScene(
     const hasNonZeroRotation = rotation && (rotation[0] !== 0 || rotation[1] !== 0 || rotation[2] !== 0);
 
     if (!isDynamic || !hasNonZeroRotation || !dir) {
-      wrapper.style.removeProperty("--polycss-lx");
-      wrapper.style.removeProperty("--polycss-ly");
-      wrapper.style.removeProperty("--polycss-lz");
+      wrapper.style.removeProperty("--plx");
+      wrapper.style.removeProperty("--ply");
+      wrapper.style.removeProperty("--plz");
       return;
     }
 
     const localDir = inverseRotateVec3(dir as Vec3, rotation as Vec3);
     const len = Math.hypot(localDir[0], localDir[1], localDir[2]) || 1;
-    wrapper.style.setProperty("--polycss-lx", (localDir[0] / len).toFixed(4));
-    wrapper.style.setProperty("--polycss-ly", (localDir[1] / len).toFixed(4));
-    wrapper.style.setProperty("--polycss-lz", (localDir[2] / len).toFixed(4));
+    wrapper.style.setProperty("--plx", (localDir[0] / len).toFixed(4));
+    wrapper.style.setProperty("--ply", (localDir[1] / len).toFixed(4));
+    wrapper.style.setProperty("--plz", (localDir[2] / len).toFixed(4));
   }
 
   function renderEntry(entry: MeshEntry, lightDirectionOverride?: Vec3): void {

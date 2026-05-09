@@ -217,22 +217,19 @@ export const PolyScene = defineComponent({
       const ambientIntensity = props.ambientLight?.intensity ?? 0.4;
       const ch = (n: number) => (n / 255).toFixed(4);
       return {
-        "--polycss-lx": lx.toFixed(4),
-        "--polycss-ly": ly.toFixed(4),
-        "--polycss-lz": lz.toFixed(4),
-        "--polycss-lr": ch(lightRgb[0]),
-        "--polycss-lg": ch(lightRgb[1]),
-        "--polycss-lb": ch(lightRgb[2]),
-        "--polycss-li": lightIntensity.toFixed(4),
-        "--polycss-ar": ch(ambRgb[0]),
-        "--polycss-ag": ch(ambRgb[1]),
-        "--polycss-ab": ch(ambRgb[2]),
-        "--polycss-ai": ambientIntensity.toFixed(4),
+        "--plx": lx.toFixed(4),
+        "--ply": ly.toFixed(4),
+        "--plz": lz.toFixed(4),
+        "--plr": ch(lightRgb[0]),
+        "--plg": ch(lightRgb[1]),
+        "--plb": ch(lightRgb[2]),
+        "--pli": lightIntensity.toFixed(4),
+        "--par": ch(ambRgb[0]),
+        "--pag": ch(ambRgb[1]),
+        "--pab": ch(ambRgb[2]),
+        "--pai": ambientIntensity.toFixed(4),
       };
     });
-
-    // depthOffset was a voxcss-era hack; centered meshes don't need it.
-    const depthOffset = 0;
 
     // autoCenter wrapper transform: translate3d that brings the mesh's
     // bbox center to the scene element's own (0,0,0). Mirrors React's
@@ -289,7 +286,6 @@ export const PolyScene = defineComponent({
         {
           ref: sceneElLocalRef,
           class: computedClass,
-          "data-polycss-depth-offset": String(depthOffset),
           "data-polycss-lighting": ctx.textureLighting ?? "baked",
           style: {
             ...sceneStyle.value,

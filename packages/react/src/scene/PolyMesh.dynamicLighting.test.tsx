@@ -2,7 +2,7 @@
  * PolyMesh dynamic-mode lighting override tests.
  *
  * When textureLighting="dynamic" and the mesh has a non-zero rotation,
- * the mesh wrapper must emit --polycss-lx/ly/lz CSS custom properties
+ * the mesh wrapper must emit --plx/ly/lz CSS custom properties
  * that hold the scene directionalLight direction inverse-rotated into
  * the mesh's local frame. This corrects the per-polygon Lambert calc
  * which uses mesh-local normals and would otherwise receive the wrong
@@ -53,7 +53,7 @@ describe("PolyMesh — dynamic lighting override", () => {
     document.body.innerHTML = "";
   });
 
-  it("emits inverse-rotated --polycss-lx/ly/lz when dynamic + rotation is set", () => {
+  it("emits inverse-rotated --plx/ly/lz when dynamic + rotation is set", () => {
     // directionalLight direction [1, 0, 0], mesh rotated [0, 90, 0] (Y-axis).
     // inverseRotateVec3([1,0,0], [0,90,0]) = rotateY(-90) of [1,0,0] = [0, 0, 1]
     // after normalization: lx=0.0000, ly=0.0000, lz=1.0000
@@ -71,9 +71,9 @@ describe("PolyMesh — dynamic lighting override", () => {
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
     expect(mesh).toBeTruthy();
 
-    const lx = mesh.style.getPropertyValue("--polycss-lx");
-    const ly = mesh.style.getPropertyValue("--polycss-ly");
-    const lz = mesh.style.getPropertyValue("--polycss-lz");
+    const lx = mesh.style.getPropertyValue("--plx");
+    const ly = mesh.style.getPropertyValue("--ply");
+    const lz = mesh.style.getPropertyValue("--plz");
 
     // rotateY(-90deg) of [1,0,0] → [0, 0, 1]
     expect(lx).toBe("0.0000");
@@ -81,7 +81,7 @@ describe("PolyMesh — dynamic lighting override", () => {
     expect(lz).toBe("1.0000");
   });
 
-  it("no-rotation = no inline --polycss-lx override (relies on scene cascade)", () => {
+  it("no-rotation = no inline --plx override (relies on scene cascade)", () => {
     // When rotation is [0, 0, 0] no override should be emitted so the
     // scene-level vars cascade down unmodified.
     const container = renderScene(
@@ -97,10 +97,10 @@ describe("PolyMesh — dynamic lighting override", () => {
 
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
     expect(mesh).toBeTruthy();
-    expect(mesh.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(mesh.style.getPropertyValue("--plx")).toBe("");
   });
 
-  it("no rotation prop = no inline --polycss-lx override", () => {
+  it("no rotation prop = no inline --plx override", () => {
     // Omitting rotation entirely is the same as no rotation.
     const container = renderScene(
       {
@@ -114,10 +114,10 @@ describe("PolyMesh — dynamic lighting override", () => {
 
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
     expect(mesh).toBeTruthy();
-    expect(mesh.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(mesh.style.getPropertyValue("--plx")).toBe("");
   });
 
-  it("baked mode = no inline --polycss-lx override even when rotation is set", () => {
+  it("baked mode = no inline --plx override even when rotation is set", () => {
     // In baked mode the atlas pre-multiplies the light; dynamic CSS vars
     // are unused and should not be emitted on the mesh wrapper.
     const container = renderScene(
@@ -133,7 +133,7 @@ describe("PolyMesh — dynamic lighting override", () => {
 
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
     expect(mesh).toBeTruthy();
-    expect(mesh.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(mesh.style.getPropertyValue("--plx")).toBe("");
   });
 
   it("emits correct values for a Z-axis rotation", () => {
@@ -153,9 +153,9 @@ describe("PolyMesh — dynamic lighting override", () => {
     );
 
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
-    const lx = mesh.style.getPropertyValue("--polycss-lx");
-    const ly = mesh.style.getPropertyValue("--polycss-ly");
-    const lz = mesh.style.getPropertyValue("--polycss-lz");
+    const lx = mesh.style.getPropertyValue("--plx");
+    const ly = mesh.style.getPropertyValue("--ply");
+    const lz = mesh.style.getPropertyValue("--plz");
 
     expect(lx).toBe("1.0000");
     expect(ly).toBe("0.0000");
@@ -176,6 +176,6 @@ describe("PolyMesh — dynamic lighting override", () => {
     );
 
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(mesh.style.getPropertyValue("--polycss-lx")).toBe("");
+    expect(mesh.style.getPropertyValue("--plx")).toBe("");
   });
 });

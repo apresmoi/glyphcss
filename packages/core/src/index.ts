@@ -45,6 +45,7 @@ export {
   createIsometricCamera,
   normalizeInvertMultiplier,
   DEFAULT_CAMERA_STATE,
+  BASE_TILE,
 } from "./camera/camera";
 export type {
   CameraState,

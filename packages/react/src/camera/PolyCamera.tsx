@@ -1,12 +1,12 @@
 import { memo, useMemo } from "react";
 import type { ReactNode } from "react";
+import type { Vec3 } from "@layoutit/polycss-core";
 import { PolyCameraContext } from "./context";
 import { useCamera } from "./useCamera";
 
 export interface PolyCameraProps {
   zoom?: number;
-  pan?: number;
-  tilt?: number;
+  target?: Vec3;
   rotX?: number;
   rotY?: number;
   perspective?: number | boolean;
@@ -19,8 +19,7 @@ const DEFAULT_PERSPECTIVE = 8000;
 
 function PolyCameraInner({
   zoom,
-  pan,
-  tilt,
+  target,
   rotX,
   rotY,
   perspective,
@@ -34,7 +33,7 @@ function PolyCameraInner({
     sceneElRef,
     cameraElRef,
     applyTransformDirect,
-  } = useCamera({ zoom, pan, tilt, rotX, rotY });
+  } = useCamera({ zoom, target, rotX, rotY });
 
   // Context is stable — refs never change identity, applyTransformDirect
   // is memoized in useCamera.

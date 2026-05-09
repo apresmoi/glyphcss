@@ -77,10 +77,10 @@ describe("PolyScene (Vue) — basic rendering", () => {
     expect(scene?.classList.contains("my-scene")).toBe(true);
   });
 
-  it("scene has data-polycss-depth-offset='0'", () => {
+  it("scene has data-polycss-lighting attribute", () => {
     const { container } = renderScene();
     const scene = container.querySelector(".polycss-scene");
-    expect(scene?.getAttribute("data-polycss-depth-offset")).toBe("0");
+    expect(scene?.getAttribute("data-polycss-lighting")).toBe("baked");
   });
 
   it("scene is positioned at top:50% left:50%", () => {

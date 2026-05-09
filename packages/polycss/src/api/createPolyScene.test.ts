@@ -395,22 +395,22 @@ describe("createPolyScene", () => {
       });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
       expect(sceneEl.dataset.polycssLighting).toBe("dynamic");
-      expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("1.0000");
-      expect(sceneEl.style.getPropertyValue("--polycss-li")).toBe("1.5000");
-      expect(sceneEl.style.getPropertyValue("--polycss-ai")).toBe("0.3000");
+      expect(sceneEl.style.getPropertyValue("--plz")).toBe("1.0000");
+      expect(sceneEl.style.getPropertyValue("--pli")).toBe("1.5000");
+      expect(sceneEl.style.getPropertyValue("--pai")).toBe("0.3000");
       // #ff8800 → r=255 (1), g=136 (0.5333), b=0 (0).
-      expect(sceneEl.style.getPropertyValue("--polycss-lr")).toBe("1.0000");
-      expect(sceneEl.style.getPropertyValue("--polycss-lb")).toBe("0.0000");
+      expect(sceneEl.style.getPropertyValue("--plr")).toBe("1.0000");
+      expect(sceneEl.style.getPropertyValue("--plb")).toBe("0.0000");
       // #222222 → r=g=b=34 (0.1333).
-      expect(sceneEl.style.getPropertyValue("--polycss-ar")).toBe("0.1333");
+      expect(sceneEl.style.getPropertyValue("--par")).toBe("0.1333");
     });
 
     it("removes dynamic light vars when textureLighting flips back to baked", () => {
       scene = createPolyScene(host, { textureLighting: "dynamic" });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.getPropertyValue("--polycss-lz")).not.toBe("");
+      expect(sceneEl.style.getPropertyValue("--plz")).not.toBe("");
       scene.setOptions({ textureLighting: "baked" });
-      expect(sceneEl.style.getPropertyValue("--polycss-lz")).toBe("");
+      expect(sceneEl.style.getPropertyValue("--plz")).toBe("");
       expect(sceneEl.dataset.polycssLighting).toBe("baked");
     });
 
@@ -531,14 +531,14 @@ describe("createPolyScene", () => {
       directionalLight: { direction: lightDir, color: "#ffffff", intensity: 1 },
     };
 
-    it("emits --polycss-lx/ly/lz on the mesh wrapper when dynamic + non-zero rotation", () => {
+    it("emits --plx/ly/lz on the mesh wrapper when dynamic + non-zero rotation", () => {
       scene = createPolyScene(host, dynLight);
       scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
       const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
       // inverseRotateVec3([0,0,1], [0,90,0]) = rotateY(-90) on [0,0,1] = [-1,0,0]
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("-1.0000");
-      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("0.0000");
-      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("-1.0000");
+      expect(wrapper.style.getPropertyValue("--ply")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--plz")).toBe("0.0000");
     });
 
     it("updates the override synchronously when setTransform changes rotation", () => {
@@ -547,38 +547,38 @@ describe("createPolyScene", () => {
       const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
       // Rotate back to zero — override should be removed.
       handle.setTransform({ rotation: [0, 0, 0] });
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
-      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("");
-      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--ply")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plz")).toBe("");
     });
 
     it("removes the override when rotation is set back to zero", () => {
       scene = createPolyScene(host, dynLight);
       const handle = scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
       const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).not.toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).not.toBe("");
       handle.setTransform({ rotation: [0, 0, 0] });
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("");
     });
 
     it("removes the override when scene switches to baked lighting", () => {
       scene = createPolyScene(host, dynLight);
       scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
       const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).not.toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).not.toBe("");
       scene.setOptions({ textureLighting: "baked" });
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
-      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("");
-      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--ply")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plz")).toBe("");
     });
 
     it("does NOT emit override for a mesh with no rotation in a dynamic scene", () => {
       scene = createPolyScene(host, dynLight);
       scene.add(makeParseResult([triangle()]));
       const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
-      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("");
-      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--ply")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plz")).toBe("");
     });
 
     it("updates the override on all meshes when scene directionalLight changes", () => {
@@ -591,16 +591,16 @@ describe("createPolyScene", () => {
       scene.setOptions({
         directionalLight: { direction: [1, 0, 0], color: "#ffffff", intensity: 1 },
       });
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("0.0000");
-      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("0.0000");
-      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("1.0000");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--ply")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--plz")).toBe("1.0000");
     });
 
     it("does NOT emit override when scene has no directionalLight", () => {
       scene = createPolyScene(host, { textureLighting: "dynamic" });
       scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
       const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
-      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--plx")).toBe("");
     });
   });
 

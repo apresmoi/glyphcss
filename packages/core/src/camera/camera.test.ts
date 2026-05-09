@@ -8,11 +8,9 @@ import {
 describe("DEFAULT_CAMERA_STATE", () => {
   it("has expected default values", () => {
     expect(DEFAULT_CAMERA_STATE.zoom).toBe(0.65);
-    expect(DEFAULT_CAMERA_STATE.pan).toBe(0);
-    expect(DEFAULT_CAMERA_STATE.tilt).toBe(0);
+    expect(DEFAULT_CAMERA_STATE.target).toEqual([0, 0, 0]);
     expect(DEFAULT_CAMERA_STATE.rotX).toBe(65);
     expect(DEFAULT_CAMERA_STATE.rotY).toBe(45);
-    expect(DEFAULT_CAMERA_STATE.depthOffset).toBe(20);
   });
 });
 
@@ -47,36 +45,35 @@ describe("createIsometricCamera", () => {
     it("uses default values when no overrides given", () => {
       const camera = createIsometricCamera();
       expect(camera.state.zoom).toBe(DEFAULT_CAMERA_STATE.zoom);
-      expect(camera.state.pan).toBe(DEFAULT_CAMERA_STATE.pan);
-      expect(camera.state.tilt).toBe(DEFAULT_CAMERA_STATE.tilt);
+      expect(camera.state.target).toEqual([0, 0, 0]);
       expect(camera.state.rotX).toBe(DEFAULT_CAMERA_STATE.rotX);
       expect(camera.state.rotY).toBe(DEFAULT_CAMERA_STATE.rotY);
-      expect(camera.state.depthOffset).toBe(DEFAULT_CAMERA_STATE.depthOffset);
     });
 
     it("accepts partial overrides", () => {
       const camera = createIsometricCamera({ zoom: 1.5, rotX: 30 });
       expect(camera.state.zoom).toBe(1.5);
       expect(camera.state.rotX).toBe(30);
-      expect(camera.state.pan).toBe(DEFAULT_CAMERA_STATE.pan);
+      expect(camera.state.target).toEqual([0, 0, 0]);
       expect(camera.state.rotY).toBe(DEFAULT_CAMERA_STATE.rotY);
+    });
+
+    it("accepts target override", () => {
+      const camera = createIsometricCamera({ target: [1, 2, 3] });
+      expect(camera.state.target).toEqual([1, 2, 3]);
     });
 
     it("accepts full overrides", () => {
       const camera = createIsometricCamera({
         zoom: 2,
-        pan: 10,
-        tilt: 20,
+        target: [10, 20, 5],
         rotX: 30,
         rotY: 90,
-        depthOffset: 50,
       });
       expect(camera.state.zoom).toBe(2);
-      expect(camera.state.pan).toBe(10);
-      expect(camera.state.tilt).toBe(20);
+      expect(camera.state.target).toEqual([10, 20, 5]);
       expect(camera.state.rotX).toBe(30);
       expect(camera.state.rotY).toBe(90);
-      expect(camera.state.depthOffset).toBe(50);
     });
   });
 
@@ -91,10 +88,16 @@ describe("createIsometricCamera", () => {
 
     it("updates multiple fields at once", () => {
       const camera = createIsometricCamera();
-      camera.update({ rotX: 45, rotY: 90, pan: 100 });
+      camera.update({ rotX: 45, rotY: 90, target: [5, 3, 0] });
       expect(camera.state.rotX).toBe(45);
       expect(camera.state.rotY).toBe(90);
-      expect(camera.state.pan).toBe(100);
+      expect(camera.state.target).toEqual([5, 3, 0]);
+    });
+
+    it("updates target", () => {
+      const camera = createIsometricCamera();
+      camera.update({ target: [1, 2, 0] });
+      expect(camera.state.target).toEqual([1, 2, 0]);
     });
 
     it("quantizes values to 2 decimal places", () => {
@@ -103,23 +106,30 @@ describe("createIsometricCamera", () => {
       expect(camera.state.zoom).toBe(1.23);
     });
 
+    it("quantizes target components", () => {
+      const camera = createIsometricCamera();
+      camera.update({ target: [1.23456, 2.56789, 0.11111] });
+      expect(camera.state.target).toEqual([1.23, 2.57, 0.11]);
+    });
+
     it("does not change state when called with empty object", () => {
       const camera = createIsometricCamera();
-      const before = { ...camera.state };
+      const beforeTarget = [...camera.state.target];
+      const beforeRotX = camera.state.rotX;
       camera.update({});
-      expect(camera.state).toEqual(before);
+      expect(camera.state.target).toEqual(beforeTarget);
+      expect(camera.state.rotX).toBe(beforeRotX);
     });
   });
 
   describe("getStyle", () => {
-    it("produces a transform string with scale, translateY, translateX, rotateX, rotate", () => {
+    it("produces a transform string with scale, rotateX, rotate, translate3d", () => {
       const camera = createIsometricCamera();
       const style = camera.getStyle();
       expect(style.transform).toContain("scale(");
       expect(style.transform).toContain("rotateX(");
       expect(style.transform).toContain("rotate(");
-      expect(style.transform).toContain("translateY(");
-      expect(style.transform).toContain("translateX(");
+      expect(style.transform).toContain("translate3d(");
     });
 
     it("includes zoom value in scale transform", () => {
@@ -135,11 +145,29 @@ describe("createIsometricCamera", () => {
       expect(style.transform).toContain("rotate(45deg)");
     });
 
-    it("includes pan and tilt in translate transforms", () => {
-      const camera = createIsometricCamera({ pan: 50, tilt: 30 });
+    it("translate3d is zero when target is [0,0,0]", () => {
+      const camera = createIsometricCamera({ target: [0, 0, 0] });
       const style = camera.getStyle();
-      expect(style.transform).toContain("translateX(50px)");
-      expect(style.transform).toContain("translateY(30px)");
+      expect(style.transform).toContain("translate3d(0px, 0px, 0px)");
+    });
+
+    it("translate3d reflects target in CSS coords (world[1]→CSS X, world[0]→CSS Y, world[2]→CSS Z)", () => {
+      // world target [2, 3, 1]: cssX = 3*50=150, cssY = 2*50=100, cssZ = 1*50=50
+      const camera = createIsometricCamera({ target: [2, 3, 1] });
+      const style = camera.getStyle();
+      expect(style.transform).toContain("translate3d(-150px, -100px, -50px)");
+    });
+
+    it("translate3d order: scale → rotateX → rotate → translate3d", () => {
+      const camera = createIsometricCamera();
+      const style = camera.getStyle();
+      const scaleIdx = style.transform.indexOf("scale(");
+      const rotateXIdx = style.transform.indexOf("rotateX(");
+      const rotateIdx = style.transform.indexOf("rotate(", rotateXIdx + 1);
+      const translateIdx = style.transform.indexOf("translate3d(");
+      expect(scaleIdx).toBeLessThan(rotateXIdx);
+      expect(rotateXIdx).toBeLessThan(rotateIdx);
+      expect(rotateIdx).toBeLessThan(translateIdx);
     });
 
     it("computes width and height from rows, cols, and tileSize (50px)", () => {
@@ -155,13 +183,5 @@ describe("createIsometricCamera", () => {
       expect(style.width).toBe("0px");
       expect(style.height).toBe("0px");
     });
-
-    it("computes depth offset from depth and depthOffset state", () => {
-      const camera = createIsometricCamera({ depthOffset: 20 });
-      const style = camera.getStyle({ depth: 5 });
-      // depthOffset = 5 * 20 * 1 = 100
-      expect(style.transform).toContain("translateY(100px)");
-    });
-
   });
 });

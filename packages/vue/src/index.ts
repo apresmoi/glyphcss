@@ -19,11 +19,13 @@ export type { UseMeshOptions, UseMeshResult } from "./scene";
 export { Poly } from "./shapes";
 export type { PolyProps } from "./shapes";
 
-export { PolyControls, TransformControls } from "./controls";
+export { PolyOrbitControls, PolyMapControls, TransformControls } from "./controls";
 export type {
-  PolyControlsProps,
+  PolyOrbitControlsProps,
+  PolyOrbitControlsCamera,
+  PolyMapControlsProps,
+  PolyMapControlsCamera,
   PolyControlsAnimateOptions,
-  PolyControlsCamera,
   TransformControlsObject,
   TransformControlsObjectChangeEvent,
 } from "./controls";

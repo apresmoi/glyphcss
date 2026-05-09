@@ -1,15 +1,9 @@
 /**
- * <PolyControls> (Vue) tests — drag/wheel/animate behavior, prop
+ * <PolyOrbitControls> (Vue) tests — drag/wheel/animate behavior, prop
  * reactivity, and unmount cleanup.
  *
  * Assertions target `cameraRef.value.state` (the source of truth for
- * camera mutations) via a context-capture helper component, rather than
- * sceneEl.style.transform. The DOM transform is written through Vue's
- * useCamera applyTransformDirect, which has its own render-cycle
- * timing quirks (it depends on PolyScene's local-ref → context-ref
- * watch firing) — those are out of scope for verifying PolyControls
- * itself. State changes are what PolyControls promises; transform DOM
- * sync is PolyScene's contract.
+ * camera mutations) via a context-capture helper component.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createApp, defineComponent, h, inject, nextTick, ref, type App } from "vue";
@@ -17,8 +11,9 @@ import type { CameraHandle } from "@layoutit/polycss-core";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "../scene/PolyScene";
 import { PolyCameraContextKey } from "../camera/context";
-import { PolyControls } from "./PolyControls";
-import type { PolyControlsProps } from "./PolyControls";
+import { PolyOrbitControls } from "./PolyOrbitControls";
+import { PolyMapControls } from "./PolyMapControls";
+import type { PolyOrbitControlsProps } from "./PolyOrbitControls";
 
 let rafQueue: Array<(now: number) => void> = [];
 let rafId = 0;
@@ -72,18 +67,11 @@ function findCameraEl(container: HTMLElement): HTMLElement {
 interface MountResult {
   container: HTMLElement;
   app: App;
-  /** The camera handle's ref — mutated by PolyControls handlers. */
   cameraRef: { value: CameraHandle };
 }
 
-/**
- * Render <PolyCamera><PolyScene><PolyControls /></PolyScene></PolyCamera>.
- * Inside the scene, also mount a hidden ContextProbe child that injects
- * the camera context and exposes cameraRef so tests can assert on
- * cameraRef.value.state.
- */
 function mount(
-  controlsProps: PolyControlsProps = {},
+  controlsProps: PolyOrbitControlsProps = {},
   cameraProps: Record<string, unknown> = {},
 ): MountResult {
   const container = document.createElement("div");
@@ -102,7 +90,7 @@ function mount(
         h(PolyCamera, cameraProps, {
           default: () =>
             h(PolyScene, {}, {
-              default: () => [h(PolyControls, controlsProps), h(ContextProbe)],
+              default: () => [h(PolyOrbitControls, controlsProps), h(ContextProbe)],
             }),
         });
     },
@@ -112,7 +100,36 @@ function mount(
   return { container, app, cameraRef: captured };
 }
 
-describe("PolyControls (Vue)", () => {
+function mountMap(
+  cameraProps: Record<string, unknown> = {},
+): MountResult {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  let captured: { value: CameraHandle } | null = null;
+  const ContextProbe = defineComponent({
+    setup() {
+      const ctx = inject(PolyCameraContextKey);
+      if (ctx) captured = ctx.cameraRef;
+      return () => null;
+    },
+  });
+  const app = createApp({
+    setup() {
+      return () =>
+        h(PolyCamera, cameraProps, {
+          default: () =>
+            h(PolyScene, {}, {
+              default: () => [h(PolyMapControls), h(ContextProbe)],
+            }),
+        });
+    },
+  });
+  app.mount(container);
+  if (!captured) throw new Error("ContextProbe never captured camera context");
+  return { container, app, cameraRef: captured };
+}
+
+describe("PolyOrbitControls (Vue)", () => {
   let mounted: MountResult | null = null;
 
   beforeEach(() => {
@@ -152,14 +169,14 @@ describe("PolyControls (Vue)", () => {
     expect(cameraEl.style.cursor).toBe("");
   });
 
-  // ── Pointer drag ────────────────────────────────────────────────────────
-  it("pointer drag updates rotY in camera state", () => {
+  // ── Pointer drag (orbit) ────────────────────────────────────────────────
+  it("pointer drag (left) updates rotY in camera state (orbit)", () => {
     mounted = mount({}, { rotY: 45 });
     const cameraEl = findCameraEl(mounted.container);
     dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
     dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
     dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
-    // Drag tracks the pointer: drag-right (+100 px) → rotY -25 → 45-25 = 20.
+    // Drag right (+100 px) → rotY -25 → 45-25 = 20.
     expect(mounted.cameraRef.value.state.rotY).toBeCloseTo(20, 1);
   });
 
@@ -215,15 +232,14 @@ describe("PolyControls (Vue)", () => {
     mounted = mount({ animate: { speed: 1 } }, { rotY: 0 });
     const baseTime = { now: 0 };
     tickFrame(16.67, baseTime);
-    // First tick uses ANIM_FRAME_MS fallback → +1 deg.
     expect(mounted.cameraRef.value.state.rotY).toBeCloseTo(1, 4);
   });
 
   it("dt-clamps a long pause to 50 ms", () => {
     mounted = mount({ animate: { speed: 1 } }, { rotY: 0 });
     const baseTime = { now: 0 };
-    tickFrame(16.67, baseTime);  // anchor: +1 deg → rotY = 1
-    tickFrame(5000, baseTime);   // huge gap, clamped to 50 ms → +3 deg → rotY ≈ 4
+    tickFrame(16.67, baseTime);
+    tickFrame(5000, baseTime);
     expect(mounted.cameraRef.value.state.rotY).toBeCloseTo(4, 1);
   });
 
@@ -243,14 +259,11 @@ describe("PolyControls (Vue)", () => {
     mounted.app.unmount();
     expect(rafQueue.length).toBe(0);
     expect(cameraEl.style.cursor).toBe("");
-    // Skip the afterEach unmount (already done).
     mounted.container.remove();
     mounted = null;
   });
 
   // ── Reactive prop watchers ────────────────────────────────────────────
-  // Toggling drag/wheel/animate via reactive props (instead of remounting)
-  // must propagate through the watch() callbacks inside PolyControls.
   describe("reactive prop changes", () => {
     it("flipping drag from false → true attaches the drag handlers (cursor flips to grab)", async () => {
       const container = document.createElement("div");
@@ -262,7 +275,7 @@ describe("PolyControls (Vue)", () => {
             h(PolyCamera, {}, {
               default: () =>
                 h(PolyScene, {}, {
-                  default: () => h(PolyControls, { drag: dragOn.value }),
+                  default: () => h(PolyOrbitControls, { drag: dragOn.value }),
                 }),
             });
         },
@@ -287,7 +300,7 @@ describe("PolyControls (Vue)", () => {
             h(PolyCamera, {}, {
               default: () =>
                 h(PolyScene, {}, {
-                  default: () => h(PolyControls, { drag: dragOn.value }),
+                  default: () => h(PolyOrbitControls, { drag: dragOn.value }),
                 }),
             });
         },
@@ -320,18 +333,16 @@ describe("PolyControls (Vue)", () => {
             h(PolyCamera, { zoom: 1 }, {
               default: () =>
                 h(PolyScene, {}, {
-                  default: () => [h(PolyControls, { wheel: wheelOn.value }), h(Probe)],
+                  default: () => [h(PolyOrbitControls, { wheel: wheelOn.value }), h(Probe)],
                 }),
             });
         },
       });
       app.mount(container);
       const cameraEl = container.querySelector(".polycss-camera") as HTMLElement;
-      // Initially wheel is off → wheel events shouldn't change zoom.
       const before = capturedScene!.state.zoom;
       dispatchWheel(cameraEl, -100);
       expect(capturedScene!.state.zoom).toBe(before);
-      // Flip to on.
       wheelOn.value = true;
       await nextTick();
       dispatchWheel(cameraEl, -100);
@@ -358,14 +369,13 @@ describe("PolyControls (Vue)", () => {
             h(PolyCamera, { zoom: 1 }, {
               default: () =>
                 h(PolyScene, {}, {
-                  default: () => [h(PolyControls, { wheel: wheelOn.value }), h(Probe)],
+                  default: () => [h(PolyOrbitControls, { wheel: wheelOn.value }), h(Probe)],
                 }),
             });
         },
       });
       app.mount(container);
       const cameraEl = container.querySelector(".polycss-camera") as HTMLElement;
-      // Toggle wheel off.
       wheelOn.value = false;
       await nextTick();
       const beforeZoom = capturedScene!.state.zoom;
@@ -385,7 +395,7 @@ describe("PolyControls (Vue)", () => {
             h(PolyCamera, {}, {
               default: () =>
                 h(PolyScene, {}, {
-                  default: () => h(PolyControls, { animate: anim.value }),
+                  default: () => h(PolyOrbitControls, { animate: anim.value }),
                 }),
             });
         },
@@ -405,15 +415,13 @@ describe("PolyControls (Vue)", () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       const app = createApp({
         setup() {
-          // PolyControls outside any PolyCamera → no context to inject.
-          return () => h(PolyControls);
+          return () => h(PolyOrbitControls);
         },
       });
       app.mount(container);
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining("PolyControls"),
+        expect.stringContaining("PolyOrbitControls"),
       );
-      // No rAF queued, no event listeners attached anywhere visible.
       expect(rafQueue.length).toBe(0);
       app.unmount();
       container.remove();
@@ -429,7 +437,7 @@ describe("PolyControls (Vue)", () => {
             h(PolyCamera, {}, {
               default: () =>
                 h(PolyScene, {}, {
-                  default: () => h(PolyControls, { animate: anim.value }),
+                  default: () => h(PolyOrbitControls, { animate: anim.value }),
                 }),
             });
         },
@@ -444,13 +452,12 @@ describe("PolyControls (Vue)", () => {
     });
   });
 
-  // ── Three.js OrbitControls-style emits (change / interaction-start / -end)
+  // ── Three.js OrbitControls-style emits ────────────────────────────────
   describe("event emits", () => {
     it("@change fires per pointermove with the post-mutation camera", () => {
-      // Vue maps `onChange` listener prop → `change` emit subscription.
       const onChange = vi.fn();
       mounted = mount(
-        { onChange } as PolyControlsProps & Record<string, unknown>,
+        { onChange } as PolyOrbitControlsProps & Record<string, unknown>,
         { rotY: 45 },
       );
       const cameraEl = findCameraEl(mounted.container);
@@ -470,7 +477,7 @@ describe("PolyControls (Vue)", () => {
       const onInteractionStart = vi.fn();
       const onInteractionEnd = vi.fn();
       mounted = mount(
-        { onInteractionStart, onInteractionEnd } as PolyControlsProps & Record<string, unknown>,
+        { onInteractionStart, onInteractionEnd } as PolyOrbitControlsProps & Record<string, unknown>,
         { rotY: 45 },
       );
       const cameraEl = findCameraEl(mounted.container);
@@ -496,7 +503,7 @@ describe("PolyControls (Vue)", () => {
         onChange,
         onInteractionStart,
         onInteractionEnd,
-      } as PolyControlsProps & Record<string, unknown>);
+      } as PolyOrbitControlsProps & Record<string, unknown>);
       const cameraEl = findCameraEl(mounted.container);
       dispatchWheel(cameraEl, -50);
       dispatchWheel(cameraEl, -50);
@@ -517,7 +524,7 @@ describe("PolyControls (Vue)", () => {
         onChange,
         onInteractionStart,
         onInteractionEnd,
-      } as PolyControlsProps & Record<string, unknown>);
+      } as PolyOrbitControlsProps & Record<string, unknown>);
       const baseTime = { now: 0 };
       tickFrame(16.67, baseTime);
       tickFrame(16.67, baseTime);
@@ -525,5 +532,41 @@ describe("PolyControls (Vue)", () => {
       expect(onInteractionStart).not.toHaveBeenCalled();
       expect(onInteractionEnd).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("PolyMapControls (Vue)", () => {
+  let mounted: MountResult | null = null;
+
+  beforeEach(() => {
+    installManualRaf();
+  });
+
+  afterEach(() => {
+    if (mounted) {
+      mounted.app.unmount();
+      mounted.container.remove();
+      mounted = null;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it("attaches drag handlers by default", () => {
+    mounted = mountMap();
+    const cameraEl = findCameraEl(mounted.container);
+    expect(cameraEl.style.cursor).toBe("grab");
+  });
+
+  it("left-drag pans target (does not change rotY)", () => {
+    mounted = mountMap({ rotY: 45, rotX: 0, zoom: 1 });
+    const cameraEl = findCameraEl(mounted.container);
+    dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+    dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+    dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
+    // rotY should be unchanged — this is pan, not orbit
+    expect(mounted.cameraRef.value.state.rotY).toBeCloseTo(45, 1);
+    // target should have changed
+    const target = mounted.cameraRef.value.state.target;
+    expect(target[0] !== 0 || target[1] !== 0).toBe(true);
   });
 });

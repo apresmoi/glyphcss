@@ -38,10 +38,15 @@ export type {
 export { Poly } from "./shapes";
 export type { PolyProps, TransformProps, DOMPassthroughProps } from "./shapes";
 
-export { PolyControls, TransformControls } from "./controls";
+export { PolyOrbitControls, PolyMapControls, TransformControls } from "./controls";
 export type {
-  PolyControlsProps,
+  PolyOrbitControlsProps,
+  PolyOrbitControlsCamera,
+  PolyMapControlsProps,
+  PolyMapControlsCamera,
   PolyControlsAnimateOptions,
+  PolyControlsCamera,
+  SharedControlsProps,
   TransformControlsProps,
   TransformControlsObject,
   TransformControlsObjectChangeEvent,

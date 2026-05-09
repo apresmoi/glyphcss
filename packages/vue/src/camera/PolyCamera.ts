@@ -1,5 +1,6 @@
 import { defineComponent, h, provide, computed } from "vue";
 import type { PropType } from "vue";
+import type { Vec3 } from "@layoutit/polycss-core";
 import { useCamera } from "./useCamera";
 import { PolyCameraContextKey } from "./context";
 
@@ -7,8 +8,7 @@ const DEFAULT_PERSPECTIVE = 8000;
 
 export interface PolyCameraProps {
   zoom?: number;
-  pan?: number;
-  tilt?: number;
+  target?: Vec3;
   rotX?: number;
   rotY?: number;
   perspective?: number | boolean;
@@ -19,8 +19,7 @@ export const PolyCamera = defineComponent({
   name: "PolyCamera",
   props: {
     zoom: { type: Number },
-    pan: { type: Number },
-    tilt: { type: Number },
+    target: { type: Array as unknown as PropType<Vec3> },
     rotX: { type: Number },
     rotY: { type: Number },
     perspective: { type: [Number, Boolean] as PropType<number | boolean>, default: undefined },
@@ -29,8 +28,7 @@ export const PolyCamera = defineComponent({
   setup(props, { slots }) {
     const cameraOptions = computed(() => ({
       zoom: props.zoom,
-      pan: props.pan,
-      tilt: props.tilt,
+      target: props.target,
       rotX: props.rotX,
       rotY: props.rotY,
     }));

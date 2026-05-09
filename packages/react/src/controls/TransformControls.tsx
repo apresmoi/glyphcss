@@ -125,6 +125,40 @@ function gizmoLengthForMesh(polygons: Polygon[]): number {
   return extent * SCENE_TILE_SIZE * SHAFT_LENGTH_RATIO;
 }
 
+/**
+ * Return the bbox center of `polygons` in scene-CSS pixels, mapped via the
+ * standard polycss world→CSS axis remap (vertex[1]→CSS X, vertex[0]→CSS Y,
+ * vertex[2]→CSS Z).
+ *
+ * Used to offset the gizmo wrapper so it sits at the mesh's visual center
+ * rather than at its wrapper origin. When the mesh's vertices live at their
+ * native positions (PolyMesh.autoCenter unset, e.g. when PolyScene's
+ * autoCenter is doing the centering) the wrapper origin is OFFSET from the
+ * visible mesh by -bboxCenter; without this compensation the gizmo would
+ * sit where world (0,0,0) ends up on screen, not on the mesh.
+ */
+function gizmoCenterForMesh(polygons: Polygon[]): Vec3 {
+  if (polygons.length === 0) return [0, 0, 0];
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const poly of polygons) {
+    for (const v of poly.vertices) {
+      if (v[0] < minX) minX = v[0];
+      if (v[0] > maxX) maxX = v[0];
+      if (v[1] < minY) minY = v[1];
+      if (v[1] > maxY) maxY = v[1];
+      if (v[2] < minZ) minZ = v[2];
+      if (v[2] > maxZ) maxZ = v[2];
+    }
+  }
+  if (!Number.isFinite(minX)) return [0, 0, 0];
+  return [
+    ((minY + maxY) / 2) * SCENE_TILE_SIZE,
+    ((minX + maxX) / 2) * SCENE_TILE_SIZE,
+    ((minZ + maxZ) / 2) * SCENE_TILE_SIZE,
+  ];
+}
+
 /** Optional ref-or-direct binding to a target mesh. */
 export type TransformControlsObject =
   | PolyMeshHandle
@@ -600,7 +634,18 @@ export function TransformControls({
   if (mode !== "translate" && mode !== "rotate") return null; // scale: TODO
 
   const position = target.getPosition() ?? ([0, 0, 0] as Vec3);
-  const baseLength = gizmoLengthForMesh(target.getPolygons());
+  const polygons = target.getPolygons();
+  const bboxCenter = gizmoCenterForMesh(polygons);
+  // Wrapper sits at mesh's visual center: position + bboxCenter. When the mesh
+  // recenters its own vertices (PolyMesh.autoCenter), bboxCenter is (0,0,0)
+  // and this collapses to the previous behavior. When PolyScene does the
+  // centering instead (vertices at native positions), bboxCenter compensates.
+  const wrapperPos: Vec3 = [
+    position[0] + bboxCenter[0],
+    position[1] + bboxCenter[1],
+    position[2] + bboxCenter[2],
+  ];
+  const baseLength = gizmoLengthForMesh(polygons);
   const shaftLengthCss = baseLength * size;
 
   dragRef.current = {
@@ -621,7 +666,7 @@ export function TransformControls({
   const wrapperStyle: CSSProperties = {
     position: "absolute",
     transformStyle: "preserve-3d",
-    transform: `translate3d(${position[0]}px, ${position[1]}px, ${position[2]}px)`,
+    transform: `translate3d(${wrapperPos[0]}px, ${wrapperPos[1]}px, ${wrapperPos[2]}px)`,
     // No `pointer-events: none` here — that property is inherited, so
     // setting it on the wrapper would cascade to every arrow polygon
     // and disable native hit-testing on the gizmo entirely. The

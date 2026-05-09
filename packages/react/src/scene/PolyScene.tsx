@@ -23,6 +23,20 @@ import { PolySceneContext } from "./sceneContext";
 export interface PolySceneProps extends TransformProps {
   /** Polygons to render. Composes additively with `children`. */
   polygons?: Polygon[];
+  /**
+   * Polygons used ONLY for the `autoCenter` bbox computation. When provided,
+   * the autoCenter translate is derived from this list instead of `polygons`.
+   *
+   * Use this when the scene's renderable polygons live inside a child
+   * `<PolyMesh>` (e.g. in selection mode) rather than in `polygons`. Passing
+   * the full mesh polygon list here ensures the autoCenter wrapper shifts
+   * all children — including helpers like `<PolyAxesHelper>` — by the same
+   * -bboxCenter amount as the vanilla renderer's `centerWrapper`. Without it,
+   * `autoCenter` computes its bbox from an empty `polygons=[]` and produces
+   * no shift, so helpers stay at world origin while the mesh is recentered by
+   * PolyMesh's own `autoCenter`.
+   */
+  centerPolygons?: Polygon[];
   perspective?: number;
   rotX?: number;
   rotY?: number;
@@ -54,6 +68,7 @@ export interface PolySceneProps extends TransformProps {
 
 function PolySceneInner({
   polygons: polygonsProp,
+  centerPolygons: centerPolygonsProp,
   perspective: _perspective,
   rotX: _rotX,
   rotY: _rotY,
@@ -107,10 +122,29 @@ function PolySceneInner({
   // still computes a sane (empty) sceneBbox.
   const inputPolygons = useMemo(() => polygonsProp ?? [], [polygonsProp]);
 
+  // centerPolygons, if provided, is used ONLY for the autoCenter bbox.
+  // This lets the caller put the renderable polygons inside a child PolyMesh
+  // (for selection interactivity) while still centering all children — including
+  // helpers like <PolyAxesHelper> — around the correct bbox.
+  const centerInputPolygons = useMemo(
+    () => centerPolygonsProp ?? null,
+    [centerPolygonsProp],
+  );
+
   // Run mesh post-processing pipeline (normalize + automatic merge).
-  const { polygons, sceneBbox } = useSceneContext(inputPolygons, {
+  const { polygons, sceneBbox: renderSceneBbox } = useSceneContext(inputPolygons, {
     directionalLight,
   });
+
+  // Bbox for autoCenter: prefer centerPolygons (if provided) over the render
+  // polygon bbox. centerPolygons are NOT normalized/merged here — they're used
+  // raw for bbox so the shift matches the vanilla renderer (which also uses
+  // raw merged polygons, not normalized ones, for its centerWrapper calc).
+  const { sceneBbox: centerSceneBbox } = useSceneContext(
+    centerInputPolygons ?? inputPolygons,
+    { directionalLight },
+  );
+  const sceneBbox = centerInputPolygons ? centerSceneBbox : renderSceneBbox;
 
   // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
   // left:50% places that point at the visible center of .polycss-camera
@@ -168,25 +202,19 @@ function PolySceneInner({
     const ambientIntensity = ambientLight?.intensity ?? 0.4;
     const ch = (n: number) => (n / 255).toFixed(4);
     return {
-      ["--polycss-lx" as string]: lx.toFixed(4),
-      ["--polycss-ly" as string]: ly.toFixed(4),
-      ["--polycss-lz" as string]: lz.toFixed(4),
-      ["--polycss-lr" as string]: ch(lightRgb[0]),
-      ["--polycss-lg" as string]: ch(lightRgb[1]),
-      ["--polycss-lb" as string]: ch(lightRgb[2]),
-      ["--polycss-li" as string]: lightIntensity.toFixed(4),
-      ["--polycss-ar" as string]: ch(ambRgb[0]),
-      ["--polycss-ag" as string]: ch(ambRgb[1]),
-      ["--polycss-ab" as string]: ch(ambRgb[2]),
-      ["--polycss-ai" as string]: ambientIntensity.toFixed(4),
+      ["--plx" as string]: lx.toFixed(4),
+      ["--ply" as string]: ly.toFixed(4),
+      ["--plz" as string]: lz.toFixed(4),
+      ["--plr" as string]: ch(lightRgb[0]),
+      ["--plg" as string]: ch(lightRgb[1]),
+      ["--plb" as string]: ch(lightRgb[2]),
+      ["--pli" as string]: lightIntensity.toFixed(4),
+      ["--par" as string]: ch(ambRgb[0]),
+      ["--pag" as string]: ch(ambRgb[1]),
+      ["--pab" as string]: ch(ambRgb[2]),
+      ["--pai" as string]: ambientIntensity.toFixed(4),
     };
   }, [textureLighting, directionalLight, ambientLight]);
-
-  // depthOffset was a voxcss-era hack that pushed the cube grid down so
-  // the tilted camera could see its floor. Centered meshes don't need it
-  // — their centroid already sits at viewport center. Set 0 so useCamera
-  // doesn't reapply a stale offset on rotation/zoom updates.
-  const depthOffset = 0;
 
   // autoCenter wrapper transform: translate3d that brings the mesh's
   // bbox center to the scene element's own (0,0,0). The scene then rotates
@@ -237,7 +265,6 @@ function PolySceneInner({
       <div
         ref={localSceneRef}
         className={computedClassName}
-        data-polycss-depth-offset={String(depthOffset)}
         data-polycss-lighting={textureLighting}
         style={
           {

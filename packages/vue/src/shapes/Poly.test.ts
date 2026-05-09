@@ -191,9 +191,9 @@ describe("Poly (Vue) — dynamic lighting", () => {
     // in the global stylesheet (scoped to data-polycss-lighting="dynamic"
     // on the scene). Per-polygon style only carries the surface normal —
     // much smaller payload per element on big meshes.
-    expect(poly.style.getPropertyValue("--polycss-nx")).not.toBe("");
-    expect(poly.style.getPropertyValue("--polycss-ny")).not.toBe("");
-    expect(poly.style.getPropertyValue("--polycss-nz")).not.toBe("");
+    expect(poly.style.getPropertyValue("--pnx")).not.toBe("");
+    expect(poly.style.getPropertyValue("--pny")).not.toBe("");
+    expect(poly.style.getPropertyValue("--pnz")).not.toBe("");
   });
 
   it("does not emit the dynamic style hooks in baked mode", () => {
@@ -203,7 +203,7 @@ describe("Poly (Vue) — dynamic lighting", () => {
     const poly = getPoly(container);
     expect(poly.style.backgroundColor).toBe("");
     expect(poly.style.backgroundBlendMode).toBe("");
-    expect(poly.style.getPropertyValue("--polycss-nx")).toBe("");
+    expect(poly.style.getPropertyValue("--pnx")).toBe("");
     expect(poly.getAttribute("style") ?? "").not.toContain("mask-image");
   });
 });

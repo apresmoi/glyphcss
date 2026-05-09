@@ -81,10 +81,10 @@ describe("PolyScene — basic rendering", () => {
     expect(scene?.classList.contains("my-scene")).toBe(true);
   });
 
-  it("data-polycss-depth-offset is '0'", () => {
+  it("scene has data-polycss-lighting attribute", () => {
     const container = renderScene({});
     const scene = container.querySelector(".polycss-scene");
-    expect(scene?.getAttribute("data-polycss-depth-offset")).toBe("0");
+    expect(scene?.getAttribute("data-polycss-lighting")).toBe("baked");
   });
 
   it("scene has position absolute (from sceneStyle)", () => {

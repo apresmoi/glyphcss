@@ -69,44 +69,44 @@ const CORE_BASE_STYLES = `
  * calc() expressions resolve reliably across engines.
  */
 
-@property --polycss-lx { syntax: "<number>"; inherits: true; initial-value: 0; }
-@property --polycss-ly { syntax: "<number>"; inherits: true; initial-value: 0; }
-@property --polycss-lz { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-lr { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-lg { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-lb { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-li { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ar { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ag { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ab { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
+@property --plx { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --ply { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --plz { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --plr { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --plg { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --plb { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pli { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --par { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pag { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pab { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
 
 /* Per-polygon surface normal — set inline by the renderer. inherits:false
    because each <i> has its own normal (no cascade). */
-@property --polycss-nx { syntax: "<number>"; inherits: false; initial-value: 0; }
-@property --polycss-ny { syntax: "<number>"; inherits: false; initial-value: 0; }
-@property --polycss-nz { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --pnx { syntax: "<number>"; inherits: false; initial-value: 0; }
+@property --pny { syntax: "<number>"; inherits: false; initial-value: 0; }
+@property --pnz { syntax: "<number>"; inherits: false; initial-value: 1; }
 
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
    here (not inline per polygon) so each <i> only carries its tiny normal
    declarations — ~12× smaller per-polygon style payload on big meshes. */
 .polycss-scene[data-polycss-lighting="dynamic"] i {
   background-color: rgb(
-    calc(255 * (var(--polycss-ar) * var(--polycss-ai)
-         + var(--polycss-lr) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
-    calc(255 * (var(--polycss-ag) * var(--polycss-ai)
-         + var(--polycss-lg) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
-    calc(255 * (var(--polycss-ab) * var(--polycss-ai)
-         + var(--polycss-lb) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
+    calc(255 * (var(--par) * var(--pai)
+         + var(--plr) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+    calc(255 * (var(--pag) * var(--pai)
+         + var(--plg) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+    calc(255 * (var(--pab) * var(--pai)
+         + var(--plb) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
   );
   background-blend-mode: multiply;
 }

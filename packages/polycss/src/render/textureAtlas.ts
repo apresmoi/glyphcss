@@ -1527,9 +1527,9 @@ function applyDynamicNormalVars(el: HTMLElement, entry: TextureAtlasPlan): void 
   // in the global stylesheet's
   // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
   // the per-element style stays tiny (~50 chars instead of ~600).
-  el.style.setProperty("--polycss-nx", entry.normal[0].toFixed(4));
-  el.style.setProperty("--polycss-ny", entry.normal[1].toFixed(4));
-  el.style.setProperty("--polycss-nz", entry.normal[2].toFixed(4));
+  el.style.setProperty("--pnx", entry.normal[0].toFixed(4));
+  el.style.setProperty("--pny", entry.normal[1].toFixed(4));
+  el.style.setProperty("--pnz", entry.normal[2].toFixed(4));
 }
 
 function fullRectBounds(entry: TextureAtlasPlan): RectBrush | null {
@@ -1635,9 +1635,9 @@ function applySolidPaint(
   if (textureLighting === "dynamic") {
     applyDynamicNormalVars(el, entry);
     const base = parseHex(entry.polygon.color ?? "#cccccc");
-    el.style.setProperty("--polycss-sr", (base.r / 255).toFixed(4));
-    el.style.setProperty("--polycss-sg", (base.g / 255).toFixed(4));
-    el.style.setProperty("--polycss-sb", (base.b / 255).toFixed(4));
+    el.style.setProperty("--psr", (base.r / 255).toFixed(4));
+    el.style.setProperty("--psg", (base.g / 255).toFixed(4));
+    el.style.setProperty("--psb", (base.b / 255).toFixed(4));
   } else {
     el.style.backgroundColor = entry.shadedColor;
   }

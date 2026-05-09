@@ -37,6 +37,7 @@ const ELEMENT_BASE: typeof HTMLElement =
 const OBSERVED_ATTRS = [
   "drag",
   "wheel",
+  "mode",
   "invert",
   "zoom-min",
   "zoom-max",
@@ -86,6 +87,11 @@ function parseAxis(value: string | null): "x" | "y" | undefined {
   return undefined;
 }
 
+function parseDragMode(value: string | null): "orbit" | "pan" | undefined {
+  if (value === "orbit" || value === "pan") return value;
+  return undefined;
+}
+
 export class PolyControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
     return [...OBSERVED_ATTRS];
@@ -119,6 +125,8 @@ export class PolyControlsElement extends ELEMENT_BASE {
     if (drag !== undefined) opts.drag = drag;
     const wheel = parseBoolAttr(this.getAttribute("wheel"));
     if (wheel !== undefined) opts.wheel = wheel;
+    const mode = parseDragMode(this.getAttribute("mode"));
+    if (mode !== undefined) opts.mode = mode;
     const invert = parseInvert(this.getAttribute("invert"));
     if (invert !== undefined) opts.invert = invert;
     const zoomMin = parseNumber(this.getAttribute("zoom-min"));

@@ -73,45 +73,45 @@ const CORE_BASE_STYLES = `
  * calc() expressions resolve reliably across engines.
  */
 
-@property --polycss-lx { syntax: "<number>"; inherits: true; initial-value: 0; }
-@property --polycss-ly { syntax: "<number>"; inherits: true; initial-value: 0; }
-@property --polycss-lz { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-lr { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-lg { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-lb { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-li { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ar { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ag { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ab { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-ai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
+@property --plx { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --ply { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --plz { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --plr { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --plg { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --plb { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pli { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --par { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pag { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pab { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --pai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
 
 /* Per-polygon surface normal — set inline by the renderer per <i>, OR by
    a .polycss-bucket wrapper that groups axis-aligned polys sharing the
    same face direction. inherits:true so polys inside a bucket pick up
    the wrapper's normal automatically; polys outside any bucket still
    override it inline. */
-@property --polycss-nx { syntax: "<number>"; inherits: true; initial-value: 0; }
-@property --polycss-ny { syntax: "<number>"; inherits: true; initial-value: 0; }
-@property --polycss-nz { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --polycss-sr { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --polycss-sg { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --polycss-sb { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --pnx { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --pny { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --pnz { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --psr { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psg { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psb { syntax: "<number>"; inherits: false; initial-value: 1; }
 
 /* Hoisted Lambert dot product — computed once per element it's set on.
    inherits:true so a bucket wrapper computes lambert ONCE for its whole
    group (one calc per bucket, not per polygon). Solo polys still set it
    themselves via the per-poly rule below. */
-@property --polycss-lambert { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --plam { syntax: "<number>"; inherits: true; initial-value: 0; }
 
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
    here (not inline per polygon) so each <i> only carries its tiny normal
    declarations — ~12× smaller per-polygon style payload on big meshes.
-   --polycss-lambert is computed once and reused 3× (one per channel),
+   --plam is computed once and reused 3× (one per channel),
    cutting the dot-product calc count from 3 → 1 per polygon per frame. */
 /* Lambert-bucket wrapper: createPolyScene groups axis-aligned polys
    sharing one face direction inside a .polycss-bucket div with the
    bucket's normal as inline CSS vars. Lambert is computed ONCE per
-   bucket (inherits:true on --polycss-lambert propagates the value to
+   bucket (inherits:true on --plam propagates the value to
    every <i> child). For voxel meshes this collapses thousands of
    per-frame dot products into a few dozen. */
 .polycss-bucket {
@@ -121,10 +121,10 @@ const CORE_BASE_STYLES = `
 
 /* Per-bucket lambert calc — runs once per bucket per frame. */
 .polycss-scene[data-polycss-lighting="dynamic"] .polycss-bucket {
-  --polycss-lambert: max(0, calc(
-    var(--polycss-nx) * var(--polycss-lx) +
-    var(--polycss-ny) * var(--polycss-ly) +
-    var(--polycss-nz) * var(--polycss-lz)
+  --plam: max(0, calc(
+    var(--pnx) * var(--plx) +
+    var(--pny) * var(--ply) +
+    var(--pnz) * var(--plz)
   ));
 }
 
@@ -140,10 +140,10 @@ const CORE_BASE_STYLES = `
    inherit the bucket's hoisted lambert (one calc per bucket, not per
    leaf). */
 .polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > i {
-  --polycss-lambert: max(0, calc(
-    var(--polycss-nx) * var(--polycss-lx) +
-    var(--polycss-ny) * var(--polycss-ly) +
-    var(--polycss-nz) * var(--polycss-lz)
+  --plam: max(0, calc(
+    var(--pnx) * var(--plx) +
+    var(--pny) * var(--ply) +
+    var(--pnz) * var(--plz)
   ));
 }
 
@@ -158,33 +158,33 @@ const CORE_BASE_STYLES = `
      in 3D compositing across the contain boundary. */
   contain: strict;
   background-color: rgb(
-    calc(255 * (var(--polycss-ar) * var(--polycss-ai)
-         + var(--polycss-lr) * var(--polycss-li) * var(--polycss-lambert)))
-    calc(255 * (var(--polycss-ag) * var(--polycss-ai)
-         + var(--polycss-lg) * var(--polycss-li) * var(--polycss-lambert)))
-    calc(255 * (var(--polycss-ab) * var(--polycss-ai)
-         + var(--polycss-lb) * var(--polycss-li) * var(--polycss-lambert)))
+    calc(255 * (var(--par) * var(--pai)
+         + var(--plr) * var(--pli) * var(--plam)))
+    calc(255 * (var(--pag) * var(--pai)
+         + var(--plg) * var(--pli) * var(--plam)))
+    calc(255 * (var(--pab) * var(--pai)
+         + var(--plb) * var(--pli) * var(--plam)))
   );
   background-blend-mode: multiply;
 }
 
 .polycss-scene[data-polycss-lighting="dynamic"] i.polycss-solid-css {
   background-color: rgb(
-    calc(255 * var(--polycss-sr) * (var(--polycss-ar) * var(--polycss-ai)
-         + var(--polycss-lr) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
-    calc(255 * var(--polycss-sg) * (var(--polycss-ag) * var(--polycss-ai)
-         + var(--polycss-lg) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
-    calc(255 * var(--polycss-sb) * (var(--polycss-ab) * var(--polycss-ai)
-         + var(--polycss-lb) * var(--polycss-li) * max(0,
-           var(--polycss-nx) * var(--polycss-lx) +
-           var(--polycss-ny) * var(--polycss-ly) +
-           var(--polycss-nz) * var(--polycss-lz))))
+    calc(255 * var(--psr) * (var(--par) * var(--pai)
+         + var(--plr) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+    calc(255 * var(--psg) * (var(--pag) * var(--pai)
+         + var(--plg) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+    calc(255 * var(--psb) * (var(--pab) * var(--pai)
+         + var(--plb) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
   );
   background-blend-mode: normal;
 }

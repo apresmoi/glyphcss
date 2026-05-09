@@ -3,6 +3,7 @@ import {
   PolyAxesHelper,
   PolyCamera,
   PolyDirectionalLightHelper,
+  PolyOrbitControls,
   PolyScene,
 } from "@layoutit/polycss-react";
 import type { Polygon, TextureLightingMode } from "@layoutit/polycss-react";
@@ -306,12 +307,13 @@ export function DebugScene({
         <div ref={sceneContainerRef} className="debug-pane">
           <div className="debug-pane-label">polycss</div>
           <PolyCamera
-            interactive
             zoom={zoom}
             rotX={defaultRotX}
             rotY={defaultRotY}
-            animate={autoRotate ? 0.5 : false}
           >
+            <PolyOrbitControls
+              animate={autoRotate ? { speed: 0.5 } : false}
+            />
             <PolyScene
               polygons={renderedPolygons}
               autoCenter={autoCenter}

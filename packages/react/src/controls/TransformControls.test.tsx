@@ -113,7 +113,7 @@ describe("<TransformControls>", () => {
     expect(Array.from(rings).map((r) => r.className.match(/polycss-transform-ring--([a-z])/)?.[1])).toEqual(["x", "y", "z"]);
   });
 
-  it("renders 6 axis arrows (±X, ±Y, ±Z) by default at the target's position", () => {
+  it("renders 6 axis arrows (±X, ±Y, ±Z) by default at the target's visual center", () => {
     const ref = createRef<PolyMeshHandle>();
     const container = mount(
       <PolyCamera>
@@ -125,7 +125,9 @@ describe("<TransformControls>", () => {
     );
     const wrapper = container.querySelector("[data-poly-transform-controls]") as HTMLElement;
     expect(wrapper).not.toBeNull();
-    expect(wrapper.style.transform).toContain("translate3d(50px, 60px, 70px)");
+    // Wrapper sits at position + bboxCenter(polygons) so the gizmo lands on
+    // the mesh's visual center. TRIANGLE's bbox center contributes (25, 25, 0).
+    expect(wrapper.style.transform).toContain("translate3d(75px, 85px, 70px)");
     const arrows = wrapper.querySelectorAll(".polycss-transform-arrow");
     expect(arrows.length).toBe(6);
     expect(Array.from(arrows).map(axisKeyOf)).toEqual([
@@ -319,7 +321,8 @@ describe("<TransformControls>", () => {
       ),
     );
     let wrapper = container.querySelector("[data-poly-transform-controls]") as HTMLElement;
-    expect(wrapper.style.transform).toContain("translate3d(0px, 0px, 0px)");
+    // Wrapper = position + bboxCenter(TRIANGLE) where bbox center is (25, 25, 0).
+    expect(wrapper.style.transform).toContain("translate3d(25px, 25px, 0px)");
     act(() =>
       root.render(
         <PolyCamera>
@@ -331,7 +334,8 @@ describe("<TransformControls>", () => {
       ),
     );
     wrapper = container.querySelector("[data-poly-transform-controls]") as HTMLElement;
-    expect(wrapper.style.transform).toContain("translate3d(42px, 7px, 0px)");
+    // (42, 7, 0) + (25, 25, 0) bboxCenter
+    expect(wrapper.style.transform).toContain("translate3d(67px, 32px, 0px)");
   });
 
   it("dragging -X arrow decreases position[0]", () => {

@@ -1,12 +1,12 @@
 /* Isometric camera state + helpers used by scene controllers and UIs. */
+import type { Vec3 } from "../types";
 
 /**
- * Base tile size in CSS pixels. Carried over from voxcss as the unit that
- * `getStyle` multiplies rows/cols by when sizing the scene container.
- * In Phase 3 the scene container will size from the polygon-mesh bbox
- * instead, at which point this constant goes away.
+ * Base tile size in CSS pixels. One polycss world unit = BASE_TILE CSS
+ * pixels (pre-scale). Used to convert world-coordinate target values to
+ * CSS translations in the transform string.
  */
-const BASE_TILE = 50;
+export const BASE_TILE = 50;
 
 export interface AutoRotateConfig {
   axis?: "x" | "y";
@@ -16,17 +16,24 @@ export interface AutoRotateConfig {
 
 export type AutoRotateOption = boolean | number | AutoRotateConfig;
 
+/**
+ * World-coordinate camera state (Three.js-style).
+ *
+ * `target` is the world point that should appear at the viewport centre.
+ * Polycss world axes: [0]=X (rows/south), [1]=Y (cols/east), [2]=Z (up).
+ *
+ * `pan`, `tilt`, and `depthOffset` are gone. Translations now live inside
+ * `target` so they happen BEFORE rotations — enabling correct world-space
+ * pan at any tilt angle.
+ */
 export interface CameraState {
-  zoom: number;
-  pan: number;
-  tilt: number;
+  target: Vec3;
   rotX: number;
   rotY: number;
-  depthOffset: number;
+  zoom: number;
 }
 
 export interface CameraStyleInput {
-  depth?: number;
   rows?: number;
   cols?: number;
 }
@@ -53,12 +60,10 @@ export function normalizeInvertMultiplier(value: number | boolean | undefined): 
 }
 
 export const DEFAULT_CAMERA_STATE: CameraState = {
-  zoom: 0.65,
-  pan: 0,
-  tilt: 0,
+  target: [0, 0, 0],
   rotX: 65,
   rotY: 45,
-  depthOffset: 20
+  zoom: 0.65,
 };
 
 const CAMERA_PRECISION = 100;
@@ -68,32 +73,42 @@ const quantize = (value: number): number =>
 
 export function createIsometricCamera(initial: Partial<CameraState> = {}): CameraHandle {
   const state: CameraState = {
-    zoom: initial.zoom ?? DEFAULT_CAMERA_STATE.zoom,
-    pan: initial.pan ?? DEFAULT_CAMERA_STATE.pan,
-    tilt: initial.tilt ?? DEFAULT_CAMERA_STATE.tilt,
+    target: initial.target ?? [...DEFAULT_CAMERA_STATE.target] as Vec3,
     rotX: initial.rotX ?? DEFAULT_CAMERA_STATE.rotX,
     rotY: initial.rotY ?? DEFAULT_CAMERA_STATE.rotY,
-    depthOffset: initial.depthOffset ?? DEFAULT_CAMERA_STATE.depthOffset
+    zoom: initial.zoom ?? DEFAULT_CAMERA_STATE.zoom,
   };
 
   function update(next: Partial<CameraState>): void {
-    if (next.zoom !== undefined) state.zoom = quantize(next.zoom);
-    if (next.pan !== undefined) state.pan = quantize(next.pan);
-    if (next.tilt !== undefined) state.tilt = quantize(next.tilt);
+    if (next.target !== undefined) {
+      state.target = [
+        quantize(next.target[0]),
+        quantize(next.target[1]),
+        quantize(next.target[2]),
+      ];
+    }
     if (next.rotX !== undefined) state.rotX = quantize(next.rotX);
     if (next.rotY !== undefined) state.rotY = quantize(next.rotY);
-    if (next.depthOffset !== undefined) state.depthOffset = quantize(next.depthOffset);
+    if (next.zoom !== undefined) state.zoom = quantize(next.zoom);
   }
 
   function getStyle(input: CameraStyleInput = {}) {
-    const depth = input.depth ?? 0;
-    const depthOffset = depth * state.depthOffset;
     const tileSize = BASE_TILE;
     const width = (input.cols ?? 0) * tileSize;
     const height = (input.rows ?? 0) * tileSize;
 
+    // Convert world target to CSS-space translation.
+    // Polycss world→CSS mapping: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
+    // Negate so that the world moves such that `target` ends up at scene origin.
+    const [tx, ty, tz] = state.target;
+    const cssX = ty * tileSize;  // world Y → CSS X
+    const cssY = tx * tileSize;  // world X → CSS Y
+    const cssZ = tz * tileSize;  // world Z → CSS Z
+
     return {
-      transform: `scale(${state.zoom}) translateY(${depthOffset}px) translateY(${state.tilt}px) translateX(${state.pan}px) rotateX(${state.rotX}deg) rotate(${state.rotY}deg)`,
+      // translate3d is innermost (applied first) → happens in pre-rotation
+      // scene-local frame → world-space pan regardless of tilt/orbit.
+      transform: `scale(${state.zoom}) rotateX(${state.rotX}deg) rotate(${state.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`,
       width: `${width}px`,
       height: `${height}px`
     };

@@ -37,9 +37,7 @@ describe("useCamera", () => {
     expect(state.zoom).toBe(0.65);
     expect(state.rotX).toBe(65);
     expect(state.rotY).toBe(45);
-    expect(state.pan).toBe(0);
-    expect(state.tilt).toBe(0);
-    expect(state.depthOffset).toBe(20);
+    expect(state.target).toEqual([0, 0, 0]);
   });
 
   it("applies initial zoom", () => {
@@ -54,4 +52,8 @@ describe("useCamera", () => {
     expect(state.rotY).toBe(180);
   });
 
+  it("applies initial target", () => {
+    const result = captureHook({ target: [1, 2, 0] });
+    expect(result.store.getState().cameraState.target).toEqual([1, 2, 0]);
+  });
 });

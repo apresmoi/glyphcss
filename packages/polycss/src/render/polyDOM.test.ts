@@ -506,9 +506,9 @@ describe("renderPolygonsWithTextureAtlas", () => {
     // in the global stylesheet (scoped to data-polycss-lighting="dynamic"
     // on the scene). Per-polygon style only carries the surface normal
     // — much smaller payload per element on big meshes.
-    expect(element.style.getPropertyValue("--polycss-nx")).not.toBe("");
-    expect(element.style.getPropertyValue("--polycss-ny")).not.toBe("");
-    expect(element.style.getPropertyValue("--polycss-nz")).not.toBe("");
+    expect(element.style.getPropertyValue("--pnx")).not.toBe("");
+    expect(element.style.getPropertyValue("--pny")).not.toBe("");
+    expect(element.style.getPropertyValue("--pnz")).not.toBe("");
     result.dispose();
   });
 
@@ -517,7 +517,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const element = result.rendered[0].element;
     expect(element.style.backgroundColor).toBe("");
     expect(element.style.backgroundBlendMode).toBe("");
-    expect(element.style.getPropertyValue("--polycss-nx")).toBe("");
+    expect(element.style.getPropertyValue("--pnx")).toBe("");
     result.dispose();
   });
 

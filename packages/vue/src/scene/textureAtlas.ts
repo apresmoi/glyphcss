@@ -794,9 +794,9 @@ export function renderTextureAtlasPoly({
     backgroundSize: page ? `${page.width}px ${page.height}px` : undefined,
     ...(dynamic
       ? {
-          "--polycss-nx": entry.normal[0].toFixed(4),
-          "--polycss-ny": entry.normal[1].toFixed(4),
-          "--polycss-nz": entry.normal[2].toFixed(4),
+          "--pnx": entry.normal[0].toFixed(4),
+          "--pny": entry.normal[1].toFixed(4),
+          "--pnz": entry.normal[2].toFixed(4),
         }
       : null),
     ...(dynamic && dynamicMask

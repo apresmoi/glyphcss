@@ -2,13 +2,15 @@
  * Imperative camera input + autorotate handle for a PolyScene.
  *
  * Modeled on Three.js OrbitControls: the renderer (createPolyScene) owns
- * camera state (rotX / rotY / zoom) and the rendered DOM; controls is an
- * additive layer that listens for pointer/wheel input and runs an
+ * camera state (rotX / rotY / zoom / target) and the rendered DOM; controls
+ * is an additive layer that listens for pointer/wheel input and runs an
  * optional rAF loop, calling scene.setOptions(...) to drive state.
  *
  * Defaults: drag on, wheel on, animate off — opt out by passing false.
  */
 
+import { BASE_TILE } from "@layoutit/polycss-core";
+import type { Vec3 } from "@layoutit/polycss-core";
 import type { SceneHandle } from "./createPolyScene";
 
 export interface PolyControlsAnimateOptions {
@@ -30,6 +32,13 @@ export interface PolyControlsOptions {
   /** Wheel / pinch zoom. Default: true. */
   wheel?: boolean;
   /**
+   * Drag interaction mode.
+   * - `"orbit"` (default): drag rotates rotX / rotY around the target.
+   * - `"pan"`: drag translates the camera target in world space (slippy-map
+   *   semantics — the terrain follows the pointer).
+   */
+  mode?: "orbit" | "pan";
+  /**
    * Drag-direction inversion. `false` = natural, `true` = invert (×-1),
    * a number multiplies sensitivity (negative inverts). Default: false.
    */
@@ -44,6 +53,7 @@ export interface PolyControlsCamera {
   rotX: number;
   rotY: number;
   zoom: number;
+  target: Vec3;
 }
 
 /**
@@ -118,6 +128,7 @@ const ANIM_DT_CLAMP_MS = 50; // cap dt per tick; prevents jump after tab regains
 interface ResolvedOptions {
   drag: boolean;
   wheel: boolean;
+  mode: "orbit" | "pan";
   invert: boolean | number;
   zoom: { min: number; max: number };
   animate: false | Required<PolyControlsAnimateOptions>;
@@ -126,6 +137,7 @@ interface ResolvedOptions {
 const DEFAULTS: ResolvedOptions = {
   drag: true,
   wheel: true,
+  mode: "orbit",
   invert: false,
   zoom: { min: 0.1, max: 10 },
   animate: false,
@@ -150,6 +162,7 @@ function resolveOptions(
   return {
     drag: partial.drag ?? base.drag,
     wheel: partial.wheel ?? base.wheel,
+    mode: partial.mode ?? base.mode,
     invert: partial.invert ?? base.invert,
     zoom: {
       min: partial.zoom?.min ?? base.zoom.min,
@@ -207,10 +220,12 @@ export function createPolyControls(
 
   function cameraSnapshot(): PolyControlsCamera {
     const sceneOpts = scene.getOptions();
+    const t = sceneOpts.target ?? [0, 0, 0];
     return {
       rotX: sceneOpts.rotX ?? 0,
       rotY: sceneOpts.rotY ?? 0,
       zoom: sceneOpts.zoom ?? 1,
+      target: [t[0], t[1], t[2]],
     };
   }
 
@@ -259,18 +274,41 @@ export function createPolyControls(
     if (activePointerId === null || e.pointerId !== activePointerId) return;
     if (!opts.drag || stopped) return;
     e.preventDefault();
-    const f = invertFactor(opts.invert);
-    const dX = ((e.clientX - pointer.x) / POINTER_DRAG_SPEED) * f;
-    const dY = ((e.clientY - pointer.y) / POINTER_DRAG_SPEED) * f;
+    const dx = e.clientX - pointer.x;
+    const dy = e.clientY - pointer.y;
     pointer = { x: e.clientX, y: e.clientY };
     const sceneOpts = scene.getOptions();
-    // The visible object should appear to track the user's pointer:
-    // drag-right pulls the front of the scene rightward (camera orbits
-    // the other way), drag-down tilts the top toward the user. Both
-    // axes therefore subtract the delta from the current camera angle.
-    const rotX = Math.max(0, Math.min(100, (sceneOpts.rotX ?? 65) - dY));
-    const rotY = ((((sceneOpts.rotY ?? 45) - dX) % 360) + 360) % 360;
-    scene.setOptions({ rotX, rotY });
+
+    if (opts.mode === "pan") {
+      // World-space pan (slippy-map): drag (dx, dy) makes terrain follow
+      // pointer by exactly that screen delta regardless of camera rotation.
+      // Mirrors applyPan() in sharedControls.ts; see derivation there.
+      const rotX = sceneOpts.rotX ?? 65;
+      const rotY = sceneOpts.rotY ?? 45;
+      const z = Math.max(0.01, sceneOpts.zoom ?? 1);
+      // Preserve cos(rotX) sign — past 90° the camera flips and dy must reverse.
+      const cosRotXRaw = Math.cos((rotX * Math.PI) / 180);
+      const cosRotX = cosRotXRaw >= 0 ? Math.max(0.1, cosRotXRaw) : Math.min(-0.1, cosRotXRaw);
+      const cZ = Math.cos((rotY * Math.PI) / 180);
+      const sZ = Math.sin((rotY * Math.PI) / 180);
+      const k = z * BASE_TILE;
+      const targetD0 =  (dx * sZ - dy * cZ / cosRotX) / k;
+      const targetD1 = -(dx * cZ + dy * sZ / cosRotX) / k;
+      const t = sceneOpts.target ?? [0, 0, 0];
+      scene.setOptions({ target: [t[0] + targetD0, t[1] + targetD1, t[2]] });
+    } else {
+      // Orbit (default): drag rotates rotX / rotY.
+      // The visible object should appear to track the user's pointer:
+      // drag-right pulls the front of the scene rightward (camera orbits
+      // the other way), drag-down tilts the top toward the user. Both
+      // axes therefore subtract the delta from the current camera angle.
+      const f = invertFactor(opts.invert);
+      const dX = (dx / POINTER_DRAG_SPEED) * f;
+      const dY = (dy / POINTER_DRAG_SPEED) * f;
+      const rotX = Math.max(0, Math.min(100, (sceneOpts.rotX ?? 65) - dY));
+      const rotY = ((((sceneOpts.rotY ?? 45) - dX) % 360) + 360) % 360;
+      scene.setOptions({ rotX, rotY });
+    }
     emitChange();
   };
 

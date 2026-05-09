@@ -1,9 +1,14 @@
-export { PolyControls } from "./PolyControls";
+export { PolyOrbitControls } from "./PolyOrbitControls";
 export type {
-  PolyControlsProps,
+  PolyOrbitControlsProps,
+  PolyOrbitControlsCamera,
   PolyControlsAnimateOptions,
-  PolyControlsCamera,
-} from "./PolyControls";
+} from "./PolyOrbitControls";
+export { PolyMapControls } from "./PolyMapControls";
+export type {
+  PolyMapControlsProps,
+  PolyMapControlsCamera,
+} from "./PolyMapControls";
 export { TransformControls } from "./TransformControls";
 export type {
   TransformControlsObject,

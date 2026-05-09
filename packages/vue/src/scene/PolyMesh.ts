@@ -159,7 +159,7 @@ export const PolyMesh = defineComponent({
     );
 
     // Dynamic lighting override: when textureLighting is "dynamic" AND the
-    // mesh has a non-zero rotation, we emit overridden --polycss-lx/ly/lz
+    // mesh has a non-zero rotation, we emit overridden --plx/ly/lz
     // vars on the wrapper. The scene emits world-space light vars; polygons
     // use local-space normals for the Lambert dot product, so when a mesh
     // rotates, we must supply the light direction in the mesh-local frame
@@ -174,9 +174,9 @@ export const PolyMesh = defineComponent({
       const localDir = inverseRotateVec3(dir, rot);
       const len = Math.hypot(localDir[0], localDir[1], localDir[2]) || 1;
       return {
-        "--polycss-lx": (localDir[0] / len).toFixed(4),
-        "--polycss-ly": (localDir[1] / len).toFixed(4),
-        "--polycss-lz": (localDir[2] / len).toFixed(4),
+        "--plx": (localDir[0] / len).toFixed(4),
+        "--ply": (localDir[1] / len).toFixed(4),
+        "--plz": (localDir[2] / len).toFixed(4),
       };
     });
 

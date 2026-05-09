@@ -392,7 +392,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   // Dynamic-mode rotation fix: when the mesh has a non-zero rotation the
   // world-space light vars cascaded from <PolyScene> are wrong for the
   // per-polygon Lambert calc (which uses mesh-local normals). Override
-  // --polycss-lx/ly/lz on the mesh wrapper with the light direction
+  // --plx/ly/lz on the mesh wrapper with the light direction
   // inverse-rotated into the mesh's local frame. CSS cascade ensures the
   // override only affects this mesh's polygons. No debounce — CSS var
   // writes are cheap and this must track rotation in real time.
@@ -405,9 +405,9 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     const localDir = inverseRotateVec3(dir, rotation);
     const len = Math.hypot(localDir[0], localDir[1], localDir[2]) || 1;
     return {
-      ["--polycss-lx" as string]: (localDir[0] / len).toFixed(4),
-      ["--polycss-ly" as string]: (localDir[1] / len).toFixed(4),
-      ["--polycss-lz" as string]: (localDir[2] / len).toFixed(4),
+      ["--plx" as string]: (localDir[0] / len).toFixed(4),
+      ["--ply" as string]: (localDir[1] / len).toFixed(4),
+      ["--plz" as string]: (localDir[2] / len).toFixed(4),
     };
   }, [effectiveTextureLighting, rotation, sceneDirectionalLight]);
 

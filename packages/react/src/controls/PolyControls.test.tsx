@@ -1,19 +1,20 @@
 /**
- * <PolyControls> tests — verifies it attaches to the existing
+ * <PolyOrbitControls> tests — verifies it attaches to the existing
  * PolyCameraContext, runs animate with dt-clamping, mutates camera state
  * on drag/wheel, and cleans up on unmount.
  *
- * Because PolyControls reaches into the camera context (cameraElRef +
+ * Because PolyOrbitControls reaches into the camera context (cameraElRef +
  * applyTransformDirect), the tests render it inside <PolyCamera><PolyScene>.
- * We deliberately leave PolyCamera's interactive/animate props OFF so we're
- * exercising PolyControls's handlers in isolation, not duplicates.
+ * We deliberately leave PolyCamera's props minimal so we're
+ * exercising PolyOrbitControls's handlers in isolation.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import React, { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PolyCamera, type PolyCameraProps } from "../camera/PolyCamera";
 import { PolyScene } from "../scene/PolyScene";
-import { PolyControls, type PolyControlsProps } from "./PolyControls";
+import { PolyOrbitControls, type PolyOrbitControlsProps } from "./PolyOrbitControls";
+import { PolyMapControls } from "./PolyMapControls";
 
 let rafQueue: Array<(now: number) => void> = [];
 let rafId = 0;
@@ -70,23 +71,27 @@ function findSceneEl(container: HTMLElement): HTMLElement {
   return el;
 }
 
-/**
- * Render PolyControls inside the canonical <PolyCamera><PolyScene>...
- * tree so the camera context is available. PolyControls is the only
- * source of input/animate behavior in these tests (PolyCamera's own
- * interactive/animate props are intentionally left off).
- */
-function tree(controlsProps: PolyControlsProps = {}, cameraProps: PolyCameraProps = {}): ReactNode {
+function orbitTree(controlsProps: PolyOrbitControlsProps = {}, cameraProps: PolyCameraProps = {}): ReactNode {
   return (
     <PolyCamera {...cameraProps}>
       <PolyScene>
-        <PolyControls {...controlsProps} />
+        <PolyOrbitControls {...controlsProps} />
       </PolyScene>
     </PolyCamera>
   );
 }
 
-describe("PolyControls", () => {
+function mapTree(cameraProps: PolyCameraProps = {}): ReactNode {
+  return (
+    <PolyCamera {...cameraProps}>
+      <PolyScene>
+        <PolyMapControls />
+      </PolyScene>
+    </PolyCamera>
+  );
+}
+
+describe("PolyOrbitControls", () => {
   let container: HTMLElement;
   let root: Root;
 
@@ -105,13 +110,13 @@ describe("PolyControls", () => {
   // ── Render & defaults ───────────────────────────────────────────────────
   it("renders nothing visible (returns null)", () => {
     root = createRoot(container);
-    act(() => root.render(tree()));
+    act(() => root.render(orbitTree()));
     expect(container.querySelectorAll("[data-polycontrols]").length).toBe(0);
   });
 
   it("attaches drag handlers by default (camera el gets grab cursor + touch-action)", () => {
     root = createRoot(container);
-    act(() => root.render(tree()));
+    act(() => root.render(orbitTree()));
     const cameraEl = findCameraEl(container);
     expect(cameraEl.style.cursor).toBe("grab");
     expect(cameraEl.style.touchAction).toBe("none");
@@ -119,27 +124,26 @@ describe("PolyControls", () => {
 
   it("does not start an rAF loop when animate is omitted", () => {
     root = createRoot(container);
-    act(() => root.render(tree()));
+    act(() => root.render(orbitTree()));
     expect(rafQueue.length).toBe(0);
   });
 
   it("does not attach drag handlers when drag={false}", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ drag: false })));
+    act(() => root.render(orbitTree({ drag: false })));
     const cameraEl = findCameraEl(container);
     expect(cameraEl.style.cursor).toBe("");
   });
 
-  // ── Pointer drag updates camera state ───────────────────────────────────
-  it("pointer drag updates rotY in camera state", () => {
+  // ── Pointer drag: orbit (left-drag) ────────────────────────────────────
+  it("left-drag updates rotY in camera state (orbit)", () => {
     root = createRoot(container);
-    act(() => root.render(tree({}, { rotY: 45 })));
+    act(() => root.render(orbitTree({}, { rotY: 45 })));
     const cameraEl = findCameraEl(container);
     dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
     dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
     dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
-    // Drag tracks the pointer: drag-right (+100 px) → rotY decreases
-    // by 100/POINTER_DRAG_SPEED = 25 deg → 45 - 25 = 20.
+    // Drag right (+100 px) → rotY decreases by 100/4 = 25 deg → 45 - 25 = 20.
     const sceneEl = findSceneEl(container);
     expect(sceneEl.style.transform).toContain("rotate(20deg)");
   });
@@ -147,7 +151,7 @@ describe("PolyControls", () => {
   // ── Wheel zoom ──────────────────────────────────────────────────────────
   it("wheel zoom updates scene transform scale", () => {
     root = createRoot(container);
-    act(() => root.render(tree({}, { zoom: 1 })));
+    act(() => root.render(orbitTree({}, { zoom: 1 })));
     const cameraEl = findCameraEl(container);
     dispatchWheel(cameraEl, -100);
     const sceneEl = findSceneEl(container);
@@ -156,7 +160,7 @@ describe("PolyControls", () => {
 
   it("does not handle wheel when wheel={false}", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ wheel: false }, { zoom: 1 })));
+    act(() => root.render(orbitTree({ wheel: false }, { zoom: 1 })));
     const cameraEl = findCameraEl(container);
     dispatchWheel(cameraEl, -100);
     const sceneEl = findSceneEl(container);
@@ -166,13 +170,13 @@ describe("PolyControls", () => {
   // ── Animate ─────────────────────────────────────────────────────────────
   it("animate queues an rAF tick", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 0.3 } })));
+    act(() => root.render(orbitTree({ animate: { speed: 0.3 } })));
     expect(rafQueue.length).toBe(1);
   });
 
   it("animate rotates rotY in the scene transform per tick", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1 } }, { rotY: 0 })));
+    act(() => root.render(orbitTree({ animate: { speed: 1 } }, { rotY: 0 })));
     const baseTime = { now: 0 };
     act(() => tickFrame(16.67, baseTime));
     const sceneEl = findSceneEl(container);
@@ -182,7 +186,7 @@ describe("PolyControls", () => {
 
   it("dt-clamps a long pause to 50 ms", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1 } }, { rotY: 0 })));
+    act(() => root.render(orbitTree({ animate: { speed: 1 } }, { rotY: 0 })));
     const baseTime = { now: 0 };
     act(() => tickFrame(16.67, baseTime));    // anchor → +1 deg, rotY = 1
     act(() => tickFrame(5000, baseTime));     // huge gap, clamped to 50 ms
@@ -193,7 +197,7 @@ describe("PolyControls", () => {
 
   it("animate axis 'x' rotates rotX, leaves rotY untouched", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1, axis: "x" } }, { rotX: 30, rotY: 60 })));
+    act(() => root.render(orbitTree({ animate: { speed: 1, axis: "x" } }, { rotX: 30, rotY: 60 })));
     const baseTime = { now: 0 };
     act(() => tickFrame(16.67, baseTime));
     const sceneEl = findSceneEl(container);
@@ -204,15 +208,15 @@ describe("PolyControls", () => {
   // ── update / unmount ────────────────────────────────────────────────────
   it("flipping animate off via re-render stops the rAF loop", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1 } })));
+    act(() => root.render(orbitTree({ animate: { speed: 1 } })));
     expect(rafQueue.length).toBe(1);
-    act(() => root.render(tree({ animate: false })));
+    act(() => root.render(orbitTree({ animate: false })));
     expect(rafQueue.length).toBe(0);
   });
 
   it("unmount removes pointer listeners and cancels rAF", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1 } })));
+    act(() => root.render(orbitTree({ animate: { speed: 1 } })));
     const cameraEl = findCameraEl(container);
     act(() => root.render(<div />));
     expect(rafQueue.length).toBe(0);
@@ -222,7 +226,7 @@ describe("PolyControls", () => {
   // ── Edge-case branches ────────────────────────────────────────────────
   it("invert as a number multiplies sensitivity in the default direction", () => {
     root = createRoot(container);
-    act(() => root.render(tree({ invert: 2 }, { rotY: 0 })));
+    act(() => root.render(orbitTree({ invert: 2 }, { rotY: 0 })));
     const cameraEl = findCameraEl(container);
     dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
     dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
@@ -234,65 +238,53 @@ describe("PolyControls", () => {
   });
 
   it("animate tick re-queues without mutating state when paused by drag", () => {
-    // pauseOnInteraction (default true) sets animationPausedShared.value =
-    // true on pointerdown. The next tick should hit the else-branch
-    // (lastTime = now) instead of mutating the camera.
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1 } }, { rotY: 0 })));
+    act(() => root.render(orbitTree({ animate: { speed: 1 } }, { rotY: 0 })));
     const cameraEl = findCameraEl(container);
     const baseTime = { now: 0 };
-    // Pointerdown to set the pause flag.
     dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
     const sceneEl = findSceneEl(container);
     const before = sceneEl.style.transform;
     act(() => tickFrame(16.67, baseTime));
     act(() => tickFrame(16.67, baseTime));
-    // Two ticks during a drag — rotY shouldn't have advanced. (The
-    // pointermove itself didn't move so drag-rotation contributes 0.)
     expect(sceneEl.style.transform).toBe(before);
-    // rAF stays queued so animation resumes on pointerup.
     expect(rafQueue.length).toBe(1);
     dispatchPointer(cameraEl, "pointerup", { x: 100, y: 100 });
   });
 
   it("animate tick is a no-op when animate prop has flipped to false", () => {
-    // The rAF callback reads animateRef.current; if a re-render flipped
-    // animate off, the callback should bail without mutating state.
     root = createRoot(container);
-    act(() => root.render(tree({ animate: { speed: 1 } }, { rotY: 0 })));
+    act(() => root.render(orbitTree({ animate: { speed: 1 } }, { rotY: 0 })));
     expect(rafQueue.length).toBe(1);
     const queuedTick = rafQueue[0];
-    // Flip animate off — the effect's cleanup cancels the rAF queue.
-    act(() => root.render(tree({ animate: false })));
+    act(() => root.render(orbitTree({ animate: false })));
     expect(rafQueue.length).toBe(0);
-    // Manually fire the previously-queued tick — should observe stopped
-    // state and return without re-queueing.
     queuedTick(16.67);
     expect(rafQueue.length).toBe(0);
   });
 
-  // ── Event prop callbacks (Three.js OrbitControls-style start/change/end) ─
+  // ── Event prop callbacks ──────────────────────────────────────────────
   describe("event prop callbacks", () => {
     it("onChange fires per pointermove with the post-mutation camera", () => {
       const onChange = vi.fn();
       root = createRoot(container);
-      act(() => root.render(tree({ onChange }, { rotY: 45 })));
+      act(() => root.render(orbitTree({ onChange }, { rotY: 45 })));
       const cameraEl = findCameraEl(container);
       dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
       dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
       dispatchPointer(cameraEl, "pointermove", { x: 250, y: 100 });
       dispatchPointer(cameraEl, "pointerup", { x: 250, y: 100 });
       expect(onChange).toHaveBeenCalledTimes(2);
-      const [{ rotY }] = onChange.mock.calls[onChange.mock.calls.length - 1];
+      const [lastCall] = onChange.mock.calls[onChange.mock.calls.length - 1];
       // Final rotY = 45 - (250-100)/4 = 45 - 37.5 = 7.5
-      expect(rotY).toBeCloseTo(7.5, 4);
+      expect(lastCall.rotY).toBeCloseTo(7.5, 4);
     });
 
     it("onInteractionStart / End fire once per drag gesture and carry camera", () => {
       const onInteractionStart = vi.fn();
       const onInteractionEnd = vi.fn();
       root = createRoot(container);
-      act(() => root.render(tree({ onInteractionStart, onInteractionEnd }, { rotY: 45 })));
+      act(() => root.render(orbitTree({ onInteractionStart, onInteractionEnd }, { rotY: 45 })));
       const cameraEl = findCameraEl(container);
       dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
       dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
@@ -300,7 +292,6 @@ describe("PolyControls", () => {
       dispatchPointer(cameraEl, "pointerup", { x: 250, y: 100 });
       expect(onInteractionStart).toHaveBeenCalledTimes(1);
       expect(onInteractionEnd).toHaveBeenCalledTimes(1);
-      // start camera = pre-drag state; end camera = post-drag state.
       const startCam = onInteractionStart.mock.calls[0][0];
       const endCam = onInteractionEnd.mock.calls[0][0];
       expect(startCam.rotY).toBeCloseTo(45, 4);
@@ -314,7 +305,7 @@ describe("PolyControls", () => {
       const onChange = vi.fn();
       const onInteractionEnd = vi.fn();
       root = createRoot(container);
-      act(() => root.render(tree({ onChange, onInteractionStart, onInteractionEnd })));
+      act(() => root.render(orbitTree({ onChange, onInteractionStart, onInteractionEnd })));
       const cameraEl = findCameraEl(container);
       dispatchWheel(cameraEl, -50);
       dispatchWheel(cameraEl, -50);
@@ -331,7 +322,7 @@ describe("PolyControls", () => {
       const onInteractionStart = vi.fn();
       const onInteractionEnd = vi.fn();
       root = createRoot(container);
-      act(() => root.render(tree({
+      act(() => root.render(orbitTree({
         animate: { speed: 1 },
         onChange,
         onInteractionStart,
@@ -349,15 +340,13 @@ describe("PolyControls", () => {
       const first = vi.fn();
       const second = vi.fn();
       root = createRoot(container);
-      act(() => root.render(tree({ onChange: first }, { rotY: 0 })));
+      act(() => root.render(orbitTree({ onChange: first }, { rotY: 0 })));
       const cameraEl = findCameraEl(container);
-      // First drag — first callback fires.
       dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
       dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
       dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
       expect(first).toHaveBeenCalledTimes(1);
-      // Re-render with new callback. Second drag — only the second fires.
-      act(() => root.render(tree({ onChange: second }, { rotY: 0 })));
+      act(() => root.render(orbitTree({ onChange: second }, { rotY: 0 })));
       dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
       dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
       dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
@@ -369,15 +358,52 @@ describe("PolyControls", () => {
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const bad = (): void => { throw new Error("boom"); };
       root = createRoot(container);
-      act(() => root.render(tree({ onChange: bad })));
+      act(() => root.render(orbitTree({ onChange: bad })));
       const cameraEl = findCameraEl(container);
       dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
-      // Should not throw out of the event handler.
       expect(() => {
         dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
       }).not.toThrow();
       dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
       consoleSpy.mockRestore();
     });
+  });
+});
+
+describe("PolyMapControls", () => {
+  let container: HTMLElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    installManualRaf();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  it("attaches drag handlers by default", () => {
+    root = createRoot(container);
+    act(() => root.render(mapTree()));
+    const cameraEl = findCameraEl(container);
+    expect(cameraEl.style.cursor).toBe("grab");
+  });
+
+  it("left-drag pans target (not orbit)", () => {
+    root = createRoot(container);
+    act(() => root.render(mapTree({ rotY: 0, rotX: 0 })));
+    const cameraEl = findCameraEl(container);
+    dispatchPointer(cameraEl, "pointerdown", { x: 100, y: 100 });
+    dispatchPointer(cameraEl, "pointermove", { x: 200, y: 100 });
+    dispatchPointer(cameraEl, "pointerup", { x: 200, y: 100 });
+    // rotY should be unchanged — pan, not orbit
+    const sceneEl = findSceneEl(container);
+    expect(sceneEl.style.transform).toContain("rotate(0deg)");
+    // The translate3d should have changed — target moved
+    expect(sceneEl.style.transform).toContain("translate3d(");
   });
 });

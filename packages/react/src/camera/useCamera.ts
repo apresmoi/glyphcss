@@ -1,12 +1,11 @@
 import { useRef, useCallback, useEffect, useMemo } from "react";
-import { createIsometricCamera } from "@layoutit/polycss-core";
-import type { CameraState, CameraHandle } from "@layoutit/polycss-core";
+import { createIsometricCamera, BASE_TILE } from "@layoutit/polycss-core";
+import type { CameraState, CameraHandle, Vec3 } from "@layoutit/polycss-core";
 import { createSceneStore, type SceneStore } from "../store/sceneStore";
 
 export interface UseCameraOptions {
   zoom?: number;
-  pan?: number;
-  tilt?: number;
+  target?: Vec3;
   rotX?: number;
   rotY?: number;
 }
@@ -17,7 +16,7 @@ export interface UseCameraResult {
   sceneElRef: React.MutableRefObject<HTMLElement | null>;
   /**
    * Attach to the camera root element. Layered components like
-   * <PolyControls> need the underlying ref to wire non-passive wheel /
+   * <PolyOrbitControls> need the underlying ref to wire non-passive wheel /
    * pointer listeners (React's synthetic onWheel is passive in modern
    * versions and can't preventDefault).
    */
@@ -25,7 +24,7 @@ export interface UseCameraResult {
   /**
    * Apply the current camera state (from cameraRef.current.state) directly
    * to sceneEl.style.transform — bypasses React. Exposed so layered
-   * components like <PolyControls> can call it after mutating state.
+   * components like <PolyOrbitControls> can call it after mutating state.
    */
   applyTransformDirect: () => void;
 }
@@ -35,8 +34,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
   if (!handleRef.current) {
     handleRef.current = createIsometricCamera({
       zoom: options.zoom,
-      pan: options.pan,
-      tilt: options.tilt,
+      target: options.target,
       rotX: options.rotX,
       rotY: options.rotY,
     });
@@ -56,8 +54,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     const handle = handleRef.current!;
     const next: Partial<CameraState> = {};
     if (options.zoom !== undefined) next.zoom = options.zoom;
-    if (options.pan !== undefined) next.pan = options.pan;
-    if (options.tilt !== undefined) next.tilt = options.tilt;
+    if (options.target !== undefined) next.target = options.target;
     if (options.rotX !== undefined) next.rotX = options.rotX;
     if (options.rotY !== undefined) next.rotY = options.rotY;
     if (Object.keys(next).length > 0) {
@@ -66,13 +63,18 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
       const el = sceneElRef.current;
       if (el) {
         const s = handle.state;
-        const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
-        el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
+        const tileSize = BASE_TILE;
+        const [tx, ty, tz] = s.target;
+        const cssX = ty * tileSize;
+        const cssY = tx * tileSize;
+        const cssZ = tz * tileSize;
+        el.style.transform = `scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
       }
       store.updateCameraFromRef(handle);
       store.notifyAll(); // props changed — always notify
     }
-  }, [options.zoom, options.pan, options.tilt, options.rotX, options.rotY, store]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.zoom, options.target, options.rotX, options.rotY, store]);
 
   // Apply camera transform directly to scene element (bypasses React)
   const applyTransformDirect = useCallback(() => {
@@ -80,8 +82,12 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     if (!el) return;
     const handle = handleRef.current!;
     const s = handle.state;
-    const depthOffset = Number(el.dataset.polycssDepthOffset ?? 0);
-    el.style.transform = `scale(${s.zoom}) translateY(${depthOffset}px) translateY(${s.tilt}px) translateX(${s.pan}px) rotateX(${s.rotX}deg) rotate(${s.rotY}deg)`;
+    const tileSize = BASE_TILE;
+    const [tx, ty, tz] = s.target;
+    const cssX = ty * tileSize;
+    const cssY = tx * tileSize;
+    const cssZ = tz * tileSize;
+    el.style.transform = `scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }, []);
 
   return {

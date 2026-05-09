@@ -36,17 +36,14 @@ describe("useCamera behavior", () => {
   });
 
   describe("default camera state", () => {
-    it("starts with standard defaults for zoom, rotation, pan, tilt, and depthOffset", () => {
+    it("starts with standard defaults for zoom, rotation, and target", () => {
       const result = captureHook();
       const state = result.store.getState().cameraState;
       expect(state.zoom).toBe(0.65);
       expect(state.rotX).toBe(65);
       expect(state.rotY).toBe(45);
-      expect(state.pan).toBe(0);
-      expect(state.tilt).toBe(0);
-      expect(state.depthOffset).toBe(20);
+      expect(state.target).toEqual([0, 0, 0]);
     });
-
   });
 
   describe("initial camera props", () => {
@@ -62,11 +59,10 @@ describe("useCamera behavior", () => {
       expect(state.rotY).toBe(120);
     });
 
-    it("applies custom pan and tilt", () => {
-      const result = captureHook({ pan: 10, tilt: 5 });
+    it("applies custom target", () => {
+      const result = captureHook({ target: [5, 10, 0] });
       const state = result.store.getState().cameraState;
-      expect(state.pan).toBe(10);
-      expect(state.tilt).toBe(5);
+      expect(state.target).toEqual([5, 10, 0]);
     });
   });
 
@@ -126,5 +122,4 @@ describe("useCamera behavior", () => {
       expect(captured!.cameraRef.current.state.zoom).toBe(2.5);
     });
   });
-
 });
