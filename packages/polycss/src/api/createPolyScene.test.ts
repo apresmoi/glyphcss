@@ -4,7 +4,7 @@
  * plus the autoCenter mirror and 0×0 anchor pattern from React.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ParseResult, Polygon } from "@polycss/core";
+import type { ParseResult, Polygon } from "@layoutit/polycss-core";
 import {
   createPolyScene,
   type SceneHandle,

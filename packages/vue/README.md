@@ -1,13 +1,13 @@
 > **Status: pre-1.0; API surface frozen per [POLYCSS_MIGRATION.md](../../POLYCSS_MIGRATION.md). Breaking changes possible until 0.1.0 release.**
 
-# @polycss/vue
+# @layoutit/polycss-vue
 
 Native Vue 3 components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
 ```bash
-npm install @polycss/vue
+npm install @layoutit/polycss-vue
 ```
 
 Requires Vue 3 as a peer dependency.
@@ -22,7 +22,7 @@ Requires Vue 3 as a peer dependency.
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 
@@ -94,13 +94,13 @@ Camera controls wrapper. Most use cases can pass camera props directly to `<Poly
 |---|---|
 | `injectBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. |
 
-## Re-exports from `@polycss/core`
+## Re-exports from `@layoutit/polycss-core`
 
 All types and core functions are re-exported:
 
 ```ts
-import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@polycss/vue";
-import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@polycss/vue";
+import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@layoutit/polycss-vue";
+import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@layoutit/polycss-vue";
 ```
 
 ## Examples
@@ -116,7 +116,7 @@ import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygo
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 const light = { direction: [0.5, -0.7, 0.6] as [number, number, number], color: "#ffe4a8", ambient: 0.4 };
 </script>
 ```
@@ -140,8 +140,8 @@ const light = { direction: [0.5, -0.7, 0.6] as [number, number, number], color: 
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, Poly } from "@polycss/vue";
-import type { Polygon } from "@polycss/vue";
+import { PolyScene, Poly } from "@layoutit/polycss-vue";
+import type { Polygon } from "@layoutit/polycss-vue";
 
 defineProps<{ polygons: Polygon[] }>();
 const hoveredId = ref<number | null>(null);
@@ -170,7 +170,7 @@ const hoveredId = ref<number | null>(null);
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, PolyMesh, Poly } from "@polycss/vue";
+import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-vue";
 const selected = ref<number | null>(null);
 </script>
 ```

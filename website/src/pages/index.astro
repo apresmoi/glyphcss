@@ -25,7 +25,7 @@ const frameworkTabs = [
     id: "vanilla",
     label: "vanilla js",
     language: "html",
-    code: `<script type="module" src="https://esm.sh/polycss/elements"></script>
+    code: `<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
   <poly-controls drag wheel animate-speed="0.3"></poly-controls>
@@ -36,7 +36,7 @@ const frameworkTabs = [
     id: "react",
     label: "React",
     language: "tsx",
-    code: `import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/react";
+    code: `import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -62,7 +62,7 @@ export function App() {
   </PolyCamera>
 </template>
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-vue";
 </script>`,
   },
 ].map(tab => ({
@@ -71,9 +71,9 @@ import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
 }));
 
 const installCmds = [
-  "npm install polycss",
-  "npm install @polycss/react",
-  "npm install @polycss/vue",
+  "npm install @layoutit/polycss",
+  "npm install @layoutit/polycss-react",
+  "npm install @layoutit/polycss-vue",
 ].map(cmd => ({ code: cmd, highlighted: highlight(cmd, "javascript") }));
 
 const ldJson = {
@@ -199,7 +199,7 @@ const ldJson = {
             <div class="install-row">
               <p class="install-label">CDN</p>
               <div class="install-content">
-                <pre class="dark-scrollbar"><code class="language-html hljs" set:html={highlight('<script type="module" src="https://esm.sh/polycss/elements"></script>', "html")} /></pre>
+                <pre class="dark-scrollbar"><code class="language-html hljs" set:html={highlight('<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>', "html")} /></pre>
               </div>
             </div>
           </div>
@@ -307,7 +307,7 @@ const ldJson = {
       const host = document.getElementById("hero-root");
       if (!host) return;
       try {
-        const { createPolyScene, createPolyControls, loadMesh } = await import("polycss");
+        const { createPolyScene, createPolyControls, loadMesh } = await import("@layoutit/polycss");
         const parseResult = await loadMesh("/gallery/obj/chicken.obj", {
           mtlUrl: "/gallery/obj/chicken.mtl",
           objOptions: {

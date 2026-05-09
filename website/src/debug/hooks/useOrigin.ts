@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { normalizePolygons } from "@polycss/react";
-import type { Polygon } from "@polycss/react";
+import { normalizePolygons } from "@layoutit/polycss-react";
+import type { Polygon } from "@layoutit/polycss-react";
 
 type Vec3 = [number, number, number];
 

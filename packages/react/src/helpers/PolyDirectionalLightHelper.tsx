@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import type { DirectionalLight, Vec3 } from "@polycss/core";
-import { octahedronPolygons } from "@polycss/core";
+import type { DirectionalLight, Vec3 } from "@layoutit/polycss-core";
+import { octahedronPolygons } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene";
 
 export interface PolyDirectionalLightHelperProps {

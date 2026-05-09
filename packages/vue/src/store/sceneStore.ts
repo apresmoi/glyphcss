@@ -3,7 +3,7 @@
  * Components subscribe to specific slices via selectors,
  * so only the components that care about a changed value re-render.
  */
-import type { CameraState, CameraHandle } from "@polycss/core";
+import type { CameraState, CameraHandle } from "@layoutit/polycss-core";
 
 export interface SceneStoreState {
   cameraState: CameraState;

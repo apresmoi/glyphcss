@@ -24,7 +24,7 @@ Every polygon rendered by polycss is a real DOM element. You can attach standard
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene>
   <!-- Vertices are JSON arrays in the `vertices` attribute. -->
@@ -39,7 +39,7 @@ Every polygon rendered by polycss is a real DOM element. You can attach standard
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, Poly } from "@polycss/react";
+import { PolyScene, Poly } from "@layoutit/polycss-react";
 
 const triangle: Vec3[] = [[0,0,0], [1,0,0], [0,1,0]];
 
@@ -56,7 +56,7 @@ const triangle: Vec3[] = [[0,0,0], [1,0,0], [0,1,0]];
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <style>
   .highlight { filter: brightness(1.5); }
@@ -87,8 +87,8 @@ const triangle: Vec3[] = [[0,0,0], [1,0,0], [0,1,0]];
 <TabItem label="React">
 ```tsx
 import { useState } from "react";
-import { PolyScene, PolyMesh, Poly } from "@polycss/react";
-import type { Polygon } from "@polycss/react";
+import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-react";
+import type { Polygon } from "@layoutit/polycss-react";
 
 export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -133,8 +133,8 @@ export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, Poly } from "@polycss/vue";
-import type { Polygon } from "@polycss/vue";
+import { PolyScene, Poly } from "@layoutit/polycss-vue";
+import type { Polygon } from "@layoutit/polycss-vue";
 
 defineProps<{ polygons: Polygon[] }>();
 const hoveredId = ref<number | null>(null);
@@ -160,7 +160,7 @@ To customize specific polygons inside a loaded mesh, use:
 <TabItem label="Vanilla JS">
 ```html
 <script type="module">
-  import { loadMesh, createPolyScene } from "polycss";
+  import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
   const host = document.getElementById("scene-host");
   const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
@@ -180,7 +180,7 @@ To customize specific polygons inside a loaded mesh, use:
 <TabItem label="React">
 ```tsx
 import { useState } from "react";
-import { PolyScene, PolyMesh, Poly } from "@polycss/react";
+import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-react";
 
 export function SelectableMesh() {
   const [selected, setSelected] = useState<number | null>(null);
@@ -218,7 +218,7 @@ export function SelectableMesh() {
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, PolyMesh, Poly } from "@polycss/vue";
+import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-vue";
 const selected = ref<number | null>(null);
 </script>
 ```
@@ -231,7 +231,7 @@ Load a mesh programmatically when you need control over loading state. The vanil
 
 ```ts
 // Vanilla — works in any framework or no framework
-import { loadMesh, createPolyScene } from "polycss";
+import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
 const scene = createPolyScene(document.getElementById("host")!);
 const { polygons, dispose } = await loadMesh("/cottage.glb");
@@ -243,7 +243,7 @@ scene.remove();
 
 ```tsx
 // React
-import { PolyScene, Poly, useMesh } from "@polycss/react";
+import { PolyScene, Poly, useMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
   const { polygons, loading, error } = useMesh("/cottage.glb");

@@ -1,7 +1,7 @@
 import { ref, shallowRef, watch } from "vue";
 import type { Ref } from "vue";
-import { createIsometricCamera } from "@polycss/core";
-import type { CameraState, CameraHandle } from "@polycss/core";
+import { createIsometricCamera } from "@layoutit/polycss-core";
+import type { CameraState, CameraHandle } from "@layoutit/polycss-core";
 import { createSceneStore, type SceneStore } from "../store";
 
 export interface UseCameraOptions {

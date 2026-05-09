@@ -3,11 +3,11 @@
   "compilerOptions": {
     "baseUrl": "..",
     "paths": {
-      "@polycss/core": ["packages/core/src/index.ts"],
-      "@polycss/react": ["packages/react/src/index.ts"],
-      "@polycss/vue": ["packages/vue/src/index.ts"],
-      "polycss": ["packages/polycss/src/index.ts"],
-      "polycss/elements": ["packages/polycss/src/elements/index.ts"]
+      "@layoutit/polycss-core": ["packages/core/src/index.ts"],
+      "@layoutit/polycss-react": ["packages/react/src/index.ts"],
+      "@layoutit/polycss-vue": ["packages/vue/src/index.ts"],
+      "@layoutit/polycss": ["packages/polycss/src/index.ts"],
+      "@layoutit/polycss/elements": ["packages/polycss/src/elements/index.ts"]
     }
   },
   "include": [".astro/types.d.ts", "**/*"],

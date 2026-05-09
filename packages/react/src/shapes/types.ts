@@ -3,7 +3,7 @@ import type {
   Vec3,
   DirectionalLight,
   TextureLightingMode,
-} from "@polycss/core";
+} from "@layoutit/polycss-core";
 import type {
   CSSProperties,
   MouseEventHandler,

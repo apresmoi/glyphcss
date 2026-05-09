@@ -1,5 +1,5 @@
 {
-  "name": "@polycss/vue",
+  "name": "@layoutit/polycss-vue",
   "version": "0.0.1",
   "description": "Native Vue 3 components for CSS polygon mesh rendering with 60fps imperative updates.",
   "type": "module",
@@ -37,7 +37,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@polycss/core": "workspace:^"
+    "@layoutit/polycss-core": "workspace:^"
   },
   "peerDependencies": {
     "vue": "^3.0.0"

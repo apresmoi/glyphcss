@@ -18,17 +18,17 @@ polycss is **vanilla-first**. The default entry point is custom elements (`<poly
 <Tabs syncKey="pkg">
 <TabItem label="Vanilla JS">
 ```bash
-npm install polycss
+npm install @layoutit/polycss
 ```
 </TabItem>
 <TabItem label="React">
 ```bash
-npm install @polycss/react
+npm install @layoutit/polycss-react
 ```
 </TabItem>
 <TabItem label="Vue">
 ```bash
-npm install @polycss/vue
+npm install @layoutit/polycss-vue
 ```
 </TabItem>
 </Tabs>
@@ -38,7 +38,7 @@ npm install @polycss/vue
 You can also load polycss directly from a CDN with no build step:
 
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 ```
 
 ## A quick taste
@@ -46,7 +46,7 @@ You can also load polycss directly from a CDN with no build step:
 Load a GLB mesh into an interactive scene with zero JS — just custom elements:
 
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45" perspective="1000">
   <poly-mesh src="/cottage.glb"></poly-mesh>
@@ -56,7 +56,7 @@ Load a GLB mesh into an interactive scene with zero JS — just custom elements:
 Or with React:
 
 ```tsx
-import { PolyScene, PolyMesh } from "@polycss/react";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (

@@ -1,4 +1,4 @@
-import type { Polygon } from "@polycss/react";
+import type { Polygon } from "@layoutit/polycss-react";
 
 export type Vec3 = [number, number, number];
 

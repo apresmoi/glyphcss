@@ -1,5 +1,5 @@
 {
-  "name": "polycss",
+  "name": "@layoutit/polycss",
   "version": "0.0.1",
   "description": "Polycss vanilla / custom-elements + imperative API. Renders OBJ / glTF / GLB mesh polygons as DOM via CSS matrix3d.",
   "type": "module",
@@ -42,7 +42,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@polycss/core": "workspace:^"
+    "@layoutit/polycss-core": "workspace:^"
   },
   "devDependencies": {
     "tsup": "^8.0.1",

@@ -1,6 +1,6 @@
 > **Status: pre-1.0; API surface frozen per [POLYCSS_MIGRATION.md](../../POLYCSS_MIGRATION.md). Breaking changes possible until 0.1.0 release.**
 
-# @polycss/core
+# @layoutit/polycss-core
 
 Framework-agnostic math, parsers, and helpers for CSS polygon-mesh rendering. Zero browser globals — runs in Node, workers, or any JS environment.
 
@@ -8,16 +8,16 @@ This package contains the entire non-rendering side of polycss: OBJ / glTF / GLB
 
 ## When to use directly
 
-Most users install `@polycss/react`, `@polycss/vue`, or `polycss` (vanilla). Those packages include `@polycss/core` as a transitive runtime dependency and re-export its public types and functions, so you never need to write `import ... from "@polycss/core"` in application code.
+Most users install `@layoutit/polycss-react`, `@layoutit/polycss-vue`, or `polycss` (vanilla). Those packages include `@layoutit/polycss-core` as a transitive runtime dependency and re-export its public types and functions, so you never need to write `import ... from "@layoutit/polycss-core"` in application code.
 
-Install `@polycss/core` directly when you:
+Install `@layoutit/polycss-core` directly when you:
 
 - Build custom rendering outside React / Vue / vanilla (e.g., a Svelte wrapper, a server-side OBJ validator, a CLI mesh processor).
 - Want only the parsers / math without any rendering layer.
 - Are writing a polycss plugin or tooling that must remain framework-neutral.
 
 ```bash
-npm install @polycss/core
+npm install @layoutit/polycss-core
 ```
 
 ## Public surface
@@ -62,7 +62,7 @@ npm install @polycss/core
 ### Parse an OBJ file
 
 ```ts
-import { parseObj } from "@polycss/core";
+import { parseObj } from "@layoutit/polycss-core";
 
 const text = await fetch("/cottage.obj").then(r => r.text());
 const { polygons, warnings, dispose } = parseObj(text, {
@@ -81,8 +81,8 @@ dispose();
 ### Normalize a polygon list
 
 ```ts
-import { normalizePolygons } from "@polycss/core";
-import type { Polygon } from "@polycss/core";
+import { normalizePolygons } from "@layoutit/polycss-core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const raw: Polygon[] = [
   { vertices: [[0,0,0], [1,0,0], [0,1,0]], color: "#f00" },
@@ -98,7 +98,7 @@ warnings.forEach(w => console.warn(w));
 ### Merge coplanar polygons
 
 ```ts
-import { parseGltf, mergePolygons } from "@polycss/core";
+import { parseGltf, mergePolygons } from "@layoutit/polycss-core";
 
 const buf = await fetch("/cottage.glb").then(r => r.arrayBuffer());
 const { polygons, dispose } = parseGltf(buf, { targetSize: 60 });

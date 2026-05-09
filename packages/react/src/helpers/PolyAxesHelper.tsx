@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { axesHelperPolygons } from "@polycss/core";
+import { axesHelperPolygons } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene";
 
 export interface PolyAxesHelperProps {

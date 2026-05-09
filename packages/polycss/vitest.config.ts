@@ -24,7 +24,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@polycss/core": resolve(__dirname, "../core/src"),
+      "@layoutit/polycss-core": resolve(__dirname, "../core/src"),
     },
   },
 });

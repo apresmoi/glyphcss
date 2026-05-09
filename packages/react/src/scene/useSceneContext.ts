@@ -3,8 +3,8 @@ import type {
   Polygon,
   DirectionalLight,
   Vec3,
-} from "@polycss/core";
-import { buildSceneContext, mergePolygons } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { buildSceneContext, mergePolygons } from "@layoutit/polycss-core";
 
 export interface UseSceneContextOptions {
   directionalLight?: DirectionalLight;

@@ -1,11 +1,11 @@
 /**
  * PolyAxesHelper — three colored bars from world origin along +X / +Y / +Z.
- * Vue port of @polycss/react's `<PolyAxesHelper>`. Mirrors three.js's
+ * Vue port of @layoutit/polycss-react's `<PolyAxesHelper>`. Mirrors three.js's
  * AxesHelper convention (red=X, green=Y, blue=Z).
  */
 import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
-import { axesHelperPolygons } from "@polycss/core";
+import { axesHelperPolygons } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene/PolyMesh";
 
 export interface PolyAxesHelperProps {

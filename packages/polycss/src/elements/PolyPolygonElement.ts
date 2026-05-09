@@ -8,7 +8,7 @@
  * Unlike <poly-mesh>, this element creates a one-polygon ParseResult inline
  * — there's no URL fetch.
  */
-import type { ParseResult, Polygon, Vec2, Vec3 } from "@polycss/core";
+import type { ParseResult, Polygon, Vec2, Vec3 } from "@layoutit/polycss-core";
 import type { MeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 

@@ -3,7 +3,7 @@ import { createApp, h, nextTick } from "vue";
 import type { VNode } from "vue";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "./PolyScene";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [

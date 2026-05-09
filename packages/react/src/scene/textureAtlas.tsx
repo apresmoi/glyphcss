@@ -7,8 +7,8 @@ import type {
   Polygon,
   TextureLightingMode,
   Vec3,
-} from "@polycss/core";
-import { parsePureColor } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { parsePureColor } from "@layoutit/polycss-core";
 
 const DEFAULT_TILE = 50;
 const DEFAULT_LIGHT_DIR: Vec3 = [0.4, -0.7, 0.59];

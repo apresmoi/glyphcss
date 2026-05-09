@@ -26,8 +26,8 @@ import type {
   Polygon,
   TextureLightingMode,
   Vec3,
-} from "@polycss/core";
-import { computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@layoutit/polycss-core";
 import {
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,

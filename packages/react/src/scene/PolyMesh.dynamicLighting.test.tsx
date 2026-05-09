@@ -14,7 +14,7 @@ import { createRoot } from "react-dom/client";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "./PolyScene";
 import { PolyMesh } from "./PolyMesh";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [

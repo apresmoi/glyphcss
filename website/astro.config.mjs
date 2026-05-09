@@ -27,11 +27,11 @@ export default defineConfig({
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
         {
-          find: /^polycss\/elements$/,
+          find: /^@layoutit\/polycss\/elements$/,
           replacement: repoPath('../packages/polycss/src/elements/index.ts'),
         },
         {
-          find: /^polycss$/,
+          find: /^@layoutit\/polycss$/,
           replacement: repoPath('../packages/polycss/src/index.ts'),
         },
       ],

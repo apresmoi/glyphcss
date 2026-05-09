@@ -5,7 +5,7 @@
  * so only the components that care about a changed value re-render.
  */
 import { useSyncExternalStore, useRef, useCallback } from "react";
-import type { CameraState, CameraHandle } from "@polycss/core";
+import type { CameraState, CameraHandle } from "@layoutit/polycss-core";
 
 export interface SceneStoreState {
   cameraState: CameraState;

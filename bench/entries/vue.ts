@@ -17,9 +17,9 @@ import {
   PolyControls,
   PolyMesh,
   Poly,
-} from "@polycss/vue";
-import type { Polygon } from "@polycss/core";
-import { loadMesh } from "@polycss/core";
+} from "@layoutit/polycss-vue";
+import type { Polygon } from "@layoutit/polycss-core";
+import { loadMesh } from "@layoutit/polycss-core";
 // @ts-expect-error — sibling .mjs without types
 import { parseUrlParams, dirFromAzEl, createPerfRecorder, PERF_OVERLAY_HTML, PERF_OVERLAY_CSS } from "../perf-shared.mjs";
 // @ts-expect-error — sibling .mjs without types

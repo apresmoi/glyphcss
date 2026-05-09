@@ -3,7 +3,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { useMesh } from "./useMesh";
 import type { UseMeshResult } from "./useMesh";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const MOCK_POLYGON: Polygon = {
   vertices: [

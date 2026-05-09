@@ -3,14 +3,14 @@ title: Headless API
 description: Vanilla JavaScript API for loading meshes and rendering polygon scenes without a framework.
 ---
 
-The headless API (`@polycss/core`) gives you direct access to polycss parsers and utilities without React, Vue, or any framework. All exports are also available from `polycss` (the vanilla package) so vanilla users install just one package.
+The headless API (`@layoutit/polycss-core`) gives you direct access to polycss parsers and utilities without React, Vue, or any framework. All exports are also available from `@layoutit/polycss` (the vanilla package) so vanilla users install just one package.
 
 ## `parseObj(text, options?)`
 
 Parses an OBJ file text string into a `ParseResult`.
 
 ```ts
-import { parseObj } from "@polycss/core";
+import { parseObj } from "@layoutit/polycss-core";
 
 const text = await fetch("/cottage.obj").then(r => r.text());
 const { polygons, warnings, dispose } = parseObj(text, {
@@ -31,7 +31,7 @@ dispose(); // revoke any blob URLs (OBJ rarely creates them)
 Parses a GLB or glTF file into a `ParseResult`. Accepts `ArrayBuffer` or `Uint8Array`.
 
 ```ts
-import { parseGltf } from "@polycss/core";
+import { parseGltf } from "@layoutit/polycss-core";
 
 const buf = await fetch("/model.glb").then(r => r.arrayBuffer());
 const { polygons, objectUrls, dispose } = parseGltf(buf, {
@@ -52,7 +52,7 @@ dispose(); // always call on cleanup
 Parses an MTL file text string into a material map.
 
 ```ts
-import { parseMtl } from "@polycss/core";
+import { parseMtl } from "@layoutit/polycss-core";
 
 const { colors, textures } = parseMtl(mtlText);
 // colors — Record<materialName, cssColor>
@@ -66,7 +66,7 @@ const { colors, textures } = parseMtl(mtlText);
 High-level convenience function: fetches a URL, detects OBJ vs GLB/glTF by extension (`.obj`, `.glb`, `.gltf`), parses it, and returns a `ParseResult`.
 
 ```ts
-import { loadMesh } from "@polycss/core";
+import { loadMesh } from "@layoutit/polycss-core";
 
 const { polygons, dispose } = await loadMesh("/cottage.glb", {
   targetSize: 60,
@@ -83,8 +83,8 @@ dispose(); // always call on cleanup
 Validates a polygon array. Drops degenerate polygons (collinear, zero-area), auto-triangulates non-coplanar N-gons via fan decomposition, and strips UV arrays that don't match `vertices.length`. Returns the validated polygons plus a list of human-readable warnings describing every change made.
 
 ```ts
-import { normalizePolygons } from "@polycss/core";
-import type { Polygon } from "@polycss/core";
+import { normalizePolygons } from "@layoutit/polycss-core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const raw: Polygon[] = [
   { vertices: [[0,0,0],[1,0,0],[0,1,0]], color: "#f00" },
@@ -102,7 +102,7 @@ warnings.forEach(w => console.warn(w));
 Merges coplanar adjacent polygons that share the same material (color + texture). Reduces DOM element count on large flat surfaces without changing visual output. UV-aware.
 
 ```ts
-import { mergePolygons } from "@polycss/core";
+import { mergePolygons } from "@layoutit/polycss-core";
 
 const merged = mergePolygons(polygons);
 console.log(`${polygons.length} polygons → ${merged.length} after merge`);
@@ -115,7 +115,7 @@ console.log(`${polygons.length} polygons → ${merged.length} after merge`);
 Creates an isometric-style camera state object. Used internally by the imperative `createPolyScene` API and by `<PolyCamera>` (React / Vue).
 
 ```ts
-import { createIsometricCamera } from "@polycss/core";
+import { createIsometricCamera } from "@layoutit/polycss-core";
 
 const cam = createIsometricCamera({
   rotX: 65,
@@ -133,7 +133,7 @@ const cam = createIsometricCamera({
 Attach pointer drag, wheel zoom, and an optional autorotate loop to a scene returned by `createPolyScene`. Pure additive layer — the renderer stays free of input concerns. Modelled on Three.js `OrbitControls`.
 
 ```ts
-import { createPolyScene, createPolyControls, loadMesh } from "polycss";
+import { createPolyScene, createPolyControls, loadMesh } from "@layoutit/polycss";
 
 const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
 scene.add(await loadMesh("/cottage.glb"));
@@ -198,7 +198,7 @@ Anything that satisfies that subset works, so layered helpers can compose multip
 Register the `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`, and `<poly-controls>` custom elements by importing the side-effect entry point:
 
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
   <poly-controls drag wheel animate-speed="0.3"></poly-controls>
@@ -214,8 +214,8 @@ See the [polycss README](https://github.com/LayoutitStudio/polycss/tree/main/pac
 
 | Import path | Contents |
 |---|---|
-| `@polycss/react` | React components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`, hooks |
-| `@polycss/vue` | Vue components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera` |
-| `polycss` | Vanilla imperative API + custom element classes |
-| `polycss/elements` | Side-effect: registers `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>` |
-| `@polycss/core` | Pure parsers / math, zero DOM — `parseObj`, `parseGltf`, `loadMesh`, types |
+| `@layoutit/polycss-react` | React components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`, hooks |
+| `@layoutit/polycss-vue` | Vue components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera` |
+| `@layoutit/polycss` | Vanilla imperative API + custom element classes |
+| `@layoutit/polycss/elements` | Side-effect: registers `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>` |
+| `@layoutit/polycss-core` | Pure parsers / math, zero DOM — `parseObj`, `parseGltf`, `loadMesh`, types |

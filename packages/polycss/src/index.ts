@@ -5,9 +5,9 @@
  *   - `createPolyScene(host, options)` — imperative scene API
  *   - `PolySceneElement`, `PolyMeshElement`, `PolyPolygonElement` —
  *     custom element classes (importing this entry does NOT auto-register
- *     them; use `polycss/elements` for that side effect).
- *   - Re-exports everything from `@polycss/core` so vanilla users only
- *     need `npm install polycss`.
+ *     them; use `@layoutit/polycss/elements` for that side effect).
+ *   - Re-exports everything from `@layoutit/polycss-core` so vanilla users only
+ *     need `npm install @layoutit/polycss`.
  */
 
 // ── Imperative scene API ──────────────────────────────────────────
@@ -39,7 +39,7 @@ export type {
   TransformControlsObjectChangeEvent,
 } from "./api/createTransformControls";
 
-// ── Custom element classes (without auto-registering — that's polycss/elements) ──
+// ── Custom element classes (without auto-registering — that's @layoutit/polycss/elements) ──
 export { PolySceneElement } from "./elements/PolySceneElement";
 export { PolyMeshElement } from "./elements/PolyMeshElement";
 export { PolyPolygonElement } from "./elements/PolyPolygonElement";
@@ -48,5 +48,5 @@ export { PolyControlsElement } from "./elements/PolyControlsElement";
 // ── Style injection ───────────────────────────────────────────────
 export { injectBaseStyles } from "./styles/styles";
 
-// ── Re-exports from @polycss/core ─────────────────────────────────
-export * from "@polycss/core";
+// ── Re-exports from @layoutit/polycss-core ─────────────────────────────────
+export * from "@layoutit/polycss-core";

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Polygon } from "@polycss/react";
+import type { Polygon } from "@layoutit/polycss-react";
 
 type Vec3 = [number, number, number];
 

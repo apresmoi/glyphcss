@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { Polygon } from "@polycss/react";
+import type { Polygon } from "@layoutit/polycss-react";
 import {
   DebugLayout, DebugSection, DebugStats, DebugScene,
   Row, Slider,

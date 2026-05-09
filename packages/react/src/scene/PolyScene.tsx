@@ -5,8 +5,8 @@ import type {
   DirectionalLight,
   AmbientLight,
   TextureLightingMode,
-} from "@polycss/core";
-import { createIsometricCamera, parseHexColor } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { createIsometricCamera, parseHexColor } from "@layoutit/polycss-core";
 import { useCameraContext } from "../camera/context";
 import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles/styles";

@@ -26,7 +26,7 @@ Higher `perspective` values feel flatter (more isometric-like); lower values exa
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <!-- Standard perspective -->
 <poly-scene perspective="1000" rot-x="65" rot-y="45">
@@ -46,7 +46,7 @@ Higher `perspective` values feel flatter (more isometric-like); lower values exa
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@polycss/react";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 // Standard perspective
 <PolyScene perspective={1000} rotX={65} rotY={45}>
@@ -74,7 +74,7 @@ import { PolyScene, PolyMesh } from "@polycss/react";
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>

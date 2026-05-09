@@ -10,7 +10,7 @@ import {
   h,
 } from "vue";
 import type { CSSProperties, PropType } from "vue";
-import type { DirectionalLight, TextureLightingMode, Vec2, Vec3 } from "@polycss/core";
+import type { DirectionalLight, TextureLightingMode, Vec2, Vec3 } from "@layoutit/polycss-core";
 import {
   computeTextureAtlasPlan,
   renderTextureAtlasPoly,

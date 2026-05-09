@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect, useMemo } from "react";
-import { createIsometricCamera } from "@polycss/core";
-import type { CameraState, CameraHandle } from "@polycss/core";
+import { createIsometricCamera } from "@layoutit/polycss-core";
+import type { CameraState, CameraHandle } from "@layoutit/polycss-core";
 import { createSceneStore, type SceneStore } from "../store/sceneStore";
 
 export interface UseCameraOptions {

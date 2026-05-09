@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createSceneStore } from "./sceneStore";
-import type { CameraState } from "@polycss/core";
+import type { CameraState } from "@layoutit/polycss-core";
 
 const INITIAL: CameraState = {
   zoom: 1,

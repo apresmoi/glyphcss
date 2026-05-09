@@ -10,7 +10,7 @@ import type {
   AmbientLight,
   DirectionalLight,
   TextureLightingMode,
-} from "@polycss/core";
+} from "@layoutit/polycss-core";
 
 export interface PolySceneContextValue {
   textureLighting: TextureLightingMode;

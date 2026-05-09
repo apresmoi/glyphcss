@@ -49,7 +49,7 @@ export type {
 
 export { injectBaseStyles } from "./styles";
 
-// ── Re-exports from @polycss/core ─────────────────────────────────────────────
+// ── Re-exports from @layoutit/polycss-core ─────────────────────────────────────────────
 export type {
   Polygon,
   Vec2,
@@ -64,7 +64,7 @@ export type {
   GltfParseOptions,
   MtlParseResult,
   NormalizeResult,
-} from "@polycss/core";
+} from "@layoutit/polycss-core";
 export {
   normalizePolygons,
   mergePolygons,
@@ -74,4 +74,4 @@ export {
   parseGltf,
   loadMesh,
   createIsometricCamera,
-} from "@polycss/core";
+} from "@layoutit/polycss-core";

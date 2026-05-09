@@ -7,12 +7,12 @@
  *   bench/polycss-elements.js ← side-effect bundle that registers the
  *                                custom elements; used by perf-html.html
  *   bench/polycss-react.js    ← React entry (bench/entries/react.tsx)
- *                                bundled with React + ReactDOM + @polycss/react
+ *                                bundled with React + ReactDOM + @layoutit/polycss-react
  *   bench/polycss-vue.js      ← Vue entry (bench/entries/vue.ts) bundled
- *                                with Vue 3 + @polycss/vue
+ *                                with Vue 3 + @layoutit/polycss-vue
  *
  * Why not reuse the published dists? The packages keep workspace-peer
- * imports as bare specifiers (e.g. `@polycss/core`), which the browser
+ * imports as bare specifiers (e.g. `@layoutit/polycss-core`), which the browser
  * can't resolve. esbuild here re-bundles with `bundle: true` and aliases
  * the workspace packages to their SOURCE — so editing source lands in
  * the bundle without a tsup build pass.
@@ -27,13 +27,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 
 const ALIASES = {
-  "@polycss/core":     resolve(repoRoot, "packages/core/src/index.ts"),
-  "polycss":           resolve(repoRoot, "packages/polycss/src/index.ts"),
-  "polycss/elements":  resolve(repoRoot, "packages/polycss/src/elements/index.ts"),
-  "@polycss/react":    resolve(repoRoot, "packages/react/src/index.ts"),
-  "@polycss/vue":      resolve(repoRoot, "packages/vue/src/index.ts"),
+  "@layoutit/polycss-core":     resolve(repoRoot, "packages/core/src/index.ts"),
+  "@layoutit/polycss":           resolve(repoRoot, "packages/polycss/src/index.ts"),
+  "@layoutit/polycss/elements":  resolve(repoRoot, "packages/polycss/src/elements/index.ts"),
+  "@layoutit/polycss-react":    resolve(repoRoot, "packages/react/src/index.ts"),
+  "@layoutit/polycss-vue":      resolve(repoRoot, "packages/vue/src/index.ts"),
   // Pin React + ReactDOM to the workspace-root copies so the alias-resolved
-  // @polycss/react source AND the bench entry import the SAME instance.
+  // @layoutit/polycss-react source AND the bench entry import the SAME instance.
   // Without this, esbuild treats two `react` imports starting from different
   // tree positions as separate modules → "Cannot read properties of null
   // (reading 'useRef')" because each copy keeps its own internal dispatcher.

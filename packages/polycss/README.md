@@ -12,13 +12,13 @@ Two entry points:
 ## Install
 
 ```bash
-npm install polycss
+npm install @layoutit/polycss
 ```
 
 Or via CDN (no build step):
 
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 ```
 
 ## Custom elements (declarative, primary path)
@@ -26,7 +26,7 @@ Or via CDN (no build step):
 Register elements with the side-effect import:
 
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene perspective="1000" rot-x="65" rot-y="45">
   <poly-mesh src="/cottage.glb"></poly-mesh>
@@ -54,7 +54,7 @@ Custom elements accept standard DOM events — no framework needed:
 <poly-scene id="scene" perspective="1000" rot-x="65" rot-y="45"></poly-scene>
 
 <script type="module">
-import "https://esm.sh/polycss/elements";
+import "https://esm.sh/@layoutit/polycss/elements";
 
 const scene = document.querySelector("#scene");
 
@@ -124,7 +124,7 @@ For pointer drag, wheel zoom, and autorotate, drop a `<poly-controls>` child ins
 For programmatic control without custom elements:
 
 ```js
-import { createPolyScene, loadMesh } from "polycss";
+import { createPolyScene, loadMesh } from "@layoutit/polycss";
 
 const scene = createPolyScene(document.querySelector("#scene"), {
   perspective: 1000,
@@ -171,16 +171,16 @@ Fetches and parses a mesh by URL (dispatches by extension: `.obj`, `.glb`, `.glt
 
 | Import | Effect |
 |---|---|
-| `import { createPolyScene } from "polycss"` | Imperative API + custom element classes (no auto-registration) |
-| `import "polycss/elements"` | Side-effect: registers `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>` |
+| `import { createPolyScene } from "@layoutit/polycss"` | Imperative API + custom element classes (no auto-registration) |
+| `import "@layoutit/polycss/elements"` | Side-effect: registers `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>` |
 
-## Re-exports from `@polycss/core`
+## Re-exports from `@layoutit/polycss-core`
 
-All `@polycss/core` exports are re-exported from `polycss`, so vanilla users install one package:
+All `@layoutit/polycss-core` exports are re-exported from `@layoutit/polycss`, so vanilla users install one package:
 
 ```ts
-import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons } from "polycss";
-import type { Polygon, Vec3, ParseResult } from "polycss";
+import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons } from "@layoutit/polycss";
+import type { Polygon, Vec3, ParseResult } from "@layoutit/polycss";
 ```
 
 ## Docs

@@ -36,7 +36,7 @@ import {
   type CSSProperties,
   type RefObject,
 } from "react";
-import { arrowPolygons, ringPolygons, type Polygon, type Vec3 } from "@polycss/core";
+import { arrowPolygons, ringPolygons, type Polygon, type Vec3 } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene/PolyMesh";
 import { pointInMeshElement, type PolyMeshHandle, type PolyPointerEvent } from "../scene/events";
 import { PolyCameraContext } from "../camera/context";

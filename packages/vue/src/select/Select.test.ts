@@ -7,7 +7,7 @@ import { PolyMesh } from "../scene/PolyMesh";
 import { Select, useSelect, useSelectionApi } from "./Select";
 import type { SelectionApi } from "./Select";
 import type { PolyMeshHandle } from "../scene/events";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [

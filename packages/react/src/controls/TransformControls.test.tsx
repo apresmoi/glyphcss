@@ -6,7 +6,7 @@ import { PolyScene } from "../scene/PolyScene";
 import { PolyMesh } from "../scene/PolyMesh";
 import { TransformControls } from "./TransformControls";
 import type { PolyMeshHandle } from "../scene/events";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]],

@@ -100,9 +100,9 @@ Scene content renders relative to the (0,0,0) origin. Most mesh files are author
 
 polycss is structured in three layers:
 
-1. **Core** (`@polycss/core`) — Pure math and parsing. Handles OBJ / glTF / GLB parsing, UV decoding, lighting math, and polygon normalization. No DOM dependency.
+1. **Core** (`@layoutit/polycss-core`) — Pure math and parsing. Handles OBJ / glTF / GLB parsing, UV decoding, lighting math, and polygon normalization. No DOM dependency.
 2. **Triangle Renderer** — Takes parsed polygons and produces DOM elements. It runs a one-time off-DOM canvas atlas pass for both textured and flat-color polygons (UV affine transform when available → clip → drawImage or fill → atlas Blob URL → CSS background-position).
-3. **Entry points** — The vanilla `polycss` package exposes custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API; this is the default surface and what the rest of these docs use first. Thin React (`@polycss/react`) and Vue (`@polycss/vue`) bindings (`PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`) wrap the same renderer with framework-native reactivity, lifecycle, and prop updates.
+3. **Entry points** — The vanilla `polycss` package exposes custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API; this is the default surface and what the rest of these docs use first. Thin React (`@layoutit/polycss-react`) and Vue (`@layoutit/polycss-vue`) bindings (`PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`) wrap the same renderer with framework-native reactivity, lifecycle, and prop updates.
 
 ## Automatic Polygon Merge
 

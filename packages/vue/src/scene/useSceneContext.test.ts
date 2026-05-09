@@ -3,7 +3,7 @@ import { ref, computed } from "vue";
 import { createApp, h } from "vue";
 import { useSceneContext } from "./useSceneContext";
 import type { UseSceneContextResult } from "./useSceneContext";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [

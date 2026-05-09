@@ -74,8 +74,8 @@ const INDEX_HTML = `<!doctype html>
 <ul>
   <li><a href='/perf-html.html?mesh=saucer&mode=dynamic&motion=light'>/perf-html.html</a> &nbsp;<small>declarative custom elements</small></li>
   <li><a href='/perf-vanilla.html?mesh=saucer&mode=dynamic&motion=light'>/perf-vanilla.html</a> &nbsp;<small>imperative createPolyScene</small></li>
-  <li><a href='/perf-react.html?mesh=saucer&mode=dynamic&motion=light'>/perf-react.html</a> &nbsp;<small>React @polycss/react</small></li>
-  <li><a href='/perf-vue.html?mesh=saucer&mode=dynamic&motion=light'>/perf-vue.html</a> &nbsp;<small>Vue @polycss/vue</small></li>
+  <li><a href='/perf-react.html?mesh=saucer&mode=dynamic&motion=light'>/perf-react.html</a> &nbsp;<small>React @layoutit/polycss-react</small></li>
+  <li><a href='/perf-vue.html?mesh=saucer&mode=dynamic&motion=light'>/perf-vue.html</a> &nbsp;<small>Vue @layoutit/polycss-vue</small></li>
 </ul>
 </body></html>`;
 

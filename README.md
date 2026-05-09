@@ -12,19 +12,19 @@ Visit [polycss.com](https://polycss.com) for docs and model examples.
 
 ```bash
 # React
-npm install @polycss/react
+npm install @layoutit/polycss-react
 
 # Vue
-npm install @polycss/vue
+npm install @layoutit/polycss-vue
 
 # Vanilla / custom elements
-npm install polycss
+npm install @layoutit/polycss
 ```
 
 ## Quick start — React
 
 ```tsx
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/react";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -51,14 +51,14 @@ export function App() {
 </template>
 
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 
 ## Quick start — Vanilla HTML
 
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
   <poly-controls></poly-controls>
@@ -89,10 +89,10 @@ Render polygons directly when you need per-face DOM events or custom styling:
 
 | Package | Description |
 |---|---|
-| `@polycss/core` | Parsers, geometry, lighting, and camera helpers. |
-| `@polycss/react` | React components (`PolyCamera`, `PolyScene`, `PolyControls`, `PolyMesh`, `Poly`). |
-| `@polycss/vue` | Vue 3 components with the same rendering surface. |
-| `polycss` | Vanilla custom elements + imperative `createPolyScene` API. |
+| `@layoutit/polycss-core` | Parsers, geometry, lighting, and camera helpers. |
+| `@layoutit/polycss-react` | React components (`PolyCamera`, `PolyScene`, `PolyControls`, `PolyMesh`, `Poly`). |
+| `@layoutit/polycss-vue` | Vue 3 components with the same rendering surface. |
+| `@layoutit/polycss` | Vanilla custom elements + imperative `createPolyScene` API. |
 
 ## Supported formats
 

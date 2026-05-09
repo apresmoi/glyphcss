@@ -1,8 +1,8 @@
 import {
   cullInteriorPolygons,
   mergePolygons,
-} from "polycss";
-import type { Polygon, TextureTriangle, Vec2, Vec3 } from "polycss";
+} from "@layoutit/polycss";
+import type { Polygon, TextureTriangle, Vec2, Vec3 } from "@layoutit/polycss";
 
 const NORMALIZE_MAX_ANGLE_DEG = 3;
 const NORMALIZE_MAX_PLANE_DISPLACEMENT = 0.03;

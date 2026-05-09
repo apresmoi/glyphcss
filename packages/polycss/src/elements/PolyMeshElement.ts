@@ -10,8 +10,8 @@
  * `auto-center` is currently honored by recentering vertices in-place before
  * registering; this matches `<PolyMesh autoCenter>` semantics.
  */
-import type { ParseResult, Polygon, Vec3 } from "@polycss/core";
-import { computeSceneBbox, loadMesh } from "@polycss/core";
+import type { ParseResult, Polygon, Vec3 } from "@layoutit/polycss-core";
+import { computeSceneBbox, loadMesh } from "@layoutit/polycss-core";
 import type { MeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 

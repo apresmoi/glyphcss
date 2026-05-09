@@ -4,8 +4,8 @@ import {
   PolyCamera,
   PolyDirectionalLightHelper,
   PolyScene,
-} from "@polycss/react";
-import type { Polygon, TextureLightingMode } from "@polycss/react";
+} from "@layoutit/polycss-react";
+import type { Polygon, TextureLightingMode } from "@layoutit/polycss-react";
 import PolygonCanvas from "./PolygonCanvas";
 import { useDebug } from "./DebugLayout";
 import { DebugSection } from "./DebugSection";

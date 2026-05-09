@@ -256,11 +256,11 @@ esbuild pulls every workspace polycss package directly from source via
 
 ```js
 alias: {
-  "@polycss/core":    "packages/core/src/index.ts",
-  "polycss":          "packages/polycss/src/index.ts",
-  "polycss/elements": "packages/polycss/src/elements/index.ts",
-  "@polycss/react":   "packages/react/src/index.ts",
-  "@polycss/vue":     "packages/vue/src/index.ts",
+  "@layoutit/polycss-core":    "packages/core/src/index.ts",
+  "@layoutit/polycss":          "packages/polycss/src/index.ts",
+  "@layoutit/polycss/elements": "packages/polycss/src/elements/index.ts",
+  "@layoutit/polycss-react":   "packages/react/src/index.ts",
+  "@layoutit/polycss-vue":     "packages/vue/src/index.ts",
 }
 ```
 
@@ -271,7 +271,7 @@ re-export of `dist/`.
 **React + ReactDOM are also explicitly aliased** to the workspace-root
 `node_modules/react/index.js` and friends. Without the alias, esbuild
 can resolve `react` twice (once from the entry, once from the
-alias-resolved `@polycss/react` source's nearest node_modules), which
+alias-resolved `@layoutit/polycss-react` source's nearest node_modules), which
 causes `Cannot read properties of null (reading 'useRef')` because each
 copy keeps its own internal hook dispatcher.
 
@@ -281,8 +281,8 @@ Four bundles produced, all gitignored:
 | ---------------------- | ----------- | ------------------------------------ |
 | `polycss.js`           | ~30 KB      | Vanilla createPolyScene + controls + loadMesh + parsers |
 | `polycss-elements.js`  | ~36 KB      | Custom-element auto-register side effect |
-| `polycss-react.js`     | ~290 KB     | + React 19 + ReactDOM + @polycss/react + entry |
-| `polycss-vue.js`       | ~150 KB     | + Vue 3 runtime + @polycss/vue + entry |
+| `polycss-react.js`     | ~290 KB     | + React 19 + ReactDOM + @layoutit/polycss-react + entry |
+| `polycss-vue.js`       | ~150 KB     | + Vue 3 runtime + @layoutit/polycss-vue + entry |
 
 ---
 

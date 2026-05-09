@@ -6,7 +6,7 @@ import { PolyScene } from "../scene/PolyScene";
 import { PolyMesh } from "../scene/PolyMesh";
 import { Select, useSelect, useSelectionApi } from "./Select";
 import { registerMeshElement, unregisterMeshElement, type PolyMeshHandle } from "../scene/events";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [

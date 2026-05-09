@@ -1,8 +1,8 @@
-// @polycss/react — React bindings for the polycss CSS-based polygon mesh
+// @layoutit/polycss-react — React bindings for the polycss CSS-based polygon mesh
 // rendering engine.
 //
 // Public surface follows §API freeze in POLYCSS_MIGRATION.md
-// (`@polycss/react — full surface`). Anything not exported here is an
+// (`@layoutit/polycss-react — full surface`). Anything not exported here is an
 // implementation detail.
 
 // ── Components & hooks ─────────────────────────────────────────────
@@ -58,7 +58,7 @@ export type {
 
 export { injectBaseStyles } from "./styles";
 
-// ── Re-exports from @polycss/core for convenience ──────────────────
+// ── Re-exports from @layoutit/polycss-core for convenience ──────────────────
 export type {
   Vec2,
   Vec3,
@@ -73,7 +73,7 @@ export type {
   GltfParseOptions,
   MtlParseResult,
   NormalizeResult,
-} from "@polycss/core";
+} from "@layoutit/polycss-core";
 export {
   normalizePolygons,
   mergePolygons,
@@ -83,4 +83,4 @@ export {
   parseGltf,
   loadMesh,
   createIsometricCamera,
-} from "@polycss/core";
+} from "@layoutit/polycss-core";

@@ -5,7 +5,7 @@
  * code the workbench uses, without bypassing the bench build pipeline.
  */
 export { preprocessModelPolygons } from "../../website/src/debug/meshDomNormalize";
-import type { Polygon, Vec3 } from "polycss";
+import type { Polygon, Vec3 } from "@layoutit/polycss";
 
 /**
  * Replace every polygon's color with the given hex string and strip the

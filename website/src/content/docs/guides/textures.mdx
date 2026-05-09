@@ -26,7 +26,7 @@ The simplest way to render a mesh is the mesh element with a `src`. It fetches t
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
   <poly-mesh src="/cottage.glb"></poly-mesh>
@@ -35,7 +35,7 @@ The simplest way to render a mesh is the mesh element with a `src`. It fetches t
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@polycss/react";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -55,7 +55,7 @@ export function App() {
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -108,7 +108,7 @@ For programmatic loading with explicit lifecycle, use `loadMesh` from the core p
 
 ```ts
 // Vanilla — works anywhere, no framework
-import { loadMesh, createPolyScene } from "polycss";
+import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
 const result = await loadMesh("/cottage.glb", { targetSize: 60 });
 const scene = createPolyScene(document.getElementById("host")!);
@@ -120,7 +120,7 @@ scene.remove();
 
 ```tsx
 // React — useMesh wraps loadMesh + dispose() on unmount
-import { PolyScene, Poly, useMesh } from "@polycss/react";
+import { PolyScene, Poly, useMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
   const { polygons, loading, error } = useMesh("/cottage.glb");

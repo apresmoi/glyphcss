@@ -10,8 +10,8 @@ import { createApp, h, nextTick, ref } from "vue";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "./PolyScene";
 import { PolyMesh } from "./PolyMesh";
-import type { Polygon, DirectionalLight } from "@polycss/core";
-import { inverseRotateVec3 } from "@polycss/core";
+import type { Polygon, DirectionalLight } from "@layoutit/polycss-core";
+import { inverseRotateVec3 } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
   vertices: [

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createSceneStore, useStoreSelector } from "./sceneStore";
-import type { CameraState } from "@polycss/core";
+import type { CameraState } from "@layoutit/polycss-core";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -48,7 +48,7 @@ describe("createSceneStore", () => {
     const listener = vi.fn();
     store.subscribe(listener);
     const newState: CameraState = { ...DEFAULT_CAMERA, zoom: 5 };
-    const handle = { state: newState } as unknown as import("@polycss/core").CameraHandle;
+    const handle = { state: newState } as unknown as import("@layoutit/polycss-core").CameraHandle;
     const result = store.updateCameraFromRef(handle);
     expect(result).toBe(true);
     expect(store.getState().cameraState).toEqual(newState);

@@ -13,5 +13,5 @@ export default defineConfig({
   minify: true,
   target: "es2020",
   tsconfig: "tsconfig.build.json",
-  external: ["@polycss/core"],
+  external: ["@layoutit/polycss-core"],
 });

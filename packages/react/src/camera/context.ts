@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { CameraHandle } from "@polycss/core";
+import type { CameraHandle } from "@layoutit/polycss-core";
 import type { SceneStore } from "../store/sceneStore";
 
 export interface PolyCameraContextValue {

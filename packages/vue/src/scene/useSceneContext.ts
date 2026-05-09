@@ -1,7 +1,7 @@
 import { computed } from "vue";
 import type { Ref } from "vue";
-import type { Polygon, DirectionalLight, Vec3 } from "@polycss/core";
-import { buildSceneContext, mergePolygons } from "@polycss/core";
+import type { Polygon, DirectionalLight, Vec3 } from "@layoutit/polycss-core";
+import { buildSceneContext, mergePolygons } from "@layoutit/polycss-core";
 
 export interface UseSceneContextOptions {
   directionalLight?: DirectionalLight;

@@ -367,13 +367,13 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
       };
 
       // ─── Build the poly-scene custom element ───────────────────────────────
-      // We import the element classes from polycss and register them ourselves
-      // (avoids the polycss/elements subpath which Astro/Vite's <script> pass
+      // We import the element classes from @layoutit/polycss and register them ourselves
+      // (avoids the @layoutit/polycss/elements subpath which Astro/Vite's <script> pass
       // can fail to resolve cleanly). Markup is built programmatically so
       // Astro SSR never sees the custom tags.
 
       async function ensureCustomElementsRegistered() {
-        const polycss = await import("polycss");
+        const polycss = await import("@layoutit/polycss");
         const tag = (name: string, cls: any) => {
           if (!customElements.get(name)) customElements.define(name, cls);
         };
@@ -534,7 +534,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
 
       // ── Scene init for generator mode ─────────────────────────────────────
       async function initGeneratorScene() {
-        const { createPolyScene, createPolyControls } = await import("polycss");
+        const { createPolyScene, createPolyControls } = await import("@layoutit/polycss");
 
         sceneEl = document.createElement("div");
         sceneEl.style.cssText = "width:100%;height:100%;position:absolute;inset:0;";
@@ -631,7 +631,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
 
         // ── React snippet ──────────────────────────────────────────────────
         if (codeEls.react) {
-          const r: string[] = ['import { PolyScene, PolyMesh } from "@polycss/react";', ""];
+          const r: string[] = ['import { PolyScene, PolyMesh } from "@layoutit/polycss-react";', ""];
           r.push("export function App() {");
           r.push("  return (");
 
@@ -658,7 +658,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
               generatorName === "sphere"
                 ? `buildSpherePolygons(${state.radius}, ${state.subdivisions})`
                 : `build${generatorName.charAt(0).toUpperCase()}${generatorName.slice(1)}Polygons(${state.radius})`;
-            r[0] = 'import { PolyScene, Poly } from "@polycss/react";';
+            r[0] = 'import { PolyScene, Poly } from "@layoutit/polycss-react";';
             r.splice(1, 0, '');
             r.splice(2, 0, `const polygons = ${fnCall};`);
             r.splice(3, 0, '');
@@ -717,13 +717,13 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           v.push("");
           v.push("<" + "script setup lang=\"ts\">");
           if (modelSrc) {
-            v.push('import { PolyScene, PolyMesh } from "@polycss/vue";');
+            v.push('import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";');
           } else if (generatorName) {
             const fnCall =
               generatorName === "sphere"
                 ? `buildSpherePolygons(${state.radius}, ${state.subdivisions})`
                 : `build${generatorName.charAt(0).toUpperCase()}${generatorName.slice(1)}Polygons(${state.radius})`;
-            v.push('import { PolyScene, Poly } from "@polycss/vue";');
+            v.push('import { PolyScene, Poly } from "@layoutit/polycss-vue";');
             v.push("import { computed } from \"vue\";");
             v.push(`const polygons = computed(() => ${fnCall});`);
           }
@@ -741,7 +741,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           if (state.perspective !== rendererDefaultPerspective) htmlAttrs.push(`  perspective="${state.perspective}"`);
           htmlAttrs.push('  auto-center');
 
-          j.push('<script type="module" src="https://esm.sh/polycss/elements"><' + "/script>");
+          j.push('<script type="module" src="https://esm.sh/@layoutit/polycss/elements"><' + "/script>");
           j.push("");
           if (modelSrc) {
             if (htmlAttrs.length <= 2) {
@@ -760,7 +760,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
                 : `build${generatorName.charAt(0).toUpperCase()}${generatorName.slice(1)}Polygons(${state.radius})`;
             j.push(`<!-- Polygons generated client-side via the imperative API: -->`);
             j.push('<script type="module">');
-            j.push('import { createPolyScene, createPolyControls } from "https://esm.sh/polycss";');
+            j.push('import { createPolyScene, createPolyControls } from "https://esm.sh/@layoutit/polycss";');
             j.push("");
             j.push("const host = document.getElementById(\"scene\");");
             j.push("const scene = createPolyScene(host, {");

@@ -1,5 +1,5 @@
 {
-  "name": "@polycss/core",
+  "name": "@layoutit/polycss-core",
   "version": "0.0.1",
   "description": "Pure math engine for CSS polygon mesh rendering. Zero browser globals.",
   "type": "module",

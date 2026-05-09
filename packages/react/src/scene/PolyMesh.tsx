@@ -27,8 +27,8 @@ import type {
   Polygon,
   TextureLightingMode,
   Vec3,
-} from "@polycss/core";
-import { computeSceneBbox, inverseRotateVec3 } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import type { TransformProps } from "../shapes/types";
 import { useMesh, type UseMeshOptions } from "./useMesh";
 import {

@@ -14,9 +14,9 @@ import {
   PolyControls,
   PolyMesh,
   Poly,
-} from "@polycss/react";
-import type { Polygon } from "@polycss/core";
-import { loadMesh } from "@polycss/core";
+} from "@layoutit/polycss-react";
+import type { Polygon } from "@layoutit/polycss-core";
+import { loadMesh } from "@layoutit/polycss-core";
 // @ts-expect-error — sibling .mjs without types
 import { parseUrlParams, dirFromAzEl, createPerfRecorder, PERF_OVERLAY_HTML, PERF_OVERLAY_CSS } from "../perf-shared.mjs";
 // @ts-expect-error — sibling .mjs without types
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
   // For React the component renders with `polygons` directly when a
   // parseResult is available (synth + OBJ both go through the same path
   // for honesty — measures rendering N <Poly> children, not the imperative
-  // PolyMesh wrapper). For OBJ we load via @polycss/core's loadMesh.
+  // PolyMesh wrapper). For OBJ we load via @layoutit/polycss-core's loadMesh.
   let parseResult: ParseResult | null = null;
   if (params.isSynth) {
     parseResult = getSynthMesh(params.meshId);

@@ -6,7 +6,7 @@
  * irregular polygons use the atlas path. This helper keeps the older
  * single-polygon render contract without carrying a separate SVG implementation.
  */
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 import {
   renderPolygonsWithTextureAtlas,
   type RenderedPoly,

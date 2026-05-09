@@ -13,17 +13,17 @@ Get a 3D mesh rendering in your project in two steps.
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```bash
-npm install polycss
+npm install @layoutit/polycss
 ```
 </TabItem>
 <TabItem label="React">
 ```bash
-npm install @polycss/react
+npm install @layoutit/polycss-react
 ```
 </TabItem>
 <TabItem label="Vue">
 ```bash
-npm install @polycss/vue
+npm install @layoutit/polycss-vue
 ```
 </TabItem>
 </Tabs>
@@ -35,7 +35,7 @@ The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — per
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene perspective="1000" rot-x="65" rot-y="45">
   <poly-mesh src="/cottage.glb"></poly-mesh>
@@ -44,7 +44,7 @@ The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — per
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@polycss/react";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -64,7 +64,7 @@ export function App() {
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>

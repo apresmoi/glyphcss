@@ -3,7 +3,7 @@
  * Builds the same six-arrow translate gizmo / three-ring rotate gizmo
  * around an attached mesh and emits `objectChange` events as the user
  * drags. Mirrors the React API surface (mode, size, snap, draggingChanged
- * event) and uses the same shared geometry helpers in `@polycss/core`
+ * event) and uses the same shared geometry helpers in `@layoutit/polycss-core`
  * (`arrowPolygons`, `ringPolygons`).
  *
  * Usage:
@@ -17,8 +17,8 @@
  *   tc.detach();
  *   tc.destroy();
  */
-import { arrowPolygons, ringPolygons } from "@polycss/core";
-import type { Polygon, Vec3 } from "@polycss/core";
+import { arrowPolygons, ringPolygons } from "@layoutit/polycss-core";
+import type { Polygon, Vec3 } from "@layoutit/polycss-core";
 import type { MeshHandle, MeshTransform, SceneHandle } from "./createPolyScene";
 
 type Mode = "translate" | "rotate" | "scale";
@@ -42,7 +42,7 @@ const ALPHA_IDLE = 0.6;
 const ALPHA_HOVER = 0.8;
 const ALPHA_DRAGGING = 1.0;
 
-/** polycss world→CSS remap. Match TransformControls in @polycss/react. */
+/** polycss world→CSS remap. Match TransformControls in @layoutit/polycss-react. */
 const WORLD_AXIS_FOR_CSS: Record<0 | 1 | 2, 0 | 1 | 2> = { 0: 1, 1: 0, 2: 2 };
 
 /** Six arrow specs (translate mode). `cssAxis` is the visible direction

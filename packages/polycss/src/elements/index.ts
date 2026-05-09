@@ -1,5 +1,5 @@
 /**
- * polycss/elements — side-effect entry that registers the polycss custom
+ * @layoutit/polycss/elements — side-effect entry that registers the polycss custom
  * elements with `customElements`.
  *
  * Importing this module has the effect of making the elements available

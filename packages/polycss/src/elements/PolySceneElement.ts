@@ -9,7 +9,7 @@
  * Attribute parsing — minimal-footprint string → typed conversion. Unknown
  * attributes are ignored (HTML semantics, not validation).
  */
-import type { AmbientLight, DirectionalLight, TextureLightingMode, Vec3 } from "@polycss/core";
+import type { AmbientLight, DirectionalLight, TextureLightingMode, Vec3 } from "@layoutit/polycss-core";
 import {
   createPolyScene,
   type PolySceneOptions,

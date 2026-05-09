@@ -13,7 +13,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createApp, defineComponent, h, inject, nextTick, ref, type App } from "vue";
-import type { CameraHandle } from "@polycss/core";
+import type { CameraHandle } from "@layoutit/polycss-core";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "../scene/PolyScene";
 import { PolyCameraContextKey } from "../camera/context";

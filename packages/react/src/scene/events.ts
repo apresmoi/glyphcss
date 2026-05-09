@@ -16,7 +16,7 @@
  *      index, exposed via `polygon` (set when the underlying DOM target
  *      is an `<i>` polygon element).
  */
-import type { Polygon, Vec3 } from "@polycss/core";
+import type { Polygon, Vec3 } from "@layoutit/polycss-core";
 
 /**
  * Imperative handle exposed by `<PolyMesh ref>`. Read-only view of the

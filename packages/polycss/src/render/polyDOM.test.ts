@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderPoly } from "./polyDOM";
 import { renderPolygonsWithTextureAtlas } from "./textureAtlas";
-import type { Polygon } from "@polycss/core";
+import type { Polygon } from "@layoutit/polycss-core";
 
 const FLAT_TRIANGLE: Polygon = {
   vertices: [

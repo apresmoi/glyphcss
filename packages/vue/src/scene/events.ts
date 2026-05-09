@@ -11,7 +11,7 @@
  *      BufferGeometry / InstancedMesh concepts with no polycss
  *      analogue.
  */
-import type { Polygon, Vec3 } from "@polycss/core";
+import type { Polygon, Vec3 } from "@layoutit/polycss-core";
 
 /** Imperative handle exposed by `<PolyMesh>` via Vue's defineExpose.
  *  Read-only view of the mesh's element + current transform +

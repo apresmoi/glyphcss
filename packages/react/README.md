@@ -1,13 +1,13 @@
 > **Status: pre-1.0; API surface frozen per [POLYCSS_MIGRATION.md](../../POLYCSS_MIGRATION.md). Breaking changes possible until 0.1.0 release.**
 
-# @polycss/react
+# @layoutit/polycss-react
 
 Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
 ```bash
-npm install @polycss/react
+npm install @layoutit/polycss-react
 ```
 
 Requires React 18 or 19 as a peer dependency.
@@ -15,7 +15,7 @@ Requires React 18 or 19 as a peer dependency.
 ## Quickstart
 
 ```tsx
-import { PolyScene, PolyMesh } from "@polycss/react";
+import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -103,21 +103,21 @@ Camera controls wrapper — perspective, rotation, zoom, interaction, and auto-r
 |---|---|
 | `injectBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. Called automatically by `<PolyScene>`; manual call only needed for custom scene hosts. Polygon defaults are scoped to `.polycss-scene`. |
 
-## Re-exports from `@polycss/core`
+## Re-exports from `@layoutit/polycss-core`
 
-All types and core functions are re-exported for convenience, so you never need to add `@polycss/core` to your dependencies:
+All types and core functions are re-exported for convenience, so you never need to add `@layoutit/polycss-core` to your dependencies:
 
 ```ts
-import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@polycss/react";
-import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@polycss/react";
+import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@layoutit/polycss-react";
+import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@layoutit/polycss-react";
 ```
 
 ## Per-polygon interactivity example
 
 ```tsx
 import { useState } from "react";
-import { PolyScene, Poly } from "@polycss/react";
-import type { Polygon } from "@polycss/react";
+import { PolyScene, Poly } from "@layoutit/polycss-react";
+import type { Polygon } from "@layoutit/polycss-react";
 
 export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -147,7 +147,7 @@ export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
 ## `useMesh` — imperative loading
 
 ```tsx
-import { PolyScene, Poly, useMesh } from "@polycss/react";
+import { PolyScene, Poly, useMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
   const { polygons, loading, error } = useMesh("/cottage.glb");

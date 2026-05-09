@@ -11,7 +11,7 @@ import {
   parseGltf,
   parseMtl,
   parseObj,
-} from "@polycss/react";
+} from "@layoutit/polycss-react";
 import type {
   AmbientLight,
   DirectionalLight,
@@ -22,7 +22,7 @@ import type {
   Polygon,
   TextureLightingMode,
   Vec3 as ReactVec3,
-} from "@polycss/react";
+} from "@layoutit/polycss-react";
 import { ModelPicker } from "./ModelPicker";
 import {
   axesHelperPolygons,
@@ -33,7 +33,7 @@ import {
   createTransformControls,
   octahedronPolygons,
   parseVox,
-} from "polycss";
+} from "@layoutit/polycss";
 import type {
   ControlsHandle,
   MeshHandle,
@@ -43,7 +43,7 @@ import type {
   TransformControlsHandle,
   Vec3,
   VoxParseOptions,
-} from "polycss";
+} from "@layoutit/polycss";
 import { preprocessModelPolygons } from "./meshDomNormalize";
 import "./debug-workbench.css";
 
@@ -825,7 +825,7 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: "war
 }
 
 // Light helper world units → CSS pixels conversion (matches the helper
-// components in @polycss/react and @polycss/vue).
+// components in @layoutit/polycss-react and @layoutit/polycss-vue).
 const LIGHT_HELPER_TILE = 50;
 
 function lightHelperPosition(

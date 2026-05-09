@@ -36,7 +36,7 @@ It's available as a custom element (`<poly-controls>`), via the imperative `crea
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
   <poly-controls drag wheel animate-speed="0.3"></poly-controls>
@@ -48,7 +48,7 @@ The presence of any `animate-*` attribute (`animate-speed`, `animate-axis`, `ani
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/react";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -74,7 +74,7 @@ export function App() {
 </template>
 
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
+import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -85,7 +85,7 @@ import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@polycss/vue";
 When you mount a scene through the `createPolyScene` imperative API, pair it with `createPolyControls(scene, options)`. The controls handle returns a small lifecycle interface for live updates.
 
 ```ts
-import { createPolyScene, createPolyControls, loadMesh } from "polycss";
+import { createPolyScene, createPolyControls, loadMesh } from "@layoutit/polycss";
 
 const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
 scene.add(await loadMesh("/cottage.glb"));

@@ -31,7 +31,7 @@ Set an initial angle and perspective.
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<script type="module" src="https://esm.sh/polycss/elements"></script>
+<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <!-- Vanilla scenes set camera attributes directly on <poly-scene>. -->
 <poly-scene zoom="0.8" rot-x="70" rot-y="30">
@@ -41,7 +41,7 @@ Set an initial angle and perspective.
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyCamera, PolyScene, PolyMesh } from "@polycss/react";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
@@ -65,7 +65,7 @@ export function App() {
 </template>
 
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyMesh } from "@polycss/vue";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>

@@ -24,8 +24,8 @@ import type {
   AmbientLight,
   TextureLightingMode,
   Vec3,
-} from "@polycss/core";
-import { createIsometricCamera, parseHexColor } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { createIsometricCamera, parseHexColor } from "@layoutit/polycss-core";
 import { PolyCameraContextKey } from "../camera";
 import { useSceneContext } from "./useSceneContext";
 import { injectBaseStyles } from "../styles";

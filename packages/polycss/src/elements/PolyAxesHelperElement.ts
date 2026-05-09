@@ -9,8 +9,8 @@
  *   negative        — boolean attr; when present, bars also extend into −X/−Y/−Z
  *   x-color, y-color, z-color — hex string per-axis color overrides
  */
-import { axesHelperPolygons } from "@polycss/core";
-import type { ParseResult } from "@polycss/core";
+import { axesHelperPolygons } from "@layoutit/polycss-core";
+import type { ParseResult } from "@layoutit/polycss-core";
 import type { MeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 

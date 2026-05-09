@@ -10,8 +10,8 @@
  *   size         — number, marker half-extent in world units (default 0.35)
  *   color        — hex string; defaults to a warm yellow
  */
-import { octahedronPolygons } from "@polycss/core";
-import type { ParseResult, Vec3 } from "@polycss/core";
+import { octahedronPolygons } from "@layoutit/polycss-core";
+import type { ParseResult, Vec3 } from "@layoutit/polycss-core";
 import type { MeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 

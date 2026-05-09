@@ -18,8 +18,8 @@
  */
 import { defineComponent, h, computed, inject, onMounted, onBeforeUnmount, ref } from "vue";
 import type { PropType, VNode, CSSProperties } from "vue";
-import type { Polygon, TextureLightingMode, Vec3 } from "@polycss/core";
-import { computeSceneBbox, inverseRotateVec3 } from "@polycss/core";
+import type { Polygon, TextureLightingMode, Vec3 } from "@layoutit/polycss-core";
+import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import { useMesh } from "./useMesh";
 import {
   computeTextureAtlasPlan,

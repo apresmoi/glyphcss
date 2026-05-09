@@ -18,8 +18,8 @@ import type {
   Polygon,
   ParseResult,
   LoadMeshOptions,
-} from "@polycss/core";
-import { loadMesh } from "@polycss/core";
+} from "@layoutit/polycss-core";
+import { loadMesh } from "@layoutit/polycss-core";
 
 export type UseMeshOptions = LoadMeshOptions;
 

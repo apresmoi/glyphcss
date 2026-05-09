@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { parseObj, parseMtl, parseGltf } from "@polycss/react";
+import { parseObj, parseMtl, parseGltf } from "@layoutit/polycss-react";
 import type {
   GltfParseOptions, Polygon, ObjParseOptions,
-} from "@polycss/react";
+} from "@layoutit/polycss-react";
 
 export interface MeshModelState {
   voxels: Polygon[];

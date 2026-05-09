@@ -7,7 +7,7 @@ import {
   findMeshUnderPoint,
   type PolyMeshHandle,
 } from "./events";
-import type { Polygon, Vec3 } from "@polycss/core";
+import type { Polygon, Vec3 } from "@layoutit/polycss-core";
 
 afterEach(() => {
   document.body.innerHTML = "";

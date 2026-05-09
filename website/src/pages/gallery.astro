@@ -553,7 +553,7 @@ const ldJson = {
 
     const ensureScene = async () => {
       if (polyScene) return polyScene;
-      const { createPolyScene, createPolyControls } = await import("polycss");
+      const { createPolyScene, createPolyControls } = await import("@layoutit/polycss");
       const rootEl = document.getElementById("viewer-root");
       polyScene = createPolyScene(rootEl, {
         rotX: currentRotX,
@@ -773,7 +773,7 @@ const ldJson = {
         // Both yield a ParseResult that scene.add() consumes the same way.
         let parseResult;
         if (model.type === "obj") {
-          const polycss = await import("polycss");
+          const polycss = await import("@layoutit/polycss");
           const config = OBJ_MODEL_CONFIG[model.name] || {};
           const loadOptions = {};
           if (model.hasMtl) loadOptions.mtlUrl = `/gallery/obj/${model.name}.mtl`;

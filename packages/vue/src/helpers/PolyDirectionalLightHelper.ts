@@ -1,6 +1,6 @@
 /**
  * PolyDirectionalLightHelper — small octahedron placed along the light's
- * direction vector. Vue port of @polycss/react's helper. Mirrors three.js's
+ * direction vector. Vue port of @layoutit/polycss-react's helper. Mirrors three.js's
  * DirectionalLightHelper.
  *
  * The octahedron is built at LOCAL origin once; the world position is
@@ -10,8 +10,8 @@
  */
 import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
-import type { DirectionalLight, Vec3 } from "@polycss/core";
-import { octahedronPolygons } from "@polycss/core";
+import type { DirectionalLight, Vec3 } from "@layoutit/polycss-core";
+import { octahedronPolygons } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene/PolyMesh";
 
 export interface PolyDirectionalLightHelperProps {
