@@ -19,8 +19,27 @@ export type { UseMeshOptions, UseMeshResult } from "./scene";
 export { Poly } from "./shapes";
 export type { PolyProps } from "./shapes";
 
-export { PolyControls } from "./controls";
-export type { PolyControlsProps, PolyControlsAnimateOptions } from "./controls";
+export { PolyControls, TransformControls } from "./controls";
+export type {
+  PolyControlsProps,
+  PolyControlsAnimateOptions,
+  PolyControlsCamera,
+  TransformControlsObject,
+  TransformControlsObjectChangeEvent,
+} from "./controls";
+
+export { Select, useSelect, useSelectionApi, SelectionContextKey } from "./select";
+export type { SelectionApi } from "./select";
+
+export { findMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./scene/events";
+export type {
+  PolyMeshHandle,
+  PolyPointerEvent,
+  PolyMouseEvent,
+  PolyWheelEvent,
+  PolyEventHandler,
+  InteractionProps,
+} from "./scene/events";
 
 export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
 export type {
@@ -39,6 +58,8 @@ export type {
   AmbientLight,
   TextureLightingMode,
   ParseResult,
+  ParseAnimationClip,
+  ParseAnimationController,
   ObjParseOptions,
   GltfParseOptions,
   MtlParseResult,
@@ -47,6 +68,7 @@ export type {
 export {
   normalizePolygons,
   mergePolygons,
+  cullInteriorPolygons,
   parseObj,
   parseMtl,
   parseGltf,

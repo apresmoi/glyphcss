@@ -22,7 +22,6 @@ import type {
   Polygon,
   DirectionalLight,
   AmbientLight,
-  AutoRotateOption,
   TextureLightingMode,
   Vec3,
 } from "@polycss/core";
@@ -56,9 +55,6 @@ export interface PolySceneProps {
    * Mirrors React's PolyScene autoCenter prop.
    */
   autoCenter?: boolean;
-  autoRotate?: AutoRotateOption;
-  interactive?: boolean;
-  invert?: boolean;
   class?: string;
   // TransformProps
   position?: Vec3;
@@ -92,12 +88,6 @@ export const PolyScene = defineComponent({
     },
     atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
     autoCenter: { type: Boolean, default: false },
-    autoRotate: {
-      type: [Boolean, Number, Object] as PropType<AutoRotateOption>,
-      default: undefined,
-    },
-    interactive: { type: Boolean },
-    invert: { type: Boolean },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: {

@@ -27,7 +27,7 @@ import type {
   TextureLightingMode,
   Vec3,
 } from "@polycss/core";
-import { computeSceneBbox, mergePolygons, parseHexColor } from "@polycss/core";
+import { computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@polycss/core";
 import {
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,
@@ -58,6 +58,10 @@ export interface PolySceneOptions {
 }
 
 export interface MeshTransform {
+  /** Stable identifier — exposed on the handle and reflected on the
+   *  wrapper as `data-poly-mesh-id`. Used by selection helpers to
+   *  resolve clicks back to the mesh and to dedupe selection state. */
+  id?: string;
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
@@ -83,6 +87,18 @@ export interface MeshTransform {
 export interface MeshHandle {
   /** The polygons that were loaded after normalization and automatic merge. */
   polygons: Polygon[];
+  /** The `.polycss-mesh` wrapper div for this mesh. Exposed so layered
+   *  helpers (selection, transform controls) can resolve a click target
+   *  back to its owning mesh, attach event listeners, or measure the
+   *  mesh's screen position via `getBoundingClientRect`. */
+  readonly element: HTMLElement;
+  /** Identifier passed via `MeshTransform.id` (if any). Reflected on
+   *  the wrapper as `data-poly-mesh-id`. */
+  readonly id?: string;
+  /** Current transform snapshot (position / rotation / scale). Returned
+   *  by reference — treat as read-only and use `setTransform` to
+   *  mutate. */
+  readonly transform: MeshTransform;
   /** Remove the mesh from the scene. */
   remove(): void;
   /** Replace polygon geometry without tearing down the scene or controls. */
@@ -95,6 +111,25 @@ export interface MeshHandle {
   setTransform(t: Partial<MeshTransform>): void;
   /** Revoke any blob URLs the parse created. Idempotent. */
   dispose(): void;
+  /**
+   * Re-rasterize the atlas using the directional light inverse-rotated into
+   * the mesh's local frame. Call this after a mesh rotation has been
+   * committed (e.g., on pointer release in rotate-mode transform controls) to
+   * correct stale baked shading.
+   *
+   * **Background:** Baked atlas tiles encode `baseColor × Lambert(worldNormal,
+   * worldLight)`. When the mesh wrapper rotates via CSS, the polygon's normal
+   * in world space changes but the baked color doesn't — faces stay lit/unlit
+   * incorrectly. `rebakeAtlas()` inverse-rotates the world light into the
+   * mesh's local frame and re-runs the rasterizer; because
+   * `dot(localNormal, localLight) === dot(worldNormal, worldLight)` the
+   * output is correct for any rotation.
+   *
+   * **Performance note:** This does NOT run on every `setTransform` call —
+   * only when explicitly invoked, so dragging remains smooth. Call it on
+   * pointer release (or any point where you want to commit the new shading).
+   */
+  rebakeAtlas(): void;
 }
 
 export interface SceneHandle {
@@ -118,6 +153,12 @@ export interface SceneHandle {
    * duplicating it.
    */
   getOptions(): Readonly<PolySceneOptions>;
+  /** Snapshot of mesh handles currently in the scene (insertion order).
+   *  Used by selection helpers to enumerate hit-test candidates. */
+  meshes(): readonly MeshHandle[];
+  /** Resolve a `.polycss-mesh` element back to its handle, or `null` if
+   *  the element doesn't belong to this scene. */
+  findMeshByElement(element: Element | null): MeshHandle | null;
 }
 
 // Match React's PolyCamera default — 1000px is a strong fish-eye that
@@ -260,6 +301,9 @@ export function createPolyScene(
     disposed: boolean;
     stableDom: boolean;
     excludeFromAutoCenter: boolean;
+    /** Rotation snapshot used by the baked atlas baker. Advances only when
+     *  `rebakeAtlas()` is called — not on every `setTransform`. */
+    bakedRotation: Vec3;
   }
   const meshes = new Set<MeshEntry>();
 
@@ -393,11 +437,39 @@ export function createPolyScene(
     entry.wrapper.appendChild(fragment);
   }
 
-  function renderEntry(entry: MeshEntry): void {
+  // Dynamic-mode per-mesh light override: when the mesh has a non-zero rotation
+  // and the scene is in dynamic lighting mode, emit --polycss-lx/ly/lz on the
+  // wrapper element, computed by inverse-rotating the world-space light into the
+  // mesh's local frame. The cascade means these override the scene-level vars
+  // only for polygons inside this wrapper. Cleared when conditions are not met.
+  function applyMeshLightVarOverride(wrapper: HTMLDivElement, rotation: Vec3 | undefined): void {
+    const isDynamic = currentOptions.textureLighting === "dynamic";
+    const dir = currentOptions.directionalLight?.direction;
+    const hasNonZeroRotation = rotation && (rotation[0] !== 0 || rotation[1] !== 0 || rotation[2] !== 0);
+
+    if (!isDynamic || !hasNonZeroRotation || !dir) {
+      wrapper.style.removeProperty("--polycss-lx");
+      wrapper.style.removeProperty("--polycss-ly");
+      wrapper.style.removeProperty("--polycss-lz");
+      return;
+    }
+
+    const localDir = inverseRotateVec3(dir as Vec3, rotation as Vec3);
+    const len = Math.hypot(localDir[0], localDir[1], localDir[2]) || 1;
+    wrapper.style.setProperty("--polycss-lx", (localDir[0] / len).toFixed(4));
+    wrapper.style.setProperty("--polycss-ly", (localDir[1] / len).toFixed(4));
+    wrapper.style.setProperty("--polycss-lz", (localDir[2] / len).toFixed(4));
+  }
+
+  function renderEntry(entry: MeshEntry, lightDirectionOverride?: Vec3): void {
     clearRendered(entry);
+    const baseDirLight = currentOptions.directionalLight;
+    const directionalLight: typeof baseDirLight = lightDirectionOverride
+      ? { ...baseDirLight, direction: lightDirectionOverride }
+      : baseDirLight;
     const renderOptions = {
       doc,
-      directionalLight: currentOptions.directionalLight,
+      directionalLight,
       ambientLight: currentOptions.ambientLight,
       textureLighting: currentOptions.textureLighting,
       atlasScale: currentOptions.atlasScale,
@@ -443,6 +515,7 @@ export function createPolyScene(
     wrapper.className = "polycss-mesh";
     wrapper.style.position = "absolute";
     wrapper.style.transformStyle = "preserve-3d";
+    if (transformIn.id) wrapper.setAttribute("data-poly-mesh-id", transformIn.id);
 
     let transform: MeshTransform = { ...transformIn };
     let mergeOnUpdate = transformIn.merge !== false;
@@ -453,6 +526,43 @@ export function createPolyScene(
     const preparePolygons = (polygons: Polygon[], merge: boolean): Polygon[] =>
       merge ? mergePolygons(polygons) : polygons;
     const sourcePolygons = preparePolygons(parseResult.polygons, mergeOnUpdate);
+
+    // Pivot rotations around the mesh's polygon bbox center, not the
+    // wrapper's local (0,0,0). The wrapper sits at `transform.position`
+    // inside centerWrapper, but its polygons live at their world coords
+    // — without an explicit transform-origin, rotateX/Y/Z would pivot
+    // at the wrapper's anchor (= world origin in mesh-local), so the
+    // mesh would orbit around world (0,0,0) rather than rotating in
+    // place. Setting transform-origin to the polygon bbox center makes
+    // setTransform({rotation}) behave intuitively.
+    function applyTransformOrigin(polygons: Polygon[]): void {
+      if (polygons.length === 0) {
+        wrapper.style.transformOrigin = "";
+        return;
+      }
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (const poly of polygons) {
+        for (const v of poly.vertices) {
+          if (v[0] < minX) minX = v[0];
+          if (v[0] > maxX) maxX = v[0];
+          if (v[1] < minY) minY = v[1];
+          if (v[1] > maxY) maxY = v[1];
+          if (v[2] < minZ) minZ = v[2];
+          if (v[2] > maxZ) maxZ = v[2];
+        }
+      }
+      if (!Number.isFinite(minX)) {
+        wrapper.style.transformOrigin = "";
+        return;
+      }
+      // World→CSS axis remap (matches polygonGeometry / autoCenter).
+      const cssX = ((minY + maxY) / 2) * DEFAULT_TILE;
+      const cssY = ((minX + maxX) / 2) * DEFAULT_TILE;
+      const cssZ = ((minZ + maxZ) / 2) * DEFAULT_TILE;
+      wrapper.style.transformOrigin = `${cssX}px ${cssY}px ${cssZ}px`;
+    }
+    applyTransformOrigin(sourcePolygons);
 
     centerWrapper.appendChild(wrapper);
 
@@ -465,10 +575,14 @@ export function createPolyScene(
       disposed: false,
       stableDom: stableDomOnUpdate,
       excludeFromAutoCenter: !!transformIn.excludeFromAutoCenter,
+      bakedRotation: (transformIn.rotation ? [...transformIn.rotation] : [0, 0, 0]) as Vec3,
     };
 
     const handle: MeshHandle = {
       polygons: sourcePolygons,
+      element: wrapper,
+      id: transformIn.id,
+      get transform() { return transform; },
       remove() {
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
         // Removing from DOM doesn't auto-dispose generated atlas/blob URLs.
@@ -486,6 +600,7 @@ export function createPolyScene(
         entry.stableDom = stableDomOnUpdate;
         entry.polygons = preparePolygons(polygons, mergeOnUpdate);
         handle.polygons = entry.polygons;
+        applyTransformOrigin(entry.polygons);
         const shouldRecomputeAutoCenter = options?.recomputeAutoCenter ?? true;
         if (entry.stableDom && !entry.wrapper.querySelector(".polycss-bucket")) {
           const renderOptions = {
@@ -515,6 +630,7 @@ export function createPolyScene(
         transform = { ...transform, ...t };
         const css2 = buildMeshTransform(transform);
         wrapper.style.transform = css2 ?? "";
+        applyMeshLightVarOverride(wrapper, transform.rotation);
       },
       dispose() {
         if (entry.disposed) return;
@@ -525,11 +641,25 @@ export function createPolyScene(
         meshes.delete(entry);
         recomputeAutoCenter();
       },
+      rebakeAtlas() {
+        // Advance the baked rotation to match the current live rotation.
+        // The atlas baker will use this to inverse-rotate the world light
+        // into the mesh's local frame so Lambert shading stays correct.
+        entry.bakedRotation = (transform.rotation ? [...transform.rotation] : [0, 0, 0]) as Vec3;
+        // Compute the local-frame light direction by inverse-rotating the
+        // world-space directional light through the baked rotation.
+        // dot(localNormal, localLight) === dot(worldNormal, worldLight),
+        // so the rasterized atlas produces correct shading after rotation.
+        const worldDir = currentOptions.directionalLight?.direction ?? [0.4, -0.7, 0.59] as Vec3;
+        const localLightDir = inverseRotateVec3(worldDir as Vec3, entry.bakedRotation);
+        renderEntry(entry, localLightDir);
+      },
     };
 
     entry.handle = handle;
     meshes.add(entry);
     renderEntry(entry);
+    applyMeshLightVarOverride(wrapper, transform.rotation);
     recomputeAutoCenter();
     return handle;
   }
@@ -539,6 +669,11 @@ export function createPolyScene(
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
+    // Re-evaluate per-mesh light overrides when lighting settings change —
+    // textureLighting or directionalLight may have changed.
+    for (const entry of meshes) {
+      applyMeshLightVarOverride(entry.wrapper, entry.handle.transform.rotation);
+    }
     // No syncInteractive — pointer/wheel input now lives in createPolyControls
     // (an additive layer). createPolyScene is the pure renderer + camera-state
     // owner.
@@ -547,6 +682,26 @@ export function createPolyScene(
 
   function getOptions(): Readonly<PolySceneOptions> {
     return currentOptions;
+  }
+
+  function listMeshes(): readonly MeshHandle[] {
+    const out: MeshHandle[] = [];
+    for (const entry of meshes) out.push(entry.handle);
+    return out;
+  }
+
+  function findMeshByElement(el: Element | null): MeshHandle | null {
+    let cur: Element | null = el;
+    while (cur) {
+      if (cur instanceof HTMLElement && cur.classList.contains("polycss-mesh")) {
+        for (const entry of meshes) {
+          if (entry.wrapper === cur) return entry.handle;
+        }
+        return null;
+      }
+      cur = cur.parentElement;
+    }
+    return null;
   }
 
   function destroy(): void {
@@ -559,5 +714,5 @@ export function createPolyScene(
     if (sceneEl.parentNode) sceneEl.parentNode.removeChild(sceneEl);
   }
 
-  return { add, setOptions, destroy, host, getOptions };
+  return { add, setOptions, destroy, host, getOptions, meshes: listMeshes, findMeshByElement };
 }

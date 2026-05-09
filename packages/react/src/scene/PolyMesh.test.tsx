@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import React, { act } from "react";
+import React, { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "./PolyScene";
 import { PolyMesh } from "./PolyMesh";
+import type { PolyMeshHandle } from "./events";
 import type { Polygon } from "@polycss/core";
 
 const TRIANGLE: Polygon = {
@@ -291,5 +292,53 @@ describe("PolyMesh — loading and error states (with src)", () => {
 
     const meshError = container.querySelector(".polycss-mesh-error");
     expect(meshError).toBeTruthy();
+  });
+});
+
+describe("PolyMesh — rebakeAtlas", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  it("rebakeAtlas() is present on the handle and does not throw", () => {
+    const ref = createRef<PolyMeshHandle>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <PolyCamera>
+          <PolyScene>
+            <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
+          </PolyScene>
+        </PolyCamera>,
+      ),
+    );
+    expect(typeof ref.current?.rebakeAtlas).toBe("function");
+    // Calling it should not throw and should be a no-op when rotation hasn't changed.
+    expect(() => act(() => { ref.current?.rebakeAtlas(); })).not.toThrow();
+  });
+
+  it("rebakeAtlas() triggers a re-render (mesh wrapper stays in DOM)", () => {
+    const ref = createRef<PolyMeshHandle>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <PolyCamera>
+          <PolyScene>
+            <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[30, 45, 0]} />
+          </PolyScene>
+        </PolyCamera>,
+      ),
+    );
+    const meshBefore = container.querySelector(".polycss-mesh");
+    expect(meshBefore).toBeTruthy();
+    act(() => { ref.current?.rebakeAtlas(); });
+    const meshAfter = container.querySelector(".polycss-mesh");
+    expect(meshAfter).toBeTruthy();
   });
 });

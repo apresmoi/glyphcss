@@ -154,11 +154,23 @@
   min-height: 100%;
 }
 
-.dn-viewport .polycss-scene,
-.dn-viewport .polycss-mesh,
-.dn-viewport .polycss-bucket,
-.dn-viewport .polycss-scene i {
-  pointer-events: none;
+/* Was: pointer-events: none on .polycss-scene/.polycss-mesh/.polycss-bucket/i.
+ * Removed so polygons receive native clicks — the JS bbox hit-test in
+ * <Select>/<TransformControls> was masking this rule, doing the work
+ * the browser would do for free. */
+
+/* Hover effect: brighten polygons when their owning mesh is the
+ * currently-hovered one. `filter: brightness(...)` is applied per
+ * polygon `<i>` instead of the wrapper because the wrapper is a 0×0
+ * anchor — filter on it would have nothing to brighten. Filter
+ * doesn't conflict with the polygon's inline `transform` /
+ * `border-color` and doesn't trigger atlas rebuilds, so it's instant. */
+.polycss-mesh.is-hovered i {
+  filter: brightness(1.25);
+  transition: filter 150ms ease-out;
+}
+.polycss-mesh i {
+  transition: filter 150ms ease-out;
 }
 
 .dn-vanilla-host {

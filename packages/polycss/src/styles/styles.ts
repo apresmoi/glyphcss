@@ -44,6 +44,21 @@ const CORE_BASE_STYLES = `
   background-repeat: no-repeat;
 }
 
+/* ── Gizmo override (createTransformControls) ───────────────────────────── */
+
+/*
+ * Translate arrows + rotate rings render through the same polygon
+ * pipeline as user content but the gizmo is a UI affordance — both
+ * faces of every polygon should remain visible regardless of camera
+ * orientation, otherwise the cuboid shafts and pyramid heads end up
+ * half-culled. Transitions on border-color and background-color smooth
+ * the idle / hover / drag alpha changes.
+ */
+.polycss-mesh.polycss-transform-gizmo i {
+  backface-visibility: visible;
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
 
 /*

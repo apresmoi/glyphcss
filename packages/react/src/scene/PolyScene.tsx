@@ -4,7 +4,6 @@ import type {
   Polygon,
   DirectionalLight,
   AmbientLight,
-  AutoRotateOption,
   TextureLightingMode,
 } from "@polycss/core";
 import { createIsometricCamera, parseHexColor } from "@polycss/core";
@@ -44,9 +43,6 @@ export interface PolySceneProps extends TransformProps {
    * origin is at a corner / feet / arbitrary point.
    */
   autoCenter?: boolean;
-  autoRotate?: AutoRotateOption;
-  interactive?: boolean;
-  invert?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -67,9 +63,6 @@ function PolySceneInner({
   textureLighting = "baked",
   atlasScale,
   autoCenter = false,
-  autoRotate: _autoRotate,
-  interactive: _interactive,
-  invert: _invert,
   className,
   style,
   children,

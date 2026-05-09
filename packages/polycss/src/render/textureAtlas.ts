@@ -7,6 +7,7 @@ import type {
   Vec2,
   Vec3,
 } from "@polycss/core";
+import { parsePureColor } from "@polycss/core";
 
 const DEFAULT_TILE = 50;
 const DEFAULT_LIGHT_DIR: Vec3 = [0.4, -0.7, 0.59];
@@ -325,13 +326,17 @@ function setCssTransform(
 }
 
 function parseHex(hex: string): RGB {
-  const c = hex.startsWith("#") ? hex.slice(1) : hex;
-  if (c.length !== 6) return { r: 255, g: 255, b: 255 };
-  return {
-    r: parseInt(c.slice(0, 2), 16),
-    g: parseInt(c.slice(2, 4), 16),
-    b: parseInt(c.slice(4, 6), 16),
-  };
+  // Tolerate any CSS color string the renderer hands us — hex, rgb(),
+  // or rgba(). createTransformControls passes rgba() colors to fade
+  // arrows on hover/drag.
+  const parsed = parsePureColor(hex);
+  if (!parsed) return { r: 255, g: 255, b: 255 };
+  return { r: parsed.rgb[0], g: parsed.rgb[1], b: parsed.rgb[2] };
+}
+
+/** Returns the parsed alpha for a color string (1.0 default). */
+function parseAlpha(input: string): number {
+  return parsePureColor(input)?.alpha ?? 1;
 }
 
 function rgbToHex({ r, g, b }: RGB): string {
@@ -353,11 +358,16 @@ function shadePolygon(
   const tintR = (amb.r / 255) * ambientIntensity + (light.r / 255) * directScale;
   const tintG = (amb.g / 255) * ambientIntensity + (light.g / 255) * directScale;
   const tintB = (amb.b / 255) * ambientIntensity + (light.b / 255) * directScale;
-  return rgbToHex({
-    r: base.r * tintR,
-    g: base.g * tintG,
-    b: base.b * tintB,
-  });
+  const r = Math.max(0, Math.min(255, Math.round(base.r * tintR)));
+  const g = Math.max(0, Math.min(255, Math.round(base.g * tintG)));
+  const b = Math.max(0, Math.min(255, Math.round(base.b * tintB)));
+  // Preserve the base polygon's alpha. Lighting only modulates RGB —
+  // a translucent input (e.g. createTransformControls arrows at idle)
+  // must keep its alpha so the gizmo stays see-through after shading.
+  const alpha = parseAlpha(baseColor);
+  return alpha < 1
+    ? `rgba(${r}, ${g}, ${b}, ${alpha})`
+    : rgbToHex({ r, g, b });
 }
 
 function textureTintFactors(

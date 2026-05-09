@@ -19,7 +19,7 @@ export type {
   PolyCameraContextValue,
 } from "./camera";
 
-export { PolyScene, PolyMesh, useSceneContext, useMesh } from "./scene";
+export { PolyScene, PolyMesh, useSceneContext, useMesh, findMeshHandle } from "./scene";
 export type {
   PolySceneProps,
   PolyMeshProps,
@@ -27,13 +27,28 @@ export type {
   UseSceneContextResult,
   UseMeshResult,
   UseMeshOptions,
+  PolyMeshHandle,
+  PolyPointerEvent,
+  PolyMouseEvent,
+  PolyWheelEvent,
+  PolyEventHandler,
+  InteractionProps,
 } from "./scene";
 
 export { Poly } from "./shapes";
 export type { PolyProps, TransformProps, DOMPassthroughProps } from "./shapes";
 
-export { PolyControls } from "./controls";
-export type { PolyControlsProps, PolyControlsAnimateOptions } from "./controls";
+export { PolyControls, TransformControls } from "./controls";
+export type {
+  PolyControlsProps,
+  PolyControlsAnimateOptions,
+  TransformControlsProps,
+  TransformControlsObject,
+  TransformControlsObjectChangeEvent,
+} from "./controls";
+
+export { Select, useSelect, useSelectionApi } from "./select";
+export type { SelectProps, SelectionApi } from "./select";
 
 export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
 export type {

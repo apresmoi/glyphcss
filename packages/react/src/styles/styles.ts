@@ -55,6 +55,26 @@ const CORE_BASE_STYLES = `
   background-repeat: no-repeat;
 }
 
+/* ── Gizmo override ─────────────────────────────────────────────────────── */
+
+/*
+ * <TransformControls> renders 3D arrows using the same polygon pipeline
+ * as user content, but the gizmo is a UI affordance — both faces of
+ * every polygon should remain visible regardless of which way the
+ * camera is looking. Otherwise the cuboid shafts and pyramid heads end
+ * up half-culled (you see only the side faces, not the caps), and the
+ * arrow looks like a flat strip instead of a 3D bar.
+ *
+ * Transitions on border-color and background-color smooth the
+ * idle → hover → drag alpha changes. Baked-mode arrows render their
+ * color via inline border-color, dynamic-mode via background-color
+ * (rgb-with-alpha CSS calc); transitioning both covers either path.
+ */
+.polycss-transform-controls i {
+  backface-visibility: visible;
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
 
 /*

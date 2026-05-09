@@ -6,3 +6,12 @@ export { useSceneContext } from "./useSceneContext";
 export type { UseSceneContextOptions, UseSceneContextResult } from "./useSceneContext";
 export { useMesh } from "./useMesh";
 export type { UseMeshResult, UseMeshOptions } from "./useMesh";
+export { findMeshHandle } from "./events";
+export type {
+  PolyMeshHandle,
+  PolyPointerEvent,
+  PolyMouseEvent,
+  PolyWheelEvent,
+  PolyEventHandler,
+  InteractionProps,
+} from "./events";

@@ -37,6 +37,9 @@ export type {
   TexturePaintMetricsOptions,
 } from "./scene/polygonGeometry";
 
+// ── Rotation math ────────────────────────────────────────────────
+export { rotateVec3, inverseRotateVec3 } from "./math/rotation";
+
 // ── Camera ────────────────────────────────────────────────────────
 export {
   createIsometricCamera,
@@ -72,9 +75,9 @@ export { mergePolygons } from "./merge/mergePolygons";
 export { cullInteriorPolygons } from "./cull/cullInteriorPolygons";
 export type { CullInteriorOptions } from "./cull/cullInteriorPolygons";
 
-// ── Helper-gizmo geometry (axes, light marker) ───────────────────
-export { axesHelperPolygons, octahedronPolygons } from "./helpers";
-export type { AxesHelperOptions } from "./helpers";
+// ── Helper-gizmo geometry (axes, light marker, transform arrows / rings) ─
+export { axesHelperPolygons, arrowPolygons, ringPolygons, octahedronPolygons } from "./helpers";
+export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions } from "./helpers";
 
 // ── Parsers ───────────────────────────────────────────────────────
 export type {

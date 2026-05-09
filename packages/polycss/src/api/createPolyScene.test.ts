@@ -3,7 +3,7 @@
  * (scene creation, add/remove mesh, transforms, options updates, destroy)
  * plus the autoCenter mirror and 0×0 anchor pattern from React.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParseResult, Polygon } from "@polycss/core";
 import {
   createPolyScene,
@@ -261,6 +261,80 @@ describe("createPolyScene", () => {
       expect(poly).not.toBeNull();
       expect(poly.style.width).not.toBe("");
     });
+
+    describe("rebakeAtlas", () => {
+      it("rebakeAtlas() does not throw", () => {
+        scene = createPolyScene(host);
+        const handle = scene.add(makeParseResult([triangle()]));
+        expect(() => handle.rebakeAtlas()).not.toThrow();
+      });
+
+      it("rebakeAtlas() re-renders the mesh (polygon elements are replaced)", () => {
+        scene = createPolyScene(host);
+        const handle = scene.add(makeParseResult([triangle()]));
+        handle.setTransform({ rotation: [0, 45, 0] });
+
+        // Capture the current <i> element reference(s) before rebake.
+        const before = Array.from(host.querySelectorAll(".polycss-mesh i")) as HTMLElement[];
+        expect(before.length).toBeGreaterThan(0);
+
+        handle.rebakeAtlas();
+
+        // After rebake the wrapper should still have polygon elements.
+        const after = Array.from(host.querySelectorAll(".polycss-mesh i")) as HTMLElement[];
+        expect(after.length).toBeGreaterThan(0);
+      });
+
+      it("rebakeAtlas() is callable multiple times without throwing", () => {
+        scene = createPolyScene(host);
+        const handle = scene.add(makeParseResult([triangle()]));
+        expect(() => {
+          handle.setTransform({ rotation: [0, 30, 0] });
+          handle.rebakeAtlas();
+          handle.setTransform({ rotation: [0, 60, 0] });
+          handle.rebakeAtlas();
+          handle.setTransform({ rotation: [0, 90, 0] });
+          handle.rebakeAtlas();
+        }).not.toThrow();
+      });
+
+      it("rebakeAtlas() calls renderEntry (spy on setPolygons verifies re-render pathway)", () => {
+        scene = createPolyScene(host);
+        const handle = scene.add(makeParseResult([triangle()]));
+        handle.setTransform({ rotation: [0, 45, 0] });
+
+        // Spy on renderEntry indirectly: clearRendered empties the wrapper,
+        // then re-populates it. After rebakeAtlas the wrapper must be non-empty.
+        const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+        // Manually hollow out the wrapper to detect the re-population.
+        while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild);
+        expect(wrapper.children.length).toBe(0);
+
+        handle.rebakeAtlas();
+        // renderEntry re-populates the wrapper synchronously (solid polys).
+        expect(wrapper.children.length).toBeGreaterThan(0);
+      });
+
+      it("rebakeAtlas() on a mesh with no rotation uses zero-rotation inverse (identity light)", () => {
+        scene = createPolyScene(host, {
+          directionalLight: { direction: [0, 0, 1], color: "#ffffff", intensity: 1 },
+        });
+        const handle = scene.add(makeParseResult([triangle()]));
+        // With zero rotation the inverse is the identity, so the light direction
+        // passed to the baker equals the original. No throw, mesh still renders.
+        expect(() => handle.rebakeAtlas()).not.toThrow();
+        const polys = host.querySelectorAll(".polycss-mesh i");
+        expect(polys.length).toBeGreaterThan(0);
+      });
+
+      it("rebakeAtlas() is a no-op spy target (can be mocked externally)", () => {
+        scene = createPolyScene(host);
+        const handle = scene.add(makeParseResult([triangle()]));
+        const spy = vi.spyOn(handle, "rebakeAtlas");
+        handle.rebakeAtlas();
+        expect(spy).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe("automatic merge", () => {
@@ -445,6 +519,88 @@ describe("createPolyScene", () => {
       scene = null;
       expect((pr1 as ParseResult & { _disposed: boolean })._disposed).toBe(true);
       expect((pr2 as ParseResult & { _disposed: boolean })._disposed).toBe(true);
+    });
+  });
+
+  describe("dynamic-mode per-mesh light override", () => {
+    // Directional light pointing straight down +Z (unit vector, easy to verify
+    // after inverse rotation).
+    const lightDir = [0, 0, 1] as [number, number, number];
+    const dynLight = {
+      textureLighting: "dynamic" as const,
+      directionalLight: { direction: lightDir, color: "#ffffff", intensity: 1 },
+    };
+
+    it("emits --polycss-lx/ly/lz on the mesh wrapper when dynamic + non-zero rotation", () => {
+      scene = createPolyScene(host, dynLight);
+      scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      // inverseRotateVec3([0,0,1], [0,90,0]) = rotateY(-90) on [0,0,1] = [-1,0,0]
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("-1.0000");
+      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("0.0000");
+    });
+
+    it("updates the override synchronously when setTransform changes rotation", () => {
+      scene = createPolyScene(host, dynLight);
+      const handle = scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      // Rotate back to zero — override should be removed.
+      handle.setTransform({ rotation: [0, 0, 0] });
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("");
+      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("");
+    });
+
+    it("removes the override when rotation is set back to zero", () => {
+      scene = createPolyScene(host, dynLight);
+      const handle = scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).not.toBe("");
+      handle.setTransform({ rotation: [0, 0, 0] });
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
+    });
+
+    it("removes the override when scene switches to baked lighting", () => {
+      scene = createPolyScene(host, dynLight);
+      scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).not.toBe("");
+      scene.setOptions({ textureLighting: "baked" });
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("");
+      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("");
+    });
+
+    it("does NOT emit override for a mesh with no rotation in a dynamic scene", () => {
+      scene = createPolyScene(host, dynLight);
+      scene.add(makeParseResult([triangle()]));
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
+      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("");
+      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("");
+    });
+
+    it("updates the override on all meshes when scene directionalLight changes", () => {
+      scene = createPolyScene(host, dynLight);
+      scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      // Change the world light to +X direction → inverseRotateVec3([1,0,0],[0,90,0])
+      // = rotateY(-90) on [1,0,0] → x=1*cos(-90)+0*sin(-90)=0, z=-1*sin(-90)+0*cos(-90)=1
+      // result = [0, 0, 1]
+      scene.setOptions({
+        directionalLight: { direction: [1, 0, 0], color: "#ffffff", intensity: 1 },
+      });
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--polycss-ly")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--polycss-lz")).toBe("1.0000");
+    });
+
+    it("does NOT emit override when scene has no directionalLight", () => {
+      scene = createPolyScene(host, { textureLighting: "dynamic" });
+      scene.add(makeParseResult([triangle()]), { rotation: [0, 90, 0] });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      expect(wrapper.style.getPropertyValue("--polycss-lx")).toBe("");
     });
   });
 

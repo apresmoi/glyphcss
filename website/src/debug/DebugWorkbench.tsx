@@ -4,7 +4,10 @@ import {
   PolyCamera,
   PolyControls,
   PolyDirectionalLightHelper,
+  PolyMesh,
   PolyScene,
+  Select,
+  TransformControls,
   parseGltf,
   parseMtl,
   parseObj,
@@ -15,8 +18,10 @@ import type {
   GltfParseOptions,
   ObjParseOptions,
   ParseAnimationController,
+  PolyMeshHandle,
   Polygon,
   TextureLightingMode,
+  Vec3 as ReactVec3,
 } from "@polycss/react";
 import { ModelPicker } from "./ModelPicker";
 import {
@@ -24,6 +29,8 @@ import {
   computeTexturePaintMetrics,
   createPolyControls,
   createPolyScene,
+  createSelect,
+  createTransformControls,
   octahedronPolygons,
   parseVox,
 } from "polycss";
@@ -32,6 +39,8 @@ import type {
   MeshHandle,
   PolySceneOptions,
   SceneHandle,
+  SelectionHandle,
+  TransformControlsHandle,
   Vec3,
   VoxParseOptions,
 } from "polycss";
@@ -76,6 +85,8 @@ interface SceneOptionsState {
   showFloor: boolean;
   showBackfaces: boolean;
   showAxes: boolean;
+  selection: boolean;
+  hoverEffects: boolean;
   showLight: boolean;
   zoom: number;
   rotX: number;
@@ -504,6 +515,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   showFloor: false,
   showBackfaces: false,
   showAxes: false,
+  selection: true,
+  hoverEffects: true,
   showLight: false,
   zoom: PRESETS[0].zoom ?? 0.35,
   rotX: PRESETS[0].rotX ?? 65,
@@ -843,6 +856,12 @@ function VanillaScene({
   animationFrameFactory,
   onBuild,
   onCameraChange,
+  enableSelection,
+  meshId,
+  onSelectionChange,
+  gizmoMode,
+  enableHover,
+  onHoverChange,
 }: {
   polygons: Polygon[];
   options: SceneOptionsState;
@@ -857,6 +876,12 @@ function VanillaScene({
   animationFrameFactory?: (timeSeconds: number) => Polygon[];
   onBuild: (ms: number) => void;
   onCameraChange?: (camera: { rotX: number; rotY: number; zoom: number }) => void;
+  enableSelection?: boolean;
+  meshId?: string;
+  onSelectionChange?: (selectedIds: string[]) => void;
+  gizmoMode?: "translate" | "rotate" | "scale";
+  enableHover?: boolean;
+  onHoverChange?: (id: string | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<SceneHandle | null>(null);
@@ -864,10 +889,16 @@ function VanillaScene({
   const meshHandleRef = useRef<MeshHandle | null>(null);
   const axesHandleRef = useRef<MeshHandle | null>(null);
   const lightHandleRef = useRef<MeshHandle | null>(null);
+  const selectionRef = useRef<SelectionHandle | null>(null);
+  const transformControlsRef = useRef<TransformControlsHandle | null>(null);
   const onBuildRef = useRef(onBuild);
   onBuildRef.current = onBuild;
   const onCameraChangeRef = useRef(onCameraChange);
   onCameraChangeRef.current = onCameraChange;
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  const onHoverChangeRef = useRef(onHoverChange);
+  onHoverChangeRef.current = onHoverChange;
 
   // Split things into "structural" (require destroying the scene) vs
   // "incremental" (can be applied via setOptions / setTransform). In
@@ -904,7 +935,7 @@ function VanillaScene({
       objectUrls: [],
       warnings: [],
       dispose: () => {},
-    }, { merge: mergePolygonsForMesh, stableDom: !!animationFrameFactory });
+    }, { merge: mergePolygonsForMesh, stableDom: !!animationFrameFactory, id: meshId });
     return () => {
       // Tear controls down BEFORE destroying the scene — otherwise the
       // controls' rAF tick could fire one more time against a stale handle.
@@ -940,6 +971,100 @@ function VanillaScene({
       onBuildRef.current(performance.now() - started),
     );
   }, [polygons, mergePolygonsForMesh, animationFrameFactory]);
+
+  // Selection + transform-controls layer. Selection toggle controls
+  // both — when on, clicking the mesh selects it (and attaches the
+  // gizmo); clicking again deselects (and detaches). The gizmo's
+  // mode follows `gizmoMode` (translate / rotate).
+  useEffect(() => {
+    if (!enableSelection) {
+      selectionRef.current?.destroy();
+      selectionRef.current = null;
+      transformControlsRef.current?.destroy();
+      transformControlsRef.current = null;
+      onSelectionChangeRef.current?.([]);
+      return;
+    }
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const tc = createTransformControls(scene, {
+      mode: gizmoMode ?? "translate",
+    });
+    transformControlsRef.current = tc;
+    const select = createSelect(scene, {
+      clearOnMiss: false,
+      onChange: (meshes) => {
+        // Drive the gizmo from selection: attach to the first selected
+        // mesh, or detach when nothing is selected.
+        tc.attach(meshes[0] ?? null);
+        onSelectionChangeRef.current?.(meshes.map((m) => m.id ?? ""));
+      },
+    });
+    selectionRef.current = select;
+    return () => {
+      select.destroy();
+      tc.destroy();
+      selectionRef.current = null;
+      transformControlsRef.current = null;
+    };
+  }, [
+    enableSelection,
+    // Same deps as the scene-init effect so the selection rebinds to
+    // the new SceneHandle whenever the scene tears down + rebuilds.
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+    animationFrameFactory,
+  ]);
+
+  // Forward gizmo mode changes to the live TransformControls handle.
+  useEffect(() => {
+    transformControlsRef.current?.setMode(gizmoMode ?? "translate");
+  }, [gizmoMode]);
+
+  // Hover layer for vanilla — pointerenter / pointerleave on the mesh
+  // wrapper. DOM enter/leave semantics fire only when the pointer
+  // actually crosses the wrapper boundary (not on every internal
+  // polygon-to-polygon transition), so the hover state stays stable
+  // across the chicken's many `<i>` polygons. Adds the `is-hovered`
+  // class so the same `.polycss-mesh.is-hovered i { filter: brightness }`
+  // rule the React path uses kicks in here too.
+  useEffect(() => {
+    const mesh = meshHandleRef.current;
+    if (!mesh || !enableHover) {
+      onHoverChangeRef.current?.(null);
+      return;
+    }
+    const onEnter = (): void => {
+      mesh.element.classList.add("is-hovered");
+      onHoverChangeRef.current?.(mesh.id ?? null);
+    };
+    const onLeave = (): void => {
+      mesh.element.classList.remove("is-hovered");
+      onHoverChangeRef.current?.(null);
+    };
+    mesh.element.addEventListener("pointerenter", onEnter);
+    mesh.element.addEventListener("pointerleave", onLeave);
+    return () => {
+      mesh.element.removeEventListener("pointerenter", onEnter);
+      mesh.element.removeEventListener("pointerleave", onLeave);
+      mesh.element.classList.remove("is-hovered");
+    };
+  }, [
+    enableHover,
+    // Same deps as the scene-init effect so the hover listener
+    // reattaches to the new mesh wrapper after a scene rebuild.
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+    animationFrameFactory,
+  ]);
 
   useEffect(() => {
     if (!animationFrameFactory || !animationKey) return;
@@ -1155,6 +1280,31 @@ export default function DebugWorkbench() {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderStartRef = useRef(performance.now());
 
+  // Selection + drag state for the React renderer's <PolyMesh> wrapper.
+  // Lives at this level so a model swap can reset both — the gizmo
+  // shouldn't follow a stale handle, and a freshly loaded mesh should
+  // sit at its authored origin.
+  const meshRef = useRef<PolyMeshHandle>(null);
+  const [meshPosition, setMeshPosition] = useState<ReactVec3>([0, 0, 0]);
+  const [meshRotation, setMeshRotation] = useState<ReactVec3>([0, 0, 0]);
+  const [gizmoMode, setGizmoMode] = useState<"translate" | "rotate" | "scale">("translate");
+  const [selectedMeshes, setSelectedMeshes] = useState<PolyMeshHandle[]>([]);
+  // Mirror of TransformControls' drag state — three.js convention is to
+  // disable OrbitControls while a transform gizmo is being dragged so
+  // the camera doesn't co-rotate. Same idea here: gate PolyControls'
+  // drag/wheel on this flag.
+  const [gizmoDragging, setGizmoDragging] = useState(false);
+  // Hover state for the mesh — wired the r3f / three.js way via
+  // onPointerOver / onPointerOut on <PolyMesh>. Demonstrates the
+  // mesh-event API (events.ts → InteractionProps) — same shape as
+  // r3f, no raycasting needed because polycss uses DOM events.
+  const [hoveredMeshId, setHoveredMeshId] = useState<string | null>(null);
+  // Vanilla selection state — kept separate from React's
+  // `selectedMeshes` because vanilla MeshHandles aren't comparable to
+  // React PolyMeshHandles. Stored as IDs since that's what both paths
+  // can agree on for the toolbar display.
+  const [vanillaSelectedIds, setVanillaSelectedIds] = useState<string[]>([]);
+
   const updateScene = useCallback((partial: Partial<SceneOptionsState>) => {
     setSceneOptions((current) => ({ ...current, ...partial }));
   }, []);
@@ -1216,6 +1366,16 @@ export default function DebugWorkbench() {
       disposeRef.current?.();
     };
   }, []);
+
+  // Drop selection + reset gizmo position when the model changes. The
+  // PolyMesh wrapper persists across model swaps, so without this the
+  // user would inherit the previous model's drag offset.
+  useEffect(() => {
+    setSelectedMeshes([]);
+    setVanillaSelectedIds([]);
+    setMeshPosition([0, 0, 0]);
+    setMeshRotation([0, 0, 0]);
+  }, [loaded?.label]);
 
   const directionalLight = useMemo(
     () => directionalFromOptions(sceneOptions),
@@ -1496,6 +1656,33 @@ export default function DebugWorkbench() {
           <Toggle label="Floor" checked={sceneOptions.showFloor} onChange={(value) => updateScene({ showFloor: value })} />
           <Toggle label="Backfaces" checked={sceneOptions.showBackfaces} onChange={(value) => updateScene({ showBackfaces: value })} />
           <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
+          <Toggle
+            label="Selection"
+            checked={sceneOptions.selection}
+            onChange={(value) => updateScene({ selection: value })}
+          />
+          <Toggle
+            label="Hover effects"
+            checked={sceneOptions.hoverEffects}
+            onChange={(value) => updateScene({ hoverEffects: value })}
+          />
+          <div className="dn-field dn-field--segment">
+            <span>Gizmo</span>
+            <div className="dn-segment">
+              {(["translate", "rotate"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={gizmoMode === m ? "active" : ""}
+                  onClick={() => setGizmoMode(m)}
+                  disabled={!sceneOptions.selection}
+                  title={!sceneOptions.selection ? "Enable Selection to use the gizmo" : undefined}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
 
         <section className="dn-panel">
@@ -1549,6 +1736,14 @@ export default function DebugWorkbench() {
               {loaded
                 ? `${loaded.kind.toUpperCase()} - ${formatNumber(loaded.sourcePolygons)} source / ${formatNumber(modelPolygons.length)} merged polygons`
                 : "Drop a model or pick a preset"}
+              {hoveredMeshId && <> · hover: <code>{hoveredMeshId}</code></>}
+              {(selectedMeshes.length > 0 || vanillaSelectedIds.length > 0) && (
+                <> · selected: <code>{
+                  selectedMeshes.length > 0
+                    ? selectedMeshes.map((m) => m.id ?? "?").join(", ")
+                    : vanillaSelectedIds.join(", ")
+                }</code></>
+              )}
             </span>
           </div>
           <div className="dn-toolbar__kpis" aria-label="Performance KPIs">
@@ -1599,6 +1794,12 @@ export default function DebugWorkbench() {
               animationFrameFactory={vanillaAnimationFrameFactory}
               onBuild={setVanillaBuildMs}
               onCameraChange={handleCameraChange}
+              enableSelection={sceneOptions.selection}
+              meshId={loaded?.label ?? "model"}
+              onSelectionChange={setVanillaSelectedIds}
+              gizmoMode={gizmoMode}
+              enableHover={sceneOptions.hoverEffects}
+              onHoverChange={setHoveredMeshId}
             />
           ) : (
             <PolyCamera
@@ -1608,20 +1809,57 @@ export default function DebugWorkbench() {
               perspective={sceneOptions.perspective}
             >
               <PolyControls
-                drag={sceneOptions.interactive}
-                wheel={sceneOptions.interactive}
+                drag={sceneOptions.interactive && !gizmoDragging}
+                wheel={sceneOptions.interactive && !gizmoDragging}
                 animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
                 onInteractionEnd={handleCameraChange}
               />
               <PolyScene
-                polygons={scenePolygons}
-                autoCenter={sceneOptions.autoCenter}
+                polygons={sceneOptions.selection ? [] : scenePolygons}
+                autoCenter={sceneOptions.selection ? false : sceneOptions.autoCenter}
                 directionalLight={directionalLight}
                 ambientLight={ambientLight}
                 textureLighting={sceneOptions.textureLighting}
                 atlasScale={atlasScale}
                 debugShowBackfaces={sceneOptions.showBackfaces}
               >
+                {sceneOptions.selection ? (
+                  <Select onChange={setSelectedMeshes} clearOnMiss={false}>
+                    <PolyMesh
+                      ref={meshRef}
+                      id={loaded?.label ?? "model"}
+                      polygons={scenePolygons}
+                      autoCenter={sceneOptions.autoCenter}
+                      position={meshPosition}
+                      rotation={meshRotation}
+                      className={
+                        sceneOptions.hoverEffects && hoveredMeshId === (loaded?.label ?? "model")
+                          ? "is-hovered"
+                          : undefined
+                      }
+                      style={sceneOptions.hoverEffects ? { cursor: "pointer" } : undefined}
+                      onPointerOver={
+                        sceneOptions.hoverEffects
+                          ? (event) => setHoveredMeshId(event.eventObject.id ?? null)
+                          : undefined
+                      }
+                      onPointerOut={
+                        sceneOptions.hoverEffects ? () => setHoveredMeshId(null) : undefined
+                      }
+                    />
+                  </Select>
+                ) : null}
+                {sceneOptions.selection && selectedMeshes.length > 0 && (
+                  <TransformControls
+                    object={meshRef}
+                    mode={gizmoMode}
+                    onObjectChange={(event) => {
+                      if (event.position) setMeshPosition(event.position);
+                      if (event.rotation) setMeshRotation(event.rotation);
+                    }}
+                    onDraggingChanged={setGizmoDragging}
+                  />
+                )}
                 {sceneOptions.showAxes && <PolyAxesHelper size={helperScale * 0.6} />}
                 {sceneOptions.showLight && (
                   <PolyDirectionalLightHelper

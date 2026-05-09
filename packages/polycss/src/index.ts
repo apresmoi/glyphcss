@@ -27,6 +27,18 @@ export type {
   PolyControlsAnimateOptions,
 } from "./api/createPolyControls";
 
+// ── Mesh selection (additive, optional layer) ─────────────────────
+export { createSelect } from "./api/createSelect";
+export type { CreateSelectOptions, SelectionHandle } from "./api/createSelect";
+
+// ── Transform gizmo (additive, optional layer) ────────────────────
+export { createTransformControls } from "./api/createTransformControls";
+export type {
+  CreateTransformControlsOptions,
+  TransformControlsHandle,
+  TransformControlsObjectChangeEvent,
+} from "./api/createTransformControls";
+
 // ── Custom element classes (without auto-registering — that's polycss/elements) ──
 export { PolySceneElement } from "./elements/PolySceneElement";
 export { PolyMeshElement } from "./elements/PolyMeshElement";
