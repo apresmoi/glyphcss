@@ -82,6 +82,7 @@ export type {
 export {
   normalizePolygons,
   mergePolygons,
+  coverPlanarPolygons,
   cullInteriorPolygons,
   parseObj,
   parseMtl,

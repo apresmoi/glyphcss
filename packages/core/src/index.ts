@@ -73,6 +73,8 @@ export {
 
 // ── Mesh post-processing ──────────────────────────────────────────
 export { mergePolygons } from "./merge/mergePolygons";
+export { coverPlanarPolygons } from "./merge/coverPlanarPolygons";
+export type { CoverPlanarPolygonsOptions } from "./merge/coverPlanarPolygons";
 export { cullInteriorPolygons } from "./cull/cullInteriorPolygons";
 export type { CullInteriorOptions } from "./cull/cullInteriorPolygons";
 

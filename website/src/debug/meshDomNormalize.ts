@@ -8,6 +8,20 @@ const NORMALIZE_MAX_ANGLE_DEG = 3;
 const NORMALIZE_MAX_PLANE_DISPLACEMENT = 0.03;
 const NORMALIZE_MAX_BOUNDARY_DISPLACEMENT = 0.02;
 
+export interface GeometryNormalizeOptions {
+  maxAngleDeg?: number;
+  maxPlaneDisplacement?: number;
+  maxBoundaryDisplacement?: number;
+  isolatedPairs?: boolean;
+}
+
+interface ResolvedGeometryNormalizeOptions {
+  maxAngleDeg: number;
+  maxPlaneDisplacement: number;
+  maxBoundaryDisplacement: number;
+  isolatedPairs: boolean;
+}
+
 interface PlaneNormalizeMeta {
   polygon: Polygon;
   normal: Vec3;
@@ -20,17 +34,211 @@ interface PlaneFit {
   point: Vec3;
 }
 
-export function preprocessModelPolygons(polygons: Polygon[], normalizeGeometry: boolean): Polygon[] {
+interface PairCandidate {
+  a: number;
+  b: number;
+  polygon: Polygon;
+  score: number;
+}
+
+const DEFAULT_NORMALIZE_OPTIONS: ResolvedGeometryNormalizeOptions = {
+  maxAngleDeg: NORMALIZE_MAX_ANGLE_DEG,
+  maxPlaneDisplacement: NORMALIZE_MAX_PLANE_DISPLACEMENT,
+  maxBoundaryDisplacement: NORMALIZE_MAX_BOUNDARY_DISPLACEMENT,
+  isolatedPairs: false,
+};
+
+export function preprocessModelPolygons(
+  polygons: Polygon[],
+  normalizeGeometry: boolean | GeometryNormalizeOptions,
+): Polygon[] {
   const baseline = mergePolygons(cullInteriorPolygons(polygons));
   if (!normalizeGeometry) return baseline;
 
-  const normalized = mergePolygons(cullInteriorPolygons(normalizeGeometryForMerge(polygons)));
+  const options = normalizeGeometry === true
+    ? DEFAULT_NORMALIZE_OPTIONS
+    : resolveNormalizeOptions(normalizeGeometry);
+  if (options.isolatedPairs) {
+    const paired = mergeIsolatedTrianglePairs(cullInteriorPolygons(snapGeometryForMerge(polygons)), options);
+    return paired.length < baseline.length ? paired : baseline;
+  }
+  const normalized = mergePolygons(cullInteriorPolygons(normalizeGeometryForMerge(polygons, options)));
   return normalized.length < baseline.length ? normalized : baseline;
 }
 
-function normalizeGeometryForMerge(polygons: Polygon[]): Polygon[] {
+function resolveNormalizeOptions(options: GeometryNormalizeOptions): ResolvedGeometryNormalizeOptions {
+  return {
+    maxAngleDeg: options.maxAngleDeg ?? DEFAULT_NORMALIZE_OPTIONS.maxAngleDeg,
+    maxPlaneDisplacement: options.maxPlaneDisplacement ?? DEFAULT_NORMALIZE_OPTIONS.maxPlaneDisplacement,
+    maxBoundaryDisplacement: options.maxBoundaryDisplacement ?? DEFAULT_NORMALIZE_OPTIONS.maxBoundaryDisplacement,
+    isolatedPairs: options.isolatedPairs ?? DEFAULT_NORMALIZE_OPTIONS.isolatedPairs,
+  };
+}
+
+function mergeIsolatedTrianglePairs(
+  polygons: Polygon[],
+  options: ResolvedGeometryNormalizeOptions,
+): Polygon[] {
+  const metas = polygons.map((polygon): PlaneNormalizeMeta | null => {
+    const plane = planeOfPolygon(polygon);
+    if (!plane) return null;
+    return {
+      polygon,
+      normal: plane.normal,
+      area: plane.area,
+      materialKey: materialKeyForPolygon(polygon),
+    };
+  });
+  const edgeOwners = new Map<string, number[]>();
+  for (let i = 0; i < polygons.length; i++) {
+    const polygon = polygons[i];
+    if (polygon.vertices.length !== 3 || !metas[i]) continue;
+    for (let j = 0; j < polygon.vertices.length; j++) {
+      const key = edgeKey(polygon.vertices[j], polygon.vertices[(j + 1) % polygon.vertices.length]);
+      const owners = edgeOwners.get(key);
+      if (owners) owners.push(i);
+      else edgeOwners.set(key, [i]);
+    }
+  }
+
+  const candidates: PairCandidate[] = [];
+  for (const owners of edgeOwners.values()) {
+    if (owners.length !== 2) continue;
+    const [a, b] = owners;
+    const candidate = approximateTrianglePairCandidate(a, b, polygons, metas, options);
+    if (candidate) candidates.push(candidate);
+  }
+  candidates.sort((a, b) => a.score - b.score);
+
+  const used = new Set<number>();
+  const replacements = new Map<number, Polygon>();
+  const skipped = new Set<number>();
+  for (const candidate of candidates) {
+    if (used.has(candidate.a) || used.has(candidate.b)) continue;
+    used.add(candidate.a);
+    used.add(candidate.b);
+    const outputIndex = Math.min(candidate.a, candidate.b);
+    replacements.set(outputIndex, candidate.polygon);
+    skipped.add(Math.max(candidate.a, candidate.b));
+  }
+
+  const output: Polygon[] = [];
+  for (let i = 0; i < polygons.length; i++) {
+    const replacement = replacements.get(i);
+    if (replacement) {
+      output.push(replacement);
+      continue;
+    }
+    if (skipped.has(i)) continue;
+    output.push(polygons[i]);
+  }
+  return output;
+}
+
+function approximateTrianglePairCandidate(
+  aIndex: number,
+  bIndex: number,
+  polygons: Polygon[],
+  metas: Array<PlaneNormalizeMeta | null>,
+  options: ResolvedGeometryNormalizeOptions,
+): PairCandidate | null {
+  const a = polygons[aIndex];
+  const b = polygons[bIndex];
+  const aMeta = metas[aIndex];
+  const bMeta = metas[bIndex];
+  if (!aMeta || !bMeta) return null;
+  if (a.vertices.length !== 3 || b.vertices.length !== 3) return null;
+  if (a.texture || b.texture || a.uvs || b.uvs || a.textureTriangles || b.textureTriangles) return null;
+  if (aMeta.materialKey !== bMeta.materialKey) return null;
+
+  const shared = sharedEdgeIndices(a, b);
+  if (!shared) return null;
+  const [ai0, ai1, bi0, bi1] = shared;
+  const bGoesSameDirection = (bi0 + 1) % b.vertices.length === bi1;
+  if (bGoesSameDirection) return null;
+
+  const normalDot = Math.abs(dotVec(aMeta.normal, bMeta.normal));
+  const minNormalDot = Math.cos((options.maxAngleDeg * Math.PI) / 180);
+  if (normalDot < minNormalDot) return null;
+
+  const aThird = (ai1 + 1) % a.vertices.length;
+  const bThird = 3 - bi0 - bi1;
+  const ring = [
+    a.vertices[ai1],
+    a.vertices[aThird],
+    a.vertices[ai0],
+    b.vertices[bThird],
+  ];
+  const fit = fitPlaneForVertices(ring);
+  if (!fit) return null;
+
+  let maxDistance = 0;
+  for (const vertex of ring) {
+    maxDistance = Math.max(maxDistance, Math.abs(signedPlaneDistance(vertex, fit)));
+  }
+  if (maxDistance > Math.min(options.maxPlaneDisplacement, options.maxBoundaryDisplacement)) return null;
+
+  const vertices = ring.map((vertex) => projectVecToPlane(vertex, fit));
+  if (!isConvexPolygon(vertices, fit.normal)) return null;
+  return {
+    a: aIndex,
+    b: bIndex,
+    polygon: {
+      vertices,
+      color: a.color,
+      ...(a.data ? { data: { ...a.data } } : {}),
+    },
+    score: maxDistance + (1 - normalDot),
+  };
+}
+
+function fitPlaneForVertices(vertices: Vec3[]): PlaneFit | null {
+  if (vertices.length < 3) return null;
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  let px = 0;
+  let py = 0;
+  let pz = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const current = vertices[i];
+    const next = vertices[(i + 1) % vertices.length];
+    nx += (current[1] - next[1]) * (current[2] + next[2]);
+    ny += (current[2] - next[2]) * (current[0] + next[0]);
+    nz += (current[0] - next[0]) * (current[1] + next[1]);
+    px += current[0];
+    py += current[1];
+    pz += current[2];
+  }
+  const normal = normalizeVec([nx, ny, nz]);
+  if (!normal) return null;
+  return {
+    normal,
+    point: [px / vertices.length, py / vertices.length, pz / vertices.length],
+  };
+}
+
+function isConvexPolygon(vertices: Vec3[], normal: Vec3): boolean {
+  let sign = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    const a = vertices[i];
+    const b = vertices[(i + 1) % vertices.length];
+    const c = vertices[(i + 2) % vertices.length];
+    const turn = dotVec(crossVec(subVec(b, a), subVec(c, b)), normal);
+    if (Math.abs(turn) <= 1e-9) continue;
+    const nextSign = turn > 0 ? 1 : -1;
+    if (sign === 0) sign = nextSign;
+    else if (sign !== nextSign) return false;
+  }
+  return true;
+}
+
+function normalizeGeometryForMerge(
+  polygons: Polygon[],
+  options: ResolvedGeometryNormalizeOptions,
+): Polygon[] {
   const snapped = snapGeometryForMerge(polygons);
-  const planeEpsilon = planeFitEpsilon(snapped);
+  const planeEpsilon = planeFitEpsilon(snapped, options);
   if (planeEpsilon <= 0) return snapped;
 
   const metas = snapped.map((polygon): PlaneNormalizeMeta | null => {
@@ -58,7 +266,7 @@ function normalizeGeometryForMerge(polygons: Polygon[]): Polygon[] {
       continue;
     }
 
-    const group = growPlaneGroup(i, metas, adjacency, assigned, planeEpsilon);
+    const group = growPlaneGroup(i, metas, adjacency, assigned, planeEpsilon, options);
     for (const index of group) assigned.add(index);
     if (group.length < 2) {
       writeOutput(i, snapped[i]);
@@ -66,7 +274,7 @@ function normalizeGeometryForMerge(polygons: Polygon[]): Polygon[] {
     }
 
     const fit = fitPlaneForGroup(group, metas);
-    if (!fit || !groupWithinPlaneBudget(group, metas, fit, planeEpsilon)) {
+    if (!fit || !groupWithinPlaneBudget(group, metas, fit, planeEpsilon, options)) {
       for (const index of group) writeOutput(index, snapped[index]);
       continue;
     }
@@ -149,10 +357,13 @@ function projectedGroupWins(source: Polygon[], projected: Polygon[]): boolean {
   return mergePolygons(projected).length < mergePolygons(source).length;
 }
 
-function planeFitEpsilon(polygons: Polygon[]): number {
+function planeFitEpsilon(
+  polygons: Polygon[],
+  options: ResolvedGeometryNormalizeOptions,
+): number {
   const geometryEpsilon = geometrySnapEpsilon(polygons);
   if (geometryEpsilon <= 0) return 0;
-  return Math.min(geometryEpsilon * 3, NORMALIZE_MAX_PLANE_DISPLACEMENT);
+  return options.maxPlaneDisplacement;
 }
 
 function geometrySnapEpsilon(polygons: Polygon[]): number {
@@ -338,6 +549,7 @@ function growPlaneGroup(
   adjacency: Map<number, Set<number>>,
   assigned: Set<number>,
   planeEpsilon: number,
+  options: ResolvedGeometryNormalizeOptions,
 ): number[] {
   const group = [seed];
   const queued = new Set([seed]);
@@ -351,7 +563,7 @@ function growPlaneGroup(
       const seedMeta = metas[seed];
       if (!nextMeta || !seedMeta) continue;
       if (nextMeta.materialKey !== seedMeta.materialKey) continue;
-      if (!canJoinPlaneGroup([...group, next], metas, planeEpsilon)) continue;
+      if (!canJoinPlaneGroup([...group, next], metas, planeEpsilon, options)) continue;
       group.push(next);
       queued.add(next);
       queue.push(next);
@@ -365,9 +577,10 @@ function canJoinPlaneGroup(
   group: number[],
   metas: Array<PlaneNormalizeMeta | null>,
   planeEpsilon: number,
+  options: ResolvedGeometryNormalizeOptions,
 ): boolean {
   const fit = fitPlaneForGroup(group, metas);
-  return !!fit && groupWithinPlaneBudget(group, metas, fit, planeEpsilon);
+  return !!fit && groupWithinPlaneBudget(group, metas, fit, planeEpsilon, options);
 }
 
 function fitPlaneForGroup(
@@ -447,8 +660,9 @@ function groupWithinPlaneBudget(
   metas: Array<PlaneNormalizeMeta | null>,
   fit: PlaneFit,
   planeEpsilon: number,
+  options: ResolvedGeometryNormalizeOptions,
 ): boolean {
-  const normalDotMin = Math.cos((NORMALIZE_MAX_ANGLE_DEG * Math.PI) / 180);
+  const normalDotMin = Math.cos((options.maxAngleDeg * Math.PI) / 180);
   const boundaryVertices = groupBoundaryVertexKeys(group, metas);
   for (const index of group) {
     const meta = metas[index];
@@ -456,7 +670,7 @@ function groupWithinPlaneBudget(
     if (Math.abs(dotVec(meta.normal, fit.normal)) < normalDotMin) return false;
     for (const vertex of meta.polygon.vertices) {
       const limit = boundaryVertices.has(vertexKey(vertex))
-        ? NORMALIZE_MAX_BOUNDARY_DISPLACEMENT
+        ? options.maxBoundaryDisplacement
         : planeEpsilon;
       if (Math.abs(signedPlaneDistance(vertex, fit)) > limit) return false;
     }

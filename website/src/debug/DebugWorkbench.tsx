@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   PolyAxesHelper,
   PolyCamera,
@@ -27,7 +28,7 @@ import type {
 import { ModelPicker } from "./ModelPicker";
 import {
   axesHelperPolygons,
-  computeTexturePaintMetrics,
+  coverPlanarPolygons,
   createPolyControls,
   createPolyScene,
   createSelect,
@@ -46,6 +47,7 @@ import type {
   VoxParseOptions,
 } from "@layoutit/polycss";
 import { preprocessModelPolygons } from "./meshDomNormalize";
+import type { GeometryNormalizeOptions } from "./meshDomNormalize";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
@@ -63,6 +65,14 @@ interface PresetModel {
   rotX?: number;
   rotY?: number;
   options?: ObjParseOptions | GltfParseOptions | VoxParseOptions;
+  attribution?: ModelAttribution;
+}
+
+interface ModelAttribution {
+  creator: string;
+  license: string;
+  sourceUrl: string;
+  tris?: number;
 }
 
 interface LoadedModel {
@@ -83,8 +93,6 @@ interface SceneOptionsState {
   autoCenter: boolean;
   interactive: boolean;
   animate: boolean;
-  showFloor: boolean;
-  showBackfaces: boolean;
   showAxes: boolean;
   selection: boolean;
   hoverEffects: boolean;
@@ -101,7 +109,8 @@ interface SceneOptionsState {
   ambientColor: string;
   textureLighting: TextureLightingMode;
   textureQuality: TextureQuality;
-  normalizeGeometry: boolean;
+  approximateMerge: boolean;
+  rectCover: boolean;
   outlinePolygons: boolean;
   dragMode: "orbit" | "pan";
   target: ReactVec3;
@@ -125,18 +134,6 @@ interface AtlasEstimate {
   atlasPolygons: number;
 }
 
-const EMPTY_TEXTURE_PAINT_METRICS = {
-  totalPolygons: 0,
-  measuredPolygons: 0,
-  texturedPolygons: 0,
-  elementArea: 0,
-  polygonArea: 0,
-  transparentArea: 0,
-  transparentRatio: 0,
-  overdrawRatio: 0,
-  worstTransparentRatio: 0,
-};
-
 interface GalleryPresetFile {
   file: string;
   label?: string;
@@ -145,6 +142,7 @@ interface GalleryPresetFile {
   zoom?: number;
   rotX?: number;
   rotY?: number;
+  attribution?: ModelAttribution;
 }
 
 function galleryFileUrl(folder: "glb" | "vox", file: string): string {
@@ -153,8 +151,6 @@ function galleryFileUrl(folder: "glb" | "vox", file: string): string {
 
 function presetIdFromFile(prefix: string, file: string): string {
   return `${prefix}-${file
-    .split("/")
-    .pop()!
     .replace(/\.[^.]+$/, "")
     .replace(/([a-z])([A-Z])/g, "$1-$2")
     .replace(/[^a-zA-Z0-9]+/g, "-")
@@ -187,6 +183,7 @@ function glbPreset(input: GalleryPresetFile): PresetModel {
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
+    attribution: input.attribution,
   };
 }
 
@@ -201,6 +198,7 @@ function voxPreset(input: GalleryPresetFile): PresetModel {
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
+    attribution: input.attribution,
   };
 }
 
@@ -260,6 +258,934 @@ const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "Drill.glb", category: "Objects" },
   { file: "Globe.glb", category: "Objects" },
   { file: "Treasuretrunk.glb", label: "Treasure Trunk", category: "Objects" },
+];
+
+const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
+  {
+    file: "poly-pizza/pizza-box.glb",
+    label: "Pizza Box",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/PSqXX0pj5o",
+      tris: 60,
+    },
+  },
+  {
+    file: "poly-pizza/cup.glb",
+    label: "Cup",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/aSF8ANEIsX",
+      tris: 80,
+    },
+  },
+  {
+    file: "poly-pizza/fruit-crate.glb",
+    label: "Fruit Crate",
+    category: "Food & Drink",
+    attribution: {
+      creator: "BlenderVoyage",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/aXulVWHOeV",
+      tris: 196,
+    },
+  },
+  {
+    file: "poly-pizza/chair.glb",
+    label: "Chair",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/iMNqRzPwwe",
+      tris: 216,
+    },
+  },
+  {
+    file: "poly-pizza/pizza-slice.glb",
+    label: "Pizza Slice",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/CA4HtaaMJn",
+      tris: 392,
+    },
+  },
+  {
+    file: "poly-pizza/barrel.glb",
+    label: "Barrel",
+    category: "Objects",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/orjMeJQfFD",
+      tris: 412,
+    },
+  },
+  {
+    file: "poly-pizza/houseplant.glb",
+    label: "Houseplant",
+    category: "Environment",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/bfLOqIV5uP",
+      tris: 449,
+    },
+  },
+  {
+    file: "poly-pizza/sheep.glb",
+    label: "Sheep",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/C39AUXUUes",
+      tris: 610,
+    },
+  },
+  {
+    file: "poly-pizza/small-building.glb",
+    label: "Small Building",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/gyjF60t7CG",
+      tris: 694,
+    },
+  },
+  {
+    file: "poly-pizza/large-building.glb",
+    label: "Large Building",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/yKo7F36Qk2",
+      tris: 950,
+    },
+  },
+  {
+    file: "poly-pizza/animated-robot.glb",
+    label: "Animated Robot",
+    category: "Animated",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/QCm7qe9uNJ",
+      tris: 1425,
+    },
+  },
+  {
+    file: "poly-pizza/wolf.glb",
+    label: "Wolf",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/P1gU3Qkr9r",
+      tris: 1928,
+    },
+  },
+  {
+    file: "poly-pizza/bat.glb",
+    label: "Bat",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/hNO9XvjlKa",
+      tris: 772,
+    },
+  },
+  {
+    file: "poly-pizza/bird.glb",
+    label: "Bird",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/gYYC0gYMnw",
+      tris: 1204,
+    },
+  },
+  {
+    file: "poly-pizza/cow.glb",
+    label: "Cow",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/5XSc2Fka3F",
+      tris: 796,
+    },
+  },
+  {
+    file: "poly-pizza/ducky.glb",
+    label: "Ducky",
+    category: "Animals",
+    attribution: {
+      creator: "Isa Lousberg",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/gt2eYOyOvU",
+      tris: 604,
+    },
+  },
+  {
+    file: "poly-pizza/fish.glb",
+    label: "Fish",
+    category: "Animals",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/HkUAXudvBt",
+      tris: 233,
+    },
+  },
+  {
+    file: "poly-pizza/horse.glb",
+    label: "Horse",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/F8HAAcLeBL",
+      tris: 690,
+    },
+  },
+  {
+    file: "poly-pizza/llama.glb",
+    label: "Llama",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/JxVJ9rfWGy",
+      tris: 661,
+    },
+  },
+  {
+    file: "poly-pizza/mushnub.glb",
+    label: "Mushnub",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/LWKmS30Xxl",
+      tris: 1200,
+    },
+  },
+  {
+    file: "poly-pizza/pig.glb",
+    label: "Pig",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/TNvG3QUFlp",
+      tris: 562,
+    },
+  },
+  {
+    file: "poly-pizza/pug.glb",
+    label: "Pug",
+    category: "Animals",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/1gXKv15ik8",
+      tris: 644,
+    },
+  },
+  {
+    file: "poly-pizza/guard-tower.glb",
+    label: "Guard Tower",
+    category: "Architecture",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/sbaM8I229r",
+      tris: 344,
+    },
+  },
+  {
+    file: "poly-pizza/house.glb",
+    label: "House",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/7VSVwAg2T3",
+      tris: 381,
+    },
+  },
+  {
+    file: "poly-pizza/skyscraper.glb",
+    label: "Skyscraper",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/XST1j6kYsL",
+      tris: 456,
+    },
+  },
+  {
+    file: "poly-pizza/small-building-2.glb",
+    label: "Small Building",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/QjL4Fo9dU9",
+      tris: 410,
+    },
+  },
+  {
+    file: "poly-pizza/small-watch-tower.glb",
+    label: "Small Watch Tower",
+    category: "Architecture",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/CygapExMf5",
+      tris: 588,
+    },
+  },
+  {
+    file: "poly-pizza/tower.glb",
+    label: "Tower",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/5lvG0WtuTU",
+      tris: 683,
+    },
+  },
+  {
+    file: "poly-pizza/two-story-house.glb",
+    label: "Two story house",
+    category: "Architecture",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/sGgL4Nt7I7",
+      tris: 630,
+    },
+  },
+  {
+    file: "poly-pizza/watch-tower.glb",
+    label: "Watch Tower",
+    category: "Architecture",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/f2J0aSLVi4",
+      tris: 656,
+    },
+  },
+  {
+    file: "poly-pizza/books.glb",
+    label: "Books",
+    category: "Objects",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/M2cJ5sVUgJ",
+      tris: 124,
+    },
+  },
+  {
+    file: "poly-pizza/bucket.glb",
+    label: "Bucket",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/tKTttwROq7",
+      tris: 532,
+    },
+  },
+  {
+    file: "poly-pizza/can.glb",
+    label: "Can",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/YnowJvWqxE",
+      tris: 428,
+    },
+  },
+  {
+    file: "poly-pizza/crate-2.glb",
+    label: "Crate",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/3VGWnZPXmG",
+      tris: 784,
+    },
+  },
+  {
+    file: "poly-pizza/bottle.glb",
+    label: "Bottle",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/Pc8dM9Ja4V",
+      tris: 118,
+    },
+  },
+  {
+    file: "poly-pizza/bread.glb",
+    label: "Bread",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/luo9BHRaax",
+      tris: 116,
+    },
+  },
+  {
+    file: "poly-pizza/cup-tea.glb",
+    label: "Cup Tea",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/FUSyrlibw0",
+      tris: 108,
+    },
+  },
+  {
+    file: "poly-pizza/egg-fried.glb",
+    label: "Egg Fried",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/NVrB2yd66v",
+      tris: 101,
+    },
+  },
+  {
+    file: "poly-pizza/glass.glb",
+    label: "Glass",
+    category: "Food & Drink",
+    attribution: {
+      creator: "MilkAndBanana",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/3v7i0dz7Vg",
+      tris: 76,
+    },
+  },
+  {
+    file: "poly-pizza/meat-patty.glb",
+    label: "Meat Patty",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/2RbsQBbMGg",
+      tris: 104,
+    },
+  },
+  {
+    file: "poly-pizza/mushroom-half.glb",
+    label: "Mushroom Half",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/Rya1QwSsEE",
+      tris: 68,
+    },
+  },
+  {
+    file: "poly-pizza/mushroom-sliced.glb",
+    label: "Mushroom Sliced",
+    category: "Food & Drink",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/VjFoJav3v7",
+      tris: 92,
+    },
+  },
+  {
+    file: "poly-pizza/door.glb",
+    label: "Door",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/KGt4ztcKrM",
+      tris: 52,
+    },
+  },
+  {
+    file: "poly-pizza/lamp-square-floor.glb",
+    label: "Lamp Square Floor",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/YhhExKQQCs",
+      tris: 120,
+    },
+  },
+  {
+    file: "poly-pizza/light-bulb.glb",
+    label: "Light bulb",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "reelpersen",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/kDo0SbQW9Y",
+      tris: 124,
+    },
+  },
+  {
+    file: "poly-pizza/red-door.glb",
+    label: "Red Door",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/NZxf87zEEm",
+      tris: 152,
+    },
+  },
+  {
+    file: "poly-pizza/shelf-small.glb",
+    label: "Shelf Small",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/TfdgUV2RYe",
+      tris: 92,
+    },
+  },
+  {
+    file: "poly-pizza/table.glb",
+    label: "Table",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "CreativeTrio",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/KndwzSWSHR",
+      tris: 86,
+    },
+  },
+  {
+    file: "poly-pizza/wall-window-wide.glb",
+    label: "Wall Window Wide",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/yRpmaYy3Wq",
+      tris: 152,
+    },
+  },
+  {
+    file: "poly-pizza/window-round.glb",
+    label: "Window Round",
+    category: "Furniture & Decor",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/WROtq6kA7t",
+      tris: 158,
+    },
+  },
+  {
+    file: "poly-pizza/bear-head-mount.glb",
+    label: "Bear Head mount",
+    category: "Environment",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/quLiYDFAHt",
+      tris: 268,
+    },
+  },
+  {
+    file: "poly-pizza/cactus-a.glb",
+    label: "Cactus A",
+    category: "Environment",
+    attribution: {
+      creator: "Isa Lousberg",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/j8VltLwzPG",
+      tris: 224,
+    },
+  },
+  {
+    file: "poly-pizza/cactus-model.glb",
+    label: "Cactus Model",
+    category: "Environment",
+    attribution: {
+      creator: "Isa Lousberg",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/o9BH8qbqfZ",
+      tris: 270,
+    },
+  },
+  {
+    file: "poly-pizza/houseplant-2.glb",
+    label: "Houseplant",
+    category: "Environment",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/f6GPjbEgg0",
+      tris: 245,
+    },
+  },
+  {
+    file: "poly-pizza/mushroom.glb",
+    label: "Mushroom",
+    category: "Environment",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/A2rwQyfqYG",
+      tris: 80,
+    },
+  },
+  {
+    file: "poly-pizza/rock.glb",
+    label: "Rock",
+    category: "Environment",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/cBqdRdLDDL",
+      tris: 120,
+    },
+  },
+  {
+    file: "poly-pizza/rock-flat.glb",
+    label: "Rock Flat",
+    category: "Environment",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/CrSoV13mCU",
+      tris: 214,
+    },
+  },
+  {
+    file: "poly-pizza/rock-large.glb",
+    label: "Rock Large",
+    category: "Environment",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/54jZKTAt5p",
+      tris: 222,
+    },
+  },
+  {
+    file: "poly-pizza/rock-medium.glb",
+    label: "Rock Medium",
+    category: "Environment",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/s1OJ3bBzqc",
+      tris: 342,
+    },
+  },
+  {
+    file: "poly-pizza/rocks.glb",
+    label: "Rocks",
+    category: "Environment",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/OQvi8PIZ40",
+      tris: 84,
+    },
+  },
+  {
+    file: "poly-pizza/axe.glb",
+    label: "Axe",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/W0UYZPYSXf",
+      tris: 76,
+    },
+  },
+  {
+    file: "poly-pizza/box.glb",
+    label: "Box",
+    category: "Objects",
+    attribution: {
+      creator: "Kay Lousberg",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/ykZ23x9d6p",
+      tris: 32,
+    },
+  },
+  {
+    file: "poly-pizza/cardboard-box-closed.glb",
+    label: "Cardboard Box Closed",
+    category: "Objects",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/zv8NvYfT9B",
+      tris: 120,
+    },
+  },
+  {
+    file: "poly-pizza/cardboard-box-open.glb",
+    label: "Cardboard Box Open",
+    category: "Objects",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/i1lr4yJFY0",
+      tris: 120,
+    },
+  },
+  {
+    file: "poly-pizza/cardboard-boxes.glb",
+    label: "Cardboard Boxes",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/bs6ikOeTrR",
+      tris: 108,
+    },
+  },
+  {
+    file: "poly-pizza/computer-screen.glb",
+    label: "Computer Screen",
+    category: "Objects",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/V5Qo141OcB",
+      tris: 144,
+    },
+  },
+  {
+    file: "poly-pizza/crate.glb",
+    label: "Crate",
+    category: "Objects",
+    attribution: {
+      creator: "Kay Lousberg",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/yCBoU0iyOk",
+      tris: 132,
+    },
+  },
+  {
+    file: "poly-pizza/empty-box.glb",
+    label: "Empty Box",
+    category: "Objects",
+    attribution: {
+      creator: "CreativeTrio",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/pZBpmjtvw8",
+      tris: 76,
+    },
+  },
+  {
+    file: "poly-pizza/round-window.glb",
+    label: "Round Window",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/0U2hTU44WK",
+      tris: 104,
+    },
+  },
+  {
+    file: "poly-pizza/wall-doorway.glb",
+    label: "Wall Doorway",
+    category: "Objects",
+    attribution: {
+      creator: "Kenney",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/8PcjloG3fl",
+      tris: 120,
+    },
+  },
+  {
+    file: "poly-pizza/window.glb",
+    label: "Window",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/EY1zrFcme9",
+      tris: 102,
+    },
+  },
+  {
+    file: "poly-pizza/window-small.glb",
+    label: "Window Small",
+    category: "Objects",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/n88WAcjzTv",
+      tris: 132,
+    },
+  },
+  {
+    file: "poly-pizza/animated-human.glb",
+    label: "Animated Human",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/c3Ibh9I3udk",
+      tris: 1578,
+    },
+  },
+  {
+    file: "poly-pizza/character-animated.glb",
+    label: "Character Animated",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/DgOCW9ZCRJ",
+      tris: 1246,
+    },
+  },
+  {
+    file: "poly-pizza/human-dude-guy.glb",
+    label: "Human Dude Guy",
+    category: "Characters",
+    attribution: {
+      creator: "hat_my_guy",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/83DpVkzvWk",
+      tris: 1151,
+    },
+  },
+  {
+    file: "poly-pizza/man.glb",
+    label: "Man",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/HMnuH5geEG",
+      tris: 1216,
+    },
+  },
+  {
+    file: "poly-pizza/rabbit-blond.glb",
+    label: "Rabbit Blond",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/cMsI6FDhNx",
+      tris: 1570,
+    },
+  },
+  {
+    file: "poly-pizza/rabbit-cyan-hair.glb",
+    label: "Rabbit Cyan Hair",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/RPZ9gxcFL3",
+      tris: 1570,
+    },
+  },
+  {
+    file: "poly-pizza/rabbit-grey.glb",
+    label: "Rabbit Grey",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/KRnXIKJbqp",
+      tris: 1570,
+    },
+  },
+  {
+    file: "poly-pizza/wizard.glb",
+    label: "Wizard",
+    category: "Characters",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/o87Upt5uHX",
+      tris: 1674,
+    },
+  },
+  {
+    file: "poly-pizza/arrow.glb",
+    label: "Arrow",
+    category: "Weapons",
+    attribution: {
+      creator: "CreativeTrio",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/dZVjrxZdaB",
+      tris: 119,
+    },
+  },
+  {
+    file: "poly-pizza/axe-2.glb",
+    label: "Axe",
+    category: "Weapons",
+    attribution: {
+      creator: "Armory_3D",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/jYnW3DNd7J",
+      tris: 120,
+    },
+  },
+  {
+    file: "poly-pizza/sword.glb",
+    label: "Sword",
+    category: "Weapons",
+    attribution: {
+      creator: "hat_my_guy",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/FvUHJZzy1M",
+      tris: 141,
+    },
+  },
+  {
+    file: "poly-pizza/sword-diamond.glb",
+    label: "Sword Diamond",
+    category: "Weapons",
+    attribution: {
+      creator: "Quaternius",
+      license: "CC0 1.0",
+      sourceUrl: "https://poly.pizza/m/WPj4nM1PFL",
+      tris: 118,
+    },
+  },
+
 ];
 
 const VOX_PRESET_FILES: GalleryPresetFile[] = [
@@ -327,7 +1253,7 @@ const PRESETS: PresetModel[] = [
   {
     id: "sting",
     label: "Sting Sword (UV-mapped)",
-    category: "Objects",
+    category: "Weapons",
     kind: "obj",
     url: "/gallery/obj/sting.obj",
     options: {
@@ -501,6 +1427,7 @@ const PRESETS: PresetModel[] = [
     rotY: 45,
   },
   ...GLB_PRESET_FILES.map(glbPreset),
+  ...POLY_PIZZA_PRESET_FILES.map(glbPreset),
   ...VOX_PRESET_FILES.map(voxPreset),
 ];
 
@@ -515,11 +1442,9 @@ const DEFAULT_SCENE: SceneOptionsState = {
   autoCenter: true,
   interactive: true,
   animate: false,
-  showFloor: false,
-  showBackfaces: false,
   showAxes: false,
-  selection: true,
-  hoverEffects: true,
+  selection: false,
+  hoverEffects: false,
   showLight: false,
   zoom: PRESETS[0].zoom ?? 0.35,
   rotX: PRESETS[0].rotX ?? 65,
@@ -533,10 +1458,18 @@ const DEFAULT_SCENE: SceneOptionsState = {
   ambientColor: "#ffffff",
   textureLighting: "baked",
   textureQuality: "auto",
-  normalizeGeometry: false,
+  approximateMerge: false,
+  rectCover: false,
   outlinePolygons: false,
   dragMode: "orbit",
   target: [0, 0, 0],
+};
+
+const APPROXIMATE_MERGE_BUDGET: GeometryNormalizeOptions = {
+  maxAngleDeg: 15,
+  maxPlaneDisplacement: 0.35,
+  maxBoundaryDisplacement: 0.075,
+  isolatedPairs: true,
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -554,6 +1487,26 @@ function parserDefaultsFor(model: PresetModel): Partial<ParserOptionsState> {
   };
 }
 
+function randomPreset(): PresetModel {
+  return PRESETS[Math.floor(Math.random() * PRESETS.length)] ?? PRESETS[0];
+}
+
+function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
+  return {
+    ...DEFAULT_SCENE,
+    zoom: model.zoom ?? DEFAULT_SCENE.zoom,
+    rotX: model.rotX ?? DEFAULT_SCENE.rotX,
+    rotY: model.rotY ?? DEFAULT_SCENE.rotY,
+  };
+}
+
+function parserStateFor(model: PresetModel): ParserOptionsState {
+  return {
+    ...DEFAULT_PARSER,
+    ...parserDefaultsFor(model),
+  };
+}
+
 const EMPTY_METRICS: DomMetrics = {
   measuredAt: 0,
   renderMs: 0,
@@ -568,14 +1521,6 @@ function formatNumber(value: number): string {
 
 function formatMs(value: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ms`;
-}
-
-function formatPercent(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function formatRatio(value: number): string {
-  return `${value.toFixed(2)}x`;
 }
 
 function atlasScaleForQuality(quality: TextureQuality): PolySceneOptions["atlasScale"] {
@@ -691,34 +1636,6 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
   };
 }
 
-function buildFloor(polygons: Polygon[]): Polygon | null {
-  if (polygons.length === 0) return null;
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const polygon of polygons) {
-    for (const [x, y] of polygon.vertices) {
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
-  const padX = Math.max(2, (maxX - minX) * 0.18);
-  const padY = Math.max(2, (maxY - minY) * 0.18);
-  return {
-    vertices: [
-      [minX - padX, minY - padY, 0],
-      [maxX + padX, minY - padY, 0],
-      [maxX + padX, maxY + padY, 0],
-      [minX - padX, maxY + padY, 0],
-    ],
-    color: "#252a2d",
-  };
-}
-
 function directionalFromOptions(options: SceneOptionsState): DirectionalLight {
   const az = (options.lightAzimuth * Math.PI) / 180;
   const el = (options.lightElevation * Math.PI) / 180;
@@ -803,16 +1720,19 @@ function Toggle({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="dn-toggle">
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.checked)}
       />
       <span>{label}</span>
@@ -826,6 +1746,25 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: "war
       <span>{label}</span>
       <b>{value}</b>
     </div>
+  );
+}
+
+function ControlPanel({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="dn-panel dn-panel--details" open={defaultOpen}>
+      <summary>
+        <h2>{title}</h2>
+      </summary>
+      <div className="dn-panel__body">{children}</div>
+    </details>
   );
 }
 
@@ -1275,10 +2214,10 @@ function VanillaScene({
 }
 
 export default function DebugWorkbench() {
-  const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(DEFAULT_SCENE);
-  const [parserOptions, setParserOptions] = useState<ParserOptionsState>(DEFAULT_PARSER);
-  const [presetId, setPresetId] = useState(PRESETS[0].id);
-  const [sidebarTopPadding, setSidebarTopPadding] = useState(false);
+  const [initialPreset] = useState(randomPreset);
+  const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(() => sceneDefaultsFor(initialPreset));
+  const [parserOptions, setParserOptions] = useState<ParserOptionsState>(() => parserStateFor(initialPreset));
+  const [presetId, setPresetId] = useState(initialPreset.id);
   const [loaded, setLoaded] = useState<LoadedModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1450,23 +2389,24 @@ export default function DebugWorkbench() {
         ? reactAnimatedPolygons
         : loaded.rawPolygons;
     }
-    if (!sceneOptions.normalizeGeometry) return loaded.polygons;
-    return preprocessModelPolygons(loaded.rawPolygons, true);
+    const base = sceneOptions.approximateMerge
+      ? preprocessModelPolygons(loaded.rawPolygons, APPROXIMATE_MERGE_BUDGET)
+      : loaded.polygons;
+    if (!sceneOptions.rectCover || sceneOptions.approximateMerge) return base;
+    return coverPlanarPolygons(base, {
+      minGroupPolygons: 2,
+      maxCandidateAxes: 24,
+    });
   }, [
     loaded,
-    sceneOptions.normalizeGeometry,
+    sceneOptions.approximateMerge,
+    sceneOptions.rectCover,
     activeAnimation,
     sceneOptions.renderer,
     reactAnimatedPolygons,
   ]);
 
-  const scenePolygons = useMemo(() => {
-    const base = modelPolygons;
-    if (activeAnimation && sceneOptions.renderer === "vanilla") return base;
-    if (!sceneOptions.showFloor) return base;
-    const floor = buildFloor(base);
-    return floor ? [...base, floor] : base;
-  }, [modelPolygons, sceneOptions.showFloor, activeAnimation, sceneOptions.renderer]);
+  const scenePolygons = modelPolygons;
 
   const helperBbox = useMemo(() => {
     const polygons = modelPolygons;
@@ -1507,23 +2447,6 @@ export default function DebugWorkbench() {
     [scenePolygons],
   );
   const hasAtlasFootprint = atlasEstimate.atlasPolygons > 0;
-  const texturePaintMetrics = useMemo(
-    () => {
-      try {
-        return computeTexturePaintMetrics(scenePolygons, {
-          texturedOnly: false,
-        });
-      } catch (error) {
-        console.warn("Texture paint metrics failed", error);
-        return { ...EMPTY_TEXTURE_PAINT_METRICS, totalPolygons: scenePolygons.length };
-      }
-    },
-    [
-      scenePolygons,
-      sceneOptions.renderer,
-    ],
-  );
-  const hasTexturePaintMetrics = texturePaintMetrics.measuredPolygons > 0;
 
   useEffect(() => {
     renderStartRef.current = performance.now();
@@ -1559,17 +2482,12 @@ export default function DebugWorkbench() {
       : metrics.polyCount < 900
         ? "good"
         : undefined;
+  const activeAttribution = selectedPreset.attribution;
 
   return (
     <div className="dn-root">
-      <aside className={`dn-sidebar dn-sidebar--left${sidebarTopPadding ? " dn-sidebar--top-padded" : ""}`}>
-        <section className="dn-panel">
-          <h2>Model</h2>
-          <Toggle
-            label="Sidebar top padding"
-            checked={sidebarTopPadding}
-            onChange={setSidebarTopPadding}
-          />
+      <aside className="dn-sidebar dn-sidebar--left">
+        <ControlPanel title="Model">
           <RangeControl
             label="Target"
             value={parserOptions.targetSize}
@@ -1616,31 +2534,72 @@ export default function DebugWorkbench() {
             </select>
           </label>
           <Toggle
-            label="Normalize geometry"
-            checked={sceneOptions.normalizeGeometry}
-            onChange={(value) => updateScene({ normalizeGeometry: value })}
+            label="Approx merge"
+            checked={sceneOptions.approximateMerge}
+            onChange={(value) => updateScene({ approximateMerge: value })}
+            disabled={!!activeAnimation}
+          />
+          <Toggle
+            label="Rect cover"
+            checked={sceneOptions.rectCover}
+            onChange={(value) => updateScene({ rectCover: value })}
+            disabled={sceneOptions.approximateMerge}
           />
           {loading && <p className="dn-note">Loading model...</p>}
           {loadError && <p className="dn-note dn-note--error">{loadError}</p>}
-        </section>
+        </ControlPanel>
 
-        <section className="dn-panel">
-          <h2>Renderer</h2>
-          <div className="dn-segment">
-            <button
-              type="button"
-              className={sceneOptions.renderer === "react" ? "active" : ""}
-              onClick={() => updateScene({ renderer: "react" })}
-            >
-              React
-            </button>
-            <button
-              type="button"
-              className={sceneOptions.renderer === "vanilla" ? "active" : ""}
-              onClick={() => updateScene({ renderer: "vanilla" })}
-            >
-              Vanilla
-            </button>
+        <ControlPanel title="Interaction">
+          <Toggle label="Interactive" checked={sceneOptions.interactive} onChange={(value) => updateScene({ interactive: value })} />
+          <Toggle label="Auto rotate" checked={sceneOptions.animate} onChange={(value) => updateScene({ animate: value })} />
+          <Toggle
+            label="Selection"
+            checked={sceneOptions.selection}
+            onChange={(value) => updateScene({ selection: value })}
+          />
+          <Toggle
+            label="Hover effects"
+            checked={sceneOptions.hoverEffects}
+            onChange={(value) => updateScene({ hoverEffects: value })}
+          />
+          <div className="dn-field dn-field--segment">
+            <span>Gizmo</span>
+            <div className="dn-segment">
+              {(["translate", "rotate"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={gizmoMode === m ? "active" : ""}
+                  onClick={() => setGizmoMode(m)}
+                  disabled={!sceneOptions.selection}
+                  title={!sceneOptions.selection ? "Enable Selection to use the gizmo" : undefined}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+        </ControlPanel>
+
+        <ControlPanel title="Renderer" defaultOpen>
+          <div className="dn-field dn-field--segment">
+            <span>Renderer</span>
+            <div className="dn-segment">
+              <button
+                type="button"
+                className={sceneOptions.renderer === "react" ? "active" : ""}
+                onClick={() => updateScene({ renderer: "react" })}
+              >
+                React
+              </button>
+              <button
+                type="button"
+                className={sceneOptions.renderer === "vanilla" ? "active" : ""}
+                onClick={() => updateScene({ renderer: "vanilla" })}
+              >
+                Vanilla
+              </button>
+            </div>
           </div>
           <div className="dn-field dn-field--segment">
             <span>Texture</span>
@@ -1670,57 +2629,23 @@ export default function DebugWorkbench() {
             </select>
           </label>
           <Toggle label="Auto center" checked={sceneOptions.autoCenter} onChange={(value) => updateScene({ autoCenter: value })} />
-          <Toggle label="Interactive" checked={sceneOptions.interactive} onChange={(value) => updateScene({ interactive: value })} />
-          <Toggle label="Auto rotate" checked={sceneOptions.animate} onChange={(value) => updateScene({ animate: value })} />
-          <Toggle label="Red i outline" checked={sceneOptions.outlinePolygons} onChange={(value) => updateScene({ outlinePolygons: value })} />
-          <Toggle label="Floor" checked={sceneOptions.showFloor} onChange={(value) => updateScene({ showFloor: value })} />
-          <Toggle label="Backfaces" checked={sceneOptions.showBackfaces} onChange={(value) => updateScene({ showBackfaces: value })} />
+          <Toggle label="Polygon outline" checked={sceneOptions.outlinePolygons} onChange={(value) => updateScene({ outlinePolygons: value })} />
           <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
-          <Toggle
-            label="Selection"
-            checked={sceneOptions.selection}
-            onChange={(value) => updateScene({ selection: value })}
-          />
-          <Toggle
-            label="Hover effects"
-            checked={sceneOptions.hoverEffects}
-            onChange={(value) => updateScene({ hoverEffects: value })}
-          />
-          <div className="dn-field dn-field--segment">
-            <span>Gizmo</span>
-            <div className="dn-segment">
-              {(["translate", "rotate"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={gizmoMode === m ? "active" : ""}
-                  onClick={() => setGizmoMode(m)}
-                  disabled={!sceneOptions.selection}
-                  title={!sceneOptions.selection ? "Enable Selection to use the gizmo" : undefined}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
+        </ControlPanel>
 
-        <section className="dn-panel">
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-            <h2 style={{ margin: 0 }}>Camera</h2>
-            <div className="dn-segment" style={{ marginTop: 0 }}>
-              <button
-                type="button"
-                onClick={() => updateScene({
-                  zoom: selectedPreset.zoom ?? 0.35,
-                  rotX: selectedPreset.rotX ?? 65,
-                  rotY: selectedPreset.rotY ?? 45,
-                  target: [0, 0, 0],
-                })}
-              >
-                Reset camera
-              </button>
-            </div>
+        <ControlPanel title="Camera">
+          <div className="dn-segment" style={{ marginTop: 0 }}>
+            <button
+              type="button"
+              onClick={() => updateScene({
+                zoom: selectedPreset.zoom ?? 0.35,
+                rotX: selectedPreset.rotX ?? 65,
+                rotY: selectedPreset.rotY ?? 45,
+                target: [0, 0, 0],
+              })}
+            >
+              Reset camera
+            </button>
           </div>
           <label className="dn-field dn-field--segment">
             <span>Drag</span>
@@ -1759,10 +2684,9 @@ export default function DebugWorkbench() {
               <option value="8000">8000px</option>
             </select>
           </label>
-        </section>
+        </ControlPanel>
 
-        <section className="dn-panel">
-          <h2>Lights</h2>
+        <ControlPanel title="Lights">
           <Toggle label="Light helper" checked={sceneOptions.showLight} onChange={(value) => updateScene({ showLight: value })} />
           <RangeControl label="Azimuth" value={sceneOptions.lightAzimuth} min={0} max={360} step={1} onChange={(value) => updateScene({ lightAzimuth: value })} format={(value) => `${value.toFixed(0)} deg`} />
           <RangeControl label="Elev." value={sceneOptions.lightElevation} min={-90} max={90} step={1} onChange={(value) => updateScene({ lightElevation: value })} format={(value) => `${value.toFixed(0)} deg`} />
@@ -1778,14 +2702,14 @@ export default function DebugWorkbench() {
             <input type="color" value={sceneOptions.ambientColor} onChange={(event) => updateScene({ ambientColor: event.currentTarget.value })} />
             <code>{sceneOptions.ambientColor}</code>
           </label>
-        </section>
+        </ControlPanel>
       </aside>
 
       <main className="dn-main">
         <div className="dn-toolbar">
           <div className="dn-toolbar__model">
             <b>{loaded?.label ?? "No model"}</b>
-            <span>
+            <span className="dn-toolbar__summary">
               {loaded
                 ? `${loaded.kind.toUpperCase()} - ${formatNumber(loaded.sourcePolygons)} source / ${formatNumber(modelPolygons.length)} merged polygons`
                 : "Drop a model or pick a preset"}
@@ -1798,6 +2722,18 @@ export default function DebugWorkbench() {
                 }</code></>
               )}
             </span>
+            {activeAttribution && (
+              <span className="dn-toolbar__source">
+                by {activeAttribution.creator}
+                {typeof activeAttribution.tris === "number" ? ` - ${formatNumber(activeAttribution.tris)} tris` : ""}
+                {" - "}
+                {activeAttribution.license}
+                {" - "}
+                <a href={activeAttribution.sourceUrl} target="_blank" rel="noreferrer">
+                  Poly Pizza
+                </a>
+              </span>
+            )}
           </div>
           <div className="dn-toolbar__kpis" aria-label="Performance KPIs">
             <Kpi label={sceneOptions.renderer === "vanilla" ? "Build" : "Render"} value={formatMs(sceneOptions.renderer === "vanilla" ? vanillaBuildMs : metrics.renderMs)} />
@@ -1806,24 +2742,6 @@ export default function DebugWorkbench() {
             <Kpi label="Visible" value={formatNumber(metrics.visiblePolyCount)} tone={metrics.visiblePolyCount > 2500 ? "warn" : metrics.visiblePolyCount < 900 ? "good" : undefined} />
             {hasAtlasFootprint && (
               <Kpi label="Atlas" value={formatNumber(atlasEstimate.atlasPolygons)} tone={atlasEstimate.atlasPolygons > 2500 ? "warn" : undefined} />
-            )}
-            {hasTexturePaintMetrics && (
-              <>
-                <Kpi label="Paint" value={formatNumber(texturePaintMetrics.measuredPolygons)} />
-                {texturePaintMetrics.texturedPolygons > 0 && (
-                  <Kpi label="Texture" value={formatNumber(texturePaintMetrics.texturedPolygons)} />
-                )}
-                <Kpi
-                  label="Alpha"
-                  value={formatPercent(texturePaintMetrics.transparentRatio)}
-                  tone={texturePaintMetrics.transparentRatio > 0.45 ? "warn" : texturePaintMetrics.transparentRatio < 0.2 ? "good" : undefined}
-                />
-                <Kpi
-                  label="Overdraw"
-                  value={formatRatio(texturePaintMetrics.overdrawRatio)}
-                  tone={texturePaintMetrics.overdrawRatio > 1.8 ? "warn" : texturePaintMetrics.overdrawRatio < 1.25 ? "good" : undefined}
-                />
-              </>
             )}
           </div>
         </div>
@@ -1885,7 +2803,6 @@ export default function DebugWorkbench() {
                 ambientLight={ambientLight}
                 textureLighting={sceneOptions.textureLighting}
                 atlasScale={atlasScale}
-                debugShowBackfaces={sceneOptions.showBackfaces}
               >
                 {sceneOptions.selection ? (
                   <Select onChange={setSelectedMeshes} clearOnMiss={false}>
@@ -1940,6 +2857,7 @@ export default function DebugWorkbench() {
 
       <aside className="dn-sidebar dn-sidebar--right">
         <section className="dn-panel dn-panel--model-selector">
+          <h2>Gallery</h2>
           <div className="dn-preset-picker">
             <ModelPicker
               items={PRESET_PICKER_ITEMS}
