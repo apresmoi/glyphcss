@@ -1,22 +1,18 @@
 /**
- * `<Select>` — selection wrapper that auto-tracks descendant
+ * `<PolySelect>` — selection wrapper that auto-tracks descendant
  * `<PolyMesh>` clicks and exposes the current selection via the
- * `useSelect()` composable. Mirrors the React API and the vanilla
+ * `usePolySelect()` composable. Mirrors the React API and the vanilla
  * `createSelect` so users get the same UX across all three packages.
  *
  * Usage:
- *   <Select :multiple="true" @change="onChange">
+ *   <PolySelect :multiple="true" @change="onChange">
  *     <PolyMesh id="a" :polygons="..." />
  *     <PolyMesh id="b" :polygons="..." />
- *   </Select>
+ *   </PolySelect>
  *
  *   // anywhere inside the tree:
- *   const selected = useSelect();        // ComputedRef<PolyMeshHandle[]>
- *   const api = useSelectionApi();        // imperative add/remove/toggle
- *
- * Single-mode toggle UX: clicking the currently-selected mesh
- * deselects it (same as three.js editor / React Select). Background
- * clicks clear by default — set `clearOnMiss=false` to keep selection.
+ *   const selected = usePolySelect();        // ComputedRef<PolyMeshHandle[]>
+ *   const api = usePolySelectionApi();       // imperative add/remove/toggle
  */
 import {
   defineComponent,
@@ -32,10 +28,10 @@ import {
   type InjectionKey,
   type PropType,
 } from "vue";
-import { findMeshHandle, findMeshUnderPoint as findMeshUnderPointShared, type PolyMeshHandle } from "../scene/events";
+import { findPolyMeshHandle, findMeshUnderPoint as findMeshUnderPointShared, type PolyMeshHandle } from "../scene/events";
 import { PolyCameraContextKey } from "../camera";
 
-export interface SelectionApi {
+export interface PolySelectionApi {
   selected: ReadonlyArray<PolyMeshHandle>;
   set(next: PolyMeshHandle[]): void;
   add(handle: PolyMeshHandle): void;
@@ -45,13 +41,13 @@ export interface SelectionApi {
   has(handle: PolyMeshHandle): boolean;
 }
 
-export const SelectionContextKey: InjectionKey<{
+export const PolySelectionContextKey: InjectionKey<{
   selected: ComputedRef<PolyMeshHandle[]>;
-  api: SelectionApi;
+  api: PolySelectionApi;
 }> = Symbol("polycss.selection");
 
-export const Select = defineComponent({
-  name: "Select",
+export const PolySelect = defineComponent({
+  name: "PolySelect",
   props: {
     multiple: { type: Boolean, default: false },
     clearOnMiss: { type: Boolean, default: true },
@@ -74,7 +70,7 @@ export const Select = defineComponent({
       emit("change", filtered);
     }
 
-    const api: SelectionApi = {
+    const api: PolySelectionApi = {
       get selected() { return state.selected; },
       set: (next) => apply(next),
       add: (h) => {
@@ -101,19 +97,13 @@ export const Select = defineComponent({
       has: (h) => state.selected.includes(h),
     };
 
-    provide(SelectionContextKey, { selected, api });
+    provide(PolySelectionContextKey, { selected, api });
 
-    // cameraEl click delegation. polycss polygons render via the
-    // `border-shape` CSS property which clips native hit-testing to the
-    // visible polygon shape — clicks on transparent corners fall
-    // through to cameraEl, so a wrapper-level handler would miss them.
-    // Listening on cameraEl + JS bbox hit-test fallback covers both.
     const cameraCtx = inject(PolyCameraContextKey, undefined);
     const findUnderPoint = (clientX: number, clientY: number): PolyMeshHandle | null =>
       findMeshUnderPointShared(
         clientX,
         clientY,
-        // Skip gizmo PolyMeshes — managed by TransformControls.
         (meshEl) => !meshEl.closest("[data-poly-transform-controls]"),
       );
 
@@ -125,7 +115,7 @@ export const Select = defineComponent({
         const target = event.target as Element | null;
         if (target?.closest("[data-poly-transform-controls]")) return;
         const handle =
-          findMeshHandle(event.target as Element) ??
+          findPolyMeshHandle(event.target as Element) ??
           findUnderPoint(event.clientX, event.clientY);
         if (!handle) {
           emit("pointerMissed", event);
@@ -148,9 +138,6 @@ export const Select = defineComponent({
       detach?.();
     });
 
-    // display:contents wrapper — matches React's Select. Stays out of
-    // the layout / 3D context so wrapping doesn't flatten the camera-
-    // transformed scene the children render in.
     return () =>
       h(
         "div",
@@ -163,19 +150,19 @@ export const Select = defineComponent({
   },
 });
 
-/** Read the current selection from the nearest enclosing `<Select>`.
+/** Read the current selection from the nearest enclosing `<PolySelect>`.
  *  Returns an empty array when called outside one. */
-export function useSelect(): ComputedRef<PolyMeshHandle[]> {
-  const ctx = inject(SelectionContextKey, undefined);
+export function usePolySelect(): ComputedRef<PolyMeshHandle[]> {
+  const ctx = inject(PolySelectionContextKey, undefined);
   if (!ctx) return ref<PolyMeshHandle[]>([]) as unknown as ComputedRef<PolyMeshHandle[]>;
   return ctx.selected;
 }
 
-/** Read the imperative selection API. Throws when called outside a `<Select>`. */
-export function useSelectionApi(): SelectionApi {
-  const ctx = inject(SelectionContextKey, undefined);
+/** Read the imperative selection API. Throws when called outside a `<PolySelect>`. */
+export function usePolySelectionApi(): PolySelectionApi {
+  const ctx = inject(PolySelectionContextKey, undefined);
   if (!ctx) {
-    throw new Error("polycss: useSelectionApi must be used inside <Select>.");
+    throw new Error("polycss: usePolySelectionApi must be used inside <PolySelect>.");
   }
   return ctx.api;
 }

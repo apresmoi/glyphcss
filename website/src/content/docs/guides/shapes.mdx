@@ -227,7 +227,7 @@ const selected = ref<number | null>(null);
 
 ## Imperative loading
 
-Load a mesh programmatically when you need control over loading state. The vanilla `loadMesh` is the universal path; React adds a `useMesh` hook on top that auto-disposes on unmount.
+Load a mesh programmatically when you need control over loading state. The vanilla `loadMesh` is the universal path; React adds a `usePolyMesh` hook on top that auto-disposes on unmount.
 
 ```ts
 // Vanilla — works in any framework or no framework
@@ -243,10 +243,10 @@ scene.remove();
 
 ```tsx
 // React
-import { PolyScene, Poly, useMesh } from "@layoutit/polycss-react";
+import { PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
-  const { polygons, loading, error } = useMesh("/cottage.glb");
+  const { polygons, loading, error } = usePolyMesh("/cottage.glb");
 
   if (loading) return <Spinner />;
   if (error) return <div>Error: {error}</div>;

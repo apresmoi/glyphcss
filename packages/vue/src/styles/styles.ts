@@ -1,6 +1,6 @@
 const POLYCSS_STYLE_ID = "polycss-styles";
 
-export function injectBaseStyles(doc: Document = typeof document !== "undefined" ? document : (null as unknown as Document)): void {
+export function injectPolyBaseStyles(doc: Document = typeof document !== "undefined" ? document : (null as unknown as Document)): void {
   if (!doc || doc.getElementById(POLYCSS_STYLE_ID)) return;
   const style = doc.createElement("style");
   style.id = POLYCSS_STYLE_ID;

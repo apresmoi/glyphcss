@@ -7,10 +7,10 @@ import {
 } from "vue";
 import type { ComputedRef, CSSProperties, Ref, VNode } from "vue";
 import type {
-  AmbientLight,
-  DirectionalLight,
+  PolyAmbientLight,
+  PolyDirectionalLight,
   Polygon,
-  TextureLightingMode,
+  PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
 
@@ -365,8 +365,8 @@ export function computeTextureAtlasPlan(
   options: {
     tileSize?: number;
     layerElevation?: number;
-    directionalLight?: DirectionalLight;
-    ambientLight?: AmbientLight;
+    directionalLight?: PolyDirectionalLight;
+    ambientLight?: PolyAmbientLight;
   } = {},
 ): TextureAtlasPlan | null {
   const { vertices, texture, uvs } = polygon;
@@ -600,7 +600,7 @@ function packTextureAtlasPlans(
 
 async function buildAtlasPage(
   page: PackedPage,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   atlasScale: number,
 ): Promise<TextureAtlasPage> {
@@ -674,7 +674,7 @@ async function buildAtlasPage(
 
 async function buildAtlasPages(
   pages: PackedPage[],
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   atlasScale: number,
   isCancelled: () => boolean,
@@ -693,7 +693,7 @@ function revokeUrls(urls: string[]): void {
 
 export function useTextureAtlas(
   plans: ComputedRef<Array<TextureAtlasPlan | null>>,
-  textureLighting: ComputedRef<TextureLightingMode>,
+  textureLighting: ComputedRef<PolyTextureLightingMode>,
   atlasScale: ComputedRef<AtlasScale | undefined> = computed(() => undefined),
 ): TextureAtlasResult {
   const atlasState = computed(() => packTextureAtlasPlansWithScale(plans.value, atlasScale.value));
@@ -768,7 +768,7 @@ export function renderTextureAtlasPoly({
 }: {
   entry: PackedTextureAtlasEntry;
   page: TextureAtlasPage | undefined;
-  textureLighting: TextureLightingMode;
+  textureLighting: PolyTextureLightingMode;
   className?: string;
   style?: CSSProperties;
   domAttrs?: Record<string, unknown>;

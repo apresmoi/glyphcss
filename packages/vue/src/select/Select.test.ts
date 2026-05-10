@@ -4,8 +4,8 @@ import type { ComputedRef } from "vue";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "../scene/PolyScene";
 import { PolyMesh } from "../scene/PolyMesh";
-import { Select, useSelect, useSelectionApi } from "./Select";
-import type { SelectionApi } from "./Select";
+import { PolySelect, usePolySelect, usePolySelectionApi } from "./PolySelect";
+import type { PolySelectionApi } from "./PolySelect";
 import type { PolyMeshHandle } from "../scene/events";
 import type { Polygon } from "@layoutit/polycss-core";
 
@@ -43,7 +43,7 @@ function mountSelect(
       default: () =>
         h(PolyScene, {}, {
           default: () =>
-            h(Select, selectProps, {
+            h(PolySelect, selectProps, {
               default: () => children,
             }),
         }),
@@ -51,19 +51,12 @@ function mountSelect(
   );
 }
 
-/**
- * Dispatch a click on the `.polycss-mesh[data-poly-mesh-id="<id>"]` element.
- * Clicks bubble up through the DOM, reaching the cameraEl listener on Select.
- */
 function clickMesh(container: HTMLElement, id: string, init: MouseEventInit = {}): void {
   const mesh = container.querySelector(`.polycss-mesh[data-poly-mesh-id="${id}"]`) as HTMLElement;
   expect(mesh, `expected mesh #${id}`).not.toBeNull();
   mesh.dispatchEvent(new MouseEvent("click", { bubbles: true, ...init }));
 }
 
-/**
- * Click the camera element directly (no mesh under pointer → "background" click).
- */
 function clickBackground(container: HTMLElement): void {
   const cameraEl = container.querySelector(".polycss-camera") as HTMLElement;
   expect(cameraEl, "expected .polycss-camera").not.toBeNull();
@@ -72,7 +65,7 @@ function clickBackground(container: HTMLElement): void {
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-describe("<Select> + useSelect (Vue)", () => {
+describe("<PolySelect> + usePolySelect (Vue)", () => {
   it("clicking a mesh selects it (single mode replaces)", async () => {
     const onChange = vi.fn();
     const { container } = mountSelect(
@@ -97,9 +90,6 @@ describe("<Select> + useSelect (Vue)", () => {
   });
 
   it("re-clicking the only-selected mesh replaces selection with itself (single mode click path)", async () => {
-    // NOTE: The click handler uses `state.selected[0] === handle` (raw === proxy)
-    // which is always false in Vue's reactive system, so a second click re-selects
-    // rather than toggling off. The toggle-off UX is available via useSelectionApi().toggle().
     const onChange = vi.fn();
     const { container } = mountSelect(
       { onChange },
@@ -111,7 +101,6 @@ describe("<Select> + useSelect (Vue)", () => {
     expect(onChange.mock.calls[0][0]).toHaveLength(1);
     expect(onChange.mock.calls[0][0][0].id).toBe("a");
 
-    // Second click — re-selects "a" (apply([handle]) runs again)
     clickMesh(container, "a");
     await nextTick();
     expect(onChange).toHaveBeenCalledTimes(2);
@@ -142,13 +131,9 @@ describe("<Select> + useSelect (Vue)", () => {
   });
 
   it("multiple=true + api.remove correctly removes from selection", async () => {
-    // The click-based shift-toggle path uses `state.selected.filter(x => x !== h)`
-    // which compares Vue Proxy (x) with raw handle (h), always keeping items.
-    // The imperative api.remove() also uses filter internally but this test verifies
-    // the useSelectionApi surface. See the useSelectionApi test for full coverage.
-    let api: SelectionApi | null = null;
+    let api: PolySelectionApi | null = null;
     const Capture = defineComponent({
-      setup() { api = useSelectionApi(); return () => null; },
+      setup() { api = usePolySelectionApi(); return () => null; },
     });
     const onChange = vi.fn();
     const { container } = mountSelect(
@@ -160,19 +145,15 @@ describe("<Select> + useSelect (Vue)", () => {
       ],
     );
 
-    // Click both meshes to build handles
     clickMesh(container, "a");
     await nextTick();
-    const handleA = (onChange.mock.calls[0][0] as PolyMeshHandle[])[0];
 
     clickMesh(container, "b", { shiftKey: true });
     await nextTick();
-    // Both selected
     const sel = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PolyMeshHandle[];
     expect(sel.map((h) => h.id)).toEqual(["a", "b"]);
 
-    // Use api.remove with raw handle captured from onChange (these are filtered/raw)
-    const handleFromChange = sel[0]; // raw from onChange payload
+    const handleFromChange = sel[0];
     api!.remove(handleFromChange);
     await nextTick();
     const after = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PolyMeshHandle[];
@@ -210,7 +191,6 @@ describe("<Select> + useSelect (Vue)", () => {
 
     clickBackground(container);
     await nextTick();
-    // Selection unchanged — onChange not called again
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onPointerMissed).toHaveBeenCalledTimes(1);
   });
@@ -228,7 +208,6 @@ describe("<Select> + useSelect (Vue)", () => {
 
     clickMesh(container, "b");
     await nextTick();
-    // b is filtered out — selection should be empty
     expect(onChange.mock.calls[0][0]).toEqual([]);
 
     clickMesh(container, "a");
@@ -239,7 +218,6 @@ describe("<Select> + useSelect (Vue)", () => {
   it("clicks on [data-poly-transform-controls] descendants are skipped", async () => {
     const onChange = vi.fn();
 
-    // Build a gizmo element that wraps a mesh
     const GizmoChild = defineComponent({
       setup() {
         return () =>
@@ -257,22 +235,20 @@ describe("<Select> + useSelect (Vue)", () => {
       ],
     );
 
-    // Click the mesh that is inside [data-poly-transform-controls]
     const gizmoMesh = container.querySelector('.polycss-mesh[data-poly-mesh-id="gizmo"]') as HTMLElement;
     expect(gizmoMesh).not.toBeNull();
     gizmoMesh.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     await nextTick();
 
-    // onChange should NOT have been called
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("useSelect() returns the current selection from inside the tree", async () => {
+  it("usePolySelect() returns the current selection from inside the tree", async () => {
     const observed = ref<string[]>([]);
 
     const Inner = defineComponent({
       setup() {
-        const sel = useSelect();
+        const sel = usePolySelect();
         return () => {
           observed.value = (sel.value as PolyMeshHandle[]).map((h) => h.id ?? "?");
           return null;
@@ -298,12 +274,12 @@ describe("<Select> + useSelect (Vue)", () => {
     expect(observed.value).toEqual(["a", "b"]);
   });
 
-  it("useSelectionApi() set/add/remove/toggle/clear/has all work", async () => {
-    let api: SelectionApi | null = null;
+  it("usePolySelectionApi() set/add/remove/toggle/clear/has all work", async () => {
+    let api: PolySelectionApi | null = null;
 
     const Capture = defineComponent({
       setup() {
-        api = useSelectionApi();
+        api = usePolySelectionApi();
         return () => null;
       },
     });
@@ -319,7 +295,6 @@ describe("<Select> + useSelect (Vue)", () => {
 
     expect(api).not.toBeNull();
 
-    // Resolve handles by clicking once each
     clickMesh(container, "a");
     await nextTick();
     const handleA = api!.selected[0];
@@ -328,35 +303,31 @@ describe("<Select> + useSelect (Vue)", () => {
     await nextTick();
     const handleB = api!.selected[0];
 
-    // set
     api!.set([handleA, handleB]);
     await nextTick();
     expect(api!.selected.map((h) => h.id)).toEqual(["a", "b"]);
     expect(api!.has(handleA)).toBe(true);
 
-    // remove
     api!.remove(handleA);
     await nextTick();
     expect(api!.selected.map((h) => h.id)).toEqual(["b"]);
     expect(api!.has(handleA)).toBe(false);
 
-    // toggle (adds when not present)
     api!.toggle(handleA);
     await nextTick();
     expect(api!.selected.map((h) => h.id)).toEqual(["b", "a"]);
 
-    // clear
     api!.clear();
     await nextTick();
     expect(api!.selected).toHaveLength(0);
   });
 
-  it("useSelect() outside <Select> returns empty array", () => {
+  it("usePolySelect() outside <PolySelect> returns empty array", () => {
     let observed: ComputedRef<PolyMeshHandle[]> | null = null;
 
     const Inner = defineComponent({
       setup() {
-        observed = useSelect();
+        observed = usePolySelect();
         return () => null;
       },
     });
@@ -369,10 +340,10 @@ describe("<Select> + useSelect (Vue)", () => {
     expect(observed!.value).toEqual([]);
   });
 
-  it("useSelectionApi() outside <Select> throws", () => {
+  it("usePolySelectionApi() outside <PolySelect> throws", () => {
     const Inner = defineComponent({
       setup() {
-        useSelectionApi(); // should throw
+        usePolySelectionApi();
         return () => null;
       },
     });
@@ -380,7 +351,6 @@ describe("<Select> + useSelect (Vue)", () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
 
-    // Vue catches component setup errors — we need to intercept them
     const errorSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     let thrown: unknown = null;
     const app = createApp({ setup() { return () => h(Inner); } });
@@ -389,6 +359,6 @@ describe("<Select> + useSelect (Vue)", () => {
 
     errorSpy.mockRestore();
     expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toMatch(/useSelectionApi/);
+    expect((thrown as Error).message).toMatch(/usePolySelectionApi/);
   });
 });

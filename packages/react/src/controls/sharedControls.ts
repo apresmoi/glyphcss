@@ -18,6 +18,7 @@ export interface PolyControlsCamera {
   rotY: number;
   zoom: number;
   target: Vec3;
+  distance: number;
 }
 
 export interface SharedControlsProps {
@@ -25,10 +26,23 @@ export interface SharedControlsProps {
   drag?: boolean;
   /** Wheel / pinch zoom. Default true. */
   wheel?: boolean;
+  /**
+   * Dolly mode: wheel changes `distance` (camera pull-back in CSS pixels)
+   * instead of `zoom` (CSS scale). Mirrors three.js OrbitControls dolly.
+   * Default false (wheel changes zoom). When true, use `minDistance` /
+   * `maxDistance` to clamp the range.
+   */
+  dolly?: boolean;
   /** Drag-direction inversion. Number = sensitivity multiplier. Default false. */
   invert?: boolean | number;
-  /** Zoom range clamps. Default { min: 0.1, max: 10 }. */
-  zoom?: { min?: number; max?: number };
+  /** Minimum zoom (CSS scale). Default 0.1. */
+  minZoom?: number;
+  /** Maximum zoom (CSS scale). Default 10. */
+  maxZoom?: number;
+  /** Minimum camera distance in CSS pixels when dolly is enabled. Default 0. */
+  minDistance?: number;
+  /** Maximum camera distance in CSS pixels when dolly is enabled. Default 5000. */
+  maxDistance?: number;
   /** Auto-rotate. Pass false (or omit) to disable. */
   animate?: false | PolyControlsAnimateOptions;
   /**

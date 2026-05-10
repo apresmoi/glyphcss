@@ -2,7 +2,7 @@
  * Unit tests for the pure helper functions in events.ts:
  *  - pointInMeshElement  (lines 96-115 — the bb hit-test)
  *  - findMeshUnderPoint  (lines 117-133 — DOM scan + hit-test)
- *  - findMeshHandle      (already covered via PolyMesh.test.ts, added edge cases)
+ *  - findPolyMeshHandle      (already covered via PolyMesh.test.ts, added edge cases)
  *  - registerMeshElement / unregisterMeshElement
  *
  * We avoid mounting PolyMesh here so the registry state is fully controlled.
@@ -12,7 +12,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   pointInMeshElement,
   findMeshUnderPoint,
-  findMeshHandle,
+  findPolyMeshHandle,
   registerMeshElement,
   unregisterMeshElement,
   type PolyMeshHandle,
@@ -203,16 +203,16 @@ describe("findMeshUnderPoint", () => {
   });
 });
 
-// ── findMeshHandle (edge cases) ──────────────────────────────────────────────
+// ── findPolyMeshHandle (edge cases) ──────────────────────────────────────────────
 
-describe("findMeshHandle (edge cases)", () => {
+describe("findPolyMeshHandle (edge cases)", () => {
   it("returns null for null input", () => {
-    expect(findMeshHandle(null)).toBeNull();
+    expect(findPolyMeshHandle(null)).toBeNull();
   });
 
   it("returns null for an element not in the registry and with no registered ancestors", () => {
     const orphan = document.createElement("div");
-    expect(findMeshHandle(orphan)).toBeNull();
+    expect(findPolyMeshHandle(orphan)).toBeNull();
   });
 
   it("walks up ancestors to find a registered parent", () => {
@@ -223,8 +223,8 @@ describe("findMeshHandle (edge cases)", () => {
     const handle = makeHandle(parent, "parent-mesh");
     registerMeshElement(parent, handle);
 
-    expect(findMeshHandle(child)).toBe(handle);
-    expect(findMeshHandle(child)?.id).toBe("parent-mesh");
+    expect(findPolyMeshHandle(child)).toBe(handle);
+    expect(findPolyMeshHandle(child)?.id).toBe("parent-mesh");
 
     unregisterMeshElement(parent);
   });
@@ -233,14 +233,14 @@ describe("findMeshHandle (edge cases)", () => {
 // ── registerMeshElement / unregisterMeshElement ──────────────────────────────
 
 describe("registerMeshElement / unregisterMeshElement", () => {
-  it("unregisterMeshElement removes the handle so findMeshHandle returns null", () => {
+  it("unregisterMeshElement removes the handle so findPolyMeshHandle returns null", () => {
     const el = document.createElement("div");
     const handle = makeHandle(el, "to-remove");
     registerMeshElement(el, handle);
-    expect(findMeshHandle(el)).toBe(handle);
+    expect(findPolyMeshHandle(el)).toBe(handle);
 
     unregisterMeshElement(el);
-    expect(findMeshHandle(el)).toBeNull();
+    expect(findPolyMeshHandle(el)).toBeNull();
   });
 
   it("re-registering an element with a new handle returns the new handle", () => {
@@ -249,10 +249,10 @@ describe("registerMeshElement / unregisterMeshElement", () => {
     const h2 = makeHandle(el, "second");
 
     registerMeshElement(el, h1);
-    expect(findMeshHandle(el)?.id).toBe("first");
+    expect(findPolyMeshHandle(el)?.id).toBe("first");
 
     registerMeshElement(el, h2);
-    expect(findMeshHandle(el)?.id).toBe("second");
+    expect(findPolyMeshHandle(el)?.id).toBe("second");
 
     unregisterMeshElement(el);
   });

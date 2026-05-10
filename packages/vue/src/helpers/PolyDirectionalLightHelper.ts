@@ -10,12 +10,12 @@
  */
 import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
-import type { DirectionalLight, Vec3 } from "@layoutit/polycss-core";
+import type { PolyDirectionalLight, Vec3 } from "@layoutit/polycss-core";
 import { octahedronPolygons } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene/PolyMesh";
 
 export interface PolyDirectionalLightHelperProps {
-  light: DirectionalLight;
+  light: PolyDirectionalLight;
   target?: Vec3;
   distance?: number;
   size?: number;
@@ -28,7 +28,7 @@ const TILE = 50;
 export const PolyDirectionalLightHelper = defineComponent({
   name: "PolyDirectionalLightHelper",
   props: {
-    light: { type: Object as PropType<DirectionalLight>, required: true },
+    light: { type: Object as PropType<PolyDirectionalLight>, required: true },
     target: { type: Array as unknown as PropType<Vec3>, default: undefined },
     distance: { type: Number, default: 5 },
     size: { type: Number, default: 0.35 },

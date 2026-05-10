@@ -42,13 +42,13 @@ import {
 } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
-  findMeshHandle,
+  findPolyMeshHandle,
   findMeshUnderPoint as findMeshUnderPointShared,
   type PolyMeshHandle,
 } from "../scene/events";
 import { PolyCameraContext } from "../camera/context";
 
-export interface SelectionApi {
+export interface PolySelectionApi {
   /** Current selection. Stable reference between renders unless changed. */
   selected: PolyMeshHandle[];
   /** Replace selection wholesale. */
@@ -66,9 +66,9 @@ export interface SelectionApi {
   has(handle: PolyMeshHandle): boolean;
 }
 
-const SelectContext = createContext<SelectionApi | null>(null);
+const SelectContext = createContext<PolySelectionApi | null>(null);
 
-export interface SelectProps {
+export interface PolySelectProps {
   /** Allow multiple meshes selected at once. Default false. */
   multiple?: boolean;
   /** Optional filter applied to every selection change. Returned array
@@ -91,7 +91,7 @@ export interface SelectProps {
  * so it doesn't affect CSS layout — its descendants render as if it
  * weren't there, while pointer events still bubble through it.
  */
-export function Select({
+export function PolySelect({
   multiple = false,
   filter,
   onChange,
@@ -100,7 +100,7 @@ export function Select({
   children,
   className,
   style,
-}: SelectProps) {
+}: PolySelectProps) {
   const [selected, setSelectedState] = useState<PolyMeshHandle[]>([]);
   // Stash latest props in refs so the API closures don't re-create on
   // every render — the consumer's <PolyMesh> tree shouldn't reconcile
@@ -118,7 +118,7 @@ export function Select({
     if (onChangeRef.current) onChangeRef.current(filtered);
   }, []);
 
-  const api = useMemo<SelectionApi>(() => {
+  const api = useMemo<PolySelectionApi>(() => {
     return {
       selected,
       set: (next) => apply(next),
@@ -216,7 +216,7 @@ export function Select({
       // forced `pointer-events: none` on polycss elements, or an edge
       // case where `border-shape` clips a polygon's hit area.
       const handle =
-        findMeshHandle(event.target as Element) ??
+        findPolyMeshHandle(event.target as Element) ??
         findMeshUnderPoint(event.clientX, event.clientY);
       if (!handle) {
         if (onPointerMissedRef.current) onPointerMissedRef.current(event as unknown as ReactMouseEvent<HTMLDivElement>);
@@ -257,7 +257,7 @@ export function Select({
   const handleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (cameraCtx) return;
     const handle =
-      findMeshHandle(e.target as Element) ??
+      findPolyMeshHandle(e.target as Element) ??
       findMeshUnderPoint(e.clientX, e.clientY);
     if (!handle) {
       if (onPointerMissed) onPointerMissed(e);
@@ -303,18 +303,18 @@ export function Select({
  * Read the current selection from the nearest enclosing `<Select>`.
  * Returns an empty array when used outside a `<Select>` (matches drei).
  */
-export function useSelect(): PolyMeshHandle[] {
+export function usePolySelect(): PolyMeshHandle[] {
   return useContext(SelectContext)?.selected ?? [];
 }
 
 /**
- * Read the imperative selection API. Throws when used outside `<Select>`
+ * Read the imperative selection API. Throws when used outside `<PolySelect>`
  * — fail loudly because callers expect to mutate.
  */
-export function useSelectionApi(): SelectionApi {
+export function usePolySelectionApi(): PolySelectionApi {
   const ctx = useContext(SelectContext);
   if (!ctx) {
-    throw new Error("polycss: useSelectionApi must be used inside <Select>.");
+    throw new Error("polycss: usePolySelectionApi must be used inside <PolySelect>.");
   }
   return ctx;
 }

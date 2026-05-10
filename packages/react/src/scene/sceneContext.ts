@@ -7,15 +7,15 @@
  */
 import { createContext, useContext } from "react";
 import type {
-  AmbientLight,
-  DirectionalLight,
-  TextureLightingMode,
+  PolyAmbientLight,
+  PolyDirectionalLight,
+  PolyTextureLightingMode,
 } from "@layoutit/polycss-core";
 
 export interface PolySceneContextValue {
-  textureLighting: TextureLightingMode;
-  directionalLight?: DirectionalLight;
-  ambientLight?: AmbientLight;
+  textureLighting: PolyTextureLightingMode;
+  directionalLight?: PolyDirectionalLight;
+  ambientLight?: PolyAmbientLight;
 }
 
 export const PolySceneContext = createContext<PolySceneContextValue | null>(null);

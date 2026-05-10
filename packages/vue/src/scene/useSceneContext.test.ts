@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ref, computed } from "vue";
 import { createApp, h } from "vue";
-import { useSceneContext } from "./useSceneContext";
+import { usePolySceneContext } from "./useSceneContext";
 import type { UseSceneContextResult } from "./useSceneContext";
 import type { Polygon } from "@layoutit/polycss-core";
 
@@ -34,7 +34,7 @@ function captureSceneContext(
   const optionsRef = computed(() => options);
   const app = createApp({
     setup() {
-      const result = useSceneContext(polygonsRef, optionsRef);
+      const result = usePolySceneContext(polygonsRef, optionsRef);
       captured = result.value;
       return () => h("div");
     },
@@ -94,7 +94,7 @@ describe("useSceneContext", () => {
     const container = document.createElement("div");
     const app = createApp({
       setup() {
-        capturedRef = useSceneContext(polygonsRef, optionsRef);
+        capturedRef = usePolySceneContext(polygonsRef, optionsRef);
         return () => h("div");
       },
     });

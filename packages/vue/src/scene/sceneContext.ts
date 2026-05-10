@@ -7,15 +7,15 @@
  */
 import { inject, type ComputedRef, type InjectionKey } from "vue";
 import type {
-  AmbientLight,
-  DirectionalLight,
-  TextureLightingMode,
+  PolyAmbientLight,
+  PolyDirectionalLight,
+  PolyTextureLightingMode,
 } from "@layoutit/polycss-core";
 
 export interface PolySceneContextValue {
-  textureLighting: TextureLightingMode;
-  directionalLight?: DirectionalLight;
-  ambientLight?: AmbientLight;
+  textureLighting: PolyTextureLightingMode;
+  directionalLight?: PolyDirectionalLight;
+  ambientLight?: PolyAmbientLight;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { useMesh } from "./useMesh";
+import { usePolyMesh } from "./useMesh";
 import type { UseMeshResult } from "./useMesh";
 import type { Polygon } from "@layoutit/polycss-core";
 
@@ -21,7 +21,7 @@ function UseMeshHarness({
   src: string;
   onResult: (result: UseMeshResult) => void;
 }) {
-  const result = useMesh(src);
+  const result = usePolyMesh(src);
   onResult(result);
   return null;
 }
@@ -91,7 +91,7 @@ v 0 1 0
 f 1 2 3
 `.trim();
 
-describe("useMesh — idle (no src)", () => {
+describe("usePolyMesh — idle (no src)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -132,7 +132,7 @@ describe("useMesh — idle (no src)", () => {
   });
 });
 
-describe("useMesh — successful load", () => {
+describe("usePolyMesh — successful load", () => {
   beforeEach(() => {
     mockFetchSuccess(MINIMAL_OBJ);
   });
@@ -197,7 +197,7 @@ describe("useMesh — successful load", () => {
   });
 });
 
-describe("useMesh — error handling", () => {
+describe("usePolyMesh — error handling", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -250,7 +250,7 @@ describe("useMesh — error handling", () => {
   });
 });
 
-describe("useMesh — src change (race safety)", () => {
+describe("usePolyMesh — src change (race safety)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();

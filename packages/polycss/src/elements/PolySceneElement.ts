@@ -9,7 +9,7 @@
  * Attribute parsing — minimal-footprint string → typed conversion. Unknown
  * attributes are ignored (HTML semantics, not validation).
  */
-import type { AmbientLight, DirectionalLight, TextureLightingMode, Vec3 } from "@layoutit/polycss-core";
+import type { PolyAmbientLight, PolyDirectionalLight, PolyTextureLightingMode, Vec3 } from "@layoutit/polycss-core";
 import {
   createPolyScene,
   type PolySceneOptions,
@@ -56,7 +56,7 @@ function parseVec3(value: string | null): Vec3 | undefined {
   return [parts[0], parts[1], parts[2]];
 }
 
-function parseTextureLighting(value: string | null): TextureLightingMode | undefined {
+function parseTextureLighting(value: string | null): PolyTextureLightingMode | undefined {
   if (value === "baked" || value === "dynamic") return value;
   return undefined;
 }
@@ -102,12 +102,12 @@ export class PolySceneElement extends ELEMENT_BASE {
     return opts;
   }
 
-  private _readDirectionalLight(): DirectionalLight | undefined {
+  private _readDirectionalLight(): PolyDirectionalLight | undefined {
     const direction = parseVec3(this.getAttribute("directional-direction"));
     const color = this.getAttribute("directional-color") || undefined;
     const intensity = parseNumber(this.getAttribute("directional-intensity"));
     if (!direction && !color && intensity === undefined) return undefined;
-    const light: DirectionalLight = {
+    const light: PolyDirectionalLight = {
       direction: direction ?? [0.4, -0.7, 0.59],
     };
     if (color) light.color = color;
@@ -115,11 +115,11 @@ export class PolySceneElement extends ELEMENT_BASE {
     return light;
   }
 
-  private _readAmbientLight(): AmbientLight | undefined {
+  private _readAmbientLight(): PolyAmbientLight | undefined {
     const color = this.getAttribute("ambient-color") || undefined;
     const intensity = parseNumber(this.getAttribute("ambient-intensity"));
     if (!color && intensity === undefined) return undefined;
-    const ambient: AmbientLight = {};
+    const ambient: PolyAmbientLight = {};
     if (color) ambient.color = color;
     if (intensity !== undefined) ambient.intensity = intensity;
     return ambient;

@@ -168,6 +168,74 @@ describe("Poly (Vue) — UV-mapped texture", () => {
 
 });
 
+describe("Poly (Vue) — material direct path", () => {
+  const RECT_QUAD: [number, number, number][] = [
+    [0, 0, 0],
+    [1, 0, 0],
+    [1, 1, 0],
+    [0, 1, 0],
+  ];
+
+  const RECT_UVS: [number, number][] = [
+    [0, 1],
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ];
+
+  const MATERIAL = { texture: "https://example.com/atlas.png", key: "atlas" };
+
+  it("renders background-image from material.texture when uvs form an axis-aligned rect", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD,
+      material: MATERIAL,
+      uvs: RECT_UVS,
+    });
+    const poly = getPoly(container);
+    // JSDOM may quote the URL: url("...") or url(...)
+    expect(poly.style.backgroundImage).toContain(MATERIAL.texture);
+  });
+
+  it("renders the matrix3d transform for the direct material path", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD,
+      material: MATERIAL,
+      uvs: RECT_UVS,
+    });
+    const poly = getPoly(container);
+    expect(poly.style.transform).toContain("matrix3d(");
+  });
+
+  it("sets backgroundPosition to 0px 0px for full UV rect [0,1]x[0,1]", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD,
+      material: MATERIAL,
+      uvs: RECT_UVS,
+    });
+    const poly = getPoly(container);
+    expect(poly.style.backgroundPosition).toBe("0px 0px");
+  });
+
+  it("falls back to atlas path when material is set but UVs are triangle (3 verts)", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE,
+      material: MATERIAL,
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    });
+    const poly = getPoly(container);
+    expect(poly.style.backgroundImage).not.toContain(MATERIAL.texture);
+  });
+
+  it("falls back when material is set but no uvs provided", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD,
+      material: MATERIAL,
+    });
+    const poly = getPoly(container);
+    expect(poly.style.backgroundImage).not.toContain(MATERIAL.texture);
+  });
+});
+
 describe("Poly (Vue) — dynamic lighting", () => {
   beforeEach(() => {
     vi.stubGlobal("URL", {

@@ -12,7 +12,7 @@ export const DEFAULT_PROJECTION = "cubic" as const;
  *   stays light-independent — sliding the light only writes a few CSS
  *   variables, no JS work, no atlas re-rasterization.
  */
-export type TextureLightingMode = "baked" | "dynamic";
+export type PolyTextureLightingMode = "baked" | "dynamic";
 
 /**
  * 3D point/vector, stored as a `[x, y, z]` tuple. Tuple (rather than
@@ -43,7 +43,7 @@ export interface TextureTriangle {
  * scene-local CSS-pixel coords and does not need to be pre-normalized.
  * Mirrors three.js's `DirectionalLight`.
  */
-export interface DirectionalLight {
+export interface PolyDirectionalLight {
   /** Direction the light shines TOWARD (typical convention). */
   direction: Vec3;
   /** Light tint, hex string. White by default. */
@@ -58,11 +58,34 @@ export interface DirectionalLight {
  * directional contribution: the two add independently rather than
  * splitting a fixed energy budget.
  */
-export interface AmbientLight {
+export interface PolyAmbientLight {
   /** Tint, hex string. White by default. */
   color?: string;
   /** Scalar multiplier on the ambient contribution. Default 0.4. */
   intensity?: number;
+}
+
+/**
+ * Material — paint configuration shareable across many polygons.
+ *
+ * In CSS terms, a material bundles the `background-image` source plus paint
+ * config. When a polygon references a material AND its UVs form an
+ * axis-aligned rectangle, polycss renders the polygon as an <i> with
+ * `background-image: url(material.texture)` directly — no per-polygon canvas
+ * rasterization, browser-cached texture, mounting / unmounting one polygon
+ * does not affect any other.
+ *
+ * Three.js parallel: combines THREE.Texture + a basic Material in one. CSS
+ * has no shader/sampler concerns, so the texture/material split from
+ * Three.js doesn't pay rent here.
+ */
+export interface PolyMaterial {
+  /** Image source. Anything `background-image: url(...)` can use. */
+  texture: string;
+  /** Optional unique key (used by polycss to dedupe / cache). Caller can
+   *  pass a stable string; if omitted, the material's identity is its object
+   *  reference. */
+  key?: string;
 }
 
 /**
@@ -87,6 +110,13 @@ export interface Polygon {
    * `color` (or default gray).
    */
   texture?: string;
+  /**
+   * Shared material. When set, `material.texture` takes precedence over the
+   * inline `texture` field. If the polygon's UVs form an axis-aligned
+   * rectangle, polycss uses the direct CSS background-image path (no per-
+   * polygon canvas rasterization). Falls back to the atlas path otherwise.
+   */
+  material?: PolyMaterial;
   /**
    * Per-vertex UV coords (0..1, OBJ convention with v=0 at bottom).
    * Length MUST equal vertices.length when set; mismatched UVs are

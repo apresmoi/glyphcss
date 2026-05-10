@@ -104,7 +104,7 @@ Override material colors or textures without modifying the source files (React /
 
 ## Imperative loading
 
-For programmatic loading with explicit lifecycle, use `loadMesh` from the core parser. This is the universal vanilla path; React adds a `useMesh` hook on top:
+For programmatic loading with explicit lifecycle, use `loadMesh` from the core parser. This is the universal vanilla path; React adds a `usePolyMesh` hook on top:
 
 ```ts
 // Vanilla — works anywhere, no framework
@@ -119,11 +119,11 @@ scene.remove();
 ```
 
 ```tsx
-// React — useMesh wraps loadMesh + dispose() on unmount
-import { PolyScene, Poly, useMesh } from "@layoutit/polycss-react";
+// React — usePolyMesh wraps loadMesh + dispose() on unmount
+import { PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
-  const { polygons, loading, error } = useMesh("/cottage.glb");
+  const { polygons, loading, error } = usePolyMesh("/cottage.glb");
 
   if (loading) return <div>Loading...</div>;
   if (error) return <div>Error: {error}</div>;
@@ -146,7 +146,7 @@ For textured polygons, polycss runs a one-time atlas canvas pass at mount. Flat-
 4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`. `atlasScale="auto"` can rasterize these pages below full CSS resolution when packed pages would create oversized runtime bitmaps.
 5. Render each polygon as an `<i>` with `background-image`, `background-size`, and `background-position`.
 
-Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyMesh` / `useMesh` handle it).
+Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyMesh` / `usePolyMesh` handle it).
 
 ## Tips
 

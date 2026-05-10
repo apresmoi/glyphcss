@@ -36,7 +36,7 @@ export interface UseMeshResult {
 const EMPTY_POLYGONS: Polygon[] = [];
 const EMPTY_WARNINGS: string[] = [];
 
-export function useMesh(src: string, options?: UseMeshOptions): UseMeshResult {
+export function usePolyMesh(src: string, options?: UseMeshOptions): UseMeshResult {
   const [state, setState] = useState<{
     polygons: Polygon[];
     loading: boolean;

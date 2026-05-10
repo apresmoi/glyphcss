@@ -25,12 +25,12 @@ import {
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent, MouseEvent as ReactMouseEvent, WheelEvent as ReactWheelEvent } from "react";
 import type {
   Polygon,
-  TextureLightingMode,
+  PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
 import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import type { TransformProps } from "../shapes/types";
-import { useMesh, type UseMeshOptions } from "./useMesh";
+import { usePolyMesh, type UseMeshOptions } from "./useMesh";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
@@ -41,7 +41,7 @@ import {
 import { usePolySceneContext } from "./sceneContext";
 import { PolyCameraContext } from "../camera/context";
 import {
-  findMeshHandle,
+  findPolyMeshHandle,
   registerMeshElement,
   unregisterMeshElement,
   type InteractionProps,
@@ -67,7 +67,7 @@ export interface PolyMeshProps extends TransformProps, InteractionProps {
   /** Translate so mesh's bbox center is at local origin before applying `position`. */
   autoCenter?: boolean;
   /** Textured polygon lighting mode. Defaults to "baked". */
-  textureLighting?: TextureLightingMode;
+  textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /** Per-polygon override render. Receives the polygon + its index. */
@@ -163,7 +163,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   // Either fetch via useMesh, or use the supplied polygons array.
   // useMesh tolerates an empty src (sits idle) so we always call it for
   // hook-rules consistency.
-  const fetched = useMesh(src ?? "", mergedOptions);
+  const fetched = usePolyMesh(src ?? "", mergedOptions);
 
   const sourcePolygons = src ? fetched.polygons : (polygonsProp ?? []);
 
@@ -235,7 +235,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
         const stacked = document.elementsFromPoint(clientX, clientY);
         const seen = new Set<PolyMeshHandle>();
         for (const el of stacked) {
-          const h = findMeshHandle(el);
+          const h = findPolyMeshHandle(el);
           if (h && !seen.has(h)) {
             seen.add(h);
             intersections.push({ object: h });

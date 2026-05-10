@@ -215,8 +215,8 @@ describe("PolyOrbitControls (Vue)", () => {
     expect(mounted.cameraRef.value.state.zoom).toBe(1);
   });
 
-  it("clamps zoom to {min, max}", () => {
-    mounted = mount({ zoom: { min: 0.5, max: 2 } }, { zoom: 1 });
+  it("clamps zoom to minZoom/maxZoom", () => {
+    mounted = mount({ minZoom: 0.5, maxZoom: 2 }, { zoom: 1 });
     const cameraEl = findCameraEl(mounted.container);
     for (let i = 0; i < 20; i++) dispatchWheel(cameraEl, -1000);
     expect(mounted.cameraRef.value.state.zoom).toBe(2);
@@ -452,6 +452,41 @@ describe("PolyOrbitControls (Vue)", () => {
     });
   });
 
+  // ── Dolly mode ─────────────────────────────────────────────────────────
+  describe("dolly mode", () => {
+    it("wheel with dolly=true changes distance, not zoom", () => {
+      mounted = mount({ dolly: true }, { zoom: 1 });
+      const cameraEl = findCameraEl(mounted.container);
+      const beforeZoom = mounted.cameraRef.value.state.zoom;
+      dispatchWheel(cameraEl, 100);
+      expect(mounted.cameraRef.value.state.zoom).toBe(beforeZoom);
+      expect(mounted.cameraRef.value.state.distance).toBeGreaterThan(0);
+    });
+
+    it("dolly is clamped by maxDistance", () => {
+      mounted = mount({ dolly: true, maxDistance: 10 }, { zoom: 1 });
+      const cameraEl = findCameraEl(mounted.container);
+      for (let i = 0; i < 50; i++) dispatchWheel(cameraEl, 1000);
+      expect(mounted.cameraRef.value.state.distance).toBe(10);
+    });
+
+    it("dolly is clamped by minDistance (cannot go below 0)", () => {
+      mounted = mount({ dolly: true, minDistance: 0 }, { zoom: 1 });
+      const cameraEl = findCameraEl(mounted.container);
+      for (let i = 0; i < 50; i++) dispatchWheel(cameraEl, -1000);
+      expect(mounted.cameraRef.value.state.distance).toBeGreaterThanOrEqual(0);
+    });
+
+    it("dolly=false (default) still changes zoom, not distance", () => {
+      mounted = mount({ dolly: false }, { zoom: 1 });
+      const cameraEl = findCameraEl(mounted.container);
+      const beforeDist = mounted.cameraRef.value.state.distance;
+      dispatchWheel(cameraEl, -100);
+      expect(mounted.cameraRef.value.state.zoom).toBeGreaterThan(1);
+      expect(mounted.cameraRef.value.state.distance).toBe(beforeDist);
+    });
+  });
+
   // ── Three.js OrbitControls-style emits ────────────────────────────────
   describe("event emits", () => {
     it("@change fires per pointermove with the post-mutation camera", () => {
@@ -568,5 +603,37 @@ describe("PolyMapControls (Vue)", () => {
     // target should have changed
     const target = mounted.cameraRef.value.state.target;
     expect(target[0] !== 0 || target[1] !== 0).toBe(true);
+  });
+
+  it("wheel with dolly=true changes distance, not zoom (PolyMapControls)", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let captured: { value: CameraHandle } | null = null;
+    const Probe = defineComponent({
+      setup() {
+        const ctx = inject(PolyCameraContextKey);
+        if (ctx) captured = ctx.cameraRef;
+        return () => null;
+      },
+    });
+    const app = createApp({
+      setup() {
+        return () =>
+          h(PolyCamera, { zoom: 1 }, {
+            default: () =>
+              h(PolyScene, {}, {
+                default: () => [h(PolyMapControls, { dolly: true }), h(Probe)],
+              }),
+          });
+      },
+    });
+    app.mount(container);
+    const cameraEl = container.querySelector(".polycss-camera") as HTMLElement;
+    const beforeZoom = captured!.value.state.zoom;
+    dispatchWheel(cameraEl, 100);
+    expect(captured!.value.state.zoom).toBe(beforeZoom);
+    expect(captured!.value.state.distance).toBeGreaterThan(0);
+    app.unmount();
+    container.remove();
   });
 });

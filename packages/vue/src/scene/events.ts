@@ -93,7 +93,7 @@ export function unregisterMeshElement(el: HTMLElement): void {
   MESH_REGISTRY.delete(el);
 }
 
-export function findMeshHandle(el: Element | null): PolyMeshHandle | null {
+export function findPolyMeshHandle(el: Element | null): PolyMeshHandle | null {
   let cur: Element | null = el;
   while (cur) {
     if (cur instanceof HTMLElement) {
@@ -144,7 +144,7 @@ export function findMeshUnderPoint(
   ) as HTMLElement[];
   for (const meshEl of meshEls) {
     if (filter && !filter(meshEl)) continue;
-    const handle = findMeshHandle(meshEl);
+    const handle = findPolyMeshHandle(meshEl);
     if (!handle) continue;
     if (pointInMeshElement(meshEl, clientX, clientY)) return handle;
   }

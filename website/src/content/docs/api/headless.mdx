@@ -142,7 +142,8 @@ const controls = createPolyControls(scene, {
   drag: true,                                                // default true
   wheel: true,                                               // default true
   invert: false,                                             // bool or sensitivity number
-  zoom: { min: 0.1, max: 10 },
+  minZoom: 0.1,
+  maxZoom: 10,
   animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
 });
 
@@ -164,7 +165,11 @@ controls.addEventListener("end",   () => endInteraction());
 | `drag` | `boolean` | `true` | Pointer-drag rotation. Tracks the pointer (drag-right turns the front of the scene rightward). |
 | `wheel` | `boolean` | `true` | Wheel / pinch zoom. |
 | `invert` | `boolean \| number` | `false` | Reverse drag direction (`true`) or scale sensitivity (number; negative = invert). |
-| `zoom` | `{ min, max }` | `{ min: 0.1, max: 10 }` | Zoom range clamps. |
+| `minZoom` | `number` | `0.1` | Minimum zoom scale clamp. |
+| `maxZoom` | `number` | `10` | Maximum zoom scale clamp. |
+| `dolly` | `boolean` | `false` | When `true`, wheel drives `distance` (dolly pull-back) instead of `zoom` scale. |
+| `minDistance` | `number` | `0` | Minimum distance clamp when `dolly` is enabled. |
+| `maxDistance` | `number` | `5000` | Maximum distance clamp when `dolly` is enabled. |
 | `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotate. `speed` is in degrees per 60 Hz-equivalent frame; the tick is `dt`-clamped at 50 ms. |
 
 ### Returned `ControlsHandle`

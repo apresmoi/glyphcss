@@ -6,7 +6,7 @@ import {
   PolyOrbitControls,
   PolyScene,
 } from "@layoutit/polycss-react";
-import type { Polygon, TextureLightingMode } from "@layoutit/polycss-react";
+import type { Polygon, PolyTextureLightingMode } from "@layoutit/polycss-react";
 import PolygonCanvas from "./PolygonCanvas";
 import { useDebug } from "./DebugLayout";
 import { DebugSection } from "./DebugSection";
@@ -61,7 +61,7 @@ export function DebugScene({
   const [debugShowLabels, setDebugShowLabels] = useState(false);
   const [showAxes, setShowAxes] = useState(false);
   const [showLightHelper, setShowLightHelper] = useState(false);
-  const [textureLighting, setTextureLighting] = useState<TextureLightingMode>("baked");
+  const [textureLighting, setTextureLighting] = useState<PolyTextureLightingMode>("baked");
 
   // Lighting controls (for triangle/polygon shading). Direction is held as
   // azimuth (0..360°, rotation around vertical) + elevation (-90..90°,
@@ -254,7 +254,7 @@ export function DebugScene({
 
       <DebugSection title="Light" dock="bottom">
         <Row label="Mode">
-          <Pills<TextureLightingMode>
+          <Pills<PolyTextureLightingMode>
             value={textureLighting}
             onChange={setTextureLighting}
             options={[

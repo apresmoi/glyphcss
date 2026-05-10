@@ -41,19 +41,33 @@ export interface PolyOrbitControlsCamera {
 export interface PolyOrbitControlsProps {
   drag?: boolean;
   wheel?: boolean;
+  /** When true, wheel changes camera pull-back (distance) instead of zoom scale. */
+  dolly?: boolean;
   invert?: boolean | number;
-  zoom?: { min?: number; max?: number };
+  /** Minimum zoom multiplier (zoom mode). Default 0.1. */
+  minZoom?: number;
+  /** Maximum zoom multiplier (zoom mode). Default 10. */
+  maxZoom?: number;
+  /** Minimum camera pull-back in CSS pixels when dolly=true. Default 0. */
+  minDistance?: number;
+  /** Maximum camera pull-back in CSS pixels when dolly=true. Default 5000. */
+  maxDistance?: number;
   animate?: false | PolyControlsAnimateOptions;
 }
 
 const WHEEL_IDLE_END_MS = 150;
 const POINTER_DRAG_SPEED = 4;
-const ZOOM_STEP = 0.0008;
+const ZOOM_STEP = 0.000513;
+const PINCH_AMP = 10;
+const SCROLL_AMP = 3;
 const ANIM_FRAME_MS = 16.67;
 const ANIM_DT_CLAMP_MS = 50;
 const DEFAULT_ZOOM_MIN = 0.1;
 const DEFAULT_ZOOM_MAX = 10;
+const DEFAULT_DISTANCE_MIN = 0;
+const DEFAULT_DISTANCE_MAX = 5000;
 const DEFAULT_ANIMATE_SPEED = 0.3;
+const DOLLY_STEP = 0.05;
 
 function invertFactor(invert: boolean | number | undefined): number {
   if (invert === true) return -1;
@@ -97,8 +111,12 @@ export const PolyOrbitControls = defineComponent({
   props: {
     drag: { type: Boolean, default: true },
     wheel: { type: Boolean, default: true },
+    dolly: { type: Boolean, default: false },
     invert: { type: [Boolean, Number] as PropType<boolean | number>, default: false },
-    zoom: { type: Object as PropType<{ min?: number; max?: number }>, default: undefined },
+    minZoom: { type: Number, default: DEFAULT_ZOOM_MIN },
+    maxZoom: { type: Number, default: DEFAULT_ZOOM_MAX },
+    minDistance: { type: Number, default: DEFAULT_DISTANCE_MIN },
+    maxDistance: { type: Number, default: DEFAULT_DISTANCE_MAX },
     animate: {
       type: [Boolean, Object] as PropType<false | PolyControlsAnimateOptions>,
       default: false,
@@ -251,13 +269,24 @@ export const PolyOrbitControls = defineComponent({
       const onWheel = (e: WheelEvent): void => {
         if (!props.wheel) return;
         e.preventDefault();
-        const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
-        const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
+        const lineFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+        let delta = e.deltaY * lineFactor;
+        if (e.ctrlKey) delta *= PINCH_AMP;
+        else delta *= SCROLL_AMP;
         const handle = cameraRef.value;
-        const minZ = props.zoom?.min ?? DEFAULT_ZOOM_MIN;
-        const maxZ = props.zoom?.max ?? DEFAULT_ZOOM_MAX;
-        const next = Math.max(minZ, Math.min(maxZ, handle.state.zoom * factor));
-        handle.update({ zoom: next });
+        if (props.dolly) {
+          // Dolly mode: change distance (camera pull-back) instead of zoom.
+          const minDist = props.minDistance ?? DEFAULT_DISTANCE_MIN;
+          const maxDist = props.maxDistance ?? DEFAULT_DISTANCE_MAX;
+          const nextDist = Math.max(minDist, Math.min(maxDist, handle.state.distance + delta * DOLLY_STEP));
+          handle.update({ distance: nextDist });
+        } else {
+          const factor = Math.exp(-delta * ZOOM_STEP);
+          const minZ = props.minZoom ?? DEFAULT_ZOOM_MIN;
+          const maxZ = props.maxZoom ?? DEFAULT_ZOOM_MAX;
+          const next = Math.max(minZ, Math.min(maxZ, handle.state.zoom * factor));
+          handle.update({ zoom: next });
+        }
         applyTransformDirect();
         store.updateCameraFromRef(handle);
         if (!wheelActive) {

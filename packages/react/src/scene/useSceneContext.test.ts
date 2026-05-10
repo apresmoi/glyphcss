@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { useSceneContext } from "./useSceneContext";
+import { usePolySceneContext } from "./useSceneContext";
 import type { UseSceneContextResult } from "./useSceneContext";
 import type { Polygon } from "@layoutit/polycss-core";
 
@@ -30,17 +30,17 @@ function UseSceneContextHarness({
   onResult,
 }: {
   polygons: Polygon[];
-  options: Parameters<typeof useSceneContext>[1];
+  options: Parameters<typeof usePolySceneContext>[1];
   onResult: (result: UseSceneContextResult) => void;
 }) {
-  const result = useSceneContext(polygons, options);
+  const result = usePolySceneContext(polygons, options);
   onResult(result);
   return null;
 }
 
 function captureHook(
   polygons: Polygon[],
-  options: Parameters<typeof useSceneContext>[1] = {}
+  options: Parameters<typeof usePolySceneContext>[1] = {}
 ): UseSceneContextResult {
   let captured: UseSceneContextResult | null = null;
   const container = document.createElement("div");
@@ -59,7 +59,7 @@ function captureHook(
   return captured!;
 }
 
-describe("useSceneContext", () => {
+describe("usePolySceneContext", () => {
   it("returns empty polygons and zero bbox for empty input", () => {
     const result = captureHook([]);
     expect(result.polygons).toEqual([]);

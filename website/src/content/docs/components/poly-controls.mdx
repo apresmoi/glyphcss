@@ -18,7 +18,11 @@ It's available as a custom element (`<poly-controls>`), via the imperative `crea
 | `drag` | `boolean` | `true` | Pointer-drag rotation. Drag-right turns the front of the scene rightward, drag-down tilts the top toward the user — the visible object tracks the pointer. |
 | `wheel` | `boolean` | `true` | Wheel / pinch zoom. Trackpad pinch is delivered as `wheel` with `ctrlKey=true`, so this covers desktop scroll + Mac pinch in one path. |
 | `invert` | `boolean \| number` | `false` | Drag-direction inversion. `true` reverses; a number scales sensitivity in the default direction (negative = invert). |
-| `zoom` | `{ min?: number, max?: number }` | `{ min: 0.1, max: 10 }` | Zoom range clamps. |
+| `minZoom` | `number` | `0.1` | Minimum zoom scale clamp. |
+| `maxZoom` | `number` | `10` | Maximum zoom scale clamp. |
+| `dolly` | `boolean` | `false` | When `true`, the wheel drives `distance` (dolly pull-back) instead of `zoom` scale. See **Dolly mode** below. |
+| `minDistance` | `number` | `0` | Minimum distance clamp when `dolly` is enabled. |
+| `maxDistance` | `number` | `5000` | Maximum distance clamp when `dolly` is enabled. |
 | `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotate. Pass `false` (or omit) to disable. See **Animate options** below. |
 
 ### Animate options
@@ -157,6 +161,28 @@ Disable input but keep autorotate running:
 ```
 </TabItem>
 </Tabs>
+
+## Dolly mode
+
+By default, the wheel adjusts `zoom` — a scale transform on the entire scene. Enable `dolly` to have the wheel adjust `distance` (a `translateZ` pull-back) instead. This mirrors three.js `OrbitControls` where the wheel changes the spherical radius around the target rather than scaling the projection.
+
+When to use each:
+- **Scale-zoom (default):** Good for 2D-map-style or isometric scenes where you want the scene to grow/shrink in place.
+- **Dolly (`dolly={true}`):** Good for perspective scenes where depth foreshortening should stay consistent — the camera moves back rather than the scene shrinking.
+
+```tsx
+// React — dolly mode with clamped range
+<PolyOrbitControls dolly minDistance={100} maxDistance={3000} />
+```
+
+```ts
+// Vanilla — createPolyControls
+const controls = createPolyControls(scene, {
+  dolly: true,
+  minDistance: 100,
+  maxDistance: 3000,
+});
+```
 
 ## How it works
 

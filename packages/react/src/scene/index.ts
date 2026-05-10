@@ -2,11 +2,11 @@ export { PolyScene } from "./PolyScene";
 export type { PolySceneProps } from "./PolyScene";
 export { PolyMesh } from "./PolyMesh";
 export type { PolyMeshProps } from "./PolyMesh";
-export { useSceneContext } from "./useSceneContext";
+export { usePolySceneContext } from "./useSceneContext";
 export type { UseSceneContextOptions, UseSceneContextResult } from "./useSceneContext";
-export { useMesh } from "./useMesh";
+export { usePolyMesh } from "./useMesh";
 export type { UseMeshResult, UseMeshOptions } from "./useMesh";
-export { findMeshHandle } from "./events";
+export { findPolyMeshHandle } from "./events";
 export type {
   PolyMeshHandle,
   PolyPointerEvent,
@@ -15,3 +15,4 @@ export type {
   PolyEventHandler,
   InteractionProps,
 } from "./events";
+export { usePolyMaterial } from "./usePolyMaterial";

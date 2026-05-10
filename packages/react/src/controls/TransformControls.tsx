@@ -160,12 +160,12 @@ function gizmoCenterForMesh(polygons: Polygon[]): Vec3 {
 }
 
 /** Optional ref-or-direct binding to a target mesh. */
-export type TransformControlsObject =
+export type PolyTransformControlsObject =
   | PolyMeshHandle
   | RefObject<PolyMeshHandle | null>
   | null;
 
-export interface TransformControlsObjectChangeEvent {
+export interface PolyTransformControlsObjectChangeEvent {
   /** The mesh being transformed. */
   object: PolyMeshHandle;
   /** The new position. Only emitted when `mode` is "translate". */
@@ -175,10 +175,10 @@ export interface TransformControlsObjectChangeEvent {
   rotation?: Vec3;
 }
 
-export interface TransformControlsProps {
+export interface PolyTransformControlsProps {
   /** Mesh to attach to. Pass a ref returned from `useRef<PolyMeshHandle>()`
    *  or a handle directly. `null` hides the gizmo. */
-  object: TransformControlsObject;
+  object: PolyTransformControlsObject;
   /** Drag mode. "translate" → axial arrows, "rotate" → axial rings.
    *  "scale" is accepted for forward-compat but renders nothing. */
   mode?: "translate" | "rotate" | "scale";
@@ -202,7 +202,7 @@ export interface TransformControlsProps {
   onChange?: () => void;
   /** Fires with the new transform during drag. Use this to update
    *  position state — controlled flow, parent owns state. */
-  onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
   /** Fires once on drag start. */
   onMouseDown?: () => void;
   /** Fires once on drag end. */
@@ -213,7 +213,7 @@ export interface TransformControlsProps {
   onDraggingChanged?: (dragging: boolean) => void;
 }
 
-function resolveObject(o: TransformControlsObject): PolyMeshHandle | null {
+function resolveObject(o: PolyTransformControlsObject): PolyMeshHandle | null {
   if (o == null) return null;
   if (typeof o === "object" && "current" in o) return o.current ?? null;
   return o as PolyMeshHandle;
@@ -278,7 +278,7 @@ interface DragOptions {
   startClientY: number;
   translationSnap: number | null;
   onChange?: () => void;
-  onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
   onMouseDown?: () => void;
   onMouseUp?: () => void;
   onDraggingChanged?: (dragging: boolean) => void;
@@ -380,7 +380,7 @@ interface RingDragOptions {
   startClientY: number;
   rotationSnap: number | null;
   onChange?: () => void;
-  onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
   onMouseDown?: () => void;
   onMouseUp?: () => void;
   onDraggingChanged?: (dragging: boolean) => void;
@@ -466,7 +466,7 @@ function startRingDrag(opts: RingDragOptions): void {
   window.addEventListener("pointercancel", handleUp);
 }
 
-export function TransformControls({
+export function PolyTransformControls({
   object,
   mode = "translate",
   space = "world",
@@ -482,7 +482,7 @@ export function TransformControls({
   onMouseDown,
   onMouseUp,
   onDraggingChanged,
-}: TransformControlsProps) {
+}: PolyTransformControlsProps) {
   // Refs don't trigger React re-renders. When `object` is a RefObject
   // whose `.current` lands AFTER first render (the common case — the
   // target <PolyMesh> mounts in the same pass and only sets the ref
@@ -516,7 +516,7 @@ export function TransformControls({
     translationSnap: number | null;
     rotationSnap: number | null;
     onChange?: () => void;
-    onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+    onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
     onMouseDown?: () => void;
     onMouseUp?: () => void;
     onDraggingChanged?: (dragging: boolean) => void;
@@ -752,7 +752,7 @@ interface TranslateArrowProps {
   enabled: boolean;
   translationSnap: number | null;
   onChange?: () => void;
-  onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
   onMouseDown?: () => void;
   onMouseUp?: () => void;
   onDraggingChanged?: (dragging: boolean) => void;
@@ -897,7 +897,7 @@ interface RotateRingProps {
   enabled: boolean;
   rotationSnap: number | null;
   onChange?: () => void;
-  onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
   onMouseDown?: () => void;
   onMouseUp?: () => void;
   onDraggingChanged?: (dragging: boolean) => void;

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ref, nextTick } from "vue";
 import { createApp, h } from "vue";
-import { useMesh } from "./useMesh";
+import { usePolyMesh } from "./useMesh";
 import type { UseMeshResult } from "./useMesh";
 
 // Minimal OBJ with one triangle
@@ -40,7 +40,7 @@ function captureMesh(initialSrc: string): {
   const container = document.createElement("div");
   const app = createApp({
     setup() {
-      captured = useMesh(srcRef);
+      captured = usePolyMesh(srcRef);
       return () => h("div");
     },
   });
@@ -48,7 +48,7 @@ function captureMesh(initialSrc: string): {
   return { result: captured!, srcRef, app };
 }
 
-describe("useMesh — idle (empty src)", () => {
+describe("usePolyMesh — idle (empty src)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -76,7 +76,7 @@ describe("useMesh — idle (empty src)", () => {
   });
 });
 
-describe("useMesh — successful load", () => {
+describe("usePolyMesh — successful load", () => {
   beforeEach(() => {
     mockFetchSuccess(MINIMAL_OBJ);
   });
@@ -126,7 +126,7 @@ describe("useMesh — successful load", () => {
   });
 });
 
-describe("useMesh — error handling", () => {
+describe("usePolyMesh — error handling", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -175,7 +175,7 @@ describe("useMesh — error handling", () => {
   });
 });
 
-describe("useMesh — reactive src ref", () => {
+describe("usePolyMesh — reactive src ref", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -213,7 +213,7 @@ describe("useMesh — reactive src ref", () => {
   });
 });
 
-describe("useMesh — unmount cleanup", () => {
+describe("usePolyMesh — unmount cleanup", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();

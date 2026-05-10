@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import type {
   Polygon,
-  DirectionalLight,
+  PolyDirectionalLight,
   Vec3,
 } from "@layoutit/polycss-core";
 import { buildSceneContext, mergePolygons } from "@layoutit/polycss-core";
 
 export interface UseSceneContextOptions {
-  directionalLight?: DirectionalLight;
+  directionalLight?: PolyDirectionalLight;
 }
 
 export interface UseSceneContextResult {
@@ -22,7 +22,7 @@ export interface UseSceneContextResult {
  * Returns the processed polygons + the scene-wide axis-aligned bbox. Memoized
  * on input identity + the few options that affect output. Per §Design.6.
  */
-export function useSceneContext(
+export function usePolySceneContext(
   polygons: Polygon[],
   options: UseSceneContextOptions
 ): UseSceneContextResult {

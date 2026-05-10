@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type React from "react";
 import type {
-  AmbientLight,
-  DirectionalLight,
+  PolyAmbientLight,
+  PolyDirectionalLight,
   Polygon,
-  TextureLightingMode,
+  PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
 import { parsePureColor } from "@layoutit/polycss-core";
@@ -456,8 +456,8 @@ export function computeTextureAtlasPlan(
   options: {
     tileSize?: number;
     layerElevation?: number;
-    directionalLight?: DirectionalLight;
-    ambientLight?: AmbientLight;
+    directionalLight?: PolyDirectionalLight;
+    ambientLight?: PolyAmbientLight;
   } = {},
 ): TextureAtlasPlan | null {
   const { vertices, texture, uvs } = polygon;
@@ -691,7 +691,7 @@ function packTextureAtlasPlans(
 
 async function buildAtlasPage(
   page: PackedPage,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   atlasScale: number,
 ): Promise<TextureAtlasPage> {
@@ -767,7 +767,7 @@ async function buildAtlasPage(
 
 async function buildAtlasPages(
   pages: PackedPage[],
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   atlasScale: number,
   isCancelled: () => boolean,
@@ -782,7 +782,7 @@ async function buildAtlasPages(
 
 export function useTextureAtlas(
   plans: Array<TextureAtlasPlan | null>,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   atlasScaleInput?: AtlasScale,
 ): TextureAtlasResult {
   const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported();
@@ -919,7 +919,7 @@ export function TextureAtlasPoly({
 }: {
   entry: PackedTextureAtlasEntry;
   page: TextureAtlasPage | undefined;
-  textureLighting: TextureLightingMode;
+  textureLighting: PolyTextureLightingMode;
   className?: string;
   style?: CSSProperties;
   domAttrs?: Record<string, unknown>;

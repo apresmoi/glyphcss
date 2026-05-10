@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   registerMeshElement,
   unregisterMeshElement,
-  findMeshHandle,
+  findPolyMeshHandle,
   pointInMeshElement,
   findMeshUnderPoint,
   type PolyMeshHandle,
@@ -85,9 +85,9 @@ describe("pointInMeshElement", () => {
 
 // ── findMeshHandle ──────────────────────────────────────────────────────────
 
-describe("findMeshHandle", () => {
+describe("findPolyMeshHandle", () => {
   it("returns null for null input", () => {
-    expect(findMeshHandle(null)).toBeNull();
+    expect(findPolyMeshHandle(null)).toBeNull();
   });
 
   it("finds the handle on the element itself", () => {
@@ -95,7 +95,7 @@ describe("findMeshHandle", () => {
     document.body.appendChild(el);
     const handle = makeHandle(el, "mesh-a");
     registerMeshElement(el, handle);
-    expect(findMeshHandle(el)).toBe(handle);
+    expect(findPolyMeshHandle(el)).toBe(handle);
     unregisterMeshElement(el);
   });
 
@@ -106,23 +106,23 @@ describe("findMeshHandle", () => {
     document.body.appendChild(parent);
     const handle = makeHandle(parent as unknown as HTMLDivElement, "mesh-b");
     registerMeshElement(parent, handle);
-    expect(findMeshHandle(child)).toBe(handle);
+    expect(findPolyMeshHandle(child)).toBe(handle);
     unregisterMeshElement(parent);
   });
 
   it("returns null when no registered ancestor exists", () => {
     const el = document.createElement("div");
     document.body.appendChild(el);
-    expect(findMeshHandle(el)).toBeNull();
+    expect(findPolyMeshHandle(el)).toBeNull();
   });
 
-  it("unregisterMeshElement removes the handle so findMeshHandle returns null", () => {
+  it("unregisterMeshElement removes the handle so findPolyMeshHandle returns null", () => {
     const el = document.createElement("div");
     document.body.appendChild(el);
     const handle = makeHandle(el, "mesh-c");
     registerMeshElement(el, handle);
     unregisterMeshElement(el);
-    expect(findMeshHandle(el)).toBeNull();
+    expect(findPolyMeshHandle(el)).toBeNull();
   });
 });
 

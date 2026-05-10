@@ -1,2 +1,2 @@
-export { Select, useSelect, useSelectionApi } from "./Select";
-export type { SelectProps, SelectionApi } from "./Select";
+export { PolySelect, usePolySelect, usePolySelectionApi } from "./Select";
+export type { PolySelectProps, PolySelectionApi } from "./Select";

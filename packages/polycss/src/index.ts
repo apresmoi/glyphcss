@@ -36,7 +36,7 @@ export { createTransformControls } from "./api/createTransformControls";
 export type {
   CreateTransformControlsOptions,
   TransformControlsHandle,
-  TransformControlsObjectChangeEvent,
+  PolyTransformControlsObjectChangeEvent,
 } from "./api/createTransformControls";
 
 // ── Custom element classes (without auto-registering — that's @layoutit/polycss/elements) ──
@@ -46,7 +46,7 @@ export { PolyPolygonElement } from "./elements/PolyPolygonElement";
 export { PolyControlsElement } from "./elements/PolyControlsElement";
 
 // ── Style injection ───────────────────────────────────────────────
-export { injectBaseStyles } from "./styles/styles";
+export { injectPolyBaseStyles } from "./styles/styles";
 
 // ── Re-exports from @layoutit/polycss-core ─────────────────────────────────
 export * from "@layoutit/polycss-core";

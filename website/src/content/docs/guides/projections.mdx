@@ -21,7 +21,7 @@ Use the sliders below to explore how `perspective`, `rotX`, and `rotY` interact.
 
 ## Perspective depth
 
-Higher `perspective` values feel flatter (more isometric-like); lower values exaggerate depth. A value of `false` gives orthographic projection (no perspective distortion).
+Higher `perspective` values feel flatter (more isometric-like); lower values exaggerate depth. For orthographic projection (no perspective distortion), use `<PolyOrthographicCamera>` (React/Vue) or `perspective="none"` (vanilla).
 
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
@@ -39,14 +39,14 @@ Higher `perspective` values feel flatter (more isometric-like); lower values exa
 </poly-scene>
 
 <!-- Orthographic -->
-<poly-scene perspective="false" rot-x="65" rot-y="45">
+<poly-scene perspective="none" rot-x="65" rot-y="45">
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-react";
 
 // Standard perspective
 <PolyScene perspective={1000} rotX={65} rotY={45}>
@@ -58,10 +58,12 @@ import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
   <PolyMesh src="/cottage.glb" />
 </PolyScene>
 
-// Orthographic
-<PolyScene perspective={false} rotX={65} rotY={45}>
-  <PolyMesh src="/cottage.glb" />
-</PolyScene>
+// Orthographic — use PolyOrthographicCamera, not perspective={false}
+<PolyOrthographicCamera rotX={65} rotY={45}>
+  <PolyScene>
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
+</PolyOrthographicCamera>
 ```
 </TabItem>
 <TabItem label="Vue">
@@ -71,10 +73,17 @@ import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
   <PolyScene :perspective="1000" :rot-x="65" :rot-y="45">
     <PolyMesh src="/cottage.glb" />
   </PolyScene>
+
+  <!-- Orthographic -->
+  <PolyOrthographicCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyOrthographicCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -105,7 +114,7 @@ Use `rot-x` and `rot-y` (vanilla) / `rotX` and `rotY` (React, Vue) to position t
 
 - **High perspective (≥ 4000):** Near-isometric feel, minimal depth distortion. Good for architectural renders or strategy-game-style views.
 - **Low perspective (500–1000):** Strong depth foreshortening. Good for dramatic close-up shots or first-person-adjacent views.
-- **Orthographic (`false`):** Perfect isometric, no depth distortion at all. Good when you need pixel-perfect isometric scenes.
+- **Orthographic (`PolyOrthographicCamera`):** Perfect isometric, no depth distortion at all. Good when you need pixel-perfect isometric scenes.
 
 ## Related
 

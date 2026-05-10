@@ -1,11 +1,11 @@
 /**
  * polycss base stylesheet — injected once per Document. Mirrors the React
- * package's `injectBaseStyles` so a vanilla scene gets the same default
+ * package's `injectPolyBaseStyles` so a vanilla scene gets the same default
  * 3D viewport behavior without users wiring up CSS by hand.
  */
 const POLYCSS_STYLE_ID = "polycss-styles";
 
-export function injectBaseStyles(doc?: Document): void {
+export function injectPolyBaseStyles(doc?: Document): void {
   const target =
     doc ?? (typeof document !== "undefined" ? document : undefined);
   if (!target || target.getElementById(POLYCSS_STYLE_ID)) return;

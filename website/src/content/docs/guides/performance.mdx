@@ -82,7 +82,7 @@ Use explicit numeric values when you want to override auto: `0.5` or `0.75` for 
 UV-textured polygons share generated atlas blob URLs (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:
 
 - Textured meshes do a one-time atlas generation pass at mount; very large texture footprints can still cost memory and startup time.
-- Call `dispose()` on `ParseResult` (or `useMesh` result) when you've loaded the mesh imperatively.
+- Call `dispose()` on `ParseResult` (or `usePolyMesh` result) when you've loaded the mesh imperatively.
 - The mesh element (`<poly-mesh>` / `<PolyMesh>`) handles disposal automatically on unmount or `src` change.
 
 ## Related

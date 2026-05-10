@@ -131,12 +131,8 @@ export class PolyControlsElement extends ELEMENT_BASE {
     if (invert !== undefined) opts.invert = invert;
     const zoomMin = parseNumber(this.getAttribute("zoom-min"));
     const zoomMax = parseNumber(this.getAttribute("zoom-max"));
-    if (zoomMin !== undefined || zoomMax !== undefined) {
-      opts.zoom = {
-        ...(zoomMin !== undefined ? { min: zoomMin } : {}),
-        ...(zoomMax !== undefined ? { max: zoomMax } : {}),
-      };
-    }
+    if (zoomMin !== undefined) opts.minZoom = zoomMin;
+    if (zoomMax !== undefined) opts.maxZoom = zoomMax;
     // Always emit an explicit animate value so removing every animate-*
     // attribute propagates as "off" through controls.update() — without
     // this, omitting the field leaves resolveOptions to keep the prior

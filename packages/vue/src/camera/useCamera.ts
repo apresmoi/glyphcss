@@ -9,6 +9,7 @@ export interface UseCameraOptions {
   target?: Vec3;
   rotX?: number;
   rotY?: number;
+  distance?: number;
 }
 
 export interface UseCameraResult {
@@ -30,12 +31,13 @@ export interface UseCameraResult {
   applyTransformDirect: () => void;
 }
 
-export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
+export function usePolyCamera(options: Ref<UseCameraOptions>): UseCameraResult {
   const handle = createIsometricCamera({
     zoom: options.value.zoom,
     target: options.value.target,
     rotX: options.value.rotX,
     rotY: options.value.rotY,
+    distance: options.value.distance,
   });
 
   const cameraRef = shallowRef<CameraHandle>(handle);
@@ -50,6 +52,7 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
       target: options.value.target,
       rotX: options.value.rotX,
       rotY: options.value.rotY,
+      distance: options.value.distance,
     }),
     (next, prev) => {
       const partial: Partial<CameraState> = {};
@@ -57,6 +60,7 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
       if (next.target !== undefined && next.target !== prev?.target) partial.target = next.target;
       if (next.rotX !== undefined && next.rotX !== prev?.rotX) partial.rotX = next.rotX;
       if (next.rotY !== undefined && next.rotY !== prev?.rotY) partial.rotY = next.rotY;
+      if (next.distance !== undefined && next.distance !== prev?.distance) partial.distance = next.distance;
       if (Object.keys(partial).length > 0) {
         handle.update(partial);
         applyTransformDirect();
@@ -76,7 +80,8 @@ export function useCamera(options: Ref<UseCameraOptions>): UseCameraResult {
     const cssX = ty * tileSize;
     const cssY = tx * tileSize;
     const cssZ = tz * tileSize;
-    el.style.transform = `scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
+    el.style.transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }
 
   return {

@@ -5,21 +5,25 @@
 // (`@layoutit/polycss-react — full surface`). Anything not exported here is an
 // implementation detail.
 
-// ── Components & hooks ─────────────────────────────────────────────
+// ── Components & hooks ─────────────────────────────────────────────────
 export {
+  PolyPerspectiveCamera,
+  PolyOrthographicCamera,
   PolyCamera,
-  useCamera,
+  usePolyCamera,
   PolyCameraContext,
   useCameraContext,
 } from "./camera";
 export type {
+  PolyPerspectiveCameraProps,
+  PolyOrthographicCameraProps,
   PolyCameraProps,
   UseCameraOptions,
   UseCameraResult,
   PolyCameraContextValue,
 } from "./camera";
 
-export { PolyScene, PolyMesh, useSceneContext, useMesh, findMeshHandle } from "./scene";
+export { PolyScene, PolyMesh, usePolySceneContext, usePolyMesh, findPolyMeshHandle, usePolyMaterial } from "./scene";
 export type {
   PolySceneProps,
   PolyMeshProps,
@@ -38,7 +42,7 @@ export type {
 export { Poly } from "./shapes";
 export type { PolyProps, TransformProps, DOMPassthroughProps } from "./shapes";
 
-export { PolyOrbitControls, PolyMapControls, TransformControls } from "./controls";
+export { PolyControls, PolyOrbitControls, PolyMapControls, PolyTransformControls } from "./controls";
 export type {
   PolyOrbitControlsProps,
   PolyOrbitControlsCamera,
@@ -47,13 +51,13 @@ export type {
   PolyControlsAnimateOptions,
   PolyControlsCamera,
   SharedControlsProps,
-  TransformControlsProps,
-  TransformControlsObject,
-  TransformControlsObjectChangeEvent,
+  PolyTransformControlsProps,
+  PolyTransformControlsObject,
+  PolyTransformControlsObjectChangeEvent,
 } from "./controls";
 
-export { Select, useSelect, useSelectionApi } from "./select";
-export type { SelectProps, SelectionApi } from "./select";
+export { PolySelect, usePolySelect, usePolySelectionApi } from "./select";
+export type { PolySelectProps, PolySelectionApi } from "./select";
 
 export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
 export type {
@@ -61,16 +65,17 @@ export type {
   PolyDirectionalLightHelperProps,
 } from "./helpers";
 
-export { injectBaseStyles } from "./styles";
+export { injectPolyBaseStyles } from "./styles";
 
 // ── Re-exports from @layoutit/polycss-core for convenience ──────────────────
 export type {
   Vec2,
   Vec3,
   Polygon,
-  DirectionalLight,
-  AmbientLight,
-  TextureLightingMode,
+  PolyMaterial,
+  PolyDirectionalLight,
+  PolyAmbientLight,
+  PolyTextureLightingMode,
   ParseAnimationClip,
   ParseAnimationController,
   ParseResult,

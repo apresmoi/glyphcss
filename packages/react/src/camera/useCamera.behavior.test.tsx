@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { useCamera } from "./useCamera";
+import { usePolyCamera } from "./useCamera";
 import type { UseCameraResult, UseCameraOptions } from "./useCamera";
 
 function CameraTestHarness({
   onResult,
   ...options
 }: UseCameraOptions & { onResult: (result: UseCameraResult) => void }) {
-  const result = useCamera(options);
+  const result = usePolyCamera(options);
   onResult(result);
   return null;
 }

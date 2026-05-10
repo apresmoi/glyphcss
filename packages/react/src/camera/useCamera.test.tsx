@@ -1,19 +1,19 @@
 import { describe, it, expect } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { useCamera } from "./useCamera";
+import { usePolyCamera } from "./useCamera";
 import type { UseCameraResult } from "./useCamera";
 
 function CameraTestHarness({
   onResult,
   ...options
-}: Parameters<typeof useCamera>[0] & { onResult: (result: UseCameraResult) => void }) {
-  const result = useCamera(options);
+}: Parameters<typeof usePolyCamera>[0] & { onResult: (result: UseCameraResult) => void }) {
+  const result = usePolyCamera(options);
   onResult(result);
   return null;
 }
 
-function captureHook(options: Parameters<typeof useCamera>[0] = {}): UseCameraResult {
+function captureHook(options: Parameters<typeof usePolyCamera>[0] = {}): UseCameraResult {
   let captured: UseCameraResult | null = null;
   const container = document.createElement("div");
   const root = createRoot(container);

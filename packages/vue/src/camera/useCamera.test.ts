@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { createApp, h, ref, computed, nextTick } from "vue";
 import type { Ref } from "vue";
-import { useCamera } from "./useCamera";
+import { usePolyCamera } from "./useCamera";
 import type { UseCameraResult, UseCameraOptions } from "./useCamera";
 
 function captureHook(options: UseCameraOptions = {}): UseCameraResult {
@@ -10,7 +10,7 @@ function captureHook(options: UseCameraOptions = {}): UseCameraResult {
   const optionsRef = computed(() => options);
   const app = createApp({
     setup() {
-      captured = useCamera(optionsRef);
+      captured = usePolyCamera(optionsRef);
       return () => h("div");
     },
   });
@@ -18,7 +18,7 @@ function captureHook(options: UseCameraOptions = {}): UseCameraResult {
   return captured!;
 }
 
-describe("useCamera behavior", () => {
+describe("usePolyCamera behavior", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -61,7 +61,7 @@ describe("useCamera behavior", () => {
       const container = document.createElement("div");
       const app = createApp({
         setup() {
-          captured = useCamera(computed(() => opts.value));
+          captured = usePolyCamera(computed(() => opts.value));
           return () => h("div");
         },
       });
@@ -80,7 +80,7 @@ describe("useCamera behavior", () => {
       const container = document.createElement("div");
       const app = createApp({
         setup() {
-          captured = useCamera(computed(() => opts.value));
+          captured = usePolyCamera(computed(() => opts.value));
           return () => h("div");
         },
       });

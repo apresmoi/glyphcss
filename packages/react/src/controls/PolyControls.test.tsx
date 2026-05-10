@@ -167,6 +167,29 @@ describe("PolyOrbitControls", () => {
     expect(sceneEl.style.transform).toContain("scale(1)");
   });
 
+  // ── Dolly ────────────────────────────────────────────────────────────────
+  it("dolly mode changes distance instead of zoom on wheel", () => {
+    root = createRoot(container);
+    act(() => root.render(orbitTree({ dolly: true }, { zoom: 1 })));
+    const cameraEl = findCameraEl(container);
+    dispatchWheel(cameraEl, 100); // scroll down = dolly out = increase distance
+    const sceneEl = findSceneEl(container);
+    // Zoom should remain 1 (unchanged), distance should appear as translateZ
+    expect(sceneEl.style.transform).toContain("scale(1)");
+    expect(sceneEl.style.transform).toContain("translateZ(");
+  });
+
+  it("dolly mode does not increase distance beyond maxDistance", () => {
+    root = createRoot(container);
+    act(() => root.render(orbitTree({ dolly: true, maxDistance: 10 }, { zoom: 1 })));
+    const cameraEl = findCameraEl(container);
+    // Scroll down with a very large delta — should be clamped to maxDistance
+    dispatchWheel(cameraEl, 100000);
+    const sceneEl = findSceneEl(container);
+    // translateZ should be -maxDistance or less in magnitude
+    expect(sceneEl.style.transform).toContain("translateZ(-10px)");
+  });
+
   // ── Animate ─────────────────────────────────────────────────────────────
   it("animate queues an rAF tick", () => {
     root = createRoot(container);

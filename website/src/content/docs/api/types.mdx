@@ -29,12 +29,12 @@ interface Polygon {
 
 ---
 
-## `DirectionalLight`
+## `PolyDirectionalLight`
 
 Controls directional and ambient lighting for the scene.
 
 ```ts
-interface DirectionalLight {
+interface PolyDirectionalLight {
   /** Direction the light shines toward (normalized). */
   direction: [number, number, number];
   /** Directional light color hex (default: "#ffffff"). */
@@ -44,6 +44,31 @@ interface DirectionalLight {
   /** Ambient light tint hex (default: "#ffffff"). */
   ambientColor?: string;
 }
+```
+
+---
+
+## `PolyAmbientLight`
+
+Ambient-only light (no directional component).
+
+```ts
+interface PolyAmbientLight {
+  /** Ambient light intensity 0–1 (default: 0.4). */
+  ambient?: number;
+  /** Ambient light tint hex (default: "#ffffff"). */
+  ambientColor?: string;
+}
+```
+
+---
+
+## `PolyTextureLightingMode`
+
+Controls how texture lighting is applied to atlas-backed polygons.
+
+```ts
+type PolyTextureLightingMode = "none" | "multiply" | "screen";
 ```
 
 ---
@@ -199,9 +224,10 @@ interface CameraState {
   rotX: number;
   rotY: number;
   zoom: number;
+  distance: number;           // dolly pull-back in pixels (default 0); adds translateZ(-distance)px
   pan: number;
   tilt: number;
-  perspective: number | null;  // null = parallel projection
+  perspective: number | null;  // null = parallel projection (PolyOrthographicCamera)
   invertMultiplier: 1 | -1;
   depthOffset: number;
   invert?: boolean;

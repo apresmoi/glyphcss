@@ -4,7 +4,7 @@ import type { VNode } from "vue";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "./PolyScene";
 import { PolyMesh } from "./PolyMesh";
-import { findMeshHandle, type PolyMeshHandle } from "./events";
+import { findPolyMeshHandle, type PolyMeshHandle } from "./events";
 import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
@@ -103,7 +103,7 @@ describe("PolyMesh (Vue) — mesh registry", () => {
   it("registers the wrapper element so findMeshHandle resolves on the wrapper itself", () => {
     const { container } = mountMesh({ id: "cube-a", polygons: [TRIANGLE] });
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    const handle = findMeshHandle(meshEl);
+    const handle = findPolyMeshHandle(meshEl);
     expect(handle).not.toBeNull();
     expect(handle!.id).toBe("cube-a");
     expect(handle!.element).toBe(meshEl);
@@ -114,7 +114,7 @@ describe("PolyMesh (Vue) — mesh registry", () => {
     const { container } = mountMesh({ id: "cube-b", polygons: [TRIANGLE] });
     const polygonEl = container.querySelector(".polycss-mesh i") as HTMLElement;
     expect(polygonEl).not.toBeNull();
-    const handle = findMeshHandle(polygonEl);
+    const handle = findPolyMeshHandle(polygonEl);
     expect(handle?.id).toBe("cube-b");
   });
 
@@ -122,9 +122,9 @@ describe("PolyMesh (Vue) — mesh registry", () => {
   it("unregisters the element on unmount so findMeshHandle returns null", () => {
     const { container, app } = mountMesh({ id: "cube-c", polygons: [TRIANGLE] });
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(findMeshHandle(meshEl)).not.toBeNull();
+    expect(findPolyMeshHandle(meshEl)).not.toBeNull();
     app.unmount();
-    expect(findMeshHandle(meshEl)).toBeNull();
+    expect(findPolyMeshHandle(meshEl)).toBeNull();
   });
 });
 

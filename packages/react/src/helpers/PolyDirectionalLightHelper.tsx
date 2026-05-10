@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import type { DirectionalLight, Vec3 } from "@layoutit/polycss-core";
+import type { PolyDirectionalLight, Vec3 } from "@layoutit/polycss-core";
 import { octahedronPolygons } from "@layoutit/polycss-core";
 import { PolyMesh } from "../scene";
 
 export interface PolyDirectionalLightHelperProps {
   /** Light to visualize. */
-  light: DirectionalLight;
+  light: PolyDirectionalLight;
   /**
    * Point the marker orbits around, in world coords. Mirrors three.js's
    * `DirectionalLight.target.position` — usually the mesh's bbox center.

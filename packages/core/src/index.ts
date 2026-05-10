@@ -9,9 +9,10 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
-  DirectionalLight,
-  AmbientLight,
-  TextureLightingMode,
+  PolyMaterial,
+  PolyDirectionalLight,
+  PolyAmbientLight,
+  PolyTextureLightingMode,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
 

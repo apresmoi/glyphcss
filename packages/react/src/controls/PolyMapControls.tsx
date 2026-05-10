@@ -28,8 +28,12 @@ export interface PolyMapControlsProps extends SharedControlsProps {}
 export function PolyMapControls({
   drag = true,
   wheel = true,
+  dolly = false,
   invert = false,
-  zoom,
+  minZoom = 0.1,
+  maxZoom = 10,
+  minDistance = 0,
+  maxDistance = 5000,
   animate = false,
   onChange,
   onInteractionStart,
@@ -39,9 +43,12 @@ export function PolyMapControls({
 
   const dragRef = useRef(drag);
   const wheelRef = useRef(wheel);
+  const dollyRef = useRef(dolly);
   const invertRef = useRef(invert);
-  const zoomMinRef = useRef(zoom?.min ?? 0.1);
-  const zoomMaxRef = useRef(zoom?.max ?? 10);
+  const zoomMinRef = useRef(minZoom);
+  const zoomMaxRef = useRef(maxZoom);
+  const distanceMinRef = useRef(minDistance);
+  const distanceMaxRef = useRef(maxDistance);
   const animateRef = useRef(animate);
   const onChangeRef = useRef(onChange);
   const onInteractionStartRef = useRef(onInteractionStart);
@@ -49,9 +56,12 @@ export function PolyMapControls({
   useEffect(() => {
     dragRef.current = drag;
     wheelRef.current = wheel;
+    dollyRef.current = dolly;
     invertRef.current = invert;
-    zoomMinRef.current = zoom?.min ?? 0.1;
-    zoomMaxRef.current = zoom?.max ?? 10;
+    zoomMinRef.current = minZoom;
+    zoomMaxRef.current = maxZoom;
+    distanceMinRef.current = minDistance;
+    distanceMaxRef.current = maxDistance;
     animateRef.current = animate;
     onChangeRef.current = onChange;
     onInteractionStartRef.current = onInteractionStart;
@@ -60,7 +70,7 @@ export function PolyMapControls({
 
   const cameraSnapshot = (): PolyControlsCamera => {
     const s = cameraRef.current.state;
-    return { rotX: s.rotX, rotY: s.rotY, zoom: s.zoom, target: s.target };
+    return { rotX: s.rotX, rotY: s.rotY, zoom: s.zoom, target: s.target, distance: s.distance };
   };
   const fireChange = (): void => {
     const fn = onChangeRef.current;
@@ -192,9 +202,9 @@ export function PolyMapControls({
     };
   }, [drag, applyTransformDirect, cameraElRef, cameraRef, store]);
 
-  // ── Wheel zoom ─────────────────────────────────────────────────────────
+  // ── Wheel zoom / dolly ─────────────────────────────────────────────────
   useEffect(
-    () => makeWheelEffect({ wheel, wheelRef, zoomMinRef, zoomMaxRef, cameraElRef, cameraRef, applyTransformDirect, store, fireStart, fireChange, fireEnd }),
+    () => makeWheelEffect({ wheel, dollyRef, wheelRef, zoomMinRef, zoomMaxRef, distanceMinRef, distanceMaxRef, cameraElRef, cameraRef, applyTransformDirect, store, fireStart, fireChange, fireEnd }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [wheel, applyTransformDirect, cameraElRef, cameraRef, store]
   );

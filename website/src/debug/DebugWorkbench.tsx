@@ -2,27 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   PolyAxesHelper,
-  PolyCamera,
+  PolyOrthographicCamera,
+  PolyPerspectiveCamera,
   PolyMapControls,
   PolyOrbitControls,
   PolyDirectionalLightHelper,
   PolyMesh,
   PolyScene,
-  Select,
-  TransformControls,
+  PolySelect,
+  PolyTransformControls,
   parseGltf,
   parseMtl,
   parseObj,
 } from "@layoutit/polycss-react";
 import type {
-  AmbientLight,
-  DirectionalLight,
+  PolyAmbientLight,
+  PolyDirectionalLight,
   GltfParseOptions,
   ObjParseOptions,
   ParseAnimationController,
   PolyMeshHandle,
   Polygon,
-  TextureLightingMode,
+  PolyTextureLightingMode,
   Vec3 as ReactVec3,
 } from "@layoutit/polycss-react";
 import { ModelPicker } from "./ModelPicker";
@@ -107,7 +108,7 @@ interface SceneOptionsState {
   lightColor: string;
   ambientIntensity: number;
   ambientColor: string;
-  textureLighting: TextureLightingMode;
+  textureLighting: PolyTextureLightingMode;
   textureQuality: TextureQuality;
   approximateMerge: boolean;
   rectCover: boolean;
@@ -1636,7 +1637,35 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
   };
 }
 
-function directionalFromOptions(options: SceneOptionsState): DirectionalLight {
+function buildFloor(polygons: Polygon[]): Polygon | null {
+  if (polygons.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const polygon of polygons) {
+    for (const [x, y] of polygon.vertices) {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+  const padX = Math.max(2, (maxX - minX) * 0.18);
+  const padY = Math.max(2, (maxY - minY) * 0.18);
+  return {
+    vertices: [
+      [minX - padX, minY - padY, 0],
+      [maxX + padX, minY - padY, 0],
+      [maxX + padX, maxY + padY, 0],
+      [minX - padX, maxY + padY, 0],
+    ],
+    color: "#252a2d",
+  };
+}
+
+function directionalFromOptions(options: SceneOptionsState): PolyDirectionalLight {
   const az = (options.lightAzimuth * Math.PI) / 180;
   const el = (options.lightElevation * Math.PI) / 180;
   const cosEl = Math.cos(el);
@@ -1651,7 +1680,7 @@ function directionalFromOptions(options: SceneOptionsState): DirectionalLight {
   };
 }
 
-function ambientFromOptions(options: SceneOptionsState): AmbientLight {
+function ambientFromOptions(options: SceneOptionsState): PolyAmbientLight {
   return {
     color: options.ambientColor,
     intensity: options.ambientIntensity,
@@ -1773,7 +1802,7 @@ function ControlPanel({
 const LIGHT_HELPER_TILE = 50;
 
 function lightHelperPosition(
-  light: DirectionalLight,
+  light: PolyDirectionalLight,
   target: Vec3,
   distance: number,
 ): Vec3 {
@@ -1809,8 +1838,8 @@ function VanillaScene({
 }: {
   polygons: Polygon[];
   options: SceneOptionsState;
-  directionalLight: DirectionalLight;
-  ambientLight: AmbientLight;
+  directionalLight: PolyDirectionalLight;
+  ambientLight: PolyAmbientLight;
   showAxes: boolean;
   showLight: boolean;
   helperScale: number;
@@ -1964,7 +1993,7 @@ function VanillaScene({
     animationFrameFactory,
   ]);
 
-  // Forward gizmo mode changes to the live TransformControls handle.
+  // Forward gizmo mode changes to the live PolyTransformControls handle.
   useEffect(() => {
     transformControlsRef.current?.setMode(gizmoMode ?? "translate");
   }, [gizmoMode]);
@@ -2238,7 +2267,7 @@ export default function DebugWorkbench() {
   const [meshRotation, setMeshRotation] = useState<ReactVec3>([0, 0, 0]);
   const [gizmoMode, setGizmoMode] = useState<"translate" | "rotate" | "scale">("translate");
   const [selectedMeshes, setSelectedMeshes] = useState<PolyMeshHandle[]>([]);
-  // Mirror of TransformControls' drag state — three.js convention is to
+  // Mirror of PolyTransformControls' drag state — three.js convention is to
   // disable OrbitControls while a transform gizmo is being dragged so
   // the camera doesn't co-rotate. Same idea here: gate PolyControls'
   // drag/wheel on this flag.
@@ -2604,7 +2633,7 @@ export default function DebugWorkbench() {
           <div className="dn-field dn-field--segment">
             <span>Texture</span>
             <div className="dn-segment">
-              {(["baked", "dynamic"] as TextureLightingMode[]).map((mode) => (
+              {(["baked", "dynamic"] as PolyTextureLightingMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
@@ -2668,22 +2697,38 @@ export default function DebugWorkbench() {
           <RangeControl label="Target X" value={sceneOptions.target[0]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [value, sceneOptions.target[1], sceneOptions.target[2]] })} format={(value) => value.toFixed(2)} />
           <RangeControl label="Target Y" value={sceneOptions.target[1]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [sceneOptions.target[0], value, sceneOptions.target[2]] })} format={(value) => value.toFixed(2)} />
           <RangeControl label="Target Z" value={sceneOptions.target[2]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [sceneOptions.target[0], sceneOptions.target[1], value] })} format={(value) => value.toFixed(2)} />
-          <label className="dn-field">
-            <span>Perspective</span>
-            <select
-              value={sceneOptions.perspective === false ? "none" : String(sceneOptions.perspective)}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                updateScene({ perspective: value === "none" ? false : Number(value) });
-              }}
-            >
-              <option value="none">None</option>
-              <option value="1000">1000px</option>
-              <option value="2000">2000px</option>
-              <option value="4000">4000px</option>
-              <option value="8000">8000px</option>
-            </select>
-          </label>
+          <div className="dn-field dn-field--segment">
+            <span>Camera</span>
+            <div className="dn-segment">
+              {(["perspective", "orthographic"] as const).map((m) => {
+                const active = m === "perspective" ? sceneOptions.perspective !== false : sceneOptions.perspective === false;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    className={active ? "active" : ""}
+                    onClick={() => updateScene({ perspective: m === "perspective" ? 8000 : false })}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {sceneOptions.perspective !== false && (
+            <label className="dn-field">
+              <span>Perspective px</span>
+              <select
+                value={String(sceneOptions.perspective)}
+                onChange={(event) => updateScene({ perspective: Number(event.currentTarget.value) })}
+              >
+                <option value="1000">1000px</option>
+                <option value="2000">2000px</option>
+                <option value="4000">4000px</option>
+                <option value="8000">8000px</option>
+              </select>
+            </label>
+          )}
         </ControlPanel>
 
         <ControlPanel title="Lights">
@@ -2772,14 +2817,13 @@ export default function DebugWorkbench() {
               enableHover={sceneOptions.hoverEffects}
               onHoverChange={setHoveredMeshId}
             />
-          ) : (
-            <PolyCamera
-              zoom={sceneOptions.zoom}
-              rotX={sceneOptions.rotX}
-              rotY={sceneOptions.rotY}
-              target={sceneOptions.target}
-              perspective={sceneOptions.perspective}
-            >
+          ) : (() => {
+              const Cam = sceneOptions.perspective === false ? PolyOrthographicCamera : PolyPerspectiveCamera;
+              const camProps = sceneOptions.perspective === false
+                ? { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target }
+                : { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target, perspective: sceneOptions.perspective };
+              return (
+            <Cam {...camProps}>
               {sceneOptions.dragMode === "pan" ? (
                 <PolyMapControls
                   drag={sceneOptions.interactive && !gizmoDragging}
@@ -2805,7 +2849,7 @@ export default function DebugWorkbench() {
                 atlasScale={atlasScale}
               >
                 {sceneOptions.selection ? (
-                  <Select onChange={setSelectedMeshes} clearOnMiss={false}>
+                  <PolySelect onChange={setSelectedMeshes} clearOnMiss={false}>
                     <PolyMesh
                       ref={meshRef}
                       id={loaded?.label ?? "model"}
@@ -2827,10 +2871,10 @@ export default function DebugWorkbench() {
                         sceneOptions.hoverEffects ? () => setHoveredMeshId(null) : undefined
                       }
                     />
-                  </Select>
+                  </PolySelect>
                 ) : null}
                 {sceneOptions.selection && selectedMeshes.length > 0 && (
-                  <TransformControls
+                  <PolyTransformControls
                     object={meshRef}
                     mode={gizmoMode}
                     onObjectChange={(event) => {
@@ -2850,8 +2894,9 @@ export default function DebugWorkbench() {
                   />
                 )}
               </PolyScene>
-            </PolyCamera>
-          )}
+            </Cam>
+              );
+            })()}
         </div>
       </main>
 

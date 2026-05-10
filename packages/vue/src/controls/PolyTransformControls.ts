@@ -1,7 +1,7 @@
 /**
- * `<TransformControls>` (Vue) — drag gizmo for translating / rotating
+ * `<PolyTransformControls>` (Vue) — drag gizmo for translating / rotating
  * a `<PolyMesh>` along the six axis arrows or three axis rings.
- * Mirrors the React TransformControls API and the vanilla
+ * Mirrors the React PolyTransformControls API and the vanilla
  * createTransformControls behavior.
  *
  * Geometry: arrows use `arrowPolygons`, rings use `ringPolygons`
@@ -108,7 +108,7 @@ function gizmoLengthForMesh(polygons: Polygon[]): number {
   return Math.max(maxX - minX, maxY - minY, maxZ - minZ) * SCENE_TILE_SIZE * SHAFT_LENGTH_RATIO;
 }
 
-export interface TransformControlsObjectChangeEvent {
+export interface PolyTransformControlsObjectChangeEvent {
   object: PolyMeshHandle;
   position?: Vec3;
   rotation?: Vec3;
@@ -124,7 +124,7 @@ interface AxisDragOptions {
   startClientY: number;
   translationSnap: number | null;
   onChange?: () => void;
-  onObjectChange?: (e: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (e: PolyTransformControlsObjectChangeEvent) => void;
   onMouseDown?: () => void;
   onMouseUp?: () => void;
   onDraggingChanged?: (d: boolean) => void;
@@ -193,7 +193,7 @@ interface RingDragOptions {
   startClientY: number;
   rotationSnap: number | null;
   onChange?: () => void;
-  onObjectChange?: (e: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (e: PolyTransformControlsObjectChangeEvent) => void;
   onMouseDown?: () => void;
   onMouseUp?: () => void;
   onDraggingChanged?: (d: boolean) => void;
@@ -243,7 +243,7 @@ function startRingDrag(opts: RingDragOptions): void {
 
 /** `object` prop: either a PolyMeshHandle directly or a Vue ref to one
  *  (e.g. a template ref via `:object="meshRef"`). */
-export type TransformControlsObject =
+export type PolyTransformControlsObject =
   | PolyMeshHandle
   | Ref<PolyMeshHandle | null | undefined>
   | ComputedRef<PolyMeshHandle | null | undefined>
@@ -253,16 +253,16 @@ function isVueRef(x: unknown): x is Ref<PolyMeshHandle | null | undefined> {
   return !!x && typeof x === "object" && "value" in (x as object);
 }
 
-function resolveObject(o: TransformControlsObject): PolyMeshHandle | null {
+function resolveObject(o: PolyTransformControlsObject): PolyMeshHandle | null {
   if (!o) return null;
   if (isVueRef(o)) return o.value ?? null;
   return o;
 }
 
-export const TransformControls = defineComponent({
-  name: "TransformControls",
+export const PolyTransformControls = defineComponent({
+  name: "PolyTransformControls",
   props: {
-    object: { type: null as unknown as PropType<TransformControlsObject>, default: null },
+    object: { type: null as unknown as PropType<PolyTransformControlsObject>, default: null },
     mode: { type: String as PropType<"translate" | "rotate" | "scale">, default: "translate" },
     space: { type: String as PropType<"world" | "local">, default: "world" },
     size: { type: Number, default: 1 },
@@ -275,7 +275,7 @@ export const TransformControls = defineComponent({
   },
   emits: {
     change: () => true,
-    objectChange: (_e: TransformControlsObjectChangeEvent) => true,
+    objectChange: (_e: PolyTransformControlsObjectChangeEvent) => true,
     mouseDown: () => true,
     mouseUp: () => true,
     draggingChanged: (_d: boolean) => true,
@@ -305,7 +305,7 @@ export const TransformControls = defineComponent({
     }
 
     function emitChange(): void { emit("change"); }
-    function emitObjectChange(e: TransformControlsObjectChangeEvent): void { emit("objectChange", e); }
+    function emitObjectChange(e: PolyTransformControlsObjectChangeEvent): void { emit("objectChange", e); }
     function emitDragging(d: boolean): void { emit("draggingChanged", d); }
     function emitMouseDown(): void { emit("mouseDown"); }
     function emitMouseUp(): void { emit("mouseUp"); }
@@ -501,6 +501,9 @@ export const TransformControls = defineComponent({
       };
     }
 
+    // Suppress unused variable warning — arrowRefs is used by the component
+    void arrowRefs;
+
     return () => {
       const t = target.value;
       if (!t) return null;
@@ -510,9 +513,6 @@ export const TransformControls = defineComponent({
         position: "absolute",
         transformStyle: "preserve-3d",
         transform: `translate3d(${position[0]}px, ${position[1]}px, ${position[2]}px)`,
-        // No `pointer-events: none` here — that property is inherited;
-        // setting it on the wrapper would cascade to every gizmo
-        // polygon and disable native hit-testing on the gizmo entirely.
         zIndex: 1000,
       };
 

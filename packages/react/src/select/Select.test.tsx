@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "../scene/PolyScene";
 import { PolyMesh } from "../scene/PolyMesh";
-import { Select, useSelect, useSelectionApi } from "./Select";
+import { PolySelect, usePolySelect, usePolySelectionApi } from "./Select";
 import { registerMeshElement, unregisterMeshElement, type PolyMeshHandle } from "../scene/events";
 import type { Polygon } from "@layoutit/polycss-core";
 
@@ -45,16 +45,16 @@ function clickBackground(container: HTMLElement): void {
   });
 }
 
-describe("<Select> + useSelect", () => {
+describe("<PolySelect> + usePolySelect", () => {
   it("clicking a mesh selects it (single mode replaces)", () => {
     const onChange = vi.fn();
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select onChange={onChange}>
+          <PolySelect onChange={onChange}>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
             <PolyMesh id="b" polygons={[TRIANGLE]} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -74,9 +74,9 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select onChange={onChange}>
+          <PolySelect onChange={onChange}>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -92,11 +92,11 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select multiple onChange={onChange}>
+          <PolySelect multiple onChange={onChange}>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
             <PolyMesh id="b" polygons={[TRIANGLE]} />
             <PolyMesh id="c" polygons={[TRIANGLE]} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -116,9 +116,9 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select onChange={onChange}>
+          <PolySelect onChange={onChange}>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -135,9 +135,9 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select onChange={onChange} clearOnMiss={false} onPointerMissed={onPointerMissed}>
+          <PolySelect onChange={onChange} clearOnMiss={false} onPointerMissed={onPointerMissed}>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -148,7 +148,7 @@ describe("<Select> + useSelect", () => {
   });
 
   it("PolyMesh onClick still fires alongside Select (escape-hatch design note)", () => {
-    // Trade-off: <Select> attaches its click listener to the parent
+    // Trade-off: <PolySelect> attaches its click listener to the parent
     // .polycss-camera element, because polycss polygons render via the
     // CSS `border-shape` property which clips hit-testing to the
     // visible polygon shape — clicks frequently target cameraEl
@@ -162,9 +162,9 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select onChange={onChange}>
+          <PolySelect onChange={onChange}>
             <PolyMesh id="a" polygons={[TRIANGLE]} onClick={meshClick} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -173,10 +173,10 @@ describe("<Select> + useSelect", () => {
     expect(onChange).toHaveBeenCalledOnce();
   });
 
-  it("useSelect returns the current selection inside the tree", () => {
+  it("usePolySelect returns the current selection inside the tree", () => {
     let observed: string[] = [];
     function Inner() {
-      const sel = useSelect();
+      const sel = usePolySelect();
       useEffect(() => {
         observed = sel.map((h) => h.id ?? "?");
       });
@@ -185,11 +185,11 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select multiple>
+          <PolySelect multiple>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
             <PolyMesh id="b" polygons={[TRIANGLE]} />
             <Inner />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -199,20 +199,20 @@ describe("<Select> + useSelect", () => {
     expect(observed).toEqual(["a", "b"]);
   });
 
-  it("useSelectionApi exposes set/add/remove/toggle/clear/has", () => {
-    let api: ReturnType<typeof useSelectionApi> | null = null;
+  it("usePolySelectionApi exposes set/add/remove/toggle/clear/has", () => {
+    let api: ReturnType<typeof usePolySelectionApi> | null = null;
     function Capture() {
-      api = useSelectionApi();
+      api = usePolySelectionApi();
       return null;
     }
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select multiple>
+          <PolySelect multiple>
             <PolyMesh id="a" polygons={[TRIANGLE]} />
             <PolyMesh id="b" polygons={[TRIANGLE]} />
             <Capture />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -240,24 +240,24 @@ describe("<Select> + useSelect", () => {
     expect(api!.selected).toHaveLength(0);
   });
 
-  it("useSelect outside <Select> returns []", () => {
+  it("usePolySelect outside <PolySelect> returns []", () => {
     let observed: unknown = null;
     function Inner() {
-      observed = useSelect();
+      observed = usePolySelect();
       return null;
     }
     mount(<Inner />);
     expect(observed).toEqual([]);
   });
 
-  it("useSelectionApi outside <Select> throws", () => {
+  it("usePolySelectionApi outside <PolySelect> throws", () => {
     function Inner() {
-      useSelectionApi();
+      usePolySelectionApi();
       return null;
     }
     // Suppress React's error logging.
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(() => mount(<Inner />)).toThrow(/useSelectionApi/);
+    expect(() => mount(<Inner />)).toThrow(/usePolySelectionApi/);
     errorSpy.mockRestore();
   });
 
@@ -268,14 +268,14 @@ describe("<Select> + useSelect", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <Select
+          <PolySelect
             multiple
             filter={filter as (m: import("../scene/events").PolyMeshHandle[]) => import("../scene/events").PolyMeshHandle[]}
             onChange={onChange}
           >
             <PolyMesh id="a" polygons={[TRIANGLE]} />
             <PolyMesh id="b" polygons={[TRIANGLE]} />
-          </Select>
+          </PolySelect>
         </PolyScene>
       </PolyCamera>,
     );
@@ -287,11 +287,11 @@ describe("<Select> + useSelect", () => {
 });
 
 // ── handleClick fallback path (no <PolyCamera> ancestor) ────────────────────
-// When <Select> is used outside <PolyCamera>, cameraCtx is null and the
+// When <PolySelect> is used outside <PolyCamera>, cameraCtx is null and the
 // React wrapper's onClick is the only event path. This exercises lines
 // 263-266 (miss → onPointerMissed + clearOnMiss) and 268-273 (multiple
 // shift-click toggle / single deselect / single select).
-describe("<Select> handleClick fallback (no PolyCamera)", () => {
+describe("<PolySelect> handleClick fallback (no PolyCamera)", () => {
   // Build a fake PolyMeshHandle that looks like a real mesh element
   function makeFakeHandle(el: HTMLElement, id: string): PolyMeshHandle {
     return {
@@ -308,9 +308,9 @@ describe("<Select> handleClick fallback (no PolyCamera)", () => {
     const onChange = vi.fn();
     const onPointerMissed = vi.fn();
     const container = mount(
-      <Select onChange={onChange} onPointerMissed={onPointerMissed}>
+      <PolySelect onChange={onChange} onPointerMissed={onPointerMissed}>
         <div />
-      </Select>,
+      </PolySelect>,
     );
     const wrapper = container.querySelector("[data-poly-select]") as HTMLElement;
     act(() => {
@@ -324,9 +324,9 @@ describe("<Select> handleClick fallback (no PolyCamera)", () => {
     const onChange = vi.fn();
     const onPointerMissed = vi.fn();
     mount(
-      <Select onChange={onChange} onPointerMissed={onPointerMissed} clearOnMiss={false}>
+      <PolySelect onChange={onChange} onPointerMissed={onPointerMissed} clearOnMiss={false}>
         <div />
-      </Select>,
+      </PolySelect>,
     );
     // No mesh under pointer, no cameraCtx
     const wrapper = document.querySelector("[data-poly-select]") as HTMLElement;
@@ -340,9 +340,9 @@ describe("<Select> handleClick fallback (no PolyCamera)", () => {
   it("click on a registered mesh element selects it", () => {
     const onChange = vi.fn();
     const container = mount(
-      <Select onChange={onChange}>
+      <PolySelect onChange={onChange}>
         <div className="polycss-mesh" data-poly-mesh-id="m1" />
-      </Select>,
+      </PolySelect>,
     );
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
     const handle = makeFakeHandle(meshEl, "m1");
@@ -360,9 +360,9 @@ describe("<Select> handleClick fallback (no PolyCamera)", () => {
   it("clicking already-selected mesh deselects it (toggle off)", () => {
     const onChange = vi.fn();
     const container = mount(
-      <Select onChange={onChange}>
+      <PolySelect onChange={onChange}>
         <div className="polycss-mesh" data-poly-mesh-id="m2" />
-      </Select>,
+      </PolySelect>,
     );
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
     const handle = makeFakeHandle(meshEl, "m2");
@@ -386,10 +386,10 @@ describe("<Select> handleClick fallback (no PolyCamera)", () => {
   it("multiple + shiftKey toggles mesh into/out of selection", () => {
     const onChange = vi.fn();
     const container = mount(
-      <Select multiple onChange={onChange}>
+      <PolySelect multiple onChange={onChange}>
         <div className="polycss-mesh" data-poly-mesh-id="ma" />
         <div className="polycss-mesh" data-poly-mesh-id="mb" />
-      </Select>,
+      </PolySelect>,
     );
     const meshElA = container.querySelector('[data-poly-mesh-id="ma"]') as HTMLElement;
     const meshElB = container.querySelector('[data-poly-mesh-id="mb"]') as HTMLElement;

@@ -20,15 +20,15 @@ import {
 import type { PropType } from "vue";
 import type {
   Polygon,
-  DirectionalLight,
-  AmbientLight,
-  TextureLightingMode,
+  PolyDirectionalLight,
+  PolyAmbientLight,
+  PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
 import { createIsometricCamera, parseHexColor } from "@layoutit/polycss-core";
 import { PolyCameraContextKey } from "../camera";
-import { useSceneContext } from "./useSceneContext";
-import { injectBaseStyles } from "../styles";
+import { usePolySceneContext } from "./useSceneContext";
+import { injectPolyBaseStyles } from "../styles";
 import { PolySceneContextKey } from "./sceneContext";
 import {
   computeTextureAtlasPlan,
@@ -43,9 +43,9 @@ export interface PolySceneProps {
   rotX?: number;
   rotY?: number;
   zoom?: number;
-  directionalLight?: DirectionalLight;
-  ambientLight?: AmbientLight;
-  textureLighting?: TextureLightingMode;
+  directionalLight?: PolyDirectionalLight;
+  ambientLight?: PolyAmbientLight;
+  textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /**
@@ -75,15 +75,15 @@ export const PolyScene = defineComponent({
     rotY: { type: Number },
     zoom: { type: Number },
     directionalLight: {
-      type: Object as PropType<DirectionalLight>,
+      type: Object as PropType<PolyDirectionalLight>,
       default: undefined,
     },
     ambientLight: {
-      type: Object as PropType<AmbientLight>,
+      type: Object as PropType<PolyAmbientLight>,
       default: undefined,
     },
     textureLighting: {
-      type: String as PropType<TextureLightingMode>,
+      type: String as PropType<PolyTextureLightingMode>,
       default: "baked",
     },
     atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
@@ -133,7 +133,7 @@ export const PolyScene = defineComponent({
     onMounted(() => {
       if (injected) return;
       if (typeof document !== "undefined") {
-        injectBaseStyles(document);
+        injectPolyBaseStyles(document);
         injected = true;
       }
     });
@@ -155,7 +155,7 @@ export const PolyScene = defineComponent({
       directionalLight: props.directionalLight,
     }));
 
-    const sceneResult = useSceneContext(inputPolygons, sceneContextOptions);
+    const sceneResult = usePolySceneContext(inputPolygons, sceneContextOptions);
 
     // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
     // left:50% places that point at the visible center of .polycss-camera —
@@ -198,7 +198,7 @@ export const PolyScene = defineComponent({
         })
       );
     });
-    const atlasTextureLighting = computed<TextureLightingMode>(() => props.textureLighting ?? "baked");
+    const atlasTextureLighting = computed<PolyTextureLightingMode>(() => props.textureLighting ?? "baked");
     const atlasScale = computed(() => props.atlasScale);
     const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 

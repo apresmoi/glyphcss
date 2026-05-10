@@ -100,10 +100,10 @@ describe("createIsometricCamera", () => {
       expect(camera.state.target).toEqual([1, 2, 0]);
     });
 
-    it("quantizes values to 2 decimal places", () => {
+    it("quantizes values to 4 decimal places", () => {
       const camera = createIsometricCamera();
       camera.update({ zoom: 1.23456 });
-      expect(camera.state.zoom).toBe(1.23);
+      expect(camera.state.zoom).toBe(1.2346);
     });
 
     it("quantizes target components", () => {
@@ -119,6 +119,28 @@ describe("createIsometricCamera", () => {
       camera.update({});
       expect(camera.state.target).toEqual(beforeTarget);
       expect(camera.state.rotX).toBe(beforeRotX);
+    });
+
+    it("initializes distance to 0 by default", () => {
+      const camera = createIsometricCamera();
+      expect(camera.state.distance).toBe(0);
+    });
+
+    it("accepts initial distance", () => {
+      const camera = createIsometricCamera({ distance: 500 });
+      expect(camera.state.distance).toBe(500);
+    });
+
+    it("updates distance", () => {
+      const camera = createIsometricCamera();
+      camera.update({ distance: 300 });
+      expect(camera.state.distance).toBe(300);
+    });
+
+    it("quantizes distance to 2 decimal places", () => {
+      const camera = createIsometricCamera();
+      camera.update({ distance: 123.456789 });
+      expect(camera.state.distance).toBe(123.46);
     });
   });
 
@@ -182,6 +204,26 @@ describe("createIsometricCamera", () => {
       const style = camera.getStyle();
       expect(style.width).toBe("0px");
       expect(style.height).toBe("0px");
+    });
+
+    it("does not include translateZ when distance is 0", () => {
+      const camera = createIsometricCamera({ distance: 0 });
+      const style = camera.getStyle();
+      expect(style.transform).not.toContain("translateZ(");
+    });
+
+    it("prepends translateZ when distance is non-zero", () => {
+      const camera = createIsometricCamera({ distance: 200 });
+      const style = camera.getStyle();
+      expect(style.transform).toContain("translateZ(-200px)");
+    });
+
+    it("translateZ is outermost (before scale) when distance is set", () => {
+      const camera = createIsometricCamera({ distance: 100 });
+      const style = camera.getStyle();
+      const translateZIdx = style.transform.indexOf("translateZ(");
+      const scaleIdx = style.transform.indexOf("scale(");
+      expect(translateZIdx).toBeLessThan(scaleIdx);
     });
   });
 });

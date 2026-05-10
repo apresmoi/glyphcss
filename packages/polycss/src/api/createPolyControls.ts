@@ -32,6 +32,12 @@ export interface PolyControlsOptions {
   /** Wheel / pinch zoom. Default: true. */
   wheel?: boolean;
   /**
+   * When `true`, wheel events change `distance` (camera pull-back in CSS px)
+   * instead of `zoom`. Mirrors Three.js OrbitControls dolly behaviour.
+   * Default: false (zoom mode).
+   */
+  dolly?: boolean;
+  /**
    * Drag interaction mode.
    * - `"orbit"` (default): drag rotates rotX / rotY around the target.
    * - `"pan"`: drag translates the camera target in world space (slippy-map
@@ -43,8 +49,14 @@ export interface PolyControlsOptions {
    * a number multiplies sensitivity (negative inverts). Default: false.
    */
   invert?: boolean | number;
-  /** Zoom range clamps. Default: { min: 0.1, max: 10 }. */
-  zoom?: { min?: number; max?: number };
+  /** Minimum CSS zoom. Default: 0.1. */
+  minZoom?: number;
+  /** Maximum CSS zoom. Default: 10. */
+  maxZoom?: number;
+  /** Minimum dolly distance in CSS pixels. Default: 0. Only used when `dolly: true`. */
+  minDistance?: number;
+  /** Maximum dolly distance in CSS pixels. Default: Infinity. Only used when `dolly: true`. */
+  maxDistance?: number;
   /** Auto-rotate. Pass false (or omit) to disable. */
   animate?: false | PolyControlsAnimateOptions;
 }
@@ -54,6 +66,7 @@ export interface PolyControlsCamera {
   rotY: number;
   zoom: number;
   target: Vec3;
+  distance: number;
 }
 
 /**
@@ -121,25 +134,38 @@ const WHEEL_IDLE_END_MS = 150;
 // Tunables — mirror the values in the previous in-scene implementation so
 // existing apps that switch to controls feel identical at default settings.
 const POINTER_DRAG_SPEED = 4; // px per degree
-const ZOOM_STEP = 0.0008; // wheel sensitivity
+const ZOOM_STEP = 0.000513; // wheel sensitivity (matches three.js OrbitControls feel)
+const PINCH_AMP = 10; // macOS trackpad pinch (ctrlKey+wheel) amplification
+const SCROLL_AMP = 3; // two-finger scroll amplification — fewer pixels per gesture vs pinch
 const ANIM_FRAME_MS = 16.67; // 60 Hz reference for dt normalization
 const ANIM_DT_CLAMP_MS = 50; // cap dt per tick; prevents jump after tab regains focus
+// Distance step in CSS pixels per unit wheel delta — additive dolly.
+// Matches React's DOLLY_STEP in controlsEffects.ts.
+const DOLLY_STEP = 0.05;
 
 interface ResolvedOptions {
   drag: boolean;
   wheel: boolean;
+  dolly: boolean;
   mode: "orbit" | "pan";
   invert: boolean | number;
-  zoom: { min: number; max: number };
+  minZoom: number;
+  maxZoom: number;
+  minDistance: number;
+  maxDistance: number;
   animate: false | Required<PolyControlsAnimateOptions>;
 }
 
 const DEFAULTS: ResolvedOptions = {
   drag: true,
   wheel: true,
+  dolly: false,
   mode: "orbit",
   invert: false,
-  zoom: { min: 0.1, max: 10 },
+  minZoom: 0.1,
+  maxZoom: 10,
+  minDistance: 0,
+  maxDistance: Infinity,
   animate: false,
 };
 
@@ -162,12 +188,13 @@ function resolveOptions(
   return {
     drag: partial.drag ?? base.drag,
     wheel: partial.wheel ?? base.wheel,
+    dolly: partial.dolly ?? base.dolly,
     mode: partial.mode ?? base.mode,
     invert: partial.invert ?? base.invert,
-    zoom: {
-      min: partial.zoom?.min ?? base.zoom.min,
-      max: partial.zoom?.max ?? base.zoom.max,
-    },
+    minZoom: partial.minZoom ?? base.minZoom,
+    maxZoom: partial.maxZoom ?? base.maxZoom,
+    minDistance: partial.minDistance ?? base.minDistance,
+    maxDistance: partial.maxDistance ?? base.maxDistance,
     animate,
   };
 }
@@ -226,6 +253,7 @@ export function createPolyControls(
       rotY: sceneOpts.rotY ?? 0,
       zoom: sceneOpts.zoom ?? 1,
       target: [t[0], t[1], t[2]],
+      distance: sceneOpts.distance ?? 0,
     };
   }
 
@@ -330,17 +358,33 @@ export function createPolyControls(
     emitInteraction("end");
   };
 
-  // ── Wheel zoom ──────────────────────────────────────────────────────────
+  // ── Wheel zoom / dolly ──────────────────────────────────────────────────
   const onWheel = (e: WheelEvent): void => {
     if (!opts.wheel || stopped) return;
     e.preventDefault();
-    // Normalize across deltaMode (0 = px, 1 = lines, 2 = pages).
-    const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
-    const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
+    // Normalize across deltaMode (0 = px, 1 = lines, 2 = pages). three.js convention: line×16, page×100.
+    const lineFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+    let delta = e.deltaY * lineFactor;
+    // macOS trackpad pinch sends wheel events with ctrlKey=true and small deltas — amplify.
+    if (e.ctrlKey) delta *= PINCH_AMP;
+    else delta *= SCROLL_AMP;
     const sceneOpts = scene.getOptions();
-    const cur = sceneOpts.zoom ?? 1;
-    const next = Math.max(opts.zoom.min, Math.min(opts.zoom.max, cur * factor));
-    scene.setOptions({ zoom: next });
+    if (opts.dolly) {
+      // Dolly mode: change distance (camera pull-back in CSS px) instead of zoom.
+      // Positive delta (scroll down) → dolly out (increase distance).
+      const cur = sceneOpts.distance ?? 0;
+      const next = Math.max(
+        opts.minDistance,
+        Math.min(opts.maxDistance, cur + delta * DOLLY_STEP),
+      );
+      scene.setOptions({ distance: next });
+    } else {
+      // Zoom mode: change CSS scale multiplicatively.
+      const factor = Math.exp(-delta * ZOOM_STEP);
+      const cur = sceneOpts.zoom ?? 1;
+      const next = Math.max(opts.minZoom, Math.min(opts.maxZoom, cur * factor));
+      scene.setOptions({ zoom: next });
+    }
     if (!wheelActive) {
       wheelActive = true;
       emitInteraction("start");

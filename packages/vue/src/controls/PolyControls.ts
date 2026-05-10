@@ -57,7 +57,9 @@ export interface PolyControlsProps {
 const WHEEL_IDLE_END_MS = 150;
 
 const POINTER_DRAG_SPEED = 4;
-const ZOOM_STEP = 0.0008;
+const ZOOM_STEP = 0.000513;
+const PINCH_AMP = 10;
+const SCROLL_AMP = 3;
 const ANIM_FRAME_MS = 16.67;
 const ANIM_DT_CLAMP_MS = 50;
 
@@ -217,8 +219,11 @@ export const PolyControls = defineComponent({
       const onWheel = (e: WheelEvent): void => {
         if (!props.wheel) return;
         e.preventDefault();
-        const lineFactor = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1;
-        const factor = Math.exp(-e.deltaY * lineFactor * ZOOM_STEP);
+        const lineFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+        let delta = e.deltaY * lineFactor;
+        if (e.ctrlKey) delta *= PINCH_AMP;
+        else delta *= SCROLL_AMP;
+        const factor = Math.exp(-delta * ZOOM_STEP);
         const handle = cameraRef.value;
         const minZ = props.zoom?.min ?? DEFAULT_ZOOM_MIN;
         const maxZ = props.zoom?.max ?? DEFAULT_ZOOM_MAX;

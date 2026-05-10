@@ -20,11 +20,11 @@
  * the anchor via their own matrix3d translations.
  */
 import type {
-  AmbientLight,
-  DirectionalLight,
+  PolyAmbientLight,
+  PolyDirectionalLight,
   ParseResult,
   Polygon,
-  TextureLightingMode,
+  PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
 import { BASE_TILE, computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@layoutit/polycss-core";
@@ -35,13 +35,20 @@ import {
   type AtlasScale,
   type RenderedPoly,
 } from "../render/textureAtlas";
-import { injectBaseStyles } from "../styles/styles";
+import { injectPolyBaseStyles } from "../styles/styles";
 
 export interface PolySceneOptions {
   perspective?: number | false;
   rotX?: number;
   rotY?: number;
   zoom?: number;
+  /**
+   * Camera pull-back distance in CSS pixels. Increasing distance moves the
+   * camera farther from the target (scene appears smaller), applied as an
+   * outermost `translateZ(-distance)` in the scene transform. Matches the
+   * `distance` field in core's `CameraState`. Default: 0 (no dolly offset).
+   */
+  distance?: number;
   /**
    * World-coordinate camera target — the world point that appears at the
    * viewport centre. Matches React's `CameraState.target`. Defaults to
@@ -52,10 +59,10 @@ export interface PolySceneOptions {
    * (world→CSS axis swap: world-X→CSS-Y, world-Y→CSS-X, world-Z→CSS-Z).
    */
   target?: Vec3;
-  directionalLight?: DirectionalLight;
-  ambientLight?: AmbientLight;
+  directionalLight?: PolyDirectionalLight;
+  ambientLight?: PolyAmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
-  textureLighting?: TextureLightingMode;
+  textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /**
@@ -205,6 +212,7 @@ function buildSceneTransform(opts: PolySceneOptions): string {
   const rotX = opts.rotX ?? DEFAULT_ROT_X;
   const rotY = opts.rotY ?? DEFAULT_ROT_Y;
   const zoom = opts.zoom ?? DEFAULT_ZOOM;
+  const distance = opts.distance ?? 0;
   const target = opts.target ?? [0, 0, 0];
   // World→CSS axis swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
   // Negate so the scene moves such that `target` appears at viewport centre.
@@ -216,7 +224,10 @@ function buildSceneTransform(opts: PolySceneOptions): string {
   // as "spin in place"; rotateY rotates around an oblique axis and
   // makes the mesh wobble. Names line up: rotY in our API == CSS rotate.
   // translate3d is innermost (applied first) → world-space pan at any tilt.
-  return `scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+  // translateZ(-distance) is outermost (applied last) — pulls the camera
+  // back from the target along the view axis (dolly). Matches core's getStyle().
+  const distancePart = distance !== 0 ? `translateZ(${-distance}px) ` : "";
+  return `${distancePart}scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
 }
 
 // ─── Lambert-bucket grouping ────────────────────────────────────────────────
@@ -279,7 +290,7 @@ export function createPolyScene(
 
   // Inject base styles into the host's owning document so .polycss-scene
   // has perspective + preserve-3d defaults.
-  if (host.ownerDocument) injectBaseStyles(host.ownerDocument);
+  if (host.ownerDocument) injectPolyBaseStyles(host.ownerDocument);
 
   // The scene element pins itself at top:50%/left:50% — needs the host to
   // be a positioned ancestor or the offsets resolve against the document.

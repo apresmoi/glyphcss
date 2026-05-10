@@ -229,6 +229,95 @@ describe("Poly — UV-mapped texture", () => {
 
 });
 
+describe("Poly — material direct path", () => {
+  const RECT_QUAD_VERTS: [number, number, number][] = [
+    [0, 0, 0],
+    [1, 0, 0],
+    [1, 1, 0],
+    [0, 1, 0],
+  ];
+
+  const RECT_UVS: [number, number][] = [
+    [0, 1],
+    [0, 0],
+    [1, 0],
+    [1, 1],
+  ];
+
+  const MATERIAL = { texture: "https://example.com/atlas.png", key: "atlas" };
+
+  it("renders background-image from material.texture when uvs form an axis-aligned rect", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD_VERTS,
+      material: MATERIAL,
+      uvs: RECT_UVS,
+    });
+    const poly = getPoly(container);
+    // JSDOM may quote the URL: url("...") or url(...)
+    expect(poly.style.backgroundImage).toContain(MATERIAL.texture);
+  });
+
+  it("renders the matrix3d transform for the direct material path", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD_VERTS,
+      material: MATERIAL,
+      uvs: RECT_UVS,
+    });
+    const poly = getPoly(container);
+    expect(poly.style.transform).toContain("matrix3d(");
+  });
+
+  it("sets backgroundSize and backgroundPosition for a full UV rect [0,1]x[0,1]", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD_VERTS,
+      material: MATERIAL,
+      uvs: RECT_UVS,
+    });
+    const poly = getPoly(container);
+    // For full UVs: du=1, dv=1 → sourceW=canvasW, sourceH=canvasH → 0,0 offset.
+    expect(poly.style.backgroundPosition).toBe("0px 0px");
+  });
+
+  it("sets correct backgroundPosition for a partial UV slice", () => {
+    // Tile (tc=1, tr=0) of a 2×2 grid: u0=0, u1=0.5, vTop=0.5, vBot=0
+    const partialUVs: [number, number][] = [
+      [0, 0.5], // TL: u0=0, vTop=0.5
+      [0, 0],   // TR: u0=0, vBot=0
+      [0.5, 0], // BR: u1=0.5, vBot=0
+      [0.5, 0.5], // BL: u1=0.5, vTop=0.5
+    ];
+    const container = renderPoly({
+      vertices: RECT_QUAD_VERTS,
+      material: MATERIAL,
+      uvs: partialUVs,
+    });
+    const poly = getPoly(container);
+    // u0=0 → offsetX=0; vMax=0.5 → offsetY=(1-0.5)*sourceH = 0.5*sourceH
+    expect(poly.style.backgroundPosition).toContain("0px");
+  });
+
+  it("falls back to atlas path when material is set but UVs are triangle (3 verts)", () => {
+    const container = renderPoly({
+      vertices: FLAT_TRIANGLE_VERTS,
+      material: MATERIAL,
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    });
+    const poly = getPoly(container);
+    // Triangle UVs → not axis-aligned rect → atlas path → no direct material url
+    expect(poly.style.backgroundImage).not.toContain(MATERIAL.texture);
+  });
+
+  it("falls back to atlas path when material is set but no uvs provided", () => {
+    const container = renderPoly({
+      vertices: RECT_QUAD_VERTS,
+      material: MATERIAL,
+    });
+    const poly = getPoly(container);
+    // No UVs → not axis-aligned rect → goes through atlas (which has no texture → solid color fallback)
+    expect(poly.style.backgroundImage).not.toContain(MATERIAL.texture);
+  });
+});
+
 describe("Poly — dynamic lighting", () => {
   beforeEach(() => {
     vi.stubGlobal("URL", {

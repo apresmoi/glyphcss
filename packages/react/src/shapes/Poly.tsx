@@ -1,12 +1,114 @@
 import { memo, useMemo } from "react";
 import type React from "react";
+import type { CSSProperties } from "react";
+import type { Vec2, PolyMaterial } from "@layoutit/polycss-core";
 import type { PolyProps } from "./types";
 import {
   computeTextureAtlasPlan,
   TextureBorderShapePoly,
   TextureAtlasPoly,
   useTextureAtlas,
+  type TextureAtlasPlan,
 } from "../scene/textureAtlas";
+
+// ── Material / direct render path ────────────────────────────────────────────
+
+/**
+ * Detect whether a 4-vertex UV array forms an axis-aligned rectangle.
+ * Returns {u0, u1, v0, v1} (with u0 < u1, v0 < v1) when yes, null otherwise.
+ */
+function isAxisAlignedRectUVs(uvs: Vec2[]): { u0: number; u1: number; v0: number; v1: number } | null {
+  if (uvs.length !== 4) return null;
+  const us = [...new Set(uvs.map((uv) => uv[0]))].sort((a, b) => a - b);
+  const vs = [...new Set(uvs.map((uv) => uv[1]))].sort((a, b) => a - b);
+  if (us.length !== 2 || vs.length !== 2) return null;
+  const corners = new Set([
+    `${us[0]},${vs[0]}`,
+    `${us[0]},${vs[1]}`,
+    `${us[1]},${vs[0]}`,
+    `${us[1]},${vs[1]}`,
+  ]);
+  for (const uv of uvs) {
+    if (!corners.has(`${uv[0]},${uv[1]}`)) return null;
+  }
+  return { u0: us[0], u1: us[1], v0: vs[0], v1: vs[1] };
+}
+
+/**
+ * Direct material render — emits an <i> with background-image pointing
+ * directly at the shared material texture, no canvas rasterization.
+ *
+ * Background-position/size math:
+ *   OBJ convention: v=0 at bottom, v=1 at top. The source image Y-axis
+ *   points DOWN (top=0, bottom=1), so in source-pixel space the visual
+ *   top of the UV slice is at y = (1 - vMax) * sourceH.
+ *
+ *   Scale: we want the UV rect [du × dv] to fill [canvasW × canvasH].
+ *     sourceW = canvasW / du
+ *     sourceH = canvasH / dv
+ *
+ *   Offset: background-position specifies where the source top-left lands
+ *   relative to the <i> top-left. We need the UV slice's top-left
+ *   (u0, 1-vMax in source Y) to land at the <i> origin (0,0):
+ *     offsetX = u0 * sourceW
+ *     offsetY = (1 - vMax) * sourceH
+ */
+function MaterialDirectPoly({
+  plan,
+  material,
+  uvRect,
+  className,
+  style: styleProp,
+  domAttrs,
+  domEventHandlers,
+  pointerEvents = "auto",
+}: {
+  plan: TextureAtlasPlan;
+  material: PolyMaterial;
+  uvRect: { u0: number; u1: number; v0: number; v1: number };
+  className?: string;
+  style?: CSSProperties;
+  domAttrs?: Record<string, unknown>;
+  domEventHandlers?: React.DOMAttributes<Element>;
+  pointerEvents?: "auto" | "none";
+}) {
+  const { u0, u1, v0, v1 } = uvRect;
+  const du = u1 - u0;
+  const dv = v1 - v0;
+  const sourceW = plan.canvasW / du;
+  const sourceH = plan.canvasH / dv;
+  const vMax = Math.max(v0, v1);
+  const offsetX = u0 * sourceW;
+  const offsetY = (1 - vMax) * sourceH;
+
+  const style: CSSProperties = {
+    width: plan.canvasW,
+    height: plan.canvasH,
+    transform: `matrix3d(${plan.matrix})`,
+    backgroundImage: `url(${material.texture})`,
+    backgroundSize: `${sourceW}px ${sourceH}px`,
+    backgroundPosition: `-${offsetX}px -${offsetY}px`,
+    pointerEvents: pointerEvents === "none" ? "none" : undefined,
+    ...styleProp,
+  };
+
+  const dataAttrs = plan.polygon.data
+    ? Object.fromEntries(
+        Object.entries(plan.polygon.data).map(([k, v]) => [`data-${k}`, String(v)]),
+      )
+    : {};
+  const elementClassName = className?.trim() || undefined;
+
+  return (
+    <i
+      className={elementClassName}
+      style={style}
+      {...domEventHandlers}
+      {...dataAttrs}
+      {...domAttrs}
+    />
+  );
+}
 
 /**
  * Poly — renders one polygon as an atlas-backed DOM sprite.
@@ -26,6 +128,7 @@ function PolyInner({
   texture,
   uvs,
   data,
+  material,
   position,
   scale,
   rotation,
@@ -61,9 +164,12 @@ function PolyInner({
   const atlasScale = atlasScaleProp ?? context?.atlasScale;
   const polygonColor = baseColorProp ?? color;
 
+  // material.texture takes precedence over inline texture.
+  const effectiveTexture = material?.texture ?? texture;
+
   const atlasPlan = useMemo(
     () => computeTextureAtlasPlan(
-      { vertices, color: polygonColor, texture, uvs, data },
+      { vertices, color: polygonColor, texture: effectiveTexture, uvs, data },
       0,
       {
         tileSize,
@@ -74,7 +180,7 @@ function PolyInner({
     [
       vertices,
       polygonColor,
-      texture,
+      effectiveTexture,
       uvs,
       data,
       tileSize,
@@ -82,7 +188,17 @@ function PolyInner({
       context?.directionalLight,
     ],
   );
-  const atlasPlans = useMemo(() => [atlasPlan], [atlasPlan]);
+
+  // Detect material direct-render path: material + 4-vertex axis-aligned rect UVs.
+  const materialUvRect = useMemo(
+    () => (material && uvs ? isAxisAlignedRectUVs(uvs) : null),
+    [material, uvs],
+  );
+
+  const atlasPlans = useMemo(
+    () => (materialUvRect ? [] : [atlasPlan]),
+    [materialUvRect, atlasPlan],
+  );
   const textureAtlas = useTextureAtlas(atlasPlans, textureLighting, atlasScale);
 
   const domEventHandlers: React.DOMAttributes<Element> = {
@@ -136,15 +252,15 @@ function PolyInner({
   }
   const wrapperTransform = transformParts.length > 0 ? transformParts.join(" ") : undefined;
 
-  const atlasEntry = textureAtlas.entries[0];
   let front: React.ReactNode = null;
 
-  if (atlasEntry) {
+  if (materialUvRect && material && atlasPlan) {
+    // Direct path: shared material texture, no atlas rasterization.
     front = (
-      <TextureAtlasPoly
-        entry={atlasEntry}
-        page={textureAtlas.pages[atlasEntry.pageIndex]}
-        textureLighting={textureLighting}
+      <MaterialDirectPoly
+        plan={atlasPlan}
+        material={material}
+        uvRect={materialUvRect}
         className={className}
         style={styleProp}
         domAttrs={domAttrs}
@@ -152,17 +268,33 @@ function PolyInner({
         pointerEvents={pointerEventsProp ?? "auto"}
       />
     );
-  } else if (atlasPlan && !atlasPlan.texture) {
-    front = (
-      <TextureBorderShapePoly
-        entry={atlasPlan}
-        className={className}
-        style={styleProp}
-        domAttrs={domAttrs}
-        domEventHandlers={domEventHandlers}
-        pointerEvents={pointerEventsProp ?? "auto"}
-      />
-    );
+  } else {
+    const atlasEntry = textureAtlas.entries[0];
+    if (atlasEntry) {
+      front = (
+        <TextureAtlasPoly
+          entry={atlasEntry}
+          page={textureAtlas.pages[atlasEntry.pageIndex]}
+          textureLighting={textureLighting}
+          className={className}
+          style={styleProp}
+          domAttrs={domAttrs}
+          domEventHandlers={domEventHandlers}
+          pointerEvents={pointerEventsProp ?? "auto"}
+        />
+      );
+    } else if (atlasPlan && !atlasPlan.texture) {
+      front = (
+        <TextureBorderShapePoly
+          entry={atlasPlan}
+          className={className}
+          style={styleProp}
+          domAttrs={domAttrs}
+          domEventHandlers={domEventHandlers}
+          pointerEvents={pointerEventsProp ?? "auto"}
+        />
+      );
+    }
   }
 
   if (!front) return null;

@@ -1,9 +1,9 @@
 import type {
-  AmbientLight,
-  DirectionalLight,
+  PolyAmbientLight,
+  PolyDirectionalLight,
   Polygon,
   TextureTriangle,
-  TextureLightingMode,
+  PolyTextureLightingMode,
   Vec2,
   Vec3,
 } from "@layoutit/polycss-core";
@@ -145,9 +145,9 @@ export interface RenderTextureAtlasOptions {
   doc?: Document;
   tileSize?: number;
   layerElevation?: number;
-  directionalLight?: DirectionalLight;
-  ambientLight?: AmbientLight;
-  textureLighting?: TextureLightingMode;
+  directionalLight?: PolyDirectionalLight;
+  ambientLight?: PolyAmbientLight;
+  textureLighting?: PolyTextureLightingMode;
   /**
    * Raster scale for generated atlas pages. `1` keeps one bitmap pixel per CSS
    * pixel; lower values reduce atlas memory and encode cost at lower texture
@@ -1336,7 +1336,7 @@ function packTextureAtlasPlans(
 function paintSolidAtlasEntry(
   ctx: CanvasRenderingContext2D,
   entry: PackedTextureAtlasEntry,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   atlasScale: number,
 ): void {
   setCssTransform(ctx, atlasScale);
@@ -1354,7 +1354,7 @@ function paintSolidAtlasEntry(
 
 async function buildAtlasPage(
   page: PackedPage,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   atlasScale: number,
 ): Promise<TextureAtlasPage> {
@@ -1445,7 +1445,7 @@ async function buildAtlasPage(
 
 async function buildAtlasPages(
   pages: PackedPage[],
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   atlasScale: number,
   isCancelled: () => boolean,
@@ -1461,7 +1461,7 @@ async function buildAtlasPages(
 function applyAtlasBackground(
   el: HTMLElement,
   page: TextureAtlasPage,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   entry: PackedTextureAtlasEntry,
 ): void {
   if (!page.url) return;
@@ -1630,7 +1630,7 @@ function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
 function applySolidPaint(
   el: HTMLElement,
   entry: TextureAtlasPlan,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
 ): void {
   if (textureLighting === "dynamic") {
     applyDynamicNormalVars(el, entry);
@@ -1645,7 +1645,7 @@ function applySolidPaint(
 
 function createSolidElement(
   entry: TextureAtlasPlan,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
 ): HTMLElement {
   const el = doc.createElement("i");
@@ -1673,7 +1673,7 @@ function createBorderShapeSolidElement(
 
 function createAtlasElement(
   entry: PackedTextureAtlasEntry,
-  textureLighting: TextureLightingMode,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
 ): HTMLElement {
   const el = doc.createElement("i");

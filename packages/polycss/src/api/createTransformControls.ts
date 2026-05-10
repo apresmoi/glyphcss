@@ -144,7 +144,7 @@ function pointInMeshElement(meshEl: HTMLElement, clientX: number, clientY: numbe
   return false;
 }
 
-export interface TransformControlsObjectChangeEvent {
+export interface PolyTransformControlsObjectChangeEvent {
   object: MeshHandle;
   position?: Vec3;
   rotation?: Vec3;
@@ -170,7 +170,7 @@ export interface CreateTransformControlsOptions {
   /** Fires with the new transform during drag. The gizmo also calls
    *  `target.setTransform` internally; this callback lets parent code
    *  mirror the change into its own state. */
-  onObjectChange?: (event: TransformControlsObjectChangeEvent) => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
   /** Fires once on drag start. */
   onMouseDown?: () => void;
   /** Fires once on drag end. */

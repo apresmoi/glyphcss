@@ -1,8 +1,9 @@
 import type {
   Vec2,
   Vec3,
-  DirectionalLight,
-  TextureLightingMode,
+  PolyDirectionalLight,
+  PolyTextureLightingMode,
+  PolyMaterial,
 } from "@layoutit/polycss-core";
 import type {
   CSSProperties,
@@ -83,20 +84,24 @@ export interface PolyProps extends TransformProps, DOMPassthroughProps {
   texture?: string;
   uvs?: Vec2[];
   data?: Record<string, string | number | boolean>;
+  /** Shared material. When set AND the polygon's UVs form an axis-aligned
+   *  rectangle, renders via `background-image` directly — no per-polygon
+   *  canvas rasterization. Falls back to the atlas path otherwise. */
+  material?: PolyMaterial;
 
   // Internal props forwarded from parent scene/context.
   // These are set by PolyScene, not by end users.
   context?: {
     tileSize?: number;
     layerElevation?: number;
-    directionalLight?: DirectionalLight;
-    textureLighting?: TextureLightingMode;
+    directionalLight?: PolyDirectionalLight;
+    textureLighting?: PolyTextureLightingMode;
     atlasScale?: AtlasScale;
     debugShowBackfaces?: boolean;
     [key: string]: unknown;
   };
   /** Textured polygon lighting mode. Defaults to scene context, then "baked". */
-  textureLighting?: TextureLightingMode;
+  textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /** Pre-computed shaded base color from the parent (optional override). */

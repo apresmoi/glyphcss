@@ -8,6 +8,7 @@ export interface UseCameraOptions {
   target?: Vec3;
   rotX?: number;
   rotY?: number;
+  distance?: number;
 }
 
 export interface UseCameraResult {
@@ -29,7 +30,7 @@ export interface UseCameraResult {
   applyTransformDirect: () => void;
 }
 
-export function useCamera(options: UseCameraOptions): UseCameraResult {
+export function usePolyCamera(options: UseCameraOptions): UseCameraResult {
   const handleRef = useRef<CameraHandle | null>(null);
   if (!handleRef.current) {
     handleRef.current = createIsometricCamera({
@@ -37,6 +38,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
       target: options.target,
       rotX: options.rotX,
       rotY: options.rotY,
+      distance: options.distance,
     });
   }
 
@@ -57,6 +59,7 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     if (options.target !== undefined) next.target = options.target;
     if (options.rotX !== undefined) next.rotX = options.rotX;
     if (options.rotY !== undefined) next.rotY = options.rotY;
+    if (options.distance !== undefined) next.distance = options.distance;
     if (Object.keys(next).length > 0) {
       handle.update(next);
       // Apply transform directly to DOM
@@ -68,13 +71,14 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
         const cssX = ty * tileSize;
         const cssY = tx * tileSize;
         const cssZ = tz * tileSize;
-        el.style.transform = `scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+        const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
+        el.style.transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
       }
       store.updateCameraFromRef(handle);
       store.notifyAll(); // props changed — always notify
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options.zoom, options.target, options.rotX, options.rotY, store]);
+  }, [options.zoom, options.target, options.rotX, options.rotY, options.distance, store]);
 
   // Apply camera transform directly to scene element (bypasses React)
   const applyTransformDirect = useCallback(() => {
@@ -87,7 +91,8 @@ export function useCamera(options: UseCameraOptions): UseCameraResult {
     const cssX = ty * tileSize;
     const cssY = tx * tileSize;
     const cssZ = tz * tileSize;
-    el.style.transform = `scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
+    el.style.transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }, []);
 
   return {

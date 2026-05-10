@@ -1,2 +1,2 @@
-export { Select, useSelect, useSelectionApi, SelectionContextKey } from "./Select";
-export type { SelectionApi } from "./Select";
+export { PolySelect, usePolySelect, usePolySelectionApi, PolySelectionContextKey } from "./PolySelect";
+export type { PolySelectionApi } from "./PolySelect";

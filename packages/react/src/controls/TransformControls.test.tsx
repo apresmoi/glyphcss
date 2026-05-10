@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "../scene/PolyScene";
 import { PolyMesh } from "../scene/PolyMesh";
-import { TransformControls } from "./TransformControls";
+import { PolyTransformControls } from "./TransformControls";
 import type { PolyMeshHandle } from "../scene/events";
 import type { Polygon } from "@layoutit/polycss-core";
 
@@ -70,12 +70,12 @@ function withFakeLayout(cameraScale: number, fn: () => void): void {
   }
 }
 
-describe("<TransformControls>", () => {
+describe("<PolyTransformControls>", () => {
   it("renders nothing when object is null", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
-          <TransformControls object={null} />
+          <PolyTransformControls object={null} />
         </PolyScene>
       </PolyCamera>,
     );
@@ -88,7 +88,7 @@ describe("<TransformControls>", () => {
       <PolyCamera>
         <PolyScene>
           <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-          <TransformControls object={ref} mode="scale" />
+          <PolyTransformControls object={ref} mode="scale" />
         </PolyScene>
       </PolyCamera>,
     );
@@ -101,7 +101,7 @@ describe("<TransformControls>", () => {
       <PolyCamera>
         <PolyScene>
           <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-          <TransformControls object={ref} mode="rotate" />
+          <PolyTransformControls object={ref} mode="rotate" />
         </PolyScene>
       </PolyCamera>,
     );
@@ -119,7 +119,7 @@ describe("<TransformControls>", () => {
       <PolyCamera>
         <PolyScene>
           <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[50, 60, 70]} />
-          <TransformControls object={ref} />
+          <PolyTransformControls object={ref} />
         </PolyScene>
       </PolyCamera>,
     );
@@ -141,7 +141,7 @@ describe("<TransformControls>", () => {
       <PolyCamera>
         <PolyScene>
           <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-          <TransformControls object={ref} showX={false} showZ={false} />
+          <PolyTransformControls object={ref} showX={false} showZ={false} />
         </PolyScene>
       </PolyCamera>,
     );
@@ -160,7 +160,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-            <TransformControls
+            <PolyTransformControls
               object={ref}
               onMouseDown={onMouseDown}
               onMouseUp={onMouseUp}
@@ -193,7 +193,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[100, 200, 0]} />
-            <TransformControls object={ref} onObjectChange={onObjectChange} />
+            <PolyTransformControls object={ref} onObjectChange={onObjectChange} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -224,7 +224,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[10, 20, 30]} />
-            <TransformControls object={ref} onObjectChange={onObjectChange} />
+            <PolyTransformControls object={ref} onObjectChange={onObjectChange} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -256,7 +256,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[0, 0, 0]} />
-            <TransformControls object={ref} onObjectChange={onObjectChange} translationSnap={5} />
+            <PolyTransformControls object={ref} onObjectChange={onObjectChange} translationSnap={5} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -283,7 +283,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-            <TransformControls
+            <PolyTransformControls
               object={ref}
               enabled={false}
               onMouseDown={onMouseDown}
@@ -315,7 +315,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[0, 0, 0]} />
-            <TransformControls object={ref} />
+            <PolyTransformControls object={ref} />
           </PolyScene>
         </PolyCamera>,
       ),
@@ -328,7 +328,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[42, 7, 0]} />
-            <TransformControls object={ref} />
+            <PolyTransformControls object={ref} />
           </PolyScene>
         </PolyCamera>,
       ),
@@ -346,7 +346,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[100, 200, 0]} />
-            <TransformControls object={ref} onObjectChange={onObjectChange} />
+            <PolyTransformControls object={ref} onObjectChange={onObjectChange} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -376,7 +376,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[0, 0, 0]} />
-            <TransformControls object={ref} onObjectChange={onObjectChange} />
+            <PolyTransformControls object={ref} onObjectChange={onObjectChange} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -409,7 +409,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[0, 0, 10]} />
-            <TransformControls object={ref} />
+            <PolyTransformControls object={ref} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -435,7 +435,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
-            <TransformControls object={ref} mode="rotate" onObjectChange={onObjectChange} onMouseDown={onMouseDown} />
+            <PolyTransformControls object={ref} mode="rotate" onObjectChange={onObjectChange} onMouseDown={onMouseDown} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -470,7 +470,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
-            <TransformControls object={ref} mode="rotate" onObjectChange={onObjectChange} />
+            <PolyTransformControls object={ref} mode="rotate" onObjectChange={onObjectChange} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -502,7 +502,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
-            <TransformControls
+            <PolyTransformControls
               object={ref}
               mode="rotate"
               rotationSnap={90}
@@ -541,7 +541,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[0, 0, 0]} />
-            <TransformControls object={ref} onObjectChange={onObjectChange} onMouseDown={onMouseDown} />
+            <PolyTransformControls object={ref} onObjectChange={onObjectChange} onMouseDown={onMouseDown} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -576,7 +576,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-            <TransformControls object={ref} onMouseDown={onMouseDown} />
+            <PolyTransformControls object={ref} onMouseDown={onMouseDown} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -606,7 +606,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
-            <TransformControls object={ref} mode="rotate" onMouseDown={onMouseDown} />
+            <PolyTransformControls object={ref} mode="rotate" onMouseDown={onMouseDown} />
           </PolyScene>
         </PolyCamera>,
       );
@@ -639,7 +639,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
-            <TransformControls
+            <PolyTransformControls
               object={ref}
               mode="rotate"
               onMouseDown={onMouseDown}
@@ -670,7 +670,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} rotation={[0, 0, 0]} />
-            <TransformControls object={ref} mode="rotate" />
+            <PolyTransformControls object={ref} mode="rotate" />
           </PolyScene>
         </PolyCamera>,
       );
@@ -700,7 +700,7 @@ describe("<TransformControls>", () => {
         <PolyCamera>
           <PolyScene>
             <PolyMesh ref={ref} polygons={[TRIANGLE]} position={[0, 0, 0]} />
-            <TransformControls object={ref} mode="translate" />
+            <PolyTransformControls object={ref} mode="translate" />
           </PolyScene>
         </PolyCamera>,
       );

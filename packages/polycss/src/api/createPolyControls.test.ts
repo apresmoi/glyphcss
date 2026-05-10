@@ -214,15 +214,15 @@ describe("createPolyControls", () => {
       expect((scene.getOptions().zoom ?? 0)).toBeLessThan(before);
     });
 
-    it("clamps to zoom.max", () => {
-      controls = createPolyControls(scene, { zoom: { min: 0.5, max: 2 } });
+    it("clamps to maxZoom", () => {
+      controls = createPolyControls(scene, { minZoom: 0.5, maxZoom: 2 });
       // huge zoom-in — should saturate at 2
       for (let i = 0; i < 20; i++) dispatchWheel(host, -1000);
       expect(scene.getOptions().zoom).toBe(2);
     });
 
-    it("clamps to zoom.min", () => {
-      controls = createPolyControls(scene, { zoom: { min: 0.5, max: 2 } });
+    it("clamps to minZoom", () => {
+      controls = createPolyControls(scene, { minZoom: 0.5, maxZoom: 2 });
       for (let i = 0; i < 20; i++) dispatchWheel(host, 1000);
       expect(scene.getOptions().zoom).toBe(0.5);
     });
@@ -230,14 +230,51 @@ describe("createPolyControls", () => {
     it("normalizes deltaMode lines/pages", () => {
       controls = createPolyControls(scene);
       const startZoom = scene.getOptions().zoom ?? 1;
-      dispatchWheel(host, -1, 1); // 1 line ≈ 33 px
+      dispatchWheel(host, -1, 1); // 1 line × lineFactor 16 = 16 px-equivalent
       const afterLine = scene.getOptions().zoom ?? 0;
       // Reset
       scene.setOptions({ zoom: startZoom });
-      dispatchWheel(host, -33, 0); // 33 px
+      dispatchWheel(host, -16, 0); // 16 px
       const afterPx = scene.getOptions().zoom ?? 0;
       // Should produce equivalent zoom factors.
       expect(afterLine).toBeCloseTo(afterPx, 5);
+    });
+  });
+
+  // ── Dolly mode ───────────────────────────────────────────────────────────
+  describe("dolly", () => {
+    it("dolly:true changes distance instead of zoom on wheel", () => {
+      controls = createPolyControls(scene, { dolly: true });
+      const beforeZoom = scene.getOptions().zoom ?? 1;
+      const beforeDist = scene.getOptions().distance ?? 0;
+      dispatchWheel(host, 100);
+      // zoom must be unchanged
+      expect(scene.getOptions().zoom).toBe(beforeZoom);
+      // distance must have increased (dolly out)
+      expect((scene.getOptions().distance ?? 0)).toBeGreaterThan(beforeDist);
+    });
+
+    it("dolly:false changes zoom instead of distance on wheel (default)", () => {
+      controls = createPolyControls(scene, { dolly: false });
+      const beforeDist = scene.getOptions().distance ?? 0;
+      dispatchWheel(host, -100);
+      // distance must be unchanged
+      expect(scene.getOptions().distance ?? 0).toBe(beforeDist);
+      // zoom must have increased (zoom in)
+      expect((scene.getOptions().zoom ?? 1)).toBeGreaterThan(1);
+    });
+
+    it("dolly mode clamps to maxDistance", () => {
+      controls = createPolyControls(scene, { dolly: true, minDistance: 0, maxDistance: 10 });
+      for (let i = 0; i < 50; i++) dispatchWheel(host, 1000);
+      expect(scene.getOptions().distance).toBe(10);
+    });
+
+    it("dolly mode clamps to minDistance", () => {
+      scene.setOptions({ distance: 5 });
+      controls = createPolyControls(scene, { dolly: true, minDistance: 2, maxDistance: 100 });
+      for (let i = 0; i < 50; i++) dispatchWheel(host, -1000);
+      expect(scene.getOptions().distance).toBe(2);
     });
   });
 

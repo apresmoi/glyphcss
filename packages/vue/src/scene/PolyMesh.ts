@@ -18,9 +18,9 @@
  */
 import { defineComponent, h, computed, inject, onMounted, onBeforeUnmount, ref } from "vue";
 import type { PropType, VNode, CSSProperties } from "vue";
-import type { Polygon, TextureLightingMode, Vec3 } from "@layoutit/polycss-core";
+import type { Polygon, PolyTextureLightingMode, Vec3 } from "@layoutit/polycss-core";
 import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
-import { useMesh } from "./useMesh";
+import { usePolyMesh } from "./useMesh";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
@@ -30,7 +30,7 @@ import {
 import { usePolySceneContext } from "./sceneContext";
 import { PolyCameraContextKey } from "../camera";
 import {
-  findMeshHandle,
+  findPolyMeshHandle,
   registerMeshElement,
   unregisterMeshElement,
   type InteractionProps,
@@ -52,7 +52,7 @@ export interface PolyMeshProps extends InteractionProps {
   mtl?: string;
   polygons?: Polygon[];
   autoCenter?: boolean;
-  textureLighting?: TextureLightingMode;
+  textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   class?: string;
@@ -109,7 +109,7 @@ export const PolyMesh = defineComponent({
     mtl: { type: String, default: undefined },
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
     autoCenter: { type: Boolean, default: false },
-    textureLighting: { type: String as PropType<TextureLightingMode>, default: undefined },
+    textureLighting: { type: String as PropType<PolyTextureLightingMode>, default: undefined },
     atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
@@ -132,7 +132,7 @@ export const PolyMesh = defineComponent({
     // useMesh requires a Ref<string>. Computed ref wraps the src prop.
     const srcRef = computed(() => props.src ?? "");
     const meshOptions = computed(() => (props.mtl ? { mtlUrl: props.mtl } : undefined));
-    const fetched = useMesh(srcRef, meshOptions.value);
+    const fetched = usePolyMesh(srcRef, meshOptions.value);
 
     const sourcePolygons = computed<Polygon[]>(() =>
       props.src ? fetched.polygons.value : (props.polygons ?? [])
@@ -148,7 +148,7 @@ export const PolyMesh = defineComponent({
     // scene's dynamic mode instead of getting overpainted by the scene's
     // global CSS rule with default normals.
     const sceneCtx = usePolySceneContext();
-    const atlasTextureLighting = computed<TextureLightingMode>(
+    const atlasTextureLighting = computed<PolyTextureLightingMode>(
       () => props.textureLighting ?? sceneCtx?.value.textureLighting ?? "baked",
     );
     const atlasDirectional = computed(() =>
@@ -249,7 +249,7 @@ export const PolyMesh = defineComponent({
         const stacked = document.elementsFromPoint(clientX, clientY);
         const seen = new Set<PolyMeshHandle>();
         for (const el of stacked) {
-          const h = findMeshHandle(el);
+          const h = findPolyMeshHandle(el);
           if (h && !seen.has(h)) {
             seen.add(h);
             intersections.push({ object: h });

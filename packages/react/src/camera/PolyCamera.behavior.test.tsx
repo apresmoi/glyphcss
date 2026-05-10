@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { PolyCamera as VoxCamera } from "./PolyCamera";
+import { PolyCamera } from "./PolyCamera";
 
 function renderToDiv(element: React.ReactElement): HTMLElement {
   const container = document.createElement("div");
@@ -10,13 +10,15 @@ function renderToDiv(element: React.ReactElement): HTMLElement {
   return container;
 }
 
+// PolyCamera is an alias for PolyPerspectiveCamera. Orthographic rendering
+// is available via PolyOrthographicCamera.
 describe("PolyCamera behavior", () => {
   describe("renders camera wrapper", () => {
     it("has the polycss-camera class", () => {
       const container = renderToDiv(
-        <VoxCamera>
+        <PolyCamera>
           <div />
-        </VoxCamera>
+        </PolyCamera>
       );
       expect(container.querySelector(".polycss-camera")).toBeTruthy();
     });
@@ -25,9 +27,9 @@ describe("PolyCamera behavior", () => {
   describe("perspective", () => {
     it("applies default perspective of 8000px when no perspective prop given", () => {
       const container = renderToDiv(
-        <VoxCamera>
+        <PolyCamera>
           <div />
-        </VoxCamera>
+        </PolyCamera>
       );
       const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.perspective).toBe("8000px");
@@ -35,31 +37,21 @@ describe("PolyCamera behavior", () => {
 
     it("applies a custom numeric perspective value", () => {
       const container = renderToDiv(
-        <VoxCamera perspective={3000}>
+        <PolyCamera perspective={3000}>
           <div />
-        </VoxCamera>
+        </PolyCamera>
       );
       const camera = container.querySelector(".polycss-camera") as HTMLElement;
       expect(camera.style.perspective).toBe("3000px");
-    });
-
-    it("sets perspective to none when false", () => {
-      const container = renderToDiv(
-        <VoxCamera perspective={false}>
-          <div />
-        </VoxCamera>
-      );
-      const camera = container.querySelector(".polycss-camera") as HTMLElement;
-      expect(camera.style.perspective).toBe("none");
     });
   });
 
   describe("children", () => {
     it("renders children inside the camera wrapper", () => {
       const container = renderToDiv(
-        <VoxCamera>
+        <PolyCamera>
           <span className="inner-child">Hello</span>
-        </VoxCamera>
+        </PolyCamera>
       );
       const child = container.querySelector(".polycss-camera .inner-child");
       expect(child).toBeTruthy();
@@ -68,10 +60,10 @@ describe("PolyCamera behavior", () => {
 
     it("renders multiple children", () => {
       const container = renderToDiv(
-        <VoxCamera>
+        <PolyCamera>
           <div className="a" />
           <div className="b" />
-        </VoxCamera>
+        </PolyCamera>
       );
       expect(container.querySelector(".a")).toBeTruthy();
       expect(container.querySelector(".b")).toBeTruthy();
@@ -81,9 +73,9 @@ describe("PolyCamera behavior", () => {
   describe("custom className", () => {
     it("appends custom className alongside polycss-camera", () => {
       const container = renderToDiv(
-        <VoxCamera className="my-custom-class">
+        <PolyCamera className="my-custom-class">
           <div />
-        </VoxCamera>
+        </PolyCamera>
       );
       const camera = container.querySelector(".polycss-camera");
       expect(camera?.classList.contains("my-custom-class")).toBe(true);

@@ -2,14 +2,14 @@ import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type {
   Polygon,
-  DirectionalLight,
-  AmbientLight,
-  TextureLightingMode,
+  PolyDirectionalLight,
+  PolyAmbientLight,
+  PolyTextureLightingMode,
 } from "@layoutit/polycss-core";
 import { createIsometricCamera, parseHexColor } from "@layoutit/polycss-core";
 import { useCameraContext } from "../camera/context";
-import { useSceneContext } from "./useSceneContext";
-import { injectBaseStyles } from "../styles/styles";
+import { usePolySceneContext } from "./useSceneContext";
+import { injectPolyBaseStyles } from "../styles/styles";
 import type { TransformProps } from "../shapes/types";
 import {
   computeTextureAtlasPlan,
@@ -41,10 +41,10 @@ export interface PolySceneProps extends TransformProps {
   rotX?: number;
   rotY?: number;
   zoom?: number;
-  directionalLight?: DirectionalLight;
-  ambientLight?: AmbientLight;
+  directionalLight?: PolyDirectionalLight;
+  ambientLight?: PolyAmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
-  textureLighting?: TextureLightingMode;
+  textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /**
@@ -89,9 +89,16 @@ function PolySceneInner({
 }: PolySceneProps) {
   const { store, sceneElRef } = useCameraContext();
 
-  // Read camera state once for initial render — transform updates go via direct DOM
-  const initialCameraState = useRef(store.getState().cameraState);
-  const cameraState = initialCameraState.current;
+  // Read camera state fresh on every render. The store is kept in sync with
+  // cameraRef by useCamera's prop-sync effect AND by controls (PolyOrbitControls,
+  // PolyMapControls call store.updateCameraFromRef on every move). So whenever
+  // PolyScene re-renders, getState().cameraState is the current truth.
+  //
+  // This prevents the on-release flicker that happened when PolyScene cached
+  // the initial state: a re-render after a drag would apply the stale initial
+  // transform inline, snap the scene back, and then useCamera's effect would
+  // jump it forward again the next frame.
+  const cameraState = store.getState().cameraState;
 
   const localSceneRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -113,7 +120,7 @@ function PolySceneInner({
   useEffect(() => {
     if (injectedRef.current) return;
     if (typeof document !== "undefined") {
-      injectBaseStyles(document);
+      injectPolyBaseStyles(document);
       injectedRef.current = true;
     }
   }, []);
@@ -132,7 +139,7 @@ function PolySceneInner({
   );
 
   // Run mesh post-processing pipeline (normalize + automatic merge).
-  const { polygons, sceneBbox: renderSceneBbox } = useSceneContext(inputPolygons, {
+  const { polygons, sceneBbox: renderSceneBbox } = usePolySceneContext(inputPolygons, {
     directionalLight,
   });
 
@@ -140,7 +147,7 @@ function PolySceneInner({
   // polygon bbox. centerPolygons are NOT normalized/merged here — they're used
   // raw for bbox so the shift matches the vanilla renderer (which also uses
   // raw merged polygons, not normalized ones, for its centerWrapper calc).
-  const { sceneBbox: centerSceneBbox } = useSceneContext(
+  const { sceneBbox: centerSceneBbox } = usePolySceneContext(
     centerInputPolygons ?? inputPolygons,
     { directionalLight },
   );

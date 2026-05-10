@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { PolyCamera } from "../camera/PolyCamera";
 import { PolyScene } from "./PolyScene";
 import { PolyMesh } from "./PolyMesh";
-import { findMeshHandle, type PolyMeshHandle } from "./events";
+import { findPolyMeshHandle, type PolyMeshHandle } from "./events";
 import type { Polygon } from "@layoutit/polycss-core";
 
 const TRIANGLE: Polygon = {
@@ -66,12 +66,12 @@ describe("PolyMesh — pointer events", () => {
     );
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
     expect(meshEl.getAttribute("data-poly-mesh-id")).toBe("cube-a");
-    const handle = findMeshHandle(meshEl);
+    const handle = findPolyMeshHandle(meshEl);
     expect(handle?.id).toBe("cube-a");
     expect(handle?.element).toBe(meshEl);
   });
 
-  it("findMeshHandle walks up from a polygon child to its mesh wrapper", () => {
+  it("findPolyMeshHandle walks up from a polygon child to its mesh wrapper", () => {
     const container = mount(
       <PolyCamera>
         <PolyScene>
@@ -81,7 +81,7 @@ describe("PolyMesh — pointer events", () => {
     );
     const polygonEl = container.querySelector(".polycss-mesh i") as HTMLElement;
     expect(polygonEl).not.toBeNull();
-    const handle = findMeshHandle(polygonEl);
+    const handle = findPolyMeshHandle(polygonEl);
     expect(handle?.id).toBe("cube-a");
   });
 
@@ -99,9 +99,9 @@ describe("PolyMesh — pointer events", () => {
       ),
     );
     const meshEl = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(findMeshHandle(meshEl)).not.toBeNull();
+    expect(findPolyMeshHandle(meshEl)).not.toBeNull();
     act(() => root.unmount());
-    expect(findMeshHandle(meshEl)).toBeNull();
+    expect(findPolyMeshHandle(meshEl)).toBeNull();
   });
 
   it("onClick fires with PolyPointerEvent payload (object/eventObject/nativeEvent/stopPropagation)", () => {
