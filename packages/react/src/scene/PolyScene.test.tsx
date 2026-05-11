@@ -87,12 +87,12 @@ describe("PolyScene — basic rendering", () => {
     expect(scene?.getAttribute("data-polycss-lighting")).toBe("baked");
   });
 
-  it("scene has position absolute (from sceneStyle)", () => {
+  it("scene leaves anchor positioning to base CSS", () => {
     const container = renderScene({});
     const scene = container.querySelector(".polycss-scene") as HTMLElement;
-    // The scene should be positioned absolutely (set by createIsometricCamera's getStyle())
-    expect(scene.style.top).toBe("50%");
-    expect(scene.style.left).toBe("50%");
+    expect(scene.style.top).toBe("");
+    expect(scene.style.left).toBe("");
+    expect(scene.style.getPropertyValue("--scene-transform")).toContain("scale(");
   });
 });
 
@@ -115,28 +115,28 @@ describe("PolyScene — polygon rendering", () => {
 
   it("renders multiple polygons", () => {
     const container = renderScene({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(2);
   });
 
-  it("renders textured polygons as polygon i elements", () => {
+  it("renders textured polygons as polygon s elements", () => {
     const container = renderScene({
       polygons: [TEXTURED_TRIANGLE],
     });
-    const poly = container.querySelector("i");
+    const poly = container.querySelector("s");
     expect(poly).toBeTruthy();
-    expect(poly?.tagName.toLowerCase()).toBe("i");
+    expect(poly?.tagName.toLowerCase()).toBe("s");
   });
 
   it("renders no poly elements when polygons prop is empty", () => {
     const container = renderScene({ polygons: [] });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(0);
   });
 
   it("renders no poly elements when polygons prop is omitted", () => {
     const container = renderScene({});
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(0);
   });
 });
@@ -157,7 +157,7 @@ describe("PolyScene — autoCenter", () => {
     const children = Array.from(scene?.children ?? []);
     const wrapperWithTransform = children.find((el) => {
       const style = (el as HTMLElement).style;
-      return style.transform?.includes("translate3d");
+      return style.getPropertyValue("--offset-transform").includes("translate3d");
     });
     expect(wrapperWithTransform).toBeTruthy();
   });
@@ -171,7 +171,7 @@ describe("PolyScene — autoCenter", () => {
     const children = Array.from(scene?.children ?? []);
     const hasTranslate = children.some((el) => {
       const style = (el as HTMLElement).style;
-      return style.transform?.includes("translate3d");
+      return style.getPropertyValue("--offset-transform").includes("translate3d");
     });
     // Without autoCenter, no centering wrapper
     expect(hasTranslate).toBe(false);
@@ -185,11 +185,11 @@ describe("PolyScene — autoCenter", () => {
     const scene = container.querySelector(".polycss-scene");
     const children = Array.from(scene?.children ?? []);
     const wrapper = children.find((el) => {
-      return (el as HTMLElement).style.transform?.includes("translate3d");
+      return (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d");
     }) as HTMLElement | undefined;
     expect(wrapper).toBeTruthy();
     // QUAD centroid is at (1, 1, 1) in world space → translate3d should be non-zero
-    const transform = wrapper!.style.transform;
+    const transform = wrapper!.style.getPropertyValue("--offset-transform");
     expect(transform).not.toBe("translate3d(0px, 0px, 0px)");
   });
 });
@@ -227,7 +227,7 @@ describe("PolyScene — automatic merge", () => {
     const container = renderScene({
       polygons: [TRIANGLE, QUAD],
     });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(2);
   });
 
@@ -243,7 +243,7 @@ describe("PolyScene — automatic merge", () => {
     const container = renderScene({
       polygons: [tri1, tri2],
     });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(1);
   });
 });

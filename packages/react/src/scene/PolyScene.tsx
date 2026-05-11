@@ -161,10 +161,9 @@ function PolySceneInner({
   // render around the anchor via their own matrix3d translations.
   const sceneStyle = useMemo(() => {
     const handle = createIsometricCamera(cameraState);
+    const cameraStyle = handle.getStyle();
     return {
-      ...handle.getStyle(),
-      top: "50%",
-      left: "50%",
+      ["--scene-transform" as string]: cameraStyle.transform,
     };
   }, [cameraState]);
 
@@ -273,6 +272,7 @@ function PolySceneInner({
         ref={localSceneRef}
         className={computedClassName}
         data-polycss-lighting={textureLighting}
+        aria-hidden="true"
         style={
           {
             ...sceneStyle,
@@ -284,7 +284,7 @@ function PolySceneInner({
         }
       >
         {autoCenterTransform ? (
-          <div style={{ transform: autoCenterTransform, transformStyle: "preserve-3d" }}>
+          <div className="polycss-offset" style={{ ["--offset-transform" as string]: autoCenterTransform } as CSSProperties}>
             {polyChildren}
             {children}
           </div>

@@ -33,6 +33,7 @@ import { PolySceneContextKey } from "./sceneContext";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
+  renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -162,10 +163,9 @@ export const PolyScene = defineComponent({
     // mirrors React's PolyScene anchor pattern.
     const sceneStyle = computed(() => {
       const handle = createIsometricCamera(cameraState);
+      const cameraStyle = handle.getStyle();
       return {
-        ...handle.getStyle(),
-        top: "50%",
-        left: "50%",
+        "--scene-transform": cameraStyle.transform,
       };
     });
 
@@ -254,14 +254,18 @@ export const PolyScene = defineComponent({
 
       const ctx = polyContext.value;
 
-      const polyNodes = textureAtlas.entries.value.map((entry) =>
+      const polyNodes = textureAtlas.entries.value.map((entry, index) =>
         entry
           ? renderTextureAtlasPoly({
               entry,
               page: textureAtlas.pages.value[entry.pageIndex],
               textureLighting: ctx.textureLighting ?? "baked",
             })
-          : null
+          : textureAtlasPlans.value[index] && !textureAtlasPlans.value[index]?.texture
+            ? renderTextureBorderShapePoly({
+                entry: textureAtlasPlans.value[index]!,
+              })
+            : null
       );
 
       const slotChildren = slots.default?.() ?? [];
@@ -271,9 +275,9 @@ export const PolyScene = defineComponent({
             h(
               "div",
               {
+                class: "polycss-offset",
                 style: {
-                  transform: autoCenterTransform.value,
-                  transformStyle: "preserve-3d",
+                  "--offset-transform": autoCenterTransform.value,
                 },
               },
               [...polyNodes, ...slotChildren]
@@ -287,6 +291,7 @@ export const PolyScene = defineComponent({
           ref: sceneElLocalRef,
           class: computedClass,
           "data-polycss-lighting": ctx.textureLighting ?? "baked",
+          "aria-hidden": "true",
           style: {
             ...sceneStyle.value,
             ...(dynamicLightVars.value ?? null),

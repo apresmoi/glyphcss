@@ -49,11 +49,14 @@ import type {
 } from "@layoutit/polycss";
 import { preprocessModelPolygons } from "./meshDomNormalize";
 import type { GeometryNormalizeOptions } from "./meshDomNormalize";
+import { StatsJsPanel } from "./StatsJsPanel";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
 type ModelKind = "obj" | "glb" | "gltf" | "vox";
 type TextureQuality = "auto" | "full" | "balanced" | "draft";
+type MatrixPrecision = "exact" | "2" | "3" | "4" | "5" | "6";
+type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 
 interface PresetModel {
   id: string;
@@ -110,6 +113,8 @@ interface SceneOptionsState {
   ambientColor: string;
   textureLighting: PolyTextureLightingMode;
   textureQuality: TextureQuality;
+  matrixPrecision: MatrixPrecision;
+  borderShapePrecision: BorderShapePrecision;
   approximateMerge: boolean;
   rectCover: boolean;
   outlinePolygons: boolean;
@@ -125,14 +130,8 @@ interface ParserOptionsState {
 
 interface DomMetrics {
   measuredAt: number;
-  renderMs: number;
   nodeCount: number;
   polyCount: number;
-  visiblePolyCount: number;
-}
-
-interface AtlasEstimate {
-  atlasPolygons: number;
 }
 
 interface GalleryPresetFile {
@@ -1459,6 +1458,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   ambientColor: "#ffffff",
   textureLighting: "baked",
   textureQuality: "auto",
+  matrixPrecision: "exact",
+  borderShapePrecision: "exact",
   approximateMerge: false,
   rectCover: false,
   outlinePolygons: false,
@@ -1510,10 +1511,8 @@ function parserStateFor(model: PresetModel): ParserOptionsState {
 
 const EMPTY_METRICS: DomMetrics = {
   measuredAt: 0,
-  renderMs: 0,
   nodeCount: 0,
   polyCount: 0,
-  visiblePolyCount: 0,
 };
 
 function formatNumber(value: number): string {
@@ -1687,29 +1686,70 @@ function ambientFromOptions(options: SceneOptionsState): PolyAmbientLight {
   };
 }
 
-function estimateAtlasFootprint(polygons: Polygon[]): AtlasEstimate {
-  let atlasPolygons = 0;
-
-  for (const polygon of polygons) {
-    if (polygon.vertices.length < 3) continue;
-    atlasPolygons += 1;
-  }
-
+function measureDom(root: HTMLElement | null): DomMetrics {
+  if (!root) return EMPTY_METRICS;
+  const polyEls = Array.from(root.querySelectorAll<HTMLElement>(".polycss-scene i, .polycss-scene b, .polycss-scene s"));
   return {
-    atlasPolygons,
+    measuredAt: performance.now(),
+    nodeCount: root.querySelectorAll("*").length,
+    polyCount: polyEls.length,
   };
 }
 
-function measureDom(root: HTMLElement | null, renderMs: number): DomMetrics {
-  if (!root) return { ...EMPTY_METRICS, renderMs };
-  const polyEls = Array.from(root.querySelectorAll<HTMLElement>(".polycss-scene i"));
-  return {
-    measuredAt: performance.now(),
-    renderMs,
-    nodeCount: root.querySelectorAll("*").length,
-    polyCount: polyEls.length,
-    visiblePolyCount: polyEls.filter((el) => getComputedStyle(el).display !== "none").length,
-  };
+function roundMatrix3dValue(value: string, decimals: number): string {
+  return value.replace(/matrix3d\(([^)]+)\)/g, (_match, body: string) => {
+    const rounded = body.split(",").map((raw) => {
+      const trimmed = raw.trim();
+      const value = Number(trimmed);
+      if (!Number.isFinite(value)) return trimmed;
+      const next = value.toFixed(decimals).replace(/\.?0+$/, "");
+      return Object.is(Number(next), -0) ? "0" : next;
+    });
+    return `matrix3d(${rounded.join(",")})`;
+  });
+}
+
+function matrixPrecisionDecimals(precision: MatrixPrecision): number | null {
+  if (precision === "exact") return null;
+  return Number(precision);
+}
+
+function roundDecimalString(value: string, decimals: number): string {
+  const next = Number(value).toFixed(decimals).replace(/\.?0+$/, "");
+  return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function applyDebugMatrixPrecision(root: HTMLElement | null, precision: MatrixPrecision): void {
+  if (!root) return;
+  const decimals = matrixPrecisionDecimals(precision);
+  if (decimals === null) return;
+  const faces = root.querySelectorAll<HTMLElement>(".polycss-scene i, .polycss-scene b, .polycss-scene s");
+  for (const face of faces) {
+    const current = face.style.transform;
+    if (!current.includes("matrix3d(")) continue;
+    const rounded = roundMatrix3dValue(current, decimals);
+    if (current !== rounded) face.style.transform = rounded;
+  }
+}
+
+function applyDebugBorderShapePrecision(root: HTMLElement | null, precision: BorderShapePrecision): void {
+  if (!root) return;
+  const decimals = matrixPrecisionDecimals(precision);
+  if (decimals === null) return;
+  const faces = root.querySelectorAll<HTMLElement>(".polycss-scene i");
+  for (const face of faces) {
+    const current = face.style.getPropertyValue("border-shape");
+    if (!current.includes("polygon(")) continue;
+    const rounded = current.replace(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi, (match, offset, source) => {
+      const prev = offset > 0 ? source[offset - 1] : "";
+      const next = offset + match.length < source.length ? source[offset + match.length] : "";
+      const unitContext = prev === "(" || prev === "," || /\s/.test(prev) || prev === "-" || prev === "+";
+      const unitSuffix = next === "%" || /[a-z]/i.test(next);
+      if (!unitContext || !unitSuffix) return match;
+      return roundDecimalString(match, decimals);
+    });
+    if (current !== rounded) face.style.setProperty("border-shape", rounded);
+  }
 }
 
 function RangeControl({
@@ -2256,7 +2296,6 @@ export default function DebugWorkbench() {
   const [vanillaBuildMs, setVanillaBuildMs] = useState(0);
   const disposeRef = useRef<(() => void) | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const renderStartRef = useRef(performance.now());
 
   // Selection + drag state for the React renderer's <PolyMesh> wrapper.
   // Lives at this level so a model swap can reset both — the gizmo
@@ -2471,21 +2510,74 @@ export default function DebugWorkbench() {
     ];
   }, [helperBbox]);
 
-  const atlasEstimate = useMemo(
-    () => estimateAtlasFootprint(scenePolygons),
-    [scenePolygons],
-  );
-  const hasAtlasFootprint = atlasEstimate.atlasPolygons > 0;
-
   useEffect(() => {
-    renderStartRef.current = performance.now();
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setMetrics(measureDom(viewportRef.current, performance.now() - renderStartRef.current));
+        setMetrics(measureDom(viewportRef.current));
       });
     });
     return () => cancelAnimationFrame(raf);
   }, [scenePolygons, sceneOptions, vanillaBuildMs]);
+
+  useEffect(() => {
+    const root = viewportRef.current;
+    if (!root) return;
+    let raf = 0;
+    const apply = () => {
+      raf = 0;
+      applyDebugMatrixPrecision(root, sceneOptions.matrixPrecision);
+      applyDebugBorderShapePrecision(root, sceneOptions.borderShapePrecision);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(apply);
+    };
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+    return () => {
+      observer.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [
+    sceneOptions.matrixPrecision,
+    sceneOptions.borderShapePrecision,
+    sceneOptions.renderer,
+    sceneOptions.textureLighting,
+    sceneOptions.textureQuality,
+    scenePolygons,
+    vanillaBuildMs,
+  ]);
+
+  const rendererDebugKey = useMemo(
+    () => [
+      sceneOptions.renderer,
+      sceneOptions.matrixPrecision,
+      sceneOptions.borderShapePrecision,
+      sceneOptions.textureLighting,
+      sceneOptions.textureQuality,
+      sceneOptions.autoCenter,
+      sceneOptions.perspective === false ? "none" : sceneOptions.perspective,
+      loaded?.label ?? "none",
+      activeAnimation ? `${selectedAnimation}:${loaded?.label ?? ""}` : "static",
+    ].join(":"),
+    [
+      sceneOptions.renderer,
+      sceneOptions.matrixPrecision,
+      sceneOptions.borderShapePrecision,
+      sceneOptions.textureLighting,
+      sceneOptions.textureQuality,
+      sceneOptions.autoCenter,
+      sceneOptions.perspective,
+      loaded?.label,
+      activeAnimation,
+      selectedAnimation,
+    ],
+  );
 
   const resetToPreset = useCallback((id: string) => {
     const next = PRESETS.find((preset) => preset.id === id);
@@ -2657,6 +2749,34 @@ export default function DebugWorkbench() {
               <option value="draft">Draft - 0.25x</option>
             </select>
           </label>
+          <label className="dn-field">
+            <span>Matrix</span>
+            <select
+              value={sceneOptions.matrixPrecision}
+              onChange={(event) => updateScene({ matrixPrecision: event.currentTarget.value as MatrixPrecision })}
+            >
+              <option value="exact">Exact</option>
+              <option value="2">2 decimals</option>
+              <option value="3">3 decimals</option>
+              <option value="4">4 decimals</option>
+              <option value="5">5 decimals</option>
+              <option value="6">6 decimals</option>
+            </select>
+          </label>
+          <label className="dn-field">
+            <span>Border shape</span>
+            <select
+              value={sceneOptions.borderShapePrecision}
+              onChange={(event) => updateScene({ borderShapePrecision: event.currentTarget.value as BorderShapePrecision })}
+            >
+              <option value="exact">Exact</option>
+              <option value="2">2 decimals</option>
+              <option value="3">3 decimals</option>
+              <option value="4">4 decimals</option>
+              <option value="5">5 decimals</option>
+              <option value="6">6 decimals</option>
+            </select>
+          </label>
           <Toggle label="Auto center" checked={sceneOptions.autoCenter} onChange={(value) => updateScene({ autoCenter: value })} />
           <Toggle label="Polygon outline" checked={sceneOptions.outlinePolygons} onChange={(value) => updateScene({ outlinePolygons: value })} />
           <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
@@ -2781,13 +2901,12 @@ export default function DebugWorkbench() {
             )}
           </div>
           <div className="dn-toolbar__kpis" aria-label="Performance KPIs">
-            <Kpi label={sceneOptions.renderer === "vanilla" ? "Build" : "Render"} value={formatMs(sceneOptions.renderer === "vanilla" ? vanillaBuildMs : metrics.renderMs)} />
+            <StatsJsPanel />
+            {sceneOptions.renderer === "vanilla" && (
+              <Kpi label="Build" value={formatMs(vanillaBuildMs)} />
+            )}
             <Kpi label="DOM" value={formatNumber(metrics.nodeCount)} tone={budgetTone} />
             <Kpi label="Polys" value={formatNumber(metrics.polyCount)} tone={budgetTone} />
-            <Kpi label="Visible" value={formatNumber(metrics.visiblePolyCount)} tone={metrics.visiblePolyCount > 2500 ? "warn" : metrics.visiblePolyCount < 900 ? "good" : undefined} />
-            {hasAtlasFootprint && (
-              <Kpi label="Atlas" value={formatNumber(atlasEstimate.atlasPolygons)} tone={atlasEstimate.atlasPolygons > 2500 ? "warn" : undefined} />
-            )}
           </div>
         </div>
 
@@ -2797,6 +2916,7 @@ export default function DebugWorkbench() {
         >
           {sceneOptions.renderer === "vanilla" ? (
             <VanillaScene
+              key={rendererDebugKey}
               polygons={scenePolygons}
               options={sceneOptions}
               directionalLight={directionalLight}
@@ -2823,7 +2943,7 @@ export default function DebugWorkbench() {
                 ? { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target }
                 : { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target, perspective: sceneOptions.perspective };
               return (
-            <Cam {...camProps}>
+            <Cam key={rendererDebugKey} {...camProps}>
               {sceneOptions.dragMode === "pan" ? (
                 <PolyMapControls
                   drag={sceneOptions.interactive && !gizmoDragging}

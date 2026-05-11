@@ -68,7 +68,7 @@ describe("PolyMeshElement", () => {
 
       // Wait for the async load
       await vi.waitFor(() => {
-        expect(scene.querySelectorAll("i").length).toBeGreaterThan(0);
+        expect(scene.querySelectorAll("i,b,s").length).toBeGreaterThan(0);
       });
     });
 
@@ -79,7 +79,7 @@ describe("PolyMeshElement", () => {
       host.appendChild(mesh);
       // Just verify no throw — give some time for the async load to settle.
       await new Promise((r) => setTimeout(r, 10));
-      expect(host.querySelector("i")).toBeNull();
+      expect(host.querySelector("i,b,s")).toBeNull();
     });
 
     it("noop when src is missing", async () => {
@@ -88,7 +88,7 @@ describe("PolyMeshElement", () => {
       scene.appendChild(mesh);
       host.appendChild(scene);
       await new Promise((r) => setTimeout(r, 10));
-      expect(scene.querySelector("i")).toBeNull();
+      expect(scene.querySelector("i,b,s")).toBeNull();
     });
   });
 
@@ -145,7 +145,7 @@ describe("PolyMeshElement", () => {
       host.appendChild(scene);
 
       await vi.waitFor(() => {
-        expect(scene.querySelectorAll("i").length).toBeGreaterThan(0);
+        expect(scene.querySelectorAll("i,b,s").length).toBeGreaterThan(0);
       });
 
       scene.removeChild(mesh);
@@ -211,7 +211,7 @@ describe("PolyMeshElement", () => {
       host.appendChild(scene);
 
       await vi.waitFor(() => {
-        expect(scene.querySelectorAll("i").length).toBeGreaterThan(0);
+        expect(scene.querySelectorAll("i,b,s").length).toBeGreaterThan(0);
       });
     });
   });

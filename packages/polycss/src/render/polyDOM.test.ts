@@ -37,6 +37,10 @@ function extractMatrix(el: HTMLElement): number[] {
   return match[1].split(",").map(Number);
 }
 
+function roundedMatrix(values: number[], decimals = 3): number[] {
+  return values.map((value) => Number(value.toFixed(decimals)));
+}
+
 function computeExpectedMatrix(
   vertices: [number, number, number][],
   tileSize = 50,
@@ -117,10 +121,11 @@ describe("renderPoly — solid polygons", () => {
     result.dispose();
   });
 
-  it("returns polygon i elements for vertical and off-axis polygons", () => {
+  it("returns rect b elements and polygon i elements", () => {
     const vertical = renderPoly(VERTICAL_QUAD)!;
     const offAxis = renderPoly(OFFAXIS_TRIANGLE)!;
-    expect(vertical.element.tagName.toLowerCase()).toBe("i");
+    expect(vertical.element.tagName.toLowerCase()).toBe("b");
+    expect(vertical.element.className).toBe("");
     expect(offAxis.element.tagName.toLowerCase()).toBe("i");
     vertical.dispose();
     offAxis.dispose();
@@ -188,7 +193,7 @@ describe("renderPoly — matrix math parity", () => {
   it("off-axis triangle matrix3d values match expected", () => {
     const result = renderPoly(OFFAXIS_TRIANGLE)!;
     const actual = extractMatrix(result.element);
-    const expected = computeExpectedMatrix(OFFAXIS_TRIANGLE.vertices as [number, number, number][]);
+    const expected = roundedMatrix(computeExpectedMatrix(OFFAXIS_TRIANGLE.vertices as [number, number, number][]));
     expect(actual.length).toBe(16);
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
@@ -264,11 +269,13 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(0);
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.className).toBe("");
     expect(element.style.getPropertyValue("border-shape")).toContain("polygon(");
-    expect(element.style.boxSizing).toBe("border-box");
-    expect(element.style.borderStyle).toBe("solid");
-    expect(element.style.borderWidth).toBe("1px");
-    expect(element.style.borderColor).not.toBe("");
+    expect(element.style.boxSizing).toBe("");
+    expect(element.style.borderStyle).toBe("");
+    expect(element.style.borderWidth).toBe("");
+    expect(element.style.color).not.toBe("");
     expect(element.style.backgroundImage).toBe("");
     result.dispose();
   });
@@ -355,14 +362,14 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("returns a polygon i element for texture without UVs", () => {
+  it("returns a polygon s element for texture without UVs", () => {
     const texturedPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
       texture: "https://example.com/tex.png",
     };
     const result = renderPolygonsWithTextureAtlas([texturedPoly]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.tagName.toLowerCase()).toBe("s");
     expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.classList.contains("polycss-poly-textured")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
@@ -408,7 +415,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const result = renderPolygonsWithTextureAtlas([obliqueTriangle], { tileSize: 1 });
     const element = result.rendered[0].element;
     const matrix = extractMatrix(element);
-    const expected = computeExpectedMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1);
+    const expected = roundedMatrix(computeExpectedMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1));
 
     expect(parseFloat(element.style.width)).toBe(10);
     expect(parseFloat(element.style.height)).toBe(2);
@@ -470,7 +477,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const isolated = renderPolygonsWithTextureAtlas([bladeFace], { tileSize: 1 });
     const shared = renderPolygonsWithTextureAtlas([bladeFace, bevelFace], { tileSize: 1 });
     const sharedMatrix = extractMatrix(shared.rendered[0].element);
-    const sharedEdgeMatrix = computeExpectedMatrix(bladeFace.vertices as [number, number, number][], 1, 1);
+    const sharedEdgeMatrix = roundedMatrix(computeExpectedMatrix(bladeFace.vertices as [number, number, number][], 1, 1));
 
     const isolatedMatrix = extractMatrix(isolated.rendered[0].element);
     expect(isolatedMatrix[0]).toBeCloseTo(sharedEdgeMatrix[0], 6);
@@ -485,7 +492,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     shared.dispose();
   });
 
-  it("returns a polygon i element for UV-mapped texture", () => {
+  it("returns a polygon s element for UV-mapped texture", () => {
     const uvPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,
       texture: "https://example.com/tex.png",
@@ -493,7 +500,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     };
     const result = renderPolygonsWithTextureAtlas([uvPoly]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.tagName.toLowerCase()).toBe("s");
     expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
     result.dispose();

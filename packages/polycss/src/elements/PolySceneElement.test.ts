@@ -93,7 +93,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("perspective", "2000");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("2000px");
+      expect(sceneEl.style.perspective).toBe("");
     });
 
     it("parses perspective=false as no perspective", () => {
@@ -101,7 +101,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("perspective", "false");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("none");
+      expect(sceneEl.style.perspective).toBe("");
     });
 
     it("parses rot-x and rot-y as numbers", () => {
@@ -110,10 +110,11 @@ describe("PolySceneElement", () => {
       el.setAttribute("rot-y", "60");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.transform).toContain("rotateX(30deg)");
+      const transform = sceneEl.style.getPropertyValue("--scene-transform");
+      expect(transform).toContain("rotateX(30deg)");
       // rotY in our API maps to CSS rotate() (i.e. rotateZ) so the model
       // spins around its vertical world-Z axis, matching React's PolyCamera.
-      expect(sceneEl.style.transform).toContain("rotate(60deg)");
+      expect(transform).toContain("rotate(60deg)");
     });
 
     it("parses zoom as a number", () => {
@@ -121,7 +122,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("zoom", "1.5");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.transform).toContain("scale(1.5)");
+      expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("scale(1.5)");
     });
 
     it("ignores invalid number attribute values", () => {
@@ -129,9 +130,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("perspective", "not-a-number");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      // Falls back to default DEFAULT_PERSPECTIVE (8000) — matches
-      // React's PolyCamera so the same scene looks the same on both paths.
-      expect(sceneEl.style.perspective).toBe("8000px");
+      expect(sceneEl.style.perspective).toBe("");
     });
 
     it("parses directional + ambient light attributes independently", () => {
@@ -168,10 +167,10 @@ describe("PolySceneElement", () => {
       el.setAttribute("rot-x", "0");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      const before = sceneEl.style.transform;
+      const before = sceneEl.style.getPropertyValue("--scene-transform");
       el.setAttribute("rot-x", "90");
-      expect(sceneEl.style.transform).not.toBe(before);
-      expect(sceneEl.style.transform).toContain("rotateX(90deg)");
+      expect(sceneEl.style.getPropertyValue("--scene-transform")).not.toBe(before);
+      expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotateX(90deg)");
     });
 
     it("noop when oldValue === newValue", () => {

@@ -25,6 +25,8 @@ const AUTO_ATLAS_MEDIUM_AREA = AUTO_ATLAS_LOW_AREA * 3;
 const AUTO_ATLAS_MAX_BITMAP_SIDE = 2048;
 const AUTO_ATLAS_MAX_DECODED_BYTES = 16 * 1024 * 1024;
 const AUTO_ATLAS_SCALE_GUARD = 0.995;
+const DEFAULT_MATRIX_DECIMALS = 3;
+const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 
 export type AtlasScale = number | "auto";
 
@@ -125,6 +127,22 @@ function normalizeAtlasScale(scale: number | string | undefined): number {
   const value = typeof scale === "string" ? Number(scale) : scale;
   if (value === undefined || !Number.isFinite(value)) return 1;
   return Math.min(MAX_ATLAS_SCALE, Math.max(MIN_ATLAS_SCALE, value));
+}
+
+function roundDecimal(value: number, decimals: number): string {
+  const next = value.toFixed(decimals).replace(/\.?0+$/, "");
+  return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function formatMatrix3d(matrix: string, decimals = DEFAULT_MATRIX_DECIMALS): string {
+  return `matrix3d(${matrix.split(",").map((value) => {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? roundDecimal(parsed, decimals) : value.trim();
+  }).join(",")})`;
+}
+
+function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
+  return `${roundDecimal(value, decimals)}%`;
 }
 
 function atlasArea(pages: PackedPage[]): number {
@@ -318,7 +336,7 @@ function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
   for (let i = 0; i < entry.screenPts.length; i += 2) {
     const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
     const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
-    pts.push(`${x.toFixed(4)}% ${y.toFixed(4)}%`);
+    pts.push(`${formatPercent(x)} ${formatPercent(y)}`);
   }
   return `polygon(${pts.join(", ")})`;
 }
@@ -333,9 +351,9 @@ function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
   }
   const width = entry.canvasW || 1;
   const height = entry.canvasH || 1;
-  const x = Math.max(0, Math.min(100, (xSum / points / width) * 100)).toFixed(4);
-  const y = Math.max(0, Math.min(100, (ySum / points / height) * 100)).toFixed(4);
-  return `polygon(${Array.from({ length: points }, () => `${x}% ${y}%`).join(", ")})`;
+  const x = formatPercent(Math.max(0, Math.min(100, (xSum / points / width) * 100)));
+  const y = formatPercent(Math.max(0, Math.min(100, (ySum / points / height) * 100)));
+  return `polygon(${Array.from({ length: points }, () => `${x} ${y}`).join(", ")})`;
 }
 
 function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
@@ -868,19 +886,16 @@ export function TextureBorderShapePoly({
     ? {
         width: entry.canvasW,
         height: entry.canvasH,
-        transform: `matrix3d(${entry.matrix})`,
-        backgroundColor: entry.shadedColor,
+        transform: formatMatrix3d(entry.matrix),
+        background: entry.shadedColor,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       }
     : {
         width: entry.canvasW,
         height: entry.canvasH,
-        transform: `matrix3d(${entry.matrix})`,
-        boxSizing: "border-box",
-        borderStyle: "solid",
-        borderWidth: 1,
-        borderColor: entry.shadedColor,
+        transform: formatMatrix3d(entry.matrix),
+        color: entry.shadedColor,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       };
@@ -890,10 +905,19 @@ export function TextureBorderShapePoly({
         Object.entries(entry.polygon.data).map(([k, v]) => [`data-${k}`, String(v)]),
       )
     : {};
-  const elementClassName = [
-    fullRect ? "polycss-solid-css" : "",
-    className?.trim() || "",
-  ].filter(Boolean).join(" ");
+  const elementClassName = className?.trim() || undefined;
+
+  if (fullRect) {
+    return (
+      <b
+        className={elementClassName}
+        style={style}
+        {...domEventHandlers}
+        {...dataAttrs}
+        {...domAttrs}
+      />
+    );
+  }
 
   return (
     <i
@@ -931,19 +955,23 @@ export function TextureAtlasPoly({
   // Dynamic mode: emit ONLY the per-polygon surface normal vars + the
   // alpha mask inline. The calc-driven background-color + blend-mode
   // multiply live in the global stylesheet's
-  // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
-  // each <i>'s style stays tiny (~50 chars instead of ~600 — ~12× smaller
+  // `.polycss-scene[data-polycss-lighting="dynamic"] s { ... }` rule, so
+  // each <s>'s style stays tiny (~50 chars instead of ~600 — ~12× smaller
   // payload on big meshes). The mask still has to be inline because each
   // polygon has its own atlas position/size.
   const dynamicMask = dynamic && page?.url ? `url(${page.url})` : undefined;
+  const background = !dynamic && page?.url
+    ? `url(${page.url}) -${entry.x}px -${entry.y}px / ${page.width}px ${page.height}px no-repeat`
+    : undefined;
 
   const style: CSSProperties = {
     width: entry.canvasW,
     height: entry.canvasH,
-    transform: `matrix3d(${entry.matrix})`,
-    backgroundImage: page?.url ? `url(${page.url})` : undefined,
-    backgroundPosition: `-${entry.x}px -${entry.y}px`,
-    backgroundSize: page ? `${page.width}px ${page.height}px` : undefined,
+    transform: formatMatrix3d(entry.matrix),
+    background,
+    backgroundImage: dynamic && page?.url ? `url(${page.url})` : undefined,
+    backgroundPosition: dynamic ? `-${entry.x}px -${entry.y}px` : undefined,
+    backgroundSize: dynamic && page ? `${page.width}px ${page.height}px` : undefined,
     ...(dynamic
       ? {
           ["--pnx" as string]: entry.normal[0].toFixed(4),
@@ -979,7 +1007,7 @@ export function TextureAtlasPoly({
   const elementClassName = className?.trim() || undefined;
 
   return (
-    <i
+    <s
       className={elementClassName}
       style={style}
       {...domEventHandlers}

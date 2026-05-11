@@ -18,9 +18,27 @@ export function injectPolyBaseStyles(doc?: Document): void {
 const CORE_BASE_STYLES = `
 /* ── Scene container ────────────────────────────────────────────────────── */
 
+.polycss-scene,
+.polycss-scene *,
+.polycss-scene *::before,
+.polycss-scene *::after {
+  box-sizing: border-box;
+}
+
 .polycss-scene {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
   transform-style: preserve-3d;
+  perspective: none;
+  transform: var(--scene-transform);
+}
+
+.polycss-offset {
+  transform-style: preserve-3d;
+  transform: var(--offset-transform);
 }
 
 /* ── Mesh wrapper ───────────────────────────────────────────────────────── */
@@ -28,20 +46,36 @@ const CORE_BASE_STYLES = `
 .polycss-mesh {
   position: absolute;
   transform-style: preserve-3d;
+  transform-origin: var(--origin);
 }
 
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
 
-.polycss-scene i {
-  display: block;
+.polycss-scene b,
+.polycss-scene i,
+.polycss-scene s {
   position: absolute;
-  left: 0;
-  top: 0;
-  font-style: normal;
+  display: block;
   transform-origin: 0 0;
   transform-style: preserve-3d;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: normal;
+  font-style: normal;
+  line-height: 0;
   backface-visibility: hidden;
   background-repeat: no-repeat;
+}
+
+.polycss-scene b {
+}
+
+.polycss-scene i {
+  border-color: currentColor;
+}
+
+.polycss-scene s {
 }
 
 /* ── Gizmo override (createTransformControls) ───────────────────────────── */
@@ -54,7 +88,9 @@ const CORE_BASE_STYLES = `
  * half-culled. Transitions on border-color and background-color smooth
  * the idle / hover / drag alpha changes.
  */
-.polycss-mesh.polycss-transform-gizmo i {
+.polycss-mesh.polycss-transform-gizmo i,
+.polycss-mesh.polycss-transform-gizmo b,
+.polycss-mesh.polycss-transform-gizmo s {
   backface-visibility: visible;
   transition: border-color 150ms ease-out, background-color 150ms ease-out;
 }
@@ -139,7 +175,8 @@ const CORE_BASE_STYLES = `
    Bucketed leaves are skipped — their parent IS .polycss-bucket so they
    inherit the bucket's hoisted lambert (one calc per bucket, not per
    leaf). */
-.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > i {
+.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > i,
+.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > b {
   --plam: max(0, calc(
     var(--pnx) * var(--plx) +
     var(--pny) * var(--ply) +
@@ -150,11 +187,11 @@ const CORE_BASE_STYLES = `
 /* All polys: containment + background-color from lambert (inherited or
    own) and the scene-level light vars. Splitting this from the lambert
    calc above lets bucketed polys skip the dot-product entirely. */
-.polycss-scene[data-polycss-lighting="dynamic"] i {
-  /* Isolate each <i>'s layout/style/paint walks from siblings. Works
+.polycss-scene[data-polycss-lighting="dynamic"] s {
+  /* Isolate each leaf's layout/style/paint walks from siblings. Works
      because the leaf transform-style:preserve-3d was dropped above —
      the 3D context lives on .polycss-scene / .polycss-mesh, not the
-     leaves, so there's nothing inside an <i> that needs to participate
+     leaves, so there's nothing inside a leaf that needs to participate
      in 3D compositing across the contain boundary. */
   contain: strict;
   background-color: rgb(
@@ -168,7 +205,7 @@ const CORE_BASE_STYLES = `
   background-blend-mode: multiply;
 }
 
-.polycss-scene[data-polycss-lighting="dynamic"] i.polycss-solid-css {
+.polycss-scene[data-polycss-lighting="dynamic"] b {
   background-color: rgb(
     calc(255 * var(--psr) * (var(--par) * var(--pai)
          + var(--plr) * var(--pli) * max(0,

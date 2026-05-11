@@ -29,6 +29,9 @@ const AUTO_ATLAS_MEDIUM_AREA = AUTO_ATLAS_LOW_AREA * 3;
 const AUTO_ATLAS_MAX_BITMAP_SIDE = 2048;
 const AUTO_ATLAS_MAX_DECODED_BYTES = 16 * 1024 * 1024;
 const AUTO_ATLAS_SCALE_GUARD = 0.995;
+const RECT_EPS = 1e-3;
+const DEFAULT_MATRIX_DECIMALS = 3;
+const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 
 export type AtlasScale = number | "auto";
 
@@ -128,6 +131,22 @@ function normalizeAtlasScale(scale: number | string | undefined): number {
   const value = typeof scale === "string" ? Number(scale) : scale;
   if (value === undefined || !Number.isFinite(value)) return 1;
   return Math.min(MAX_ATLAS_SCALE, Math.max(MIN_ATLAS_SCALE, value));
+}
+
+function roundDecimal(value: number, decimals: number): string {
+  const next = value.toFixed(decimals).replace(/\.?0+$/, "");
+  return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function formatMatrix3d(matrix: string, decimals = DEFAULT_MATRIX_DECIMALS): string {
+  return `matrix3d(${matrix.split(",").map((value) => {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? roundDecimal(parsed, decimals) : value.trim();
+  }).join(",")})`;
+}
+
+function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
+  return `${roundDecimal(value, decimals)}%`;
 }
 
 function atlasArea(pages: PackedPage[]): number {
@@ -254,6 +273,90 @@ function parseHex(hex: string): RGB {
     g: parseInt(c.slice(2, 4), 16),
     b: parseInt(c.slice(4, 6), 16),
   };
+}
+
+function isFullRectSolid(entry: TextureAtlasPlan): boolean {
+  if (entry.screenPts.length !== 8) return false;
+
+  const xs: number[] = [];
+  const ys: number[] = [];
+  const addUnique = (list: number[], value: number): void => {
+    for (const existing of list) {
+      if (Math.abs(existing - value) <= RECT_EPS) return;
+    }
+    list.push(value);
+  };
+
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    addUnique(xs, entry.screenPts[i]);
+    addUnique(ys, entry.screenPts[i + 1]);
+  }
+  if (xs.length !== 2 || ys.length !== 2) return false;
+
+  xs.sort((a, b) => a - b);
+  ys.sort((a, b) => a - b);
+  if (
+    Math.abs(xs[0]) > RECT_EPS ||
+    Math.abs(ys[0]) > RECT_EPS ||
+    xs[1] - xs[0] <= RECT_EPS ||
+    ys[1] - ys[0] <= RECT_EPS
+  ) {
+    return false;
+  }
+
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    const x = entry.screenPts[i];
+    const y = entry.screenPts[i + 1];
+    const onX = Math.abs(x - xs[0]) <= RECT_EPS || Math.abs(x - xs[1]) <= RECT_EPS;
+    const onY = Math.abs(y - ys[0]) <= RECT_EPS || Math.abs(y - ys[1]) <= RECT_EPS;
+    if (!onX || !onY) return false;
+  }
+
+  return true;
+}
+
+function borderShapeSupported(): boolean {
+  const supportsBorderShape = !!globalThis.CSS?.supports?.(
+    "border-shape",
+    "polygon(0 0, 100% 0, 0 100%) polygon(50% 50%, 50% 50%, 50% 50%)",
+  );
+  if (!supportsBorderShape) return false;
+
+  const media = globalThis.matchMedia;
+  if (typeof media !== "function") return true;
+
+  return media("(pointer: fine)").matches && media("(hover: hover)").matches;
+}
+
+function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
+  const pts: string[] = [];
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
+    const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
+    pts.push(`${formatPercent(x)} ${formatPercent(y)}`);
+  }
+  return `polygon(${pts.join(", ")})`;
+}
+
+function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
+  let xSum = 0;
+  let ySum = 0;
+  const points = Math.max(1, entry.screenPts.length / 2);
+  for (let i = 0; i < entry.screenPts.length; i += 2) {
+    xSum += entry.screenPts[i];
+    ySum += entry.screenPts[i + 1];
+  }
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  const x = formatPercent(Math.max(0, Math.min(100, (xSum / points / width) * 100)));
+  const y = formatPercent(Math.max(0, Math.min(100, (ySum / points / height) * 100)));
+  return `polygon(${Array.from({ length: points }, () => `${x} ${y}`).join(", ")})`;
+}
+
+function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
+  return `${cssPolygonShapeForPlan(entry)} ${cssCollapsedInnerShapeForPlan(entry)}`;
 }
 
 function rgbToHex({ r, g, b }: RGB): string {
@@ -696,7 +799,16 @@ export function useTextureAtlas(
   textureLighting: ComputedRef<PolyTextureLightingMode>,
   atlasScale: ComputedRef<AtlasScale | undefined> = computed(() => undefined),
 ): TextureAtlasResult {
-  const atlasState = computed(() => packTextureAtlasPlansWithScale(plans.value, atlasScale.value));
+  const atlasState = computed(() => {
+    const useBorderShape = textureLighting.value !== "dynamic" && borderShapeSupported();
+    const atlasPlans = plans.value.map((plan) => {
+      if (!plan) return plan;
+      if (plan.texture) return plan;
+      if (textureLighting.value !== "dynamic" && (useBorderShape || isFullRectSolid(plan))) return null;
+      return plan;
+    });
+    return packTextureAtlasPlansWithScale(atlasPlans, atlasScale.value);
+  });
   const pages = ref<TextureAtlasPage[]>(
     atlasState.value.packed.pages.map((page) => ({ width: page.width, height: page.height, url: null })),
   );
@@ -779,19 +891,23 @@ export function renderTextureAtlasPoly({
   // Dynamic mode: emit ONLY the per-polygon surface normal vars + the
   // alpha mask inline. The calc-driven background-color + blend-mode
   // multiply live in the global stylesheet's
-  // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
-  // each <i>'s style stays tiny (~50 chars instead of ~600 — ~12× smaller
+  // `.polycss-scene[data-polycss-lighting="dynamic"] s { ... }` rule, so
+  // each <s>'s style stays tiny (~50 chars instead of ~600 — ~12× smaller
   // payload on big meshes). The mask still has to be inline because each
   // polygon has its own atlas position/size.
   const dynamicMask = dynamic && page?.url ? `url(${page.url})` : undefined;
+  const background = !dynamic && page?.url
+    ? `url(${page.url}) -${entry.x}px -${entry.y}px / ${page.width}px ${page.height}px no-repeat`
+    : undefined;
 
   const style: CSSProperties = {
     width: `${entry.canvasW}px`,
     height: `${entry.canvasH}px`,
-    transform: `matrix3d(${entry.matrix})`,
-    backgroundImage: page?.url ? `url(${page.url})` : undefined,
-    backgroundPosition: `-${entry.x}px -${entry.y}px`,
-    backgroundSize: page ? `${page.width}px ${page.height}px` : undefined,
+    transform: formatMatrix3d(entry.matrix),
+    background,
+    backgroundImage: dynamic && page?.url ? `url(${page.url})` : undefined,
+    backgroundPosition: dynamic ? `-${entry.x}px -${entry.y}px` : undefined,
+    backgroundSize: dynamic && page ? `${page.width}px ${page.height}px` : undefined,
     ...(dynamic
       ? {
           "--pnx": entry.normal[0].toFixed(4),
@@ -824,7 +940,56 @@ export function renderTextureAtlasPoly({
     : {};
   const elementClassName = className?.trim() || undefined;
 
-  return h("i", {
+  return h("s", {
+    class: elementClassName,
+    style,
+    ...dataAttrs,
+    ...domAttrs,
+  });
+}
+
+export function renderTextureBorderShapePoly({
+  entry,
+  className,
+  style: styleProp,
+  domAttrs,
+  pointerEvents = "auto",
+}: {
+  entry: TextureAtlasPlan;
+  className?: string;
+  style?: CSSProperties;
+  domAttrs?: Record<string, unknown>;
+  pointerEvents?: "auto" | "none";
+}): VNode {
+  const fullRect = isFullRectSolid(entry);
+  const borderShape = fullRect ? null : cssBorderShapeForPlan(entry);
+  const style: CSSProperties = fullRect
+    ? {
+        width: `${entry.canvasW}px`,
+        height: `${entry.canvasH}px`,
+        transform: formatMatrix3d(entry.matrix),
+        background: entry.shadedColor,
+        pointerEvents: pointerEvents === "none" ? "none" : undefined,
+        ...styleProp,
+      }
+    : {
+        width: `${entry.canvasW}px`,
+        height: `${entry.canvasH}px`,
+        transform: formatMatrix3d(entry.matrix),
+        color: entry.shadedColor,
+        borderShape: borderShape ?? undefined,
+        pointerEvents: pointerEvents === "none" ? "none" : undefined,
+        ...styleProp,
+      };
+
+  const dataAttrs = entry.polygon.data
+    ? Object.fromEntries(
+        Object.entries(entry.polygon.data).map(([k, v]) => [`data-${k}`, String(v)]),
+      )
+    : {};
+  const elementClassName = className?.trim() || undefined;
+
+  return h(fullRect ? "b" : "i", {
     class: elementClassName,
     style,
     ...dataAttrs,

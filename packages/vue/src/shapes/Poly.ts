@@ -13,6 +13,7 @@ import type { CSSProperties, PropType } from "vue";
 import type { PolyDirectionalLight, PolyTextureLightingMode, Vec2, Vec3, PolyMaterial } from "@layoutit/polycss-core";
 import {
   computeTextureAtlasPlan,
+  renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
   useTextureAtlas,
   type AtlasScale,
@@ -191,6 +192,9 @@ export const Poly = defineComponent({
     const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 
     return () => {
+      const atlasEntry = textureAtlas.entries.value[0];
+      const atlasPlan = textureAtlasPlans.value[0];
+      if (!atlasEntry && (!atlasPlan || atlasPlan.texture)) return null;
       const transformParts: string[] = [];
       if (props.position) {
         transformParts.push(
@@ -242,6 +246,14 @@ export const Poly = defineComponent({
           entry: atlasEntry,
           page: textureAtlas.pages.value[atlasEntry.pageIndex],
           textureLighting: atlasTextureLighting.value,
+          className: (forwardedAttrs.class as string) ?? undefined,
+          style: forwardedAttrs.style as CSSProperties | undefined,
+          domAttrs: forwardedDomAttrs,
+          pointerEvents: props.pointerEvents ?? "auto",
+        });
+      } else {
+        front = renderTextureBorderShapePoly({
+          entry: atlasPlan,
           className: (forwardedAttrs.class as string) ?? undefined,
           style: forwardedAttrs.style as CSSProperties | undefined,
           domAttrs: forwardedDomAttrs,

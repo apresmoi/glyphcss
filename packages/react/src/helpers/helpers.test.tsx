@@ -26,7 +26,7 @@ function renderHelper(node: React.ReactElement): HTMLElement {
 describe("PolyAxesHelper", () => {
   it("renders 18 polygon elements (6 quads × 3 axes)", () => {
     const container = renderHelper(<PolyAxesHelper size={4} />);
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(18);
   });
 
@@ -39,7 +39,7 @@ describe("PolyAxesHelper", () => {
     // Negative just stretches the bars from -size..+size; the face count is
     // unchanged (still 6 per axis).
     const container = renderHelper(<PolyAxesHelper negative />);
-    expect(container.querySelectorAll("i").length).toBe(18);
+    expect(container.querySelectorAll("i,b,s").length).toBe(18);
   });
 });
 

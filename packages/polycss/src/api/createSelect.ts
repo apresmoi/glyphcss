@@ -51,14 +51,14 @@ export interface SelectionHandle {
   destroy(): void;
 }
 
-/** Test whether `(clientX, clientY)` falls inside any `<i>` polygon
+/** Test whether `(clientX, clientY)` falls inside any polygon leaf
  *  child of `meshEl`'s post-3D bounding rect. */
 function pointInMeshElement(
   meshEl: HTMLElement,
   clientX: number,
   clientY: number,
 ): boolean {
-  const polys = Array.from(meshEl.querySelectorAll("i")) as HTMLElement[];
+  const polys = Array.from(meshEl.querySelectorAll("i,b,s")) as HTMLElement[];
   for (const p of polys) {
     const r = p.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;

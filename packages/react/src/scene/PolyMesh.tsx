@@ -412,8 +412,6 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   }, [effectiveTextureLighting, rotation, sceneDirectionalLight]);
 
   const wrapperStyle: CSSProperties = {
-    position: "absolute",
-    transformStyle: "preserve-3d",
     transform,
     ...dynamicLightOverride,
     ...style,

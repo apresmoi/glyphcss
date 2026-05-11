@@ -33,14 +33,28 @@ describe("injectPolyBaseStyles", () => {
     expect(el.textContent).toContain(".polycss-camera");
   });
 
-  it("puts static polygon rendering defaults in .polycss-scene i", () => {
+  it("puts static polygon rendering defaults on polygon leaf tags", () => {
     injectPolyBaseStyles(document);
     const el = document.getElementById("polycss-styles")!;
     expect(el.textContent).toContain(".polycss-scene i");
+    expect(el.textContent).toContain(".polycss-scene b");
+    expect(el.textContent).toContain(".polycss-scene s");
+    expect(el.textContent).toContain("quotes: none");
+    expect(el.textContent).toContain("font-weight: normal");
+    expect(el.textContent).toContain("text-decoration: none");
+    expect(el.textContent).toContain("box-sizing: border-box");
     expect(el.textContent).toContain("font-style: normal");
     expect(el.textContent).toContain("transform-origin: 0 0");
     expect(el.textContent).toContain("backface-visibility: hidden");
     expect(el.textContent).toContain("background-repeat: no-repeat");
+  });
+
+  it("does not require border-shape utility classes", () => {
+    injectBaseStyles(document);
+    const el = document.getElementById("polycss-styles")!;
+    expect(el.textContent).not.toContain("polycss-border-shape");
+    expect(el.textContent).not.toContain("polycss-solid-css");
+    expect(el.textContent).not.toContain("polycss-solid-triangle");
   });
 
   it("does nothing when doc is null-ish", () => {

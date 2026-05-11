@@ -46,7 +46,7 @@ function renderPoly(props: Partial<PolyProps> & { vertices: [number, number, num
 }
 
 function getPoly(container: HTMLElement): HTMLElement {
-  const poly = container.querySelector("i") as HTMLElement | null;
+  const poly = container.querySelector("i,b,s") as HTMLElement | null;
   expect(poly).toBeTruthy();
   return poly!;
 }
@@ -94,7 +94,7 @@ describe("Poly — solid color polygon", () => {
         [1, 0, 0],
       ],
     });
-    expect(container.querySelector("i")).toBeNull();
+    expect(container.querySelector("i,b,s")).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 
@@ -106,16 +106,17 @@ describe("Poly — solid color polygon", () => {
         [2, 0, 0],
       ],
     });
-    expect(container.querySelector("i")).toBeNull();
+    expect(container.querySelector("i,b,s")).toBeNull();
   });
 });
 
 describe("Poly — non-horizontal geometry", () => {
-  it("renders a vertical quad as a polygon i element", () => {
+  it("renders a vertical quad as a plain rect b element", () => {
     const container = renderPoly({ vertices: VERTICAL_QUAD_VERTS });
-    const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
-    expect(poly.style.transform).toContain("matrix3d(");
+    const poly = container.querySelector("b") as HTMLElement | null;
+    expect(poly).toBeTruthy();
+    expect(poly?.className).toBe("");
+    expect(poly!.style.transform).toContain("matrix3d(");
   });
 
   it("renders an off-axis triangle as a polygon i element", () => {
@@ -127,13 +128,13 @@ describe("Poly — non-horizontal geometry", () => {
 });
 
 describe("Poly — texture without UVs", () => {
-  it("renders a polygon i element", () => {
+  it("renders a polygon s element", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
     });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("s");
   });
 
   it("does not use CSS filter for baked texture lighting", () => {
@@ -160,11 +161,12 @@ describe("Poly — border-shape", () => {
   it("renders solid non-rect polygons with border-shape when supported", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
     const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("i");
     expect(poly.className).toBe("");
-    expect(poly.style.boxSizing).toBe("border-box");
-    expect(poly.style.borderStyle).toBe("solid");
-    expect(poly.style.borderWidth).toBe("1px");
-    expect(poly.style.borderColor).not.toBe("");
+    expect(poly.style.boxSizing).toBe("");
+    expect(poly.style.borderStyle).toBe("");
+    expect(poly.style.borderWidth).toBe("");
+    expect(poly.style.color).not.toBe("");
     expect(poly.style.getPropertyValue("border-shape")).toContain("polygon(");
     expect(poly.style.backgroundImage).toBe("");
   });
@@ -178,7 +180,7 @@ describe("Poly — border-shape", () => {
     expect(poly.style.boxSizing).toBe("");
     expect(poly.style.borderStyle).toBe("");
     expect(poly.style.borderWidth).toBe("");
-    expect(poly.style.borderColor).toBe("");
+    expect(poly.style.color).toBe("");
     expect(poly.style.backgroundClip).toBe("");
   });
 
@@ -216,14 +218,14 @@ describe("Poly — UV-mapped texture", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a polygon i element when uvs + texture are provided", () => {
+  it("renders a polygon s element when uvs + texture are provided", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE_VERTS,
       texture: "https://example.com/tex.png",
       uvs: [[0, 0], [1, 0], [0, 1]],
     });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("s");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 

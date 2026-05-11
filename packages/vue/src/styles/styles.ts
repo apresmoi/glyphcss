@@ -11,9 +11,27 @@ export function injectPolyBaseStyles(doc: Document = typeof document !== "undefi
 const CORE_BASE_STYLES = `
 /* ── Scene container ────────────────────────────────────────────────────── */
 
+.polycss-scene,
+.polycss-scene *,
+.polycss-scene *::before,
+.polycss-scene *::after {
+  box-sizing: border-box;
+}
+
 .polycss-scene {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
   transform-style: preserve-3d;
+  perspective: none;
+  transform: var(--scene-transform);
+}
+
+.polycss-offset {
+  transform-style: preserve-3d;
+  transform: var(--offset-transform);
 }
 
 /* ── Camera wrapper (perspective + interactive drag) ────────────────────── */
@@ -43,16 +61,35 @@ const CORE_BASE_STYLES = `
  * The element is positioned absolutely within the scene root; its
  * transform: matrix3d(...) carries the full world-space placement.
  */
-.polycss-scene i {
-  display: block;
+.polycss-scene b,
+.polycss-scene i,
+.polycss-scene s {
   position: absolute;
-  left: 0;
-  top: 0;
-  font-style: normal;
+  display: block;
   transform-origin: 0 0;
   transform-style: preserve-3d;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: normal;
+  font-style: normal;
+  line-height: 0;
+  quotes: none;
+  text-decoration: none;
   backface-visibility: hidden;
   background-repeat: no-repeat;
+}
+
+.polycss-scene b {
+}
+
+.polycss-scene i {
+  border-style: solid;
+  border-width: 1px;
+  border-color: currentColor;
+}
+
+.polycss-scene s {
 }
 
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
@@ -90,7 +127,7 @@ const CORE_BASE_STYLES = `
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
    here (not inline per polygon) so each <i> only carries its tiny normal
    declarations — ~12× smaller per-polygon style payload on big meshes. */
-.polycss-scene[data-polycss-lighting="dynamic"] i {
+.polycss-scene[data-polycss-lighting="dynamic"] s {
   background-color: rgb(
     calc(255 * (var(--par) * var(--pai)
          + var(--plr) * var(--pli) * max(0,

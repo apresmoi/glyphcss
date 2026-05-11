@@ -40,7 +40,7 @@ function renderInScene(helper: Component, helperProps: Record<string, unknown> =
 describe("PolyAxesHelper (Vue)", () => {
   it("renders 18 polygon elements (6 quads × 3 axes)", () => {
     const { container } = renderInScene(PolyAxesHelper, { size: 4 });
-    expect(container.querySelectorAll("i").length).toBe(18);
+    expect(container.querySelectorAll("i,b,s").length).toBe(18);
   });
 
   it("wraps polygons inside a .polycss-mesh wrapper", () => {
@@ -50,7 +50,7 @@ describe("PolyAxesHelper (Vue)", () => {
 
   it("keeps the polygon count at 18 even with negative axes (longer bars, same face count)", () => {
     const { container } = renderInScene(PolyAxesHelper, { negative: true });
-    expect(container.querySelectorAll("i").length).toBe(18);
+    expect(container.querySelectorAll("i,b,s").length).toBe(18);
   });
 });
 

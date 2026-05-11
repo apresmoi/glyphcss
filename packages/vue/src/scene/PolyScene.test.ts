@@ -83,11 +83,12 @@ describe("PolyScene (Vue) — basic rendering", () => {
     expect(scene?.getAttribute("data-polycss-lighting")).toBe("baked");
   });
 
-  it("scene is positioned at top:50% left:50%", () => {
+  it("scene leaves anchor positioning to base CSS", () => {
     const { container } = renderScene();
     const scene = container.querySelector(".polycss-scene") as HTMLElement;
-    expect(scene.style.top).toBe("50%");
-    expect(scene.style.left).toBe("50%");
+    expect(scene.style.top).toBe("");
+    expect(scene.style.left).toBe("");
+    expect(scene.style.getPropertyValue("--scene-transform")).toContain("scale(");
   });
 });
 
@@ -110,26 +111,26 @@ describe("PolyScene (Vue) — polygon rendering", () => {
 
   it("renders multiple polygons", () => {
     const { container } = renderScene({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(2);
   });
 
-  it("renders textured polygons as polygon i elements", () => {
+  it("renders textured polygons as polygon s elements", () => {
     const { container } = renderScene({ polygons: [TEXTURED_TRIANGLE] });
-    const poly = container.querySelector("i");
+    const poly = container.querySelector("s");
     expect(poly).toBeTruthy();
-    expect(poly?.tagName.toLowerCase()).toBe("i");
+    expect(poly?.tagName.toLowerCase()).toBe("s");
   });
 
   it("renders no poly elements when polygons prop is empty", () => {
     const { container } = renderScene({ polygons: [] });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(0);
   });
 
   it("renders no poly elements when polygons prop is omitted", () => {
     const { container } = renderScene({});
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(0);
   });
 });
@@ -148,7 +149,7 @@ describe("PolyScene (Vue) — autoCenter", () => {
     const scene = container.querySelector(".polycss-scene");
     const children = Array.from(scene?.children ?? []);
     const hasTranslate = children.some((el) =>
-      (el as HTMLElement).style.transform?.includes("translate3d")
+      (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d")
     );
     expect(hasTranslate).toBe(true);
   });
@@ -161,7 +162,7 @@ describe("PolyScene (Vue) — autoCenter", () => {
     const scene = container.querySelector(".polycss-scene");
     const children = Array.from(scene?.children ?? []);
     const hasTranslate = children.some((el) =>
-      (el as HTMLElement).style.transform?.includes("translate3d")
+      (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d")
     );
     expect(hasTranslate).toBe(false);
   });
@@ -173,10 +174,10 @@ describe("PolyScene (Vue) — autoCenter", () => {
     });
     const scene = container.querySelector(".polycss-scene");
     const wrapper = Array.from(scene?.children ?? []).find((el) =>
-      (el as HTMLElement).style.transform?.includes("translate3d")
+      (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d")
     ) as HTMLElement | undefined;
     expect(wrapper).toBeTruthy();
-    expect(wrapper!.style.transform).not.toBe("translate3d(0px, 0px, 0px)");
+    expect(wrapper!.style.getPropertyValue("--offset-transform")).not.toBe("translate3d(0px, 0px, 0px)");
   });
 });
 
@@ -208,7 +209,7 @@ describe("PolyScene (Vue) — automatic merge", () => {
     const { container } = renderScene({
       polygons: [TRIANGLE, QUAD],
     });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(2);
   });
 
@@ -224,7 +225,7 @@ describe("PolyScene (Vue) — automatic merge", () => {
     const { container } = renderScene({
       polygons: [tri1, tri2],
     });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(1);
   });
 });

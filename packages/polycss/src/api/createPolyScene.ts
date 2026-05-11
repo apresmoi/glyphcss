@@ -306,13 +306,14 @@ export function createPolyScene(
   const doc = host.ownerDocument ?? document;
   const sceneEl = doc.createElement("div");
   sceneEl.className = "polycss-scene";
+  sceneEl.setAttribute("aria-hidden", "true");
   // 0×0 anchor at the host's visible center. Polygons render around it.
   applySceneStyle(sceneEl, currentOptions);
 
   // autoCenter wrapper: a child div translated so the union mesh bbox
   // center coincides with the scene anchor (world (0,0,0)).
   const centerWrapper = doc.createElement("div");
-  centerWrapper.style.transformStyle = "preserve-3d";
+  centerWrapper.className = "polycss-offset";
   // Wrapper is always present so meshes append into a stable parent.
   // When autoCenter is off, transform stays empty (identity).
   sceneEl.appendChild(centerWrapper);
@@ -336,16 +337,7 @@ export function createPolyScene(
   const meshes = new Set<MeshEntry>();
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
-    el.style.position = "absolute";
-    el.style.top = "50%";
-    el.style.left = "50%";
-    el.style.width = "0";
-    el.style.height = "0";
-    el.style.transformStyle = "preserve-3d";
-    el.style.perspective = opts.perspective === false
-      ? "none"
-      : `${opts.perspective ?? DEFAULT_PERSPECTIVE}px`;
-    el.style.transform = buildSceneTransform(opts);
+    el.style.setProperty("--scene-transform", buildSceneTransform(opts));
     applyDynamicLightVars(el, opts);
   }
 
@@ -514,7 +506,7 @@ export function createPolyScene(
 
   function recomputeAutoCenter(): void {
     if (!currentOptions.autoCenter) {
-      centerWrapper.style.transform = "";
+      centerWrapper.style.removeProperty("--offset-transform");
       return;
     }
     // Combine all live mesh polygons into a single bbox. Helper meshes
@@ -525,7 +517,7 @@ export function createPolyScene(
       if (!m.disposed && !m.excludeFromAutoCenter) all.push(...m.polygons);
     }
     if (all.length === 0) {
-      centerWrapper.style.transform = "";
+      centerWrapper.style.removeProperty("--offset-transform");
       return;
     }
     const bbox = computeSceneBbox(all);
@@ -534,15 +526,13 @@ export function createPolyScene(
     const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * tile;
     const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * tile;
     const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * tile;
-    centerWrapper.style.transform = `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    centerWrapper.style.setProperty("--offset-transform", `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`);
   }
 
   function add(parseResult: ParseResult, transformIn: MeshTransform = {}): MeshHandle {
     const mountDoc = sceneEl.ownerDocument ?? document;
     const wrapper = mountDoc.createElement("div");
     wrapper.className = "polycss-mesh";
-    wrapper.style.position = "absolute";
-    wrapper.style.transformStyle = "preserve-3d";
     if (transformIn.id) wrapper.setAttribute("data-poly-mesh-id", transformIn.id);
 
     let transform: MeshTransform = { ...transformIn };
@@ -565,7 +555,7 @@ export function createPolyScene(
     // setTransform({rotation}) behave intuitively.
     function applyTransformOrigin(polygons: Polygon[]): void {
       if (polygons.length === 0) {
-        wrapper.style.transformOrigin = "";
+        wrapper.style.removeProperty("--origin");
         return;
       }
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -581,14 +571,14 @@ export function createPolyScene(
         }
       }
       if (!Number.isFinite(minX)) {
-        wrapper.style.transformOrigin = "";
+        wrapper.style.removeProperty("--origin");
         return;
       }
       // World→CSS axis remap (matches polygonGeometry / autoCenter).
       const cssX = ((minY + maxY) / 2) * DEFAULT_TILE;
       const cssY = ((minX + maxX) / 2) * DEFAULT_TILE;
       const cssZ = ((minZ + maxZ) / 2) * DEFAULT_TILE;
-      wrapper.style.transformOrigin = `${cssX}px ${cssY}px ${cssZ}px`;
+      wrapper.style.setProperty("--origin", `${cssX}px ${cssY}px ${cssZ}px`);
     }
     applyTransformOrigin(sourcePolygons);
 

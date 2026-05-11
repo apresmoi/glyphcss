@@ -38,13 +38,13 @@ describe("PolyAxesHelperElement", () => {
     expect(customElements.get("poly-axes-helper")).toBe(PolyAxesHelperElement);
   });
 
-  it("renders 18 polygon <i> elements inside the scene's mesh wrapper", () => {
+  it("renders 18 polygon leaf elements inside the scene's mesh wrapper", () => {
     host.innerHTML = `
       <poly-scene>
         <poly-axes-helper size="4"></poly-axes-helper>
       </poly-scene>
     `;
-    const polys = host.querySelectorAll(".polycss-scene .polycss-mesh i");
+    const polys = host.querySelectorAll(".polycss-scene .polycss-mesh i, .polycss-scene .polycss-mesh b, .polycss-scene .polycss-mesh s");
     expect(polys.length).toBe(18);
   });
 

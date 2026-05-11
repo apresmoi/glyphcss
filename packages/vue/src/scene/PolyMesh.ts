@@ -24,6 +24,7 @@ import { usePolyMesh } from "./useMesh";
 import {
   computeTextureAtlasPlan,
   type AtlasScale,
+  renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -294,8 +295,6 @@ export const PolyMesh = defineComponent({
     return () => {
       const transform = buildTransform(props.position, props.scale, props.rotation);
       const wrapperStyle: CSSProperties = {
-        position: "absolute",
-        transformStyle: "preserve-3d",
         transform,
         ...(dynamicLightOverride.value as CSSProperties | null ?? undefined),
         ...(attrs.style as CSSProperties | undefined),
@@ -416,14 +415,18 @@ export const PolyMesh = defineComponent({
       // Build polygon nodes: use `polygon` scoped slot if provided, else auto-render atlas elements.
       const polyNodes: Array<VNode | null> = slots.polygon
         ? polys.map((p, i) => h("template", { key: i }, slots.polygon?.({ polygon: p, index: i })))
-        : textureAtlas.entries.value.map((entry) =>
+        : textureAtlas.entries.value.map((entry, index) =>
             entry
               ? renderTextureAtlasPoly({
                   entry,
                   page: textureAtlas.pages.value[entry.pageIndex],
                   textureLighting: atlasTextureLighting.value,
                 })
-              : null
+              : textureAtlasPlans.value[index] && !textureAtlasPlans.value[index]?.texture
+                ? renderTextureBorderShapePoly({
+                    entry: textureAtlasPlans.value[index]!,
+                  })
+                : null
           );
 
       // Static default slot children (e.g. additional <PolyMesh> children)

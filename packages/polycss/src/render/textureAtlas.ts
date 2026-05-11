@@ -179,6 +179,8 @@ const SURFACE_DISTANCE_EPS = 0.1;
 const TEXTURE_TRIANGLE_BLEED = 0.75;
 const TEXTURE_SEAM_BLEED = 0;
 const SOLID_TRIANGLE_BLEED = 0.45;
+const DEFAULT_MATRIX_DECIMALS = 3;
+const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -207,6 +209,19 @@ function normalizeAtlasScale(scale: number | string | undefined): number {
   const value = typeof scale === "string" ? Number(scale) : scale;
   if (value === undefined || !Number.isFinite(value)) return 1;
   return Math.min(MAX_ATLAS_SCALE, Math.max(MIN_ATLAS_SCALE, value));
+}
+
+function roundDecimal(value: number, decimals: number): string {
+  const next = value.toFixed(decimals).replace(/\.?0+$/, "");
+  return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function formatMatrix3dValues(values: readonly number[], decimals = DEFAULT_MATRIX_DECIMALS): string {
+  return values.map((value) => roundDecimal(value, decimals)).join(",");
+}
+
+function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
+  return `${roundDecimal(value, decimals)}%`;
 }
 
 function atlasArea(pages: PackedPage[]): number {
@@ -1050,12 +1065,12 @@ function computeTextureAtlasPlan(
   const tx = p0[0] - shiftX * xAxis[0] - shiftY * yAxis[0];
   const ty = p0[1] - shiftX * xAxis[1] - shiftY * yAxis[1];
   const tz = p0[2] - shiftX * xAxis[2] - shiftY * yAxis[2];
-  const matrix = [
+  const matrix = formatMatrix3dValues([
     xAxis[0], xAxis[1], xAxis[2], 0,
     yAxis[0], yAxis[1], yAxis[2], 0,
     normal[0], normal[1], normal[2], 0,
     tx, ty, tz, 1,
-  ].join(",");
+  ]);
 
   const directionalCfg = options.directionalLight;
   const ambientCfg = options.ambientLight;
@@ -1207,12 +1222,12 @@ function computeSolidTrianglePlan(
   const tx = cv[0] - leftPx * xAxis[0] - bleed * yAxis[0];
   const ty = cv[1] - leftPx * xAxis[1] - bleed * yAxis[1];
   const tz = cv[2] - leftPx * xAxis[2] - bleed * yAxis[2];
-  const matrix = [
+  const matrix = formatMatrix3dValues([
     xAxis[0], xAxis[1], xAxis[2], 0,
     yAxis[0], yAxis[1], yAxis[2], 0,
     normal[0], normal[1], normal[2], 0,
     tx, ty, tz, 1,
-  ].join(",");
+  ]);
 
   const directionalCfg = options.directionalLight;
   const ambientCfg = options.ambientLight;
@@ -1465,16 +1480,20 @@ function applyAtlasBackground(
   entry: PackedTextureAtlasEntry,
 ): void {
   if (!page.url) return;
-  el.style.backgroundImage = `url(${page.url})`;
-  el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
-  el.style.backgroundSize = `${page.width}px ${page.height}px`;
+  const url = `url(${page.url})`;
+  const pos = `-${entry.x}px -${entry.y}px`;
+  const size = `${page.width}px ${page.height}px`;
+  if (textureLighting === "dynamic") {
+    el.style.backgroundImage = url;
+    el.style.backgroundPosition = pos;
+    el.style.backgroundSize = size;
+  } else {
+    el.style.background = `${url} ${pos} / ${size} no-repeat`;
+  }
   // Dynamic mode also masks the entire <i> by the atlas image so the
   // background-color tint only paints inside the polygon shape (W3C
   // multiply with transparent backdrop reduces to source).
   if (textureLighting === "dynamic") {
-    const url = `url(${page.url})`;
-    const pos = `-${entry.x}px -${entry.y}px`;
-    const size = `${page.width}px ${page.height}px`;
     el.style.maskImage = url;
     el.style.maskMode = "alpha";
     el.style.maskPosition = pos;
@@ -1603,7 +1622,7 @@ function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
   for (let i = 0; i < entry.screenPts.length; i += 2) {
     const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
     const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
-    pts.push(`${x.toFixed(4)}% ${y.toFixed(4)}%`);
+    pts.push(`${formatPercent(x)} ${formatPercent(y)}`);
   }
   return `polygon(${pts.join(", ")})`;
 }
@@ -1618,9 +1637,9 @@ function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
   }
   const width = entry.canvasW || 1;
   const height = entry.canvasH || 1;
-  const x = Math.max(0, Math.min(100, (xSum / points / width) * 100)).toFixed(4);
-  const y = Math.max(0, Math.min(100, (ySum / points / height) * 100)).toFixed(4);
-  return `polygon(${Array.from({ length: points }, () => `${x}% ${y}%`).join(", ")})`;
+  const x = formatPercent(Math.max(0, Math.min(100, (xSum / points / width) * 100)));
+  const y = formatPercent(Math.max(0, Math.min(100, (ySum / points / height) * 100)));
+  return `polygon(${Array.from({ length: points }, () => `${x} ${y}`).join(", ")})`;
 }
 
 function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
@@ -1639,7 +1658,7 @@ function applySolidPaint(
     el.style.setProperty("--psg", (base.g / 255).toFixed(4));
     el.style.setProperty("--psb", (base.b / 255).toFixed(4));
   } else {
-    el.style.backgroundColor = entry.shadedColor;
+    el.style.background = entry.shadedColor;
   }
 }
 
@@ -1648,9 +1667,8 @@ function createSolidElement(
   textureLighting: PolyTextureLightingMode,
   doc: Document,
 ): HTMLElement {
-  const el = doc.createElement("i");
+  const el = doc.createElement("b");
   applyPlanElementBase(el, entry);
-  el.classList.add("polycss-solid-css");
   applySolidPaint(el, entry, textureLighting);
 
   return el;
@@ -1662,10 +1680,7 @@ function createBorderShapeSolidElement(
 ): HTMLElement {
   const el = doc.createElement("i");
   applyPlanElementBase(el, entry);
-  el.style.boxSizing = "border-box";
-  el.style.borderStyle = "solid";
-  el.style.borderWidth = "1px";
-  el.style.borderColor = entry.shadedColor;
+  el.style.color = entry.shadedColor;
   el.style.setProperty("border-shape", cssBorderShapeForPlan(entry));
 
   return el;
@@ -1676,7 +1691,7 @@ function createAtlasElement(
   textureLighting: PolyTextureLightingMode,
   doc: Document,
 ): HTMLElement {
-  const el = doc.createElement("i");
+  const el = doc.createElement("s");
   applyPlanElementBase(el, entry);
   el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
   el.style.opacity = "0";
@@ -1812,7 +1827,6 @@ function createSolidTriangleElement(
   doc: Document,
 ): HTMLElement {
   const el = doc.createElement("i");
-  el.classList.add("polycss-solid-triangle");
   clearAtlasImageStyles(el);
   applySolidTriangleElement(el, entry);
   applyPolygonDataAttrs(el, entry.polygon);

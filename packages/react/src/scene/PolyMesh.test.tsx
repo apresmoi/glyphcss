@@ -84,26 +84,26 @@ describe("PolyMesh — with polygons prop", () => {
 
   it("renders polygon i elements for each polygon", () => {
     const container = renderMesh({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(2);
   });
 
   it("renders no poly elements for empty polygons array", () => {
     const container = renderMesh({ polygons: [] });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(0);
   });
 
-  it("mesh wrapper has position absolute", () => {
+  it("mesh wrapper leaves position to base CSS", () => {
     const container = renderMesh({ polygons: [TRIANGLE] });
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(mesh.style.position).toBe("absolute");
+    expect(mesh.style.position).toBe("");
   });
 
-  it("mesh wrapper has transformStyle preserve-3d", () => {
+  it("mesh wrapper leaves transformStyle to base CSS", () => {
     const container = renderMesh({ polygons: [TRIANGLE] });
     const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
-    expect(mesh.style.transformStyle).toBe("preserve-3d");
+    expect(mesh.style.transformStyle).toBe("");
   });
 
   it("applies custom className to mesh wrapper", () => {
@@ -174,13 +174,13 @@ describe("PolyMesh — autoCenter", () => {
   it("autoCenter=true recenters polygon vertices", () => {
     // QUAD centroid is at (1, 1, 1) so recentered vertices should shift
     const container = renderMesh({ polygons: [QUAD], autoCenter: true });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(1);
   });
 
   it("autoCenter=false leaves vertices unmodified", () => {
     const container = renderMesh({ polygons: [QUAD], autoCenter: false });
-    const polys = container.querySelectorAll("i");
+    const polys = container.querySelectorAll("i,b,s");
     expect(polys.length).toBe(1);
   });
 });

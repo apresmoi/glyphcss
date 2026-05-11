@@ -68,7 +68,7 @@
 }
 
 .dn-panel--model-selector {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -142,7 +142,7 @@
 
 .dn-toolbar__kpis {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 12px;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -194,7 +194,9 @@
   background-size: 48px 48px;
 }
 
-.dn-viewport--outline-polygons .polycss-scene i {
+.dn-viewport--outline-polygons .polycss-scene i,
+.dn-viewport--outline-polygons .polycss-scene b,
+.dn-viewport--outline-polygons .polycss-scene s {
   outline: 1px solid rgba(248, 113, 113, 0.75) !important;
 }
 
@@ -205,22 +207,26 @@
   min-height: 100%;
 }
 
-/* Was: pointer-events: none on .polycss-scene/.polycss-mesh/.polycss-bucket/i.
+/* Was: pointer-events: none on .polycss-scene/.polycss-mesh/.polycss-bucket/leaves.
  * Removed so polygons receive native clicks — the JS bbox hit-test in
  * <Select>/<TransformControls> was masking this rule, doing the work
  * the browser would do for free. */
 
 /* Hover effect: brighten polygons when their owning mesh is the
  * currently-hovered one. `filter: brightness(...)` is applied per
- * polygon `<i>` instead of the wrapper because the wrapper is a 0×0
+ * polygon leaf instead of the wrapper because the wrapper is a 0×0
  * anchor — filter on it would have nothing to brighten. Filter
  * doesn't conflict with the polygon's inline `transform` /
  * `border-color` and doesn't trigger atlas rebuilds, so it's instant. */
-.polycss-mesh.is-hovered i {
+.polycss-mesh.is-hovered i,
+.polycss-mesh.is-hovered b,
+.polycss-mesh.is-hovered s {
   filter: brightness(1.25);
   transition: filter 150ms ease-out;
 }
-.polycss-mesh i {
+.polycss-mesh i,
+.polycss-mesh b,
+.polycss-mesh s {
   transition: filter 150ms ease-out;
 }
 
@@ -282,6 +288,22 @@
   flex: 1;
   min-height: 0;
   margin-top: 0;
+}
+
+.dn-stats-js-host {
+  min-width: 0;
+}
+
+.dn-stats-js {
+  display: grid;
+  grid-template-columns: repeat(3, 92px);
+  gap: 8px;
+  pointer-events: none;
+}
+
+.dn-stats-js canvas {
+  width: 92px;
+  height: 55px;
 }
 
 .dn-preset-picker .model-picker {

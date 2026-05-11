@@ -105,14 +105,15 @@ describe("createPolyScene", () => {
     it("renders the scene element as a 0x0 anchor at center (top:50%/left:50%)", () => {
       scene = createPolyScene(host);
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.position).toBe("absolute");
-      expect(sceneEl.style.top).toBe("50%");
-      expect(sceneEl.style.left).toBe("50%");
-      expect(sceneEl.style.width).toBe("0px");
-      expect(sceneEl.style.height).toBe("0px");
+      expect(sceneEl.getAttribute("aria-hidden")).toBe("true");
+      expect(sceneEl.style.position).toBe("");
+      expect(sceneEl.style.top).toBe("");
+      expect(sceneEl.style.left).toBe("");
+      expect(sceneEl.style.width).toBe("");
+      expect(sceneEl.style.height).toBe("");
     });
 
-    it("applies perspective + transform from options", () => {
+    it("applies scene transform from options through a custom property", () => {
       scene = createPolyScene(host, {
         perspective: 1500,
         rotX: 30,
@@ -120,18 +121,19 @@ describe("createPolyScene", () => {
         zoom: 2,
       });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("1500px");
-      expect(sceneEl.style.transform).toContain("scale(2)");
-      expect(sceneEl.style.transform).toContain("rotateX(30deg)");
+      const transform = sceneEl.style.getPropertyValue("--scene-transform");
+      expect(sceneEl.style.perspective).toBe("");
+      expect(transform).toContain("scale(2)");
+      expect(transform).toContain("rotateX(30deg)");
       // rotY in our API maps to CSS rotate() (i.e. rotateZ) so the model
       // spins around its vertical world-Z axis, matching React's PolyCamera.
-      expect(sceneEl.style.transform).toContain("rotate(60deg)");
+      expect(transform).toContain("rotate(60deg)");
     });
 
-    it("sets perspective to none when perspective=false", () => {
+    it("keeps perspective in CSS instead of inline styles", () => {
       scene = createPolyScene(host, { perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("none");
+      expect(sceneEl.style.perspective).toBe("");
     });
 
     it("injects base styles into the document", () => {
@@ -145,12 +147,12 @@ describe("createPolyScene", () => {
   });
 
   describe("add / remove mesh", () => {
-    it("adds a .polycss-mesh wrapper with one polygon i element per polygon", () => {
+    it("adds a .polycss-mesh wrapper with one polygon leaf element per polygon", () => {
       scene = createPolyScene(host);
       const handle = scene.add(makeParseResult([triangle(), triangle("#00ff00")]));
       const wrappers = host.querySelectorAll(".polycss-mesh");
       expect(wrappers.length).toBe(1);
-      const polys = host.querySelectorAll("i");
+      const polys = host.querySelectorAll("i,b,s");
       expect(polys.length).toBe(2);
       expect(host.querySelector(".polycss-poly-atlas")).toBeNull();
       expect(host.querySelector(".polycss-poly-solid")).toBeNull();
@@ -159,12 +161,12 @@ describe("createPolyScene", () => {
       expect(handle.polygons.length).toBe(2);
     });
 
-    it("renders textured polygons as polygon i elements", () => {
+    it("renders textured polygons as polygon s elements", () => {
       scene = createPolyScene(host);
       scene.add(makeParseResult([texturedTriangle()]));
-      const poly = host.querySelector("i");
+      const poly = host.querySelector("s");
       expect(poly).not.toBeNull();
-      expect(poly?.tagName.toLowerCase()).toBe("i");
+      expect(poly?.tagName.toLowerCase()).toBe("s");
     });
 
     it("applies mesh transform CSS", () => {
@@ -202,7 +204,7 @@ describe("createPolyScene", () => {
         merge: false,
         stableDom: true,
       });
-      const before = Array.from(host.querySelectorAll("i")) as HTMLElement[];
+      const before = Array.from(host.querySelectorAll("i,b,s")) as HTMLElement[];
       expect(before.length).toBe(1);
       const beforeTransform = before[0].style.transform;
 
@@ -215,7 +217,7 @@ describe("createPolyScene", () => {
         color: "#ff0000",
       }], { merge: false, stableDom: true });
 
-      const after = Array.from(host.querySelectorAll("i")) as HTMLElement[];
+      const after = Array.from(host.querySelectorAll("i,b,s")) as HTMLElement[];
       expect(after.length).toBe(1);
       expect(after[0]).toBe(before[0]);
       expect(after[0].style.transform).not.toBe(beforeTransform);
@@ -249,7 +251,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate]));
-      const polys = host.querySelectorAll("i");
+      const polys = host.querySelectorAll("i,b,s");
       expect(polys.length).toBe(0);
     });
 
@@ -257,7 +259,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate, triangle()]));
-      const poly = host.querySelector("i") as HTMLElement;
+      const poly = host.querySelector("i,b,s") as HTMLElement;
       expect(poly).not.toBeNull();
       expect(poly.style.width).not.toBe("");
     });
@@ -274,14 +276,14 @@ describe("createPolyScene", () => {
         const handle = scene.add(makeParseResult([triangle()]));
         handle.setTransform({ rotation: [0, 45, 0] });
 
-        // Capture the current <i> element reference(s) before rebake.
-        const before = Array.from(host.querySelectorAll(".polycss-mesh i")) as HTMLElement[];
+        // Capture the current polygon element reference(s) before rebake.
+        const before = Array.from(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s")) as HTMLElement[];
         expect(before.length).toBeGreaterThan(0);
 
         handle.rebakeAtlas();
 
         // After rebake the wrapper should still have polygon elements.
-        const after = Array.from(host.querySelectorAll(".polycss-mesh i")) as HTMLElement[];
+        const after = Array.from(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s")) as HTMLElement[];
         expect(after.length).toBeGreaterThan(0);
       });
 
@@ -323,7 +325,7 @@ describe("createPolyScene", () => {
         // With zero rotation the inverse is the identity, so the light direction
         // passed to the baker equals the original. No throw, mesh still renders.
         expect(() => handle.rebakeAtlas()).not.toThrow();
-        const polys = host.querySelectorAll(".polycss-mesh i");
+        const polys = host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s");
         expect(polys.length).toBeGreaterThan(0);
       });
 
@@ -367,24 +369,24 @@ describe("createPolyScene", () => {
     it("updates scene transform when rotation options change", () => {
       scene = createPolyScene(host, { rotX: 0 });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      const before = sceneEl.style.transform;
+      const before = sceneEl.style.getPropertyValue("--scene-transform");
       scene.setOptions({ rotX: 90 });
-      expect(sceneEl.style.transform).not.toBe(before);
-      expect(sceneEl.style.transform).toContain("rotateX(90deg)");
+      expect(sceneEl.style.getPropertyValue("--scene-transform")).not.toBe(before);
+      expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotateX(90deg)");
     });
 
-    it("updates perspective", () => {
+    it("does not inline perspective", () => {
       scene = createPolyScene(host, { perspective: 1000 });
       scene.setOptions({ perspective: 2500 });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("2500px");
+      expect(sceneEl.style.perspective).toBe("");
     });
 
     it("updates perspective to none", () => {
       scene = createPolyScene(host, { perspective: 1000 });
       scene.setOptions({ perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("none");
+      expect(sceneEl.style.perspective).toBe("");
     });
 
     it("emits dynamic light cascade vars on the scene element when textureLighting='dynamic'", () => {
@@ -421,7 +423,8 @@ describe("createPolyScene", () => {
     // so geometry changes are correctly reflected).
     //
     // We can't spy on the closure-private `recomputeAutoCenter` directly, so
-    // we observe its side effect: it writes to centerWrapper.style.transform.
+    // we observe its side effect: it writes to centerWrapper's
+    // --offset-transform custom property.
     // Pre-clearing that string and asserting it stays empty after a
     // setOptions({rotY}) proves the function did not run.
     describe("autoCenter recomputation diff", () => {
@@ -429,40 +432,40 @@ describe("createPolyScene", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
         const centerWrapper = getCenterWrapper(host);
-        expect(centerWrapper.style.transform).toMatch(/^translate3d/);
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d/);
         // Clear the transform; if recomputeAutoCenter runs it'll be re-set.
-        centerWrapper.style.transform = "";
+        centerWrapper.style.removeProperty("--offset-transform");
         scene.setOptions({ rotY: 90 });
-        expect(centerWrapper.style.transform).toBe("");
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
       });
 
       it("does not recompute autoCenter on a lighting-only setOptions", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
         const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.transform = "";
+        centerWrapper.style.removeProperty("--offset-transform");
         scene.setOptions({
           directionalLight: { direction: [1, 0, 0], color: "#fff", intensity: 1 },
         });
-        expect(centerWrapper.style.transform).toBe("");
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
       });
 
       it("does not recompute autoCenter on textureLighting changes", () => {
         scene = createPolyScene(host, { autoCenter: true, textureLighting: "dynamic" });
         scene.add(makeParseResult([triangle()]));
         const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.transform = "";
+        centerWrapper.style.removeProperty("--offset-transform");
         scene.setOptions({ textureLighting: "baked" });
-        expect(centerWrapper.style.transform).toBe("");
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
       });
 
       it("does not recompute autoCenter on perspective changes", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
         const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.transform = "";
+        centerWrapper.style.removeProperty("--offset-transform");
         scene.setOptions({ perspective: 4000 });
-        expect(centerWrapper.style.transform).toBe("");
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
       });
 
       it("DOES recompute autoCenter when autoCenter itself toggles", () => {
@@ -471,7 +474,7 @@ describe("createPolyScene", () => {
         const centerWrapper = getCenterWrapper(host);
         // Was disabled, so initial state is empty. Flip on → must recompute.
         scene.setOptions({ autoCenter: true });
-        expect(centerWrapper.style.transform).toMatch(/^translate3d/);
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d/);
       });
 
       it("does NOT recompute autoCenter when autoCenter is re-set to its current value", () => {
@@ -483,9 +486,9 @@ describe("createPolyScene", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
         const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.transform = "";
+        centerWrapper.style.removeProperty("--offset-transform");
         scene.setOptions({ autoCenter: true });
-        expect(centerWrapper.style.transform).toBe("");
+        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
       });
 
       it("still updates the scene transform on a camera-only setOptions", () => {
@@ -495,7 +498,7 @@ describe("createPolyScene", () => {
         scene.add(makeParseResult([triangle()]));
         const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
         scene.setOptions({ rotY: 137 });
-        expect(sceneEl.style.transform).toContain("rotate(137deg)");
+        expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotate(137deg)");
       });
     });
   });
@@ -609,7 +612,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       scene.add(makeParseResult());
       const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.transform).toBe("");
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
     });
 
     it("autoCenter=true applies translate3d that re-centers polygons", () => {
@@ -625,17 +628,17 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([t]));
       const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.transform).toMatch(/^translate3d\(.+\)$/);
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d\(.+\)$/);
       // World-Y → CSS-x means cssX = ((0 + 1) / 2) * 50 = 25.
       // We translate by -cssX, so expect "-25".
-      expect(centerWrapper.style.transform).toContain("-25");
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toContain("-25");
     });
 
     it("autoCenter recomputes when meshes change", () => {
       scene = createPolyScene(host, { autoCenter: true });
       const handle = scene.add(makeParseResult([triangle()]));
       const centerWrapper = getCenterWrapper(host);
-      const t1 = centerWrapper.style.transform;
+      const t1 = centerWrapper.style.getPropertyValue("--offset-transform");
 
       // Add a second mesh with different bbox.
       const big: Polygon = {
@@ -647,33 +650,33 @@ describe("createPolyScene", () => {
         color: "#00ff00",
       };
       const bigHandle = scene.add(makeParseResult([big]));
-      const t2 = centerWrapper.style.transform;
+      const t2 = centerWrapper.style.getPropertyValue("--offset-transform");
       expect(t2).not.toBe(t1);
 
       // Removing the dominant mesh should recompute back to the small one.
       bigHandle.remove();
-      const t3 = centerWrapper.style.transform;
+      const t3 = centerWrapper.style.getPropertyValue("--offset-transform");
       expect(t3).toBe(t1);
 
       // Removing the last mesh leaves transform empty.
       handle.remove();
-      const t4 = centerWrapper.style.transform;
+      const t4 = centerWrapper.style.getPropertyValue("--offset-transform");
       expect(t4).toBe("");
     });
 
     it("autoCenter=true with no meshes leaves transform empty", () => {
       scene = createPolyScene(host, { autoCenter: true });
       const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.transform).toBe("");
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
     });
 
     it("setOptions({autoCenter: true}) enables centering after the fact", () => {
       scene = createPolyScene(host, { autoCenter: false });
       scene.add(makeParseResult([triangle()]));
       const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.transform).toBe("");
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
       scene.setOptions({ autoCenter: true });
-      expect(centerWrapper.style.transform).toMatch(/^translate3d\(.+\)$/);
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d\(.+\)$/);
     });
 
     it("autoCenter uses the fixed default Z elevation", () => {
@@ -689,7 +692,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([tri]));
       const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.transform).toContain("-50px");
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toContain("-50px");
     });
 
     it("excludeFromAutoCenter meshes do not shift the bbox", () => {
@@ -715,13 +718,13 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([chicken]));
       const centerWrapper = getCenterWrapper(host);
-      const before = centerWrapper.style.transform;
+      const before = centerWrapper.style.getPropertyValue("--offset-transform");
       scene.add(makeParseResult([farAway]), { excludeFromAutoCenter: true });
-      expect(centerWrapper.style.transform).toBe(before);
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe(before);
 
       // Sanity check: without the flag, the same overlay DOES shift the bbox.
       scene.add(makeParseResult([farAway]));
-      expect(centerWrapper.style.transform).not.toBe(before);
+      expect(centerWrapper.style.getPropertyValue("--offset-transform")).not.toBe(before);
     });
   });
 });

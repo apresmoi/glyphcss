@@ -44,7 +44,7 @@ function renderPoly(props: Record<string, unknown>): HTMLElement {
 }
 
 function getPoly(container: HTMLElement): HTMLElement {
-  const poly = container.querySelector("i") as HTMLElement | null;
+  const poly = container.querySelector("i,b,s") as HTMLElement | null;
   expect(poly).toBeTruthy();
   return poly!;
 }
@@ -92,7 +92,7 @@ describe("Poly (Vue) — solid color polygon", () => {
         [1, 0, 0],
       ],
     });
-    expect(container.querySelector("i")).toBeNull();
+    expect(container.querySelector("i,b,s")).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 
@@ -104,16 +104,17 @@ describe("Poly (Vue) — solid color polygon", () => {
         [2, 0, 0],
       ],
     });
-    expect(container.querySelector("i")).toBeNull();
+    expect(container.querySelector("i,b,s")).toBeNull();
   });
 });
 
 describe("Poly (Vue) — non-horizontal geometry", () => {
-  it("renders a vertical quad as a polygon i element", () => {
+  it("renders a vertical quad as a plain rect b element", () => {
     const container = renderPoly({ vertices: VERTICAL_QUAD });
-    const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
-    expect(poly.style.transform).toContain("matrix3d(");
+    const poly = container.querySelector("b") as HTMLElement | null;
+    expect(poly).toBeTruthy();
+    expect(poly?.className).toBe("");
+    expect(poly!.style.transform).toContain("matrix3d(");
   });
 
   it("renders an off-axis triangle as a polygon i element", () => {
@@ -125,12 +126,12 @@ describe("Poly (Vue) — non-horizontal geometry", () => {
 });
 
 describe("Poly (Vue) — texture without UVs", () => {
-  it("renders a polygon i element", () => {
+  it("renders a polygon s element", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE,
       texture: "https://example.com/tex.png",
     });
-    expect(getPoly(container).tagName.toLowerCase()).toBe("i");
+    expect(getPoly(container).tagName.toLowerCase()).toBe("s");
   });
 
   it("does not use CSS filter for baked texture lighting", () => {
@@ -155,14 +156,14 @@ describe("Poly (Vue) — UV-mapped texture", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a polygon i element when uvs + texture are provided", () => {
+  it("renders a polygon s element when uvs + texture are provided", () => {
     const container = renderPoly({
       vertices: FLAT_TRIANGLE,
       texture: "https://example.com/tex.png",
       uvs: [[0, 0], [1, 0], [0, 1]],
     });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("s");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 
