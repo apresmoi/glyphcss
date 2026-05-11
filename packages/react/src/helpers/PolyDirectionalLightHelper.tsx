@@ -49,7 +49,7 @@ export function PolyDirectionalLightHelper({
   const swatch = color ?? light.color ?? "#ffd54a";
 
   const polygons = useMemo(
-    () => octahedronPolygons([0, 0, 0], size, swatch),
+    () => octahedronPolygons({ center: [0, 0, 0], size, color: swatch }),
     [size, swatch],
   );
 

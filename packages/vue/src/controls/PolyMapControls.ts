@@ -34,6 +34,7 @@ export interface PolyMapControlsCamera {
   rotY: number;
   zoom: number;
   target: Vec3;
+  distance: number;
 }
 
 export interface PolyMapControlsProps {
@@ -140,6 +141,7 @@ export const PolyMapControls = defineComponent({
       rotY: cameraRef.value.state.rotY,
       zoom: cameraRef.value.state.zoom,
       target: cameraRef.value.state.target,
+      distance: cameraRef.value.state.distance,
     });
     const fireChange = (): void => { emit("change", cameraSnapshot()); };
     const fireStart = (): void => { emit("interaction-start", cameraSnapshot()); };

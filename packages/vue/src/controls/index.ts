@@ -1,5 +1,3 @@
-export { PolyControls } from "./PolyControls";
-export type { PolyControlsProps } from "./PolyControls";
 export { PolyOrbitControls } from "./PolyOrbitControls";
 export type {
   PolyOrbitControlsProps,
@@ -15,4 +13,5 @@ export { PolyTransformControls } from "./PolyTransformControls";
 export type {
   PolyTransformControlsObject,
   PolyTransformControlsObjectChangeEvent,
+  PolyTransformControlsProps,
 } from "./PolyTransformControls";

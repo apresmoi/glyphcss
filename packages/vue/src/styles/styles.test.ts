@@ -50,7 +50,7 @@ describe("injectPolyBaseStyles", () => {
   });
 
   it("does not require border-shape utility classes", () => {
-    injectBaseStyles(document);
+    injectPolyBaseStyles(document);
     const el = document.getElementById("polycss-styles")!;
     expect(el.textContent).not.toContain("polycss-border-shape");
     expect(el.textContent).not.toContain("polycss-solid-css");

@@ -40,7 +40,7 @@ export const PolyDirectionalLightHelper = defineComponent({
     );
 
     const polygons = computed(() =>
-      octahedronPolygons([0, 0, 0], props.size, swatch.value),
+      octahedronPolygons({ center: [0, 0, 0], size: props.size, color: swatch.value }),
     );
 
     const meshPosition = computed<Vec3>(() => {

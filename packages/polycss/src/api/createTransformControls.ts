@@ -19,9 +19,9 @@
  */
 import { arrowPolygons, ringPolygons } from "@layoutit/polycss-core";
 import type { Polygon, Vec3 } from "@layoutit/polycss-core";
-import type { MeshHandle, MeshTransform, SceneHandle } from "./createPolyScene";
+import type { PolyMeshHandle, PolySceneHandle } from "./createPolyScene";
 
-type Mode = "translate" | "rotate" | "scale";
+type Mode = "translate" | "rotate";
 
 const COLOR_X = "#ff3653";
 const COLOR_Y = "#8adb00";
@@ -46,7 +46,7 @@ const ALPHA_DRAGGING = 1.0;
 const WORLD_AXIS_FOR_CSS: Record<0 | 1 | 2, 0 | 1 | 2> = { 0: 1, 1: 0, 2: 2 };
 
 /** Six arrow specs (translate mode). `cssAxis` is the visible direction
- *  the arrow points and the index in `MeshHandle.transform.position`
+ *  the arrow points and the index in `PolyMeshHandle.transform.position`
  *  the drag updates. */
 const ARROW_SPECS: Array<{ cssAxis: 0 | 1 | 2; sign: 1 | -1; key: string; color: string }> = [
   { cssAxis: 0, sign:  1, key:  "x", color: COLOR_X },
@@ -145,13 +145,13 @@ function pointInMeshElement(meshEl: HTMLElement, clientX: number, clientY: numbe
 }
 
 export interface PolyTransformControlsObjectChangeEvent {
-  object: MeshHandle;
+  object: PolyMeshHandle;
   position?: Vec3;
   rotation?: Vec3;
 }
 
-export interface CreateTransformControlsOptions {
-  /** Drag mode. "scale" reserved for forward-compat; renders nothing. */
+export interface PolyTransformControlsOptions {
+  /** Drag mode. "translate" → axial arrows, "rotate" → axial rings. */
   mode?: Mode;
   /** Multiplier on gizmo size (shaft length / ring radius). Default 1. */
   size?: number;
@@ -179,15 +179,15 @@ export interface CreateTransformControlsOptions {
   onDraggingChanged?: (dragging: boolean) => void;
 }
 
-export interface TransformControlsHandle {
+export interface PolyTransformControlsHandle {
   /** Bind to a mesh — gizmo follows the mesh's transform. Pass `null`
    *  to detach. Calling `attach` again with a new target swaps the
    *  binding without rebuilding the gizmo geometry. */
-  attach(mesh: MeshHandle | null): void;
+  attach(mesh: PolyMeshHandle | null): void;
   /** Equivalent to `attach(null)`. */
   detach(): void;
-  /** Switch between translate and rotate. Tearing down the old gizmo
-   *  and rebuilding the new one. */
+  /** Switch between translate and rotate. Tears down the old gizmo
+   *  and rebuilds the new one. */
   setMode(mode: Mode): void;
   /** Re-read the target's transform and reposition the gizmo. Call
    *  after mutating `target.setTransform` externally if you want the
@@ -202,7 +202,7 @@ interface DragOptions {
   sign: 1 | -1;
   shaftLengthCss: number;
   wrapper: HTMLElement;
-  target: MeshHandle;
+  target: PolyMeshHandle;
   startClientX: number;
   startClientY: number;
   translationSnap: number | null;
@@ -283,7 +283,7 @@ function startAxisDrag(opts: DragOptions): void {
 interface RingDragOptions {
   cssAxis: 0 | 1 | 2;
   wrapper: HTMLElement;
-  target: MeshHandle;
+  target: PolyMeshHandle;
   startClientX: number;
   startClientY: number;
   rotationSnap: number | null;
@@ -350,13 +350,13 @@ function startRingDrag(opts: RingDragOptions): void {
 }
 
 export function createTransformControls(
-  scene: SceneHandle,
-  options: CreateTransformControlsOptions = {},
-): TransformControlsHandle {
-  let target: MeshHandle | null = null;
+  scene: PolySceneHandle,
+  options: PolyTransformControlsOptions = {},
+): PolyTransformControlsHandle {
+  let target: PolyMeshHandle | null = null;
   let mode: Mode = options.mode ?? "translate";
   const size = options.size ?? 1;
-  const opts: CreateTransformControlsOptions = { ...options };
+  const opts: PolyTransformControlsOptions = { ...options };
 
   // No standalone wrapper element. The earlier draft appended a
   // wrapper to `scene.host`, but that lives OUTSIDE the camera-
@@ -368,10 +368,10 @@ export function createTransformControls(
   // gizmo mesh is positioned at `target.transform.position` via
   // setTransform — that's the gizmo origin.
 
-  // Per-key tracking. Each gizmo arrow / ring is a polycss MeshHandle
+  // Per-key tracking. Each gizmo arrow / ring is a polycss PolyMeshHandle
   // added to the scene, then re-parented under our wrapper.
   type GizmoMesh = {
-    handle: MeshHandle;
+    handle: PolyMeshHandle;
     spec: { key: string; cssAxis: 0 | 1 | 2; sign?: 1 | -1; color: string };
   };
   const gizmos = new Map<string, GizmoMesh>();
@@ -489,7 +489,7 @@ export function createTransformControls(
     else syncGizmoPositions();
   }
 
-  function attach(t: MeshHandle | null): void {
+  function attach(t: PolyMeshHandle | null): void {
     target = t;
     if (!t) {
       centerOffset = [0, 0, 0];
@@ -654,10 +654,10 @@ export function createTransformControls(
       }
     }
   };
-  // Capture-phase so we fire BEFORE createPolyControls' bubble-phase
+  // Capture-phase so we fire BEFORE createPolyOrbitControls' bubble-phase
   // pointerdown listener on the same host element. If the click hits
   // a gizmo arrow / ring we call stopPropagation, which prevents
-  // PolyControls from starting a camera-rotate gesture in parallel.
+  // the orbit/map controls from starting a camera-rotate gesture in parallel.
   // If the click misses every gizmo, we don't stop — PolyControls
   // gets the event during its bubble phase and rotates as usual.
   scene.host.addEventListener("pointerdown", onPointerDown, { capture: true });

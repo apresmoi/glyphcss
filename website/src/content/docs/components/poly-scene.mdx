@@ -22,9 +22,9 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 | `directionalLight` | `PolyDirectionalLight` | — | Directional light source. See [PolyDirectionalLight](#polydirectionallight). |
 | `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
 | `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
-| `children` | — | — | `<poly-mesh>` / `<poly-polygon>` / `<poly-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyControls>` (React / Vue). |
+| `children` | — | — | `<poly-mesh>` / `<poly-polygon>` / `<poly-orbit-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyOrbitControls>` (React / Vue). |
 
-**Camera input** (drag, wheel, autorotate) is a separate, additive layer. Add a child `<poly-controls>` / `<PolyControls>` to enable any of those — see [PolyControls](/components/poly-controls).
+**Camera input** (drag, wheel, autorotate) is a separate, additive layer. Add a child `<poly-orbit-controls>` / `<PolyOrbitControls>` to enable any of those — see [PolyOrbitControls](/components/poly-controls).
 
 ## Mesh props / attributes
 

@@ -14,9 +14,9 @@
  *   select.clear();
  *   select.destroy();                // remove listeners
  */
-import type { MeshHandle, SceneHandle } from "./createPolyScene";
+import type { PolyMeshHandle, PolySceneHandle } from "./createPolyScene";
 
-export interface CreateSelectOptions {
+export interface PolySelectOptions {
   /** Allow multiple meshes selected at once. Default false. */
   multiple?: boolean;
   /** When true (default), clicking the background clears selection.
@@ -24,29 +24,29 @@ export interface CreateSelectOptions {
   clearOnMiss?: boolean;
   /** Optional filter applied to every selection change — return the
    *  array that should become the new selection (drop / reorder). */
-  filter?: (meshes: MeshHandle[]) => MeshHandle[];
+  filter?: (meshes: PolyMeshHandle[]) => PolyMeshHandle[];
   /** Fires after every selection change with the new array. */
-  onChange?: (meshes: MeshHandle[]) => void;
+  onChange?: (meshes: PolyMeshHandle[]) => void;
   /** Fires when a click resolves to no mesh (background click). */
   onPointerMissed?: (event: MouseEvent) => void;
 }
 
-export interface SelectionHandle {
+export interface PolySelectionHandle {
   /** Current selection. Reference is stable until selection changes. */
-  readonly selected: ReadonlyArray<MeshHandle>;
+  readonly selected: ReadonlyArray<PolyMeshHandle>;
   /** Replace selection wholesale. */
-  set(next: MeshHandle[]): void;
+  set(next: PolyMeshHandle[]): void;
   /** Add to selection (or replace, when `multiple` is false). */
-  add(mesh: MeshHandle): void;
+  add(mesh: PolyMeshHandle): void;
   /** Remove from selection. No-op if not present. */
-  remove(mesh: MeshHandle): void;
+  remove(mesh: PolyMeshHandle): void;
   /** Toggle membership. With single-mode, toggling a non-selected
    *  mesh replaces selection; toggling the selected mesh clears. */
-  toggle(mesh: MeshHandle): void;
+  toggle(mesh: PolyMeshHandle): void;
   /** Clear selection. */
   clear(): void;
   /** Membership test. */
-  has(mesh: MeshHandle): boolean;
+  has(mesh: PolyMeshHandle): boolean;
   /** Remove the host listener. Idempotent. */
   destroy(): void;
 }
@@ -75,11 +75,11 @@ function pointInMeshElement(
 }
 
 export function createSelect(
-  scene: SceneHandle,
-  options: CreateSelectOptions = {},
-): SelectionHandle {
-  let selected: MeshHandle[] = [];
-  const subscribers = new Set<(meshes: MeshHandle[]) => void>();
+  scene: PolySceneHandle,
+  options: PolySelectOptions = {},
+): PolySelectionHandle {
+  let selected: PolyMeshHandle[] = [];
+  const subscribers = new Set<(meshes: PolyMeshHandle[]) => void>();
   if (options.onChange) subscribers.add(options.onChange);
 
   function notify(): void {
@@ -93,12 +93,12 @@ export function createSelect(
     }
   }
 
-  function set(next: MeshHandle[]): void {
+  function set(next: PolyMeshHandle[]): void {
     selected = next;
     notify();
   }
 
-  function add(mesh: MeshHandle): void {
+  function add(mesh: PolyMeshHandle): void {
     if (options.multiple) {
       if (!selected.includes(mesh)) selected = [...selected, mesh];
     } else {
@@ -107,13 +107,13 @@ export function createSelect(
     notify();
   }
 
-  function remove(mesh: MeshHandle): void {
+  function remove(mesh: PolyMeshHandle): void {
     if (!selected.includes(mesh)) return;
     selected = selected.filter((m) => m !== mesh);
     notify();
   }
 
-  function toggle(mesh: MeshHandle): void {
+  function toggle(mesh: PolyMeshHandle): void {
     if (selected.includes(mesh)) {
       selected = selected.filter((m) => m !== mesh);
     } else if (options.multiple) {
@@ -130,11 +130,11 @@ export function createSelect(
     notify();
   }
 
-  function has(mesh: MeshHandle): boolean {
+  function has(mesh: PolyMeshHandle): boolean {
     return selected.includes(mesh);
   }
 
-  function findMeshUnderPoint(clientX: number, clientY: number): MeshHandle | null {
+  function findMeshUnderPoint(clientX: number, clientY: number): PolyMeshHandle | null {
     for (const mesh of scene.meshes()) {
       // Skip gizmo meshes — they're managed by transform-controls and
       // shouldn't resolve as user-selectable content. The shared

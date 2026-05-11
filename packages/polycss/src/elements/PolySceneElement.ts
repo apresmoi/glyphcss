@@ -13,7 +13,7 @@ import type { PolyAmbientLight, PolyDirectionalLight, PolyTextureLightingMode, V
 import {
   createPolyScene,
   type PolySceneOptions,
-  type SceneHandle,
+  type PolySceneHandle,
 } from "../api/createPolyScene";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -71,13 +71,13 @@ export class PolySceneElement extends ELEMENT_BASE {
     return [...OBSERVED_ATTRS];
   }
 
-  private _scene: SceneHandle | null = null;
+  private _scene: PolySceneHandle | null = null;
 
   /**
-   * Returns the underlying SceneHandle. Children call this during their own
+   * Returns the underlying PolySceneHandle. Children call this during their own
    * connectedCallback to register meshes.
    */
-  getScene(): SceneHandle | null {
+  getScene(): PolySceneHandle | null {
     return this._scene;
   }
 

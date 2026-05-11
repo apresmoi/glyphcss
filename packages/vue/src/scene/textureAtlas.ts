@@ -977,7 +977,6 @@ export function renderTextureBorderShapePoly({
         height: `${entry.canvasH}px`,
         transform: formatMatrix3d(entry.matrix),
         color: entry.shadedColor,
-        borderShape: borderShape ?? undefined,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       };
@@ -989,10 +988,19 @@ export function renderTextureBorderShapePoly({
     : {};
   const elementClassName = className?.trim() || undefined;
 
+  const applyBorderShape = (vnode: VNode) => {
+    const el = vnode.el as HTMLElement | null;
+    if (!el) return;
+    if (borderShape) el.style.setProperty("border-shape", borderShape);
+    else el.style.removeProperty("border-shape");
+  };
+
   return h(fullRect ? "b" : "i", {
     class: elementClassName,
     style,
     ...dataAttrs,
     ...domAttrs,
+    onVnodeMounted: applyBorderShape,
+    onVnodeUpdated: applyBorderShape,
   });
 }

@@ -114,6 +114,24 @@ export interface PolyTransformControlsObjectChangeEvent {
   rotation?: Vec3;
 }
 
+export interface PolyTransformControlsProps {
+  object: PolyTransformControlsObject;
+  mode?: "translate" | "rotate";
+  space?: "world" | "local";
+  size?: number;
+  showX?: boolean;
+  showY?: boolean;
+  showZ?: boolean;
+  translationSnap?: number | null;
+  rotationSnap?: number | null;
+  enabled?: boolean;
+  onChange?: () => void;
+  onObjectChange?: (event: PolyTransformControlsObjectChangeEvent) => void;
+  onMouseDown?: () => void;
+  onMouseUp?: () => void;
+  onDraggingChanged?: (dragging: boolean) => void;
+}
+
 interface AxisDragOptions {
   cssAxis: 0 | 1 | 2;
   sign: 1 | -1;
@@ -263,7 +281,7 @@ export const PolyTransformControls = defineComponent({
   name: "PolyTransformControls",
   props: {
     object: { type: null as unknown as PropType<PolyTransformControlsObject>, default: null },
-    mode: { type: String as PropType<"translate" | "rotate" | "scale">, default: "translate" },
+    mode: { type: String as PropType<"translate" | "rotate">, default: "translate" },
     space: { type: String as PropType<"world" | "local">, default: "world" },
     size: { type: Number, default: 1 },
     showX: { type: Boolean, default: true },
@@ -324,7 +342,7 @@ export const PolyTransformControls = defineComponent({
         const targetEl = event.target as Element | null;
         if (targetEl?.closest(".polycss-transform-gizmo")) return;
         const showByKey = { x: props.showX, y: props.showY, z: props.showZ };
-        const specs = props.mode === "translate" ? ARROW_SPECS : props.mode === "rotate" ? RING_SPECS : [];
+        const specs = props.mode === "translate" ? ARROW_SPECS : RING_SPECS;
         for (const spec of specs) {
           const userAxis = spec.key.replace("-", "")[0] as "x" | "y" | "z";
           if (!showByKey[userAxis]) continue;
@@ -507,7 +525,6 @@ export const PolyTransformControls = defineComponent({
     return () => {
       const t = target.value;
       if (!t) return null;
-      if (props.mode !== "translate" && props.mode !== "rotate") return null;
       const position = t.getPosition() ?? ([0, 0, 0] as Vec3);
       const wrapperStyle: Record<string, string | number> = {
         position: "absolute",

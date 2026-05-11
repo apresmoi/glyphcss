@@ -3,8 +3,8 @@
  * `<PolyScene>` in React / Vue.
  *
  * Per §API freeze: takes a host element + scene options, returns a
- * `SceneHandle` whose `add(parseResult, transform?)` mounts a mesh under
- * the scene root and returns a removable `MeshHandle`.
+ * `PolySceneHandle` whose `add(parseResult, transform?)` mounts a mesh under
+ * the scene root and returns a removable `PolyMeshHandle`.
  *
  * Implementation:
  *   - Inserts a `<div class="polycss-scene">` into the host.
@@ -74,7 +74,7 @@ export interface PolySceneOptions {
   autoCenter?: boolean;
 }
 
-export interface MeshTransform {
+export interface PolyMeshTransform {
   /** Stable identifier — exposed on the handle and reflected on the
    *  wrapper as `data-poly-mesh-id`. Used by selection helpers to
    *  resolve clicks back to the mesh and to dedupe selection state. */
@@ -101,7 +101,7 @@ export interface MeshTransform {
   excludeFromAutoCenter?: boolean;
 }
 
-export interface MeshHandle {
+export interface PolyMeshHandle {
   /** The polygons that were loaded after normalization and automatic merge. */
   polygons: Polygon[];
   /** The `.polycss-mesh` wrapper div for this mesh. Exposed so layered
@@ -109,13 +109,13 @@ export interface MeshHandle {
    *  back to its owning mesh, attach event listeners, or measure the
    *  mesh's screen position via `getBoundingClientRect`. */
   readonly element: HTMLElement;
-  /** Identifier passed via `MeshTransform.id` (if any). Reflected on
+  /** Identifier passed via `PolyMeshTransform.id` (if any). Reflected on
    *  the wrapper as `data-poly-mesh-id`. */
   readonly id?: string;
   /** Current transform snapshot (position / rotation / scale). Returned
    *  by reference — treat as read-only and use `setTransform` to
    *  mutate. */
-  readonly transform: MeshTransform;
+  readonly transform: PolyMeshTransform;
   /** Remove the mesh from the scene. */
   remove(): void;
   /** Replace polygon geometry without tearing down the scene or controls. */
@@ -125,7 +125,7 @@ export interface MeshHandle {
     recomputeAutoCenter?: boolean;
   }): void;
   /** Update transform without re-parsing. */
-  setTransform(t: Partial<MeshTransform>): void;
+  setTransform(t: Partial<PolyMeshTransform>): void;
   /** Revoke any blob URLs the parse created. Idempotent. */
   dispose(): void;
   /**
@@ -147,18 +147,26 @@ export interface MeshHandle {
    * pointer release (or any point where you want to commit the new shading).
    */
   rebakeAtlas(): void;
+  /** Current `position` from the transform (matches framework API). */
+  getPosition(): Vec3 | undefined;
+  /** Current `rotation` from the transform (matches framework API). */
+  getRotation(): Vec3 | undefined;
+  /** Current `scale` from the transform (matches framework API). */
+  getScale(): number | Vec3 | undefined;
+  /** Polygons currently being rendered (matches framework API). */
+  getPolygons(): Polygon[];
 }
 
-export interface SceneHandle {
+export interface PolySceneHandle {
   /** Add a mesh to the scene. Returns a handle for later removal. */
-  add(mesh: ParseResult, opts?: MeshTransform): MeshHandle;
+  add(mesh: ParseResult, opts?: PolyMeshTransform): PolyMeshHandle;
   /** Update scene-level config (rotation, lighting, etc.). */
   setOptions(partial: Partial<PolySceneOptions>): void;
   /** Tear down the scene; revokes all blob URLs of registered meshes. */
   destroy(): void;
   /**
    * The host element passed to `createPolyScene`. Exposed for layered
-   * helpers like `createPolyControls` that need to attach event listeners
+   * helpers like `createPolyOrbitControls` that need to attach event listeners
    * without tracking the host separately.
    */
   readonly host: HTMLElement;
@@ -172,10 +180,10 @@ export interface SceneHandle {
   getOptions(): Readonly<PolySceneOptions>;
   /** Snapshot of mesh handles currently in the scene (insertion order).
    *  Used by selection helpers to enumerate hit-test candidates. */
-  meshes(): readonly MeshHandle[];
+  meshes(): readonly PolyMeshHandle[];
   /** Resolve a `.polycss-mesh` element back to its handle, or `null` if
    *  the element doesn't belong to this scene. */
-  findMeshByElement(element: Element | null): MeshHandle | null;
+  findMeshByElement(element: Element | null): PolyMeshHandle | null;
 }
 
 // Match React's PolyCamera default — 1000px is a strong fish-eye that
@@ -186,7 +194,7 @@ const DEFAULT_ROT_Y = 45;
 const DEFAULT_ZOOM = 1;
 const DEFAULT_TILE = BASE_TILE;
 
-function buildMeshTransform(t: MeshTransform): string | undefined {
+function buildMeshTransform(t: PolyMeshTransform): string | undefined {
   const parts: string[] = [];
   if (t.position) {
     parts.push(
@@ -283,7 +291,7 @@ function quantizeNormalKey(p: Polygon): { key: string; vec: Vec3 } | null {
 export function createPolyScene(
   host: HTMLElement,
   options: PolySceneOptions = {},
-): SceneHandle {
+): PolySceneHandle {
   if (!host || typeof host.appendChild !== "function") {
     throw new Error("createPolyScene: host must be an HTMLElement");
   }
@@ -321,7 +329,7 @@ export function createPolyScene(
   host.appendChild(sceneEl);
 
   interface MeshEntry {
-    handle: MeshHandle;
+    handle: PolyMeshHandle;
     wrapper: HTMLDivElement;
     parseResult: ParseResult;
     rendered: RenderedPoly[];
@@ -529,13 +537,13 @@ export function createPolyScene(
     centerWrapper.style.setProperty("--offset-transform", `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`);
   }
 
-  function add(parseResult: ParseResult, transformIn: MeshTransform = {}): MeshHandle {
+  function add(parseResult: ParseResult, transformIn: PolyMeshTransform = {}): PolyMeshHandle {
     const mountDoc = sceneEl.ownerDocument ?? document;
     const wrapper = mountDoc.createElement("div");
     wrapper.className = "polycss-mesh";
     if (transformIn.id) wrapper.setAttribute("data-poly-mesh-id", transformIn.id);
 
-    let transform: MeshTransform = { ...transformIn };
+    let transform: PolyMeshTransform = { ...transformIn };
     let mergeOnUpdate = transformIn.merge !== false;
     let stableDomOnUpdate = !!transformIn.stableDom;
     const css = buildMeshTransform(transform);
@@ -585,7 +593,7 @@ export function createPolyScene(
     centerWrapper.appendChild(wrapper);
 
     const entry: MeshEntry = {
-      handle: undefined as unknown as MeshHandle,
+      handle: undefined as unknown as PolyMeshHandle,
       wrapper,
       parseResult,
       rendered: [],
@@ -596,7 +604,7 @@ export function createPolyScene(
       bakedRotation: (transformIn.rotation ? [...transformIn.rotation] : [0, 0, 0]) as Vec3,
     };
 
-    const handle: MeshHandle = {
+    const handle: PolyMeshHandle = {
       polygons: sourcePolygons,
       element: wrapper,
       id: transformIn.id,
@@ -644,7 +652,7 @@ export function createPolyScene(
         renderEntry(entry);
         if (shouldRecomputeAutoCenter) recomputeAutoCenter();
       },
-      setTransform(t: Partial<MeshTransform>) {
+      setTransform(t: Partial<PolyMeshTransform>) {
         transform = { ...transform, ...t };
         const css2 = buildMeshTransform(transform);
         wrapper.style.transform = css2 ?? "";
@@ -672,6 +680,10 @@ export function createPolyScene(
         const localLightDir = inverseRotateVec3(worldDir as Vec3, entry.bakedRotation);
         renderEntry(entry, localLightDir);
       },
+      getPosition() { return transform.position; },
+      getRotation() { return transform.rotation; },
+      getScale() { return transform.scale; },
+      getPolygons() { return handle.polygons; },
     };
 
     entry.handle = handle;
@@ -692,9 +704,9 @@ export function createPolyScene(
     for (const entry of meshes) {
       applyMeshLightVarOverride(entry.wrapper, entry.handle.transform.rotation);
     }
-    // No syncInteractive — pointer/wheel input now lives in createPolyControls
-    // (an additive layer). createPolyScene is the pure renderer + camera-state
-    // owner.
+    // No syncInteractive — pointer/wheel input now lives in
+    // createPolyOrbitControls / createPolyMapControls (additive layers).
+    // createPolyScene is the pure renderer + camera-state owner.
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
   }
 
@@ -702,13 +714,13 @@ export function createPolyScene(
     return currentOptions;
   }
 
-  function listMeshes(): readonly MeshHandle[] {
-    const out: MeshHandle[] = [];
+  function listMeshes(): readonly PolyMeshHandle[] {
+    const out: PolyMeshHandle[] = [];
     for (const entry of meshes) out.push(entry.handle);
     return out;
   }
 
-  function findMeshByElement(el: Element | null): MeshHandle | null {
+  function findMeshByElement(el: Element | null): PolyMeshHandle | null {
     let cur: Element | null = el;
     while (cur) {
       if (cur instanceof HTMLElement && cur.classList.contains("polycss-mesh")) {

@@ -31,6 +31,14 @@ import {
 import { findPolyMeshHandle, findMeshUnderPoint as findMeshUnderPointShared, type PolyMeshHandle } from "../scene/events";
 import { PolyCameraContextKey } from "../camera";
 
+export interface PolySelectProps {
+  multiple?: boolean;
+  clearOnMiss?: boolean;
+  filter?: (meshes: PolyMeshHandle[]) => PolyMeshHandle[];
+  onChange?: (meshes: PolyMeshHandle[]) => void;
+  onPointerMissed?: (event: MouseEvent) => void;
+}
+
 export interface PolySelectionApi {
   selected: ReadonlyArray<PolyMeshHandle>;
   set(next: PolyMeshHandle[]): void;

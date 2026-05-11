@@ -5,3 +5,4 @@ export type { ArrowPolygonsOptions } from "./arrowPolygons";
 export { ringPolygons } from "./ringPolygons";
 export type { RingPolygonsOptions } from "./ringPolygons";
 export { octahedronPolygons } from "./octahedronPolygons";
+export type { OctahedronPolygonsOptions } from "./octahedronPolygons";

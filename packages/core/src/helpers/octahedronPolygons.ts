@@ -6,12 +6,19 @@
  */
 import type { Polygon, Vec3 } from "../types";
 
-export function octahedronPolygons(
-  center: Vec3,
-  size: number,
-  color: string,
-): Polygon[] {
+export interface OctahedronPolygonsOptions {
+  /** Center of the octahedron in world space. */
+  center: Vec3;
+  /** Half-extent (distance from center to each pole vertex). */
+  size: number;
+  /** Fill color applied to all eight faces. */
+  color?: string;
+}
+
+export function octahedronPolygons(options: OctahedronPolygonsOptions): Polygon[] {
+  const { center, size, color = "#ffffff" } = options;
   const [cx, cy, cz] = center;
+
   const v: Vec3[] = [
     [cx + size, cy, cz],         // 0  +X
     [cx - size, cy, cz],         // 1  -X

@@ -9,7 +9,7 @@ polycss provides two camera components for React and Vue: `<PolyPerspectiveCamer
 
 For most use cases, pass camera attributes directly to the scene element / `PolyScene` component instead. The camera wrapper is useful when you need imperative camera control (animating the camera from code, syncing it to external state, or splitting camera state and scene layout into separate React/Vue components).
 
-For pointer drag, wheel zoom, and autorotate, drop a `<PolyControls>` child inside the scene — see **[PolyControls](/components/poly-controls)**.
+For pointer drag, wheel zoom, and autorotate, drop a `<PolyOrbitControls>` child inside the scene — see **[PolyOrbitControls](/components/poly-controls)**.
 
 ## Perspective vs Orthographic
 
@@ -30,7 +30,7 @@ This mirrors three.js's split: `PerspectiveCamera + OrbitControls dolly` ↔ `Po
 | `rotX` | `number` | `65` | Rotation around the X axis in degrees. |
 | `rotY` | `number` | `45` | Rotation around the Y axis in degrees (0–360). |
 | `perspective` | `number` | `8000` | CSS perspective depth in pixels. Higher values feel flatter (more isometric); lower values exaggerate depth. |
-| `distance` | `number` | `0` | Dolly pull-back in pixels. When > 0, adds `translateZ(-distance)px` to the scene transform — analogous to `OrbitControls` spherical radius. Increased by `dolly` mode in `PolyControls`. |
+| `distance` | `number` | `0` | Dolly pull-back in pixels. When > 0, adds `translateZ(-distance)px` to the scene transform — analogous to `OrbitControls` spherical radius. Increased by `dolly` mode in `PolyOrbitControls`. |
 
 `PolyCamera` is an alias for `PolyPerspectiveCamera`. Import either — they are identical. To get orthographic projection, use `<PolyOrthographicCamera>` instead; passing `perspective={false}` is no longer supported.
 
@@ -143,12 +143,12 @@ import { PolyOrthographicCamera, PolyScene, PolyMesh } from "@layoutit/polycss-v
 
 ### Interactive Camera with Auto-rotation (recommended)
 
-Drop a `<PolyControls>` child for drag, wheel, and `dt`-clamped autorotate. Works the same across vanilla, React, and Vue.
+Drop a `<PolyOrbitControls>` child for drag, wheel, and `dt`-clamped autorotate. Works the same across vanilla, React, and Vue.
 
 ```html
 <!-- Vanilla -->
 <poly-scene rot-x="65" rot-y="45">
-  <poly-controls drag wheel animate-speed="0.5"></poly-controls>
+  <poly-orbit-controls drag wheel animate-speed="0.5"></poly-orbit-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
@@ -157,17 +157,17 @@ Drop a `<PolyControls>` child for drag, wheel, and `dt`-clamped autorotate. Work
 // React
 <PolyCamera rotX={65} rotY={45}>
   <PolyScene>
-    <PolyControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
+    <PolyOrbitControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
     <PolyMesh src="/cottage.glb" />
   </PolyScene>
 </PolyCamera>
 ```
 
-Full options reference: **[PolyControls](/components/poly-controls)**.
+Full options reference: **[PolyOrbitControls](/components/poly-controls)**.
 
 ## `distance` — dolly pull-back
 
-`distance` adds a `translateZ(-distance)px` to the scene transform. Unlike `zoom`, which scales the entire scene, `distance` moves the viewpoint back along the view axis — equivalent to increasing the spherical radius in three.js `OrbitControls`. Enable `dolly` on `PolyControls` to let the wheel drive `distance` instead of `zoom`.
+`distance` adds a `translateZ(-distance)px` to the scene transform. Unlike `zoom`, which scales the entire scene, `distance` moves the viewpoint back along the view axis — equivalent to increasing the spherical radius in three.js `OrbitControls`. Enable `dolly` on `PolyOrbitControls` to let the wheel drive `distance` instead of `zoom`.
 
 ## `usePolyCamera` hook (React)
 
@@ -176,6 +176,6 @@ Full options reference: **[PolyControls](/components/poly-controls)**.
 ## Related
 
 - [PolyScene](/components/poly-scene) — The scene component that renders meshes.
-- [PolyControls](/components/poly-controls) — Pointer drag, wheel zoom, dolly, and autorotate.
+- [PolyOrbitControls](/components/poly-controls) — Pointer drag, wheel zoom, dolly, and autorotate.
 - [Core Concepts — Camera](/core-concepts#camera) — Conceptual explanation of camera props.
 - [Quickstart](/quickstart) — Install + first scene walkthrough.

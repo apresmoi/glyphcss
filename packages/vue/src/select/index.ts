@@ -1,2 +1,2 @@
 export { PolySelect, usePolySelect, usePolySelectionApi, PolySelectionContextKey } from "./PolySelect";
-export type { PolySelectionApi } from "./PolySelect";
+export type { PolySelectionApi, PolySelectProps } from "./PolySelect";

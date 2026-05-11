@@ -12,7 +12,7 @@
  */
 import { octahedronPolygons } from "@layoutit/polycss-core";
 import type { ParseResult, Vec3 } from "@layoutit/polycss-core";
-import type { MeshHandle } from "../api/createPolyScene";
+import type { PolyMeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -57,7 +57,7 @@ export class PolyDirectionalLightHelperElement extends ELEMENT_BASE {
     return [...OBSERVED_ATTRS];
   }
 
-  private _handle: MeshHandle | null = null;
+  private _handle: PolyMeshHandle | null = null;
 
   connectedCallback(): void {
     this._mount();
@@ -105,7 +105,7 @@ export class PolyDirectionalLightHelperElement extends ELEMENT_BASE {
     const size = parseNumber(this.getAttribute("size"), DEFAULT_SIZE);
     const color = this.getAttribute("color") ?? DEFAULT_COLOR;
     const parsed: ParseResult = {
-      polygons: octahedronPolygons([0, 0, 0], size, color),
+      polygons: octahedronPolygons({ center: [0, 0, 0], size, color }),
       objectUrls: [],
       dispose: () => {},
       warnings: [],

@@ -82,19 +82,6 @@ describe("<PolyTransformControls>", () => {
     expect(container.querySelector("[data-poly-transform-controls]")).toBeNull();
   });
 
-  it("renders nothing for the unimplemented scale mode", () => {
-    const ref = createRef<PolyMeshHandle>();
-    const container = mount(
-      <PolyCamera>
-        <PolyScene>
-          <PolyMesh ref={ref} polygons={[TRIANGLE]} />
-          <PolyTransformControls object={ref} mode="scale" />
-        </PolyScene>
-      </PolyCamera>,
-    );
-    expect(container.querySelector("[data-poly-transform-controls]")).toBeNull();
-  });
-
   it("rotate mode renders 3 rings (one per axis)", () => {
     const ref = createRef<PolyMeshHandle>();
     const container = mount(

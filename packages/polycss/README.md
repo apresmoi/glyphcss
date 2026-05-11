@@ -95,7 +95,7 @@ poly-polygon.hover { filter: brightness(1.5); }
 | `light-ambient-color` | Ambient light color hex |
 | `atlas-scale` | Raster scale for generated atlas pages; lower values reduce memory/detail |
 
-For pointer drag, wheel zoom, and autorotate, drop a `<poly-controls>` child inside the scene (or wire `createPolyControls(scene, ...)` against the imperative API). Mirrors Three.js's split between camera state (`<poly-scene>`) and camera input (`<poly-controls>` / `createPolyControls`).
+For pointer drag, wheel zoom, and autorotate, drop a `<poly-orbit-controls>` child inside the scene (or wire `createPolyOrbitControls(scene, ...)` against the imperative API). For pan-first map-style input use `<poly-map-controls>` / `createPolyMapControls` instead. Mirrors Three.js's split between camera state (`<poly-scene>`) and camera input.
 
 **`<poly-mesh>`**
 
@@ -153,11 +153,11 @@ mesh.dispose();
 | `rotY` | `number` | Camera Y rotation in degrees |
 | `directionalLight` | `DirectionalLight` | Lighting config |
 
-Returns a `SceneHandle`:
+Returns a `PolySceneHandle`:
 
 ```ts
-interface SceneHandle {
-  add(mesh: ParseResult, opts?: { position?: Vec3; scale?: number | Vec3; rotation?: Vec3 }): MeshHandle;
+interface PolySceneHandle {
+  add(mesh: ParseResult, opts?: { position?: Vec3; scale?: number | Vec3; rotation?: Vec3 }): PolyMeshHandle;
   setOptions(partial: Partial<PolySceneOptions>): void;
   dispose(): void;
 }

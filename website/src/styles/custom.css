@@ -1,3 +1,34 @@
+/* ── Starlight header/layout overrides ──────────────────────────────────────
+ * These are intentionally outside any @layer so they beat all Starlight
+ * @layer rules regardless of specificity or cascade order.
+ *
+ * DocsHeader's inner <div class="header"> is position:fixed and handles all
+ * visual chrome (background, border-bottom, z-index). The Starlight outer
+ * <header class="header"> wrapper must be a transparent zero-height shell so
+ * it does not paint a duplicate bar or create a double border.
+ *
+ * .sidebar-pane uses inset-block: var(--sl-nav-height) 0, which is a CSS
+ * length unaffected by the outer wrapper's position, so it stays correct.
+ */
+.page > header.header {
+  position: fixed;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  width: 100%;
+  height: var(--sl-nav-height);
+  padding: 0;
+  background: transparent;
+  border-bottom: none;
+  z-index: var(--sl-z-index-navbar);
+}
+
+/* Restore the content offset that Starlight's .main-frame normally provides.
+ * DocsHeader's inner div is now fixed, so content must be pushed down by the
+ * nav height plus the mobile TOC bar height (0rem on desktop). */
+.main-frame {
+  padding-top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
+}
+
 :root,
 :root[data-theme='light'],
 :root[data-theme='dark'] {

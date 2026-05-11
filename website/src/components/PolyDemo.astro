@@ -376,7 +376,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         tag("poly-scene", polycss.PolySceneElement);
         tag("poly-mesh", polycss.PolyMeshElement);
         tag("poly-polygon", polycss.PolyPolygonElement);
-        tag("poly-controls", polycss.PolyControlsElement);
+        tag("poly-orbit-controls", polycss.PolyOrbitControlsElement);
       }
 
       let sceneEl: HTMLElement | null = null;
@@ -397,7 +397,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         const perspective = perspectiveOverride();
         if (perspective !== undefined) attrs["perspective"] = String(perspective);
         // merge is automatic-only on main → no attribute to forward.
-        // interactive is owned by <poly-controls> (appended below in init).
+        // interactive is owned by <poly-orbit-controls> (appended below in init).
         if (state.light) {
           if (state.light.direction) attrs["light-direction"] = state.light.direction.join(",");
           if (state.light.color) attrs["light-color"] = state.light.color;
@@ -418,8 +418,8 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
       }
 
       // ── Controls — replace the previous local rAF / interactive plumbing.
-      // Generator mode owns a createPolyControls handle; model mode appends
-      // a <poly-controls> child to the <poly-scene> element. Both paths get
+      // Generator mode owns a createPolyOrbitControls handle; model mode appends
+      // a <poly-orbit-controls> child to the <poly-scene> element. Both paths get
       // dt-clamped autorotate and the same drag/wheel behavior for free.
       let controlsHandle: any = null;        // generator mode (vanilla)
       let polyControlsEl: HTMLElement | null = null;  // model mode (custom element)
@@ -519,18 +519,18 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         sceneEl.appendChild(meshEl);
         sceneHost.appendChild(sceneEl);
 
-        // Append <poly-controls> as a child of <poly-scene>. It walks up
+        // Append <poly-orbit-controls> as a child of <poly-scene>. It walks up
         // to find the parent scene and wires drag/wheel/animate from
         // attributes. Initial attribute set + applyControlsAttrs keeps
         // it in sync with state on subsequent toggles.
-        polyControlsEl = document.createElement("poly-controls");
+        polyControlsEl = document.createElement("poly-orbit-controls");
         applyControlsAttrs();
         sceneEl.appendChild(polyControlsEl);
       }
 
       // ── Scene init for generator mode ─────────────────────────────────────
       async function initGeneratorScene() {
-        const { createPolyScene, createPolyControls } = await import("@layoutit/polycss");
+        const { createPolyScene, createPolyOrbitControls } = await import("@layoutit/polycss");
 
         sceneEl = document.createElement("div");
         sceneEl.style.cssText = "width:100%;height:100%;position:absolute;inset:0;";
@@ -549,7 +549,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
         sceneHandle = createPolyScene(sceneEl as HTMLElement, sceneOptions);
         // Vanilla controls layer — drag + wheel + animate. Updated by
         // syncControls() whenever state.interactive / state.animate flip.
-        controlsHandle = createPolyControls(sceneHandle, {
+        controlsHandle = createPolyOrbitControls(sceneHandle, {
           drag: state.interactive,
           wheel: state.interactive,
           animate: state.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
@@ -596,7 +596,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           });
         } else {
           // applySceneAttrs handles rotation/zoom/light attrs on the
-          // <poly-scene>. drag/wheel/animate flow through <poly-controls>
+          // <poly-scene>. drag/wheel/animate flow through <poly-orbit-controls>
           // via syncControls() below.
           applySceneAttrs();
         }
@@ -756,7 +756,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
                 : `build${generatorName.charAt(0).toUpperCase()}${generatorName.slice(1)}Polygons(${state.radius})`;
             j.push(`<!-- Polygons generated client-side via the imperative API: -->`);
             j.push('<script type="module">');
-            j.push('import { createPolyScene, createPolyControls } from "https://esm.sh/@layoutit/polycss";');
+            j.push('import { createPolyScene, createPolyOrbitControls } from "https://esm.sh/@layoutit/polycss";');
             j.push("");
             j.push("const host = document.getElementById(\"scene\");");
             j.push("const scene = createPolyScene(host, {");
@@ -772,7 +772,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
             const animBlock = state.animate
               ? "{ speed: 0.3, axis: \"y\", pauseOnInteraction: true }"
               : "false";
-            j.push(`createPolyControls(scene, { drag: ${state.interactive}, wheel: ${state.interactive}, animate: ${animBlock} });`);
+            j.push(`createPolyOrbitControls(scene, { drag: ${state.interactive}, wheel: ${state.interactive}, animate: ${animBlock} });`);
             j.push("<" + "/script>");
           }
 
@@ -919,7 +919,7 @@ const { id, model, mtl, generator, generatorParams, controls, defaults, showStat
           try { controlsHandle.destroy(); } catch (_) {}
           controlsHandle = null;
         }
-        polyControlsEl = null; // <poly-controls> dies with its parent <poly-scene>
+        polyControlsEl = null; // <poly-orbit-controls> dies with its parent <poly-scene>
         if (fpsFrameId !== null) {
           try { cancelAnimationFrame(fpsFrameId); } catch (_) {}
           fpsFrameId = null;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParseResult, Polygon } from "@layoutit/polycss-core";
-import { createPolyScene, type SceneHandle, type MeshHandle } from "./createPolyScene";
+import { createPolyScene, type PolySceneHandle } from "./createPolyScene";
 import { createTransformControls } from "./createTransformControls";
 
 const TRIANGLE: Polygon = {
@@ -99,7 +99,7 @@ function triggerPointerDownOnGizmoEl(
 
 describe("createTransformControls", () => {
   let host: HTMLElement;
-  let scene: SceneHandle;
+  let scene: PolySceneHandle;
   let tc: ReturnType<typeof createTransformControls> | null = null;
 
   beforeEach(() => {
@@ -162,13 +162,14 @@ describe("createTransformControls", () => {
     expect(host.querySelectorAll(".polycss-transform-arrow").length).toBe(0);
   });
 
-  // ── Test 4: scale mode renders nothing ──────────────────────────────────────
-  it("scale mode renders nothing (reserved for forward-compat)", () => {
+  // ── Test 4: no-target attach renders nothing ─────────────────────────────────
+  it("attach(null) followed by attach(mesh) shows the gizmo", () => {
     const mesh = scene.add(parseResult(), { id: "target" });
-    tc = createTransformControls(scene, { mode: "scale" });
-    tc.attach(mesh);
-
+    tc = createTransformControls(scene);
+    tc.attach(null);
     expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBe(0);
+    tc.attach(mesh);
+    expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBeGreaterThan(0);
   });
 
   // ── Test 5: showX/Y/Z=false hides the corresponding pair ────────────────────

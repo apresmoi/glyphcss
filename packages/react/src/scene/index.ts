@@ -6,7 +6,7 @@ export { usePolySceneContext } from "./useSceneContext";
 export type { UseSceneContextOptions, UseSceneContextResult } from "./useSceneContext";
 export { usePolyMesh } from "./useMesh";
 export type { UseMeshResult, UseMeshOptions } from "./useMesh";
-export { findPolyMeshHandle } from "./events";
+export { findPolyMeshHandle, pointInMeshElement, findMeshUnderPoint } from "./events";
 export type {
   PolyMeshHandle,
   PolyPointerEvent,

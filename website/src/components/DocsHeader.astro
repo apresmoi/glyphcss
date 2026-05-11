@@ -8,6 +8,7 @@ const shouldRenderSearch =
   config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro';
 
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
+const isLanding = pathname === '/';
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
   {
@@ -22,17 +23,21 @@ const topLinks = [
     labelLong: ' Reference',
     active: pathname.startsWith('/api'),
   },
-  { href: '/debug/meshes', label: 'Gallery', active: pathname.startsWith('/debug') },
+  { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
 ];
 ---
 
 <div class="header">
-  <div class="title-wrapper sl-flex">
-    <SiteTitle />
-  </div>
-  <div class="sidebar-search-dock print:hidden">
-    {shouldRenderSearch && <Search />}
-  </div>
+  {!isLanding && (
+    <div class="title-wrapper sl-flex">
+      <SiteTitle />
+    </div>
+  )}
+  {!isLanding && (
+    <div class="sidebar-search-dock print:hidden">
+      {shouldRenderSearch && <Search />}
+    </div>
+  )}
   <nav class="docs-top-nav print:hidden" aria-label="Site sections">
     {topLinks.map((link) => (
       <a href={link.href} class:list={[{ active: link.active }]}>
@@ -43,7 +48,8 @@ const topLinks = [
       </a>
     ))}
   </nav>
-  <div class="header-spacer print:hidden">
+  {!isLanding && (
+    <div class="header-spacer print:hidden">
     <a
       class="github-social github-social--compact"
       href="https://github.com/LayoutitStudio/polycss"
@@ -59,7 +65,8 @@ const topLinks = [
       </span>
       <span class="github-social__count" id="star-count-docs">&#9733; &hellip;</span>
     </a>
-  </div>
+    </div>
+  )}
 </div>
 
 <script>
@@ -80,12 +87,6 @@ const topLinks = [
 
 <style>
   @layer starlight.core {
-    :global(.page > header.header) {
-      padding: 11px 0;
-      background: #0f1115;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
     :global(:root) {
       --sl-nav-height: 72px;
     }
@@ -95,7 +96,20 @@ const topLinks = [
       grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
       align-items: center;
       gap: 24px;
-      height: 100%;
+      /* Fixed at the top of the viewport on all routes. The Starlight outer
+         <header class="header"> wrapper is neutralised in custom.css so it
+         does not interfere with our own fixed positioning. */
+      position: fixed;
+      inset-block-start: 0;
+      inset-inline-start: 0;
+      width: 100%;
+      height: var(--sl-nav-height);
+      /* Starlight's --sl-z-index-navbar is 10; DebugWorkbench uses up to 30,
+         so bump the header above everything else on /gallery. */
+      z-index: 100;
+      background-color: var(--sl-color-bg-nav);
+      border-bottom: 1px solid var(--sl-color-hairline-shade);
+      box-sizing: border-box;
       font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
     }
 
@@ -112,6 +126,14 @@ const topLinks = [
       gap: 0.25rem;
       justify-self: center;
       min-width: 0;
+    }
+
+    /* On landing the side columns aren't rendered (logo + github hidden),
+       so the nav would otherwise fall into col 1 and `justify-self:center`
+       would only center within that left third. Span all columns when it's
+       the only child of .header so the centering takes the full width. */
+    .docs-top-nav:only-child {
+      grid-column: 1 / -1;
     }
 
     .docs-top-nav a {

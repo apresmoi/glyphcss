@@ -11,7 +11,7 @@
  */
 import { axesHelperPolygons } from "@layoutit/polycss-core";
 import type { ParseResult } from "@layoutit/polycss-core";
-import type { MeshHandle } from "../api/createPolyScene";
+import type { PolyMeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -43,7 +43,7 @@ export class PolyAxesHelperElement extends ELEMENT_BASE {
     return [...OBSERVED_ATTRS];
   }
 
-  private _handle: MeshHandle | null = null;
+  private _handle: PolyMeshHandle | null = null;
 
   connectedCallback(): void {
     this._mount();

@@ -22,9 +22,7 @@
  * vertices live in WORLD units; we convert via `SCENE_TILE_SIZE` (the
  * default `tileSize` PolyScene applies to atlas geometry).
  *
- * v1 scope: `mode="translate"` only. `mode="rotate" | "scale"` and
- * `space="local"` are accepted in the type for forward-compat but
- * render nothing — they're follow-ups, not blockers for the API shape.
+ * `space="local"` is accepted in the type but only "world" is implemented.
  */
 import {
   useCallback,
@@ -179,9 +177,8 @@ export interface PolyTransformControlsProps {
   /** Mesh to attach to. Pass a ref returned from `useRef<PolyMeshHandle>()`
    *  or a handle directly. `null` hides the gizmo. */
   object: PolyTransformControlsObject;
-  /** Drag mode. "translate" → axial arrows, "rotate" → axial rings.
-   *  "scale" is accepted for forward-compat but renders nothing. */
-  mode?: "translate" | "rotate" | "scale";
+  /** Drag mode. "translate" → axial arrows, "rotate" → axial rings. */
+  mode?: "translate" | "rotate";
   /** Axis basis. Only "world" is implemented in v1. */
   space?: "world" | "local";
   /** Multiplier on gizmo size (shaft length / ring radius). Default 1. */
@@ -509,7 +506,7 @@ export function PolyTransformControls({
   const cameraElRef = cameraCtx?.cameraElRef;
   const dragRef = useRef<{
     target: PolyMeshHandle | null;
-    mode: "translate" | "rotate" | "scale";
+    mode: "translate" | "rotate";
     shaftLengthCss: number;
     enabled: boolean;
     show: { x: boolean; y: boolean; z: boolean };
@@ -631,7 +628,6 @@ export function PolyTransformControls({
 
   const target = resolveObject(object);
   if (!target) return null;
-  if (mode !== "translate" && mode !== "rotate") return null; // scale: TODO
 
   const position = target.getPosition() ?? ([0, 0, 0] as Vec3);
   const polygons = target.getPolygons();

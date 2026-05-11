@@ -12,7 +12,7 @@
  */
 import type { ParseResult, Polygon, Vec3 } from "@layoutit/polycss-core";
 import { computeSceneBbox, loadMesh } from "@layoutit/polycss-core";
-import type { MeshHandle } from "../api/createPolyScene";
+import type { PolyMeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -75,9 +75,14 @@ export class PolyMeshElement extends ELEMENT_BASE {
     return [...OBSERVED_ATTRS];
   }
 
-  private _handle: MeshHandle | null = null;
+  private _handle: PolyMeshHandle | null = null;
   private _parseResult: ParseResult | null = null;
   private _loadToken = 0;
+
+  /** Returns the current mesh handle, or null if not yet loaded. */
+  getMeshHandle(): PolyMeshHandle | null {
+    return this._handle;
+  }
 
   connectedCallback(): void {
     this._maybeLoad();

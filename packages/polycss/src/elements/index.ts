@@ -14,7 +14,12 @@ import { PolyMeshElement } from "./PolyMeshElement";
 import { PolyPolygonElement } from "./PolyPolygonElement";
 import { PolyAxesHelperElement } from "./PolyAxesHelperElement";
 import { PolyDirectionalLightHelperElement } from "./PolyDirectionalLightHelperElement";
-import { PolyControlsElement } from "./PolyControlsElement";
+import { PolyOrbitControlsElement } from "./PolyOrbitControlsElement";
+import { PolyMapControlsElement } from "./PolyMapControlsElement";
+import { PolyPerspectiveCameraElement } from "./PolyPerspectiveCameraElement";
+import { PolyOrthographicCameraElement } from "./PolyOrthographicCameraElement";
+import { PolyTransformControlsElement } from "./PolyTransformControlsElement";
+import { PolySelectElement } from "./PolySelectElement";
 
 if (typeof customElements !== "undefined") {
   if (!customElements.get("poly-scene")) {
@@ -35,8 +40,23 @@ if (typeof customElements !== "undefined") {
       PolyDirectionalLightHelperElement,
     );
   }
-  if (!customElements.get("poly-controls")) {
-    customElements.define("poly-controls", PolyControlsElement);
+  if (!customElements.get("poly-orbit-controls")) {
+    customElements.define("poly-orbit-controls", PolyOrbitControlsElement);
+  }
+  if (!customElements.get("poly-map-controls")) {
+    customElements.define("poly-map-controls", PolyMapControlsElement);
+  }
+  if (!customElements.get("poly-perspective-camera")) {
+    customElements.define("poly-perspective-camera", PolyPerspectiveCameraElement);
+  }
+  if (!customElements.get("poly-orthographic-camera")) {
+    customElements.define("poly-orthographic-camera", PolyOrthographicCameraElement);
+  }
+  if (!customElements.get("poly-transform-controls")) {
+    customElements.define("poly-transform-controls", PolyTransformControlsElement);
+  }
+  if (!customElements.get("poly-select")) {
+    customElements.define("poly-select", PolySelectElement);
   }
 }
 
@@ -46,5 +66,10 @@ export {
   PolyPolygonElement,
   PolyAxesHelperElement,
   PolyDirectionalLightHelperElement,
-  PolyControlsElement,
+  PolyOrbitControlsElement,
+  PolyMapControlsElement,
+  PolyPerspectiveCameraElement,
+  PolyOrthographicCameraElement,
+  PolyTransformControlsElement,
+  PolySelectElement,
 };

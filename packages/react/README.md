@@ -42,9 +42,9 @@ Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, 
 | `directionalLight` | `DirectionalLight` | — | Directional + ambient light |
 | `atlasScale` | `number` | `1` | Raster scale for generated atlas pages |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with `children`) |
-| `children` | `ReactNode` | — | `<PolyMesh>`, `<Poly>`, and/or `<PolyControls>` |
+| `children` | `ReactNode` | — | `<PolyMesh>`, `<Poly>`, and/or `<PolyOrbitControls>` |
 
-For pointer drag, wheel zoom, and autorotate, mount `<PolyControls>` inside `<PolyCamera>` (it receives the camera context). Mirrors Three.js's split between camera state and input.
+For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>` — it receives the camera context. Mirrors Three.js's split between camera state and input.
 
 ### `<PolyMesh>`
 
@@ -101,7 +101,7 @@ Camera controls wrapper — perspective, rotation, zoom, interaction, and auto-r
 
 | Export | Description |
 |---|---|
-| `injectBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. Called automatically by `<PolyScene>`; manual call only needed for custom scene hosts. Polygon defaults are scoped to `.polycss-scene`. |
+| `injectPolyBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. Called automatically by `<PolyScene>`; manual call only needed for custom scene hosts. Polygon defaults are scoped to `.polycss-scene`. |
 
 ## Re-exports from `@layoutit/polycss-core`
 

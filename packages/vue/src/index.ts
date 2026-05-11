@@ -22,9 +22,9 @@ export type { UseMeshOptions, UseMeshResult } from "./scene";
 export { usePolyMaterial } from "./scene/usePolyMaterial";
 
 export { Poly } from "./shapes";
-export type { PolyProps } from "./shapes";
+export type { PolyProps, PolyContext } from "./shapes";
 
-export { PolyControls, PolyOrbitControls, PolyMapControls, PolyTransformControls } from "./controls";
+export { PolyOrbitControls, PolyMapControls, PolyTransformControls } from "./controls";
 export type {
   PolyOrbitControlsProps,
   PolyOrbitControlsCamera,
@@ -33,10 +33,11 @@ export type {
   PolyControlsAnimateOptions,
   PolyTransformControlsObject,
   PolyTransformControlsObjectChangeEvent,
+  PolyTransformControlsProps,
 } from "./controls";
 
 export { PolySelect, usePolySelect, usePolySelectionApi, PolySelectionContextKey } from "./select";
-export type { PolySelectionApi } from "./select";
+export type { PolySelectionApi, PolySelectProps } from "./select";
 
 export { findPolyMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./scene/events";
 export type {
@@ -56,6 +57,9 @@ export type {
 
 export { injectPolyBaseStyles } from "./styles";
 
+export { usePolyAnimation } from "./animation/usePolyAnimation";
+export type { UsePolyAnimationResultVue } from "./animation/usePolyAnimation";
+
 // ── Re-exports from @layoutit/polycss-core ─────────────────────────────────────────────
 export type {
   Polygon,
@@ -68,18 +72,73 @@ export type {
   ParseResult,
   ParseAnimationClip,
   ParseAnimationController,
+  PolyAnimationClip,
+  PolyAnimationAction,
+  PolyAnimationMixer,
+  PolyAnimationTarget,
+  LoopMode,
   ObjParseOptions,
   GltfParseOptions,
   MtlParseResult,
   NormalizeResult,
+  ParsedColor,
+  TextureTriangle,
+  PolygonFace,
+  SceneBbox,
+  SceneContext,
+  SceneContextBuildArgs,
+  SceneContextBuildResult,
+  CameraState,
+  CameraHandle,
+  CameraStyleInput,
+  AutoRotateOption,
+  AutoRotateConfig,
+  AxesHelperOptions,
+  ArrowPolygonsOptions,
+  RingPolygonsOptions,
+  OctahedronPolygonsOptions,
+  LoadMeshOptions,
+  VoxParseOptions,
+  TexturePaintMetrics,
+  TexturePaintMetricsOptions,
+  CoverPlanarPolygonsOptions,
+  CullInteriorOptions,
 } from "@layoutit/polycss-core";
 export {
   normalizePolygons,
   mergePolygons,
+  coverPlanarPolygons,
   cullInteriorPolygons,
   parseObj,
   parseMtl,
   parseGltf,
   loadMesh,
   createIsometricCamera,
+  parseVox,
+  polygonFaces,
+  computeTexturePaintMetrics,
+  computeShapeLighting,
+  parseColor,
+  parsePureColor,
+  parseHexColor,
+  parseRgbColor,
+  formatColor,
+  clampChannel,
+  shadeColor,
+  rotateVec3,
+  inverseRotateVec3,
+  axesHelperPolygons,
+  arrowPolygons,
+  ringPolygons,
+  octahedronPolygons,
+  buildSceneContext,
+  computeSceneBbox,
+  BASE_TILE,
+  DEFAULT_CAMERA_STATE,
+  DEFAULT_PROJECTION,
+  normalizeInvertMultiplier,
+  createPolyAnimationMixer,
+  LoopOnce,
+  LoopRepeat,
+  LoopPingPong,
 } from "@layoutit/polycss-core";

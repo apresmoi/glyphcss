@@ -9,7 +9,7 @@
  * — there's no URL fetch.
  */
 import type { ParseResult, Polygon, Vec2, Vec3 } from "@layoutit/polycss-core";
-import type { MeshHandle } from "../api/createPolyScene";
+import type { PolyMeshHandle } from "../api/createPolyScene";
 import type { PolySceneElement } from "./PolySceneElement";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -66,7 +66,7 @@ export class PolyPolygonElement extends ELEMENT_BASE {
     return [...OBSERVED_ATTRS];
   }
 
-  private _handle: MeshHandle | null = null;
+  private _handle: PolyMeshHandle | null = null;
 
   connectedCallback(): void {
     this._mount();

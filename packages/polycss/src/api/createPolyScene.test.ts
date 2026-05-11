@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParseResult, Polygon } from "@layoutit/polycss-core";
 import {
   createPolyScene,
-  type SceneHandle,
+  type PolySceneHandle,
 } from "./createPolyScene";
 
 function triangle(color = "#ff0000"): Polygon {
@@ -57,7 +57,7 @@ function getCenterWrapper(host: HTMLElement): HTMLElement {
 
 describe("createPolyScene", () => {
   let host: HTMLElement;
-  let scene: SceneHandle | null;
+  let scene: PolySceneHandle | null;
 
   beforeEach(() => {
     host = document.createElement("div");
@@ -336,6 +336,78 @@ describe("createPolyScene", () => {
         handle.rebakeAtlas();
         expect(spy).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe("PolyMeshHandle getters", () => {
+    it("getPolygons() returns the same array as handle.polygons", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle()]));
+      expect(handle.getPolygons()).toBe(handle.polygons);
+    });
+
+    it("getPolygons() reflects setPolygons() update", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle()]));
+      const newPolys = [triangle("#00ff00"), triangle("#0000ff")];
+      handle.setPolygons(newPolys, { merge: false });
+      expect(handle.getPolygons()).toBe(handle.polygons);
+      expect(handle.getPolygons().length).toBe(2);
+    });
+
+    it("getPosition() returns transform.position", () => {
+      scene = createPolyScene(host);
+      const pos: [number, number, number] = [1, 2, 3];
+      const handle = scene.add(makeParseResult(), { position: pos });
+      expect(handle.getPosition()).toEqual(pos);
+      expect(handle.getPosition()).toBe(handle.transform.position);
+    });
+
+    it("getPosition() returns undefined when no position set", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult());
+      expect(handle.getPosition()).toBeUndefined();
+    });
+
+    it("getPosition() reflects setTransform() update", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult(), { position: [0, 0, 0] });
+      handle.setTransform({ position: [10, 20, 30] });
+      expect(handle.getPosition()).toEqual([10, 20, 30]);
+    });
+
+    it("getRotation() returns transform.rotation", () => {
+      scene = createPolyScene(host);
+      const rot: [number, number, number] = [45, 90, 180];
+      const handle = scene.add(makeParseResult(), { rotation: rot });
+      expect(handle.getRotation()).toEqual(rot);
+      expect(handle.getRotation()).toBe(handle.transform.rotation);
+    });
+
+    it("getRotation() returns undefined when no rotation set", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult());
+      expect(handle.getRotation()).toBeUndefined();
+    });
+
+    it("getScale() returns transform.scale (number)", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult(), { scale: 2.5 });
+      expect(handle.getScale()).toBe(2.5);
+      expect(handle.getScale()).toBe(handle.transform.scale);
+    });
+
+    it("getScale() returns transform.scale (Vec3)", () => {
+      scene = createPolyScene(host);
+      const scale: [number, number, number] = [1, 2, 3];
+      const handle = scene.add(makeParseResult(), { scale });
+      expect(handle.getScale()).toEqual(scale);
+    });
+
+    it("getScale() returns undefined when no scale set", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult());
+      expect(handle.getScale()).toBeUndefined();
     });
   });
 

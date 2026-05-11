@@ -13,29 +13,55 @@
 // ── Imperative scene API ──────────────────────────────────────────
 export { createPolyScene } from "./api/createPolyScene";
 export type {
-  SceneHandle,
-  MeshHandle,
-  MeshTransform,
+  PolySceneHandle,
+  PolyMeshHandle,
+  PolyMeshTransform,
   PolySceneOptions,
 } from "./api/createPolyScene";
 
-// ── Camera input + autorotate (additive, optional layer) ──────────
-export { createPolyControls } from "./api/createPolyControls";
+// ── Camera factories ──────────────────────────────────────────────
+export { createPolyPerspectiveCamera, createPolyOrthographicCamera } from "./api/createPolyCamera";
 export type {
-  ControlsHandle,
-  PolyControlsOptions,
+  PolyCameraOptions,
+  PolyPerspectiveCameraOptions,
+  PolyOrthographicCameraOptions,
+  PolyPerspectiveCameraHandle,
+  PolyOrthographicCameraHandle,
+} from "./api/createPolyCamera";
+
+// ── Camera input (additive, optional layers) ──────────────────────
+export { createPolyOrbitControls } from "./api/createPolyOrbitControls";
+export type {
+  PolyOrbitControlsOptions,
+  PolyOrbitControlsHandle,
+} from "./api/createPolyOrbitControls";
+
+export { createPolyMapControls } from "./api/createPolyMapControls";
+export type {
+  PolyMapControlsOptions,
+  PolyMapControlsHandle,
+} from "./api/createPolyMapControls";
+
+export type {
+  PolyControlsHandle,
+  PolyControlsBaseOptions,
   PolyControlsAnimateOptions,
-} from "./api/createPolyControls";
+  PolyControlsCamera,
+  PolyControlsChangeEvent,
+  PolyControlsInteractionEvent,
+  PolyControlsEvent,
+  PolyControlsListener,
+} from "./api/controls/common";
 
 // ── Mesh selection (additive, optional layer) ─────────────────────
 export { createSelect } from "./api/createSelect";
-export type { CreateSelectOptions, SelectionHandle } from "./api/createSelect";
+export type { PolySelectOptions, PolySelectionHandle } from "./api/createSelect";
 
 // ── Transform gizmo (additive, optional layer) ────────────────────
 export { createTransformControls } from "./api/createTransformControls";
 export type {
-  CreateTransformControlsOptions,
-  TransformControlsHandle,
+  PolyTransformControlsOptions,
+  PolyTransformControlsHandle,
   PolyTransformControlsObjectChangeEvent,
 } from "./api/createTransformControls";
 
@@ -43,7 +69,12 @@ export type {
 export { PolySceneElement } from "./elements/PolySceneElement";
 export { PolyMeshElement } from "./elements/PolyMeshElement";
 export { PolyPolygonElement } from "./elements/PolyPolygonElement";
-export { PolyControlsElement } from "./elements/PolyControlsElement";
+export { PolyOrbitControlsElement } from "./elements/PolyOrbitControlsElement";
+export { PolyMapControlsElement } from "./elements/PolyMapControlsElement";
+export { PolyPerspectiveCameraElement } from "./elements/PolyPerspectiveCameraElement";
+export { PolyOrthographicCameraElement } from "./elements/PolyOrthographicCameraElement";
+export { PolyTransformControlsElement } from "./elements/PolyTransformControlsElement";
+export { PolySelectElement } from "./elements/PolySelectElement";
 
 // ── Style injection ───────────────────────────────────────────────
 export { injectPolyBaseStyles } from "./styles/styles";

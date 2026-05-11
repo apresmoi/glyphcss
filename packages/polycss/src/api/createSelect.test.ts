@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParseResult, Polygon } from "@layoutit/polycss-core";
-import { createPolyScene, type SceneHandle, type MeshHandle } from "./createPolyScene";
-import { createSelect, type SelectionHandle } from "./createSelect";
+import { createPolyScene, type PolySceneHandle, type PolyMeshHandle } from "./createPolyScene";
+import { createSelect, type PolySelectionHandle } from "./createSelect";
 
 const TRIANGLE: Polygon = {
   vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
@@ -24,8 +24,8 @@ function clickHost(host: HTMLElement): void {
 
 describe("createSelect", () => {
   let host: HTMLElement;
-  let scene: SceneHandle;
-  let sel: SelectionHandle | null = null;
+  let scene: PolySceneHandle;
+  let sel: PolySelectionHandle | null = null;
 
   beforeEach(() => {
     host = document.createElement("div");
@@ -77,11 +77,11 @@ describe("createSelect", () => {
     clickMesh(host, "b", { shiftKey: true });
     clickMesh(host, "c", { shiftKey: true });
     let last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-    expect(last.map((m: MeshHandle) => m.id)).toEqual(["a", "b", "c"]);
+    expect(last.map((m: PolyMeshHandle) => m.id)).toEqual(["a", "b", "c"]);
 
     clickMesh(host, "b", { shiftKey: true });
     last = onChange.mock.calls[onChange.mock.calls.length - 1][0];
-    expect(last.map((m: MeshHandle) => m.id)).toEqual(["a", "c"]);
+    expect(last.map((m: PolyMeshHandle) => m.id)).toEqual(["a", "c"]);
   });
 
   it("background click clears selection by default (clearOnMiss=true)", () => {
@@ -121,7 +121,7 @@ describe("createSelect", () => {
     clickMesh(host, "b");
     expect(onChange.mock.calls[0][0]).toEqual([]);
     clickMesh(host, "a");
-    expect(onChange.mock.calls[1][0].map((m: MeshHandle) => m.id)).toEqual(["a"]);
+    expect(onChange.mock.calls[1][0].map((m: PolyMeshHandle) => m.id)).toEqual(["a"]);
   });
 
   it("skips meshes tagged as transform-controls gizmo content", () => {

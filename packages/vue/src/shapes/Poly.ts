@@ -192,9 +192,9 @@ export const Poly = defineComponent({
     const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
 
     return () => {
+      const plan = atlasPlan.value;
       const atlasEntry = textureAtlas.entries.value[0];
-      const atlasPlan = textureAtlasPlans.value[0];
-      if (!atlasEntry && (!atlasPlan || atlasPlan.texture)) return null;
+
       const transformParts: string[] = [];
       if (props.position) {
         transformParts.push(
@@ -228,10 +228,10 @@ export const Poly = defineComponent({
       );
 
       let front;
-      if (materialUvRect.value && props.material && atlasPlan.value) {
+      if (materialUvRect.value && props.material && plan) {
         // Direct path: shared material texture, no atlas rasterization.
         front = renderMaterialDirectPoly({
-          plan: atlasPlan.value,
+          plan,
           material: props.material,
           uvRect: materialUvRect.value,
           className: (forwardedAttrs.class as string) ?? undefined,
@@ -249,9 +249,9 @@ export const Poly = defineComponent({
           domAttrs: forwardedDomAttrs,
           pointerEvents: props.pointerEvents ?? "auto",
         });
-      } else if (atlasPlan && !atlasPlan.texture) {
+      } else if (plan && !plan.texture) {
         front = renderTextureBorderShapePoly({
-          entry: atlasPlan,
+          entry: plan,
           className: (forwardedAttrs.class as string) ?? undefined,
           style: forwardedAttrs.style as CSSProperties | undefined,
           domAttrs: forwardedDomAttrs,

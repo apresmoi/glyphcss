@@ -41,7 +41,7 @@ Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, 
 | `atlas-scale` | `number` | `1` | Raster scale for generated atlas pages |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with slot) |
 
-For pointer drag, wheel zoom, and autorotate, mount `<PolyControls>` inside `<PolyCamera>` (it receives the camera context). Mirrors Three.js's split between camera state and input.
+For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>` — it receives the camera context. Mirrors Three.js's split between camera state and input.
 
 ### `<PolyMesh>`
 
@@ -92,7 +92,7 @@ Camera controls wrapper. Most use cases can pass camera props directly to `<Poly
 
 | Export | Description |
 |---|---|
-| `injectBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. |
+| `injectPolyBaseStyles(doc?)` | Inject polycss base CSS into the document. Idempotent. |
 
 ## Re-exports from `@layoutit/polycss-core`
 

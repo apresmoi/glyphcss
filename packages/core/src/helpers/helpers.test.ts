@@ -63,13 +63,13 @@ describe("axesHelperPolygons", () => {
 
 describe("octahedronPolygons", () => {
   it("returns 8 triangular faces", () => {
-    const polygons = octahedronPolygons([0, 0, 0], 1, "#ffd54a");
+    const polygons = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffd54a" });
     expect(polygons).toHaveLength(8);
     for (const p of polygons) expect(p.vertices).toHaveLength(3);
   });
 
   it("centers all six pole vertices around the given center", () => {
-    const polygons = octahedronPolygons([10, 20, 30], 2, "#ffd54a");
+    const polygons = octahedronPolygons({ center: [10, 20, 30], size: 2, color: "#ffd54a" });
     const allVerts = polygons.flatMap((p) => p.vertices);
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -85,7 +85,12 @@ describe("octahedronPolygons", () => {
   });
 
   it("propagates the color to every face", () => {
-    const polygons = octahedronPolygons([0, 0, 0], 1, "#ff00ff");
+    const polygons = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff00ff" });
     for (const p of polygons) expect(p.color).toBe("#ff00ff");
+  });
+
+  it("uses white as the default color", () => {
+    const polygons = octahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) expect(p.color).toBe("#ffffff");
   });
 });

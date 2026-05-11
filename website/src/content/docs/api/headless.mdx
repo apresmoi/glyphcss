@@ -128,17 +128,19 @@ const cam = createIsometricCamera({
 
 ---
 
-## `createPolyControls(scene, options?)`
+## `createPolyOrbitControls(scene, options?)`
 
 Attach pointer drag, wheel zoom, and an optional autorotate loop to a scene returned by `createPolyScene`. Pure additive layer — the renderer stays free of input concerns. Modelled on Three.js `OrbitControls`.
 
+Use `createPolyMapControls(scene, options?)` instead when you want map/pan-style drag (pointer pans the camera across a flat surface rather than orbiting the scene center).
+
 ```ts
-import { createPolyScene, createPolyControls, loadMesh } from "@layoutit/polycss";
+import { createPolyScene, createPolyOrbitControls, loadMesh } from "@layoutit/polycss";
 
 const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
 scene.add(await loadMesh("/cottage.glb"));
 
-const controls = createPolyControls(scene, {
+const controls = createPolyOrbitControls(scene, {
   drag: true,                                                // default true
   wheel: true,                                               // default true
   invert: false,                                             // bool or sensitivity number
@@ -172,7 +174,7 @@ controls.addEventListener("end",   () => endInteraction());
 | `maxDistance` | `number` | `5000` | Maximum distance clamp when `dolly` is enabled. |
 | `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotate. `speed` is in degrees per 60 Hz-equivalent frame; the tick is `dt`-clamped at 50 ms. |
 
-### Returned `ControlsHandle`
+### Returned `PolyOrbitControlsHandle`
 
 | Method | Description |
 |--------|-------------|
@@ -188,7 +190,7 @@ controls.addEventListener("end",   () => endInteraction());
 
 ### Required scene surface
 
-`createPolyControls` reads from and writes to its scene argument via two members on `SceneHandle`:
+`createPolyOrbitControls` reads from and writes to its scene argument via two members on `PolySceneHandle`:
 
 - `scene.host: HTMLElement` — the element handlers are attached to.
 - `scene.getOptions()` — read current `rotX` / `rotY` / `zoom`.
@@ -200,13 +202,13 @@ Anything that satisfies that subset works, so layered helpers can compose multip
 
 ## Custom elements (vanilla)
 
-Register the `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`, and `<poly-controls>` custom elements by importing the side-effect entry point:
+Register the `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`, `<poly-orbit-controls>`, and `<poly-map-controls>` custom elements by importing the side-effect entry point:
 
 ```html
 <script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
-  <poly-controls drag wheel animate-speed="0.3"></poly-controls>
+  <poly-orbit-controls drag wheel animate-speed="0.3"></poly-orbit-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```

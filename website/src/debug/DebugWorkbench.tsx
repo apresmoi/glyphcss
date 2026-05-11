@@ -29,7 +29,8 @@ import type {
 import {
   axesHelperPolygons,
   coverPlanarPolygons,
-  createPolyControls,
+  createPolyOrbitControls,
+  createPolyMapControls,
   createPolyScene,
   createSelect,
   createTransformControls,
@@ -37,12 +38,11 @@ import {
   parseVox,
 } from "@layoutit/polycss";
 import type {
-  ControlsHandle,
-  MeshHandle,
+  PolyControlsHandle,
   PolySceneOptions,
-  SceneHandle,
-  SelectionHandle,
-  TransformControlsHandle,
+  PolySceneHandle,
+  PolySelectionHandle,
+  PolyTransformControlsHandle,
   Vec3,
   VoxParseOptions,
 } from "@layoutit/polycss";
@@ -57,7 +57,7 @@ type TextureQuality = "auto" | "full" | "balanced" | "draft";
 type MatrixPrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type DragMode = "orbit" | "pan";
-type GizmoMode = "translate" | "rotate" | "scale";
+type GizmoMode = "translate" | "rotate";
 type PerspectiveMode = "perspective" | "orthographic";
 
 interface PresetModel {
@@ -1578,13 +1578,13 @@ function VanillaScene({
   onHoverChange?: (id: string | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const sceneRef = useRef<SceneHandle | null>(null);
-  const controlsRef = useRef<ControlsHandle | null>(null);
-  const meshHandleRef = useRef<MeshHandle | null>(null);
-  const axesHandleRef = useRef<MeshHandle | null>(null);
-  const lightHandleRef = useRef<MeshHandle | null>(null);
-  const selectionRef = useRef<SelectionHandle | null>(null);
-  const transformControlsRef = useRef<TransformControlsHandle | null>(null);
+  const sceneRef = useRef<PolySceneHandle | null>(null);
+  const controlsRef = useRef<PolyControlsHandle | null>(null);
+  const meshHandleRef = useRef<PolyMeshHandle | null>(null);
+  const axesHandleRef = useRef<PolyMeshHandle | null>(null);
+  const lightHandleRef = useRef<PolyMeshHandle | null>(null);
+  const selectionRef = useRef<PolySelectionHandle | null>(null);
+  const transformControlsRef = useRef<PolyTransformControlsHandle | null>(null);
   const onBuildRef = useRef(onBuild);
   onBuildRef.current = onBuild;
   const onCameraChangeRef = useRef(onCameraChange);
@@ -1704,7 +1704,7 @@ function VanillaScene({
   }, [
     enableSelection,
     // Same deps as the scene-init effect so the selection rebinds to
-    // the new SceneHandle whenever the scene tears down + rebuilds.
+    // the new PolySceneHandle whenever the scene tears down + rebuilds.
     options.autoCenter,
     options.textureQuality,
     options.textureLighting,
@@ -1806,7 +1806,7 @@ function VanillaScene({
   ]);
 
   // Effect 2.5 — vanilla controls. The React renderer wires interactive +
-  // animate through <PolyCamera>; the vanilla path uses createPolyControls.
+  // animate through <PolyCamera>; the vanilla path uses createPolyOrbitControls.
   // The handle is created lazily once the scene is ready and we're on the
   // vanilla renderer; subsequent prop changes flow through controls.update().
   useEffect(() => {
@@ -1817,13 +1817,14 @@ function VanillaScene({
     }
     const scene = sceneRef.current;
     if (!scene) return;
+    const controlsOpts = {
+      drag: options.interactive,
+      wheel: options.interactive,
+      animate: options.animate ? { speed: 0.3, axis: "y" as const, pauseOnInteraction: true } : false as const,
+    };
     if (!controlsRef.current) {
-      const controls = createPolyControls(scene, {
-        drag: options.interactive,
-        wheel: options.interactive,
-        mode: options.dragMode,
-        animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
-      });
+      const factory = options.dragMode === "pan" ? createPolyMapControls : createPolyOrbitControls;
+      const controls = factory(scene, controlsOpts);
       // Sync the camera back to React state ONCE per gesture (pointerup /
       // wheel-idle) instead of every move. Per-frame React renders during
       // a drag re-fire Effect 2 below, which re-applies directionalLight /
@@ -1836,12 +1837,15 @@ function VanillaScene({
       });
       controlsRef.current = controls;
     } else {
-      controlsRef.current.update({
-        drag: options.interactive,
-        wheel: options.interactive,
-        mode: options.dragMode,
-        animate: options.animate ? { speed: 0.3, axis: "y", pauseOnInteraction: true } : false,
+      // dragMode is a dep — when it changes, destroy and re-create with the
+      // new factory so orbit vs pan semantics flip correctly.
+      controlsRef.current.destroy();
+      const factory = options.dragMode === "pan" ? createPolyMapControls : createPolyOrbitControls;
+      const controls = factory(scene, controlsOpts);
+      controls.addEventListener("end", (e) => {
+        onCameraChangeRef.current?.(e.camera);
       });
+      controlsRef.current = controls;
     }
     return () => {
       // Effect re-runs when deps change — destroy only on full unmount,
@@ -1911,7 +1915,7 @@ function VanillaScene({
     const swatch = directionalLight.color ?? "#ffd54a";
     lightHandleRef.current = scene.add(
       {
-        polygons: octahedronPolygons([0, 0, 0], helperScale * 0.05, swatch),
+        polygons: octahedronPolygons({ center: [0, 0, 0], size: helperScale * 0.05, color: swatch }),
         objectUrls: [],
         warnings: [],
         dispose: () => {},
@@ -1993,7 +1997,7 @@ export default function DebugWorkbench() {
   const [selectedMeshes, setSelectedMeshes] = useState<PolyMeshHandle[]>([]);
   // Mirror of PolyTransformControls' drag state — three.js convention is to
   // disable OrbitControls while a transform gizmo is being dragged so
-  // the camera doesn't co-rotate. Same idea here: gate PolyControls'
+  // the camera doesn't co-rotate. Same idea here: gate PolyOrbitControls'
   // drag/wheel on this flag.
   const [gizmoDragging, setGizmoDragging] = useState(false);
   // Hover state for the mesh — wired the r3f / three.js way via
@@ -2474,7 +2478,7 @@ export default function DebugWorkbench() {
       .name("Hover effects")
       .onChange((value: boolean) => updateScene({ hoverEffects: value }));
     const gizmoController = interaction
-      .add(interactionState, "gizmoMode", { translate: "translate", rotate: "rotate", scale: "scale" })
+      .add(interactionState, "gizmoMode", { translate: "translate", rotate: "rotate" })
       .name("Gizmo")
       .onChange((value: GizmoMode) => setGizmoMode(value));
 

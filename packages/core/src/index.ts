@@ -81,7 +81,22 @@ export type { CullInteriorOptions } from "./cull/cullInteriorPolygons";
 
 // ── Helper-gizmo geometry (axes, light marker, transform arrows / rings) ─
 export { axesHelperPolygons, arrowPolygons, ringPolygons, octahedronPolygons } from "./helpers";
-export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions } from "./helpers";
+export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, OctahedronPolygonsOptions } from "./helpers";
+
+// ── Animation ─────────────────────────────────────────────────────
+export {
+  createPolyAnimationMixer,
+  LoopOnce,
+  LoopRepeat,
+  LoopPingPong,
+} from "./animation";
+export type {
+  PolyAnimationClip,
+  PolyAnimationAction,
+  PolyAnimationMixer,
+  PolyAnimationTarget,
+  LoopMode,
+} from "./animation";
 
 // ── Parsers ───────────────────────────────────────────────────────
 export type {

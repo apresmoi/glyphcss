@@ -10,6 +10,8 @@ hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("tsx", typescript);
 hljs.registerLanguage("vue", xml);
 
+import DocsHeader from "../components/DocsHeader.astro";
+
 function highlight(code: string, lang: string): string {
   return hljs.highlight(code, { language: lang }).value;
 }
@@ -28,7 +30,7 @@ const frameworkTabs = [
     code: `<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
-  <poly-controls drag wheel animate-speed="0.3"></poly-controls>
+  <poly-orbit-controls drag wheel animate-speed="0.3"></poly-orbit-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>`,
   },
@@ -36,13 +38,13 @@ const frameworkTabs = [
     id: "react",
     label: "React",
     language: "tsx",
-    code: `import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-react";
+    code: `import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
     <PolyCamera rotX={65} rotY={45}>
       <PolyScene>
-        <PolyControls drag wheel animate={{ speed: 0.3 }} />
+        <PolyOrbitControls drag wheel animate={{ speed: 0.3 }} />
         <PolyMesh src="/cottage.glb" />
       </PolyScene>
     </PolyCamera>
@@ -56,13 +58,13 @@ export function App() {
     code: `<template>
   <PolyCamera :rot-x="65" :rot-y="45">
     <PolyScene>
-      <PolyControls drag wheel :animate="{ speed: 0.3 }" />
+      <PolyOrbitControls drag wheel :animate="{ speed: 0.3 }" />
       <PolyMesh src="/cottage.glb" />
     </PolyScene>
   </PolyCamera>
 </template>
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-vue";
 </script>`,
   },
 ].map(tab => ({
@@ -124,20 +126,7 @@ const ldJson = {
 </head>
 <body>
   <div class="docs-shell">
-    <aside class="docs-nav">
-      <nav>
-        <div class="docs-nav__brand"></div>
-        <div class="nav-group">
-          <ul>
-            <li><a href="/" class="active">Home</a></li>
-            <li><a href="/quickstart">Usage</a></li>
-            <li><a href="/api/headless"><span class="nav-label"><span class="nav-label__short">API</span><span class="nav-label__long"> Reference</span></span></a></li>
-            <li><a href="/gallery">Gallery</a></li>
-          </ul>
-        </div>
-        <div class="docs-nav__spacer"></div>
-      </nav>
-    </aside>
+    <DocsHeader />
 
     <main class="docs-content">
       <div class="home">
@@ -307,7 +296,7 @@ const ldJson = {
       const host = document.getElementById("hero-root");
       if (!host) return;
       try {
-        const { createPolyScene, createPolyControls, loadMesh } = await import("@layoutit/polycss");
+        const { createPolyScene, createPolyOrbitControls, loadMesh } = await import("@layoutit/polycss");
         const parseResult = await loadMesh("/gallery/glb/apple.glb", {
           gltfOptions: {
             targetSize: 60,
@@ -326,7 +315,7 @@ const ldJson = {
         // Drag + wheel + slow autorotate via the additive controls layer.
         // pauseOnInteraction (default true) freezes the spin while the user
         // is dragging, just like the previous manual implementation did.
-        createPolyControls(scene, {
+        createPolyOrbitControls(scene, {
           drag: true,
           wheel: true,
           animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
@@ -378,6 +367,15 @@ const ldJson = {
     min-height: 100vh;
     background: #0b0d10;
   }
+
+  /* Landing's header is in-flow (scrolls with content), unlike the docs/gallery
+     pages where DocsHeader is position:fixed. Override the fixed positioning. */
+  .docs-shell > .header {
+    position: static;
+    inset-block-start: auto;
+    inset-inline-start: auto;
+    width: auto;
+  }
   .docs-nav {
     position: fixed;
     z-index: 999;
@@ -385,7 +383,6 @@ const ldJson = {
     right: 0;
     left: 0;
     width: 100%;
-    padding: 11px 0;
     background: #0f1115;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
     box-sizing: border-box;
@@ -497,12 +494,11 @@ const ldJson = {
 
   /* ── Content ────────────────────────────────────── */
   .docs-content {
-    padding-top: 72px;
     display: flex;
     flex-direction: column;
     gap: 32px;
-    min-height: calc(100vh - 72px);
   }
+
 
   /* ── Home ───────────────────────────────────────── */
   .home {

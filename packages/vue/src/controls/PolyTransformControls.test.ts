@@ -118,14 +118,6 @@ describe("PolyTransformControls (Vue)", () => {
     expect(container.querySelector("[data-poly-transform-controls]")).toBeNull();
   });
 
-  it("renders nothing for the unimplemented scale mode", async () => {
-    const { container } = await mount(
-      { polygons: [TRIANGLE] },
-      (meshRef) => ({ object: meshRef, mode: "scale" }),
-    );
-    expect(container.querySelector("[data-poly-transform-controls]")).toBeNull();
-  });
-
   it("translate mode renders 6 axis arrows (±X, ±Y, ±Z) by default", async () => {
     const { container } = await mount(
       { polygons: [TRIANGLE], position: [50, 60, 70] },
