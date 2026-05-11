@@ -176,7 +176,7 @@ const ldJson = {
             </div>
           </div>
           <div class="hero-canvas" id="hero-root">
-            <!-- Chicken OBJ mounted with createPolyScene + loadMesh,
+            <!-- Apple GLB mounted with createPolyScene + loadMesh,
                  autoCenter, and drag-to-rotate. -->
           </div>
         </section>
@@ -300,7 +300,7 @@ const ldJson = {
     }
     fetchStars();
 
-    // Hero model — loads the chicken OBJ and mounts it with
+    // Hero model — loads the Apple GLB and mounts it with
     // createPolyScene. autoCenter pivots rotation around the mesh centroid;
     // the small RAF loop spins it slowly.
     async function mountHeroModel() {
@@ -308,9 +308,8 @@ const ldJson = {
       if (!host) return;
       try {
         const { createPolyScene, createPolyControls, loadMesh } = await import("@layoutit/polycss");
-        const parseResult = await loadMesh("/gallery/obj/chicken.obj", {
-          mtlUrl: "/gallery/obj/chicken.mtl",
-          objOptions: {
+        const parseResult = await loadMesh("/gallery/glb/apple.glb", {
+          gltfOptions: {
             targetSize: 60,
             defaultColor: "#cccccc",
           },
@@ -319,7 +318,7 @@ const ldJson = {
         const scene = createPolyScene(host, {
           rotX: 74.4,
           rotY: 301.6,
-          zoom: 0.105,
+          zoom: 0.1,
           autoCenter: true,
           perspective: false,
         });

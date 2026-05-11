@@ -9,14 +9,6 @@ export function StatsJsPanel() {
     if (!host) return;
 
     const stats = new Stats();
-    stats.dom.className = "dn-stats-js";
-    stats.dom.removeAttribute("style");
-
-    Array.from(stats.dom.children).forEach((child) => {
-      if (child instanceof HTMLElement) {
-        child.style.display = "block";
-      }
-    });
 
     host.appendChild(stats.dom);
 
@@ -33,5 +25,5 @@ export function StatsJsPanel() {
     };
   }, []);
 
-  return <div className="dn-stats-js-host" ref={hostRef} />;
+  return <div ref={hostRef} />;
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { GUI } from "lil-gui";
 import {
   PolyAxesHelper,
   PolyOrthographicCamera,
@@ -26,7 +26,6 @@ import type {
   PolyTextureLightingMode,
   Vec3 as ReactVec3,
 } from "@layoutit/polycss-react";
-import { ModelPicker } from "./ModelPicker";
 import {
   axesHelperPolygons,
   coverPlanarPolygons,
@@ -47,9 +46,9 @@ import type {
   Vec3,
   VoxParseOptions,
 } from "@layoutit/polycss";
+import Stats from "stats-js/src/Stats.js";
 import { preprocessModelPolygons } from "./meshDomNormalize";
 import type { GeometryNormalizeOptions } from "./meshDomNormalize";
-import { StatsJsPanel } from "./StatsJsPanel";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
@@ -57,6 +56,9 @@ type ModelKind = "obj" | "glb" | "gltf" | "vox";
 type TextureQuality = "auto" | "full" | "balanced" | "draft";
 type MatrixPrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
+type DragMode = "orbit" | "pan";
+type GizmoMode = "translate" | "rotate" | "scale";
+type PerspectiveMode = "perspective" | "orthographic";
 
 interface PresetModel {
   id: string;
@@ -131,8 +133,12 @@ interface ParserOptionsState {
 interface DomMetrics {
   measuredAt: number;
   nodeCount: number;
-  polyCount: number;
+  polyCountS: number;
+  polyCountB: number;
+  polyCountI: number;
 }
+
+type GuiControllerMap = Record<string, any>;
 
 interface GalleryPresetFile {
   file: string;
@@ -202,6 +208,23 @@ function voxPreset(input: GalleryPresetFile): PresetModel {
   };
 }
 
+function stripParenthesizedText(label: string): string {
+  return label.replace(/\s*\([^)]*\)/g, "").trim();
+}
+
+function kindLabel(kind: ModelKind): string {
+  if (kind === "gltf" || kind === "glb") return "GLB/GLTF";
+  return kind.toUpperCase();
+}
+
+function isAnimatedPreset(preset: Pick<PresetModel, "label" | "id" | "category">): boolean {
+  return (
+    preset.category === "Animated" ||
+    /animated/i.test(preset.label) ||
+    /animated/i.test(preset.id)
+  );
+}
+
 const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "FishAnimated.glb", label: "Animated Fish", category: "Animated" },
   { file: "AnimatedMushnub.glb", label: "Animated Mushnub", category: "Animated" },
@@ -262,28 +285,6 @@ const GLB_PRESET_FILES: GalleryPresetFile[] = [
 
 const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
   {
-    file: "poly-pizza/pizza-box.glb",
-    label: "Pizza Box",
-    category: "Food & Drink",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/PSqXX0pj5o",
-      tris: 60,
-    },
-  },
-  {
-    file: "poly-pizza/cup.glb",
-    label: "Cup",
-    category: "Food & Drink",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/aSF8ANEIsX",
-      tris: 80,
-    },
-  },
-  {
     file: "poly-pizza/fruit-crate.glb",
     label: "Fruit Crate",
     category: "Food & Drink",
@@ -292,17 +293,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/aXulVWHOeV",
       tris: 196,
-    },
-  },
-  {
-    file: "poly-pizza/chair.glb",
-    label: "Chair",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/iMNqRzPwwe",
-      tris: 216,
     },
   },
   {
@@ -350,17 +340,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/small-building.glb",
-    label: "Small Building",
-    category: "Architecture",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/gyjF60t7CG",
-      tris: 694,
-    },
-  },
-  {
     file: "poly-pizza/large-building.glb",
     label: "Large Building",
     category: "Architecture",
@@ -391,17 +370,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/P1gU3Qkr9r",
       tris: 1928,
-    },
-  },
-  {
-    file: "poly-pizza/bat.glb",
-    label: "Bat",
-    category: "Animals",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/hNO9XvjlKa",
-      tris: 772,
     },
   },
   {
@@ -471,17 +439,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/mushnub.glb",
-    label: "Mushnub",
-    category: "Animals",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/LWKmS30Xxl",
-      tris: 1200,
-    },
-  },
-  {
     file: "poly-pizza/pig.glb",
     label: "Pig",
     category: "Animals",
@@ -534,28 +491,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/XST1j6kYsL",
       tris: 456,
-    },
-  },
-  {
-    file: "poly-pizza/small-building-2.glb",
-    label: "Small Building",
-    category: "Architecture",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/QjL4Fo9dU9",
-      tris: 410,
-    },
-  },
-  {
-    file: "poly-pizza/small-watch-tower.glb",
-    label: "Small Watch Tower",
-    category: "Architecture",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/CygapExMf5",
-      tris: 588,
     },
   },
   {
@@ -625,28 +560,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/crate-2.glb",
-    label: "Crate",
-    category: "Objects",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/3VGWnZPXmG",
-      tris: 784,
-    },
-  },
-  {
-    file: "poly-pizza/bottle.glb",
-    label: "Bottle",
-    category: "Food & Drink",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/Pc8dM9Ja4V",
-      tris: 118,
-    },
-  },
-  {
     file: "poly-pizza/bread.glb",
     label: "Bread",
     category: "Food & Drink",
@@ -702,39 +615,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/mushroom-half.glb",
-    label: "Mushroom Half",
-    category: "Food & Drink",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/Rya1QwSsEE",
-      tris: 68,
-    },
-  },
-  {
-    file: "poly-pizza/mushroom-sliced.glb",
-    label: "Mushroom Sliced",
-    category: "Food & Drink",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/VjFoJav3v7",
-      tris: 92,
-    },
-  },
-  {
-    file: "poly-pizza/door.glb",
-    label: "Door",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/KGt4ztcKrM",
-      tris: 52,
-    },
-  },
-  {
     file: "poly-pizza/lamp-square-floor.glb",
     label: "Lamp Square Floor",
     category: "Furniture & Decor",
@@ -754,50 +634,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/kDo0SbQW9Y",
       tris: 124,
-    },
-  },
-  {
-    file: "poly-pizza/red-door.glb",
-    label: "Red Door",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/NZxf87zEEm",
-      tris: 152,
-    },
-  },
-  {
-    file: "poly-pizza/shelf-small.glb",
-    label: "Shelf Small",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/TfdgUV2RYe",
-      tris: 92,
-    },
-  },
-  {
-    file: "poly-pizza/table.glb",
-    label: "Table",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "CreativeTrio",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/KndwzSWSHR",
-      tris: 86,
-    },
-  },
-  {
-    file: "poly-pizza/wall-window-wide.glb",
-    label: "Wall Window Wide",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/yRpmaYy3Wq",
-      tris: 152,
     },
   },
   {
@@ -856,17 +692,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/mushroom.glb",
-    label: "Mushroom",
-    category: "Environment",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/A2rwQyfqYG",
-      tris: 80,
-    },
-  },
-  {
     file: "poly-pizza/rock.glb",
     label: "Rock",
     category: "Environment",
@@ -919,17 +744,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/OQvi8PIZ40",
       tris: 84,
-    },
-  },
-  {
-    file: "poly-pizza/axe.glb",
-    label: "Axe",
-    category: "Objects",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/W0UYZPYSXf",
-      tris: 76,
     },
   },
   {
@@ -988,17 +802,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/crate.glb",
-    label: "Crate",
-    category: "Objects",
-    attribution: {
-      creator: "Kay Lousberg",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/yCBoU0iyOk",
-      tris: 132,
-    },
-  },
-  {
     file: "poly-pizza/empty-box.glb",
     label: "Empty Box",
     category: "Objects",
@@ -1007,28 +810,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/pZBpmjtvw8",
       tris: 76,
-    },
-  },
-  {
-    file: "poly-pizza/round-window.glb",
-    label: "Round Window",
-    category: "Objects",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/0U2hTU44WK",
-      tris: 104,
-    },
-  },
-  {
-    file: "poly-pizza/wall-doorway.glb",
-    label: "Wall Doorway",
-    category: "Objects",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/8PcjloG3fl",
-      tris: 120,
     },
   },
   {
@@ -1109,28 +890,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/rabbit-cyan-hair.glb",
-    label: "Rabbit Cyan Hair",
-    category: "Characters",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/RPZ9gxcFL3",
-      tris: 1570,
-    },
-  },
-  {
-    file: "poly-pizza/rabbit-grey.glb",
-    label: "Rabbit Grey",
-    category: "Characters",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/KRnXIKJbqp",
-      tris: 1570,
-    },
-  },
-  {
     file: "poly-pizza/wizard.glb",
     label: "Wizard",
     category: "Characters",
@@ -1150,17 +909,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/dZVjrxZdaB",
       tris: 119,
-    },
-  },
-  {
-    file: "poly-pizza/axe-2.glb",
-    label: "Axe",
-    category: "Weapons",
-    attribution: {
-      creator: "Armory_3D",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/jYnW3DNd7J",
-      tris: 120,
     },
   },
   {
@@ -1327,33 +1075,11 @@ const PRESETS: PresetModel[] = [
     rotY: 45,
   },
   {
-    id: "apoc-wall",
-    label: "Apocalypse Wall (GLB)",
-    category: "Architecture",
-    kind: "glb",
-    url: "/gallery/glb/apocalypse/wall_1.glb",
-    options: { targetSize: 60 },
-    zoom: 0.4,
-    rotX: 65,
-    rotY: 45,
-  },
-  {
     id: "apoc-spike",
     label: "Spike Barricade (GLB)",
     category: "Objects",
     kind: "glb",
     url: "/gallery/glb/apocalypse/wooden_spike_barricade.glb",
-    options: { targetSize: 60 },
-    zoom: 0.4,
-    rotX: 65,
-    rotY: 45,
-  },
-  {
-    id: "ranger",
-    label: "Ranger (GLB, UV-mapped)",
-    category: "Characters",
-    kind: "glb",
-    url: "/gallery/glb/ranger.glb",
     options: { targetSize: 60 },
     zoom: 0.4,
     rotX: 65,
@@ -1431,11 +1157,14 @@ const PRESETS: PresetModel[] = [
   ...VOX_PRESET_FILES.map(voxPreset),
 ];
 
-const PRESET_PICKER_ITEMS = PRESETS.map(({ id, label, category }) => ({
-  id,
-  label,
-  category,
-}));
+const PRESET_PICKER_ITEMS = PRESETS.map((preset) => {
+  const baseCategory = kindLabel(preset.kind);
+  return {
+    id: preset.id,
+    label: stripParenthesizedText(preset.label),
+    category: isAnimatedPreset(preset) ? `${baseCategory} (Animated)` : baseCategory,
+  };
+});
 
 const DEFAULT_SCENE: SceneOptionsState = {
   renderer: "vanilla",
@@ -1512,15 +1241,48 @@ function parserStateFor(model: PresetModel): ParserOptionsState {
 const EMPTY_METRICS: DomMetrics = {
   measuredAt: 0,
   nodeCount: 0,
-  polyCount: 0,
+  polyCountS: 0,
+  polyCountB: 0,
+  polyCountI: 0,
 };
 
-function formatNumber(value: number): string {
-  return Number.isFinite(value) ? value.toLocaleString() : "0";
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(value, min), max);
 }
 
-function formatMs(value: number): string {
-  return `${value.toFixed(value < 10 ? 1 : 0)} ms`;
+function smartZoomForPolygons(polygons: Polygon[]): number {
+  if (polygons.length === 0) return 0.35;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (const polygon of polygons) {
+    for (const [x, y, z] of polygon.vertices) {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      minZ = Math.min(minZ, z);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      maxZ = Math.max(maxZ, z);
+    }
+  }
+  const spanX = maxX - minX;
+  const spanY = maxY - minY;
+  const spanZ = maxZ - minZ;
+  const maxSpan = Math.max(spanX, spanY, spanZ);
+  if (!Number.isFinite(maxSpan) || maxSpan <= 0) return 0.35;
+  const spanRatio = clamp(maxSpan / 110, 0.06, 7);
+  const zoom = 1.2 / Math.sqrt(spanRatio);
+  return clamp(zoom, 0.06, 0.82);
+}
+
+function defaultZoomForModel(model: PresetModel, polygons: Polygon[]): number {
+  const presetZoom = model.zoom ?? DEFAULT_SCENE.zoom;
+  const smartZoom = smartZoomForPolygons(polygons);
+  return clamp((presetZoom * 0.85 + smartZoom * 0.15) * 0.55, 0.08, 1.2);
 }
 
 function atlasScaleForQuality(quality: TextureQuality): PolySceneOptions["atlasScale"] {
@@ -1688,11 +1450,15 @@ function ambientFromOptions(options: SceneOptionsState): PolyAmbientLight {
 
 function measureDom(root: HTMLElement | null): DomMetrics {
   if (!root) return EMPTY_METRICS;
-  const polyEls = Array.from(root.querySelectorAll<HTMLElement>(".polycss-scene i, .polycss-scene b, .polycss-scene s"));
+  const polyCountS = root.querySelectorAll<HTMLElement>(".polycss-scene s").length;
+  const polyCountB = root.querySelectorAll<HTMLElement>(".polycss-scene b").length;
+  const polyCountI = root.querySelectorAll<HTMLElement>(".polycss-scene i").length;
   return {
     measuredAt: performance.now(),
     nodeCount: root.querySelectorAll("*").length,
-    polyCount: polyEls.length,
+    polyCountS,
+    polyCountB,
+    polyCountI,
   };
 }
 
@@ -1750,91 +1516,6 @@ function applyDebugBorderShapePrecision(root: HTMLElement | null, precision: Bor
     });
     if (current !== rounded) face.style.setProperty("border-shape", rounded);
   }
-}
-
-function RangeControl({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-  format = String,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-  format?: (value: number) => string;
-}) {
-  return (
-    <label className="dn-range">
-      <span>{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.currentTarget.value))}
-      />
-      <output>{format(value)}</output>
-    </label>
-  );
-}
-
-function Toggle({
-  label,
-  checked,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="dn-toggle">
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function Kpi({ label, value, tone }: { label: string; value: string; tone?: "warn" | "good" }) {
-  return (
-    <div className={`dn-toolbar__kpi${tone ? ` dn-toolbar__kpi--${tone}` : ""}`}>
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
-  );
-}
-
-function ControlPanel({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <details className="dn-panel dn-panel--details" open={defaultOpen}>
-      <summary>
-        <h2>{title}</h2>
-      </summary>
-      <div className="dn-panel__body">{children}</div>
-    </details>
-  );
 }
 
 // Light helper world units → CSS pixels conversion (matches the helper
@@ -2294,8 +1975,12 @@ export default function DebugWorkbench() {
   const [reactAnimatedPolygons, setReactAnimatedPolygons] = useState<Polygon[] | null>(null);
   const [metrics, setMetrics] = useState<DomMetrics>(EMPTY_METRICS);
   const [vanillaBuildMs, setVanillaBuildMs] = useState(0);
+  const [modelSearch, setModelSearch] = useState("");
+  const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
   const disposeRef = useRef<(() => void) | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const modelItemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const modelListRef = useRef<HTMLDivElement | null>(null);
 
   // Selection + drag state for the React renderer's <PolyMesh> wrapper.
   // Lives at this level so a model swap can reset both — the gizmo
@@ -2304,7 +1989,7 @@ export default function DebugWorkbench() {
   const meshRef = useRef<PolyMeshHandle>(null);
   const [meshPosition, setMeshPosition] = useState<ReactVec3>([0, 0, 0]);
   const [meshRotation, setMeshRotation] = useState<ReactVec3>([0, 0, 0]);
-  const [gizmoMode, setGizmoMode] = useState<"translate" | "rotate" | "scale">("translate");
+  const [gizmoMode, setGizmoMode] = useState<GizmoMode>("translate");
   const [selectedMeshes, setSelectedMeshes] = useState<PolyMeshHandle[]>([]);
   // Mirror of PolyTransformControls' drag state — three.js convention is to
   // disable OrbitControls while a transform gizmo is being dragged so
@@ -2316,6 +2001,11 @@ export default function DebugWorkbench() {
   // mesh-event API (events.ts → InteractionProps) — same shape as
   // r3f, no raycasting needed because polycss uses DOM events.
   const [hoveredMeshId, setHoveredMeshId] = useState<string | null>(null);
+  const autoZoomPresetRef = useRef<string | null>(null);
+  const guiHostRef = useRef<HTMLDivElement | null>(null);
+  const guiRef = useRef<GUI | null>(null);
+  const guiControllersRef = useRef<GuiControllerMap>({});
+  const statsFrameRef = useRef<number | null>(null);
   // Vanilla selection state — kept separate from React's
   // `selectedMeshes` because vanilla MeshHandles aren't comparable to
   // React PolyMeshHandles. Stored as IDs since that's what both paths
@@ -2351,11 +2041,77 @@ export default function DebugWorkbench() {
     });
   }, []);
 
-  const updateParser = useCallback((partial: Partial<ParserOptionsState>) => {
-    setParserOptions((current) => ({ ...current, ...partial }));
-  }, []);
-
   const selectedPreset = PRESETS.find((preset) => preset.id === presetId) ?? PRESETS[0];
+  const selectedPresetPickerCategory =
+    PRESET_PICKER_ITEMS.find((preset) => preset.id === selectedPreset.id)?.category ??
+    kindLabel(selectedPreset.kind);
+  const trimmedModelSearch = modelSearch.trim().toLowerCase();
+  const filteredPresetItems = useMemo(() => {
+    if (!trimmedModelSearch) return PRESET_PICKER_ITEMS;
+    return PRESET_PICKER_ITEMS.filter((preset) =>
+      preset.label.toLowerCase().includes(trimmedModelSearch) ||
+      preset.category.toLowerCase().includes(trimmedModelSearch),
+    );
+  }, [trimmedModelSearch]);
+  const modelCategories = useMemo(() => {
+    const buckets = new Map<string, { id: string; label: string; models: typeof PRESET_PICKER_ITEMS }>();
+    for (const preset of filteredPresetItems) {
+      const category = preset.category || "Other";
+      if (!buckets.has(category)) {
+        buckets.set(category, { id: category, label: category, models: [] as typeof PRESET_PICKER_ITEMS });
+      }
+      buckets.get(category)!.models.push(preset);
+    }
+    const orderedCategories = Array.from(buckets.values());
+    for (const category of orderedCategories) {
+      category.models.sort((a, b) => a.label.localeCompare(b.label));
+    }
+    return orderedCategories;
+  }, [filteredPresetItems]);
+  const defaultCategoryId = modelCategories[0]?.id;
+  const isCategoryOpen = useCallback(
+    (categoryId: string): boolean => {
+      if (trimmedModelSearch) return true;
+      if (openModelCategory !== null) return categoryId === openModelCategory;
+      return categoryId === selectedPresetPickerCategory || categoryId === defaultCategoryId;
+    },
+    [trimmedModelSearch, openModelCategory, selectedPresetPickerCategory, defaultCategoryId],
+  );
+  const handleToggleCategory = useCallback((categoryId: string) => {
+    setOpenModelCategory((prev) => (prev === categoryId ? null : categoryId));
+  }, []);
+  const modelTreeId = useMemo(() => {
+    const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "");
+    return modelCategories.map((category) => `debug-model-cat-${slug(category.id) || "category"}`);
+  }, [modelCategories]);
+
+  useEffect(() => {
+    if (trimmedModelSearch) {
+      return;
+    }
+    setOpenModelCategory((prev) => (prev === selectedPresetPickerCategory ? prev : selectedPresetPickerCategory));
+  }, [trimmedModelSearch, selectedPresetPickerCategory]);
+
+  useEffect(() => {
+    const activeItem = modelItemRefs.current[presetId];
+    if (!activeItem) return;
+    const list = modelListRef.current;
+    if (!list) return;
+
+    requestAnimationFrame(() => {
+      const containerRect = list.getBoundingClientRect();
+      const itemRect = activeItem.getBoundingClientRect();
+      if (
+        itemRect.top < containerRect.top + 6 ||
+        itemRect.bottom > containerRect.bottom - 6
+      ) {
+        activeItem.scrollIntoView({
+          behavior: "auto",
+          block: "center",
+        });
+      }
+    });
+  }, [presetId, trimmedModelSearch, modelCategories, openModelCategory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2363,15 +2119,24 @@ export default function DebugWorkbench() {
     setLoadError(null);
 
     const run = async () => {
+      const presetForLoad = selectedPreset;
       try {
         disposeRef.current?.();
         disposeRef.current = null;
-        const next = await loadPresetModel(selectedPreset, parserOptions);
+        const next = await loadPresetModel(presetForLoad, parserOptions);
         if (cancelled) {
           next.dispose();
           return;
         }
         disposeRef.current = next.dispose;
+        if (autoZoomPresetRef.current !== presetForLoad.id) {
+          const nextZoom = defaultZoomForModel(presetForLoad, next.rawPolygons);
+          setSceneOptions((current) => {
+            if (current.zoom === nextZoom) return current;
+            return { ...current, zoom: nextZoom };
+          });
+          autoZoomPresetRef.current = presetForLoad.id;
+        }
         setLoaded(next);
       } catch (error) {
         if (cancelled) return;
@@ -2581,6 +2346,7 @@ export default function DebugWorkbench() {
 
   const resetToPreset = useCallback((id: string) => {
     const next = PRESETS.find((preset) => preset.id === id);
+    autoZoomPresetRef.current = null;
     setPresetId(id);
     setSelectedAnimation("");
     setReactAnimatedPolygons(null);
@@ -2591,325 +2357,609 @@ export default function DebugWorkbench() {
     }));
     setSceneOptions((current) => ({
       ...current,
-      zoom: next.zoom ?? current.zoom,
       rotX: next.rotX ?? current.rotX,
       rotY: next.rotY ?? current.rotY,
     }));
   }, []);
+  const handleRandomPreset = useCallback(() => {
+    const next = randomPreset();
+    resetToPreset(next.id);
+  }, [resetToPreset]);
 
-  const budgetTone =
-    metrics.polyCount > 2500
-      ? "warn"
-      : metrics.polyCount < 900
-        ? "good"
-        : undefined;
-  const activeAttribution = selectedPreset.attribution;
+  const animationOptions = useMemo(() => {
+    const options: Record<string, string> = { None: "" };
+    for (const clip of animationClips) {
+      options[`${clip.name} (${clip.duration.toFixed(2)}s)`] = String(clip.index);
+    }
+    return options;
+  }, [animationClips]);
+  const perspectiveMode = sceneOptions.perspective === false ? "orthographic" : "perspective";
+  const perspectivePx = sceneOptions.perspective === false ? 8000 : sceneOptions.perspective;
+
+  useEffect(() => {
+    const host = guiHostRef.current;
+    if (!host || guiRef.current) return;
+
+    const gui = new GUI({ autoPlace: false, container: host, width: 360, closeFolders: true });
+    gui.open();
+    guiRef.current = gui;
+
+    const modelState = {
+      animation: selectedAnimation,
+      domCount: 0,
+      polyS: 0,
+      polyB: 0,
+      polyI: 0,
+    };
+
+    const interactionState = {
+      interactive: sceneOptions.interactive,
+      autoRotate: sceneOptions.animate,
+      selection: sceneOptions.selection,
+      hoverEffects: sceneOptions.hoverEffects,
+      gizmoMode,
+    };
+
+    const rendererState = {
+      renderer: sceneOptions.renderer,
+      textureLighting: sceneOptions.textureLighting,
+      autoCenter: sceneOptions.autoCenter,
+      approximateMerge: sceneOptions.approximateMerge,
+      rectCover: sceneOptions.rectCover,
+      showAxes: sceneOptions.showAxes,
+    };
+
+    const cameraState = {
+      dragMode: sceneOptions.dragMode,
+      projection: perspectiveMode,
+      perspectivePx,
+      zoom: sceneOptions.zoom,
+      rotX: sceneOptions.rotX,
+      rotY: sceneOptions.rotY,
+      targetX: sceneOptions.target[0],
+      targetY: sceneOptions.target[1],
+      targetZ: sceneOptions.target[2],
+    };
+
+    const lightState = {
+      showLight: sceneOptions.showLight,
+      lightAzimuth: sceneOptions.lightAzimuth,
+      lightElevation: sceneOptions.lightElevation,
+      lightIntensity: sceneOptions.lightIntensity,
+      lightColor: sceneOptions.lightColor,
+      ambientIntensity: sceneOptions.ambientIntensity,
+      ambientColor: sceneOptions.ambientColor,
+    };
+
+    const model = gui.addFolder("Model");
+    model.open();
+    const domCountController = model
+      .add(modelState, "domCount")
+      .name("DOM nodes")
+      .disable();
+    const polySController = model
+      .add(modelState, "polyS")
+      .name("Sprites <s>")
+      .disable();
+    const polyBController = model
+      .add(modelState, "polyB")
+      .name("Rects <b>")
+      .disable();
+    const polyIController = model
+      .add(modelState, "polyI")
+      .name("Polygons <i>")
+      .disable();
+    const animationController = model
+      .add(modelState, "animation", animationOptions)
+      .name("Animation")
+      .onChange((value: string) => {
+        setSelectedAnimation(value);
+        setReactAnimatedPolygons(null);
+      });
+    const interaction = gui.addFolder("Interaction");
+    const interactiveController = interaction
+      .add(interactionState, "interactive")
+      .name("Interactive")
+      .onChange((value: boolean) => updateScene({ interactive: value }));
+    const autoRotateController = interaction
+      .add(interactionState, "autoRotate")
+      .name("Auto rotate")
+      .onChange((value: boolean) => updateScene({ animate: value }));
+    const selectionController = interaction
+      .add(interactionState, "selection")
+      .name("Selection")
+      .onChange((value: boolean) => updateScene({ selection: value }));
+    const hoverController = interaction
+      .add(interactionState, "hoverEffects")
+      .name("Hover effects")
+      .onChange((value: boolean) => updateScene({ hoverEffects: value }));
+    const gizmoController = interaction
+      .add(interactionState, "gizmoMode", { translate: "translate", rotate: "rotate", scale: "scale" })
+      .name("Gizmo")
+      .onChange((value: GizmoMode) => setGizmoMode(value));
+
+    const renderer = gui.addFolder("Renderer");
+    const rendererController = renderer
+      .add(rendererState, "renderer", { React: "react", Vanilla: "vanilla" })
+      .name("Renderer")
+      .onChange((value: Renderer) => updateScene({ renderer: value }));
+    const textureLightingController = renderer
+      .add(rendererState, "textureLighting", { baked: "baked", dynamic: "dynamic" })
+      .name("Texture")
+      .onChange((value: PolyTextureLightingMode) => updateScene({ textureLighting: value }));
+    const autoCenterController = renderer
+      .add(rendererState, "autoCenter")
+      .name("Auto center")
+      .onChange((value: boolean) => updateScene({ autoCenter: value }));
+    const approxMergeController = renderer
+      .add(rendererState, "approximateMerge")
+      .name("Approx merge")
+      .onChange((value: boolean) => updateScene({ approximateMerge: value }));
+    const rectCoverController = renderer
+      .add(rendererState, "rectCover")
+      .name("Rect cover")
+      .onChange((value: boolean) => updateScene({ rectCover: value }));
+    const axesController = renderer
+      .add(rendererState, "showAxes")
+      .name("Axes")
+      .onChange((value: boolean) => updateScene({ showAxes: value }));
+
+    const camera = gui.addFolder("Camera");
+    camera.close();
+    camera
+      .add({ resetCamera: () => {
+        const resetZoom = loaded ? defaultZoomForModel(selectedPreset, loaded.rawPolygons) : selectedPreset.zoom ?? 0.35;
+        updateScene({
+          zoom: resetZoom,
+          rotX: selectedPreset.rotX ?? 65,
+          rotY: selectedPreset.rotY ?? 45,
+          target: [0, 0, 0],
+        });
+      } }, "resetCamera")
+      .name("Reset camera");
+    const dragModeController = camera
+      .add(cameraState, "dragMode", { Orbit: "orbit", Pan: "pan" })
+      .name("Drag")
+      .onChange((value: DragMode) => updateScene({ dragMode: value }));
+    const projectionController = camera
+      .add(cameraState, "projection", { Perspective: "perspective", Orthographic: "orthographic" })
+      .name("Projection")
+      .onChange((value: PerspectiveMode) => {
+        updateScene({ perspective: value === "perspective" ? cameraState.perspectivePx : false });
+      });
+    const perspectivePxController = camera
+      .add(cameraState, "perspectivePx", { "1000 px": 1000, "2000 px": 2000, "4000 px": 4000, "8000 px": 8000 })
+      .name("Perspective px")
+      .onChange((value: number) => updateScene({ perspective: value }));
+    const zoomController = camera
+      .add(cameraState, "zoom", 0.05, 2.5, 0.01)
+      .name("Zoom")
+      .onChange((value: number) => updateScene({ zoom: value }));
+    const rotXController = camera
+      .add(cameraState, "rotX", 0, 100, 1)
+      .name("Rot X")
+      .onChange((value: number) => updateScene({ rotX: value }));
+    const rotYController = camera
+      .add(cameraState, "rotY", 0, 360, 1)
+      .name("Rot Y")
+      .onChange((value: number) => updateScene({ rotY: value }));
+    const targetXController = camera
+      .add(cameraState, "targetX", -50, 50, 0.1)
+      .name("Target X")
+      .onChange((value: number) => updateScene({ target: [value, cameraState.targetY, cameraState.targetZ] }));
+    const targetYController = camera
+      .add(cameraState, "targetY", -50, 50, 0.1)
+      .name("Target Y")
+      .onChange((value: number) => updateScene({ target: [cameraState.targetX, value, cameraState.targetZ] }));
+    const targetZController = camera
+      .add(cameraState, "targetZ", -50, 50, 0.1)
+      .name("Target Z")
+      .onChange((value: number) => updateScene({ target: [cameraState.targetX, cameraState.targetY, value] }));
+
+    const lights = gui.addFolder("Lighting");
+    lights.open();
+    const lightController = lights
+      .add(lightState, "showLight")
+      .name("Light helper")
+      .onChange((value: boolean) => updateScene({ showLight: value }));
+    const azimuthController = lights
+      .add(lightState, "lightAzimuth", 0, 360, 1)
+      .name("Azimuth")
+      .onChange((value: number) => updateScene({ lightAzimuth: value }));
+    const elevationController = lights
+      .add(lightState, "lightElevation", -90, 90, 1)
+      .name("Elev.")
+      .onChange((value: number) => updateScene({ lightElevation: value }));
+    const intensityController = lights
+      .add(lightState, "lightIntensity", 0, 2, 0.05)
+      .name("Key")
+      .onChange((value: number) => updateScene({ lightIntensity: value }));
+    const keyColorController = lights
+      .addColor(lightState, "lightColor")
+      .name("Key color")
+      .onChange((value: string) => updateScene({ lightColor: value }));
+    const ambientIntensityController = lights
+      .add(lightState, "ambientIntensity", 0, 2, 0.05)
+      .name("Ambient")
+      .onChange((value: number) => updateScene({ ambientIntensity: value }));
+    const ambientColorController = lights
+      .addColor(lightState, "ambientColor")
+      .name("Amb. color")
+      .onChange((value: string) => updateScene({ ambientColor: value }));
+
+    if (sceneOptions.perspective === false) {
+      perspectivePxController.hide();
+    }
+    if (activeAnimation) {
+      approxMergeController.disable();
+      rectCoverController.disable();
+    }
+    if (!sceneOptions.selection) {
+      gizmoController.disable();
+    }
+    if (sceneOptions.approximateMerge) {
+      rectCoverController.disable();
+    }
+    if (animationClips.length === 0) {
+      animationController.disable();
+    }
+
+    guiControllersRef.current = {
+      animation: animationController,
+      polyS: polySController,
+      polyB: polyBController,
+      polyI: polyIController,
+      domCount: domCountController,
+      approximateMerge: approxMergeController,
+      rectCover: rectCoverController,
+      interactive: interactiveController,
+      autoRotate: autoRotateController,
+      selection: selectionController,
+      hoverEffects: hoverController,
+      gizmoMode: gizmoController,
+      renderer: rendererController,
+      textureLighting: textureLightingController,
+      autoCenter: autoCenterController,
+      showAxes: axesController,
+      dragMode: dragModeController,
+      projection: projectionController,
+      perspectivePx: perspectivePxController,
+      zoom: zoomController,
+      rotX: rotXController,
+      rotY: rotYController,
+      targetX: targetXController,
+      targetY: targetYController,
+      targetZ: targetZController,
+      showLight: lightController,
+      lightAzimuth: azimuthController,
+      lightElevation: elevationController,
+      lightIntensity: intensityController,
+      lightColor: keyColorController,
+      ambientIntensity: ambientIntensityController,
+      ambientColor: ambientColorController,
+      modelState,
+      interactionState,
+      rendererState,
+      cameraState,
+      lightState,
+    };
+
+    return () => {
+      gui.destroy();
+      guiRef.current = null;
+      guiControllersRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    const statsContainer = document.createElement("div");
+    statsContainer.style.position = "fixed";
+    statsContainer.style.right = "12px";
+    statsContainer.style.bottom = "12px";
+    statsContainer.style.zIndex = "30";
+    statsContainer.style.top = "auto";
+    statsContainer.style.left = "auto";
+    statsContainer.style.display = "flex";
+    statsContainer.style.alignItems = "flex-end";
+
+    const stats = [0, 1, 2].map((mode) => {
+      const stat = new Stats();
+      stat.setMode(mode);
+      stat.dom.style.position = "static";
+      stat.dom.style.pointerEvents = "none";
+      statsContainer.appendChild(stat.dom);
+      return stat;
+    });
+
+    document.body.appendChild(statsContainer);
+
+    const tick = () => {
+      for (const stat of stats) {
+        stat.update();
+      }
+      statsFrameRef.current = requestAnimationFrame(tick);
+    };
+    statsFrameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (statsFrameRef.current !== null) {
+        cancelAnimationFrame(statsFrameRef.current);
+      }
+      statsContainer.remove();
+      statsFrameRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const controllers = guiControllersRef.current;
+    if (!guiRef.current || !controllers.modelState) return;
+
+    const setCtrlValue = (key: string, value: unknown) => {
+      const controller = controllers[key] as { object: Record<string, unknown>; updateDisplay: () => void } | undefined;
+      if (!controller?.object) return;
+      const stateKey = key;
+      if (controller.object[stateKey] === value) return;
+      controller.object[stateKey] = value;
+      controller.updateDisplay();
+    };
+    const setEnabled = (key: string, enabled: boolean) => {
+      const controller = controllers[key] as { disable: () => void; enable: () => void } | undefined;
+      if (!controller?.disable || !controller?.enable) return;
+      if (enabled) controller.enable();
+      else controller.disable();
+    };
+
+    setCtrlValue("animation", selectedAnimation);
+    setCtrlValue("approximateMerge", sceneOptions.approximateMerge);
+    setCtrlValue("rectCover", sceneOptions.rectCover);
+    setCtrlValue("domCount", metrics.nodeCount);
+    setCtrlValue("polyS", metrics.polyCountS);
+    setCtrlValue("polyB", metrics.polyCountB);
+    setCtrlValue("polyI", metrics.polyCountI);
+
+    const validAnimation = Object.values(animationOptions).includes(selectedAnimation);
+    const nextAnimation = validAnimation ? selectedAnimation : "";
+    setCtrlValue("animation", nextAnimation);
+    const animationController = controllers.animation as { options: (opts: Record<string, string>) => void } | undefined;
+    animationController?.options(animationOptions);
+    if (animationController) {
+      setEnabled("animation", animationClips.length > 0);
+      if (!validAnimation && selectedAnimation !== "") {
+        setSelectedAnimation("");
+      }
+    }
+
+    setCtrlValue("interactive", sceneOptions.interactive);
+    setCtrlValue("autoRotate", sceneOptions.animate);
+    setCtrlValue("selection", sceneOptions.selection);
+    setCtrlValue("hoverEffects", sceneOptions.hoverEffects);
+    setCtrlValue("gizmoMode", gizmoMode);
+
+    setCtrlValue("renderer", sceneOptions.renderer);
+    setCtrlValue("textureLighting", sceneOptions.textureLighting);
+    setCtrlValue("autoCenter", sceneOptions.autoCenter);
+    setCtrlValue("showAxes", sceneOptions.showAxes);
+
+    setCtrlValue("dragMode", sceneOptions.dragMode);
+    setCtrlValue("projection", perspectiveMode);
+    setCtrlValue("perspectivePx", perspectivePx);
+    setCtrlValue("zoom", sceneOptions.zoom);
+    setCtrlValue("rotX", sceneOptions.rotX);
+    setCtrlValue("rotY", sceneOptions.rotY);
+    setCtrlValue("targetX", sceneOptions.target[0]);
+    setCtrlValue("targetY", sceneOptions.target[1]);
+    setCtrlValue("targetZ", sceneOptions.target[2]);
+
+    setCtrlValue("showLight", sceneOptions.showLight);
+    setCtrlValue("lightAzimuth", sceneOptions.lightAzimuth);
+    setCtrlValue("lightElevation", sceneOptions.lightElevation);
+    setCtrlValue("lightIntensity", sceneOptions.lightIntensity);
+    setCtrlValue("lightColor", sceneOptions.lightColor);
+    setCtrlValue("ambientIntensity", sceneOptions.ambientIntensity);
+    setCtrlValue("ambientColor", sceneOptions.ambientColor);
+
+    setEnabled("approximateMerge", !activeAnimation);
+    setEnabled("rectCover", !activeAnimation && !sceneOptions.approximateMerge);
+    setEnabled("gizmoMode", sceneOptions.selection);
+
+    if (sceneOptions.perspective === false) {
+      (controllers.perspectivePx as { hide: () => void })?.hide();
+    } else {
+      (controllers.perspectivePx as { show: () => void })?.show();
+    }
+
+    const modelState = controllers.modelState as {
+      domCount?: number;
+      animation?: string;
+      polyS?: number;
+      polyB?: number;
+      polyI?: number;
+    };
+    if (modelState) {
+      modelState.animation = selectedAnimation;
+      modelState.domCount = metrics.nodeCount;
+      modelState.polyS = metrics.polyCountS;
+      modelState.polyB = metrics.polyCountB;
+      modelState.polyI = metrics.polyCountI;
+    }
+    const interactionState = controllers.interactionState as {
+      interactive?: boolean;
+      autoRotate?: boolean;
+      selection?: boolean;
+      hoverEffects?: boolean;
+      gizmoMode?: GizmoMode;
+    };
+    if (interactionState) {
+      interactionState.interactive = sceneOptions.interactive;
+      interactionState.autoRotate = sceneOptions.animate;
+      interactionState.selection = sceneOptions.selection;
+      interactionState.hoverEffects = sceneOptions.hoverEffects;
+      interactionState.gizmoMode = gizmoMode;
+    }
+    const rendererState = controllers.rendererState as {
+      renderer?: Renderer;
+      textureLighting?: PolyTextureLightingMode;
+      autoCenter?: boolean;
+      approximateMerge?: boolean;
+      rectCover?: boolean;
+      showAxes?: boolean;
+    };
+    if (rendererState) {
+      rendererState.renderer = sceneOptions.renderer;
+      rendererState.textureLighting = sceneOptions.textureLighting;
+      rendererState.autoCenter = sceneOptions.autoCenter;
+      rendererState.approximateMerge = sceneOptions.approximateMerge;
+      rendererState.rectCover = sceneOptions.rectCover;
+      rendererState.showAxes = sceneOptions.showAxes;
+    }
+    const cameraState = controllers.cameraState as {
+      dragMode?: DragMode;
+      projection?: PerspectiveMode;
+      perspectivePx?: number;
+      zoom?: number;
+      rotX?: number;
+      rotY?: number;
+      targetX?: number;
+      targetY?: number;
+      targetZ?: number;
+    };
+    if (cameraState) {
+      cameraState.dragMode = sceneOptions.dragMode;
+      cameraState.projection = perspectiveMode;
+      cameraState.perspectivePx = perspectivePx;
+      cameraState.zoom = sceneOptions.zoom;
+      cameraState.rotX = sceneOptions.rotX;
+      cameraState.rotY = sceneOptions.rotY;
+      cameraState.targetX = sceneOptions.target[0];
+      cameraState.targetY = sceneOptions.target[1];
+      cameraState.targetZ = sceneOptions.target[2];
+    }
+    const lightState = controllers.lightState as {
+      showLight?: boolean;
+      lightAzimuth?: number;
+      lightElevation?: number;
+      lightIntensity?: number;
+      lightColor?: string;
+      ambientIntensity?: number;
+      ambientColor?: string;
+    };
+    if (lightState) {
+      lightState.showLight = sceneOptions.showLight;
+      lightState.lightAzimuth = sceneOptions.lightAzimuth;
+      lightState.lightElevation = sceneOptions.lightElevation;
+      lightState.lightIntensity = sceneOptions.lightIntensity;
+      lightState.lightColor = sceneOptions.lightColor;
+      lightState.ambientIntensity = sceneOptions.ambientIntensity;
+      lightState.ambientColor = sceneOptions.ambientColor;
+    }
+  }, [
+    activeAnimation,
+    animationClips.length,
+    animationOptions,
+    loaded?.label,
+    loaded?.sourcePolygons,
+    modelPolygons.length,
+    presetId,
+    metrics.polyCountS,
+    metrics.polyCountB,
+    metrics.polyCountI,
+    metrics.nodeCount,
+    vanillaBuildMs,
+    sceneOptions.interactive,
+    sceneOptions.animate,
+    sceneOptions.selection,
+    sceneOptions.hoverEffects,
+    sceneOptions.renderer,
+    sceneOptions.textureLighting,
+    sceneOptions.autoCenter,
+    sceneOptions.showAxes,
+    sceneOptions.approximateMerge,
+    sceneOptions.rectCover,
+    sceneOptions.dragMode,
+    sceneOptions.perspective,
+    sceneOptions.zoom,
+    sceneOptions.rotX,
+    sceneOptions.rotY,
+    sceneOptions.target,
+    sceneOptions.showLight,
+    sceneOptions.lightAzimuth,
+    sceneOptions.lightElevation,
+    sceneOptions.lightIntensity,
+    sceneOptions.lightColor,
+    sceneOptions.ambientIntensity,
+    sceneOptions.ambientColor,
+    perspectiveMode,
+    perspectivePx,
+    gizmoMode,
+    selectedAnimation,
+  ]);
 
   return (
     <div className="dn-root">
-      <aside className="dn-sidebar dn-sidebar--left">
-        <ControlPanel title="Model">
-          <RangeControl
-            label="Target"
-            value={parserOptions.targetSize}
-            min={10}
-            max={120}
-            step={1}
-            onChange={(value) => updateParser({ targetSize: value })}
-            format={(value) => value.toFixed(0)}
-          />
-          <RangeControl
-            label="Shift"
-            value={parserOptions.gridShift}
-            min={0}
-            max={8}
-            step={0.25}
-            onChange={(value) => updateParser({ gridShift: value })}
-            format={(value) => value.toFixed(2)}
-          />
-          <label className="dn-field dn-field--color">
-            <span>Fallback</span>
+      <aside className="models-sidebar" aria-label="Models">
+        <div className="models-sidebar__body dark-scrollbar">
+          <div className="models-sidebar__header">
             <input
-              type="color"
-              value={parserOptions.defaultColor}
-              onChange={(event) => updateParser({ defaultColor: event.currentTarget.value })}
+              className="model-search models-sidebar__search"
+              type="search"
+              placeholder="Search models"
+              value={modelSearch}
+              onChange={(event) => setModelSearch(event.target.value)}
+              autoComplete="off"
             />
-            <code>{parserOptions.defaultColor}</code>
-          </label>
-          <label className="dn-field">
-            <span>Animation</span>
-            <select
-              value={selectedAnimation}
-              onChange={(event) => {
-                setSelectedAnimation(event.currentTarget.value);
-                setReactAnimatedPolygons(null);
-              }}
-              disabled={animationClips.length === 0}
-            >
-              <option value="">None</option>
-              {animationClips.map((clip) => (
-                <option key={clip.index} value={String(clip.index)}>
-                  {clip.name} ({clip.duration.toFixed(2)}s)
-                </option>
-              ))}
-            </select>
-          </label>
-          <Toggle
-            label="Approx merge"
-            checked={sceneOptions.approximateMerge}
-            onChange={(value) => updateScene({ approximateMerge: value })}
-            disabled={!!activeAnimation}
-          />
-          <Toggle
-            label="Rect cover"
-            checked={sceneOptions.rectCover}
-            onChange={(value) => updateScene({ rectCover: value })}
-            disabled={sceneOptions.approximateMerge}
-          />
-          {loading && <p className="dn-note">Loading model...</p>}
-          {loadError && <p className="dn-note dn-note--error">{loadError}</p>}
-        </ControlPanel>
-
-        <ControlPanel title="Interaction">
-          <Toggle label="Interactive" checked={sceneOptions.interactive} onChange={(value) => updateScene({ interactive: value })} />
-          <Toggle label="Auto rotate" checked={sceneOptions.animate} onChange={(value) => updateScene({ animate: value })} />
-          <Toggle
-            label="Selection"
-            checked={sceneOptions.selection}
-            onChange={(value) => updateScene({ selection: value })}
-          />
-          <Toggle
-            label="Hover effects"
-            checked={sceneOptions.hoverEffects}
-            onChange={(value) => updateScene({ hoverEffects: value })}
-          />
-          <div className="dn-field dn-field--segment">
-            <span>Gizmo</span>
-            <div className="dn-segment">
-              {(["translate", "rotate"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={gizmoMode === m ? "active" : ""}
-                  onClick={() => setGizmoMode(m)}
-                  disabled={!sceneOptions.selection}
-                  title={!sceneOptions.selection ? "Enable Selection to use the gizmo" : undefined}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-        </ControlPanel>
-
-        <ControlPanel title="Renderer" defaultOpen>
-          <div className="dn-field dn-field--segment">
-            <span>Renderer</span>
-            <div className="dn-segment">
-              <button
-                type="button"
-                className={sceneOptions.renderer === "react" ? "active" : ""}
-                onClick={() => updateScene({ renderer: "react" })}
-              >
-                React
-              </button>
-              <button
-                type="button"
-                className={sceneOptions.renderer === "vanilla" ? "active" : ""}
-                onClick={() => updateScene({ renderer: "vanilla" })}
-              >
-                Vanilla
-              </button>
-            </div>
-          </div>
-          <div className="dn-field dn-field--segment">
-            <span>Texture</span>
-            <div className="dn-segment">
-              {(["baked", "dynamic"] as PolyTextureLightingMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={sceneOptions.textureLighting === mode ? "active" : ""}
-                  onClick={() => updateScene({ textureLighting: mode })}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="dn-field">
-            <span>Quality</span>
-            <select
-              value={sceneOptions.textureQuality}
-              onChange={(event) => updateScene({ textureQuality: event.currentTarget.value as TextureQuality })}
-            >
-              <option value="auto">Auto</option>
-              <option value="full">Full - 1x atlas</option>
-              <option value="balanced">Balanced - 0.75x</option>
-              <option value="draft">Draft - 0.25x</option>
-            </select>
-          </label>
-          <label className="dn-field">
-            <span>Matrix</span>
-            <select
-              value={sceneOptions.matrixPrecision}
-              onChange={(event) => updateScene({ matrixPrecision: event.currentTarget.value as MatrixPrecision })}
-            >
-              <option value="exact">Exact</option>
-              <option value="2">2 decimals</option>
-              <option value="3">3 decimals</option>
-              <option value="4">4 decimals</option>
-              <option value="5">5 decimals</option>
-              <option value="6">6 decimals</option>
-            </select>
-          </label>
-          <label className="dn-field">
-            <span>Border shape</span>
-            <select
-              value={sceneOptions.borderShapePrecision}
-              onChange={(event) => updateScene({ borderShapePrecision: event.currentTarget.value as BorderShapePrecision })}
-            >
-              <option value="exact">Exact</option>
-              <option value="2">2 decimals</option>
-              <option value="3">3 decimals</option>
-              <option value="4">4 decimals</option>
-              <option value="5">5 decimals</option>
-              <option value="6">6 decimals</option>
-            </select>
-          </label>
-          <Toggle label="Auto center" checked={sceneOptions.autoCenter} onChange={(value) => updateScene({ autoCenter: value })} />
-          <Toggle label="Polygon outline" checked={sceneOptions.outlinePolygons} onChange={(value) => updateScene({ outlinePolygons: value })} />
-          <Toggle label="Axes" checked={sceneOptions.showAxes} onChange={(value) => updateScene({ showAxes: value })} />
-        </ControlPanel>
-
-        <ControlPanel title="Camera">
-          <div className="dn-segment" style={{ marginTop: 0 }}>
-            <button
-              type="button"
-              onClick={() => updateScene({
-                zoom: selectedPreset.zoom ?? 0.35,
-                rotX: selectedPreset.rotX ?? 65,
-                rotY: selectedPreset.rotY ?? 45,
-                target: [0, 0, 0],
-              })}
-            >
-              Reset camera
+            <button type="button" className="control-btn control-btn--primary" onClick={handleRandomPreset}>
+              Load Random
             </button>
           </div>
-          <label className="dn-field dn-field--segment">
-            <span>Drag</span>
-            <div className="dn-segment">
-              {(["orbit", "pan"] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  className={sceneOptions.dragMode === m ? "active" : ""}
-                  onClick={() => updateScene({ dragMode: m })}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </label>
-          <RangeControl label="Zoom" value={sceneOptions.zoom} min={0.05} max={2.5} step={0.01} onChange={(value) => updateScene({ zoom: value })} format={(value) => value.toFixed(2)} />
-          <RangeControl label="Rot X" value={sceneOptions.rotX} min={0} max={100} step={1} onChange={(value) => updateScene({ rotX: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Rot Y" value={sceneOptions.rotY} min={0} max={360} step={1} onChange={(value) => updateScene({ rotY: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Target X" value={sceneOptions.target[0]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [value, sceneOptions.target[1], sceneOptions.target[2]] })} format={(value) => value.toFixed(2)} />
-          <RangeControl label="Target Y" value={sceneOptions.target[1]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [sceneOptions.target[0], value, sceneOptions.target[2]] })} format={(value) => value.toFixed(2)} />
-          <RangeControl label="Target Z" value={sceneOptions.target[2]} min={-50} max={50} step={0.1} onChange={(value) => updateScene({ target: [sceneOptions.target[0], sceneOptions.target[1], value] })} format={(value) => value.toFixed(2)} />
-          <div className="dn-field dn-field--segment">
-            <span>Camera</span>
-            <div className="dn-segment">
-              {(["perspective", "orthographic"] as const).map((m) => {
-                const active = m === "perspective" ? sceneOptions.perspective !== false : sceneOptions.perspective === false;
+
+            {modelCategories.length === 0 ? (
+              <div className="model-empty">No matching models</div>
+            ) : (
+              <div ref={modelListRef} className="model-tree dark-scrollbar" id="debug-model-tree">
+                {modelCategories.map((category, index) => {
+                const isOpen = isCategoryOpen(category.id);
+                const treeId = modelTreeId[index];
                 return (
-                  <button
-                    key={m}
-                    type="button"
-                    className={active ? "active" : ""}
-                    onClick={() => updateScene({ perspective: m === "perspective" ? 8000 : false })}
-                  >
-                    {m}
-                  </button>
+                  <div key={category.id} className="tree-category" data-cat-id={category.id}>
+                    <button
+                      type="button"
+                      className="tree-heading"
+                      aria-expanded={isOpen}
+                      aria-controls={treeId}
+                      onClick={() => handleToggleCategory(category.id)}
+                    >
+                      <span className="tree-label">
+                        <span className={`tree-caret${isOpen ? " open" : ""}`}>▸</span>
+                        {category.label}
+                      </span>
+                      <span className="tree-count">{category.models.length}</span>
+                    </button>
+                    <div className="model-button-list dark-scrollbar" id={treeId} style={isOpen ? undefined : { display: "none" }}>
+                      {category.models.map((preset) => (
+                        <button
+                          type="button"
+                          ref={(node) => {
+                            modelItemRefs.current[preset.id] = node;
+                          }}
+                          key={preset.id}
+                          className={`sidebar-item${preset.id === presetId ? " active" : ""}`}
+                          onClick={() => resetToPreset(preset.id)}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 );
               })}
             </div>
-          </div>
-          {sceneOptions.perspective !== false && (
-            <label className="dn-field">
-              <span>Perspective px</span>
-              <select
-                value={String(sceneOptions.perspective)}
-                onChange={(event) => updateScene({ perspective: Number(event.currentTarget.value) })}
-              >
-                <option value="1000">1000px</option>
-                <option value="2000">2000px</option>
-                <option value="4000">4000px</option>
-                <option value="8000">8000px</option>
-              </select>
-            </label>
           )}
-        </ControlPanel>
 
-        <ControlPanel title="Lights">
-          <Toggle label="Light helper" checked={sceneOptions.showLight} onChange={(value) => updateScene({ showLight: value })} />
-          <RangeControl label="Azimuth" value={sceneOptions.lightAzimuth} min={0} max={360} step={1} onChange={(value) => updateScene({ lightAzimuth: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Elev." value={sceneOptions.lightElevation} min={-90} max={90} step={1} onChange={(value) => updateScene({ lightElevation: value })} format={(value) => `${value.toFixed(0)} deg`} />
-          <RangeControl label="Key" value={sceneOptions.lightIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ lightIntensity: value })} format={(value) => value.toFixed(2)} />
-          <label className="dn-field dn-field--color">
-            <span>Key color</span>
-            <input type="color" value={sceneOptions.lightColor} onChange={(event) => updateScene({ lightColor: event.currentTarget.value })} />
-            <code>{sceneOptions.lightColor}</code>
-          </label>
-          <RangeControl label="Ambient" value={sceneOptions.ambientIntensity} min={0} max={2} step={0.05} onChange={(value) => updateScene({ ambientIntensity: value })} format={(value) => value.toFixed(2)} />
-          <label className="dn-field dn-field--color">
-            <span>Amb. color</span>
-            <input type="color" value={sceneOptions.ambientColor} onChange={(event) => updateScene({ ambientColor: event.currentTarget.value })} />
-            <code>{sceneOptions.ambientColor}</code>
-          </label>
-        </ControlPanel>
+          <p className="model-credit">Sources: Debug presets</p>
+        </div>
       </aside>
 
       <main className="dn-main">
-        <div className="dn-toolbar">
-          <div className="dn-toolbar__model">
-            <b>{loaded?.label ?? "No model"}</b>
-            <span className="dn-toolbar__summary">
-              {loaded
-                ? `${loaded.kind.toUpperCase()} - ${formatNumber(loaded.sourcePolygons)} source / ${formatNumber(modelPolygons.length)} merged polygons`
-                : "Drop a model or pick a preset"}
-              {hoveredMeshId && <> · hover: <code>{hoveredMeshId}</code></>}
-              {(selectedMeshes.length > 0 || vanillaSelectedIds.length > 0) && (
-                <> · selected: <code>{
-                  selectedMeshes.length > 0
-                    ? selectedMeshes.map((m) => m.id ?? "?").join(", ")
-                    : vanillaSelectedIds.join(", ")
-                }</code></>
-              )}
-            </span>
-            {activeAttribution && (
-              <span className="dn-toolbar__source">
-                by {activeAttribution.creator}
-                {typeof activeAttribution.tris === "number" ? ` - ${formatNumber(activeAttribution.tris)} tris` : ""}
-                {" - "}
-                {activeAttribution.license}
-                {" - "}
-                <a href={activeAttribution.sourceUrl} target="_blank" rel="noreferrer">
-                  Poly Pizza
-                </a>
-              </span>
-            )}
-          </div>
-          <div className="dn-toolbar__kpis" aria-label="Performance KPIs">
-            <StatsJsPanel />
-            {sceneOptions.renderer === "vanilla" && (
-              <Kpi label="Build" value={formatMs(vanillaBuildMs)} />
-            )}
-            <Kpi label="DOM" value={formatNumber(metrics.nodeCount)} tone={budgetTone} />
-            <Kpi label="Polys" value={formatNumber(metrics.polyCount)} tone={budgetTone} />
-          </div>
-        </div>
-
         <div
           className={`dn-viewport${sceneOptions.outlinePolygons ? " dn-viewport--outline-polygons" : ""}`}
           ref={viewportRef}
@@ -2938,101 +2988,93 @@ export default function DebugWorkbench() {
               onHoverChange={setHoveredMeshId}
             />
           ) : (() => {
-              const Cam = sceneOptions.perspective === false ? PolyOrthographicCamera : PolyPerspectiveCamera;
-              const camProps = sceneOptions.perspective === false
-                ? { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target }
-                : { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target, perspective: sceneOptions.perspective };
-              return (
-            <Cam key={rendererDebugKey} {...camProps}>
-              {sceneOptions.dragMode === "pan" ? (
-                <PolyMapControls
-                  drag={sceneOptions.interactive && !gizmoDragging}
-                  wheel={sceneOptions.interactive && !gizmoDragging}
-                  animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
-                  onInteractionEnd={handleCameraChange}
-                />
-              ) : (
-                <PolyOrbitControls
-                  drag={sceneOptions.interactive && !gizmoDragging}
-                  wheel={sceneOptions.interactive && !gizmoDragging}
-                  animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
-                  onInteractionEnd={handleCameraChange}
-                />
-              )}
-              <PolyScene
-                polygons={sceneOptions.selection ? [] : scenePolygons}
-                centerPolygons={sceneOptions.selection ? scenePolygons : undefined}
-                autoCenter={sceneOptions.autoCenter}
-                directionalLight={directionalLight}
-                ambientLight={ambientLight}
-                textureLighting={sceneOptions.textureLighting}
-                atlasScale={atlasScale}
-              >
-                {sceneOptions.selection ? (
-                  <PolySelect onChange={setSelectedMeshes} clearOnMiss={false}>
-                    <PolyMesh
-                      ref={meshRef}
-                      id={loaded?.label ?? "model"}
-                      polygons={scenePolygons}
-                      position={meshPosition}
-                      rotation={meshRotation}
-                      className={
-                        sceneOptions.hoverEffects && hoveredMeshId === (loaded?.label ?? "model")
-                          ? "is-hovered"
-                          : undefined
-                      }
-                      style={sceneOptions.hoverEffects ? { cursor: "pointer" } : undefined}
-                      onPointerOver={
-                        sceneOptions.hoverEffects
-                          ? (event) => setHoveredMeshId(event.eventObject.id ?? null)
-                          : undefined
-                      }
-                      onPointerOut={
-                        sceneOptions.hoverEffects ? () => setHoveredMeshId(null) : undefined
-                      }
+            const Cam = sceneOptions.perspective === false ? PolyOrthographicCamera : PolyPerspectiveCamera;
+            const camProps = sceneOptions.perspective === false
+              ? { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target }
+              : { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target, perspective: sceneOptions.perspective };
+            return (
+              <Cam key={rendererDebugKey} {...camProps}>
+                {sceneOptions.dragMode === "pan" ? (
+                  <PolyMapControls
+                    drag={sceneOptions.interactive && !gizmoDragging}
+                    wheel={sceneOptions.interactive && !gizmoDragging}
+                    animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
+                    onInteractionEnd={handleCameraChange}
+                  />
+                ) : (
+                  <PolyOrbitControls
+                    drag={sceneOptions.interactive && !gizmoDragging}
+                    wheel={sceneOptions.interactive && !gizmoDragging}
+                    animate={sceneOptions.animate ? { speed: 0.35, axis: "y", pauseOnInteraction: true } : false}
+                    onInteractionEnd={handleCameraChange}
+                  />
+                )}
+                <PolyScene
+                  polygons={sceneOptions.selection ? [] : scenePolygons}
+                  centerPolygons={sceneOptions.selection ? scenePolygons : undefined}
+                  autoCenter={sceneOptions.autoCenter}
+                  directionalLight={directionalLight}
+                  ambientLight={ambientLight}
+                  textureLighting={sceneOptions.textureLighting}
+                  atlasScale={atlasScale}
+                >
+                  {sceneOptions.selection ? (
+                    <PolySelect onChange={setSelectedMeshes} clearOnMiss={false}>
+                      <PolyMesh
+                        ref={meshRef}
+                        id={loaded?.label ?? "model"}
+                        polygons={scenePolygons}
+                        position={meshPosition}
+                        rotation={meshRotation}
+                        className={
+                          sceneOptions.hoverEffects && hoveredMeshId === (loaded?.label ?? "model")
+                            ? "is-hovered"
+                            : undefined
+                        }
+                        style={sceneOptions.hoverEffects ? { cursor: "pointer" } : undefined}
+                        onPointerOver={
+                          sceneOptions.hoverEffects
+                            ? (event) => setHoveredMeshId(event.eventObject.id ?? null)
+                            : undefined
+                        }
+                        onPointerOut={
+                          sceneOptions.hoverEffects ? () => setHoveredMeshId(null) : undefined
+                        }
+                      />
+                    </PolySelect>
+                  ) : null}
+                  {sceneOptions.selection && selectedMeshes.length > 0 && (
+                    <PolyTransformControls
+                      object={meshRef}
+                      mode={gizmoMode}
+                      onObjectChange={(event) => {
+                        if (event.position) setMeshPosition(event.position);
+                        if (event.rotation) setMeshRotation(event.rotation);
+                      }}
+                      onDraggingChanged={setGizmoDragging}
                     />
-                  </PolySelect>
-                ) : null}
-                {sceneOptions.selection && selectedMeshes.length > 0 && (
-                  <PolyTransformControls
-                    object={meshRef}
-                    mode={gizmoMode}
-                    onObjectChange={(event) => {
-                      if (event.position) setMeshPosition(event.position);
-                      if (event.rotation) setMeshRotation(event.rotation);
-                    }}
-                    onDraggingChanged={setGizmoDragging}
-                  />
-                )}
-                {sceneOptions.showAxes && <PolyAxesHelper size={helperScale * 0.6} />}
-                {sceneOptions.showLight && (
-                  <PolyDirectionalLightHelper
-                    light={directionalLight}
-                    target={helperTarget}
-                    distance={helperScale * 0.7}
-                    size={helperScale * 0.05}
-                  />
-                )}
-              </PolyScene>
-            </Cam>
-              );
-            })()}
+                  )}
+                  {sceneOptions.showAxes && <PolyAxesHelper size={helperScale * 0.6} />}
+                  {sceneOptions.showLight && (
+                    <PolyDirectionalLightHelper
+                      light={directionalLight}
+                      target={helperTarget}
+                      distance={helperScale * 0.7}
+                      size={helperScale * 0.05}
+                    />
+                  )}
+                </PolyScene>
+              </Cam>
+            );
+          })()}
         </div>
       </main>
 
-      <aside className="dn-sidebar dn-sidebar--right">
-        <section className="dn-panel dn-panel--model-selector">
-          <h2>Gallery</h2>
-          <div className="dn-preset-picker">
-            <ModelPicker
-              items={PRESET_PICKER_ITEMS}
-              value={presetId}
-              onChange={resetToPreset}
-              searchPlaceholder="Search presets"
-            />
-          </div>
-        </section>
-      </aside>
+      <div className="dn-floating-controls">
+        <div ref={guiHostRef} />
+        {loading && <p className="dn-note">Loading model...</p>}
+        {loadError && <p className="dn-note dn-note--error">{loadError}</p>}
+      </div>
     </div>
   );
 }

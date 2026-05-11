@@ -239,9 +239,7 @@ export const Poly = defineComponent({
           domAttrs: forwardedDomAttrs,
           pointerEvents: props.pointerEvents ?? "auto",
         });
-      } else {
-        const atlasEntry = textureAtlas.entries.value[0];
-        if (!atlasEntry) return null;
+      } else if (atlasEntry) {
         front = renderTextureAtlasPoly({
           entry: atlasEntry,
           page: textureAtlas.pages.value[atlasEntry.pageIndex],
@@ -251,7 +249,7 @@ export const Poly = defineComponent({
           domAttrs: forwardedDomAttrs,
           pointerEvents: props.pointerEvents ?? "auto",
         });
-      } else {
+      } else if (atlasPlan && !atlasPlan.texture) {
         front = renderTextureBorderShapePoly({
           entry: atlasPlan,
           className: (forwardedAttrs.class as string) ?? undefined,
