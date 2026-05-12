@@ -9,7 +9,7 @@ on:
       bump:
         description: "Version bump"
         required: true
-        default: "minor"
+        default: "patch"
         type: choice
         options:
           - patch
