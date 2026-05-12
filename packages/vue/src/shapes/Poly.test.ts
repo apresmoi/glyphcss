@@ -122,6 +122,8 @@ describe("Poly (Vue) — non-horizontal geometry", () => {
     expect(poly).toBeTruthy();
     expect(poly?.className).toBe("");
     expect(poly!.style.transform).toContain("matrix3d(");
+    expect(poly!.style.color).not.toBe("");
+    expect(poly!.style.backgroundColor).toBe("");
   });
 
   it("renders an off-axis triangle as a triangle u element", () => {

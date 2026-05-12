@@ -29,11 +29,13 @@ import type {
 } from "@layoutit/polycss-core";
 import { BASE_TILE, computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@layoutit/polycss-core";
 import {
+  getSolidPaintDefaults,
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,
   updatePolygonsWithStableTriangles,
   type AtlasScale,
   type RenderedPoly,
+  type SolidPaintDefaults,
 } from "../render/textureAtlas";
 import { injectPolyBaseStyles } from "../styles/styles";
 
@@ -489,6 +491,24 @@ export function createPolyScene(
     wrapper.style.setProperty("--plz", (localDir[2] / len).toFixed(4));
   }
 
+  function applySolidPaintVars(wrapper: HTMLDivElement, defaults: SolidPaintDefaults): void {
+    if (defaults.paintColor) {
+      wrapper.style.setProperty("--polycss-paint", defaults.paintColor);
+    } else {
+      wrapper.style.removeProperty("--polycss-paint");
+    }
+
+    if (defaults.dynamicColor) {
+      wrapper.style.setProperty("--psr", (defaults.dynamicColor.r / 255).toFixed(4));
+      wrapper.style.setProperty("--psg", (defaults.dynamicColor.g / 255).toFixed(4));
+      wrapper.style.setProperty("--psb", (defaults.dynamicColor.b / 255).toFixed(4));
+    } else {
+      wrapper.style.removeProperty("--psr");
+      wrapper.style.removeProperty("--psg");
+      wrapper.style.removeProperty("--psb");
+    }
+  }
+
   function renderEntry(entry: MeshEntry, lightDirectionOverride?: Vec3): void {
     clearRendered(entry);
     const baseDirLight = currentOptions.directionalLight;
@@ -502,11 +522,17 @@ export function createPolyScene(
       textureLighting: currentOptions.textureLighting,
       atlasScale: currentOptions.atlasScale,
     };
+    const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
+    applySolidPaintVars(entry.wrapper, solidPaintDefaults);
+    const renderOptionsWithDefaults = {
+      ...renderOptions,
+      solidPaintDefaults,
+    };
     const atlas = (
       entry.stableDom
-        ? renderPolygonsWithStableTriangles(entry.polygons, renderOptions)
+        ? renderPolygonsWithStableTriangles(entry.polygons, renderOptionsWithDefaults)
         : null
-    ) ?? renderPolygonsWithTextureAtlas(entry.polygons, renderOptions);
+    ) ?? renderPolygonsWithTextureAtlas(entry.polygons, renderOptionsWithDefaults);
     entry.rendered = atlas.rendered;
     entry.disposeAtlas = atlas.dispose;
     syncMountedRendered(entry);
@@ -636,10 +662,12 @@ export function createPolyScene(
             textureLighting: currentOptions.textureLighting,
             atlasScale: currentOptions.atlasScale,
           };
+          const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
+          applySolidPaintVars(entry.wrapper, solidPaintDefaults);
           const atlas = updatePolygonsWithStableTriangles(
             entry.rendered,
             entry.polygons,
-            renderOptions,
+            { ...renderOptions, solidPaintDefaults },
           );
           if (atlas) {
             entry.disposeAtlas?.();

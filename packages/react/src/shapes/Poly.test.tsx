@@ -124,6 +124,8 @@ describe("Poly — non-horizontal geometry", () => {
     expect(poly).toBeTruthy();
     expect(poly?.className).toBe("");
     expect(poly!.style.transform).toContain("matrix3d(");
+    expect(poly!.style.color).not.toBe("");
+    expect(poly!.style.backgroundColor).toBe("");
   });
 
   it("renders an off-axis triangle as a triangle u element", () => {
@@ -175,6 +177,7 @@ describe("Poly — border-shape", () => {
     expect(poly.style.borderWidth).toBe("");
     expect(poly.style.color).not.toBe("");
     expect(poly.style.getPropertyValue("border-shape")).toContain("polygon(");
+    expect(poly.getAttribute("style")).toMatch(/^transform:\s*[^;]+;border-shape:\s*[^;]+;width:\s*[^;]+;height:\s*[^;]+;color:/);
     expect(poly.style.backgroundImage).toBe("");
   });
 

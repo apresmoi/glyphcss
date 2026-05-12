@@ -70,7 +70,14 @@ const CORE_BASE_STYLES = `
   background-repeat: no-repeat;
 }
 
+.polycss-scene b,
+.polycss-scene i,
+.polycss-scene u {
+  color: var(--polycss-paint, currentColor);
+}
+
 .polycss-scene b {
+  background: currentColor;
 }
 
 .polycss-scene i {
@@ -81,11 +88,12 @@ const CORE_BASE_STYLES = `
 }
 
 .polycss-scene u {
-  width: 0px;
-  height: 0px;
+  width: 0;
+  height: 0;
   background: transparent;
   box-sizing: content-box;
   border: 0 solid transparent;
+  border-color: transparent transparent currentColor transparent;
 }
 
 /* ── Gizmo override (createTransformControls) ───────────────────────────── */
@@ -95,15 +103,15 @@ const CORE_BASE_STYLES = `
  * pipeline as user content but the gizmo is a UI affordance — both
  * faces of every polygon should remain visible regardless of camera
  * orientation, otherwise the cuboid shafts and pyramid heads end up
- * half-culled. Transitions on border-color and background-color smooth
- * the idle / hover / drag alpha changes.
+ * half-culled. Transitions on color, border-color, and background-color
+ * smooth the idle / hover / drag alpha changes.
  */
 .polycss-mesh.polycss-transform-gizmo i,
 .polycss-mesh.polycss-transform-gizmo b,
 .polycss-mesh.polycss-transform-gizmo s,
 .polycss-mesh.polycss-transform-gizmo u {
   backface-visibility: visible;
-  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+  transition: color 150ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out;
 }
 
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
@@ -140,9 +148,9 @@ const CORE_BASE_STYLES = `
 @property --pnx { syntax: "<number>"; inherits: true; initial-value: 0; }
 @property --pny { syntax: "<number>"; inherits: true; initial-value: 0; }
 @property --pnz { syntax: "<number>"; inherits: true; initial-value: 1; }
-@property --psr { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --psg { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --psb { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psr { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --psg { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --psb { syntax: "<number>"; inherits: true; initial-value: 1; }
 
 /* Hoisted Lambert dot product — computed once per element it's set on.
    inherits:true so a bucket wrapper computes lambert ONCE for its whole
@@ -196,7 +204,7 @@ const CORE_BASE_STYLES = `
   ));
 }
 
-/* All polys: containment + background-color from lambert (inherited or
+/* Atlas polys: containment + background-color from lambert (inherited or
    own) and the scene-level light vars. Splitting this from the lambert
    calc above lets bucketed polys skip the dot-product entirely. */
 .polycss-scene[data-polycss-lighting="dynamic"] s {
@@ -217,29 +225,9 @@ const CORE_BASE_STYLES = `
   background-blend-mode: multiply;
 }
 
-.polycss-scene[data-polycss-lighting="dynamic"] b {
-  background-color: rgb(
-    calc(255 * var(--psr) * (var(--par) * var(--pai)
-         + var(--plr) * var(--pli) * max(0,
-           var(--pnx) * var(--plx) +
-           var(--pny) * var(--ply) +
-           var(--pnz) * var(--plz))))
-    calc(255 * var(--psg) * (var(--pag) * var(--pai)
-         + var(--plg) * var(--pli) * max(0,
-           var(--pnx) * var(--plx) +
-           var(--pny) * var(--ply) +
-           var(--pnz) * var(--plz))))
-    calc(255 * var(--psb) * (var(--pab) * var(--pai)
-         + var(--plb) * var(--pli) * max(0,
-           var(--pnx) * var(--plx) +
-           var(--pny) * var(--ply) +
-           var(--pnz) * var(--plz))))
-  );
-  background-blend-mode: normal;
-}
-
+.polycss-scene[data-polycss-lighting="dynamic"] b,
 .polycss-scene[data-polycss-lighting="dynamic"] u {
-  border-bottom-color: rgb(
+  color: rgb(
     calc(255 * var(--psr) * (var(--par) * var(--pai)
          + var(--plr) * var(--pli) * var(--plam)))
     calc(255 * var(--psg) * (var(--pag) * var(--pai)

@@ -84,9 +84,9 @@ function MaterialDirectPoly({
   const offsetY = (1 - vMax) * sourceH;
 
   const style: CSSProperties = {
+    transform: `matrix3d(${plan.matrix})`,
     width: plan.canvasW,
     height: plan.canvasH,
-    transform: `matrix3d(${plan.matrix})`,
     backgroundImage: `url(${material.texture})`,
     backgroundSize: `${sourceW}px ${sourceH}px`,
     backgroundPosition: `-${offsetX}px -${offsetY}px`,
@@ -317,9 +317,9 @@ function PolyInner({
     <div
       className="polycss-poly-wrapper"
       style={{
+        transform: wrapperTransform,
         position: "absolute",
         transformStyle: "preserve-3d",
-        transform: wrapperTransform,
       }}
     >
       {front}

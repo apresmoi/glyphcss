@@ -243,10 +243,22 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.classList.contains("polycss-poly-solid")).toBe(false);
     expect(element.classList.contains("polycss-poly-textured")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
+    expect(element.getAttribute("style")?.trim().startsWith("transform:")).toBe(true);
+    const styleText = element.getAttribute("style") ?? "";
+    const borderWidth = styleText.match(/border-width:([^;]+)/)?.[1] ?? "";
+    expect(styleText).toMatch(/^transform:[^;]+;border-width:[^;]+;color:/);
+    expect(styleText).not.toMatch(/:\s|;\s/);
+    expect(styleText).toMatch(/border-width:0(?:\s|;)/);
+    expect(styleText).not.toMatch(/border-width:0px/);
+    expect(borderWidth).not.toMatch(/\.\d{2,}px/);
+    expect(styleText).toMatch(/color:\s*#[0-9a-f]{6}/);
+    expect(styleText).not.toMatch(/color:rgb/i);
+    expect(element.style.color).not.toBe("");
+    expect(element.style.borderBottomColor).toBe("");
     result.dispose();
   });
 
-  it("uses background-color, not an atlas canvas, for full rectangular solid polygons", () => {
+  it("uses color/currentColor, not an atlas canvas, for full rectangular solid polygons", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
       createElement(tagName: string) {
@@ -262,7 +274,14 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const result = renderPolygonsWithTextureAtlas([VERTICAL_QUAD], { doc });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(0);
-    expect(element.style.backgroundColor).not.toBe("");
+    const styleText = element.getAttribute("style") ?? "";
+    expect(styleText.trim().startsWith("transform:")).toBe(true);
+    expect(styleText).toMatch(/^transform:[^;]+;width:[^;]+;height:[^;]+;color:/);
+    expect(styleText).not.toMatch(/:\s|;\s/);
+    expect(styleText).toMatch(/color:\s*#[0-9a-f]{6}/);
+    expect(styleText).not.toMatch(/color:rgb/i);
+    expect(element.style.color).not.toBe("");
+    expect(element.style.backgroundColor).toBe("");
     result.dispose();
   });
 
@@ -293,6 +312,11 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.style.boxSizing).toBe("");
     expect(element.style.borderStyle).toBe("");
     expect(element.style.borderWidth).toBe("");
+    const styleText = element.getAttribute("style") ?? "";
+    expect(styleText).toMatch(/^transform:[^;]+;border-shape:[^;]+;width:[^;]+;height:[^;]+;color:/);
+    expect(styleText).not.toMatch(/:\s|;\s/);
+    expect(styleText).toMatch(/color:\s*#[0-9a-f]{6}/);
+    expect(styleText).not.toMatch(/color:rgb/i);
     expect(element.style.color).not.toBe("");
     expect(element.style.backgroundImage).toBe("");
     result.dispose();
@@ -391,6 +415,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.classList.contains("polycss-poly-textured")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
+    expect(element.getAttribute("style")).not.toMatch(/:\s|;\s/);
     expect(element.style.filter).toBe("");
     result.dispose();
   });

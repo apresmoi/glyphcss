@@ -33,8 +33,10 @@ import type { TransformProps } from "../shapes/types";
 import { usePolyMesh, type UseMeshOptions } from "./useMesh";
 import {
   computeTextureAtlasPlan,
+  getSolidPaintDefaults,
   isSolidTrianglePlan,
   type AtlasScale,
+  type SolidPaintDefaults,
   TextureBorderShapePoly,
   TextureAtlasPoly,
   TextureTrianglePoly,
@@ -51,6 +53,17 @@ import {
   type PolyMeshHandle,
   type PolyPointerEvent,
 } from "./events";
+
+function solidPaintVars(defaults: SolidPaintDefaults): CSSProperties | null {
+  const out: Record<string, string> = {};
+  if (defaults.paintColor) out["--polycss-paint"] = defaults.paintColor;
+  if (defaults.dynamicColor) {
+    out["--psr"] = (defaults.dynamicColor.r / 255).toFixed(4);
+    out["--psg"] = (defaults.dynamicColor.g / 255).toFixed(4);
+    out["--psb"] = (defaults.dynamicColor.b / 255).toFixed(4);
+  }
+  return Object.keys(out).length > 0 ? out as CSSProperties : null;
+}
 
 export interface PolyMeshProps extends TransformProps, InteractionProps {
   /** Stable identifier — exposed on the mesh handle and reflected as
@@ -420,12 +433,6 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     };
   }, [effectiveTextureLighting, rotation, sceneDirectionalLight]);
 
-  const wrapperStyle: CSSProperties = {
-    transform,
-    ...dynamicLightOverride,
-    ...style,
-  };
-
   // Compute the effective light direction for baking. If the mesh has been
   // rotated since mount (bakedRotation), inverse-rotate the world-space
   // light direction into the mesh's local frame so the Lambert dot product
@@ -454,6 +461,21 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     effectiveTextureLighting,
     atlasScale,
   );
+  const solidPaintDefaults = useMemo(
+    () => !children ? getSolidPaintDefaults(atlasPlans, effectiveTextureLighting) : {},
+    [children, atlasPlans, effectiveTextureLighting],
+  );
+  const defaultPaintVars = useMemo(
+    () => solidPaintVars(solidPaintDefaults),
+    [solidPaintDefaults],
+  );
+
+  const wrapperStyle: CSSProperties = {
+    transform,
+    ...dynamicLightOverride,
+    ...style,
+    ...defaultPaintVars,
+  };
 
   const renderedPolygons = children
     ? polygons.map((p, i) => (
@@ -478,8 +500,21 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
         const plan = atlasPlans[index];
         if (!plan || plan.texture) return null;
         return isSolidTrianglePlan(plan)
-          ? <TextureTrianglePoly key={plan.index} entry={plan} textureLighting={effectiveTextureLighting} />
-          : <TextureBorderShapePoly key={plan.index} entry={plan} />;
+          ? (
+              <TextureTrianglePoly
+                key={plan.index}
+                entry={plan}
+                textureLighting={effectiveTextureLighting}
+                solidPaintDefaults={solidPaintDefaults}
+              />
+            )
+          : (
+              <TextureBorderShapePoly
+                key={plan.index}
+                entry={plan}
+                solidPaintDefaults={solidPaintDefaults}
+              />
+            );
       });
 
   // Loading + error slots only apply when we're fetching from `src`.

@@ -29,6 +29,7 @@ const AUTO_ATLAS_MAX_DECODED_BYTES = 16 * 1024 * 1024;
 const AUTO_ATLAS_SCALE_GUARD = 0.995;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
+const DEFAULT_TRIANGLE_BORDER_DECIMALS = 1;
 const BASIS_EPS = 1e-9;
 const SOLID_TRIANGLE_BLEED = 0.45;
 
@@ -118,6 +119,12 @@ export interface TextureAtlasResult {
   ready: boolean;
 }
 
+export interface SolidPaintDefaults {
+  paintColor?: string;
+  dynamicColor?: { r: number; g: number; b: number };
+  dynamicColorKey?: string;
+}
+
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
 const RECT_EPS = 1e-3;
 const TEXTURE_TRIANGLE_BLEED = 0.75;
@@ -154,6 +161,11 @@ function normalizeAtlasScale(scale: number | string | undefined): number {
 function roundDecimal(value: number, decimals: number): string {
   const next = value.toFixed(decimals).replace(/\.?0+$/, "");
   return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function formatTriangleBorderPx(value: number, decimals = DEFAULT_TRIANGLE_BORDER_DECIMALS): string {
+  const next = roundDecimal(value, decimals);
+  return Number(next) === 0 || Object.is(Number(next), -0) ? "0" : `${next}px`;
 }
 
 function formatMatrix3d(matrix: string, decimals = DEFAULT_MATRIX_DECIMALS): string {
@@ -292,6 +304,10 @@ function parseHex(hex: string): RGB {
   return { r: parsed.rgb[0], g: parsed.rgb[1], b: parsed.rgb[2] };
 }
 
+function rgbKey({ r, g, b }: RGB): string {
+  return `${r},${g},${b}`;
+}
+
 /** Returns the parsed alpha for a color string, defaulting to 1.0
  *  when the color has no explicit alpha (hex, rgb()). */
 function parseAlpha(input: string): number {
@@ -353,6 +369,84 @@ function borderShapeSupported(): boolean {
   if (typeof media !== "function") return true;
 
   return media("(pointer: fine)").matches && media("(hover: hover)").matches;
+}
+
+function incrementCount(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function dominantCountKey(map: Map<string, number>): string | undefined {
+  let bestKey: string | undefined;
+  let bestCount = 1;
+  for (const [key, count] of map) {
+    if (count > bestCount) {
+      bestKey = key;
+      bestCount = count;
+    }
+  }
+  return bestKey;
+}
+
+const BRUSH_INLINE_STYLE_ORDER = new Map([
+  ["transform", 0],
+  ["border-shape", 1],
+  ["border-width", 2],
+  ["width", 3],
+  ["height", 4],
+  ["color", 5],
+]);
+
+function orderBrushInlineStyle(el: HTMLElement): void {
+  const current = el.getAttribute("style");
+  if (!current) return;
+  const declarations = current.split(";").map((declaration) => declaration.trim()).filter(Boolean);
+  const next = declarations
+    .map((declaration, index) => {
+      const property = declaration.slice(0, declaration.indexOf(":")).trim().toLowerCase();
+      return {
+        declaration,
+        index,
+        order: BRUSH_INLINE_STYLE_ORDER.get(property) ?? Number.POSITIVE_INFINITY,
+      };
+    })
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map(({ declaration }) => declaration)
+    .join(";");
+  if (next !== current) el.setAttribute("style", next);
+}
+
+export function getSolidPaintDefaults(
+  plans: Array<TextureAtlasPlan | null>,
+  textureLighting: PolyTextureLightingMode,
+): SolidPaintDefaults {
+  const paintCounts = new Map<string, number>();
+  const dynamicCounts = new Map<string, number>();
+  const dynamicColors = new Map<string, RGB>();
+  const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported();
+
+  for (const plan of plans) {
+    if (!plan || plan.texture) continue;
+
+    if (textureLighting === "dynamic") {
+      if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan)) continue;
+      const color = parseHex(plan.polygon.color ?? "#cccccc");
+      const key = rgbKey(color);
+      incrementCount(dynamicCounts, key);
+      if (!dynamicColors.has(key)) dynamicColors.set(key, color);
+      continue;
+    }
+
+    if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan) && !useBorderShape) continue;
+    incrementCount(paintCounts, plan.shadedColor);
+  }
+
+  const paintColor = dominantCountKey(paintCounts);
+  const dynamicColorKey = dominantCountKey(dynamicCounts);
+  return {
+    paintColor,
+    dynamicColorKey,
+    dynamicColor: dynamicColorKey ? dynamicColors.get(dynamicColorKey) : undefined,
+  };
 }
 
 function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
@@ -425,6 +519,7 @@ function solidTriangleStyle(
   entry: TextureAtlasPlan,
   textureLighting: PolyTextureLightingMode,
   pointerEvents: "auto" | "none",
+  solidPaintDefaults?: SolidPaintDefaults,
 ): CSSProperties | null {
   if (!isSolidTrianglePlan(entry)) return null;
 
@@ -530,13 +625,16 @@ function solidTriangleStyle(
   ]);
   const dynamic = textureLighting === "dynamic";
   const base = parseHex(entry.polygon.color ?? "#cccccc");
+  const useDefaultDynamicColor = dynamic && rgbKey(base) === solidPaintDefaults?.dynamicColorKey;
 
   return {
     transform: `matrix3d(${matrix})`,
-    borderWidth: `0 ${rightPx}px ${heightPx}px ${leftPx}px`,
-    borderBottomColor: dynamic ? undefined : entry.shadedColor,
+    borderWidth: `${formatTriangleBorderPx(0)} ${formatTriangleBorderPx(rightPx)} ${formatTriangleBorderPx(heightPx)} ${formatTriangleBorderPx(leftPx)}`,
+    color: dynamic || entry.shadedColor === solidPaintDefaults?.paintColor
+      ? undefined
+      : entry.shadedColor,
     pointerEvents: pointerEvents === "none" ? "none" : undefined,
-    ...(dynamic
+    ...(dynamic && !useDefaultDynamicColor
       ? {
           ["--pnx" as string]: normal[0].toFixed(4),
           ["--pny" as string]: normal[1].toFixed(4),
@@ -545,7 +643,13 @@ function solidTriangleStyle(
           ["--psg" as string]: (base.g / 255).toFixed(4),
           ["--psb" as string]: (base.b / 255).toFixed(4),
         }
-      : null),
+      : dynamic
+        ? {
+            ["--pnx" as string]: normal[0].toFixed(4),
+            ["--pny" as string]: normal[1].toFixed(4),
+            ["--pnz" as string]: normal[2].toFixed(4),
+          }
+        : null),
   };
 }
 
@@ -1244,6 +1348,7 @@ export function useTextureAtlas(
 
 export function TextureBorderShapePoly({
   entry,
+  solidPaintDefaults,
   className,
   style: styleProp,
   domAttrs,
@@ -1251,6 +1356,7 @@ export function TextureBorderShapePoly({
   pointerEvents = "auto",
 }: {
   entry: TextureAtlasPlan;
+  solidPaintDefaults?: SolidPaintDefaults;
   className?: string;
   style?: CSSProperties;
   domAttrs?: Record<string, unknown>;
@@ -1259,25 +1365,27 @@ export function TextureBorderShapePoly({
 }) {
   const fullRect = isFullRectSolid(entry);
   const borderShape = fullRect ? null : cssBorderShapeForPlan(entry);
+  const useDefaultPaint = entry.shadedColor === solidPaintDefaults?.paintColor;
   const setElementRef = useCallback((el: HTMLElement | null) => {
     if (!el) return;
     if (borderShape) el.style.setProperty("border-shape", borderShape);
     else el.style.removeProperty("border-shape");
+    orderBrushInlineStyle(el);
   }, [borderShape]);
   const style: CSSProperties = fullRect
     ? {
+        transform: formatMatrix3d(entry.matrix),
         width: entry.canvasW,
         height: entry.canvasH,
-        transform: formatMatrix3d(entry.matrix),
-        background: entry.shadedColor,
+        color: useDefaultPaint ? undefined : entry.shadedColor,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       }
     : {
+        transform: formatMatrix3d(entry.matrix),
         width: entry.canvasW,
         height: entry.canvasH,
-        transform: formatMatrix3d(entry.matrix),
-        color: entry.shadedColor,
+        color: useDefaultPaint ? undefined : entry.shadedColor,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       };
@@ -1316,6 +1424,7 @@ export function TextureBorderShapePoly({
 export function TextureTrianglePoly({
   entry,
   textureLighting,
+  solidPaintDefaults,
   className,
   style: styleProp,
   domAttrs,
@@ -1324,13 +1433,14 @@ export function TextureTrianglePoly({
 }: {
   entry: TextureAtlasPlan;
   textureLighting: PolyTextureLightingMode;
+  solidPaintDefaults?: SolidPaintDefaults;
   className?: string;
   style?: CSSProperties;
   domAttrs?: Record<string, unknown>;
   domEventHandlers?: React.DOMAttributes<Element>;
   pointerEvents?: "auto" | "none";
 }) {
-  const triangleStyle = solidTriangleStyle(entry, textureLighting, pointerEvents);
+  const triangleStyle = solidTriangleStyle(entry, textureLighting, pointerEvents, solidPaintDefaults);
   if (!triangleStyle) return null;
 
   const dataAttrs = entry.polygon.data
@@ -1385,9 +1495,9 @@ export function TextureAtlasPoly({
     : undefined;
 
   const style: CSSProperties = {
+    transform: formatMatrix3d(entry.matrix),
     width: entry.canvasW,
     height: entry.canvasH,
-    transform: formatMatrix3d(entry.matrix),
     background,
     backgroundImage: dynamic && page?.url ? `url(${page.url})` : undefined,
     backgroundPosition: dynamic ? `-${entry.x}px -${entry.y}px` : undefined,

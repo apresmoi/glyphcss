@@ -91,6 +91,28 @@ describe("PolyMesh (Vue) — with polygons prop", () => {
     expect(polys.length).toBe(2);
   });
 
+  it("hoists repeated baked solid paint to the mesh wrapper", () => {
+    const { container } = renderMesh({ polygons: [TRIANGLE, TRIANGLE] });
+    const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
+    const polys = Array.from(container.querySelectorAll("u")) as HTMLElement[];
+    expect(mesh.style.getPropertyValue("--polycss-paint")).not.toBe("");
+    expect(polys).toHaveLength(2);
+    expect(polys[0].getAttribute("style")?.trim().startsWith("transform:")).toBe(true);
+    expect(polys.every((poly) => poly.style.color === "")).toBe(true);
+    expect(polys.every((poly) => poly.style.borderBottomColor === "")).toBe(true);
+  });
+
+  it("hoists repeated dynamic solid base RGB channels to the mesh wrapper", () => {
+    const { container } = renderMesh({ polygons: [TRIANGLE, TRIANGLE], textureLighting: "dynamic" });
+    const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
+    const polys = Array.from(container.querySelectorAll("u")) as HTMLElement[];
+    expect(mesh.style.getPropertyValue("--psr")).toBe("1.0000");
+    expect(mesh.style.getPropertyValue("--psg")).toBe("0.0000");
+    expect(mesh.style.getPropertyValue("--psb")).toBe("0.0000");
+    expect(polys).toHaveLength(2);
+    expect(polys.every((poly) => poly.style.getPropertyValue("--psr") === "")).toBe(true);
+  });
+
   it("renders textured polygons as polygon s elements", () => {
     const { container } = renderMesh({ polygons: [TEXTURED_TRIANGLE] });
     const poly = container.querySelector("s");

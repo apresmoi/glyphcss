@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GUI } from "lil-gui";
+import { GUI, type Controller } from "lil-gui";
 import {
   PolyAxesHelper,
   PolyOrthographicCamera,
@@ -15,6 +15,7 @@ import {
   parseGltf,
   parseMtl,
   parseObj,
+  parsePureColor,
 } from "@layoutit/polycss-react";
 import type {
   PolyAmbientLight,
@@ -142,6 +143,12 @@ interface DomMetrics {
 
 type GuiControllerMap = Record<string, any>;
 
+function disableWithoutDisabledClass<T extends Controller>(controller: T): T {
+  controller.disable();
+  controller.domElement.classList.remove("disabled");
+  return controller;
+}
+
 interface GalleryPresetFile {
   file: string;
   label?: string;
@@ -230,7 +237,6 @@ function isAnimatedPreset(preset: Pick<PresetModel, "label" | "id" | "category">
 const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "FishAnimated.glb", label: "Animated Fish", category: "Animated" },
   { file: "AnimatedMushnub.glb", label: "Animated Mushnub", category: "Animated" },
-  { file: "AnimatedWizard.glb", label: "Animated Wizard", category: "Animated" },
   { file: "AnimatedSnake.glb", label: "Animated Snake", category: "Animated" },
   { file: "Bat.glb", category: "Animals" },
   { file: "Bear.glb", category: "Animals" },
@@ -259,7 +265,6 @@ const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "Scorpion.glb", category: "Animals" },
   { file: "Shark.glb", category: "Animals" },
   { file: "Snail.glb", category: "Animals" },
-  { file: "Spider.glb", category: "Animals" },
   { file: "Wolf.glb", category: "Animals" },
   { file: "Zebra.glb", category: "Animals" },
   { file: "Bicycle.glb", category: "Vehicles" },
@@ -320,17 +325,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/houseplant.glb",
-    label: "Houseplant",
-    category: "Environment",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/bfLOqIV5uP",
-      tris: 449,
-    },
-  },
-  {
     file: "poly-pizza/sheep.glb",
     label: "Sheep",
     category: "Animals",
@@ -361,17 +355,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/QCm7qe9uNJ",
       tris: 1425,
-    },
-  },
-  {
-    file: "poly-pizza/wolf.glb",
-    label: "Wolf",
-    category: "Animals",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/P1gU3Qkr9r",
-      tris: 1928,
     },
   },
   {
@@ -419,17 +402,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/horse.glb",
-    label: "Horse",
-    category: "Animals",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/F8HAAcLeBL",
-      tris: 690,
-    },
-  },
-  {
     file: "poly-pizza/llama.glb",
     label: "Llama",
     category: "Animals",
@@ -438,17 +410,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/JxVJ9rfWGy",
       tris: 661,
-    },
-  },
-  {
-    file: "poly-pizza/pig.glb",
-    label: "Pig",
-    category: "Animals",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/TNvG3QUFlp",
-      tris: 562,
     },
   },
   {
@@ -595,39 +556,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/glass.glb",
-    label: "Glass",
-    category: "Food & Drink",
-    attribution: {
-      creator: "MilkAndBanana",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/3v7i0dz7Vg",
-      tris: 76,
-    },
-  },
-  {
-    file: "poly-pizza/meat-patty.glb",
-    label: "Meat Patty",
-    category: "Food & Drink",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/2RbsQBbMGg",
-      tris: 104,
-    },
-  },
-  {
-    file: "poly-pizza/lamp-square-floor.glb",
-    label: "Lamp Square Floor",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/YhhExKQQCs",
-      tris: 120,
-    },
-  },
-  {
     file: "poly-pizza/light-bulb.glb",
     label: "Light bulb",
     category: "Furniture & Decor",
@@ -636,17 +564,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/kDo0SbQW9Y",
       tris: 124,
-    },
-  },
-  {
-    file: "poly-pizza/window-round.glb",
-    label: "Window Round",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/WROtq6kA7t",
-      tris: 158,
     },
   },
   {
@@ -661,39 +578,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/cactus-a.glb",
-    label: "Cactus A",
-    category: "Environment",
-    attribution: {
-      creator: "Isa Lousberg",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/j8VltLwzPG",
-      tris: 224,
-    },
-  },
-  {
-    file: "poly-pizza/cactus-model.glb",
-    label: "Cactus Model",
-    category: "Environment",
-    attribution: {
-      creator: "Isa Lousberg",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/o9BH8qbqfZ",
-      tris: 270,
-    },
-  },
-  {
-    file: "poly-pizza/houseplant-2.glb",
-    label: "Houseplant",
-    category: "Environment",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/f6GPjbEgg0",
-      tris: 245,
-    },
-  },
-  {
     file: "poly-pizza/rock.glb",
     label: "Rock",
     category: "Environment",
@@ -702,28 +586,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/cBqdRdLDDL",
       tris: 120,
-    },
-  },
-  {
-    file: "poly-pizza/rock-flat.glb",
-    label: "Rock Flat",
-    category: "Environment",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/CrSoV13mCU",
-      tris: 214,
-    },
-  },
-  {
-    file: "poly-pizza/rock-large.glb",
-    label: "Rock Large",
-    category: "Environment",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/54jZKTAt5p",
-      tris: 222,
     },
   },
   {
@@ -738,17 +600,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/rocks.glb",
-    label: "Rocks",
-    category: "Environment",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/OQvi8PIZ40",
-      tris: 84,
-    },
-  },
-  {
     file: "poly-pizza/box.glb",
     label: "Box",
     category: "Objects",
@@ -760,50 +611,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/cardboard-box-closed.glb",
-    label: "Cardboard Box Closed",
-    category: "Objects",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/zv8NvYfT9B",
-      tris: 120,
-    },
-  },
-  {
-    file: "poly-pizza/cardboard-box-open.glb",
-    label: "Cardboard Box Open",
-    category: "Objects",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/i1lr4yJFY0",
-      tris: 120,
-    },
-  },
-  {
-    file: "poly-pizza/cardboard-boxes.glb",
-    label: "Cardboard Boxes",
-    category: "Objects",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/bs6ikOeTrR",
-      tris: 108,
-    },
-  },
-  {
-    file: "poly-pizza/computer-screen.glb",
-    label: "Computer Screen",
-    category: "Objects",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/V5Qo141OcB",
-      tris: 144,
-    },
-  },
-  {
     file: "poly-pizza/empty-box.glb",
     label: "Empty Box",
     category: "Objects",
@@ -812,28 +619,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/pZBpmjtvw8",
       tris: 76,
-    },
-  },
-  {
-    file: "poly-pizza/window.glb",
-    label: "Window",
-    category: "Objects",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/EY1zrFcme9",
-      tris: 102,
-    },
-  },
-  {
-    file: "poly-pizza/window-small.glb",
-    label: "Window Small",
-    category: "Objects",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/n88WAcjzTv",
-      tris: 132,
     },
   },
   {
@@ -892,17 +677,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/wizard.glb",
-    label: "Wizard",
-    category: "Characters",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/o87Upt5uHX",
-      tris: 1674,
-    },
-  },
-  {
     file: "poly-pizza/arrow.glb",
     label: "Arrow",
     category: "Weapons",
@@ -924,18 +698,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       tris: 141,
     },
   },
-  {
-    file: "poly-pizza/sword-diamond.glb",
-    label: "Sword Diamond",
-    category: "Weapons",
-    attribution: {
-      creator: "Quaternius",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/WPj4nM1PFL",
-      tris: 118,
-    },
-  },
-
 ];
 
 const VOX_PRESET_FILES: GalleryPresetFile[] = [
@@ -975,30 +737,6 @@ const PRESETS: PresetModel[] = [
     zoom: 0.15,
     rotX: 74.4,
     rotY: 301.6,
-  },
-  {
-    id: "church",
-    label: "Church (UV-mapped)",
-    category: "Architecture",
-    kind: "obj",
-    url: "/gallery/obj/church.obj",
-    mtlUrl: "/gallery/obj/church.mtl",
-    options: { targetSize: 60, defaultColor: "#cccccc" },
-    zoom: 0.4,
-    rotX: 65,
-    rotY: 45,
-  },
-  {
-    id: "avocado",
-    label: "Avocado (UV-mapped)",
-    category: "Objects",
-    kind: "obj",
-    url: "/gallery/obj/avocado.obj",
-    mtlUrl: "/gallery/obj/avocado.mtl",
-    options: { targetSize: 50, defaultColor: "#cccccc" },
-    zoom: 0.4,
-    rotX: 65,
-    rotY: 45,
   },
   {
     id: "sting",
@@ -1304,12 +1042,122 @@ const EMPTY_METRICS: DomMetrics = {
 const DEBUG_SHAPE_LABELS = {
   rectangle: "Rects <b>",
   triangle: "Triangles <u>",
-  irregular: "Quads/N-gons <i>",
+  irregular: "Polygons <i>",
 };
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(Math.max(value, min), max);
+}
+
+function polygonArea(polygon: Polygon): number {
+  const [origin] = polygon.vertices;
+  if (!origin || polygon.vertices.length < 3) return 0;
+  let area = 0;
+  for (let i = 1; i < polygon.vertices.length - 1; i += 1) {
+    const a = polygon.vertices[i];
+    const b = polygon.vertices[i + 1];
+    const ax = a[0] - origin[0];
+    const ay = a[1] - origin[1];
+    const az = a[2] - origin[2];
+    const bx = b[0] - origin[0];
+    const by = b[1] - origin[1];
+    const bz = b[2] - origin[2];
+    const cx = ay * bz - az * by;
+    const cy = az * bx - ax * bz;
+    const cz = ax * by - ay * bx;
+    area += Math.hypot(cx, cy, cz) * 0.5;
+  }
+  return area;
+}
+
+function colorLuminance(color: string | undefined): number | null {
+  if (!color) return null;
+  const parsed = parsePureColor(color);
+  if (!parsed) return null;
+  const [r, g, b] = parsed.rgb;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
+
+function roundToStep(value: number, step: number): number {
+  return Number((Math.round(value / step) * step).toFixed(4));
+}
+
+function modelLightingStats(polygons: Polygon[]): {
+  averageLuminance: number;
+  colorCoverage: number;
+  textureCoverage: number;
+} {
+  let totalWeight = 0;
+  let colorWeight = 0;
+  let luminanceSum = 0;
+  let texturedWeight = 0;
+
+  for (const polygon of polygons) {
+    const weight = Math.max(polygonArea(polygon), 1);
+    totalWeight += weight;
+
+    const luminance = colorLuminance(polygon.color);
+    if (luminance !== null) {
+      colorWeight += weight;
+      luminanceSum += luminance * weight;
+    }
+
+    if (polygon.texture || polygon.material?.texture || polygon.textureTriangles?.length) {
+      texturedWeight += weight;
+    }
+  }
+
+  const averageLuminance = colorWeight > 0 ? luminanceSum / colorWeight : 0.55;
+  const colorCoverage = totalWeight > 0 ? colorWeight / totalWeight : 0;
+  const textureCoverage = totalWeight > 0 ? texturedWeight / totalWeight : 0;
+  return { averageLuminance, colorCoverage, textureCoverage };
+}
+
+function smartAmbientForModel(model: PresetModel, polygons: Polygon[]): number {
+  if (polygons.length === 0) return DEFAULT_SCENE.ambientIntensity;
+
+  const { averageLuminance, colorCoverage, textureCoverage } = modelLightingStats(polygons);
+
+  const neutralLuminance = 0.52;
+  const darkness = clamp((neutralLuminance - averageLuminance) / neutralLuminance, 0, 1);
+  const brightness = clamp((averageLuminance - neutralLuminance) / (1 - neutralLuminance), 0, 1);
+  const luminanceAdjustment =
+    Math.pow(darkness, 0.8) * 0.45 -
+    Math.pow(brightness, 0.75) * 0.5;
+  const densityLift = clamp(Math.log10(Math.max(polygons.length, 1) / 1800), -0.8, 1.2) * 0.04;
+  const textureLift = textureCoverage > 0.3 && colorCoverage < 0.75 && averageLuminance < 0.58 ? 0.04 : 0;
+  const voxelLift = model.kind === "vox" ? 0.05 : 0;
+
+  return roundToStep(
+    clamp(
+      DEFAULT_SCENE.ambientIntensity + luminanceAdjustment + densityLift + textureLift + voxelLift,
+      0.08,
+      0.95,
+    ),
+    0.05,
+  );
+}
+
+function smartKeyIntensityForModel(polygons: Polygon[]): number {
+  if (polygons.length === 0) return DEFAULT_SCENE.lightIntensity;
+
+  const { averageLuminance } = modelLightingStats(polygons);
+  const neutralLuminance = 0.52;
+  const darkness = clamp((neutralLuminance - averageLuminance) / neutralLuminance, 0, 1);
+  const brightness = clamp((averageLuminance - neutralLuminance) / (1 - neutralLuminance), 0, 1);
+  const keyAdjustment =
+    Math.pow(darkness, 1.4) * 0.06 -
+    Math.pow(brightness, 0.7) * 0.48;
+
+  return roundToStep(
+    clamp(
+      DEFAULT_SCENE.lightIntensity + keyAdjustment,
+      0.5,
+      1.08,
+    ),
+    0.05,
+  );
 }
 
 function smartZoomForPolygons(polygons: Polygon[]): number {
@@ -1541,7 +1389,9 @@ function roundMatrix3dValue(value: string, decimals: number): string {
   });
 }
 
-function matrixPrecisionDecimals(precision: MatrixPrecision): number | null {
+function debugPrecisionDecimals(
+  precision: MatrixPrecision | BorderShapePrecision,
+): number | null {
   if (precision === "exact") return null;
   return Number(precision);
 }
@@ -1551,9 +1401,93 @@ function roundDecimalString(value: string, decimals: number): string {
   return Object.is(Number(next), -0) ? "0" : next;
 }
 
+function solidColorToHex(value: string): string | null {
+  const parsed = parsePureColor(value);
+  if (!parsed || parsed.alpha < 1) return null;
+  const hex = parsed.rgb
+    .map((channel) => Math.max(0, Math.min(255, Math.round(channel))).toString(16).padStart(2, "0"))
+    .join("");
+  return `#${hex}`;
+}
+
+function replaceSolidRgbWithHex(value: string): string {
+  return value.replace(/rgba?\([^)]*\)/gi, (match) => solidColorToHex(match) ?? match);
+}
+
+function applyDebugSolidColorHex(root: HTMLElement | null): void {
+  if (!root) return;
+  const elements = root.querySelectorAll<HTMLElement>(".polycss-mesh, .polycss-scene b, .polycss-scene i, .polycss-scene u");
+  for (const element of elements) {
+    const current = element.getAttribute("style");
+    if (!current || !/rgba?\(/i.test(current)) continue;
+    const next = replaceSolidRgbWithHex(current);
+    if (next !== current) element.setAttribute("style", next);
+  }
+}
+
+function compactStyleValue(value: string): string {
+  return value.replace(/matrix3d\(([^)]*)\)/gi, (_match, body: string) =>
+    `matrix3d(${body.split(",").map((token) => token.trim()).join(",")})`
+  );
+}
+
+function minifyInlineStyle(value: string): string {
+  return compactStyleValue(value)
+    .trim()
+    .replace(/\s*:\s*/g, ":")
+    .replace(/\s*;\s*/g, ";");
+}
+
+const BRUSH_INLINE_STYLE_ORDER = new Map([
+  ["transform", 0],
+  ["border-shape", 1],
+  ["border-width", 2],
+  ["width", 3],
+  ["height", 4],
+  ["color", 5],
+]);
+
+function orderBrushInlineStyle(value: string): string {
+  const declarations = value.split(";").map((declaration) => declaration.trim()).filter(Boolean);
+  return declarations
+    .map((declaration, index) => {
+      const property = declaration.slice(0, declaration.indexOf(":")).trim().toLowerCase();
+      return {
+        declaration,
+        index,
+        order: BRUSH_INLINE_STYLE_ORDER.get(property) ?? Number.POSITIVE_INFINITY,
+      };
+    })
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map(({ declaration }) => declaration)
+    .join(";");
+}
+
+function applyDebugInlineStyleOrder(root: HTMLElement | null): void {
+  if (!root) return;
+  const elements = root.querySelectorAll<HTMLElement>(".polycss-scene b, .polycss-scene i, .polycss-scene s, .polycss-scene u");
+  for (const element of elements) {
+    const current = element.getAttribute("style");
+    if (!current) continue;
+    const next = orderBrushInlineStyle(current);
+    if (next !== current) element.setAttribute("style", next);
+  }
+}
+
+function applyDebugInlineStyleMinify(root: HTMLElement | null): void {
+  if (!root) return;
+  const elements = root.querySelectorAll<HTMLElement>(".polycss-mesh, .polycss-scene b, .polycss-scene i, .polycss-scene s, .polycss-scene u");
+  for (const element of elements) {
+    const current = element.getAttribute("style");
+    if (!current) continue;
+    const next = minifyInlineStyle(current);
+    if (next !== current) element.setAttribute("style", next);
+  }
+}
+
 function applyDebugMatrixPrecision(root: HTMLElement | null, precision: MatrixPrecision): void {
   if (!root) return;
-  const decimals = matrixPrecisionDecimals(precision);
+  const decimals = debugPrecisionDecimals(precision);
   if (decimals === null) return;
   const faces = root.querySelectorAll<HTMLElement>(".polycss-scene i, .polycss-scene b, .polycss-scene s, .polycss-scene u");
   for (const face of faces) {
@@ -1566,7 +1500,7 @@ function applyDebugMatrixPrecision(root: HTMLElement | null, precision: MatrixPr
 
 function applyDebugBorderShapePrecision(root: HTMLElement | null, precision: BorderShapePrecision): void {
   if (!root) return;
-  const decimals = matrixPrecisionDecimals(precision);
+  const decimals = debugPrecisionDecimals(precision);
   if (decimals === null) return;
   const faces = root.querySelectorAll<HTMLElement>(".polycss-scene i");
   for (const face of faces) {
@@ -1581,6 +1515,63 @@ function applyDebugBorderShapePrecision(root: HTMLElement | null, precision: Bor
       return roundDecimalString(match, decimals);
     });
     if (current !== rounded) face.style.setProperty("border-shape", rounded);
+  }
+}
+
+function roundTriangleBorderWidthToken(token: string, decimals: number): string {
+  const trimmed = token.trim();
+  const match = trimmed.match(/^(-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)([a-z%]*)$/i);
+  if (!match) return trimmed;
+
+  const unit = match[2] ?? "";
+  if (unit && unit.toLowerCase() !== "px") return trimmed;
+
+  const numeric = Number(match[1]);
+  if (!Number.isFinite(numeric)) return trimmed;
+  if (numeric === 0 || Object.is(numeric, -0)) return "0";
+
+  const rounded = roundDecimalString(match[1], decimals);
+  return Number(rounded) === 0 || Object.is(Number(rounded), -0)
+    ? "0"
+    : `${rounded}${unit || "px"}`;
+}
+
+function roundTriangleBorderWidth(value: string, decimals: number): string {
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return value;
+  return tokens.map((token) => roundTriangleBorderWidthToken(token, decimals)).join(" ");
+}
+
+function getInlineStyleDeclaration(styleAttr: string, property: string): string | null {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = styleAttr.match(new RegExp(`(?:^|;)\\s*${escaped}\\s*:\\s*([^;]*)`, "i"));
+  return match?.[1]?.trim() ?? null;
+}
+
+function setInlineStyleDeclaration(face: HTMLElement, property: string, value: string): void {
+  const current = face.getAttribute("style") ?? "";
+  const declaration = `${property}:${value}`;
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|;)\\s*${escaped}\\s*:[^;]*`, "i");
+  const next = pattern.test(current)
+    ? current.replace(pattern, (_match, prefix: string) => `${prefix}${declaration}`)
+    : `${current}${current.trim() && !current.trim().endsWith(";") ? ";" : ""}${declaration}`;
+  if (next !== current) face.setAttribute("style", next);
+}
+
+function applyDebugTriangleBrushPrecision(root: HTMLElement | null): void {
+  if (!root) return;
+  const decimals = 1;
+  const faces = root.querySelectorAll<HTMLElement>(".polycss-scene u");
+  for (const face of faces) {
+    const styleAttr = face.getAttribute("style") ?? "";
+    const current = getInlineStyleDeclaration(styleAttr, "border-width")
+      ?? face.style.getPropertyValue("border-width").trim();
+    if (!current) continue;
+    const rounded = roundTriangleBorderWidth(current, decimals);
+    if (current !== rounded) {
+      setInlineStyleDeclaration(face, "border-width", rounded);
+    }
   }
 }
 
@@ -2073,6 +2064,8 @@ export default function DebugWorkbench() {
   // r3f, no raycasting needed because polycss uses DOM events.
   const [hoveredMeshId, setHoveredMeshId] = useState<string | null>(null);
   const autoZoomPresetRef = useRef<string | null>(null);
+  const autoAmbientPresetRef = useRef<string | null>(null);
+  const autoKeyPresetRef = useRef<string | null>(null);
   const guiHostRef = useRef<HTMLDivElement | null>(null);
   const guiRef = useRef<GUI | null>(null);
   const guiControllersRef = useRef<GuiControllerMap>({});
@@ -2200,13 +2193,31 @@ export default function DebugWorkbench() {
           return;
         }
         disposeRef.current = next.dispose;
-        if (autoZoomPresetRef.current !== presetForLoad.id) {
-          const nextZoom = defaultZoomForModel(presetForLoad, next.rawPolygons);
+        const nextZoom = autoZoomPresetRef.current !== presetForLoad.id
+          ? defaultZoomForModel(presetForLoad, next.rawPolygons)
+          : null;
+        const nextAmbient = autoAmbientPresetRef.current !== presetForLoad.id
+          ? smartAmbientForModel(presetForLoad, next.rawPolygons)
+          : null;
+        const nextKey = autoKeyPresetRef.current !== presetForLoad.id
+          ? smartKeyIntensityForModel(next.rawPolygons)
+          : null;
+
+        if (nextZoom !== null || nextAmbient !== null || nextKey !== null) {
           setSceneOptions((current) => {
-            if (current.zoom === nextZoom) return current;
-            return { ...current, zoom: nextZoom };
+            const zoom = nextZoom ?? current.zoom;
+            const ambientIntensity = nextAmbient ?? current.ambientIntensity;
+            const lightIntensity = nextKey ?? current.lightIntensity;
+            if (
+              current.zoom === zoom &&
+              current.ambientIntensity === ambientIntensity &&
+              current.lightIntensity === lightIntensity
+            ) return current;
+            return { ...current, zoom, ambientIntensity, lightIntensity };
           });
           autoZoomPresetRef.current = presetForLoad.id;
+          autoAmbientPresetRef.current = presetForLoad.id;
+          autoKeyPresetRef.current = presetForLoad.id;
         }
         setLoaded(next);
       } catch (error) {
@@ -2380,6 +2391,10 @@ export default function DebugWorkbench() {
       raf = 0;
       applyDebugMatrixPrecision(root, sceneOptions.matrixPrecision);
       applyDebugBorderShapePrecision(root, sceneOptions.borderShapePrecision);
+      applyDebugTriangleBrushPrecision(root);
+      applyDebugSolidColorHex(root);
+      applyDebugInlineStyleOrder(root);
+      applyDebugInlineStyleMinify(root);
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(apply);
@@ -2435,6 +2450,8 @@ export default function DebugWorkbench() {
   const resetToPreset = useCallback((id: string, options: { updateRoute?: boolean } = {}) => {
     const next = PRESETS.find((preset) => preset.id === id);
     autoZoomPresetRef.current = null;
+    autoAmbientPresetRef.current = null;
+    autoKeyPresetRef.current = null;
     setPresetId(id);
     setSelectedAnimation("");
     setReactAnimatedPolygons(null);
@@ -2553,26 +2570,21 @@ export default function DebugWorkbench() {
 
     const model = gui.addFolder("Model");
     model.open();
-    const domCountController = model
-      .add(modelState, "domCount")
-      .name("DOM nodes")
-      .disable();
-    const spritesController = model
-      .add(modelState, "sprites")
-      .name("Sprites <s>")
-      .disable();
-    const shapeRectangleController = model
-      .add(modelState, "shapeRectangle")
-      .name(debugShapeLabels.rectangle)
-      .disable();
-    const shapeTriangleController = model
-      .add(modelState, "shapeTriangle")
-      .name(debugShapeLabels.triangle)
-      .disable();
-    const shapeIrregularController = model
-      .add(modelState, "shapeIrregular")
-      .name(debugShapeLabels.irregular)
-      .disable();
+    const domCountController = disableWithoutDisabledClass(
+      model.add(modelState, "domCount").name("DOM nodes"),
+    );
+    const spritesController = disableWithoutDisabledClass(
+      model.add(modelState, "sprites").name("Sprites <s>"),
+    );
+    const shapeRectangleController = disableWithoutDisabledClass(
+      model.add(modelState, "shapeRectangle").name(debugShapeLabels.rectangle),
+    );
+    const shapeTriangleController = disableWithoutDisabledClass(
+      model.add(modelState, "shapeTriangle").name(debugShapeLabels.triangle),
+    );
+    const shapeIrregularController = disableWithoutDisabledClass(
+      model.add(modelState, "shapeIrregular").name(debugShapeLabels.irregular),
+    );
     const animationController = model
       .add(modelState, "animation", animationOptions)
       .name("Animation")

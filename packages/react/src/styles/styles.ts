@@ -81,7 +81,14 @@ const CORE_BASE_STYLES = `
   background-repeat: no-repeat;
 }
 
+.polycss-scene b,
+.polycss-scene i,
+.polycss-scene u {
+  color: var(--polycss-paint, currentColor);
+}
+
 .polycss-scene b {
+  background: currentColor;
 }
 
 .polycss-scene i {
@@ -94,11 +101,12 @@ const CORE_BASE_STYLES = `
 }
 
 .polycss-scene u {
-  width: 0px;
-  height: 0px;
+  width: 0;
+  height: 0;
   background: transparent;
   box-sizing: content-box;
   border: 0 solid transparent;
+  border-color: transparent transparent currentColor transparent;
 }
 
 /* ── Gizmo override ─────────────────────────────────────────────────────── */
@@ -111,17 +119,16 @@ const CORE_BASE_STYLES = `
  * up half-culled (you see only the side faces, not the caps), and the
  * arrow looks like a flat strip instead of a 3D bar.
  *
- * Transitions on border-color and background-color smooth the
- * idle → hover → drag alpha changes. Baked-mode arrows render their
- * color via inline border-color, dynamic-mode via background-color
- * (rgb-with-alpha CSS calc); transitioning both covers either path.
+ * Transitions on color, border-color, and background-color smooth the
+ * idle → hover → drag alpha changes across rect, border-shape, triangle,
+ * and atlas paths.
  */
 .polycss-transform-controls i,
 .polycss-transform-controls b,
 .polycss-transform-controls s,
 .polycss-transform-controls u {
   backface-visibility: visible;
-  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+  transition: color 150ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out;
 }
 
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
@@ -150,14 +157,14 @@ const CORE_BASE_STYLES = `
 @property --pab { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --pai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
 
-/* Per-polygon surface normal — set inline by the renderer. inherits:false
-   because each leaf has its own normal (no cascade). */
+/* Per-polygon surface normal — set inline by the renderer. Base RGB channels
+   may be hoisted to a mesh wrapper, so they inherit unless overridden inline. */
 @property --pnx { syntax: "<number>"; inherits: false; initial-value: 0; }
 @property --pny { syntax: "<number>"; inherits: false; initial-value: 0; }
 @property --pnz { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --psr { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --psg { syntax: "<number>"; inherits: false; initial-value: 1; }
-@property --psb { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psr { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --psg { syntax: "<number>"; inherits: true; initial-value: 1; }
+@property --psb { syntax: "<number>"; inherits: true; initial-value: 1; }
 
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
    here (not inline per polygon) so each leaf only carries its tiny normal
@@ -183,8 +190,9 @@ const CORE_BASE_STYLES = `
   background-blend-mode: multiply;
 }
 
+.polycss-scene[data-polycss-lighting="dynamic"] b,
 .polycss-scene[data-polycss-lighting="dynamic"] u {
-  border-bottom-color: rgb(
+  color: rgb(
     calc(255 * var(--psr) * (var(--par) * var(--pai)
          + var(--plr) * var(--pli) * max(0,
            var(--pnx) * var(--plx) +

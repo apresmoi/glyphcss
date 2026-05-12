@@ -660,9 +660,9 @@ export function PolyTransformControls({
   };
 
   const wrapperStyle: CSSProperties = {
+    transform: `translate3d(${wrapperPos[0]}px, ${wrapperPos[1]}px, ${wrapperPos[2]}px)`,
     position: "absolute",
     transformStyle: "preserve-3d",
-    transform: `translate3d(${wrapperPos[0]}px, ${wrapperPos[1]}px, ${wrapperPos[2]}px)`,
     // No `pointer-events: none` here — that property is inherited, so
     // setting it on the wrapper would cascade to every arrow polygon
     // and disable native hit-testing on the gizmo entirely. The
@@ -876,7 +876,7 @@ function TranslateArrow({
       // (hover / drag) re-builds the texture atlas asynchronously,
       // and the polygon `<i>`'s background-image briefly resolves to
       // null mid-rebuild — visually the arrow disappears for a frame.
-      // Baked mode renders solid polygons via inline `border-color`
+      // Baked mode renders solid polygons via inline `color` / currentColor
       // (TextureBorderShapePoly path) which updates synchronously
       // with no atlas hop, giving instant hover/drag feedback.
       textureLighting="baked"

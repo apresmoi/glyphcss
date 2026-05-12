@@ -23,8 +23,10 @@ import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import { usePolyMesh } from "./useMesh";
 import {
   computeTextureAtlasPlan,
+  getSolidPaintDefaults,
   isSolidTrianglePlan,
   type AtlasScale,
+  type SolidPaintDefaults,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
   renderTextureTrianglePoly,
@@ -41,6 +43,17 @@ import {
   type PolyMeshHandle,
   type PolyPointerEvent,
 } from "./events";
+
+function solidPaintVars(defaults: SolidPaintDefaults): CSSProperties | null {
+  const out: CSSProperties = {};
+  if (defaults.paintColor) out["--polycss-paint"] = defaults.paintColor;
+  if (defaults.dynamicColor) {
+    out["--psr"] = (defaults.dynamicColor.r / 255).toFixed(4);
+    out["--psg"] = (defaults.dynamicColor.g / 255).toFixed(4);
+    out["--psb"] = (defaults.dynamicColor.b / 255).toFixed(4);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 export interface PolyMeshProps extends InteractionProps {
   /** Stable identifier — exposed on the mesh handle and reflected on
@@ -215,6 +228,10 @@ export const PolyMesh = defineComponent({
     });
     const atlasScale = computed(() => props.atlasScale);
     const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
+    const solidPaintDefaults = computed<SolidPaintDefaults>(() =>
+      atlasAutoRender ? getSolidPaintDefaults(textureAtlasPlans.value, atlasTextureLighting.value) : {},
+    );
+    const defaultPaintVars = computed(() => solidPaintVars(solidPaintDefaults.value));
 
     // Imperative handle exposed via defineExpose. Read-only view of
     // the mesh's element + transform + polygons. Stable getter object;
@@ -307,6 +324,7 @@ export const PolyMesh = defineComponent({
         transform,
         ...(dynamicLightOverride.value as CSSProperties | null ?? undefined),
         ...(attrs.style as CSSProperties | undefined),
+        ...(defaultPaintVars.value ?? undefined),
       };
 
       const extraAttrs = Object.fromEntries(
@@ -435,8 +453,15 @@ export const PolyMesh = defineComponent({
             const plan = textureAtlasPlans.value[index];
             if (!plan || plan.texture) return null;
             return isSolidTrianglePlan(plan)
-              ? renderTextureTrianglePoly({ entry: plan, textureLighting: atlasTextureLighting.value })
-              : renderTextureBorderShapePoly({ entry: plan });
+              ? renderTextureTrianglePoly({
+                  entry: plan,
+                  textureLighting: atlasTextureLighting.value,
+                  solidPaintDefaults: solidPaintDefaults.value,
+                })
+              : renderTextureBorderShapePoly({
+                  entry: plan,
+                  solidPaintDefaults: solidPaintDefaults.value,
+                });
           });
 
       // Static default slot children (e.g. additional <PolyMesh> children)

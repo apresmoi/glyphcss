@@ -143,8 +143,8 @@ describe("createPolyScene", () => {
       expect(styleEl?.textContent).toContain("transform-origin: 0 0");
       expect(styleEl?.textContent).toContain("backface-visibility: hidden");
       expect(styleEl?.textContent).toContain("background-repeat: no-repeat");
-      expect(styleEl?.textContent).toContain("width: 0px");
-      expect(styleEl?.textContent).toContain("height: 0px");
+      expect(styleEl?.textContent).toContain("width: 0;");
+      expect(styleEl?.textContent).toContain("height: 0;");
     });
   });
 
@@ -161,6 +161,29 @@ describe("createPolyScene", () => {
       expect(host.querySelector(".polycss-poly-textured")).toBeNull();
       expect(host.querySelector("svg")).toBeNull();
       expect(handle.polygons.length).toBe(2);
+    });
+
+    it("hoists the repeated baked solid paint to the mesh wrapper", () => {
+      scene = createPolyScene(host);
+      scene.add(makeParseResult([triangle(), triangle()]), { merge: false });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      const polys = Array.from(host.querySelectorAll("u")) as HTMLElement[];
+      expect(wrapper.style.getPropertyValue("--polycss-paint")).not.toBe("");
+      expect(polys).toHaveLength(2);
+      expect(polys.every((poly) => poly.style.color === "")).toBe(true);
+      expect(polys.every((poly) => poly.style.borderBottomColor === "")).toBe(true);
+    });
+
+    it("hoists repeated dynamic solid base RGB channels to the mesh wrapper", () => {
+      scene = createPolyScene(host, { textureLighting: "dynamic" });
+      scene.add(makeParseResult([triangle(), triangle()]), { merge: false });
+      const wrapper = host.querySelector(".polycss-mesh") as HTMLElement;
+      const polys = Array.from(host.querySelectorAll("u")) as HTMLElement[];
+      expect(wrapper.style.getPropertyValue("--psr")).toBe("1.0000");
+      expect(wrapper.style.getPropertyValue("--psg")).toBe("0.0000");
+      expect(wrapper.style.getPropertyValue("--psb")).toBe("0.0000");
+      expect(polys).toHaveLength(2);
+      expect(polys.every((poly) => poly.style.getPropertyValue("--psr") === "")).toBe(true);
     });
 
     it("renders textured polygons as polygon s elements", () => {

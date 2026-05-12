@@ -6,14 +6,15 @@ import {
   watch,
 } from "vue";
 import type { ComputedRef, CSSProperties, Ref, VNode } from "vue";
-import type {
-  PolyAmbientLight,
-  PolyDirectionalLight,
-  Polygon,
-  TextureTriangle,
-  PolyTextureLightingMode,
-  Vec2,
-  Vec3,
+import {
+  parsePureColor,
+  type PolyAmbientLight,
+  type PolyDirectionalLight,
+  type Polygon,
+  type TextureTriangle,
+  type PolyTextureLightingMode,
+  type Vec2,
+  type Vec3,
 } from "@layoutit/polycss-core";
 
 const DEFAULT_TILE = 50;
@@ -35,6 +36,7 @@ const RECT_EPS = 1e-3;
 const TEXTURE_TRIANGLE_BLEED = 0.75;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
+const DEFAULT_TRIANGLE_BORDER_DECIMALS = 1;
 const BASIS_EPS = 1e-9;
 const SOLID_TRIANGLE_BLEED = 0.45;
 
@@ -124,6 +126,12 @@ export interface TextureAtlasResult {
   ready: ComputedRef<boolean>;
 }
 
+export interface SolidPaintDefaults {
+  paintColor?: string;
+  dynamicColor?: { r: number; g: number; b: number };
+  dynamicColorKey?: string;
+}
+
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
@@ -158,6 +166,11 @@ function normalizeAtlasScale(scale: number | string | undefined): number {
 function roundDecimal(value: number, decimals: number): string {
   const next = value.toFixed(decimals).replace(/\.?0+$/, "");
   return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function formatTriangleBorderPx(value: number, decimals = DEFAULT_TRIANGLE_BORDER_DECIMALS): string {
+  const next = roundDecimal(value, decimals);
+  return Number(next) === 0 || Object.is(Number(next), -0) ? "0" : `${next}px`;
 }
 
 function formatMatrix3d(matrix: string, decimals = DEFAULT_MATRIX_DECIMALS): string {
@@ -288,13 +301,22 @@ function setCssTransform(
 }
 
 function parseHex(hex: string): RGB {
-  const c = hex.startsWith("#") ? hex.slice(1) : hex;
-  if (c.length !== 6) return { r: 255, g: 255, b: 255 };
-  return {
-    r: parseInt(c.slice(0, 2), 16),
-    g: parseInt(c.slice(2, 4), 16),
-    b: parseInt(c.slice(4, 6), 16),
-  };
+  // Tolerate any CSS color string the renderer hands us — hex, rgb(),
+  // or rgba(). Polygon colors arrive from user code and helpers like
+  // <PolyTransformControls> use rgba() to fade arrows on hover/drag.
+  const parsed = parsePureColor(hex);
+  if (!parsed) return { r: 255, g: 255, b: 255 };
+  return { r: parsed.rgb[0], g: parsed.rgb[1], b: parsed.rgb[2] };
+}
+
+function rgbKey({ r, g, b }: RGB): string {
+  return `${r},${g},${b}`;
+}
+
+/** Returns the parsed alpha for a color string, defaulting to 1.0
+ *  when the color has no explicit alpha (hex, rgb()). */
+function parseAlpha(input: string): number {
+  return parsePureColor(input)?.alpha ?? 1;
 }
 
 function isFullRectSolid(entry: TextureAtlasPlan): boolean {
@@ -352,6 +374,84 @@ function borderShapeSupported(): boolean {
   if (typeof media !== "function") return true;
 
   return media("(pointer: fine)").matches && media("(hover: hover)").matches;
+}
+
+function incrementCount(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function dominantCountKey(map: Map<string, number>): string | undefined {
+  let bestKey: string | undefined;
+  let bestCount = 1;
+  for (const [key, count] of map) {
+    if (count > bestCount) {
+      bestKey = key;
+      bestCount = count;
+    }
+  }
+  return bestKey;
+}
+
+const BRUSH_INLINE_STYLE_ORDER = new Map([
+  ["transform", 0],
+  ["border-shape", 1],
+  ["border-width", 2],
+  ["width", 3],
+  ["height", 4],
+  ["color", 5],
+]);
+
+function orderBrushInlineStyle(el: HTMLElement): void {
+  const current = el.getAttribute("style");
+  if (!current) return;
+  const declarations = current.split(";").map((declaration) => declaration.trim()).filter(Boolean);
+  const next = declarations
+    .map((declaration, index) => {
+      const property = declaration.slice(0, declaration.indexOf(":")).trim().toLowerCase();
+      return {
+        declaration,
+        index,
+        order: BRUSH_INLINE_STYLE_ORDER.get(property) ?? Number.POSITIVE_INFINITY,
+      };
+    })
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map(({ declaration }) => declaration)
+    .join(";");
+  if (next !== current) el.setAttribute("style", next);
+}
+
+export function getSolidPaintDefaults(
+  plans: Array<TextureAtlasPlan | null>,
+  textureLighting: PolyTextureLightingMode,
+): SolidPaintDefaults {
+  const paintCounts = new Map<string, number>();
+  const dynamicCounts = new Map<string, number>();
+  const dynamicColors = new Map<string, RGB>();
+  const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported();
+
+  for (const plan of plans) {
+    if (!plan || plan.texture) continue;
+
+    if (textureLighting === "dynamic") {
+      if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan)) continue;
+      const color = parseHex(plan.polygon.color ?? "#cccccc");
+      const key = rgbKey(color);
+      incrementCount(dynamicCounts, key);
+      if (!dynamicColors.has(key)) dynamicColors.set(key, color);
+      continue;
+    }
+
+    if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan) && !useBorderShape) continue;
+    incrementCount(paintCounts, plan.shadedColor);
+  }
+
+  const paintColor = dominantCountKey(paintCounts);
+  const dynamicColorKey = dominantCountKey(dynamicCounts);
+  return {
+    paintColor,
+    dynamicColorKey,
+    dynamicColor: dynamicColorKey ? dynamicColors.get(dynamicColorKey) : undefined,
+  };
 }
 
 function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
@@ -424,6 +524,7 @@ function solidTriangleStyle(
   entry: TextureAtlasPlan,
   textureLighting: PolyTextureLightingMode,
   pointerEvents: "auto" | "none",
+  solidPaintDefaults?: SolidPaintDefaults,
 ): CSSProperties | null {
   if (!isSolidTrianglePlan(entry)) return null;
 
@@ -529,13 +630,16 @@ function solidTriangleStyle(
   ]);
   const dynamic = textureLighting === "dynamic";
   const base = parseHex(entry.polygon.color ?? "#cccccc");
+  const useDefaultDynamicColor = dynamic && rgbKey(base) === solidPaintDefaults?.dynamicColorKey;
 
   return {
     transform: `matrix3d(${matrix})`,
-    borderWidth: `0 ${rightPx}px ${heightPx}px ${leftPx}px`,
-    borderBottomColor: dynamic ? undefined : entry.shadedColor,
+    borderWidth: `${formatTriangleBorderPx(0)} ${formatTriangleBorderPx(rightPx)} ${formatTriangleBorderPx(heightPx)} ${formatTriangleBorderPx(leftPx)}`,
+    color: dynamic || entry.shadedColor === solidPaintDefaults?.paintColor
+      ? undefined
+      : entry.shadedColor,
     pointerEvents: pointerEvents === "none" ? "none" : undefined,
-    ...(dynamic
+    ...(dynamic && !useDefaultDynamicColor
       ? {
           "--pnx": normal[0].toFixed(4),
           "--pny": normal[1].toFixed(4),
@@ -544,7 +648,13 @@ function solidTriangleStyle(
           "--psg": (base.g / 255).toFixed(4),
           "--psb": (base.b / 255).toFixed(4),
         }
-      : null),
+      : dynamic
+        ? {
+            "--pnx": normal[0].toFixed(4),
+            "--pny": normal[1].toFixed(4),
+            "--pnz": normal[2].toFixed(4),
+          }
+        : null),
   };
 }
 
@@ -567,11 +677,16 @@ function shadePolygon(
   const tintR = (amb.r / 255) * ambientIntensity + (light.r / 255) * directScale;
   const tintG = (amb.g / 255) * ambientIntensity + (light.g / 255) * directScale;
   const tintB = (amb.b / 255) * ambientIntensity + (light.b / 255) * directScale;
-  return rgbToHex({
-    r: base.r * tintR,
-    g: base.g * tintG,
-    b: base.b * tintB,
-  });
+  const r = Math.max(0, Math.min(255, Math.round(base.r * tintR)));
+  const g = Math.max(0, Math.min(255, Math.round(base.g * tintG)));
+  const b = Math.max(0, Math.min(255, Math.round(base.b * tintB)));
+  // Preserve the base polygon's alpha. Lighting only modulates RGB —
+  // a translucent input (e.g. <PolyTransformControls> arrow at idle)
+  // must keep its alpha so the gizmo stays see-through after shading.
+  const alpha = parseAlpha(baseColor);
+  return alpha < 1
+    ? `rgba(${r}, ${g}, ${b}, ${alpha})`
+    : rgbToHex({ r, g, b });
 }
 
 function textureTintFactors(
@@ -1284,9 +1399,9 @@ export function renderTextureAtlasPoly({
     : undefined;
 
   const style: CSSProperties = {
+    transform: formatMatrix3d(entry.matrix),
     width: `${entry.canvasW}px`,
     height: `${entry.canvasH}px`,
-    transform: formatMatrix3d(entry.matrix),
     background,
     backgroundImage: dynamic && page?.url ? `url(${page.url})` : undefined,
     backgroundPosition: dynamic ? `-${entry.x}px -${entry.y}px` : undefined,
@@ -1333,12 +1448,14 @@ export function renderTextureAtlasPoly({
 
 export function renderTextureBorderShapePoly({
   entry,
+  solidPaintDefaults,
   className,
   style: styleProp,
   domAttrs,
   pointerEvents = "auto",
 }: {
   entry: TextureAtlasPlan;
+  solidPaintDefaults?: SolidPaintDefaults;
   className?: string;
   style?: CSSProperties;
   domAttrs?: Record<string, unknown>;
@@ -1346,20 +1463,21 @@ export function renderTextureBorderShapePoly({
 }): VNode {
   const fullRect = isFullRectSolid(entry);
   const borderShape = fullRect ? null : cssBorderShapeForPlan(entry);
+  const useDefaultPaint = entry.shadedColor === solidPaintDefaults?.paintColor;
   const style: CSSProperties = fullRect
     ? {
+        transform: formatMatrix3d(entry.matrix),
         width: `${entry.canvasW}px`,
         height: `${entry.canvasH}px`,
-        transform: formatMatrix3d(entry.matrix),
-        background: entry.shadedColor,
+        color: useDefaultPaint ? undefined : entry.shadedColor,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       }
     : {
+        transform: formatMatrix3d(entry.matrix),
         width: `${entry.canvasW}px`,
         height: `${entry.canvasH}px`,
-        transform: formatMatrix3d(entry.matrix),
-        color: entry.shadedColor,
+        color: useDefaultPaint ? undefined : entry.shadedColor,
         pointerEvents: pointerEvents === "none" ? "none" : undefined,
         ...styleProp,
       };
@@ -1376,6 +1494,7 @@ export function renderTextureBorderShapePoly({
     if (!el) return;
     if (borderShape) el.style.setProperty("border-shape", borderShape);
     else el.style.removeProperty("border-shape");
+    orderBrushInlineStyle(el);
   };
 
   return h(fullRect ? "b" : "i", {
@@ -1391,6 +1510,7 @@ export function renderTextureBorderShapePoly({
 export function renderTextureTrianglePoly({
   entry,
   textureLighting,
+  solidPaintDefaults,
   className,
   style: styleProp,
   domAttrs,
@@ -1398,12 +1518,13 @@ export function renderTextureTrianglePoly({
 }: {
   entry: TextureAtlasPlan;
   textureLighting: PolyTextureLightingMode;
+  solidPaintDefaults?: SolidPaintDefaults;
   className?: string;
   style?: CSSProperties;
   domAttrs?: Record<string, unknown>;
   pointerEvents?: "auto" | "none";
 }): VNode | null {
-  const triangleStyle = solidTriangleStyle(entry, textureLighting, pointerEvents);
+  const triangleStyle = solidTriangleStyle(entry, textureLighting, pointerEvents, solidPaintDefaults);
   if (!triangleStyle) return null;
 
   const dataAttrs = entry.polygon.data

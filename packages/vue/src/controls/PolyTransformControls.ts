@@ -527,9 +527,9 @@ export const PolyTransformControls = defineComponent({
       if (!t) return null;
       const position = t.getPosition() ?? ([0, 0, 0] as Vec3);
       const wrapperStyle: Record<string, string | number> = {
+        transform: `translate3d(${position[0]}px, ${position[1]}px, ${position[2]}px)`,
         position: "absolute",
         transformStyle: "preserve-3d",
-        transform: `translate3d(${position[0]}px, ${position[1]}px, ${position[2]}px)`,
         zIndex: 1000,
       };
 

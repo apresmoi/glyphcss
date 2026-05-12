@@ -72,9 +72,9 @@ function renderMaterialDirectPoly({
   const offsetY = (1 - vMax) * sourceH;
 
   const style: CSSProperties = {
+    transform: `matrix3d(${plan.matrix})`,
     width: `${plan.canvasW}px`,
     height: `${plan.canvasH}px`,
-    transform: `matrix3d(${plan.matrix})`,
     backgroundImage: `url(${material.texture})`,
     backgroundSize: `${sourceW}px ${sourceH}px`,
     backgroundPosition: `-${offsetX}px -${offsetY}px`,
@@ -278,9 +278,9 @@ export const Poly = defineComponent({
         {
           class: "polycss-poly-wrapper",
           style: {
+            transform: wrapperTransform,
             position: "absolute",
             transformStyle: "preserve-3d",
-            transform: wrapperTransform,
           } as CSSProperties,
         },
         [front],

@@ -106,6 +106,12 @@ interface SolidTrianglePlan {
   styleText: string;
 }
 
+export interface SolidPaintDefaults {
+  paintColor?: string;
+  dynamicColor?: { r: number; g: number; b: number };
+  dynamicColorKey?: string;
+}
+
 interface TextureAtlasPage {
   width: number;
   height: number;
@@ -167,6 +173,7 @@ export interface RenderTextureAtlasOptions {
    * bitmaps by side length and decoded-memory budget.
    */
   atlasScale?: AtlasScale;
+  solidPaintDefaults?: SolidPaintDefaults;
 }
 
 export interface RenderedPoly {
@@ -192,6 +199,7 @@ const TEXTURE_SEAM_BLEED = 0;
 const SOLID_TRIANGLE_BLEED = 0.45;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
+const DEFAULT_TRIANGLE_BORDER_DECIMALS = 1;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -225,6 +233,15 @@ function normalizeAtlasScale(scale: number | string | undefined): number {
 function roundDecimal(value: number, decimals: number): string {
   const next = value.toFixed(decimals).replace(/\.?0+$/, "");
   return Object.is(Number(next), -0) ? "0" : next;
+}
+
+function formatTriangleBorderPx(value: number, decimals = DEFAULT_TRIANGLE_BORDER_DECIMALS): string {
+  const next = roundDecimal(value, decimals);
+  return Number(next) === 0 || Object.is(Number(next), -0) ? "0" : `${next}px`;
+}
+
+function formatInlinePx(value: number): string {
+  return value === 0 || Object.is(value, -0) ? "0" : `${value}px`;
 }
 
 function formatMatrix3dValues(values: readonly number[], decimals = DEFAULT_MATRIX_DECIMALS): string {
@@ -360,6 +377,10 @@ function parseHex(hex: string): RGB {
   return { r: parsed.rgb[0], g: parsed.rgb[1], b: parsed.rgb[2] };
 }
 
+function rgbKey({ r, g, b }: RGB): string {
+  return `${r},${g},${b}`;
+}
+
 /** Returns the parsed alpha for a color string (1.0 default). */
 function parseAlpha(input: string): number {
   return parsePureColor(input)?.alpha ?? 1;
@@ -369,6 +390,31 @@ function rgbToHex({ r, g, b }: RGB): string {
   const f = (n: number) =>
     Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, "0");
   return `#${f(r)}${f(g)}${f(b)}`;
+}
+
+function setInlineStyleProperty(el: HTMLElement, property: string, value: string): void {
+  const current = el.getAttribute("style") ?? "";
+  const declaration = `${property}:${value}`;
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|;)\\s*${escaped}\\s*:[^;]*`, "i");
+  const next = pattern.test(current)
+    ? current.replace(pattern, (_match, prefix: string) => `${prefix}${declaration}`)
+    : `${current}${current.trim() && !current.trim().endsWith(";") ? ";" : ""}${declaration}`;
+  if (next !== current) el.setAttribute("style", next);
+}
+
+function removeInlineStyleProperty(el: HTMLElement, property: string): void {
+  const current = el.getAttribute("style") ?? "";
+  if (!current) return;
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matcher = new RegExp(`^\\s*${escaped}\\s*:`, "i");
+  const next = current
+    .split(";")
+    .map((declaration) => declaration.trim())
+    .filter((declaration) => declaration && !matcher.test(declaration))
+    .join(";");
+  if (next) el.setAttribute("style", next);
+  else el.removeAttribute("style");
 }
 
 function shadePolygon(
@@ -1278,14 +1324,21 @@ function computeSolidTrianglePlan(
   const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
   const textureLighting = options.textureLighting ?? "baked";
   const base = parseHex(polygon.color ?? "#cccccc");
-  const bakedColor = textureLighting === "dynamic" ? "" : `border-bottom-color:${shadedColor};`;
+  const useDefaultPaint = shadedColor === options.solidPaintDefaults?.paintColor;
+  const useDefaultDynamicColor =
+    textureLighting === "dynamic" && rgbKey(base) === options.solidPaintDefaults?.dynamicColorKey;
+  const bakedColor = textureLighting === "dynamic" || useDefaultPaint
+    ? ""
+    : `color:${shadedColor};`;
   const dynamicVars = textureLighting === "dynamic"
     ? `--pnx:${normal[0].toFixed(4)};--pny:${normal[1].toFixed(4)};--pnz:${normal[2].toFixed(4)};` +
-      `--psr:${(base.r / 255).toFixed(4)};--psg:${(base.g / 255).toFixed(4)};--psb:${(base.b / 255).toFixed(4)};`
+      (useDefaultDynamicColor
+        ? ""
+        : `--psr:${(base.r / 255).toFixed(4)};--psg:${(base.g / 255).toFixed(4)};--psb:${(base.b / 255).toFixed(4)};`)
     : "";
   const styleText =
     `transform:matrix3d(${matrix});` +
-    `border-width:0 ${rightPx}px ${heightPx}px ${leftPx}px;` +
+    `border-width:${formatTriangleBorderPx(0)} ${formatTriangleBorderPx(rightPx)} ${formatTriangleBorderPx(heightPx)} ${formatTriangleBorderPx(leftPx)};` +
     bakedColor +
     dynamicVars;
 
@@ -1594,37 +1647,37 @@ function applyAtlasBackground(
   const pos = `-${entry.x}px -${entry.y}px`;
   const size = `${page.width}px ${page.height}px`;
   if (textureLighting === "dynamic") {
-    el.style.backgroundImage = url;
-    el.style.backgroundPosition = pos;
-    el.style.backgroundSize = size;
+    setInlineStyleProperty(el, "background-image", url);
+    setInlineStyleProperty(el, "background-position", pos);
+    setInlineStyleProperty(el, "background-size", size);
   } else {
-    el.style.background = `${url} ${pos} / ${size} no-repeat`;
+    setInlineStyleProperty(el, "background", `${url} ${pos} / ${size} no-repeat`);
   }
   // Dynamic mode also masks the entire <i> by the atlas image so the
   // background-color tint only paints inside the polygon shape (W3C
   // multiply with transparent backdrop reduces to source).
   if (textureLighting === "dynamic") {
-    el.style.maskImage = url;
-    el.style.maskMode = "alpha";
-    el.style.maskPosition = pos;
-    el.style.maskSize = size;
-    el.style.maskRepeat = "no-repeat";
+    setInlineStyleProperty(el, "mask-image", url);
+    setInlineStyleProperty(el, "mask-mode", "alpha");
+    setInlineStyleProperty(el, "mask-position", pos);
+    setInlineStyleProperty(el, "mask-size", size);
+    setInlineStyleProperty(el, "mask-repeat", "no-repeat");
     // Vendor-prefixed twins for older Safari. setProperty avoids the
     // deprecation warnings on the camelCase properties in lib.dom.
-    el.style.setProperty("-webkit-mask-image", url);
-    el.style.setProperty("-webkit-mask-position", pos);
-    el.style.setProperty("-webkit-mask-size", size);
-    el.style.setProperty("-webkit-mask-repeat", "no-repeat");
+    setInlineStyleProperty(el, "-webkit-mask-image", url);
+    setInlineStyleProperty(el, "-webkit-mask-position", pos);
+    setInlineStyleProperty(el, "-webkit-mask-size", size);
+    setInlineStyleProperty(el, "-webkit-mask-repeat", "no-repeat");
   } else {
-    el.style.maskImage = "";
-    el.style.maskMode = "";
-    el.style.maskPosition = "";
-    el.style.maskSize = "";
-    el.style.maskRepeat = "";
-    el.style.removeProperty("-webkit-mask-image");
-    el.style.removeProperty("-webkit-mask-position");
-    el.style.removeProperty("-webkit-mask-size");
-    el.style.removeProperty("-webkit-mask-repeat");
+    removeInlineStyleProperty(el, "mask-image");
+    removeInlineStyleProperty(el, "mask-mode");
+    removeInlineStyleProperty(el, "mask-position");
+    removeInlineStyleProperty(el, "mask-size");
+    removeInlineStyleProperty(el, "mask-repeat");
+    removeInlineStyleProperty(el, "-webkit-mask-image");
+    removeInlineStyleProperty(el, "-webkit-mask-position");
+    removeInlineStyleProperty(el, "-webkit-mask-size");
+    removeInlineStyleProperty(el, "-webkit-mask-repeat");
   }
 }
 
@@ -1643,10 +1696,16 @@ function applyPolygonDataAttrs(el: HTMLElement, polygon: Polygon): void {
   ELEMENT_DATA_KEYS.set(el, nextDataKeys);
 }
 
-function applyPlanElementBase(el: HTMLElement, entry: TextureAtlasPlan): void {
-  el.style.width = `${entry.canvasW}px`;
-  el.style.height = `${entry.canvasH}px`;
-  el.style.transform = `matrix3d(${entry.matrix})`;
+function formatPlanElementStyle(entry: TextureAtlasPlan, shapeDeclaration?: string): string {
+  const shapeStyle = shapeDeclaration ? `${shapeDeclaration};` : "";
+  return `transform:matrix3d(${entry.matrix});${shapeStyle}width:${formatInlinePx(entry.canvasW)};height:${formatInlinePx(entry.canvasH)}`;
+}
+
+function applyPlanElementBase(el: HTMLElement, entry: TextureAtlasPlan, shapeDeclaration?: string): void {
+  el.setAttribute(
+    "style",
+    formatPlanElementStyle(entry, shapeDeclaration),
+  );
   applyPolygonDataAttrs(el, entry.polygon);
 }
 
@@ -1656,9 +1715,9 @@ function applyDynamicNormalVars(el: HTMLElement, entry: TextureAtlasPlan): void 
   // in the global stylesheet's
   // `.polycss-scene[data-polycss-lighting="dynamic"] i { ... }` rule, so
   // the per-element style stays tiny (~50 chars instead of ~600).
-  el.style.setProperty("--pnx", entry.normal[0].toFixed(4));
-  el.style.setProperty("--pny", entry.normal[1].toFixed(4));
-  el.style.setProperty("--pnz", entry.normal[2].toFixed(4));
+  setInlineStyleProperty(el, "--pnx", entry.normal[0].toFixed(4));
+  setInlineStyleProperty(el, "--pny", entry.normal[1].toFixed(4));
+  setInlineStyleProperty(el, "--pnz", entry.normal[2].toFixed(4));
 }
 
 function fullRectBounds(entry: TextureAtlasPlan): RectBrush | null {
@@ -1729,6 +1788,70 @@ function borderShapeSupported(doc: Document): boolean {
   return media("(pointer: fine)").matches && media("(hover: hover)").matches;
 }
 
+function incrementCount(map: Map<string, number>, key: string): void {
+  map.set(key, (map.get(key) ?? 0) + 1);
+}
+
+function dominantCountKey(map: Map<string, number>): string | undefined {
+  let bestKey: string | undefined;
+  let bestCount = 1;
+  for (const [key, count] of map) {
+    if (count > bestCount) {
+      bestKey = key;
+      bestCount = count;
+    }
+  }
+  return bestKey;
+}
+
+function getSolidPaintDefaultsForPlans(
+  plans: Array<TextureAtlasPlan | null>,
+  textureLighting: PolyTextureLightingMode,
+  doc: Document,
+): SolidPaintDefaults {
+  const paintCounts = new Map<string, number>();
+  const dynamicCounts = new Map<string, number>();
+  const dynamicColors = new Map<string, RGB>();
+  const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported(doc);
+
+  for (const plan of plans) {
+    if (!plan || plan.texture) continue;
+
+    if (textureLighting === "dynamic") {
+      if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan)) continue;
+      const color = parseHex(plan.polygon.color ?? "#cccccc");
+      const key = rgbKey(color);
+      incrementCount(dynamicCounts, key);
+      if (!dynamicColors.has(key)) dynamicColors.set(key, color);
+      continue;
+    }
+
+    if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan) && !useBorderShape) continue;
+    incrementCount(paintCounts, plan.shadedColor);
+  }
+
+  const paintColor = dominantCountKey(paintCounts);
+  const dynamicColorKey = dominantCountKey(dynamicCounts);
+  return {
+    paintColor,
+    dynamicColorKey,
+    dynamicColor: dynamicColorKey ? dynamicColors.get(dynamicColorKey) : undefined,
+  };
+}
+
+export function getSolidPaintDefaults(
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions = {},
+): SolidPaintDefaults {
+  const doc = options.doc ?? (typeof document !== "undefined" ? document : null);
+  if (!doc) return {};
+  const basisHints = buildBasisHints(polygons, options);
+  const plans = polygons.map((polygon, index) =>
+    computeTextureAtlasPlan(polygon, index, options, basisHints[index])
+  );
+  return getSolidPaintDefaultsForPlans(plans, options.textureLighting ?? "baked", doc);
+}
+
 function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
   const pts: string[] = [];
   const width = entry.canvasW || 1;
@@ -1764,15 +1887,28 @@ function applySolidPaint(
   el: HTMLElement,
   entry: TextureAtlasPlan,
   textureLighting: PolyTextureLightingMode,
+  solidPaintDefaults?: SolidPaintDefaults,
 ): void {
   if (textureLighting === "dynamic") {
+    removeInlineStyleProperty(el, "color");
+    removeInlineStyleProperty(el, "background");
     applyDynamicNormalVars(el, entry);
     const base = parseHex(entry.polygon.color ?? "#cccccc");
-    el.style.setProperty("--psr", (base.r / 255).toFixed(4));
-    el.style.setProperty("--psg", (base.g / 255).toFixed(4));
-    el.style.setProperty("--psb", (base.b / 255).toFixed(4));
+    if (rgbKey(base) === solidPaintDefaults?.dynamicColorKey) {
+      removeInlineStyleProperty(el, "--psr");
+      removeInlineStyleProperty(el, "--psg");
+      removeInlineStyleProperty(el, "--psb");
+    } else {
+      setInlineStyleProperty(el, "--psr", (base.r / 255).toFixed(4));
+      setInlineStyleProperty(el, "--psg", (base.g / 255).toFixed(4));
+      setInlineStyleProperty(el, "--psb", (base.b / 255).toFixed(4));
+    }
+  } else if (entry.shadedColor !== solidPaintDefaults?.paintColor) {
+    removeInlineStyleProperty(el, "background");
+    setInlineStyleProperty(el, "color", entry.shadedColor);
   } else {
-    el.style.background = entry.shadedColor;
+    removeInlineStyleProperty(el, "background");
+    removeInlineStyleProperty(el, "color");
   }
 }
 
@@ -1780,10 +1916,11 @@ function createSolidElement(
   entry: TextureAtlasPlan,
   textureLighting: PolyTextureLightingMode,
   doc: Document,
+  solidPaintDefaults?: SolidPaintDefaults,
 ): HTMLElement {
   const el = doc.createElement("b");
   applyPlanElementBase(el, entry);
-  applySolidPaint(el, entry, textureLighting);
+  applySolidPaint(el, entry, textureLighting, solidPaintDefaults);
 
   return el;
 }
@@ -1791,11 +1928,13 @@ function createSolidElement(
 function createBorderShapeSolidElement(
   entry: TextureAtlasPlan,
   doc: Document,
+  solidPaintDefaults?: SolidPaintDefaults,
 ): HTMLElement {
   const el = doc.createElement("i");
-  applyPlanElementBase(el, entry);
-  el.style.color = entry.shadedColor;
-  el.style.setProperty("border-shape", cssBorderShapeForPlan(entry));
+  applyPlanElementBase(el, entry, `border-shape:${cssBorderShapeForPlan(entry)}`);
+  if (entry.shadedColor !== solidPaintDefaults?.paintColor) {
+    setInlineStyleProperty(el, "color", entry.shadedColor);
+  }
 
   return el;
 }
@@ -1807,8 +1946,8 @@ function createAtlasElement(
 ): HTMLElement {
   const el = doc.createElement("s");
   applyPlanElementBase(el, entry);
-  el.style.backgroundPosition = `-${entry.x}px -${entry.y}px`;
-  el.style.opacity = "0";
+  setInlineStyleProperty(el, "background-position", `-${entry.x}px -${entry.y}px`);
+  setInlineStyleProperty(el, "opacity", "0");
 
   if (textureLighting === "dynamic") applyDynamicNormalVars(el, entry);
   return el;
@@ -1857,13 +1996,13 @@ export function renderPolygonsWithTextureAtlas(
       atlasElements.set(i, element);
       rendered.push({ polygonIndex: i, element, kind: "atlas", dispose: () => {} });
     } else if (!plan.texture && isFullRectSolid(plan)) {
-      const element = createSolidElement(plan, textureLighting, doc);
+      const element = createSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
       rendered.push({ polygonIndex: i, element, kind: "solid", dispose: () => {} });
     } else if (!plan.texture && trianglePlan) {
       const element = createSolidTriangleElement(trianglePlan, doc);
       rendered.push({ polygonIndex: i, element, kind: "triangle", dispose: () => {} });
     } else if (!plan.texture && useBorderShape) {
-      const element = createBorderShapeSolidElement(plan, doc);
+      const element = createBorderShapeSolidElement(plan, doc, options.solidPaintDefaults);
       rendered.push({ polygonIndex: i, element, kind: "border", dispose: () => {} });
     }
   }
@@ -1887,15 +2026,15 @@ export function renderPolygonsWithTextureAtlas(
           const el = atlasElements.get(entry.index);
           if (!el || !built.url) continue;
           applyAtlasBackground(el, built, textureLighting, entry);
-          el.style.opacity = "";
+          removeInlineStyleProperty(el, "opacity");
         }
       }
     })
     .catch(() => {
       if (cancelled) return;
       for (const element of atlasElements.values()) {
-        element.style.opacity = "0.5";
-        element.style.outline = "1px dashed rgba(255, 0, 0, 0.6)";
+        setInlineStyleProperty(element, "opacity", "0.5");
+        setInlineStyleProperty(element, "outline", "1px dashed rgba(255, 0, 0, 0.6)");
       }
     });
 
@@ -1939,7 +2078,7 @@ function applySolidTriangleElement(
   el: HTMLElement,
   entry: SolidTrianglePlan,
 ): void {
-  el.style.cssText = entry.styleText;
+  el.setAttribute("style", entry.styleText);
   if (entry.polygon.data || ELEMENT_DATA_KEYS.get(el)?.length) {
     applyPolygonDataAttrs(el, entry.polygon);
   }
