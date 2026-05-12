@@ -9,6 +9,10 @@ const shouldRenderSearch =
 
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const isLanding = pathname === '/';
+const isGallery = pathname.startsWith('/gallery');
+// Hide search dock on landing + gallery (workbench-style pages where the
+// Starlight floating search position doesn't fit). Branding + GitHub still
+// render on /gallery — only /landing strips them entirely.
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
   {
@@ -33,7 +37,7 @@ const topLinks = [
       <SiteTitle />
     </div>
   )}
-  {!isLanding && (
+  {!isLanding && !isGallery && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>
