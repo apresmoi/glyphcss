@@ -21,6 +21,13 @@ const VERTICAL_QUAD: [number, number, number][] = [
   [0, 0, 1],
 ];
 
+const NON_RECT_QUAD: [number, number, number][] = [
+  [0, 0, 0],
+  [2, 0, 0],
+  [2, 1, 0],
+  [0, 2, 0],
+];
+
 const OFFAXIS_TRIANGLE: [number, number, number][] = [
   [0, 0, 0],
   [1, 1, 0],
@@ -44,7 +51,7 @@ function renderPoly(props: Record<string, unknown>): HTMLElement {
 }
 
 function getPoly(container: HTMLElement): HTMLElement {
-  const poly = container.querySelector("i,b,s") as HTMLElement | null;
+  const poly = container.querySelector("i,b,s,u") as HTMLElement | null;
   expect(poly).toBeTruthy();
   return poly!;
 }
@@ -54,10 +61,10 @@ describe("Poly (Vue) — solid color polygon", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a polygon i element and no SVG", () => {
+  it("renders a triangle u element and no SVG", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("u");
     expect(poly.classList.contains("polycss-poly")).toBe(false);
     expect(poly.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(poly.classList.contains("polycss-poly-solid")).toBe(false);
@@ -65,7 +72,7 @@ describe("Poly (Vue) — solid color polygon", () => {
     expect(container.querySelector("svg")).toBeNull();
   });
 
-  it("polygon i element has a matrix3d transform with 16 values", () => {
+  it("triangle u element has a matrix3d transform with 16 values", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE });
     const poly = getPoly(container);
     const match = poly.style.transform.match(/matrix3d\(([^)]+)\)/);
@@ -92,7 +99,7 @@ describe("Poly (Vue) — solid color polygon", () => {
         [1, 0, 0],
       ],
     });
-    expect(container.querySelector("i,b,s")).toBeNull();
+    expect(container.querySelector("i,b,s,u")).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 
@@ -104,7 +111,7 @@ describe("Poly (Vue) — solid color polygon", () => {
         [2, 0, 0],
       ],
     });
-    expect(container.querySelector("i,b,s")).toBeNull();
+    expect(container.querySelector("i,b,s,u")).toBeNull();
   });
 });
 
@@ -117,10 +124,10 @@ describe("Poly (Vue) — non-horizontal geometry", () => {
     expect(poly!.style.transform).toContain("matrix3d(");
   });
 
-  it("renders an off-axis triangle as a polygon i element", () => {
+  it("renders an off-axis triangle as a triangle u element", () => {
     const container = renderPoly({ vertices: OFFAXIS_TRIANGLE });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("u");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 });

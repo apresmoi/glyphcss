@@ -13,9 +13,11 @@ import { injectPolyBaseStyles } from "../styles/styles";
 import type { TransformProps } from "../shapes/types";
 import {
   computeTextureAtlasPlan,
+  isSolidTrianglePlan,
   type AtlasScale,
   TextureBorderShapePoly,
   TextureAtlasPoly,
+  TextureTrianglePoly,
   useTextureAtlas,
 } from "./textureAtlas";
 import { PolySceneContext } from "./sceneContext";
@@ -251,9 +253,10 @@ function PolySceneInner({
     }
 
     const plan = textureAtlasPlans[index];
-    return plan && !plan.texture ? (
-      <TextureBorderShapePoly key={plan.index} entry={plan} />
-    ) : null;
+    if (!plan || plan.texture) return null;
+    return isSolidTrianglePlan(plan)
+      ? <TextureTrianglePoly key={plan.index} entry={plan} textureLighting={textureLighting} />
+      : <TextureBorderShapePoly key={plan.index} entry={plan} />;
   });
 
   // Propagate scene-level rendering options to descendants (PolyMesh /

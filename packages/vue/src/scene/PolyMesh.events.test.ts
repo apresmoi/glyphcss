@@ -109,10 +109,10 @@ describe("PolyMesh (Vue) — mesh registry", () => {
     expect(handle!.element).toBe(meshEl);
   });
 
-  // ── 4. findMeshHandle walks up from a polygon <i> child ──────────────
-  it("findMeshHandle walks up from a polygon <i> child to the registered mesh handle", () => {
+  // ── 4. findMeshHandle walks up from a polygon <u> child ──────────────
+  it("findMeshHandle walks up from a polygon <u> child to the registered mesh handle", () => {
     const { container } = mountMesh({ id: "cube-b", polygons: [TRIANGLE] });
-    const polygonEl = container.querySelector(".polycss-mesh i") as HTMLElement;
+    const polygonEl = container.querySelector(".polycss-mesh u") as HTMLElement;
     expect(polygonEl).not.toBeNull();
     const handle = findPolyMeshHandle(polygonEl);
     expect(handle?.id).toBe("cube-b");

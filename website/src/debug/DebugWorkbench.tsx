@@ -133,9 +133,10 @@ interface ParserOptionsState {
 interface DomMetrics {
   measuredAt: number;
   nodeCount: number;
-  polyCountS: number;
-  polyCountB: number;
-  polyCountI: number;
+  sprites: number;
+  rects: number;
+  triangles: number;
+  irregular: number;
 }
 
 type GuiControllerMap = Record<string, any>;
@@ -1222,6 +1223,58 @@ function randomPreset(): PresetModel {
   return PRESETS[Math.floor(Math.random() * PRESETS.length)] ?? PRESETS[0];
 }
 
+function hashStringToUint32(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function routeIdForPresetId(presetId: string): string {
+  return String(hashStringToUint32(presetId));
+}
+
+function getRoutePresetValue(): string {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return params.get("model") || "";
+}
+
+function resolveRoutePresetId(routeValue: string): string {
+  const value = typeof routeValue === "string" ? routeValue.trim() : "";
+  if (!value) return "";
+
+  if (/^\d+$/.test(value)) {
+    const preset = PRESETS.find((candidate) => routeIdForPresetId(candidate.id) === value);
+    if (preset) return preset.id;
+  }
+
+  const preset = PRESETS.find((candidate) => candidate.id === value);
+  return preset?.id ?? "";
+}
+
+function routeInitialPreset(): PresetModel | null {
+  const routePresetId = resolveRoutePresetId(getRoutePresetValue());
+  return routePresetId ? PRESETS.find((preset) => preset.id === routePresetId) ?? null : null;
+}
+
+function setRoutePresetId(presetId: string | null): void {
+  if (typeof window === "undefined") return;
+  const next = presetId ? routeIdForPresetId(presetId) : "";
+  const current = getRoutePresetValue();
+  if (next === current) return;
+
+  const params = new URLSearchParams(window.location.search);
+  if (next) params.set("model", next);
+  else params.delete("model");
+
+  const newSearch = params.toString();
+  const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ""}${window.location.hash}`;
+  window.history.replaceState(null, "", newUrl);
+}
+
 function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
   return {
     ...DEFAULT_SCENE,
@@ -1241,9 +1294,16 @@ function parserStateFor(model: PresetModel): ParserOptionsState {
 const EMPTY_METRICS: DomMetrics = {
   measuredAt: 0,
   nodeCount: 0,
-  polyCountS: 0,
-  polyCountB: 0,
-  polyCountI: 0,
+  sprites: 0,
+  rects: 0,
+  triangles: 0,
+  irregular: 0,
+};
+
+const DEBUG_SHAPE_LABELS = {
+  rectangle: "Rects <b>",
+  triangle: "Triangles <u>",
+  irregular: "Quads/N-gons <i>",
 };
 
 function clamp(value: number, min: number, max: number): number {
@@ -1450,15 +1510,18 @@ function ambientFromOptions(options: SceneOptionsState): PolyAmbientLight {
 
 function measureDom(root: HTMLElement | null): DomMetrics {
   if (!root) return EMPTY_METRICS;
-  const polyCountS = root.querySelectorAll<HTMLElement>(".polycss-scene s").length;
-  const polyCountB = root.querySelectorAll<HTMLElement>(".polycss-scene b").length;
-  const polyCountI = root.querySelectorAll<HTMLElement>(".polycss-scene i").length;
+  const modelScopes = Array.from(root.querySelectorAll<HTMLElement>(".dn-model-mesh"));
+  const scopes = modelScopes.length > 0 ? modelScopes : [root];
+  const countInScopes = (selector: string): number =>
+    scopes.reduce((sum, scope) => sum + scope.querySelectorAll(selector).length, 0);
+
   return {
     measuredAt: performance.now(),
     nodeCount: root.querySelectorAll("*").length,
-    polyCountS,
-    polyCountB,
-    polyCountI,
+    sprites: countInScopes("s"),
+    rects: countInScopes("b"),
+    triangles: countInScopes("u"),
+    irregular: countInScopes("i"),
   };
 }
 
@@ -1489,7 +1552,7 @@ function applyDebugMatrixPrecision(root: HTMLElement | null, precision: MatrixPr
   if (!root) return;
   const decimals = matrixPrecisionDecimals(precision);
   if (decimals === null) return;
-  const faces = root.querySelectorAll<HTMLElement>(".polycss-scene i, .polycss-scene b, .polycss-scene s");
+  const faces = root.querySelectorAll<HTMLElement>(".polycss-scene i, .polycss-scene b, .polycss-scene s, .polycss-scene u");
   for (const face of faces) {
     const current = face.style.transform;
     if (!current.includes("matrix3d(")) continue;
@@ -1630,6 +1693,7 @@ function VanillaScene({
       warnings: [],
       dispose: () => {},
     }, { merge: mergePolygonsForMesh, stableDom: !!animationFrameFactory, id: meshId });
+    meshHandleRef.current.element.classList.add("dn-model-mesh");
     return () => {
       // Tear controls down BEFORE destroying the scene — otherwise the
       // controls' rAF tick could fire one more time against a stale handle.
@@ -1968,7 +2032,7 @@ function VanillaScene({
 }
 
 export default function DebugWorkbench() {
-  const [initialPreset] = useState(randomPreset);
+  const [initialPreset] = useState<PresetModel>(() => routeInitialPreset() ?? randomPreset());
   const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(() => sceneDefaultsFor(initialPreset));
   const [parserOptions, setParserOptions] = useState<ParserOptionsState>(() => parserStateFor(initialPreset));
   const [presetId, setPresetId] = useState(initialPreset.id);
@@ -2244,6 +2308,7 @@ export default function DebugWorkbench() {
   ]);
 
   const scenePolygons = modelPolygons;
+  const debugShapeLabels = DEBUG_SHAPE_LABELS;
 
   const helperBbox = useMemo(() => {
     const polygons = modelPolygons;
@@ -2280,13 +2345,29 @@ export default function DebugWorkbench() {
   }, [helperBbox]);
 
   useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        setMetrics(measureDom(viewportRef.current));
-      });
+    const root = viewportRef.current;
+    if (!root) return;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      setMetrics(measureDom(root));
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    };
+    schedule();
+    const observer = new MutationObserver(schedule);
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
     });
-    return () => cancelAnimationFrame(raf);
-  }, [scenePolygons, sceneOptions, vanillaBuildMs]);
+    return () => {
+      observer.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
 
   useEffect(() => {
     const root = viewportRef.current;
@@ -2348,13 +2429,14 @@ export default function DebugWorkbench() {
     ],
   );
 
-  const resetToPreset = useCallback((id: string) => {
+  const resetToPreset = useCallback((id: string, options: { updateRoute?: boolean } = {}) => {
     const next = PRESETS.find((preset) => preset.id === id);
     autoZoomPresetRef.current = null;
     setPresetId(id);
     setSelectedAnimation("");
     setReactAnimatedPolygons(null);
     if (!next) return;
+    if (options.updateRoute) setRoutePresetId(next.id);
     setParserOptions((current) => ({
       ...current,
       ...parserDefaultsFor(next),
@@ -2367,8 +2449,38 @@ export default function DebugWorkbench() {
   }, []);
   const handleRandomPreset = useCallback(() => {
     const next = randomPreset();
-    resetToPreset(next.id);
+    resetToPreset(next.id, { updateRoute: true });
   }, [resetToPreset]);
+
+  useEffect(() => {
+    const routeValue = getRoutePresetValue();
+    if (routeValue) {
+      const routePresetId = resolveRoutePresetId(routeValue);
+      if (routePresetId) {
+        setRoutePresetId(routePresetId);
+      } else {
+        setRoutePresetId(null);
+      }
+    }
+
+    const handlePopState = () => {
+      const nextRouteValue = getRoutePresetValue();
+      if (!nextRouteValue) return;
+      const nextPresetId = resolveRoutePresetId(nextRouteValue);
+      if (!nextPresetId) {
+        setRoutePresetId(null);
+        return;
+      }
+      if (nextPresetId !== presetId) {
+        resetToPreset(nextPresetId);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [presetId, resetToPreset]);
 
   const animationOptions = useMemo(() => {
     const options: Record<string, string> = { None: "" };
@@ -2391,9 +2503,10 @@ export default function DebugWorkbench() {
     const modelState = {
       animation: selectedAnimation,
       domCount: 0,
-      polyS: 0,
-      polyB: 0,
-      polyI: 0,
+      sprites: 0,
+      shapeRectangle: 0,
+      shapeTriangle: 0,
+      shapeIrregular: 0,
     };
 
     const interactionState = {
@@ -2441,17 +2554,21 @@ export default function DebugWorkbench() {
       .add(modelState, "domCount")
       .name("DOM nodes")
       .disable();
-    const polySController = model
-      .add(modelState, "polyS")
+    const spritesController = model
+      .add(modelState, "sprites")
       .name("Sprites <s>")
       .disable();
-    const polyBController = model
-      .add(modelState, "polyB")
-      .name("Rects <b>")
+    const shapeRectangleController = model
+      .add(modelState, "shapeRectangle")
+      .name(debugShapeLabels.rectangle)
       .disable();
-    const polyIController = model
-      .add(modelState, "polyI")
-      .name("Polygons <i>")
+    const shapeTriangleController = model
+      .add(modelState, "shapeTriangle")
+      .name(debugShapeLabels.triangle)
+      .disable();
+    const shapeIrregularController = model
+      .add(modelState, "shapeIrregular")
+      .name(debugShapeLabels.irregular)
       .disable();
     const animationController = model
       .add(modelState, "animation", animationOptions)
@@ -2610,10 +2727,11 @@ export default function DebugWorkbench() {
 
     guiControllersRef.current = {
       animation: animationController,
-      polyS: polySController,
-      polyB: polyBController,
-      polyI: polyIController,
       domCount: domCountController,
+      sprites: spritesController,
+      shapeRectangle: shapeRectangleController,
+      shapeTriangle: shapeTriangleController,
+      shapeIrregular: shapeIrregularController,
       approximateMerge: approxMergeController,
       rectCover: rectCoverController,
       interactive: interactiveController,
@@ -2712,14 +2830,22 @@ export default function DebugWorkbench() {
       if (enabled) controller.enable();
       else controller.disable();
     };
+    const setCtrlName = (key: string, value: string) => {
+      const controller = controllers[key] as { name?: (next: string) => void } | undefined;
+      controller?.name?.(value);
+    };
 
     setCtrlValue("animation", selectedAnimation);
     setCtrlValue("approximateMerge", sceneOptions.approximateMerge);
     setCtrlValue("rectCover", sceneOptions.rectCover);
     setCtrlValue("domCount", metrics.nodeCount);
-    setCtrlValue("polyS", metrics.polyCountS);
-    setCtrlValue("polyB", metrics.polyCountB);
-    setCtrlValue("polyI", metrics.polyCountI);
+    setCtrlValue("sprites", metrics.sprites);
+    setCtrlName("shapeRectangle", debugShapeLabels.rectangle);
+    setCtrlName("shapeTriangle", debugShapeLabels.triangle);
+    setCtrlName("shapeIrregular", debugShapeLabels.irregular);
+    setCtrlValue("shapeRectangle", metrics.rects);
+    setCtrlValue("shapeTriangle", metrics.triangles);
+    setCtrlValue("shapeIrregular", metrics.irregular);
 
     const validAnimation = Object.values(animationOptions).includes(selectedAnimation);
     const nextAnimation = validAnimation ? selectedAnimation : "";
@@ -2774,17 +2900,19 @@ export default function DebugWorkbench() {
 
     const modelState = controllers.modelState as {
       domCount?: number;
+      sprites?: number;
       animation?: string;
-      polyS?: number;
-      polyB?: number;
-      polyI?: number;
+      shapeRectangle?: number;
+      shapeTriangle?: number;
+      shapeIrregular?: number;
     };
     if (modelState) {
       modelState.animation = selectedAnimation;
       modelState.domCount = metrics.nodeCount;
-      modelState.polyS = metrics.polyCountS;
-      modelState.polyB = metrics.polyCountB;
-      modelState.polyI = metrics.polyCountI;
+      modelState.sprites = metrics.sprites;
+      modelState.shapeRectangle = metrics.rects;
+      modelState.shapeTriangle = metrics.triangles;
+      modelState.shapeIrregular = metrics.irregular;
     }
     const interactionState = controllers.interactionState as {
       interactive?: boolean;
@@ -2864,10 +2992,11 @@ export default function DebugWorkbench() {
     loaded?.sourcePolygons,
     modelPolygons.length,
     presetId,
-    metrics.polyCountS,
-    metrics.polyCountB,
-    metrics.polyCountI,
     metrics.nodeCount,
+    metrics.sprites,
+    metrics.rects,
+    metrics.triangles,
+    metrics.irregular,
     vanillaBuildMs,
     sceneOptions.interactive,
     sceneOptions.animate,
@@ -2947,7 +3076,7 @@ export default function DebugWorkbench() {
                           }}
                           key={preset.id}
                           className={`sidebar-item${preset.id === presetId ? " active" : ""}`}
-                          onClick={() => resetToPreset(preset.id)}
+                          onClick={() => resetToPreset(preset.id, { updateRoute: true })}
                         >
                           {preset.label}
                         </button>
@@ -3014,8 +3143,8 @@ export default function DebugWorkbench() {
                   />
                 )}
                 <PolyScene
-                  polygons={sceneOptions.selection ? [] : scenePolygons}
-                  centerPolygons={sceneOptions.selection ? scenePolygons : undefined}
+                  polygons={[]}
+                  centerPolygons={scenePolygons}
                   autoCenter={sceneOptions.autoCenter}
                   directionalLight={directionalLight}
                   ambientLight={ambientLight}
@@ -3032,8 +3161,8 @@ export default function DebugWorkbench() {
                         rotation={meshRotation}
                         className={
                           sceneOptions.hoverEffects && hoveredMeshId === (loaded?.label ?? "model")
-                            ? "is-hovered"
-                            : undefined
+                            ? "dn-model-mesh is-hovered"
+                            : "dn-model-mesh"
                         }
                         style={sceneOptions.hoverEffects ? { cursor: "pointer" } : undefined}
                         onPointerOver={
@@ -3046,6 +3175,13 @@ export default function DebugWorkbench() {
                         }
                       />
                     </PolySelect>
+                  ) : null}
+                  {!sceneOptions.selection ? (
+                    <PolyMesh
+                      id={loaded?.label ?? "model"}
+                      polygons={scenePolygons}
+                      className="dn-model-mesh"
+                    />
                   ) : null}
                   {sceneOptions.selection && selectedMeshes.length > 0 && (
                     <PolyTransformControls

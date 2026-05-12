@@ -32,9 +32,11 @@ import { injectPolyBaseStyles } from "../styles";
 import { PolySceneContextKey } from "./sceneContext";
 import {
   computeTextureAtlasPlan,
+  isSolidTrianglePlan,
   type AtlasScale,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
+  renderTextureTrianglePoly,
   useTextureAtlas,
 } from "./textureAtlas";
 
@@ -254,19 +256,20 @@ export const PolyScene = defineComponent({
 
       const ctx = polyContext.value;
 
-      const polyNodes = textureAtlas.entries.value.map((entry, index) =>
-        entry
-          ? renderTextureAtlasPoly({
-              entry,
-              page: textureAtlas.pages.value[entry.pageIndex],
-              textureLighting: ctx.textureLighting ?? "baked",
-            })
-          : textureAtlasPlans.value[index] && !textureAtlasPlans.value[index]?.texture
-            ? renderTextureBorderShapePoly({
-                entry: textureAtlasPlans.value[index]!,
-              })
-            : null
-      );
+      const polyNodes = textureAtlas.entries.value.map((entry, index) => {
+        if (entry) {
+          return renderTextureAtlasPoly({
+            entry,
+            page: textureAtlas.pages.value[entry.pageIndex],
+            textureLighting: ctx.textureLighting ?? "baked",
+          });
+        }
+        const plan = textureAtlasPlans.value[index];
+        if (!plan || plan.texture) return null;
+        return isSolidTrianglePlan(plan)
+          ? renderTextureTrianglePoly({ entry: plan, textureLighting: ctx.textureLighting ?? "baked" })
+          : renderTextureBorderShapePoly({ entry: plan });
+      });
 
       const slotChildren = slots.default?.() ?? [];
 

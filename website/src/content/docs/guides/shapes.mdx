@@ -39,14 +39,16 @@ Every polygon rendered by polycss is a real DOM element. You can attach standard
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, Poly } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, Poly } from "@layoutit/polycss-react";
 
 const triangle: Vec3[] = [[0,0,0], [1,0,0], [0,1,0]];
 
-<PolyScene>
-  <Poly vertices={triangle} color="#ff0000" />
-  <Poly vertices={triangle} color="#0000ff" texture="/wood.png" uvs={[...]} />
-</PolyScene>
+<PolyCamera>
+  <PolyScene>
+    <Poly vertices={triangle} color="#ff0000" />
+    <Poly vertices={triangle} color="#0000ff" texture="/wood.png" uvs={[...]} />
+  </PolyScene>
+</PolyCamera>
 ```
 </TabItem>
 </Tabs>
@@ -87,26 +89,28 @@ const triangle: Vec3[] = [[0,0,0], [1,0,0], [0,1,0]];
 <TabItem label="React">
 ```tsx
 import { useState } from "react";
-import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, Poly } from "@layoutit/polycss-react";
 import type { Polygon } from "@layoutit/polycss-react";
 
 export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
   const [hoveredId, setHoveredId] = useState<number | null>(null);
 
   return (
-    <PolyScene rotX={65} rotY={45}>
-      {polygons.map((p, i) => (
-        <Poly
-          key={i}
-          {...p}
-          onClick={() => alert(`clicked polygon ${i}`)}
-          onMouseEnter={() => setHoveredId(i)}
-          onMouseLeave={() => setHoveredId(null)}
-          className={hoveredId === i ? "highlight" : ""}
-          style={{ transition: "filter 0.2s" }}
-        />
-      ))}
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        {polygons.map((p, i) => (
+          <Poly
+            key={i}
+            {...p}
+            onClick={() => alert(`clicked polygon ${i}`)}
+            onMouseEnter={() => setHoveredId(i)}
+            onMouseLeave={() => setHoveredId(null)}
+            className={hoveredId === i ? "highlight" : ""}
+            style={{ transition: "filter 0.2s" }}
+          />
+        ))}
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -118,22 +122,24 @@ export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
 <TabItem label="Vue">
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45">
-    <Poly
-      v-for="(p, i) in polygons"
-      :key="i"
-      v-bind="p"
-      @click="onClickPoly(i)"
-      @mouseenter="hoveredId = i"
-      @mouseleave="hoveredId = null"
-      :class="{ highlight: hoveredId === i }"
-    />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <Poly
+        v-for="(p, i) in polygons"
+        :key="i"
+        v-bind="p"
+        @click="onClickPoly(i)"
+        @mouseenter="hoveredId = i"
+        @mouseleave="hoveredId = null"
+        :class="{ highlight: hoveredId === i }"
+      />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, Poly } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, Poly } from "@layoutit/polycss-vue";
 import type { Polygon } from "@layoutit/polycss-vue";
 
 defineProps<{ polygons: Polygon[] }>();
@@ -152,51 +158,58 @@ const onClickPoly = (i: number) => alert(`clicked polygon ${i}`);
 
 To customize specific polygons inside a loaded mesh, use:
 
-- **Vanilla:** load with `loadMesh`, then manually create `<poly-polygon>` elements in a loop. You stay in full control of which polygons get special handling.
+- **Vanilla:** load with `loadMesh`, then add one mesh handle per polygon. You stay in full control of which polygons get special handling.
 - **React:** the `<PolyMesh>` render-prop child.
 - **Vue:** the `<PolyMesh>` scoped slot.
 
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
-```html
-<script type="module">
+```ts
   import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
   const host = document.getElementById("scene-host");
   const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
 
   const result = await loadMesh("/character.glb");
-  result.polygons.forEach((p, i) => {
-    const el = document.createElement("poly-polygon");
-    el.setAttribute("vertices", JSON.stringify(p.vertices));
-    if (p.color) el.setAttribute("color", p.color);
-    el.addEventListener("click", () => el.classList.toggle("outlined"));
-    host.querySelector("poly-scene")?.appendChild(el)
-      ?? host.appendChild(el);
+  const handles = result.polygons.map((polygon, i) => {
+    const handle = scene.add(
+      { polygons: [polygon], objectUrls: [], warnings: [], dispose: () => {} },
+      { id: `polygon-${i}`, merge: false },
+    );
+    handle.element.addEventListener("click", () => {
+      handle.element.classList.toggle("outlined");
+    });
+    return handle;
   });
-</script>
+
+  // later:
+  handles.forEach(handle => handle.remove());
+  scene.destroy();
+  result.dispose();
 ```
 </TabItem>
 <TabItem label="React">
 ```tsx
 import { useState } from "react";
-import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh, Poly } from "@layoutit/polycss-react";
 
 export function SelectableMesh() {
   const [selected, setSelected] = useState<number | null>(null);
 
   return (
-    <PolyScene rotX={65} rotY={45}>
-      <PolyMesh src="/character.glb" position={[5, 0, 0]} scale={2}>
-        {(polygon, index) => (
-          <Poly
-            {...polygon}
-            onClick={() => setSelected(index)}
-            className={selected === index ? "outlined" : ""}
-          />
-        )}
-      </PolyMesh>
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        <PolyMesh src="/character.glb" position={[5, 0, 0]} scale={2}>
+          {(polygon, index) => (
+            <Poly
+              {...polygon}
+              onClick={() => setSelected(index)}
+              className={selected === index ? "outlined" : ""}
+            />
+          )}
+        </PolyMesh>
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -204,21 +217,24 @@ export function SelectableMesh() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45">
-    <PolyMesh src="/character.glb" :position="[5, 0, 0]" :scale="2"
-      v-slot="{ polygon, index }">
-      <Poly
-        v-bind="polygon"
-        @click="selected = index"
-        :class="{ outlined: selected === index }"
-      />
-    </PolyMesh>
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyMesh src="/character.glb" :position="[5, 0, 0]" :scale="2">
+        <template #polygon="{ polygon, index }">
+          <Poly
+            v-bind="polygon"
+            @click="selected = index"
+            :class="{ outlined: selected === index }"
+          />
+        </template>
+      </PolyMesh>
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh, Poly } from "@layoutit/polycss-vue";
 const selected = ref<number | null>(null);
 </script>
 ```
@@ -234,16 +250,15 @@ Load a mesh programmatically when you need control over loading state. The vanil
 import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
 const scene = createPolyScene(document.getElementById("host")!);
-const { polygons, dispose } = await loadMesh("/cottage.glb");
-scene.add({ polygons, dispose: () => {} });
+const result = await loadMesh("/cottage.glb");
+scene.add(result);
 // ... later:
-dispose();
-scene.remove();
+scene.destroy(); // removes the scene and disposes registered meshes
 ```
 
 ```tsx
 // React
-import { PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
   const { polygons, loading, error } = usePolyMesh("/cottage.glb");
@@ -252,9 +267,11 @@ function Viewer() {
   if (error) return <div>Error: {error}</div>;
 
   return (
-    <PolyScene>
-      {polygons.map((p, i) => <Poly key={i} {...p} />)}
-    </PolyScene>
+    <PolyCamera>
+      <PolyScene>
+        {polygons.map((p, i) => <Poly key={i} {...p} />)}
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```

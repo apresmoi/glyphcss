@@ -2,7 +2,7 @@
 
 # @layoutit/polycss-vue
 
-Native Vue 3 components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Native Vue 3 components for CSS-based polygon mesh rendering. Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
@@ -16,13 +16,15 @@ Requires Vue 3 as a peer dependency.
 
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45" :perspective="1000">
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 
@@ -30,15 +32,14 @@ import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 
 ### `<PolyScene>`
 
-Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, and directional lighting.
+Root of every Vue polycss render tree. Renders polygons and meshes inside a `<PolyCamera>` context, and owns scene-level lighting and atlas options.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `perspective` | `number` | `1000` | CSS perspective distance in pixels |
-| `rot-x` | `number` | `65` | Camera X-axis rotation in degrees |
-| `rot-y` | `number` | `45` | Camera Y-axis rotation in degrees |
-| `directional-light` | `DirectionalLight` | — | Directional + ambient light |
-| `atlas-scale` | `number` | `1` | Raster scale for generated atlas pages |
+| `directional-light` | `PolyDirectionalLight` | — | Directional light config |
+| `ambient-light` | `PolyAmbientLight` | — | Ambient light config |
+| `texture-lighting` | `"baked" \| "dynamic"` | `"baked"` | Texture lighting mode |
+| `atlas-scale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with slot) |
 
 For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>` — it receives the camera context. Mirrors Three.js's split between camera state and input.
@@ -54,11 +55,11 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `position` | `Vec3` | `[x, y, z]` offset in scene space |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
 | `rotation` | `Vec3` | Euler angles in degrees `[x, y, z]` |
-| `atlas-scale` | `number` | Raster scale for generated atlas pages |
+| `atlas-scale` | `number \| "auto"` | Raster scale for generated atlas pages |
 | `auto-center` | `boolean` | Shift mesh so its bbox center is at origin |
-| `parse-options` | `ObjParseOptions \| GltfParseOptions` | Forwarded to the parser |
+| `mtl` | `string` | Companion `.mtl` URL for OBJ models |
 
-Default slot: `v-slot="{ polygon, index }"` — per-polygon scoped slot for rendering overrides.
+Named slot: `#polygon="{ polygon, index }"` — per-polygon scoped slot for rendering overrides. The default slot is for static children inside the mesh wrapper.
 
 ### `<Poly>`
 
@@ -74,19 +75,19 @@ Single polygon. Renders one atlas-backed `<i>` for UV-textured and flat-color fa
 | `position` | `Vec3` | Local offset |
 | `scale` | `number \| Vec3` | Scale |
 | `rotation` | `Vec3` | Euler rotation in degrees |
-| `atlas-scale` | `number` | Raster scale for generated atlas pages |
+| `atlas-scale` | `number \| "auto"` | Raster scale for generated atlas pages |
 
 ### `<PolyCamera>`
 
-Camera controls wrapper. Most use cases can pass camera props directly to `<PolyScene>`.
+Camera wrapper for perspective, rotation, zoom, target, and dolly distance. Vue scenes must render inside `<PolyCamera>` (or `<PolyPerspectiveCamera>` / `<PolyOrthographicCamera>`) so controls and scenes share camera state.
 
 ### Composables
 
 | Composable | Description |
 |---|---|
-| `useCamera(options)` | Internal camera integration composable |
-| `useSceneContext(polygons, options)` | Lower-level hook for custom scene wrappers |
-| `useMesh(src, options?)` | Reactive mesh loader. Returns reactive `{ polygons, loading, error, warnings, dispose }`. |
+| `usePolyCamera(options)` | Internal camera integration composable |
+| `usePolySceneContext(polygons, options)` | Lower-level hook for custom scene wrappers |
+| `usePolyMesh(srcRef, options?)` | Reactive mesh loader. Returns reactive `{ polygons, loading, error, warnings, dispose }`. |
 
 ### Utility
 
@@ -99,7 +100,7 @@ Camera controls wrapper. Most use cases can pass camera props directly to `<Poly
 All types and core functions are re-exported:
 
 ```ts
-import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@layoutit/polycss-vue";
+import type { Polygon, Vec2, Vec3, PolyDirectionalLight, PolyAmbientLight, ParseResult } from "@layoutit/polycss-vue";
 import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@layoutit/polycss-vue";
 ```
 
@@ -109,15 +110,17 @@ import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygo
 
 ```vue
 <template>
-  <PolyScene :directional-light="light" :rot-x="65" :rot-y="45">
-    <PolyMesh src="/cottage.glb" />
-    <PolyMesh src="/tree.glb" :position="[8, 0, 0]" :scale="0.5" />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene :directional-light="light">
+      <PolyMesh src="/cottage.glb" />
+      <PolyMesh src="/tree.glb" :position="[8, 0, 0]" :scale="0.5" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
-const light = { direction: [0.5, -0.7, 0.6] as [number, number, number], color: "#ffe4a8", ambient: 0.4 };
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+const light = { direction: [0.5, -0.7, 0.6] as [number, number, number], color: "#ffe4a8" };
 </script>
 ```
 
@@ -125,22 +128,24 @@ const light = { direction: [0.5, -0.7, 0.6] as [number, number, number], color: 
 
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45">
-    <Poly
-      v-for="(p, i) in polygons"
-      :key="i"
-      v-bind="p"
-      @click="() => alert(`clicked polygon ${i}`)"
-      @mouseenter="hoveredId = i"
-      @mouseleave="hoveredId = null"
-      :class="{ highlight: hoveredId === i }"
-    />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <Poly
+        v-for="(p, i) in polygons"
+        :key="i"
+        v-bind="p"
+        @click="() => alert(`clicked polygon ${i}`)"
+        @mouseenter="hoveredId = i"
+        @mouseleave="hoveredId = null"
+        :class="{ highlight: hoveredId === i }"
+      />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, Poly } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, Poly } from "@layoutit/polycss-vue";
 import type { Polygon } from "@layoutit/polycss-vue";
 
 defineProps<{ polygons: Polygon[] }>();
@@ -156,21 +161,24 @@ const hoveredId = ref<number | null>(null);
 
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45">
-    <PolyMesh src="/character.glb" :position="[5, 0, 0]" :scale="2"
-      v-slot="{ polygon, index }">
-      <Poly
-        v-bind="polygon"
-        @click="selected = index"
-        :class="{ outlined: selected === index }"
-      />
-    </PolyMesh>
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyMesh src="/character.glb" :position="[5, 0, 0]" :scale="2">
+        <template #polygon="{ polygon, index }">
+          <Poly
+            v-bind="polygon"
+            @click="selected = index"
+            :class="{ outlined: selected === index }"
+          />
+        </template>
+      </PolyMesh>
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { PolyScene, PolyMesh, Poly } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh, Poly } from "@layoutit/polycss-vue";
 const selected = ref<number | null>(null);
 </script>
 ```

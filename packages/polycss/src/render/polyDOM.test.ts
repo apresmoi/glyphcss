@@ -22,6 +22,16 @@ const VERTICAL_QUAD: Polygon = {
   color: "#00ff00",
 };
 
+const NON_RECT_QUAD: Polygon = {
+  vertices: [
+    [0, 0, 0],
+    [2, 0, 0],
+    [2, 1, 0],
+    [0, 2, 0],
+  ],
+  color: "#00ffff",
+};
+
 const OFFAXIS_TRIANGLE: Polygon = {
   vertices: [
     [0, 0, 0],
@@ -97,10 +107,10 @@ describe("renderPoly — solid polygons", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns a polygon i element for a solid color polygon", () => {
+  it("returns a triangle u element for a solid color triangle", () => {
     const result = renderPoly(FLAT_TRIANGLE)!;
     expect(result).not.toBeNull();
-    expect(result.element.tagName.toLowerCase()).toBe("i");
+    expect(result.element.tagName.toLowerCase()).toBe("u");
     expect(result.element.classList.contains("polycss-poly")).toBe(false);
     expect(result.element.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(result.element.classList.contains("polycss-poly-solid")).toBe(false);
@@ -121,12 +131,12 @@ describe("renderPoly — solid polygons", () => {
     result.dispose();
   });
 
-  it("returns rect b elements and polygon i elements", () => {
+  it("returns rect b elements and triangle u elements", () => {
     const vertical = renderPoly(VERTICAL_QUAD)!;
     const offAxis = renderPoly(OFFAXIS_TRIANGLE)!;
     expect(vertical.element.tagName.toLowerCase()).toBe("b");
     expect(vertical.element.className).toBe("");
-    expect(offAxis.element.tagName.toLowerCase()).toBe("i");
+    expect(offAxis.element.tagName.toLowerCase()).toBe("u");
     vertical.dispose();
     offAxis.dispose();
   });
@@ -172,12 +182,14 @@ describe("renderPoly — degenerate inputs", () => {
 });
 
 describe("renderPoly — matrix math parity", () => {
-  it("flat triangle matrix3d values match expected", () => {
+  it("flat triangles use a finite border-triangle matrix", () => {
     const result = renderPoly(FLAT_TRIANGLE)!;
     const actual = extractMatrix(result.element);
-    const expected = computeExpectedMatrix(FLAT_TRIANGLE.vertices as [number, number, number][]);
     expect(actual.length).toBe(16);
-    for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
+    expect(actual.every(Number.isFinite)).toBe(true);
+    expect(result.element.style.width).toBe("");
+    expect(result.element.style.height).toBe("");
+    expect(parseFloat(result.element.style.borderBottomWidth)).toBeGreaterThan(0);
     result.dispose();
   });
 
@@ -190,12 +202,12 @@ describe("renderPoly — matrix math parity", () => {
     result.dispose();
   });
 
-  it("off-axis triangle matrix3d values match expected", () => {
+  it("off-axis triangles use a finite border-triangle matrix", () => {
     const result = renderPoly(OFFAXIS_TRIANGLE)!;
     const actual = extractMatrix(result.element);
-    const expected = roundedMatrix(computeExpectedMatrix(OFFAXIS_TRIANGLE.vertices as [number, number, number][]));
     expect(actual.length).toBe(16);
-    for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
+    expect(actual.every(Number.isFinite)).toBe(true);
+    expect(parseFloat(result.element.style.borderBottomWidth)).toBeGreaterThan(0);
     result.dispose();
   });
 
@@ -204,6 +216,7 @@ describe("renderPoly — matrix math parity", () => {
       vertices: [
         [0, 0, 1],
         [1, 0, 1],
+        [1, 0, 2],
         [0, 0, 2],
       ],
     };
@@ -216,10 +229,15 @@ describe("renderPoly — matrix math parity", () => {
 });
 
 describe("renderPolygonsWithTextureAtlas", () => {
-  it("returns a polygon i element for a solid polygon", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("returns a triangle u element for a solid triangle", () => {
     const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.tagName.toLowerCase()).toBe("u");
     expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(element.classList.contains("polycss-poly-solid")).toBe(false);
@@ -266,7 +284,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], { doc });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(0);
     expect(element.tagName.toLowerCase()).toBe("i");
@@ -301,7 +319,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], { doc });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(1);
     expect(element.style.getPropertyValue("border-shape")).toBe("");
@@ -355,7 +373,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE], { doc });
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], { doc });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(1);
     expect(element.style.getPropertyValue("border-shape")).toBe("");
@@ -377,26 +395,27 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("uses the smallest in-plane DOM box for untextured oblique polygons", () => {
-    const obliqueTriangle: Polygon = {
+  it("uses the smallest in-plane DOM box for untextured oblique non-triangle polygons", () => {
+    const obliqueQuad: Polygon = {
       vertices: [
         [0, 0, 0],
         [1, 9, 0],
+        [1, 10, 0],
         [0, 10, 0],
       ],
       color: "#ffffff",
     };
 
-    const result = renderPolygonsWithTextureAtlas([obliqueTriangle], { tileSize: 1 });
+    const result = renderPolygonsWithTextureAtlas([obliqueQuad], { tileSize: 1 });
     const element = result.rendered[0].element;
     const matrix = extractMatrix(element);
 
     expect(parseFloat(element.style.width)).toBe(10);
     expect(parseFloat(element.style.height)).toBe(1);
-    expect(matrix[0]).toBeCloseTo(-1, 6);
+    expect(matrix[0]).toBeCloseTo(1, 6);
     expect(matrix[1]).toBeCloseTo(0, 6);
     expect(matrix[4]).toBeCloseTo(0, 6);
-    expect(matrix[5]).toBeCloseTo(-1, 6);
+    expect(matrix[5]).toBeCloseTo(1, 6);
     result.dispose();
   });
 
@@ -431,13 +450,15 @@ describe("renderPolygonsWithTextureAtlas", () => {
         [0, 0, 0],
         [0, 10, 0],
         [1, 10, 0],
+        [1, 1, 0],
       ],
       color: "#ff0000",
     };
     const right: Polygon = {
       vertices: [
         [0, 10, 0],
-        [1, 20, 0],
+        [0, 20, 0],
+        [1, 19, 0],
         [1, 10, 0],
       ],
       color: "#ff0000",
@@ -503,6 +524,64 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.tagName.toLowerCase()).toBe("s");
     expect(element.classList.contains("polycss-poly")).toBe(false);
     expect(element.style.transform).toContain("matrix3d(");
+    result.dispose();
+  });
+
+  it("samples degenerate UV texture regions instead of covering with the full texture", async () => {
+    const drawImage = vi.fn();
+    const ctx = {
+      save: vi.fn(),
+      restore: vi.fn(),
+      setTransform: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      closePath: vi.fn(),
+      clip: vi.fn(),
+      fillRect: vi.fn(),
+      drawImage,
+    } as unknown as CanvasRenderingContext2D;
+    const doc = {
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          return {
+            width: 0,
+            height: 0,
+            getContext: () => ctx,
+            toBlob: (callback: (blob: Blob | null) => void) => callback(null),
+          };
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    vi.stubGlobal("Image", class MockImage {
+      decoding = "";
+      naturalWidth = 512;
+      naturalHeight = 512;
+      width = 512;
+      height = 512;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    });
+
+    const uvPoly: Polygon = {
+      vertices: FLAT_TRIANGLE.vertices,
+      texture: "https://example.com/degen-uv.png",
+      uvs: [[0.25, 0.25], [0.25, 0.25], [0.25, 0.25]],
+    };
+    const result = renderPolygonsWithTextureAtlas([uvPoly], { doc });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(drawImage).toHaveBeenCalled();
+    const sourceRectCalls = drawImage.mock.calls.filter((call) => call.length === 9);
+    expect(sourceRectCalls).toHaveLength(1);
+    expect(sourceRectCalls[0][3]).toBe(1);
+    expect(sourceRectCalls[0][4]).toBe(1);
+    expect(drawImage.mock.calls.some((call) => call.length === 5)).toBe(false);
     result.dispose();
   });
 

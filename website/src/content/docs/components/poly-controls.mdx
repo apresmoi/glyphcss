@@ -10,7 +10,7 @@ polycss ships two controls components that follow the three.js split:
 - **`PolyOrbitControls`** — orbit-style drag (pointer drag rotates around the scene center) + wheel zoom + autorotate. This is the default pick for most scenes.
 - **`PolyMapControls`** — map/pan-style drag (pointer drag pans the camera across the surface). Use for top-down or flat layouts.
 
-Both are modelled on the Three.js `OrbitControls` / `MapControls` pattern: the renderer (`<poly-scene>` / `<PolyScene>` / `createPolyScene`) owns the geometry and camera state; the controls component listens for pointer/wheel input and runs an optional `requestAnimationFrame` autorotate loop, calling back into the scene to mutate camera state.
+Both are modelled on the Three.js `OrbitControls` / `MapControls` pattern: vanilla `<poly-scene>` / `createPolyScene` owns camera state, while React and Vue use the surrounding `<PolyCamera>` context. The controls component listens for pointer/wheel input and runs an optional `requestAnimationFrame` autorotate loop, then mutates that shared camera state.
 
 They are available as custom elements (`<poly-orbit-controls>` / `<poly-map-controls>`), via the imperative `createPolyOrbitControls` / `createPolyMapControls` API, and as React / Vue components.
 
@@ -137,14 +137,16 @@ Use `<poly-map-controls>` (or `createPolyMapControls`) when you want drag to pan
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMapControls, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMapControls, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
-    <PolyScene rotX={90} rotY={0}>
-      <PolyMapControls drag wheel />
-      <PolyMesh src="/terrain.glb" />
-    </PolyScene>
+    <PolyCamera rotX={90} rotY={0}>
+      <PolyScene>
+        <PolyMapControls drag wheel />
+        <PolyMesh src="/terrain.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -220,12 +222,12 @@ const controls = createPolyOrbitControls(scene, {
 
 ## How it works
 
-`PolyOrbitControls` and `PolyMapControls` are purely additive — they attach their own pointer/wheel listeners to the scene's host element and run their own `requestAnimationFrame` loop when `animate` is on. State changes flow through the scene's normal `setOptions({ rotX, rotY, zoom })` path, so anything that observes scene state (atlas, lighting, custom-element attribute reflection) sees the same updates as if you had set them yourself.
+`PolyOrbitControls` and `PolyMapControls` are purely additive — they attach their own pointer/wheel listeners and run their own `requestAnimationFrame` loop when `animate` is on. In vanilla, state changes flow through `scene.setOptions(...)`; in React/Vue, they mutate the shared camera context and apply the transform directly.
 
 The animate tick is `dt`-clamped at 50 ms per frame and normalized to 60 Hz. That makes `speed: 0.3` produce the same ~18 deg/sec on every monitor refresh rate (60, 120, 144 Hz) and survives a tab regaining focus without a giant catch-up jump.
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — The scene component that owns camera state.
-- [PolyCamera](/components/poly-camera) — Optional state wrapper; useful when you want camera state in a separate component from scene layout.
+- [PolyScene](/components/poly-scene) — The render root for meshes and polygons.
+- [PolyCamera](/components/poly-camera) — Required camera context wrapper for React / Vue scenes and controls.
 - [Headless API — `createPolyOrbitControls`](/api/headless#createpolyorbitcontrols) — Full imperative API reference.

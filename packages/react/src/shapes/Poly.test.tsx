@@ -24,6 +24,13 @@ const VERTICAL_QUAD_VERTS: [number, number, number][] = [
   [0, 0, 1],
 ];
 
+const NON_RECT_QUAD_VERTS: [number, number, number][] = [
+  [0, 0, 0],
+  [2, 0, 0],
+  [2, 1, 0],
+  [0, 2, 0],
+];
+
 const OFFAXIS_TRIANGLE_VERTS: [number, number, number][] = [
   [0, 0, 0],
   [1, 1, 0],
@@ -46,7 +53,7 @@ function renderPoly(props: Partial<PolyProps> & { vertices: [number, number, num
 }
 
 function getPoly(container: HTMLElement): HTMLElement {
-  const poly = container.querySelector("i,b,s") as HTMLElement | null;
+  const poly = container.querySelector("i,b,s,u") as HTMLElement | null;
   expect(poly).toBeTruthy();
   return poly!;
 }
@@ -56,10 +63,10 @@ describe("Poly — solid color polygon", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders a polygon i element and no SVG", () => {
+  it("renders a triangle u element and no SVG", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("u");
     expect(poly.classList.contains("polycss-poly")).toBe(false);
     expect(poly.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(poly.classList.contains("polycss-poly-solid")).toBe(false);
@@ -67,7 +74,7 @@ describe("Poly — solid color polygon", () => {
     expect(container.querySelector("svg")).toBeNull();
   });
 
-  it("polygon i element has a matrix3d transform with 16 values", () => {
+  it("triangle u element has a matrix3d transform with 16 values", () => {
     const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
     const poly = getPoly(container);
     const match = poly.style.transform.match(/matrix3d\(([^)]+)\)/);
@@ -94,7 +101,7 @@ describe("Poly — solid color polygon", () => {
         [1, 0, 0],
       ],
     });
-    expect(container.querySelector("i,b,s")).toBeNull();
+    expect(container.querySelector("i,b,s,u")).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
   });
 
@@ -106,7 +113,7 @@ describe("Poly — solid color polygon", () => {
         [2, 0, 0],
       ],
     });
-    expect(container.querySelector("i,b,s")).toBeNull();
+    expect(container.querySelector("i,b,s,u")).toBeNull();
   });
 });
 
@@ -119,10 +126,10 @@ describe("Poly — non-horizontal geometry", () => {
     expect(poly!.style.transform).toContain("matrix3d(");
   });
 
-  it("renders an off-axis triangle as a polygon i element", () => {
+  it("renders an off-axis triangle as a triangle u element", () => {
     const container = renderPoly({ vertices: OFFAXIS_TRIANGLE_VERTS });
     const poly = getPoly(container);
-    expect(poly.tagName.toLowerCase()).toBe("i");
+    expect(poly.tagName.toLowerCase()).toBe("u");
     expect(poly.style.transform).toContain("matrix3d(");
   });
 });
@@ -159,7 +166,7 @@ describe("Poly — border-shape", () => {
   });
 
   it("renders solid non-rect polygons with border-shape when supported", () => {
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
     const poly = getPoly(container);
     expect(poly.tagName.toLowerCase()).toBe("i");
     expect(poly.className).toBe("");
@@ -189,7 +196,7 @@ describe("Poly — border-shape", () => {
       supports: vi.fn(() => false),
     });
 
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
     const poly = getPoly(container);
     expect(poly.style.getPropertyValue("border-shape")).toBe("");
   });
@@ -199,7 +206,7 @@ describe("Poly — border-shape", () => {
       matches: query.includes("pointer: coarse") || query.includes("hover: none"),
     })));
 
-    const container = renderPoly({ vertices: FLAT_TRIANGLE_VERTS });
+    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
     const poly = getPoly(container);
     expect(poly.style.getPropertyValue("border-shape")).toBe("");
   });

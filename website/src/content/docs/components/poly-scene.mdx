@@ -5,26 +5,24 @@ description: Scene component that sets up the 3D viewport, camera, and lighting 
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-The scene is the root of every polycss render tree. It sets up CSS 3D perspective, accepts camera props, applies directional lighting, and renders its children (typically meshes or individual polygons) in 3D space.
+The scene is the root of every polycss render tree. It applies scene-level lighting and atlas options, then renders its children (typically meshes or individual polygons) in 3D space. Vanilla `<poly-scene>` also accepts camera attributes; React and Vue scenes receive camera state from a surrounding `<PolyCamera>` / `<PolyPerspectiveCamera>` / `<PolyOrthographicCamera>`.
 
 It's available as a custom element (`<poly-scene>`), via the imperative `createPolyScene(host, opts)` API, and as React / Vue components (`<PolyScene>`).
 
 ## Scene props / attributes
 
-(React / Vue prop names use camelCase; the `<poly-scene>` custom element accepts the kebab-case form, e.g. `rotX` → `rot-x`.)
+(React / Vue prop names use camelCase; the `<poly-scene>` custom element accepts the kebab-case form, e.g. `atlasScale` → `atlas-scale`.)
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `perspective` | `number` | `8000` | CSS perspective distance in pixels. Higher values feel flatter (more isometric); lower values exaggerate depth. For orthographic projection, use `<PolyOrthographicCamera>` instead of passing `false` here. |
-| `rotX` | `number` | `65` | Camera rotation around the X axis in degrees. |
-| `rotY` | `number` | `45` | Camera rotation around the Y axis in degrees (0–360). |
-| `zoom` | `number` | `1` | Scene scale factor. |
-| `directionalLight` | `PolyDirectionalLight` | — | Directional light source. See [PolyDirectionalLight](#polydirectionallight). |
+| `directionalLight` | `PolyDirectionalLight` | — | Directional light source. |
+| `ambientLight` | `PolyAmbientLight` | — | Ambient fill light. |
+| `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Whether texture lighting is rasterized into atlases or computed with CSS variables. |
 | `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
 | `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
 | `children` | — | — | `<poly-mesh>` / `<poly-polygon>` / `<poly-orbit-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyOrbitControls>` (React / Vue). |
 
-**Camera input** (drag, wheel, autorotate) is a separate, additive layer. Add a child `<poly-orbit-controls>` / `<PolyOrbitControls>` to enable any of those — see [PolyOrbitControls](/components/poly-controls).
+**Camera state and input** are separate layers. For vanilla, set camera attributes (`rot-x`, `rot-y`, `zoom`, `perspective`) on `<poly-scene>`. For React/Vue, set those props on `<PolyCamera>`. Add a child `<poly-orbit-controls>` / `<PolyOrbitControls>` to enable drag, wheel, or autorotate — see [PolyOrbitControls](/components/poly-controls).
 
 ## Mesh props / attributes
 
@@ -32,14 +30,15 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 
 | Prop | Type | Description |
 |------|------|-------------|
-| `src` | `string` | URL to `.obj`, `.glb`, or `.gltf`. |
+| `src` | `string` | URL to `.obj`, `.glb`, `.gltf`, or `.vox`. |
 | `polygons` | `Polygon[]` | Pre-parsed polygons (alternative to `src`). Framework only. |
 | `position` | `Vec3` | `[x, y, z]` offset in scene space. |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale. |
 | `rotation` | `Vec3` | Euler rotation in degrees `[x, y, z]`. |
 | `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages. React / Vue only; vanilla meshes inherit the scene's `atlas-scale`. |
 | `autoCenter` | `boolean` | Shift the loaded mesh so its bounding-box center sits at the local origin before applying `position`. Useful when assets aren't centered in their file coordinates. |
-| `parseOptions` | `ObjParseOptions \| GltfParseOptions` | Parser options forwarded to `parseObj` or `parseGltf`. |
+| `mtl` | `string` | Companion `.mtl` URL for OBJ models. |
+| `parseOptions` | `UseMeshOptions` | Parser options forwarded to `loadMesh`. |
 | `fallback` | `ReactNode` | Rendered while `src` is loading. (React / Vue only.) |
 | `errorFallback` | `(error: Error) => ReactNode` | Rendered if parse fails. (React / Vue only.) |
 | `children` | `(polygon, index) => ReactNode` | Per-polygon render prop / scoped slot. (React / Vue only.) |
@@ -48,10 +47,14 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 
 ```ts
 interface PolyDirectionalLight {
-  direction: [number, number, number];  // Direction the light shines toward (normalized)
+  direction: [number, number, number];  // Direction the light shines toward
   color?: string;                       // Light color (default: "#ffffff")
-  ambientColor?: string;               // Ambient light tint (default: "#ffffff")
-  ambient?: number;                     // Ambient intensity 0–1 (default: 0.4)
+  intensity?: number;                   // Directional intensity (default: 1)
+}
+
+interface PolyAmbientLight {
+  color?: string;                       // Ambient tint (default: "#ffffff")
+  intensity?: number;                   // Ambient intensity (default: 0.4)
 }
 ```
 
@@ -73,13 +76,15 @@ A scene with a single GLB mesh at default camera angle.
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
-    <PolyScene>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera>
+      <PolyScene>
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -87,13 +92,15 @@ export function App() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <PolyScene>
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera>
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -102,28 +109,26 @@ import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 ### Scene with Camera and Lighting
 
 ```tsx
-<PolyScene
-  perspective={1000}
-  rotX={65}
-  rotY={45}
-  directionalLight={{
-    direction: [0.5, -0.7, 0.6],
-    color: "#ffe4a8",
-    ambient: 0.4,
-  }}
->
-  <PolyMesh src="/cottage.glb" position={[0, 0, 0]} />
-  <PolyMesh src="/tree.glb"    position={[8, 0, 0]} scale={0.5} />
-</PolyScene>
+<PolyCamera perspective={1000} rotX={65} rotY={45}>
+  <PolyScene
+    directionalLight={{ direction: [0.5, -0.7, 0.6], color: "#ffe4a8" }}
+    ambientLight={{ intensity: 0.4 }}
+  >
+    <PolyMesh src="/cottage.glb" position={[0, 0, 0]} />
+    <PolyMesh src="/tree.glb" position={[8, 0, 0]} scale={0.5} />
+  </PolyScene>
+</PolyCamera>
 ```
 
 ### Multiple Meshes
 
 ```tsx
-<PolyScene rotX={65} rotY={45}>
-  <PolyMesh src="/cottage.glb" position={[0, 0, 0]} />
-  <PolyMesh src="/tree.glb"    position={[8, 0, 0]} scale={0.5} />
-</PolyScene>
+<PolyCamera rotX={65} rotY={45}>
+  <PolyScene>
+    <PolyMesh src="/cottage.glb" position={[0, 0, 0]} />
+    <PolyMesh src="/tree.glb" position={[8, 0, 0]} scale={0.5} />
+  </PolyScene>
+</PolyCamera>
 ```
 
 ### Flat Polygon Array
@@ -136,12 +141,14 @@ const polygons: Polygon[] = [
   { vertices: [[2,0,0],[3,0,0],[2,1,0]], color: "#00f" },
 ];
 
-<PolyScene polygons={polygons} />
+<PolyCamera>
+  <PolyScene polygons={polygons} />
+</PolyCamera>
 ```
 
 ## Related
 
-- [PolyCamera](/components/poly-camera) — Imperative camera control.
-- [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading.
+- [PolyCamera](/components/poly-camera) — Camera state and projection.
+- [Loading Meshes](/guides/textures) — OBJ, glTF, GLB, VOX, MTL loading.
 - [Per-polygon Interaction](/guides/shapes) — Using `Poly` for interactive per-polygon control.
 - [Performance](/guides/performance) — Merge modes and DOM tuning.

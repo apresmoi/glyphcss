@@ -79,7 +79,7 @@ describe("PolyMesh — pointer events", () => {
         </PolyScene>
       </PolyCamera>,
     );
-    const polygonEl = container.querySelector(".polycss-mesh i") as HTMLElement;
+    const polygonEl = container.querySelector(".polycss-mesh u") as HTMLElement;
     expect(polygonEl).not.toBeNull();
     const handle = findPolyMeshHandle(polygonEl);
     expect(handle?.id).toBe("cube-a");

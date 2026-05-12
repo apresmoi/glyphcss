@@ -53,7 +53,8 @@ const CORE_BASE_STYLES = `
 
 .polycss-scene b,
 .polycss-scene i,
-.polycss-scene s {
+.polycss-scene s,
+.polycss-scene u {
   position: absolute;
   display: block;
   transform-origin: 0 0;
@@ -64,6 +65,7 @@ const CORE_BASE_STYLES = `
   font-weight: normal;
   font-style: normal;
   line-height: 0;
+  text-decoration: none;
   backface-visibility: hidden;
   background-repeat: no-repeat;
 }
@@ -78,6 +80,14 @@ const CORE_BASE_STYLES = `
 .polycss-scene s {
 }
 
+.polycss-scene u {
+  width: 0px;
+  height: 0px;
+  background: transparent;
+  box-sizing: content-box;
+  border: 0 solid transparent;
+}
+
 /* ── Gizmo override (createTransformControls) ───────────────────────────── */
 
 /*
@@ -90,7 +100,8 @@ const CORE_BASE_STYLES = `
  */
 .polycss-mesh.polycss-transform-gizmo i,
 .polycss-mesh.polycss-transform-gizmo b,
-.polycss-mesh.polycss-transform-gizmo s {
+.polycss-mesh.polycss-transform-gizmo s,
+.polycss-mesh.polycss-transform-gizmo u {
   backface-visibility: visible;
   transition: border-color 150ms ease-out, background-color 150ms ease-out;
 }
@@ -99,7 +110,7 @@ const CORE_BASE_STYLES = `
 
 /*
  * Dynamic mode: the scene root carries the directional + ambient light
- * setup as custom properties. Each polygon's <i> bakes its own normal
+ * setup as custom properties. Each polygon leaf bakes its own normal
  * directly into an inline calc() that reads these vars to resolve the
  * Lambert dot product and per-channel tint. Sliding the light only
  * writes these scene-root vars — no JS, no atlas redraw.
@@ -121,7 +132,7 @@ const CORE_BASE_STYLES = `
 @property --pab { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --pai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
 
-/* Per-polygon surface normal — set inline by the renderer per <i>, OR by
+/* Per-polygon surface normal — set inline by the renderer per leaf, OR by
    a .polycss-bucket wrapper that groups axis-aligned polys sharing the
    same face direction. inherits:true so polys inside a bucket pick up
    the wrapper's normal automatically; polys outside any bucket still
@@ -140,7 +151,7 @@ const CORE_BASE_STYLES = `
 @property --plam { syntax: "<number>"; inherits: true; initial-value: 0; }
 
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
-   here (not inline per polygon) so each <i> only carries its tiny normal
+   here (not inline per polygon) so each leaf only carries its tiny normal
    declarations — ~12× smaller per-polygon style payload on big meshes.
    --plam is computed once and reused 3× (one per channel),
    cutting the dot-product calc count from 3 → 1 per polygon per frame. */
@@ -148,7 +159,7 @@ const CORE_BASE_STYLES = `
    sharing one face direction inside a .polycss-bucket div with the
    bucket's normal as inline CSS vars. Lambert is computed ONCE per
    bucket (inherits:true on --plam propagates the value to
-   every <i> child). For voxel meshes this collapses thousands of
+   every leaf child). For voxel meshes this collapses thousands of
    per-frame dot products into a few dozen. */
 .polycss-bucket {
   position: absolute;
@@ -164,7 +175,7 @@ const CORE_BASE_STYLES = `
   ));
 }
 
-/* Per-poly lambert calc — applies to any <i> whose direct parent is NOT
+/* Per-poly lambert calc — applies to any leaf whose direct parent is NOT
    a .polycss-bucket. Covers:
      - vanilla createPolyScene polys not inside a bucket (e.g. off-axis
        curved polys that didn't make a bucket group)
@@ -176,7 +187,8 @@ const CORE_BASE_STYLES = `
    inherit the bucket's hoisted lambert (one calc per bucket, not per
    leaf). */
 .polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > i,
-.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > b {
+.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > b,
+.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > u {
   --plam: max(0, calc(
     var(--pnx) * var(--plx) +
     var(--pny) * var(--ply) +
@@ -224,5 +236,16 @@ const CORE_BASE_STYLES = `
            var(--pnz) * var(--plz))))
   );
   background-blend-mode: normal;
+}
+
+.polycss-scene[data-polycss-lighting="dynamic"] u {
+  border-bottom-color: rgb(
+    calc(255 * var(--psr) * (var(--par) * var(--pai)
+         + var(--plr) * var(--pli) * var(--plam)))
+    calc(255 * var(--psg) * (var(--pag) * var(--pai)
+         + var(--plg) * var(--pli) * var(--plam)))
+    calc(255 * var(--psb) * (var(--pab) * var(--pai)
+         + var(--plb) * var(--pli) * var(--plam)))
+  );
 }
 `;

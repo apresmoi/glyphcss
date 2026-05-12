@@ -102,11 +102,11 @@ describe("PolyScene — polygon rendering", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders polygon i elements from the polygons prop", () => {
+  it("renders triangle u elements from the polygons prop", () => {
     const container = renderScene({ polygons: [TRIANGLE] });
-    const poly = container.querySelector("i");
+    const poly = container.querySelector("u");
     expect(poly).toBeTruthy();
-    expect(poly?.tagName.toLowerCase()).toBe("i");
+    expect(poly?.tagName.toLowerCase()).toBe("u");
     expect(poly?.classList.contains("polycss-poly-atlas")).toBe(false);
     expect(poly?.classList.contains("polycss-poly-solid")).toBe(false);
     expect(poly?.classList.contains("polycss-poly-textured")).toBe(false);
@@ -115,7 +115,7 @@ describe("PolyScene — polygon rendering", () => {
 
   it("renders multiple polygons", () => {
     const container = renderScene({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(2);
   });
 
@@ -130,13 +130,13 @@ describe("PolyScene — polygon rendering", () => {
 
   it("renders no poly elements when polygons prop is empty", () => {
     const container = renderScene({ polygons: [] });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(0);
   });
 
   it("renders no poly elements when polygons prop is omitted", () => {
     const container = renderScene({});
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(0);
   });
 });
@@ -227,7 +227,7 @@ describe("PolyScene — automatic merge", () => {
     const container = renderScene({
       polygons: [TRIANGLE, QUAD],
     });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(2);
   });
 
@@ -243,7 +243,7 @@ describe("PolyScene — automatic merge", () => {
     const container = renderScene({
       polygons: [tri1, tri2],
     });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(1);
   });
 });

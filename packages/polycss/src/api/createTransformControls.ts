@@ -128,7 +128,7 @@ function gizmoLengthForMesh(polygons: Polygon[]): number {
 }
 
 function pointInMeshElement(meshEl: HTMLElement, clientX: number, clientY: number): boolean {
-  const polys = Array.from(meshEl.querySelectorAll("i,b,s")) as HTMLElement[];
+  const polys = Array.from(meshEl.querySelectorAll("i,b,s,u")) as HTMLElement[];
   for (const p of polys) {
     const r = p.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;

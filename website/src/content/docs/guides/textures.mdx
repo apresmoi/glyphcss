@@ -1,12 +1,12 @@
 ---
 title: Loading Meshes
-description: Loading OBJ, GLB, and glTF meshes into polycss with UV textures and material colors.
+description: Loading OBJ, glTF, GLB, and VOX meshes into polycss with UV textures and material colors.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import PolyDemo from '../../../components/PolyDemo.astro';
 
-polycss loads 3D mesh files (OBJ, GLB, glTF) and renders them as DOM elements. UV textures are extracted from the file and packed into generated atlas pages; each textured polygon is an atlas-backed `<i>` that uses CSS background positioning.
+polycss loads 3D mesh files (OBJ, glTF, GLB, and MagicaVoxel VOX) and renders them as DOM elements. UV textures are extracted from OBJ/glTF/GLB files and packed into generated atlas pages; each textured polygon is an atlas-backed `<i>` that uses CSS background positioning.
 
 ## Live demo — UV-textured GLB
 
@@ -35,13 +35,15 @@ The simplest way to render a mesh is the mesh element with a `src`. It fetches t
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
-    <PolyScene rotX={65} rotY={45}>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -49,13 +51,15 @@ export function App() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45">
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -68,22 +72,23 @@ import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 | OBJ + MTL | `.obj` + `.mtl` | Text format. UV maps via `vt`. Material textures from `map_Kd`. |
 | glTF | `.gltf` | JSON format. Embedded or external buffers. TEXCOORD_0 UVs. |
 | GLB | `.glb` | Binary glTF. Embedded textures extracted as blob URLs. |
+| MagicaVoxel | `.vox` | Voxel format. Exposed faces become colored polygon quads. |
 
 ## OBJ with MTL
 
-When your OBJ has a companion MTL file with textures, polycss reads `map_Kd` entries and applies them as UV-mapped textures. Pass `mtlUrl` (vanilla attribute) or `mtlUrl` prop:
+When your OBJ has a companion MTL file with textures, polycss reads `map_Kd` entries and applies them as UV-mapped textures. Pass the `mtl` attribute / prop:
 
 ```html
 <!-- Vanilla -->
-<poly-mesh src="/rock.obj" mtl-url="/rock.mtl" target-size="40"></poly-mesh>
+<poly-mesh src="/rock.obj" mtl="/rock.mtl"></poly-mesh>
 ```
 
 ```tsx
-// React / Vue
+// React
 <PolyMesh
   src="/rock.obj"
-  mtlUrl="/rock.mtl"
-  options={{ targetSize: 40 }}
+  mtl="/rock.mtl"
+  parseOptions={{ objOptions: { targetSize: 40 } }}
 />
 ```
 
@@ -94,10 +99,12 @@ Override material colors or textures without modifying the source files (React /
 ```tsx
 <PolyMesh
   src="/character.obj"
-  options={{
+  parseOptions={{
+    objOptions: {
     materialColors: { Skin: "#f4c2a1" },
     materialTextures: { Body: "/body-diffuse.png" },
     includeObjects: ["Body", "Head"],  // only these objects
+    },
   }}
 />
 ```
@@ -110,17 +117,18 @@ For programmatic loading with explicit lifecycle, use `loadMesh` from the core p
 // Vanilla — works anywhere, no framework
 import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
-const result = await loadMesh("/cottage.glb", { targetSize: 60 });
+const result = await loadMesh("/cottage.glb", {
+  gltfOptions: { targetSize: 60 },
+});
 const scene = createPolyScene(document.getElementById("host")!);
 scene.add(result);
 // later:
-result.dispose(); // revoke blob URLs
-scene.remove();
+scene.destroy(); // removes the scene and disposes registered meshes
 ```
 
 ```tsx
 // React — usePolyMesh wraps loadMesh + dispose() on unmount
-import { PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
   const { polygons, loading, error } = usePolyMesh("/cottage.glb");
@@ -129,9 +137,11 @@ function Viewer() {
   if (error) return <div>Error: {error}</div>;
 
   return (
-    <PolyScene>
-      {polygons.map((p, i) => <Poly key={i} {...p} />)}
-    </PolyScene>
+    <PolyCamera>
+      <PolyScene>
+        {polygons.map((p, i) => <Poly key={i} {...p} />)}
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -150,7 +160,7 @@ Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyM
 
 ## Tips
 
-- **`targetSize`** — scale the model so its longest axis fits this many world units (default: no scaling). Set it to roughly match the scale of your other scene content.
+- **`targetSize`** — scale the model so its longest axis fits this many world units (default: `60`). Set it to roughly match the scale of your other scene content.
 - **`atlasScale`** — leave at `"auto"` for workload-based bitmap caps, or set a numeric scale for explicit quality. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
 - **`baseUrl`** — for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
 - For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
@@ -160,4 +170,4 @@ Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyM
 - [PolyScene](/components/poly-scene) — Scene props.
 - [Per-polygon Interaction](/guides/shapes) — Click handlers and hover states on individual polygons.
 - [Performance](/guides/performance) — Merge modes and DOM tuning.
-- [Headless API](/api/headless) — `loadMesh`, `parseObj`, `parseGltf` signatures.
+- [Headless API](/api/headless) — `loadMesh`, `parseObj`, `parseGltf`, and `parseVox` signatures.

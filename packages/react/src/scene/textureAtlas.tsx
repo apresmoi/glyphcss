@@ -5,7 +5,9 @@ import type {
   PolyAmbientLight,
   PolyDirectionalLight,
   Polygon,
+  TextureTriangle,
   PolyTextureLightingMode,
+  Vec2,
   Vec3,
 } from "@layoutit/polycss-core";
 import { parsePureColor } from "@layoutit/polycss-core";
@@ -27,6 +29,8 @@ const AUTO_ATLAS_MAX_DECODED_BYTES = 16 * 1024 * 1024;
 const AUTO_ATLAS_SCALE_GUARD = 0.995;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
+const BASIS_EPS = 1e-9;
+const SOLID_TRIANGLE_BLEED = 0.45;
 
 export type AtlasScale = number | "auto";
 
@@ -42,15 +46,32 @@ interface UvAffine {
   f: number;
 }
 
+interface UvSampleRect {
+  minU: number;
+  minV: number;
+  maxU: number;
+  maxV: number;
+}
+
+interface TextureTrianglePlan {
+  screenPts: number[];
+  uvAffine: UvAffine | null;
+  uvSampleRect: UvSampleRect | null;
+}
+
 export interface TextureAtlasPlan {
   index: number;
   polygon: Polygon;
   texture?: string;
+  tileSize: number;
+  layerElevation: number;
   matrix: string;
   canvasW: number;
   canvasH: number;
   screenPts: number[];
   uvAffine: UvAffine | null;
+  uvSampleRect: UvSampleRect | null;
+  textureTriangles: TextureTrianglePlan[] | null;
   /** World-space surface normal — stable across light changes, used by dynamic mode. */
   normal: Vec3;
   textureTint: RGBFactors;
@@ -99,6 +120,7 @@ export interface TextureAtlasResult {
 
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
 const RECT_EPS = 1e-3;
+const TEXTURE_TRIANGLE_BLEED = 0.75;
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -316,6 +338,10 @@ function isFullRectSolid(entry: TextureAtlasPlan): boolean {
   return true;
 }
 
+export function isSolidTrianglePlan(entry: TextureAtlasPlan): boolean {
+  return !entry.texture && entry.polygon.vertices.length === 3;
+}
+
 function borderShapeSupported(): boolean {
   const supportsBorderShape = !!globalThis.CSS?.supports?.(
     "border-shape",
@@ -358,6 +384,169 @@ function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
 
 function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
   return `${cssPolygonShapeForPlan(entry)} ${cssCollapsedInnerShapeForPlan(entry)}`;
+}
+
+function formatMatrix3dValues(values: readonly number[], decimals = DEFAULT_MATRIX_DECIMALS): string {
+  return values.map((value) => roundDecimal(value, decimals)).join(",");
+}
+
+function cssPoints(vertices: Vec3[], tile: number, elev: number): Vec3[] {
+  return vertices.map((v) => [v[1] * tile, v[0] * tile, v[2] * elev]);
+}
+
+function computeSurfaceNormal(pts: Vec3[]): Vec3 | null {
+  if (pts.length < 3) return null;
+  const p0 = pts[0], p1 = pts[1], p2 = pts[2];
+  const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+  const normal: Vec3 = [
+    -(e1[1] * e2[2] - e1[2] * e2[1]),
+    -(e1[2] * e2[0] - e1[0] * e2[2]),
+    -(e1[0] * e2[1] - e1[1] * e2[0]),
+  ];
+  const len = Math.hypot(normal[0], normal[1], normal[2]);
+  if (len <= BASIS_EPS) return null;
+  return [normal[0] / len, normal[1] / len, normal[2] / len];
+}
+
+function dotVec(a: Vec3, b: Vec3): number {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function crossVec(a: Vec3, b: Vec3): Vec3 {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function solidTriangleStyle(
+  entry: TextureAtlasPlan,
+  textureLighting: PolyTextureLightingMode,
+  pointerEvents: "auto" | "none",
+): CSSProperties | null {
+  if (!isSolidTrianglePlan(entry)) return null;
+
+  const pts = cssPoints(entry.polygon.vertices, entry.tileSize, entry.layerElevation);
+  const normal = computeSurfaceNormal(pts);
+  if (!normal) return null;
+
+  const edges = [
+    { a: 0, b: 1, c: 2 },
+    { a: 1, b: 2, c: 0 },
+    { a: 2, b: 0, c: 1 },
+  ].map((edge) => {
+    const av = pts[edge.a];
+    const bv = pts[edge.b];
+    return {
+      ...edge,
+      length: Math.hypot(bv[0] - av[0], bv[1] - av[1], bv[2] - av[2]),
+    };
+  }).sort((a, b) => b.length - a.length);
+
+  let a = edges[0].a;
+  let b = edges[0].b;
+  const c = edges[0].c;
+  let av = pts[a];
+  let bv = pts[b];
+  const cv = pts[c];
+  let baseLength = edges[0].length;
+  if (baseLength <= BASIS_EPS) return null;
+
+  let xAxis: Vec3 = [
+    (bv[0] - av[0]) / baseLength,
+    (bv[1] - av[1]) / baseLength,
+    (bv[2] - av[2]) / baseLength,
+  ];
+  const ac: Vec3 = [cv[0] - av[0], cv[1] - av[1], cv[2] - av[2]];
+  let apexX = dotVec(ac, xAxis);
+  let foot: Vec3 = [
+    av[0] + xAxis[0] * apexX,
+    av[1] + xAxis[1] * apexX,
+    av[2] + xAxis[2] * apexX,
+  ];
+  let yAxisRaw: Vec3 = [
+    foot[0] - cv[0],
+    foot[1] - cv[1],
+    foot[2] - cv[2],
+  ];
+  const height = Math.hypot(yAxisRaw[0], yAxisRaw[1], yAxisRaw[2]);
+  if (height <= BASIS_EPS) return null;
+  let yAxis: Vec3 = [
+    yAxisRaw[0] / height,
+    yAxisRaw[1] / height,
+    yAxisRaw[2] / height,
+  ];
+
+  if (dotVec(crossVec(xAxis, yAxis), normal) < 0) {
+    const nextA = b;
+    b = a;
+    a = nextA;
+    av = pts[a];
+    bv = pts[b];
+    baseLength = Math.hypot(bv[0] - av[0], bv[1] - av[1], bv[2] - av[2]);
+    if (baseLength <= BASIS_EPS) return null;
+    xAxis = [
+      (bv[0] - av[0]) / baseLength,
+      (bv[1] - av[1]) / baseLength,
+      (bv[2] - av[2]) / baseLength,
+    ];
+    const nextAc: Vec3 = [cv[0] - av[0], cv[1] - av[1], cv[2] - av[2]];
+    apexX = dotVec(nextAc, xAxis);
+    foot = [
+      av[0] + xAxis[0] * apexX,
+      av[1] + xAxis[1] * apexX,
+      av[2] + xAxis[2] * apexX,
+    ];
+    yAxisRaw = [
+      foot[0] - cv[0],
+      foot[1] - cv[1],
+      foot[2] - cv[2],
+    ];
+    const nextHeight = Math.hypot(yAxisRaw[0], yAxisRaw[1], yAxisRaw[2]);
+    if (nextHeight <= BASIS_EPS) return null;
+    yAxis = [
+      yAxisRaw[0] / nextHeight,
+      yAxisRaw[1] / nextHeight,
+      yAxisRaw[2] / nextHeight,
+    ];
+  }
+
+  const left = Math.max(0, Math.min(baseLength, apexX));
+  const right = Math.max(0, baseLength - left);
+  const bleed = SOLID_TRIANGLE_BLEED;
+  const leftPx = left + bleed;
+  const rightPx = right + bleed;
+  const heightPx = height + bleed * 2;
+  const tx = cv[0] - leftPx * xAxis[0] - bleed * yAxis[0];
+  const ty = cv[1] - leftPx * xAxis[1] - bleed * yAxis[1];
+  const tz = cv[2] - leftPx * xAxis[2] - bleed * yAxis[2];
+  const matrix = formatMatrix3dValues([
+    xAxis[0], xAxis[1], xAxis[2], 0,
+    yAxis[0], yAxis[1], yAxis[2], 0,
+    normal[0], normal[1], normal[2], 0,
+    tx, ty, tz, 1,
+  ]);
+  const dynamic = textureLighting === "dynamic";
+  const base = parseHex(entry.polygon.color ?? "#cccccc");
+
+  return {
+    transform: `matrix3d(${matrix})`,
+    borderWidth: `0 ${rightPx}px ${heightPx}px ${leftPx}px`,
+    borderBottomColor: dynamic ? undefined : entry.shadedColor,
+    pointerEvents: pointerEvents === "none" ? "none" : undefined,
+    ...(dynamic
+      ? {
+          ["--pnx" as string]: normal[0].toFixed(4),
+          ["--pny" as string]: normal[1].toFixed(4),
+          ["--pnz" as string]: normal[2].toFixed(4),
+          ["--psr" as string]: (base.r / 255).toFixed(4),
+          ["--psg" as string]: (base.g / 255).toFixed(4),
+          ["--psb" as string]: (base.b / 255).toFixed(4),
+        }
+      : null),
+  };
 }
 
 function rgbToHex({ r, g, b }: RGB): string {
@@ -453,6 +642,112 @@ function drawImageCover(
   ctx.drawImage(img, x + (width - drawW) / 2, y + (height - drawH) / 2, drawW, drawH);
 }
 
+function computeUvAffine(points: Vec2[], uvs: Vec2[]): UvAffine | null {
+  if (points.length < 3 || uvs.length < 3) return null;
+  const [p0, p1, p2] = points;
+  const [uv0, uv1, uv2] = uvs;
+  const sx0 = p0[0], sy0 = p0[1];
+  const sx1 = p1[0], sy1 = p1[1];
+  const sx2 = p2[0], sy2 = p2[1];
+  const u0 = uv0[0], V0 = 1 - uv0[1];
+  const u1 = uv1[0], V1 = 1 - uv1[1];
+  const u2 = uv2[0], V2 = 1 - uv2[1];
+  const du1 = u1 - u0, dV1 = V1 - V0;
+  const du2 = u2 - u0, dV2 = V2 - V0;
+  const det = du1 * dV2 - du2 * dV1;
+  if (Math.abs(det) <= 1e-9) return null;
+
+  const dx1 = sx1 - sx0, dx2 = sx2 - sx0;
+  const dy1 = sy1 - sy0, dy2 = sy2 - sy0;
+  const affine = {
+    a: (dx1 * dV2 - dx2 * dV1) / det,
+    b: (du1 * dx2 - du2 * dx1) / det,
+    c: (dy1 * dV2 - dy2 * dV1) / det,
+    d: (du1 * dy2 - du2 * dy1) / det,
+    e: 0,
+    f: 0,
+  };
+  affine.e = sx0 - affine.a * u0 - affine.b * V0;
+  affine.f = sy0 - affine.c * u0 - affine.d * V0;
+  return affine;
+}
+
+function computeUvSampleRect(uvs: Vec2[]): UvSampleRect | null {
+  if (uvs.length === 0) return null;
+  let minU = Infinity;
+  let minV = Infinity;
+  let maxU = -Infinity;
+  let maxV = -Infinity;
+  for (const uv of uvs) {
+    const u = uv[0];
+    const v = 1 - uv[1];
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return null;
+    minU = Math.min(minU, u);
+    maxU = Math.max(maxU, u);
+    minV = Math.min(minV, v);
+    maxV = Math.max(maxV, v);
+  }
+  return { minU, minV, maxU, maxV };
+}
+
+function projectTextureTriangle(
+  triangle: TextureTriangle,
+  tile: number,
+  elev: number,
+  origin: Vec3,
+  xAxis: Vec3,
+  yAxis: Vec3,
+  shiftX: number,
+  shiftY: number,
+): TextureTrianglePlan | null {
+  const points = triangle.vertices.map((vertex): Vec2 => {
+    const point: Vec3 = [
+      vertex[1] * tile,
+      vertex[0] * tile,
+      vertex[2] * elev,
+    ];
+    const dx = point[0] - origin[0];
+    const dy = point[1] - origin[1];
+    const dz = point[2] - origin[2];
+    return [
+      dx * xAxis[0] + dy * xAxis[1] + dz * xAxis[2] + shiftX,
+      dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2] + shiftY,
+    ];
+  });
+  const uvAffine = computeUvAffine(points, triangle.uvs);
+  const uvSampleRect = computeUvSampleRect(triangle.uvs);
+  if (!uvAffine && !uvSampleRect) return null;
+  return {
+    screenPts: points.flatMap(([x, y]) => [x, y]),
+    uvAffine,
+    uvSampleRect,
+  };
+}
+
+function expandClipPoints(points: number[], amount: number): number[] {
+  if (points.length < 6 || amount <= 0) return points;
+  let cx = 0;
+  let cy = 0;
+  const count = points.length / 2;
+  for (let i = 0; i < points.length; i += 2) {
+    cx += points[i];
+    cy += points[i + 1];
+  }
+  cx /= count;
+  cy /= count;
+
+  const expanded = points.slice();
+  for (let i = 0; i < expanded.length; i += 2) {
+    const dx = expanded[i] - cx;
+    const dy = expanded[i + 1] - cy;
+    const len = Math.hypot(dx, dy);
+    if (len <= RECT_EPS) continue;
+    expanded[i] += (dx / len) * amount;
+    expanded[i + 1] += (dy / len) * amount;
+  }
+  return expanded;
+}
+
 function canvasToUrl(canvas: HTMLCanvasElement): Promise<string | null> {
   if (typeof canvas.toBlob === "function") {
     return new Promise((resolve) => {
@@ -466,6 +761,49 @@ function canvasToUrl(canvas: HTMLCanvasElement): Promise<string | null> {
   } catch {
     return Promise.resolve(null);
   }
+}
+
+function clampSourceCoord(value: number, max: number): number {
+  return Math.max(0, Math.min(max, value));
+}
+
+function drawImageUvSample(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  rect: UvSampleRect,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  atlasScale: number,
+): void {
+  const imgW = img.naturalWidth || img.width || 1;
+  const imgH = img.naturalHeight || img.height || 1;
+  const rawX0 = clampSourceCoord(Math.min(rect.minU, rect.maxU) * imgW, imgW);
+  const rawX1 = clampSourceCoord(Math.max(rect.minU, rect.maxU) * imgW, imgW);
+  const rawY0 = clampSourceCoord(Math.min(rect.minV, rect.maxV) * imgH, imgH);
+  const rawY1 = clampSourceCoord(Math.max(rect.minV, rect.maxV) * imgH, imgH);
+
+  let sx = Math.floor(rawX0);
+  let sy = Math.floor(rawY0);
+  let sw = Math.ceil(rawX1) - sx;
+  let sh = Math.ceil(rawY1) - sy;
+
+  if (sw < 1) {
+    sx = Math.floor(clampSourceCoord(((rect.minU + rect.maxU) / 2) * imgW, imgW - 1));
+    sw = 1;
+  }
+  if (sh < 1) {
+    sy = Math.floor(clampSourceCoord(((rect.minV + rect.maxV) / 2) * imgH, imgH - 1));
+    sh = 1;
+  }
+  sx = Math.max(0, Math.min(imgW - 1, sx));
+  sy = Math.max(0, Math.min(imgH - 1, sy));
+  sw = Math.max(1, Math.min(imgW - sx, sw));
+  sh = Math.max(1, Math.min(imgH - sy, sh));
+
+  setCssTransform(ctx, atlasScale);
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, width, height);
 }
 
 export function computeTextureAtlasPlan(
@@ -565,42 +903,35 @@ export function computeTextureAtlasPlan(
   const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
 
   let uvAffine: UvAffine | null = null;
+  let uvSampleRect: UvSampleRect | null = null;
   if (texture && uvs && uvs.length >= 3 && uvs.length === vertices.length) {
-    const [uv0, uv1, uv2] = uvs;
-    const sx0 = local2D[0][0] + shiftX, sy0 = local2D[0][1] + shiftY;
-    const sx1 = local2D[1][0] + shiftX, sy1 = local2D[1][1] + shiftY;
-    const sx2 = local2D[2][0] + shiftX, sy2 = local2D[2][1] + shiftY;
-    const u0 = uv0[0], V0 = 1 - uv0[1];
-    const u1 = uv1[0], V1 = 1 - uv1[1];
-    const u2 = uv2[0], V2 = 1 - uv2[1];
-    const du1 = u1 - u0, dV1 = V1 - V0;
-    const du2 = u2 - u0, dV2 = V2 - V0;
-    const det = du1 * dV2 - du2 * dV1;
-    if (Math.abs(det) > 1e-9) {
-      const dx1 = sx1 - sx0, dx2 = sx2 - sx0;
-      const dy1 = sy1 - sy0, dy2 = sy2 - sy0;
-      uvAffine = {
-        a: (dx1 * dV2 - dx2 * dV1) / det,
-        b: (du1 * dx2 - du2 * dx1) / det,
-        c: (dy1 * dV2 - dy2 * dV1) / det,
-        d: (du1 * dy2 - du2 * dy1) / det,
-        e: 0,
-        f: 0,
-      };
-      uvAffine.e = sx0 - uvAffine.a * u0 - uvAffine.b * V0;
-      uvAffine.f = sy0 - uvAffine.c * u0 - uvAffine.d * V0;
-    }
+    uvSampleRect = computeUvSampleRect(uvs);
+    uvAffine = computeUvAffine(
+      local2D.map(([x, y]) => [x + shiftX, y + shiftY]),
+      uvs,
+    );
   }
+  const textureTriangles = texture && polygon.textureTriangles?.length
+    ? polygon.textureTriangles
+        .map((triangle) =>
+          projectTextureTriangle(triangle, tile, elev, p0, xAxis, yAxis, shiftX, shiftY)
+        )
+        .filter((triangle): triangle is TextureTrianglePlan => !!triangle)
+    : null;
 
   return {
     index,
     polygon,
     texture,
+    tileSize: tile,
+    layerElevation: elev,
     matrix,
     canvasW: Math.max(1, Math.ceil(w)),
     canvasH: Math.max(1, Math.ceil(h)),
     screenPts,
     uvAffine,
+    uvSampleRect,
+    textureTriangles,
     normal: [nx, ny, nz],
     textureTint,
     shadedColor,
@@ -751,7 +1082,46 @@ async function buildAtlasPage(
         : entry.shadedColor;
       ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
     } else {
-      if (srcImg && entry.uvAffine) {
+      if (srcImg && entry.textureTriangles?.length) {
+        const imgW = srcImg.naturalWidth || srcImg.width || 1;
+        const imgH = srcImg.naturalHeight || srcImg.height || 1;
+        for (const triangle of entry.textureTriangles) {
+          const clipPts = expandClipPoints(triangle.screenPts, TEXTURE_TRIANGLE_BLEED);
+          ctx.save();
+          setCssTransform(ctx, atlasScale);
+          ctx.beginPath();
+          for (let i = 0; i < clipPts.length; i += 2) {
+            const px = entry.x + clipPts[i];
+            const py = entry.y + clipPts[i + 1];
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.clip();
+          if (triangle.uvAffine) {
+            setCssTransform(
+              ctx,
+              atlasScale,
+              triangle.uvAffine.a / imgW, triangle.uvAffine.c / imgW,
+              triangle.uvAffine.b / imgH, triangle.uvAffine.d / imgH,
+              entry.x + triangle.uvAffine.e, entry.y + triangle.uvAffine.f,
+            );
+            ctx.drawImage(srcImg, 0, 0);
+          } else if (triangle.uvSampleRect) {
+            drawImageUvSample(
+              ctx,
+              srcImg,
+              triangle.uvSampleRect,
+              entry.x,
+              entry.y,
+              entry.canvasW,
+              entry.canvasH,
+              atlasScale,
+            );
+          }
+          ctx.restore();
+        }
+      } else if (srcImg && entry.uvAffine) {
         const imgW = srcImg.naturalWidth || srcImg.width || 1;
         const imgH = srcImg.naturalHeight || srcImg.height || 1;
         setCssTransform(
@@ -762,6 +1132,17 @@ async function buildAtlasPage(
           entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
         );
         ctx.drawImage(srcImg, 0, 0);
+      } else if (srcImg && entry.uvSampleRect) {
+        drawImageUvSample(
+          ctx,
+          srcImg,
+          entry.uvSampleRect,
+          entry.x,
+          entry.y,
+          entry.canvasW,
+          entry.canvasH,
+          atlasScale,
+        );
       } else if (srcImg) {
         drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
       }
@@ -808,6 +1189,7 @@ export function useTextureAtlas(
     () => plans.map((plan) => {
       if (!plan) return plan;
       if (plan.texture) return plan;
+      if (isSolidTrianglePlan(plan)) return null;
       if (textureLighting !== "dynamic" && (useBorderShape || isFullRectSolid(plan))) return null;
       return plan;
     }),
@@ -924,6 +1306,44 @@ export function TextureBorderShapePoly({
       ref={setElementRef}
       className={elementClassName}
       style={style}
+      {...domEventHandlers}
+      {...dataAttrs}
+      {...domAttrs}
+    />
+  );
+}
+
+export function TextureTrianglePoly({
+  entry,
+  textureLighting,
+  className,
+  style: styleProp,
+  domAttrs,
+  domEventHandlers,
+  pointerEvents = "auto",
+}: {
+  entry: TextureAtlasPlan;
+  textureLighting: PolyTextureLightingMode;
+  className?: string;
+  style?: CSSProperties;
+  domAttrs?: Record<string, unknown>;
+  domEventHandlers?: React.DOMAttributes<Element>;
+  pointerEvents?: "auto" | "none";
+}) {
+  const triangleStyle = solidTriangleStyle(entry, textureLighting, pointerEvents);
+  if (!triangleStyle) return null;
+
+  const dataAttrs = entry.polygon.data
+    ? Object.fromEntries(
+        Object.entries(entry.polygon.data).map(([k, v]) => [`data-${k}`, String(v)]),
+      )
+    : {};
+  const elementClassName = className?.trim() || undefined;
+
+  return (
+    <u
+      className={elementClassName}
+      style={{ ...triangleStyle, ...styleProp }}
       {...domEventHandlers}
       {...dataAttrs}
       {...domAttrs}

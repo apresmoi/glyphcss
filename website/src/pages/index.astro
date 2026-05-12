@@ -138,8 +138,9 @@ const ldJson = {
               No WebGL or &lt;canvas&gt; needed: each polygon is a real DOM element.
             </p>
             <p>
-              Supports OBJ, glTF, and GLB file formats, including UV textures
-              and material colors. Works with vanilla JS, React, and Vue.
+              Supports OBJ, glTF, GLB, and MagicaVoxel VOX files, including
+              UV textures and material colors. Works with vanilla JS, React,
+              and Vue.
             </p>
             <hr />
             <div class="cta">
@@ -198,8 +199,8 @@ const ldJson = {
           <div class="stacking-copy">
             <h2>How It Works</h2>
             <p>
-              polycss loads OBJ, glTF, and GLB mesh files. Each triangle becomes
-              a DOM element positioned with <code>transform: matrix3d(...)</code>.
+              polycss loads OBJ, glTF, GLB, and VOX mesh files. Each polygon
+              becomes a DOM element positioned with <code>transform: matrix3d(...)</code>.
               UV-textured triangles are packed into generated atlas sprites with
               CSS background positioning. The browser's compositor handles the
               3D layering.
@@ -213,11 +214,6 @@ const ldJson = {
             <p class="stacking-actions" style="margin: 0">
               <a class="btn ghost" href="/quickstart">View Usage Guidelines &raquo;</a>
             </p>
-          </div>
-          <div class="stacking-media">
-            <div style="background:#090b10;height:350px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#475569;font-family:monospace;font-size:13px;">
-              mesh demo — Phase 8
-            </div>
           </div>
         </section>
 
@@ -260,15 +256,6 @@ const ldJson = {
             </div>
           </div>
         </section>
-
-        <section class="gallery made-with" id="made-with">
-          <div class="gallery-header">
-            <h2>Gallery</h2>
-          </div>
-          <div class="gallery-actions">
-            <a class="btn ghost" href="/gallery">View Model Gallery &raquo;</a>
-          </div>
-        </section>
       </div>
     </main>
   </div>
@@ -289,9 +276,8 @@ const ldJson = {
     }
     fetchStars();
 
-    // Hero model — loads the Apple GLB and mounts it with
-    // createPolyScene. autoCenter pivots rotation around the mesh centroid;
-    // the small RAF loop spins it slowly.
+    // Hero model — loads the Apple GLB and mounts it with createPolyScene.
+    // autoCenter keeps drag gestures pivoted around the mesh centroid.
     async function mountHeroModel() {
       const host = document.getElementById("hero-root");
       if (!host) return;
@@ -312,13 +298,10 @@ const ldJson = {
           perspective: false,
         });
         scene.add(parseResult);
-        // Drag + wheel + slow autorotate via the additive controls layer.
-        // pauseOnInteraction (default true) freezes the spin while the user
-        // is dragging, just like the previous manual implementation did.
+        // Drag + wheel controls only; the homepage apple should stay still.
         createPolyOrbitControls(scene, {
           drag: true,
           wheel: true,
-          animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
         });
       } catch (err) {
         console.error("hero model mount failed", err);
@@ -375,6 +358,7 @@ const ldJson = {
     inset-block-start: auto;
     inset-inline-start: auto;
     width: auto;
+    background-color: #0f1115;
   }
   .docs-nav {
     position: fixed;
@@ -672,10 +656,6 @@ const ldJson = {
 
   /* ── How It Works ───────────────────────────────── */
   .stacking {
-    display: grid;
-    grid-template-columns: 1.1fr 1fr;
-    gap: 28px;
-    align-items: center;
     margin-top: 30px;
     background: #000;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -692,14 +672,6 @@ const ldJson = {
     margin: 0 0 16px;
     padding-right: 5px;
   }
-  .stacking-media {
-    width: 100%;
-    position: relative;
-    border-radius: 12px;
-    overflow: hidden;
-    height: 350px;
-  }
-
   /* ── Getting Started ────────────────────────────── */
   .getting-started {
     margin-top: 30px;
@@ -785,28 +757,6 @@ const ldJson = {
   }
   .framework-tabpanel.hidden {
     display: none;
-  }
-
-  /* ── Gallery ────────────────────────────────────── */
-  .gallery {
-    background: #11141a;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 16px;
-    padding: 28px;
-    margin-top: 30px;
-  }
-  .gallery-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin: 0;
-  }
-  .gallery-header h2 {
-    margin: 0;
-  }
-  .gallery-actions {
-    margin-top: 12px;
-    display: flex;
   }
 
   /* ── hljs overrides ─────────────────────────────── */
@@ -927,7 +877,6 @@ const ldJson = {
       min-width: 0;
     }
     .stacking {
-      grid-template-columns: 1fr;
       padding: 24px;
     }
     .install-content {
@@ -984,8 +933,7 @@ const ldJson = {
       line-height: 1.6;
     }
     .stacking-copy p,
-    .getting-grid p,
-    .gallery-header p {
+    .getting-grid p {
       font-size: 16px;
     }
   }

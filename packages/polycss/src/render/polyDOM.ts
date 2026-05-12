@@ -1,10 +1,9 @@
 /**
  * polyDOM — compatibility wrapper for rendering a single Polygon.
  *
- * The vanilla package renders every valid polygon as an <i>: full rectangular
- * solid polygons can use CSS background-color directly, while textured or
- * irregular polygons use the atlas path. This helper keeps the older
- * single-polygon render contract without carrying a separate SVG implementation.
+ * The vanilla package renders every valid polygon through the same brush
+ * dispatch used by mesh rendering: rects use <b>, solid triangles use <u>,
+ * sprites use <s>, and other irregular solid polygons use <i> when available.
  */
 import type { Polygon } from "@layoutit/polycss-core";
 import {

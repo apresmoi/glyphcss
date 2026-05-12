@@ -63,14 +63,14 @@ const { colors, textures } = parseMtl(mtlText);
 
 ## `loadMesh(url, options?)`
 
-High-level convenience function: fetches a URL, detects OBJ vs GLB/glTF by extension (`.obj`, `.glb`, `.gltf`), parses it, and returns a `ParseResult`.
+High-level convenience function: fetches a URL, detects OBJ vs glTF/GLB/VOX by extension (`.obj`, `.gltf`, `.glb`, `.vox`), parses it, and returns a `ParseResult`.
 
 ```ts
 import { loadMesh } from "@layoutit/polycss-core";
 
 const { polygons, dispose } = await loadMesh("/cottage.glb", {
-  targetSize: 60,
   baseUrl: new URL("/cottage.glb", location.href).href,
+  gltfOptions: { targetSize: 60 },
 });
 // use polygons...
 dispose(); // always call on cleanup
@@ -182,7 +182,7 @@ controls.addEventListener("end",   () => endInteraction());
 | `resume()` | Re-attach input listeners and (re)start autorotate after `pause()`. |
 | `pause()` | Detach input listeners and halt the autorotate loop. Reversible by `resume()`. |
 | `destroy()` | Hard teardown. Drops all event listeners; functionally identical to `pause()` for input/animate state. |
-| `addEventListener(type, fn)` | Subscribe to `'change'` (carries `{ camera: { rotX, rotY, zoom } }`) or `'start'` / `'end'` interaction-boundary events. Mirrors Three.js OrbitControls. |
+| `addEventListener(type, fn)` | Subscribe to `'change'` (carries `{ camera: { rotX, rotY, zoom, target, distance } }`) or `'start'` / `'end'` interaction-boundary events. Mirrors Three.js OrbitControls. |
 | `removeEventListener(type, fn)` | Unsubscribe by exact listener reference. |
 | `hasEventListener(type, fn)` | Returns `true` if the listener is currently subscribed. |
 
@@ -193,8 +193,8 @@ controls.addEventListener("end",   () => endInteraction());
 `createPolyOrbitControls` reads from and writes to its scene argument via two members on `PolySceneHandle`:
 
 - `scene.host: HTMLElement` — the element handlers are attached to.
-- `scene.getOptions()` — read current `rotX` / `rotY` / `zoom`.
-- `scene.setOptions({ rotX, rotY, zoom })` — apply state changes.
+- `scene.getOptions()` — read current `rotX` / `rotY` / `zoom` / `target` / `distance`.
+- `scene.setOptions({ rotX, rotY, zoom, target, distance })` — apply state changes.
 
 Anything that satisfies that subset works, so layered helpers can compose multiple controls or build their own input on top.
 
@@ -224,5 +224,5 @@ See the [polycss README](https://github.com/LayoutitStudio/polycss/tree/main/pac
 | `@layoutit/polycss-react` | React components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`, hooks |
 | `@layoutit/polycss-vue` | Vue components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera` |
 | `@layoutit/polycss` | Vanilla imperative API + custom element classes |
-| `@layoutit/polycss/elements` | Side-effect: registers `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>` |
-| `@layoutit/polycss-core` | Pure parsers / math, zero DOM — `parseObj`, `parseGltf`, `loadMesh`, types |
+| `@layoutit/polycss/elements` | Side-effect: registers the polycss custom elements |
+| `@layoutit/polycss-core` | Pure parsers / math, zero DOM — `parseObj`, `parseGltf`, `parseVox`, `loadMesh`, types |

@@ -57,13 +57,14 @@ const CORE_BASE_STYLES = `
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
 
 /*
- * Polygon faces render as internal <i> elements inside .polycss-scene.
+ * Polygon faces render as internal leaf elements inside .polycss-scene.
  * The element is positioned absolutely within the scene root; its
  * transform: matrix3d(...) carries the full world-space placement.
  */
 .polycss-scene b,
 .polycss-scene i,
-.polycss-scene s {
+.polycss-scene s,
+.polycss-scene u {
   position: absolute;
   display: block;
   transform-origin: 0 0;
@@ -92,11 +93,19 @@ const CORE_BASE_STYLES = `
 .polycss-scene s {
 }
 
+.polycss-scene u {
+  width: 0px;
+  height: 0px;
+  background: transparent;
+  box-sizing: content-box;
+  border: 0 solid transparent;
+}
+
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
 
 /*
  * Dynamic mode: PolyScene writes the directional + ambient light setup to
- * these custom properties on the scene root. Each polygon's <i> bakes its
+ * these custom properties on the scene root. Each polygon leaf bakes its
  * own normal directly into an inline calc() that reads these vars to
  * resolve the Lambert dot product and per-channel tint. Sliding the light
  * only writes these scene-root vars — no JS, no atlas redraw.
@@ -119,13 +128,16 @@ const CORE_BASE_STYLES = `
 @property --pai { syntax: "<number>"; inherits: true; initial-value: 0.4; }
 
 /* Per-polygon surface normal — set inline by the renderer. inherits:false
-   because each <i> has its own normal (no cascade). */
+   because each leaf has its own normal (no cascade). */
 @property --pnx { syntax: "<number>"; inherits: false; initial-value: 0; }
 @property --pny { syntax: "<number>"; inherits: false; initial-value: 0; }
 @property --pnz { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psr { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psg { syntax: "<number>"; inherits: false; initial-value: 1; }
+@property --psb { syntax: "<number>"; inherits: false; initial-value: 1; }
 
 /* Calc-driven Lambert + tint, scoped to dynamic-lighting scenes. Lives
-   here (not inline per polygon) so each <i> only carries its tiny normal
+   here (not inline per polygon) so each leaf only carries its tiny normal
    declarations — ~12× smaller per-polygon style payload on big meshes. */
 .polycss-scene[data-polycss-lighting="dynamic"] s {
   background-color: rgb(
@@ -146,5 +158,25 @@ const CORE_BASE_STYLES = `
            var(--pnz) * var(--plz))))
   );
   background-blend-mode: multiply;
+}
+
+.polycss-scene[data-polycss-lighting="dynamic"] u {
+  border-bottom-color: rgb(
+    calc(255 * var(--psr) * (var(--par) * var(--pai)
+         + var(--plr) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+    calc(255 * var(--psg) * (var(--pag) * var(--pai)
+         + var(--plg) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+    calc(255 * var(--psb) * (var(--pab) * var(--pai)
+         + var(--plb) * var(--pli) * max(0,
+           var(--pnx) * var(--plx) +
+           var(--pny) * var(--ply) +
+           var(--pnz) * var(--plz))))
+  );
 }
 `;

@@ -2,7 +2,7 @@
 
 # @layoutit/polycss-react
 
-Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Declarative React components for CSS-based polygon mesh rendering. Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 ## Install
 
@@ -15,13 +15,15 @@ Requires React 18 or 19 as a peer dependency.
 ## Quickstart
 
 ```tsx
-import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
-    <PolyScene rotX={65} rotY={45} perspective={1000}>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45} perspective={1000}>
+      <PolyScene>
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -32,15 +34,14 @@ Every polygon in the mesh is a real DOM element — inspect it in DevTools, styl
 
 ### `<PolyScene>`
 
-Root of every polycss render tree. Sets up CSS 3D perspective, camera rotation, and directional lighting.
+Root of every React polycss render tree. Renders polygons and meshes inside a `<PolyCamera>` context, and owns scene-level lighting and atlas options.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `perspective` | `number` | `1000` | CSS perspective distance in pixels |
-| `rotX` | `number` | `65` | Camera X-axis rotation in degrees |
-| `rotY` | `number` | `45` | Camera Y-axis rotation in degrees |
-| `directionalLight` | `DirectionalLight` | — | Directional + ambient light |
-| `atlasScale` | `number` | `1` | Raster scale for generated atlas pages |
+| `directionalLight` | `PolyDirectionalLight` | — | Directional light config |
+| `ambientLight` | `PolyAmbientLight` | — | Ambient light config |
+| `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Texture lighting mode |
+| `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages |
 | `polygons` | `Polygon[]` | — | Static polygon array (composes with `children`) |
 | `children` | `ReactNode` | — | `<PolyMesh>`, `<Poly>`, and/or `<PolyOrbitControls>` |
 
@@ -57,9 +58,10 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `position` | `Vec3` | `[x, y, z]` offset in scene space |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
 | `rotation` | `Vec3` | Euler angles in degrees `[x, y, z]` |
-| `atlasScale` | `number` | Raster scale for generated atlas pages |
+| `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages |
 | `autoCenter` | `boolean` | Shift mesh so its bbox center is at origin |
-| `parseOptions` | `ObjParseOptions \| GltfParseOptions` | Forwarded to the parser |
+| `mtl` | `string` | Companion `.mtl` URL for OBJ models |
+| `parseOptions` | `UseMeshOptions` | Forwarded to `loadMesh` |
 | `fallback` | `ReactNode` | Rendered while loading |
 | `errorFallback` | `(error: Error) => ReactNode` | Rendered on parse failure |
 | `children` | `(polygon, index) => ReactNode` | Per-polygon render prop override |
@@ -78,7 +80,7 @@ Single polygon. The atomic primitive — renders one atlas-backed `<i>` for UV-t
 | `position` | `Vec3` | Local offset |
 | `scale` | `number \| Vec3` | Scale |
 | `rotation` | `Vec3` | Euler rotation in degrees |
-| `atlasScale` | `number` | Raster scale for generated atlas pages |
+| `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages |
 | `onClick` | `MouseEventHandler` | Standard DOM event handler |
 | `onMouseEnter` | `MouseEventHandler` | |
 | `className` | `string` | CSS class |
@@ -87,15 +89,15 @@ Single polygon. The atomic primitive — renders one atlas-backed `<i>` for UV-t
 
 ### `<PolyCamera>`
 
-Camera controls wrapper — perspective, rotation, zoom, interaction, and auto-rotate. Most use cases can pass camera props directly to `<PolyScene>` instead; use `<PolyCamera>` when you need to separate camera logic from scene layout.
+Camera wrapper for perspective, rotation, zoom, target, and dolly distance. React scenes must render inside `<PolyCamera>` (or `<PolyPerspectiveCamera>` / `<PolyOrthographicCamera>`) so controls and scenes share camera state.
 
 ### Hooks
 
 | Hook | Description |
 |---|---|
-| `useCamera(options)` | Internal camera integration hook (used by `<PolyCamera>`) |
-| `useSceneContext(polygons, options)` | Lower-level hook for building custom scene wrappers |
-| `useMesh(src, options?)` | Fetch + parse a mesh. Returns `{ polygons, loading, error, warnings, dispose }`. Manages blob-URL lifecycle — safe across rapid src changes and unmounts. |
+| `usePolyCamera(options)` | Internal camera integration hook (used by `<PolyCamera>`) |
+| `usePolySceneContext(polygons, options)` | Lower-level hook for building custom scene wrappers |
+| `usePolyMesh(src, options?)` | Fetch + parse a mesh. Returns `{ polygons, loading, error, warnings, dispose }`. Manages blob-URL lifecycle — safe across rapid src changes and unmounts. |
 
 ### Utility
 
@@ -108,7 +110,7 @@ Camera controls wrapper — perspective, rotation, zoom, interaction, and auto-r
 All types and core functions are re-exported for convenience, so you never need to add `@layoutit/polycss-core` to your dependencies:
 
 ```ts
-import type { Polygon, Vec2, Vec3, DirectionalLight, ParseResult } from "@layoutit/polycss-react";
+import type { Polygon, Vec2, Vec3, PolyDirectionalLight, PolyAmbientLight, ParseResult } from "@layoutit/polycss-react";
 import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygons } from "@layoutit/polycss-react";
 ```
 
@@ -116,26 +118,28 @@ import { parseObj, parseGltf, parseVox, loadMesh, normalizePolygons, mergePolygo
 
 ```tsx
 import { useState } from "react";
-import { PolyScene, Poly } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, Poly } from "@layoutit/polycss-react";
 import type { Polygon } from "@layoutit/polycss-react";
 
 export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
   const [hoveredId, setHoveredId] = useState<number | null>(null);
 
   return (
-    <PolyScene rotX={65} rotY={45}>
-      {polygons.map((p, i) => (
-        <Poly
-          key={i}
-          {...p}
-          onClick={() => alert(`clicked polygon ${i}`)}
-          onMouseEnter={() => setHoveredId(i)}
-          onMouseLeave={() => setHoveredId(null)}
-          className={hoveredId === i ? "highlight" : ""}
-          style={{ transition: "filter 0.2s" }}
-        />
-      ))}
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45}>
+      <PolyScene>
+        {polygons.map((p, i) => (
+          <Poly
+            key={i}
+            {...p}
+            onClick={() => alert(`clicked polygon ${i}`)}
+            onMouseEnter={() => setHoveredId(i)}
+            onMouseLeave={() => setHoveredId(null)}
+            className={hoveredId === i ? "highlight" : ""}
+            style={{ transition: "filter 0.2s" }}
+          />
+        ))}
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -144,21 +148,23 @@ export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
 .highlight { filter: brightness(1.5); }
 ```
 
-## `useMesh` — imperative loading
+## `usePolyMesh` — imperative loading
 
 ```tsx
-import { PolyScene, Poly, useMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
-  const { polygons, loading, error } = useMesh("/cottage.glb");
+  const { polygons, loading, error } = usePolyMesh("/cottage.glb");
 
   if (loading) return <div>Loading…</div>;
   if (error) return <div>Error: {error.message}</div>;
 
   return (
-    <PolyScene>
-      {polygons.map((p, i) => <Poly key={i} {...p} />)}
-    </PolyScene>
+    <PolyCamera>
+      <PolyScene>
+        {polygons.map((p, i) => <Poly key={i} {...p} />)}
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```

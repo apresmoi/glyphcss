@@ -6,7 +6,7 @@ description: Choosing perspective depth and camera angles for different visual s
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import PolyDemo from '../../../components/PolyDemo.astro';
 
-polycss uses CSS 3D perspective to project the scene. The `perspective` attribute on `<poly-scene>` (or `perspective` prop on `PolyScene` / `PolyCamera`) controls the depth illusion, and `rot-x` / `rot-y` control the camera angle.
+polycss uses CSS 3D perspective to project the scene. The `perspective` attribute on vanilla `<poly-scene>` (or `perspective` prop on React/Vue `<PolyCamera>`) controls the depth illusion, and `rot-x` / `rot-y` control the camera angle.
 
 ## Live demo — camera controls
 
@@ -21,7 +21,7 @@ Use the sliders below to explore how `perspective`, `rotX`, and `rotY` interact.
 
 ## Perspective depth
 
-Higher `perspective` values feel flatter (more isometric-like); lower values exaggerate depth. For orthographic projection (no perspective distortion), use `<PolyOrthographicCamera>` (React/Vue) or `perspective="none"` (vanilla).
+Higher `perspective` values feel flatter (more isometric-like); lower values exaggerate depth. For orthographic projection (no perspective distortion), use `<PolyOrthographicCamera>` (React/Vue) or `perspective="false"` (vanilla).
 
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
@@ -39,24 +39,28 @@ Higher `perspective` values feel flatter (more isometric-like); lower values exa
 </poly-scene>
 
 <!-- Orthographic -->
-<poly-scene perspective="none" rot-x="65" rot-y="45">
+<poly-scene perspective="false" rot-x="65" rot-y="45">
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-react";
 
 // Standard perspective
-<PolyScene perspective={1000} rotX={65} rotY={45}>
-  <PolyMesh src="/cottage.glb" />
-</PolyScene>
+<PolyCamera perspective={1000} rotX={65} rotY={45}>
+  <PolyScene>
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
+</PolyCamera>
 
 // Very flat / near-isometric
-<PolyScene perspective={8000} rotX={65} rotY={45}>
-  <PolyMesh src="/cottage.glb" />
-</PolyScene>
+<PolyCamera perspective={8000} rotX={65} rotY={45}>
+  <PolyScene>
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
+</PolyCamera>
 
 // Orthographic — use PolyOrthographicCamera, not perspective={false}
 <PolyOrthographicCamera rotX={65} rotY={45}>
@@ -70,9 +74,11 @@ import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-r
 ```vue
 <template>
   <!-- Standard perspective -->
-  <PolyScene :perspective="1000" :rot-x="65" :rot-y="45">
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera :perspective="1000" :rot-x="65" :rot-y="45">
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 
   <!-- Orthographic -->
   <PolyOrthographicCamera :rot-x="65" :rot-y="45">
@@ -83,7 +89,7 @@ import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-r
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -91,7 +97,7 @@ import { PolyScene, PolyMesh, PolyOrthographicCamera } from "@layoutit/polycss-v
 
 ## Camera angles
 
-Use `rot-x` and `rot-y` (vanilla) / `rotX` and `rotY` (React, Vue) to position the camera:
+Use `rot-x` and `rot-y` on vanilla `<poly-scene>`, or `rotX` / `rotY` on React/Vue `<PolyCamera>`, to position the camera:
 
 - `rotX` — vertical tilt. `90` is straight-down top view; `0` is horizontal.
 - `rotY` — horizontal rotation (0–360). Controls which face of the scene is forward.
@@ -105,9 +111,9 @@ Use `rot-x` and `rot-y` (vanilla) / `rotX` and `rotY` (React, Vue) to position t
 
 ```tsx
 // React
-<PolyScene rotX={65} rotY={45}>…</PolyScene>
-<PolyScene rotX={80} rotY={45}>…</PolyScene>
-<PolyScene rotX={20} rotY={0}>…</PolyScene>
+<PolyCamera rotX={65} rotY={45}>…</PolyCamera>
+<PolyCamera rotX={80} rotY={45}>…</PolyCamera>
+<PolyCamera rotX={20} rotY={0}>…</PolyCamera>
 ```
 
 ## When to adjust perspective
@@ -118,6 +124,6 @@ Use `rot-x` and `rot-y` (vanilla) / `rotX` and `rotY` (React, Vue) to position t
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — Full `perspective`, `rotX`, `rotY` prop reference.
-- [PolyCamera](/components/poly-camera) — Imperative camera control.
+- [PolyScene](/components/poly-scene) — Scene rendering and lighting reference.
+- [PolyCamera](/components/poly-camera) — Full `perspective`, `rotX`, `rotY` prop reference.
 - [Performance](/guides/performance) — Merge modes and DOM tuning.

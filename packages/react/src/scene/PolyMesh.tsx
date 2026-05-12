@@ -33,9 +33,11 @@ import type { TransformProps } from "../shapes/types";
 import { usePolyMesh, type UseMeshOptions } from "./useMesh";
 import {
   computeTextureAtlasPlan,
+  isSolidTrianglePlan,
   type AtlasScale,
   TextureBorderShapePoly,
   TextureAtlasPoly,
+  TextureTrianglePoly,
   useTextureAtlas,
 } from "./textureAtlas";
 import { usePolySceneContext } from "./sceneContext";
@@ -467,9 +469,10 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
         }
 
         const plan = atlasPlans[index];
-        return plan && !plan.texture ? (
-          <TextureBorderShapePoly key={plan.index} entry={plan} />
-        ) : null;
+        if (!plan || plan.texture) return null;
+        return isSolidTrianglePlan(plan)
+          ? <TextureTrianglePoly key={plan.index} entry={plan} textureLighting={effectiveTextureLighting} />
+          : <TextureBorderShapePoly key={plan.index} entry={plan} />;
       });
 
   // Loading + error slots only apply when we're fetching from `src`.

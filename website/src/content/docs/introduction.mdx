@@ -56,13 +56,15 @@ Load a GLB mesh into an interactive scene with zero JS — just custom elements:
 Or with React:
 
 ```tsx
-import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
-    <PolyScene>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera>
+      <PolyScene>
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```

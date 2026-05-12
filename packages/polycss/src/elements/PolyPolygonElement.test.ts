@@ -128,7 +128,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("color", "#ff0000");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector("i");
+    const rendered = sceneEl.querySelector("u");
     expect(rendered).toBeTruthy();
     expect(rendered?.className).toBe("");
     cleanup();
@@ -175,7 +175,7 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("data-foo", "bar");
     sceneEl.appendChild(poly);
 
-    const rendered = sceneEl.querySelector("i,b,s") as HTMLElement;
+    const rendered = sceneEl.querySelector("i,b,s,u") as HTMLElement;
     expect(rendered?.getAttribute("data-foo")).toBe("bar");
     cleanup();
   });
@@ -185,9 +185,9 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("vertices", TRIANGLE_VERTICES);
     sceneEl.appendChild(poly);
 
-    const beforeCount = sceneEl.querySelectorAll("i,b,s").length;
+    const beforeCount = sceneEl.querySelectorAll("i,b,s,u").length;
     sceneEl.removeChild(poly);
-    const afterCount = sceneEl.querySelectorAll("i,b,s").length;
+    const afterCount = sceneEl.querySelectorAll("i,b,s,u").length;
 
     expect(beforeCount).toBeGreaterThan(0);
     expect(afterCount).toBeLessThan(beforeCount);
@@ -200,13 +200,13 @@ describe("PolyPolygonElement — inside poly-scene", () => {
     poly.setAttribute("color", "#ff0000");
     sceneEl.appendChild(poly);
 
-    const beforePoly = sceneEl.querySelector("i,b,s");
+    const beforePoly = sceneEl.querySelector("i,b,s,u");
     expect(beforePoly).toBeTruthy();
 
     // Changing color should trigger re-mount
     poly.setAttribute("color", "#0000ff");
 
-    const afterPoly = sceneEl.querySelector("i,b,s");
+    const afterPoly = sceneEl.querySelector("i,b,s,u");
     expect(afterPoly).toBeTruthy();
     cleanup();
   });

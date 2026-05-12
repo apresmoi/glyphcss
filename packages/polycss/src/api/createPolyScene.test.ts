@@ -143,6 +143,8 @@ describe("createPolyScene", () => {
       expect(styleEl?.textContent).toContain("transform-origin: 0 0");
       expect(styleEl?.textContent).toContain("backface-visibility: hidden");
       expect(styleEl?.textContent).toContain("background-repeat: no-repeat");
+      expect(styleEl?.textContent).toContain("width: 0px");
+      expect(styleEl?.textContent).toContain("height: 0px");
     });
   });
 
@@ -152,7 +154,7 @@ describe("createPolyScene", () => {
       const handle = scene.add(makeParseResult([triangle(), triangle("#00ff00")]));
       const wrappers = host.querySelectorAll(".polycss-mesh");
       expect(wrappers.length).toBe(1);
-      const polys = host.querySelectorAll("i,b,s");
+      const polys = host.querySelectorAll("i,b,s,u");
       expect(polys.length).toBe(2);
       expect(host.querySelector(".polycss-poly-atlas")).toBeNull();
       expect(host.querySelector(".polycss-poly-solid")).toBeNull();
@@ -204,7 +206,7 @@ describe("createPolyScene", () => {
         merge: false,
         stableDom: true,
       });
-      const before = Array.from(host.querySelectorAll("i,b,s")) as HTMLElement[];
+      const before = Array.from(host.querySelectorAll("i,b,s,u")) as HTMLElement[];
       expect(before.length).toBe(1);
       const beforeTransform = before[0].style.transform;
 
@@ -217,7 +219,7 @@ describe("createPolyScene", () => {
         color: "#ff0000",
       }], { merge: false, stableDom: true });
 
-      const after = Array.from(host.querySelectorAll("i,b,s")) as HTMLElement[];
+      const after = Array.from(host.querySelectorAll("i,b,s,u")) as HTMLElement[];
       expect(after.length).toBe(1);
       expect(after[0]).toBe(before[0]);
       expect(after[0].style.transform).not.toBe(beforeTransform);
@@ -251,7 +253,7 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate]));
-      const polys = host.querySelectorAll("i,b,s");
+      const polys = host.querySelectorAll("i,b,s,u");
       expect(polys.length).toBe(0);
     });
 
@@ -259,9 +261,11 @@ describe("createPolyScene", () => {
       scene = createPolyScene(host);
       const degenerate: Polygon = { vertices: [[0, 0, 0]], color: "#ff0000" };
       scene.add(makeParseResult([degenerate, triangle()]));
-      const poly = host.querySelector("i,b,s") as HTMLElement;
+      const poly = host.querySelector("i,b,s,u") as HTMLElement;
       expect(poly).not.toBeNull();
-      expect(poly.style.width).not.toBe("");
+      expect(poly.tagName.toLowerCase()).toBe("u");
+      expect(poly.style.transform).toContain("matrix3d(");
+      expect(poly.style.borderBottomWidth).not.toBe("");
     });
 
     describe("rebakeAtlas", () => {
@@ -277,13 +281,13 @@ describe("createPolyScene", () => {
         handle.setTransform({ rotation: [0, 45, 0] });
 
         // Capture the current polygon element reference(s) before rebake.
-        const before = Array.from(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s")) as HTMLElement[];
+        const before = Array.from(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u")) as HTMLElement[];
         expect(before.length).toBeGreaterThan(0);
 
         handle.rebakeAtlas();
 
         // After rebake the wrapper should still have polygon elements.
-        const after = Array.from(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s")) as HTMLElement[];
+        const after = Array.from(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u")) as HTMLElement[];
         expect(after.length).toBeGreaterThan(0);
       });
 
@@ -325,7 +329,7 @@ describe("createPolyScene", () => {
         // With zero rotation the inverse is the identity, so the light direction
         // passed to the baker equals the original. No throw, mesh still renders.
         expect(() => handle.rebakeAtlas()).not.toThrow();
-        const polys = host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s");
+        const polys = host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u");
         expect(polys.length).toBeGreaterThan(0);
       });
 

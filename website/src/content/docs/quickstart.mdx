@@ -30,7 +30,7 @@ npm install @layoutit/polycss-vue
 
 ## 2. Add a scene and load a mesh
 
-The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — perspective, camera, lighting. The mesh element (`<poly-mesh>` / `PolyMesh`) loads an OBJ or GLB file and renders its polygons. Pass `rot-x` / `rot-y` to set the camera angle.
+The vanilla scene element (`<poly-scene>`) sets up the 3D viewport — perspective, camera, lighting. In React and Vue, wrap `<PolyScene>` in `<PolyCamera>` to provide the camera context. The mesh element (`<poly-mesh>` / `PolyMesh`) loads OBJ, glTF, GLB, or VOX files and renders their polygons. Pass `rot-x` / `rot-y` to `<poly-scene>` or `<PolyCamera>` to set the camera angle.
 
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
@@ -44,13 +44,15 @@ The scene element (`<poly-scene>` / `PolyScene`) sets up the 3D viewport — per
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
-    <PolyScene rotX={65} rotY={45} perspective={1000}>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
+    <PolyCamera rotX={65} rotY={45} perspective={1000}>
+      <PolyScene>
+        <PolyMesh src="/cottage.glb" />
+      </PolyScene>
+    </PolyCamera>
   );
 }
 ```
@@ -58,13 +60,15 @@ export function App() {
 <TabItem label="Vue">
 ```vue
 <template>
-  <PolyScene :rot-x="65" :rot-y="45" :perspective="1000">
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
+  <PolyCamera :rot-x="65" :rot-y="45" :perspective="1000">
+    <PolyScene>
+      <PolyMesh src="/cottage.glb" />
+    </PolyScene>
+  </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 </TabItem>
@@ -93,5 +97,5 @@ Every polygon in the loaded mesh becomes a real DOM element — an atlas-backed 
 - [Core Concepts](/core-concepts) — The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
 - [PolyCamera](/components/poly-camera) — Camera props and usage reference.
 - [PolyScene](/components/poly-scene) — Scene props and mesh options.
-- [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading and UV textures.
+- [Loading Meshes](/guides/textures) — OBJ, glTF, GLB, VOX, MTL loading, and UV textures.
 - [Gallery](/gallery) — Browse mesh models for inspiration.

@@ -3,7 +3,7 @@ title: Core Types
 description: TypeScript type definitions for polygons, camera state, lighting, and parse results.
 ---
 
-All types are exported from `@layoutit/polycss-react`, `@layoutit/polycss-vue`, and `@layoutit/polycss-core`.
+All types are exported from `@layoutit/polycss-react`, `@layoutit/polycss-vue`, `@layoutit/polycss`, and `@layoutit/polycss-core`.
 
 ## `Polygon`
 
@@ -18,6 +18,8 @@ interface Polygon {
   /** Image URL for UV-mapped rendering. When set with `uvs`, the renderer
    *  applies an affine UV transform. Without `uvs`, single-tile fill. */
   texture?: string;
+  /** Shared material. `material.texture` takes precedence over `texture`. */
+  material?: PolyMaterial;
   /** UV coordinates — one per vertex. Must match vertices.length.
    *  Mismatched arrays are stripped during normalizePolygons(). */
   uvs?: [number, number][];
@@ -29,20 +31,33 @@ interface Polygon {
 
 ---
 
+## `PolyMaterial`
+
+Shared texture material referenced by one or more polygons.
+
+```ts
+interface PolyMaterial {
+  /** Image source. Anything CSS background-image: url(...) can use. */
+  texture: string;
+  /** Optional stable identity for renderer-side dedupe/cache paths. */
+  key?: string;
+}
+```
+
+---
+
 ## `PolyDirectionalLight`
 
-Controls directional and ambient lighting for the scene.
+Controls the directional light for the scene.
 
 ```ts
 interface PolyDirectionalLight {
-  /** Direction the light shines toward (normalized). */
+  /** Direction the light shines toward. Normalization is handled internally. */
   direction: [number, number, number];
   /** Directional light color hex (default: "#ffffff"). */
   color?: string;
-  /** Ambient light intensity 0–1 (default: 0.4). */
-  ambient?: number;
-  /** Ambient light tint hex (default: "#ffffff"). */
-  ambientColor?: string;
+  /** Directional light intensity (default: 1). */
+  intensity?: number;
 }
 ```
 
@@ -54,10 +69,10 @@ Ambient-only light (no directional component).
 
 ```ts
 interface PolyAmbientLight {
-  /** Ambient light intensity 0–1 (default: 0.4). */
-  ambient?: number;
   /** Ambient light tint hex (default: "#ffffff"). */
-  ambientColor?: string;
+  color?: string;
+  /** Ambient light intensity (default: 0.4). */
+  intensity?: number;
 }
 ```
 
@@ -68,7 +83,7 @@ interface PolyAmbientLight {
 Controls how texture lighting is applied to atlas-backed polygons.
 
 ```ts
-type PolyTextureLightingMode = "none" | "multiply" | "screen";
+type PolyTextureLightingMode = "baked" | "dynamic";
 ```
 
 ---
@@ -95,7 +110,7 @@ type Vec3 = [number, number, number];
 
 ## `ParseResult`
 
-Unified return shape from all mesh parsers (`parseObj`, `parseGltf`, `loadMesh`).
+Unified return shape from all mesh parsers (`parseObj`, `parseGltf`, `parseVox`, `loadMesh`).
 
 ```ts
 interface ParseResult {
@@ -108,13 +123,37 @@ interface ParseResult {
   dispose: () => void;
   /** Non-fatal warnings raised during parse (dropped polygons, UV mismatches, etc.). */
   warnings: string[];
+  /** Optional animation sampler for glTF/GLB files with usable animation clips. */
+  animation?: ParseAnimationController;
   /** Optional format-specific metadata. */
   metadata?: {
     triangleCount?: number;
     meshes?: string[];
     materials?: string[];
+    animations?: ParseAnimationClip[];
     sourceBytes?: number;
   };
+}
+```
+
+---
+
+## `LoadMeshOptions`
+
+Options for the high-level `loadMesh` dispatcher. Format-specific parser settings are nested under the matching key.
+
+```ts
+interface LoadMeshOptions {
+  /** Base URL for resolving relative .gltf textures/buffers. */
+  baseUrl?: string;
+  /** Companion .mtl URL for OBJ models. Ignored for glTF/GLB/VOX. */
+  mtlUrl?: string;
+  /** Forwarded to parseObj; merged with materials from mtlUrl when present. */
+  objOptions?: ObjParseOptions;
+  /** Forwarded to parseGltf. */
+  gltfOptions?: GltfParseOptions;
+  /** Forwarded to parseVox. */
+  voxOptions?: VoxParseOptions;
 }
 ```
 
@@ -155,6 +194,21 @@ interface ObjParseOptions {
   excludeObjects?: string[];
   /** Quantize vertex colors to this palette. */
   palette?: string[];
+}
+```
+
+---
+
+## `VoxParseOptions`
+
+Options for `parseVox`.
+
+```ts
+interface VoxParseOptions {
+  /** Scale the model so its longest axis is this many world units. Default: 60. */
+  targetSize?: number;
+  /** Shift all vertices by this amount after scaling. Default: 0. */
+  gridShift?: number;
 }
 ```
 
@@ -221,15 +275,10 @@ Internal camera state (used by `createIsometricCamera`).
 
 ```ts
 interface CameraState {
+  target: [number, number, number];
   rotX: number;
   rotY: number;
   zoom: number;
   distance: number;           // dolly pull-back in pixels (default 0); adds translateZ(-distance)px
-  pan: number;
-  tilt: number;
-  perspective: number | null;  // null = parallel projection (PolyOrthographicCamera)
-  invertMultiplier: 1 | -1;
-  depthOffset: number;
-  invert?: boolean;
 }
 ```

@@ -40,18 +40,19 @@ This is most useful for architectural meshes with large flat surfaces: walls, fl
 
 ## `targetSize` and polygon count
 
-The single most effective way to reduce polygon count is to choose a smaller `targetSize` when parsing. This scales the model to fewer world-space units, and the parser (especially for OBJ) can skip triangles below the minimum renderable size.
+Use `targetSize` when parsing to keep models at a predictable world-space scale. This does not decimate the source mesh by itself, but it affects how large the generated DOM geometry and atlas footprints are. For real element-count reduction, rely on automatic coplanar merge, interior culling, or lower-poly source assets.
 
-```html
-<!-- Vanilla -->
-<poly-mesh src="/castle.obj" target-size="30"></poly-mesh>  <!-- fewer polygons → faster -->
-<poly-mesh src="/castle.obj" target-size="80"></poly-mesh>  <!-- more detail -->
+```ts
+// Vanilla imperative loading
+const result = await loadMesh("/castle.obj", {
+  objOptions: { targetSize: 30 },
+});
 ```
 
 ```tsx
-// React / Vue
-<PolyMesh src="/castle.obj" options={{ targetSize: 30 }} />
-<PolyMesh src="/castle.obj" options={{ targetSize: 80 }} />
+// React
+<PolyMesh src="/castle.obj" parseOptions={{ objOptions: { targetSize: 30 } }} />
+<PolyMesh src="/castle.obj" parseOptions={{ objOptions: { targetSize: 80 } }} />
 ```
 
 ## `atlasScale` and texture memory
@@ -66,10 +67,12 @@ Generated atlas pages default to `atlasScale="auto"`. Auto starts from the packe
 ```
 
 ```tsx
-// React / Vue
-<PolyScene atlasScale={0.5}>
-  <PolyMesh src="/cottage.glb" />
-</PolyScene>
+// React
+<PolyCamera>
+  <PolyScene atlasScale={0.5}>
+    <PolyMesh src="/cottage.glb" />
+  </PolyScene>
+</PolyCamera>
 
 // Or per mesh:
 <PolyMesh src="/cottage.glb" atlasScale={0.5} />

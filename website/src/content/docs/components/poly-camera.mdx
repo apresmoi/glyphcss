@@ -7,7 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 polycss provides two camera components for React and Vue: `<PolyPerspectiveCamera>` for 3D scenes with depth foreshortening, and `<PolyOrthographicCamera>` for parallel projection (map-style or technical rendering). `<PolyCamera>` is a re-exported alias for `<PolyPerspectiveCamera>` and can be used interchangeably.
 
-For most use cases, pass camera attributes directly to the scene element / `PolyScene` component instead. The camera wrapper is useful when you need imperative camera control (animating the camera from code, syncing it to external state, or splitting camera state and scene layout into separate React/Vue components).
+For vanilla custom elements, pass camera attributes directly to `<poly-scene>`. For React and Vue, render `<PolyScene>` inside a camera wrapper; this is what gives scenes and controls shared camera state.
 
 For pointer drag, wheel zoom, and autorotate, drop a `<PolyOrbitControls>` child inside the scene — see **[PolyOrbitControls](/components/poly-controls)**.
 
@@ -64,8 +64,6 @@ Set an initial angle and perspective.
 </TabItem>
 <TabItem label="React">
 ```tsx
-import { PolyPerspectiveCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
-// PolyCamera is an alias for PolyPerspectiveCamera:
 import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
@@ -103,8 +101,8 @@ For parallel projection, swap in `PolyOrthographicCamera`. It has no `perspectiv
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
 ```html
-<!-- Vanilla: omit perspective or set it to "none" -->
-<poly-scene perspective="none" rot-x="65" rot-y="45">
+<!-- Vanilla: omit perspective for the default, or set it to "false" for orthographic -->
+<poly-scene perspective="false" rot-x="65" rot-y="45">
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
@@ -171,7 +169,7 @@ Full options reference: **[PolyOrbitControls](/components/poly-controls)**.
 
 ## `usePolyCamera` hook (React)
 
-`usePolyCamera` is used internally by `<PolyCamera>`. For most use cases, pass camera props directly to `<PolyScene>` — it accepts all of `PolyCamera`'s state-shaping props. Use `<PolyCamera>` as a wrapper when you need to separate camera state from scene layout.
+`usePolyCamera` is used internally by `<PolyCamera>`. Use `<PolyCamera>` as the wrapper whenever a React or Vue scene needs camera state, pointer controls, wheel controls, or autorotate.
 
 ## Related
 

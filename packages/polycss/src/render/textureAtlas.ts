@@ -39,15 +39,25 @@ interface UvAffine {
   f: number;
 }
 
+interface UvSampleRect {
+  minU: number;
+  minV: number;
+  maxU: number;
+  maxV: number;
+}
+
 interface TextureAtlasPlan {
   index: number;
   polygon: Polygon;
   texture?: string;
+  tileSize: number;
+  layerElevation: number;
   matrix: string;
   canvasW: number;
   canvasH: number;
   screenPts: number[];
   uvAffine: UvAffine | null;
+  uvSampleRect: UvSampleRect | null;
   textureTriangles: TextureTrianglePlan[] | null;
   seamEdges: Set<number> | null;
   /** World-space surface normal — stable across light changes, used by dynamic mode. */
@@ -58,7 +68,8 @@ interface TextureAtlasPlan {
 
 interface TextureTrianglePlan {
   screenPts: number[];
-  uvAffine: UvAffine;
+  uvAffine: UvAffine | null;
+  uvSampleRect: UvSampleRect | null;
 }
 
 interface PackedTextureAtlasEntry extends TextureAtlasPlan {
@@ -912,6 +923,24 @@ function computeUvAffine(points: Vec2[], uvs: Vec2[]): UvAffine | null {
   return affine;
 }
 
+function computeUvSampleRect(uvs: Vec2[]): UvSampleRect | null {
+  if (uvs.length === 0) return null;
+  let minU = Infinity;
+  let minV = Infinity;
+  let maxU = -Infinity;
+  let maxV = -Infinity;
+  for (const uv of uvs) {
+    const u = uv[0];
+    const v = 1 - uv[1];
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return null;
+    minU = Math.min(minU, u);
+    maxU = Math.max(maxU, u);
+    minV = Math.min(minV, v);
+    maxV = Math.max(maxV, v);
+  }
+  return { minU, minV, maxU, maxV };
+}
+
 function projectTextureTriangle(
   triangle: TextureTriangle,
   tile: number,
@@ -933,10 +962,12 @@ function projectTextureTriangle(
     ];
   });
   const uvAffine = computeUvAffine(points, triangle.uvs);
-  if (!uvAffine) return null;
+  const uvSampleRect = computeUvSampleRect(triangle.uvs);
+  if (!uvAffine && !uvSampleRect) return null;
   return {
     screenPts: points.flatMap(([x, y]) => [x, y]),
     uvAffine,
+    uvSampleRect,
   };
 }
 
@@ -1088,7 +1119,9 @@ function computeTextureAtlasPlan(
   const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
 
   let uvAffine: UvAffine | null = null;
+  let uvSampleRect: UvSampleRect | null = null;
   if (texture && uvs && uvs.length >= 3 && uvs.length === vertices.length) {
+    uvSampleRect = computeUvSampleRect(uvs);
     uvAffine = computeUvAffine(
       local2D.map(([x, y]) => [x + shiftX, y + shiftY]),
       uvs,
@@ -1106,11 +1139,14 @@ function computeTextureAtlasPlan(
     index,
     polygon,
     texture,
+    tileSize: tile,
+    layerElevation: elev,
     matrix,
     canvasW: basis.canvasW,
     canvasH: basis.canvasH,
     screenPts,
     uvAffine,
+    uvSampleRect,
     textureTriangles,
     seamEdges: basisHint?.seamEdges.size ? basisHint.seamEdges : null,
     normal,
@@ -1240,11 +1276,18 @@ function computeSolidTrianglePlan(
   const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
   const directScale = lightIntensity * Math.max(0, normal[0] * lx + normal[1] * ly + normal[2] * lz);
   const shadedColor = shadePolygon(polygon.color ?? "#cccccc", directScale, lightColor, ambientColor, ambientIntensity);
+  const textureLighting = options.textureLighting ?? "baked";
+  const base = parseHex(polygon.color ?? "#cccccc");
+  const bakedColor = textureLighting === "dynamic" ? "" : `border-bottom-color:${shadedColor};`;
+  const dynamicVars = textureLighting === "dynamic"
+    ? `--pnx:${normal[0].toFixed(4)};--pny:${normal[1].toFixed(4)};--pnz:${normal[2].toFixed(4)};` +
+      `--psr:${(base.r / 255).toFixed(4)};--psg:${(base.g / 255).toFixed(4)};--psb:${(base.b / 255).toFixed(4)};`
+    : "";
   const styleText =
-    `width:0;height:0;transform:matrix3d(${matrix});` +
-    `box-sizing:content-box;border-style:solid;` +
+    `transform:matrix3d(${matrix});` +
     `border-width:0 ${rightPx}px ${heightPx}px ${leftPx}px;` +
-    `border-color:transparent transparent ${shadedColor} transparent;`;
+    bakedColor +
+    dynamicVars;
 
   return {
     index,
@@ -1367,6 +1410,49 @@ function paintSolidAtlasEntry(
   ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
 }
 
+function clampSourceCoord(value: number, max: number): number {
+  return Math.max(0, Math.min(max, value));
+}
+
+function drawImageUvSample(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  rect: UvSampleRect,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  atlasScale: number,
+): void {
+  const imgW = img.naturalWidth || img.width || 1;
+  const imgH = img.naturalHeight || img.height || 1;
+  const rawX0 = clampSourceCoord(Math.min(rect.minU, rect.maxU) * imgW, imgW);
+  const rawX1 = clampSourceCoord(Math.max(rect.minU, rect.maxU) * imgW, imgW);
+  const rawY0 = clampSourceCoord(Math.min(rect.minV, rect.maxV) * imgH, imgH);
+  const rawY1 = clampSourceCoord(Math.max(rect.minV, rect.maxV) * imgH, imgH);
+
+  let sx = Math.floor(rawX0);
+  let sy = Math.floor(rawY0);
+  let sw = Math.ceil(rawX1) - sx;
+  let sh = Math.ceil(rawY1) - sy;
+
+  if (sw < 1) {
+    sx = Math.floor(clampSourceCoord(((rect.minU + rect.maxU) / 2) * imgW, imgW - 1));
+    sw = 1;
+  }
+  if (sh < 1) {
+    sy = Math.floor(clampSourceCoord(((rect.minV + rect.maxV) / 2) * imgH, imgH - 1));
+    sh = 1;
+  }
+  sx = Math.max(0, Math.min(imgW - 1, sx));
+  sy = Math.max(0, Math.min(imgH - 1, sy));
+  sw = Math.max(1, Math.min(imgW - sx, sw));
+  sh = Math.max(1, Math.min(imgH - sy, sh));
+
+  setCssTransform(ctx, atlasScale);
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, width, height);
+}
+
 async function buildAtlasPage(
   page: PackedPage,
   textureLighting: PolyTextureLightingMode,
@@ -1417,14 +1503,27 @@ async function buildAtlasPage(
         }
         ctx.closePath();
         ctx.clip();
-        setCssTransform(
-          ctx,
-          atlasScale,
-          triangle.uvAffine.a / imgW, triangle.uvAffine.c / imgW,
-          triangle.uvAffine.b / imgH, triangle.uvAffine.d / imgH,
-          entry.x + triangle.uvAffine.e, entry.y + triangle.uvAffine.f,
-        );
-        ctx.drawImage(srcImg, 0, 0);
+        if (triangle.uvAffine) {
+          setCssTransform(
+            ctx,
+            atlasScale,
+            triangle.uvAffine.a / imgW, triangle.uvAffine.c / imgW,
+            triangle.uvAffine.b / imgH, triangle.uvAffine.d / imgH,
+            entry.x + triangle.uvAffine.e, entry.y + triangle.uvAffine.f,
+          );
+          ctx.drawImage(srcImg, 0, 0);
+        } else if (triangle.uvSampleRect) {
+          drawImageUvSample(
+            ctx,
+            srcImg,
+            triangle.uvSampleRect,
+            entry.x,
+            entry.y,
+            entry.canvasW,
+            entry.canvasH,
+            atlasScale,
+          );
+        }
         ctx.restore();
       }
     } else if (srcImg && entry.uvAffine) {
@@ -1438,6 +1537,17 @@ async function buildAtlasPage(
         entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
       );
       ctx.drawImage(srcImg, 0, 0);
+    } else if (srcImg && entry.uvSampleRect) {
+      drawImageUvSample(
+        ctx,
+        srcImg,
+        entry.uvSampleRect,
+        entry.x,
+        entry.y,
+        entry.canvasW,
+        entry.canvasH,
+        atlasScale,
+      );
     } else if (srcImg) {
       drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
     }
@@ -1600,6 +1710,10 @@ function isFullRectSolid(entry: TextureAtlasPlan): boolean {
   return !!fullRectBounds(entry);
 }
 
+function isSolidTrianglePlan(entry: TextureAtlasPlan): boolean {
+  return !entry.texture && entry.polygon.vertices.length === 3;
+}
+
 function borderShapeSupported(doc: Document): boolean {
   const css = doc.defaultView?.CSS ?? (typeof CSS !== "undefined" ? CSS : undefined);
   const supportsBorderShape = !!css?.supports?.(
@@ -1715,11 +1829,16 @@ export function renderPolygonsWithTextureAtlas(
   const plans = polygons.map((polygon, index) =>
     computeTextureAtlasPlan(polygon, index, options, basisHints[index])
   );
-  const atlasPlans = plans.map((plan) =>
+  const trianglePlans = plans.map((plan) =>
+    plan && isSolidTrianglePlan(plan)
+      ? computeSolidTrianglePlan(plan.polygon, plan.index, options)
+      : null
+  );
+  const atlasPlans = plans.map((plan, index) =>
     plan &&
     (plan.texture
       ? plan
-      : (!isFullRectSolid(plan) && !useBorderShape) ? plan : null)
+      : (!isFullRectSolid(plan) && !trianglePlans[index] && !useBorderShape) ? plan : null)
   );
   const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.atlasScale);
   const atlasElements = new Map<number, HTMLElement>();
@@ -1729,6 +1848,7 @@ export function renderPolygonsWithTextureAtlas(
 
   for (let i = 0; i < polygons.length; i++) {
     const plan = plans[i];
+    const trianglePlan = trianglePlans[i];
     if (!plan) continue;
 
     const entry = packed.entries[i];
@@ -1739,6 +1859,9 @@ export function renderPolygonsWithTextureAtlas(
     } else if (!plan.texture && isFullRectSolid(plan)) {
       const element = createSolidElement(plan, textureLighting, doc);
       rendered.push({ polygonIndex: i, element, kind: "solid", dispose: () => {} });
+    } else if (!plan.texture && trianglePlan) {
+      const element = createSolidTriangleElement(trianglePlan, doc);
+      rendered.push({ polygonIndex: i, element, kind: "triangle", dispose: () => {} });
     } else if (!plan.texture && useBorderShape) {
       const element = createBorderShapeSolidElement(plan, doc);
       rendered.push({ polygonIndex: i, element, kind: "border", dispose: () => {} });
@@ -1826,7 +1949,7 @@ function createSolidTriangleElement(
   entry: SolidTrianglePlan,
   doc: Document,
 ): HTMLElement {
-  const el = doc.createElement("i");
+  const el = doc.createElement("u");
   clearAtlasImageStyles(el);
   applySolidTriangleElement(el, entry);
   applyPolygonDataAttrs(el, entry.polygon);

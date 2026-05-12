@@ -2,12 +2,12 @@
 
 # polycss
 
-Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads OBJ, glTF, and GLB files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
+Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files; renders each polygon as a real DOM element (atlas-backed `<i>` for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. No WebGL, no canvas-as-scene.
 
 Two entry points:
 
 - **`polycss`** — imperative `createPolyScene` API + custom element classes (without auto-registering them).
-- **`polycss/elements`** — side-effect import that registers `<poly-scene>`, `<poly-mesh>`, and `<poly-polygon>` as custom elements.
+- **`polycss/elements`** — side-effect import that registers the scene, mesh, polygon, controls, camera, helper, select, and transform-control custom elements.
 
 ## Install
 
@@ -89,10 +89,12 @@ poly-polygon.hover { filter: brightness(1.5); }
 | `rot-x` | Camera X-axis rotation in degrees |
 | `rot-y` | Camera Y-axis rotation in degrees |
 | `zoom` | Scale factor |
-| `light-direction` | Comma-separated `x, y, z` e.g. `"0.5, -0.7, 0.6"` |
-| `light-color` | Directional light color hex |
-| `light-ambient` | Ambient intensity `0`–`1` |
-| `light-ambient-color` | Ambient light color hex |
+| `directional-direction` | Comma-separated `x, y, z` e.g. `"0.5, -0.7, 0.6"` |
+| `directional-color` | Directional light color hex |
+| `directional-intensity` | Directional light intensity |
+| `ambient-intensity` | Ambient light intensity |
+| `ambient-color` | Ambient light color hex |
+| `texture-lighting` | `"baked"` or `"dynamic"` |
 | `atlas-scale` | Raster scale for generated atlas pages; lower values reduce memory/detail |
 
 For pointer drag, wheel zoom, and autorotate, drop a `<poly-orbit-controls>` child inside the scene (or wire `createPolyOrbitControls(scene, ...)` against the imperative API). For pan-first map-style input use `<poly-map-controls>` / `createPolyMapControls` instead. Mirrors Three.js's split between camera state (`<poly-scene>`) and camera input.
@@ -133,7 +135,9 @@ const scene = createPolyScene(document.querySelector("#scene"), {
   directionalLight: { direction: [0.5, -0.7, 0.6] },
 });
 
-const mesh = await loadMesh("/cottage.glb", { targetSize: 60 });
+const mesh = await loadMesh("/cottage.glb", {
+  gltfOptions: { targetSize: 60 },
+});
 const handle = scene.add(mesh, { position: [0, 0, 0] });
 
 // Later:
@@ -151,7 +155,14 @@ mesh.dispose();
 | `perspective` | `number` | CSS perspective distance |
 | `rotX` | `number` | Camera X rotation in degrees |
 | `rotY` | `number` | Camera Y rotation in degrees |
-| `directionalLight` | `DirectionalLight` | Lighting config |
+| `zoom` | `number` | Camera zoom scale |
+| `distance` | `number` | Camera dolly pull-back in CSS pixels |
+| `target` | `Vec3` | World-coordinate camera target |
+| `directionalLight` | `PolyDirectionalLight` | Directional light config |
+| `ambientLight` | `PolyAmbientLight` | Ambient light config |
+| `textureLighting` | `"baked" \| "dynamic"` | Texture lighting mode |
+| `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages |
+| `autoCenter` | `boolean` | Rotate around the union bbox center of added meshes |
 
 Returns a `PolySceneHandle`:
 
@@ -159,7 +170,7 @@ Returns a `PolySceneHandle`:
 interface PolySceneHandle {
   add(mesh: ParseResult, opts?: { position?: Vec3; scale?: number | Vec3; rotation?: Vec3 }): PolyMeshHandle;
   setOptions(partial: Partial<PolySceneOptions>): void;
-  dispose(): void;
+  destroy(): void;
 }
 ```
 
@@ -172,7 +183,7 @@ Fetches and parses a mesh by URL (dispatches by extension: `.obj`, `.glb`, `.glt
 | Import | Effect |
 |---|---|
 | `import { createPolyScene } from "@layoutit/polycss"` | Imperative API + custom element classes (no auto-registration) |
-| `import "@layoutit/polycss/elements"` | Side-effect: registers `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>` |
+| `import "@layoutit/polycss/elements"` | Side-effect: registers the polycss custom elements |
 
 ## Re-exports from `@layoutit/polycss-core`
 

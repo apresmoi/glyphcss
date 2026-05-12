@@ -5,8 +5,10 @@ import type { Vec2, PolyMaterial } from "@layoutit/polycss-core";
 import type { PolyProps } from "./types";
 import {
   computeTextureAtlasPlan,
+  isSolidTrianglePlan,
   TextureBorderShapePoly,
   TextureAtlasPoly,
+  TextureTrianglePoly,
   useTextureAtlas,
   type TextureAtlasPlan,
 } from "../scene/textureAtlas";
@@ -284,7 +286,17 @@ function PolyInner({
         />
       );
     } else if (atlasPlan && !atlasPlan.texture) {
-      front = (
+      front = isSolidTrianglePlan(atlasPlan) ? (
+        <TextureTrianglePoly
+          entry={atlasPlan}
+          textureLighting={textureLighting}
+          className={className}
+          style={styleProp}
+          domAttrs={domAttrs}
+          domEventHandlers={domEventHandlers}
+          pointerEvents={pointerEventsProp ?? "auto"}
+        />
+      ) : (
         <TextureBorderShapePoly
           entry={atlasPlan}
           className={className}

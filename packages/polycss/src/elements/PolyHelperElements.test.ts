@@ -1,7 +1,7 @@
 /**
  * Tests for the helper custom elements — <poly-axes-helper> and
  * <poly-directional-light-helper>. They register themselves with the
- * nearest <poly-scene> via scene.add() and render polygon <i> elements
+ * nearest <poly-scene> via scene.add() and render polygon leaf elements
  * inside a .polycss-mesh wrapper.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -44,7 +44,7 @@ describe("PolyAxesHelperElement", () => {
         <poly-axes-helper size="4"></poly-axes-helper>
       </poly-scene>
     `;
-    const polys = host.querySelectorAll(".polycss-scene .polycss-mesh i, .polycss-scene .polycss-mesh b, .polycss-scene .polycss-mesh s");
+    const polys = host.querySelectorAll(".polycss-scene .polycss-mesh i, .polycss-scene .polycss-mesh b, .polycss-scene .polycss-mesh s, .polycss-scene .polycss-mesh u");
     expect(polys.length).toBe(18);
   });
 
@@ -82,13 +82,13 @@ describe("PolyDirectionalLightHelperElement", () => {
     );
   });
 
-  it("renders 8 polygon <i> elements (octahedron faces) when direction is set", () => {
+  it("renders 8 triangle <u> elements (octahedron faces) when direction is set", () => {
     host.innerHTML = `
       <poly-scene>
         <poly-directional-light-helper direction="0,0,1"></poly-directional-light-helper>
       </poly-scene>
     `;
-    const polys = host.querySelectorAll(".polycss-scene .polycss-mesh i");
+    const polys = host.querySelectorAll(".polycss-scene .polycss-mesh u");
     expect(polys.length).toBe(8);
   });
 

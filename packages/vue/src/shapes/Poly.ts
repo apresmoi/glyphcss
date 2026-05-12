@@ -13,8 +13,10 @@ import type { CSSProperties, PropType } from "vue";
 import type { PolyDirectionalLight, PolyTextureLightingMode, Vec2, Vec3, PolyMaterial } from "@layoutit/polycss-core";
 import {
   computeTextureAtlasPlan,
+  isSolidTrianglePlan,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
+  renderTextureTrianglePoly,
   useTextureAtlas,
   type AtlasScale,
   type TextureAtlasPlan,
@@ -250,13 +252,22 @@ export const Poly = defineComponent({
           pointerEvents: props.pointerEvents ?? "auto",
         });
       } else if (plan && !plan.texture) {
-        front = renderTextureBorderShapePoly({
-          entry: plan,
-          className: (forwardedAttrs.class as string) ?? undefined,
-          style: forwardedAttrs.style as CSSProperties | undefined,
-          domAttrs: forwardedDomAttrs,
-          pointerEvents: props.pointerEvents ?? "auto",
-        });
+        front = isSolidTrianglePlan(plan)
+          ? renderTextureTrianglePoly({
+              entry: plan,
+              textureLighting: atlasTextureLighting.value,
+              className: (forwardedAttrs.class as string) ?? undefined,
+              style: forwardedAttrs.style as CSSProperties | undefined,
+              domAttrs: forwardedDomAttrs,
+              pointerEvents: props.pointerEvents ?? "auto",
+            })
+          : renderTextureBorderShapePoly({
+              entry: plan,
+              className: (forwardedAttrs.class as string) ?? undefined,
+              style: forwardedAttrs.style as CSSProperties | undefined,
+              domAttrs: forwardedDomAttrs,
+              pointerEvents: props.pointerEvents ?? "auto",
+            });
       }
 
       if (!front) return null;

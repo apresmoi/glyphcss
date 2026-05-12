@@ -8,7 +8,7 @@ This package contains the entire non-rendering side of polycss: OBJ / glTF / GLB
 
 ## When to use directly
 
-Most users install `@layoutit/polycss-react`, `@layoutit/polycss-vue`, or `polycss` (vanilla). Those packages include `@layoutit/polycss-core` as a transitive runtime dependency and re-export its public types and functions, so you never need to write `import ... from "@layoutit/polycss-core"` in application code.
+Most users install `@layoutit/polycss-react`, `@layoutit/polycss-vue`, or `@layoutit/polycss` (vanilla). Those packages include `@layoutit/polycss-core` as a transitive runtime dependency and re-export its public types and functions, so you never need to write `import ... from "@layoutit/polycss-core"` in application code.
 
 Install `@layoutit/polycss-core` directly when you:
 
@@ -29,14 +29,15 @@ npm install @layoutit/polycss-core
 | `Vec2` | `[number, number]` — 2D point or UV coordinate |
 | `Vec3` | `[number, number, number]` — 3D point or direction |
 | `Polygon` | Single renderable polygon: `vertices`, optional `color`, `texture`, `uvs`, `data` |
-| `DirectionalLight` | Directional + ambient light: `direction`, `color`, `ambientColor`, `ambient` |
+| `PolyDirectionalLight` | Directional light: `direction`, optional `color`, optional `intensity` |
+| `PolyAmbientLight` | Ambient fill light: optional `color`, optional `intensity` |
 | `ParseResult` | Unified parser return: `polygons`, `objectUrls`, `dispose()`, `warnings` |
 | `ObjParseOptions` | Options for `parseObj` |
 | `GltfParseOptions` | Options for `parseGltf` |
 | `VoxParseOptions` | Options for `parseVox` |
 | `MtlParseResult` | `{ colors, textures }` from `parseMtl` |
 | `NormalizeResult` | `{ polygons, warnings }` from `normalizePolygons` |
-| `CameraState` | Camera angles, zoom, perspective |
+| `CameraState` | Camera target, angles, zoom, and dolly distance |
 | `CameraHandle` | Mutable camera object from `createIsometricCamera` |
 | `AutoRotateOption` | `boolean | number | { axis, speed, pauseOnInteraction }` |
 
@@ -47,7 +48,7 @@ npm install @layoutit/polycss-core
 | `normalizePolygons(input)` | Validates polygons. Drops degenerate ones, auto-triangulates non-coplanar N-gons, strips mismatched UVs. Returns `{ polygons, warnings }`. |
 | `mergePolygons(polygons)` | Coplanar same-material adjacent merge. Reduces DOM element count on flat surfaces. |
 | `computeSceneBbox(polygons)` | Computes min/max bounds across all polygon vertices. |
-| `createIsometricCamera(initial?)` | Creates a mutable camera state object with `getState()` / `setState()` / `update()`. |
+| `createIsometricCamera(initial?)` | Creates a mutable camera handle with `state`, `update(partial)`, and `getStyle()`. |
 | `parseObj(text, options?)` | Parses OBJ text into `ParseResult`. Supports UV (`vt`), materials, `map_Kd` textures. |
 | `parseMtl(text)` | Parses MTL text into `{ colors, textures }`. |
 | `parseGltf(buffer, options?)` | Parses GLB or glTF `ArrayBuffer` into `ParseResult`. Extracts embedded textures as blob URLs. |

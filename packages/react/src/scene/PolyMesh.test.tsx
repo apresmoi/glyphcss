@@ -82,15 +82,15 @@ describe("PolyMesh — with polygons prop", () => {
     expect(mesh).toBeTruthy();
   });
 
-  it("renders polygon i elements for each polygon", () => {
+  it("renders polygon leaf elements for each polygon", () => {
     const container = renderMesh({ polygons: [TRIANGLE, QUAD] });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(2);
   });
 
   it("renders no poly elements for empty polygons array", () => {
     const container = renderMesh({ polygons: [] });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(0);
   });
 
@@ -174,13 +174,13 @@ describe("PolyMesh — autoCenter", () => {
   it("autoCenter=true recenters polygon vertices", () => {
     // QUAD centroid is at (1, 1, 1) so recentered vertices should shift
     const container = renderMesh({ polygons: [QUAD], autoCenter: true });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(1);
   });
 
   it("autoCenter=false leaves vertices unmodified", () => {
     const container = renderMesh({ polygons: [QUAD], autoCenter: false });
-    const polys = container.querySelectorAll("i,b,s");
+    const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(1);
   });
 });

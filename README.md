@@ -24,13 +24,13 @@ npm install @layoutit/polycss
 ## Quick start — React
 
 ```tsx
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-react";
+import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-react";
 
 export function App() {
   return (
     <PolyCamera rotX={65} rotY={45}>
       <PolyScene>
-        <PolyControls />
+        <PolyOrbitControls drag wheel />
         <PolyMesh src="/cottage.glb" />
       </PolyScene>
     </PolyCamera>
@@ -44,14 +44,14 @@ export function App() {
 <template>
   <PolyCamera :rot-x="65" :rot-y="45">
     <PolyScene>
-      <PolyControls />
+      <PolyOrbitControls drag wheel />
       <PolyMesh src="/cottage.glb" />
     </PolyScene>
   </PolyCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss-vue";
+import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-vue";
 </script>
 ```
 
@@ -61,7 +61,7 @@ import { PolyCamera, PolyScene, PolyControls, PolyMesh } from "@layoutit/polycss
 <script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
 
 <poly-scene rot-x="65" rot-y="45">
-  <poly-controls></poly-controls>
+  <poly-orbit-controls drag wheel></poly-orbit-controls>
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
@@ -90,7 +90,7 @@ Render polygons directly when you need per-face DOM events or custom styling:
 | Package | Description |
 |---|---|
 | `@layoutit/polycss-core` | Parsers, geometry, lighting, and camera helpers. |
-| `@layoutit/polycss-react` | React components (`PolyCamera`, `PolyScene`, `PolyControls`, `PolyMesh`, `Poly`). |
+| `@layoutit/polycss-react` | React components (`PolyCamera`, `PolyScene`, `PolyOrbitControls`, `PolyMapControls`, `PolyMesh`, `Poly`). |
 | `@layoutit/polycss-vue` | Vue 3 components with the same rendering surface. |
 | `@layoutit/polycss` | Vanilla custom elements + imperative `createPolyScene` API. |
 

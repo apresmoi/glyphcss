@@ -51,7 +51,7 @@ function withFakeLayout(cameraScale: number, fn: () => void): void {
 
 /**
  * Dispatch a pointerdown on an arrow/ring element and simulate a drag.
- * Uses `<i>` polygon rects for the hit-test: sets the gizmo's <i> children
+ * Uses polygon rects for the hit-test: sets the gizmo's leaf children
  * to have known rects that include clientX/clientY.
  */
 function triggerPointerDownOnGizmoEl(
@@ -63,13 +63,13 @@ function triggerPointerDownOnGizmoEl(
   const el = host.querySelector(selector) as HTMLElement | null;
   if (!el) throw new Error(`No element matching ${selector}`);
 
-  // Give the first <i> child a bounding rect that covers the pointer position
+  // Give each leaf child a bounding rect that covers the pointer position
   // by injecting a style that withFakeLayout can pick up, OR by directly
-  // creating an <i> element with position. Since pointInMeshElement checks <i>
+  // creating a leaf element with position. Since pointInMeshElement checks leaf
   // rects via getBoundingClientRect, we need to patch getBoundingClientRect
-  // on the <i> elements inside this gizmo mesh to return rects containing the
+  // on the leaf elements inside this gizmo mesh to return rects containing the
   // pointer coordinates.
-  const iEls = el.querySelectorAll("i");
+  const iEls = el.querySelectorAll("i,b,s,u");
   const origRects = new Map<Element, () => DOMRect>();
   iEls.forEach((i) => {
     origRects.set(i, i.getBoundingClientRect.bind(i));

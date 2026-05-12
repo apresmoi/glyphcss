@@ -23,9 +23,11 @@ import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import { usePolyMesh } from "./useMesh";
 import {
   computeTextureAtlasPlan,
+  isSolidTrianglePlan,
   type AtlasScale,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
+  renderTextureTrianglePoly,
   useTextureAtlas,
 } from "./textureAtlas";
 import { usePolySceneContext } from "./sceneContext";
@@ -415,19 +417,20 @@ export const PolyMesh = defineComponent({
       // Build polygon nodes: use `polygon` scoped slot if provided, else auto-render atlas elements.
       const polyNodes: Array<VNode | null> = slots.polygon
         ? polys.map((p, i) => h("template", { key: i }, slots.polygon?.({ polygon: p, index: i })))
-        : textureAtlas.entries.value.map((entry, index) =>
-            entry
-              ? renderTextureAtlasPoly({
-                  entry,
-                  page: textureAtlas.pages.value[entry.pageIndex],
-                  textureLighting: atlasTextureLighting.value,
-                })
-              : textureAtlasPlans.value[index] && !textureAtlasPlans.value[index]?.texture
-                ? renderTextureBorderShapePoly({
-                    entry: textureAtlasPlans.value[index]!,
-                  })
-                : null
-          );
+        : textureAtlas.entries.value.map((entry, index) => {
+            if (entry) {
+              return renderTextureAtlasPoly({
+                entry,
+                page: textureAtlas.pages.value[entry.pageIndex],
+                textureLighting: atlasTextureLighting.value,
+              });
+            }
+            const plan = textureAtlasPlans.value[index];
+            if (!plan || plan.texture) return null;
+            return isSolidTrianglePlan(plan)
+              ? renderTextureTrianglePoly({ entry: plan, textureLighting: atlasTextureLighting.value })
+              : renderTextureBorderShapePoly({ entry: plan });
+          });
 
       // Static default slot children (e.g. additional <PolyMesh> children)
       const defaultChildren = slots.default?.() ?? [];
