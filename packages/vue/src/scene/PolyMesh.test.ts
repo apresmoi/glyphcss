@@ -21,6 +21,26 @@ const TEXTURED_TRIANGLE: Polygon = {
   uvs: [[0, 0], [1, 0], [0, 1]],
 };
 
+const OFFSET_TEXTURED_TRIANGLE: Polygon = {
+  vertices: [
+    [10, 0, 0],
+    [12, 0, 0],
+    [10, 2, 0],
+  ],
+  texture: "tex.png",
+  uvs: [[0, 0], [1, 0], [0, 1]],
+  textureTriangles: [
+    {
+      vertices: [
+        [10, 0, 0],
+        [12, 0, 0],
+        [10, 2, 0],
+      ],
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    },
+  ],
+};
+
 const QUAD: Polygon = {
   vertices: [
     [0, 0, 1],
@@ -171,6 +191,23 @@ describe("PolyMesh (Vue) — autoCenter", () => {
     const { container } = renderMesh({ polygons: [QUAD], autoCenter: false });
     const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(1);
+  });
+
+  it("autoCenter=true also recenters texture triangle source vertices", () => {
+    const received: Polygon[] = [];
+    renderMesh(
+      { polygons: [OFFSET_TEXTURED_TRIANGLE], autoCenter: true },
+      {
+        polygon: ({ polygon }: { polygon: Polygon }) => {
+          received.push(polygon);
+          return h("div");
+        },
+      },
+    );
+
+    const polygon = received.find((p) => p.textureTriangles?.length);
+    expect(polygon?.vertices[0]).toEqual([-1, -1, 0]);
+    expect(polygon?.textureTriangles?.[0].vertices[0]).toEqual([-1, -1, 0]);
   });
 });
 

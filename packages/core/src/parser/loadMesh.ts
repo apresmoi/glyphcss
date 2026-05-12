@@ -22,6 +22,7 @@ import { parseObj } from "./parseObj";
 import { parseGltf } from "./parseGltf";
 import { parseMtl } from "./parseMtl";
 import { parseVox } from "./parseVox";
+import { bakeSolidTextureSamples, type SolidTextureSampleOptions } from "./solidTextureSamples";
 import { mergePolygons } from "../merge/mergePolygons";
 import { cullInteriorPolygons } from "../cull/cullInteriorPolygons";
 
@@ -46,6 +47,12 @@ export interface LoadMeshOptions {
   gltfOptions?: GltfParseOptions;
   /** Forwarded to `parseVox`. */
   voxOptions?: VoxParseOptions;
+  /**
+   * Converts texture-backed faces whose UV samples are a uniform color into
+   * solid-color polygons before culling/merging. This avoids atlas sprites for
+   * low-poly models that use texture atlases as color swatches.
+   */
+  solidTextureSamples?: boolean | SolidTextureSampleOptions;
 }
 
 const FETCH_NAME = "loadMesh";
@@ -68,6 +75,15 @@ function withMergedPolygons(result: ParseResult): ParseResult {
   const merged = mergePolygons(surface);
   if (merged.length === result.polygons.length) return result; // nothing changed
   return { ...result, polygons: merged };
+}
+
+async function withSolidTextureSamples(result: ParseResult, options?: LoadMeshOptions): Promise<ParseResult> {
+  const setting = options?.solidTextureSamples;
+  if (setting === false) return result;
+  return bakeSolidTextureSamples(
+    result,
+    typeof setting === "object" ? setting : undefined,
+  );
 }
 
 function extensionOf(url: string): string {
@@ -141,14 +157,16 @@ export async function loadMesh(url: string, options?: LoadMeshOptions): Promise<
       };
     }
 
-    return withMergedPolygons(parseObj(text, objOptions));
+    const parsed = parseObj(text, objOptions);
+    return withMergedPolygons(await withSolidTextureSamples(parsed, options));
   }
 
   if (ext === "glb" || ext === "gltf") {
     const res = await fetchFn(url);
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const buf = await res.arrayBuffer();
-    return withMergedPolygons(parseGltf(buf, { baseUrl, ...(options?.gltfOptions ?? {}) }));
+    const parsed = parseGltf(buf, { baseUrl, ...(options?.gltfOptions ?? {}) });
+    return withMergedPolygons(await withSolidTextureSamples(parsed, options));
   }
 
   if (ext === "vox") {

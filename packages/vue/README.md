@@ -36,13 +36,13 @@ Root of every Vue polycss render tree. Renders polygons and meshes inside a `<Po
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `directional-light` | `PolyDirectionalLight` | — | Directional light config |
-| `ambient-light` | `PolyAmbientLight` | — | Ambient light config |
+| `directional-light` | `PolyDirectionalLight` | None | Directional light config |
+| `ambient-light` | `PolyAmbientLight` | None | Ambient light config |
 | `texture-lighting` | `"baked" \| "dynamic"` | `"baked"` | Texture lighting mode |
 | `atlas-scale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages |
-| `polygons` | `Polygon[]` | — | Static polygon array (composes with slot) |
+| `polygons` | `Polygon[]` | None | Static polygon array (composes with slot) |
 
-For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>` — it receives the camera context. Mirrors Three.js's split between camera state and input.
+For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>`: it receives the camera context. Mirrors Three.js's split between camera state and input.
 
 ### `<PolyMesh>`
 
@@ -59,7 +59,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `auto-center` | `boolean` | Shift mesh so its bbox center is at origin |
 | `mtl` | `string` | Companion `.mtl` URL for OBJ models |
 
-Named slot: `#polygon="{ polygon, index }"` — per-polygon scoped slot for rendering overrides. The default slot is for static children inside the mesh wrapper.
+Named slot: `#polygon="{ polygon, index }"`: per-polygon scoped slot for rendering overrides. The default slot is for static children inside the mesh wrapper.
 
 ### `<Poly>`
 
@@ -67,7 +67,7 @@ Single polygon. Renders one atlas-backed `<i>` for UV-textured and flat-color fa
 
 | Prop | Type | Description |
 |---|---|---|
-| `vertices` | `Vec3[]` | Required — 3+ `[x, y, z]` points |
+| `vertices` | `Vec3[]` | Required: 3+ `[x, y, z]` points |
 | `color` | `string` | CSS color; used when no texture is set |
 | `texture` | `string` | Image URL for UV-mapped rendering |
 | `uvs` | `Vec2[]` | UV coordinates, one per vertex |

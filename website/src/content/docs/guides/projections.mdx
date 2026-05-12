@@ -8,7 +8,7 @@ import PolyDemo from '../../../components/PolyDemo.astro';
 
 polycss uses CSS 3D perspective to project the scene. The `perspective` attribute on vanilla `<poly-scene>` (or `perspective` prop on React/Vue `<PolyCamera>`) controls the depth illusion, and `rot-x` / `rot-y` control the camera angle.
 
-## Live demo — camera controls
+## Live demo: camera controls
 
 Use the sliders below to explore how `perspective`, `rotX`, and `rotY` interact.
 
@@ -62,7 +62,7 @@ import { PolyCamera, PolyScene, PolyMesh, PolyOrthographicCamera } from "@layout
   </PolyScene>
 </PolyCamera>
 
-// Orthographic — use PolyOrthographicCamera, not perspective={false}
+// Orthographic: use PolyOrthographicCamera, not perspective={false}
 <PolyOrthographicCamera rotX={65} rotY={45}>
   <PolyScene>
     <PolyMesh src="/cottage.glb" />
@@ -99,8 +99,8 @@ import { PolyCamera, PolyScene, PolyMesh, PolyOrthographicCamera } from "@layout
 
 Use `rot-x` and `rot-y` on vanilla `<poly-scene>`, or `rotX` / `rotY` on React/Vue `<PolyCamera>`, to position the camera:
 
-- `rotX` — vertical tilt. `90` is straight-down top view; `0` is horizontal.
-- `rotY` — horizontal rotation (0–360). Controls which face of the scene is forward.
+- `rotX`: vertical tilt. `90` is straight-down top view; `0` is horizontal.
+- `rotY`: horizontal rotation (0–360). Controls which face of the scene is forward.
 
 ```html
 <!-- Vanilla -->
@@ -124,6 +124,6 @@ Use `rot-x` and `rot-y` on vanilla `<poly-scene>`, or `rotX` / `rotY` on React/V
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — Scene rendering and lighting reference.
-- [PolyCamera](/components/poly-camera) — Full `perspective`, `rotX`, `rotY` prop reference.
-- [Performance](/guides/performance) — Merge modes and DOM tuning.
+- [PolyScene](/components/poly-scene): Scene rendering and lighting reference.
+- [PolyCamera](/components/poly-camera): Full `perspective`, `rotX`, `rotY` prop reference.
+- [Performance](/guides/performance): Merge modes and DOM tuning.

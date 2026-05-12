@@ -4,6 +4,19 @@ import { loadMesh } from "./loadMesh";
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const SIMPLE_OBJ = `v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n`;
+const TEXTURED_QUAD_OBJ = [
+  "v 0 0 0",
+  "v 1 0 0",
+  "v 1 1 0",
+  "v 0 1 0",
+  "vt 0 0",
+  "vt 1 0",
+  "vt 1 1",
+  "vt 0 1",
+  "usemtl Swatch",
+  "f 1/1 2/2 3/3 4/4",
+  "",
+].join("\n");
 
 function makeMockFetch(opts: {
   ok?: boolean;
@@ -16,6 +29,37 @@ function makeMockFetch(opts: {
     status: opts.status ?? 200,
     text: () => Promise.resolve(opts.text ?? ""),
     arrayBuffer: () => Promise.resolve(opts.arrayBuffer ?? new ArrayBuffer(0)),
+  });
+}
+
+function stubTexturePixels(width: number, height: number, pixels: Uint8Array): void {
+  vi.stubGlobal("Image", class MockImage {
+    decoding = "";
+    naturalWidth = width;
+    naturalHeight = height;
+    width = width;
+    height = height;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.());
+    }
+    decode() {
+      return Promise.resolve();
+    }
+  });
+  vi.stubGlobal("document", {
+    createElement(tagName: string) {
+      if (tagName !== "canvas") return {};
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          drawImage: vi.fn(),
+          getImageData: () => ({ data: pixels }),
+        }),
+      };
+    },
   });
 }
 
@@ -80,6 +124,40 @@ describe("loadMesh", () => {
       vi.stubGlobal("fetch", makeMockFetch({ text: SIMPLE_OBJ }));
       const result = await loadMesh("model.obj");
       expect(result.polygons).toHaveLength(1);
+    });
+
+    it("bakes uniform texture samples into solid polygons before merging", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_QUAD_OBJ }));
+      stubTexturePixels(2, 2, new Uint8Array([
+        255, 0, 0, 255, 255, 0, 0, 255,
+        255, 0, 0, 255, 255, 0, 0, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+      });
+
+      expect(result.polygons).toHaveLength(1);
+      expect(result.polygons[0].texture).toBeUndefined();
+      expect(result.polygons[0].uvs).toBeUndefined();
+      expect(result.polygons[0].color).toBe("#ff0000");
+      expect(result.polygons[0].vertices).toHaveLength(4);
+    });
+
+    it("keeps non-uniform texture samples texture-backed", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_QUAD_OBJ }));
+      stubTexturePixels(2, 2, new Uint8Array([
+        255, 0, 0, 255, 0, 0, 255, 255,
+        255, 0, 0, 255, 255, 0, 0, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+      });
+
+      expect(result.polygons).toHaveLength(1);
+      expect(result.polygons[0].texture).toBe("swatch.png");
+      expect(result.polygons[0].uvs).toBeDefined();
     });
   });
 

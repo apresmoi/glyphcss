@@ -1,17 +1,17 @@
 ---
 title: Introduction
-description: polycss is a CSS polygon-mesh renderer — DOM-native 3D without WebGL.
+description: "polycss is a CSS polygon-mesh renderer: DOM-native 3D without WebGL."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-**polycss** renders textured 3D meshes in the DOM. No WebGL, no canvas-as-scene — the rendered output is a tree of standard DOM elements (atlas-backed `<i>` sprites for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach event handlers to, and inspect in DevTools.
+**polycss** renders textured 3D meshes in the DOM. No WebGL, no canvas-as-scene: the rendered output is a tree of standard DOM elements (atlas-backed `<i>` sprites for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach event handlers to, and inspect in DevTools.
 
 Internally, polycss uses an off-DOM canvas to pack textured and flat-color polygons into atlas pages once at mount; each polygon then references its atlas region with CSS background positioning. So the user-visible runtime tree is plain DOM, with one-time atlas generation at load.
 
 ## Framework Support
 
-polycss is **vanilla-first**. The default entry point is custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API — no framework required. First-class bindings for **React** and **Vue** ship as separate packages on top of the same engine. Pick whatever fits your stack.
+polycss is **vanilla-first**. The default entry point is custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API: no framework required. First-class bindings for **React** and **Vue** ship as separate packages on top of the same engine. Pick whatever fits your stack.
 
 ## Installation
 
@@ -43,7 +43,7 @@ You can also load polycss directly from a CDN with no build step:
 
 ## A quick taste
 
-Load a GLB mesh into an interactive scene with zero JS — just custom elements:
+Load a GLB mesh into an interactive scene with zero JS: just custom elements:
 
 ```html
 <script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
@@ -73,7 +73,7 @@ Continue to **[Quickstart →](/quickstart)** for the full walkthrough with Vani
 
 ## Related
 
-- [Quickstart](/quickstart) — Full install + first scene walkthrough.
-- [Core Concepts](/core-concepts) — The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
-- [PolyCamera](/components/poly-camera) — Camera component reference.
-- [PolyScene](/components/poly-scene) — Scene component reference.
+- [Quickstart](/quickstart): Full install + first scene walkthrough.
+- [Core Concepts](/core-concepts): The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
+- [PolyCamera](/components/poly-camera): Camera component reference.
+- [PolyScene](/components/poly-scene): Scene component reference.

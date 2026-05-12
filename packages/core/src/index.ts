@@ -110,6 +110,11 @@ export { parseMtl } from "./parser/parseMtl";
 export type { MtlParseResult } from "./parser/parseMtl";
 export { parseGltf } from "./parser/parseGltf";
 export type { GltfParseOptions } from "./parser/parseGltf";
+export {
+  bakeSolidTextureSamples,
+  bakeSolidTextureSampledPolygons,
+} from "./parser/solidTextureSamples";
+export type { SolidTextureSampleOptions } from "./parser/solidTextureSamples";
 export { parseVox } from "./parser/parseVox";
 export type { VoxParseOptions } from "./parser/parseVox";
 export { loadMesh } from "./parser/loadMesh";

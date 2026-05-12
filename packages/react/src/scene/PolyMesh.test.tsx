@@ -26,6 +26,26 @@ const QUAD: Polygon = {
   color: "#00ff00",
 };
 
+const OFFSET_TEXTURED_TRIANGLE: Polygon = {
+  vertices: [
+    [10, 0, 0],
+    [12, 0, 0],
+    [10, 2, 0],
+  ],
+  texture: "tex.png",
+  uvs: [[0, 0], [1, 0], [0, 1]],
+  textureTriangles: [
+    {
+      vertices: [
+        [10, 0, 0],
+        [12, 0, 0],
+        [10, 2, 0],
+      ],
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    },
+  ],
+};
+
 function renderMesh(props: React.ComponentProps<typeof PolyMesh>): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -182,6 +202,21 @@ describe("PolyMesh — autoCenter", () => {
     const container = renderMesh({ polygons: [QUAD], autoCenter: false });
     const polys = container.querySelectorAll("i,b,s,u");
     expect(polys.length).toBe(1);
+  });
+
+  it("autoCenter=true also recenters texture triangle source vertices", () => {
+    const received: Polygon[] = [];
+    renderMeshWithChildren(
+      { polygons: [OFFSET_TEXTURED_TRIANGLE], autoCenter: true },
+      (polygon) => {
+        received.push(polygon);
+        return null;
+      },
+    );
+
+    const polygon = received.find((p) => p.textureTriangles?.length);
+    expect(polygon?.vertices[0]).toEqual([-1, -1, 0]);
+    expect(polygon?.textureTriangles?.[0].vertices[0]).toEqual([-1, -1, 0]);
   });
 });
 

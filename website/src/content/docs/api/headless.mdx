@@ -17,8 +17,8 @@ const { polygons, warnings, dispose } = parseObj(text, {
   targetSize: 60,
   defaultColor: "#cccccc",
 });
-// polygons — Polygon[] ready for rendering
-// warnings — non-fatal issues found during parse
+// polygons: Polygon[] ready for rendering
+// warnings: non-fatal issues found during parse
 dispose(); // revoke any blob URLs (OBJ rarely creates them)
 ```
 
@@ -38,8 +38,8 @@ const { polygons, objectUrls, dispose } = parseGltf(buf, {
   targetSize: 60,
   baseUrl: new URL("/model.glb", location.href).href,
 });
-// polygons — Polygon[]
-// objectUrls — blob: URLs for embedded textures (auto-revoked by dispose())
+// polygons: Polygon[]
+// objectUrls: blob: URLs for embedded textures (auto-revoked by dispose())
 dispose(); // always call on cleanup
 ```
 
@@ -55,8 +55,8 @@ Parses an MTL file text string into a material map.
 import { parseMtl } from "@layoutit/polycss-core";
 
 const { colors, textures } = parseMtl(mtlText);
-// colors — Record<materialName, cssColor>
-// textures — Record<materialName, imagePath>
+// colors: Record<materialName, cssColor>
+// textures: Record<materialName, imagePath>
 ```
 
 ---
@@ -88,7 +88,7 @@ import type { Polygon } from "@layoutit/polycss-core";
 
 const raw: Polygon[] = [
   { vertices: [[0,0,0],[1,0,0],[0,1,0]], color: "#f00" },
-  { vertices: [[0,0,0],[0,0,0],[0,0,0]] }, // degenerate — will be dropped
+  { vertices: [[0,0,0],[0,0,0],[0,0,0]] }, // degenerate: will be dropped
 ];
 
 const { polygons, warnings } = normalizePolygons(raw);
@@ -121,16 +121,16 @@ const cam = createIsometricCamera({
   rotX: 65,
   rotY: 45,
 });
-// cam.state — current CameraState
-// cam.update(partial) — merge partial state
-// cam.getStyle(...) — returns CSS property map
+// cam.state: current CameraState
+// cam.update(partial): merge partial state
+// cam.getStyle(...): returns CSS property map
 ```
 
 ---
 
 ## `createPolyOrbitControls(scene, options?)`
 
-Attach pointer drag, wheel zoom, and an optional autorotate loop to a scene returned by `createPolyScene`. Pure additive layer — the renderer stays free of input concerns. Modelled on Three.js `OrbitControls`.
+Attach pointer drag, wheel zoom, and an optional autorotate loop to a scene returned by `createPolyScene`. Pure additive layer: the renderer stays free of input concerns. Modelled on Three.js `OrbitControls`.
 
 Use `createPolyMapControls(scene, options?)` instead when you want map/pan-style drag (pointer pans the camera across a flat surface rather than orbiting the scene center).
 
@@ -186,15 +186,15 @@ controls.addEventListener("end",   () => endInteraction());
 | `removeEventListener(type, fn)` | Unsubscribe by exact listener reference. |
 | `hasEventListener(type, fn)` | Returns `true` if the listener is currently subscribed. |
 
-`'change'` fires on every camera mutation the controls trigger — pointer drag (per `pointermove`), wheel zoom (per wheel event), and autorotate (per rAF tick). `'start'` / `'end'` fire once per gesture: pointerdown→pointerup for drags, first-wheel→idle (~150 ms) for wheel bursts. Autorotate emits `'change'` only — no `'start'` / `'end'`, since there's no user gesture.
+`'change'` fires on every camera mutation the controls trigger: pointer drag (per `pointermove`), wheel zoom (per wheel event), and autorotate (per rAF tick). `'start'` / `'end'` fire once per gesture: pointerdown→pointerup for drags, first-wheel→idle (~150 ms) for wheel bursts. Autorotate emits `'change'` only: no `'start'` / `'end'`, since there's no user gesture.
 
 ### Required scene surface
 
 `createPolyOrbitControls` reads from and writes to its scene argument via two members on `PolySceneHandle`:
 
-- `scene.host: HTMLElement` — the element handlers are attached to.
-- `scene.getOptions()` — read current `rotX` / `rotY` / `zoom` / `target` / `distance`.
-- `scene.setOptions({ rotX, rotY, zoom, target, distance })` — apply state changes.
+- `scene.host: HTMLElement`: the element handlers are attached to.
+- `scene.getOptions()`: read current `rotX` / `rotY` / `zoom` / `target` / `distance`.
+- `scene.setOptions({ rotX, rotY, zoom, target, distance })`: apply state changes.
 
 Anything that satisfies that subset works, so layered helpers can compose multiple controls or build their own input on top.
 
@@ -225,4 +225,4 @@ See the [polycss README](https://github.com/LayoutitStudio/polycss/tree/main/pac
 | `@layoutit/polycss-vue` | Vue components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera` |
 | `@layoutit/polycss` | Vanilla imperative API + custom element classes |
 | `@layoutit/polycss/elements` | Side-effect: registers the polycss custom elements |
-| `@layoutit/polycss-core` | Pure parsers / math, zero DOM — `parseObj`, `parseGltf`, `parseVox`, `loadMesh`, types |
+| `@layoutit/polycss-core` | Pure parsers / math, zero DOM: `parseObj`, `parseGltf`, `parseVox`, `loadMesh`, types |

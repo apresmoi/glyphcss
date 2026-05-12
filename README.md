@@ -21,7 +21,7 @@ npm install @layoutit/polycss-vue
 npm install @layoutit/polycss
 ```
 
-## Quick start — React
+## Quick start: React
 
 ```tsx
 import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-react";
@@ -38,7 +38,7 @@ export function App() {
 }
 ```
 
-## Quick start — Vue
+## Quick start: Vue
 
 ```vue
 <template>
@@ -55,7 +55,7 @@ import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/po
 </script>
 ```
 
-## Quick start — Vanilla HTML
+## Quick start: Vanilla HTML
 
 ```html
 <script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>

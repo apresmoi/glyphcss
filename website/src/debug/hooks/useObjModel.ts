@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { parseObj, parseMtl, parseGltf } from "@layoutit/polycss-react";
+import { bakeSolidTextureSamples, parseObj, parseMtl, parseGltf } from "@layoutit/polycss-react";
 import type {
   GltfParseOptions, Polygon, ObjParseOptions,
 } from "@layoutit/polycss-react";
@@ -64,7 +64,8 @@ export function useObjModel(load: LoadOptions): MeshModelState {
             materialColors: { ...mtl.colors, ...load.options?.materialColors },
             materialTextures: { ...resolvedTextures, ...load.options?.materialTextures },
           };
-          const parsed = parseObj(objText, opts);
+          const parsedObj = parseObj(objText, opts);
+          const parsed = await bakeSolidTextureSamples(parsedObj);
           setState({ voxels: parsed.polygons, loading: false, error: null });
           return;
         }
@@ -74,7 +75,8 @@ export function useObjModel(load: LoadOptions): MeshModelState {
         });
         if (cancelled) return;
         const absUrl = new URL(load.url, window.location.href).href;
-        const parsed = parseGltf(buf, { ...load.options, baseUrl: absUrl });
+        const parsedGltf = parseGltf(buf, { ...load.options, baseUrl: absUrl });
+        const parsed = await bakeSolidTextureSamples(parsedGltf);
         activeObjectUrls = parsed.objectUrls;
         setState({ voxels: parsed.polygons, loading: false, error: null });
       } catch (err) {

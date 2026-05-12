@@ -11,6 +11,7 @@ import {
   PolyScene,
   PolySelect,
   PolyTransformControls,
+  bakeSolidTextureSamples,
   parseGltf,
   parseMtl,
   parseObj,
@@ -1393,7 +1394,7 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
     }
 
     const options = mergeParserOptions(model.options, parser);
-    const parsed = parseObj(objText, {
+    const parsedObj = parseObj(objText, {
       ...options,
       materialColors: {
         ...mtl.colors,
@@ -1404,6 +1405,7 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
         ...((model.options as ObjParseOptions | undefined)?.materialTextures ?? {}),
       },
     });
+    const parsed = await bakeSolidTextureSamples(parsedObj);
     const finalPolys = preprocessModelPolygons(parsed.polygons, false);
     return {
       label: model.label,
@@ -1439,10 +1441,11 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
     };
   }
 
-  const parsed = parseGltf(buf, {
+  const parsedGltf = parseGltf(buf, {
     ...mergeParserOptions(model.options, parser),
     baseUrl: new URL(model.url, window.location.href).href,
   });
+  const parsed = await bakeSolidTextureSamples(parsedGltf);
   const finalPolys = preprocessModelPolygons(parsed.polygons, false);
   return {
     label: model.label,

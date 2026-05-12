@@ -6,9 +6,9 @@ description: Using the Poly component for per-polygon click handlers, hover stat
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import PolyDemo from '../../../components/PolyDemo.astro';
 
-Every polygon rendered by polycss is a real DOM element. You can attach standard event handlers, apply CSS classes, and inspect them in DevTools — that's true regardless of which entry point you use. The single-polygon primitive is `<poly-polygon>` (vanilla custom element) / `<Poly>` (React, Vue).
+Every polygon rendered by polycss is a real DOM element. You can attach standard event handlers, apply CSS classes, and inspect them in DevTools: that's true regardless of which entry point you use. The single-polygon primitive is `<poly-polygon>` (vanilla custom element) / `<Poly>` (React, Vue).
 
-## Live demo — interactive scene
+## Live demo: interactive scene
 
 <PolyDemo
   id="shapes-mesh-demo"
@@ -246,7 +246,7 @@ const selected = ref<number | null>(null);
 Load a mesh programmatically when you need control over loading state. The vanilla `loadMesh` is the universal path; React adds a `usePolyMesh` hook on top that auto-disposes on unmount.
 
 ```ts
-// Vanilla — works in any framework or no framework
+// Vanilla: works in any framework or no framework
 import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
 const scene = createPolyScene(document.getElementById("host")!);
@@ -278,6 +278,6 @@ function Viewer() {
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — Scene props and polygon data reference.
-- [Loading Meshes](/guides/textures) — OBJ, GLB, MTL loading and UV textures.
-- [Performance](/guides/performance) — Merge modes and DOM tuning.
+- [PolyScene](/components/poly-scene): Scene props and polygon data reference.
+- [Loading Meshes](/guides/textures): OBJ, GLB, MTL loading and UV textures.
+- [Performance](/guides/performance): Merge modes and DOM tuning.

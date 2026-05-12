@@ -8,7 +8,7 @@ import PolyDemo from '../../../components/PolyDemo.astro';
 
 polycss loads 3D mesh files (OBJ, glTF, GLB, and MagicaVoxel VOX) and renders them as DOM elements. UV textures are extracted from OBJ/glTF/GLB files and packed into generated atlas pages; each textured polygon is an atlas-backed `<i>` that uses CSS background positioning.
 
-## Live demo — UV-textured GLB
+## Live demo: UV-textured GLB
 
 The tree below uses `tree.glb`, which has embedded UV textures. Each textured triangle is a DOM sprite whose background is a generated atlas page.
 
@@ -19,7 +19,7 @@ The tree below uses `tree.glb`, which has embedded UV textures. Each textured tr
   defaults='{"rotX":65,"rotY":45,"zoom":0.1}'
 />
 
-## Declarative loading — the mesh element
+## Declarative loading: the mesh element
 
 The simplest way to render a mesh is the mesh element with a `src`. It fetches the file, parses it, and renders one polygon element per polygon automatically.
 
@@ -114,7 +114,7 @@ Override material colors or textures without modifying the source files (React /
 For programmatic loading with explicit lifecycle, use `loadMesh` from the core parser. This is the universal vanilla path; React adds a `usePolyMesh` hook on top:
 
 ```ts
-// Vanilla — works anywhere, no framework
+// Vanilla: works anywhere, no framework
 import { loadMesh, createPolyScene } from "@layoutit/polycss";
 
 const result = await loadMesh("/cottage.glb", {
@@ -127,7 +127,7 @@ scene.destroy(); // removes the scene and disposes registered meshes
 ```
 
 ```tsx
-// React — usePolyMesh wraps loadMesh + dispose() on unmount
+// React: usePolyMesh wraps loadMesh + dispose() on unmount
 import { PolyCamera, PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";
 
 function Viewer() {
@@ -160,14 +160,14 @@ Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyM
 
 ## Tips
 
-- **`targetSize`** — scale the model so its longest axis fits this many world units (default: `60`). Set it to roughly match the scale of your other scene content.
-- **`atlasScale`** — leave at `"auto"` for workload-based bitmap caps, or set a numeric scale for explicit quality. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
-- **`baseUrl`** — for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
-- For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this — don't hold references to blob URLs across remounts.
+- **`targetSize`**: scale the model so its longest axis fits this many world units (default: `60`). Set it to roughly match the scale of your other scene content.
+- **`atlasScale`**: leave at `"auto"` for workload-based bitmap caps, or set a numeric scale for explicit quality. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
+- **`baseUrl`**: for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
+- For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this: don't hold references to blob URLs across remounts.
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — Scene props.
-- [Per-polygon Interaction](/guides/shapes) — Click handlers and hover states on individual polygons.
-- [Performance](/guides/performance) — Merge modes and DOM tuning.
-- [Headless API](/api/headless) — `loadMesh`, `parseObj`, `parseGltf`, and `parseVox` signatures.
+- [PolyScene](/components/poly-scene): Scene props.
+- [Per-polygon Interaction](/guides/shapes): Click handlers and hover states on individual polygons.
+- [Performance](/guides/performance): Merge modes and DOM tuning.
+- [Headless API](/api/headless): `loadMesh`, `parseObj`, `parseGltf`, and `parseVox` signatures.

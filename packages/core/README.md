@@ -2,7 +2,7 @@
 
 # @layoutit/polycss-core
 
-Framework-agnostic math, parsers, and helpers for CSS polygon-mesh rendering. Zero browser globals — runs in Node, workers, or any JS environment.
+Framework-agnostic math, parsers, and helpers for CSS polygon-mesh rendering. Zero browser globals: runs in Node, workers, or any JS environment.
 
 This package contains the entire non-rendering side of polycss: OBJ / glTF / GLB / MagicaVoxel parsers, polygon normalization, coplanar merge, Lambert lighting, isometric camera state, and all shared TypeScript types.
 
@@ -26,8 +26,8 @@ npm install @layoutit/polycss-core
 
 | Type | Description |
 |---|---|
-| `Vec2` | `[number, number]` — 2D point or UV coordinate |
-| `Vec3` | `[number, number, number]` — 3D point or direction |
+| `Vec2` | `[number, number]`: 2D point or UV coordinate |
+| `Vec3` | `[number, number, number]`: 3D point or direction |
 | `Polygon` | Single renderable polygon: `vertices`, optional `color`, `texture`, `uvs`, `data` |
 | `PolyDirectionalLight` | Directional light: `direction`, optional `color`, optional `intensity` |
 | `PolyAmbientLight` | Ambient fill light: optional `color`, optional `intensity` |
@@ -87,7 +87,7 @@ import type { Polygon } from "@layoutit/polycss-core";
 
 const raw: Polygon[] = [
   { vertices: [[0,0,0], [1,0,0], [0,1,0]], color: "#f00" },
-  { vertices: [[0,0,0], [0,0,0], [0,0,0]] }, // degenerate — will be dropped
+  { vertices: [[0,0,0], [0,0,0], [0,0,0]] }, // degenerate: will be dropped
   { vertices: [[0,0,0], [1,0,0], [0.5,1,0], [0.5,1,0.1]] }, // non-coplanar quad → triangulated
 ];
 

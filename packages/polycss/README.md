@@ -6,8 +6,8 @@ Vanilla JS / custom elements package for CSS-based polygon mesh rendering. Loads
 
 Two entry points:
 
-- **`polycss`** — imperative `createPolyScene` API + custom element classes (without auto-registering them).
-- **`polycss/elements`** — side-effect import that registers the scene, mesh, polygon, controls, camera, helper, select, and transform-control custom elements.
+- **`polycss`**: imperative `createPolyScene` API + custom element classes (without auto-registering them).
+- **`polycss/elements`**: side-effect import that registers the scene, mesh, polygon, controls, camera, helper, select, and transform-control custom elements.
 
 ## Install
 
@@ -48,7 +48,7 @@ With per-polygon elements:
 </poly-scene>
 ```
 
-Custom elements accept standard DOM events — no framework needed:
+Custom elements accept standard DOM events: no framework needed:
 
 ```html
 <poly-scene id="scene" perspective="1000" rot-x="65" rot-y="45"></poly-scene>
@@ -107,7 +107,7 @@ For pointer drag, wheel zoom, and autorotate, drop a `<poly-orbit-controls>` chi
 | `position` | Comma-separated `x, y, z` |
 | `scale` | Uniform scale factor |
 | `rotation` | Comma-separated euler degrees `x, y, z` |
-| `auto-center` | Boolean — shift mesh bbox center to origin |
+| `auto-center` | Boolean: shift mesh bbox center to origin |
 
 **`<poly-polygon>`**
 

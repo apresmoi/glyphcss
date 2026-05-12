@@ -5,11 +5,11 @@ description: Optimizing polycss scenes and understanding DOM-based rendering tra
 
 import PolyDemo from '../../../components/PolyDemo.astro';
 
-polycss renders everything as real DOM elements — every polygon of every mesh is an HTML element with CSS transforms. That gives you DevTools inspection, DOM events, and CSS styling on every polygon, but it means **performance scales with element count**. Understanding how to manage that count is key to building smooth scenes.
+polycss renders everything as real DOM elements: every polygon of every mesh is an HTML element with CSS transforms. That gives you DevTools inspection, DOM events, and CSS styling on every polygon, but it means **performance scales with element count**. Understanding how to manage that count is key to building smooth scenes.
 
-## Live demo — polygon count vs. performance
+## Live demo: polygon count vs. performance
 
-The sphere below starts at subdivision level 3 (320 triangles). Bump subdivisions up to 4 (1,280) or 5 (5,120) and watch the frame rate drop. This illustrates how quadrupling the subdivision level quadruples the DOM node count — and rendering cost.
+The sphere below starts at subdivision level 3 (320 triangles). Bump subdivisions up to 4 (1,280) or 5 (5,120) and watch the frame rate drop. This illustrates how quadrupling the subdivision level quadruples the DOM node count: and rendering cost.
 
 <PolyDemo
   id="perf-sphere-demo"
@@ -26,7 +26,7 @@ The dominant rendering cost in polycss is **style recalc + layout** (not paint o
 
 Confirmed during benchmarking on a 10k-triangle mesh with auto-rotate:
 - **Scripting**: ~579ms / 7s (mostly React re-renders)
-- **Rendering (style recalc + layout)**: ~2,130ms / 7s — the dominant cost
+- **Rendering (style recalc + layout)**: ~2,130ms / 7s: the dominant cost
 
 ## Automatic polygon merge
 
@@ -90,6 +90,6 @@ UV-textured polygons share generated atlas blob URLs (created during the canvas 
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — Scene props reference.
-- [Loading Meshes](/guides/textures) — Parsing options including `targetSize`.
-- [Core Concepts — Automatic Polygon Merge](/core-concepts#automatic-polygon-merge) — Conceptual overview.
+- [PolyScene](/components/poly-scene): Scene props reference.
+- [Loading Meshes](/guides/textures): Parsing options including `targetSize`.
+- [Core Concepts: Automatic Polygon Merge](/core-concepts#automatic-polygon-merge): Conceptual overview.

@@ -95,11 +95,18 @@ function recenterPolygons(polygons: Polygon[]): Polygon[] {
   const cy = (bbox.min[1] + bbox.max[1]) / 2;
   const cz = (bbox.min[2] + bbox.max[2]) / 2;
   if (cx === 0 && cy === 0 && cz === 0) return polygons;
+  const shift = (v: Vec3): Vec3 => [v[0] - cx, v[1] - cy, v[2] - cz];
   return polygons.map((p) => ({
     ...p,
-    vertices: p.vertices.map(
-      (v): Vec3 => [v[0] - cx, v[1] - cy, v[2] - cz]
-    ),
+    vertices: p.vertices.map(shift),
+    ...(p.textureTriangles?.length
+      ? {
+          textureTriangles: p.textureTriangles.map((triangle) => ({
+            ...triangle,
+            vertices: triangle.vertices.map(shift) as [Vec3, Vec3, Vec3],
+          })),
+        }
+      : null),
   }));
 }
 

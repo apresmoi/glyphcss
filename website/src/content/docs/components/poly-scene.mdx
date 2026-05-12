@@ -15,14 +15,14 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `directionalLight` | `PolyDirectionalLight` | — | Directional light source. |
-| `ambientLight` | `PolyAmbientLight` | — | Ambient fill light. |
+| `directionalLight` | `PolyDirectionalLight` | None | Directional light source. |
+| `ambientLight` | `PolyAmbientLight` | None | Ambient fill light. |
 | `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Whether texture lighting is rasterized into atlases or computed with CSS variables. |
 | `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
-| `polygons` | `Polygon[]` | — | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
-| `children` | — | — | `<poly-mesh>` / `<poly-polygon>` / `<poly-orbit-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyOrbitControls>` (React / Vue). |
+| `polygons` | `Polygon[]` | None | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
+| `children` | None | None | `<poly-mesh>` / `<poly-polygon>` / `<poly-orbit-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyOrbitControls>` (React / Vue). |
 
-**Camera state and input** are separate layers. For vanilla, set camera attributes (`rot-x`, `rot-y`, `zoom`, `perspective`) on `<poly-scene>`. For React/Vue, set those props on `<PolyCamera>`. Add a child `<poly-orbit-controls>` / `<PolyOrbitControls>` to enable drag, wheel, or autorotate — see [PolyOrbitControls](/components/poly-controls).
+**Camera state and input** are separate layers. For vanilla, set camera attributes (`rot-x`, `rot-y`, `zoom`, `perspective`) on `<poly-scene>`. For React/Vue, set those props on `<PolyCamera>`. Add a child `<poly-orbit-controls>` / `<PolyOrbitControls>` to enable drag, wheel, or autorotate: see [PolyOrbitControls](/components/poly-controls).
 
 ## Mesh props / attributes
 
@@ -148,7 +148,7 @@ const polygons: Polygon[] = [
 
 ## Related
 
-- [PolyCamera](/components/poly-camera) — Camera state and projection.
-- [Loading Meshes](/guides/textures) — OBJ, glTF, GLB, VOX, MTL loading.
-- [Per-polygon Interaction](/guides/shapes) — Using `Poly` for interactive per-polygon control.
-- [Performance](/guides/performance) — Merge modes and DOM tuning.
+- [PolyCamera](/components/poly-camera): Camera state and projection.
+- [Loading Meshes](/guides/textures): OBJ, glTF, GLB, VOX, MTL loading.
+- [Per-polygon Interaction](/guides/shapes): Using `Poly` for interactive per-polygon control.
+- [Performance](/guides/performance): Merge modes and DOM tuning.

@@ -1,14 +1,14 @@
 ---
 title: PolyOrbitControls / PolyMapControls
-description: Additive camera input — pointer drag, wheel zoom, and frame-rate-independent autorotate.
+description: "Additive camera input: pointer drag, wheel zoom, and frame-rate-independent autorotate."
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 polycss ships two controls components that follow the three.js split:
 
-- **`PolyOrbitControls`** — orbit-style drag (pointer drag rotates around the scene center) + wheel zoom + autorotate. This is the default pick for most scenes.
-- **`PolyMapControls`** — map/pan-style drag (pointer drag pans the camera across the surface). Use for top-down or flat layouts.
+- **`PolyOrbitControls`**: orbit-style drag (pointer drag rotates around the scene center) + wheel zoom + autorotate. This is the default pick for most scenes.
+- **`PolyMapControls`**: map/pan-style drag (pointer drag pans the camera across the surface). Use for top-down or flat layouts.
 
 Both are modelled on the Three.js `OrbitControls` / `MapControls` pattern: vanilla `<poly-scene>` / `createPolyScene` owns camera state, while React and Vue use the surrounding `<PolyCamera>` context. The controls component listens for pointer/wheel input and runs an optional `requestAnimationFrame` autorotate loop, then mutates that shared camera state.
 
@@ -20,7 +20,7 @@ They are available as custom elements (`<poly-orbit-controls>` / `<poly-map-cont
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
-| `drag` | `boolean` | `true` | Pointer-drag rotation. Drag-right turns the front of the scene rightward, drag-down tilts the top toward the user — the visible object tracks the pointer. |
+| `drag` | `boolean` | `true` | Pointer-drag rotation. Drag-right turns the front of the scene rightward, drag-down tilts the top toward the user: the visible object tracks the pointer. |
 | `wheel` | `boolean` | `true` | Wheel / pinch zoom. Trackpad pinch is delivered as `wheel` with `ctrlKey=true`, so this covers desktop scroll + Mac pinch in one path. |
 | `invert` | `boolean \| number` | `false` | Drag-direction inversion. `true` reverses; a number scales sensitivity in the default direction (negative = invert). |
 | `minZoom` | `number` | `0.1` | Minimum zoom scale clamp. |
@@ -40,7 +40,7 @@ They are available as custom elements (`<poly-orbit-controls>` / `<poly-map-cont
 
 ## Usage
 
-### Basic — drag + wheel + slow autorotate
+### Basic: drag + wheel + slow autorotate
 
 <Tabs syncKey="fw">
 <TabItem label="Vanilla JS">
@@ -89,7 +89,7 @@ import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/po
 </TabItem>
 </Tabs>
 
-### Imperative — vanilla JS
+### Imperative: vanilla JS
 
 When you mount a scene through the `createPolyScene` imperative API, pair it with `createPolyOrbitControls(scene, options)`. The controls handle returns a small lifecycle interface for live updates.
 
@@ -105,11 +105,11 @@ const controls = createPolyOrbitControls(scene, {
   animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
 });
 
-// Later — toggle features live without re-creating:
+// Later: toggle features live without re-creating:
 controls.update({ animate: false });    // stop auto-rotate
 controls.update({ drag: false });        // also disable pointer drag
 
-// Pause everything (detaches listeners + cancels rAF) — reversible:
+// Pause everything (detaches listeners + cancels rAF): reversible:
 controls.pause();
 controls.resume();
 
@@ -200,19 +200,19 @@ Disable input but keep autorotate running:
 
 ## Dolly mode
 
-By default, the wheel adjusts `zoom` — a scale transform on the entire scene. Enable `dolly` to have the wheel adjust `distance` (a `translateZ` pull-back) instead. This mirrors three.js `OrbitControls` where the wheel changes the spherical radius around the target rather than scaling the projection.
+By default, the wheel adjusts `zoom`: a scale transform on the entire scene. Enable `dolly` to have the wheel adjust `distance` (a `translateZ` pull-back) instead. This mirrors three.js `OrbitControls` where the wheel changes the spherical radius around the target rather than scaling the projection.
 
 When to use each:
 - **Scale-zoom (default):** Good for 2D-map-style or isometric scenes where you want the scene to grow/shrink in place.
-- **Dolly (`dolly={true}`):** Good for perspective scenes where depth foreshortening should stay consistent — the camera moves back rather than the scene shrinking.
+- **Dolly (`dolly={true}`):** Good for perspective scenes where depth foreshortening should stay consistent: the camera moves back rather than the scene shrinking.
 
 ```tsx
-// React — dolly mode with clamped range
+// React: dolly mode with clamped range
 <PolyOrbitControls dolly minDistance={100} maxDistance={3000} />
 ```
 
 ```ts
-// Vanilla — createPolyOrbitControls
+// Vanilla: createPolyOrbitControls
 const controls = createPolyOrbitControls(scene, {
   dolly: true,
   minDistance: 100,
@@ -222,12 +222,12 @@ const controls = createPolyOrbitControls(scene, {
 
 ## How it works
 
-`PolyOrbitControls` and `PolyMapControls` are purely additive — they attach their own pointer/wheel listeners and run their own `requestAnimationFrame` loop when `animate` is on. In vanilla, state changes flow through `scene.setOptions(...)`; in React/Vue, they mutate the shared camera context and apply the transform directly.
+`PolyOrbitControls` and `PolyMapControls` are purely additive: they attach their own pointer/wheel listeners and run their own `requestAnimationFrame` loop when `animate` is on. In vanilla, state changes flow through `scene.setOptions(...)`; in React/Vue, they mutate the shared camera context and apply the transform directly.
 
 The animate tick is `dt`-clamped at 50 ms per frame and normalized to 60 Hz. That makes `speed: 0.3` produce the same ~18 deg/sec on every monitor refresh rate (60, 120, 144 Hz) and survives a tab regaining focus without a giant catch-up jump.
 
 ## Related
 
-- [PolyScene](/components/poly-scene) — The render root for meshes and polygons.
-- [PolyCamera](/components/poly-camera) — Required camera context wrapper for React / Vue scenes and controls.
-- [Headless API — `createPolyOrbitControls`](/api/headless#createpolyorbitcontrols) — Full imperative API reference.
+- [PolyScene](/components/poly-scene): The render root for meshes and polygons.
+- [PolyCamera](/components/poly-camera): Required camera context wrapper for React / Vue scenes and controls.
+- [Headless API: `createPolyOrbitControls`](/api/headless#createpolyorbitcontrols): Full imperative API reference.

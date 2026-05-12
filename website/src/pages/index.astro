@@ -16,8 +16,8 @@ function highlight(code: string, lang: string): string {
   return hljs.highlight(code, { language: lang }).value;
 }
 
-const title = "polycss — CSS polygon-mesh renderer for the DOM";
-const description = "Render textured 3D meshes in the DOM. No WebGL — each polygon is a real DOM element you can style, click, and inspect in DevTools.";
+const title = "polycss: CSS polygon-mesh renderer for the DOM";
+const description = "Render textured 3D meshes in the DOM. No WebGL: each polygon is a real DOM element you can style, click, and inspect in DevTools.";
 const siteUrl = "https://polycss.com";
 // Reusing the legacy voxcss social card until a polycss-specific image lands.
 const ogImage = `${siteUrl}/voxcss-intro.png`;
@@ -206,7 +206,7 @@ const ldJson = {
               3D layering.
             </p>
             <p>
-              The rendered scene is a tree of standard DOM elements — no shadow
+              The rendered scene is a tree of standard DOM elements: no shadow
               DOM, no WebGL context, no canvas-as-the-whole-scene. Every polygon
               is individually addressable: attach click handlers, apply CSS
               classes, animate with CSS transitions.
@@ -224,7 +224,7 @@ const ldJson = {
             </div>
           </header>
           <div class="getting-lede">
-            <p>polycss provides custom elements (<code>&lt;poly-scene&gt;</code>, <code>&lt;poly-mesh&gt;</code>), an imperative <code>createPolyScene</code> API, and optional React / Vue bindings. Each polygon in the mesh becomes a DOM element you can style and interact with — use whichever entry point fits your stack.</p>
+            <p>polycss provides custom elements (<code>&lt;poly-scene&gt;</code>, <code>&lt;poly-mesh&gt;</code>), an imperative <code>createPolyScene</code> API, and optional React / Vue bindings. Each polygon in the mesh becomes a DOM element you can style and interact with: use whichever entry point fits your stack.</p>
           </div>
           <div class="getting-grid">
             <div class="getting-content">
@@ -276,7 +276,7 @@ const ldJson = {
     }
     fetchStars();
 
-    // Hero model — loads the Apple GLB and mounts it with createPolyScene.
+    // Hero model: loads the Apple GLB and mounts it with createPolyScene.
     // autoCenter keeps drag gestures pivoted around the mesh centroid.
     async function mountHeroModel() {
       const host = document.getElementById("hero-root");
@@ -535,8 +535,8 @@ const ldJson = {
     min-height: 320px;
     margin-top: 10px;
     height: 100%;
-    /* createPolyScene mounts its 0×0 scene anchor at top:50%/left:50% —
-       requires the host to be a positioned ancestor or it'll snap to the
+    /* createPolyScene mounts its 0×0 scene anchor at top:50%/left:50%,
+       requiring the host to be a positioned ancestor or it'll snap to the
        document root. */
     position: relative;
   }

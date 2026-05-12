@@ -20,7 +20,7 @@ interface Polygon {
   texture?: string;
   /** Shared material. `material.texture` takes precedence over `texture`. */
   material?: PolyMaterial;
-  /** UV coordinates — one per vertex. Must match vertices.length.
+  /** UV coordinates: one per vertex. Must match vertices.length.
    *  Mismatched arrays are stripped during normalizePolygons(). */
   uvs?: [number, number][];
   /** User-controlled metadata. Reflected to the DOM as data-* attributes

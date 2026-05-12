@@ -28,7 +28,7 @@ export function App() {
 }
 ```
 
-Every polygon in the mesh is a real DOM element — inspect it in DevTools, style it with CSS, attach event handlers.
+Every polygon in the mesh is a real DOM element: inspect it in DevTools, style it with CSS, attach event handlers.
 
 ## Component reference
 
@@ -38,14 +38,14 @@ Root of every React polycss render tree. Renders polygons and meshes inside a `<
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `directionalLight` | `PolyDirectionalLight` | — | Directional light config |
-| `ambientLight` | `PolyAmbientLight` | — | Ambient light config |
+| `directionalLight` | `PolyDirectionalLight` | None | Directional light config |
+| `ambientLight` | `PolyAmbientLight` | None | Ambient light config |
 | `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Texture lighting mode |
 | `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages |
-| `polygons` | `Polygon[]` | — | Static polygon array (composes with `children`) |
-| `children` | `ReactNode` | — | `<PolyMesh>`, `<Poly>`, and/or `<PolyOrbitControls>` |
+| `polygons` | `Polygon[]` | None | Static polygon array (composes with `children`) |
+| `children` | `ReactNode` | None | `<PolyMesh>`, `<Poly>`, and/or `<PolyOrbitControls>` |
 
-For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>` — it receives the camera context. Mirrors Three.js's split between camera state and input.
+For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>`: it receives the camera context. Mirrors Three.js's split between camera state and input.
 
 ### `<PolyMesh>`
 
@@ -68,11 +68,11 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 
 ### `<Poly>`
 
-Single polygon. The atomic primitive — renders one atlas-backed `<i>` for UV-textured and flat-color faces. Forwards all standard DOM props.
+Single polygon. The atomic primitive: renders one atlas-backed `<i>` for UV-textured and flat-color faces. Forwards all standard DOM props.
 
 | Prop | Type | Description |
 |---|---|---|
-| `vertices` | `Vec3[]` | Required — 3+ `[x, y, z]` points |
+| `vertices` | `Vec3[]` | Required: 3+ `[x, y, z]` points |
 | `color` | `string` | CSS color; used when no texture is set |
 | `texture` | `string` | Image URL for UV-mapped rendering |
 | `uvs` | `Vec2[]` | UV coordinates, one per vertex |
@@ -97,7 +97,7 @@ Camera wrapper for perspective, rotation, zoom, target, and dolly distance. Reac
 |---|---|
 | `usePolyCamera(options)` | Internal camera integration hook (used by `<PolyCamera>`) |
 | `usePolySceneContext(polygons, options)` | Lower-level hook for building custom scene wrappers |
-| `usePolyMesh(src, options?)` | Fetch + parse a mesh. Returns `{ polygons, loading, error, warnings, dispose }`. Manages blob-URL lifecycle — safe across rapid src changes and unmounts. |
+| `usePolyMesh(src, options?)` | Fetch + parse a mesh. Returns `{ polygons, loading, error, warnings, dispose }`. Manages blob-URL lifecycle: safe across rapid src changes and unmounts. |
 
 ### Utility
 
@@ -148,7 +148,7 @@ export function InteractiveMesh({ polygons }: { polygons: Polygon[] }) {
 .highlight { filter: brightness(1.5); }
 ```
 
-## `usePolyMesh` — imperative loading
+## `usePolyMesh`: imperative loading
 
 ```tsx
 import { PolyCamera, PolyScene, Poly, usePolyMesh } from "@layoutit/polycss-react";

@@ -4,6 +4,7 @@
  * polycss:loaded and polycss:error, cleans up on disconnect.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Polygon } from "@layoutit/polycss-core";
 import { PolyMeshElement } from "./PolyMeshElement";
 import { PolySceneElement } from "./PolySceneElement";
 
@@ -18,6 +19,20 @@ beforeAll(() => {
 
 // Simple OBJ fixture: one triangle. parseObj picks this up.
 const TRIANGLE_OBJ = "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n";
+const TEXTURED_QUAD_OBJ = [
+  "v 0 0 0",
+  "v 1 0 0",
+  "v 1 1 0",
+  "v 0 1 0",
+  "vt 0 0",
+  "vt 1 0",
+  "vt 1 1",
+  "vt 0 1",
+  "usemtl Swatch",
+  "f 1/1 2/2 3/3 4/4",
+  "",
+].join("\n");
+const TEXTURED_QUAD_MTL = "newmtl Swatch\nmap_Kd swatch.png\n";
 
 function mockFetch(text: string, ok = true): typeof globalThis.fetch {
   return vi.fn(async () => ({
@@ -111,6 +126,58 @@ describe("PolyMeshElement", () => {
         expect(loadedDetail).not.toBeNull();
       });
       expect(loadedDetail!.polygons.length).toBeGreaterThan(0);
+    });
+
+    it("auto-center keeps texture triangle vertices aligned with recentered polygons", async () => {
+      globalThis.fetch = vi.fn(async (url: string) => ({
+        ok: true,
+        status: 200,
+        text: async () => url.endsWith(".mtl") ? TEXTURED_QUAD_MTL : TEXTURED_QUAD_OBJ,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      })) as unknown as typeof globalThis.fetch;
+
+      const OriginalImage = globalThis.Image;
+      globalThis.Image = class MockImage {
+        decoding = "";
+        naturalWidth = 0;
+        naturalHeight = 0;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onerror?.());
+        }
+      } as unknown as typeof Image;
+
+      try {
+        const scene = document.createElement("poly-scene") as PolySceneElement;
+        const mesh = document.createElement("poly-mesh") as PolyMeshElement;
+        mesh.setAttribute("src", "house.obj");
+        mesh.setAttribute("mtl", "house.mtl");
+        mesh.setAttribute("auto-center", "");
+
+        let loadedDetail: { polygons: Polygon[] } | null = null;
+        mesh.addEventListener("polycss:loaded", (e: Event) => {
+          loadedDetail = (e as CustomEvent).detail as { polygons: Polygon[] };
+        });
+
+        scene.appendChild(mesh);
+        host.appendChild(scene);
+
+        await vi.waitFor(() => {
+          expect(loadedDetail).not.toBeNull();
+        });
+
+        const polygon = loadedDetail!.polygons.find((p) => p.textureTriangles?.length);
+        expect(polygon).toBeDefined();
+        const polygonYs = polygon!.vertices.map((v) => v[1]);
+        const triangleYs = polygon!.textureTriangles!.flatMap((triangle) =>
+          triangle.vertices.map((v) => v[1])
+        );
+        expect(Math.min(...triangleYs)).toBeCloseTo(Math.min(...polygonYs), 6);
+        expect(Math.max(...triangleYs)).toBeCloseTo(Math.max(...polygonYs), 6);
+      } finally {
+        globalThis.Image = OriginalImage;
+      }
     });
 
     it("fires polycss:error when fetch fails", async () => {
