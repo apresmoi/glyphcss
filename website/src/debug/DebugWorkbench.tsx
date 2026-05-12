@@ -78,8 +78,8 @@ interface PresetModel {
 
 interface ModelAttribution {
   creator: string;
-  license: string;
-  sourceUrl: string;
+  license?: string;
+  sourceUrl?: string;
   tris?: number;
 }
 
@@ -198,7 +198,7 @@ function glbPreset(input: GalleryPresetFile): PresetModel {
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
-    attribution: input.attribution,
+    attribution: input.attribution ?? GLB_PRESET_ATTRIBUTIONS[input.file],
   };
 }
 
@@ -233,6 +233,229 @@ function isAnimatedPreset(preset: Pick<PresetModel, "label" | "id" | "category">
     /animated/i.test(preset.id)
   );
 }
+
+function AttributionCredit({ attribution }: { attribution?: ModelAttribution }) {
+  if (!attribution) {
+    return <p className="model-credit">Source: Unknown</p>;
+  }
+
+  const trisText =
+    typeof attribution.tris === "number" ? ` · ${attribution.tris.toLocaleString()} tris` : "";
+
+  return (
+    <p className="model-credit">
+      Source:{" "}
+      {attribution.sourceUrl ? (
+        <a href={attribution.sourceUrl} target="_blank" rel="noreferrer">
+          {attribution.creator}
+        </a>
+      ) : (
+        attribution.creator
+      )}
+      {attribution.license ? ` · ${attribution.license}` : ""}
+      {trisText}
+    </p>
+  );
+}
+
+const QUATERNIUS_ANIMATED_FISH_ATTRIBUTION: ModelAttribution = {
+  creator: "Quaternius",
+  license: "CC0 1.0",
+  sourceUrl: "https://quaternius.itch.io/lowpoly-animated-fish",
+};
+
+const QUATERNIUS_ANIMATED_MONSTERS_ATTRIBUTION: ModelAttribution = {
+  creator: "Quaternius",
+  license: "CC0 1.0",
+  sourceUrl: "https://quaternius.itch.io/lowpoly-animated-monsters",
+};
+
+const QUATERNIUS_EASY_ENEMIES_ATTRIBUTION: ModelAttribution = {
+  creator: "Quaternius",
+  license: "CC0 1.0",
+  sourceUrl: "https://quaternius.itch.io/animated-easy-enemies",
+};
+
+const QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION: ModelAttribution = {
+  creator: "Quaternius",
+  license: "CC0 1.0",
+  sourceUrl: "https://quaternius.com/packs/ultimatespaceships.html",
+};
+
+const PROJECT_CHRONO_OFFROAD_ATTRIBUTION: ModelAttribution = {
+  creator: "Project Chrono Development Team",
+  license: "BSD-3-Clause",
+  sourceUrl: "https://github.com/projectchrono/chrono/tree/main/data/sensor/offroad",
+};
+
+const WEBXR_CAVE_BAT_ATTRIBUTION: ModelAttribution = {
+  creator: "Poly by Google",
+  license: "CC-BY 3.0",
+  sourceUrl: "https://github.com/immersive-web/webxr-samples/blob/main/media/gltf/cave/ATTRIBUTION.md",
+};
+
+const KENNEY_MINIGOLF_ATTRIBUTION: ModelAttribution = {
+  creator: "Kenney",
+  license: "CC0 1.0",
+  sourceUrl: "https://kenney.nl/assets/minigolf-kit",
+};
+
+const KANGAROOZ_STING_ATTRIBUTION: ModelAttribution = {
+  creator: "KangaroOz 3D",
+  license: "CC-BY 4.0",
+  sourceUrl: "https://sketchfab.com/3d-models/sting-sword-lowpoly-c4f80dfbb61745d6807dd511d3e74fd4",
+};
+
+const GOOGLE_POLY_AMBER_ATTRIBUTION: ModelAttribution = {
+  creator: "Poly by Google",
+  license: "CC-BY 2.0",
+  sourceUrl: "https://github.com/blackspotbear/amber/blob/master/demo/README.md",
+};
+
+const GOOGLE_POLY_VIDEOLAB_ATTRIBUTION: ModelAttribution = {
+  creator: "Poly by Google",
+  license: "CC-BY 3.0",
+  sourceUrl: "https://github.com/keijiro/VideolabTest/blob/master/README.md",
+};
+
+const POLY_PIZZA_DUCK_ATTRIBUTION: ModelAttribution = {
+  creator: "jeremy",
+  license: "CC-BY 3.0",
+  sourceUrl: "https://poly.pizza/m/2KHEgw1ztVI",
+};
+
+const POLY_PIZZA_SAXOPHONE_ATTRIBUTION: ModelAttribution = {
+  creator: "jeremy",
+  license: "CC-BY 3.0",
+  sourceUrl: "https://poly.pizza/m/6A2UAKdCNy7",
+  tris: 812,
+};
+
+function polyPizzaJeremyAttribution(publicId: string): ModelAttribution {
+  return {
+    creator: "jeremy",
+    license: "CC-BY 3.0",
+    sourceUrl: `https://poly.pizza/m/${publicId}`,
+  };
+}
+
+const MINI_MIKES_METRO_MINIS_ATTRIBUTION: ModelAttribution = {
+  creator: "Mike Judge",
+  license: "CC-BY 4.0",
+  sourceUrl: "https://github.com/mikelovesrobots/mmmm",
+};
+
+const MONOGON_ANCIENT_ENVIRONMENT_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/voxel-ancient-environment",
+};
+
+const MONOGON_TINY_VOXEL_DUNGEON_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/tinyvoxeldungeon",
+};
+
+const MONOGON_DESERT_TOWN_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/voxel-desert-town",
+};
+
+const MONOGON_VOXEL_PLANE_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/voxel-plane",
+};
+
+const MONOGON_VOXEL_MECHAS_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/voxel-mechas",
+};
+
+const MONOGON_VOXEL_SPACESHIPS_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/voxel-spaceships",
+};
+
+const MONOGON_COUNTRY_SIDE_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/counrty-side",
+};
+
+const MONOGON_CYBERPUNK_CITY_ATTRIBUTION: ModelAttribution = {
+  creator: "monogon / Max Parata",
+  license: "CC-BY-ND 4.0",
+  sourceUrl: "https://maxparata.itch.io/cyberpunkcity-monogon",
+};
+
+const ATOMIC_REALM_POST_APOCALYPTIC_ATTRIBUTION: ModelAttribution = {
+  creator: "Atomic Realm",
+  license: "custom license, attribution required",
+  sourceUrl: "https://atomicrealm.itch.io/post-apocalyptic-world",
+};
+
+const SONA_SAR_VOXEL_ANIMALS_ITEMS_ATTRIBUTION: ModelAttribution = {
+  creator: "SonaSar",
+  license: "personal/commercial use allowed",
+  sourceUrl: "https://sona-sar.itch.io/voxel-animals-items-pack-free-assets",
+};
+
+const UTAH_TEAPOT_ATTRIBUTION: ModelAttribution = {
+  creator: "Martin Newell / University of Utah",
+  sourceUrl: "https://graphics.cs.utah.edu/teapot/",
+};
+
+const GLB_PRESET_ATTRIBUTIONS: Record<string, ModelAttribution> = {
+  "FishAnimated.glb": QUATERNIUS_ANIMATED_FISH_ATTRIBUTION,
+  "AnimatedMushnub.glb": QUATERNIUS_ANIMATED_MONSTERS_ATTRIBUTION,
+  "AnimatedSnake.glb": QUATERNIUS_EASY_ENEMIES_ATTRIBUTION,
+  "AnimatedWizard.glb": QUATERNIUS_ANIMATED_MONSTERS_ATTRIBUTION,
+  "Bat.glb": WEBXR_CAVE_BAT_ATTRIBUTION,
+  "Bear.glb": polyPizzaJeremyAttribution("evjB26aGfTh"),
+  "Cheetah.glb": polyPizzaJeremyAttribution("ew0sr-amXFo"),
+  "Dinosaur.glb": polyPizzaJeremyAttribution("5iV5SPhBu26"),
+  "Dolphin.glb": GOOGLE_POLY_AMBER_ATTRIBUTION,
+  "Dragon.glb": polyPizzaJeremyAttribution("3ZuMS3IRb0C"),
+  "Duck.glb": POLY_PIZZA_DUCK_ATTRIBUTION,
+  "Elephant.glb": polyPizzaJeremyAttribution("9J-cG39KYFC"),
+  "Fly.glb": polyPizzaJeremyAttribution("f8kM9xA_5sV"),
+  "Frog.glb": polyPizzaJeremyAttribution("07-wJ9bkzul"),
+  "Gorilla.glb": polyPizzaJeremyAttribution("1aReOCuu0TY"),
+  "Hippo.glb": polyPizzaJeremyAttribution("6fQJsxfOGUP"),
+  "Koala.glb": GOOGLE_POLY_VIDEOLAB_ATTRIBUTION,
+  "Lobster.glb": GOOGLE_POLY_AMBER_ATTRIBUTION,
+  "Octopus.glb": polyPizzaJeremyAttribution("6KQsV8qo5E0"),
+  "Owl.glb": polyPizzaJeremyAttribution("3IwTPvL_EAX"),
+  "Pig.glb": polyPizzaJeremyAttribution("bbPhEBl5Bh0"),
+  "Poodle.glb": polyPizzaJeremyAttribution("2ig2NlSneau"),
+  "Rat.glb": GOOGLE_POLY_VIDEOLAB_ATTRIBUTION,
+  "Robin.glb": polyPizzaJeremyAttribution("53HOg-b1F4r"),
+  "Scorpion.glb": polyPizzaJeremyAttribution("cJfrRPiSgA4"),
+  "Saxophone.glb": POLY_PIZZA_SAXOPHONE_ATTRIBUTION,
+  "Snail.glb": polyPizzaJeremyAttribution("abd7jfOGZ94"),
+  "Zebra.glb": polyPizzaJeremyAttribution("cKi5RxMBUxO"),
+  "Bicycle.glb": polyPizzaJeremyAttribution("axc03j3xKfz"),
+  "Dump truck.glb": polyPizzaJeremyAttribution("1BpGYg14QGD"),
+  "Taxi.glb": polyPizzaJeremyAttribution("coQbjlCqWY9"),
+  "Truck.glb": polyPizzaJeremyAttribution("cPVFA5uTr9l"),
+  "Acousticguitar.glb": polyPizzaJeremyAttribution("afr6GCpce_I"),
+  "Electricguitar.glb": polyPizzaJeremyAttribution("0hg94uOO-sS"),
+  "Trumpet.glb": polyPizzaJeremyAttribution("0Mj5XgeGtKJ"),
+  "Violin.glb": polyPizzaJeremyAttribution("fhj0GK-0kJu"),
+  "apple.glb": polyPizzaJeremyAttribution("4tOmpD9-xsV"),
+  "Grapes.glb": polyPizzaJeremyAttribution("csU4Smr2_aV"),
+  "Hot dog.glb": polyPizzaJeremyAttribution("eiPR4iwcYpa"),
+  "Watermelon.glb": polyPizzaJeremyAttribution("5NXaNnNIzfC"),
+  "Campfire.glb": polyPizzaJeremyAttribution("dxxHpVXHLZg"),
+  "Drill.glb": polyPizzaJeremyAttribution("93nEcwogYE0"),
+  "Globe.glb": polyPizzaJeremyAttribution("2445qv4neDQ"),
+  "Treasuretrunk.glb": polyPizzaJeremyAttribution("9sYjmY44GaD"),
+};
 
 const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "FishAnimated.glb", label: "Animated Fish", category: "Animated" },
@@ -701,28 +924,35 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
 ];
 
 const VOX_PRESET_FILES: GalleryPresetFile[] = [
-  { file: "AncientCrashSite.vox", label: "Ancient Crash Site", category: "VOX", targetSize: 70, zoom: 0.35 },
-  { file: "army.vox", label: "Army", category: "VOX" },
-  { file: "desert.vox", label: "Desert", category: "VOX" },
-  { file: "desert2.vox", label: "Desert 2", category: "VOX" },
-  { file: "Garden.vox", category: "VOX" },
-  { file: "Building03.vox", label: "Building 03", category: "VOX" },
-  { file: "HUT.vox", label: "Hut", category: "VOX" },
-  { file: "house.vox", label: "House", category: "VOX" },
-  { file: "pyramid.vox", label: "Pyramid", category: "VOX" },
-  { file: "skyscraper.vox", label: "Skyscraper", category: "VOX" },
-  { file: "stairs.vox", label: "Stairs", category: "VOX" },
-  { file: "Plane_03.vox", label: "Plane 03", category: "VOX" },
-  { file: "bus.vox", label: "Bus", category: "VOX" },
-  { file: "tank.vox", label: "Tank", category: "VOX" },
-  { file: "arachnoid.vox", label: "Arachnoid", category: "VOX" },
-  { file: "MechaGolem.vox", label: "Mecha Golem", category: "VOX" },
-  { file: "mecha.vox", label: "Mecha", category: "VOX" },
-  { file: "StarMarineTrooper.vox", label: "Star Marine Trooper", category: "VOX" },
-  { file: "apple.vox", label: "Apple", category: "VOX" },
-  { file: "dual.vox", label: "Dual", category: "VOX" },
-  { file: "Treasure.vox", category: "VOX" },
-  { file: "tree.vox", label: "Tree", category: "VOX" },
+  {
+    file: "AncientCrashSite.vox",
+    label: "Ancient Crash Site",
+    category: "VOX",
+    targetSize: 70,
+    zoom: 0.35,
+    attribution: MONOGON_ANCIENT_ENVIRONMENT_ATTRIBUTION,
+  },
+  { file: "army.vox", label: "Army", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "desert.vox", label: "Desert", category: "VOX", attribution: MONOGON_DESERT_TOWN_ATTRIBUTION },
+  { file: "desert2.vox", label: "Desert 2", category: "VOX", attribution: MONOGON_DESERT_TOWN_ATTRIBUTION },
+  { file: "Garden.vox", category: "VOX", attribution: MONOGON_TINY_VOXEL_DUNGEON_ATTRIBUTION },
+  { file: "Building03.vox", label: "Building 03", category: "VOX", attribution: MONOGON_DESERT_TOWN_ATTRIBUTION },
+  { file: "HUT.vox", label: "Hut", category: "VOX", attribution: MONOGON_COUNTRY_SIDE_ATTRIBUTION },
+  { file: "house.vox", label: "House", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "pyramid.vox", label: "Pyramid", category: "VOX", attribution: MONOGON_ANCIENT_ENVIRONMENT_ATTRIBUTION },
+  { file: "skyscraper.vox", label: "Skyscraper", category: "VOX", attribution: MONOGON_CYBERPUNK_CITY_ATTRIBUTION },
+  { file: "stairs.vox", label: "Stairs", category: "VOX", attribution: MONOGON_TINY_VOXEL_DUNGEON_ATTRIBUTION },
+  { file: "Plane_03.vox", label: "Plane 03", category: "VOX", attribution: MONOGON_VOXEL_PLANE_ATTRIBUTION },
+  { file: "bus.vox", label: "Bus", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "tank.vox", label: "Tank", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "arachnoid.vox", label: "Arachnoid", category: "VOX", attribution: MONOGON_VOXEL_MECHAS_ATTRIBUTION },
+  { file: "MechaGolem.vox", label: "Mecha Golem", category: "VOX", attribution: MONOGON_VOXEL_MECHAS_ATTRIBUTION },
+  { file: "mecha.vox", label: "Mecha", category: "VOX", attribution: MONOGON_VOXEL_MECHAS_ATTRIBUTION },
+  { file: "StarMarineTrooper.vox", label: "Star Marine Trooper", category: "VOX", attribution: MONOGON_VOXEL_SPACESHIPS_ATTRIBUTION },
+  { file: "apple.vox", label: "Apple", category: "VOX", attribution: SONA_SAR_VOXEL_ANIMALS_ITEMS_ATTRIBUTION },
+  { file: "dual.vox", label: "Dual", category: "VOX", attribution: MONOGON_VOXEL_SPACESHIPS_ATTRIBUTION },
+  { file: "Treasure.vox", category: "VOX", attribution: MONOGON_ANCIENT_ENVIRONMENT_ATTRIBUTION },
+  { file: "tree.vox", label: "Tree", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
 ];
 
 const PRESETS: PresetModel[] = [
@@ -737,6 +967,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.15,
     rotX: 74.4,
     rotY: 301.6,
+    attribution: GOOGLE_POLY_AMBER_ATTRIBUTION,
   },
   {
     id: "sting",
@@ -752,6 +983,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.3,
     rotX: 65,
     rotY: 45,
+    attribution: KANGAROOZ_STING_ATTRIBUTION,
   },
   {
     id: "cottage",
@@ -768,6 +1000,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
+    attribution: PROJECT_CHRONO_OFFROAD_ATTRIBUTION,
   },
   {
     id: "rock1",
@@ -780,6 +1013,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.6,
     rotX: 65,
     rotY: 45,
+    attribution: PROJECT_CHRONO_OFFROAD_ATTRIBUTION,
   },
   {
     id: "insurgent",
@@ -791,6 +1025,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
+    attribution: QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION,
   },
   {
     id: "apoc-car",
@@ -802,6 +1037,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
+    attribution: ATOMIC_REALM_POST_APOCALYPTIC_ATTRIBUTION,
   },
   {
     id: "apoc-barrel",
@@ -813,6 +1049,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.5,
     rotX: 65,
     rotY: 45,
+    attribution: ATOMIC_REALM_POST_APOCALYPTIC_ATTRIBUTION,
   },
   {
     id: "apoc-spike",
@@ -824,6 +1061,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
+    attribution: ATOMIC_REALM_POST_APOCALYPTIC_ATTRIBUTION,
   },
   {
     id: "tree",
@@ -869,6 +1107,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.2,
     rotX: 65,
     rotY: 45,
+    attribution: UTAH_TEAPOT_ATTRIBUTION,
   },
   {
     id: "castle",
@@ -880,6 +1119,7 @@ const PRESETS: PresetModel[] = [
     zoom: 0.15,
     rotX: 66.9,
     rotY: 68.5,
+    attribution: KENNEY_MINIGOLF_ATTRIBUTION,
   },
   {
     id: "coliseum",
@@ -3103,7 +3343,7 @@ export default function DebugWorkbench() {
             </div>
           )}
 
-          <p className="model-credit">Sources: Debug presets</p>
+          <AttributionCredit attribution={selectedPreset.attribution} />
         </div>
       </aside>
 

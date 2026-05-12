@@ -30,6 +30,8 @@ const AUTO_ATLAS_SCALE_GUARD = 0.995;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 const DEFAULT_TRIANGLE_BORDER_DECIMALS = 1;
+const BORDER_SHAPE_CENTER_PERCENT = 50;
+const BORDER_SHAPE_POINT_EPS = 1e-7;
 const BASIS_EPS = 1e-9;
 const SOLID_TRIANGLE_BLEED = 0.45;
 
@@ -176,7 +178,39 @@ function formatMatrix3d(matrix: string, decimals = DEFAULT_MATRIX_DECIMALS): str
 }
 
 function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
-  return `${roundDecimal(value, decimals)}%`;
+  const next = roundDecimal(value, decimals);
+  return Number(next) === 0 ? "0" : `${next}%`;
+}
+
+function pointOnSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): boolean {
+  const cross = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+  if (Math.abs(cross) > BORDER_SHAPE_POINT_EPS) return false;
+  const dot = (px - ax) * (px - bx) + (py - ay) * (py - by);
+  return dot <= BORDER_SHAPE_POINT_EPS;
+}
+
+function polygonContainsPoint(
+  points: Array<[number, number]>,
+  px = BORDER_SHAPE_CENTER_PERCENT,
+  py = BORDER_SHAPE_CENTER_PERCENT,
+): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const [xi, yi] = points[i];
+    const [xj, yj] = points[j];
+    if (pointOnSegment(px, py, xi, yi, xj, yj)) return true;
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 function atlasArea(pages: PackedPage[]): number {
@@ -361,7 +395,7 @@ export function isSolidTrianglePlan(entry: TextureAtlasPlan): boolean {
 function borderShapeSupported(): boolean {
   const supportsBorderShape = !!globalThis.CSS?.supports?.(
     "border-shape",
-    "polygon(0 0, 100% 0, 0 100%) polygon(50% 50%, 50% 50%, 50% 50%)",
+    "polygon(0 0, 100% 0, 0 100%) circle(0)",
   );
   if (!supportsBorderShape) return false;
 
@@ -449,35 +483,44 @@ export function getSolidPaintDefaults(
   };
 }
 
-function cssPolygonShapeForPlan(entry: TextureAtlasPlan): string {
-  const pts: string[] = [];
+function borderShapePointsForPlan(entry: TextureAtlasPlan): Array<[number, number]> {
+  const points: Array<[number, number]> = [];
   const width = entry.canvasW || 1;
   const height = entry.canvasH || 1;
   for (let i = 0; i < entry.screenPts.length; i += 2) {
     const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
     const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
-    pts.push(`${formatPercent(x)} ${formatPercent(y)}`);
+    points.push([x, y]);
   }
-  return `polygon(${pts.join(", ")})`;
+  return points;
 }
 
-function cssCollapsedInnerShapeForPlan(entry: TextureAtlasPlan): string {
+function cssBorderShapePoint([x, y]: [number, number]): string {
+  return `${formatPercent(x)} ${formatPercent(y)}`;
+}
+
+function cssPolygonShapeForPoints(points: Array<[number, number]>): string {
+  return `polygon(${points.map(cssBorderShapePoint).join(",")})`;
+}
+
+function cssCollapsedInnerShapeForPoints(points: Array<[number, number]>): string {
+  if (polygonContainsPoint(points)) return "circle(0)";
+
   let xSum = 0;
   let ySum = 0;
-  const points = Math.max(1, entry.screenPts.length / 2);
-  for (let i = 0; i < entry.screenPts.length; i += 2) {
-    xSum += entry.screenPts[i];
-    ySum += entry.screenPts[i + 1];
+  const pointCount = Math.max(1, points.length);
+  for (const [x, y] of points) {
+    xSum += x;
+    ySum += y;
   }
-  const width = entry.canvasW || 1;
-  const height = entry.canvasH || 1;
-  const x = formatPercent(Math.max(0, Math.min(100, (xSum / points / width) * 100)));
-  const y = formatPercent(Math.max(0, Math.min(100, (ySum / points / height) * 100)));
-  return `polygon(${Array.from({ length: points }, () => `${x} ${y}`).join(", ")})`;
+  const x = formatPercent(Math.max(0, Math.min(100, xSum / pointCount)));
+  const y = formatPercent(Math.max(0, Math.min(100, ySum / pointCount)));
+  return `circle(0 at ${x} ${y})`;
 }
 
 function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
-  return `${cssPolygonShapeForPlan(entry)} ${cssCollapsedInnerShapeForPlan(entry)}`;
+  const points = borderShapePointsForPlan(entry);
+  return `${cssPolygonShapeForPoints(points)} ${cssCollapsedInnerShapeForPoints(points)}`;
 }
 
 function formatMatrix3dValues(values: readonly number[], decimals = DEFAULT_MATRIX_DECIMALS): string {

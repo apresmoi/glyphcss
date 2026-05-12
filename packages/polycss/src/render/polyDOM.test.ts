@@ -313,8 +313,13 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.style.borderStyle).toBe("");
     expect(element.style.borderWidth).toBe("");
     const styleText = element.getAttribute("style") ?? "";
+    const borderShape = styleText.match(/border-shape:([^;]+)/)?.[1] ?? "";
     expect(styleText).toMatch(/^transform:[^;]+;border-shape:[^;]+;width:[^;]+;height:[^;]+;color:/);
     expect(styleText).not.toMatch(/:\s|;\s/);
+    expect(borderShape).not.toContain(", ");
+    expect(borderShape).not.toMatch(/\b0%/);
+    expect(borderShape.match(/polygon\(/g) ?? []).toHaveLength(1);
+    expect(borderShape).toMatch(/\)\s*circle\(0\)$/);
     expect(styleText).toMatch(/color:\s*#[0-9a-f]{6}/);
     expect(styleText).not.toMatch(/color:rgb/i);
     expect(element.style.color).not.toBe("");
