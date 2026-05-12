@@ -93,8 +93,6 @@ export interface PolyMaterial {
  * CCW winding from outside. No bbox field, no shape discriminator, no
  * input/output distinction — one type, used by parsers, by the merge
  * pass, and by the renderer.
- *
- * See §Design.3 in POLYCSS_MIGRATION.md for the rationale.
  */
 export interface Polygon {
   /** N coplanar vertices in 3D space, CCW winding from outside. */

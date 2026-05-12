@@ -1,7 +1,7 @@
 // @layoutit/polycss-core — Pure-math polygon rendering engine (zero browser globals).
 //
-// Public surface follows the API freeze in POLYCSS_MIGRATION.md §1543.
-// Anything not exported here is implementation detail.
+// Public exports define the supported core package surface. Anything not
+// exported here is implementation detail.
 
 // ── Types ─────────────────────────────────────────────────────────
 export type {

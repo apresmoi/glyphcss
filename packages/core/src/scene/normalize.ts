@@ -3,8 +3,7 @@
  * triangulates non-coplanar N-gons, strips bad UVs, sanitizes data, and
  * returns the cleaned polygons + a list of human-readable warnings.
  *
- * Spec lives at §Design.3b in POLYCSS_MIGRATION.md (the validation rules
- * table is canonical — implementation must match exactly).
+ * Validation rules are encoded here and covered by the normalization tests.
  *
  * Pure: no DOM, no I/O, deterministic. Bbox is NOT computed here — that's
  * derived on demand by `buildSceneContext` / consumers.

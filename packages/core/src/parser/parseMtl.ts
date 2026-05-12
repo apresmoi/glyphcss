@@ -16,9 +16,7 @@
  * NOTE: parseMtl intentionally returns its own `MtlParseResult` shape
  * (NOT the unified `ParseResult`). It's an asymmetric helper — it emits
  * materials, not polygons — and forcing it into ParseResult would mean
- * an empty `polygons[]` and a misleading `dispose()`. The migration plan
- * (POLYCSS_MIGRATION.md §"parseMtl special case") calls out this carve-out
- * explicitly.
+ * an empty `polygons[]` and a misleading `dispose()`.
  */
 
 const toHex = (n: number): string =>

@@ -1,4 +1,4 @@
-> **Status: pre-1.0; API surface frozen per [POLYCSS_MIGRATION.md](../../POLYCSS_MIGRATION.md). Breaking changes possible until 0.1.0 release.**
+> **Status: pre-1.0. APIs may still change before a stable 1.0 release.**
 
 # polycss
 

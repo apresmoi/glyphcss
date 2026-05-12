@@ -1,9 +1,8 @@
 // @layoutit/polycss-react — React bindings for the polycss CSS-based polygon mesh
 // rendering engine.
 //
-// Public surface follows §API freeze in POLYCSS_MIGRATION.md
-// (`@layoutit/polycss-react — full surface`). Anything not exported here is an
-// implementation detail.
+// Public exports define the supported React package surface. Anything not
+// exported here is an implementation detail.
 
 // ── Components & hooks ─────────────────────────────────────────────────
 export {
