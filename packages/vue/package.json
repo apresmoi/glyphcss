@@ -1,6 +1,6 @@
 {
   "name": "@layoutit/polycss-vue",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Native Vue 3 components for CSS polygon mesh rendering with 60fps imperative updates.",
   "type": "module",
   "main": "dist/index.cjs",

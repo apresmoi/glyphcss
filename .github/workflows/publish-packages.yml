@@ -1,0 +1,77 @@
+name: Publish packages
+
+# Manual-only. Bumps every package under `packages/*` in lockstep (using
+# scripts/bump-versions.mjs), builds them, publishes to npm, then commits
+# the version change and pushes a `v<X.Y.Z>` tag back to main.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump"
+        required: true
+        default: "minor"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: publish-packages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda
+        with:
+          version: 10.32.1
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Bump versions
+        id: bump
+        run: node .github/scripts/bump-versions.mjs "${{ inputs.bump }}"
+
+      - name: Build packages
+        run: pnpm build:packages
+
+      - name: Publish to npm
+        run: pnpm --filter "./packages/*" -r publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Commit, tag, and push
+        env:
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          git config user.name "$ACTOR"
+          git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
+          git add packages/*/package.json
+          git commit -m "chore(release): v${NEXT_VERSION}"
+          git tag "v${NEXT_VERSION}"
+          git push origin HEAD:main "v${NEXT_VERSION}"
