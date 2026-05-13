@@ -12,6 +12,7 @@ import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles/styles";
 import type { TransformProps } from "../shapes/types";
 import {
+  buildSharedEdgeSets,
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
   type AtlasScale,
@@ -190,7 +191,13 @@ function PolySceneInner({
   }, [directionalForAtlas, ambientForAtlas, textureLighting]);
 
   const textureAtlasPlans = useMemo(
-    () => polygons.map((p, i) => computeTextureAtlasPlan(p, i, polyContext)),
+    () => {
+      const sharedEdges = buildSharedEdgeSets(polygons);
+      return polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
+        ...polyContext,
+        seamEdges: sharedEdges[i],
+      }));
+    },
     [polygons, polyContext],
   );
   const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, atlasScale);

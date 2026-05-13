@@ -1,0 +1,3 @@
+newmtl palm
+Kd 1 1 1
+map_Kd palm_tex.png

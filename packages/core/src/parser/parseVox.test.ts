@@ -457,6 +457,22 @@ describe("parseVox — custom RGBA palette", () => {
     expect(result.polygons[0].color).toBe("#0080ff");
   });
 
+  it("custom palette alpha is preserved", () => {
+    const palette: [number, number, number, number][] = Array.from(
+      { length: 256 },
+      () => [0, 0, 0, 255] as [number, number, number, number],
+    );
+    palette[0] = [255, 64, 0, 128];
+
+    const buf = buildVoxBuffer(
+      [1, 1, 1],
+      [{ x: 0, y: 0, z: 0, colorIndex: 1 }],
+      palette,
+    );
+    const result = parseVox(buf);
+    expect(result.polygons[0].color).toBe("rgba(255, 64, 0, 0.502)");
+  });
+
   it("RGBA chunk fully overrides default palette", () => {
     // All custom palette entries are green
     const palette: [number, number, number, number][] = Array.from(

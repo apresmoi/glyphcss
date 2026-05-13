@@ -110,6 +110,20 @@ console.log(`${polygons.length} polygons → ${merged.length} after merge`);
 
 ---
 
+## `optimizeMeshPolygons(polygons, options?)`
+
+Runs the shared mesh-resolution optimizer. `meshResolution: "lossless"` uses exact candidates; `meshResolution: "lossy"` also tries bounded approximate merge candidates and returns the smallest accepted polygon list.
+
+```ts
+import { optimizeMeshPolygons } from "@layoutit/polycss-core";
+
+const polygons = optimizeMeshPolygons(rawPolygons, {
+  meshResolution: "lossy",
+});
+```
+
+---
+
 ## `createIsometricCamera(initial?)`
 
 Creates an isometric-style camera state object. Used internally by the imperative `createPolyScene` API and by `<PolyCamera>` (React / Vue).

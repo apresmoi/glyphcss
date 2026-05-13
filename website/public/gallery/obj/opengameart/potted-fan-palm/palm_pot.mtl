@@ -1,0 +1,3 @@
+newmtl palm_pot
+Kd 1 1 1
+map_Kd palm_pot_tex.png

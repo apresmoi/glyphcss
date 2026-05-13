@@ -15,6 +15,15 @@ export const DEFAULT_PROJECTION = "cubic" as const;
 export type PolyTextureLightingMode = "baked" | "dynamic";
 
 /**
+ * Mesh post-processing intent.
+ * - "lossless": preserve the authored surface while applying exact
+ *   reductions such as interior culling and coplanar merge.
+ * - "lossy": allow bounded geometric approximation when it reduces the
+ *   rendered polygon/DOM count.
+ */
+export type MeshResolution = "lossless" | "lossy";
+
+/**
  * 3D point/vector, stored as a `[x, y, z]` tuple. Tuple (rather than
  * `{x, y, z}`) for compact JSON: meshes serialize to thousands of vertices
  * and the difference adds up. Destructure with `const [x, y, z] = v` when

@@ -22,6 +22,7 @@ import type { Polygon, PolyTextureLightingMode, Vec3 } from "@layoutit/polycss-c
 import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import { usePolyMesh } from "./useMesh";
 import {
+  buildSharedEdgeSets,
   computeTextureAtlasPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
@@ -219,10 +220,12 @@ export const PolyMesh = defineComponent({
       const effectiveLight = baseLight && bakedRotation.value
         ? { ...baseLight, direction: inverseRotateVec3(baseLight.direction, bakedRotation.value) }
         : baseLight;
+      const sharedEdges = buildSharedEdgeSets(polygons.value);
       return polygons.value.map((p, i) =>
         computeTextureAtlasPlan(p, i, {
           directionalLight: effectiveLight,
           ambientLight: atlasAmbient.value,
+          seamEdges: sharedEdges[i],
         }),
       );
     });

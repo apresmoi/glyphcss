@@ -47,6 +47,7 @@ npm install @layoutit/polycss-core
 |---|---|
 | `normalizePolygons(input)` | Validates polygons. Drops degenerate ones, auto-triangulates non-coplanar N-gons, strips mismatched UVs. Returns `{ polygons, warnings }`. |
 | `mergePolygons(polygons)` | Coplanar same-material adjacent merge. Reduces DOM element count on flat surfaces. |
+| `optimizeMeshPolygons(polygons, options?)` | Applies lossless or lossy mesh-resolution optimization and chooses the smallest accepted candidate. |
 | `computeSceneBbox(polygons)` | Computes min/max bounds across all polygon vertices. |
 | `createIsometricCamera(initial?)` | Creates a mutable camera handle with `state`, `update(partial)`, and `getStyle()`. |
 | `parseObj(text, options?)` | Parses OBJ text into `ParseResult`. Supports UV (`vt`), materials, `map_Kd` textures. |

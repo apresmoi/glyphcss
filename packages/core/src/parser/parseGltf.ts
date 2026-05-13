@@ -376,8 +376,13 @@ function buildMaterialTextureMap(doc: GltfDoc, imageUrls: string[]): Map<number,
 function colorFromMaterial(mat: GltfMaterial | undefined, fallback: string): string {
   const c = mat?.pbrMetallicRoughness?.baseColorFactor;
   if (!c || c.length < 3) return fallback;
-  const to = (n: number) => Math.round(Math.max(0, Math.min(1, n)) * 255).toString(16).padStart(2, "0");
-  return `#${to(c[0])}${to(c[1])}${to(c[2])}`;
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+  const toHex = (n: number) => Math.round(clamp01(n) * 255).toString(16).padStart(2, "0");
+  const toByte = (n: number) => Math.round(clamp01(n) * 255);
+  const alpha = clamp01(c[3] ?? 1);
+  return alpha < 1
+    ? `rgba(${toByte(c[0])}, ${toByte(c[1])}, ${toByte(c[2])}, ${Math.round(alpha * 1000) / 1000})`
+    : `#${toHex(c[0])}${toHex(c[1])}${toHex(c[2])}`;
 }
 
 // ── Node transform math ─────────────────────────────────────────────────

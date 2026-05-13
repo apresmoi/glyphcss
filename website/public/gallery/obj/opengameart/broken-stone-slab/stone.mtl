@@ -1,0 +1,3 @@
+newmtl Material.001
+Kd 1 1 1
+map_Kd stone_low_Material_Diffuse.png

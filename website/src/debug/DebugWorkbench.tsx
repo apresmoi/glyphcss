@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type DragEvent } from "react";
 import { GUI, type Controller } from "lil-gui";
 import {
   PolyAxesHelper,
@@ -16,21 +16,22 @@ import {
   parseMtl,
   parseObj,
   parsePureColor,
+  optimizeMeshPolygons,
 } from "@layoutit/polycss-react";
 import type {
   PolyAmbientLight,
   PolyDirectionalLight,
   GltfParseOptions,
+  MeshResolution,
   ObjParseOptions,
   ParseAnimationController,
-  PolyMeshHandle,
+  PolyMeshHandle as ReactPolyMeshHandle,
   Polygon,
   PolyTextureLightingMode,
   Vec3 as ReactVec3,
 } from "@layoutit/polycss-react";
 import {
   axesHelperPolygons,
-  coverPlanarPolygons,
   createPolyOrbitControls,
   createPolyMapControls,
   createPolyScene,
@@ -41,6 +42,7 @@ import {
 } from "@layoutit/polycss";
 import type {
   PolyControlsHandle,
+  PolyMeshHandle as VanillaPolyMeshHandle,
   PolySceneOptions,
   PolySceneHandle,
   PolySelectionHandle,
@@ -49,8 +51,6 @@ import type {
   VoxParseOptions,
 } from "@layoutit/polycss";
 import Stats from "stats-js/src/Stats.js";
-import { preprocessModelPolygons } from "./meshDomNormalize";
-import type { GeometryNormalizeOptions } from "./meshDomNormalize";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
@@ -61,6 +61,11 @@ type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type DragMode = "orbit" | "pan";
 type GizmoMode = "translate" | "rotate";
 type PerspectiveMode = "perspective" | "orthographic";
+
+const DOM_OVERPAINT_CACHE_EVENT = "polycss:dom-overpaint-cache";
+const SPRITE_ALPHA_CACHE = new Map<string, number>();
+const SPRITE_ALPHA_PENDING = new Set<string>();
+const SPRITE_ALPHA_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
 
 interface PresetModel {
   id: string;
@@ -74,6 +79,15 @@ interface PresetModel {
   rotY?: number;
   options?: ObjParseOptions | GltfParseOptions | VoxParseOptions;
   attribution?: ModelAttribution;
+}
+
+interface DroppedModelSource {
+  id: string;
+  label: string;
+  kind: Exclude<ModelKind, "gltf">;
+  primaryFile: File;
+  files: File[];
+  preset: PresetModel;
 }
 
 interface ModelAttribution {
@@ -98,6 +112,8 @@ interface LoadedModel {
 
 interface SceneOptionsState {
   renderer: Renderer;
+  animationPaused: boolean;
+  animationTimeScale: number;
   autoCenter: boolean;
   interactive: boolean;
   animate: boolean;
@@ -119,8 +135,7 @@ interface SceneOptionsState {
   textureQuality: TextureQuality;
   matrixPrecision: MatrixPrecision;
   borderShapePrecision: BorderShapePrecision;
-  approximateMerge: boolean;
-  rectCover: boolean;
+  meshResolution: MeshResolution;
   outlinePolygons: boolean;
   dragMode: "orbit" | "pan";
   target: ReactVec3;
@@ -139,6 +154,7 @@ interface DomMetrics {
   rects: number;
   triangles: number;
   irregular: number;
+  overpaintPercent: number;
 }
 
 type GuiControllerMap = Record<string, any>;
@@ -160,7 +176,13 @@ interface GalleryPresetFile {
   attribution?: ModelAttribution;
 }
 
-function galleryFileUrl(folder: "glb" | "vox", file: string): string {
+interface ObjGalleryPresetFile extends GalleryPresetFile {
+  mtlFile?: string | null;
+  defaultColor?: string;
+  options?: ObjParseOptions;
+}
+
+function galleryFileUrl(folder: "glb" | "obj" | "vox", file: string): string {
   return `/gallery/${folder}/${file.split("/").map(encodeURIComponent).join("/")}`;
 }
 
@@ -199,6 +221,28 @@ function glbPreset(input: GalleryPresetFile): PresetModel {
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
     attribution: input.attribution ?? GLB_PRESET_ATTRIBUTIONS[input.file],
+  };
+}
+
+function objPreset(input: ObjGalleryPresetFile): PresetModel {
+  const inferredMtlFile = input.file.replace(/\.obj$/i, ".mtl");
+  const mtlFile = input.mtlFile === null ? undefined : input.mtlFile ?? inferredMtlFile;
+  return {
+    id: presetIdFromFile("obj", input.file),
+    label: input.label ?? labelFromFile(input.file),
+    category: input.category,
+    kind: "obj",
+    url: galleryFileUrl("obj", input.file),
+    mtlUrl: mtlFile ? galleryFileUrl("obj", mtlFile) : undefined,
+    options: {
+      targetSize: input.targetSize ?? 60,
+      defaultColor: input.defaultColor ?? "#8b95a1",
+      ...(input.options ?? {}),
+    },
+    zoom: input.zoom ?? 0.35,
+    rotX: input.rotX ?? 65,
+    rotY: input.rotY ?? 45,
+    attribution: input.attribution,
   };
 }
 
@@ -274,6 +318,13 @@ const QUATERNIUS_EASY_ENEMIES_ATTRIBUTION: ModelAttribution = {
   creator: "Quaternius",
   license: "CC0 1.0",
   sourceUrl: "https://quaternius.itch.io/animated-easy-enemies",
+};
+
+const KHRONOS_FOX_ATTRIBUTION: ModelAttribution = {
+  creator: "PixelMannen / tomkranis",
+  license: "CC0 1.0 / CC-BY 4.0",
+  sourceUrl: "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
+  tris: 576,
 };
 
 const QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION: ModelAttribution = {
@@ -410,6 +461,29 @@ const UTAH_TEAPOT_ATTRIBUTION: ModelAttribution = {
   sourceUrl: "https://graphics.cs.utah.edu/teapot/",
 };
 
+function openGameArtAttribution(
+  creator: string,
+  slug: string,
+  tris: number,
+  license = "CC0 1.0",
+): ModelAttribution {
+  return {
+    creator,
+    license,
+    sourceUrl: `https://opengameart.org/content/${slug}`,
+    tris,
+  };
+}
+
+function quaterniusAttribution(sourceUrl: string, tris: number): ModelAttribution {
+  return {
+    creator: "Quaternius",
+    license: "CC0 1.0",
+    sourceUrl,
+    tris,
+  };
+}
+
 const GLB_PRESET_ATTRIBUTIONS: Record<string, ModelAttribution> = {
   "FishAnimated.glb": QUATERNIUS_ANIMATED_FISH_ATTRIBUTION,
   "AnimatedMushnub.glb": QUATERNIUS_ANIMATED_MONSTERS_ATTRIBUTION,
@@ -459,6 +533,24 @@ const GLB_PRESET_ATTRIBUTIONS: Record<string, ModelAttribution> = {
 
 const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "FishAnimated.glb", label: "Animated Fish", category: "Animated" },
+  {
+    file: "khronos/animated-fox.glb",
+    label: "Animated Fox",
+    category: "Animated",
+    attribution: KHRONOS_FOX_ATTRIBUTION,
+  },
+  {
+    file: "opengameart/animated-pliers.glb",
+    label: "Animated Pliers",
+    category: "Animated",
+    attribution: openGameArtAttribution("LonesomeDucky", "tool-pack-2", 1452),
+  },
+  {
+    file: "opengameart/animated-utility-knife.glb",
+    label: "Animated Utility Knife",
+    category: "Animated",
+    attribution: openGameArtAttribution("LonesomeDucky", "tool-pack-2", 576),
+  },
   { file: "AnimatedMushnub.glb", label: "Animated Mushnub", category: "Animated" },
   { file: "AnimatedSnake.glb", label: "Animated Snake", category: "Animated" },
   { file: "Bat.glb", category: "Animals" },
@@ -955,6 +1047,142 @@ const VOX_PRESET_FILES: GalleryPresetFile[] = [
   { file: "tree.vox", label: "Tree", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
 ];
 
+const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
+  {
+    file: "opengameart/crate/Box.obj",
+    label: "Crate",
+    category: "Objects",
+    zoom: 0.45,
+    attribution: openGameArtAttribution("Kutejnikov", "crate-5", 12),
+  },
+  {
+    file: "opengameart/hay-bale/hay_bale.obj",
+    label: "Hay Bale",
+    category: "Environment",
+    zoom: 0.45,
+    attribution: openGameArtAttribution("Mish7913", "hay-bale-0", 108),
+  },
+  {
+    file: "opengameart/low-poly-car/car.obj",
+    label: "Low Poly Car",
+    category: "Vehicles",
+    zoom: 0.3,
+    attribution: openGameArtAttribution("drummyfish", "low-poly-car-3", 228),
+  },
+  {
+    file: "opengameart/wood-crate/woodcrate.obj",
+    label: "Wood Crate",
+    category: "Objects",
+    zoom: 0.4,
+    attribution: openGameArtAttribution("GGBotNet", "wood-crate-3d", 284),
+  },
+  {
+    file: "opengameart/broken-stone-slab/stone.obj",
+    label: "Broken Stone Slab",
+    category: "Environment",
+    zoom: 0.4,
+    attribution: openGameArtAttribution("Kutejnikov", "broken-stone-slab", 186),
+  },
+  {
+    file: "opengameart/frog-guy/frog.obj",
+    label: "Frog Guy",
+    category: "Characters",
+    zoom: 0.35,
+    attribution: openGameArtAttribution("drummyfish", "frog-guy", 356),
+  },
+  {
+    file: "opengameart/game-cartridge/cartridge.obj",
+    label: "Game Cartridge",
+    category: "Objects",
+    zoom: 0.4,
+    attribution: openGameArtAttribution("Kutejnikov", "game-cartridge", 432, "CC-BY 4.0"),
+  },
+  {
+    file: "opengameart/fire-extinguisher/extinguisher.obj",
+    label: "Fire Extinguisher",
+    category: "Objects",
+    zoom: 0.35,
+    attribution: openGameArtAttribution("cron", "fire-extinguisher-2", 818, "CC-BY-SA 4.0"),
+  },
+  {
+    file: "opengameart/keycard/keycard.obj",
+    label: "Keycard",
+    category: "Objects",
+    zoom: 0.45,
+    attribution: openGameArtAttribution("codeinfernogames", "3d-keycard", 20),
+  },
+  {
+    file: "opengameart/pirate-coin/pirate-coin.obj",
+    label: "Pirate Coin",
+    category: "Objects",
+    zoom: 0.4,
+    attribution: openGameArtAttribution("acasas", "3d-pirate-coin", 624, "CC-BY 3.0"),
+  },
+  {
+    file: "opengameart/perfume-bottle/perfume.obj",
+    label: "Perfume Bottle",
+    category: "Objects",
+    zoom: 0.4,
+    attribution: openGameArtAttribution("PantherOne", "perfume-bottle-persian", 196, "CC-BY 3.0"),
+  },
+  {
+    file: "opengameart/grandfather-clock/grandfather-clock.obj",
+    label: "Grandfather Clock",
+    category: "Objects",
+    zoom: 0.35,
+    attribution: openGameArtAttribution("GGBotNet", "grandfather-clock-3d", 106, "CC-BY 4.0"),
+  },
+  {
+    file: "opengameart/old-book/old-book.obj",
+    label: "Old Book",
+    category: "Objects",
+    zoom: 0.4,
+    attribution: openGameArtAttribution("GGBotNet", "old-bible-3d", 60, "CC-BY 4.0"),
+  },
+  {
+    file: "opengameart/haunted-house/hauntedhouse.obj",
+    label: "Haunted House",
+    category: "Buildings",
+    zoom: 0.35,
+    attribution: openGameArtAttribution("naovia", "haunted-house", 377),
+  },
+  {
+    file: "opengameart/biplane/biplane.obj",
+    label: "Low Poly Biplane",
+    category: "Vehicles",
+    zoom: 0.25,
+    attribution: openGameArtAttribution("mfep", "low-poly-biplane", 668),
+  },
+  {
+    file: "quaternius/nature/Lilypad.obj",
+    label: "Lilypad",
+    category: "Environment",
+    zoom: 0.45,
+    attribution: quaterniusAttribution("https://quaternius.com/packs/ultimatenature.html", 372),
+  },
+  {
+    file: "quaternius/dungeon/Chest_gold.obj",
+    label: "Treasure Chest",
+    category: "Objects",
+    zoom: 0.4,
+    attribution: quaterniusAttribution("https://quaternius.com/packs/medievaldungeon.html", 436),
+  },
+  {
+    file: "quaternius/dungeon/Torch.obj",
+    label: "Torch",
+    category: "Objects",
+    zoom: 0.35,
+    attribution: quaterniusAttribution("https://quaternius.com/packs/medievaldungeon.html", 518),
+  },
+  {
+    file: "quaternius/dungeon/Candelabrum.obj",
+    label: "Candelabrum",
+    category: "Objects",
+    zoom: 0.35,
+    attribution: quaterniusAttribution("https://quaternius.com/packs/medievaldungeon.html", 636),
+  },
+];
+
 const PRESETS: PresetModel[] = [
   {
     id: "chicken",
@@ -1132,22 +1360,27 @@ const PRESETS: PresetModel[] = [
     rotX: 65,
     rotY: 45,
   },
+  ...OBJ_PRESET_FILES.map(objPreset),
   ...GLB_PRESET_FILES.map(glbPreset),
   ...POLY_PIZZA_PRESET_FILES.map(glbPreset),
   ...VOX_PRESET_FILES.map(voxPreset),
 ];
 
-const PRESET_PICKER_ITEMS = PRESETS.map((preset) => {
+function presetPickerItem(preset: PresetModel, local = false) {
   const baseCategory = kindLabel(preset.kind);
   return {
     id: preset.id,
     label: stripParenthesizedText(preset.label),
-    category: isAnimatedPreset(preset) ? `${baseCategory} (Animated)` : baseCategory,
+    category: local ? `Dropped ${baseCategory}` : isAnimatedPreset(preset) ? `${baseCategory} (Animated)` : baseCategory,
   };
-});
+}
+
+const PRESET_PICKER_ITEMS = PRESETS.map((preset) => presetPickerItem(preset));
 
 const DEFAULT_SCENE: SceneOptionsState = {
   renderer: "vanilla",
+  animationPaused: false,
+  animationTimeScale: 1,
   autoCenter: true,
   interactive: true,
   animate: false,
@@ -1169,18 +1402,10 @@ const DEFAULT_SCENE: SceneOptionsState = {
   textureQuality: "auto",
   matrixPrecision: "exact",
   borderShapePrecision: "exact",
-  approximateMerge: false,
-  rectCover: false,
+  meshResolution: "lossless",
   outlinePolygons: false,
   dragMode: "orbit",
   target: [0, 0, 0],
-};
-
-const APPROXIMATE_MERGE_BUDGET: GeometryNormalizeOptions = {
-  maxAngleDeg: 15,
-  maxPlaneDisplacement: 0.35,
-  maxBoundaryDisplacement: 0.075,
-  isolatedPairs: true,
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -1188,6 +1413,145 @@ const DEFAULT_PARSER: ParserOptionsState = {
   gridShift: 1,
   defaultColor: "#8b95a1",
 };
+
+const DROPPED_MESH_EXTENSIONS = new Set(["obj", "glb", "vox"]);
+
+interface DroppedFileIndex {
+  byPath: Map<string, File>;
+  byBasename: Map<string, File[]>;
+}
+
+function fileListToArray(fileList: FileList | null): File[] {
+  const files: File[] = [];
+  if (!fileList) return files;
+  for (let i = 0; i < fileList.length; i += 1) {
+    const file = fileList.item(i);
+    if (file) files.push(file);
+  }
+  return files;
+}
+
+function dataTransferHasFiles(dataTransfer: DataTransfer): boolean {
+  for (let i = 0; i < dataTransfer.types.length; i += 1) {
+    if (dataTransfer.types[i] === "Files") return true;
+  }
+  return false;
+}
+
+function fileExtension(name: string): string {
+  const clean = name.split("?")[0].split("#")[0];
+  const dot = clean.lastIndexOf(".");
+  return dot >= 0 ? clean.slice(dot + 1).toLowerCase() : "";
+}
+
+function droppedKindForFile(file: File): DroppedModelSource["kind"] | null {
+  const ext = fileExtension(file.name);
+  if (ext === "obj" || ext === "glb" || ext === "vox") return ext;
+  return null;
+}
+
+function droppedFilePath(file: File): string {
+  const withRelativePath = file as File & { webkitRelativePath?: string };
+  return withRelativePath.webkitRelativePath || file.name;
+}
+
+function normalizeDroppedPath(value: string): string {
+  let normalized = value.trim().replace(/\\+/g, "/").replace(/^\.\/+/, "");
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep the original path when it is not URI encoded.
+  }
+  return normalized.toLowerCase();
+}
+
+function droppedBasename(value: string): string {
+  const normalized = normalizeDroppedPath(value);
+  return normalized.split("/").pop() ?? normalized;
+}
+
+function buildDroppedFileIndex(files: File[]): DroppedFileIndex {
+  const byPath = new Map<string, File>();
+  const byBasename = new Map<string, File[]>();
+  for (const file of files) {
+    const path = normalizeDroppedPath(droppedFilePath(file));
+    byPath.set(path, file);
+    byPath.set(normalizeDroppedPath(file.name), file);
+
+    const base = droppedBasename(file.name);
+    const bucket = byBasename.get(base) ?? [];
+    bucket.push(file);
+    byBasename.set(base, bucket);
+  }
+  return { byPath, byBasename };
+}
+
+function findDroppedFile(index: DroppedFileIndex, path: string): File | null {
+  const normalized = normalizeDroppedPath(path);
+  return index.byPath.get(normalized) ?? index.byBasename.get(droppedBasename(normalized))?.[0] ?? null;
+}
+
+function extractObjMtllibRefs(objText: string): string[] {
+  const refs: string[] = [];
+  for (const raw of objText.split("\n")) {
+    const line = raw.trim();
+    if (!line.startsWith("mtllib ")) continue;
+    const rest = line.slice(7).trim();
+    if (!rest) continue;
+    refs.push(rest);
+    for (const token of rest.split(/\s+/)) {
+      if (token.toLowerCase().endsWith(".mtl")) refs.push(token);
+    }
+  }
+  return Array.from(new Set(refs));
+}
+
+function findDroppedMtlFiles(objText: string, files: File[], index: DroppedFileIndex): File[] {
+  const matched = new Map<string, File>();
+  for (const ref of extractObjMtllibRefs(objText)) {
+    const file = findDroppedFile(index, ref);
+    if (file) matched.set(droppedFilePath(file), file);
+  }
+  if (matched.size > 0) return Array.from(matched.values());
+
+  const mtlFiles = files.filter((file) => fileExtension(file.name) === "mtl");
+  return mtlFiles.length === 1 ? mtlFiles : [];
+}
+
+function droppedSourceFromFiles(files: File[], id: string): DroppedModelSource | null {
+  const primaryFile = files.find((file) => DROPPED_MESH_EXTENSIONS.has(fileExtension(file.name)));
+  if (!primaryFile) return null;
+
+  const kind = droppedKindForFile(primaryFile);
+  if (!kind) return null;
+
+  const label = labelFromFile(primaryFile.name) || primaryFile.name;
+  const preset: PresetModel = {
+    id,
+    label,
+    kind,
+    category: "Dropped",
+    url: "",
+    options: {
+      targetSize: 60,
+      gridShift: kind === "vox" ? 0 : 1,
+      defaultColor: DEFAULT_PARSER.defaultColor,
+    },
+    zoom: kind === "vox" ? 0.4 : 0.35,
+    rotX: 65,
+    rotY: 45,
+    attribution: { creator: "Local file" },
+  };
+
+  return {
+    id,
+    label,
+    kind,
+    primaryFile,
+    files,
+    preset,
+  };
+}
 
 function parserDefaultsFor(model: PresetModel): Partial<ParserOptionsState> {
   const options = model.options as (ObjParseOptions & GltfParseOptions & VoxParseOptions) | undefined;
@@ -1277,6 +1641,7 @@ const EMPTY_METRICS: DomMetrics = {
   rects: 0,
   triangles: 0,
   irregular: 0,
+  overpaintPercent: 0,
 };
 
 const DEBUG_SHAPE_LABELS = {
@@ -1362,18 +1727,20 @@ function smartAmbientForModel(model: PresetModel, polygons: Polygon[]): number {
   const neutralLuminance = 0.52;
   const darkness = clamp((neutralLuminance - averageLuminance) / neutralLuminance, 0, 1);
   const brightness = clamp((averageLuminance - neutralLuminance) / (1 - neutralLuminance), 0, 1);
+  // Albedo is not exposure: very bright models still need fill, and dark
+  // saturated models should not be washed out by aggressive compensation.
   const luminanceAdjustment =
-    Math.pow(darkness, 0.8) * 0.45 -
-    Math.pow(brightness, 0.75) * 0.5;
-  const densityLift = clamp(Math.log10(Math.max(polygons.length, 1) / 1800), -0.8, 1.2) * 0.04;
+    Math.pow(darkness, 1.35) * 0.14 -
+    Math.pow(brightness, 1.4) * 0.08;
+  const densityLift = clamp(Math.log10(Math.max(polygons.length, 1) / 1800), -0.8, 1.2) * 0.025;
   const textureLift = textureCoverage > 0.3 && colorCoverage < 0.75 && averageLuminance < 0.58 ? 0.04 : 0;
-  const voxelLift = model.kind === "vox" ? 0.05 : 0;
+  const voxelLift = model.kind === "vox" ? 0.03 : 0;
 
   return roundToStep(
     clamp(
       DEFAULT_SCENE.ambientIntensity + luminanceAdjustment + densityLift + textureLift + voxelLift,
-      0.08,
-      0.95,
+      0.28,
+      0.65,
     ),
     0.05,
   );
@@ -1387,14 +1754,14 @@ function smartKeyIntensityForModel(polygons: Polygon[]): number {
   const darkness = clamp((neutralLuminance - averageLuminance) / neutralLuminance, 0, 1);
   const brightness = clamp((averageLuminance - neutralLuminance) / (1 - neutralLuminance), 0, 1);
   const keyAdjustment =
-    Math.pow(darkness, 1.4) * 0.06 -
-    Math.pow(brightness, 0.7) * 0.48;
+    Math.pow(darkness, 1.6) * 0.04 -
+    Math.pow(brightness, 1.2) * 0.12;
 
   return roundToStep(
     clamp(
       DEFAULT_SCENE.lightIntensity + keyAdjustment,
-      0.5,
-      1.08,
+      0.85,
+      1.05,
     ),
     0.05,
   );
@@ -1494,7 +1861,7 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
       },
     });
     const parsed = await bakeSolidTextureSamples(parsedObj);
-    const finalPolys = preprocessModelPolygons(parsed.polygons, false);
+    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
     return {
       label: model.label,
       kind: "obj",
@@ -1515,7 +1882,7 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
 
   if (model.kind === "vox") {
     const parsed = parseVox(buf, mergeParserOptions(model.options, parser));
-    const finalPolys = preprocessModelPolygons(parsed.polygons, false);
+    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
     return {
       label: model.label,
       kind: "vox",
@@ -1534,7 +1901,7 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
     baseUrl: new URL(model.url, window.location.href).href,
   });
   const parsed = await bakeSolidTextureSamples(parsedGltf);
-  const finalPolys = preprocessModelPolygons(parsed.polygons, false);
+  const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
   return {
     label: model.label,
     kind: model.kind,
@@ -1542,6 +1909,112 @@ async function loadPresetModel(model: PresetModel, parser: ParserOptionsState): 
     polygons: finalPolys,
     sourcePolygons: parsed.polygons.length,
     sourceBytes: buf.byteLength,
+    warnings: parsed.warnings ?? [],
+    parseMs: performance.now() - started,
+    dispose: parsed.dispose,
+    animation: parsed.animation,
+  };
+}
+
+async function loadDroppedModel(source: DroppedModelSource, parser: ParserOptionsState): Promise<LoadedModel> {
+  const started = performance.now();
+  const options = mergeParserOptions(source.preset.options, parser);
+  const sourceBytes = source.files.reduce((sum, file) => sum + file.size, 0);
+
+  if (source.kind === "obj") {
+    const objText = await source.primaryFile.text();
+    const index = buildDroppedFileIndex(source.files);
+    const mtllibRefs = extractObjMtllibRefs(objText);
+    const mtlFiles = findDroppedMtlFiles(objText, source.files, index);
+    const warnings: string[] = [];
+    const objectUrls: string[] = [];
+
+    if (mtllibRefs.length > 0 && mtlFiles.length === 0) {
+      warnings.push(`OBJ references ${mtllibRefs.join(", ")} but no matching .mtl file was dropped.`);
+    }
+
+    const materialColors: Record<string, string> = {};
+    const materialTextures: Record<string, string> = {};
+    for (const mtlFile of mtlFiles) {
+      const mtl = parseMtl(await mtlFile.text());
+      Object.assign(materialColors, mtl.colors);
+      for (const [materialName, texturePath] of Object.entries(mtl.textures)) {
+        const textureFile = findDroppedFile(index, texturePath);
+        if (!textureFile) {
+          warnings.push(`MTL texture "${texturePath}" was not dropped.`);
+          continue;
+        }
+        if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+          warnings.push(`MTL texture "${texturePath}" cannot be loaded because object URLs are unavailable.`);
+          continue;
+        }
+        const textureUrl = URL.createObjectURL(textureFile);
+        objectUrls.push(textureUrl);
+        materialTextures[materialName] = textureUrl;
+      }
+    }
+
+    const presetOptions = source.preset.options as ObjParseOptions | undefined;
+    const parsedObj = parseObj(objText, {
+      ...options,
+      materialColors: {
+        ...materialColors,
+        ...(presetOptions?.materialColors ?? {}),
+      },
+      materialTextures: {
+        ...materialTextures,
+        ...(presetOptions?.materialTextures ?? {}),
+      },
+    });
+    const parsed = await bakeSolidTextureSamples(parsedObj);
+    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
+    let disposed = false;
+    return {
+      label: source.label,
+      kind: "obj",
+      rawPolygons: parsed.polygons,
+      polygons: finalPolys,
+      sourcePolygons: parsed.polygons.length,
+      sourceBytes,
+      warnings: [...(parsed.warnings ?? []), ...warnings],
+      parseMs: performance.now() - started,
+      dispose: () => {
+        if (disposed) return;
+        disposed = true;
+        parsed.dispose();
+        for (const url of objectUrls) URL.revokeObjectURL(url);
+      },
+    };
+  }
+
+  const buf = await source.primaryFile.arrayBuffer();
+
+  if (source.kind === "vox") {
+    const parsed = parseVox(buf, options);
+    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
+    return {
+      label: source.label,
+      kind: "vox",
+      rawPolygons: parsed.polygons,
+      polygons: finalPolys,
+      sourcePolygons: parsed.polygons.length,
+      sourceBytes,
+      warnings: parsed.warnings ?? [],
+      parseMs: performance.now() - started,
+      dispose: parsed.dispose,
+    };
+  }
+
+  const parsedGltf = parseGltf(buf, options);
+  const parsed = await bakeSolidTextureSamples(parsedGltf);
+  const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
+  return {
+    label: source.label,
+    kind: "glb",
+    rawPolygons: parsed.polygons,
+    polygons: finalPolys,
+    sourcePolygons: parsed.polygons.length,
+    sourceBytes,
     warnings: parsed.warnings ?? [],
     parseMs: performance.now() - started,
     dispose: parsed.dispose,
@@ -1599,20 +2072,255 @@ function ambientFromOptions(options: SceneOptionsState): PolyAmbientLight {
   };
 }
 
+function cssColorAlpha(value: string | null | undefined): number | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase() === "transparent") return 0;
+  const parsed = parsePureColor(trimmed);
+  if (parsed) return parsed.alpha;
+  const slashAlpha = trimmed.match(/\/\s*([\d.]+%?)\s*\)?$/);
+  if (!slashAlpha) return null;
+  const raw = slashAlpha[1];
+  const valueAsNumber = raw.endsWith("%")
+    ? Number(raw.slice(0, -1)) / 100
+    : Number(raw);
+  return Number.isFinite(valueAsNumber) ? clamp(valueAsNumber, 0, 1) : null;
+}
+
+function inlineStyleValue(element: HTMLElement, property: string): string | null {
+  const styleAttr = element.getAttribute("style") ?? "";
+  return getInlineStyleDeclaration(styleAttr, property)
+    ?? element.style.getPropertyValue(property).trim()
+    ?? null;
+}
+
+function resolvedStyleValue(element: HTMLElement, property: string): string | null {
+  const inline = inlineStyleValue(element, property);
+  if (inline) return inline;
+  const view = element.ownerDocument.defaultView;
+  return view?.getComputedStyle(element).getPropertyValue(property).trim() ?? null;
+}
+
+function cssPxValue(value: string | null | undefined): number | null {
+  const match = value?.trim().match(/^(-?\d*\.?\d+)/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? Math.abs(parsed) : null;
+}
+
+function cssNumberValue(value: string | null | undefined): number | null {
+  const parsed = Number.parseFloat(value?.trim() ?? "");
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function cssUrlValue(value: string | null | undefined): string | null {
+  const match = value?.match(/url\((?:"([^"]+)"|'([^']+)'|([^)]*?))\)/i);
+  const raw = match?.[1] ?? match?.[2] ?? match?.[3];
+  const trimmed = raw?.trim();
+  if (!trimmed || trimmed === "none") return null;
+  return trimmed;
+}
+
+function cssPaintAlpha(element: HTMLElement, properties: string[]): number {
+  for (const property of properties) {
+    const alpha = cssColorAlpha(resolvedStyleValue(element, property));
+    if (alpha !== null) return alpha;
+  }
+  return 1;
+}
+
+function localElementSize(element: HTMLElement): { width: number; height: number } {
+  if (element.tagName === "U") {
+    const left = cssPxValue(resolvedStyleValue(element, "border-left-width")) ?? 0;
+    const right = cssPxValue(resolvedStyleValue(element, "border-right-width")) ?? 0;
+    const bottom = cssPxValue(resolvedStyleValue(element, "border-bottom-width")) ?? 0;
+    return {
+      width: Math.max(1, left + right),
+      height: Math.max(1, bottom),
+    };
+  }
+
+  return {
+    width: Math.max(1, cssPxValue(resolvedStyleValue(element, "width")) ?? element.offsetWidth),
+    height: Math.max(1, cssPxValue(resolvedStyleValue(element, "height")) ?? element.offsetHeight),
+  };
+}
+
+function loadAlphaImage(url: string): Promise<HTMLImageElement> {
+  let promise = SPRITE_ALPHA_IMAGE_CACHE.get(url);
+  if (promise) return promise;
+
+  promise = new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.decoding = "async";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`alpha image load failed: ${url}`));
+    img.src = url;
+  });
+  SPRITE_ALPHA_IMAGE_CACHE.set(url, promise);
+  return promise;
+}
+
+function emitOverpaintCacheUpdate(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(DOM_OVERPAINT_CACHE_EVENT));
+}
+
+async function sampleSpriteAlpha(
+  key: string,
+  url: string,
+  cssX: number,
+  cssY: number,
+  cssW: number,
+  cssH: number,
+  cssBackgroundW: number,
+  cssBackgroundH: number,
+): Promise<void> {
+  try {
+    const img = await loadAlphaImage(url);
+    const scaleX = img.naturalWidth / cssBackgroundW;
+    const scaleY = img.naturalHeight / cssBackgroundH;
+    if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY) || scaleX <= 0 || scaleY <= 0) return;
+
+    const sx = Math.max(0, Math.round(cssX * scaleX));
+    const sy = Math.max(0, Math.round(cssY * scaleY));
+    const sw = Math.max(1, Math.min(img.naturalWidth - sx, Math.round(cssW * scaleX)));
+    const sh = Math.max(1, Math.min(img.naturalHeight - sy, Math.round(cssH * scaleY)));
+    if (sw <= 0 || sh <= 0) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = sw;
+    canvas.height = sh;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+    const pixels = ctx.getImageData(0, 0, sw, sh).data;
+    let alpha = 0;
+    for (let i = 3; i < pixels.length; i += 4) alpha += pixels[i] / 255;
+    SPRITE_ALPHA_CACHE.set(key, alpha / (pixels.length / 4));
+  } catch {
+    SPRITE_ALPHA_CACHE.set(key, 1);
+  } finally {
+    SPRITE_ALPHA_PENDING.delete(key);
+    emitOverpaintCacheUpdate();
+  }
+}
+
+function spriteAtlasAlpha(element: HTMLElement): number | null {
+  const view = element.ownerDocument.defaultView;
+  if (!view || typeof Image === "undefined") return null;
+
+  const style = view.getComputedStyle(element);
+  const url = cssUrlValue(style.backgroundImage)
+    ?? cssUrlValue(style.getPropertyValue("-webkit-mask-image"))
+    ?? cssUrlValue(style.getPropertyValue("mask-image"))
+    ?? cssUrlValue(style.background);
+  if (!url) return null;
+
+  const width = cssPxValue(style.width) ?? element.offsetWidth;
+  const height = cssPxValue(style.height) ?? element.offsetHeight;
+  const positionX = cssNumberValue(style.backgroundPositionX) ?? 0;
+  const positionY = cssNumberValue(style.backgroundPositionY) ?? 0;
+  const maskPosition = style.getPropertyValue("-webkit-mask-position") || style.getPropertyValue("mask-position");
+  const [maskPositionXRaw, maskPositionYRaw] = maskPosition.split(/\s+/);
+  const cssX = -(cssNumberValue(style.backgroundPositionX) ?? cssNumberValue(maskPositionXRaw) ?? positionX);
+  const cssY = -(cssNumberValue(style.backgroundPositionY) ?? cssNumberValue(maskPositionYRaw) ?? positionY);
+  const size = style.backgroundSize || style.getPropertyValue("-webkit-mask-size") || style.getPropertyValue("mask-size");
+  const [backgroundWidthRaw, backgroundHeightRaw] = size.split(/\s+/);
+  const backgroundWidth = cssPxValue(backgroundWidthRaw);
+  const backgroundHeight = cssPxValue(backgroundHeightRaw);
+  if (!width || !height || !backgroundWidth || !backgroundHeight) return null;
+
+  const key = [
+    url,
+    cssX.toFixed(3),
+    cssY.toFixed(3),
+    width.toFixed(3),
+    height.toFixed(3),
+    backgroundWidth.toFixed(3),
+    backgroundHeight.toFixed(3),
+  ].join("|");
+
+  const cached = SPRITE_ALPHA_CACHE.get(key);
+  if (cached !== undefined) return cached;
+
+  if (!SPRITE_ALPHA_PENDING.has(key)) {
+    SPRITE_ALPHA_PENDING.add(key);
+    void sampleSpriteAlpha(key, url, cssX, cssY, width, height, backgroundWidth, backgroundHeight);
+  }
+
+  return null;
+}
+
+function elementPaintAlphaSample(element: HTMLElement): { alpha: number; area: number } | null {
+  const { width, height } = localElementSize(element);
+  const area = Math.max(1, width * height);
+
+  if (element.tagName === "U") {
+    return {
+      alpha: 0.5 * cssPaintAlpha(element, ["border-bottom-color", "color", "--polycss-paint"]),
+      area,
+    };
+  }
+
+  if (element.tagName === "I") {
+    return {
+      alpha: cssPaintAlpha(element, ["border-bottom-color", "border-color", "color", "--polycss-paint"]),
+      area,
+    };
+  }
+
+  if (element.tagName === "S") {
+    const alpha = spriteAtlasAlpha(element)
+      ?? cssPaintAlpha(element, ["background-color", "background"]);
+    return { alpha, area };
+  }
+
+  if (element.tagName === "B") {
+    return {
+      alpha: cssPaintAlpha(element, ["background-color", "background", "color", "--polycss-paint"]),
+      area,
+    };
+  }
+
+  return null;
+}
+
+function measureDomOverpaintPercent(scopes: HTMLElement[]): number {
+  let weightedPaintAlpha = 0;
+  let totalArea = 0;
+
+  for (const scope of scopes) {
+    const elements = scope.querySelectorAll<HTMLElement>("b, u, s, i");
+    for (const element of elements) {
+      const sample = elementPaintAlphaSample(element);
+      if (!sample) continue;
+      weightedPaintAlpha += clamp(sample.alpha, 0, 1) * sample.area;
+      totalArea += sample.area;
+    }
+  }
+
+  return totalArea > 0 ? Number(((1 - weightedPaintAlpha / totalArea) * 100).toFixed(1)) : 0;
+}
+
 function measureDom(root: HTMLElement | null): DomMetrics {
   if (!root) return EMPTY_METRICS;
   const modelScopes = Array.from(root.querySelectorAll<HTMLElement>(".dn-model-mesh"));
-  const scopes = modelScopes.length > 0 ? modelScopes : [root];
+  if (modelScopes.length === 0) return EMPTY_METRICS;
+  const scopes = modelScopes;
   const countInScopes = (selector: string): number =>
     scopes.reduce((sum, scope) => sum + scope.querySelectorAll(selector).length, 0);
+  const nodeCount = scopes.reduce((sum, scope) => sum + 1 + scope.querySelectorAll("*").length, 0);
 
   return {
     measuredAt: performance.now(),
-    nodeCount: root.querySelectorAll("*").length,
+    nodeCount,
     sprites: countInScopes("s"),
     rects: countInScopes("b"),
     triangles: countInScopes("u"),
     irregular: countInScopes("i"),
+    overpaintPercent: measureDomOverpaintPercent(scopes),
   };
 }
 
@@ -1870,16 +2578,16 @@ function VanillaScene({
   enableSelection?: boolean;
   meshId?: string;
   onSelectionChange?: (selectedIds: string[]) => void;
-  gizmoMode?: "translate" | "rotate" | "scale";
+  gizmoMode?: GizmoMode;
   enableHover?: boolean;
   onHoverChange?: (id: string | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<PolySceneHandle | null>(null);
   const controlsRef = useRef<PolyControlsHandle | null>(null);
-  const meshHandleRef = useRef<PolyMeshHandle | null>(null);
-  const axesHandleRef = useRef<PolyMeshHandle | null>(null);
-  const lightHandleRef = useRef<PolyMeshHandle | null>(null);
+  const meshHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
+  const axesHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
+  const lightHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const selectionRef = useRef<PolySelectionHandle | null>(null);
   const transformControlsRef = useRef<PolyTransformControlsHandle | null>(null);
   const onBuildRef = useRef(onBuild);
@@ -1890,6 +2598,10 @@ function VanillaScene({
   onSelectionChangeRef.current = onSelectionChange;
   const onHoverChangeRef = useRef(onHoverChange);
   onHoverChangeRef.current = onHoverChange;
+  const animationPausedRef = useRef(options.animationPaused);
+  animationPausedRef.current = options.animationPaused;
+  const animationTimeScaleRef = useRef(options.animationTimeScale);
+  animationTimeScaleRef.current = options.animationTimeScale;
 
   // Split things into "structural" (require destroying the scene) vs
   // "incremental" (can be applied via setOptions / setTransform). In
@@ -2061,12 +2773,20 @@ function VanillaScene({
   useEffect(() => {
     if (!animationFrameFactory || !animationKey) return;
     let raf = 0;
-    const started = performance.now();
+    let last = performance.now();
+    let elapsedSeconds = 0;
+    let sampledSeconds: number | null = null;
 
     const tick = (now: number) => {
+      const deltaSeconds = Math.max(0, (now - last) / 1000);
+      last = now;
+      if (!animationPausedRef.current) {
+        elapsedSeconds += deltaSeconds * animationTimeScaleRef.current;
+      }
       const handle = meshHandleRef.current;
-      if (handle) {
-        handle.setPolygons(animationFrameFactory((now - started) / 1000), {
+      if (handle && sampledSeconds !== elapsedSeconds) {
+        sampledSeconds = elapsedSeconds;
+        handle.setPolygons(animationFrameFactory(elapsedSeconds), {
           merge: false,
           stableDom: true,
           recomputeAutoCenter: false,
@@ -2122,27 +2842,20 @@ function VanillaScene({
     };
     if (!controlsRef.current) {
       const factory = options.dragMode === "pan" ? createPolyMapControls : createPolyOrbitControls;
-      const controls = factory(scene, controlsOpts);
-      // Sync the camera back to React state ONCE per gesture (pointerup /
-      // wheel-idle) instead of every move. Per-frame React renders during
-      // a drag re-fire Effect 2 below, which re-applies directionalLight /
-      // ambientLight on every render → cascade walk competes with the
-      // drag's compositor frame in dynamic-lighting mode → flicker.
-      // Sliders snap to position on release; the camera moving IS the
-      // visual feedback during drag.
-      controls.addEventListener("end", (e) => {
+      const controls: PolyControlsHandle = factory(scene, controlsOpts);
+      controls.addEventListener("end", ((e: { camera: { rotX: number; rotY: number; zoom: number; target?: ReactVec3 } }) => {
         onCameraChangeRef.current?.(e.camera);
-      });
+      }) as any);
       controlsRef.current = controls;
     } else {
       // dragMode is a dep — when it changes, destroy and re-create with the
       // new factory so orbit vs pan semantics flip correctly.
       controlsRef.current.destroy();
       const factory = options.dragMode === "pan" ? createPolyMapControls : createPolyOrbitControls;
-      const controls = factory(scene, controlsOpts);
-      controls.addEventListener("end", (e) => {
+      const controls: PolyControlsHandle = factory(scene, controlsOpts);
+      controls.addEventListener("end", ((e: { camera: { rotX: number; rotY: number; zoom: number; target?: ReactVec3 } }) => {
         onCameraChangeRef.current?.(e.camera);
-      });
+      }) as any);
       controlsRef.current = controls;
     }
     return () => {
@@ -2270,10 +2983,15 @@ export default function DebugWorkbench() {
   const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(() => sceneDefaultsFor(initialPreset));
   const [parserOptions, setParserOptions] = useState<ParserOptionsState>(() => parserStateFor(initialPreset));
   const [presetId, setPresetId] = useState(initialPreset.id);
+  const [droppedSource, setDroppedSource] = useState<DroppedModelSource | null>(null);
   const [loaded, setLoaded] = useState<LoadedModel | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedAnimation, setSelectedAnimation] = useState("");
+  const animationPausedRef = useRef(sceneOptions.animationPaused);
+  animationPausedRef.current = sceneOptions.animationPaused;
+  const animationTimeScaleRef = useRef(sceneOptions.animationTimeScale);
+  animationTimeScaleRef.current = sceneOptions.animationTimeScale;
   const [reactAnimatedPolygons, setReactAnimatedPolygons] = useState<Polygon[] | null>(null);
   const [metrics, setMetrics] = useState<DomMetrics>(EMPTY_METRICS);
   const [vanillaBuildMs, setVanillaBuildMs] = useState(0);
@@ -2281,18 +2999,20 @@ export default function DebugWorkbench() {
   const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
   const disposeRef = useRef<(() => void) | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const modelItemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const modelListRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dropDepthRef = useRef(0);
+  const droppedIdRef = useRef(0);
+  const [dropActive, setDropActive] = useState(false);
 
   // Selection + drag state for the React renderer's <PolyMesh> wrapper.
   // Lives at this level so a model swap can reset both — the gizmo
   // shouldn't follow a stale handle, and a freshly loaded mesh should
   // sit at its authored origin.
-  const meshRef = useRef<PolyMeshHandle>(null);
+  const meshRef = useRef<ReactPolyMeshHandle>(null);
   const [meshPosition, setMeshPosition] = useState<ReactVec3>([0, 0, 0]);
   const [meshRotation, setMeshRotation] = useState<ReactVec3>([0, 0, 0]);
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>("translate");
-  const [selectedMeshes, setSelectedMeshes] = useState<PolyMeshHandle[]>([]);
+  const [selectedMeshes, setSelectedMeshes] = useState<ReactPolyMeshHandle[]>([]);
   // Mirror of PolyTransformControls' drag state — three.js convention is to
   // disable OrbitControls while a transform gizmo is being dragged so
   // the camera doesn't co-rotate. Same idea here: gate PolyOrbitControls'
@@ -2345,18 +3065,27 @@ export default function DebugWorkbench() {
     });
   }, []);
 
-  const selectedPreset = PRESETS.find((preset) => preset.id === presetId) ?? PRESETS[0];
+  const availablePresets = useMemo(
+    () => droppedSource ? [droppedSource.preset, ...PRESETS] : PRESETS,
+    [droppedSource],
+  );
+  const pickerItems = useMemo(
+    () => droppedSource ? [presetPickerItem(droppedSource.preset, true), ...PRESET_PICKER_ITEMS] : PRESET_PICKER_ITEMS,
+    [droppedSource],
+  );
+  const selectedPreset = availablePresets.find((preset) => preset.id === presetId) ?? PRESETS[0];
+  const selectedDroppedSource = droppedSource?.id === selectedPreset.id ? droppedSource : null;
   const selectedPresetPickerCategory =
-    PRESET_PICKER_ITEMS.find((preset) => preset.id === selectedPreset.id)?.category ??
+    pickerItems.find((preset) => preset.id === selectedPreset.id)?.category ??
     kindLabel(selectedPreset.kind);
   const trimmedModelSearch = modelSearch.trim().toLowerCase();
   const filteredPresetItems = useMemo(() => {
-    if (!trimmedModelSearch) return PRESET_PICKER_ITEMS;
-    return PRESET_PICKER_ITEMS.filter((preset) =>
+    if (!trimmedModelSearch) return pickerItems;
+    return pickerItems.filter((preset) =>
       preset.label.toLowerCase().includes(trimmedModelSearch) ||
       preset.category.toLowerCase().includes(trimmedModelSearch),
     );
-  }, [trimmedModelSearch]);
+  }, [pickerItems, trimmedModelSearch]);
   const modelCategories = useMemo(() => {
     const buckets = new Map<string, { id: string; label: string; models: typeof PRESET_PICKER_ITEMS }>();
     for (const preset of filteredPresetItems) {
@@ -2397,27 +3126,6 @@ export default function DebugWorkbench() {
   }, [trimmedModelSearch, selectedPresetPickerCategory]);
 
   useEffect(() => {
-    const activeItem = modelItemRefs.current[presetId];
-    if (!activeItem) return;
-    const list = modelListRef.current;
-    if (!list) return;
-
-    requestAnimationFrame(() => {
-      const containerRect = list.getBoundingClientRect();
-      const itemRect = activeItem.getBoundingClientRect();
-      if (
-        itemRect.top < containerRect.top + 6 ||
-        itemRect.bottom > containerRect.bottom - 6
-      ) {
-        activeItem.scrollIntoView({
-          behavior: "auto",
-          block: "center",
-        });
-      }
-    });
-  }, [presetId, trimmedModelSearch, modelCategories, openModelCategory]);
-
-  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
@@ -2427,7 +3135,9 @@ export default function DebugWorkbench() {
       try {
         disposeRef.current?.();
         disposeRef.current = null;
-        const next = await loadPresetModel(presetForLoad, parserOptions);
+        const next = selectedDroppedSource
+          ? await loadDroppedModel(selectedDroppedSource, parserOptions)
+          : await loadPresetModel(presetForLoad, parserOptions);
         if (cancelled) {
           next.dispose();
           return;
@@ -2473,7 +3183,7 @@ export default function DebugWorkbench() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPreset, parserOptions]);
+  }, [selectedPreset, selectedDroppedSource, parserOptions]);
 
   useEffect(() => {
     return () => {
@@ -2515,10 +3225,20 @@ export default function DebugWorkbench() {
     setReactAnimatedPolygons(null);
     if (!loaded?.animation || !activeAnimation || sceneOptions.renderer !== "react") return;
     let raf = 0;
-    const started = performance.now();
+    let last = performance.now();
+    let elapsedSeconds = 0;
+    let sampledSeconds: number | null = null;
 
     const tick = (now: number) => {
-      setReactAnimatedPolygons(loaded.animation!.sample(activeAnimation.index, (now - started) / 1000));
+      const deltaSeconds = Math.max(0, (now - last) / 1000);
+      last = now;
+      if (!animationPausedRef.current) {
+        elapsedSeconds += deltaSeconds * animationTimeScaleRef.current;
+      }
+      if (sampledSeconds !== elapsedSeconds) {
+        sampledSeconds = elapsedSeconds;
+        setReactAnimatedPolygons(loaded.animation!.sample(activeAnimation.index, elapsedSeconds));
+      }
       raf = requestAnimationFrame(tick);
     };
 
@@ -2544,18 +3264,12 @@ export default function DebugWorkbench() {
         ? reactAnimatedPolygons
         : loaded.rawPolygons;
     }
-    const base = sceneOptions.approximateMerge
-      ? preprocessModelPolygons(loaded.rawPolygons, APPROXIMATE_MERGE_BUDGET)
-      : loaded.polygons;
-    if (!sceneOptions.rectCover || sceneOptions.approximateMerge) return base;
-    return coverPlanarPolygons(base, {
-      minGroupPolygons: 2,
-      maxCandidateAxes: 24,
+    return optimizeMeshPolygons(loaded.rawPolygons, {
+      meshResolution: sceneOptions.meshResolution,
     });
   }, [
     loaded,
-    sceneOptions.approximateMerge,
-    sceneOptions.rectCover,
+    sceneOptions.meshResolution,
     activeAnimation,
     sceneOptions.renderer,
     reactAnimatedPolygons,
@@ -2565,7 +3279,7 @@ export default function DebugWorkbench() {
   const debugShapeLabels = DEBUG_SHAPE_LABELS;
 
   const helperBbox = useMemo(() => {
-    const polygons = modelPolygons;
+    const polygons = scenePolygons;
     if (polygons.length === 0) return null;
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -2577,7 +3291,7 @@ export default function DebugWorkbench() {
       }
     }
     return { minX, minY, minZ, maxX, maxY, maxZ };
-  }, [modelPolygons]);
+  }, [scenePolygons]);
 
   const helperScale = useMemo(() => {
     if (!helperBbox) return 30;
@@ -2617,8 +3331,10 @@ export default function DebugWorkbench() {
       attributes: true,
       attributeFilter: ["class", "style"],
     });
+    window.addEventListener(DOM_OVERPAINT_CACHE_EVENT, schedule);
     return () => {
       observer.disconnect();
+      window.removeEventListener(DOM_OVERPAINT_CACHE_EVENT, schedule);
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
@@ -2688,7 +3404,7 @@ export default function DebugWorkbench() {
   );
 
   const resetToPreset = useCallback((id: string, options: { updateRoute?: boolean } = {}) => {
-    const next = PRESETS.find((preset) => preset.id === id);
+    const next = availablePresets.find((preset) => preset.id === id);
     autoZoomPresetRef.current = null;
     autoAmbientPresetRef.current = null;
     autoKeyPresetRef.current = null;
@@ -2696,7 +3412,10 @@ export default function DebugWorkbench() {
     setSelectedAnimation("");
     setReactAnimatedPolygons(null);
     if (!next) return;
-    if (options.updateRoute) setRoutePresetId(next.id);
+    if (options.updateRoute) {
+      if (droppedSource?.id === next.id) setRoutePresetId(null);
+      else setRoutePresetId(next.id);
+    }
     setParserOptions((current) => ({
       ...current,
       ...parserDefaultsFor(next),
@@ -2706,11 +3425,74 @@ export default function DebugWorkbench() {
       rotX: next.rotX ?? current.rotX,
       rotY: next.rotY ?? current.rotY,
     }));
-  }, []);
+  }, [availablePresets, droppedSource]);
   const handleRandomPreset = useCallback(() => {
     const next = randomPreset();
     resetToPreset(next.id, { updateRoute: true });
   }, [resetToPreset]);
+
+  const handleDroppedFiles = useCallback((files: File[]) => {
+    const source = droppedSourceFromFiles(
+      files,
+      `dropped-${Date.now().toString(36)}-${(droppedIdRef.current += 1).toString(36)}`,
+    );
+    if (!source) {
+      setLoadError("Drop an .obj, .glb, or .vox file.");
+      return;
+    }
+
+    autoZoomPresetRef.current = null;
+    autoAmbientPresetRef.current = null;
+    autoKeyPresetRef.current = null;
+    setRoutePresetId(null);
+    setDroppedSource(source);
+    setPresetId(source.id);
+    setSelectedAnimation("");
+    setReactAnimatedPolygons(null);
+    setParserOptions((current) => ({
+      ...current,
+      ...parserDefaultsFor(source.preset),
+    }));
+    setSceneOptions((current) => ({
+      ...current,
+      rotX: source.preset.rotX ?? current.rotX,
+      rotY: source.preset.rotY ?? current.rotY,
+    }));
+  }, []);
+
+  const handleFileInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    handleDroppedFiles(fileListToArray(event.currentTarget.files));
+    event.currentTarget.value = "";
+  }, [handleDroppedFiles]);
+
+  const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dropDepthRef.current += 1;
+    setDropActive(true);
+  }, []);
+
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setDropActive(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
+    if (dropDepthRef.current === 0) setDropActive(false);
+  }, []);
+
+  const handleDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    dropDepthRef.current = 0;
+    setDropActive(false);
+    handleDroppedFiles(fileListToArray(event.dataTransfer.files));
+  }, [handleDroppedFiles]);
 
   useEffect(() => {
     const routeValue = getRoutePresetValue();
@@ -2761,32 +3543,32 @@ export default function DebugWorkbench() {
     guiRef.current = gui;
 
     const modelState = {
-      animation: selectedAnimation,
+      meshResolution: sceneOptions.meshResolution,
       domCount: 0,
       sprites: 0,
       shapeRectangle: 0,
       shapeTriangle: 0,
       shapeIrregular: 0,
+      overpaintPercent: 0,
+    };
+
+    const animationState = {
+      animation: selectedAnimation,
+      animationPaused: sceneOptions.animationPaused,
+      animationTimeScale: sceneOptions.animationTimeScale,
     };
 
     const interactionState = {
       interactive: sceneOptions.interactive,
-      autoRotate: sceneOptions.animate,
       selection: sceneOptions.selection,
       hoverEffects: sceneOptions.hoverEffects,
       gizmoMode,
     };
 
-    const rendererState = {
-      renderer: sceneOptions.renderer,
-      textureLighting: sceneOptions.textureLighting,
-      autoCenter: sceneOptions.autoCenter,
-      approximateMerge: sceneOptions.approximateMerge,
-      rectCover: sceneOptions.rectCover,
-      showAxes: sceneOptions.showAxes,
-    };
-
     const cameraState = {
+      autoRotate: sceneOptions.animate,
+      autoCenter: sceneOptions.autoCenter,
+      showAxes: sceneOptions.showAxes,
       dragMode: sceneOptions.dragMode,
       projection: perspectiveMode,
       perspectivePx,
@@ -2799,6 +3581,7 @@ export default function DebugWorkbench() {
     };
 
     const lightState = {
+      textureLighting: sceneOptions.textureLighting,
       showLight: sceneOptions.showLight,
       lightAzimuth: sceneOptions.lightAzimuth,
       lightElevation: sceneOptions.lightElevation,
@@ -2825,60 +3608,49 @@ export default function DebugWorkbench() {
     const shapeIrregularController = disableWithoutDisabledClass(
       model.add(modelState, "shapeIrregular").name(debugShapeLabels.irregular),
     );
-    const animationController = model
-      .add(modelState, "animation", animationOptions)
-      .name("Animation")
+    const overpaintPercentController = disableWithoutDisabledClass(
+      model.add(modelState, "overpaintPercent").name("Overpaint %"),
+    );
+    const meshResolutionController = model
+      .add(modelState, "meshResolution", { Lossless: "lossless", Lossy: "lossy" })
+      .name("Mesh resolution")
+      .onChange((value: MeshResolution) => updateScene({ meshResolution: value }));
+
+    const animation = gui.addFolder("Animation");
+    animation.open();
+    const animationController = animation
+      .add(animationState, "animation", animationOptions)
+      .name("Sequence")
       .onChange((value: string) => {
         setSelectedAnimation(value);
         setReactAnimatedPolygons(null);
       });
+    const animationPausedController = animation
+      .add(animationState, "animationPaused")
+      .name("Paused")
+      .onChange((value: boolean) => updateScene({ animationPaused: value }));
+    const animationTimeScaleController = animation
+      .add(animationState, "animationTimeScale", -3, 3, 0.05)
+      .name("Playback speed")
+      .onChange((value: number) => updateScene({ animationTimeScale: value }));
+
     const interaction = gui.addFolder("Interaction");
     const interactiveController = interaction
       .add(interactionState, "interactive")
-      .name("Interactive")
+      .name("Scene interactive")
       .onChange((value: boolean) => updateScene({ interactive: value }));
-    const autoRotateController = interaction
-      .add(interactionState, "autoRotate")
-      .name("Auto rotate")
-      .onChange((value: boolean) => updateScene({ animate: value }));
-    const selectionController = interaction
-      .add(interactionState, "selection")
-      .name("Selection")
-      .onChange((value: boolean) => updateScene({ selection: value }));
     const hoverController = interaction
       .add(interactionState, "hoverEffects")
-      .name("Hover effects")
+      .name("Mesh hover")
       .onChange((value: boolean) => updateScene({ hoverEffects: value }));
+    const selectionController = interaction
+      .add(interactionState, "selection")
+      .name("Mesh selection")
+      .onChange((value: boolean) => updateScene({ selection: value }));
     const gizmoController = interaction
       .add(interactionState, "gizmoMode", { translate: "translate", rotate: "rotate" })
       .name("Gizmo")
       .onChange((value: GizmoMode) => setGizmoMode(value));
-
-    const renderer = gui.addFolder("Renderer");
-    const rendererController = renderer
-      .add(rendererState, "renderer", { React: "react", Vanilla: "vanilla" })
-      .name("Renderer")
-      .onChange((value: Renderer) => updateScene({ renderer: value }));
-    const textureLightingController = renderer
-      .add(rendererState, "textureLighting", { baked: "baked", dynamic: "dynamic" })
-      .name("Texture")
-      .onChange((value: PolyTextureLightingMode) => updateScene({ textureLighting: value }));
-    const autoCenterController = renderer
-      .add(rendererState, "autoCenter")
-      .name("Auto center")
-      .onChange((value: boolean) => updateScene({ autoCenter: value }));
-    const approxMergeController = renderer
-      .add(rendererState, "approximateMerge")
-      .name("Approx merge")
-      .onChange((value: boolean) => updateScene({ approximateMerge: value }));
-    const rectCoverController = renderer
-      .add(rendererState, "rectCover")
-      .name("Rect cover")
-      .onChange((value: boolean) => updateScene({ rectCover: value }));
-    const axesController = renderer
-      .add(rendererState, "showAxes")
-      .name("Axes")
-      .onChange((value: boolean) => updateScene({ showAxes: value }));
 
     const camera = gui.addFolder("Camera");
     camera.close();
@@ -2893,6 +3665,18 @@ export default function DebugWorkbench() {
         });
       } }, "resetCamera")
       .name("Reset camera");
+    const autoCenterController = camera
+      .add(cameraState, "autoCenter")
+      .name("Auto center")
+      .onChange((value: boolean) => updateScene({ autoCenter: value }));
+    const axesController = camera
+      .add(cameraState, "showAxes")
+      .name("Axes")
+      .onChange((value: boolean) => updateScene({ showAxes: value }));
+    const autoRotateController = camera
+      .add(cameraState, "autoRotate")
+      .name("Auto rotate")
+      .onChange((value: boolean) => updateScene({ animate: value }));
     const dragModeController = camera
       .add(cameraState, "dragMode", { Orbit: "orbit", Pan: "pan" })
       .name("Drag")
@@ -2934,6 +3718,10 @@ export default function DebugWorkbench() {
 
     const lights = gui.addFolder("Lighting");
     lights.open();
+    const textureLightingController = lights
+      .add(lightState, "textureLighting", { baked: "baked", dynamic: "dynamic" })
+      .name("Texture")
+      .onChange((value: PolyTextureLightingMode) => updateScene({ textureLighting: value }));
     const lightController = lights
       .add(lightState, "showLight")
       .name("Light helper")
@@ -2967,34 +3755,34 @@ export default function DebugWorkbench() {
       perspectivePxController.hide();
     }
     if (activeAnimation) {
-      approxMergeController.disable();
-      rectCoverController.disable();
+      meshResolutionController.disable();
     }
     if (!sceneOptions.selection) {
       gizmoController.disable();
     }
-    if (sceneOptions.approximateMerge) {
-      rectCoverController.disable();
-    }
     if (animationClips.length === 0) {
+      animation.hide();
       animationController.disable();
+      animationPausedController.disable();
+      animationTimeScaleController.disable();
     }
 
     guiControllersRef.current = {
       animation: animationController,
+      animationPaused: animationPausedController,
+      animationTimeScale: animationTimeScaleController,
       domCount: domCountController,
       sprites: spritesController,
       shapeRectangle: shapeRectangleController,
       shapeTriangle: shapeTriangleController,
       shapeIrregular: shapeIrregularController,
-      approximateMerge: approxMergeController,
-      rectCover: rectCoverController,
+      overpaintPercent: overpaintPercentController,
+      meshResolution: meshResolutionController,
       interactive: interactiveController,
       autoRotate: autoRotateController,
       selection: selectionController,
       hoverEffects: hoverController,
       gizmoMode: gizmoController,
-      renderer: rendererController,
       textureLighting: textureLightingController,
       autoCenter: autoCenterController,
       showAxes: axesController,
@@ -3015,8 +3803,9 @@ export default function DebugWorkbench() {
       ambientIntensity: ambientIntensityController,
       ambientColor: ambientColorController,
       modelState,
+      animationState,
+      animationFolder: animation,
       interactionState,
-      rendererState,
       cameraState,
       lightState,
     };
@@ -3091,8 +3880,9 @@ export default function DebugWorkbench() {
     };
 
     setCtrlValue("animation", selectedAnimation);
-    setCtrlValue("approximateMerge", sceneOptions.approximateMerge);
-    setCtrlValue("rectCover", sceneOptions.rectCover);
+    setCtrlValue("animationPaused", sceneOptions.animationPaused);
+    setCtrlValue("animationTimeScale", sceneOptions.animationTimeScale);
+    setCtrlValue("meshResolution", sceneOptions.meshResolution);
     setCtrlValue("domCount", metrics.nodeCount);
     setCtrlValue("sprites", metrics.sprites);
     setCtrlName("shapeRectangle", debugShapeLabels.rectangle);
@@ -3101,14 +3891,19 @@ export default function DebugWorkbench() {
     setCtrlValue("shapeRectangle", metrics.rects);
     setCtrlValue("shapeTriangle", metrics.triangles);
     setCtrlValue("shapeIrregular", metrics.irregular);
+    setCtrlValue("overpaintPercent", metrics.overpaintPercent);
 
     const validAnimation = Object.values(animationOptions).includes(selectedAnimation);
     const nextAnimation = validAnimation ? selectedAnimation : "";
     setCtrlValue("animation", nextAnimation);
     const animationController = controllers.animation as { options: (opts: Record<string, string>) => void } | undefined;
     animationController?.options(animationOptions);
+    const animationFolder = controllers.animationFolder as { show: (show?: boolean) => void } | undefined;
+    animationFolder?.show(animationClips.length > 0);
     if (animationController) {
       setEnabled("animation", animationClips.length > 0);
+      setEnabled("animationPaused", animationClips.length > 0);
+      setEnabled("animationTimeScale", animationClips.length > 0);
       if (!validAnimation && selectedAnimation !== "") {
         setSelectedAnimation("");
       }
@@ -3120,7 +3915,6 @@ export default function DebugWorkbench() {
     setCtrlValue("hoverEffects", sceneOptions.hoverEffects);
     setCtrlValue("gizmoMode", gizmoMode);
 
-    setCtrlValue("renderer", sceneOptions.renderer);
     setCtrlValue("textureLighting", sceneOptions.textureLighting);
     setCtrlValue("autoCenter", sceneOptions.autoCenter);
     setCtrlValue("showAxes", sceneOptions.showAxes);
@@ -3143,8 +3937,7 @@ export default function DebugWorkbench() {
     setCtrlValue("ambientIntensity", sceneOptions.ambientIntensity);
     setCtrlValue("ambientColor", sceneOptions.ambientColor);
 
-    setEnabled("approximateMerge", !activeAnimation);
-    setEnabled("rectCover", !activeAnimation && !sceneOptions.approximateMerge);
+    setEnabled("meshResolution", !activeAnimation);
     setEnabled("gizmoMode", sceneOptions.selection);
 
     if (sceneOptions.perspective === false) {
@@ -3154,52 +3947,49 @@ export default function DebugWorkbench() {
     }
 
     const modelState = controllers.modelState as {
+      meshResolution?: MeshResolution;
       domCount?: number;
       sprites?: number;
-      animation?: string;
       shapeRectangle?: number;
       shapeTriangle?: number;
       shapeIrregular?: number;
+      overpaintPercent?: number;
     };
     if (modelState) {
-      modelState.animation = selectedAnimation;
+      modelState.meshResolution = sceneOptions.meshResolution;
       modelState.domCount = metrics.nodeCount;
       modelState.sprites = metrics.sprites;
       modelState.shapeRectangle = metrics.rects;
       modelState.shapeTriangle = metrics.triangles;
       modelState.shapeIrregular = metrics.irregular;
+      modelState.overpaintPercent = metrics.overpaintPercent;
+    }
+    const animationState = controllers.animationState as {
+      animation?: string;
+      animationPaused?: boolean;
+      animationTimeScale?: number;
+    };
+    if (animationState) {
+      animationState.animation = nextAnimation;
+      animationState.animationPaused = sceneOptions.animationPaused;
+      animationState.animationTimeScale = sceneOptions.animationTimeScale;
     }
     const interactionState = controllers.interactionState as {
       interactive?: boolean;
-      autoRotate?: boolean;
       selection?: boolean;
       hoverEffects?: boolean;
       gizmoMode?: GizmoMode;
     };
     if (interactionState) {
       interactionState.interactive = sceneOptions.interactive;
-      interactionState.autoRotate = sceneOptions.animate;
       interactionState.selection = sceneOptions.selection;
       interactionState.hoverEffects = sceneOptions.hoverEffects;
       interactionState.gizmoMode = gizmoMode;
     }
-    const rendererState = controllers.rendererState as {
-      renderer?: Renderer;
-      textureLighting?: PolyTextureLightingMode;
-      autoCenter?: boolean;
-      approximateMerge?: boolean;
-      rectCover?: boolean;
-      showAxes?: boolean;
-    };
-    if (rendererState) {
-      rendererState.renderer = sceneOptions.renderer;
-      rendererState.textureLighting = sceneOptions.textureLighting;
-      rendererState.autoCenter = sceneOptions.autoCenter;
-      rendererState.approximateMerge = sceneOptions.approximateMerge;
-      rendererState.rectCover = sceneOptions.rectCover;
-      rendererState.showAxes = sceneOptions.showAxes;
-    }
     const cameraState = controllers.cameraState as {
+      autoRotate?: boolean;
+      autoCenter?: boolean;
+      showAxes?: boolean;
       dragMode?: DragMode;
       projection?: PerspectiveMode;
       perspectivePx?: number;
@@ -3211,6 +4001,9 @@ export default function DebugWorkbench() {
       targetZ?: number;
     };
     if (cameraState) {
+      cameraState.autoRotate = sceneOptions.animate;
+      cameraState.autoCenter = sceneOptions.autoCenter;
+      cameraState.showAxes = sceneOptions.showAxes;
       cameraState.dragMode = sceneOptions.dragMode;
       cameraState.projection = perspectiveMode;
       cameraState.perspectivePx = perspectivePx;
@@ -3222,6 +4015,7 @@ export default function DebugWorkbench() {
       cameraState.targetZ = sceneOptions.target[2];
     }
     const lightState = controllers.lightState as {
+      textureLighting?: PolyTextureLightingMode;
       showLight?: boolean;
       lightAzimuth?: number;
       lightElevation?: number;
@@ -3231,6 +4025,7 @@ export default function DebugWorkbench() {
       ambientColor?: string;
     };
     if (lightState) {
+      lightState.textureLighting = sceneOptions.textureLighting;
       lightState.showLight = sceneOptions.showLight;
       lightState.lightAzimuth = sceneOptions.lightAzimuth;
       lightState.lightElevation = sceneOptions.lightElevation;
@@ -3244,6 +4039,7 @@ export default function DebugWorkbench() {
     animationClips.length,
     animationOptions,
     loaded?.label,
+    loaded?.kind,
     loaded?.sourcePolygons,
     modelPolygons.length,
     presetId,
@@ -3252,17 +4048,19 @@ export default function DebugWorkbench() {
     metrics.rects,
     metrics.triangles,
     metrics.irregular,
+    metrics.overpaintPercent,
     vanillaBuildMs,
     sceneOptions.interactive,
     sceneOptions.animate,
     sceneOptions.selection,
     sceneOptions.hoverEffects,
     sceneOptions.renderer,
+    sceneOptions.animationPaused,
+    sceneOptions.animationTimeScale,
     sceneOptions.textureLighting,
     sceneOptions.autoCenter,
     sceneOptions.showAxes,
-    sceneOptions.approximateMerge,
-    sceneOptions.rectCover,
+    sceneOptions.meshResolution,
     sceneOptions.dragMode,
     sceneOptions.perspective,
     sceneOptions.zoom,
@@ -3283,7 +4081,13 @@ export default function DebugWorkbench() {
   ]);
 
   return (
-    <div className="dn-root">
+    <div
+      className={`dn-root${dropActive ? " dn-root--drop-active" : ""}`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <aside className="models-sidebar" aria-label="Models">
         <div className="models-sidebar__body dark-scrollbar">
           <div className="models-sidebar__header">
@@ -3295,15 +4099,26 @@ export default function DebugWorkbench() {
               onChange={(event) => setModelSearch(event.target.value)}
               autoComplete="off"
             />
+            <button type="button" className="control-btn" onClick={() => fileInputRef.current?.click()}>
+              Import
+            </button>
             <button type="button" className="control-btn control-btn--primary" onClick={handleRandomPreset}>
               Load Random
             </button>
+            <input
+              ref={fileInputRef}
+              className="model-file-input"
+              type="file"
+              multiple
+              accept=".obj,.glb,.vox,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp"
+              onChange={handleFileInputChange}
+            />
           </div>
 
             {modelCategories.length === 0 ? (
               <div className="model-empty">No matching models</div>
             ) : (
-              <div ref={modelListRef} className="model-tree dark-scrollbar" id="debug-model-tree">
+              <div className="model-tree dark-scrollbar" id="debug-model-tree">
                 {modelCategories.map((category, index) => {
                 const isOpen = isCategoryOpen(category.id);
                 const treeId = modelTreeId[index];
@@ -3326,9 +4141,6 @@ export default function DebugWorkbench() {
                       {category.models.map((preset) => (
                         <button
                           type="button"
-                          ref={(node) => {
-                            modelItemRefs.current[preset.id] = node;
-                          }}
                           key={preset.id}
                           className={`sidebar-item${preset.id === presetId ? " active" : ""}`}
                           onClick={() => resetToPreset(preset.id, { updateRoute: true })}
@@ -3463,6 +4275,7 @@ export default function DebugWorkbench() {
             );
           })()}
         </div>
+        {dropActive && <div className="drop-overlay">Drop OBJ / GLB / VOX</div>}
       </main>
 
       <div className="dn-floating-controls">

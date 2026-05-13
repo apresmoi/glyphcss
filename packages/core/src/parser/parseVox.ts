@@ -109,6 +109,12 @@ function colorFromRgb(r: number, g: number, b: number): string {
   return `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
 }
 
+function colorFromRgba(r: number, g: number, b: number, a: number): string {
+  if (a >= 255) return colorFromRgb(r, g, b);
+  const alpha = Math.round((Math.max(0, Math.min(255, a)) / 255) * 1000) / 1000;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const VOX_MAGIC = 0x20584f56; // "VOX " as little-endian uint32
 
 // ── Face winding quads ───────────────────────────────────────────────────────
@@ -224,8 +230,8 @@ export function parseVox(buffer: ArrayBuffer, options?: VoxParseOptions): ParseR
           const r = dv.getUint8(base);
           const g = dv.getUint8(base + 1);
           const b = dv.getUint8(base + 2);
-          // a = dv.getUint8(base + 3); — ignored for now (CSS colors are opaque)
-          customPalette.push(colorFromRgb(r, g, b));
+          const a = dv.getUint8(base + 3);
+          customPalette.push(colorFromRgba(r, g, b, a));
         }
       }
     }

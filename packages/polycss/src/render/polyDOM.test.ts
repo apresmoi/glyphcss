@@ -258,6 +258,29 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
+  it("uses the whole polygon normal when the first three vertices are nearly collinear", () => {
+    const skinnyLeadingNgon: Polygon = {
+      vertices: [
+        [39.426, 9.805, 14.918],
+        [31.127, 10.135, 18.149],
+        [25.602, 10.356, 20.3],
+        [31.007, 10.318, 20.785],
+        [38.519, 10.266, 21.458],
+      ],
+      color: "#db8729",
+    };
+
+    const result = renderPolygonsWithTextureAtlas([skinnyLeadingNgon]);
+    const element = result.rendered[0].element;
+    const matrix = extractMatrix(element);
+
+    expect(matrix.length).toBe(16);
+    expect(matrix[8]).toBeGreaterThan(0.99);
+    expect(Math.abs(matrix[9])).toBeLessThan(0.02);
+    expect(matrix[10]).toBeCloseTo(-0.069, 3);
+    result.dispose();
+  });
+
   it("uses color/currentColor, not an atlas canvas, for full rectangular solid polygons", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {

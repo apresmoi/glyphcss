@@ -16,6 +16,7 @@ contributors to verify perf claims and catch render regressions.
 ```sh
 pnpm bench:serve            # static server on :4400 with an index page
 pnpm bench:perf             # build bundles + run all 4 renderers × 5 scenarios
+pnpm bench:lossy            # compare lossless / previous lossy / auto lossy counts
 pnpm bench:visual           # screenshot diff against bench/baselines/*.png
 pnpm bench:visual --record  # capture new baselines (after intentional renderer changes)
 pnpm bench:build            # just rebuild the bench bundles (rarely needed alone)
@@ -26,6 +27,8 @@ All scripts also work directly:
 ```sh
 node bench/perf-bench.mjs --mesh saucer --label run1
 node bench/perf-bench.mjs --mesh chicken --renderer react,vue
+node bench/lossy-optimizer-bench.mjs --json bench/results/lossy-optimizer.json
+node bench/lossy-optimizer-bench.mjs --models ducky,shark,bicycle
 node bench/perf-visual.mjs --mesh chicken --tolerance 0.005
 ```
 
@@ -123,19 +126,50 @@ bench/
                          a single instance.
   perf-bench.mjs         Playwright runner. Fresh chromium per scenario,
                          ephemeral port, structured JSON output.
+  lossy-optimizer-bench.mjs
+                         Polygon-count strategy bench for lossless,
+                         previous pair-only lossy, forced grouped lossy,
+                         and current automatic lossy.
   perf-serve.mjs         Static :4400 server with an index page that
                          links the four perf-*.html with example params.
   perf-visual.mjs        Screenshot diff guardrail (chicken + rock1 ×
                          3 light azimuths, vanilla path only).
 
   baselines/             chicken-* / rock1-* PNGs the visual diff compares against.
-  results/               (gitignored) per-run JSON output from perf-bench.mjs.
+  results/               (gitignored) per-run JSON output from bench scripts.
 
   polycss.js             (gitignored) vanilla + elements bundle, output of build.mjs.
   polycss-elements.js    (gitignored) custom-element side-effect register bundle.
   polycss-react.js       (gitignored) React entry bundle.
   polycss-vue.js         (gitignored) Vue entry bundle.
 ```
+
+## Lossy Optimizer Bench
+
+`lossy-optimizer-bench.mjs` is a count-and-choice benchmark for mesh
+optimization, separate from browser FPS. It keeps the isolated-pair lossy
+path visible in the pair-only column by forcing
+`approximateMerge.isolatedPairs: true`, then compares that against forced
+grouped planes and the current automatic lossy chooser.
+When `sharp` is available through the website workspace, GLB/OBJ texture
+swatches are first baked with the same `solidTextureSamples` prepass used by
+`loadMesh`, so texture-atlas color models like `ducky.glb` match the gallery
+path instead of the raw parser-only path.
+The table also reports render-cost delta, total vertices, max polygon
+vertex count, gap diagnostics, and optimization time for the automatic path.
+JSON output also includes triangle count, textured polygon count, and
+solid-color count per stage. Use `--models <ids>` for targeted iteration.
+
+The default corpus starts with the previous hand-checked models
+(`Elephant.glb`, `Dog.glb`, `ducky.glb`) and now runs 28 models. `Duck.glb`,
+`FishAnimated.glb`, `AnimatedMushnub.glb`, the Khronos animated fox, and
+`Shark.glb` cover known regression/safety cases; `poly-pizza/cactus-a.glb` and
+`poly-pizza/glass.glb` are small grouped-plane wins; `Electricguitar.glb`,
+`Dump truck.glb`, `Policecar.glb`, `Violin.glb`, and `Bicycle.glb` cover
+mostly-rectangulated and mechanical runtime cases; `AnimatedSnake.glb`,
+`AnimatedWizard.glb`, `Zebra.glb`, `Bear.glb`, `Horse.glb`, `Cheetah.glb`,
+`Dinosaur.glb`, `Gorilla.glb`, `Hippo.glb`, `Dragon.glb`, `Lobster.glb`,
+`Octopus.glb`, and `Rat.glb` keep pressure on larger pair-heavy organic meshes.
 
 ---
 

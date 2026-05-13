@@ -1,0 +1,3 @@
+newmtl car
+Kd 1 1 1
+map_Kd car_texture.png

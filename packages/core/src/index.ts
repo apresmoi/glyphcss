@@ -13,6 +13,7 @@ export type {
   PolyDirectionalLight,
   PolyAmbientLight,
   PolyTextureLightingMode,
+  MeshResolution,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
 
@@ -76,6 +77,11 @@ export {
 export { mergePolygons } from "./merge/mergePolygons";
 export { coverPlanarPolygons } from "./merge/coverPlanarPolygons";
 export type { CoverPlanarPolygonsOptions } from "./merge/coverPlanarPolygons";
+export { optimizeMeshPolygons } from "./merge/optimizePolygons";
+export type {
+  ApproximateMergeOptions,
+  OptimizeMeshPolygonsOptions,
+} from "./merge/optimizePolygons";
 export { cullInteriorPolygons } from "./cull/cullInteriorPolygons";
 export type { CullInteriorOptions } from "./cull/cullInteriorPolygons";
 

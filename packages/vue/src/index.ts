@@ -69,6 +69,7 @@ export type {
   PolyDirectionalLight,
   PolyAmbientLight,
   PolyTextureLightingMode,
+  MeshResolution,
   ParseResult,
   ParseAnimationClip,
   ParseAnimationController,
@@ -104,11 +105,14 @@ export type {
   TexturePaintMetricsOptions,
   CoverPlanarPolygonsOptions,
   CullInteriorOptions,
+  ApproximateMergeOptions,
+  OptimizeMeshPolygonsOptions,
 } from "@layoutit/polycss-core";
 export {
   normalizePolygons,
   mergePolygons,
   coverPlanarPolygons,
+  optimizeMeshPolygons,
   cullInteriorPolygons,
   parseObj,
   parseMtl,

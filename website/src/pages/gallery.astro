@@ -34,16 +34,14 @@ import '../styles/custom.css';
 
     .page {
       min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      /* DocsHeader is position:fixed and out of flow; push shell content down */
-      padding-top: 72px;
+      background: #0a0b0d;
     }
 
     .debug-page-shell {
-      flex: 1 1 auto;
+      position: fixed;
+      inset: var(--sl-nav-height) 0 0;
+      min-width: 0;
       min-height: 0;
-      height: calc(100vh - 72px);
     }
     :global(.dn-root) {
       width: 100%;

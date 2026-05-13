@@ -565,13 +565,18 @@ function cssPoints(vertices: Vec3[], tile: number, elev: number): Vec3[] {
 function computeSurfaceNormal(pts: Vec3[]): Vec3 | null {
   if (pts.length < 3) return null;
   const p0 = pts[0];
-  const p1 = pts[1];
-  const p2 = pts[2];
-  const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-  const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
-  let nx = -(e1[1] * e2[2] - e1[2] * e2[1]);
-  let ny = -(e1[2] * e2[0] - e1[0] * e2[2]);
-  let nz = -(e1[0] * e2[1] - e1[1] * e2[0]);
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  for (let i = 1; i + 1 < pts.length; i++) {
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    nx -= e1[1] * e2[2] - e1[2] * e2[1];
+    ny -= e1[2] * e2[0] - e1[0] * e2[2];
+    nz -= e1[0] * e2[1] - e1[1] * e2[0];
+  }
   const nLen = Math.hypot(nx, ny, nz);
   if (nLen <= BASIS_EPS) return null;
   nx /= nLen; ny /= nLen; nz /= nLen;
@@ -1169,6 +1174,7 @@ function computeTextureAtlasPlan(
         });
   if (!basis) return null;
   const { xAxis, yAxis, local2D, shiftX, shiftY } = basis;
+  const seamEdges = basisHint?.seamEdges.size ? basisHint.seamEdges : null;
 
   const screenPts: number[] = [];
   for (const [x, y] of local2D) screenPts.push(x + shiftX, y + shiftY);
@@ -1228,7 +1234,7 @@ function computeTextureAtlasPlan(
     uvAffine,
     uvSampleRect,
     textureTriangles,
-    seamEdges: basisHint?.seamEdges.size ? basisHint.seamEdges : null,
+    seamEdges,
     normal,
     textureTint,
     shadedColor,

@@ -567,6 +567,14 @@ describe("parseGltf", () => {
       expect(result.polygons[0].color).toBe("#ff0000");
     });
 
+    it("PBR baseColorFactor alpha is preserved in the polygon color", () => {
+      const { glb } = buildTriangleGlb({
+        materialColor: [0, 0.5, 1, 0.25],
+      });
+      const result = parseGltf(glb);
+      expect(result.polygons[0].color).toBe("rgba(0, 128, 255, 0.25)");
+    });
+
     it("no material → uses default color #888888", () => {
       const { glb } = buildTriangleGlb();
       const result = parseGltf(glb);

@@ -531,16 +531,51 @@ function cssPoints(vertices: Vec3[], tile: number, elev: number): Vec3[] {
   return vertices.map((v) => [v[1] * tile, v[0] * tile, v[2] * elev]);
 }
 
+function pointKey(point: Vec3): string {
+  return `${point[0]},${point[1]},${point[2]}`;
+}
+
+function edgeKey(a: Vec3, b: Vec3): string {
+  const ak = pointKey(a);
+  const bk = pointKey(b);
+  return ak < bk ? `${ak}|${bk}` : `${bk}|${ak}`;
+}
+
+export function buildSharedEdgeSets(polygons: Polygon[]): Array<Set<number> | undefined> {
+  const edgeOwners = new Map<string, Array<{ polygon: number; edge: number }>>();
+  for (let polygonIndex = 0; polygonIndex < polygons.length; polygonIndex++) {
+    const vertices = polygons[polygonIndex].vertices;
+    if (!vertices || vertices.length < 3) continue;
+    for (let edgeIndex = 0; edgeIndex < vertices.length; edgeIndex++) {
+      const key = edgeKey(vertices[edgeIndex], vertices[(edgeIndex + 1) % vertices.length]);
+      const owner = { polygon: polygonIndex, edge: edgeIndex };
+      const owners = edgeOwners.get(key);
+      if (owners) owners.push(owner);
+      else edgeOwners.set(key, [owner]);
+    }
+  }
+
+  const seamEdges = polygons.map(() => new Set<number>());
+  for (const owners of edgeOwners.values()) {
+    if (owners.length < 2) continue;
+    for (const owner of owners) seamEdges[owner.polygon].add(owner.edge);
+  }
+  return seamEdges.map((edges) => edges.size > 0 ? edges : undefined);
+}
+
 function computeSurfaceNormal(pts: Vec3[]): Vec3 | null {
   if (pts.length < 3) return null;
-  const p0 = pts[0], p1 = pts[1], p2 = pts[2];
-  const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
-  const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
-  const normal: Vec3 = [
-    -(e1[1] * e2[2] - e1[2] * e2[1]),
-    -(e1[2] * e2[0] - e1[0] * e2[2]),
-    -(e1[0] * e2[1] - e1[1] * e2[0]),
-  ];
+  const p0 = pts[0];
+  const normal: Vec3 = [0, 0, 0];
+  for (let i = 1; i + 1 < pts.length; i++) {
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const e1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    const e2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    normal[0] -= e1[1] * e2[2] - e1[2] * e2[1];
+    normal[1] -= e1[2] * e2[0] - e1[0] * e2[2];
+    normal[2] -= e1[0] * e2[1] - e1[1] * e2[0];
+  }
   const len = Math.hypot(normal[0], normal[1], normal[2]);
   if (len <= BASIS_EPS) return null;
   return [normal[0] / len, normal[1] / len, normal[2] / len];
@@ -961,6 +996,7 @@ export function computeTextureAtlasPlan(
     layerElevation?: number;
     directionalLight?: PolyDirectionalLight;
     ambientLight?: PolyAmbientLight;
+    seamEdges?: Set<number>;
   } = {},
 ): TextureAtlasPlan | null {
   const { vertices, texture, uvs } = polygon;
@@ -1019,11 +1055,11 @@ export function computeTextureAtlasPlan(
   const screenPts: number[] = [];
   for (let i = 0; i < local2D.length; i++) {
     const [x, y] = local2D[i];
-    const sx = x + shiftX;
-    const sy = y + shiftY;
-    screenPts.push(sx, sy);
+    screenPts.push(x + shiftX, y + shiftY);
   }
 
+  const canvasW = Math.max(1, Math.ceil(w));
+  const canvasH = Math.max(1, Math.ceil(h));
   const tx = p0[0] - shiftX * xAxis[0] - shiftY * yAxis[0];
   const ty = p0[1] - shiftX * xAxis[1] - shiftY * yAxis[1];
   const tz = p0[2] - shiftX * xAxis[2] - shiftY * yAxis[2];
@@ -1073,8 +1109,8 @@ export function computeTextureAtlasPlan(
     tileSize: tile,
     layerElevation: elev,
     matrix,
-    canvasW: Math.max(1, Math.ceil(w)),
-    canvasH: Math.max(1, Math.ceil(h)),
+    canvasW,
+    canvasH,
     screenPts,
     uvAffine,
     uvSampleRect,

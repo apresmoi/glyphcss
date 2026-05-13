@@ -1,0 +1,3 @@
+newmtl biplane
+Kd 1 1 1
+map_Kd diffuse_512.png

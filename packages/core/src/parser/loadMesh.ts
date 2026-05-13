@@ -15,6 +15,7 @@
  * Other extensions throw. Future formats (STL, PLY) plug in here.
  */
 import type { ParseResult } from "./types";
+import type { MeshResolution } from "../types";
 import type { ObjParseOptions } from "./parseObj";
 import type { GltfParseOptions } from "./parseGltf";
 import type { VoxParseOptions } from "./parseVox";
@@ -24,6 +25,7 @@ import { parseMtl } from "./parseMtl";
 import { parseVox } from "./parseVox";
 import { bakeSolidTextureSamples, type SolidTextureSampleOptions } from "./solidTextureSamples";
 import { mergePolygons } from "../merge/mergePolygons";
+import { optimizeMeshPolygons } from "../merge/optimizePolygons";
 import { cullInteriorPolygons } from "../cull/cullInteriorPolygons";
 
 export interface LoadMeshOptions {
@@ -53,6 +55,12 @@ export interface LoadMeshOptions {
    * low-poly models that use texture atlases as color swatches.
    */
   solidTextureSamples?: boolean | SolidTextureSampleOptions;
+  /**
+   * Optional mesh optimization intent. Omitted preserves the historical
+   * cull+merge parser behavior. Set "lossless" or "lossy" to opt into the
+   * shared resolution pipeline.
+   */
+  meshResolution?: MeshResolution;
 }
 
 const FETCH_NAME = "loadMesh";
@@ -75,6 +83,15 @@ function withMergedPolygons(result: ParseResult): ParseResult {
   const merged = mergePolygons(surface);
   if (merged.length === result.polygons.length) return result; // nothing changed
   return { ...result, polygons: merged };
+}
+
+function withMeshResolution(result: ParseResult, options?: LoadMeshOptions): ParseResult {
+  if (!options?.meshResolution) return withMergedPolygons(result);
+  const polygons = optimizeMeshPolygons(result.polygons, {
+    meshResolution: options.meshResolution,
+  });
+  if (polygons.length === result.polygons.length) return result;
+  return { ...result, polygons };
 }
 
 async function withSolidTextureSamples(result: ParseResult, options?: LoadMeshOptions): Promise<ParseResult> {
@@ -158,7 +175,7 @@ export async function loadMesh(url: string, options?: LoadMeshOptions): Promise<
     }
 
     const parsed = parseObj(text, objOptions);
-    return withMergedPolygons(await withSolidTextureSamples(parsed, options));
+    return withMeshResolution(await withSolidTextureSamples(parsed, options), options);
   }
 
   if (ext === "glb" || ext === "gltf") {
@@ -166,14 +183,14 @@ export async function loadMesh(url: string, options?: LoadMeshOptions): Promise<
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const buf = await res.arrayBuffer();
     const parsed = parseGltf(buf, { baseUrl, ...(options?.gltfOptions ?? {}) });
-    return withMergedPolygons(await withSolidTextureSamples(parsed, options));
+    return withMeshResolution(await withSolidTextureSamples(parsed, options), options);
   }
 
   if (ext === "vox") {
     const res = await fetchFn(url);
     if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
     const buf = await res.arrayBuffer();
-    return withMergedPolygons(parseVox(buf, options?.voxOptions));
+    return withMeshResolution(parseVox(buf, options?.voxOptions), options);
   }
 
   throw new Error(`${FETCH_NAME}: unsupported extension ".${ext}" (supported: obj, glb, gltf, vox)`);

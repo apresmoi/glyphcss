@@ -40,6 +40,7 @@ import {
   TextureBorderShapePoly,
   TextureAtlasPoly,
   TextureTrianglePoly,
+  buildSharedEdgeSets,
   useTextureAtlas,
 } from "./textureAtlas";
 import { usePolySceneContext } from "./sceneContext";
@@ -448,12 +449,15 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   }, [effectiveDirectional, bakedRotation]);
 
   const atlasPlans = useMemo(
-    () => !children
-      ? polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
-          directionalLight: bakedDirectional,
-          ambientLight: effectiveAmbient,
-        }))
-      : [],
+    () => {
+      if (children) return [];
+      const sharedEdges = buildSharedEdgeSets(polygons);
+      return polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
+        directionalLight: bakedDirectional,
+        ambientLight: effectiveAmbient,
+        seamEdges: sharedEdges[i],
+      }));
+    },
     [children, polygons, bakedDirectional, effectiveAmbient],
   );
   const textureAtlas = useTextureAtlas(

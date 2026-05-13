@@ -31,6 +31,7 @@ import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles";
 import { PolySceneContextKey } from "./sceneContext";
 import {
+  buildSharedEdgeSets,
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
   type AtlasScale,
@@ -191,12 +192,14 @@ export const PolyScene = defineComponent({
       const dynamic = props.textureLighting === "dynamic";
       const directionalForAtlas = dynamic ? undefined : props.directionalLight;
       const ambientForAtlas = dynamic ? undefined : props.ambientLight;
+      const sharedEdges = buildSharedEdgeSets(sceneResult.value.polygons);
       return sceneResult.value.polygons.map((p, i) =>
         computeTextureAtlasPlan(p, i, {
           tileSize: polyContext.value.tileSize,
           layerElevation: polyContext.value.layerElevation,
           directionalLight: directionalForAtlas,
           ambientLight: ambientForAtlas,
+          seamEdges: sharedEdges[i],
         })
       );
     });

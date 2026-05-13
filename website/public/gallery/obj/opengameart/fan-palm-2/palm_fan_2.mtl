@@ -1,0 +1,3 @@
+newmtl palm_fan_2
+Kd 1 1 1
+map_Kd palm_fan_2_tex.png

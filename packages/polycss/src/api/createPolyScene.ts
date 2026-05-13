@@ -260,18 +260,25 @@ const LAMBERT_BUCKET_PRECISION = 0.1;
 
 function quantizeNormalKey(p: Polygon): { key: string; vec: Vec3 } | null {
   if (p.vertices.length < 3) return null;
-  const v0 = p.vertices[0], v1 = p.vertices[1], v2 = p.vertices[2];
   // CSS-space edges — must match `computeTextureAtlasPlan` exactly so the
   // bucket's normal sits in the same frame as `--plx/ly/lz`. The
   // atlas applies `toCss(v) = [v.y, v.x, v.z]` (x↔y swap) and then takes
   // a NEGATED cross product. Reproducing both here means the cascade
   // dot(normal, light) computes the same value as the original per-poly
   // path that was set inline by `applyDynamicNormalVars`.
-  const e1x = v1[1] - v0[1], e1y = v1[0] - v0[0], e1z = v1[2] - v0[2];
-  const e2x = v2[1] - v0[1], e2y = v2[0] - v0[0], e2z = v2[2] - v0[2];
-  let nx = -(e1y * e2z - e1z * e2y);
-  let ny = -(e1z * e2x - e1x * e2z);
-  let nz = -(e1x * e2y - e1y * e2x);
+  const v0 = p.vertices[0];
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  for (let i = 1; i + 1 < p.vertices.length; i++) {
+    const v1 = p.vertices[i];
+    const v2 = p.vertices[i + 1];
+    const e1x = v1[1] - v0[1], e1y = v1[0] - v0[0], e1z = v1[2] - v0[2];
+    const e2x = v2[1] - v0[1], e2y = v2[0] - v0[0], e2z = v2[2] - v0[2];
+    nx -= e1y * e2z - e1z * e2y;
+    ny -= e1z * e2x - e1x * e2z;
+    nz -= e1x * e2y - e1y * e2x;
+  }
   const len = Math.hypot(nx, ny, nz);
   if (len < 1e-9) return null;
   nx /= len; ny /= len; nz /= len;
