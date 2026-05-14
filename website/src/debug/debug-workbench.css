@@ -345,7 +345,8 @@
 
 .dn-viewport--outline-polygons .polycss-scene i,
 .dn-viewport--outline-polygons .polycss-scene b,
-.dn-viewport--outline-polygons .polycss-scene s {
+.dn-viewport--outline-polygons .polycss-scene s,
+.dn-viewport--outline-polygons .polycss-scene u {
   outline: 1px solid rgba(248, 113, 113, 0.75) !important;
 }
 
@@ -369,13 +370,15 @@
  * `border-color` and doesn't trigger atlas rebuilds, so it's instant. */
 .polycss-mesh.is-hovered i,
 .polycss-mesh.is-hovered b,
-.polycss-mesh.is-hovered s {
+.polycss-mesh.is-hovered s,
+.polycss-mesh.is-hovered u {
   filter: brightness(1.25);
   transition: filter 150ms ease-out;
 }
 .polycss-mesh i,
 .polycss-mesh b,
-.polycss-mesh s {
+.polycss-mesh s,
+.polycss-mesh u {
   transition: filter 150ms ease-out;
 }
 

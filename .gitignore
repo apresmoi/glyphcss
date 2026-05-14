@@ -5,7 +5,6 @@ dist/
 coverage/
 .DS_Store
 package-lock.json
-AGENTS.md
 # Local planning artifacts (not for polycss repo)
 TECH_DEBT.md
 Z2_REFACTOR.md

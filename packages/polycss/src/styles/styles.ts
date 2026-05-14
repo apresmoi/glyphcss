@@ -196,6 +196,7 @@ const CORE_BASE_STYLES = `
    leaf). */
 .polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > i,
 .polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > b,
+.polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > s,
 .polycss-scene[data-polycss-lighting="dynamic"] :not(.polycss-bucket) > u {
   --plam: max(0, calc(
     var(--pnx) * var(--plx) +
@@ -226,6 +227,7 @@ const CORE_BASE_STYLES = `
 }
 
 .polycss-scene[data-polycss-lighting="dynamic"] b,
+.polycss-scene[data-polycss-lighting="dynamic"] i,
 .polycss-scene[data-polycss-lighting="dynamic"] u {
   color: rgb(
     calc(255 * var(--psr) * (var(--par) * var(--pai)

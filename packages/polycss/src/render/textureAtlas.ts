@@ -1852,13 +1852,13 @@ function getSolidPaintDefaultsForPlans(
   const paintCounts = new Map<string, number>();
   const dynamicCounts = new Map<string, number>();
   const dynamicColors = new Map<string, RGB>();
-  const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported(doc);
+  const useBorderShape = borderShapeSupported(doc);
 
   for (const plan of plans) {
     if (!plan || plan.texture) continue;
 
     if (textureLighting === "dynamic") {
-      if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan)) continue;
+      if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan) && !useBorderShape) continue;
       const color = parseHex(plan.polygon.color ?? "#cccccc");
       const key = rgbKey(color);
       incrementCount(dynamicCounts, key);
@@ -1976,14 +1976,13 @@ function createSolidElement(
 
 function createBorderShapeSolidElement(
   entry: TextureAtlasPlan,
+  textureLighting: PolyTextureLightingMode,
   doc: Document,
   solidPaintDefaults?: SolidPaintDefaults,
 ): HTMLElement {
   const el = doc.createElement("i");
   applyPlanElementBase(el, entry, `border-shape:${cssBorderShapeForPlan(entry)}`);
-  if (entry.shadedColor !== solidPaintDefaults?.paintColor) {
-    setInlineStyleProperty(el, "color", entry.shadedColor);
-  }
+  applySolidPaint(el, entry, textureLighting, solidPaintDefaults);
 
   return el;
 }
@@ -2010,9 +2009,7 @@ export function renderPolygonsWithTextureAtlas(
   if (!doc) return { rendered: [], dispose: () => {} };
 
   const textureLighting = options.textureLighting ?? "baked";
-  const useBorderShape =
-    textureLighting !== "dynamic" &&
-    borderShapeSupported(doc);
+  const useBorderShape = borderShapeSupported(doc);
   const basisHints = buildBasisHints(polygons, options);
   const plans = polygons.map((polygon, index) =>
     computeTextureAtlasPlan(polygon, index, options, basisHints[index])
@@ -2051,7 +2048,7 @@ export function renderPolygonsWithTextureAtlas(
       const element = createSolidTriangleElement(trianglePlan, doc);
       rendered.push({ polygonIndex: i, element, kind: "triangle", dispose: () => {} });
     } else if (!plan.texture && useBorderShape) {
-      const element = createBorderShapeSolidElement(plan, doc, options.solidPaintDefaults);
+      const element = createBorderShapeSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
       rendered.push({ polygonIndex: i, element, kind: "border", dispose: () => {} });
     }
   }
