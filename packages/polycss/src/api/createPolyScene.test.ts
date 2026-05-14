@@ -248,6 +248,34 @@ describe("createPolyScene", () => {
       expect(after[0].style.transform).not.toBe(beforeTransform);
     });
 
+    it("updates stableDom textured triangles without replacing loaded atlas elements", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([texturedTriangle()]), {
+        merge: false,
+        stableDom: true,
+      });
+      const before = host.querySelector("s") as HTMLElement;
+      expect(before).not.toBeNull();
+      before.style.background = 'url("blob:static-atlas") 0px 0px / 8px 8px no-repeat';
+      before.style.opacity = "";
+      const beforeTransform = before.style.transform;
+
+      handle.setPolygons([{
+        ...texturedTriangle(),
+        vertices: [
+          [0, 0, 0],
+          [2, 0, 0],
+          [0, 1, 0],
+        ],
+      }], { merge: false, stableDom: true });
+
+      const after = host.querySelector("s") as HTMLElement;
+      expect(after).toBe(before);
+      expect(after.style.background).toContain("blob:static-atlas");
+      expect(after.style.opacity).toBe("");
+      expect(after.style.transform).not.toBe(beforeTransform);
+    });
+
     it("handle.dispose() detaches the wrapper AND calls parseResult.dispose()", () => {
       scene = createPolyScene(host);
       const pr = makeParseResult();

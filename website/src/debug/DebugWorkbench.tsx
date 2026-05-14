@@ -3574,6 +3574,7 @@ function VanillaScene({
   helperScale,
   helperTarget,
   mergePolygonsForMesh,
+  stableDomForMesh,
   animationKey,
   animationFrameFactory,
   onBuild,
@@ -3594,6 +3595,7 @@ function VanillaScene({
   helperScale: number;
   helperTarget: Vec3;
   mergePolygonsForMesh: boolean;
+  stableDomForMesh: boolean;
   animationKey?: string;
   animationFrameFactory?: (timeSeconds: number) => Polygon[];
   onBuild: (ms: number) => void;
@@ -3662,7 +3664,7 @@ function VanillaScene({
       objectUrls: [],
       warnings: [],
       dispose: () => {},
-    }, { merge: mergePolygonsForMesh, stableDom: !!animationFrameFactory, id: meshId });
+    }, { merge: mergePolygonsForMesh, stableDom: stableDomForMesh, id: meshId });
     meshHandleRef.current.element.classList.add("dn-model-mesh");
     return () => {
       // Tear controls down BEFORE destroying the scene — otherwise the
@@ -3682,7 +3684,7 @@ function VanillaScene({
     options.perspective,
     stableDirectionalForRebuild,
     stableAmbientForRebuild,
-    animationFrameFactory,
+    stableDomForMesh,
   ]);
 
   // Effect 1.5 — replace geometry on the existing mesh. This is the path
@@ -3693,12 +3695,12 @@ function VanillaScene({
     const started = performance.now();
     handle.setPolygons(polygons, {
       merge: mergePolygonsForMesh,
-      stableDom: !!animationFrameFactory,
+      stableDom: stableDomForMesh,
     });
     requestAnimationFrame(() =>
       onBuildRef.current(performance.now() - started),
     );
-  }, [polygons, mergePolygonsForMesh, animationFrameFactory]);
+  }, [polygons, mergePolygonsForMesh, stableDomForMesh]);
 
   // Selection + transform-controls layer. Selection toggle controls
   // both — when on, clicking the mesh selects it (and attaches the
@@ -3745,7 +3747,7 @@ function VanillaScene({
     options.perspective,
     stableDirectionalForRebuild,
     stableAmbientForRebuild,
-    animationFrameFactory,
+    stableDomForMesh,
   ]);
 
   // Forward gizmo mode changes to the live PolyTransformControls handle.
@@ -3791,7 +3793,7 @@ function VanillaScene({
     options.perspective,
     stableDirectionalForRebuild,
     stableAmbientForRebuild,
-    animationFrameFactory,
+    stableDomForMesh,
   ]);
 
   useEffect(() => {
@@ -4255,6 +4257,7 @@ export default function DebugWorkbench() {
   const atlasScale = atlasScaleForQuality(sceneOptions.textureQuality);
 
   const animationClips = loaded?.animation?.clips ?? [];
+  const hasAnimation = animationClips.length > 0;
   const activeAnimation = useMemo(
     () => animationClips.find((clip) => String(clip.index) === selectedAnimation) ?? null,
     [animationClips, selectedAnimation],
@@ -4297,7 +4300,7 @@ export default function DebugWorkbench() {
 
   const modelPolygons = useMemo(() => {
     if (!loaded) return [];
-    if (activeAnimation) {
+    if (hasAnimation) {
       return sceneOptions.renderer === "react" && reactAnimatedPolygons
         ? reactAnimatedPolygons
         : loaded.rawPolygons;
@@ -4307,22 +4310,22 @@ export default function DebugWorkbench() {
     });
   }, [
     loaded,
+    hasAnimation,
     sceneOptions.meshResolution,
-    activeAnimation,
     sceneOptions.renderer,
     reactAnimatedPolygons,
   ]);
 
   const scenePolygons = useMemo(() => {
     if (
-      activeAnimation ||
+      hasAnimation ||
       !sceneOptions.meshInteriorFill
     ) {
       return modelPolygons;
     }
     return withInteriorFillPolygons(modelPolygons);
   }, [
-    activeAnimation,
+    hasAnimation,
     modelPolygons,
     sceneOptions.meshInteriorFill,
   ]);
@@ -4437,7 +4440,6 @@ export default function DebugWorkbench() {
       sceneOptions.autoCenter,
       sceneOptions.perspective === false ? "none" : sceneOptions.perspective,
       loaded?.label ?? "none",
-      activeAnimation ? `${selectedAnimation}:${loaded?.label ?? ""}` : "static",
     ].join(":"),
     [
       sceneOptions.renderer,
@@ -4448,8 +4450,6 @@ export default function DebugWorkbench() {
       sceneOptions.autoCenter,
       sceneOptions.perspective,
       loaded?.label,
-      activeAnimation,
-      selectedAnimation,
     ],
   );
 
@@ -5028,8 +5028,8 @@ export default function DebugWorkbench() {
     setCtrlValue("ambientIntensity", sceneOptions.ambientIntensity);
     setCtrlValue("ambientColor", sceneOptions.ambientColor);
 
-    setEnabled("meshResolution", !activeAnimation);
-    setEnabled("meshInteriorFill", !activeAnimation);
+    setEnabled("meshResolution", !hasAnimation);
+    setEnabled("meshInteriorFill", !hasAnimation);
     setEnabled("gizmoMode", sceneOptions.selection);
 
     if (sceneOptions.perspective === false) {
@@ -5130,6 +5130,7 @@ export default function DebugWorkbench() {
     }
   }, [
     activeAnimation,
+    hasAnimation,
     animationClips.length,
     animationOptions,
     loaded?.label,
@@ -5271,7 +5272,8 @@ export default function DebugWorkbench() {
               showLight={sceneOptions.showLight}
               helperScale={helperScale}
               helperTarget={helperTarget}
-              mergePolygonsForMesh={!activeAnimation}
+              mergePolygonsForMesh={!hasAnimation}
+              stableDomForMesh={hasAnimation}
               animationKey={activeAnimation ? `${selectedAnimation}:${loaded?.label ?? ""}` : undefined}
               animationFrameFactory={vanillaAnimationFrameFactory}
               onBuild={setVanillaBuildMs}

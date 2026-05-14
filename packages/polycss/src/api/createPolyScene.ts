@@ -32,7 +32,7 @@ import {
   getSolidPaintDefaults,
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,
-  updatePolygonsWithStableTriangles,
+  updatePolygonsWithStableTopology,
   type AtlasScale,
   type PolyRenderStrategiesOption,
   type RenderedPoly,
@@ -697,15 +697,13 @@ export function createPolyScene(
           };
           const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
           applySolidPaintVars(entry.wrapper, solidPaintDefaults);
-          const atlas = updatePolygonsWithStableTriangles(
-            entry.rendered,
-            entry.polygons,
-            { ...renderOptions, solidPaintDefaults },
-          );
-          if (atlas) {
-            entry.disposeAtlas?.();
-            entry.rendered = atlas.rendered;
-            entry.disposeAtlas = atlas.dispose;
+          if (
+            updatePolygonsWithStableTopology(
+              entry.rendered,
+              entry.polygons,
+              { ...renderOptions, solidPaintDefaults },
+            )
+          ) {
             if (shouldRecomputeAutoCenter) recomputeAutoCenter();
             return;
           }

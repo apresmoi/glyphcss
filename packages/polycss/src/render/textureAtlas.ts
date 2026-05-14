@@ -190,6 +190,7 @@ export interface RenderedPoly {
   polygonIndex: number;
   element: HTMLElement;
   kind?: "atlas" | "solid" | "border" | "triangle";
+  plan?: TextureAtlasPlan;
   dispose(): void;
 }
 
@@ -1759,6 +1760,84 @@ function applyPlanElementBase(el: HTMLElement, entry: TextureAtlasPlan, shapeDec
   applyPolygonDataAttrs(el, entry.polygon);
 }
 
+// Stable topology can reuse the original atlas raster: keep the element's
+// local 2D texture space fixed, and solve the new matrix from that space to
+// the updated 3D triangle.
+function stableMatrixFromPlan(
+  source: TextureAtlasPlan,
+  polygon: Polygon,
+): { matrix: string; normal: Vec3 } | null {
+  if (source.screenPts.length < 6 || polygon.vertices.length < 3) return null;
+
+  const tile = source.tileSize;
+  const elev = source.layerElevation;
+  const target = cssPoints(polygon.vertices, tile, elev);
+  const normal = computeSurfaceNormal(target);
+  if (!normal) return null;
+
+  const sx0 = source.screenPts[0];
+  const sy0 = source.screenPts[1];
+  const sx1 = source.screenPts[2];
+  const sy1 = source.screenPts[3];
+  const sx2 = source.screenPts[4];
+  const sy2 = source.screenPts[5];
+  const dx1 = sx1 - sx0;
+  const dy1 = sy1 - sy0;
+  const dx2 = sx2 - sx0;
+  const dy2 = sy2 - sy0;
+  const det = dx1 * dy2 - dy1 * dx2;
+  if (Math.abs(det) <= BASIS_EPS) return null;
+
+  const p0 = target[0];
+  const p1 = target[1];
+  const p2 = target[2];
+  const q1: Vec3 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  const q2: Vec3 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+
+  const xAxis: Vec3 = [
+    (q1[0] * dy2 - dy1 * q2[0]) / det,
+    (q1[1] * dy2 - dy1 * q2[1]) / det,
+    (q1[2] * dy2 - dy1 * q2[2]) / det,
+  ];
+  const yAxis: Vec3 = [
+    (dx1 * q2[0] - q1[0] * dx2) / det,
+    (dx1 * q2[1] - q1[1] * dx2) / det,
+    (dx1 * q2[2] - q1[2] * dx2) / det,
+  ];
+  const tx = p0[0] - xAxis[0] * sx0 - yAxis[0] * sy0;
+  const ty = p0[1] - xAxis[1] * sx0 - yAxis[1] * sy0;
+  const tz = p0[2] - xAxis[2] * sx0 - yAxis[2] * sy0;
+
+  return {
+    normal,
+    matrix: formatMatrix3dValues([
+      xAxis[0], xAxis[1], xAxis[2], 0,
+      yAxis[0], yAxis[1], yAxis[2], 0,
+      normal[0], normal[1], normal[2], 0,
+      tx, ty, tz, 1,
+    ]),
+  };
+}
+
+function updateAtlasElementWithStablePlan(
+  el: HTMLElement,
+  source: TextureAtlasPlan,
+  polygon: Polygon,
+  textureLighting: PolyTextureLightingMode,
+): boolean {
+  if (!source.texture || !polygon.texture || source.texture !== polygon.texture) return false;
+  const next = stableMatrixFromPlan(source, polygon);
+  if (!next) return false;
+  setInlineStyleProperty(el, "transform", `matrix3d(${next.matrix})`);
+  if (textureLighting === "dynamic") {
+    setInlineStyleProperty(el, "--pnx", next.normal[0].toFixed(4));
+    setInlineStyleProperty(el, "--pny", next.normal[1].toFixed(4));
+    setInlineStyleProperty(el, "--pnz", next.normal[2].toFixed(4));
+  }
+  applyPolygonDataAttrs(el, polygon);
+  return true;
+}
+
 function applyDynamicNormalVars(el: HTMLElement, entry: TextureAtlasPlan): void {
   // Dynamic mode: emit ONLY the per-polygon normal vars inline. The
   // calc-driven background-color + background-blend-mode multiply live
@@ -2065,16 +2144,16 @@ export function renderPolygonsWithTextureAtlas(
     if (entry) {
       const element = createAtlasElement(entry, textureLighting, doc);
       atlasElements.set(i, element);
-      rendered.push({ polygonIndex: i, element, kind: "atlas", dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "atlas", plan, dispose: () => {} });
     } else if (!plan.texture && useFullRectSolid && isFullRectSolid(plan)) {
       const element = createSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
-      rendered.push({ polygonIndex: i, element, kind: "solid", dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "solid", plan, dispose: () => {} });
     } else if (!plan.texture && trianglePlan) {
       const element = createSolidTriangleElement(trianglePlan, doc);
-      rendered.push({ polygonIndex: i, element, kind: "triangle", dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "triangle", plan, dispose: () => {} });
     } else if (!plan.texture && useBorderShape) {
       const element = createBorderShapeSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
-      rendered.push({ polygonIndex: i, element, kind: "border", dispose: () => {} });
+      rendered.push({ polygonIndex: i, element, kind: "border", plan, dispose: () => {} });
     }
   }
 
@@ -2213,4 +2292,48 @@ export function updatePolygonsWithStableTriangles(
     rendered,
     dispose() {},
   };
+}
+
+export function updatePolygonsWithStableTopology(
+  rendered: RenderedPoly[],
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions = {},
+): boolean {
+  if (rendered.length !== polygons.length) return false;
+  const textureLighting = options.textureLighting ?? "baked";
+  const nextTrianglePlans: SolidTrianglePlan[] = [];
+
+  for (let i = 0; i < rendered.length; i++) {
+    const item = rendered[i];
+    if (item.polygonIndex !== i) return false;
+    const polygon = polygons[i];
+    if (!polygon) return false;
+    if (item.kind === "atlas") {
+      if (
+        !item.plan ||
+        !updateAtlasElementWithStablePlan(item.element, item.plan, polygon, textureLighting)
+      ) {
+        return false;
+      }
+      continue;
+    }
+    if (item.kind === "triangle") {
+      const plan = computeSolidTrianglePlan(polygon, i, options);
+      if (!plan) return false;
+      nextTrianglePlans[i] = plan;
+      continue;
+    }
+    return false;
+  }
+
+  for (let i = 0; i < rendered.length; i++) {
+    const item = rendered[i];
+    if (item.kind === "triangle") {
+      const plan = nextTrianglePlans[i];
+      if (!plan) return false;
+      applySolidTriangleElement(item.element, plan);
+    }
+  }
+
+  return true;
 }
