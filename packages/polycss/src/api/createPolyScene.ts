@@ -362,6 +362,13 @@ export function createPolyScene(
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
     el.style.setProperty("--scene-transform", buildSceneTransform(opts));
+    if (opts.perspective === false) {
+      el.style.perspective = "none";
+    } else if (typeof opts.perspective === "number") {
+      el.style.perspective = `${opts.perspective}px`;
+    } else {
+      el.style.removeProperty("perspective");
+    }
     applyDynamicLightVars(el, opts);
   }
 

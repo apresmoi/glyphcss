@@ -47,6 +47,11 @@ export const PRESETS = {
     options: { targetSize: 40, defaultColor: "#8b6f47", excludeObjects: ["Plane"] },
     zoom: 0.6, rotX: 65, rotY: 45,
   },
+  apple: {
+    url: "/gallery/glb/apple.glb",
+    options: { targetSize: 60 },
+    zoom: 0.25, rotX: 74.4, rotY: 301.6,
+  },
 };
 
 export function parseUrlParams() {

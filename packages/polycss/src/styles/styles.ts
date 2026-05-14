@@ -32,7 +32,7 @@ const CORE_BASE_STYLES = `
   width: 0;
   height: 0;
   transform-style: preserve-3d;
-  perspective: none;
+  perspective: 8000px;
   transform: var(--scene-transform);
 }
 

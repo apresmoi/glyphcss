@@ -93,7 +93,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("perspective", "2000");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("");
+      expect(sceneEl.style.perspective).toBe("2000px");
     });
 
     it("parses perspective=false as no perspective", () => {
@@ -101,7 +101,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("perspective", "false");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("");
+      expect(sceneEl.style.perspective).toBe("none");
     });
 
     it("parses rot-x and rot-y as numbers", () => {

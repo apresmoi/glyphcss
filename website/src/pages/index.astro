@@ -100,7 +100,7 @@ const ldJson = {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title}</title>
   <meta name="description" content={description} />
   <meta property="og:title" content={title} />
@@ -293,16 +293,20 @@ const ldJson = {
         const scene = createPolyScene(host, {
           rotX: 74.4,
           rotY: 301.6,
-          zoom: 0.1,
+          zoom: 0.3,
           autoCenter: true,
-          perspective: false,
+          perspective: 100000,
         });
         scene.add(parseResult);
-        // Drag + wheel controls only; the homepage apple should stay still.
-        createPolyOrbitControls(scene, {
-          drag: true,
-          wheel: true,
-        });
+
+        // Auto-rotate the hero apple for visual interest.
+        let rotY = 301.6;
+        function tick() {
+          rotY = (rotY + 1.2) % 360;
+          scene.setOptions({ rotY });
+          requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
       } catch (err) {
         console.error("hero model mount failed", err);
       }
@@ -532,13 +536,19 @@ const ldJson = {
     flex-wrap: wrap;
   }
   .hero-canvas {
-    min-height: 320px;
+    min-height: 960px;
     margin-top: 10px;
     height: 100%;
     /* createPolyScene mounts its 0×0 scene anchor at top:50%/left:50%,
        requiring the host to be a positioned ancestor or it'll snap to the
        document root. */
     position: relative;
+    /* Mobile Chrome compositor workaround: at 1:1 device-px raster, rotating
+       ~266 composited leaves blows the per-frame re-raster budget. CSS `zoom`
+       reduces raster scale at the layer level (cost ≈ zoom²). 1/3 raster
+       scale → ≈ 9× cheaper per-frame raster. Scene zoom and min-height
+       triple to keep visible apple size unchanged. */
+    zoom: 0.333;
   }
   .install-logos {
     display: flex;

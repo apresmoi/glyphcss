@@ -122,7 +122,7 @@ describe("createPolyScene", () => {
       });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
       const transform = sceneEl.style.getPropertyValue("--scene-transform");
-      expect(sceneEl.style.perspective).toBe("");
+      expect(sceneEl.style.perspective).toBe("1500px");
       expect(transform).toContain("scale(2)");
       expect(transform).toContain("rotateX(30deg)");
       // rotY in our API maps to CSS rotate() (i.e. rotateZ) so the model
@@ -130,10 +130,10 @@ describe("createPolyScene", () => {
       expect(transform).toContain("rotate(60deg)");
     });
 
-    it("keeps perspective in CSS instead of inline styles", () => {
+    it("inlines perspective: none when perspective is false", () => {
       scene = createPolyScene(host, { perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("");
+      expect(sceneEl.style.perspective).toBe("none");
     });
 
     it("injects base styles into the document", () => {
@@ -474,18 +474,18 @@ describe("createPolyScene", () => {
       expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotateX(90deg)");
     });
 
-    it("does not inline perspective", () => {
+    it("inlines perspective on setOptions update", () => {
       scene = createPolyScene(host, { perspective: 1000 });
       scene.setOptions({ perspective: 2500 });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("");
+      expect(sceneEl.style.perspective).toBe("2500px");
     });
 
     it("updates perspective to none", () => {
       scene = createPolyScene(host, { perspective: 1000 });
       scene.setOptions({ perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("");
+      expect(sceneEl.style.perspective).toBe("none");
     });
 
     it("emits dynamic light cascade vars on the scene element when textureLighting='dynamic'", () => {
