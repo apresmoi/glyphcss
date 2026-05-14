@@ -12,6 +12,16 @@ import type {
 } from "@layoutit/polycss-core";
 import { parsePureColor } from "@layoutit/polycss-core";
 
+/** A render strategy tag that can be selectively disabled. */
+export type PolyRenderStrategy = "b" | "i" | "u";
+
+export interface PolyRenderStrategiesOption {
+  /** Strategies to skip; polygons that would normally use them fall through
+   *  the chain (b → i → s, u → i → s, i → s). `<s>` is the universal
+   *  fallback and cannot be disabled — textured polys have no other path. */
+  disable?: readonly PolyRenderStrategy[];
+}
+
 const DEFAULT_TILE = 50;
 const DEFAULT_LIGHT_DIR: Vec3 = [0.4, -0.7, 0.59];
 const DEFAULT_LIGHT_COLOR = "#ffffff";
@@ -1366,17 +1376,26 @@ export function useTextureAtlas(
   plans: Array<TextureAtlasPlan | null>,
   textureLighting: PolyTextureLightingMode,
   atlasScaleInput?: AtlasScale,
+  strategies?: PolyRenderStrategiesOption,
 ): TextureAtlasResult {
-  const useBorderShape = textureLighting !== "dynamic" && borderShapeSupported();
+  const disableB = strategies?.disable?.includes("b") ?? false;
+  const disableI = strategies?.disable?.includes("i") ?? false;
+  const disableU = strategies?.disable?.includes("u") ?? false;
+  const useFullRectSolid = !disableB;
+  const useStableTriangle = !disableU;
+  const useBorderShape = !disableI && textureLighting !== "dynamic" && borderShapeSupported();
   const atlasPlans = useMemo(
     () => plans.map((plan) => {
       if (!plan) return plan;
       if (plan.texture) return plan;
-      if (isSolidTrianglePlan(plan)) return null;
-      if (textureLighting !== "dynamic" && (useBorderShape || isFullRectSolid(plan))) return null;
+      // Exclude solid triangles from atlas only when <u> is active.
+      // When u is disabled they fall to <i> (if border-shape supported) or <s>.
+      if (useStableTriangle && isSolidTrianglePlan(plan)) return null;
+      // Exclude full-rect solids (<b> path) and border-shape eligible polys (<i> path).
+      if (textureLighting !== "dynamic" && ((useFullRectSolid && isFullRectSolid(plan)) || (useBorderShape && !isFullRectSolid(plan)))) return null;
       return plan;
     }),
-    [plans, textureLighting, useBorderShape],
+    [plans, textureLighting, useFullRectSolid, useStableTriangle, useBorderShape],
   );
   const { packed, atlasScale } = useMemo(
     () => packTextureAtlasPlansWithScale(atlasPlans, atlasScaleInput),
@@ -1433,6 +1452,7 @@ export function TextureBorderShapePoly({
   domAttrs,
   domEventHandlers,
   pointerEvents = "auto",
+  disabledStrategies,
 }: {
   entry: TextureAtlasPlan;
   solidPaintDefaults?: SolidPaintDefaults;
@@ -1441,9 +1461,15 @@ export function TextureBorderShapePoly({
   domAttrs?: Record<string, unknown>;
   domEventHandlers?: React.DOMAttributes<Element>;
   pointerEvents?: "auto" | "none";
+  disabledStrategies?: ReadonlySet<string>;
 }) {
   const fullRect = isFullRectSolid(entry);
-  const borderShape = fullRect ? null : cssBorderShapeForPlan(entry);
+  // When <b> is disabled but <i> is available (border-shape supported), render
+  // the full-rect poly as <i> instead. The `disabledStrategies` set is only
+  // populated when strategies.disable was explicitly set by the caller.
+  const bDisabled = disabledStrategies?.has("b") ?? false;
+  const useIForFullRect = bDisabled && borderShapeSupported();
+  const borderShape = (!fullRect || useIForFullRect) ? cssBorderShapeForPlan(entry) : null;
   const useDefaultPaint = entry.shadedColor === solidPaintDefaults?.paintColor;
   const setElementRef = useCallback((el: HTMLElement | null) => {
     if (!el) return;
@@ -1476,7 +1502,7 @@ export function TextureBorderShapePoly({
     : {};
   const elementClassName = className?.trim() || undefined;
 
-  if (fullRect) {
+  if (fullRect && !useIForFullRect) {
     return (
       <b
         className={elementClassName}

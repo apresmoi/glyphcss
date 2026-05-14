@@ -515,6 +515,30 @@ describe("createPolyScene", () => {
       expect(sceneEl.dataset.polycssLighting).toBe("baked");
     });
 
+    it("honors strategies.disable at creation time", () => {
+      scene = createPolyScene(host, { strategies: { disable: ["u"] } });
+      scene.add(makeParseResult([triangle()]));
+      expect(host.querySelector("u")).toBeNull();
+      expect(host.querySelector("i, s")).not.toBeNull();
+    });
+
+    it("re-renders meshes when strategies changes via setOptions", () => {
+      scene = createPolyScene(host);
+      scene.add(makeParseResult([triangle()]));
+      expect(host.querySelector("u")).not.toBeNull();
+      scene.setOptions({ strategies: { disable: ["u"] } });
+      expect(host.querySelector("u")).toBeNull();
+      expect(host.querySelector("i, s")).not.toBeNull();
+    });
+
+    it("re-enables a strategy when removed from disable list via setOptions", () => {
+      scene = createPolyScene(host, { strategies: { disable: ["u"] } });
+      scene.add(makeParseResult([triangle()]));
+      expect(host.querySelector("u")).toBeNull();
+      scene.setOptions({ strategies: { disable: [] } });
+      expect(host.querySelector("u")).not.toBeNull();
+    });
+
     // Perf-fix tests: setOptions used to call recomputeAutoCenter() on every
     // call, which is O(N polys) and would be paid 60×/sec by an autorotate
     // loop. The smart-diff version only recomputes when `autoCenter` itself

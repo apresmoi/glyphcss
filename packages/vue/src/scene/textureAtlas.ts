@@ -44,6 +44,15 @@ const SOLID_TRIANGLE_BLEED = 0.45;
 
 export type AtlasScale = number | "auto";
 
+export type PolyRenderStrategy = "b" | "i" | "u";
+
+export interface PolyRenderStrategiesOption {
+  /** Strategies to skip; polygons that would normally use them fall through
+   *  the chain (b → i → s, u → i → s, i → s). `<s>` is the universal
+   *  fallback and cannot be disabled — textured polys have no other path. */
+  disable?: readonly PolyRenderStrategy[];
+}
+
 interface RGB { r: number; g: number; b: number; }
 interface RGBFactors { r: number; g: number; b: number; }
 
@@ -126,6 +135,9 @@ export interface TextureAtlasResult {
   entries: ComputedRef<Array<PackedTextureAtlasEntry | null>>;
   pages: Ref<TextureAtlasPage[]>;
   ready: ComputedRef<boolean>;
+  useFullRectSolid: ComputedRef<boolean>;
+  useStableTriangle: ComputedRef<boolean>;
+  useBorderShape: ComputedRef<boolean>;
 }
 
 export interface SolidPaintDefaults {
@@ -1373,15 +1385,19 @@ export function useTextureAtlas(
   plans: ComputedRef<Array<TextureAtlasPlan | null>>,
   textureLighting: ComputedRef<PolyTextureLightingMode>,
   atlasScale: ComputedRef<AtlasScale | undefined> = computed(() => undefined),
+  strategies: ComputedRef<PolyRenderStrategiesOption | undefined> = computed(() => undefined),
 ): TextureAtlasResult {
-  const useBorderShape = computed(() => textureLighting.value !== "dynamic" && borderShapeSupported());
+  const disabled = computed(() => new Set(strategies.value?.disable ?? []));
+  const useFullRectSolid = computed(() => !disabled.value.has("b"));
+  const useStableTriangle = computed(() => !disabled.value.has("u"));
+  const useBorderShape = computed(() => !disabled.value.has("i") && textureLighting.value !== "dynamic" && borderShapeSupported());
 
   const atlasState = computed(() => {
     const atlasPlans = plans.value.map((plan) => {
       if (!plan) return plan;
       if (plan.texture) return plan;
-      if (isSolidTrianglePlan(plan)) return null;
-      if (textureLighting.value !== "dynamic" && (useBorderShape.value || isFullRectSolid(plan))) return null;
+      if (useStableTriangle.value && isSolidTrianglePlan(plan)) return null;
+      if (textureLighting.value !== "dynamic" && (useBorderShape.value || (useFullRectSolid.value && isFullRectSolid(plan)))) return null;
       return plan;
     });
     return packTextureAtlasPlansWithScale(atlasPlans, atlasScale.value);
@@ -1443,6 +1459,9 @@ export function useTextureAtlas(
     entries: computed(() => atlasState.value.packed.entries),
     pages,
     ready: computed(() => pages.value.length === 0 || pages.value.every((page) => !!page.url)),
+    useFullRectSolid,
+    useStableTriangle,
+    useBorderShape,
   };
 }
 

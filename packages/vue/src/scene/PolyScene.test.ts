@@ -230,6 +230,35 @@ describe("PolyScene (Vue) — automatic merge", () => {
   });
 });
 
+describe("PolyScene (Vue) — strategies", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = "";
+  });
+
+  it("disabling u makes a triangle render as something other than u", () => {
+    const { container } = renderScene({
+      polygons: [TRIANGLE],
+      strategies: { disable: ["u"] },
+    });
+    expect(container.querySelector("u")).toBeNull();
+    // Falls through to <i> (border-shape, when supported) or <s> (atlas fallback).
+    const poly = container.querySelector("i,s");
+    expect(poly).toBeTruthy();
+  });
+
+  it("disabling b, i, u makes every polygon render as s", () => {
+    const { container } = renderScene({
+      polygons: [TRIANGLE, QUAD],
+      strategies: { disable: ["b", "i", "u"] },
+    });
+    const sElements = container.querySelectorAll("s");
+    const otherElements = container.querySelectorAll("b,i,u");
+    expect(otherElements.length).toBe(0);
+    expect(sElements.length).toBe(2);
+  });
+});
+
 describe("PolyScene (Vue) — error (no camera context)", () => {
   it("throws when used outside PolyCamera", () => {
     const container = document.createElement("div");

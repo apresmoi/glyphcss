@@ -36,6 +36,8 @@ export type {
   PolyWheelEvent,
   PolyEventHandler,
   InteractionProps,
+  PolyRenderStrategy,
+  PolyRenderStrategiesOption,
 } from "./scene";
 
 export { Poly } from "./shapes";

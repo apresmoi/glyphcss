@@ -76,6 +76,9 @@ export { PolyOrthographicCameraElement } from "./elements/PolyOrthographicCamera
 export { PolyTransformControlsElement } from "./elements/PolyTransformControlsElement";
 export { PolySelectElement } from "./elements/PolySelectElement";
 
+// ── Render strategy options ───────────────────────────────────────
+export type { PolyRenderStrategy, PolyRenderStrategiesOption } from "./render/textureAtlas";
+
 // ── Style injection ───────────────────────────────────────────────
 export { injectPolyBaseStyles } from "./styles/styles";
 

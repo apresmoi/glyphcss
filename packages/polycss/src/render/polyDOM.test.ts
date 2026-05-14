@@ -769,6 +769,184 @@ describe("renderPolygonsWithTextureAtlas", () => {
   });
 });
 
+describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("triangle with disable:u falls through to atlas when border-shape is unsupported", () => {
+    // happy-dom has no border-shape support, so the fallback is <s>
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: { CSS: { supports: () => false } },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [FLAT_TRIANGLE],
+      { doc, strategies: { disable: ["u"] } },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("s");
+    expect(canvases).toHaveLength(1);
+    result.dispose();
+  });
+
+  it("triangle with disable:u falls through to border-shape when border-shape is supported", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: (property: string) => property === "border-shape" },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [FLAT_TRIANGLE],
+      { doc, strategies: { disable: ["u"] } },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("axis-aligned solid rect with disable:b renders as atlas when border-shape is unsupported", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: { CSS: { supports: () => false } },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [VERTICAL_QUAD],
+      { doc, strategies: { disable: ["b"] } },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("s");
+    expect(canvases).toHaveLength(1);
+    result.dispose();
+  });
+
+  it("axis-aligned solid rect with disable:b renders as border-shape when border-shape is supported", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: (property: string) => property === "border-shape" },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [VERTICAL_QUAD],
+      { doc, strategies: { disable: ["b"] } },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("non-rect untextured solid with disable:i renders as atlas", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: (property: string) => property === "border-shape" },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [NON_RECT_QUAD],
+      { doc, strategies: { disable: ["i"] } },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("s");
+    expect(canvases).toHaveLength(1);
+    result.dispose();
+  });
+
+  it("all three strategies disabled → everything falls through to atlas", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: (property: string) => property === "border-shape" },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [FLAT_TRIANGLE, VERTICAL_QUAD, NON_RECT_QUAD],
+      { doc, strategies: { disable: ["b", "i", "u"] } },
+    );
+    for (const { element } of result.rendered) {
+      expect(element.tagName.toLowerCase()).toBe("s");
+    }
+    expect(canvases.length).toBeGreaterThan(0);
+    result.dispose();
+  });
+
+  it("disable list with no entries has no effect", () => {
+    const result = renderPolygonsWithTextureAtlas(
+      [FLAT_TRIANGLE],
+      { strategies: { disable: [] } },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("u");
+    result.dispose();
+  });
+
+  it("omitting strategies option has no effect (backward compat)", () => {
+    const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE]);
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("u");
+    result.dispose();
+  });
+});
+
 describe("renderPoly — data attributes and lighting", () => {
   it("reflects polygon.data as data-* attributes on the element", () => {
     const result = renderPoly({

@@ -27,6 +27,15 @@ const AUTO_ATLAS_SCALE_GUARD = 0.995;
 
 export type AtlasScale = number | "auto";
 
+export type PolyRenderStrategy = "b" | "i" | "u";
+
+export interface PolyRenderStrategiesOption {
+  /** Strategies to skip; polygons that would normally use them fall through
+   *  the chain (b → i → s, u → i → s, i → s). `<s>` is the universal
+   *  fallback and cannot be disabled — textured polys have no other path. */
+  disable?: readonly PolyRenderStrategy[];
+}
+
 interface RGB { r: number; g: number; b: number; }
 interface RGBFactors { r: number; g: number; b: number; }
 
@@ -174,6 +183,7 @@ export interface RenderTextureAtlasOptions {
    */
   atlasScale?: AtlasScale;
   solidPaintDefaults?: SolidPaintDefaults;
+  strategies?: PolyRenderStrategiesOption;
 }
 
 export interface RenderedPoly {
@@ -1848,17 +1858,24 @@ function getSolidPaintDefaultsForPlans(
   plans: Array<TextureAtlasPlan | null>,
   textureLighting: PolyTextureLightingMode,
   doc: Document,
+  disabled: ReadonlySet<PolyRenderStrategy>,
 ): SolidPaintDefaults {
   const paintCounts = new Map<string, number>();
   const dynamicCounts = new Map<string, number>();
   const dynamicColors = new Map<string, RGB>();
-  const useBorderShape = borderShapeSupported(doc);
+  const useFullRectSolid = !disabled.has("b");
+  const useStableTriangle = !disabled.has("u");
+  const useBorderShape = !disabled.has("i") && borderShapeSupported(doc);
 
   for (const plan of plans) {
     if (!plan || plan.texture) continue;
 
     if (textureLighting === "dynamic") {
-      if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan) && !useBorderShape) continue;
+      if (
+        !(useStableTriangle && isSolidTrianglePlan(plan)) &&
+        !(useFullRectSolid && isFullRectSolid(plan)) &&
+        !useBorderShape
+      ) continue;
       const color = parseHex(plan.polygon.color ?? "#cccccc");
       const key = rgbKey(color);
       incrementCount(dynamicCounts, key);
@@ -1866,7 +1883,11 @@ function getSolidPaintDefaultsForPlans(
       continue;
     }
 
-    if (!isSolidTrianglePlan(plan) && !isFullRectSolid(plan) && !useBorderShape) continue;
+    if (
+      !(useStableTriangle && isSolidTrianglePlan(plan)) &&
+      !(useFullRectSolid && isFullRectSolid(plan)) &&
+      !useBorderShape
+    ) continue;
     incrementCount(paintCounts, plan.shadedColor);
   }
 
@@ -1885,11 +1906,12 @@ export function getSolidPaintDefaults(
 ): SolidPaintDefaults {
   const doc = options.doc ?? (typeof document !== "undefined" ? document : null);
   if (!doc) return {};
+  const disabled = new Set(options.strategies?.disable ?? []);
   const basisHints = buildBasisHints(polygons, options);
   const plans = polygons.map((polygon, index) =>
     computeTextureAtlasPlan(polygon, index, options, basisHints[index])
   );
-  return getSolidPaintDefaultsForPlans(plans, options.textureLighting ?? "baked", doc);
+  return getSolidPaintDefaultsForPlans(plans, options.textureLighting ?? "baked", doc, disabled);
 }
 
 function borderShapePointsForPlan(entry: TextureAtlasPlan): Array<[number, number]> {
@@ -2009,13 +2031,16 @@ export function renderPolygonsWithTextureAtlas(
   if (!doc) return { rendered: [], dispose: () => {} };
 
   const textureLighting = options.textureLighting ?? "baked";
-  const useBorderShape = borderShapeSupported(doc);
+  const disabled = new Set(options.strategies?.disable ?? []);
+  const useFullRectSolid = !disabled.has("b");
+  const useStableTriangle = !disabled.has("u");
+  const useBorderShape = !disabled.has("i") && borderShapeSupported(doc);
   const basisHints = buildBasisHints(polygons, options);
   const plans = polygons.map((polygon, index) =>
     computeTextureAtlasPlan(polygon, index, options, basisHints[index])
   );
   const trianglePlans = plans.map((plan) =>
-    plan && isSolidTrianglePlan(plan)
+    plan && useStableTriangle && isSolidTrianglePlan(plan)
       ? computeSolidTrianglePlan(plan.polygon, plan.index, options)
       : null
   );
@@ -2023,7 +2048,7 @@ export function renderPolygonsWithTextureAtlas(
     plan &&
     (plan.texture
       ? plan
-      : (!isFullRectSolid(plan) && !trianglePlans[index] && !useBorderShape) ? plan : null)
+      : (!(useFullRectSolid && isFullRectSolid(plan)) && !trianglePlans[index] && !useBorderShape) ? plan : null)
   );
   const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.atlasScale);
   const atlasElements = new Map<number, HTMLElement>();
@@ -2041,7 +2066,7 @@ export function renderPolygonsWithTextureAtlas(
       const element = createAtlasElement(entry, textureLighting, doc);
       atlasElements.set(i, element);
       rendered.push({ polygonIndex: i, element, kind: "atlas", dispose: () => {} });
-    } else if (!plan.texture && isFullRectSolid(plan)) {
+    } else if (!plan.texture && useFullRectSolid && isFullRectSolid(plan)) {
       const element = createSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
       rendered.push({ polygonIndex: i, element, kind: "solid", dispose: () => {} });
     } else if (!plan.texture && trianglePlan) {

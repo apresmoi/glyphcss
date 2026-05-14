@@ -33,6 +33,8 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 
 Strategies are ordered cheapest → most expensive. The mesher's job is to maximise `<b>` / `<i>` and minimise `<s>` (see "Meshing implications" below).
 
+Callers can opt out of specific strategies via `strategies: { disable: ["b" | "i" | "u"] }` on `RenderTextureAtlasOptions`. Disabled strategies fall through the chain (`b → i → s`, `u → i → s`, `i → s`). `<s>` is the universal fallback and cannot be disabled. Useful for diagnostic A/B testing.
+
 ### Lighting modes (`PolyTextureLightingMode = "baked" | "dynamic"`)
 
 - **Baked.** Lambert is computed once on the CPU per polygon, multiplied into the inline `color` (for `<b>`/`<i>`/`<u>`) or into the rasterised atlas pixels (for `<s>`). Moving a light requires re-rasterising affected polys.

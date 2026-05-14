@@ -34,6 +34,7 @@ import {
   renderPolygonsWithStableTriangles,
   updatePolygonsWithStableTriangles,
   type AtlasScale,
+  type PolyRenderStrategiesOption,
   type RenderedPoly,
   type SolidPaintDefaults,
 } from "../render/textureAtlas";
@@ -67,6 +68,12 @@ export interface PolySceneOptions {
   textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
+  /**
+   * Skip specific render-strategy tags. Polygons that would normally use a
+   * disabled tag fall through the chain (b → i → s, u → i → s, i → s).
+   * `<s>` is the universal fallback and cannot be disabled.
+   */
+  strategies?: PolyRenderStrategiesOption;
   /**
    * When `true`, rotation pivots around the union bbox of all added meshes
    * instead of world (0,0,0). The scene wraps polygons in an inner div
@@ -528,6 +535,7 @@ export function createPolyScene(
       ambientLight: currentOptions.ambientLight,
       textureLighting: currentOptions.textureLighting,
       atlasScale: currentOptions.atlasScale,
+      strategies: currentOptions.strategies,
     };
     const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
     applySolidPaintVars(entry.wrapper, solidPaintDefaults);
@@ -739,9 +747,13 @@ export function createPolyScene(
     for (const entry of meshes) {
       applyMeshLightVarOverride(entry.wrapper, entry.handle.transform.rotation);
     }
-    // No syncInteractive — pointer/wheel input now lives in
-    // createPolyOrbitControls / createPolyMapControls (additive layers).
-    // createPolyScene is the pure renderer + camera-state owner.
+    // `strategies` controls which leaf tags the renderer emits. A change
+    // means we have to re-render every mesh against the new constraint —
+    // otherwise the DOM keeps the prior tag selection. Cheaper than tearing
+    // the scene down and reattaching controls/helpers.
+    if (partial.strategies !== undefined) {
+      for (const entry of meshes) renderEntry(entry);
+    }
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
   }
 

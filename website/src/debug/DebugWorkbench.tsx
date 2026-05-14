@@ -27,6 +27,7 @@ import type {
   ParseAnimationController,
   PolyMeshHandle as ReactPolyMeshHandle,
   Polygon,
+  PolyRenderStrategy,
   PolyTextureLightingMode,
   Vec3 as ReactVec3,
 } from "@layoutit/polycss-react";
@@ -140,6 +141,7 @@ interface SceneOptionsState {
   outlinePolygons: boolean;
   dragMode: "orbit" | "pan";
   target: ReactVec3;
+  disableStrategies: PolyRenderStrategy[];
 }
 
 interface ParserOptionsState {
@@ -1408,6 +1410,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   outlinePolygons: false,
   dragMode: "orbit",
   target: [0, 0, 0],
+  disableStrategies: [],
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -3650,6 +3653,7 @@ function VanillaScene({
       perspective: options.perspective,
       autoCenter: options.autoCenter,
       atlasScale: atlasScaleForQuality(options.textureQuality),
+      strategies: { disable: options.disableStrategies },
     };
     const scene = createPolyScene(host, sceneOptions);
     sceneRef.current = scene;
@@ -3819,8 +3823,9 @@ function VanillaScene({
     return () => cancelAnimationFrame(raf);
   }, [animationKey, animationFrameFactory]);
 
-  // Effect 2 — cheap: live transform + lighting updates via setOptions.
-  // Sliding sliders only flows through this path.
+  // Effect 2 — cheap: live transform + lighting + strategy updates via
+  // setOptions. Sliding sliders and strategy toggles flow through this path
+  // (no scene teardown / control reattach).
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -3832,6 +3837,7 @@ function VanillaScene({
       directionalLight,
       ambientLight,
       textureLighting: options.textureLighting,
+      strategies: { disable: options.disableStrategies },
     });
   }, [
     options.rotX,
@@ -3839,6 +3845,7 @@ function VanillaScene({
     options.zoom,
     options.target,
     options.textureLighting,
+    options.disableStrategies,
     directionalLight,
     ambientLight,
   ]);
@@ -4012,6 +4019,8 @@ export default function DebugWorkbench() {
   animationPausedRef.current = sceneOptions.animationPaused;
   const animationTimeScaleRef = useRef(sceneOptions.animationTimeScale);
   animationTimeScaleRef.current = sceneOptions.animationTimeScale;
+  const disableStrategiesRef = useRef(sceneOptions.disableStrategies);
+  disableStrategiesRef.current = sceneOptions.disableStrategies;
   const [reactAnimatedPolygons, setReactAnimatedPolygons] = useState<Polygon[] | null>(null);
   const [metrics, setMetrics] = useState<DomMetrics>(EMPTY_METRICS);
   const [vanillaBuildMs, setVanillaBuildMs] = useState(0);
@@ -4641,6 +4650,33 @@ export default function DebugWorkbench() {
     const shapeIrregularController = disableWithoutDisabledClass(
       model.add(modelState, "shapeIrregular").name(debugShapeLabels.irregular),
     );
+
+    function injectStrategyCheckbox(
+      controller: { domElement?: HTMLElement } | undefined | null,
+      strategy: PolyRenderStrategy,
+    ): HTMLInputElement | null {
+      const dom = controller?.domElement;
+      const widget = dom?.querySelector?.<HTMLElement>(".widget");
+      if (!widget) return null;
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "dn-strategy-toggle";
+      checkbox.checked = !disableStrategiesRef.current.includes(strategy);
+      checkbox.addEventListener("change", () => {
+        const current = disableStrategiesRef.current;
+        updateScene({
+          disableStrategies: checkbox.checked
+            ? current.filter((s) => s !== strategy)
+            : [...current.filter((s) => s !== strategy), strategy],
+        });
+      });
+      widget.insertBefore(checkbox, widget.firstChild);
+      return checkbox;
+    }
+
+    const bToggle = injectStrategyCheckbox(shapeRectangleController, "b");
+    const uToggle = injectStrategyCheckbox(shapeTriangleController, "u");
+    const iToggle = injectStrategyCheckbox(shapeIrregularController, "i");
     const overpaintPercentController = disableWithoutDisabledClass(
       model.add(modelState, "overpaintPercent").name("Overpaint %"),
     );
@@ -4814,6 +4850,9 @@ export default function DebugWorkbench() {
       shapeRectangle: shapeRectangleController,
       shapeTriangle: shapeTriangleController,
       shapeIrregular: shapeIrregularController,
+      bToggle,
+      uToggle,
+      iToggle,
       overpaintPercent: overpaintPercentController,
       meshResolution: meshResolutionController,
       meshInteriorFill: meshInteriorFillController,
@@ -4925,12 +4964,15 @@ export default function DebugWorkbench() {
     setCtrlValue("meshInteriorFill", sceneOptions.meshInteriorFill);
     setCtrlValue("domCount", metrics.nodeCount);
     setCtrlValue("sprites", metrics.sprites);
-    setCtrlName("shapeRectangle", debugShapeLabels.rectangle);
-    setCtrlName("shapeTriangle", debugShapeLabels.triangle);
-    setCtrlName("shapeIrregular", debugShapeLabels.irregular);
     setCtrlValue("shapeRectangle", metrics.rects);
     setCtrlValue("shapeTriangle", metrics.triangles);
     setCtrlValue("shapeIrregular", metrics.irregular);
+    const bToggleEl = controllers.bToggle as HTMLInputElement | undefined;
+    const uToggleEl = controllers.uToggle as HTMLInputElement | undefined;
+    const iToggleEl = controllers.iToggle as HTMLInputElement | undefined;
+    if (bToggleEl) bToggleEl.checked = !sceneOptions.disableStrategies.includes("b");
+    if (uToggleEl) uToggleEl.checked = !sceneOptions.disableStrategies.includes("u");
+    if (iToggleEl) iToggleEl.checked = !sceneOptions.disableStrategies.includes("i");
     setCtrlValue("overpaintPercent", metrics.overpaintPercent);
 
     const validAnimation = Object.values(animationOptions).includes(selectedAnimation);
@@ -5118,6 +5160,7 @@ export default function DebugWorkbench() {
     sceneOptions.lightColor,
     sceneOptions.ambientIntensity,
     sceneOptions.ambientColor,
+    sceneOptions.disableStrategies,
     perspectiveMode,
     perspectivePx,
     gizmoMode,
@@ -5261,6 +5304,7 @@ export default function DebugWorkbench() {
                   ambientLight={ambientLight}
                   textureLighting={sceneOptions.textureLighting}
                   atlasScale={atlasScale}
+                  strategies={{ disable: sceneOptions.disableStrategies }}
                 >
                   {sceneOptions.selection ? (
                     <PolySelect onChange={setSelectedMeshes} clearOnMiss={false}>

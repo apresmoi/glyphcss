@@ -16,6 +16,7 @@ import {
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
   type AtlasScale,
+  type PolyRenderStrategiesOption,
   TextureBorderShapePoly,
   TextureAtlasPoly,
   TextureTrianglePoly,
@@ -51,6 +52,13 @@ export interface PolySceneProps extends TransformProps {
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
   /**
+   * Render strategy overrides. Use `{ disable: ["u"] }` to force solid
+   * triangles through the atlas path (`<s>`), or `{ disable: ["b", "i", "u"] }`
+   * to force every polygon through the atlas. Mirrors the same option on
+   * `renderPolygonsWithTextureAtlas` in `@layoutit/polycss`.
+   */
+  strategies?: PolyRenderStrategiesOption;
+  /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — the scene element's
    * `transform-origin` is moved to the bbox center in CSS. Equivalent to
@@ -80,6 +88,7 @@ function PolySceneInner({
   ambientLight,
   textureLighting = "baked",
   atlasScale,
+  strategies,
   autoCenter = false,
   className,
   style,
@@ -200,7 +209,7 @@ function PolySceneInner({
     },
     [polygons, polyContext],
   );
-  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, atlasScale);
+  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, atlasScale, strategies);
 
   // Dynamic mode plumbing: emit normalized light direction + light/ambient
   // color/intensity as CSS custom properties on the scene root. They
@@ -247,6 +256,11 @@ function PolySceneInner({
     return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
   }, [autoCenter, sceneBbox, polyContext.tileSize, polyContext.layerElevation]);
 
+  const disabledStrategies = useMemo(
+    () => strategies?.disable?.length ? new Set(strategies.disable) : undefined,
+    [strategies],
+  );
+
   const polyChildren = textureAtlas.entries.map((entry, index) => {
     if (entry) {
       return (
@@ -261,9 +275,14 @@ function PolySceneInner({
 
     const plan = textureAtlasPlans[index];
     if (!plan || plan.texture) return null;
-    return isSolidTrianglePlan(plan)
+    // Solid triangles go through <u> only when that strategy is active.
+    // When "u" is disabled they fall to <i> (border-shape, if supported) or
+    // <s> (atlas). The atlas path is handled above via packed.entries; the <i>
+    // fallback lands here via TextureBorderShapePoly (same as non-rect solids).
+    const useU = !disabledStrategies?.has("u");
+    return (useU && isSolidTrianglePlan(plan))
       ? <TextureTrianglePoly key={plan.index} entry={plan} textureLighting={textureLighting} />
-      : <TextureBorderShapePoly key={plan.index} entry={plan} />;
+      : <TextureBorderShapePoly key={plan.index} entry={plan} disabledStrategies={disabledStrategies} />;
   });
 
   // Propagate scene-level rendering options to descendants (PolyMesh /

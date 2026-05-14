@@ -248,6 +248,37 @@ describe("PolyScene — automatic merge", () => {
   });
 });
 
+describe("PolyScene — strategies.disable", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = "";
+  });
+
+  it("disabling u renders triangle without u element", () => {
+    const container = renderScene({
+      polygons: [TRIANGLE],
+      strategies: { disable: ["u"] },
+    });
+    // When u is disabled, the triangle falls to <i> (border-shape, if supported)
+    // or <s> (atlas). Either way, <u> must not be present.
+    expect(container.querySelector("u")).toBeNull();
+    const fallback = container.querySelector("i,s");
+    expect(fallback).toBeTruthy();
+  });
+
+  it("disabling b, i, and u forces all polygons to s", () => {
+    const container = renderScene({
+      polygons: [TRIANGLE, QUAD],
+      strategies: { disable: ["b", "i", "u"] },
+    });
+    const sTags = container.querySelectorAll("s");
+    const otherTags = container.querySelectorAll("b,i,u");
+    // Both polygons must use the atlas path
+    expect(sTags.length).toBe(2);
+    expect(otherTags.length).toBe(0);
+  });
+});
+
 describe("PolyScene — error (no camera context)", () => {
   it("throws when used outside PolyCamera", () => {
     const container = document.createElement("div");

@@ -35,6 +35,7 @@ import {
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
   type AtlasScale,
+  type PolyRenderStrategiesOption,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
   renderTextureTrianglePoly,
@@ -52,6 +53,8 @@ export interface PolySceneProps {
   textureLighting?: PolyTextureLightingMode;
   /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
   atlasScale?: AtlasScale;
+  /** Opt out of specific render strategies. Disabled strategies fall through the chain (b→i→s, u→i→s, i→s). `<s>` cannot be disabled. */
+  strategies?: PolyRenderStrategiesOption;
   /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — a wrapper div translates
@@ -91,6 +94,7 @@ export const PolyScene = defineComponent({
       default: "baked",
     },
     atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
+    strategies: { type: Object as PropType<PolyRenderStrategiesOption>, default: undefined },
     autoCenter: { type: Boolean, default: false },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
@@ -205,7 +209,8 @@ export const PolyScene = defineComponent({
     });
     const atlasTextureLighting = computed<PolyTextureLightingMode>(() => props.textureLighting ?? "baked");
     const atlasScale = computed(() => props.atlasScale);
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
+    const atlasStrategies = computed(() => props.strategies);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale, atlasStrategies);
 
     // Dynamic mode plumbing: emit normalized light direction + light/ambient
     // color/intensity as CSS custom properties on the scene root. They cascade
@@ -269,9 +274,13 @@ export const PolyScene = defineComponent({
         }
         const plan = textureAtlasPlans.value[index];
         if (!plan || plan.texture) return null;
-        return isSolidTrianglePlan(plan)
-          ? renderTextureTrianglePoly({ entry: plan, textureLighting: ctx.textureLighting ?? "baked" })
-          : renderTextureBorderShapePoly({ entry: plan });
+        if (textureAtlas.useStableTriangle.value && isSolidTrianglePlan(plan)) {
+          return renderTextureTrianglePoly({ entry: plan, textureLighting: ctx.textureLighting ?? "baked" });
+        }
+        if (textureAtlas.useBorderShape.value || textureAtlas.useFullRectSolid.value) {
+          return renderTextureBorderShapePoly({ entry: plan });
+        }
+        return null;
       });
 
       const slotChildren = slots.default?.() ?? [];
