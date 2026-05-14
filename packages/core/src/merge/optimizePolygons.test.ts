@@ -9,6 +9,23 @@ function rect(x0: number, y0: number, x1: number, y1: number): Polygon[] {
   ];
 }
 
+function edgeKey(a: Polygon["vertices"][number], b: Polygon["vertices"][number]): string {
+  const ak = a.join(",");
+  const bk = b.join(",");
+  return ak < bk ? `${ak}|${bk}` : `${bk}|${ak}`;
+}
+
+function sharedEdgeCount(polygons: Polygon[]): number {
+  const counts = new Map<string, number>();
+  for (const polygon of polygons) {
+    for (let i = 0; i < polygon.vertices.length; i++) {
+      const key = edgeKey(polygon.vertices[i], polygon.vertices[(i + 1) % polygon.vertices.length]);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return [...counts.values()].filter((count) => count > 1).length;
+}
+
 describe("optimizeMeshPolygons", () => {
   it("uses exact planar cover candidates for lossless resolution", () => {
     const input = [
@@ -117,5 +134,29 @@ describe("optimizeMeshPolygons", () => {
       "12,1,0",
       "0,1,0",
     ]));
+  });
+
+  it("keeps lossy pair-merge neighbor seams on shared geometry", () => {
+    const input: Polygon[] = [
+      { vertices: [[0, 0, 0.02], [1, 0, 0], [1, 1, 0.11]], color: "#f00" },
+      { vertices: [[0, 0, 0.02], [1, 1, 0.11], [0, 1, -0.03]], color: "#f00" },
+      { vertices: [[1, 0, 0], [2, 0, 0.04], [2, 1, -0.02]], color: "#0f0" },
+      { vertices: [[1, 0, 0], [2, 1, -0.02], [1, 1, 0.11]], color: "#0f0" },
+    ];
+
+    const baseOptions = {
+      meshResolution: "lossy",
+      rectCover: false,
+      approximateMerge: {
+        maxAngleDeg: 45,
+        maxPlaneDisplacement: 1,
+        maxBoundaryDisplacement: 0.2,
+        isolatedPairs: true,
+      },
+    } as const;
+    const lossy = optimizeMeshPolygons(input, baseOptions);
+
+    expect(lossy).toHaveLength(2);
+    expect(sharedEdgeCount(lossy)).toBe(1);
   });
 });

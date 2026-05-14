@@ -24,9 +24,9 @@ export interface OptimizeMeshPolygonsOptions {
   rectCover?: boolean | CoverPlanarPolygonsOptions;
   /**
    * Lossy approximate merge settings. Ignored for lossless resolution.
-   * When omitted, lossy evaluates both isolated-pair and plane-group
-   * strategies and chooses the lowest render-cost result that does not
-   * expose internal source edges as cracks.
+   * When omitted, lossy evaluates isolated-pair and small plane-group
+   * strategies, then chooses the lowest render-cost result with a near-cost
+   * preference for candidates that reduce detected internal gaps.
    */
   approximateMerge?: boolean | ApproximateMergeOptions;
 }
@@ -59,13 +59,32 @@ interface PairCandidate {
   a: number;
   b: number;
   polygon: Polygon;
+  vertexMoves: VertexPositionMove[];
   score: number;
+}
+
+interface VertexPositionMove {
+  key: string;
+  target: Vec3;
+}
+
+interface PairCandidateRank {
+  degree: number;
+  score: number;
+  index: number;
 }
 
 interface PlanePatchCandidate {
   indices: number[];
+  source: Polygon[];
   projected: Polygon[];
+  vertexMoves: VertexPositionMove[];
   score: number;
+}
+
+interface PlaneGroupReplacements {
+  polygons: Map<number, Polygon>;
+  vertexMoves: VertexPositionMove[];
 }
 
 interface PreprocessCache {
@@ -82,6 +101,11 @@ interface Segment3 {
 interface SegmentIndex {
   cellSize: number;
   cells: Map<string, Segment3[]>;
+}
+
+interface CrackMetricSample {
+  metrics: CrackMetrics;
+  tolerance: number;
 }
 
 interface EdgeStats {
@@ -105,6 +129,13 @@ interface CrackMetrics {
   excessBoundaryLength: number;
 }
 
+interface LossyQualityCandidate {
+  polygons: Polygon[];
+  cost: number;
+  maxBoundaryDisplacement: number;
+  metrics?: CrackMetrics;
+}
+
 const DEFAULT_NORMALIZE_OPTIONS: ResolvedGeometryNormalizeOptions = {
   maxAngleDeg: NORMALIZE_MAX_ANGLE_DEG,
   maxPlaneDisplacement: NORMALIZE_MAX_PLANE_DISPLACEMENT,
@@ -115,7 +146,7 @@ const DEFAULT_NORMALIZE_OPTIONS: ResolvedGeometryNormalizeOptions = {
 const DEFAULT_LOSSY_APPROXIMATE_OPTIONS: Required<ApproximateMergeOptions> = {
   maxAngleDeg: 15,
   maxPlaneDisplacement: 0.35,
-  maxBoundaryDisplacement: 0.075,
+  maxBoundaryDisplacement: 0.0725,
   isolatedPairs: true,
 };
 
@@ -123,34 +154,27 @@ const LOSSY_BUDGET_SWEEP: Array<Required<Omit<ApproximateMergeOptions, "isolated
   {
     maxAngleDeg: 15,
     maxPlaneDisplacement: 0.35,
-    maxBoundaryDisplacement: 0.075,
+    maxBoundaryDisplacement: 0.02,
+  },
+  {
+    maxAngleDeg: 15,
+    maxPlaneDisplacement: 0.35,
+    maxBoundaryDisplacement: 0.0725,
   },
   {
     maxAngleDeg: 45,
     maxPlaneDisplacement: 1,
-    maxBoundaryDisplacement: 0.075,
-  },
-  {
-    maxAngleDeg: 60,
-    maxPlaneDisplacement: 1.5,
-    maxBoundaryDisplacement: 0.075,
-  },
-  {
-    maxAngleDeg: 22.5,
-    maxPlaneDisplacement: 0.5,
-    maxBoundaryDisplacement: 0.11,
-  },
-  {
-    maxAngleDeg: 30,
-    maxPlaneDisplacement: 0.75,
-    maxBoundaryDisplacement: 0.16,
+    maxBoundaryDisplacement: 0.0725,
   },
 ];
 
 const LOSSY_COLOR_QUANTIZE_STEPS = [2, 4, 6, 8, 12] as const;
-const LOSSY_SWEEP_MIN_TRIANGLES = 32;
 const LOSSY_RECTANGULATED_MIN_POLYGONS = 300;
 const LOSSY_RECTANGULATED_MAX_TRIANGLE_RATIO = 0.3;
+const LOSSY_AUTOMATIC_GROUP_MAX_POLYGONS = 300;
+const LOSSY_CRACK_COST_SLACK = 16;
+const LOSSY_CRACK_RELATIVE_COST_SLACK = 0.015;
+const LOSSY_CRACK_QUALITY_SEARCH_MULTIPLIER = 2.6;
 const RECT_COVER_MOSTLY_QUAD_TRIANGLE_LIMIT = 96;
 
 const DEFAULT_RECT_COVER_OPTIONS: CoverPlanarPolygonsOptions = {
@@ -171,15 +195,54 @@ export function optimizeMeshPolygons(
   const meshResolution = options.meshResolution ?? "lossless";
   const baseline = preprocessModelPolygons(polygons, false);
   const preprocessCache: PreprocessCache = { baseline };
-  const candidates = [baseline];
+  let best = baseline;
+  let bestCost = polygonRenderCost(baseline);
+  const acceptCandidate = (candidate: Polygon[], cost = polygonRenderCost(candidate)): boolean => {
+    if (cost >= bestCost) return false;
+    best = candidate;
+    bestCost = cost;
+    return true;
+  };
 
   const rectCovered = applyRectCoverCandidate(baseline, options.rectCover);
-  if (rectCovered !== baseline) candidates.push(rectCovered);
+  if (rectCovered !== baseline) acceptCandidate(rectCovered);
 
   if (meshResolution === "lossy" && options.approximateMerge !== false) {
     const crackSource = createCrackSourceContext(polygons);
-    let referenceCracks: CrackMetrics | null = null;
+    const qualityCandidates: LossyQualityCandidate[] = [];
+    const referenceCracks = candidateCrackQualityMetrics(
+      crackSource,
+      best,
+      DEFAULT_LOSSY_APPROXIMATE_OPTIONS.maxBoundaryDisplacement,
+    ).metrics;
     const automaticApproximate = options.approximateMerge === undefined || options.approximateMerge === true;
+    const passesLossyCrackBudget = (
+      sample: CrackMetricSample,
+      allowReferenceCracks = true,
+    ): boolean => !crackMetricsExceed(
+      crackSource,
+      sample.metrics,
+      sample.tolerance,
+      allowReferenceCracks ? referenceCracks : null,
+    );
+    const acceptLossyCandidate = (
+      candidate: Polygon[],
+      cost: number,
+    ): void => {
+      acceptCandidate(candidate, cost);
+    };
+    const considerQualityCandidate = (
+      candidate: Polygon[],
+      cost: number,
+      maxBoundaryDisplacement = DEFAULT_LOSSY_APPROXIMATE_OPTIONS.maxBoundaryDisplacement,
+    ): void => {
+      if (!automaticApproximate || cost > bestCost + lossyCrackCostSlack(bestCost)) return;
+      qualityCandidates.push({
+        polygons: candidate,
+        cost,
+        maxBoundaryDisplacement,
+      });
+    };
     const approximateCandidates = lossyApproximateCandidates(
       options.approximateMerge,
       automaticApproximate ? baseline : undefined,
@@ -187,48 +250,53 @@ export function optimizeMeshPolygons(
     for (let approximateIndex = 0; approximateIndex < approximateCandidates.length; approximateIndex++) {
       const approximateOptions = approximateCandidates[approximateIndex];
       const approximate = preprocessModelPolygons(polygons, approximateOptions, preprocessCache);
-      if (!approximateOptions.guard && approximateOptions.isolatedPairs === true && referenceCracks === null) {
-        referenceCracks = candidateCrackMetrics(
+      const approximateCost = polygonRenderCost(approximate);
+      let approximateCracks: CrackMetricSample | null = null;
+      const sampleApproximateCracks = (): CrackMetricSample => {
+        approximateCracks ??= candidateCrackQualityMetrics(
           crackSource,
           approximate,
           approximateOptions.maxBoundaryDisplacement,
-        ).metrics;
+        );
+        return approximateCracks;
+      };
+      let approximatePassesCrackBudget = true;
+      if (automaticApproximate || approximateOptions.guard) {
+        const sample = sampleApproximateCracks();
+        approximatePassesCrackBudget = passesLossyCrackBudget(sample, !!approximateOptions.allowReferenceCracks);
       }
-      if (
-        approximateOptions.guard &&
-        candidateHasCracks(
-          crackSource,
-          approximate,
-          approximateOptions.maxBoundaryDisplacement,
-          approximateOptions.allowReferenceCracks ? referenceCracks : null,
-        )
-      ) {
+      if (!approximatePassesCrackBudget && approximateCost < bestCost) {
         continue;
       }
-      candidates.push(approximate);
+      if (approximatePassesCrackBudget) {
+        acceptLossyCandidate(approximate, approximateCost);
+        considerQualityCandidate(approximate, approximateCost, approximateOptions.maxBoundaryDisplacement);
+      }
       const coveredApproximate = applyRectCoverCandidate(approximate, options.rectCover);
-      if (
-        coveredApproximate !== approximate &&
-        (
-          !(automaticApproximate || approximateOptions.guard) ||
-          !candidateHasCracks(
-            crackSource,
-            coveredApproximate,
-            approximateOptions.maxBoundaryDisplacement,
-            approximateOptions.allowReferenceCracks ? referenceCracks : null,
-          )
-        )
-      ) {
-        candidates.push(coveredApproximate);
+      const coveredApproximateCost = polygonRenderCost(coveredApproximate);
+      let coveredApproximateCracks: CrackMetricSample | null = null;
+      const sampleCoveredApproximateCracks = (): CrackMetricSample => {
+        coveredApproximateCracks ??= candidateCrackQualityMetrics(
+          crackSource,
+          coveredApproximate,
+          approximateOptions.maxBoundaryDisplacement,
+        );
+        return coveredApproximateCracks;
+      };
+      if (coveredApproximate !== approximate && coveredApproximateCost < bestCost) {
+        let coveredPassesCrackGuard = true;
+        if (automaticApproximate || approximateOptions.guard) {
+          coveredPassesCrackGuard = passesLossyCrackBudget(
+            sampleCoveredApproximateCracks(),
+            !!approximateOptions.allowReferenceCracks,
+          );
+        }
+        if (coveredPassesCrackGuard) {
+          acceptLossyCandidate(coveredApproximate, coveredApproximateCost);
+          considerQualityCandidate(coveredApproximate, coveredApproximateCost, approximateOptions.maxBoundaryDisplacement);
+        }
       }
 
-      if (
-        automaticApproximate &&
-        approximateIndex === 1 &&
-        shouldStopLossyBudgetSweep(bestCandidate(candidates))
-      ) {
-        break;
-      }
     }
 
     if (automaticApproximate) {
@@ -236,65 +304,118 @@ export function optimizeMeshPolygons(
         const colorCache: PreprocessCache = {
           baseline: mergePolygons(cullInteriorPolygons(colorPolygons)),
         };
-        candidates.push(colorCache.baseline);
+        const colorCost = polygonRenderCost(colorCache.baseline);
+        let colorPassesCrackBudget = true;
+        let colorCracks: CrackMetricSample | null = null;
+        const sampleColorCracks = (): CrackMetricSample => {
+          colorCracks ??= candidateCrackQualityMetrics(
+            crackSource,
+            colorCache.baseline,
+            DEFAULT_LOSSY_APPROXIMATE_OPTIONS.maxBoundaryDisplacement,
+          );
+          return colorCracks;
+        };
+        if (colorCost < bestCost) colorPassesCrackBudget = passesLossyCrackBudget(sampleColorCracks());
+        if (colorPassesCrackBudget) {
+          acceptLossyCandidate(colorCache.baseline, colorCost);
+          considerQualityCandidate(colorCache.baseline, colorCost);
+        }
         const coveredColor = applyRectCoverCandidate(colorCache.baseline, options.rectCover);
-        if (coveredColor !== colorCache.baseline) candidates.push(coveredColor);
+        if (coveredColor !== colorCache.baseline) {
+          const coveredColorCost = polygonRenderCost(coveredColor);
+          if (
+            coveredColorCost >= bestCost ||
+            passesLossyCrackBudget(candidateCrackQualityMetrics(
+              crackSource,
+              coveredColor,
+              DEFAULT_LOSSY_APPROXIMATE_OPTIONS.maxBoundaryDisplacement,
+            ))
+          ) {
+            acceptLossyCandidate(coveredColor, coveredColorCost);
+            considerQualityCandidate(coveredColor, coveredColorCost);
+          }
+        }
 
         for (const approximateOptions of lossyApproximateCandidates(
           options.approximateMerge,
           colorCache.baseline,
         )) {
           const approximate = preprocessModelPolygons(colorPolygons, approximateOptions, colorCache);
-          if (
-            approximateOptions.guard &&
-            candidateHasCracks(
+          const approximateCost = polygonRenderCost(approximate);
+          let approximateCracks: CrackMetricSample | null = null;
+          const sampleApproximateCracks = (): CrackMetricSample => {
+            approximateCracks ??= candidateCrackQualityMetrics(
               crackSource,
               approximate,
               approximateOptions.maxBoundaryDisplacement,
-              approximateOptions.allowReferenceCracks ? referenceCracks : null,
-            )
-          ) {
+            );
+            return approximateCracks;
+          };
+          let approximatePassesCrackBudget = true;
+          if (automaticApproximate || approximateOptions.guard) {
+            const sample = sampleApproximateCracks();
+            approximatePassesCrackBudget = passesLossyCrackBudget(sample, !!approximateOptions.allowReferenceCracks);
+          }
+          if (!approximatePassesCrackBudget && approximateCost < bestCost) {
             continue;
           }
-          candidates.push(approximate);
+          if (approximatePassesCrackBudget) {
+            acceptLossyCandidate(approximate, approximateCost);
+            considerQualityCandidate(approximate, approximateCost, approximateOptions.maxBoundaryDisplacement);
+          }
           const coveredApproximate = applyRectCoverCandidate(approximate, options.rectCover);
-          if (
-            coveredApproximate !== approximate &&
-            (
-              !(automaticApproximate || approximateOptions.guard) ||
-              !candidateHasCracks(
-                crackSource,
-                coveredApproximate,
-                approximateOptions.maxBoundaryDisplacement,
-                approximateOptions.allowReferenceCracks ? referenceCracks : null,
-              )
-            )
-          ) {
-            candidates.push(coveredApproximate);
+          const coveredApproximateCost = polygonRenderCost(coveredApproximate);
+          let coveredApproximateCracks: CrackMetricSample | null = null;
+          const sampleCoveredApproximateCracks = (): CrackMetricSample => {
+            coveredApproximateCracks ??= candidateCrackQualityMetrics(
+              crackSource,
+              coveredApproximate,
+              approximateOptions.maxBoundaryDisplacement,
+            );
+            return coveredApproximateCracks;
+          };
+          if (coveredApproximate !== approximate && coveredApproximateCost < bestCost) {
+            let coveredPassesCrackGuard = true;
+            if (automaticApproximate || approximateOptions.guard) {
+              coveredPassesCrackGuard = passesLossyCrackBudget(
+                sampleCoveredApproximateCracks(),
+                !!approximateOptions.allowReferenceCracks,
+              );
+            }
+            if (coveredPassesCrackGuard) {
+              acceptLossyCandidate(coveredApproximate, coveredApproximateCost);
+              considerQualityCandidate(coveredApproximate, coveredApproximateCost, approximateOptions.maxBoundaryDisplacement);
+            }
           }
         }
       }
     }
+
+    const qualityBest = chooseLossyQualityCandidate(
+      qualityCandidates,
+      best,
+      bestCost,
+      (candidate) => {
+        candidate.metrics ??= candidateCrackQualityMetrics(
+          crackSource,
+          candidate.polygons,
+          candidate.maxBoundaryDisplacement,
+        ).metrics;
+        return candidate.metrics;
+      },
+      () => candidateCrackQualityMetrics(
+        crackSource,
+        best,
+        DEFAULT_LOSSY_APPROXIMATE_OPTIONS.maxBoundaryDisplacement,
+      ).metrics,
+    );
+    if (qualityBest) {
+      best = qualityBest.polygons;
+      bestCost = qualityBest.cost;
+    }
   }
 
-  return candidates.reduce((best, candidate) =>
-    polygonRenderCost(candidate) < polygonRenderCost(best) ? candidate : best,
-  );
-}
-
-function bestCandidate(candidates: Polygon[][]): Polygon[] {
-  return candidates.reduce((best, candidate) =>
-    polygonRenderCost(candidate) < polygonRenderCost(best) ? candidate : best,
-  );
-}
-
-function shouldStopLossyBudgetSweep(candidate: Polygon[]): boolean {
-  let triangles = 0;
-  for (const polygon of candidate) {
-    if (polygon.vertices.length === 3) triangles += 1;
-    if (triangles > LOSSY_SWEEP_MIN_TRIANGLES) return false;
-  }
-  return true;
+  return best;
 }
 
 function lossyColorQuantizeCandidates(polygons: Polygon[]): Polygon[][] {
@@ -407,9 +528,12 @@ function lossyApproximateCandidates(
 
   const candidates: LossyApproximateCandidate[] = [];
   const seen = new Set<string>();
+  const isolatedPairModes = baseline && baseline.length > LOSSY_AUTOMATIC_GROUP_MAX_POLYGONS
+    ? [true]
+    : [true, false];
   for (let budgetIndex = 0; budgetIndex < LOSSY_BUDGET_SWEEP.length; budgetIndex++) {
     const budget = LOSSY_BUDGET_SWEEP[budgetIndex];
-    for (const isolatedPairs of [true, false]) {
+    for (const isolatedPairs of isolatedPairModes) {
       const candidate: LossyApproximateCandidate = {
         ...budget,
         isolatedPairs,
@@ -451,21 +575,80 @@ function polygonRenderCost(polygons: Polygon[]): number {
   return cost;
 }
 
-function candidateHasCracks(
+function lossyCrackCostSlack(cost: number): number {
+  return Math.max(LOSSY_CRACK_COST_SLACK, cost * LOSSY_CRACK_RELATIVE_COST_SLACK);
+}
+
+function chooseLossyQualityCandidate(
+  candidates: LossyQualityCandidate[],
+  best: Polygon[],
+  bestCost: number,
+  candidateMetrics: (candidate: LossyQualityCandidate) => CrackMetrics,
+  bestMetrics: () => CrackMetrics,
+): LossyQualityCandidate | null {
+  if (candidates.length === 0) return null;
+
+  const slack = lossyCrackCostSlack(bestCost);
+  const currentCandidate = candidates.find((candidate) => candidate.polygons === best);
+  let currentMetrics: CrackMetrics | null = null;
+  let selected: LossyQualityCandidate | null = null;
+  let selectedMetrics: CrackMetrics | null = null;
+
+  for (const candidate of candidates) {
+    if (candidate.polygons === best || candidate.cost > bestCost + slack) continue;
+    const metrics = candidateMetrics(candidate);
+    currentMetrics ??= currentCandidate ? candidateMetrics(currentCandidate) : bestMetrics();
+    if (!crackMetricsMateriallyBetter(metrics, currentMetrics)) continue;
+    if (!selected || !selectedMetrics || compareLossyQualityCandidates(candidate, metrics, selected, selectedMetrics) < 0) {
+      selected = candidate;
+      selectedMetrics = metrics;
+    }
+  }
+
+  return selected;
+}
+
+function compareLossyQualityCandidates(
+  a: LossyQualityCandidate,
+  aMetrics: CrackMetrics,
+  b: LossyQualityCandidate,
+  bMetrics: CrackMetrics,
+): number {
+  return (
+    aMetrics.maxGap - bMetrics.maxGap ||
+    aMetrics.internalBoundaryLength - bMetrics.internalBoundaryLength ||
+    aMetrics.excessBoundaryLength - bMetrics.excessBoundaryLength ||
+    a.cost - b.cost
+  );
+}
+
+function crackMetricsMateriallyBetter(candidate: CrackMetrics, current: CrackMetrics): boolean {
+  const gapSlack = Math.max(0.0005, current.maxGap * 0.02);
+  if (candidate.maxGap < current.maxGap - gapSlack) return true;
+  if (candidate.maxGap > current.maxGap + gapSlack) return false;
+
+  const lengthSlack = Math.max(8, current.internalBoundaryLength * 0.01);
+  if (candidate.internalBoundaryLength < current.internalBoundaryLength - lengthSlack) return true;
+  if (candidate.internalBoundaryLength > current.internalBoundaryLength + lengthSlack) return false;
+
+  const excessSlack = Math.max(8, current.excessBoundaryLength * 0.01);
+  return candidate.excessBoundaryLength < current.excessBoundaryLength - excessSlack;
+}
+
+function crackMetricsExceed(
   source: CrackSourceContext,
-  candidate: Polygon[],
-  maxBoundaryDisplacement = 0,
+  metrics: CrackMetrics,
+  tolerance: number,
   reference: CrackMetrics | null = null,
 ): boolean {
-  const { metrics, tolerance } = candidateCrackMetrics(source, candidate, maxBoundaryDisplacement);
   if (!reference) {
     return metrics.internalBoundaryLength > 0 || metrics.excessBoundaryLength > tolerance;
   }
 
   const gapSlack = Math.max(tolerance * 0.1, 1e-6);
   const referenceGapLimit = reference.maxGap + gapSlack;
-  const gapLimit = source.polygonCount <= 500 && tolerance <= 0.08
-    ? Math.max(referenceGapLimit, tolerance * 0.95)
+  const gapLimit = tolerance <= 0.08
+    ? Math.max(referenceGapLimit, Math.min(tolerance * 0.75, 0.04))
     : referenceGapLimit;
   const lengthSlack = Math.max(tolerance * 2, reference.internalBoundaryLength * 0.15);
   const excessSlack = Math.max(tolerance * 2, reference.excessBoundaryLength * 0.15);
@@ -480,12 +663,13 @@ function candidateCrackMetrics(
   source: CrackSourceContext,
   candidate: Polygon[],
   maxBoundaryDisplacement = 0,
-): { metrics: CrackMetrics; tolerance: number } {
+  searchTolerance = crackToleranceForSource(source, maxBoundaryDisplacement),
+): CrackMetricSample {
   const sourceEdges = source.edges;
   const candidateEdges = collectEdgeStats(candidate);
   const tolerance = crackToleranceForSource(source, maxBoundaryDisplacement);
-  const internalIndex = tolerance > 0
-    ? internalSegmentIndexForSource(source, tolerance)
+  const internalIndex = searchTolerance > 0
+    ? internalSegmentIndexForSource(source, searchTolerance)
     : null;
   const metrics: CrackMetrics = {
     ...EMPTY_CRACK_METRICS,
@@ -499,13 +683,26 @@ function candidateCrackMetrics(
       metrics.internalBoundaryLength += distanceVec(edge.a, edge.b);
       continue;
     }
-    const gap = internalIndex ? indexedInternalEdgeGap(edge, internalIndex, tolerance) : null;
+    const gap = internalIndex ? indexedInternalEdgeGap(edge, internalIndex, searchTolerance) : null;
     if (gap !== null) {
       metrics.maxGap = Math.max(metrics.maxGap, gap);
       metrics.internalBoundaryLength += distanceVec(edge.a, edge.b);
     }
   }
   return { metrics, tolerance };
+}
+
+function candidateCrackQualityMetrics(
+  source: CrackSourceContext,
+  candidate: Polygon[],
+  maxBoundaryDisplacement = 0,
+): CrackMetricSample {
+  return candidateCrackMetrics(
+    source,
+    candidate,
+    maxBoundaryDisplacement,
+    crackQualitySearchToleranceForSource(source, maxBoundaryDisplacement),
+  );
 }
 
 function createCrackSourceContext(polygons: Polygon[]): CrackSourceContext {
@@ -523,6 +720,14 @@ function createCrackSourceContext(polygons: Polygon[]): CrackSourceContext {
 
 function crackToleranceForSource(source: CrackSourceContext, maxBoundaryDisplacement = 0): number {
   return Math.max(source.baseTolerance, maxBoundaryDisplacement * 1.05);
+}
+
+function crackQualitySearchToleranceForSource(source: CrackSourceContext, maxBoundaryDisplacement = 0): number {
+  return Math.max(
+    crackToleranceForSource(source, maxBoundaryDisplacement),
+    source.baseTolerance * LOSSY_CRACK_QUALITY_SEARCH_MULTIPLIER,
+    maxBoundaryDisplacement * LOSSY_CRACK_QUALITY_SEARCH_MULTIPLIER,
+  );
 }
 
 function internalSegmentIndexForSource(source: CrackSourceContext, tolerance: number): SegmentIndex {
@@ -768,6 +973,7 @@ function mergeIsolatedTrianglePairs(
   const replacements = new Map<number, Polygon>();
   const skipped = new Set<number>();
   const selected = choosePairCandidates(candidates);
+  const vertexMoves = averagedVertexPositionMoves(selected.flatMap((candidate) => candidate.vertexMoves));
   for (const candidate of selected) {
     used.add(candidate.a);
     used.add(candidate.b);
@@ -786,7 +992,7 @@ function mergeIsolatedTrianglePairs(
     if (skipped.has(i)) continue;
     output.push(polygons[i]);
   }
-  return output;
+  return vertexMoves.size > 0 ? applyVertexPositionMoves(output, vertexMoves) : output;
 }
 
 function choosePairCandidates(candidates: PairCandidate[]): PairCandidate[] {
@@ -831,37 +1037,163 @@ function choosePairCandidatesDynamic(candidates: PairCandidate[]): PairCandidate
   }
 
   const selected: PairCandidate[] = [];
-  const used = new Set<number>();
-  const liveDegree = (polygon: number): number => {
-    let degree = 0;
-    for (const index of incident.get(polygon) ?? []) {
-      const candidate = candidates[index];
-      if (!used.has(candidate.a) && !used.has(candidate.b)) degree += 1;
+  const live = new Array(candidates.length).fill(true);
+  const liveIncidentCount = new Map<number, number>();
+  const heap = new PairCandidateRankHeap();
+
+  for (const [polygon, list] of incident) liveIncidentCount.set(polygon, list.length);
+  const liveDegree = (candidate: PairCandidate): number =>
+    (liveIncidentCount.get(candidate.a) ?? 0) + (liveIncidentCount.get(candidate.b) ?? 0);
+  const pushRank = (index: number): void => {
+    const candidate = candidates[index];
+    heap.push({
+      degree: liveDegree(candidate),
+      score: candidate.score,
+      index,
+    });
+  };
+  const invalidate = (index: number, changedPolygons: Set<number>): void => {
+    if (!live[index]) return;
+    live[index] = false;
+    const candidate = candidates[index];
+    for (const polygon of [candidate.a, candidate.b]) {
+      liveIncidentCount.set(polygon, (liveIncidentCount.get(polygon) ?? 0) - 1);
+      changedPolygons.add(polygon);
     }
-    return degree;
   };
 
-  for (;;) {
-    let best: PairCandidate | null = null;
-    let bestDegree = Infinity;
-    for (const candidate of candidates) {
-      if (used.has(candidate.a) || used.has(candidate.b)) continue;
-      const degree = liveDegree(candidate.a) + liveDegree(candidate.b);
-      if (
-        !best ||
-        degree < bestDegree ||
-        (degree === bestDegree && candidate.score < best.score)
-      ) {
-        best = candidate;
-        bestDegree = degree;
+  for (let i = 0; i < candidates.length; i++) pushRank(i);
+
+  while (heap.size() > 0) {
+    const rank = heap.pop()!;
+    if (!live[rank.index]) continue;
+
+    const candidate = candidates[rank.index];
+    const degree = liveDegree(candidate);
+    if (degree !== rank.degree) {
+      pushRank(rank.index);
+      continue;
+    }
+
+    selected.push(candidate);
+
+    const changedPolygons = new Set<number>();
+    for (const polygon of [candidate.a, candidate.b]) {
+      for (const index of incident.get(polygon) ?? []) {
+        invalidate(index, changedPolygons);
       }
     }
-    if (!best) break;
-    selected.push(best);
-    used.add(best.a);
-    used.add(best.b);
+
+    for (const polygon of changedPolygons) {
+      for (const index of incident.get(polygon) ?? []) {
+        if (live[index]) pushRank(index);
+      }
+    }
   }
   return selected;
+}
+
+class PairCandidateRankHeap {
+  private items: PairCandidateRank[] = [];
+
+  size(): number {
+    return this.items.length;
+  }
+
+  push(item: PairCandidateRank): void {
+    this.items.push(item);
+    let index = this.items.length - 1;
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if (comparePairCandidateRanks(this.items[parent], this.items[index]) <= 0) break;
+      [this.items[parent], this.items[index]] = [this.items[index], this.items[parent]];
+      index = parent;
+    }
+  }
+
+  pop(): PairCandidateRank | null {
+    if (this.items.length === 0) return null;
+    const top = this.items[0];
+    const last = this.items.pop()!;
+    if (this.items.length > 0) {
+      this.items[0] = last;
+      let index = 0;
+      for (;;) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        let best = index;
+        if (left < this.items.length && comparePairCandidateRanks(this.items[left], this.items[best]) < 0) best = left;
+        if (right < this.items.length && comparePairCandidateRanks(this.items[right], this.items[best]) < 0) best = right;
+        if (best === index) break;
+        [this.items[index], this.items[best]] = [this.items[best], this.items[index]];
+        index = best;
+      }
+    }
+    return top;
+  }
+}
+
+function comparePairCandidateRanks(a: PairCandidateRank, b: PairCandidateRank): number {
+  return a.degree - b.degree || a.score - b.score || a.index - b.index;
+}
+
+function averagedVertexPositionMoves(moves: VertexPositionMove[]): Map<string, Vec3> {
+  const totals = new Map<string, { x: number; y: number; z: number; count: number }>();
+  for (const move of moves) {
+    const total = totals.get(move.key);
+    if (total) {
+      total.x += move.target[0];
+      total.y += move.target[1];
+      total.z += move.target[2];
+      total.count += 1;
+    } else {
+      totals.set(move.key, {
+        x: move.target[0],
+        y: move.target[1],
+        z: move.target[2],
+        count: 1,
+      });
+    }
+  }
+
+  const averaged = new Map<string, Vec3>();
+  for (const [key, total] of totals) {
+    averaged.set(key, [
+      total.x / total.count,
+      total.y / total.count,
+      total.z / total.count,
+    ]);
+  }
+  return averaged;
+}
+
+function vertexPositionMovesForProjection(source: Polygon[], projected: Polygon[]): VertexPositionMove[] {
+  const moves: VertexPositionMove[] = [];
+  for (let i = 0; i < source.length; i++) {
+    const sourceVertices = source[i].vertices;
+    const projectedVertices = projected[i]?.vertices;
+    if (!projectedVertices || projectedVertices.length !== sourceVertices.length) continue;
+    for (let j = 0; j < sourceVertices.length; j++) {
+      moves.push({
+        key: vertexKey(sourceVertices[j]),
+        target: projectedVertices[j],
+      });
+    }
+  }
+  return moves;
+}
+
+function applyVertexPositionMoves(polygons: Polygon[], moves: Map<string, Vec3>): Polygon[] {
+  return polygons.map((polygon) => {
+    let changed = false;
+    const vertices = polygon.vertices.map((vertex) => {
+      const target = moves.get(vertexKey(vertex));
+      if (!target) return vertex;
+      changed = true;
+      return target;
+    });
+    return changed ? { ...polygon, vertices } : polygon;
+  });
 }
 
 function approximateTrianglePairCandidate(
@@ -910,9 +1242,9 @@ function approximateTrianglePairCandidate(
   }
   if (maxDistance > Math.min(options.maxPlaneDisplacement, options.maxBoundaryDisplacement)) return null;
 
-  const vertices = ring.map((vertex) => projectVecToPlane(vertex, fit));
-  if (!isConvexPolygon(vertices, fit.normal)) return null;
-  const projectedPlane = planeOfPolygon({ vertices });
+  const projected = ring.map((vertex) => projectVecToPlane(vertex, fit));
+  if (!isConvexPolygon(projected, fit.normal)) return null;
+  const projectedPlane = planeOfPolygon({ vertices: projected });
   if (
     !projectedPlane ||
     dotVec(projectedPlane.normal, aMeta.normal) < 0.2 ||
@@ -924,10 +1256,14 @@ function approximateTrianglePairCandidate(
     a: aIndex,
     b: bIndex,
     polygon: {
-      vertices,
+      vertices: ring,
       color: a.color,
       ...(a.data ? { data: { ...a.data } } : {}),
     },
+    vertexMoves: ring.map((vertex, index) => ({
+      key: vertexKey(vertex),
+      target: projected[index],
+    })),
     score: squaredDistance / ring.length + maxDistance * 0.25 + (1 - normalDot) * 0.1,
   };
 }
@@ -995,6 +1331,7 @@ function normalizeGeometryForMerge(
   const adjacency = buildMergeAdjacency(snapped, metas);
   const assigned = new Set<number>();
   const output: Array<Polygon | undefined> = Array(snapped.length);
+  const vertexMoves: VertexPositionMove[] = [];
   const writeOutput = (index: number, polygon: Polygon): void => {
     output[index] = polygon;
   };
@@ -1015,13 +1352,17 @@ function normalizeGeometryForMerge(
     }
 
     const replacements = choosePlaneGroupReplacements(group, snapped, metas, adjacency, planeEpsilon, options);
+    vertexMoves.push(...replacements.vertexMoves);
     for (const index of group) {
-      writeOutput(index, replacements.get(index) ?? snapped[index]);
+      writeOutput(index, replacements.polygons.get(index) ?? snapped[index]);
     }
   }
 
   const projected = output.flatMap((polygon) => polygon ? [polygon] : []);
-  return snapGeometryForMerge(projected);
+  const moved = vertexMoves.length > 0
+    ? applyVertexPositionMoves(projected, averagedVertexPositionMoves(vertexMoves))
+    : projected;
+  return snapGeometryForMerge(moved);
 }
 
 function snapGeometryForMerge(polygons: Polygon[]): Polygon[] {
@@ -1093,7 +1434,7 @@ function choosePlaneGroupReplacements(
   adjacency: Map<number, Set<number>>,
   planeEpsilon: number,
   options: ResolvedGeometryNormalizeOptions,
-): Map<number, Polygon> {
+): PlaneGroupReplacements {
   const fullGroup = projectedPlanePatchCandidate(group, polygons, metas, planeEpsilon, options);
   if (fullGroup) return replacementsForPlanePatch(fullGroup);
   return splitPlaneGroupIntoWinningPatches(group, polygons, metas, adjacency, planeEpsilon, options);
@@ -1106,7 +1447,7 @@ function splitPlaneGroupIntoWinningPatches(
   adjacency: Map<number, Set<number>>,
   planeEpsilon: number,
   options: ResolvedGeometryNormalizeOptions,
-): Map<number, Polygon> {
+): PlaneGroupReplacements {
   const groupSet = new Set(group);
   const candidates: PlanePatchCandidate[] = [];
   for (const a of group) {
@@ -1120,23 +1461,25 @@ function splitPlaneGroupIntoWinningPatches(
   candidates.sort((a, b) => b.score - a.score);
   const used = new Set<number>();
   const replacements = new Map<number, Polygon>();
+  const vertexMoves: VertexPositionMove[] = [];
   for (const candidate of candidates) {
     if (candidate.indices.some((index) => used.has(index))) continue;
+    vertexMoves.push(...candidate.vertexMoves);
     for (let i = 0; i < candidate.indices.length; i++) {
       const index = candidate.indices[i];
       used.add(index);
-      replacements.set(index, candidate.projected[i]);
+      replacements.set(index, polygons[index]);
     }
   }
-  return replacements;
+  return { polygons: replacements, vertexMoves };
 }
 
-function replacementsForPlanePatch(candidate: PlanePatchCandidate): Map<number, Polygon> {
+function replacementsForPlanePatch(candidate: PlanePatchCandidate): PlaneGroupReplacements {
   const replacements = new Map<number, Polygon>();
   for (let i = 0; i < candidate.indices.length; i++) {
-    replacements.set(candidate.indices[i], candidate.projected[i]);
+    replacements.set(candidate.indices[i], candidate.source[i]);
   }
-  return replacements;
+  return { polygons: replacements, vertexMoves: candidate.vertexMoves };
 }
 
 function projectedPlanePatchCandidate(
@@ -1156,7 +1499,9 @@ function projectedPlanePatchCandidate(
   if (projectedCost >= sourceCost) return null;
   return {
     indices: group,
+    source,
     projected,
+    vertexMoves: vertexPositionMovesForProjection(source, projected),
     score: sourceCost - projectedCost,
   };
 }

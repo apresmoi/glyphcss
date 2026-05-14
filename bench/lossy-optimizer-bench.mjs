@@ -62,7 +62,7 @@ const MODELS = [
 const DEFAULT_LOSSY_APPROXIMATE = {
   maxAngleDeg: 15,
   maxPlaneDisplacement: 0.35,
-  maxBoundaryDisplacement: 0.075,
+  maxBoundaryDisplacement: 0.0725,
 };
 const GAP_DETECTION_TOLERANCE = 0.2;
 
