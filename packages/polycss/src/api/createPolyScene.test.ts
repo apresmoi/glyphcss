@@ -539,6 +539,18 @@ describe("createPolyScene", () => {
       expect(host.querySelector("u")).not.toBeNull();
     });
 
+    it("skips mesh re-render when setOptions is called with equivalent strategies", () => {
+      scene = createPolyScene(host, { strategies: { disable: ["u"] } });
+      scene.add(makeParseResult([triangle()]));
+      const firstLeaf = host.querySelector("i, s");
+      expect(firstLeaf).not.toBeNull();
+      // Same disable list, fresh object — must not re-render (which would
+      // replace the DOM node). Guards against callers that bundle
+      // `strategies` into every camera-update setOptions call.
+      scene.setOptions({ strategies: { disable: ["u"] } });
+      expect(host.querySelector("i, s")).toBe(firstLeaf);
+    });
+
     // Perf-fix tests: setOptions used to call recomputeAutoCenter() on every
     // call, which is O(N polys) and would be paid 60×/sec by an autorotate
     // loop. The smart-diff version only recomputes when `autoCenter` itself

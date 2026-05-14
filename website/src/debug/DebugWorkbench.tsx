@@ -3823,9 +3823,8 @@ function VanillaScene({
     return () => cancelAnimationFrame(raf);
   }, [animationKey, animationFrameFactory]);
 
-  // Effect 2 — cheap: live transform + lighting + strategy updates via
-  // setOptions. Sliding sliders and strategy toggles flow through this path
-  // (no scene teardown / control reattach).
+  // Effect 2 — cheap: live transform + lighting updates via setOptions.
+  // Sliding sliders only flows through this path.
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -3837,7 +3836,6 @@ function VanillaScene({
       directionalLight,
       ambientLight,
       textureLighting: options.textureLighting,
-      strategies: { disable: options.disableStrategies },
     });
   }, [
     options.rotX,
@@ -3845,10 +3843,21 @@ function VanillaScene({
     options.zoom,
     options.target,
     options.textureLighting,
-    options.disableStrategies,
     directionalLight,
     ambientLight,
   ]);
+
+  // Effect 2b — strategy toggles. Kept separate from Effect 2 because
+  // `setOptions({ strategies })` triggers a full mesh re-render in
+  // createPolyScene; folding it into the camera/lighting effect would
+  // re-render on every rotation/zoom tick.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions({
+      strategies: { disable: options.disableStrategies },
+    });
+  }, [options.disableStrategies]);
 
   // Effect 2.5 — vanilla controls. The React renderer wires interactive +
   // animate through <PolyCamera>; the vanilla path uses createPolyOrbitControls.

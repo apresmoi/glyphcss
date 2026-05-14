@@ -203,6 +203,17 @@ const DEFAULT_ROT_Y = 45;
 const DEFAULT_ZOOM = 1;
 const DEFAULT_TILE = BASE_TILE;
 
+function strategiesEqual(
+  a: PolyRenderStrategiesOption | undefined,
+  b: PolyRenderStrategiesOption | undefined,
+): boolean {
+  const da = a?.disable ?? [];
+  const db = b?.disable ?? [];
+  if (da.length !== db.length) return false;
+  for (const s of da) if (!db.includes(s)) return false;
+  return true;
+}
+
 function buildMeshTransform(t: PolyMeshTransform): string | undefined {
   const parts: string[] = [];
   if (t.position) {
@@ -746,6 +757,7 @@ export function createPolyScene(
 
   function setOptions(partial: Partial<PolySceneOptions>): void {
     const prevAutoCenter = !!currentOptions.autoCenter;
+    const prevStrategies = currentOptions.strategies;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
@@ -755,10 +767,14 @@ export function createPolyScene(
       applyMeshLightVarOverride(entry.wrapper, entry.handle.transform.rotation);
     }
     // `strategies` controls which leaf tags the renderer emits. A change
-    // means we have to re-render every mesh against the new constraint —
-    // otherwise the DOM keeps the prior tag selection. Cheaper than tearing
-    // the scene down and reattaching controls/helpers.
-    if (partial.strategies !== undefined) {
+    // means we have to re-render every mesh against the new constraint.
+    // Skip the re-render when the value didn't actually change so callers
+    // that pass the same strategies on every tick (bundled with camera
+    // updates) don't blow up the atlas every frame.
+    if (
+      partial.strategies !== undefined &&
+      !strategiesEqual(partial.strategies, prevStrategies)
+    ) {
       for (const entry of meshes) renderEntry(entry);
     }
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
