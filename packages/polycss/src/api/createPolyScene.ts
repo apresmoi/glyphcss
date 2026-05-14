@@ -373,10 +373,16 @@ export function createPolyScene(
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
     el.style.setProperty("--scene-transform", buildSceneTransform(opts));
-    if (opts.perspective === false) {
-      el.style.perspective = "none";
-    } else if (typeof opts.perspective === "number") {
+    if (typeof opts.perspective === "number") {
       el.style.perspective = `${opts.perspective}px`;
+    } else if (opts.perspective === false) {
+      // Orthographic projection — true `perspective: none` triggers a Chrome
+      // compositor fast path that mis-rasterizes <u> border-triangle leaves
+      // (0×0 layout box with asymmetric borders): holes and dropped fragments
+      // at initial paint. A very large finite perspective is visually
+      // indistinguishable from orthographic (no perceptible foreshortening at
+      // this distance) but routes Chrome through the normal compositor path.
+      el.style.perspective = "1000000px";
     } else {
       el.style.removeProperty("perspective");
     }
