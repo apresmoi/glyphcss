@@ -34,6 +34,12 @@ const CORE_BASE_STYLES = `
   transform-style: preserve-3d;
   perspective: 8000px;
   transform: var(--scene-transform);
+  /* Pin the scene as a composited layer. Without this, mobile Chrome
+     re-rasterizes every descendant tile when --scene-transform changes
+     each animation frame, which overruns the raster budget on textured
+     meshes (faces drop, fragments float). With will-change, the GPU
+     reuses the cached layer pixels and only re-composites. */
+  will-change: transform;
 }
 
 .polycss-offset {

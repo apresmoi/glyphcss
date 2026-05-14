@@ -52,6 +52,12 @@ export const PRESETS = {
     options: { targetSize: 60 },
     zoom: 0.25, rotX: 74.4, rotY: 301.6,
   },
+  crate: {
+    url: "/gallery/obj/opengameart/crate/Box.obj",
+    mtlUrl: "/gallery/obj/opengameart/crate/Box.mtl",
+    options: { targetSize: 60 },
+    zoom: 0.25, rotX: 65, rotY: 45,
+  },
 };
 
 export function parseUrlParams() {

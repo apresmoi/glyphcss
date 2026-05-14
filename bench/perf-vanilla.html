@@ -9,10 +9,10 @@
   <div id="host"></div>
 
   <script type="module">
-    // Vanilla path: createPolyScene(host, opts) + createPolyControls + loadMesh.
+    // Vanilla path: createPolyScene(host, opts) + createPolyOrbitControls + loadMesh.
     // Per-frame state changes go through scene.setOptions(...) — exercises
     // only the imperative API + the renderer's internal cascade.
-    import { createPolyScene, createPolyControls, loadMesh } from "./polycss.js";
+    import { createPolyScene, createPolyOrbitControls, loadMesh } from "./polycss.js";
     import { getSynthMesh } from "./synth-mesh.mjs";
     import {
       parseUrlParams, dirFromAzEl, createPerfRecorder,
@@ -34,9 +34,8 @@
       autoCenter: true,
     });
     // Drag + wheel for human inspection via perf-serve. Headless bench
-    // doesn't dispatch input events, so listeners stay idle. animate=false
-    // because the page's own loop drives lighting/camera directly.
-    createPolyControls(scene, { drag: true, wheel: true, animate: false });
+    // doesn't dispatch input events, so listeners stay idle.
+    createPolyOrbitControls(scene, { drag: true, wheel: true });
 
     const meshPromise = isSynth
       ? Promise.resolve(getSynthMesh(meshId))
