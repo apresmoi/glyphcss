@@ -130,10 +130,13 @@ describe("createPolyScene", () => {
       expect(transform).toContain("rotate(60deg)");
     });
 
-    it("inlines perspective: none when perspective is false", () => {
+    it("inlines a large finite perspective when perspective is false (orthographic)", () => {
       scene = createPolyScene(host, { perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("none");
+      // perspective: none triggers a Chrome compositor bug that mis-rasterizes
+      // <u> border-triangle leaves at initial paint. A very large finite value
+      // is visually orthographic but avoids the broken fast path.
+      expect(sceneEl.style.perspective).toBe("1000000px");
     });
 
     it("injects base styles into the document", () => {
@@ -509,11 +512,12 @@ describe("createPolyScene", () => {
       expect(sceneEl.style.perspective).toBe("2500px");
     });
 
-    it("updates perspective to none", () => {
+    it("updates perspective to orthographic stand-in when setOptions sets perspective=false", () => {
       scene = createPolyScene(host, { perspective: 1000 });
       scene.setOptions({ perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("none");
+      // See "inlines a large finite perspective..." for the rationale.
+      expect(sceneEl.style.perspective).toBe("1000000px");
     });
 
     it("emits dynamic light cascade vars on the scene element when textureLighting='dynamic'", () => {

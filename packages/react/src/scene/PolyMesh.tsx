@@ -35,7 +35,7 @@ import {
   computeTextureAtlasPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
-  type AtlasScale,
+  type TextureQuality,
   type SolidPaintDefaults,
   TextureBorderShapePoly,
   TextureAtlasPoly,
@@ -84,8 +84,10 @@ export interface PolyMeshProps extends TransformProps, InteractionProps {
   autoCenter?: boolean;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: PolyTextureLightingMode;
-  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
-  atlasScale?: AtlasScale;
+  /** Raster scale for generated atlas pages. `"auto"` (default) downscales to
+   *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
+   *  Numeric values 0.1..1 force an explicit scale. */
+  textureQuality?: TextureQuality;
   /** Per-polygon override render. Receives the polygon + its index. */
   children?: (polygon: Polygon, index: number) => ReactNode;
   /** Loading slot — rendered while `src` is being fetched/parsed. */
@@ -152,7 +154,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     polygons: polygonsProp,
     autoCenter,
     textureLighting,
-    atlasScale,
+    textureQuality,
     children,
     fallback,
     errorFallback,
@@ -463,7 +465,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   const textureAtlas = useTextureAtlas(
     atlasPlans,
     effectiveTextureLighting,
-    atlasScale,
+    textureQuality,
   );
   const solidPaintDefaults = useMemo(
     () => !children ? getSolidPaintDefaults(atlasPlans, effectiveTextureLighting) : {},

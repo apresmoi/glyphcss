@@ -33,7 +33,7 @@ import {
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,
   updatePolygonsWithStableTopology,
-  type AtlasScale,
+  type TextureQuality,
   type PolyRenderStrategiesOption,
   type RenderedPoly,
   type SolidPaintDefaults,
@@ -66,8 +66,10 @@ export interface PolySceneOptions {
   ambientLight?: PolyAmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: PolyTextureLightingMode;
-  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
-  atlasScale?: AtlasScale;
+  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases
+   *  to fit a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
+   *  Numeric values 0.1..1 force an explicit scale. */
+  textureQuality?: TextureQuality;
   /**
    * Skip specific render-strategy tags. Polygons that would normally use a
    * disabled tag fall through the chain (b → i → s, u → i → s, i → s).
@@ -181,7 +183,7 @@ export interface PolySceneHandle {
   readonly host: HTMLElement;
   /**
    * Snapshot of the current options (camera, lighting, merge, autoCenter,
-   * textureLighting, atlasScale, perspective). Returned by reference, so
+   * textureLighting, textureQuality, perspective). Returned by reference, so
    * callers must treat it as read-only — mutations won't propagate. Used
    * by helpers that need to read the current camera state without
    * duplicating it.
@@ -558,7 +560,7 @@ export function createPolyScene(
       directionalLight,
       ambientLight: currentOptions.ambientLight,
       textureLighting: currentOptions.textureLighting,
-      atlasScale: currentOptions.atlasScale,
+      textureQuality: currentOptions.textureQuality,
       strategies: currentOptions.strategies,
     };
     const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
@@ -699,7 +701,7 @@ export function createPolyScene(
             directionalLight: currentOptions.directionalLight,
             ambientLight: currentOptions.ambientLight,
             textureLighting: currentOptions.textureLighting,
-            atlasScale: currentOptions.atlasScale,
+            textureQuality: currentOptions.textureQuality,
           };
           const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
           applySolidPaintVars(entry.wrapper, solidPaintDefaults);

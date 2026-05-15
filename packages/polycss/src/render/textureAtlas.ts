@@ -22,10 +22,19 @@ const MAX_ATLAS_SCALE = 1;
 const AUTO_ATLAS_LOW_AREA = ATLAS_MAX_SIZE * ATLAS_MAX_SIZE;
 const AUTO_ATLAS_MEDIUM_AREA = AUTO_ATLAS_LOW_AREA * 3;
 const AUTO_ATLAS_MAX_BITMAP_SIDE = 2048;
-const AUTO_ATLAS_MAX_DECODED_BYTES = 16 * 1024 * 1024;
+// Total decoded RGBA bytes summed across all atlas pages, picked per device
+// class. On mobile Chrome (Galaxy S23 Ultra-class hardware), large textured
+// meshes sit right at the compositor's GPU-memory edge — when the scene
+// transform mutates per frame the compositor evicts and re-rasterizes pages
+// mid-frame, producing visible flicker/tearing during rotation. 4 MB keeps
+// us under that threshold with no perceptible loss of texture detail at
+// typical mobile display sizes. Desktop GPUs have orders of magnitude more
+// memory, so we keep textures sharp there.
+const AUTO_ATLAS_MAX_DECODED_BYTES_MOBILE = 4 * 1024 * 1024;
+const AUTO_ATLAS_MAX_DECODED_BYTES_DESKTOP = 16 * 1024 * 1024;
 const AUTO_ATLAS_SCALE_GUARD = 0.995;
 
-export type AtlasScale = number | "auto";
+export type TextureQuality = number | "auto";
 
 export type PolyRenderStrategy = "b" | "i" | "u";
 
@@ -181,7 +190,7 @@ export interface RenderTextureAtlasOptions {
    * 1 / 0.75 / 0.5 from packed atlas area, then caps oversized runtime
    * bitmaps by side length and decoded-memory budget.
    */
-  atlasScale?: AtlasScale;
+  textureQuality?: TextureQuality;
   solidPaintDefaults?: SolidPaintDefaults;
   strategies?: PolyRenderStrategiesOption;
 }
@@ -301,7 +310,7 @@ function atlasArea(pages: PackedPage[]): number {
   return pages.reduce((sum, page) => sum + page.width * page.height, 0);
 }
 
-function autoAtlasScaleCap(pages: PackedPage[]): number {
+function autoAtlasScaleCap(pages: PackedPage[], maxDecodedBytes: number): number {
   const area = atlasArea(pages);
   if (area <= 0) return 1;
 
@@ -310,18 +319,18 @@ function autoAtlasScaleCap(pages: PackedPage[]): number {
     ...pages.map((page) => Math.max(page.width, page.height)),
   );
   const sideScale = AUTO_ATLAS_MAX_BITMAP_SIDE / maxSide;
-  const memoryScale = Math.sqrt(AUTO_ATLAS_MAX_DECODED_BYTES / (area * 4));
+  const memoryScale = Math.sqrt(maxDecodedBytes / (area * 4));
 
   return normalizeAtlasScale(Math.min(sideScale, memoryScale));
 }
 
-function autoAtlasScale(pages: PackedPage[]): number {
+function autoAtlasScale(pages: PackedPage[], maxDecodedBytes: number): number {
   const area = atlasArea(pages);
   let atlasScale = 0.5;
   if (area <= AUTO_ATLAS_LOW_AREA) atlasScale = 1;
   else if (area <= AUTO_ATLAS_MEDIUM_AREA) atlasScale = 0.75;
 
-  return normalizeAtlasScale(Math.min(atlasScale, autoAtlasScaleCap(pages)));
+  return normalizeAtlasScale(Math.min(atlasScale, autoAtlasScaleCap(pages, maxDecodedBytes)));
 }
 
 function atlasBitmapMaxSide(pages: PackedPage[], atlasScale: number): number {
@@ -341,14 +350,18 @@ function atlasDecodedBytes(pages: PackedPage[], atlasScale: number): number {
   , 0);
 }
 
-function autoAtlasBudgetFactor(pages: PackedPage[], atlasScale: number): number {
+function autoAtlasBudgetFactor(
+  pages: PackedPage[],
+  atlasScale: number,
+  maxDecodedBytes: number,
+): number {
   const maxSide = atlasBitmapMaxSide(pages, atlasScale);
   const decodedBytes = atlasDecodedBytes(pages, atlasScale);
   const sideFactor = maxSide > AUTO_ATLAS_MAX_BITMAP_SIDE
     ? AUTO_ATLAS_MAX_BITMAP_SIDE / maxSide
     : 1;
-  const memoryFactor = decodedBytes > AUTO_ATLAS_MAX_DECODED_BYTES
-    ? Math.sqrt(AUTO_ATLAS_MAX_DECODED_BYTES / decodedBytes)
+  const memoryFactor = decodedBytes > maxDecodedBytes
+    ? Math.sqrt(maxDecodedBytes / decodedBytes)
     : 1;
   return Math.min(sideFactor, memoryFactor);
 }
@@ -356,15 +369,16 @@ function autoAtlasBudgetFactor(pages: PackedPage[], atlasScale: number): number 
 function packTextureAtlasPlansAuto(
   plans: Array<TextureAtlasPlan | null>,
   fullScalePacked: PackedAtlas,
+  maxDecodedBytes: number,
 ): { packed: PackedAtlas; atlasScale: number } {
-  let atlasScale = autoAtlasScale(fullScalePacked.pages);
+  let atlasScale = autoAtlasScale(fullScalePacked.pages, maxDecodedBytes);
   let packed = atlasScale === 1
     ? fullScalePacked
     : packTextureAtlasPlans(plans, atlasScale);
 
   // Lower scales increase padding, so verify the final packed bitmap budget.
   for (let i = 0; i < 4; i++) {
-    const factor = autoAtlasBudgetFactor(packed.pages, atlasScale);
+    const factor = autoAtlasBudgetFactor(packed.pages, atlasScale, maxDecodedBytes);
     if (factor >= 1) break;
 
     const nextAtlasScale = normalizeAtlasScale(atlasScale * factor * AUTO_ATLAS_SCALE_GUARD);
@@ -376,17 +390,32 @@ function packTextureAtlasPlansAuto(
   return { packed, atlasScale };
 }
 
+function autoAtlasMaxDecodedBytes(doc: Document | null | undefined): number {
+  if (!doc) return AUTO_ATLAS_MAX_DECODED_BYTES_DESKTOP;
+  const win = doc.defaultView ?? (typeof window !== "undefined" ? window : undefined);
+  const media = win?.matchMedia;
+  if (!media) return AUTO_ATLAS_MAX_DECODED_BYTES_DESKTOP;
+  // Same device-class heuristic as borderShapeSupported: coarse pointer or
+  // no hover capability = phone/tablet, which has a tight GPU-memory budget
+  // for composited 3D layers.
+  const isMobile = media("(pointer: coarse)").matches || media("(hover: none)").matches;
+  return isMobile
+    ? AUTO_ATLAS_MAX_DECODED_BYTES_MOBILE
+    : AUTO_ATLAS_MAX_DECODED_BYTES_DESKTOP;
+}
+
 function packTextureAtlasPlansWithScale(
   plans: Array<TextureAtlasPlan | null>,
-  atlasScaleInput: AtlasScale | undefined,
+  textureQualityInput: TextureQuality | undefined,
+  doc: Document | null | undefined,
 ): { packed: PackedAtlas; atlasScale: number } {
-  if (atlasScaleInput !== undefined && atlasScaleInput !== "auto") {
-    const atlasScale = normalizeAtlasScale(atlasScaleInput);
+  if (textureQualityInput !== undefined && textureQualityInput !== "auto") {
+    const atlasScale = normalizeAtlasScale(textureQualityInput);
     return { packed: packTextureAtlasPlans(plans, atlasScale), atlasScale };
   }
 
   const fullScalePacked = packTextureAtlasPlans(plans, 1);
-  return packTextureAtlasPlansAuto(plans, fullScalePacked);
+  return packTextureAtlasPlansAuto(plans, fullScalePacked, autoAtlasMaxDecodedBytes(doc));
 }
 
 function atlasPadding(atlasScale: number): number {
@@ -2129,7 +2158,7 @@ export function renderPolygonsWithTextureAtlas(
       ? plan
       : (!(useFullRectSolid && isFullRectSolid(plan)) && !trianglePlans[index] && !useBorderShape) ? plan : null)
   );
-  const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.atlasScale);
+  const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.textureQuality, doc);
   const atlasElements = new Map<number, HTMLElement>();
   const rendered: RenderedPoly[] = [];
   let cancelled = false;

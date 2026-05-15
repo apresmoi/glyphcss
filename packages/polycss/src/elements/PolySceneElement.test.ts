@@ -34,7 +34,7 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("rot-x");
       expect(observed).toContain("rot-y");
       expect(observed).toContain("zoom");
-      expect(observed).toContain("atlas-scale");
+      expect(observed).toContain("texture-quality");
       expect(observed).toContain("directional-direction");
       expect(observed).toContain("directional-color");
       expect(observed).toContain("directional-intensity");
@@ -96,12 +96,12 @@ describe("PolySceneElement", () => {
       expect(sceneEl.style.perspective).toBe("2000px");
     });
 
-    it("parses perspective=false as no perspective", () => {
+    it("parses perspective=false as the orthographic-stand-in finite perspective", () => {
       const el = document.createElement("poly-scene") as PolySceneElement;
       el.setAttribute("perspective", "false");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.perspective).toBe("none");
+      expect(sceneEl.style.perspective).toBe("1000000px");
     });
 
     it("parses rot-x and rot-y as numbers", () => {

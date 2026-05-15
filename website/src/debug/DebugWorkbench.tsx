@@ -48,6 +48,7 @@ import type {
   PolySceneHandle,
   PolySelectionHandle,
   PolyTransformControlsHandle,
+  TextureQuality,
   Vec3,
   VoxParseOptions,
 } from "@layoutit/polycss";
@@ -56,7 +57,6 @@ import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
 type ModelKind = "obj" | "glb" | "gltf" | "vox";
-type TextureQuality = "auto" | "full" | "balanced" | "draft";
 type MatrixPrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type DragMode = "orbit" | "pan";
@@ -2824,20 +2824,6 @@ function defaultZoomForModel(model: PresetModel, polygons: Polygon[]): number {
   return clamp((presetZoom * 0.85 + smartZoom * 0.15) * 0.55, 0.08, 1.2);
 }
 
-function atlasScaleForQuality(quality: TextureQuality): PolySceneOptions["atlasScale"] {
-  switch (quality) {
-    case "auto":
-      return "auto";
-    case "draft":
-      return 0.25;
-    case "balanced":
-      return 0.75;
-    case "full":
-    default:
-      return 1;
-  }
-}
-
 function mergeParserOptions(
   base: ObjParseOptions | GltfParseOptions | VoxParseOptions | undefined,
   parser: ParserOptionsState,
@@ -3654,7 +3640,7 @@ function VanillaScene({
       textureLighting: options.textureLighting,
       perspective: options.perspective,
       autoCenter: options.autoCenter,
-      atlasScale: atlasScaleForQuality(options.textureQuality),
+      textureQuality: options.textureQuality,
       strategies: { disable: options.disableStrategies },
     };
     const scene = createPolyScene(host, sceneOptions);
@@ -4254,7 +4240,7 @@ export default function DebugWorkbench() {
     () => ambientFromOptions(sceneOptions),
     [sceneOptions.ambientColor, sceneOptions.ambientIntensity],
   );
-  const atlasScale = atlasScaleForQuality(sceneOptions.textureQuality);
+  const textureQuality = sceneOptions.textureQuality;
 
   const animationClips = loaded?.animation?.clips ?? [];
   const hasAnimation = animationClips.length > 0;
@@ -4601,6 +4587,15 @@ export default function DebugWorkbench() {
       shapeTriangle: 0,
       shapeIrregular: 0,
       overpaintPercent: 0,
+      // The Texture Quality row binds the slider to `textureQualityValue`
+      // and the Auto toggle to `textureQualityAuto`. The effective option
+      // passed to the scene is "auto" when textureQualityAuto is true, else
+      // textureQualityValue (clamped to 0.1..1). Keeping them as two fields
+      // lets the slider preserve its last numeric value while Auto is on.
+      textureQualityValue: typeof sceneOptions.textureQuality === "number"
+        ? sceneOptions.textureQuality
+        : 1,
+      textureQualityAuto: sceneOptions.textureQuality === "auto",
     };
 
     const animationState = {
@@ -4697,6 +4692,52 @@ export default function DebugWorkbench() {
       .add(modelState, "meshInteriorFill")
       .name("Interior fill")
       .onChange((value: boolean) => updateScene({ meshInteriorFill: value }));
+
+    const textureQualityController = model
+      .add(modelState, "textureQualityValue", 0.1, 1, 0.05)
+      .name("Texture Quality")
+      .onChange((value: number) => {
+        // Touching the slider switches off Auto and commits the numeric value.
+        modelState.textureQualityAuto = false;
+        if (textureQualityAutoCheckbox) textureQualityAutoCheckbox.checked = false;
+        updateScene({ textureQuality: value });
+      });
+
+    let textureQualityAutoCheckbox: HTMLInputElement | null = null;
+    function injectAutoToggle(
+      controller: { domElement?: HTMLElement } | undefined | null,
+    ): HTMLInputElement | null {
+      const dom = controller?.domElement;
+      const widget = dom?.querySelector?.<HTMLElement>(".widget");
+      if (!widget) return null;
+      // Layout matches the slider rows above (Azimuth / Elev / Key / Ambient):
+      // [Texture Quality (label)] [checkbox Auto] [slider] [number]. The
+      // checkbox + label are injected at the START of the widget; lil-gui's
+      // slider + value input occupy the rest of the row.
+      const wrap = document.createElement("label");
+      wrap.className = "dn-auto-toggle";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = modelState.textureQualityAuto;
+      const lbl = document.createElement("span");
+      lbl.textContent = "Auto";
+      wrap.appendChild(cb);
+      wrap.appendChild(lbl);
+      cb.addEventListener("change", () => {
+        modelState.textureQualityAuto = cb.checked;
+        if (cb.checked) {
+          disableWithoutDisabledClass(textureQualityController);
+          updateScene({ textureQuality: "auto" });
+        } else {
+          textureQualityController.enable();
+          updateScene({ textureQuality: modelState.textureQualityValue });
+        }
+      });
+      widget.insertBefore(wrap, widget.firstChild);
+      if (modelState.textureQualityAuto) disableWithoutDisabledClass(textureQualityController);
+      return cb;
+    }
+    textureQualityAutoCheckbox = injectAutoToggle(textureQualityController);
 
     const animation = gui.addFolder("Animation");
     animation.open();
@@ -4865,6 +4906,8 @@ export default function DebugWorkbench() {
       overpaintPercent: overpaintPercentController,
       meshResolution: meshResolutionController,
       meshInteriorFill: meshInteriorFillController,
+      textureQuality: textureQualityController,
+      textureQualityAutoCheckbox,
       interactive: interactiveController,
       autoRotate: autoRotateController,
       selection: selectionController,
@@ -5047,6 +5090,8 @@ export default function DebugWorkbench() {
       shapeTriangle?: number;
       shapeIrregular?: number;
       overpaintPercent?: number;
+      textureQualityValue?: number;
+      textureQualityAuto?: boolean;
     };
     if (modelState) {
       modelState.meshResolution = sceneOptions.meshResolution;
@@ -5057,6 +5102,21 @@ export default function DebugWorkbench() {
       modelState.shapeTriangle = metrics.triangles;
       modelState.shapeIrregular = metrics.irregular;
       modelState.overpaintPercent = metrics.overpaintPercent;
+      // Mirror external textureQuality changes back into the slider state.
+      // Numeric → slider value + auto off (slider enabled); "auto" → keep
+      // last numeric value, auto on (slider disabled). User unchecks Auto
+      // first to drag the slider — explicit mode switch.
+      const tq = sceneOptions.textureQuality;
+      const nextAuto = tq === "auto";
+      modelState.textureQualityAuto = nextAuto;
+      if (typeof tq === "number") modelState.textureQualityValue = tq;
+      const tqCb = controllers.textureQualityAutoCheckbox as HTMLInputElement | undefined;
+      const tqCtl = controllers.textureQuality as Controller | undefined;
+      if (tqCb) tqCb.checked = nextAuto;
+      if (tqCtl) {
+        if (nextAuto) disableWithoutDisabledClass(tqCtl);
+        else tqCtl.enable();
+      }
     }
     const animationState = controllers.animationState as {
       animation?: string;
@@ -5314,7 +5374,7 @@ export default function DebugWorkbench() {
                   directionalLight={directionalLight}
                   ambientLight={ambientLight}
                   textureLighting={sceneOptions.textureLighting}
-                  atlasScale={atlasScale}
+                  textureQuality={textureQuality}
                   strategies={{ disable: sceneOptions.disableStrategies }}
                 >
                   {sceneOptions.selection ? (

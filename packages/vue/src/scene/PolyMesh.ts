@@ -26,7 +26,7 @@ import {
   computeTextureAtlasPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
-  type AtlasScale,
+  type TextureQuality,
   type SolidPaintDefaults,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
@@ -70,8 +70,10 @@ export interface PolyMeshProps extends InteractionProps {
   polygons?: Polygon[];
   autoCenter?: boolean;
   textureLighting?: PolyTextureLightingMode;
-  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
-  atlasScale?: AtlasScale;
+  /** Raster scale for generated atlas pages. `"auto"` (default) downscales to
+   *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
+   *  Numeric values 0.1..1 force an explicit scale. */
+  textureQuality?: TextureQuality;
   class?: string;
   position?: Vec3;
   scale?: number | Vec3;
@@ -134,7 +136,7 @@ export const PolyMesh = defineComponent({
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
     autoCenter: { type: Boolean, default: false },
     textureLighting: { type: String as PropType<PolyTextureLightingMode>, default: undefined },
-    atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
+    textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
@@ -229,8 +231,8 @@ export const PolyMesh = defineComponent({
         }),
       );
     });
-    const atlasScale = computed(() => props.atlasScale);
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
+    const atlasTextureQuality = computed(() => props.textureQuality);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasTextureQuality);
     const solidPaintDefaults = computed<SolidPaintDefaults>(() =>
       atlasAutoRender ? getSolidPaintDefaults(textureAtlasPlans.value, atlasTextureLighting.value) : {},
     );

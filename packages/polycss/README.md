@@ -161,7 +161,7 @@ mesh.dispose();
 | `directionalLight` | `PolyDirectionalLight` | Directional light config |
 | `ambientLight` | `PolyAmbientLight` | Ambient light config |
 | `textureLighting` | `"baked" \| "dynamic"` | Texture lighting mode |
-| `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages |
+| `textureQuality` | `number \| "auto"` | Raster scale for generated atlas pages |
 | `autoCenter` | `boolean` | Rotate around the union bbox center of added meshes |
 
 Returns a `PolySceneHandle`:

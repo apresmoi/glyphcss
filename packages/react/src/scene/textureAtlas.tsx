@@ -45,7 +45,7 @@ const BORDER_SHAPE_POINT_EPS = 1e-7;
 const BASIS_EPS = 1e-9;
 const SOLID_TRIANGLE_BLEED = 0.45;
 
-export type AtlasScale = number | "auto";
+export type TextureQuality = number | "auto";
 
 interface RGB { r: number; g: number; b: number; }
 interface RGBFactors { r: number; g: number; b: number; }
@@ -304,10 +304,10 @@ function packTextureAtlasPlansAuto(
 
 function packTextureAtlasPlansWithScale(
   plans: Array<TextureAtlasPlan | null>,
-  atlasScaleInput: AtlasScale | undefined,
+  textureQualityInput: TextureQuality | undefined,
 ): { packed: PackedAtlas; atlasScale: number } {
-  if (atlasScaleInput !== undefined && atlasScaleInput !== "auto") {
-    const atlasScale = normalizeAtlasScale(atlasScaleInput);
+  if (textureQualityInput !== undefined && textureQualityInput !== "auto") {
+    const atlasScale = normalizeAtlasScale(textureQualityInput);
     return { packed: packTextureAtlasPlans(plans, atlasScale), atlasScale };
   }
 
@@ -1375,7 +1375,7 @@ async function buildAtlasPages(
 export function useTextureAtlas(
   plans: Array<TextureAtlasPlan | null>,
   textureLighting: PolyTextureLightingMode,
-  atlasScaleInput?: AtlasScale,
+  textureQualityInput?: TextureQuality,
   strategies?: PolyRenderStrategiesOption,
 ): TextureAtlasResult {
   const disableB = strategies?.disable?.includes("b") ?? false;
@@ -1398,8 +1398,8 @@ export function useTextureAtlas(
     [plans, textureLighting, useFullRectSolid, useStableTriangle, useBorderShape],
   );
   const { packed, atlasScale } = useMemo(
-    () => packTextureAtlasPlansWithScale(atlasPlans, atlasScaleInput),
-    [atlasPlans, atlasScaleInput],
+    () => packTextureAtlasPlansWithScale(atlasPlans, textureQualityInput),
+    [atlasPlans, textureQualityInput],
   );
   const [pages, setPages] = useState<TextureAtlasPage[]>(
     () => packed.pages.map((page) => ({ width: page.width, height: page.height, url: null })),

@@ -34,7 +34,7 @@ import {
   buildSharedEdgeSets,
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
-  type AtlasScale,
+  type TextureQuality,
   type PolyRenderStrategiesOption,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
@@ -51,8 +51,10 @@ export interface PolySceneProps {
   directionalLight?: PolyDirectionalLight;
   ambientLight?: PolyAmbientLight;
   textureLighting?: PolyTextureLightingMode;
-  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
-  atlasScale?: AtlasScale;
+  /** Raster scale for generated atlas pages. `"auto"` (default) downscales to
+   *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
+   *  Numeric values 0.1..1 force an explicit scale. */
+  textureQuality?: TextureQuality;
   /** Opt out of specific render strategies. Disabled strategies fall through the chain (b→i→s, u→i→s, i→s). `<s>` cannot be disabled. */
   strategies?: PolyRenderStrategiesOption;
   /**
@@ -93,7 +95,7 @@ export const PolyScene = defineComponent({
       type: String as PropType<PolyTextureLightingMode>,
       default: "baked",
     },
-    atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
+    textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
     strategies: { type: Object as PropType<PolyRenderStrategiesOption>, default: undefined },
     autoCenter: { type: Boolean, default: false },
     class: { type: String },
@@ -184,7 +186,7 @@ export const PolyScene = defineComponent({
         layerElevation: tileSize,
         directionalLight: props.directionalLight,
         textureLighting: props.textureLighting,
-        atlasScale: props.atlasScale,
+        textureQuality: props.textureQuality,
       };
     });
 
@@ -208,9 +210,9 @@ export const PolyScene = defineComponent({
       );
     });
     const atlasTextureLighting = computed<PolyTextureLightingMode>(() => props.textureLighting ?? "baked");
-    const atlasScale = computed(() => props.atlasScale);
+    const atlasTextureQuality = computed(() => props.textureQuality);
     const atlasStrategies = computed(() => props.strategies);
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale, atlasStrategies);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasTextureQuality, atlasStrategies);
 
     // Dynamic mode plumbing: emit normalized light direction + light/ambient
     // color/intensity as CSS custom properties on the scene root. They cascade

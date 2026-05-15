@@ -660,7 +660,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("scales generated atlas canvas dimensions when atlasScale is set", () => {
+  it("scales generated atlas canvas dimensions when textureQuality is set", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
       createElement(tagName: string) {
@@ -674,8 +674,8 @@ describe("renderPolygonsWithTextureAtlas", () => {
     } as unknown as Document;
 
     const texturedTriangle = { ...FLAT_TRIANGLE, texture: "https://example.com/tex.png" };
-    const full = renderPolygonsWithTextureAtlas([texturedTriangle], { doc, atlasScale: 1 });
-    const half = renderPolygonsWithTextureAtlas([texturedTriangle], { doc, atlasScale: 0.5 });
+    const full = renderPolygonsWithTextureAtlas([texturedTriangle], { doc, textureQuality: 1 });
+    const half = renderPolygonsWithTextureAtlas([texturedTriangle], { doc, textureQuality: 0.5 });
 
     expect(canvases).toHaveLength(2);
     expect(canvases[1].width).toBeLessThan(canvases[0].width);
@@ -685,10 +685,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
     half.dispose();
   });
 
-  it("auto atlasScale downscales large packed atlas pages", () => {
+  it("auto textureQuality downscales large packed atlas pages", () => {
     const collectCanvasSizes = (
       polygons: Polygon[],
-      atlasScale: number | "auto",
+      textureQuality: number | "auto",
     ): Array<{ width: number; height: number }> => {
       const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
       const doc = {
@@ -701,7 +701,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
           return document.createElement(tagName);
         },
       } as unknown as Document;
-      const result = renderPolygonsWithTextureAtlas(polygons, { doc, atlasScale });
+      const result = renderPolygonsWithTextureAtlas(polygons, { doc, textureQuality });
       result.dispose();
       return canvases.map(({ width, height }) => ({ width, height }));
     };
@@ -730,7 +730,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(autoMaxSide).toBeLessThan(fullMaxSide);
   });
 
-  it("auto atlasScale caps oversized runtime atlas bitmaps by workload", () => {
+  it("auto textureQuality caps oversized runtime atlas bitmaps by workload", () => {
     const collectCanvasSizes = (
       polygons: Polygon[],
     ): Array<{ width: number; height: number }> => {
@@ -745,7 +745,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
           return document.createElement(tagName);
         },
       } as unknown as Document;
-      const result = renderPolygonsWithTextureAtlas(polygons, { doc, atlasScale: "auto" });
+      const result = renderPolygonsWithTextureAtlas(polygons, { doc, textureQuality: "auto" });
       result.dispose();
       return canvases.map(({ width, height }) => ({ width, height }));
     };
@@ -766,6 +766,58 @@ describe("renderPolygonsWithTextureAtlas", () => {
 
     expect(maxSide).toBeLessThanOrEqual(2048);
     expect(decodedBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
+  });
+
+  it("auto textureQuality picks a tighter budget when the document is on a coarse pointer (mobile)", () => {
+    // Mocked defaultView.matchMedia returns true for `(pointer: coarse)`, the
+    // same heuristic the auto path uses to detect mobile-class hardware. The
+    // 6-face crate hits ~16 MB at the desktop budget — on mobile that overruns
+    // Chrome's compositor and produces flicker, so the auto heuristic must
+    // downscale further to fit ~4 MB.
+    const buildCrateScene = (): Polygon[] => {
+      // 6 textured 60×60 faces — same workload shape as the crate preset.
+      const quad: Polygon = {
+        vertices: [
+          [0, 0, 0],
+          [60, 0, 0],
+          [60, 60, 0],
+          [0, 60, 0],
+        ],
+        color: "#ffffff",
+        texture: "https://example.com/crate.png",
+      };
+      return Array.from({ length: 6 }, () => ({ ...quad }));
+    };
+
+    const measure = (mobile: boolean): number => {
+      const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+      const doc = {
+        defaultView: {
+          matchMedia: (query: string) => ({
+            matches: mobile && (query.includes("pointer: coarse") || query.includes("hover: none")),
+          }),
+        },
+        createElement(tagName: string) {
+          if (tagName === "canvas") {
+            const canvas = { width: 0, height: 0, getContext: () => null };
+            canvases.push(canvas);
+            return canvas;
+          }
+          return document.createElement(tagName);
+        },
+      } as unknown as Document;
+      const result = renderPolygonsWithTextureAtlas(buildCrateScene(), { doc, textureQuality: "auto" });
+      result.dispose();
+      return canvases.reduce((sum, page) => sum + page.width * page.height * 4, 0);
+    };
+
+    const mobileBytes = measure(true);
+    const desktopBytes = measure(false);
+
+    // Mobile bucket is the 4 MB cap; desktop is 16 MB. A tiny rounding margin
+    // sits above the cap (page padding inflates each rasterized page slightly).
+    expect(mobileBytes).toBeLessThanOrEqual(4 * 1024 * 1024 * 1.05);
+    expect(mobileBytes).toBeLessThan(desktopBytes);
   });
 });
 

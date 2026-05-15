@@ -55,13 +55,13 @@ const result = await loadMesh("/castle.obj", {
 <PolyMesh src="/castle.obj" parseOptions={{ objOptions: { targetSize: 80 } }} />
 ```
 
-## `atlasScale` and texture memory
+## `textureQuality` and texture memory
 
-Generated atlas pages default to `atlasScale="auto"`. Auto starts from the packed atlas area and then caps oversized runtime bitmaps by page side length and decoded-memory budget. For dense textured meshes this prevents very large canvas/PNG work at mount while keeping DOM geometry and hit areas unchanged.
+Generated atlas pages default to `textureQuality="auto"`. Auto starts from the packed atlas area and then caps oversized runtime bitmaps by page side length and decoded-memory budget. For dense textured meshes this prevents very large canvas/PNG work at mount while keeping DOM geometry and hit areas unchanged.
 
 ```html
 <!-- Vanilla -->
-<poly-scene atlas-scale="0.5">
+<poly-scene texture-quality="0.5">
   <poly-mesh src="/cottage.glb"></poly-mesh>
 </poly-scene>
 ```
@@ -69,13 +69,13 @@ Generated atlas pages default to `atlasScale="auto"`. Auto starts from the packe
 ```tsx
 // React
 <PolyCamera>
-  <PolyScene atlasScale={0.5}>
+  <PolyScene textureQuality={0.5}>
     <PolyMesh src="/cottage.glb" />
   </PolyScene>
 </PolyCamera>
 
 // Or per mesh:
-<PolyMesh src="/cottage.glb" atlasScale={0.5} />
+<PolyMesh src="/cottage.glb" textureQuality={0.5} />
 ```
 
 Use explicit numeric values when you want to override auto: `0.5` or `0.75` for distant or dense assets, `1` for close-up inspection when the runtime bitmap cost is acceptable.

@@ -18,7 +18,7 @@ import {
   renderTextureAtlasPoly,
   renderTextureTrianglePoly,
   useTextureAtlas,
-  type AtlasScale,
+  type TextureQuality,
   type TextureAtlasPlan,
 } from "../scene/textureAtlas";
 
@@ -102,7 +102,7 @@ export interface PolyContext {
   layerElevation?: number;
   directionalLight?: PolyDirectionalLight;
   textureLighting?: PolyTextureLightingMode;
-  atlasScale?: AtlasScale;
+  textureQuality?: TextureQuality;
   debugShowBackfaces?: boolean;
   [key: string]: unknown;
 }
@@ -122,8 +122,9 @@ export interface PolyProps {
   rotation?: Vec3;
   context?: PolyContext;
   textureLighting?: PolyTextureLightingMode;
-  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
-  atlasScale?: AtlasScale;
+  /** Raster scale for generated atlas pages. `"auto"` (default) downscales to
+   *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop). */
+  textureQuality?: TextureQuality;
   baseColor?: string;
   pointerEvents?: "auto" | "none";
 }
@@ -145,7 +146,7 @@ export const Poly = defineComponent({
       type: String as PropType<PolyTextureLightingMode>,
       default: undefined,
     },
-    atlasScale: { type: [Number, String] as PropType<AtlasScale>, default: undefined },
+    textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
     context: {
       type: Object as PropType<PolyContext>,
       default: undefined,
@@ -160,7 +161,7 @@ export const Poly = defineComponent({
     const atlasTextureLighting = computed<PolyTextureLightingMode>(
       () => props.textureLighting ?? props.context?.textureLighting ?? "baked",
     );
-    const atlasScale = computed(() => props.atlasScale ?? props.context?.atlasScale);
+    const atlasTextureQuality = computed(() => props.textureQuality ?? props.context?.textureQuality);
 
     // material.texture takes precedence over inline texture.
     const effectiveTexture = computed(() => props.material?.texture ?? props.texture);
@@ -191,7 +192,7 @@ export const Poly = defineComponent({
     const textureAtlasPlans = computed<Array<TextureAtlasPlan | null>>(() =>
       materialUvRect.value ? [] : [atlasPlan.value],
     );
-    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasScale);
+    const textureAtlas = useTextureAtlas(textureAtlasPlans, atlasTextureLighting, atlasTextureQuality);
 
     return () => {
       const plan = atlasPlan.value;

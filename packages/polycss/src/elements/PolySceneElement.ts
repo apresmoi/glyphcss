@@ -32,7 +32,7 @@ const OBSERVED_ATTRS = [
   "ambient-color",
   "ambient-intensity",
   "texture-lighting",
-  "atlas-scale",
+  "texture-quality",
   "auto-center",
 ] as const;
 
@@ -61,7 +61,7 @@ function parseTextureLighting(value: string | null): PolyTextureLightingMode | u
   return undefined;
 }
 
-function parseAtlasScale(value: string | null): PolySceneOptions["atlasScale"] | undefined {
+function parseTextureQuality(value: string | null): PolySceneOptions["textureQuality"] | undefined {
   if (value === "auto") return "auto";
   return parseNumber(value);
 }
@@ -94,8 +94,8 @@ export class PolySceneElement extends ELEMENT_BASE {
     const zoom = parseNumber(this.getAttribute("zoom"));
     if (zoom !== undefined) opts.zoom = zoom;
     opts.textureLighting = parseTextureLighting(this.getAttribute("texture-lighting")) ?? "baked";
-    const atlasScale = parseAtlasScale(this.getAttribute("atlas-scale"));
-    if (atlasScale !== undefined) opts.atlasScale = atlasScale;
+    const textureQuality = parseTextureQuality(this.getAttribute("texture-quality"));
+    if (textureQuality !== undefined) opts.textureQuality = textureQuality;
     opts.autoCenter = this.hasAttribute("auto-center");
     if (directionalLight) opts.directionalLight = directionalLight;
     if (ambientLight) opts.ambientLight = ambientLight;

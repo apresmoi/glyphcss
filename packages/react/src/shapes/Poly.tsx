@@ -156,14 +156,14 @@ function PolyInner({
   pointerEvents: pointerEventsProp,
   context,
   textureLighting: textureLightingProp,
-  atlasScale: atlasScaleProp,
+  textureQuality: textureQualityProp,
   baseColor: baseColorProp,
   ...dataAttrs
 }: PolyProps) {
   const tileSize = context?.tileSize ?? 50;
   const layerElevation = context?.layerElevation ?? tileSize;
   const textureLighting = textureLightingProp ?? context?.textureLighting ?? "baked";
-  const atlasScale = atlasScaleProp ?? context?.atlasScale;
+  const textureQuality = textureQualityProp ?? context?.textureQuality;
   const polygonColor = baseColorProp ?? color;
 
   // material.texture takes precedence over inline texture.
@@ -201,7 +201,7 @@ function PolyInner({
     () => (materialUvRect ? [] : [atlasPlan]),
     [materialUvRect, atlasPlan],
   );
-  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting, atlasScale);
+  const textureAtlas = useTextureAtlas(atlasPlans, textureLighting, textureQuality);
 
   const domEventHandlers: React.DOMAttributes<Element> = {
     onClick: onClick as React.MouseEventHandler<Element> | undefined,

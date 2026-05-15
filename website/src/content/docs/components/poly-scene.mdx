@@ -11,14 +11,14 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 
 ## Scene props / attributes
 
-(React / Vue prop names use camelCase; the `<poly-scene>` custom element accepts the kebab-case form, e.g. `atlasScale` → `atlas-scale`.)
+(React / Vue prop names use camelCase; the `<poly-scene>` custom element accepts the kebab-case form, e.g. `textureQuality` → `texture-quality`.)
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `directionalLight` | `PolyDirectionalLight` | None | Directional light source. |
 | `ambientLight` | `PolyAmbientLight` | None | Ambient fill light. |
 | `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Whether texture lighting is rasterized into atlases or computed with CSS variables. |
-| `atlasScale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
+| `textureQuality` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
 | `polygons` | `Polygon[]` | None | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
 | `children` | None | None | `<poly-mesh>` / `<poly-polygon>` / `<poly-orbit-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyOrbitControls>` (React / Vue). |
 
@@ -35,7 +35,7 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 | `position` | `Vec3` | `[x, y, z]` offset in scene space. |
 | `scale` | `number \| Vec3` | Uniform or per-axis scale. |
 | `rotation` | `Vec3` | Euler rotation in degrees `[x, y, z]`. |
-| `atlasScale` | `number \| "auto"` | Raster scale for generated atlas pages. React / Vue only; vanilla meshes inherit the scene's `atlas-scale`. |
+| `textureQuality` | `number \| "auto"` | Raster scale for generated atlas pages. React / Vue only; vanilla meshes inherit the scene's `texture-quality`. |
 | `autoCenter` | `boolean` | Shift the loaded mesh so its bounding-box center sits at the local origin before applying `position`. Useful when assets aren't centered in their file coordinates. |
 | `mtl` | `string` | Companion `.mtl` URL for OBJ models. |
 | `parseOptions` | `UseMeshOptions` | Parser options forwarded to `loadMesh`. |

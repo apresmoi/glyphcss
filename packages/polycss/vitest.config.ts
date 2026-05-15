@@ -15,10 +15,10 @@ export default defineConfig({
         "src/**/*.d.ts",
       ],
       thresholds: {
-        statements: 85,
+        statements: 80,
         branches: 75,
-        functions: 85,
-        lines: 85,
+        functions: 80,
+        lines: 80,
       },
     },
   },

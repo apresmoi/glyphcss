@@ -15,7 +15,7 @@ import {
   buildSharedEdgeSets,
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
-  type AtlasScale,
+  type TextureQuality,
   type PolyRenderStrategiesOption,
   TextureBorderShapePoly,
   TextureAtlasPoly,
@@ -49,8 +49,10 @@ export interface PolySceneProps extends TransformProps {
   ambientLight?: PolyAmbientLight;
   /** Textured polygon lighting mode. Defaults to "baked". */
   textureLighting?: PolyTextureLightingMode;
-  /** Raster scale for generated atlas pages. `"auto"` reduces large atlases. */
-  atlasScale?: AtlasScale;
+  /** Raster scale for generated atlas pages. `"auto"` (default) downscales to
+   *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
+   *  Numeric values 0.1..1 force an explicit scale. */
+  textureQuality?: TextureQuality;
   /**
    * Render strategy overrides. Use `{ disable: ["u"] }` to force solid
    * triangles through the atlas path (`<s>`), or `{ disable: ["b", "i", "u"] }`
@@ -87,7 +89,7 @@ function PolySceneInner({
   directionalLight,
   ambientLight,
   textureLighting = "baked",
-  atlasScale,
+  textureQuality,
   strategies,
   autoCenter = false,
   className,
@@ -209,7 +211,7 @@ function PolySceneInner({
     },
     [polygons, polyContext],
   );
-  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, atlasScale, strategies);
+  const textureAtlas = useTextureAtlas(textureAtlasPlans, textureLighting, textureQuality, strategies);
 
   // Dynamic mode plumbing: emit normalized light direction + light/ambient
   // color/intensity as CSS custom properties on the scene root. They

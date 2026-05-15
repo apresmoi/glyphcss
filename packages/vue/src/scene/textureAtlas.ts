@@ -42,7 +42,7 @@ const BORDER_SHAPE_POINT_EPS = 1e-7;
 const BASIS_EPS = 1e-9;
 const SOLID_TRIANGLE_BLEED = 0.45;
 
-export type AtlasScale = number | "auto";
+export type TextureQuality = number | "auto";
 
 export type PolyRenderStrategy = "b" | "i" | "u";
 
@@ -311,10 +311,10 @@ function packTextureAtlasPlansAuto(
 
 function packTextureAtlasPlansWithScale(
   plans: Array<TextureAtlasPlan | null>,
-  atlasScaleInput: AtlasScale | undefined,
+  textureQualityInput: TextureQuality | undefined,
 ): { packed: PackedAtlas; atlasScale: number } {
-  if (atlasScaleInput !== undefined && atlasScaleInput !== "auto") {
-    const atlasScale = normalizeAtlasScale(atlasScaleInput);
+  if (textureQualityInput !== undefined && textureQualityInput !== "auto") {
+    const atlasScale = normalizeAtlasScale(textureQualityInput);
     return { packed: packTextureAtlasPlans(plans, atlasScale), atlasScale };
   }
 
@@ -1384,7 +1384,7 @@ function revokeUrls(urls: string[]): void {
 export function useTextureAtlas(
   plans: ComputedRef<Array<TextureAtlasPlan | null>>,
   textureLighting: ComputedRef<PolyTextureLightingMode>,
-  atlasScale: ComputedRef<AtlasScale | undefined> = computed(() => undefined),
+  textureQuality: ComputedRef<TextureQuality | undefined> = computed(() => undefined),
   strategies: ComputedRef<PolyRenderStrategiesOption | undefined> = computed(() => undefined),
 ): TextureAtlasResult {
   const disabled = computed(() => new Set(strategies.value?.disable ?? []));
@@ -1400,7 +1400,7 @@ export function useTextureAtlas(
       if (textureLighting.value !== "dynamic" && (useBorderShape.value || (useFullRectSolid.value && isFullRectSolid(plan)))) return null;
       return plan;
     });
-    return packTextureAtlasPlansWithScale(atlasPlans, atlasScale.value);
+    return packTextureAtlasPlansWithScale(atlasPlans, textureQuality.value);
   });
   const pages = ref<TextureAtlasPage[]>(
     atlasState.value.packed.pages.map((page) => ({ width: page.width, height: page.height, url: null })),
