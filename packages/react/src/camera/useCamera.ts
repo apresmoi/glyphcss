@@ -62,15 +62,19 @@ export function usePolyCamera(options: UseCameraOptions): UseCameraResult {
     if (options.distance !== undefined) next.distance = options.distance;
     if (Object.keys(next).length > 0) {
       handle.update(next);
-      // Apply transform directly to DOM
+      // Apply transform directly to DOM — fold in autoCenterOffset so the
+      // camera continues to orbit the bbox center even during prop-driven moves.
       const el = sceneElRef.current;
       if (el) {
         const s = handle.state;
+        const [ox, oy, oz] = store.getState().autoCenterOffset;
         const tileSize = BASE_TILE;
-        const [tx, ty, tz] = s.target;
-        const cssX = ty * tileSize;
-        const cssY = tx * tileSize;
-        const cssZ = tz * tileSize;
+        const wx = s.target[0] + ox;
+        const wy = s.target[1] + oy;
+        const wz = s.target[2] + oz;
+        const cssX = wy * tileSize;  // world Y → CSS X
+        const cssY = wx * tileSize;  // world X → CSS Y
+        const cssZ = wz * tileSize;  // world Z → CSS Z
         const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
         el.style.transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
       }
@@ -80,20 +84,25 @@ export function usePolyCamera(options: UseCameraOptions): UseCameraResult {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.zoom, options.target, options.rotX, options.rotY, options.distance, store]);
 
-  // Apply camera transform directly to scene element (bypasses React)
+  // Apply camera transform directly to scene element (bypasses React).
+  // Reads autoCenterOffset from the store so orbit/pan always pivots around
+  // target + autoCenterOffset — the same point PolyScene writes to --scene-transform.
   const applyTransformDirect = useCallback(() => {
     const el = sceneElRef.current;
     if (!el) return;
     const handle = handleRef.current!;
     const s = handle.state;
+    const [ox, oy, oz] = store.getState().autoCenterOffset;
     const tileSize = BASE_TILE;
-    const [tx, ty, tz] = s.target;
-    const cssX = ty * tileSize;
-    const cssY = tx * tileSize;
-    const cssZ = tz * tileSize;
+    const wx = s.target[0] + ox;
+    const wy = s.target[1] + oy;
+    const wz = s.target[2] + oz;
+    const cssX = wy * tileSize;  // world Y → CSS X
+    const cssY = wx * tileSize;  // world X → CSS Y
+    const cssZ = wz * tileSize;  // world Z → CSS Z
     const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
     el.style.transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
-  }, []);
+  }, [store]);
 
   return {
     store,

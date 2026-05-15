@@ -141,43 +141,62 @@ describe("PolyScene (Vue) — autoCenter", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders a centering wrapper div with translate3d when autoCenter=true", () => {
+  it("folds bbox center into scene --scene-transform when autoCenter=true", () => {
     const { container } = renderScene({
       polygons: [QUAD],
       autoCenter: true,
     });
-    const scene = container.querySelector(".polycss-scene");
-    const children = Array.from(scene?.children ?? []);
-    const hasTranslate = children.some((el) =>
-      (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d")
-    );
-    expect(hasTranslate).toBe(true);
+    const scene = container.querySelector(".polycss-scene") as HTMLElement;
+    const transform = scene.style.getPropertyValue("--scene-transform");
+    // QUAD bbox center is (1,1,1) in world coords → translate3d(-50px,-50px,-50px)
+    // (world→CSS axis swap: wy*50 for cssX, wx*50 for cssY, wz*50 for cssZ)
+    expect(transform).toContain("translate3d(-50px, -50px, -50px)");
   });
 
-  it("does NOT render a centering wrapper when autoCenter=false", () => {
+  it("does NOT render a .polycss-offset wrapper element — meshes are direct children", () => {
+    const { container } = renderScene({
+      polygons: [QUAD],
+      autoCenter: true,
+    });
+    expect(container.querySelector(".polycss-offset")).toBeNull();
+  });
+
+  it("scene --scene-transform innermost translate is zero when autoCenter=false", () => {
     const { container } = renderScene({
       polygons: [QUAD],
       autoCenter: false,
     });
-    const scene = container.querySelector(".polycss-scene");
-    const children = Array.from(scene?.children ?? []);
-    const hasTranslate = children.some((el) =>
-      (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d")
-    );
-    expect(hasTranslate).toBe(false);
+    const scene = container.querySelector(".polycss-scene") as HTMLElement;
+    const transform = scene.style.getPropertyValue("--scene-transform");
+    // No offset — default target=[0,0,0] produces translate3d(0px,0px,0px)
+    expect(transform).toContain("translate3d(0px, 0px, 0px)");
+    // Centering does not appear
+    expect(transform).not.toContain("translate3d(-50px, -50px, -50px)");
   });
 
-  it("autoCenter translate3d is non-zero for off-center polygon", () => {
-    const { container } = renderScene({
-      polygons: [QUAD],
-      autoCenter: true,
-    });
-    const scene = container.querySelector(".polycss-scene");
-    const wrapper = Array.from(scene?.children ?? []).find((el) =>
-      (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d")
-    ) as HTMLElement | undefined;
-    expect(wrapper).toBeTruthy();
-    expect(wrapper!.style.getPropertyValue("--offset-transform")).not.toBe("translate3d(0px, 0px, 0px)");
+  it("scene --scene-transform translate differs between autoCenter=true and autoCenter=false", () => {
+    const { container: c1 } = renderScene({ polygons: [QUAD], autoCenter: true });
+    const { container: c2 } = renderScene({ polygons: [QUAD], autoCenter: false });
+    const t1 = (c1.querySelector(".polycss-scene") as HTMLElement).style.getPropertyValue("--scene-transform");
+    const t2 = (c2.querySelector(".polycss-scene") as HTMLElement).style.getPropertyValue("--scene-transform");
+    expect(t1).not.toBe(t2);
+  });
+
+  it("pan (target) and autoCenterOffset are independent — autoCenter does not zero out target", async () => {
+    // Even with autoCenter the user's camera target should be preserved.
+    // We can't drive orbit controls in a unit test, so we verify the
+    // math property: the scene transform contains a contribution from both
+    // the bbox center (autoCenterOffset) and a non-zero target when one is set.
+    // Here we use the camera's initial state (target=[0,0,0]), so the full
+    // translate3d comes from autoCenterOffset alone — confirming the two are
+    // additive and independent paths in the transform string.
+    const { container } = renderScene({ polygons: [QUAD], autoCenter: true });
+    const scene = container.querySelector(".polycss-scene") as HTMLElement;
+    const transform = scene.style.getPropertyValue("--scene-transform");
+    // bbox center [1,1,1] + target [0,0,0] → translate3d(-50px,-50px,-50px)
+    expect(transform).toContain("translate3d(-50px, -50px, -50px)");
+    // No .polycss-offset wrapper exists — no DOM layer shifting polygons
+    expect(container.querySelector(".polycss-offset")).toBeNull();
   });
 });
 

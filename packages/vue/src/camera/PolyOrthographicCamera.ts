@@ -46,10 +46,11 @@ export const PolyOrthographicCamera = defineComponent({
       cameraRef,
       sceneElRef,
       cameraElRef,
+      autoCenterOffset,
       applyTransformDirect,
     } = usePolyCamera(cameraOptions);
 
-    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef, cameraElRef, applyTransformDirect });
+    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef, cameraElRef, autoCenterOffset, applyTransformDirect });
 
     return () => {
       return h(

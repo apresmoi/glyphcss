@@ -50,10 +50,11 @@ export const PolyPerspectiveCamera = defineComponent({
       cameraRef,
       sceneElRef,
       cameraElRef,
+      autoCenterOffset,
       applyTransformDirect,
     } = usePolyCamera(cameraOptions);
 
-    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef, cameraElRef, applyTransformDirect });
+    provide(PolyCameraContextKey, { store, cameraRef, sceneElRef, cameraElRef, autoCenterOffset, applyTransformDirect });
 
     return () => {
       const perspectiveValue = `${typeof props.perspective === "number" ? props.perspective : DEFAULT_PERSPECTIVE}px`;

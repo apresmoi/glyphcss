@@ -5,10 +5,17 @@
  * so only the components that care about a changed value re-render.
  */
 import { useSyncExternalStore, useRef, useCallback } from "react";
-import type { CameraState, CameraHandle } from "@layoutit/polycss-core";
+import type { CameraState, CameraHandle, Vec3 } from "@layoutit/polycss-core";
 
 export interface SceneStoreState {
   cameraState: CameraState;
+  /**
+   * Bbox-center of all auto-centerable meshes in world coords. Kept separate
+   * from `target` so user pan (written to `target` by controls) survives mesh
+   * add/remove without fighting the auto-managed centering offset.
+   * [0, 0, 0] when autoCenter is off or there are no centerable meshes.
+   */
+  autoCenterOffset: Vec3;
 }
 
 export interface SceneStore {
@@ -21,11 +28,15 @@ export interface SceneStore {
 
   /** Force notify all subscribers (e.g. after prop-driven camera change). */
   notifyAll(): void;
+
+  /** Update the autoCenterOffset (world coords bbox center). */
+  setAutoCenterOffset(offset: Vec3): void;
 }
 
 export function createSceneStore(initial: CameraState): SceneStore {
   let state: SceneStoreState = {
     cameraState: { ...initial },
+    autoCenterOffset: [0, 0, 0],
   };
 
   const listeners = new Set<() => void>();
@@ -50,13 +61,19 @@ export function createSceneStore(initial: CameraState): SceneStore {
     },
 
     updateCameraFromRef(handle) {
-      state = { cameraState: { ...handle.state } };
+      state = { ...state, cameraState: { ...handle.state } };
       notify();
       return true;
     },
 
     notifyAll() {
       notify();
+    },
+
+    setAutoCenterOffset(offset) {
+      state = { ...state, autoCenterOffset: offset };
+      // No notify — the offset is read synchronously by applyTransformDirect;
+      // PolyScene re-renders on its own when the bbox-derived useMemo fires.
     },
   };
 }

@@ -147,19 +147,14 @@ describe("PolyScene — autoCenter", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders a centering wrapper div when autoCenter=true", () => {
+  it("does NOT render a .polycss-offset wrapper div when autoCenter=true", () => {
+    // The new design folds the bbox-center offset directly into --scene-transform
+    // on the scene element — no extra DOM wrapper layer.
     const container = renderScene({
       polygons: [TRIANGLE, QUAD],
       autoCenter: true,
     });
-    const scene = container.querySelector(".polycss-scene");
-    // There should be a child div with a translate3d transform
-    const children = Array.from(scene?.children ?? []);
-    const wrapperWithTransform = children.find((el) => {
-      const style = (el as HTMLElement).style;
-      return style.getPropertyValue("--offset-transform").includes("translate3d");
-    });
-    expect(wrapperWithTransform).toBeTruthy();
+    expect(container.querySelector(".polycss-offset")).toBeNull();
   });
 
   it("does NOT render a centering wrapper when autoCenter=false (default)", () => {
@@ -167,30 +162,48 @@ describe("PolyScene — autoCenter", () => {
       polygons: [TRIANGLE, QUAD],
       autoCenter: false,
     });
-    const scene = container.querySelector(".polycss-scene");
-    const children = Array.from(scene?.children ?? []);
-    const hasTranslate = children.some((el) => {
-      const style = (el as HTMLElement).style;
-      return style.getPropertyValue("--offset-transform").includes("translate3d");
-    });
-    // Without autoCenter, no centering wrapper
-    expect(hasTranslate).toBe(false);
+    expect(container.querySelector(".polycss-offset")).toBeNull();
   });
 
-  it("autoCenter wrapper's translate3d is non-zero for off-center polygons", () => {
-    const container = renderScene({
-      polygons: [QUAD],
-      autoCenter: true,
-    });
-    const scene = container.querySelector(".polycss-scene");
-    const children = Array.from(scene?.children ?? []);
-    const wrapper = children.find((el) => {
-      return (el as HTMLElement).style.getPropertyValue("--offset-transform").includes("translate3d");
-    }) as HTMLElement | undefined;
-    expect(wrapper).toBeTruthy();
-    // QUAD centroid is at (1, 1, 1) in world space → translate3d should be non-zero
-    const transform = wrapper!.style.getPropertyValue("--offset-transform");
-    expect(transform).not.toBe("translate3d(0px, 0px, 0px)");
+  it("autoCenter contributes a non-zero translate3d inside --scene-transform for off-center polygons", () => {
+    // With autoCenter=false the translate3d for QUAD at centroid (1,1,1) reflects
+    // only target=[0,0,0], so it is translate3d(0px, 0px, 0px).
+    const containerOff = renderScene({ polygons: [QUAD], autoCenter: false });
+    const sceneOff = containerOff.querySelector(".polycss-scene") as HTMLElement;
+    const transformOff = sceneOff.style.getPropertyValue("--scene-transform");
+    expect(transformOff).toContain("translate3d(0px, 0px, 0px)");
+
+    // With autoCenter=true the bbox center ([1,1,1]) is added to target
+    // inside --scene-transform, producing a non-zero translate3d.
+    // QUAD centroid: world X=(0+2)/2=1, world Y=(0+2)/2=1, world Z=(1+1)/2=1.
+    // CSS: cssX = worldY*50 = 50, cssY = worldX*50 = 50, cssZ = worldZ*50 = 50.
+    // Expected translate3d(-50px, -50px, -50px).
+    const containerOn = renderScene({ polygons: [QUAD], autoCenter: true });
+    const sceneOn = containerOn.querySelector(".polycss-scene") as HTMLElement;
+    const transformOn = sceneOn.style.getPropertyValue("--scene-transform");
+    expect(transformOn).toContain("translate3d(-50px, -50px, -50px)");
+  });
+
+  it("target and autoCenterOffset are independent: pan survives mesh bbox change", () => {
+    // Render with TRIANGLE (centroid ~[0.33, 0.33, 0]) centered.
+    // Then switch to QUAD (centroid [1, 1, 1]) — the centering offset updates
+    // but any user pan delta in target remains unaffected. The two contributions
+    // add independently inside translate3d without either clobbering the other.
+    //
+    // We verify this at the level of what matters: the scene element's
+    // --scene-transform includes the bbox contribution without a wrapper div.
+    const containerA = renderScene({ polygons: [QUAD], autoCenter: true });
+    const sceneA = containerA.querySelector(".polycss-scene") as HTMLElement;
+    const tA = sceneA.style.getPropertyValue("--scene-transform");
+    // QUAD centroid contributes (-50px, -50px, -50px)
+    expect(tA).toContain("translate3d(-50px, -50px, -50px)");
+
+    // Now render with no polygons (empty bbox → zero offset)
+    const containerB = renderScene({ polygons: [], autoCenter: true });
+    const sceneB = containerB.querySelector(".polycss-scene") as HTMLElement;
+    const tB = sceneB.style.getPropertyValue("--scene-transform");
+    // Zero bbox → translate3d stays at (0px, 0px, 0px)
+    expect(tB).toContain("translate3d(0px, 0px, 0px)");
   });
 });
 

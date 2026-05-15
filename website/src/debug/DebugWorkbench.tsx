@@ -4869,6 +4869,10 @@ export default function DebugWorkbench() {
       .add(cameraState, "autoCenter")
       .name("Auto center")
       .onChange((value: boolean) => updateScene({ autoCenter: value }));
+    const axesController = camera
+      .add(cameraState, "showAxes")
+      .name("Axes")
+      .onChange((value: boolean) => updateScene({ showAxes: value }));
     const autoRotateController = camera
       .add(cameraState, "autoRotate")
       .name("Auto rotate")
@@ -4985,6 +4989,7 @@ export default function DebugWorkbench() {
       gizmoMode: gizmoController,
       textureLighting: textureLightingController,
       autoCenter: autoCenterController,
+      showAxes: axesController,
       dragMode: dragModeController,
       projection: projectionController,
       perspectivePx: perspectivePxController,

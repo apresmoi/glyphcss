@@ -157,8 +157,7 @@ describe("PolySceneElement", () => {
       const el = document.createElement("poly-scene") as PolySceneElement;
       el.setAttribute("auto-center", "");
       host.appendChild(el);
-      // Verify the private autoCenter wrapper exists without exposing a DOM hook.
-      expect(el.querySelector(".polycss-scene")?.firstElementChild).not.toBeNull();
+      expect(el.getScene()?.getOptions().autoCenter).toBe(true);
     });
 
     it("defaults texture edge repair on and allows explicit false", () => {

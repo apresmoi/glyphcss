@@ -6,7 +6,7 @@ import type {
   PolyAmbientLight,
   PolyTextureLightingMode,
 } from "@layoutit/polycss-core";
-import { createIsometricCamera, parseHexColor } from "@layoutit/polycss-core";
+import { BASE_TILE, parseHexColor } from "@layoutit/polycss-core";
 import { useCameraContext } from "../camera/context";
 import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles/styles";
@@ -173,22 +173,6 @@ function PolySceneInner({
   );
   const sceneBbox = centerInputPolygons ? centerSceneBbox : renderSceneBbox;
 
-  // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
-  // left:50% places that point at the visible center of .polycss-camera
-  // — flex centering is unreliable for position:absolute children with no
-  // flow box. transform-origin defaults to the element's own (0,0,0),
-  // so rotations pivot around world origin (Three.js convention). Polygons
-  // render around the anchor via their own matrix3d translations.
-  const sceneStyle = useMemo(() => {
-    const handle = createIsometricCamera(cameraState);
-    const cameraStyle = handle.getStyle();
-    return {
-      ["--scene-transform" as string]: cameraStyle.transform,
-    };
-  }, [cameraState]);
-
-  const computedClassName = `polycss-scene${className ? ` ${className}` : ""}`;
-
   // Per-polygon context: lighting + scene units. In dynamic mode the
   // atlas is light-independent (CSS does the shading), so we deliberately
   // drop both lights from the plan inputs — that prevents the atlas from
@@ -207,6 +191,54 @@ function PolySceneInner({
       experimentalTextureEdgeRepair,
     };
   }, [directionalForAtlas, ambientForAtlas, textureLighting, experimentalTextureEdgeRepair]);
+
+  // Bbox center of all auto-centerable meshes in world coords. Kept as a Vec3
+  // (not a pre-baked CSS string) so it can be added to `target` inside the
+  // scene transform — same approach as vanilla's buildSceneTransform. This
+  // means the camera orbits `target + autoCenterOffset` with no extra DOM layer.
+  // World axes: [0]=X, [1]=Y, [2]=Z. autoCenterOffset is [0,0,0] when disabled.
+  const autoCenterOffset = useMemo((): [number, number, number] => {
+    if (!autoCenter) return [0, 0, 0];
+    return [
+      (sceneBbox.min[0] + sceneBbox.max[0]) / 2,
+      (sceneBbox.min[1] + sceneBbox.max[1]) / 2,
+      (sceneBbox.min[2] + sceneBbox.max[2]) / 2,
+    ];
+  }, [autoCenter, sceneBbox]);
+
+  // Push the current autoCenterOffset into the store so applyTransformDirect
+  // (called by controls during drag, bypassing React render) uses the same offset.
+  useEffect(() => {
+    store.setAutoCenterOffset(autoCenterOffset);
+  }, [store, autoCenterOffset]);
+
+  // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
+  // left:50% places that point at the visible center of .polycss-camera
+  // — flex centering is unreliable for position:absolute children with no
+  // flow box. transform-origin defaults to the element's own (0,0,0),
+  // so rotations pivot around world origin (Three.js convention). Polygons
+  // render around the anchor via their own matrix3d translations.
+  //
+  // autoCenterOffset is folded into the innermost translate3d alongside
+  // `target`. Camera orbits `target + autoCenterOffset` — no extra DOM layer,
+  // no shifted mesh polygons.
+  const sceneStyle = useMemo(() => {
+    const s = cameraState;
+    const [ox, oy, oz] = autoCenterOffset;
+    const tileSize = BASE_TILE;
+    // World→CSS axis swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
+    const wx = s.target[0] + ox;
+    const wy = s.target[1] + oy;
+    const wz = s.target[2] + oz;
+    const cssX = wy * tileSize;
+    const cssY = wx * tileSize;
+    const cssZ = wz * tileSize;
+    const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
+    const transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+    return { ["--scene-transform" as string]: transform };
+  }, [cameraState, autoCenterOffset]);
+
+  const computedClassName = `polycss-scene${className ? ` ${className}` : ""}`;
 
   const textureAtlasPlans = useMemo(
     () => {
@@ -248,22 +280,6 @@ function PolySceneInner({
       ["--pai" as string]: ambientIntensity.toFixed(4),
     };
   }, [textureLighting, directionalLight, ambientLight]);
-
-  // autoCenter wrapper transform: translate3d that brings the mesh's
-  // bbox center to the scene element's own (0,0,0). The scene then rotates
-  // around (0,0,0) which now coincides with the visual centroid — Three.js
-  // Group-wrapper trick (mesh.position = -bboxCenter, rotate the parent).
-  // Lives on a child div so useCamera can keep mutating the scene
-  // element's transform on drag/zoom without clobbering the centering.
-  // Polygon data is not mutated. World axes remap to CSS as in Poly.tsx
-  // (world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z).
-  const autoCenterTransform = useMemo(() => {
-    if (!autoCenter) return undefined;
-    const cssX = ((sceneBbox.min[1] + sceneBbox.max[1]) / 2) * polyContext.tileSize;
-    const cssY = ((sceneBbox.min[0] + sceneBbox.max[0]) / 2) * polyContext.tileSize;
-    const cssZ = ((sceneBbox.min[2] + sceneBbox.max[2]) / 2) * polyContext.layerElevation;
-    return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
-  }, [autoCenter, sceneBbox, polyContext.tileSize, polyContext.layerElevation]);
 
   const disabledStrategies = useMemo(
     () => strategies?.disable?.length ? new Set(strategies.disable) : undefined,
@@ -321,17 +337,8 @@ function PolySceneInner({
           } as CSSProperties
         }
       >
-        {autoCenterTransform ? (
-          <div className="polycss-offset" style={{ ["--offset-transform" as string]: autoCenterTransform } as CSSProperties}>
-            {polyChildren}
-            {children}
-          </div>
-        ) : (
-          <>
-            {polyChildren}
-            {children}
-          </>
-        )}
+        {polyChildren}
+        {children}
       </div>
     </PolySceneContext.Provider>
   );

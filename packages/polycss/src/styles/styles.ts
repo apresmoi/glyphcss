@@ -42,11 +42,6 @@ const CORE_BASE_STYLES = `
   will-change: transform;
 }
 
-.polycss-offset {
-  transform-style: preserve-3d;
-  transform: var(--offset-transform);
-}
-
 /* ── Mesh wrapper ───────────────────────────────────────────────────────── */
 
 .polycss-mesh {

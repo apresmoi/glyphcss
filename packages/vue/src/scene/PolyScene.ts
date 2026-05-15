@@ -14,6 +14,7 @@ import {
   computed,
   ref,
   watch,
+  watchEffect,
   onMounted,
   onBeforeUnmount,
 } from "vue";
@@ -25,7 +26,7 @@ import type {
   PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
-import { createIsometricCamera, parseHexColor } from "@layoutit/polycss-core";
+import { createIsometricCamera, parseHexColor, BASE_TILE } from "@layoutit/polycss-core";
 import { PolyCameraContextKey } from "../camera";
 import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles";
@@ -174,12 +175,25 @@ export const PolyScene = defineComponent({
     // Scene element is a 0×0 anchor at world (0,0,0). Pinning to top:50%/
     // left:50% places that point at the visible center of .polycss-camera —
     // mirrors React's PolyScene anchor pattern.
+    //
+    // autoCenterOffset (bbox-center in world coords) is folded into the
+    // innermost translate3d alongside `target`. Keeping them separate means
+    // user pan survives mesh add/remove — the same split used in vanilla
+    // createPolyScene.ts's buildSceneTransform.
     const sceneStyle = computed(() => {
-      const handle = createIsometricCamera(cameraState);
-      const cameraStyle = handle.getStyle();
-      return {
-        "--scene-transform": cameraStyle.transform,
-      };
+      const s = cameraState;
+      const offset = cameraCtx.autoCenterOffset.value;
+      const tileSize = BASE_TILE;
+      // world→CSS axis swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z
+      const wx = s.target[0] + offset[0];
+      const wy = s.target[1] + offset[1];
+      const wz = s.target[2] + offset[2];
+      const cssX = wy * tileSize;
+      const cssY = wx * tileSize;
+      const cssZ = wz * tileSize;
+      const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
+      const transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+      return { "--scene-transform": transform };
     });
 
     // Per-polygon context: lighting + scene units.
@@ -249,17 +263,26 @@ export const PolyScene = defineComponent({
       };
     });
 
-    // autoCenter wrapper transform: translate3d that brings the mesh's
-    // bbox center to the scene element's own (0,0,0). Mirrors React's
-    // autoCenterTransform useMemo.
-    const autoCenterTransform = computed<string | undefined>(() => {
-      if (!props.autoCenter) return undefined;
+    // Bbox-center of all centerable meshes in world coords. Folded into the
+    // scene camera transform (alongside `target`) so the camera orbits the
+    // model's visible center without adding a DOM wrapper or shifting polygon
+    // coordinates. [0,0,0] when autoCenter is false or there are no polygons.
+    // Written to cameraCtx.autoCenterOffset so applyTransformDirect (called
+    // by orbit/map controls) picks it up on every pointer-driven camera move.
+    const autoCenterOffset = computed<Vec3>(() => {
+      if (!props.autoCenter) return [0, 0, 0];
       const bbox = sceneResult.value.sceneBbox;
-      const ctx = polyContext.value;
-      const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * ctx.tileSize;
-      const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * ctx.tileSize;
-      const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * ctx.layerElevation;
-      return `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+      return [
+        (bbox.min[0] + bbox.max[0]) / 2,
+        (bbox.min[1] + bbox.max[1]) / 2,
+        (bbox.min[2] + bbox.max[2]) / 2,
+      ];
+    });
+
+    // Keep the camera context's autoCenterOffset in sync so controls that
+    // call applyTransformDirect also include the bbox-center contribution.
+    watchEffect(() => {
+      cameraCtx.autoCenterOffset.value = autoCenterOffset.value;
     });
 
     // Cleanup hook placeholder — nothing to unsubscribe in PolyScene currently.
@@ -293,21 +316,6 @@ export const PolyScene = defineComponent({
 
       const slotChildren = slots.default?.() ?? [];
 
-      const innerChildren = autoCenterTransform.value
-        ? [
-            h(
-              "div",
-              {
-                class: "polycss-offset",
-                style: {
-                  "--offset-transform": autoCenterTransform.value,
-                },
-              },
-              [...polyNodes, ...slotChildren]
-            ),
-          ]
-        : [...polyNodes, ...slotChildren];
-
       return h(
         "div",
         {
@@ -324,7 +332,7 @@ export const PolyScene = defineComponent({
             Object.entries(attrs).filter(([k]) => k !== "style" && k !== "class")
           ),
         },
-        innerChildren
+        [...polyNodes, ...slotChildren]
       );
     };
   },

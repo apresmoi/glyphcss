@@ -48,11 +48,17 @@ function makeParseResult(polygons: Polygon[] = [triangle()]): ParseResult {
   } as ParseResult & { readonly _disposed: boolean };
 }
 
-function getCenterWrapper(host: HTMLElement): HTMLElement {
+function getSceneEl(host: HTMLElement): HTMLElement {
   const sceneEl = host.querySelector(".polycss-scene") as HTMLElement | null;
-  const wrapper = sceneEl?.firstElementChild as HTMLElement | null;
-  expect(wrapper).not.toBeNull();
-  return wrapper!;
+  expect(sceneEl).not.toBeNull();
+  return sceneEl!;
+}
+
+/** Extract the innermost translate3d(...) from the --scene-transform value. */
+function getSceneTranslatePart(host: HTMLElement): string {
+  const t = getSceneEl(host).style.getPropertyValue("--scene-transform");
+  const m = t.match(/translate3d\([^)]+\)/);
+  return m ? m[0] : "";
 }
 
 describe("createPolyScene", () => {
@@ -590,59 +596,59 @@ describe("createPolyScene", () => {
     // changes (mesh add/remove paths still trigger their own recomputation,
     // so geometry changes are correctly reflected).
     //
-    // We can't spy on the closure-private `recomputeAutoCenter` directly, so
-    // we observe its side effect: it writes to centerWrapper's
-    // --offset-transform custom property.
-    // Pre-clearing that string and asserting it stays empty after a
-    // setOptions({rotY}) proves the function did not run.
+    // We observe the side effect of recomputeAutoCenter via the innermost
+    // translate3d in --scene-transform: if the bbox-center offset changed,
+    // the translate3d values change. Camera-only setOptions must leave the
+    // translate3d component unchanged (the rest of the transform — scale,
+    // rotateX, rotate — will update; only the innermost translate3d reflects
+    // the autoCenter state).
     describe("autoCenter recomputation diff", () => {
       it("does not recompute autoCenter on a camera-only setOptions", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
-        const centerWrapper = getCenterWrapper(host);
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d/);
-        // Clear the transform; if recomputeAutoCenter runs it'll be re-set.
-        centerWrapper.style.removeProperty("--offset-transform");
+        // Capture the translate3d before — autoCenter is on so it should be non-zero.
+        const translateBefore = getSceneTranslatePart(host);
+        expect(translateBefore).toMatch(/^translate3d/);
+        expect(translateBefore).not.toBe("translate3d(0px, 0px, 0px)");
         scene.setOptions({ rotY: 90 });
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+        // The translate3d (offset) must not change — recomputeAutoCenter was skipped.
+        expect(getSceneTranslatePart(host)).toBe(translateBefore);
       });
 
       it("does not recompute autoCenter on a lighting-only setOptions", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
-        const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.removeProperty("--offset-transform");
+        const translateBefore = getSceneTranslatePart(host);
         scene.setOptions({
           directionalLight: { direction: [1, 0, 0], color: "#fff", intensity: 1 },
         });
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+        expect(getSceneTranslatePart(host)).toBe(translateBefore);
       });
 
       it("does not recompute autoCenter on textureLighting changes", () => {
         scene = createPolyScene(host, { autoCenter: true, textureLighting: "dynamic" });
         scene.add(makeParseResult([triangle()]));
-        const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.removeProperty("--offset-transform");
+        const translateBefore = getSceneTranslatePart(host);
         scene.setOptions({ textureLighting: "baked" });
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+        expect(getSceneTranslatePart(host)).toBe(translateBefore);
       });
 
       it("does not recompute autoCenter on perspective changes", () => {
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
-        const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.removeProperty("--offset-transform");
+        const translateBefore = getSceneTranslatePart(host);
         scene.setOptions({ perspective: 4000 });
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+        expect(getSceneTranslatePart(host)).toBe(translateBefore);
       });
 
       it("DOES recompute autoCenter when autoCenter itself toggles", () => {
         scene = createPolyScene(host, { autoCenter: false });
         scene.add(makeParseResult([triangle()]));
-        const centerWrapper = getCenterWrapper(host);
-        // Was disabled, so initial state is empty. Flip on → must recompute.
+        // autoCenter off → translate3d should be zero (no offset).
+        expect(getSceneTranslatePart(host)).toBe("translate3d(0px, 0px, 0px)");
+        // Flip on → must recompute and produce a non-zero offset.
         scene.setOptions({ autoCenter: true });
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d/);
+        expect(getSceneTranslatePart(host)).not.toBe("translate3d(0px, 0px, 0px)");
       });
 
       it("does NOT recompute autoCenter when autoCenter is re-set to its current value", () => {
@@ -653,10 +659,11 @@ describe("createPolyScene", () => {
         // via add()/remove()).
         scene = createPolyScene(host, { autoCenter: true });
         scene.add(makeParseResult([triangle()]));
-        const centerWrapper = getCenterWrapper(host);
-        centerWrapper.style.removeProperty("--offset-transform");
+        const translateBefore = getSceneTranslatePart(host);
+        expect(translateBefore).not.toBe("translate3d(0px, 0px, 0px)");
         scene.setOptions({ autoCenter: true });
-        expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+        // Offset must be unchanged — no recompute was triggered.
+        expect(getSceneTranslatePart(host)).toBe(translateBefore);
       });
 
       it("still updates the scene transform on a camera-only setOptions", () => {
@@ -776,14 +783,14 @@ describe("createPolyScene", () => {
   });
 
   describe("autoCenter", () => {
-    it("default (no autoCenter) does not transform the wrapper", () => {
+    it("default (no autoCenter) leaves the scene translate3d at origin", () => {
       scene = createPolyScene(host);
       scene.add(makeParseResult());
-      const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+      // Without autoCenter the offset is [0,0,0], so the innermost translate3d is zero.
+      expect(getSceneTranslatePart(host)).toBe("translate3d(0px, 0px, 0px)");
     });
 
-    it("autoCenter=true applies translate3d that re-centers polygons", () => {
+    it("autoCenter=true folds the bbox center into the scene translate3d", () => {
       // Triangle whose bbox center is at (0.5, 0.5, 0).
       const t: Polygon = {
         vertices: [
@@ -795,18 +802,17 @@ describe("createPolyScene", () => {
       };
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([t]));
-      const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d\(.+\)$/);
-      // World-Y → CSS-x means cssX = ((0 + 1) / 2) * 50 = 25.
-      // We translate by -cssX, so expect "-25".
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toContain("-25");
+      // World-Y → CSS-X: cssX = 0.5 * 50 = 25 → translate by -25.
+      // World-X → CSS-Y: cssY = 0.5 * 50 = 25 → translate by -25.
+      const translate = getSceneTranslatePart(host);
+      expect(translate).toMatch(/^translate3d\(.+\)$/);
+      expect(translate).toContain("-25");
     });
 
     it("autoCenter recomputes when meshes change", () => {
       scene = createPolyScene(host, { autoCenter: true });
       const handle = scene.add(makeParseResult([triangle()]));
-      const centerWrapper = getCenterWrapper(host);
-      const t1 = centerWrapper.style.getPropertyValue("--offset-transform");
+      const t1 = getSceneTranslatePart(host);
 
       // Add a second mesh with different bbox.
       const big: Polygon = {
@@ -818,37 +824,35 @@ describe("createPolyScene", () => {
         color: "#00ff00",
       };
       const bigHandle = scene.add(makeParseResult([big]));
-      const t2 = centerWrapper.style.getPropertyValue("--offset-transform");
+      const t2 = getSceneTranslatePart(host);
       expect(t2).not.toBe(t1);
 
       // Removing the dominant mesh should recompute back to the small one.
       bigHandle.remove();
-      const t3 = centerWrapper.style.getPropertyValue("--offset-transform");
+      const t3 = getSceneTranslatePart(host);
       expect(t3).toBe(t1);
 
-      // Removing the last mesh leaves transform empty.
+      // Removing the last mesh resets the offset to zero.
       handle.remove();
-      const t4 = centerWrapper.style.getPropertyValue("--offset-transform");
-      expect(t4).toBe("");
+      const t4 = getSceneTranslatePart(host);
+      expect(t4).toBe("translate3d(0px, 0px, 0px)");
     });
 
-    it("autoCenter=true with no meshes leaves transform empty", () => {
+    it("autoCenter=true with no meshes leaves translate3d at origin", () => {
       scene = createPolyScene(host, { autoCenter: true });
-      const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+      expect(getSceneTranslatePart(host)).toBe("translate3d(0px, 0px, 0px)");
     });
 
     it("setOptions({autoCenter: true}) enables centering after the fact", () => {
       scene = createPolyScene(host, { autoCenter: false });
       scene.add(makeParseResult([triangle()]));
-      const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe("");
+      expect(getSceneTranslatePart(host)).toBe("translate3d(0px, 0px, 0px)");
       scene.setOptions({ autoCenter: true });
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toMatch(/^translate3d\(.+\)$/);
+      expect(getSceneTranslatePart(host)).not.toBe("translate3d(0px, 0px, 0px)");
     });
 
     it("autoCenter uses the fixed default Z elevation", () => {
-      // Triangle whose bbox in Z is [0, 2]. Center Z is 1 * 50 = 50.
+      // Triangle whose bbox in Z is [0, 2]. Center Z is 1. cssZ = 1 * 50 = 50.
       const tri: Polygon = {
         vertices: [
           [0, 0, 0],
@@ -859,8 +863,7 @@ describe("createPolyScene", () => {
       };
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([tri]));
-      const centerWrapper = getCenterWrapper(host);
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toContain("-50px");
+      expect(getSceneTranslatePart(host)).toContain("-50px");
     });
 
     it("excludeFromAutoCenter meshes do not shift the bbox", () => {
@@ -885,14 +888,13 @@ describe("createPolyScene", () => {
       };
       scene = createPolyScene(host, { autoCenter: true });
       scene.add(makeParseResult([chicken]));
-      const centerWrapper = getCenterWrapper(host);
-      const before = centerWrapper.style.getPropertyValue("--offset-transform");
+      const before = getSceneTranslatePart(host);
       scene.add(makeParseResult([farAway]), { excludeFromAutoCenter: true });
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).toBe(before);
+      expect(getSceneTranslatePart(host)).toBe(before);
 
       // Sanity check: without the flag, the same overlay DOES shift the bbox.
       scene.add(makeParseResult([farAway]));
-      expect(centerWrapper.style.getPropertyValue("--offset-transform")).not.toBe(before);
+      expect(getSceneTranslatePart(host)).not.toBe(before);
     });
   });
 });

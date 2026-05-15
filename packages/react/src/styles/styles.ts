@@ -29,11 +29,6 @@ const CORE_BASE_STYLES = `
   transform: var(--scene-transform);
 }
 
-.polycss-offset {
-  transform-style: preserve-3d;
-  transform: var(--offset-transform);
-}
-
 /* ── Camera wrapper (perspective + interactive drag) ────────────────────── */
 
 .polycss-camera {

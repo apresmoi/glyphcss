@@ -243,17 +243,28 @@ function buildMeshTransform(t: PolyMeshTransform): string | undefined {
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
-function buildSceneTransform(opts: PolySceneOptions): string {
+function buildSceneTransform(
+  opts: PolySceneOptions,
+  autoCenterOffset: Vec3 = [0, 0, 0],
+): string {
   const rotX = opts.rotX ?? DEFAULT_ROT_X;
   const rotY = opts.rotY ?? DEFAULT_ROT_Y;
   const zoom = opts.zoom ?? DEFAULT_ZOOM;
   const distance = opts.distance ?? 0;
   const target = opts.target ?? [0, 0, 0];
   // World→CSS axis swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
-  // Negate so the scene moves such that `target` appears at viewport centre.
-  const cssX = target[1] * DEFAULT_TILE;  // world Y → CSS X
-  const cssY = target[0] * DEFAULT_TILE;  // world X → CSS Y
-  const cssZ = target[2] * DEFAULT_TILE;  // world Z → CSS Z
+  // Negate so the scene moves such that `target + autoCenterOffset` appears
+  // at viewport centre. `autoCenterOffset` is the bbox-center of all meshes
+  // (auto-managed); `target` is the user-driven pan delta (orbit/map
+  // controls). Keeping them separate means panning is preserved across
+  // mesh add/remove, and an automatic recenter doesn't fight the user's
+  // chosen view target.
+  const wx = target[0] + autoCenterOffset[0];
+  const wy = target[1] + autoCenterOffset[1];
+  const wz = target[2] + autoCenterOffset[2];
+  const cssX = wy * DEFAULT_TILE;  // world Y → CSS X
+  const cssY = wx * DEFAULT_TILE;  // world X → CSS Y
+  const cssZ = wz * DEFAULT_TILE;  // world Z → CSS Z
   // Match React's PolyCamera transform: rotate() (i.e. rotateZ) — NOT
   // rotateY. After the rotateX tilt, the world's Z axis is what reads
   // as "spin in place"; rotateY rotates around an oblique axis and
@@ -348,20 +359,20 @@ export function createPolyScene(
     ...options,
   };
 
+  // Bbox-center of all live meshes (helpers opt out). Auto-managed by
+  // `recomputeAutoCenter`. Folded into the scene transform alongside
+  // `target` so the camera orbits the model's visible center without
+  // shifting the mesh DOM. Independent of `target` so user pan survives
+  // mesh add/remove. Declared here (above the first `applySceneStyle`
+  // call) so it's initialized before the closure reads it.
+  let autoCenterOffset: Vec3 = [0, 0, 0];
+
   const doc = host.ownerDocument ?? document;
   const sceneEl = doc.createElement("div");
   sceneEl.className = "polycss-scene";
   sceneEl.setAttribute("aria-hidden", "true");
   // 0×0 anchor at the host's visible center. Polygons render around it.
   applySceneStyle(sceneEl, currentOptions);
-
-  // autoCenter wrapper: a child div translated so the union mesh bbox
-  // center coincides with the scene anchor (world (0,0,0)).
-  const centerWrapper = doc.createElement("div");
-  centerWrapper.className = "polycss-offset";
-  // Wrapper is always present so meshes append into a stable parent.
-  // When autoCenter is off, transform stays empty (identity).
-  sceneEl.appendChild(centerWrapper);
 
   host.appendChild(sceneEl);
 
@@ -382,7 +393,7 @@ export function createPolyScene(
   const meshes = new Set<MeshEntry>();
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
-    el.style.setProperty("--scene-transform", buildSceneTransform(opts));
+    el.style.setProperty("--scene-transform", buildSceneTransform(opts, autoCenterOffset));
     if (typeof opts.perspective === "number") {
       el.style.perspective = `${opts.perspective}px`;
     } else if (opts.perspective === false) {
@@ -589,28 +600,30 @@ export function createPolyScene(
   }
 
   function recomputeAutoCenter(): void {
-    if (!currentOptions.autoCenter) {
-      centerWrapper.style.removeProperty("--offset-transform");
-      return;
+    // Three.js–style: instead of moving the meshes (via a wrapper translate),
+    // store the bbox center as a camera-target offset. `buildSceneTransform`
+    // folds it into the scene's rotation pivot, so the visible center stays
+    // at the viewport without adding a DOM wrapper or shifting polygon
+    // coordinates.
+    const prev = autoCenterOffset;
+    let next: Vec3 = [0, 0, 0];
+    if (currentOptions.autoCenter) {
+      const all: Polygon[] = [];
+      for (const m of meshes) {
+        if (!m.disposed && !m.excludeFromAutoCenter) all.push(...m.polygons);
+      }
+      if (all.length > 0) {
+        const bbox = computeSceneBbox(all);
+        next = [
+          (bbox.min[0] + bbox.max[0]) / 2,
+          (bbox.min[1] + bbox.max[1]) / 2,
+          (bbox.min[2] + bbox.max[2]) / 2,
+        ];
+      }
     }
-    // Combine all live mesh polygons into a single bbox. Helper meshes
-    // (axes, light marker) opt out via `excludeFromAutoCenter` so they
-    // don't shift the camera target when toggled.
-    const all: Polygon[] = [];
-    for (const m of meshes) {
-      if (!m.disposed && !m.excludeFromAutoCenter) all.push(...m.polygons);
-    }
-    if (all.length === 0) {
-      centerWrapper.style.removeProperty("--offset-transform");
-      return;
-    }
-    const bbox = computeSceneBbox(all);
-    const tile = DEFAULT_TILE;
-    // Match React's axis remap: world-Y → CSS-x, world-X → CSS-y, world-Z → CSS-z.
-    const cssX = ((bbox.min[1] + bbox.max[1]) / 2) * tile;
-    const cssY = ((bbox.min[0] + bbox.max[0]) / 2) * tile;
-    const cssZ = ((bbox.min[2] + bbox.max[2]) / 2) * tile;
-    centerWrapper.style.setProperty("--offset-transform", `translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`);
+    if (prev[0] === next[0] && prev[1] === next[1] && prev[2] === next[2]) return;
+    autoCenterOffset = next;
+    applySceneStyle(sceneEl, currentOptions);
   }
 
   function add(parseResult: ParseResult, transformIn: PolyMeshTransform = {}): PolyMeshHandle {
@@ -631,7 +644,7 @@ export function createPolyScene(
 
     // Pivot rotations around the mesh's polygon bbox center, not the
     // wrapper's local (0,0,0). The wrapper sits at `transform.position`
-    // inside centerWrapper, but its polygons live at their world coords
+    // inside the scene element, but its polygons live at their world coords
     // — without an explicit transform-origin, rotateX/Y/Z would pivot
     // at the wrapper's anchor (= world origin in mesh-local), so the
     // mesh would orbit around world (0,0,0) rather than rotating in
@@ -666,7 +679,7 @@ export function createPolyScene(
     }
     applyTransformOrigin(sourcePolygons);
 
-    centerWrapper.appendChild(wrapper);
+    sceneEl.appendChild(wrapper);
 
     const entry: MeshEntry = {
       handle: undefined as unknown as PolyMeshHandle,
