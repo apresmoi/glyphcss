@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import type { Polygon } from "../types";
+import { parseObj } from "../parser/parseObj";
 import { optimizeMeshPolygons } from "./optimizePolygons";
 
 function rect(x0: number, y0: number, x1: number, y1: number): Polygon[] {
@@ -24,6 +27,40 @@ function sharedEdgeCount(polygons: Polygon[]): number {
     }
   }
   return [...counts.values()].filter((count) => count > 1).length;
+}
+
+function textureTrianglePlaneDistance(polygon: Polygon): number {
+  const [a, b, c] = polygon.vertices;
+  const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const normal = [
+    ab[1] * ac[2] - ab[2] * ac[1],
+    ab[2] * ac[0] - ab[0] * ac[2],
+    ab[0] * ac[1] - ab[1] * ac[0],
+  ];
+  const length = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+  const unit = [normal[0] / length, normal[1] / length, normal[2] / length];
+  let max = 0;
+  for (const triangle of polygon.textureTriangles ?? []) {
+    for (const vertex of triangle.vertices) {
+      max = Math.max(
+        max,
+        Math.abs(
+          (vertex[0] - a[0]) * unit[0] +
+            (vertex[1] - a[1]) * unit[1] +
+            (vertex[2] - a[2]) * unit[2],
+        ),
+      );
+    }
+  }
+  return max;
+}
+
+function loadObjGalleryFile(name: string): string {
+  return readFileSync(
+    resolve(__dirname, "../../../../website/public/gallery/obj", name),
+    "utf8",
+  );
 }
 
 describe("optimizeMeshPolygons", () => {
@@ -51,6 +88,54 @@ describe("optimizeMeshPolygons", () => {
 
     expect(lossless).toHaveLength(2);
     expect(lossy).toHaveLength(1);
+  });
+
+  it("allows lossy approximate merge for same-texture UV polygons", () => {
+    const input: Polygon[] = [
+      {
+        vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
+        color: "#fff",
+        texture: "texture.png",
+        uvs: [[0, 0], [1, 0], [1, 1]],
+      },
+      {
+        vertices: [[0, 0, 0], [1, 1, 0], [0, 1, 0.04]],
+        color: "#fff",
+        texture: "texture.png",
+        uvs: [[0, 0], [1, 1], [0, 1]],
+      },
+    ];
+
+    const lossless = optimizeMeshPolygons(input, { meshResolution: "lossless" });
+    const lossy = optimizeMeshPolygons(input, { meshResolution: "lossy" });
+
+    expect(lossless).toHaveLength(2);
+    expect(lossy).toHaveLength(1);
+    expect(lossy[0].texture).toBe("texture.png");
+    expect(lossy[0].uvs).toHaveLength(4);
+    expect(lossy[0].textureTriangles).toHaveLength(2);
+    expect(textureTrianglePlaneDistance(lossy[0])).toBeLessThan(1e-8);
+  });
+
+  it("does not lossy-merge textured polygons across mismatched UV seams", () => {
+    const input: Polygon[] = [
+      {
+        vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0]],
+        color: "#fff",
+        texture: "texture.png",
+        uvs: [[0, 0], [1, 0], [1, 1]],
+      },
+      {
+        vertices: [[0, 0, 0], [1, 1, 0], [0, 1, 0.04]],
+        color: "#fff",
+        texture: "texture.png",
+        uvs: [[0.1, 0], [1, 1], [0, 1]],
+      },
+    ];
+
+    const lossy = optimizeMeshPolygons(input, { meshResolution: "lossy" });
+
+    expect(lossy).toHaveLength(2);
   });
 
   it("auto-selects the best lossy approximation strategy", () => {
@@ -158,5 +243,17 @@ describe("optimizeMeshPolygons", () => {
 
     expect(lossy).toHaveLength(2);
     expect(sharedEdgeCount(lossy)).toBe(1);
+  });
+
+  it("keeps finding guarded lossy wins on the coliseum fixture after triangle pairs are exhausted", () => {
+    const raw = parseObj(loadObjGalleryFile("coliseum.obj"), {
+      targetSize: 80,
+      palette: ["#c9a876", "#a78760", "#8b6f47", "#6b5538"],
+    }).polygons;
+
+    const lossless = optimizeMeshPolygons(raw, { meshResolution: "lossless" });
+    const lossy = optimizeMeshPolygons(raw, { meshResolution: "lossy" });
+
+    expect(lossless.length - lossy.length).toBeGreaterThanOrEqual(484);
   });
 });

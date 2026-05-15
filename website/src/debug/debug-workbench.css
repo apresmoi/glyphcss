@@ -369,12 +369,12 @@
  * doesn't conflict with the polygon's inline `transform` /
  * `border-color` and doesn't trigger atlas rebuilds, so it's instant. */
 /* Render-strategy enable/disable checkbox injected into the Model
- * folder's <b>/<u>/<i> count controllers (left of the read-only count
+ * folder's <b>/<u>/<i> count controllers (right of the read-only count
  * input). The parent controller is .disabled to keep the number input
  * read-only, but we re-enable the checkbox so it stays interactive. */
 .dn-root .lil-gui .controller .widget .dn-strategy-toggle {
   flex: 0 0 auto;
-  margin-right: 8px;
+  margin: 0 0 0 8px;
   width: 14px;
   height: 14px;
   cursor: pointer;

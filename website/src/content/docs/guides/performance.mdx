@@ -36,7 +36,7 @@ This is most useful for architectural meshes with large flat surfaces: walls, fl
 
 **Limitations:**
 - Per-polygon DOM addressing is lost for merged groups.
-- UV-textured triangles can only merge with other triangles sharing the same texture and coplanar normal.
+- UV-textured polygons only merge with same-texture neighbors whose shared-edge UVs match. Lossless mode requires coplanarity; lossy mode may project near-coplanar textured neighbors into one atlas sprite within the configured displacement budget.
 
 ## `targetSize` and polygon count
 

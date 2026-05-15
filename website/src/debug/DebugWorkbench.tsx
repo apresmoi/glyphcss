@@ -57,6 +57,7 @@ import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
 type ModelKind = "obj" | "glb" | "gltf" | "vox";
+type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel";
 type MatrixPrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
 type DragMode = "orbit" | "pan";
@@ -79,6 +80,7 @@ interface PresetModel {
   rotX?: number;
   rotY?: number;
   options?: ObjParseOptions | GltfParseOptions | VoxParseOptions;
+  galleryBucket?: GalleryBucket;
   attribution?: ModelAttribution;
 }
 
@@ -176,6 +178,7 @@ interface GalleryPresetFile {
   zoom?: number;
   rotX?: number;
   rotY?: number;
+  galleryBucket?: GalleryBucket;
   attribution?: ModelAttribution;
 }
 
@@ -223,6 +226,7 @@ function glbPreset(input: GalleryPresetFile): PresetModel {
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
+    galleryBucket: input.galleryBucket,
     attribution: input.attribution ?? GLB_PRESET_ATTRIBUTIONS[input.file],
   };
 }
@@ -230,6 +234,7 @@ function glbPreset(input: GalleryPresetFile): PresetModel {
 function objPreset(input: ObjGalleryPresetFile): PresetModel {
   const inferredMtlFile = input.file.replace(/\.obj$/i, ".mtl");
   const mtlFile = input.mtlFile === null ? undefined : input.mtlFile ?? inferredMtlFile;
+  const hasMaterialTextures = Object.keys(input.options?.materialTextures ?? {}).length > 0;
   return {
     id: presetIdFromFile("obj", input.file),
     label: input.label ?? labelFromFile(input.file),
@@ -245,6 +250,7 @@ function objPreset(input: ObjGalleryPresetFile): PresetModel {
     zoom: input.zoom ?? 0.35,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
+    galleryBucket: input.galleryBucket ?? (hasMaterialTextures ? "Textured" : undefined),
     attribution: input.attribution,
   };
 }
@@ -260,25 +266,44 @@ function voxPreset(input: GalleryPresetFile): PresetModel {
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
+    galleryBucket: input.galleryBucket,
     attribution: input.attribution,
   };
 }
 
 function stripParenthesizedText(label: string): string {
-  return label.replace(/\s*\([^)]*\)/g, "").trim();
+  return label.replace(/\s*\((?:GLB|UV-mapped|[^)]*\.(?:glb|gltf|obj|vox)[^)]*)\)/gi, "").trim();
 }
 
-function kindLabel(kind: ModelKind): string {
-  if (kind === "gltf" || kind === "glb") return "GLB/GLTF";
-  return kind.toUpperCase();
-}
+const GALLERY_BUCKET_ORDER: GalleryBucket[] = ["Solid", "Textured", "Animated", "Voxel"];
 
-function isAnimatedPreset(preset: Pick<PresetModel, "label" | "id" | "category">): boolean {
+const ANIMATED_PRESET_IDS = new Set([
+  "glb-poly-pizza-cow",
+  "glb-poly-pizza-llama",
+  "glb-poly-pizza-man",
+  "glb-poly-pizza-pug",
+  "glb-poly-pizza-rabbit-blond",
+  "glb-poly-pizza-sheep",
+]);
+
+function isAnimatedPreset(preset: Pick<PresetModel, "label" | "id" | "category" | "url">): boolean {
   return (
+    ANIMATED_PRESET_IDS.has(preset.id) ||
     preset.category === "Animated" ||
     /animated/i.test(preset.label) ||
     /animated/i.test(preset.id)
   );
+}
+
+function galleryBucketForPreset(preset: PresetModel): GalleryBucket {
+  if (isAnimatedPreset(preset)) return "Animated";
+  if (preset.kind === "vox") return "Voxel";
+  return preset.galleryBucket ?? "Solid";
+}
+
+function galleryBucketRank(category: string): number {
+  const index = GALLERY_BUCKET_ORDER.indexOf(category as GalleryBucket);
+  return index === -1 ? GALLERY_BUCKET_ORDER.length : index;
 }
 
 function AttributionCredit({ attribution }: { attribution?: ModelAttribution }) {
@@ -370,6 +395,12 @@ const GOOGLE_POLY_VIDEOLAB_ATTRIBUTION: ModelAttribution = {
   creator: "Poly by Google",
   license: "CC-BY 3.0",
   sourceUrl: "https://github.com/keijiro/VideolabTest/blob/master/README.md",
+};
+
+const GOOGLE_POLY_FLYING_SAUCER_ATTRIBUTION: ModelAttribution = {
+  creator: "Poly by Google",
+  license: "Creative Commons Attribution",
+  sourceUrl: "https://poly.pizza/m/6hu2h8v78mO",
 };
 
 const POLY_PIZZA_DUCK_ATTRIBUTION: ModelAttribution = {
@@ -531,7 +562,6 @@ const GLB_PRESET_ATTRIBUTIONS: Record<string, ModelAttribution> = {
   "Campfire.glb": polyPizzaJeremyAttribution("dxxHpVXHLZg"),
   "Drill.glb": polyPizzaJeremyAttribution("93nEcwogYE0"),
   "Globe.glb": polyPizzaJeremyAttribution("2445qv4neDQ"),
-  "Treasuretrunk.glb": polyPizzaJeremyAttribution("9sYjmY44GaD"),
 };
 
 const GLB_PRESET_FILES: GalleryPresetFile[] = [
@@ -590,8 +620,8 @@ const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "Policecar.glb", label: "Police Car", category: "Vehicles" },
   { file: "Taxi.glb", category: "Vehicles" },
   { file: "Truck.glb", category: "Vehicles" },
-  { file: "Acousticguitar.glb", label: "Acoustic Guitar", category: "Instruments" },
-  { file: "Electricguitar.glb", label: "Electric Guitar", category: "Instruments" },
+  { file: "Acousticguitar.glb", label: "Guitar (Acoustic)", category: "Instruments" },
+  { file: "Electricguitar.glb", label: "Guitar (Electric)", category: "Instruments" },
   { file: "Saxophone.glb", category: "Instruments" },
   { file: "Trumpet.glb", category: "Instruments" },
   { file: "Violin.glb", category: "Instruments" },
@@ -605,7 +635,6 @@ const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "Campfire.glb", category: "Environment" },
   { file: "Drill.glb", category: "Objects" },
   { file: "Globe.glb", category: "Objects" },
-  { file: "Treasuretrunk.glb", label: "Treasure Trunk", category: "Objects" },
 ];
 
 const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
@@ -629,17 +658,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       license: "CC0 1.0",
       sourceUrl: "https://poly.pizza/m/CA4HtaaMJn",
       tris: 392,
-    },
-  },
-  {
-    file: "poly-pizza/barrel.glb",
-    label: "Barrel",
-    category: "Objects",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/orjMeJQfFD",
-      tris: 412,
     },
   },
   {
@@ -679,6 +697,7 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/bird.glb",
     label: "Bird",
     category: "Animals",
+    galleryBucket: "Textured",
     attribution: {
       creator: "Quaternius",
       license: "CC0 1.0",
@@ -701,6 +720,7 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/ducky.glb",
     label: "Ducky",
     category: "Animals",
+    galleryBucket: "Textured",
     attribution: {
       creator: "Isa Lousberg",
       license: "CC0 1.0",
@@ -808,20 +828,10 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/books.glb",
-    label: "Books",
-    category: "Objects",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/M2cJ5sVUgJ",
-      tris: 124,
-    },
-  },
-  {
     file: "poly-pizza/bucket.glb",
     label: "Bucket",
     category: "Objects",
+    galleryBucket: "Textured",
     attribution: {
       creator: "Quaternius",
       license: "CC0 1.0",
@@ -874,28 +884,6 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     },
   },
   {
-    file: "poly-pizza/light-bulb.glb",
-    label: "Light bulb",
-    category: "Furniture & Decor",
-    attribution: {
-      creator: "reelpersen",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/kDo0SbQW9Y",
-      tris: 124,
-    },
-  },
-  {
-    file: "poly-pizza/bear-head-mount.glb",
-    label: "Bear Head mount",
-    category: "Environment",
-    attribution: {
-      creator: "Kenney",
-      license: "CC0 1.0",
-      sourceUrl: "https://poly.pizza/m/quLiYDFAHt",
-      tris: 268,
-    },
-  },
-  {
     file: "poly-pizza/rock.glb",
     label: "Rock",
     category: "Environment",
@@ -910,6 +898,7 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/rock-medium.glb",
     label: "Rock Medium",
     category: "Environment",
+    galleryBucket: "Textured",
     attribution: {
       creator: "Quaternius",
       license: "CC0 1.0",
@@ -921,6 +910,7 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/box.glb",
     label: "Box",
     category: "Objects",
+    galleryBucket: "Textured",
     attribution: {
       creator: "Kay Lousberg",
       license: "CC0 1.0",
@@ -932,6 +922,7 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/empty-box.glb",
     label: "Empty Box",
     category: "Objects",
+    galleryBucket: "Textured",
     attribution: {
       creator: "CreativeTrio",
       license: "CC0 1.0",
@@ -998,6 +989,7 @@ const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/arrow.glb",
     label: "Arrow",
     category: "Weapons",
+    galleryBucket: "Textured",
     attribution: {
       creator: "CreativeTrio",
       license: "CC0 1.0",
@@ -1050,11 +1042,35 @@ const VOX_PRESET_FILES: GalleryPresetFile[] = [
   { file: "tree.vox", label: "Tree", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
 ];
 
+const ULTIMATE_SPACESHIPS_ROOT = "quaternius/ultimate-spaceships";
+
+function ultimateSpaceshipPreset(
+  slug: string,
+  name: string,
+  texture: string,
+  tris: number,
+): ObjGalleryPresetFile {
+  return {
+    file: `${ULTIMATE_SPACESHIPS_ROOT}/${slug}/${name}.obj`,
+    label: `Ship - ${name}`,
+    category: "Vehicles",
+    galleryBucket: "Textured",
+    zoom: 0.24,
+    attribution: { ...QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION, tris },
+    options: {
+      materialTextures: {
+        Texture: `/gallery/obj/${ULTIMATE_SPACESHIPS_ROOT}/${slug}/${texture}`,
+      },
+    },
+  };
+}
+
 const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
   {
     file: "opengameart/crate/Box.obj",
     label: "Crate",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.45,
     attribution: openGameArtAttribution("Kutejnikov", "crate-5", 12),
   },
@@ -1062,6 +1078,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/hay-bale/hay_bale.obj",
     label: "Hay Bale",
     category: "Environment",
+    galleryBucket: "Textured",
     zoom: 0.45,
     attribution: openGameArtAttribution("Mish7913", "hay-bale-0", 108),
   },
@@ -1069,6 +1086,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/low-poly-car/car.obj",
     label: "Low Poly Car",
     category: "Vehicles",
+    galleryBucket: "Textured",
     zoom: 0.3,
     attribution: openGameArtAttribution("drummyfish", "low-poly-car-3", 228),
   },
@@ -1076,6 +1094,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/wood-crate/woodcrate.obj",
     label: "Wood Crate",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.4,
     attribution: openGameArtAttribution("GGBotNet", "wood-crate-3d", 284),
   },
@@ -1083,6 +1102,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/broken-stone-slab/stone.obj",
     label: "Broken Stone Slab",
     category: "Environment",
+    galleryBucket: "Textured",
     zoom: 0.4,
     attribution: openGameArtAttribution("Kutejnikov", "broken-stone-slab", 186),
   },
@@ -1090,6 +1110,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/frog-guy/frog.obj",
     label: "Frog Guy",
     category: "Characters",
+    galleryBucket: "Textured",
     zoom: 0.35,
     attribution: openGameArtAttribution("drummyfish", "frog-guy", 356),
   },
@@ -1097,6 +1118,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/game-cartridge/cartridge.obj",
     label: "Game Cartridge",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.4,
     attribution: openGameArtAttribution("Kutejnikov", "game-cartridge", 432, "CC-BY 4.0"),
   },
@@ -1104,6 +1126,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/fire-extinguisher/extinguisher.obj",
     label: "Fire Extinguisher",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.35,
     attribution: openGameArtAttribution("cron", "fire-extinguisher-2", 818, "CC-BY-SA 4.0"),
   },
@@ -1111,6 +1134,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/keycard/keycard.obj",
     label: "Keycard",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.45,
     attribution: openGameArtAttribution("codeinfernogames", "3d-keycard", 20),
   },
@@ -1118,6 +1142,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/pirate-coin/pirate-coin.obj",
     label: "Pirate Coin",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.4,
     attribution: openGameArtAttribution("acasas", "3d-pirate-coin", 624, "CC-BY 3.0"),
   },
@@ -1125,6 +1150,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/perfume-bottle/perfume.obj",
     label: "Perfume Bottle",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.4,
     attribution: openGameArtAttribution("PantherOne", "perfume-bottle-persian", 196, "CC-BY 3.0"),
   },
@@ -1132,6 +1158,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/grandfather-clock/grandfather-clock.obj",
     label: "Grandfather Clock",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.35,
     attribution: openGameArtAttribution("GGBotNet", "grandfather-clock-3d", 106, "CC-BY 4.0"),
   },
@@ -1139,6 +1166,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/old-book/old-book.obj",
     label: "Old Book",
     category: "Objects",
+    galleryBucket: "Textured",
     zoom: 0.4,
     attribution: openGameArtAttribution("GGBotNet", "old-bible-3d", 60, "CC-BY 4.0"),
   },
@@ -1146,6 +1174,7 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/haunted-house/hauntedhouse.obj",
     label: "Haunted House",
     category: "Buildings",
+    galleryBucket: "Textured",
     zoom: 0.35,
     attribution: openGameArtAttribution("naovia", "haunted-house", 377),
   },
@@ -1153,9 +1182,16 @@ const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     file: "opengameart/biplane/biplane.obj",
     label: "Low Poly Biplane",
     category: "Vehicles",
+    galleryBucket: "Textured",
     zoom: 0.25,
     attribution: openGameArtAttribution("mfep", "low-poly-biplane", 668),
   },
+  ultimateSpaceshipPreset("challenger", "Challenger", "Challenger_Green.png", 1748),
+  ultimateSpaceshipPreset("executioner", "Executioner", "Executioner_Blue.png", 3388),
+  ultimateSpaceshipPreset("omen", "Omen", "Omen_Orange.png", 1426),
+  ultimateSpaceshipPreset("pancake", "Pancake", "Pancake_Orange.png", 2688),
+  ultimateSpaceshipPreset("spitfire", "Spitfire", "Spitfire_Red.png", 3512),
+  ultimateSpaceshipPreset("zenith", "Zenith", "Zenith_Red.png", 2152),
   {
     file: "quaternius/nature/Lilypad.obj",
     label: "Lilypad",
@@ -1211,6 +1247,7 @@ const PRESETS: PresetModel[] = [
       defaultColor: "#cccccc",
       materialTextures: { Sting: "/gallery/obj/sting-diffuse.png" },
     },
+    galleryBucket: "Textured",
     zoom: 0.3,
     rotX: 65,
     rotY: 45,
@@ -1228,6 +1265,7 @@ const PRESETS: PresetModel[] = [
       materialTextures: { cottage_texture: "/gallery/obj/cottage-diffuse.png" },
       includeObjects: ["Cube_Cube.002"],
     },
+    galleryBucket: "Textured",
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
@@ -1241,6 +1279,7 @@ const PRESETS: PresetModel[] = [
     url: "/gallery/obj/rock1.obj",
     mtlUrl: "/gallery/obj/rock1.mtl",
     options: { targetSize: 40, defaultColor: "#8b6f47", excludeObjects: ["Plane"] },
+    galleryBucket: "Textured",
     zoom: 0.6,
     rotX: 65,
     rotY: 45,
@@ -1248,15 +1287,16 @@ const PRESETS: PresetModel[] = [
   },
   {
     id: "insurgent",
-    label: "Insurgent (.gltf, embedded buffer)",
-    category: "Characters",
+    label: "Ship - Insurgent",
+    category: "Vehicles",
     kind: "gltf",
     url: "/gallery/glb/insurgent.gltf",
     options: { targetSize: 60 },
+    galleryBucket: "Textured",
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
-    attribution: QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION,
+    attribution: { ...QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION, tris: 3012 },
   },
   {
     id: "apoc-car",
@@ -1265,6 +1305,7 @@ const PRESETS: PresetModel[] = [
     kind: "glb",
     url: "/gallery/glb/apocalypse/car.glb",
     options: { targetSize: 60 },
+    galleryBucket: "Textured",
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
@@ -1277,6 +1318,7 @@ const PRESETS: PresetModel[] = [
     kind: "glb",
     url: "/gallery/glb/apocalypse/barrel.glb",
     options: { targetSize: 50 },
+    galleryBucket: "Textured",
     zoom: 0.5,
     rotX: 65,
     rotY: 45,
@@ -1289,6 +1331,7 @@ const PRESETS: PresetModel[] = [
     kind: "glb",
     url: "/gallery/glb/apocalypse/wooden_spike_barricade.glb",
     options: { targetSize: 60 },
+    galleryBucket: "Textured",
     zoom: 0.4,
     rotX: 65,
     rotY: 45,
@@ -1309,12 +1352,14 @@ const PRESETS: PresetModel[] = [
     id: "saucer",
     label: "Flying saucer",
     category: "Vehicles",
-    kind: "obj",
-    url: "/gallery/obj/saucer.obj",
+    kind: "glb",
+    url: "/gallery/glb/poly-pizza/flying-saucer.glb",
     options: { targetSize: 60, defaultColor: "#94a3b8" },
+    galleryBucket: "Textured",
     zoom: 0.2,
     rotX: 67,
     rotY: 42.3,
+    attribution: GOOGLE_POLY_FLYING_SAUCER_ATTRIBUTION,
   },
   {
     id: "wheelbarrow",
@@ -1370,11 +1415,10 @@ const PRESETS: PresetModel[] = [
 ];
 
 function presetPickerItem(preset: PresetModel, local = false) {
-  const baseCategory = kindLabel(preset.kind);
   return {
     id: preset.id,
-    label: stripParenthesizedText(preset.label),
-    category: local ? `Dropped ${baseCategory}` : isAnimatedPreset(preset) ? `${baseCategory} (Animated)` : baseCategory,
+    label: local ? `Dropped: ${stripParenthesizedText(preset.label)}` : stripParenthesizedText(preset.label),
+    category: galleryBucketForPreset(preset),
   };
 }
 
@@ -4103,7 +4147,7 @@ export default function DebugWorkbench() {
   const selectedDroppedSource = droppedSource?.id === selectedPreset.id ? droppedSource : null;
   const selectedPresetPickerCategory =
     pickerItems.find((preset) => preset.id === selectedPreset.id)?.category ??
-    kindLabel(selectedPreset.kind);
+    galleryBucketForPreset(selectedPreset);
   const trimmedModelSearch = modelSearch.trim().toLowerCase();
   const filteredPresetItems = useMemo(() => {
     if (!trimmedModelSearch) return pickerItems;
@@ -4114,6 +4158,11 @@ export default function DebugWorkbench() {
   }, [pickerItems, trimmedModelSearch]);
   const modelCategories = useMemo(() => {
     const buckets = new Map<string, { id: string; label: string; models: typeof PRESET_PICKER_ITEMS }>();
+    if (!trimmedModelSearch) {
+      for (const category of GALLERY_BUCKET_ORDER) {
+        buckets.set(category, { id: category, label: category, models: [] as typeof PRESET_PICKER_ITEMS });
+      }
+    }
     for (const preset of filteredPresetItems) {
       const category = preset.category || "Other";
       if (!buckets.has(category)) {
@@ -4121,13 +4170,15 @@ export default function DebugWorkbench() {
       }
       buckets.get(category)!.models.push(preset);
     }
-    const orderedCategories = Array.from(buckets.values());
+    const orderedCategories = Array.from(buckets.values()).sort((a, b) =>
+      galleryBucketRank(a.id) - galleryBucketRank(b.id)
+    );
     for (const category of orderedCategories) {
       category.models.sort((a, b) => a.label.localeCompare(b.label));
     }
     return orderedCategories;
-  }, [filteredPresetItems]);
-  const defaultCategoryId = modelCategories[0]?.id;
+  }, [filteredPresetItems, trimmedModelSearch]);
+  const defaultCategoryId = modelCategories.find((category) => category.models.length > 0)?.id ?? modelCategories[0]?.id;
   const isCategoryOpen = useCallback(
     (categoryId: string): boolean => {
       if (trimmedModelSearch) return true;
@@ -4248,6 +4299,7 @@ export default function DebugWorkbench() {
     () => animationClips.find((clip) => String(clip.index) === selectedAnimation) ?? null,
     [animationClips, selectedAnimation],
   );
+  const hasActiveAnimation = activeAnimation !== null;
   useEffect(() => {
     setReactAnimatedPolygons(null);
     if (!loaded?.animation || !activeAnimation || sceneOptions.renderer !== "react") return;
@@ -4286,7 +4338,7 @@ export default function DebugWorkbench() {
 
   const modelPolygons = useMemo(() => {
     if (!loaded) return [];
-    if (hasAnimation) {
+    if (hasActiveAnimation) {
       return sceneOptions.renderer === "react" && reactAnimatedPolygons
         ? reactAnimatedPolygons
         : loaded.rawPolygons;
@@ -4296,7 +4348,7 @@ export default function DebugWorkbench() {
     });
   }, [
     loaded,
-    hasAnimation,
+    hasActiveAnimation,
     sceneOptions.meshResolution,
     sceneOptions.renderer,
     reactAnimatedPolygons,
@@ -4304,14 +4356,14 @@ export default function DebugWorkbench() {
 
   const scenePolygons = useMemo(() => {
     if (
-      hasAnimation ||
+      hasActiveAnimation ||
       !sceneOptions.meshInteriorFill
     ) {
       return modelPolygons;
     }
     return withInteriorFillPolygons(modelPolygons);
   }, [
-    hasAnimation,
+    hasActiveAnimation,
     modelPolygons,
     sceneOptions.meshInteriorFill,
   ]);
@@ -4674,7 +4726,7 @@ export default function DebugWorkbench() {
             : [...current.filter((s) => s !== strategy), strategy],
         });
       });
-      widget.insertBefore(checkbox, widget.firstChild);
+      widget.appendChild(checkbox);
       return checkbox;
     }
 
@@ -5071,8 +5123,8 @@ export default function DebugWorkbench() {
     setCtrlValue("ambientIntensity", sceneOptions.ambientIntensity);
     setCtrlValue("ambientColor", sceneOptions.ambientColor);
 
-    setEnabled("meshResolution", !hasAnimation);
-    setEnabled("meshInteriorFill", !hasAnimation);
+    setEnabled("meshResolution", !hasActiveAnimation);
+    setEnabled("meshInteriorFill", !hasActiveAnimation);
     setEnabled("gizmoMode", sceneOptions.selection);
 
     if (sceneOptions.perspective === false) {
@@ -5191,6 +5243,7 @@ export default function DebugWorkbench() {
   }, [
     activeAnimation,
     hasAnimation,
+    hasActiveAnimation,
     animationClips.length,
     animationOptions,
     loaded?.label,
@@ -5332,8 +5385,8 @@ export default function DebugWorkbench() {
               showLight={sceneOptions.showLight}
               helperScale={helperScale}
               helperTarget={helperTarget}
-              mergePolygonsForMesh={!hasAnimation}
-              stableDomForMesh={hasAnimation}
+              mergePolygonsForMesh={!hasActiveAnimation}
+              stableDomForMesh={hasActiveAnimation}
               animationKey={activeAnimation ? `${selectedAnimation}:${loaded?.label ?? ""}` : undefined}
               animationFrameFactory={vanillaAnimationFrameFactory}
               onBuild={setVanillaBuildMs}

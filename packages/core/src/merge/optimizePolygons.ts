@@ -74,6 +74,18 @@ interface PairCandidateRank {
   index: number;
 }
 
+interface PolygonPairCandidate {
+  a: number;
+  b: number;
+  vertexMoves: VertexPositionMove[];
+  score: number;
+}
+
+interface PolygonPairMergeResult {
+  polygons: Polygon[];
+  origins: Map<string, Vec3[]>;
+}
+
 interface PlanePatchCandidate {
   indices: number[];
   source: Polygon[];
@@ -175,6 +187,7 @@ const LOSSY_AUTOMATIC_GROUP_MAX_POLYGONS = 300;
 const LOSSY_CRACK_COST_SLACK = 16;
 const LOSSY_CRACK_RELATIVE_COST_SLACK = 0.015;
 const LOSSY_CRACK_QUALITY_SEARCH_MULTIPLIER = 2.6;
+const LOSSY_POLYGON_PAIR_MAX_PASSES = 3;
 const RECT_COVER_MOSTLY_QUAD_TRIANGLE_LIMIT = 96;
 
 const DEFAULT_RECT_COVER_OPTIONS: CoverPlanarPolygonsOptions = {
@@ -389,6 +402,29 @@ export function optimizeMeshPolygons(
           }
         }
       }
+    }
+
+    if (automaticApproximate) {
+      for (const budget of LOSSY_BUDGET_SWEEP) {
+        const polygonPairOptions = resolveNormalizeOptions({ ...budget, isolatedPairs: true });
+        const polygonPaired = mergeAdjacentApproximatePolygonPairs(best, polygonPairOptions);
+        if (polygonPaired === best) continue;
+        const polygonPairCost = polygonRenderCost(polygonPaired);
+        if (polygonPairCost >= bestCost) continue;
+        const polygonPairCracks = candidateCrackQualityMetrics(
+          crackSource,
+          polygonPaired,
+          polygonPairOptions.maxBoundaryDisplacement,
+        );
+        if (!passesLossyCrackBudget(polygonPairCracks)) continue;
+        acceptLossyCandidate(polygonPaired, polygonPairCost);
+        considerQualityCandidate(
+          polygonPaired,
+          polygonPairCost,
+          polygonPairOptions.maxBoundaryDisplacement,
+        );
+      }
+
     }
 
     const qualityBest = chooseLossyQualityCandidate(
@@ -1137,6 +1173,278 @@ function comparePairCandidateRanks(a: PairCandidateRank, b: PairCandidateRank): 
   return a.degree - b.degree || a.score - b.score || a.index - b.index;
 }
 
+function mergeAdjacentApproximatePolygonPairs(
+  polygons: Polygon[],
+  options: ResolvedGeometryNormalizeOptions,
+): Polygon[] {
+  let current = polygons;
+  let currentCost = polygonRenderCost(current);
+  let origins = vertexOriginsForPolygons(current);
+
+  for (let pass = 0; pass < LOSSY_POLYGON_PAIR_MAX_PASSES; pass++) {
+    const result = mergeAdjacentApproximatePolygonPairPass(current, options, origins);
+    if (!result) break;
+    const nextCost = polygonRenderCost(result.polygons);
+    if (nextCost >= currentCost) break;
+    current = result.polygons;
+    currentCost = nextCost;
+    origins = result.origins;
+  }
+
+  return current === polygons ? polygons : current;
+}
+
+function mergeAdjacentApproximatePolygonPairPass(
+  polygons: Polygon[],
+  options: ResolvedGeometryNormalizeOptions,
+  origins: Map<string, Vec3[]>,
+): PolygonPairMergeResult | null {
+  const metas = polygons.map((polygon): PlaneNormalizeMeta | null => {
+    const plane = planeOfPolygon(polygon);
+    if (!plane) return null;
+    return {
+      polygon,
+      normal: plane.normal,
+      area: plane.area,
+      materialKey: materialKeyForPolygon(polygon),
+    };
+  });
+  const edgeOwners = new Map<string, Array<{ polygon: number; edge: number }>>();
+  for (let i = 0; i < polygons.length; i++) {
+    const polygon = polygons[i];
+    if (!metas[i] || polygon.vertices.length < 3) continue;
+    for (let edge = 0; edge < polygon.vertices.length; edge++) {
+      const key = edgeKey(polygon.vertices[edge], polygon.vertices[(edge + 1) % polygon.vertices.length]);
+      const owners = edgeOwners.get(key);
+      if (owners) owners.push({ polygon: i, edge });
+      else edgeOwners.set(key, [{ polygon: i, edge }]);
+    }
+  }
+
+  const candidates: PolygonPairCandidate[] = [];
+  for (const owners of edgeOwners.values()) {
+    if (owners.length !== 2) continue;
+    const [a, b] = owners;
+    const candidate = approximatePolygonPairCandidate(a.polygon, a.edge, b.polygon, b.edge, polygons, metas, options);
+    if (candidate) candidates.push(candidate);
+  }
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => b.score - a.score);
+  const used = new Set<number>();
+  const selected: PolygonPairCandidate[] = [];
+  for (const candidate of candidates) {
+    if (used.has(candidate.a) || used.has(candidate.b)) continue;
+    used.add(candidate.a);
+    used.add(candidate.b);
+    selected.push(candidate);
+  }
+  if (selected.length === 0) return null;
+
+  const vertexMoves = averagedVertexPositionMoves(selected.flatMap((candidate) => candidate.vertexMoves));
+  if (!vertexPositionMovesWithinOriginBudget(vertexMoves, origins, options.maxBoundaryDisplacement)) {
+    return null;
+  }
+
+  const moved = applyVertexPositionMoves(polygons, vertexMoves);
+  const movedOrigins = applyVertexPositionMovesToOrigins(polygons, vertexMoves, origins);
+  const merged = mergePolygons(moved);
+  return polygonRenderCost(merged) < polygonRenderCost(polygons)
+    ? { polygons: merged, origins: pruneVertexOriginsToPolygons(merged, movedOrigins) }
+    : null;
+}
+
+function approximatePolygonPairCandidate(
+  aIndex: number,
+  aEdge: number,
+  bIndex: number,
+  bEdge: number,
+  polygons: Polygon[],
+  metas: Array<PlaneNormalizeMeta | null>,
+  options: ResolvedGeometryNormalizeOptions,
+): PolygonPairCandidate | null {
+  const a = polygons[aIndex];
+  const b = polygons[bIndex];
+  const aMeta = metas[aIndex];
+  const bMeta = metas[bIndex];
+  if (!aMeta || !bMeta) return null;
+  if (a.vertices.length === 3 && b.vertices.length === 3) return null;
+  if (!canApproximatePairMerge(a, b, aMeta, bMeta)) return null;
+
+  const normalDot = Math.abs(dotVec(aMeta.normal, bMeta.normal));
+  const minNormalDot = Math.cos((options.maxAngleDeg * Math.PI) / 180);
+  if (normalDot < minNormalDot) return null;
+
+  const ring = boundaryRingForAdjacentPair(a, b, aEdge) ?? boundaryRingForAdjacentPair(b, a, bEdge);
+  if (!ring || ring.length < 4 || ring.length > 10) return null;
+  const fit = fitPlaneForVertices(ring);
+  if (!fit) return null;
+
+  let maxDistance = 0;
+  let squaredDistance = 0;
+  for (const vertex of ring) {
+    const distance = Math.abs(signedPlaneDistance(vertex, fit));
+    maxDistance = Math.max(maxDistance, distance);
+    squaredDistance += distance * distance;
+  }
+  if (maxDistance > Math.min(options.maxPlaneDisplacement, options.maxBoundaryDisplacement)) return null;
+
+  const projected = ring.map((vertex) => projectVecToPlane(vertex, fit));
+  if (!isConvexPolygon(projected, fit.normal)) return null;
+  const projectedPlane = planeOfPolygon({ vertices: projected });
+  if (
+    !projectedPlane ||
+    dotVec(projectedPlane.normal, aMeta.normal) < 0.2 ||
+    dotVec(projectedPlane.normal, bMeta.normal) < 0.2
+  ) {
+    return null;
+  }
+
+  const vertexMoves = [
+    ...ring.map((vertex, index) => ({
+      key: vertexKey(vertex),
+      target: projected[index],
+    })),
+    ...textureTriangleVertexProjectionMoves([a, b], fit),
+  ];
+  const projectedPair = applyVertexPositionMoves([a, b], averagedVertexPositionMoves(vertexMoves));
+  const sourceCost = polygonRenderCost([a, b]);
+  const projectedCost = polygonRenderCost(mergePolygons(projectedPair));
+  if (projectedCost >= sourceCost) return null;
+
+  const score = sourceCost - projectedCost - (squaredDistance / ring.length + maxDistance * 0.25 + (1 - normalDot) * 0.1);
+  if (score <= 0) return null;
+  return {
+    a: aIndex,
+    b: bIndex,
+    vertexMoves,
+    score,
+  };
+}
+
+function boundaryRingForAdjacentPair(a: Polygon, b: Polygon, aEdge: number): Vec3[] | null {
+  const aVertices = a.vertices;
+  const bVertices = b.vertices;
+  const a0 = aVertices[aEdge];
+  const a1 = aVertices[(aEdge + 1) % aVertices.length];
+  let bEdge = -1;
+  for (let i = 0; i < bVertices.length; i++) {
+    if (eqVec(bVertices[i], a1) && eqVec(bVertices[(i + 1) % bVertices.length], a0)) {
+      bEdge = i;
+      break;
+    }
+  }
+  if (bEdge < 0) return null;
+
+  const ring: Vec3[] = [];
+  let index = (aEdge + 1) % aVertices.length;
+  ring.push(aVertices[index]);
+  while (index !== aEdge) {
+    index = (index + 1) % aVertices.length;
+    ring.push(aVertices[index]);
+  }
+
+  index = (bEdge + 2) % bVertices.length;
+  while (index !== bEdge) {
+    const vertex = bVertices[index];
+    if (!eqVec(vertex, ring[ring.length - 1])) ring.push(vertex);
+    index = (index + 1) % bVertices.length;
+  }
+  if (ring.length > 1 && eqVec(ring[0], ring[ring.length - 1])) ring.pop();
+  return ring;
+}
+
+function vertexPositionMovesWithinOriginBudget(
+  moves: Map<string, Vec3>,
+  origins: Map<string, Vec3[]>,
+  budget: number,
+): boolean {
+  for (const [key, target] of moves) {
+    const fallback = vertexFromKey(key);
+    const candidates = origins.get(key) ?? (fallback ? [fallback] : []);
+    if (candidates.length === 0) return false;
+    for (const source of candidates) {
+      if (distanceVec(source, target) > budget + 1e-6) return false;
+    }
+  }
+  return true;
+}
+
+function vertexOriginsForPolygons(polygons: Polygon[]): Map<string, Vec3[]> {
+  const origins = new Map<string, Vec3[]>();
+  for (const polygon of polygons) {
+    for (const vertex of polygon.vertices) {
+      addVertexOrigin(origins, vertexKey(vertex), vertex);
+    }
+    for (const triangle of polygon.textureTriangles ?? []) {
+      for (const vertex of triangle.vertices) {
+        addVertexOrigin(origins, vertexKey(vertex), vertex);
+      }
+    }
+  }
+  return origins;
+}
+
+function applyVertexPositionMovesToOrigins(
+  polygons: Polygon[],
+  moves: Map<string, Vec3>,
+  origins: Map<string, Vec3[]>,
+): Map<string, Vec3[]> {
+  const moved = new Map<string, Vec3[]>();
+  for (const polygon of polygons) {
+    const vertices = [
+      ...polygon.vertices,
+      ...(polygon.textureTriangles ?? []).flatMap((triangle) => triangle.vertices),
+    ];
+    for (const vertex of vertices) {
+      const sourceKey = vertexKey(vertex);
+      const target = moves.get(sourceKey) ?? vertex;
+      const targetKey = vertexKey(target);
+      for (const origin of origins.get(sourceKey) ?? [vertex]) {
+        addVertexOrigin(moved, targetKey, origin);
+      }
+    }
+  }
+  return moved;
+}
+
+function pruneVertexOriginsToPolygons(
+  polygons: Polygon[],
+  origins: Map<string, Vec3[]>,
+): Map<string, Vec3[]> {
+  const pruned = new Map<string, Vec3[]>();
+  for (const polygon of polygons) {
+    const vertices = [
+      ...polygon.vertices,
+      ...(polygon.textureTriangles ?? []).flatMap((triangle) => triangle.vertices),
+    ];
+    for (const vertex of vertices) {
+      const key = vertexKey(vertex);
+      for (const origin of origins.get(key) ?? [vertex]) {
+        addVertexOrigin(pruned, key, origin);
+      }
+    }
+  }
+  return pruned;
+}
+
+function addVertexOrigin(origins: Map<string, Vec3[]>, key: string, origin: Vec3): void {
+  const values = origins.get(key);
+  if (!values) {
+    origins.set(key, [origin]);
+    return;
+  }
+  const originKey = vertexKey(origin);
+  if (!values.some((value) => vertexKey(value) === originKey)) values.push(origin);
+}
+
+function vertexFromKey(key: string): Vec3 | null {
+  const parts = key.split(",").map(Number);
+  return parts.length === 3 && parts.every(Number.isFinite)
+    ? [parts[0], parts[1], parts[2]]
+    : null;
+}
+
 function averagedVertexPositionMoves(moves: VertexPositionMove[]): Map<string, Vec3> {
   const totals = new Map<string, { x: number; y: number; z: number; count: number }>();
   for (const move of moves) {
@@ -1179,6 +1487,33 @@ function vertexPositionMovesForProjection(source: Polygon[], projected: Polygon[
         target: projectedVertices[j],
       });
     }
+    const sourceTriangles = source[i].textureTriangles ?? [];
+    const projectedTriangles = projected[i]?.textureTriangles ?? [];
+    for (let j = 0; j < sourceTriangles.length; j++) {
+      const projectedTriangle = projectedTriangles[j];
+      if (!projectedTriangle) continue;
+      for (let k = 0; k < sourceTriangles[j].vertices.length; k++) {
+        moves.push({
+          key: vertexKey(sourceTriangles[j].vertices[k]),
+          target: projectedTriangle.vertices[k],
+        });
+      }
+    }
+  }
+  return moves;
+}
+
+function textureTriangleVertexProjectionMoves(polygons: Polygon[], fit: PlaneFit): VertexPositionMove[] {
+  const moves: VertexPositionMove[] = [];
+  for (const polygon of polygons) {
+    for (const triangle of polygon.textureTriangles ?? []) {
+      for (const vertex of triangle.vertices) {
+        moves.push({
+          key: vertexKey(vertex),
+          target: projectVecToPlane(vertex, fit),
+        });
+      }
+    }
   }
   return moves;
 }
@@ -1186,13 +1521,19 @@ function vertexPositionMovesForProjection(source: Polygon[], projected: Polygon[
 function applyVertexPositionMoves(polygons: Polygon[], moves: Map<string, Vec3>): Polygon[] {
   return polygons.map((polygon) => {
     let changed = false;
-    const vertices = polygon.vertices.map((vertex) => {
+    const moveVertex = (vertex: Vec3): Vec3 => {
       const target = moves.get(vertexKey(vertex));
       if (!target) return vertex;
       changed = true;
       return target;
-    });
-    return changed ? { ...polygon, vertices } : polygon;
+    };
+    const vertices = polygon.vertices.map(moveVertex);
+    const textureTriangles = mapTextureTriangleVertices(polygon.textureTriangles, moveVertex);
+    return changed ? {
+      ...polygon,
+      vertices,
+      ...(textureTriangles ? { textureTriangles } : {}),
+    } : polygon;
   });
 }
 
@@ -1209,8 +1550,7 @@ function approximateTrianglePairCandidate(
   const bMeta = metas[bIndex];
   if (!aMeta || !bMeta) return null;
   if (a.vertices.length !== 3 || b.vertices.length !== 3) return null;
-  if (a.texture || b.texture || a.uvs || b.uvs || a.textureTriangles || b.textureTriangles) return null;
-  if (aMeta.materialKey !== bMeta.materialKey) return null;
+  if (!canApproximatePairMerge(a, b, aMeta, bMeta)) return null;
 
   const shared = sharedEdgeIndices(a, b);
   if (!shared) return null;
@@ -1252,18 +1592,34 @@ function approximateTrianglePairCandidate(
   ) {
     return null;
   }
+  const polygon: Polygon = {
+    vertices: ring,
+    color: a.color,
+    ...(a.data ? { data: { ...a.data } } : {}),
+  };
+  if (canUseTexturedLossyMerge(a, b) && a.uvs && b.uvs && a.texture) {
+    polygon.texture = a.texture;
+    polygon.uvs = [
+      [...a.uvs[ai1]] as Vec2,
+      [...a.uvs[aThird]] as Vec2,
+      [...a.uvs[ai0]] as Vec2,
+      [...b.uvs[bThird]] as Vec2,
+    ];
+    const textureTriangles = textureTrianglesForPolygons([a, b]);
+    if (textureTriangles?.length) polygon.textureTriangles = textureTriangles;
+  }
+
   return {
     a: aIndex,
     b: bIndex,
-    polygon: {
-      vertices: ring,
-      color: a.color,
-      ...(a.data ? { data: { ...a.data } } : {}),
-    },
-    vertexMoves: ring.map((vertex, index) => ({
-      key: vertexKey(vertex),
-      target: projected[index],
-    })),
+    polygon,
+    vertexMoves: [
+      ...ring.map((vertex, index) => ({
+        key: vertexKey(vertex),
+        target: projected[index],
+      })),
+      ...textureTriangleVertexProjectionMoves([a, b], fit),
+    ],
     score: squaredDistance / ring.length + maxDistance * 0.25 + (1 - normalDot) * 0.1,
   };
 }
@@ -1374,14 +1730,17 @@ function snapGeometryForMerge(polygons: Polygon[]): Polygon[] {
   const uvs = createVec2Snapper(uvEpsilon);
 
   return polygons.map((polygon) => {
-    const snappedVertices = polygon.vertices.map((vertex) => vertices.snap(vertex));
+    const snapVertex = (vertex: Vec3): Vec3 => vertices.snap(vertex);
+    const snappedVertices = polygon.vertices.map(snapVertex);
     const snappedUvs = polygon.uvs && polygon.uvs.length === polygon.vertices.length
       ? polygon.uvs.map((uv) => uvs.snap(uv))
       : undefined;
+    const snappedTextureTriangles = mapTextureTriangleVertices(polygon.textureTriangles, snapVertex);
     const snappedPolygon: Polygon = {
       ...polygon,
       vertices: snappedVertices,
       ...(snappedUvs ? { uvs: snappedUvs } : {}),
+      ...(snappedTextureTriangles ? { textureTriangles: snappedTextureTriangles } : {}),
     };
     return {
       ...snappedPolygon,
@@ -1394,11 +1753,16 @@ function snapGeometryForMerge(polygons: Polygon[]): Polygon[] {
 
 function textureTrianglesForPolygon(polygon: Polygon): TextureTriangle[] | undefined {
   if (!polygon.texture) return undefined;
+  if (polygon.textureTriangles?.length) return cloneTextureTriangles(polygon.textureTriangles);
   if (polygon.uvs && polygon.uvs.length === polygon.vertices.length) {
     return fanTextureTriangles(polygon.vertices, polygon.uvs);
   }
-  if (polygon.textureTriangles?.length) return cloneTextureTriangles(polygon.textureTriangles);
   return undefined;
+}
+
+function textureTrianglesForPolygons(polygons: Polygon[]): TextureTriangle[] | undefined {
+  const triangles = polygons.flatMap((polygon) => textureTrianglesForPolygon(polygon) ?? []);
+  return triangles.length > 0 ? triangles : undefined;
 }
 
 function fanTextureTriangles(vertices: Vec3[], uvs: Vec2[]): TextureTriangle[] {
@@ -1423,6 +1787,17 @@ function fanTextureTriangles(vertices: Vec3[], uvs: Vec2[]): TextureTriangle[] {
 function cloneTextureTriangles(triangles: TextureTriangle[]): TextureTriangle[] {
   return triangles.map((triangle) => ({
     vertices: triangle.vertices.map((vertex) => [...vertex] as Vec3) as [Vec3, Vec3, Vec3],
+    uvs: triangle.uvs.map((uv) => [...uv] as Vec2) as [Vec2, Vec2, Vec2],
+  }));
+}
+
+function mapTextureTriangleVertices(
+  triangles: TextureTriangle[] | undefined,
+  mapVertex: (vertex: Vec3) => Vec3,
+): TextureTriangle[] | undefined {
+  if (!triangles?.length) return undefined;
+  return triangles.map((triangle) => ({
+    vertices: triangle.vertices.map(mapVertex) as [Vec3, Vec3, Vec3],
     uvs: triangle.uvs.map((uv) => [...uv] as Vec2) as [Vec2, Vec2, Vec2],
   }));
 }
@@ -1677,8 +2052,35 @@ function canShareMergePatch(
   if (!aMeta || !bMeta) return false;
   if (aMeta.materialKey !== bMeta.materialKey) return false;
   if (!!a.uvs !== !!b.uvs) return false;
-  if (a.texture || b.texture) return !!a.uvs && !!b.uvs;
+  if (hasTextureMergeState(a) || hasTextureMergeState(b)) return canUseTexturedLossyMerge(a, b);
   if (!a.uvs || !b.uvs) return true;
+
+  const shared = sharedEdgeIndices(a, b);
+  if (!shared) return false;
+  const [ai0, ai1, bi0, bi1] = shared;
+  return eqUv(a.uvs[ai0], b.uvs[bi0]) && eqUv(a.uvs[ai1], b.uvs[bi1]);
+}
+
+function canApproximatePairMerge(
+  a: Polygon,
+  b: Polygon,
+  aMeta: PlaneNormalizeMeta,
+  bMeta: PlaneNormalizeMeta,
+): boolean {
+  if (aMeta.materialKey !== bMeta.materialKey) return false;
+  if (hasTextureMergeState(a) || hasTextureMergeState(b)) return canUseTexturedLossyMerge(a, b);
+  return !a.uvs && !b.uvs && !a.textureTriangles?.length && !b.textureTriangles?.length;
+}
+
+function hasTextureMergeState(polygon: Polygon): boolean {
+  return Boolean(polygon.texture || polygon.material?.texture || polygon.textureTriangles?.length);
+}
+
+function canUseTexturedLossyMerge(a: Polygon, b: Polygon): boolean {
+  if (!a.texture || !b.texture || a.texture !== b.texture) return false;
+  if (a.material?.texture || b.material?.texture) return false;
+  if (!a.uvs || !b.uvs) return false;
+  if (a.uvs.length !== a.vertices.length || b.uvs.length !== b.vertices.length) return false;
 
   const shared = sharedEdgeIndices(a, b);
   if (!shared) return false;
@@ -1857,9 +2259,12 @@ function groupBoundaryVertexKeys(
 }
 
 function projectPolygonToPlane(polygon: Polygon, fit: PlaneFit): Polygon {
+  const projectVertex = (vertex: Vec3): Vec3 => projectVecToPlane(vertex, fit);
+  const textureTriangles = mapTextureTriangleVertices(polygon.textureTriangles, projectVertex);
   return {
     ...polygon,
-    vertices: polygon.vertices.map((vertex) => projectVecToPlane(vertex, fit)),
+    vertices: polygon.vertices.map(projectVertex),
+    ...(textureTriangles ? { textureTriangles } : {}),
   };
 }
 
