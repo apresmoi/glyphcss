@@ -88,6 +88,7 @@ describe("createPolyScene", () => {
       expect(opts.rotX).toBe(30);
       expect(opts.rotY).toBe(60);
       expect(opts.zoom).toBe(2);
+      expect(opts.experimentalTextureEdgeRepair).toBe(true);
     });
 
     it("getOptions() reflects updates made via setOptions", () => {

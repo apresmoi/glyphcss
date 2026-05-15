@@ -32,6 +32,7 @@ import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import type { TransformProps } from "../shapes/types";
 import { usePolyMesh, type UseMeshOptions } from "./useMesh";
 import {
+  buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
@@ -40,7 +41,6 @@ import {
   TextureBorderShapePoly,
   TextureAtlasPoly,
   TextureTrianglePoly,
-  buildSharedEdgeSets,
   useTextureAtlas,
 } from "./textureAtlas";
 import { usePolySceneContext } from "./sceneContext";
@@ -88,6 +88,12 @@ export interface PolyMeshProps extends TransformProps, InteractionProps {
    *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
    *  Numeric values 0.1..1 force an explicit scale. */
   textureQuality?: TextureQuality;
+  /**
+   * Repairs antialiased atlas pixels at shared textured polygon edges to
+   * reduce visible seams without expanding polygon geometry. Defaults to the
+   * scene context, then true.
+   */
+  experimentalTextureEdgeRepair?: boolean;
   /** Per-polygon override render. Receives the polygon + its index. */
   children?: (polygon: Polygon, index: number) => ReactNode;
   /** Loading slot — rendered while `src` is being fetched/parsed. */
@@ -155,6 +161,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     autoCenter,
     textureLighting,
     textureQuality,
+    experimentalTextureEdgeRepair,
     children,
     fallback,
     errorFallback,
@@ -409,6 +416,8 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   // global CSS rule with default normals.
   const sceneCtx = usePolySceneContext();
   const effectiveTextureLighting = textureLighting ?? sceneCtx?.textureLighting ?? "baked";
+  const effectiveTextureEdgeRepair =
+    experimentalTextureEdgeRepair ?? sceneCtx?.experimentalTextureEdgeRepair ?? true;
   const effectiveDirectional =
     effectiveTextureLighting === "dynamic" ? undefined : sceneCtx?.directionalLight;
   const effectiveAmbient =
@@ -453,14 +462,15 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   const atlasPlans = useMemo(
     () => {
       if (children) return [];
-      const sharedEdges = buildSharedEdgeSets(polygons);
+      const repairEdges = buildTextureEdgeRepairSets(polygons);
       return polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
         directionalLight: bakedDirectional,
         ambientLight: effectiveAmbient,
-        seamEdges: sharedEdges[i],
+        textureEdgeRepairEdges: repairEdges[i],
+        experimentalTextureEdgeRepair: effectiveTextureEdgeRepair,
       }));
     },
-    [children, polygons, bakedDirectional, effectiveAmbient],
+    [children, polygons, bakedDirectional, effectiveAmbient, effectiveTextureEdgeRepair],
   );
   const textureAtlas = useTextureAtlas(
     atlasPlans,

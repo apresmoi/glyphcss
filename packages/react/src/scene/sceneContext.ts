@@ -16,6 +16,7 @@ export interface PolySceneContextValue {
   textureLighting: PolyTextureLightingMode;
   directionalLight?: PolyDirectionalLight;
   ambientLight?: PolyAmbientLight;
+  experimentalTextureEdgeRepair?: boolean;
 }
 
 export const PolySceneContext = createContext<PolySceneContextValue | null>(null);

@@ -63,7 +63,7 @@ const { colors, textures } = parseMtl(mtlText);
 
 ## `loadMesh(url, options?)`
 
-High-level convenience function: fetches a URL, detects OBJ vs glTF/GLB/VOX by extension (`.obj`, `.gltf`, `.glb`, `.vox`), parses it, and returns a `ParseResult`.
+High-level convenience function: fetches a URL, detects OBJ vs glTF/GLB/VOX by extension (`.obj`, `.gltf`, `.glb`, `.vox`), parses it, and returns a `ParseResult`. Mesh optimization defaults to `meshResolution: "lossy"`; pass `"lossless"` for exact planar candidates only.
 
 ```ts
 import { loadMesh } from "@layoutit/polycss-core";
@@ -112,7 +112,7 @@ console.log(`${polygons.length} polygons → ${merged.length} after merge`);
 
 ## `optimizeMeshPolygons(polygons, options?)`
 
-Runs the shared mesh-resolution optimizer. `meshResolution: "lossless"` uses exact candidates; `meshResolution: "lossy"` also tries bounded approximate merge candidates and returns the smallest accepted polygon list.
+Runs the shared mesh-resolution optimizer. It defaults to `meshResolution: "lossy"`. `meshResolution: "lossless"` uses exact candidates; `"lossy"` also tries bounded approximate merge candidates and returns the smallest accepted polygon list.
 
 ```ts
 import { optimizeMeshPolygons } from "@layoutit/polycss-core";

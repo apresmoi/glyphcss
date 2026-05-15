@@ -136,6 +136,7 @@ interface SceneOptionsState {
   ambientColor: string;
   textureLighting: PolyTextureLightingMode;
   textureQuality: TextureQuality;
+  experimentalTextureEdgeRepair: boolean;
   matrixPrecision: MatrixPrecision;
   borderShapePrecision: BorderShapePrecision;
   meshResolution: MeshResolution;
@@ -1447,9 +1448,10 @@ const DEFAULT_SCENE: SceneOptionsState = {
   ambientColor: "#ffffff",
   textureLighting: "baked",
   textureQuality: "auto",
+  experimentalTextureEdgeRepair: true,
   matrixPrecision: "exact",
   borderShapePrecision: "exact",
-  meshResolution: "lossless",
+  meshResolution: "lossy",
   meshInteriorFill: false,
   outlinePolygons: false,
   dragMode: "orbit",
@@ -3686,6 +3688,7 @@ function VanillaScene({
       autoCenter: options.autoCenter,
       textureQuality: options.textureQuality,
       strategies: { disable: options.disableStrategies },
+      experimentalTextureEdgeRepair: options.experimentalTextureEdgeRepair,
     };
     const scene = createPolyScene(host, sceneOptions);
     sceneRef.current = scene;
@@ -3890,6 +3893,14 @@ function VanillaScene({
       strategies: { disable: options.disableStrategies },
     });
   }, [options.disableStrategies]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions({
+      experimentalTextureEdgeRepair: options.experimentalTextureEdgeRepair,
+    });
+  }, [options.experimentalTextureEdgeRepair]);
 
   // Effect 2.5 — vanilla controls. The React renderer wires interactive +
   // animate through <PolyCamera>; the vanilla path uses createPolyOrbitControls.
@@ -4475,6 +4486,7 @@ export default function DebugWorkbench() {
       sceneOptions.borderShapePrecision,
       sceneOptions.textureLighting,
       sceneOptions.textureQuality,
+      sceneOptions.experimentalTextureEdgeRepair ? "edge-repair" : "no-edge-repair",
       sceneOptions.autoCenter,
       sceneOptions.perspective === false ? "none" : sceneOptions.perspective,
       loaded?.label ?? "none",
@@ -4485,6 +4497,7 @@ export default function DebugWorkbench() {
       sceneOptions.borderShapePrecision,
       sceneOptions.textureLighting,
       sceneOptions.textureQuality,
+      sceneOptions.experimentalTextureEdgeRepair,
       sceneOptions.autoCenter,
       sceneOptions.perspective,
       loaded?.label,
@@ -4648,6 +4661,7 @@ export default function DebugWorkbench() {
         ? sceneOptions.textureQuality
         : 1,
       textureQualityAuto: sceneOptions.textureQuality === "auto",
+      experimentalTextureEdgeRepair: sceneOptions.experimentalTextureEdgeRepair,
     };
 
     const animationState = {
@@ -4736,18 +4750,29 @@ export default function DebugWorkbench() {
     const overpaintPercentController = disableWithoutDisabledClass(
       model.add(modelState, "overpaintPercent").name("Overpaint %"),
     );
-    const meshResolutionController = model
+
+    const rendering = gui.addFolder("Rendering");
+    rendering.open();
+    const meshResolutionController = rendering
       .add(modelState, "meshResolution", { Lossless: "lossless", Lossy: "lossy" })
       .name("Mesh resolution")
       .onChange((value: MeshResolution) => updateScene({ meshResolution: value }));
-    const meshInteriorFillController = model
+    const meshInteriorFillController = rendering
       .add(modelState, "meshInteriorFill")
       .name("Interior fill")
       .onChange((value: boolean) => updateScene({ meshInteriorFill: value }));
+    const textureEdgeRepairController = rendering
+      .add(modelState, "experimentalTextureEdgeRepair")
+      .name("Edge repair")
+      .onChange((value: boolean) => updateScene({ experimentalTextureEdgeRepair: value }));
+    const textureLightingController = rendering
+      .add(lightState, "textureLighting", { baked: "baked", dynamic: "dynamic" })
+      .name("Texture")
+      .onChange((value: PolyTextureLightingMode) => updateScene({ textureLighting: value }));
 
-    const textureQualityController = model
+    const textureQualityController = rendering
       .add(modelState, "textureQualityValue", 0.1, 1, 0.05)
-      .name("Texture Quality")
+      .name("Texture quality")
       .onChange((value: number) => {
         // Touching the slider switches off Auto and commits the numeric value.
         modelState.textureQualityAuto = false;
@@ -4763,7 +4788,7 @@ export default function DebugWorkbench() {
       const widget = dom?.querySelector?.<HTMLElement>(".widget");
       if (!widget) return null;
       // Layout matches the slider rows above (Azimuth / Elev / Key / Ambient):
-      // [Texture Quality (label)] [checkbox Auto] [slider] [number]. The
+      // [Texture quality (label)] [checkbox Auto] [slider] [number]. The
       // checkbox + label are injected at the START of the widget; lil-gui's
       // slider + value input occupy the rest of the row.
       const wrap = document.createElement("label");
@@ -4844,10 +4869,6 @@ export default function DebugWorkbench() {
       .add(cameraState, "autoCenter")
       .name("Auto center")
       .onChange((value: boolean) => updateScene({ autoCenter: value }));
-    const axesController = camera
-      .add(cameraState, "showAxes")
-      .name("Axes")
-      .onChange((value: boolean) => updateScene({ showAxes: value }));
     const autoRotateController = camera
       .add(cameraState, "autoRotate")
       .name("Auto rotate")
@@ -4893,10 +4914,6 @@ export default function DebugWorkbench() {
 
     const lights = gui.addFolder("Lighting");
     lights.open();
-    const textureLightingController = lights
-      .add(lightState, "textureLighting", { baked: "baked", dynamic: "dynamic" })
-      .name("Texture")
-      .onChange((value: PolyTextureLightingMode) => updateScene({ textureLighting: value }));
     const lightController = lights
       .add(lightState, "showLight")
       .name("Light helper")
@@ -4960,6 +4977,7 @@ export default function DebugWorkbench() {
       meshInteriorFill: meshInteriorFillController,
       textureQuality: textureQualityController,
       textureQualityAutoCheckbox,
+      experimentalTextureEdgeRepair: textureEdgeRepairController,
       interactive: interactiveController,
       autoRotate: autoRotateController,
       selection: selectionController,
@@ -4967,7 +4985,6 @@ export default function DebugWorkbench() {
       gizmoMode: gizmoController,
       textureLighting: textureLightingController,
       autoCenter: autoCenterController,
-      showAxes: axesController,
       dragMode: dragModeController,
       projection: projectionController,
       perspectivePx: perspectivePxController,
@@ -5066,6 +5083,7 @@ export default function DebugWorkbench() {
     setCtrlValue("animationTimeScale", sceneOptions.animationTimeScale);
     setCtrlValue("meshResolution", sceneOptions.meshResolution);
     setCtrlValue("meshInteriorFill", sceneOptions.meshInteriorFill);
+    setCtrlValue("experimentalTextureEdgeRepair", sceneOptions.experimentalTextureEdgeRepair);
     setCtrlValue("domCount", metrics.nodeCount);
     setCtrlValue("sprites", metrics.sprites);
     setCtrlValue("shapeRectangle", metrics.rects);
@@ -5144,6 +5162,7 @@ export default function DebugWorkbench() {
       overpaintPercent?: number;
       textureQualityValue?: number;
       textureQualityAuto?: boolean;
+      experimentalTextureEdgeRepair?: boolean;
     };
     if (modelState) {
       modelState.meshResolution = sceneOptions.meshResolution;
@@ -5154,6 +5173,7 @@ export default function DebugWorkbench() {
       modelState.shapeTriangle = metrics.triangles;
       modelState.shapeIrregular = metrics.irregular;
       modelState.overpaintPercent = metrics.overpaintPercent;
+      modelState.experimentalTextureEdgeRepair = sceneOptions.experimentalTextureEdgeRepair;
       // Mirror external textureQuality changes back into the slider state.
       // Numeric → slider value + auto off (slider enabled); "auto" → keep
       // last numeric value, auto on (slider disabled). User unchecks Auto
@@ -5266,6 +5286,7 @@ export default function DebugWorkbench() {
     sceneOptions.animationPaused,
     sceneOptions.animationTimeScale,
     sceneOptions.textureLighting,
+    sceneOptions.experimentalTextureEdgeRepair,
     sceneOptions.autoCenter,
     sceneOptions.showAxes,
     sceneOptions.meshResolution,
@@ -5429,6 +5450,7 @@ export default function DebugWorkbench() {
                   textureLighting={sceneOptions.textureLighting}
                   textureQuality={textureQuality}
                   strategies={{ disable: sceneOptions.disableStrategies }}
+                  experimentalTextureEdgeRepair={sceneOptions.experimentalTextureEdgeRepair}
                 >
                   {sceneOptions.selection ? (
                     <PolySelect onChange={setSelectedMeshes} clearOnMiss={false}>
@@ -5444,6 +5466,7 @@ export default function DebugWorkbench() {
                             : "dn-model-mesh"
                         }
                         style={sceneOptions.hoverEffects ? { cursor: "pointer" } : undefined}
+                        experimentalTextureEdgeRepair={sceneOptions.experimentalTextureEdgeRepair}
                         onPointerOver={
                           sceneOptions.hoverEffects
                             ? (event) => setHoveredMeshId(event.eventObject.id ?? null)
@@ -5460,6 +5483,7 @@ export default function DebugWorkbench() {
                       id={loaded?.label ?? "model"}
                       polygons={scenePolygons}
                       className="dn-model-mesh"
+                      experimentalTextureEdgeRepair={sceneOptions.experimentalTextureEdgeRepair}
                     />
                   ) : null}
                   {sceneOptions.selection && selectedMeshes.length > 0 && (

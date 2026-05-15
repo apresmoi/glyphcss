@@ -42,6 +42,7 @@ Root of every React polycss render tree. Renders polygons and meshes inside a `<
 | `ambientLight` | `PolyAmbientLight` | None | Ambient light config |
 | `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Texture lighting mode |
 | `textureQuality` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages |
+| `experimentalTextureEdgeRepair` | `boolean` | `true` | Textured atlas edge repair |
 | `polygons` | `Polygon[]` | None | Static polygon array (composes with `children`) |
 | `children` | `ReactNode` | None | `<PolyMesh>`, `<Poly>`, and/or `<PolyOrbitControls>` |
 
@@ -59,9 +60,10 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
 | `rotation` | `Vec3` | Euler angles in degrees `[x, y, z]` |
 | `textureQuality` | `number \| "auto"` | Raster scale for generated atlas pages |
+| `experimentalTextureEdgeRepair` | `boolean` | Textured atlas edge repair; defaults to the scene, then `true` |
 | `autoCenter` | `boolean` | Shift mesh so its bbox center is at origin |
 | `mtl` | `string` | Companion `.mtl` URL for OBJ models |
-| `parseOptions` | `UseMeshOptions` | Forwarded to `loadMesh` |
+| `parseOptions` | `UseMeshOptions` | Forwarded to `loadMesh`; `meshResolution` defaults to `"lossy"` |
 | `fallback` | `ReactNode` | Rendered while loading |
 | `errorFallback` | `(error: Error) => ReactNode` | Rendered on parse failure |
 | `children` | `(polygon, index) => ReactNode` | Per-polygon render prop override |

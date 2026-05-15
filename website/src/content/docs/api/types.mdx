@@ -154,7 +154,7 @@ interface LoadMeshOptions {
   gltfOptions?: GltfParseOptions;
   /** Forwarded to parseVox. */
   voxOptions?: VoxParseOptions;
-  /** Optional shared mesh-resolution optimizer. */
+  /** Shared mesh-resolution optimizer. Defaults to "lossy". */
   meshResolution?: "lossless" | "lossy";
 }
 ```

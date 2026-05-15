@@ -15,7 +15,7 @@ export interface ApproximateMergeOptions {
 }
 
 export interface OptimizeMeshPolygonsOptions {
-  /** Public quality/resolution intent. Defaults to "lossless". */
+  /** Public quality/resolution intent. Defaults to "lossy". */
   meshResolution?: MeshResolution;
   /**
    * Run the planar cover pass as an exact candidate for untextured coplanar
@@ -205,7 +205,7 @@ export function optimizeMeshPolygons(
   polygons: Polygon[],
   options: OptimizeMeshPolygonsOptions = {},
 ): Polygon[] {
-  const meshResolution = options.meshResolution ?? "lossless";
+  const meshResolution = options.meshResolution ?? "lossy";
   const baseline = preprocessModelPolygons(polygons, false);
   const preprocessCache: PreprocessCache = { baseline };
   let best = baseline;

@@ -47,14 +47,14 @@ npm install @layoutit/polycss-core
 |---|---|
 | `normalizePolygons(input)` | Validates polygons. Drops degenerate ones, auto-triangulates non-coplanar N-gons, strips mismatched UVs. Returns `{ polygons, warnings }`. |
 | `mergePolygons(polygons)` | Coplanar same-material adjacent merge. Reduces DOM element count on flat surfaces. |
-| `optimizeMeshPolygons(polygons, options?)` | Applies lossless or lossy mesh-resolution optimization and chooses the smallest accepted candidate. |
+| `optimizeMeshPolygons(polygons, options?)` | Applies lossless or lossy mesh-resolution optimization and chooses the smallest accepted candidate; defaults to `meshResolution: "lossy"`. |
 | `computeSceneBbox(polygons)` | Computes min/max bounds across all polygon vertices. |
 | `createIsometricCamera(initial?)` | Creates a mutable camera handle with `state`, `update(partial)`, and `getStyle()`. |
 | `parseObj(text, options?)` | Parses OBJ text into `ParseResult`. Supports UV (`vt`), materials, `map_Kd` textures. |
 | `parseMtl(text)` | Parses MTL text into `{ colors, textures }`. |
 | `parseGltf(buffer, options?)` | Parses GLB or glTF `ArrayBuffer` into `ParseResult`. Extracts embedded textures as blob URLs. |
 | `parseVox(buffer, options?)` | Parses MagicaVoxel `.vox` `ArrayBuffer` into `ParseResult`. Face-culls interior voxel faces and fan-triangulates exposed quads. |
-| `loadMesh(url, options?)` | Fetches a URL, dispatches to the right parser by extension (`.obj`, `.glb`, `.gltf`, `.vox`). Returns `Promise<ParseResult>`. |
+| `loadMesh(url, options?)` | Fetches a URL, dispatches to the right parser by extension (`.obj`, `.glb`, `.gltf`, `.vox`). Returns `Promise<ParseResult>` and defaults to `meshResolution: "lossy"`. |
 | `parseColor(input)` | Parse any CSS color string to `{ r, g, b, a }`. |
 | `shadeColor(input, lambert, ...)` | Apply Lambert shading factor to a color. |
 | `computeShapeLighting(normal, baseColor, light?)` | Compute shaded color for a polygon face given a directional light and surface normal. |

@@ -566,6 +566,190 @@ describe("renderPolygonsWithTextureAtlas", () => {
     shared.dispose();
   });
 
+  it("keeps textured geometry stable with default edge repair", () => {
+    const left: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+      ],
+      texture: "https://example.com/tex.png",
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    };
+    const right: Polygon = {
+      vertices: [
+        [1, 0, 0],
+        [1, 1, 0],
+        [0, 1, 0],
+      ],
+      texture: "https://example.com/tex.png",
+      uvs: [[1, 0], [1, 1], [0, 1]],
+    };
+
+    const normal = renderPolygonsWithTextureAtlas([left, right], {
+      tileSize: 1,
+      textureQuality: 1,
+      experimentalTextureEdgeRepair: false,
+    });
+    const repaired = renderPolygonsWithTextureAtlas([left, right], {
+      tileSize: 1,
+      textureQuality: 1,
+    });
+
+    expect(parseFloat(repaired.rendered[0].element.style.width))
+      .toBe(parseFloat(normal.rendered[0].element.style.width));
+    expect(parseFloat(repaired.rendered[0].element.style.height))
+      .toBe(parseFloat(normal.rendered[0].element.style.height));
+    expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
+
+    normal.dispose();
+    repaired.dispose();
+  });
+
+  it("keeps hard textured edge geometry stable with default edge repair", () => {
+    const floor: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+      ],
+      texture: "https://example.com/tex.png",
+      uvs: [[0, 0], [1, 0], [0, 1]],
+    };
+    const wall: Polygon = {
+      vertices: [
+        [1, 0, 0],
+        [0, 0, 0],
+        [0, 0, 1],
+      ],
+      texture: "https://example.com/tex.png",
+      uvs: [[1, 0], [0, 0], [0, 1]],
+    };
+
+    const normal = renderPolygonsWithTextureAtlas([floor, wall], {
+      tileSize: 1,
+      textureQuality: 1,
+      experimentalTextureEdgeRepair: false,
+    });
+    const repaired = renderPolygonsWithTextureAtlas([floor, wall], {
+      tileSize: 1,
+      textureQuality: 1,
+    });
+
+    expect(parseFloat(repaired.rendered[0].element.style.width))
+      .toBe(parseFloat(normal.rendered[0].element.style.width));
+    expect(parseFloat(repaired.rendered[0].element.style.height))
+      .toBe(parseFloat(normal.rendered[0].element.style.height));
+    expect(parseFloat(repaired.rendered[1].element.style.width))
+      .toBe(parseFloat(normal.rendered[1].element.style.width));
+    expect(parseFloat(repaired.rendered[1].element.style.height))
+      .toBe(parseFloat(normal.rendered[1].element.style.height));
+    expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
+
+    normal.dispose();
+    repaired.dispose();
+  });
+
+  it("repairs low-alpha atlas pixels at textured polygon edges", async () => {
+    const getImageData = vi.fn((_x: number, _y: number, width: number, height: number) => {
+      const data = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4;
+          const edgeRow = y === 0 || y === height - 1;
+          data[i] = edgeRow ? 255 : 20;
+          data[i + 1] = edgeRow ? 255 : 30;
+          data[i + 2] = edgeRow ? 255 : 40;
+          data[i + 3] = edgeRow ? 1 : 255;
+        }
+      }
+      return { data, width, height } as ImageData;
+    });
+    const putImageData = vi.fn();
+    const ctx = {
+      canvas: undefined as HTMLCanvasElement | undefined,
+      save: vi.fn(),
+      restore: vi.fn(),
+      setTransform: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      closePath: vi.fn(),
+      clip: vi.fn(),
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData,
+      putImageData,
+    } as unknown as CanvasRenderingContext2D;
+    const doc = {
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = {
+            width: 0,
+            height: 0,
+            getContext: () => ctx,
+            toBlob: (callback: (blob: Blob | null) => void) => callback(null),
+          } as unknown as HTMLCanvasElement;
+          (ctx as { canvas?: HTMLCanvasElement }).canvas = canvas;
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    vi.stubGlobal("Image", class MockImage {
+      decoding = "";
+      naturalWidth = 512;
+      naturalHeight = 512;
+      width = 512;
+      height = 512;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    });
+
+    const left: Polygon = {
+      vertices: [
+        [0, 0, 0],
+        [4, 0, 0],
+        [4, 4, 0],
+        [0, 4, 0],
+      ],
+      texture: "https://example.com/edge-alpha.png",
+    };
+    const right: Polygon = {
+      vertices: [
+        [4, 0, 0],
+        [8, 0, 0],
+        [8, 4, 0],
+        [4, 4, 0],
+      ],
+      texture: "https://example.com/edge-alpha.png",
+    };
+    const result = renderPolygonsWithTextureAtlas([left, right], {
+      doc,
+      tileSize: 1,
+      textureQuality: 1,
+      experimentalTextureEdgeRepair: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getImageData).toHaveBeenCalled();
+    expect(putImageData).toHaveBeenCalled();
+    const repaired = putImageData.mock.calls[0][0] as ImageData;
+    const firstRow = Array.from({ length: repaired.width }, (_, x) =>
+      Array.from(repaired.data.slice(x * 4, x * 4 + 4)),
+    );
+    const lastRowStart = (repaired.height - 1) * repaired.width * 4;
+    const lastRow = Array.from({ length: repaired.width }, (_, x) =>
+      Array.from(repaired.data.slice(lastRowStart + x * 4, lastRowStart + x * 4 + 4)),
+    );
+    expect([...firstRow, ...lastRow]).toContainEqual([20, 30, 40, 255]);
+    result.dispose();
+  });
+
   it("returns a polygon s element for UV-mapped texture", () => {
     const uvPoly: Polygon = {
       vertices: FLAT_TRIANGLE.vertices,

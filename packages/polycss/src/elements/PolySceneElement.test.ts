@@ -40,6 +40,7 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("directional-intensity");
       expect(observed).toContain("ambient-color");
       expect(observed).toContain("ambient-intensity");
+      expect(observed).toContain("experimental-texture-edge-repair");
       expect(observed).toContain("auto-center");
     });
   });
@@ -158,6 +159,17 @@ describe("PolySceneElement", () => {
       host.appendChild(el);
       // Verify the private autoCenter wrapper exists without exposing a DOM hook.
       expect(el.querySelector(".polycss-scene")?.firstElementChild).not.toBeNull();
+    });
+
+    it("defaults texture edge repair on and allows explicit false", () => {
+      const enabled = document.createElement("poly-scene") as PolySceneElement;
+      host.appendChild(enabled);
+      expect(enabled.getScene()?.getOptions().experimentalTextureEdgeRepair).toBe(true);
+
+      const disabled = document.createElement("poly-scene") as PolySceneElement;
+      disabled.setAttribute("experimental-texture-edge-repair", "false");
+      host.appendChild(disabled);
+      expect(disabled.getScene()?.getOptions().experimentalTextureEdgeRepair).toBe(false);
     });
   });
 

@@ -77,6 +77,11 @@ export interface PolySceneOptions {
    */
   strategies?: PolyRenderStrategiesOption;
   /**
+   * Repairs antialiased atlas pixels at shared textured polygon edges to
+   * reduce visible seams without expanding polygon geometry. Defaults to true.
+   */
+  experimentalTextureEdgeRepair?: boolean;
+  /**
    * When `true`, rotation pivots around the union bbox of all added meshes
    * instead of world (0,0,0). The scene wraps polygons in an inner div
    * translated by `-bboxCenter`. Updates whenever a mesh is added/removed
@@ -183,10 +188,10 @@ export interface PolySceneHandle {
   readonly host: HTMLElement;
   /**
    * Snapshot of the current options (camera, lighting, merge, autoCenter,
-   * textureLighting, textureQuality, perspective). Returned by reference, so
-   * callers must treat it as read-only — mutations won't propagate. Used
-   * by helpers that need to read the current camera state without
-   * duplicating it.
+   * textureLighting, textureQuality, perspective, and experimental renderer
+   * flags). Returned by reference, so callers must treat it as read-only —
+   * mutations won't propagate. Used by helpers that need to read the current
+   * camera state without duplicating it.
    */
   getOptions(): Readonly<PolySceneOptions>;
   /** Snapshot of mesh handles currently in the scene (insertion order).
@@ -338,7 +343,10 @@ export function createPolyScene(
     if (computed.position === "static") host.style.position = "relative";
   }
 
-  let currentOptions: PolySceneOptions = { ...options };
+  let currentOptions: PolySceneOptions = {
+    experimentalTextureEdgeRepair: true,
+    ...options,
+  };
 
   const doc = host.ownerDocument ?? document;
   const sceneEl = doc.createElement("div");
@@ -562,6 +570,7 @@ export function createPolyScene(
       textureLighting: currentOptions.textureLighting,
       textureQuality: currentOptions.textureQuality,
       strategies: currentOptions.strategies,
+      experimentalTextureEdgeRepair: currentOptions.experimentalTextureEdgeRepair,
     };
     const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
     applySolidPaintVars(entry.wrapper, solidPaintDefaults);
@@ -702,6 +711,7 @@ export function createPolyScene(
             ambientLight: currentOptions.ambientLight,
             textureLighting: currentOptions.textureLighting,
             textureQuality: currentOptions.textureQuality,
+            experimentalTextureEdgeRepair: currentOptions.experimentalTextureEdgeRepair,
           };
           const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
           applySolidPaintVars(entry.wrapper, solidPaintDefaults);
@@ -764,9 +774,11 @@ export function createPolyScene(
   function setOptions(partial: Partial<PolySceneOptions>): void {
     const prevAutoCenter = !!currentOptions.autoCenter;
     const prevStrategies = currentOptions.strategies;
+    const prevExperimentalTextureEdgeRepair = !!currentOptions.experimentalTextureEdgeRepair;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
+    const nextExperimentalTextureEdgeRepair = !!currentOptions.experimentalTextureEdgeRepair;
     // Re-evaluate per-mesh light overrides when lighting settings change —
     // textureLighting or directionalLight may have changed.
     for (const entry of meshes) {
@@ -777,10 +789,11 @@ export function createPolyScene(
     // Skip the re-render when the value didn't actually change so callers
     // that pass the same strategies on every tick (bundled with camera
     // updates) don't blow up the atlas every frame.
-    if (
-      partial.strategies !== undefined &&
-      !strategiesEqual(partial.strategies, prevStrategies)
-    ) {
+    const strategiesChanged = partial.strategies !== undefined &&
+      !strategiesEqual(partial.strategies, prevStrategies);
+    const textureEdgeRepairChanged = partial.experimentalTextureEdgeRepair !== undefined &&
+      prevExperimentalTextureEdgeRepair !== nextExperimentalTextureEdgeRepair;
+    if (strategiesChanged || textureEdgeRepairChanged) {
       for (const entry of meshes) renderEntry(entry);
     }
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();

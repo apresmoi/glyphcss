@@ -90,6 +90,15 @@ describe("optimizeMeshPolygons", () => {
     expect(lossy).toHaveLength(1);
   });
 
+  it("defaults to lossy resolution", () => {
+    const input: Polygon[] = [
+      { vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0]], color: "#f00" },
+      { vertices: [[0, 0, 0], [1, 1, 0], [0, 1, 0.08]], color: "#f00" },
+    ];
+
+    expect(optimizeMeshPolygons(input)).toHaveLength(1);
+  });
+
   it("allows lossy approximate merge for same-texture UV polygons", () => {
     const input: Polygon[] = [
       {

@@ -40,6 +40,7 @@ Root of every Vue polycss render tree. Renders polygons and meshes inside a `<Po
 | `ambient-light` | `PolyAmbientLight` | None | Ambient light config |
 | `texture-lighting` | `"baked" \| "dynamic"` | `"baked"` | Texture lighting mode |
 | `atlas-scale` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages |
+| `experimental-texture-edge-repair` | `boolean` | `true` | Textured atlas edge repair |
 | `polygons` | `Polygon[]` | None | Static polygon array (composes with slot) |
 
 For pointer drag, wheel zoom, and autorotate, mount `<PolyOrbitControls>` (or `<PolyMapControls>` for pan-first map-style input) inside `<PolyCamera>`: it receives the camera context. Mirrors Three.js's split between camera state and input.
@@ -56,6 +57,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `scale` | `number \| Vec3` | Uniform or per-axis scale |
 | `rotation` | `Vec3` | Euler angles in degrees `[x, y, z]` |
 | `atlas-scale` | `number \| "auto"` | Raster scale for generated atlas pages |
+| `experimental-texture-edge-repair` | `boolean` | Textured atlas edge repair; defaults to the scene, then `true` |
 | `auto-center` | `boolean` | Shift mesh so its bbox center is at origin |
 | `mtl` | `string` | Companion `.mtl` URL for OBJ models |
 

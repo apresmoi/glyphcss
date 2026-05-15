@@ -33,6 +33,7 @@ const OBSERVED_ATTRS = [
   "ambient-intensity",
   "texture-lighting",
   "texture-quality",
+  "experimental-texture-edge-repair",
   "auto-center",
 ] as const;
 
@@ -96,6 +97,7 @@ export class PolySceneElement extends ELEMENT_BASE {
     opts.textureLighting = parseTextureLighting(this.getAttribute("texture-lighting")) ?? "baked";
     const textureQuality = parseTextureQuality(this.getAttribute("texture-quality"));
     if (textureQuality !== undefined) opts.textureQuality = textureQuality;
+    opts.experimentalTextureEdgeRepair = this.getAttribute("experimental-texture-edge-repair") !== "false";
     opts.autoCenter = this.hasAttribute("auto-center");
     if (directionalLight) opts.directionalLight = directionalLight;
     if (ambientLight) opts.ambientLight = ambientLight;

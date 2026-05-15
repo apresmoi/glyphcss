@@ -22,7 +22,7 @@ import type { Polygon, PolyTextureLightingMode, Vec3 } from "@layoutit/polycss-c
 import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
 import { usePolyMesh } from "./useMesh";
 import {
-  buildSharedEdgeSets,
+  buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
@@ -74,6 +74,8 @@ export interface PolyMeshProps extends InteractionProps {
    *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
    *  Numeric values 0.1..1 force an explicit scale. */
   textureQuality?: TextureQuality;
+  /** Repairs antialiased atlas pixels at shared textured polygon edges without expanding geometry. Defaults to the scene context, then true. */
+  experimentalTextureEdgeRepair?: boolean;
   class?: string;
   position?: Vec3;
   scale?: number | Vec3;
@@ -137,6 +139,7 @@ export const PolyMesh = defineComponent({
     autoCenter: { type: Boolean, default: false },
     textureLighting: { type: String as PropType<PolyTextureLightingMode>, default: undefined },
     textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
+    experimentalTextureEdgeRepair: { type: Boolean as PropType<boolean>, default: undefined },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
@@ -183,6 +186,9 @@ export const PolyMesh = defineComponent({
     const atlasAmbient = computed(() =>
       atlasTextureLighting.value === "dynamic" ? undefined : sceneCtx?.value.ambientLight,
     );
+    const atlasTextureEdgeRepair = computed(() =>
+      props.experimentalTextureEdgeRepair ?? sceneCtx?.value.experimentalTextureEdgeRepair ?? true,
+    );
 
     // Dynamic lighting override: when textureLighting is "dynamic" AND the
     // mesh has a non-zero rotation, we emit overridden --plx/ly/lz
@@ -222,12 +228,13 @@ export const PolyMesh = defineComponent({
       const effectiveLight = baseLight && bakedRotation.value
         ? { ...baseLight, direction: inverseRotateVec3(baseLight.direction, bakedRotation.value) }
         : baseLight;
-      const sharedEdges = buildSharedEdgeSets(polygons.value);
+      const repairEdges = buildTextureEdgeRepairSets(polygons.value);
       return polygons.value.map((p, i) =>
         computeTextureAtlasPlan(p, i, {
           directionalLight: effectiveLight,
           ambientLight: atlasAmbient.value,
-          seamEdges: sharedEdges[i],
+          textureEdgeRepairEdges: repairEdges[i],
+          experimentalTextureEdgeRepair: atlasTextureEdgeRepair.value,
         }),
       );
     });

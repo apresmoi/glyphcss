@@ -12,7 +12,7 @@ import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles/styles";
 import type { TransformProps } from "../shapes/types";
 import {
-  buildSharedEdgeSets,
+  buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
   type TextureQuality,
@@ -61,6 +61,11 @@ export interface PolySceneProps extends TransformProps {
    */
   strategies?: PolyRenderStrategiesOption;
   /**
+   * Repairs antialiased atlas pixels at shared textured polygon edges to
+   * reduce visible seams without expanding polygon geometry. Defaults to true.
+   */
+  experimentalTextureEdgeRepair?: boolean;
+  /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — the scene element's
    * `transform-origin` is moved to the bbox center in CSS. Equivalent to
@@ -91,6 +96,7 @@ function PolySceneInner({
   textureLighting = "baked",
   textureQuality,
   strategies,
+  experimentalTextureEdgeRepair = true,
   autoCenter = false,
   className,
   style,
@@ -198,15 +204,16 @@ function PolySceneInner({
       directionalLight: directionalForAtlas,
       ambientLight: ambientForAtlas,
       textureLighting,
+      experimentalTextureEdgeRepair,
     };
-  }, [directionalForAtlas, ambientForAtlas, textureLighting]);
+  }, [directionalForAtlas, ambientForAtlas, textureLighting, experimentalTextureEdgeRepair]);
 
   const textureAtlasPlans = useMemo(
     () => {
-      const sharedEdges = buildSharedEdgeSets(polygons);
+      const repairEdges = buildTextureEdgeRepairSets(polygons);
       return polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
         ...polyContext,
-        seamEdges: sharedEdges[i],
+        textureEdgeRepairEdges: repairEdges[i],
       }));
     },
     [polygons, polyContext],
@@ -293,8 +300,8 @@ function PolySceneInner({
   // while the scene's global CSS rule paints over it with the dynamic
   // calc — producing corrupt tints.
   const sceneCtxValue = useMemo(
-    () => ({ textureLighting, directionalLight, ambientLight }),
-    [textureLighting, directionalLight, ambientLight],
+    () => ({ textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair }),
+    [textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair],
   );
 
   return (

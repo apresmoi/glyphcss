@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { computed, effectScope, ref, nextTick } from "vue";
-import { useTextureAtlas, computeTextureAtlasPlan, isSolidTrianglePlan, type TextureAtlasPlan } from "./textureAtlas";
+import {
+  buildTextureEdgeRepairSets,
+  useTextureAtlas,
+  computeTextureAtlasPlan,
+  isSolidTrianglePlan,
+  type TextureAtlasPlan,
+} from "./textureAtlas";
 import type { Polygon } from "@layoutit/polycss-core";
 
 const TEXTURED_QUAD_60: Polygon = {
@@ -36,6 +42,61 @@ describe("computeTextureAtlasPlan", () => {
     const plan = planFor(quad);
     expect(plan).not.toBeNull();
     expect(plan!.texture).toBeUndefined();
+  });
+
+  it("enables textured edge repair without changing geometry", () => {
+    const normal = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {});
+    const repaired = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {
+      textureEdgeRepairEdges: new Set([1]),
+    });
+
+    expect(repaired).not.toBeNull();
+    expect(normal).not.toBeNull();
+    expect(repaired!.canvasW).toBe(normal!.canvasW);
+    expect(repaired!.canvasH).toBe(normal!.canvasH);
+    expect(repaired!.textureEdgeRepair).toBe(true);
+  });
+
+  it("keeps textured edge repair disabled when there are no shared texture edges", () => {
+    const repaired = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {
+      experimentalTextureEdgeRepair: true,
+    });
+
+    expect(repaired).not.toBeNull();
+    expect(repaired!.textureEdgeRepair).toBe(false);
+  });
+
+  it("allows textured edge repair to be disabled explicitly", () => {
+    const repaired = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {
+      textureEdgeRepairEdges: new Set([1]),
+      experimentalTextureEdgeRepair: false,
+    });
+
+    expect(repaired).not.toBeNull();
+    expect(repaired!.textureEdgeRepair).toBe(false);
+  });
+});
+
+describe("buildTextureEdgeRepairSets", () => {
+  it("returns only shared edges between textured polygons", () => {
+    const left: Polygon = {
+      vertices: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]],
+      texture: "https://example.com/a.png",
+    };
+    const right: Polygon = {
+      vertices: [[1, 0, 0], [2, 0, 0], [2, 1, 0], [1, 1, 0]],
+      texture: "https://example.com/b.png",
+    };
+    const isolated: Polygon = {
+      vertices: [[3, 0, 0], [4, 0, 0], [4, 1, 0], [3, 1, 0]],
+      texture: "https://example.com/c.png",
+    };
+
+    const repairEdges = buildTextureEdgeRepairSets([left, right, isolated]);
+
+    expect(repairEdges[0]).toEqual(new Set([1]));
+    expect(repairEdges[1]).toEqual(new Set([3]));
+    expect(repairEdges[2]).toBeUndefined();
   });
 });
 

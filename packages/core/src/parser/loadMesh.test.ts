@@ -4,6 +4,15 @@ import { loadMesh } from "./loadMesh";
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const SIMPLE_OBJ = `v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n`;
+const LOSSY_PAIR_OBJ = [
+  "v 0 0 0",
+  "v 0 0 60",
+  "v 60 0 60",
+  "v 60 0.08 0",
+  "f 1 2 3",
+  "f 1 3 4",
+  "",
+].join("\n");
 const TEXTURED_QUAD_OBJ = [
   "v 0 0 0",
   "v 1 0 0",
@@ -124,6 +133,15 @@ describe("loadMesh", () => {
       vi.stubGlobal("fetch", makeMockFetch({ text: SIMPLE_OBJ }));
       const result = await loadMesh("model.obj");
       expect(result.polygons).toHaveLength(1);
+    });
+
+    it("defaults to lossy mesh resolution", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: LOSSY_PAIR_OBJ }));
+      const implicit = await loadMesh("model.obj");
+      vi.stubGlobal("fetch", makeMockFetch({ text: LOSSY_PAIR_OBJ }));
+      const explicit = await loadMesh("model.obj", { meshResolution: "lossy" });
+      expect(implicit.polygons).toHaveLength(1);
+      expect(implicit.polygons).toHaveLength(explicit.polygons.length);
     });
 
     it("bakes uniform texture samples into solid polygons before merging", async () => {

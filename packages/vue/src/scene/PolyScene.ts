@@ -31,7 +31,7 @@ import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles";
 import { PolySceneContextKey } from "./sceneContext";
 import {
-  buildSharedEdgeSets,
+  buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
   isSolidTrianglePlan,
   type TextureQuality,
@@ -57,6 +57,8 @@ export interface PolySceneProps {
   textureQuality?: TextureQuality;
   /** Opt out of specific render strategies. Disabled strategies fall through the chain (b→i→s, u→i→s, i→s). `<s>` cannot be disabled. */
   strategies?: PolyRenderStrategiesOption;
+  /** Repairs antialiased atlas pixels at shared textured polygon edges without expanding geometry. Defaults to true. */
+  experimentalTextureEdgeRepair?: boolean;
   /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — a wrapper div translates
@@ -97,6 +99,7 @@ export const PolyScene = defineComponent({
     },
     textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
     strategies: { type: Object as PropType<PolyRenderStrategiesOption>, default: undefined },
+    experimentalTextureEdgeRepair: { type: Boolean as PropType<boolean>, default: true },
     autoCenter: { type: Boolean, default: false },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
@@ -125,6 +128,7 @@ export const PolyScene = defineComponent({
       textureLighting: props.textureLighting ?? "baked",
       directionalLight: props.directionalLight,
       ambientLight: props.ambientLight,
+      experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
     }));
     provide(PolySceneContextKey, sceneCtxValue);
 
@@ -187,6 +191,7 @@ export const PolyScene = defineComponent({
         directionalLight: props.directionalLight,
         textureLighting: props.textureLighting,
         textureQuality: props.textureQuality,
+        experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
       };
     });
 
@@ -198,14 +203,15 @@ export const PolyScene = defineComponent({
       const dynamic = props.textureLighting === "dynamic";
       const directionalForAtlas = dynamic ? undefined : props.directionalLight;
       const ambientForAtlas = dynamic ? undefined : props.ambientLight;
-      const sharedEdges = buildSharedEdgeSets(sceneResult.value.polygons);
+      const repairEdges = buildTextureEdgeRepairSets(sceneResult.value.polygons);
       return sceneResult.value.polygons.map((p, i) =>
         computeTextureAtlasPlan(p, i, {
           tileSize: polyContext.value.tileSize,
           layerElevation: polyContext.value.layerElevation,
           directionalLight: directionalForAtlas,
           ambientLight: ambientForAtlas,
-          seamEdges: sharedEdges[i],
+          textureEdgeRepairEdges: repairEdges[i],
+          experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
         })
       );
     });

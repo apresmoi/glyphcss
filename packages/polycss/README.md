@@ -162,6 +162,7 @@ mesh.dispose();
 | `ambientLight` | `PolyAmbientLight` | Ambient light config |
 | `textureLighting` | `"baked" \| "dynamic"` | Texture lighting mode |
 | `textureQuality` | `number \| "auto"` | Raster scale for generated atlas pages |
+| `experimentalTextureEdgeRepair` | `boolean` | Textured atlas edge repair, enabled by default |
 | `autoCenter` | `boolean` | Rotate around the union bbox center of added meshes |
 
 Returns a `PolySceneHandle`:
@@ -177,6 +178,7 @@ interface PolySceneHandle {
 **`loadMesh(url, options?)`**
 
 Fetches and parses a mesh by URL (dispatches by extension: `.obj`, `.glb`, `.gltf`, `.vox`). Returns `Promise<ParseResult>`.
+Mesh optimization defaults to `meshResolution: "lossy"`; pass `"lossless"` for exact planar candidates only.
 
 ## Subpath imports
 

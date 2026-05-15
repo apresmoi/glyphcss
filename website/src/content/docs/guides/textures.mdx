@@ -162,6 +162,7 @@ Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyM
 
 - **`targetSize`**: scale the model so its longest axis fits this many world units (default: `60`). Set it to roughly match the scale of your other scene content.
 - **`textureQuality`**: leave at `"auto"` for workload-based bitmap caps, or set a numeric scale for explicit quality. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
+- **`experimentalTextureEdgeRepair`**: enabled by default to repair antialiased atlas pixels at shared textured polygon edges; set it to `false` to compare against the unrepaired atlas path. Geometry stays unchanged.
 - **`baseUrl`**: for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
 - For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this: don't hold references to blob URLs across remounts.
 

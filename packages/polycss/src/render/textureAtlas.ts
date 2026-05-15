@@ -77,7 +77,8 @@ interface TextureAtlasPlan {
   uvAffine: UvAffine | null;
   uvSampleRect: UvSampleRect | null;
   textureTriangles: TextureTrianglePlan[] | null;
-  seamEdges: Set<number> | null;
+  textureEdgeRepairEdges: Set<number> | null;
+  textureEdgeRepair: boolean;
   /** World-space surface normal — stable across light changes, used by dynamic mode. */
   normal: Vec3;
   textureTint: RGBFactors;
@@ -167,6 +168,7 @@ interface BasisHint {
   xAxis?: Vec3;
   boundsOrigin?: Vec3;
   seamEdges: Set<number>;
+  textureEdgeRepairEdges?: Set<number>;
 }
 
 interface PolygonBasisInfo {
@@ -193,6 +195,11 @@ export interface RenderTextureAtlasOptions {
   textureQuality?: TextureQuality;
   solidPaintDefaults?: SolidPaintDefaults;
   strategies?: PolyRenderStrategiesOption;
+  /**
+   * Repairs antialiased atlas pixels at shared textured polygon edges without
+   * expanding polygon geometry. Defaults to true.
+   */
+  experimentalTextureEdgeRepair?: boolean;
 }
 
 export interface RenderedPoly {
@@ -214,8 +221,11 @@ const RECT_EPS = 1e-3;
 const BASIS_EPS = 1e-9;
 const SURFACE_NORMAL_EPS = 1e-4;
 const SURFACE_DISTANCE_EPS = 0.1;
+const SEAM_LIGHT_EPS = 0.01;
 const TEXTURE_TRIANGLE_BLEED = 0.75;
-const TEXTURE_SEAM_BLEED = 0;
+const TEXTURE_EDGE_REPAIR_ALPHA_MIN = 1;
+const TEXTURE_EDGE_REPAIR_SOURCE_ALPHA_MIN = 250;
+const TEXTURE_EDGE_REPAIR_RADIUS = 1.5;
 const SOLID_TRIANGLE_BLEED = 0.45;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
@@ -657,8 +667,35 @@ function compatibleSurface(
   b: PolygonBasisInfo | null,
 ): boolean {
   if (!a || !b || !a.optimizable || !b.optimizable) return false;
+  return compatibleBleedSurface(a, b);
+}
+
+function compatibleBleedSurface(
+  a: PolygonBasisInfo | null,
+  b: PolygonBasisInfo | null,
+): boolean {
+  if (!a || !b) return false;
   if (dotVec(a.normal, b.normal) < 1 - SURFACE_NORMAL_EPS) return false;
   return Math.abs(a.planeD - b.planeD) <= SURFACE_DISTANCE_EPS;
+}
+
+function seamLightBrightness(
+  info: PolygonBasisInfo | null,
+  options: RenderTextureAtlasOptions,
+): number | null {
+  if (!info) return null;
+  const directionalCfg = options.directionalLight;
+  const ambientCfg = options.ambientLight;
+  const lightDir = directionalCfg?.direction ?? DEFAULT_LIGHT_DIR;
+  const lightColor = directionalCfg?.color ?? DEFAULT_LIGHT_COLOR;
+  const lightIntensity = Math.max(0, directionalCfg?.intensity ?? DEFAULT_LIGHT_INTENSITY);
+  const ambientColor = ambientCfg?.color ?? DEFAULT_AMBIENT_COLOR;
+  const ambientIntensity = Math.max(0, ambientCfg?.intensity ?? DEFAULT_AMBIENT_INTENSITY);
+  const lLen = Math.hypot(lightDir[0], lightDir[1], lightDir[2]) || 1;
+  const lx = lightDir[0] / lLen, ly = lightDir[1] / lLen, lz = lightDir[2] / lLen;
+  const directScale = lightIntensity * Math.max(0, info.normal[0] * lx + info.normal[1] * ly + info.normal[2] * lz);
+  const tint = textureTintFactors(directScale, lightColor, ambientColor, ambientIntensity);
+  return tint.r * 0.2126 + tint.g * 0.7152 + tint.b * 0.0722;
 }
 
 function basisAxisKey(axis: Vec3): string {
@@ -846,6 +883,7 @@ function buildBasisHints(
   const infos = polygons.map((polygon) => getPolygonBasisInfo(polygon, tile, elev));
   const edgeOwners = new Map<string, Array<{ polygon: number; edge: number }>>();
   const seamEdges = polygons.map(() => new Set<number>());
+  const textureEdgeRepairEdges = polygons.map(() => new Set<number>());
   for (let polygonIndex = 0; polygonIndex < polygons.length; polygonIndex++) {
     const vertices = polygons[polygonIndex].vertices;
     if (!vertices || vertices.length < 3) continue;
@@ -864,11 +902,27 @@ function buildBasisHints(
   const adjacency = polygons.map(() => new Set<number>());
   for (const owners of edgeOwners.values()) {
     if (owners.length < 2) continue;
-    for (const owner of owners) seamEdges[owner.polygon].add(owner.edge);
     for (let i = 0; i < owners.length; i++) {
       for (let j = i + 1; j < owners.length; j++) {
-        const a = owners[i].polygon;
-        const b = owners[j].polygon;
+        const aOwner = owners[i];
+        const bOwner = owners[j];
+        const a = aOwner.polygon;
+        const b = bOwner.polygon;
+        if (polygons[a].texture && polygons[b].texture) {
+          textureEdgeRepairEdges[aOwner.polygon].add(aOwner.edge);
+          textureEdgeRepairEdges[bOwner.polygon].add(bOwner.edge);
+        }
+        if (compatibleBleedSurface(infos[a], infos[b])) {
+          seamEdges[aOwner.polygon].add(aOwner.edge);
+          seamEdges[bOwner.polygon].add(bOwner.edge);
+        } else {
+          const aLight = seamLightBrightness(infos[a], options);
+          const bLight = seamLightBrightness(infos[b], options);
+          if (aLight !== null && bLight !== null) {
+            if (aLight <= bLight + SEAM_LIGHT_EPS) seamEdges[aOwner.polygon].add(aOwner.edge);
+            if (bLight <= aLight + SEAM_LIGHT_EPS) seamEdges[bOwner.polygon].add(bOwner.edge);
+          }
+        }
         if (!compatibleSurface(infos[a], infos[b])) continue;
         adjacency[a].add(b);
         adjacency[b].add(a);
@@ -901,13 +955,17 @@ function buildBasisHints(
         xAxis: hint.xAxis,
         boundsOrigin: hint.boundsOrigin,
         seamEdges: seamEdges[index],
+        textureEdgeRepairEdges: textureEdgeRepairEdges[index],
       };
     }
   }
 
   for (let i = 0; i < polygons.length; i++) {
-    if (!hints[i] && seamEdges[i].size > 0) {
-      hints[i] = { seamEdges: seamEdges[i] };
+    if (!hints[i] && (seamEdges[i].size > 0 || textureEdgeRepairEdges[i].size > 0)) {
+      hints[i] = {
+        seamEdges: seamEdges[i],
+        textureEdgeRepairEdges: textureEdgeRepairEdges[i],
+      };
     }
   }
 
@@ -1120,15 +1178,6 @@ function expandClipPoints(points: number[], amount: number): number[] {
   return expanded;
 }
 
-function signedArea2D(points: number[]): number {
-  let area = 0;
-  for (let i = 0; i < points.length; i += 2) {
-    const next = (i + 2) % points.length;
-    area += points[i] * points[next + 1] - points[next] * points[i + 1];
-  }
-  return area / 2;
-}
-
 function tracePolygonPath(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1142,40 +1191,6 @@ function tracePolygonPath(
     else ctx.lineTo(px, py);
   }
   ctx.closePath();
-}
-
-function traceTextureClipPath(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  points: number[],
-  seamEdges: Set<number> | null,
-  bleed: number,
-): void {
-  tracePolygonPath(ctx, x, y, points);
-  if (!seamEdges || seamEdges.size === 0 || bleed <= 0) return;
-
-  const count = points.length / 2;
-  const area = signedArea2D(points);
-  for (const edgeIndex of seamEdges) {
-    const i = edgeIndex * 2;
-    const next = ((edgeIndex + 1) % count) * 2;
-    const ax = points[i];
-    const ay = points[i + 1];
-    const bx = points[next];
-    const by = points[next + 1];
-    const dx = bx - ax;
-    const dy = by - ay;
-    const length = Math.hypot(dx, dy);
-    if (length <= RECT_EPS) continue;
-    const outwardX = area >= 0 ? dy / length : -dy / length;
-    const outwardY = area >= 0 ? -dx / length : dx / length;
-    ctx.moveTo(x + ax, y + ay);
-    ctx.lineTo(x + bx, y + by);
-    ctx.lineTo(x + bx + outwardX * bleed, y + by + outwardY * bleed);
-    ctx.lineTo(x + ax + outwardX * bleed, y + ay + outwardY * bleed);
-    ctx.closePath();
-  }
 }
 
 function computeTextureAtlasPlan(
@@ -1213,8 +1228,17 @@ function computeTextureAtlasPlan(
           seamEdges: basisHint?.seamEdges,
         });
   if (!basis) return null;
-  const { xAxis, yAxis, local2D, shiftX, shiftY } = basis;
-  const seamEdges = basisHint?.seamEdges.size ? basisHint.seamEdges : null;
+  const { xAxis, yAxis, local2D } = basis;
+  const textureEdgeRepairEdges = texture && basisHint?.textureEdgeRepairEdges?.size
+    ? basisHint.textureEdgeRepairEdges
+    : null;
+  const textureEdgeRepair = Boolean(
+    texture && (options.experimentalTextureEdgeRepair ?? true) && textureEdgeRepairEdges,
+  );
+  const shiftX = basis.shiftX;
+  const shiftY = basis.shiftY;
+  const canvasW = basis.canvasW;
+  const canvasH = basis.canvasH;
 
   const screenPts: number[] = [];
   for (const [x, y] of local2D) screenPts.push(x + shiftX, y + shiftY);
@@ -1268,13 +1292,14 @@ function computeTextureAtlasPlan(
     tileSize: tile,
     layerElevation: elev,
     matrix,
-    canvasW: basis.canvasW,
-    canvasH: basis.canvasH,
+    canvasW,
+    canvasH,
     screenPts,
     uvAffine,
     uvSampleRect,
     textureTriangles,
-    seamEdges,
+    textureEdgeRepairEdges,
+    textureEdgeRepair,
     normal,
     textureTint,
     shadedColor,
@@ -1586,6 +1611,217 @@ function drawImageUvSample(
   ctx.drawImage(img, sx, sy, sw, sh, x, y, width, height);
 }
 
+function traceOffsetPolygonPath(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  points: number[],
+  offsetX: number,
+  offsetY: number,
+): void {
+  for (let i = 0; i < points.length; i += 2) {
+    const px = x + points[i] + offsetX;
+    const py = y + points[i + 1] + offsetY;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+}
+
+function drawTexturedAtlasEntry(
+  ctx: CanvasRenderingContext2D,
+  entry: PackedTextureAtlasEntry,
+  srcImg: HTMLImageElement,
+  atlasScale: number,
+  offsetX = 0,
+  offsetY = 0,
+): void {
+  if (entry.textureTriangles?.length) {
+    const imgW = srcImg.naturalWidth || srcImg.width || 1;
+    const imgH = srcImg.naturalHeight || srcImg.height || 1;
+    for (const triangle of entry.textureTriangles) {
+      const clipPts = expandClipPoints(triangle.screenPts, TEXTURE_TRIANGLE_BLEED);
+      ctx.save();
+      setCssTransform(ctx, atlasScale);
+      ctx.beginPath();
+      traceOffsetPolygonPath(ctx, entry.x, entry.y, clipPts, offsetX, offsetY);
+      ctx.clip();
+      if (triangle.uvAffine) {
+        setCssTransform(
+          ctx,
+          atlasScale,
+          triangle.uvAffine.a / imgW, triangle.uvAffine.c / imgW,
+          triangle.uvAffine.b / imgH, triangle.uvAffine.d / imgH,
+          entry.x + triangle.uvAffine.e + offsetX,
+          entry.y + triangle.uvAffine.f + offsetY,
+        );
+        ctx.drawImage(srcImg, 0, 0);
+      } else if (triangle.uvSampleRect) {
+        drawImageUvSample(
+          ctx,
+          srcImg,
+          triangle.uvSampleRect,
+          entry.x + offsetX,
+          entry.y + offsetY,
+          entry.canvasW,
+          entry.canvasH,
+          atlasScale,
+        );
+      }
+      ctx.restore();
+    }
+  } else if (entry.uvAffine) {
+    const imgW = srcImg.naturalWidth || srcImg.width || 1;
+    const imgH = srcImg.naturalHeight || srcImg.height || 1;
+    setCssTransform(
+      ctx,
+      atlasScale,
+      entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
+      entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
+      entry.x + entry.uvAffine.e + offsetX,
+      entry.y + entry.uvAffine.f + offsetY,
+    );
+    ctx.drawImage(srcImg, 0, 0);
+  } else if (entry.uvSampleRect) {
+    drawImageUvSample(
+      ctx,
+      srcImg,
+      entry.uvSampleRect,
+      entry.x + offsetX,
+      entry.y + offsetY,
+      entry.canvasW,
+      entry.canvasH,
+      atlasScale,
+    );
+  } else {
+    drawImageCover(
+      ctx,
+      srcImg,
+      entry.x + offsetX,
+      entry.y + offsetY,
+      entry.canvasW,
+      entry.canvasH,
+      atlasScale,
+    );
+  }
+}
+
+function distanceToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq <= BASIS_EPS) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq));
+  return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+}
+
+function distanceToPolygonEdges(
+  px: number,
+  py: number,
+  points: number[],
+  edgeIndices: Set<number>,
+): number {
+  let best = Infinity;
+  const count = points.length / 2;
+  for (const edgeIndex of edgeIndices) {
+    if (edgeIndex < 0 || edgeIndex >= count) continue;
+    const i = edgeIndex * 2;
+    const next = ((edgeIndex + 1) % count) * 2;
+    best = Math.min(
+      best,
+      distanceToSegment(px, py, points[i], points[i + 1], points[next], points[next + 1]),
+    );
+  }
+  return best;
+}
+
+function nearestOpaquePixelOffset(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  radius: number,
+): number | null {
+  const minX = Math.max(0, x - radius);
+  const maxX = Math.min(width - 1, x + radius);
+  const minY = Math.max(0, y - radius);
+  const maxY = Math.min(height - 1, y + radius);
+  let bestOffset: number | null = null;
+  let bestDistanceSq = Infinity;
+  for (let yy = minY; yy <= maxY; yy++) {
+    for (let xx = minX; xx <= maxX; xx++) {
+      if (xx === x && yy === y) continue;
+      const dx = xx - x;
+      const dy = yy - y;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > radius * radius || distanceSq >= bestDistanceSq) continue;
+      const offset = (yy * width + xx) * 4;
+      if (data[offset + 3] < TEXTURE_EDGE_REPAIR_SOURCE_ALPHA_MIN) continue;
+      bestOffset = offset;
+      bestDistanceSq = distanceSq;
+    }
+  }
+  return bestOffset;
+}
+
+function repairTextureEdgeAlpha(
+  ctx: CanvasRenderingContext2D,
+  entry: PackedTextureAtlasEntry,
+  atlasScale: number,
+): void {
+  if (!entry.textureEdgeRepair || !entry.texture) return;
+  if (!entry.textureEdgeRepairEdges || entry.textureEdgeRepairEdges.size === 0) return;
+  const canvas = (ctx as CanvasRenderingContext2D & { canvas?: HTMLCanvasElement }).canvas;
+  if (!canvas) return;
+  const pixelX = Math.max(0, Math.floor(entry.x * atlasScale));
+  const pixelY = Math.max(0, Math.floor(entry.y * atlasScale));
+  const pixelW = Math.max(1, Math.min(canvas.width - pixelX, Math.ceil(entry.canvasW * atlasScale)));
+  const pixelH = Math.max(1, Math.min(canvas.height - pixelY, Math.ceil(entry.canvasH * atlasScale)));
+  if (pixelW <= 0 || pixelH <= 0) return;
+
+  let imageData: ImageData;
+  try {
+    imageData = ctx.getImageData(pixelX, pixelY, pixelW, pixelH);
+  } catch {
+    return;
+  }
+
+  const data = imageData.data;
+  const source = new Uint8ClampedArray(data);
+  const radius = Math.max(TEXTURE_EDGE_REPAIR_RADIUS, TEXTURE_EDGE_REPAIR_RADIUS / atlasScale);
+  const sourceRadius = Math.max(2, Math.ceil(radius * atlasScale) + 1);
+  let changed = false;
+  for (let y = 0; y < pixelH; y++) {
+    for (let x = 0; x < pixelW; x++) {
+      const offset = (y * pixelW + x) * 4;
+      const alpha = data[offset + 3];
+      if (alpha < TEXTURE_EDGE_REPAIR_ALPHA_MIN || alpha === 255) continue;
+      const localX = (pixelX + x + 0.5) / atlasScale - entry.x;
+      const localY = (pixelY + y + 0.5) / atlasScale - entry.y;
+      if (distanceToPolygonEdges(localX, localY, entry.screenPts, entry.textureEdgeRepairEdges) > radius) {
+        continue;
+      }
+      const sourceOffset = nearestOpaquePixelOffset(source, pixelW, pixelH, x, y, sourceRadius);
+      if (sourceOffset === null) continue;
+      data[offset] = source[sourceOffset];
+      data[offset + 1] = source[sourceOffset + 1];
+      data[offset + 2] = source[sourceOffset + 2];
+      data[offset + 3] = 255;
+      changed = true;
+    }
+  }
+  if (!changed) return;
+  ctx.putImageData(imageData, pixelX, pixelY);
+}
+
 async function buildAtlasPage(
   page: PackedPage,
   textureLighting: PolyTextureLightingMode,
@@ -1608,86 +1844,35 @@ async function buildAtlasPage(
 
   for (const entry of page.entries) {
     const srcImg = entry.texture ? loaded.get(entry.texture) : null;
-    ctx.save();
-    setCssTransform(ctx, atlasScale);
-    ctx.beginPath();
-    if (entry.texture) {
-      traceTextureClipPath(ctx, entry.x, entry.y, entry.screenPts, entry.seamEdges, TEXTURE_SEAM_BLEED);
-    } else {
-      tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
-    }
-    ctx.clip();
-
     if (!entry.texture) {
+      ctx.save();
       paintSolidAtlasEntry(ctx, entry, textureLighting, atlasScale);
-    } else if (srcImg && entry.textureTriangles?.length) {
-      const imgW = srcImg.naturalWidth || srcImg.width || 1;
-      const imgH = srcImg.naturalHeight || srcImg.height || 1;
-      for (const triangle of entry.textureTriangles) {
-        const clipPts = expandClipPoints(triangle.screenPts, TEXTURE_TRIANGLE_BLEED);
-        ctx.save();
-        setCssTransform(ctx, atlasScale);
-        ctx.beginPath();
-        for (let i = 0; i < clipPts.length; i += 2) {
-          const px = entry.x + clipPts[i];
-          const py = entry.y + clipPts[i + 1];
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.clip();
-        if (triangle.uvAffine) {
-          setCssTransform(
-            ctx,
-            atlasScale,
-            triangle.uvAffine.a / imgW, triangle.uvAffine.c / imgW,
-            triangle.uvAffine.b / imgH, triangle.uvAffine.d / imgH,
-            entry.x + triangle.uvAffine.e, entry.y + triangle.uvAffine.f,
-          );
-          ctx.drawImage(srcImg, 0, 0);
-        } else if (triangle.uvSampleRect) {
-          drawImageUvSample(
-            ctx,
-            srcImg,
-            triangle.uvSampleRect,
-            entry.x,
-            entry.y,
-            entry.canvasW,
-            entry.canvasH,
-            atlasScale,
-          );
-        }
-        ctx.restore();
-      }
-    } else if (srcImg && entry.uvAffine) {
-      const imgW = srcImg.naturalWidth || srcImg.width || 1;
-      const imgH = srcImg.naturalHeight || srcImg.height || 1;
+      ctx.restore();
+      continue;
+    }
+
+    if (srcImg) {
+      ctx.save();
       setCssTransform(
         ctx,
         atlasScale,
-        entry.uvAffine.a / imgW, entry.uvAffine.c / imgW,
-        entry.uvAffine.b / imgH, entry.uvAffine.d / imgH,
-        entry.x + entry.uvAffine.e, entry.y + entry.uvAffine.f,
       );
-      ctx.drawImage(srcImg, 0, 0);
-    } else if (srcImg && entry.uvSampleRect) {
-      drawImageUvSample(
-        ctx,
-        srcImg,
-        entry.uvSampleRect,
-        entry.x,
-        entry.y,
-        entry.canvasW,
-        entry.canvasH,
-        atlasScale,
-      );
-    } else if (srcImg) {
-      drawImageCover(ctx, srcImg, entry.x, entry.y, entry.canvasW, entry.canvasH, atlasScale);
+      ctx.beginPath();
+      tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
+      ctx.clip();
+      drawTexturedAtlasEntry(ctx, entry, srcImg, atlasScale);
+      ctx.restore();
     }
     if (entry.texture && textureLighting === "baked") {
+      ctx.save();
+      setCssTransform(ctx, atlasScale);
+      ctx.beginPath();
+      tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
+      ctx.clip();
       applyTextureTint(ctx, entry.x, entry.y, entry.canvasW, entry.canvasH, entry.textureTint, atlasScale);
+      ctx.restore();
     }
-    ctx.restore();
+    repairTextureEdgeAlpha(ctx, entry, atlasScale);
   }
 
   const url = await canvasToUrl(canvas);
