@@ -53,6 +53,7 @@ import { injectPolyBaseStyles } from "../styles/styles";
 // keeps large gallery meshes below Chrome's long-task warning threshold
 // without changing the synchronous public setPolygons() contract.
 const ASYNC_MOUNT_BATCH_SIZE = 750;
+const DEFAULT_SCENE_PERSPECTIVE = 8000;
 
 export interface PolySceneOptions {
   perspective?: number | false;
@@ -302,11 +303,12 @@ function buildMeshTransform(t: PolyMeshTransform): string | undefined {
 function buildSceneTransform(
   opts: PolySceneOptions,
   autoCenterOffset: Vec3 = [0, 0, 0],
+  layoutScale = 1,
 ): string {
   const rotX = opts.rotX ?? DEFAULT_ROT_X;
   const rotY = opts.rotY ?? DEFAULT_ROT_Y;
-  const zoom = opts.zoom ?? DEFAULT_ZOOM;
-  const distance = opts.distance ?? 0;
+  const zoom = (opts.zoom ?? DEFAULT_ZOOM) * layoutScale;
+  const distance = (opts.distance ?? 0) * layoutScale;
   const target = opts.target ?? [0, 0, 0];
   // World→CSS axis swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
   // Negate so the scene moves such that `target + autoCenterOffset` appears
@@ -330,6 +332,41 @@ function buildSceneTransform(
   // back from the target along the view axis (dolly). Matches core's getStyle().
   const distancePart = distance !== 0 ? `translateZ(${-distance}px) ` : "";
   return `${distancePart}scale(${zoom}) rotateX(${rotX}deg) rotate(${rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
+}
+
+function parseCssZoom(value: string): number {
+  const text = value.trim();
+  if (!text || text === "normal") return 1;
+  const numeric = text.endsWith("%")
+    ? Number(text.slice(0, -1)) / 100
+    : Number(text);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1;
+}
+
+function effectiveCssZoom(element: HTMLElement): number {
+  const win = element.ownerDocument?.defaultView;
+  if (!win) return 1;
+
+  let zoom = 1;
+  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+    zoom *= parseCssZoom(win.getComputedStyle(current).getPropertyValue("zoom"));
+  }
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
+function scaledCssPixels(value: number, scale: number): number {
+  return scale === 1 ? value : value * scale;
+}
+
+function applyCssZoomCompensation(el: HTMLElement, scale: number): void {
+  // Chromium's CSS zoom can scale layout metrics without scaling the
+  // preserve-3d rasterization path consistently. Neutralize zoom on the scene
+  // root, then fold the same scale into the matrix/perspective explicitly.
+  if (Math.abs(scale - 1) < 1e-6) {
+    el.style.removeProperty("zoom");
+  } else {
+    el.style.setProperty("zoom", String(1 / scale));
+  }
 }
 
 // ─── Lambert-bucket grouping ────────────────────────────────────────────────
@@ -451,9 +488,11 @@ export function createPolyScene(
   const meshes = new Set<MeshEntry>();
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
-    el.style.transform = buildSceneTransform(opts, autoCenterOffset);
+    const layoutScale = effectiveCssZoom(host);
+    applyCssZoomCompensation(el, layoutScale);
+    el.style.transform = buildSceneTransform(opts, autoCenterOffset, layoutScale);
     if (typeof opts.perspective === "number") {
-      el.style.perspective = `${opts.perspective}px`;
+      el.style.perspective = `${scaledCssPixels(opts.perspective, layoutScale)}px`;
     } else if (opts.perspective === false) {
       // Orthographic projection — true `perspective: none` triggers a Chrome
       // compositor fast path that mis-rasterizes <u> border-triangle leaves
@@ -461,9 +500,13 @@ export function createPolyScene(
       // at initial paint. A very large finite perspective is visually
       // indistinguishable from orthographic (no perceptible foreshortening at
       // this distance) but routes Chrome through the normal compositor path.
-      el.style.perspective = "1000000px";
+      el.style.perspective = `${scaledCssPixels(1000000, layoutScale)}px`;
     } else {
-      el.style.removeProperty("perspective");
+      if (Math.abs(layoutScale - 1) < 1e-6) {
+        el.style.removeProperty("perspective");
+      } else {
+        el.style.perspective = `${scaledCssPixels(DEFAULT_SCENE_PERSPECTIVE, layoutScale)}px`;
+      }
     }
     applyDynamicLightVars(el, opts);
   }

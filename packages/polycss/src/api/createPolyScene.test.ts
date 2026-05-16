@@ -136,6 +136,26 @@ describe("createPolyScene", () => {
       expect(transform).toContain("rotate(60deg)");
     });
 
+    it("folds host CSS zoom into the emitted scene transform", () => {
+      host.style.setProperty("zoom", "0.5");
+      scene = createPolyScene(host, {
+        distance: 100,
+        perspective: 1500,
+        rotX: 30,
+        rotY: 60,
+        zoom: 2,
+      });
+      const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
+      const transform = sceneEl.style.transform;
+      expect(sceneEl.style.perspective).toBe("750px");
+      expect(sceneEl.style.getPropertyValue("zoom")).toBe("2");
+      expect(transform).toContain("translateZ(-50px)");
+      expect(transform).toContain("scale(1)");
+      expect(transform).toContain("rotateX(30deg)");
+      expect(transform).toContain("rotate(60deg)");
+      expect(scene.getOptions().zoom).toBe(2);
+    });
+
     it("inlines a large finite perspective when perspective is false (orthographic)", () => {
       scene = createPolyScene(host, { perspective: false });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
