@@ -120,11 +120,13 @@ The rendering model, tag table, lighting modes, and naming conventions described
 - Don't auto-push subagent exploration branches — local commits only. The user pushes when ready.
 - `main` is protected. All work lands via PR.
 
-## Tests
+## Tests & build
 
 - Refactors must keep all tests passing. Don't delete or weaken assertions to make a refactor go through.
 - If a renamed export still has tests for the old name, rename the test imports — don't keep the old export as an alias just to satisfy them.
 - `pnpm test` runs the full suite across all four packages.
+- **`pnpm build` is mandatory before opening a PR.** Vitest doesn't catch DTS / declaration build failures (tsup runs strict type-checking that vitest's transient TS pass doesn't enforce). A green test run with a red build is a real failure mode. Run `pnpm test && pnpm build` as a unit; treat either failing as "not ready."
+- **CI enforces both gates.** `.github/workflows/ci.yml` runs `pnpm test` + `pnpm build:packages` + `pnpm build:website` on every PR against `main` and on every push to `main`. Don't merge with red CI.
 
 ## Style / process
 

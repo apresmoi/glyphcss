@@ -286,6 +286,7 @@ export const PolyMesh = defineComponent({
       });
 
       return plans.map((plan, index) => {
+        if (!plan) return null;
         if (dedupDrop.has(index)) return null;
         const origMatrix = `matrix3d(${plan.matrix})`;
         const borderShape = cssBorderShapeForPlan(plan);
