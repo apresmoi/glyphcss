@@ -496,6 +496,8 @@ function computeProjectiveQuadMatrix(
   tx: number,
   ty: number,
   tz: number,
+  sourceWidth: number,
+  sourceHeight: number,
   guards: ProjectiveQuadGuardSettings,
 ): string | null {
   if (screenPts.length !== 8) return null;
@@ -518,6 +520,8 @@ function computeProjectiveQuadMatrix(
   if (!coeffs) return null;
   const { g, h, w1, w3 } = coeffs;
   const [q0, q1, , q3] = q;
+  const sx = Math.max(1, sourceWidth);
+  const sy = Math.max(1, sourceHeight);
 
   const p0: Vec3 = [
     tx + q0[0] * xAxis[0] + q0[1] * yAxis[0],
@@ -531,11 +535,11 @@ function computeProjectiveQuadMatrix(
   ];
 
   return formatMatrix3dValues([
-    ...projectiveColumn(q1, w1), g,
-    ...projectiveColumn(q3, w3), h,
+    ...projectiveColumn(q1, w1).map((value) => value / sx), g / sx,
+    ...projectiveColumn(q3, w3).map((value) => value / sy), h / sy,
     normal[0], normal[1], normal[2], 0,
     p0[0], p0[1], p0[2], 1,
-  ]);
+  ], 6);
 }
 
 function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
@@ -1524,6 +1528,8 @@ function computeTextureAtlasPlan(
         tx,
         ty,
         tz,
+        canvasW,
+        canvasH,
         projectiveQuadGuards,
       )
     : null;
@@ -2750,7 +2756,7 @@ function createProjectiveSolidElement(
   solidPaintDefaults?: SolidPaintDefaults,
 ): HTMLElement {
   const el = doc.createElement("b");
-  el.setAttribute("style", `transform:matrix3d(${entry.projectiveMatrix})`);
+  el.setAttribute("style", `width:${formatCssLength(entry.canvasW)};height:${formatCssLength(entry.canvasH)};transform:matrix3d(${entry.projectiveMatrix})`);
   applyPolygonDataAttrs(el, entry.polygon);
   applySolidPaint(el, entry, textureLighting, solidPaintDefaults);
 

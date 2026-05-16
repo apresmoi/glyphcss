@@ -1300,8 +1300,8 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     expect(element.tagName.toLowerCase()).toBe("b");
     expect(result.rendered[0].kind).toBe("solid");
     expect(style).toContain("transform:matrix3d(");
-    expect(style).not.toContain("width");
-    expect(style).not.toContain("height");
+    expect(style).toContain("width:");
+    expect(style).toContain("height:");
     expect(style).not.toContain("border-shape");
     expect(canvases).toHaveLength(0);
     result.dispose();
@@ -1323,6 +1323,9 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
       { doc },
     );
     const matrix = extractMatrix(result.rendered[0].element);
+    const plan = result.rendered[0].plan!;
+    const width = plan.canvasW;
+    const height = plan.canvasH;
     const expected = NON_RECT_QUAD.vertices.map((vertex): [number, number, number] => [
       vertex[1] * 50,
       vertex[0] * 50,
@@ -1330,9 +1333,9 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     ]);
 
     expectPointClose(transformMatrixPoint(matrix, 0, 0), expected[0]);
-    expectPointClose(transformMatrixPoint(matrix, 1, 0), expected[1]);
-    expectPointClose(transformMatrixPoint(matrix, 1, 1), expected[2]);
-    expectPointClose(transformMatrixPoint(matrix, 0, 1), expected[3]);
+    expectPointClose(transformMatrixPoint(matrix, width, 0), expected[1]);
+    expectPointClose(transformMatrixPoint(matrix, width, height), expected[2]);
+    expectPointClose(transformMatrixPoint(matrix, 0, height), expected[3]);
     result.dispose();
   });
 

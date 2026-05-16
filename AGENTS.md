@@ -26,7 +26,7 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 
 | Tag | Strategy | When chosen | Paint mechanism | Atlas memory |
 |---|---|---|---|---|
-| `<b>` | **Quads** | Axis-aligned rectangle, or untextured convex quad when the homography passes stability guards | `background: currentColor`; canonical quads use a 1px rectangle mapped by `matrix3d` / projective `matrix3d` with tiny solid bleed to overlap antialias seams | None |
+| `<b>` | **Quads** | Axis-aligned rectangle, or untextured convex quad when the homography passes stability guards | `background: currentColor`; affine rects use a 1px rectangle mapped by `matrix3d`; projective quads use a bbox-sized rectangle with a normalized high-precision projective `matrix3d` and tiny solid bleed to overlap antialias seams | None |
 | `<i>` | **Border-shape clipped solid** | Untextured non-rect on browsers with CSS `border-shape` (Chromium + `pointer:fine` + `hover:hover`) | `border-color: currentColor` on a fixed 16px border-shape primitive, clipped by `border-shape: polygon(...)`; polygon bbox scale and tiny solid bleed are folded into `matrix3d` | None |
 | `<s>` | **Atlas slice** | Textured polygons, or untextured non-rect on browsers without `border-shape` | `background-image` slice of packed bitmap on a canonical 1px primitive; atlas position/size are normalized to the slice, scale lives in `matrix3d`, and shared textured edges get low-alpha atlas pixels repaired during atlas generation | Bounding-rect area |
 | `<u>` | **Stable solid triangle** | Opt-in for triangles via `renderPolygonsWithStableTriangles` | CSS border-color triangle trick with a fixed canonical 1px border triangle; tiny solid bleed is folded into `matrix3d` | None |
