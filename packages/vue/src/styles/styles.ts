@@ -121,6 +121,21 @@ const CORE_BASE_STYLES = `
 @property --plx { syntax: "<number>"; inherits: true; initial-value: 0; }
 @property --ply { syntax: "<number>"; inherits: true; initial-value: 0; }
 @property --plz { syntax: "<number>"; inherits: true; initial-value: 1; }
+
+/* CSS-space light components (world-Y→cssX, world-X→cssY, world-Z→cssZ).
+   Used by the shadow projection matrix. --clz is clamped away from 0 in JS
+   to avoid divide-by-zero when the light is near-horizontal. */
+@property --clx { syntax: "<number>"; inherits: true; initial-value: 0.01; }
+@property --cly { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --clz { syntax: "<number>"; inherits: true; initial-value: 1; }
+
+/* Ground-plane position in CSS pixels along the CSS-Z axis (= world-Z, the
+   up axis in polycss's world convention). Stored as a <number> so it can be
+   used directly inside matrix3d() calc() expressions (matrix3d requires
+   dimensionless entries — no px units).
+   Set from the min world-Z of casting meshes. */
+@property --shadow-ground-cssz { syntax: "<number>"; inherits: true; initial-value: 0; }
+
 @property --plr { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --plg { syntax: "<number>"; inherits: true; initial-value: 1; }
 @property --plb { syntax: "<number>"; inherits: true; initial-value: 1; }
@@ -182,5 +197,71 @@ const CORE_BASE_STYLES = `
            var(--pny) * var(--ply) +
            var(--pnz) * var(--plz))))
   );
+}
+
+/* ── Cast shadows (dynamic mode only) ──────────────────────────────────── */
+
+/* <q> — dedicated shadow leaf. Same border-shape rendering trick as <i>
+   (border-color: currentColor fills the polygon outline) but with its
+   own tag so we don't have to thread :not(.polycss-shadow) exclusions
+   through every dynamic-mode color rule. backface-visibility must be
+   visible because the projection matrix is near-rank-deficient and the
+   resulting plane's normal can read as back-facing under some camera
+   angles; the leaf is intentionally always painted. Strip the UA's
+   default ::before/::after open-/close-quote so the element is just a
+   styled box. */
+.polycss-scene q {
+  position: absolute;
+  display: block;
+  transform-origin: 0 0;
+  transform-style: preserve-3d;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  font-weight: normal;
+  font-style: normal;
+  line-height: 0;
+  quotes: none;
+  text-decoration: none;
+  backface-visibility: visible;
+  border-style: solid;
+  border-width: 1px;
+  border-color: currentColor;
+  pointer-events: none;
+}
+.polycss-scene q::before,
+.polycss-scene q::after {
+  content: none;
+}
+
+/* Shadow projection matrix. Projects any 3D point P onto the horizontal
+   ground plane (cssZ ≈ G) along the CSS-space light direction (--clx/y/z).
+
+   The strict projection would set m22=0 (output.z is a constant G, flat).
+   Chromium SKIPS rendering elements whose composed transform is singular.
+   m22=0 makes it singular, so the shadow paints nothing. Fix: collapse along
+   z by a near-zero scale (Z_SQUASH = 0.01) — output.z ≈ G with ~1% drift,
+   full-rank and renderable. Sub-pixel drift for any realistic scene size. */
+.polycss-scene[data-polycss-lighting="dynamic"] {
+  --shadow-proj: matrix3d(
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    calc(-1 * var(--clx) / var(--clz)),
+    calc(-1 * var(--cly) / var(--clz)),
+    0.01,
+    0,
+    calc(var(--shadow-ground-cssz) * var(--clx) / var(--clz)),
+    calc(var(--shadow-ground-cssz) * var(--cly) / var(--clz)),
+    calc(var(--shadow-ground-cssz) * 0.99),
+    1
+  );
+}
+
+/* <q> shadow leaf — Lambert-gated opacity. Polygons facing the light cast
+   full shadow; polygons facing away cast zero shadow. The * 10 multiplier
+   sharpens the cutoff so small positive Lambert values jump quickly to 1,
+   giving a near-binary visibility decision with a smooth edge transition. */
+.polycss-scene q {
+  opacity: clamp(0, calc((var(--pnx) * var(--clx) + var(--pny) * var(--cly) + var(--pnz) * var(--clz)) * 10), 1);
 }
 `;

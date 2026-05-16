@@ -16,14 +16,15 @@
  * When no `polygon` slot is provided, atlas-backed polygon i elements are rendered
  * automatically for each polygon.
  */
-import { defineComponent, h, computed, inject, onMounted, onBeforeUnmount, ref } from "vue";
+import { defineComponent, h, computed, inject, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import type { PropType, VNode, CSSProperties } from "vue";
 import type { Polygon, PolyTextureLightingMode, Vec3 } from "@layoutit/polycss-core";
-import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
+import { computeSceneBbox, inverseRotateVec3, findOverlappingPolygonDuplicates, parseHexColor } from "@layoutit/polycss-core";
 import { usePolyMesh } from "./useMesh";
 import {
   buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
+  cssBorderShapeForPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
   type TextureQuality,
@@ -76,6 +77,13 @@ export interface PolyMeshProps extends InteractionProps {
   textureQuality?: TextureQuality;
   /** Repairs antialiased atlas pixels at shared textured polygon edges without expanding geometry. Defaults to the scene context, then true. */
   experimentalTextureEdgeRepair?: boolean;
+  /**
+   * When `true` and the scene is in dynamic lighting mode, the renderer emits
+   * a flat shadow leaf sibling for each non-duplicate polygon. The shadow is
+   * projected onto the ground plane along the CSS-space light direction.
+   * Defaults to `false`.
+   */
+  castShadow?: boolean;
   class?: string;
   position?: Vec3;
   scale?: number | Vec3;
@@ -140,6 +148,7 @@ export const PolyMesh = defineComponent({
     textureLighting: { type: String as PropType<PolyTextureLightingMode>, default: undefined },
     textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
     experimentalTextureEdgeRepair: { type: Boolean as PropType<boolean>, default: undefined },
+    castShadow: { type: Boolean as PropType<boolean>, default: false },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
@@ -163,8 +172,18 @@ export const PolyMesh = defineComponent({
     const meshOptions = computed(() => (props.mtl ? { mtlUrl: props.mtl } : undefined));
     const fetched = usePolyMesh(srcRef, meshOptions.value);
 
-    const sourcePolygons = computed<Polygon[]>(() =>
+    const propPolygons = computed<Polygon[]>(() =>
       props.src ? fetched.polygons.value : (props.polygons ?? [])
+    );
+
+    // Holds a locally-mutated copy of the polygon array after updatePolygon()
+    // is called. Reset to null whenever the upstream polygon source changes so
+    // a fresh prop assignment or a completed src-fetch wins over stale edits.
+    const polygonOverride = ref<Polygon[] | null>(null);
+    watch(propPolygons, () => { polygonOverride.value = null; });
+
+    const sourcePolygons = computed<Polygon[]>(() =>
+      polygonOverride.value ?? propPolygons.value
     );
 
     const polygons = computed<Polygon[]>(() =>
@@ -245,6 +264,78 @@ export const PolyMesh = defineComponent({
     );
     const defaultPaintVars = computed(() => solidPaintVars(solidPaintDefaults.value));
 
+    // Shadow leaf emission. Only active when castShadow=true and the scene is
+    // in dynamic lighting mode. Computed from textureAtlasPlans so every
+    // polygon (including textured <s> polygons) gets a shadow leaf based on
+    // its outline.
+    const shadowNodes = computed<Array<VNode | null>>(() => {
+      if (!props.castShadow || atlasTextureLighting.value !== "dynamic") return [];
+      const shadowOpts = sceneCtx?.value.shadow;
+      const shadowColor = shadowOpts?.color ?? "#000000";
+      const shadowOpacity = shadowOpts?.opacity ?? 0.25;
+      const parsed = parseHexColor(shadowColor)?.rgb ?? [0, 0, 0];
+      const shadowColorCss = `rgba(${parsed[0]},${parsed[1]},${parsed[2]},${shadowOpacity})`;
+
+      const plans = textureAtlasPlans.value;
+      if (plans.length === 0) return [];
+
+      const dedupDrop = findOverlappingPolygonDuplicates(polygons.value, {
+        normalTolerance: 0.1,
+        distanceTolerance: 0.5,
+        overlapFraction: 0.4,
+      });
+
+      return plans.map((plan, index) => {
+        if (dedupDrop.has(index)) return null;
+        const origMatrix = `matrix3d(${plan.matrix})`;
+        const borderShape = cssBorderShapeForPlan(plan);
+        const style: CSSProperties = {
+          transform: `var(--shadow-proj) ${origMatrix}`,
+          color: shadowColorCss,
+          width: `${plan.canvasW}px`,
+          height: `${plan.canvasH}px`,
+          "--pnx": plan.normal[0].toFixed(4),
+          "--pny": plan.normal[1].toFixed(4),
+          "--pnz": plan.normal[2].toFixed(4),
+        };
+
+        const applyShadowBorderShape = (vnode: VNode) => {
+          const el = vnode.el as HTMLElement | null;
+          if (!el) return;
+          el.style.setProperty("border-shape", borderShape);
+        };
+
+        return h("q", {
+          class: "polycss-shadow",
+          style,
+          onVnodeMounted: applyShadowBorderShape,
+          onVnodeUpdated: applyShadowBorderShape,
+        });
+      });
+    });
+
+    // Register this mesh with the shadow registry when castShadow=true so
+    // PolyScene can compute --shadow-ground-cssz reactively.
+    const shadowRegistryId = Symbol();
+    watch(
+      () => [props.castShadow, atlasTextureLighting.value] as const,
+      ([castShadow, lighting], _, onCleanup) => {
+        const registry = sceneCtx?.value.shadowRegistry;
+        if (!registry) return;
+        if (castShadow && lighting === "dynamic") {
+          registry.register(shadowRegistryId, () => polygons.value);
+        } else {
+          registry.unregister(shadowRegistryId);
+        }
+        onCleanup(() => registry.unregister(shadowRegistryId));
+      },
+      { immediate: true },
+    );
+
+    onBeforeUnmount(() => {
+      sceneCtx?.value.shadowRegistry?.unregister(shadowRegistryId);
+    });
+
     // Imperative handle exposed via defineExpose. Read-only view of
     // the mesh's element + transform + polygons. Stable getter object;
     // refs keep getters cheap without rebuilding on every render.
@@ -256,6 +347,18 @@ export const PolyMesh = defineComponent({
       getRotation: () => props.rotation,
       getScale: () => props.scale,
       getPolygons: () => polygons.value,
+      updatePolygon(target: Polygon | number, partial: Partial<Polygon>) {
+        const current = polygons.value;
+        const idx = typeof target === "number"
+          ? target
+          : current.indexOf(target);
+        if (idx < 0 || idx >= current.length) return;
+        Object.assign(current[idx], partial);
+        // Produce a new array reference so Vue's computed reacts and
+        // re-renders the atlas (the polygon object itself is mutated
+        // in place to preserve identity for callers holding a ref).
+        polygonOverride.value = current.slice();
+      },
       rebakeAtlas: () => {
         bakedRotation.value = props.rotation;
       },
@@ -479,6 +582,11 @@ export const PolyMesh = defineComponent({
       // Static default slot children (e.g. additional <PolyMesh> children)
       const defaultChildren = slots.default?.() ?? [];
 
+      // Shadow leaves go before polygon nodes so they sit below casters in
+      // DOM order — painter-order tie-breaking favors earlier nodes when both
+      // are coplanar in 3D.
+      const shadows = shadowNodes.value;
+
       return h(
         "div",
         {
@@ -489,7 +597,7 @@ export const PolyMesh = defineComponent({
           ...handlers,
           ...extraAttrs,
         },
-        [...polyNodes, ...defaultChildren]
+        [...shadows, ...polyNodes, ...defaultChildren]
       );
     };
   },

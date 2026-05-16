@@ -533,7 +533,7 @@ function cssCollapsedInnerShapeForPoints(points: Array<[number, number]>): strin
   return `circle(0 at ${x} ${y})`;
 }
 
-function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
+export function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
   const points = borderShapePointsForPlan(entry);
   return `${cssPolygonShapeForPoints(points)} ${cssCollapsedInnerShapeForPoints(points)}`;
 }

@@ -125,7 +125,8 @@
   top: var(--overlay-top);
   left: var(--overlay-left);
   width: clamp(260px, 22vw, 340px);
-  max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom));
+  /* Cap height so the Inspector panel underneath has room. */
+  max-height: min(55vh, calc(100% - var(--overlay-top) - var(--overlay-bottom)));
   min-height: 0;
   overflow: hidden;
   overflow: clip;
@@ -863,6 +864,168 @@
 
 .dark-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.6);
+}
+
+/* ── Inspector panel ──────────────────────────────────────────────────── */
+
+.dn-inspector {
+  position: absolute;
+  left: var(--overlay-left);
+  bottom: var(--overlay-bottom);
+  width: clamp(260px, 22vw, 340px);
+  max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom) - 55vh - 12px);
+  z-index: 15;
+  background: #11141a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
+.dn-inspector__title {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.dn-inspector__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 6px;
+}
+
+.dn-mesh-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: 0;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dn-mesh-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dn-mesh-chevron {
+  font-size: 9px;
+  color: #64748b;
+  width: 10px;
+  flex: 0 0 auto;
+}
+
+.dn-mesh-icon {
+  color: #22d3ee;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.dn-mesh-label {
+  flex: 1 1 auto;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-mesh-meta {
+  flex: 0 0 auto;
+  font: 10px/1 Consolas, Monaco, monospace;
+  color: #64748b;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dn-mesh-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px 0;
+}
+
+.dn-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 30px;
+  position: relative;
+  font-size: 11px;
+}
+
+.dn-group-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dn-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.dn-swatch:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.dn-swatch--readonly {
+  cursor: not-allowed;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      #2a2f3a 0,
+      #2a2f3a 3px,
+      #1a1d24 3px,
+      #1a1d24 6px
+    );
+}
+
+.dn-color-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+
+.dn-group-label {
+  flex: 1 1 auto;
+  font: 11px/1.2 Consolas, Monaco, monospace;
+  color: #cbd5f5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-group-row.is-readonly .dn-group-label {
+  color: #64748b;
+  font-style: italic;
+}
+
+.dn-group-count {
+  flex: 0 0 auto;
+  font: 11px/1 Consolas, Monaco, monospace;
+  color: #64748b;
 }
 
 @media (max-width: 1100px) {

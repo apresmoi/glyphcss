@@ -59,6 +59,15 @@ export interface PolyMeshHandle {
    * safe to call.
    */
   rebakeAtlas(): void;
+  /**
+   * Mutate a single polygon in place and re-render the mesh. `target` is
+   * either a polygon reference (as returned by `getPolygons()`) or its index.
+   * `partial` fields are merged onto the polygon via `Object.assign`. Skips
+   * the merge pass — cheaper than a full prop change for targeted edits like
+   * color picker updates from an inspector UI. Silently no-ops when `target`
+   * is not found or the index is out of range.
+   */
+  updatePolygon(target: Polygon | number, partial: Partial<Polygon>): void;
 }
 
 /**

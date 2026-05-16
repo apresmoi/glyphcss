@@ -30,7 +30,7 @@ import { createIsometricCamera, parseHexColor, BASE_TILE } from "@layoutit/polyc
 import { PolyCameraContextKey } from "../camera";
 import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles";
-import { PolySceneContextKey } from "./sceneContext";
+import { PolySceneContextKey, type PolyShadowOptions, type PolyShadowRegistry } from "./sceneContext";
 import {
   buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
@@ -67,6 +67,12 @@ export interface PolySceneProps {
    * Mirrors React's PolyScene autoCenter prop.
    */
   autoCenter?: boolean;
+  /**
+   * Shadow appearance for meshes with `castShadow: true`. Only applies in
+   * dynamic lighting mode — baked mode does not emit shadow leaves.
+   * Defaults: `{ color: "#000000", opacity: 0.25, lift: 0.05 }`.
+   */
+  shadow?: PolyShadowOptions;
   class?: string;
   // TransformProps
   position?: Vec3;
@@ -102,6 +108,7 @@ export const PolyScene = defineComponent({
     strategies: { type: Object as PropType<PolyRenderStrategiesOption>, default: undefined },
     experimentalTextureEdgeRepair: { type: Boolean as PropType<boolean>, default: true },
     autoCenter: { type: Boolean, default: false },
+    shadow: { type: Object as PropType<PolyShadowOptions>, default: undefined },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: {
@@ -120,6 +127,27 @@ export const PolyScene = defineComponent({
 
     const { store, sceneElRef } = cameraCtx;
 
+    // Shadow registry: child PolyMesh components register their polygon
+    // getters here when castShadow=true. The scene reads registered polygons
+    // to compute --shadow-ground-cssz reactively without needing to enumerate
+    // DOM children in JS.
+    const shadowRegistryVersion = ref(0);
+    const shadowRegistryMap = new Map<symbol, () => import("@layoutit/polycss-core").Polygon[]>();
+    const shadowRegistry: PolyShadowRegistry = {
+      register(id, getPolygons) {
+        shadowRegistryMap.set(id, getPolygons);
+        shadowRegistryVersion.value++;
+      },
+      unregister(id) {
+        shadowRegistryMap.delete(id);
+        shadowRegistryVersion.value++;
+      },
+      version: shadowRegistryVersion,
+      getEntries() {
+        return Array.from(shadowRegistryMap.values());
+      },
+    };
+
     // Propagate scene-level rendering options to descendants (PolyMesh /
     // helpers) so they pick up the same dynamic mode + lights as the
     // scene. Without this, a helper PolyMesh would default to baked
@@ -130,6 +158,8 @@ export const PolyScene = defineComponent({
       directionalLight: props.directionalLight,
       ambientLight: props.ambientLight,
       experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
+      shadow: props.shadow,
+      shadowRegistry,
     }));
     provide(PolySceneContextKey, sceneCtxValue);
 
@@ -248,10 +278,18 @@ export const PolyScene = defineComponent({
       const lightIntensity = props.directionalLight?.intensity ?? 1;
       const ambientIntensity = props.ambientLight?.intensity ?? 0.4;
       const ch = (n: number) => (n / 255).toFixed(4);
+      // Clamp clz away from zero — the shadow projection divides by clz
+      // (the up-axis component), so a near-horizontal light would project
+      // shadows to infinity.
+      const rawClz = lz;
+      const clz = Math.sign(rawClz || 1) * Math.max(Math.abs(rawClz), 0.01);
       return {
         "--plx": lx.toFixed(4),
         "--ply": ly.toFixed(4),
         "--plz": lz.toFixed(4),
+        "--clx": lx.toFixed(4),
+        "--cly": ly.toFixed(4),
+        "--clz": clz.toFixed(4),
         "--plr": ch(lightRgb[0]),
         "--plg": ch(lightRgb[1]),
         "--plb": ch(lightRgb[2]),
@@ -261,6 +299,44 @@ export const PolyScene = defineComponent({
         "--pab": ch(ambRgb[2]),
         "--pai": ambientIntensity.toFixed(4),
       };
+    });
+
+    const DEFAULT_TILE = 50;
+
+    // --shadow-ground-cssz: written directly to the scene element when casting
+    // meshes register/unregister. A watchEffect is used instead of a computed
+    // read in the render function because child PolyMesh components register
+    // after the parent's first render (child setup runs during mount, not during
+    // the parent's VNode creation). The watchEffect re-runs after child
+    // registration because it reads shadowRegistryVersion, which the registry
+    // mutates when a mesh registers or unregisters.
+    watchEffect(() => {
+      const el = sceneElLocalRef.value;
+      if (!el) return;
+      if (props.textureLighting !== "dynamic") {
+        el.style.removeProperty("--shadow-ground-cssz");
+        return;
+      }
+      void shadowRegistryVersion.value;
+      const entries = shadowRegistry.getEntries();
+      if (entries.length === 0) {
+        el.style.removeProperty("--shadow-ground-cssz");
+        return;
+      }
+      let minWorldZ = Infinity;
+      for (const getPolygons of entries) {
+        for (const poly of getPolygons()) {
+          for (const v of poly.vertices) {
+            if (v[2] < minWorldZ) minWorldZ = v[2];
+          }
+        }
+      }
+      if (!Number.isFinite(minWorldZ)) {
+        el.style.removeProperty("--shadow-ground-cssz");
+        return;
+      }
+      const lift = props.shadow?.lift ?? 0.05;
+      el.style.setProperty("--shadow-ground-cssz", ((minWorldZ + lift) * DEFAULT_TILE).toFixed(3));
     });
 
     // Bbox-center of all centerable meshes in world coords. Folded into the

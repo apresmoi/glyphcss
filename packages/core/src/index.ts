@@ -75,6 +75,11 @@ export {
 
 // ── Mesh post-processing ──────────────────────────────────────────
 export { mergePolygons } from "./merge/mergePolygons";
+export {
+  dedupeOverlappingPolygons,
+  findOverlappingPolygonDuplicates,
+} from "./merge/dedupeOverlappingPolygons";
+export type { DedupeOverlappingPolygonsOptions } from "./merge/dedupeOverlappingPolygons";
 export { coverPlanarPolygons } from "./merge/coverPlanarPolygons";
 export type { CoverPlanarPolygonsOptions } from "./merge/coverPlanarPolygons";
 export { optimizeMeshPolygons } from "./merge/optimizePolygons";

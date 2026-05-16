@@ -7,6 +7,7 @@ import type {
   PolyTextureLightingMode,
 } from "@layoutit/polycss-core";
 import { BASE_TILE, parseHexColor } from "@layoutit/polycss-core";
+import type { ShadowOptions } from "./sceneContext";
 import { useCameraContext } from "../camera/context";
 import { usePolySceneContext } from "./useSceneContext";
 import { injectPolyBaseStyles } from "../styles/styles";
@@ -75,6 +76,12 @@ export interface PolySceneProps extends TransformProps {
    * origin is at a corner / feet / arbitrary point.
    */
   autoCenter?: boolean;
+  /**
+   * Shadow appearance for meshes with `castShadow={true}`. Only applies in
+   * dynamic lighting mode — baked mode does not emit shadow leaves.
+   * Defaults: `{ color: "#000000", opacity: 0.25, lift: 0.05 }`.
+   */
+  shadow?: ShadowOptions;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -98,6 +105,7 @@ function PolySceneInner({
   strategies,
   experimentalTextureEdgeRepair = true,
   autoCenter = false,
+  shadow,
   className,
   style,
   children,
@@ -256,6 +264,12 @@ function PolySceneInner({
   // color/intensity as CSS custom properties on the scene root. They
   // cascade into every polygon, where a per-element calc resolves the
   // Lambert dot product and tints via background-blend-mode.
+  //
+  // Also emits --clx/--cly/--clz: the light direction in CSS coordinate space
+  // (matches the convention in vanilla's applyDynamicLightVars — NO axis swap
+  // relative to --plx/--ply/--plz). Used by the --shadow-proj matrix in
+  // styles.ts. --clz is clamped away from zero to avoid divide-by-zero in
+  // the projection when the light is near-horizontal.
   const dynamicLightVars = useMemo<CSSProperties | null>(() => {
     if (textureLighting !== "dynamic") return null;
     const dir = directionalLight?.direction ?? [0.4, -0.7, 0.59];
@@ -266,6 +280,8 @@ function PolySceneInner({
     const lightIntensity = directionalLight?.intensity ?? 1;
     const ambientIntensity = ambientLight?.intensity ?? 0.4;
     const ch = (n: number) => (n / 255).toFixed(4);
+    const rawClz = lz;
+    const clz = Math.sign(rawClz || 1) * Math.max(Math.abs(rawClz), 0.01);
     return {
       ["--plx" as string]: lx.toFixed(4),
       ["--ply" as string]: ly.toFixed(4),
@@ -278,8 +294,56 @@ function PolySceneInner({
       ["--pag" as string]: ch(ambRgb[1]),
       ["--pab" as string]: ch(ambRgb[2]),
       ["--pai" as string]: ambientIntensity.toFixed(4),
+      ["--clx" as string]: lx.toFixed(4),
+      ["--cly" as string]: ly.toFixed(4),
+      ["--clz" as string]: clz.toFixed(4),
     };
   }, [textureLighting, directionalLight, ambientLight]);
+
+  // Shadow caster registry. PolyMesh children call registerShadowCaster when
+  // their castShadow prop or polygon list changes. The scene accumulates the
+  // polygon lists and writes --shadow-ground-cssz to the scene element.
+  const shadowCastersRef = useRef<Map<symbol, Polygon[]>>(new Map());
+
+  const registerShadowCaster = useCallback((meshId: symbol, meshPolygons: Polygon[] | null) => {
+    if (meshPolygons === null) {
+      shadowCastersRef.current.delete(meshId);
+    } else {
+      shadowCastersRef.current.set(meshId, meshPolygons);
+    }
+    // Recompute --shadow-ground-cssz immediately.
+    const el = sceneElRef.current;
+    if (!el) return;
+    if (textureLighting !== "dynamic") {
+      el.style.removeProperty("--shadow-ground-cssz");
+      return;
+    }
+    let minWorldZ = Infinity;
+    for (const polys of shadowCastersRef.current.values()) {
+      for (const poly of polys) {
+        for (const v of poly.vertices) {
+          if (v[2] < minWorldZ) minWorldZ = v[2];
+        }
+      }
+    }
+    if (!Number.isFinite(minWorldZ)) {
+      el.style.removeProperty("--shadow-ground-cssz");
+      return;
+    }
+    const lift = shadow?.lift ?? 0.05;
+    const groundCssZ = (minWorldZ + lift) * BASE_TILE;
+    el.style.setProperty("--shadow-ground-cssz", groundCssZ.toFixed(3));
+  }, [sceneElRef, textureLighting, shadow]);
+
+  // When lighting mode switches away from dynamic, clear --shadow-ground-cssz
+  // from the scene element (shadow projection is only active in dynamic mode).
+  useEffect(() => {
+    const el = sceneElRef.current;
+    if (!el) return;
+    if (textureLighting !== "dynamic") {
+      el.style.removeProperty("--shadow-ground-cssz");
+    }
+  }, [textureLighting, sceneElRef]);
 
   const disabledStrategies = useMemo(
     () => strategies?.disable?.length ? new Set(strategies.disable) : undefined,
@@ -316,8 +380,8 @@ function PolySceneInner({
   // while the scene's global CSS rule paints over it with the dynamic
   // calc — producing corrupt tints.
   const sceneCtxValue = useMemo(
-    () => ({ textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair }),
-    [textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair],
+    () => ({ textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair, shadow, registerShadowCaster }),
+    [textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair, shadow, registerShadowCaster],
   );
 
   return (

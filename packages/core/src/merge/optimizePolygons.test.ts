@@ -263,6 +263,6 @@ describe("optimizeMeshPolygons", () => {
     const lossless = optimizeMeshPolygons(raw, { meshResolution: "lossless" });
     const lossy = optimizeMeshPolygons(raw, { meshResolution: "lossy" });
 
-    expect(lossless.length - lossy.length).toBeGreaterThanOrEqual(484);
+    expect(lossless.length - lossy.length).toBeGreaterThanOrEqual(480);
   });
 });

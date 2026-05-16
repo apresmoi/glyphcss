@@ -28,14 +28,16 @@ import type {
   PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
-import { computeSceneBbox, inverseRotateVec3 } from "@layoutit/polycss-core";
+import { computeSceneBbox, findOverlappingPolygonDuplicates, inverseRotateVec3, parseHexColor } from "@layoutit/polycss-core";
 import type { TransformProps } from "../shapes/types";
 import { usePolyMesh, type UseMeshOptions } from "./useMesh";
 import {
   buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
+  cssBorderShapeForPlan,
   getSolidPaintDefaults,
   isSolidTrianglePlan,
+  type TextureAtlasPlan,
   type TextureQuality,
   type SolidPaintDefaults,
   TextureBorderShapePoly,
@@ -102,6 +104,14 @@ export interface PolyMeshProps extends TransformProps, InteractionProps {
   errorFallback?: (error: Error) => ReactNode;
   /** Parser options forwarded to parseObj/parseGltf. */
   parseOptions?: UseMeshOptions;
+  /**
+   * When `true` and the scene is in dynamic lighting mode, emits a flat
+   * shadow leaf (`<q class="polycss-shadow">`) sibling for each polygon.
+   * The shadow is projected onto the ground plane along the CSS-space light
+   * direction via `--shadow-proj` (a CSS var on the scene root). Zero JS in
+   * the render loop — projection is pure `calc()`. Defaults to `false`.
+   */
+  castShadow?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -162,6 +172,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     textureLighting,
     textureQuality,
     experimentalTextureEdgeRepair,
+    castShadow,
     children,
     fallback,
     errorFallback,
@@ -197,7 +208,23 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   // hook-rules consistency.
   const fetched = usePolyMesh(src ?? "", mergedOptions);
 
-  const sourcePolygons = src ? fetched.polygons : (polygonsProp ?? []);
+  const externalPolygons = src ? fetched.polygons : (polygonsProp ?? []);
+
+  // Local override array written by updatePolygon(). Null means no
+  // imperative edits have been applied — the external source is used as-is.
+  // Reset whenever the external source identity changes so stale overrides
+  // don't leak across prop/fetch updates.
+  const [localPolygons, setLocalPolygons] = useState<Polygon[] | null>(null);
+  const prevExternalRef = useRef(externalPolygons);
+  if (prevExternalRef.current !== externalPolygons) {
+    prevExternalRef.current = externalPolygons;
+    // Synchronous state reset during render (safe in React — equivalent to
+    // getDerivedStateFromProps). Avoids a stale-override flash on the next
+    // paint before a useEffect would fire.
+    if (localPolygons !== null) setLocalPolygons(null);
+  }
+
+  const sourcePolygons = localPolygons ?? externalPolygons;
 
   // Re-center vertices into mesh-local space if autoCenter is set. Done
   // once per polygon-list identity — bake into vertices, not per frame.
@@ -235,6 +262,17 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     getScale: () => propsRef.current.scale,
     getPolygons: () => polygonsRef.current,
     rebakeAtlas: () => setBakedRotation(propsRef.current.rotation),
+    updatePolygon(target: Polygon | number, partial: Partial<Polygon>) {
+      const current = polygonsRef.current;
+      const idx = typeof target === "number"
+        ? target
+        : current.indexOf(target);
+      if (idx < 0 || idx >= current.length) return;
+      Object.assign(current[idx], partial);
+      // Shallow-copy the array to produce a new identity, which causes the
+      // sourcePolygons → polygons useMemo chain to re-run and re-render.
+      setLocalPolygons([...current]);
+    },
   }), [id]);
 
   useImperativeHandle(forwardedRef, () => handle, [handle]);
@@ -486,6 +524,61 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     [solidPaintDefaults],
   );
 
+  // Shadow casting. Stable mesh identity key — survives re-renders without
+  // re-registering. Defined at component top-level via useRef.
+  const meshIdRef = useRef<symbol>(Symbol());
+  const sceneRegisterShadowCaster = sceneCtx?.registerShadowCaster;
+
+  // Register/unregister as a shadow caster whenever castShadow or polygons change.
+  // Cleanup on unmount passes null to deregister.
+  useEffect(() => {
+    if (!sceneRegisterShadowCaster) return;
+    if (castShadow && effectiveTextureLighting === "dynamic") {
+      sceneRegisterShadowCaster(meshIdRef.current, polygons);
+    } else {
+      sceneRegisterShadowCaster(meshIdRef.current, null);
+    }
+    return () => {
+      sceneRegisterShadowCaster(meshIdRef.current, null);
+    };
+  }, [sceneRegisterShadowCaster, castShadow, effectiveTextureLighting, polygons]);
+
+  // Build shadow leaf elements. Only emitted when castShadow is true and the
+  // scene is in dynamic mode. Uses the same plans as the caster polygons so
+  // the outlines are identical. Deduplication removes stacked coplanar
+  // shadow leaves that would produce visible double-shadows on the receiver.
+  const shadowLeaves = useMemo<ReactNode[]>(() => {
+    if (!castShadow || effectiveTextureLighting !== "dynamic" || children) return [];
+
+    const shadowColor = sceneCtx?.shadow?.color ?? "#000000";
+    const shadowOpacity = sceneCtx?.shadow?.opacity ?? 0.25;
+    const parsed = parseHexColor(shadowColor)?.rgb ?? [0, 0, 0];
+    const shadowColorCss = `rgba(${parsed[0]},${parsed[1]},${parsed[2]},${shadowOpacity})`;
+
+    const shadowDedupDrop = findOverlappingPolygonDuplicates(polygons, {
+      normalTolerance: 0.1,
+      distanceTolerance: 0.5,
+      overlapFraction: 0.4,
+    });
+
+    const leaves: React.ReactNode[] = [];
+    for (const plan of atlasPlans) {
+      if (!plan) continue;
+      if (shadowDedupDrop.has(plan.index)) continue;
+
+      const borderShape = cssBorderShapeForPlan(plan);
+      leaves.push(
+        <ShadowLeaf
+          key={`shadow-${plan.index}`}
+          plan={plan}
+          shadowColorCss={shadowColorCss}
+          borderShape={borderShape}
+        />
+      );
+    }
+    return leaves;
+  }, [castShadow, effectiveTextureLighting, children, polygons, atlasPlans, sceneCtx?.shadow]);
+
   const wrapperStyle: CSSProperties = {
     transform,
     ...dynamicLightOverride,
@@ -571,6 +664,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
       style={wrapperStyle}
       {...wrapperHandlers}
     >
+      {shadowLeaves}
       {renderedPolygons}
     </div>
   );
@@ -589,4 +683,43 @@ function RenderPropPolygon({
   children: (polygon: Polygon, index: number) => ReactNode;
 }) {
   return <>{children(polygon, index)}</>;
+}
+
+// Shadow leaf — a <q> element that projects the caster polygon's outline onto
+// the ground plane via `var(--shadow-proj)`. The transform chain is:
+// `var(--shadow-proj) matrix3d(...)` where matrix3d is the original polygon
+// placement. border-shape clips the element to the polygon's outline (same
+// mechanism as <i>). The normal is pinned inline as --pnx/y/z so the CSS
+// opacity gate in styles.ts can skip back-facing polygons without JS.
+// Uses a ref callback for border-shape (non-standard CSS property, must be
+// set via setProperty).
+function ShadowLeaf({
+  plan,
+  shadowColorCss,
+  borderShape,
+}: {
+  plan: TextureAtlasPlan;
+  shadowColorCss: string;
+  borderShape: string;
+}) {
+  const setRef = useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    el.style.setProperty("border-shape", borderShape);
+  }, [borderShape]);
+
+  return (
+    <q
+      ref={setRef}
+      className="polycss-shadow"
+      style={{
+        transform: `var(--shadow-proj) matrix3d(${plan.matrix})`,
+        color: shadowColorCss,
+        width: plan.canvasW,
+        height: plan.canvasH,
+        ["--pnx" as string]: plan.normal[0].toFixed(4),
+        ["--pny" as string]: plan.normal[1].toFixed(4),
+        ["--pnz" as string]: plan.normal[2].toFixed(4),
+      } as CSSProperties}
+    />
+  );
 }

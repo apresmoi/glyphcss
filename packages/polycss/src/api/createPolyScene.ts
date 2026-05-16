@@ -27,8 +27,16 @@ import type {
   PolyTextureLightingMode,
   Vec3,
 } from "@layoutit/polycss-core";
-import { BASE_TILE, computeSceneBbox, inverseRotateVec3, mergePolygons, parseHexColor } from "@layoutit/polycss-core";
 import {
+  BASE_TILE,
+  computeSceneBbox,
+  findOverlappingPolygonDuplicates,
+  inverseRotateVec3,
+  mergePolygons,
+  parseHexColor,
+} from "@layoutit/polycss-core";
+import {
+  cssBorderShapeForPlan,
   getSolidPaintDefaults,
   renderPolygonsWithTextureAtlas,
   renderPolygonsWithStableTriangles,
@@ -88,6 +96,24 @@ export interface PolySceneOptions {
    * or `setOptions` is called. Mirrors React's `<PolyScene autoCenter>`.
    */
   autoCenter?: boolean;
+  /**
+   * Shadow appearance for meshes with `castShadow: true`. Only applies in
+   * dynamic lighting mode — baked mode does not emit shadow leaves.
+   * Defaults: `{ color: "#000000", opacity: 0.25, lift: 0.05 }`.
+   */
+  shadow?: {
+    /** Shadow color as a CSS hex string. Default: `"#000000"`. */
+    color?: string;
+    /** Shadow opacity 0..1. Default: `0.25`. */
+    opacity?: number;
+    /**
+     * Raises the shadow plane slightly above the model bbox floor along
+     * +Z (Z up) so it sits on top of a receiver mesh placed at the bbox
+     * bottom, rather than below it where the receiver would occlude the
+     * shadow. In world units. Default: `0.05`.
+     */
+    lift?: number;
+  };
 }
 
 export interface PolyMeshTransform {
@@ -115,6 +141,15 @@ export interface PolyMeshTransform {
    * shift the camera target when toggled. Defaults to `false`.
    */
   excludeFromAutoCenter?: boolean;
+  /**
+   * When `true` and the scene is in dynamic lighting mode, the renderer emits
+   * a flat shadow leaf sibling for each non-textured polygon. The shadow is
+   * projected onto the ground plane (min world-Y of all casting meshes) along
+   * the CSS-space light direction (driven by `--clx/--cly/--clz` vars). Zero
+   * JS in the render loop — the projection matrix is a CSS var that recomputes
+   * via `calc()` when the light vars change. Defaults to `false`.
+   */
+  castShadow?: boolean;
 }
 
 export interface PolyMeshHandle {
@@ -140,6 +175,15 @@ export interface PolyMeshHandle {
     stableDom?: boolean;
     recomputeAutoCenter?: boolean;
   }): void;
+  /**
+   * Update a single polygon in place. `target` is either a polygon
+   * reference (as returned by `getPolygons()`) or its index. `partial`
+   * fields are merged onto the polygon; the mesh is then re-rendered.
+   * Skips the merge pass, so this is cheaper than `setPolygons` for
+   * targeted edits like color picker updates from an inspector UI.
+   * Silently no-ops if `target` isn't found.
+   */
+  updatePolygon(target: Polygon | number, partial: Partial<Polygon>): void;
   /** Update transform without re-parsing. */
   setTransform(t: Partial<PolyMeshTransform>): void;
   /** Revoke any blob URLs the parse created. Idempotent. */
@@ -381,11 +425,16 @@ export function createPolyScene(
     wrapper: HTMLDivElement;
     parseResult: ParseResult;
     rendered: RenderedPoly[];
+    /** Shadow leaf elements, one per non-textured non-atlas polygon. Kept
+     *  separate from `rendered` so they can be removed independently when
+     *  castShadow is toggled or lighting mode changes. */
+    shadowRendered: HTMLElement[];
     disposeAtlas?: () => void;
     polygons: Polygon[];
     disposed: boolean;
     stableDom: boolean;
     excludeFromAutoCenter: boolean;
+    castShadow: boolean;
     /** Rotation snapshot used by the baked atlas baker. Advances only when
      *  `rebakeAtlas()` is called — not on every `setTransform`. */
     bakedRotation: Vec3;
@@ -415,6 +464,15 @@ export function createPolyScene(
   // <i> bakes its own normal directly into an inline calc() that reads these
   // vars to resolve the Lambert dot product and per-channel tint. Sliding
   // the light only writes these scene-root vars — no JS, no atlas redraw.
+  //
+  // Additionally emits --clx/--cly/--clz: the directional light expressed in
+  // CSS coordinate space (world-Y→CSS-X, world-X→CSS-Y, world-Z→CSS-Z). These
+  // are used by the shadow projection matrix (--shadow-proj) which must operate
+  // on matrix3d positions that live in CSS space — not world space. The Lambert
+  // dot product can use world-space normals because both normals and light sit
+  // in the same frame there; the shadow projection works against 3D positions
+  // that have already been through the axis swap, so it needs the light in
+  // that same swapped frame.
   function applyDynamicLightVars(el: HTMLElement, opts: PolySceneOptions): void {
     const dynamic = opts.textureLighting === "dynamic";
     el.dataset.polycssLighting = opts.textureLighting ?? "baked";
@@ -422,6 +480,7 @@ export function createPolyScene(
       "--plx", "--ply", "--plz",
       "--plr", "--plg", "--plb", "--pli",
       "--par", "--pag", "--pab", "--pai",
+      "--clx", "--cly", "--clz",
     ] as const;
     if (!dynamic) {
       for (const v of vars) el.style.removeProperty(v);
@@ -446,13 +505,34 @@ export function createPolyScene(
     el.style.setProperty("--pag", ch(ambRgb[1]));
     el.style.setProperty("--pab", ch(ambRgb[2]));
     el.style.setProperty("--pai", ambientIntensity.toFixed(4));
+    // Light direction vars for the shadow projection. These match the
+    // axis convention used by Lambert (`--plx/--ply/--plz`) where the
+    // X and Y component naming follows the user-facing light direction
+    // vector directly (NO world→CSS axis swap). The shadow projection
+    // matrix in styles.ts is written against this same convention.
+    // Clamp clz away from zero — shadow projection divides by clz (the
+    // up-axis component), so a near-horizontal light would project
+    // shadows to infinity.
+    const rawClz = lz;
+    const clz = Math.sign(rawClz || 1) * Math.max(Math.abs(rawClz), 0.01);
+    el.style.setProperty("--clx", lx.toFixed(4));
+    el.style.setProperty("--cly", ly.toFixed(4));
+    el.style.setProperty("--clz", clz.toFixed(4));
   }
 
   function clearRendered(entry: MeshEntry): void {
     disposeRendered(entry.rendered, entry.disposeAtlas);
     entry.disposeAtlas = undefined;
     entry.rendered.length = 0;
+    clearShadowLeaves(entry);
     while (entry.wrapper.firstChild) entry.wrapper.removeChild(entry.wrapper.firstChild);
+  }
+
+  function clearShadowLeaves(entry: MeshEntry): void {
+    for (const el of entry.shadowRendered) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }
+    entry.shadowRendered.length = 0;
   }
 
   function disposeRendered(rendered: RenderedPoly[], disposeAtlas?: () => void): void {
@@ -568,6 +648,98 @@ export function createPolyScene(
     }
   }
 
+  // Emits shadow leaves for all non-textured rendered polys in the entry.
+  // Each shadow leaf uses the same tag and shape as the original but with a
+  // flat shadow color and a transform prepended by var(--shadow-proj) so it
+  // projects onto the ground plane driven entirely by CSS vars.
+  //
+  // Shadow leaves are inserted BEFORE their caster siblings so they sit
+  // below in DOM order, which keeps them behind the casters when both are
+  // coplanar in 3D (painter-order tie-breaking favors earlier nodes).
+  function emitShadowLeaves(entry: MeshEntry): void {
+    clearShadowLeaves(entry);
+    if (!entry.castShadow || currentOptions.textureLighting !== "dynamic") return;
+
+    const shadowColor = currentOptions.shadow?.color ?? "#000000";
+    const shadowOpacity = currentOptions.shadow?.opacity ?? 0.25;
+    // Build a CSS rgba color from the hex + opacity.
+    const parsed = parseHexColor(shadowColor)?.rgb ?? [0, 0, 0];
+    const r = parsed[0], g = parsed[1], b = parsed[2];
+    const shadowColorCss = `rgba(${r},${g},${b},${shadowOpacity})`;
+
+    // Loose-tolerance dedup for shadow casting ONLY — much more permissive
+    // than the parse-time dedup that affects the rendered model. Multiple
+    // coincident or near-coincident polygons cast overlapping shadow
+    // leaves that visibly stack on the receiver; emitting one is enough.
+    // Tolerances allow ~25° off-parallel normals and ~0.5 world units of
+    // plane-offset drift, catching back-to-back doubled faces and minor
+    // importer artifacts without false-positively dropping legitimate
+    // inner/outer wall pairs that cast genuinely distinct shadows.
+    // Light-independent — runs once per mesh-polygon change, never per
+    // camera tick or light slider tick.
+    const shadowDedupDrop = findOverlappingPolygonDuplicates(entry.polygons, {
+      normalTolerance: 0.1,
+      distanceTolerance: 0.5,
+      overlapFraction: 0.4,
+    });
+
+    const fragment = doc.createDocumentFragment();
+    for (const item of entry.rendered) {
+      // Atlas (<s>) polygons cast shadows too — the shadow only needs
+      // the polygon's OUTLINE (border-shape) and a flat dark color, not
+      // the texture content. So fully textured meshes like the Frog Guy
+      // get proper shadows just like solid-color meshes.
+      // Skip polygons identified as shadow-duplicates of another caster.
+      if (shadowDedupDrop.has(item.polygonIndex)) continue;
+      const plan = item.plan;
+      if (!plan) continue;
+
+      // Read the original matrix3d from the plan (not from the element
+      // style string) so we never parse strings.
+      const origMatrix = `matrix3d(${plan.matrix})`;
+
+      // Shadow leaves emit as <q> — a dedicated single-letter element
+      // that lives alongside <b>/<i>/<s>/<u> in the tag-as-strategy
+      // taxonomy. Using its own tag means we don't have to thread
+      // `:not(.polycss-shadow)` exclusions through every dynamic-mode
+      // color rule (regular polygon leaves get relit by Lambert; shadow
+      // leaves shouldn't). Rendering rides the <q> + border-shape path
+      // mirrored from <i>'s border-color: currentColor mechanism.
+      // clip-path is forbidden by repo policy (4000+ clip-paths inside
+      // preserve-3d = ~15 s/frame on Chromium).
+      //
+      // The caster's normal is pinned inline as --pnx/--pny/--pnz so the
+      // cascade can compute a Lambert factor and gate the shadow's
+      // opacity: polygons facing AWAY from the light don't cast a
+      // shadow on the receiver (their projection is inside the
+      // silhouette of the front-facing parts anyway, just adding
+      // overdraw). Pure CSS — no JS at light-change time.
+      const shadowEl = doc.createElement("q");
+      shadowEl.className = "polycss-shadow";
+      shadowEl.style.transform = `var(--shadow-proj) ${origMatrix}`;
+      shadowEl.style.color = shadowColorCss;
+      shadowEl.style.width = `${plan.canvasW}px`;
+      shadowEl.style.height = `${plan.canvasH}px`;
+      shadowEl.style.setProperty("border-shape", cssBorderShapeForPlan(plan));
+      shadowEl.style.setProperty("--pnx", plan.normal[0].toFixed(4));
+      shadowEl.style.setProperty("--pny", plan.normal[1].toFixed(4));
+      shadowEl.style.setProperty("--pnz", plan.normal[2].toFixed(4));
+
+      fragment.appendChild(shadowEl);
+      entry.shadowRendered.push(shadowEl);
+    }
+
+    // Insert all shadow leaves BEFORE the first normal polygon child so
+    // they appear below casters in DOM order. appendChild would put them
+    // after; insertBefore(fragment, firstChild) puts them at the front.
+    const firstChild = entry.wrapper.firstChild;
+    if (firstChild) {
+      entry.wrapper.insertBefore(fragment, firstChild);
+    } else {
+      entry.wrapper.appendChild(fragment);
+    }
+  }
+
   function renderEntry(entry: MeshEntry, lightDirectionOverride?: Vec3): void {
     clearRendered(entry);
     const baseDirLight = currentOptions.directionalLight;
@@ -597,6 +769,43 @@ export function createPolyScene(
     entry.rendered = atlas.rendered;
     entry.disposeAtlas = atlas.dispose;
     syncMountedRendered(entry);
+    emitShadowLeaves(entry);
+  }
+
+  // Recomputes --shadow-ground-cssz from the minimum world-Z across all
+  // casting meshes. World Z stays as CSS Z under the world→CSS axis swap.
+  // In polycss's world convention Z is up — the red-green plane in the axes
+  // helper is the floor. An optional `lift` (in world units) raises the
+  // plane slightly above the bbox floor to prevent z-fighting with
+  // receiver polygons.
+  function recomputeShadowGround(): void {
+    if (currentOptions.textureLighting !== "dynamic") {
+      sceneEl.style.removeProperty("--shadow-ground-cssz");
+      return;
+    }
+    let minWorldZ = Infinity;
+    for (const m of meshes) {
+      if (!m.disposed && m.castShadow) {
+        for (const poly of m.polygons) {
+          for (const v of poly.vertices) {
+            if (v[2] < minWorldZ) minWorldZ = v[2];
+          }
+        }
+      }
+    }
+    if (!Number.isFinite(minWorldZ)) {
+      sceneEl.style.removeProperty("--shadow-ground-cssz");
+      return;
+    }
+    const lift = currentOptions.shadow?.lift ?? 0.05;
+    // World Z → CSS Z: the ground plane in CSS-Z coordinates. Lift is added
+    // (not subtracted) so the shadow plane sits slightly *above* the model
+    // bbox floor — putting it on top of a receiver mesh placed at minZ
+    // rather than below it, where the receiver would occlude the shadow.
+    // Stored as a unitless number (not px) because matrix3d() calc() entries
+    // must be dimensionless — see styles.ts @property --shadow-ground-cssz.
+    const groundCssZ = (minWorldZ + lift) * DEFAULT_TILE;
+    sceneEl.style.setProperty("--shadow-ground-cssz", groundCssZ.toFixed(3));
   }
 
   function recomputeAutoCenter(): void {
@@ -686,10 +895,12 @@ export function createPolyScene(
       wrapper,
       parseResult,
       rendered: [],
+      shadowRendered: [],
       polygons: sourcePolygons,
       disposed: false,
       stableDom: stableDomOnUpdate,
       excludeFromAutoCenter: !!transformIn.excludeFromAutoCenter,
+      castShadow: !!transformIn.castShadow,
       bakedRotation: (transformIn.rotation ? [...transformIn.rotation] : [0, 0, 0]) as Vec3,
     };
 
@@ -704,6 +915,7 @@ export function createPolyScene(
         clearRendered(entry);
         meshes.delete(entry);
         recomputeAutoCenter();
+        recomputeShadowGround();
       },
       setPolygons(polygons: Polygon[], options?: {
         merge?: boolean;
@@ -742,11 +954,25 @@ export function createPolyScene(
         renderEntry(entry);
         if (shouldRecomputeAutoCenter) recomputeAutoCenter();
       },
+      updatePolygon(target: Polygon | number, partial: Partial<Polygon>) {
+        const idx = typeof target === "number"
+          ? target
+          : entry.polygons.indexOf(target);
+        if (idx < 0 || idx >= entry.polygons.length) return;
+        Object.assign(entry.polygons[idx], partial);
+        renderEntry(entry);
+      },
       setTransform(t: Partial<PolyMeshTransform>) {
+        const prevCastShadow = entry.castShadow;
+        if (t.castShadow !== undefined) entry.castShadow = !!t.castShadow;
         transform = { ...transform, ...t };
         const css2 = buildMeshTransform(transform);
         wrapper.style.transform = css2 ?? "";
         applyMeshLightVarOverride(wrapper, transform.rotation);
+        if (entry.castShadow !== prevCastShadow) {
+          emitShadowLeaves(entry);
+          recomputeShadowGround();
+        }
       },
       dispose() {
         if (entry.disposed) return;
@@ -756,6 +982,7 @@ export function createPolyScene(
         try { parseResult.dispose(); } catch { /* ignore */ }
         meshes.delete(entry);
         recomputeAutoCenter();
+        recomputeShadowGround();
       },
       rebakeAtlas() {
         // Advance the baked rotation to match the current live rotation.
@@ -781,6 +1008,7 @@ export function createPolyScene(
     renderEntry(entry);
     applyMeshLightVarOverride(wrapper, transform.rotation);
     recomputeAutoCenter();
+    recomputeShadowGround();
     return handle;
   }
 
@@ -788,6 +1016,7 @@ export function createPolyScene(
     const prevAutoCenter = !!currentOptions.autoCenter;
     const prevStrategies = currentOptions.strategies;
     const prevExperimentalTextureEdgeRepair = !!currentOptions.experimentalTextureEdgeRepair;
+    const prevTextureLighting = currentOptions.textureLighting;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
@@ -810,6 +1039,14 @@ export function createPolyScene(
       for (const entry of meshes) renderEntry(entry);
     }
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
+    // When lighting mode changes, re-emit or clear shadow leaves on all meshes
+    // that have castShadow set. Shadow emission is only valid in dynamic mode.
+    const textureLightingChanged = partial.textureLighting !== undefined &&
+      prevTextureLighting !== currentOptions.textureLighting;
+    if (textureLightingChanged) {
+      for (const entry of meshes) emitShadowLeaves(entry);
+      recomputeShadowGround();
+    }
   }
 
   function getOptions(): Readonly<PolySceneOptions> {

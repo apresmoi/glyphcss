@@ -25,6 +25,15 @@ export interface PolyMeshHandle {
   getScale(): number | Vec3 | undefined;
   getPolygons(): Polygon[];
   /**
+   * Update a single polygon in place. `target` is either a polygon
+   * reference (as returned by `getPolygons()`) or its index. `partial`
+   * fields are merged onto the polygon; the mesh is then re-rendered.
+   * Skips the merge pass, so this is cheaper than replacing the
+   * `polygons` prop for targeted edits like color picker updates from
+   * an inspector UI. Silently no-ops if `target` isn't found.
+   */
+  updatePolygon(target: Polygon | number, partial: Partial<Polygon>): void;
+  /**
    * Re-rasterize the baked texture atlas using the mesh's current rotation.
    *
    * Call this after a rotation gesture completes (e.g. on rotate-ring pointer

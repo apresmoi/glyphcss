@@ -782,6 +782,76 @@ describe("createPolyScene", () => {
     });
   });
 
+  describe("updatePolygon", () => {
+    it("mutates the polygon's color when targeted by reference", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle("#ff0000")]), { merge: false });
+      const poly = handle.polygons[0];
+      handle.updatePolygon(poly, { color: "#00ff00" });
+      expect(handle.polygons[0].color).toBe("#00ff00");
+      // Identity preserved — mutation is in place so consumers holding refs see it.
+      expect(handle.polygons[0]).toBe(poly);
+    });
+
+    it("mutates the polygon's color when targeted by index", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(
+        makeParseResult([triangle("#ff0000"), triangle("#00ff00")]),
+        { merge: false },
+      );
+      handle.updatePolygon(1, { color: "#0000ff" });
+      expect(handle.polygons[1].color).toBe("#0000ff");
+      expect(handle.polygons[0].color).toBe("#ff0000");
+    });
+
+    it("merges partial fields onto the polygon (only updates what's passed)", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle("#ff0000")]), { merge: false });
+      const originalVerts = handle.polygons[0].vertices;
+      handle.updatePolygon(0, { color: "#00ff00" });
+      expect(handle.polygons[0].color).toBe("#00ff00");
+      expect(handle.polygons[0].vertices).toBe(originalVerts);
+    });
+
+    it("re-renders the mesh DOM (leaf elements are fresh after update)", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle("#ff0000")]), { merge: false });
+      const before = host.querySelector("u, b, i, s") as HTMLElement;
+      handle.updatePolygon(0, { color: "#00ff00" });
+      const after = host.querySelector("u, b, i, s") as HTMLElement;
+      // renderEntry tears down and re-emits; the leaf is a fresh node.
+      expect(after).not.toBe(before);
+    });
+
+    it("no-ops on a stale polygon reference (not in the current polygons array)", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle("#ff0000")]), { merge: false });
+      const stale: Polygon = { vertices: triangle().vertices, color: "#abcdef" };
+      const elBefore = host.querySelector("u, b, i, s");
+      expect(() => handle.updatePolygon(stale, { color: "#000000" })).not.toThrow();
+      expect(handle.polygons[0].color).toBe("#ff0000");
+      // No re-render either — DOM untouched.
+      expect(host.querySelector("u, b, i, s")).toBe(elBefore);
+    });
+
+    it("no-ops when index is out of range", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle("#ff0000")]), { merge: false });
+      expect(() => handle.updatePolygon(99, { color: "#000000" })).not.toThrow();
+      expect(() => handle.updatePolygon(-1, { color: "#000000" })).not.toThrow();
+      expect(handle.polygons[0].color).toBe("#ff0000");
+    });
+
+    it("can be called repeatedly to step through colors", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle("#ff0000")]), { merge: false });
+      handle.updatePolygon(0, { color: "#00ff00" });
+      handle.updatePolygon(0, { color: "#0000ff" });
+      handle.updatePolygon(0, { color: "#ffff00" });
+      expect(handle.polygons[0].color).toBe("#ffff00");
+    });
+  });
+
   describe("autoCenter", () => {
     it("default (no autoCenter) leaves the scene translate3d at origin", () => {
       scene = createPolyScene(host);
@@ -895,6 +965,150 @@ describe("createPolyScene", () => {
       // Sanity check: without the flag, the same overlay DOES shift the bbox.
       scene.add(makeParseResult([farAway]));
       expect(getSceneTranslatePart(host)).not.toBe(before);
+    });
+  });
+
+  describe("castShadow", () => {
+    const dynOpts = {
+      textureLighting: "dynamic" as const,
+      directionalLight: { direction: [0.4, -0.7, 0.59] as [number, number, number], color: "#ffffff", intensity: 1 },
+    };
+
+    it("default (no castShadow) emits no .polycss-shadow elements", () => {
+      scene = createPolyScene(host, dynOpts);
+      scene.add(makeParseResult([triangle()]));
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(0);
+    });
+
+    it("castShadow:true in dynamic mode emits shadow leaves, one per non-textured polygon", () => {
+      scene = createPolyScene(host, dynOpts);
+      // Use spatially distinct triangles so the loose shadow-dedup pass
+      // doesn't fold them into one shadow (two triangles at the same
+      // location WOULD be deduped, which is the intended behavior).
+      const distinctTri: Polygon = {
+        vertices: [[10, 10, 5], [11, 10, 5], [10, 11, 5]],
+        color: "#00ff00",
+      };
+      scene.add(makeParseResult([triangle(), distinctTri]), { castShadow: true, merge: false });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(2);
+    });
+
+    it("castShadow:true in baked mode emits NO shadow leaves", () => {
+      scene = createPolyScene(host, { textureLighting: "baked" });
+      scene.add(makeParseResult([triangle()]), { castShadow: true });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(0);
+    });
+
+    it("shadow leaves have the polycss-shadow class", () => {
+      scene = createPolyScene(host, dynOpts);
+      scene.add(makeParseResult([triangle()]), { castShadow: true });
+      const shadows = host.querySelectorAll(".polycss-shadow");
+      expect(shadows.length).toBeGreaterThan(0);
+      for (const el of Array.from(shadows)) {
+        expect(el.classList.contains("polycss-shadow")).toBe(true);
+      }
+    });
+
+    it("shadow leaves are always <q> with border-shape regardless of caster tag", () => {
+      scene = createPolyScene(host, dynOpts);
+      // Mix shapes at distinct 3D positions (otherwise the loose-tolerance
+      // shadow dedup pass folds them into one shadow). Each emits a <q>
+      // shadow — a dedicated single-letter render strategy in the tag
+      // taxonomy alongside <b>/<i>/<s>/<u>, kept clear of the dynamic-
+      // mode Lambert color rule.
+      const distinctTri: Polygon = {
+        vertices: [[10, 10, 5], [11, 10, 5], [10, 11, 5]],
+        color: "#00ff00",
+      };
+      scene.add(makeParseResult([triangle(), distinctTri]), {
+        castShadow: true,
+        merge: false,
+      });
+      const shadows = Array.from(host.querySelectorAll(".polycss-shadow"));
+      expect(shadows.length).toBeGreaterThan(0);
+      for (const el of shadows) {
+        expect((el as HTMLElement).tagName.toLowerCase()).toBe("q");
+        expect((el as HTMLElement).style.getPropertyValue("border-shape")).not.toBe("");
+      }
+    });
+
+    it("shadow leaves transform contains var(--shadow-proj) followed by matrix3d", () => {
+      scene = createPolyScene(host, dynOpts);
+      scene.add(makeParseResult([triangle()]), { castShadow: true });
+      const shadow = host.querySelector(".polycss-shadow") as HTMLElement;
+      expect(shadow).not.toBeNull();
+      expect(shadow.style.transform).toMatch(/^var\(--shadow-proj\)\s+matrix3d\(/);
+    });
+
+    it("adding a casting mesh sets --shadow-ground-cssz on the scene element", () => {
+      scene = createPolyScene(host, dynOpts);
+      scene.add(makeParseResult([triangle()]), { castShadow: true });
+      const sceneEl = getSceneEl(host);
+      const groundVar = sceneEl.style.getPropertyValue("--shadow-ground-cssz");
+      expect(groundVar).not.toBe("");
+    });
+
+    it("removing the casting mesh clears --shadow-ground-cssz", () => {
+      scene = createPolyScene(host, dynOpts);
+      const handle = scene.add(makeParseResult([triangle()]), { castShadow: true });
+      const sceneEl = getSceneEl(host);
+      expect(sceneEl.style.getPropertyValue("--shadow-ground-cssz")).not.toBe("");
+      handle.remove();
+      expect(sceneEl.style.getPropertyValue("--shadow-ground-cssz")).toBe("");
+    });
+
+    it("toggling castShadow via setTransform adds/removes shadow leaves", () => {
+      scene = createPolyScene(host, dynOpts);
+      const handle = scene.add(makeParseResult([triangle()]), { castShadow: false });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(0);
+      handle.setTransform({ castShadow: true });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBeGreaterThan(0);
+      handle.setTransform({ castShadow: false });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(0);
+    });
+
+    it("switching from dynamic to baked removes shadow leaves", () => {
+      scene = createPolyScene(host, dynOpts);
+      scene.add(makeParseResult([triangle()]), { castShadow: true });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBeGreaterThan(0);
+      scene.setOptions({ textureLighting: "baked" });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(0);
+    });
+
+    it("switching from baked back to dynamic re-emits shadow leaves", () => {
+      scene = createPolyScene(host, { textureLighting: "baked" });
+      scene.add(makeParseResult([triangle()]), { castShadow: true });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(0);
+      scene.setOptions({ ...dynOpts });
+      expect(host.querySelectorAll(".polycss-shadow").length).toBeGreaterThan(0);
+    });
+
+    it("textured polygons (s) ALSO emit shadow leaves", () => {
+      scene = createPolyScene(host, dynOpts);
+      scene.add(makeParseResult([texturedTriangle()]), { castShadow: true });
+      // Shadows depend only on the polygon's outline, not its texture
+      // content. Atlas (<s>) polygons cast shadows the same way as
+      // <b>/<i>/<u> — a flat <q> projected onto the ground. Otherwise
+      // fully textured meshes (e.g. Frog Guy) get no shadow at all.
+      expect(host.querySelectorAll(".polycss-shadow").length).toBe(1);
+    });
+
+    it("--clx/--cly/--clz are set on the scene element in dynamic mode", () => {
+      scene = createPolyScene(host, dynOpts);
+      const sceneEl = getSceneEl(host);
+      expect(sceneEl.style.getPropertyValue("--clx")).not.toBe("");
+      expect(sceneEl.style.getPropertyValue("--cly")).not.toBe("");
+      expect(sceneEl.style.getPropertyValue("--clz")).not.toBe("");
+    });
+
+    it("--clx/--cly/--clz are removed when lighting switches to baked", () => {
+      scene = createPolyScene(host, dynOpts);
+      const sceneEl = getSceneEl(host);
+      expect(sceneEl.style.getPropertyValue("--clx")).not.toBe("");
+      scene.setOptions({ textureLighting: "baked" });
+      expect(sceneEl.style.getPropertyValue("--clx")).toBe("");
+      expect(sceneEl.style.getPropertyValue("--cly")).toBe("");
+      expect(sceneEl.style.getPropertyValue("--clz")).toBe("");
     });
   });
 });

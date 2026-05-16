@@ -399,3 +399,102 @@ describe("PolyMesh — rebakeAtlas", () => {
     expect(meshAfter).toBeTruthy();
   });
 });
+
+describe("PolyMesh — updatePolygon", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    document.body.innerHTML = "";
+  });
+
+  function mountMesh(polygons: Polygon[]): { ref: React.RefObject<PolyMeshHandle | null>; container: HTMLElement } {
+    const ref = createRef<PolyMeshHandle>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <PolyCamera>
+          <PolyScene>
+            <PolyMesh ref={ref} polygons={polygons} />
+          </PolyScene>
+        </PolyCamera>,
+      ),
+    );
+    return { ref, container };
+  }
+
+  it("updates color when targeted by polygon reference", () => {
+    const poly: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const { ref } = mountMesh([poly]);
+    const polyRef = ref.current!.getPolygons()[0];
+    act(() => { ref.current!.updatePolygon(polyRef, { color: "#00ff00" }); });
+    expect(ref.current!.getPolygons()[0].color).toBe("#00ff00");
+    // In-place mutation: same object identity.
+    expect(ref.current!.getPolygons()[0]).toBe(polyRef);
+  });
+
+  it("updates color when targeted by index", () => {
+    const p0: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const p1: Polygon = { vertices: [[0, 0, 1], [2, 0, 1], [2, 2, 1], [0, 2, 1]], color: "#00ff00" };
+    const { ref } = mountMesh([p0, p1]);
+    act(() => { ref.current!.updatePolygon(1, { color: "#0000ff" }); });
+    expect(ref.current!.getPolygons()[1].color).toBe("#0000ff");
+    expect(ref.current!.getPolygons()[0].color).toBe("#ff0000");
+  });
+
+  it("merges partial fields — untouched fields are preserved", () => {
+    const poly: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const { ref } = mountMesh([poly]);
+    const originalVerts = ref.current!.getPolygons()[0].vertices;
+    act(() => { ref.current!.updatePolygon(0, { color: "#00ff00" }); });
+    expect(ref.current!.getPolygons()[0].color).toBe("#00ff00");
+    expect(ref.current!.getPolygons()[0].vertices).toBe(originalVerts);
+  });
+
+  it("re-renders the DOM after update (painted color reflects the new value)", () => {
+    // React reconciles leaf elements in place (same key → same DOM node).
+    // Verify the re-render happened by checking the color CSS var or the
+    // inline style that encodes the polygon color changes to the new value.
+    const poly: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const { ref, container } = mountMesh([poly]);
+    const meshBefore = container.querySelector(".polycss-mesh") as HTMLElement;
+    expect(meshBefore).toBeTruthy();
+    act(() => { ref.current!.updatePolygon(0, { color: "#00ff00" }); });
+    // After re-render the mesh wrapper is still in the DOM.
+    const meshAfter = container.querySelector(".polycss-mesh") as HTMLElement;
+    expect(meshAfter).toBeTruthy();
+    // The internal polygon data reflects the new color.
+    expect(ref.current!.getPolygons()[0].color).toBe("#00ff00");
+  });
+
+  it("no-ops on a stale polygon reference not in the current polygons", () => {
+    const poly: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const { ref, container } = mountMesh([poly]);
+    const stale: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#abcdef" };
+    const leafBefore = container.querySelector("u, b, i, s");
+    expect(() => act(() => { ref.current!.updatePolygon(stale, { color: "#000000" }); })).not.toThrow();
+    expect(ref.current!.getPolygons()[0].color).toBe("#ff0000");
+    // No re-render — DOM leaf unchanged.
+    expect(container.querySelector("u, b, i, s")).toBe(leafBefore);
+  });
+
+  it("no-ops when index is out of range", () => {
+    const poly: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const { ref } = mountMesh([poly]);
+    expect(() => act(() => { ref.current!.updatePolygon(99, { color: "#000000" }); })).not.toThrow();
+    expect(() => act(() => { ref.current!.updatePolygon(-1, { color: "#000000" }); })).not.toThrow();
+    expect(ref.current!.getPolygons()[0].color).toBe("#ff0000");
+  });
+
+  it("repeated calls all take effect (last write wins)", () => {
+    const poly: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#ff0000" };
+    const { ref } = mountMesh([poly]);
+    act(() => {
+      ref.current!.updatePolygon(0, { color: "#00ff00" });
+      ref.current!.updatePolygon(0, { color: "#0000ff" });
+      ref.current!.updatePolygon(0, { color: "#ffff00" });
+    });
+    expect(ref.current!.getPolygons()[0].color).toBe("#ffff00");
+  });
+});

@@ -30,6 +30,7 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 | `<i>` | **Border-shape clipped solid** | Untextured non-rect on browsers with CSS `border-shape` (Chromium + `pointer:fine` + `hover:hover`) | `border-color: currentColor` clipped by `border-shape: polygon(...)` | None |
 | `<s>` | **Atlas slice** | Textured polygons, or untextured non-rect on browsers without `border-shape` | `background-image` slice of packed bitmap | Bounding-rect area |
 | `<u>` | **Stable solid triangle** | Opt-in for triangles via `renderPolygonsWithStableTriangles` | CSS border-color triangle trick (collapsed `width:0/height:0` element with asymmetric border) | None |
+| `<q>` | **Cast shadow leaf** | Per casting polygon when `castShadow: true` and dynamic lighting mode. Applies regardless of caster strategy — `<b>`/`<i>`/`<s>`/`<u>` all produce a `<q>` shadow because only the polygon's outline matters, not its surface. | Same `border-color: currentColor` + `border-shape: polygon(...)` as `<i>`, but transform composes `var(--shadow-proj)` to project the polygon onto the ground plane along the CSS-space light direction | None |
 
 Strategies are ordered cheapest → most expensive. The mesher's job is to maximise `<b>` / `<i>` and minimise `<s>` (see "Meshing implications" below).
 

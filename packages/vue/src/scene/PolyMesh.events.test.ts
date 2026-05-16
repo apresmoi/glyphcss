@@ -375,3 +375,84 @@ describe("PolyMesh (Vue) — rebakeAtlas", () => {
     expect(() => handle!.rebakeAtlas()).not.toThrow();
   });
 });
+
+// ── 12. updatePolygon ─────────────────────────────────────────────────────
+describe("PolyMesh (Vue) — updatePolygon", () => {
+  it("updates polygon color when targeted by reference", async () => {
+    const poly: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const { getHandle } = mountMesh({ polygons: [poly] });
+    const handle = getHandle()!;
+    const ref = handle.getPolygons()[0];
+    handle.updatePolygon(ref, { color: "#00ff00" });
+    await nextTick();
+    expect(handle.getPolygons()[0].color).toBe("#00ff00");
+  });
+
+  it("updates polygon color when targeted by index", async () => {
+    const p0: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const p1: Polygon = { vertices: TRIANGLE.vertices, color: "#00ff00" };
+    const { getHandle } = mountMesh({ polygons: [p0, p1] });
+    const handle = getHandle()!;
+    handle.updatePolygon(1, { color: "#0000ff" });
+    await nextTick();
+    expect(handle.getPolygons()[1].color).toBe("#0000ff");
+    expect(handle.getPolygons()[0].color).toBe("#ff0000");
+  });
+
+  it("merges partial fields onto the polygon without touching other fields", async () => {
+    const poly: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const { getHandle } = mountMesh({ polygons: [poly] });
+    const handle = getHandle()!;
+    handle.updatePolygon(0, { color: "#00ff00" });
+    await nextTick();
+    expect(handle.getPolygons()[0].color).toBe("#00ff00");
+    // vertices array content is unchanged (deep equality; Vue may proxy the ref)
+    expect(handle.getPolygons()[0].vertices).toStrictEqual(TRIANGLE.vertices);
+  });
+
+  it("re-renders the mesh after update (getPolygons reflects the new color)", async () => {
+    const poly: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const { container, getHandle } = mountMesh({ polygons: [poly] });
+    const handle = getHandle()!;
+    expect(container.querySelector("u, b, i, s")).toBeTruthy();
+    handle.updatePolygon(0, { color: "#00ff00" });
+    await nextTick();
+    // After re-render the mesh still has polygon leaf elements and the
+    // updated color is reflected in the handle.
+    expect(container.querySelector("u, b, i, s")).toBeTruthy();
+    expect(handle.getPolygons()[0].color).toBe("#00ff00");
+  });
+
+  it("no-ops on a stale polygon reference not in the current array", async () => {
+    const poly: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const stale: Polygon = { vertices: TRIANGLE.vertices, color: "#abcdef" };
+    const { container, getHandle } = mountMesh({ polygons: [poly] });
+    const handle = getHandle()!;
+    const elBefore = container.querySelector("u, b, i, s");
+    expect(() => handle.updatePolygon(stale, { color: "#000000" })).not.toThrow();
+    await nextTick();
+    expect(handle.getPolygons()[0].color).toBe("#ff0000");
+    expect(container.querySelector("u, b, i, s")).toBe(elBefore);
+  });
+
+  it("no-ops when index is out of range", async () => {
+    const poly: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const { getHandle } = mountMesh({ polygons: [poly] });
+    const handle = getHandle()!;
+    expect(() => handle.updatePolygon(99, { color: "#000000" })).not.toThrow();
+    expect(() => handle.updatePolygon(-1, { color: "#000000" })).not.toThrow();
+    await nextTick();
+    expect(handle.getPolygons()[0].color).toBe("#ff0000");
+  });
+
+  it("can be called repeatedly and each call takes effect", async () => {
+    const poly: Polygon = { vertices: TRIANGLE.vertices, color: "#ff0000" };
+    const { getHandle } = mountMesh({ polygons: [poly] });
+    const handle = getHandle()!;
+    handle.updatePolygon(0, { color: "#00ff00" });
+    handle.updatePolygon(0, { color: "#0000ff" });
+    handle.updatePolygon(0, { color: "#ffff00" });
+    await nextTick();
+    expect(handle.getPolygons()[0].color).toBe("#ffff00");
+  });
+});

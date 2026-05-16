@@ -53,6 +53,11 @@ import type {
   VoxParseOptions,
 } from "@layoutit/polycss";
 import Stats from "stats-js/src/Stats.js";
+import {
+  InspectorPanel,
+  type InspectorColorGroup,
+  type InspectorMesh,
+} from "./InspectorPanel";
 import "./debug-workbench.css";
 
 type Renderer = "react" | "vanilla";
@@ -145,6 +150,8 @@ interface SceneOptionsState {
   dragMode: "orbit" | "pan";
   target: ReactVec3;
   disableStrategies: PolyRenderStrategy[];
+  castShadow: boolean;
+  showGround: boolean;
 }
 
 interface ParserOptionsState {
@@ -1457,6 +1464,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   dragMode: "orbit",
   target: [0, 0, 0],
   disableStrategies: [],
+  castShadow: false,
+  showGround: false,
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -3603,6 +3612,7 @@ function VanillaScene({
   ambientLight,
   showAxes,
   showLight,
+  showGround,
   helperScale,
   helperTarget,
   mergePolygonsForMesh,
@@ -3617,6 +3627,7 @@ function VanillaScene({
   gizmoMode,
   enableHover,
   onHoverChange,
+  onMeshHandleChange,
 }: {
   polygons: Polygon[];
   options: SceneOptionsState;
@@ -3624,6 +3635,7 @@ function VanillaScene({
   ambientLight: PolyAmbientLight;
   showAxes: boolean;
   showLight: boolean;
+  showGround: boolean;
   helperScale: number;
   helperTarget: Vec3;
   mergePolygonsForMesh: boolean;
@@ -3638,6 +3650,7 @@ function VanillaScene({
   gizmoMode?: GizmoMode;
   enableHover?: boolean;
   onHoverChange?: (id: string | null) => void;
+  onMeshHandleChange?: (handle: VanillaPolyMeshHandle | null) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<PolySceneHandle | null>(null);
@@ -3645,6 +3658,7 @@ function VanillaScene({
   const meshHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const axesHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const lightHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
+  const groundHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const selectionRef = useRef<PolySelectionHandle | null>(null);
   const transformControlsRef = useRef<PolyTransformControlsHandle | null>(null);
   const onBuildRef = useRef(onBuild);
@@ -3655,6 +3669,8 @@ function VanillaScene({
   onSelectionChangeRef.current = onSelectionChange;
   const onHoverChangeRef = useRef(onHoverChange);
   onHoverChangeRef.current = onHoverChange;
+  const onMeshHandleChangeRef = useRef(onMeshHandleChange);
+  onMeshHandleChangeRef.current = onMeshHandleChange;
   const animationPausedRef = useRef(options.animationPaused);
   animationPausedRef.current = options.animationPaused;
   const animationTimeScaleRef = useRef(options.animationTimeScale);
@@ -3697,15 +3713,18 @@ function VanillaScene({
       objectUrls: [],
       warnings: [],
       dispose: () => {},
-    }, { merge: mergePolygonsForMesh, stableDom: stableDomForMesh, id: meshId });
+    }, { merge: mergePolygonsForMesh, stableDom: stableDomForMesh, id: meshId, castShadow: options.castShadow });
     meshHandleRef.current.element.classList.add("dn-model-mesh");
+    onMeshHandleChangeRef.current?.(meshHandleRef.current);
     return () => {
       // Tear controls down BEFORE destroying the scene — otherwise the
       // controls' rAF tick could fire one more time against a stale handle.
+      onMeshHandleChangeRef.current?.(null);
       controlsRef.current?.destroy();
       controlsRef.current = null;
       axesHandleRef.current = null;
       lightHandleRef.current = null;
+      groundHandleRef.current = null;
       meshHandleRef.current = null;
       sceneRef.current = null;
       scene.destroy();
@@ -3734,6 +3753,13 @@ function VanillaScene({
       onBuildRef.current(performance.now() - started),
     );
   }, [polygons, mergePolygonsForMesh, stableDomForMesh]);
+
+  // Effect 1.6 — live-toggle castShadow without rebuilding the scene.
+  useEffect(() => {
+    const handle = meshHandleRef.current;
+    if (!handle) return;
+    handle.setTransform({ castShadow: options.castShadow });
+  }, [options.castShadow]);
 
   // Selection + transform-controls layer. Selection toggle controls
   // both — when on, clicking the mesh selects it (and attaches the
@@ -3991,6 +4017,74 @@ function VanillaScene({
     stableAmbientForRebuild,
   ]);
 
+  // Effect 3.5 — ground receiver. A flat quad in the XY plane (Z is "up"
+  // in polycss's world convention — the red-green plane in the axes helper
+  // is the floor) at the model's min-Z, sized to ~3× the model's horizontal
+  // span. Gives shadows something to land on. excludeFromAutoCenter so
+  // toggling it doesn't shift the camera pivot; castShadow:false because
+  // the floor doesn't shadow itself.
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (!showGround || polygons.length === 0) {
+      groundHandleRef.current?.dispose();
+      groundHandleRef.current = null;
+      return;
+    }
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const p of polygons) {
+      for (const v of p.vertices) {
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+        if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+      }
+    }
+    if (!Number.isFinite(minZ)) {
+      groundHandleRef.current?.dispose();
+      groundHandleRef.current = null;
+      return;
+    }
+    const span = Math.max(maxX - minX, maxY - minY, 1);
+    const pad = span * 1.5;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const z = minZ;
+    const groundPoly: Polygon = {
+      vertices: [
+        [cx - pad, cy - pad, z],
+        [cx + pad, cy - pad, z],
+        [cx + pad, cy + pad, z],
+        [cx - pad, cy + pad, z],
+      ],
+      // Medium gray — needs to be light enough that the 25% black shadow
+      // on top has visible contrast (the page background is near-black).
+      color: "#7d848e",
+    };
+    groundHandleRef.current = scene.add(
+      {
+        polygons: [groundPoly],
+        objectUrls: [],
+        warnings: [],
+        dispose: () => {},
+      },
+      { excludeFromAutoCenter: true, castShadow: false },
+    );
+    return () => {
+      groundHandleRef.current?.dispose();
+      groundHandleRef.current = null;
+    };
+  }, [
+    showGround,
+    polygons,
+    options.autoCenter,
+    options.textureQuality,
+    options.textureLighting,
+    options.perspective,
+    stableDirectionalForRebuild,
+    stableAmbientForRebuild,
+  ]);
+
   // Effect 4 — light helper. Octahedron at LOCAL origin so polygons stay
   // stable across light moves; the light direction only updates the
   // mesh wrapper transform.
@@ -4110,6 +4204,10 @@ export default function DebugWorkbench() {
   const guiHostRef = useRef<HTMLDivElement | null>(null);
   const guiRef = useRef<GUI | null>(null);
   const guiControllersRef = useRef<GuiControllerMap>({});
+  // Mesh handle for the currently rendered model (vanilla path only). The
+  // Inspector folder uses this to push color-group edits back into the
+  // scene via setPolygons. Set by VanillaScene's onMeshHandleChange.
+  const activeMeshHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const statsFrameRef = useRef<number | null>(null);
   // Vanilla selection state — kept separate from React's
   // `selectedMeshes` because vanilla MeshHandles aren't comparable to
@@ -4701,6 +4799,8 @@ export default function DebugWorkbench() {
       lightColor: sceneOptions.lightColor,
       ambientIntensity: sceneOptions.ambientIntensity,
       ambientColor: sceneOptions.ambientColor,
+      castShadow: sceneOptions.castShadow,
+      showGround: sceneOptions.showGround,
     };
 
     const model = gui.addFolder("Model");
@@ -4918,6 +5018,14 @@ export default function DebugWorkbench() {
 
     const lights = gui.addFolder("Lighting");
     lights.open();
+    const castShadowController = lights
+      .add(lightState, "castShadow")
+      .name("Cast shadow")
+      .onChange((value: boolean) => updateScene({ castShadow: value }));
+    const showGroundController = lights
+      .add(lightState, "showGround")
+      .name("Show ground")
+      .onChange((value: boolean) => updateScene({ showGround: value }));
     const lightController = lights
       .add(lightState, "showLight")
       .name("Light helper")
@@ -4999,6 +5107,8 @@ export default function DebugWorkbench() {
       targetX: targetXController,
       targetY: targetYController,
       targetZ: targetZController,
+      castShadow: castShadowController,
+      showGround: showGroundController,
       showLight: lightController,
       lightAzimuth: azimuthController,
       lightElevation: elevationController,
@@ -5020,6 +5130,67 @@ export default function DebugWorkbench() {
       guiControllersRef.current = {};
     };
   }, []);
+
+  // Inspector data — grouped by mesh, then by polygon color. Recomputed
+  // when scenePolygons or the loaded model change. Mutations to a
+  // polygon's color via the picker do NOT change the scenePolygons
+  // reference, so this memo doesn't re-fire on each tweak and the swatch
+  // local state stays in sync.
+  const inspectorMeshes = useMemo<InspectorMesh[]>(() => {
+    if (scenePolygons.length === 0) return [];
+    const colorGroups = new Map<string, Polygon[]>();
+    const textured: Polygon[] = [];
+    for (const p of scenePolygons) {
+      if (p.texture) {
+        textured.push(p);
+        continue;
+      }
+      if (!p.color) continue;
+      let arr = colorGroups.get(p.color);
+      if (!arr) {
+        arr = [];
+        colorGroups.set(p.color, arr);
+      }
+      arr.push(p);
+    }
+    if (colorGroups.size === 0 && textured.length === 0) return [];
+    const sortedColors = [...colorGroups.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([color, polys]) => ({
+        color,
+        count: polys.length,
+        editable: true,
+        polygons: polys,
+      }));
+    const groups: InspectorColorGroup[] = sortedColors;
+    if (textured.length > 0) {
+      groups.push({
+        color: "textured",
+        count: textured.length,
+        editable: false,
+        polygons: textured,
+      });
+    }
+    const label = loaded?.label ?? "model";
+    return [{ id: label, label, groups }];
+  }, [scenePolygons, loaded?.label]);
+
+  const handleInspectorColorChange = useCallback(
+    (
+      _mesh: InspectorMesh,
+      group: InspectorColorGroup,
+      next: string,
+    ) => {
+      for (const p of group.polygons) p.color = next;
+      const handle = activeMeshHandleRef.current;
+      // Pass the *source* polygons (pre-merge) — the renderer holds a
+      // merged copy that doesn't see in-place edits. setPolygons without
+      // an explicit merge flag reuses the mesh's current merge setting
+      // (true for static models, false during animation playback).
+      if (handle) handle.setPolygons(scenePolygons);
+    },
+    [scenePolygons],
+  );
 
   useEffect(() => {
     const statsContainer = document.createElement("div");
@@ -5127,6 +5298,8 @@ export default function DebugWorkbench() {
     setCtrlValue("textureLighting", sceneOptions.textureLighting);
     setCtrlValue("autoCenter", sceneOptions.autoCenter);
     setCtrlValue("showAxes", sceneOptions.showAxes);
+    setCtrlValue("castShadow", sceneOptions.castShadow);
+    setCtrlValue("showGround", sceneOptions.showGround);
 
     setCtrlValue("dragMode", sceneOptions.dragMode);
     setCtrlValue("projection", perspectiveMode);
@@ -5254,6 +5427,8 @@ export default function DebugWorkbench() {
       lightColor?: string;
       ambientIntensity?: number;
       ambientColor?: string;
+      castShadow?: boolean;
+      showGround?: boolean;
     };
     if (lightState) {
       lightState.textureLighting = sceneOptions.textureLighting;
@@ -5264,6 +5439,8 @@ export default function DebugWorkbench() {
       lightState.lightColor = sceneOptions.lightColor;
       lightState.ambientIntensity = sceneOptions.ambientIntensity;
       lightState.ambientColor = sceneOptions.ambientColor;
+      lightState.castShadow = sceneOptions.castShadow;
+      lightState.showGround = sceneOptions.showGround;
     }
   }, [
     activeAnimation,
@@ -5310,6 +5487,7 @@ export default function DebugWorkbench() {
     sceneOptions.ambientIntensity,
     sceneOptions.ambientColor,
     sceneOptions.disableStrategies,
+    sceneOptions.castShadow,
     perspectiveMode,
     perspectivePx,
     gizmoMode,
@@ -5395,6 +5573,11 @@ export default function DebugWorkbench() {
         </div>
       </aside>
 
+      <InspectorPanel
+        meshes={inspectorMeshes}
+        onColorChange={handleInspectorColorChange}
+      />
+
       <main className="dn-main">
         <div
           className={`dn-viewport${sceneOptions.outlinePolygons ? " dn-viewport--outline-polygons" : ""}`}
@@ -5409,6 +5592,7 @@ export default function DebugWorkbench() {
               ambientLight={ambientLight}
               showAxes={sceneOptions.showAxes}
               showLight={sceneOptions.showLight}
+              showGround={sceneOptions.showGround}
               helperScale={helperScale}
               helperTarget={helperTarget}
               mergePolygonsForMesh={!hasActiveAnimation}
@@ -5423,6 +5607,7 @@ export default function DebugWorkbench() {
               gizmoMode={gizmoMode}
               enableHover={sceneOptions.hoverEffects}
               onHoverChange={setHoveredMeshId}
+              onMeshHandleChange={(h) => { activeMeshHandleRef.current = h; }}
             />
           ) : (() => {
             const Cam = sceneOptions.perspective === false ? PolyOrthographicCamera : PolyPerspectiveCamera;

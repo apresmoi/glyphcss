@@ -1,4 +1,5 @@
 import { cullInteriorPolygons } from "../cull/cullInteriorPolygons";
+import { dedupeOverlappingPolygons } from "./dedupeOverlappingPolygons";
 import type { MeshResolution, Polygon, TextureTriangle, Vec2, Vec3 } from "../types";
 import { coverPlanarPolygons, type CoverPlanarPolygonsOptions } from "./coverPlanarPolygons";
 import { mergePolygons } from "./mergePolygons";
@@ -934,18 +935,23 @@ function preprocessModelPolygons(
   normalizeGeometry: boolean | ApproximateMergeOptions,
   cache?: PreprocessCache,
 ): Polygon[] {
-  const baseline = cache?.baseline ?? mergePolygons(cullInteriorPolygons(polygons));
+  // Dedup runs FIRST — catches inner/outer shell duplicates and coincident
+  // doubled-up faces that importers emit as artifacts. Doing it before
+  // cull + merge means everything downstream operates on the leaner set
+  // and gets a free speedup as a bonus. Light-independent, runs once.
+  const deduped = dedupeOverlappingPolygons(polygons);
+  const baseline = cache?.baseline ?? mergePolygons(cullInteriorPolygons(deduped));
   if (!normalizeGeometry) return baseline;
 
   const options = normalizeGeometry === true
     ? DEFAULT_NORMALIZE_OPTIONS
     : resolveNormalizeOptions(normalizeGeometry);
   if (options.isolatedPairs) {
-    const paired = mergeIsolatedTrianglePairs(snappedInteriorPolygonsForMerge(polygons, cache), options);
+    const paired = mergeIsolatedTrianglePairs(snappedInteriorPolygonsForMerge(deduped, cache), options);
     const mergedPaired = mergePolygons(paired);
     return mergedPaired.length < baseline.length ? mergedPaired : baseline;
   }
-  const normalized = mergePolygons(cullInteriorPolygons(normalizeGeometryForMerge(polygons, options, cache)));
+  const normalized = mergePolygons(cullInteriorPolygons(normalizeGeometryForMerge(deduped, options, cache)));
   return normalized.length < baseline.length ? normalized : baseline;
 }
 
