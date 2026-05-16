@@ -25,7 +25,7 @@ export { usePolyMaterial } from "./scene/usePolyMaterial";
 export { Poly } from "./shapes";
 export type { PolyProps, PolyContext } from "./shapes";
 
-export { PolyOrbitControls, PolyMapControls, PolyTransformControls } from "./controls";
+export { PolyOrbitControls, PolyMapControls, PolyTransformControls, PolyFirstPersonControls } from "./controls";
 export type {
   PolyOrbitControlsProps,
   PolyOrbitControlsCamera,
@@ -35,6 +35,8 @@ export type {
   PolyTransformControlsObject,
   PolyTransformControlsObjectChangeEvent,
   PolyTransformControlsProps,
+  PolyFirstPersonControlsOptions,
+  PolyFirstPersonControlsHandle,
 } from "./controls";
 
 export { PolySelect, usePolySelect, usePolySelectionApi, PolySelectionContextKey } from "./select";

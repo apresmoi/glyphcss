@@ -1,5 +1,5 @@
 ---
-import DebugWorkbench from '../debug/DebugWorkbench.tsx';
+import { GalleryWorkbench } from '../components/GalleryWorkbench';
 import DocsHeader from '../components/DocsHeader.astro';
 import '../styles/custom.css';
 ---
@@ -12,7 +12,7 @@ import '../styles/custom.css';
     <div class="page">
       <DocsHeader />
       <div class="debug-page-shell">
-        <DebugWorkbench client:only="react" />
+        <GalleryWorkbench client:only="react" />
       </div>
     </div>
   </body>

@@ -42,6 +42,12 @@ export type {
   PolyMapControlsHandle,
 } from "./api/createPolyMapControls";
 
+export { createPolyFirstPersonControls } from "./api/createPolyFirstPersonControls";
+export type {
+  PolyFirstPersonControlsOptions,
+  PolyFirstPersonControlsHandle,
+} from "./api/createPolyFirstPersonControls";
+
 export type {
   PolyControlsHandle,
   PolyControlsBaseOptions,

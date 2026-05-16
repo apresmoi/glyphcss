@@ -15,3 +15,8 @@ export type {
   PolyTransformControlsObjectChangeEvent,
   PolyTransformControlsProps,
 } from "./PolyTransformControls";
+export { PolyFirstPersonControls } from "./PolyFirstPersonControls";
+export type {
+  PolyFirstPersonControlsOptions,
+  PolyFirstPersonControlsHandle,
+} from "./PolyFirstPersonControls";

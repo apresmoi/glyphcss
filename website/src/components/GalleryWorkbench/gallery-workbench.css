@@ -1,0 +1,1112 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+.dn-root {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: block;
+  min-height: 0;
+  background: #0a0b0d;
+  color: #e8edf2;
+  font: 13px/1.35 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+
+/* FPV needs the vanilla host to be a preserve-3d perspective context so
+   that scene Z translation actually moves it in 3D space relative to a
+   fixed viewer. The perspective value is driven by --fpv-perspective from
+   React (matches sceneOptions.perspective) — otherwise the FPV camera's
+   lookOffset math (perspective/tile) and the host's perspective disagree
+   and the scene gets shoved past the viewer plane at high perspective
+   values. Scoped to FPV via data-camera-mode so orbit/pan keep their
+   default flat-host rendering. */
+.dn-root[data-camera-mode="fpv"] .dn-vanilla-host {
+  perspective: var(--fpv-perspective, 2000px);
+  transform-style: preserve-3d;
+}
+
+
+.dn-root .lil-gui {
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.dn-root .lil-gui * {
+  font-family: inherit;
+}
+
+.dn-root .lil-gui .title,
+.dn-root .lil-gui .folder > .title,
+.dn-root .lil-gui .folder .title {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  min-height: 34px;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+}
+
+.dn-root .lil-gui.root {
+  --background-color: #11141a;
+  --title-background-color: #111827;
+  --title-text-color: #e8edf2;
+  --text-color: #e8edf2;
+  --widget-color: #0b0d10;
+  --hover-color: #151b28;
+  --focus-color: #22374f;
+  --number-color: #22d3ee;
+  --string-color: #86efac;
+  --font-size: 13px;
+  --input-font-size: 13px;
+  --padding: 8px;
+  --spacing: 7px;
+  --widget-height: 26px;
+  --widget-border-radius: 6px;
+  --scrollbar-width: 6px;
+  --folder-indent: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  padding: 6px;
+  /* Cap to viewport-minus-nav so the gui scrolls instead of overflowing.
+     `100%` doesn't resolve here because the absolute-positioned parent has
+     no explicit `height` property — only a `max-height`. Viewport math is
+     the reliable bound. */
+  max-height: calc(100vh - var(--sl-nav-height, 72px) - var(--overlay-top, 12px) - var(--overlay-bottom, 12px) - 12px);
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+
+/* Themed scrollbar so the dark panel doesn't sprout a bright OS bar. */
+.dn-root .lil-gui.root::-webkit-scrollbar {
+  width: 6px;
+}
+.dn-root .lil-gui.root::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dn-root .lil-gui.root::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+.dn-root .lil-gui.root::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.dn-root .lil-gui.root > .title {
+  display: none !important;
+}
+
+.dn-root .lil-gui.root > .children > .lil-gui > .title {
+  border: 0 solid var(--widget-color);
+  border-top-width: 1px;
+}
+
+.dn-root .lil-gui.root > .children > .lil-gui:first-child > .title {
+  border-top-width: 0;
+}
+
+.dn-root {
+  --overlay-gap: 12px;
+  --overlay-top: calc(var(--overlay-gap) + env(safe-area-inset-top, 0px));
+  --overlay-right: calc(var(--overlay-gap) + env(safe-area-inset-right, 0px));
+  --overlay-bottom: calc(var(--overlay-gap) + env(safe-area-inset-bottom, 0px));
+  --overlay-left: calc(var(--overlay-gap) + env(safe-area-inset-left, 0px));
+}
+
+.dn-sidebar {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #0a0b0d;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dn-sidebar--left {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  z-index: 15;
+  pointer-events: none;
+  padding: 10px;
+}
+
+.dn-sidebar--left .dn-panel {
+  pointer-events: auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  padding: 10px;
+  background: rgba(17, 19, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+
+.dn-main {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+}
+
+.models-sidebar {
+  position: absolute;
+  top: var(--overlay-top);
+  left: var(--overlay-left);
+  width: clamp(260px, 22vw, 340px);
+  /* Cap height so the Inspector panel underneath has room. */
+  max-height: min(55vh, calc(100% - var(--overlay-top) - var(--overlay-bottom)));
+  min-height: 0;
+  overflow: hidden;
+  overflow: clip;
+  z-index: 15;
+  background: #11141a;
+  border: 0;
+  border-radius: 12px;
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  contain: paint;
+  isolation: isolate;
+}
+
+.models-sidebar__body {
+  box-sizing: border-box;
+  height: 100%;
+  max-height: inherit;
+  min-height: 0;
+  overflow: hidden;
+  overflow: clip;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  isolation: isolate;
+}
+
+.models-sidebar__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.models-sidebar__search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.models-sidebar .model-search {
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  border: 0;
+  background: #0b0f18;
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.models-sidebar .model-search:focus {
+  outline: none;
+  background: #111827;
+}
+
+.models-sidebar .model-search::placeholder {
+  color: #64748b;
+  font-weight: 500;
+}
+
+.model-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(5, 6, 7, 0.64);
+  color: #ecfeff;
+  font-size: clamp(20px, 3vw, 40px);
+  font-weight: 700;
+}
+
+.drop-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 22px;
+  border: 2px dashed rgba(125, 211, 252, 0.72);
+  border-radius: 10px;
+}
+
+.dn-floating-controls {
+  position: absolute;
+  top: var(--overlay-top);
+  right: var(--overlay-right);
+  /* Bound by the absolute-positioned parent (.dn-root) so the inner lil-gui
+     can flex-grow to fill, then scroll. The 100% here resolves against
+     .dn-root, which is already viewport-minus-nav-height. */
+  max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom, 12px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: fit-content;
+  max-width: min(420px, calc(100vw - 24px));
+  z-index: 20;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.dn-floating-kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dn-toolbar__kpi {
+  min-width: 96px;
+  max-width: 140px;
+  background: rgba(17, 19, 22, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #cbd5f5;
+  font-size: 11px;
+}
+
+.dn-toolbar__kpi b {
+  color: #e2e8f0;
+  font-weight: 600;
+}
+
+.dn-floating-controls .dn-note {
+  margin: 6px 0 0;
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.dn-floating-controls .dn-lil-gui-host {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.dn-floating-controls .dn-note--error {
+  color: #fda4af;
+}
+
+.dn-panel {
+  padding: 12px 14px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dn-panel--model-selector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 10px;
+}
+
+.dn-panel--details {
+  padding: 0;
+}
+
+.dn-panel--details > summary {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.dn-panel--details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.dn-panel--details > summary::after {
+  content: "+";
+  color: #7f8b97;
+  font: 700 14px/1 Consolas, Monaco, monospace;
+}
+
+.dn-panel--details[open] > summary::after {
+  content: "-";
+}
+
+.dn-panel__body {
+  padding: 0 14px 14px;
+}
+
+.dn-panel h2 {
+  margin: 0 0 10px;
+  color: #f5f7fa;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dn-panel--details > summary h2 {
+  margin: 0;
+}
+
+.dn-viewport {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    #050607;
+  background-size: 48px 48px;
+}
+
+.dn-viewport--outline-polygons .polycss-scene i,
+.dn-viewport--outline-polygons .polycss-scene b,
+.dn-viewport--outline-polygons .polycss-scene s,
+.dn-viewport--outline-polygons .polycss-scene u {
+  outline: 1px solid rgba(248, 113, 113, 0.75) !important;
+}
+
+.dn-viewport .polycss-camera,
+.dn-vanilla-host {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+}
+
+/* Was: pointer-events: none on .polycss-scene/.polycss-mesh/.polycss-bucket/leaves.
+ * Removed so polygons receive native clicks — the JS bbox hit-test in
+ * <Select>/<TransformControls> was masking this rule, doing the work
+ * the browser would do for free. */
+
+/* Hover effect: brighten polygons when their owning mesh is the
+ * currently-hovered one. `filter: brightness(...)` is applied per
+ * polygon leaf instead of the wrapper because the wrapper is a 0×0
+ * anchor — filter on it would have nothing to brighten. Filter
+ * doesn't conflict with the polygon's inline `transform` /
+ * `border-color` and doesn't trigger atlas rebuilds, so it's instant. */
+/* Render-strategy enable/disable checkbox injected into the Model
+ * folder's <b>/<u>/<i> count controllers (right of the read-only count
+ * input). The parent controller is .disabled to keep the number input
+ * read-only, but we re-enable the checkbox so it stays interactive. */
+.dn-root .lil-gui .controller .widget .dn-strategy-toggle {
+  flex: 0 0 auto;
+  margin: 0 0 0 8px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  opacity: 1;
+  pointer-events: auto;
+}
+.dn-root .lil-gui .controller.disabled .widget .dn-strategy-toggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Auto toggle injected at the START of the Texture Quality slider's
+ * widget row — layout matches the slider rows above (Azimuth / Elev / Key
+ * / Ambient): [label] [Auto checkbox] [slider] [number]. The slider stays
+ * interactive even in Auto mode; dragging it auto-unchecks Auto and
+ * commits the numeric value. */
+.dn-root .lil-gui .controller .widget .dn-auto-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-right: 8px;
+  font-size: 0.85em;
+  color: var(--text-color, #aaa);
+  cursor: pointer;
+  opacity: 1;
+  pointer-events: auto;
+  user-select: none;
+}
+.dn-root .lil-gui .controller .widget .dn-auto-toggle input {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  max-width: 14px;
+  cursor: pointer;
+}
+/* Slider controller becomes .disabled when Auto is on (to lock the
+ * numeric input), but the Auto toggle itself must stay interactive so the
+ * user can switch back to manual. */
+.dn-root .lil-gui .controller.disabled .widget .dn-auto-toggle,
+.dn-root .lil-gui .controller.disabled .widget .dn-auto-toggle input,
+.dn-root .lil-gui .controller.disabled .widget .dn-auto-toggle span {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.polycss-mesh.is-hovered i,
+.polycss-mesh.is-hovered b,
+.polycss-mesh.is-hovered s,
+.polycss-mesh.is-hovered u {
+  filter: brightness(1.25);
+  transition: filter 150ms ease-out;
+}
+.polycss-mesh i,
+.polycss-mesh b,
+.polycss-mesh s,
+.polycss-mesh u {
+  transition: filter 150ms ease-out;
+}
+
+.dn-vanilla-host {
+  position: relative;
+  overflow: hidden;
+}
+
+.dn-field,
+.dn-range,
+.dn-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 8px;
+}
+
+.dn-field > span,
+.dn-range > span {
+  width: 74px;
+  flex: 0 0 auto;
+  color: #9aa6b2;
+  font-size: 12px;
+}
+
+.dn-field select,
+.dn-field input[type="text"],
+.dn-field input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  color: #e8edf2;
+  background: #0b0d10;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
+.dn-field--color input[type="color"] {
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: transparent;
+}
+
+.dn-field code {
+  color: #b7c2cc;
+  font: 12px/1 Consolas, Monaco, monospace;
+}
+
+.dn-preset-picker {
+  margin-top: 8px;
+}
+
+.dn-sidebar--left .dn-preset-picker {
+  margin-top: 8px;
+  height: calc(100% - 42px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dn-sidebar--left .model-picker__tree {
+  max-height: none;
+}
+
+.dn-preset-picker .model-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-family: Consolas, Monaco, monospace;
+}
+
+.dn-preset-picker .model-picker__search {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #0b0d10;
+  color: #e8edf2;
+  font: inherit;
+}
+
+.dn-preset-picker .model-picker__search:focus {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.45);
+  background: #0f141a;
+}
+
+.dn-preset-picker .model-picker__search::placeholder {
+  color: #6f7b87;
+}
+
+.dn-preset-picker .model-picker__empty {
+  padding: 8px 2px;
+  color: #9aa6b2;
+  font-size: 12px;
+}
+
+.dn-preset-picker .model-picker__tree {
+  max-height: min(42vh, 520px);
+  min-width: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+.dn-preset-picker .model-picker__category + .model-picker__category {
+  margin-top: 6px;
+}
+
+.dn-preset-picker .model-picker__heading {
+  width: 100%;
+  margin: 0;
+  padding: 4px 0 3px;
+  border: 0;
+  background: transparent;
+  color: #eef3f8;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font: 700 12px/1.2 Consolas, Monaco, monospace;
+  letter-spacing: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dn-preset-picker .model-picker__label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.dn-preset-picker .model-picker__caret {
+  width: 10px;
+  flex: 0 0 auto;
+  color: #8f9aa5;
+  transform: rotate(0deg);
+  font-size: 11px;
+}
+
+.dn-preset-picker .model-picker__caret.open {
+  transform: rotate(90deg);
+}
+
+.dn-preset-picker .model-picker__count {
+  flex: 0 0 auto;
+  color: #8f9aa5;
+  font-size: 11px;
+}
+
+.dn-preset-picker .model-picker__items {
+  margin-top: 4px;
+  display: grid;
+  gap: 2px;
+}
+
+.dn-preset-picker .model-picker__item {
+  width: 100%;
+  min-height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #0b0d10;
+  color: #c7d0d9;
+  padding: 4px 7px;
+  font: 12px/1.2 Consolas, Monaco, monospace;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.dn-preset-picker .model-picker__item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #eef3f8;
+}
+
+.dn-preset-picker .model-picker__item.active {
+  background: #12313a;
+  border-color: rgba(34, 211, 238, 0.45);
+  color: #ecfeff;
+}
+
+.dn-range input {
+  min-width: 0;
+  flex: 1;
+  accent-color: #22d3ee;
+}
+
+.dn-range output {
+  width: 58px;
+  text-align: right;
+  color: #d8dee6;
+  font: 12px/1 Consolas, Monaco, monospace;
+}
+
+.dn-toggle {
+  color: #d8dee6;
+}
+
+.dn-toggle input {
+  accent-color: #22d3ee;
+}
+
+.dn-segment {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.dn-field--segment .dn-segment {
+  flex: 1;
+  margin-top: 0;
+}
+
+.dn-segment button {
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: #0b0d10;
+  color: #c7d0d9;
+  cursor: pointer;
+}
+
+.dn-segment button.active {
+  background: #12313a;
+  border-color: rgba(34, 211, 238, 0.45);
+  color: #ecfeff;
+}
+
+.dn-note {
+  color: #9aa6b2;
+  font-size: 12px;
+}
+
+.dn-note {
+  margin: 8px 0 0;
+}
+
+.dn-note--error {
+  color: #fca5a5;
+}
+
+.control-btn {
+  border: 0;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-weight: 650;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.control-btn:hover {
+  background: #1e293b;
+}
+
+.control-btn--primary {
+  background: #0284c7;
+  color: #e0f2fe;
+}
+
+.control-btn--primary:hover {
+  background: #0ea5e9;
+}
+
+.control-btn--primary:active {
+  background: #38bdf8;
+}
+
+.control-btn:active {
+  background: #0b1020;
+}
+
+.control-btn:disabled {
+  cursor: not-allowed;
+  background: #0b1020;
+  color: #94a3b8;
+}
+
+.model-tree {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-right: 6px;
+  isolation: isolate;
+}
+
+.model-credit {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding: 0 4px 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #94a3b8;
+}
+
+.model-credit a {
+  color: #7dd3fc;
+  text-decoration: none;
+}
+
+.tree-category + .tree-category {
+  margin-top: 6px;
+}
+
+.tree-heading {
+  margin: 0;
+  padding: 4px 0 3px;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+
+.tree-label {
+  font-weight: inherit;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tree-caret {
+  display: inline-block;
+  width: 10px;
+  color: #cbd5e1;
+  transform: rotate(0deg);
+  font-size: 11px;
+}
+
+.tree-caret.open {
+  transform: rotate(90deg);
+}
+
+.tree-count {
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.model-button-list {
+  margin-top: 4px;
+  display: grid;
+  gap: 2px;
+  max-height: min(320px, 45vh);
+  overflow: auto;
+  padding-right: 6px;
+  isolation: isolate;
+}
+
+.model-empty {
+  padding: 10px 4px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.sidebar-item {
+  width: 100%;
+  border: 0;
+  background: #0b0f18;
+  color: #e2e8f0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  line-height: 1.2;
+  font-size: 13px;
+  isolation: isolate;
+  font-family: inherit;
+}
+
+.sidebar-item:hover {
+  background: #131a26;
+}
+
+.sidebar-item.active {
+  background: #1a2435;
+}
+
+.dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
+.dark-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.dark-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 999px;
+}
+
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+}
+
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}
+
+/* ── Inspector panel ──────────────────────────────────────────────────── */
+
+.dn-inspector {
+  position: absolute;
+  left: var(--overlay-left);
+  bottom: var(--overlay-bottom);
+  width: clamp(260px, 22vw, 340px);
+  max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom) - 55vh - 12px);
+  z-index: 15;
+  background: #11141a;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+}
+
+.dn-inspector__title {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.dn-inspector__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0 6px;
+}
+
+.dn-mesh-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: 0;
+  color: #e2e8f0;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dn-mesh-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dn-mesh-chevron {
+  font-size: 9px;
+  color: #64748b;
+  width: 10px;
+  flex: 0 0 auto;
+}
+
+.dn-mesh-icon {
+  color: #22d3ee;
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.dn-mesh-label {
+  flex: 1 1 auto;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-mesh-meta {
+  flex: 0 0 auto;
+  font: 10px/1 Consolas, Monaco, monospace;
+  color: #64748b;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.dn-mesh-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 4px 0;
+}
+
+.dn-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 30px;
+  position: relative;
+  font-size: 11px;
+}
+
+.dn-group-row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dn-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.dn-swatch:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.dn-swatch--readonly {
+  cursor: not-allowed;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      #2a2f3a 0,
+      #2a2f3a 3px,
+      #1a1d24 3px,
+      #1a1d24 6px
+    );
+}
+
+.dn-color-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+
+.dn-group-label {
+  flex: 1 1 auto;
+  font: 11px/1.2 Consolas, Monaco, monospace;
+  color: #cbd5f5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dn-group-row.is-readonly .dn-group-label {
+  color: #64748b;
+  font-style: italic;
+}
+
+.dn-group-count {
+  flex: 0 0 auto;
+  font: 11px/1 Consolas, Monaco, monospace;
+  color: #64748b;
+}
+
+@media (max-width: 1100px) {
+  .dn-floating-controls {
+    width: fit-content;
+    max-width: min(390px, calc(100vw - 20px));
+    top: 10px;
+    right: 10px;
+  }
+
+  .dn-sidebar--left {
+    width: min(320px, calc(100vw - 20px));
+    max-height: calc(100vh - 20px);
+    top: 10px;
+    left: 10px;
+  }
+
+  .models-sidebar {
+    width: min(320px, calc(100vw - 20px));
+    max-height: calc(100% - 20px);
+    top: 10px;
+    left: 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .dn-floating-controls {
+    width: calc(100vw - 16px);
+    max-width: 390px;
+    top: 8px;
+    right: 8px;
+  }
+
+  .models-sidebar {
+    width: calc(100vw - 16px);
+    max-width: 340px;
+    top: 8px;
+    left: 8px;
+    max-height: calc(100% - 16px);
+  }
+}
