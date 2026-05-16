@@ -34,7 +34,6 @@ import {
   stripParenthesizedText,
 } from "./presets";
 import {
-  DOM_OVERPAINT_CACHE_EVENT,
   EMPTY_METRICS,
   measureDom,
 } from "./helpers/domMetrics";
@@ -99,7 +98,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   matrixPrecision: "exact",
   borderShapePrecision: "exact",
   meshResolution: "lossy",
-  meshInteriorFill: false,
+  meshInteriorFill: true,
   outlinePolygons: false,
   dragMode: "orbit",
   target: [0, 0, 0],
@@ -388,7 +387,7 @@ export default function GalleryWorkbench() {
     animationTimeScale: sceneOptions.animationTimeScale,
   });
 
-  const { scenePolygons, helperScale, helperTarget } = useScenePolygons({
+  const { modelPolygons, interiorFillPolygons, scenePolygons, helperScale, helperTarget } = useScenePolygons({
     loaded,
     hasActiveAnimation,
     meshResolution: sceneOptions.meshResolution,
@@ -396,11 +395,23 @@ export default function GalleryWorkbench() {
     reactAnimatedPolygons: animation.reactAnimatedPolygons,
     meshInteriorFill: sceneOptions.meshInteriorFill,
   });
-  const renderPolygons = useMemo(
+  const renderModelPolygons = useMemo(
     () => sceneOptions.solidMaterials
-      ? withSolidMaterials(scenePolygons, parserOptions.defaultColor)
-      : scenePolygons,
-    [scenePolygons, sceneOptions.solidMaterials, parserOptions.defaultColor],
+      ? withSolidMaterials(modelPolygons, parserOptions.defaultColor)
+      : modelPolygons,
+    [modelPolygons, sceneOptions.solidMaterials, parserOptions.defaultColor],
+  );
+  const renderInteriorFillPolygons = useMemo(
+    () => sceneOptions.solidMaterials
+      ? withSolidMaterials(interiorFillPolygons, parserOptions.defaultColor)
+      : interiorFillPolygons,
+    [interiorFillPolygons, sceneOptions.solidMaterials, parserOptions.defaultColor],
+  );
+  const renderPolygons = useMemo(
+    () => renderInteriorFillPolygons.length > 0
+      ? [...renderModelPolygons, ...renderInteriorFillPolygons]
+      : renderModelPolygons,
+    [renderModelPolygons, renderInteriorFillPolygons],
   );
   const hasSpriteLeaves = useMemo(
     () => metrics.sprites > 0 || scenePolygons.some(polygonHasTextureData),
@@ -480,10 +491,8 @@ export default function GalleryWorkbench() {
       attributes: true,
       attributeFilter: ["class", "style"],
     });
-    window.addEventListener(DOM_OVERPAINT_CACHE_EVENT, schedule);
     return () => {
       observer.disconnect();
-      window.removeEventListener(DOM_OVERPAINT_CACHE_EVENT, schedule);
       if (raf) cancelAnimationFrame(raf);
     };
   }, []);
@@ -564,15 +573,15 @@ export default function GalleryWorkbench() {
   const perspectivePx = sceneOptions.perspective === false ? 8000 : sceneOptions.perspective;
 
   // Inspector data — grouped by mesh, then by polygon color. Recomputed
-  // when renderPolygons or the loaded model change. Mutations to a
+  // when renderModelPolygons or the loaded model change. Mutations to a
   // polygon's color via the picker do NOT change the renderPolygons
   // reference, so this memo doesn't re-fire on each tweak and the swatch
   // local state stays in sync.
   const inspectorMeshes = useMemo<InspectorMesh[]>(() => {
-    if (renderPolygons.length === 0) return [];
+    if (renderModelPolygons.length === 0) return [];
     const colorGroups = new Map<string, Polygon[]>();
     const textured: Polygon[] = [];
-    for (const p of renderPolygons) {
+    for (const p of renderModelPolygons) {
       if (p.texture) {
         textured.push(p);
         continue;
@@ -605,7 +614,7 @@ export default function GalleryWorkbench() {
     }
     const label = loaded?.label ?? "model";
     return [{ id: label, label, groups }];
-  }, [renderPolygons, loaded?.label]);
+  }, [renderModelPolygons, loaded?.label]);
 
   const handleInspectorColorChange = useCallback(
     (
@@ -619,9 +628,9 @@ export default function GalleryWorkbench() {
       // merged copy that doesn't see in-place edits. setPolygons without
       // an explicit merge flag reuses the mesh's current merge setting
       // (true for static models, false during animation playback).
-      if (handle) handle.setPolygons(renderPolygons);
+      if (handle) handle.setPolygons(renderModelPolygons);
     },
-    [renderPolygons],
+    [renderModelPolygons],
   );
 
   return (
@@ -673,7 +682,8 @@ export default function GalleryWorkbench() {
           {sceneOptions.renderer === "vanilla" ? (
             <VanillaScene
               key={rendererDebugKey}
-              polygons={renderPolygons}
+              polygons={renderModelPolygons}
+              interiorFillPolygons={renderInteriorFillPolygons}
               options={sceneOptions}
               directionalLight={directionalLight}
               ambientLight={ambientLight}
@@ -700,7 +710,8 @@ export default function GalleryWorkbench() {
             <ReactScene
               rendererDebugKey={rendererDebugKey}
               sceneOptions={sceneOptions}
-              scenePolygons={renderPolygons}
+              scenePolygons={renderModelPolygons}
+              interiorFillPolygons={renderInteriorFillPolygons}
               directionalLight={directionalLight}
               ambientLight={ambientLight}
               textureQuality={textureQuality}

@@ -115,7 +115,6 @@ export function Dock({
       shapeRectangle: 0,
       shapeTriangle: 0,
       shapeIrregular: 0,
-      overpaintPercent: 0,
       // The Texture Quality row binds the slider to `textureQualityValue`
       // and the Auto toggle to `textureQualityAuto`. The effective option
       // passed to the scene is "auto" when textureQualityAuto is true, else
@@ -223,9 +222,6 @@ export function Dock({
     const bToggle = injectStrategyCheckbox(shapeRectangleController, "b");
     const uToggle = injectStrategyCheckbox(shapeTriangleController, "u");
     const iToggle = injectStrategyCheckbox(shapeIrregularController, "i");
-    const overpaintPercentController = disableWithoutDisabledClass(
-      model.add(modelState, "overpaintPercent").name("Overpaint %"),
-    );
 
     const rendering = gui.addFolder("Rendering");
     rendering.open();
@@ -499,9 +495,6 @@ export function Dock({
       meshResolutionController.disable();
       meshInteriorFillController.disable();
     }
-    if (hasSpriteLeaves) {
-      meshInteriorFillController.hide();
-    }
     if (!sceneOptions.selection) {
       gizmoController.disable();
     }
@@ -524,7 +517,6 @@ export function Dock({
       bToggle,
       uToggle,
       iToggle,
-      overpaintPercent: overpaintPercentController,
       meshResolution: meshResolutionController,
       meshInteriorFill: meshInteriorFillController,
       textureQuality: textureQualityController,
@@ -614,7 +606,6 @@ export function Dock({
     setCtrlValue("meshResolution", sceneOptions.meshResolution);
     setCtrlValue("meshInteriorFill", sceneOptions.meshInteriorFill);
     setCtrlValue("textureMode", textureModeForScene(sceneOptions));
-    setVisible("meshInteriorFill", !hasSpriteLeaves);
     setVisible("textureMode", hasSpriteLeaves);
     setVisible("textureQuality", hasSpriteLeaves);
     setCtrlValue("domCount", metrics.nodeCount);
@@ -628,7 +619,6 @@ export function Dock({
     if (bToggleEl) bToggleEl.checked = !sceneOptions.disableStrategies.includes("b");
     if (uToggleEl) uToggleEl.checked = !sceneOptions.disableStrategies.includes("u");
     if (iToggleEl) iToggleEl.checked = !sceneOptions.disableStrategies.includes("i");
-    setCtrlValue("overpaintPercent", metrics.overpaintPercent);
 
     const validAnimation = Object.values(animationOptions).includes(selectedAnimation);
     const nextAnimation = validAnimation ? selectedAnimation : "";
@@ -699,7 +689,7 @@ export function Dock({
     setCtrlValue("ambientColor", sceneOptions.ambientColor);
 
     setEnabled("meshResolution", !hasActiveAnimation);
-    setEnabled("meshInteriorFill", !hasActiveAnimation && !hasSpriteLeaves);
+    setEnabled("meshInteriorFill", !hasActiveAnimation);
     setEnabled("gizmoMode", sceneOptions.selection);
 
     if (sceneOptions.perspective === false) {
@@ -716,7 +706,6 @@ export function Dock({
       shapeRectangle?: number;
       shapeTriangle?: number;
       shapeIrregular?: number;
-      overpaintPercent?: number;
       textureQualityValue?: number;
       textureQualityAuto?: boolean;
       textureMode?: TextureMode;
@@ -729,7 +718,6 @@ export function Dock({
       modelState.shapeRectangle = metrics.rects;
       modelState.shapeTriangle = metrics.triangles;
       modelState.shapeIrregular = metrics.irregular;
-      modelState.overpaintPercent = metrics.overpaintPercent;
       modelState.textureMode = textureModeForScene(sceneOptions);
       // Mirror external textureQuality changes back into the slider state.
       // Numeric → slider value + auto off (slider enabled); "auto" → keep

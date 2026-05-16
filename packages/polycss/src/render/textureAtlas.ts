@@ -231,16 +231,47 @@ const TEXTURE_TRIANGLE_BLEED = 0.75;
 const TEXTURE_EDGE_REPAIR_ALPHA_MIN = 1;
 const TEXTURE_EDGE_REPAIR_SOURCE_ALPHA_MIN = 250;
 const TEXTURE_EDGE_REPAIR_RADIUS = 1.5;
-const SOLID_TRIANGLE_BLEED = 0.6;
+const SOLID_TRIANGLE_BLEED = 0.75;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 const DEFAULT_ATLAS_CSS_DECIMALS = 4;
 const BORDER_SHAPE_CENTER_PERCENT = 50;
 const BORDER_SHAPE_POINT_EPS = 1e-7;
 const BORDER_SHAPE_CANONICAL_SIZE = 16;
+const BORDER_SHAPE_BLEED = 0.9;
 const PROJECTIVE_QUAD_DENOM_EPS = 0.05;
-const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = 4;
+const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = Number.POSITIVE_INFINITY;
 const PROJECTIVE_QUAD_BLEED = 0.6;
+
+interface BorderShapeBounds {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+}
+
+interface BorderShapeGeometry {
+  bounds: BorderShapeBounds;
+  points: Array<[number, number]>;
+}
+
+interface ProjectiveQuadGuardSettings {
+  denomEps: number;
+  maxWeightRatio: number;
+  bleed: number;
+  disableGuards: boolean;
+}
+
+interface ProjectiveQuadGuardOverrides {
+  denomEps?: number;
+  maxWeightRatio?: number;
+  bleed?: number;
+  disableGuards?: boolean;
+}
+
+interface ProjectiveQuadGuardGlobal {
+  __polycssProjectiveQuadGuards?: ProjectiveQuadGuardOverrides;
+}
 
 interface ProjectiveQuadCoefficients {
   g: number;
@@ -386,8 +417,39 @@ function offsetConvexPolygonPoints(points: number[], amount: number): number[] {
   return expanded;
 }
 
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function resolveProjectiveQuadGuards(doc: Document): ProjectiveQuadGuardSettings {
+  const win = doc?.defaultView as (Window & ProjectiveQuadGuardGlobal) | null | undefined;
+  const overrides = win?.__polycssProjectiveQuadGuards;
+  const overrideMaxWeightRatio = overrides?.maxWeightRatio;
+  const denomEps = Math.max(
+    0,
+    finiteNumber(overrides?.denomEps, PROJECTIVE_QUAD_DENOM_EPS),
+  );
+  const maxWeightRatio = typeof overrideMaxWeightRatio === "number" &&
+    Number.isFinite(overrideMaxWeightRatio) &&
+    overrideMaxWeightRatio > 0
+    ? Math.max(1, overrideMaxWeightRatio)
+    : PROJECTIVE_QUAD_MAX_WEIGHT_RATIO;
+  const bleed = Math.max(
+    0,
+    finiteNumber(overrides?.bleed, PROJECTIVE_QUAD_BLEED),
+  );
+
+  return {
+    denomEps,
+    maxWeightRatio,
+    bleed,
+    disableGuards: overrides?.disableGuards === true,
+  };
+}
+
 function computeProjectiveQuadCoefficients(
   q: Array<[number, number]>,
+  guards: ProjectiveQuadGuardSettings,
 ): ProjectiveQuadCoefficients | null {
   if (q.length !== 4 || !isConvexPolygonPoints(q)) return null;
 
@@ -404,16 +466,19 @@ function computeProjectiveQuadCoefficients(
   const g = (sx * dy2 - sy * dx2) / det;
   const h = (dx1 * sy - dy1 * sx) / det;
   const weights = [1, 1 + g, 1 + g + h, 1 + h];
-  if (weights.some((weight) => !Number.isFinite(weight) || weight <= PROJECTIVE_QUAD_DENOM_EPS)) {
+  if (weights.some((weight) => !Number.isFinite(weight))) {
     return null;
   }
 
   const minWeight = Math.min(...weights);
   const maxWeight = Math.max(...weights);
-  // Very large homogeneous-weight variation means the rectangle's vanishing
-  // line is too close to the primitive. Chrome can then tessellate the leaf
-  // visibly wrong; the clipped polygon path is steadier for those quads.
-  if (maxWeight / minWeight > PROJECTIVE_QUAD_MAX_WEIGHT_RATIO) return null;
+  if (!guards.disableGuards) {
+    if (minWeight <= guards.denomEps) return null;
+    // Very large homogeneous-weight variation means the rectangle's vanishing
+    // line is too close to the primitive. Chrome can then tessellate the leaf
+    // visibly wrong; the clipped polygon path is steadier for those quads.
+    if (maxWeight / minWeight > guards.maxWeightRatio) return null;
+  }
 
   return {
     g,
@@ -431,6 +496,7 @@ function computeProjectiveQuadMatrix(
   tx: number,
   ty: number,
   tz: number,
+  guards: ProjectiveQuadGuardSettings,
 ): string | null {
   if (screenPts.length !== 8) return null;
   const rawQ: Array<[number, number]> = [
@@ -439,42 +505,34 @@ function computeProjectiveQuadMatrix(
     [screenPts[4], screenPts[5]],
     [screenPts[6], screenPts[7]],
   ];
-  if (!computeProjectiveQuadCoefficients(rawQ)) return null;
+  if (!computeProjectiveQuadCoefficients(rawQ, guards)) return null;
 
-  const expandedPts = offsetConvexPolygonPoints(screenPts, PROJECTIVE_QUAD_BLEED);
+  const expandedPts = offsetConvexPolygonPoints(screenPts, guards.bleed);
   const q: Array<[number, number]> = [
     [expandedPts[0], expandedPts[1]],
     [expandedPts[2], expandedPts[3]],
     [expandedPts[4], expandedPts[5]],
     [expandedPts[6], expandedPts[7]],
   ];
-  const coeffs = computeProjectiveQuadCoefficients(q);
+  const coeffs = computeProjectiveQuadCoefficients(q, guards);
   if (!coeffs) return null;
   const { g, h, w1, w3 } = coeffs;
   const [q0, q1, , q3] = q;
 
-  const toCssPoint = ([x, y]: [number, number]): Vec3 => [
-    tx + x * xAxis[0] + y * yAxis[0],
-    ty + x * xAxis[1] + y * yAxis[1],
-    tz + x * xAxis[2] + y * yAxis[2],
+  const p0: Vec3 = [
+    tx + q0[0] * xAxis[0] + q0[1] * yAxis[0],
+    ty + q0[0] * xAxis[1] + q0[1] * yAxis[1],
+    tz + q0[0] * xAxis[2] + q0[1] * yAxis[2],
   ];
-  const p0 = toCssPoint(q0);
-  const p1 = toCssPoint(q1);
-  const p3 = toCssPoint(q3);
-  const xCol: Vec3 = [
-    p1[0] * w1 - p0[0],
-    p1[1] * w1 - p0[1],
-    p1[2] * w1 - p0[2],
-  ];
-  const yCol: Vec3 = [
-    p3[0] * w3 - p0[0],
-    p3[1] * w3 - p0[1],
-    p3[2] * w3 - p0[2],
+  const projectiveColumn = ([x, y]: Vec2, weight: number): Vec3 => [
+    (weight - 1) * tx + (weight * x - q0[0]) * xAxis[0] + (weight * y - q0[1]) * yAxis[0],
+    (weight - 1) * ty + (weight * x - q0[0]) * xAxis[1] + (weight * y - q0[1]) * yAxis[1],
+    (weight - 1) * tz + (weight * x - q0[0]) * xAxis[2] + (weight * y - q0[1]) * yAxis[2],
   ];
 
   return formatMatrix3dValues([
-    xCol[0], xCol[1], xCol[2], g,
-    yCol[0], yCol[1], yCol[2], h,
+    ...projectiveColumn(q1, w1), g,
+    ...projectiveColumn(q3, w3), h,
     normal[0], normal[1], normal[2], 0,
     p0[0], p0[1], p0[2], 1,
   ]);
@@ -1397,6 +1455,7 @@ function computeTextureAtlasPlan(
   polygon: Polygon,
   index: number,
   options: RenderTextureAtlasOptions,
+  projectiveQuadGuards: ProjectiveQuadGuardSettings,
   basisHint?: BasisHint,
 ): TextureAtlasPlan | null {
   const { vertices, texture, uvs } = polygon;
@@ -1457,7 +1516,16 @@ function computeTextureAtlasPlan(
     tx, ty, tz, 1,
   ]);
   const projectiveMatrix = !texture && vertices.length === 4
-    ? computeProjectiveQuadMatrix(screenPts, xAxis, yAxis, normal, tx, ty, tz)
+    ? computeProjectiveQuadMatrix(
+        screenPts,
+        xAxis,
+        yAxis,
+        normal,
+        tx,
+        ty,
+        tz,
+        projectiveQuadGuards,
+      )
     : null;
 
   const directionalCfg = options.directionalLight;
@@ -2223,32 +2291,49 @@ function formatScaledMatrixFromPlan(
   entry: TextureAtlasPlan,
   scaleX: number,
   scaleY: number,
+  offsetX = 0,
+  offsetY = 0,
 ): string {
   const values = entry.matrix.split(",").map((value) => Number(value));
   if (values.length !== 16 || values.some((value) => !Number.isFinite(value))) {
     return entry.matrix;
   }
+  const x0 = values[0];
+  const x1 = values[1];
+  const x2 = values[2];
+  const y0 = values[4];
+  const y1 = values[5];
+  const y2 = values[6];
   values[0] *= scaleX;
   values[1] *= scaleX;
   values[2] *= scaleX;
   values[4] *= scaleY;
   values[5] *= scaleY;
   values[6] *= scaleY;
+  values[12] += offsetX * x0 + offsetY * y0;
+  values[13] += offsetX * x1 + offsetY * y1;
+  values[14] += offsetX * x2 + offsetY * y2;
   return formatMatrix3dValues(values);
 }
 
-function formatBorderShapeMatrix(entry: TextureAtlasPlan): string {
+function formatBorderShapeMatrix(
+  entry: TextureAtlasPlan,
+  bounds: BorderShapeBounds,
+): string {
   return formatScaledMatrixFromPlan(
     entry,
-    (entry.canvasW || 1) / BORDER_SHAPE_CANONICAL_SIZE,
-    (entry.canvasH || 1) / BORDER_SHAPE_CANONICAL_SIZE,
+    bounds.width / BORDER_SHAPE_CANONICAL_SIZE,
+    bounds.height / BORDER_SHAPE_CANONICAL_SIZE,
+    bounds.minX,
+    bounds.minY,
   );
 }
 
 function formatBorderShapeElementStyle(entry: TextureAtlasPlan): string {
+  const geometry = borderShapeGeometryForPlan(entry);
   return [
-    `transform:matrix3d(${formatBorderShapeMatrix(entry)})`,
-    `border-shape:${cssBorderShapeForPlan(entry)}`,
+    `transform:matrix3d(${formatBorderShapeMatrix(entry, geometry.bounds)})`,
+    `border-shape:${cssBorderShapeForGeometry(geometry.points)}`,
   ].join(";");
 }
 
@@ -2508,8 +2593,9 @@ export function getSolidPaintDefaults(
   if (!doc) return {};
   const disabled = new Set(options.strategies?.disable ?? []);
   const basisHints = buildBasisHints(polygons, options);
+  const projectiveQuadGuards = resolveProjectiveQuadGuards(doc);
   const plans = polygons.map((polygon, index) =>
-    computeTextureAtlasPlan(polygon, index, options, basisHints[index])
+    computeTextureAtlasPlan(polygon, index, options, projectiveQuadGuards, basisHints[index])
   );
   return getSolidPaintDefaultsForPlans(
     plans,
@@ -2519,16 +2605,55 @@ export function getSolidPaintDefaults(
   );
 }
 
-function borderShapePointsForPlan(entry: TextureAtlasPlan): Array<[number, number]> {
+function borderShapeBoundsFromPoints(
+  points: number[],
+  fallbackWidth: number,
+  fallbackHeight: number,
+): BorderShapeBounds {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < points.length; i += 2) {
+    const x = points[i];
+    const y = points[i + 1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  const width = maxX - minX;
+  const height = maxY - minY;
+  if (
+    !Number.isFinite(minX) ||
+    !Number.isFinite(minY) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= BASIS_EPS ||
+    height <= BASIS_EPS
+  ) {
+    return { minX: 0, minY: 0, width: fallbackWidth, height: fallbackHeight };
+  }
+  return { minX, minY, width, height };
+}
+
+function borderShapeGeometryForPlan(entry: TextureAtlasPlan): BorderShapeGeometry {
+  const fallbackWidth = entry.canvasW || 1;
+  const fallbackHeight = entry.canvasH || 1;
+  const sourcePts = BORDER_SHAPE_BLEED > 0
+    ? offsetConvexPolygonPoints(entry.screenPts, BORDER_SHAPE_BLEED)
+    : entry.screenPts;
+  const bounds = BORDER_SHAPE_BLEED > 0
+    ? borderShapeBoundsFromPoints(sourcePts, fallbackWidth, fallbackHeight)
+    : { minX: 0, minY: 0, width: fallbackWidth, height: fallbackHeight };
   const points: Array<[number, number]> = [];
-  const width = entry.canvasW || 1;
-  const height = entry.canvasH || 1;
-  for (let i = 0; i < entry.screenPts.length; i += 2) {
-    const x = Math.max(0, Math.min(100, (entry.screenPts[i] / width) * 100));
-    const y = Math.max(0, Math.min(100, (entry.screenPts[i + 1] / height) * 100));
+  for (let i = 0; i < sourcePts.length; i += 2) {
+    const x = Math.max(0, Math.min(100, ((sourcePts[i] - bounds.minX) / bounds.width) * 100));
+    const y = Math.max(0, Math.min(100, ((sourcePts[i + 1] - bounds.minY) / bounds.height) * 100));
     points.push([x, y]);
   }
-  return points;
+  return { bounds, points };
 }
 
 function cssBorderShapePoint([x, y]: [number, number]): string {
@@ -2554,9 +2679,12 @@ function cssCollapsedInnerShapeForPoints(points: Array<[number, number]>): strin
   return `circle(0 at ${x} ${y})`;
 }
 
-export function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
-  const points = borderShapePointsForPlan(entry);
+function cssBorderShapeForGeometry(points: Array<[number, number]>): string {
   return `${cssPolygonShapeForPoints(points)} ${cssCollapsedInnerShapeForPoints(points)}`;
+}
+
+export function cssBorderShapeForPlan(entry: TextureAtlasPlan): string {
+  return cssBorderShapeForGeometry(borderShapeGeometryForPlan(entry).points);
 }
 
 function applySolidPaint(
@@ -2659,8 +2787,9 @@ export function renderPolygonsWithTextureAtlas(
   const useStableTriangle = !disabled.has("u");
   const useBorderShape = !disabled.has("i") && borderShapeSupported(doc);
   const basisHints = buildBasisHints(polygons, options);
+  const projectiveQuadGuards = resolveProjectiveQuadGuards(doc);
   const plans = polygons.map((polygon, index) =>
-    computeTextureAtlasPlan(polygon, index, options, basisHints[index])
+    computeTextureAtlasPlan(polygon, index, options, projectiveQuadGuards, basisHints[index])
   );
   const trianglePlans = plans.map((plan) =>
     plan && useStableTriangle && isSolidTrianglePlan(plan)
@@ -2765,10 +2894,11 @@ export async function renderPolygonsWithTextureAtlasAsync(
   if (shouldCancel()) return { rendered: [], solidPaintDefaults: {}, dispose: () => {} };
 
   const basisHints = buildBasisHints(polygons, options);
+  const projectiveQuadGuards = resolveProjectiveQuadGuards(doc);
   let batchStarted = performance.now();
   const plans: Array<TextureAtlasPlan | null> = new Array(polygons.length);
   for (let i = 0; i < polygons.length; i++) {
-    plans[i] = computeTextureAtlasPlan(polygons[i], i, options, basisHints[i]);
+    plans[i] = computeTextureAtlasPlan(polygons[i], i, options, projectiveQuadGuards, basisHints[i]);
     batchStarted = await yieldIfOverBudget(batchStarted);
     if (shouldCancel()) return { rendered: [], solidPaintDefaults: {}, dispose: () => {} };
   }

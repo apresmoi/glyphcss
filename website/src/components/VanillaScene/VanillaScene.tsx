@@ -44,6 +44,7 @@ function lightHelperPosition(
 
 export interface VanillaSceneProps {
   polygons: Polygon[];
+  interiorFillPolygons: Polygon[];
   options: SceneOptionsState;
   directionalLight: PolyDirectionalLight;
   ambientLight: PolyAmbientLight;
@@ -69,6 +70,7 @@ export interface VanillaSceneProps {
 
 export function VanillaScene({
   polygons,
+  interiorFillPolygons,
   options,
   directionalLight,
   ambientLight,
@@ -95,6 +97,7 @@ export function VanillaScene({
   const sceneRef = useRef<PolySceneHandle | null>(null);
   const controlsRef = useRef<PolyControlsHandle | PolyFirstPersonControlsHandle | null>(null);
   const meshHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
+  const interiorFillHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const axesHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const lightHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
   const groundHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
@@ -163,6 +166,7 @@ export function VanillaScene({
       axesHandleRef.current = null;
       lightHandleRef.current = null;
       groundHandleRef.current = null;
+      interiorFillHandleRef.current = null;
       meshHandleRef.current = null;
       sceneRef.current = null;
       scene.destroy();
@@ -178,19 +182,55 @@ export function VanillaScene({
   ]);
 
   // Effect 1.5 — replace geometry on the existing mesh. This is the path
-  // used by animated GLB playback.
+  // used by animated GLB playback. Interior fill lives in a trailing helper
+  // mesh so its oval CSS can be scoped without stamping every leaf.
   useEffect(() => {
     const handle = meshHandleRef.current;
-    if (!handle) return;
+    const scene = sceneRef.current;
+    if (!handle || !scene) return;
     const started = performance.now();
     handle.setPolygons(polygons, {
       merge: mergePolygonsForMesh,
       stableDom: stableDomForMesh,
     });
+
+    let fillHandle = interiorFillHandleRef.current;
+    if (interiorFillPolygons.length === 0) {
+      fillHandle?.dispose();
+      interiorFillHandleRef.current = null;
+    } else if (fillHandle) {
+      fillHandle.setPolygons(interiorFillPolygons, {
+        merge: false,
+        stableDom: stableDomForMesh,
+        recomputeAutoCenter: false,
+      });
+    } else {
+      fillHandle = scene.add(
+        {
+          polygons: interiorFillPolygons,
+          objectUrls: [],
+          warnings: [],
+          dispose: () => {},
+        },
+        {
+          merge: false,
+          stableDom: stableDomForMesh,
+          excludeFromAutoCenter: true,
+          castShadow: false,
+        },
+      );
+      fillHandle.element.classList.add("dn-interior-fill-mesh");
+      fillHandle.setTransform({
+        position: handle.transform.position,
+        rotation: handle.transform.rotation,
+      });
+      interiorFillHandleRef.current = fillHandle;
+    }
+
     requestAnimationFrame(() =>
       onBuildRef.current(performance.now() - started),
     );
-  }, [polygons, mergePolygonsForMesh, stableDomForMesh]);
+  }, [polygons, interiorFillPolygons, mergePolygonsForMesh, stableDomForMesh]);
 
   // Effect 1.6 — live-toggle castShadow without rebuilding the scene.
   useEffect(() => {
@@ -216,6 +256,13 @@ export function VanillaScene({
     if (!scene) return;
     const tc = createTransformControls(scene, {
       mode: gizmoMode ?? "translate",
+      onObjectChange: (event) => {
+        if (event.object !== meshHandleRef.current) return;
+        interiorFillHandleRef.current?.setTransform({
+          position: event.object.transform.position,
+          rotation: event.object.transform.rotation,
+        });
+      },
     });
     transformControlsRef.current = tc;
     const select = createSelect(scene, {

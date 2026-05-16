@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { optimizeMeshPolygons } from "@layoutit/polycss-react";
 import type { Polygon } from "@layoutit/polycss-react";
 import type { LoadedModel } from "../types";
-import { withInteriorFillPolygons } from "../helpers/interiorFill";
+import { interiorFillPolygons as buildInteriorFillPolygons } from "../helpers/interiorFill";
 
 export interface UseScenePolygonsOptions {
   loaded: LoadedModel | null;
@@ -15,6 +15,7 @@ export interface UseScenePolygonsOptions {
 
 export interface UseScenePolygonsResult {
   modelPolygons: Polygon[];
+  interiorFillPolygons: Polygon[];
   scenePolygons: Polygon[];
   helperBbox: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number } | null;
   helperScale: number;
@@ -47,19 +48,23 @@ export function useScenePolygons({
     reactAnimatedPolygons,
   ]);
 
-  const scenePolygons = useMemo(() => {
-    if (
-      hasActiveAnimation ||
-      !meshInteriorFill
-    ) {
-      return modelPolygons;
+  const interiorFillPolygons = useMemo(() => {
+    if (hasActiveAnimation || !meshInteriorFill) {
+      return [];
     }
-    return withInteriorFillPolygons(modelPolygons);
+    return buildInteriorFillPolygons(modelPolygons);
   }, [
     hasActiveAnimation,
     modelPolygons,
     meshInteriorFill,
   ]);
+
+  const scenePolygons = useMemo(
+    () => interiorFillPolygons.length > 0
+      ? [...modelPolygons, ...interiorFillPolygons]
+      : modelPolygons,
+    [modelPolygons, interiorFillPolygons],
+  );
 
   const helperBbox = useMemo(() => {
     const polygons = scenePolygons;
@@ -95,5 +100,5 @@ export function useScenePolygons({
     ];
   }, [helperBbox]);
 
-  return { modelPolygons, scenePolygons, helperBbox, helperScale, helperTarget };
+  return { modelPolygons, interiorFillPolygons, scenePolygons, helperBbox, helperScale, helperTarget };
 }

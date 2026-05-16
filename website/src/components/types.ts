@@ -21,7 +21,6 @@ export interface DomMetrics {
   rects: number;
   triangles: number;
   irregular: number;
-  overpaintPercent: number;
 }
 
 export interface SceneOptionsState {

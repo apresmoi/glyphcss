@@ -41,6 +41,16 @@ const NON_RECT_QUAD: Polygon = {
   color: "#00ffff",
 };
 
+const MODERATE_PROJECTIVE_QUAD: Polygon = {
+  vertices: [
+    [0, 0, 0],
+    [1, 0, 0],
+    [1, 1, 0],
+    [0, 6, 0],
+  ],
+  color: "#00ffcc",
+};
+
 const UNSTABLE_PROJECTIVE_QUAD: Polygon = {
   vertices: [
     [0, 0, 0],
@@ -424,6 +434,33 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
+  it("border-shape default bleed expands the generated paint box", () => {
+    const doc = {
+      defaultView: {
+        CSS: {
+          supports: (property: string) => property === "border-shape",
+        },
+      },
+      createElement: (tagName: string) => document.createElement(tagName),
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], {
+      doc,
+      tileSize: 1,
+      strategies: { disable: ["b"] },
+    });
+    const element = result.rendered[0].element;
+    const matrix = extractMatrix(element);
+    const xScale = Math.hypot(matrix[0], matrix[1], matrix[2]);
+    const yScale = Math.hypot(matrix[4], matrix[5], matrix[6]);
+
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(xScale).toBeGreaterThan(2 / 16);
+    expect(yScale).toBeGreaterThan(2 / 16);
+    expect(element.style.getPropertyValue("border-shape")).toContain("polygon(");
+    result.dispose();
+  });
+
   it("uses the atlas fallback for solid non-rect polygons on non-desktop pointers when projective quads are disabled", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
@@ -538,8 +575,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
       ],
       color: "#ffffff",
     };
-
-    const result = renderPolygonsWithTextureAtlas([obliqueQuad], { tileSize: 1 });
+    const result = renderPolygonsWithTextureAtlas([obliqueQuad], {
+      tileSize: 1,
+      strategies: { disable: ["b"] },
+    });
     const element = result.rendered[0].element;
     const matrix = extractMatrix(element);
 
@@ -548,10 +587,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.style.height).toBe("");
     expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
     expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
-    expect(matrix[0]).toBeCloseTo(10 / 16, 3);
+    expect(matrix[0]).toBeGreaterThan(10 / 16);
     expect(matrix[1]).toBeCloseTo(0, 6);
     expect(matrix[4]).toBeCloseTo(0, 6);
-    expect(matrix[5]).toBeCloseTo(1 / 16, 2);
+    expect(matrix[5]).toBeGreaterThan(1 / 16);
     result.dispose();
   });
 
@@ -1249,6 +1288,89 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     expect(style).not.toContain("width");
     expect(style).not.toContain("height");
     expect(style).not.toContain("border-shape");
+    expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("moderately projective solid quads stay on the CSS matrix b path", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: { CSS: { supports: () => false } },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [MODERATE_PROJECTIVE_QUAD],
+      { doc },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("b");
+    expect(result.rendered[0].kind).toBe("solid");
+    expect(element.getAttribute("style") ?? "").toContain("transform:matrix3d(");
+    expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("projective guard overrides can tighten the CSS matrix b path", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: () => false },
+        __polycssProjectiveQuadGuards: { maxWeightRatio: 4 },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [MODERATE_PROJECTIVE_QUAD],
+      { doc },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("s");
+    expect(result.rendered[0].kind).toBe("atlas");
+    expect(canvases).toHaveLength(1);
+    result.dispose();
+  });
+
+  it("projective guard overrides can disable guard fallback for inspection", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: () => false },
+        __polycssProjectiveQuadGuards: { disableGuards: true },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [UNSTABLE_PROJECTIVE_QUAD],
+      { doc },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("b");
+    expect(result.rendered[0].kind).toBe("solid");
+    expect(element.getAttribute("style") ?? "").toContain("transform:matrix3d(");
     expect(canvases).toHaveLength(0);
     result.dispose();
   });

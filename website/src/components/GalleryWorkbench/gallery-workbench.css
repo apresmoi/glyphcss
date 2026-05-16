@@ -394,6 +394,20 @@
   outline: 1px solid rgba(248, 113, 113, 0.75) !important;
 }
 
+.dn-viewport .dn-interior-fill-mesh {
+  pointer-events: none;
+}
+
+.dn-viewport .dn-interior-fill-mesh i {
+  border-shape: circle(50% at 50% 50%) circle(0 at 50% 50%) !important;
+}
+
+.dn-viewport .dn-interior-fill-mesh b,
+.dn-viewport .dn-interior-fill-mesh s {
+  border-radius: 50% !important;
+  overflow: hidden;
+}
+
 .dn-viewport .polycss-camera,
 .dn-vanilla-host {
   width: 100%;

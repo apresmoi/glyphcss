@@ -25,6 +25,7 @@ export interface ReactSceneProps {
   rendererDebugKey: string;
   sceneOptions: SceneOptionsState;
   scenePolygons: Polygon[];
+  interiorFillPolygons: Polygon[];
   directionalLight: PolyDirectionalLight;
   ambientLight: PolyAmbientLight;
   textureQuality: TextureQuality;
@@ -50,6 +51,7 @@ export function ReactScene({
   rendererDebugKey,
   sceneOptions,
   scenePolygons,
+  interiorFillPolygons,
   directionalLight,
   ambientLight,
   textureQuality,
@@ -74,6 +76,14 @@ export function ReactScene({
   const camProps = sceneOptions.perspective === false
     ? { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target }
     : { zoom: sceneOptions.zoom, rotX: sceneOptions.rotX, rotY: sceneOptions.rotY, target: sceneOptions.target, perspective: sceneOptions.perspective };
+  const fillMesh = interiorFillPolygons.length > 0 ? (
+    <PolyMesh
+      polygons={interiorFillPolygons}
+      className="dn-interior-fill-mesh"
+      position={sceneOptions.selection ? meshPosition : undefined}
+      rotation={sceneOptions.selection ? meshRotation : undefined}
+    />
+  ) : null;
   return (
     <Cam key={rendererDebugKey} {...camProps}>
       {sceneOptions.dragMode === "pan" ? (
@@ -128,12 +138,16 @@ export function ReactScene({
             />
           </PolySelect>
         ) : null}
+        {sceneOptions.selection ? fillMesh : null}
         {!sceneOptions.selection ? (
-          <PolyMesh
-            id={loaded?.label ?? "model"}
-            polygons={scenePolygons}
-            className="dn-model-mesh"
-          />
+          <>
+            <PolyMesh
+              id={loaded?.label ?? "model"}
+              polygons={scenePolygons}
+              className="dn-model-mesh"
+            />
+            {fillMesh}
+          </>
         ) : null}
         {sceneOptions.selection && selectedMeshes.length > 0 && (
           <PolyTransformControls
