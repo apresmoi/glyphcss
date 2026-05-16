@@ -30,6 +30,7 @@ import type { Polygon, TextureTriangle, Vec2, Vec3 } from "../types";
 const EPS_NORMAL = 1e-3;   // dot product tolerance for "same plane"
 const EPS_DISTANCE = 0.05; // signed-distance tolerance (in scene-space units)
 const EPS_TEXTURE_DISTANCE = 1e-3;
+const EPS_RENDER_DISTANCE = 1e-3;
 
 interface PolyState {
   vertices: Vec3[];
@@ -194,7 +195,7 @@ function mergeAlongEdge(
     }
   }
   if (cleaned.length < 3) return null;
-  return { vertices: cleaned, uvs: cleanedUvs };
+  return rotateToNonCollinearStart(cleaned, cleanedUvs);
 }
 
 /**
@@ -220,12 +221,12 @@ function isConvex(vertices: Vec3[], normal: Vec3): boolean {
   return true;
 }
 
-function texturedMergeIsPlanar(vertices: Vec3[]): boolean {
+function mergeIsPlanar(vertices: Vec3[], epsilon: number): boolean {
   if (vertices.length < 3) return false;
   const plane = planeOf(vertices);
   if (!plane) return false;
   for (const vertex of vertices) {
-    if (Math.abs(dot(plane.normal, vertex) - plane.d) > EPS_TEXTURE_DISTANCE) {
+    if (Math.abs(dot(plane.normal, vertex) - plane.d) > epsilon) {
       return false;
     }
   }
@@ -390,7 +391,7 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
 
       const merged = mergeAlongEdge(a, b, e0, e1);
       if (!merged) continue;
-      if (hasTexture && !texturedMergeIsPlanar(merged.vertices)) continue;
+      if (!mergeIsPlanar(merged.vertices, hasTexture ? EPS_TEXTURE_DISTANCE : EPS_RENDER_DISTANCE)) continue;
       if (!isConvex(merged.vertices, a.normal)) continue;
 
       a.vertices = merged.vertices;

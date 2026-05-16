@@ -76,6 +76,21 @@ function extractMatrix(el: HTMLElement): number[] {
   return match[1].split(",").map(Number);
 }
 
+function transformMatrixPoint(matrix: number[], x: number, y: number, z = 0): [number, number, number] {
+  const w = matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15];
+  return [
+    (matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12]) / w,
+    (matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13]) / w,
+    (matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14]) / w,
+  ];
+}
+
+function expectPointClose(actual: [number, number, number], expected: [number, number, number]): void {
+  expect(actual[0]).toBeCloseTo(expected[0], 2);
+  expect(actual[1]).toBeCloseTo(expected[1], 2);
+  expect(actual[2]).toBeCloseTo(expected[2], 2);
+}
+
 function roundedMatrix(values: number[], decimals = 3): number[] {
   return values.map((value) => Number(value.toFixed(decimals)));
 }
@@ -1289,6 +1304,35 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     expect(style).not.toContain("height");
     expect(style).not.toContain("border-shape");
     expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("projective b matrix maps planar quad corners to their CSS-space vertices", () => {
+    const doc = {
+      defaultView: {
+        CSS: { supports: () => false },
+        __polycssProjectiveQuadGuards: { bleed: 0 },
+      },
+      createElement(tagName: string) {
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [NON_RECT_QUAD],
+      { doc },
+    );
+    const matrix = extractMatrix(result.rendered[0].element);
+    const expected = NON_RECT_QUAD.vertices.map((vertex): [number, number, number] => [
+      vertex[1] * 50,
+      vertex[0] * 50,
+      vertex[2] * 50,
+    ]);
+
+    expectPointClose(transformMatrixPoint(matrix, 0, 0), expected[0]);
+    expectPointClose(transformMatrixPoint(matrix, 1, 0), expected[1]);
+    expectPointClose(transformMatrixPoint(matrix, 1, 1), expected[2]);
+    expectPointClose(transformMatrixPoint(matrix, 0, 1), expected[3]);
     result.dispose();
   });
 

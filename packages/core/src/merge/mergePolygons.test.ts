@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { mergePolygons } from "./mergePolygons";
+import { parseGltf } from "../parser/parseGltf";
 import { parseObj } from "../parser/parseObj";
 import { parseMtl } from "../parser/parseMtl";
 import type { Polygon, Vec2, Vec3 } from "../types";
@@ -13,6 +14,31 @@ function loadObjGalleryFile(name: string): string {
     resolve(__dirname, "../../../../website/public/gallery/obj", name),
     "utf8",
   );
+}
+
+function loadGlbGalleryFile(...parts: string[]): ArrayBuffer {
+  const buffer = readFileSync(
+    resolve(__dirname, "../../../../website/public/gallery/glb", ...parts),
+  );
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+}
+
+const subVec = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const crossVec = (a: Vec3, b: Vec3): Vec3 => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+const dotVec = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+function maxPlaneDeviation(verts: Vec3[]): number {
+  if (verts.length < 4) return 0;
+  const normal = crossVec(subVec(verts[1], verts[0]), subVec(verts[2], verts[0]));
+  const len = Math.hypot(normal[0], normal[1], normal[2]);
+  if (len <= 1e-12) return Number.POSITIVE_INFINITY;
+  const unit: Vec3 = [normal[0] / len, normal[1] / len, normal[2] / len];
+  const d = dotVec(unit, verts[0]);
+  return Math.max(...verts.map((vertex) => Math.abs(dotVec(unit, vertex) - d)));
 }
 
 function fanArea(verts: Vec3[]): number {
@@ -89,6 +115,19 @@ describe("mergePolygons — real fixture (chicken.obj)", () => {
       if (!polygon.texture) continue;
       expect(firstTriangleArea(polygon.vertices)).toBeGreaterThan(1e-9);
     }
+  });
+
+  it("does not merge the Apple GLB into non-renderable solid quads", () => {
+    const parsed = parseGltf(loadGlbGalleryFile("apple.glb"), {
+      targetSize: 60,
+      defaultColor: "#cccccc",
+    });
+    const merged = mergePolygons(parsed.polygons);
+    const solidQuads = merged.filter((polygon) => !polygon.texture && polygon.vertices.length === 4);
+
+    expect(solidQuads.length).toBeGreaterThan(0);
+    expect(Math.max(...solidQuads.map((polygon) => maxPlaneDeviation(polygon.vertices))))
+      .toBeLessThanOrEqual(1e-3);
   });
 });
 
@@ -189,6 +228,15 @@ describe("mergePolygons", () => {
     it("four triangles on two different planes each → two merged quads", () => {
       const result = mergePolygons([TRI_A, TRI_B, TRI_C, TRI_D]);
       expect(result).toHaveLength(2);
+    });
+
+    it("near-coplanar triangles are not merged into a non-renderable solid quad", () => {
+      const a: Polygon = { vertices: [[0,0,0],[1,0,0],[1,1,0]], color: "#ff0000" };
+      const b: Polygon = { vertices: [[0,0,0],[1,1,0],[0,1,0.01]], color: "#ff0000" };
+
+      const result = mergePolygons([a, b]);
+      expect(result).toHaveLength(2);
+      expect(result.every((polygon) => polygon.vertices.length === 3)).toBe(true);
     });
   });
 
