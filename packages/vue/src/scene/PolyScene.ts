@@ -34,11 +34,13 @@ import { PolySceneContextKey, type PolyShadowOptions, type PolyShadowRegistry } 
 import {
   buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
+  isProjectiveQuadPlan,
   isSolidTrianglePlan,
   type TextureQuality,
   type PolyRenderStrategiesOption,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
+  renderTextureProjectiveSolidPoly,
   renderTextureTrianglePoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -58,8 +60,6 @@ export interface PolySceneProps {
   textureQuality?: TextureQuality;
   /** Opt out of specific render strategies. Disabled strategies fall through the chain (b→i→s, u→i→s, i→s). `<s>` cannot be disabled. */
   strategies?: PolyRenderStrategiesOption;
-  /** Repairs antialiased atlas pixels at shared textured polygon edges without expanding geometry. Defaults to true. */
-  experimentalTextureEdgeRepair?: boolean;
   /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — a wrapper div translates
@@ -106,7 +106,6 @@ export const PolyScene = defineComponent({
     },
     textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
     strategies: { type: Object as PropType<PolyRenderStrategiesOption>, default: undefined },
-    experimentalTextureEdgeRepair: { type: Boolean as PropType<boolean>, default: true },
     autoCenter: { type: Boolean, default: false },
     shadow: { type: Object as PropType<PolyShadowOptions>, default: undefined },
     class: { type: String },
@@ -157,7 +156,6 @@ export const PolyScene = defineComponent({
       textureLighting: props.textureLighting ?? "baked",
       directionalLight: props.directionalLight,
       ambientLight: props.ambientLight,
-      experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
       shadow: props.shadow,
       shadowRegistry,
     }));
@@ -223,7 +221,7 @@ export const PolyScene = defineComponent({
       const cssZ = wz * tileSize;
       const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
       const transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
-      return { "--scene-transform": transform };
+      return { transform };
     });
 
     // Per-polygon context: lighting + scene units.
@@ -235,7 +233,6 @@ export const PolyScene = defineComponent({
         directionalLight: props.directionalLight,
         textureLighting: props.textureLighting,
         textureQuality: props.textureQuality,
-        experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
       };
     });
 
@@ -255,7 +252,6 @@ export const PolyScene = defineComponent({
           directionalLight: directionalForAtlas,
           ambientLight: ambientForAtlas,
           textureEdgeRepairEdges: repairEdges[i],
-          experimentalTextureEdgeRepair: props.experimentalTextureEdgeRepair,
         })
       );
     });
@@ -382,10 +378,22 @@ export const PolyScene = defineComponent({
         const plan = textureAtlasPlans.value[index];
         if (!plan || plan.texture) return null;
         if (textureAtlas.useStableTriangle.value && isSolidTrianglePlan(plan)) {
-          return renderTextureTrianglePoly({ entry: plan, textureLighting: ctx.textureLighting ?? "baked" });
+          return renderTextureTrianglePoly({
+            entry: plan,
+            textureLighting: ctx.textureLighting ?? "baked",
+          });
+        }
+        if (textureAtlas.useProjectiveQuad.value && isProjectiveQuadPlan(plan)) {
+          return renderTextureProjectiveSolidPoly({
+            entry: plan,
+            textureLighting: ctx.textureLighting ?? "baked",
+          });
         }
         if (textureAtlas.useBorderShape.value || textureAtlas.useFullRectSolid.value) {
-          return renderTextureBorderShapePoly({ entry: plan });
+          return renderTextureBorderShapePoly({
+            entry: plan,
+            forceBorderShape: !textureAtlas.useFullRectSolid.value,
+          });
         }
         return null;
       });

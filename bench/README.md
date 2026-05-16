@@ -65,9 +65,9 @@ would actually pay.
 | Page                  | Render path                            | Per-frame state update            |
 | --------------------- | -------------------------------------- | --------------------------------- |
 | `perf-html.html`      | Declarative `<poly-scene>` + `<poly-mesh>` + `<poly-controls>` custom elements | `sceneEl.setAttribute(...)` — exercises the custom-element attribute observer + reflection pipeline |
-| `perf-vanilla.html`   | Imperative `createPolyScene` + `createPolyControls` + `loadMesh` | `scene.setOptions({...})` — exercises just the imperative API + the renderer's internal cascade |
-| `perf-react.html`     | `<PolyCamera><PolyScene><PolyControls>` JSX (React 19) | `useState` setter — full React reconciliation each frame |
-| `perf-vue.html`       | `<PolyCamera><PolyScene><PolyControls>` Vue 3 (`defineComponent` + render funcs) | `ref().value = ...` — Vue's reactivity flush each frame |
+| `perf-vanilla.html`   | Imperative `createPolyScene` + `createPolyOrbitControls` + `loadMesh` | `scene.setOptions({...})` — exercises just the imperative API + the renderer's internal cascade |
+| `perf-react.html`     | `<PolyCamera><PolyScene><PolyOrbitControls>` JSX (React 19) | `useState` setter — full React reconciliation each frame |
+| `perf-vue.html`       | `<PolyCamera><PolyScene><PolyOrbitControls>` Vue 3 (`defineComponent` + render funcs) | `ref().value = ...` — Vue's reactivity flush each frame |
 
 What this matrix tells us, in practice:
 
@@ -112,7 +112,7 @@ bench/
   perf-shared.mjs        PRESETS, dirFromAzEl, parseUrlParams,
                          createPerfRecorder() (FPS counter + window.__perf__)
   perf-html.html         declarative <poly-scene> + <poly-controls>
-  perf-vanilla.html      imperative createPolyScene + createPolyControls
+  perf-vanilla.html      imperative createPolyScene + createPolyOrbitControls
   perf-react.html        loads polycss-react.js (JSX entry)
   perf-vue.html          loads polycss-vue.js (Vue entry)
   entries/
@@ -208,12 +208,12 @@ mostly-rectangulated and mechanical runtime cases; `AnimatedSnake.glb`,
 {
   "mesh": "chicken",
   "polyCount": 648,
-  "domNodes": 459,
+  "chromiumArgs": [],
   "warmup_ms": 2000,
   "sample_ms": 5000,
   "html": {
     "dynamic": {
-      "static":         { "fps_p50": 120.5, "fps_p95": 30.0, ..., "is_bimodal": true },
+      "static":         { "fps_p50": 120.5, "fps_p95": 30.0, ..., "is_bimodal": true, "renderStats": { ... } },
       "light_rotate":   { ... },
       "camera_rotate":  { ... }
     },
@@ -235,6 +235,7 @@ node bench/perf-bench.mjs \
   --sample 8000               # ms of sampling, default: 5000
   --label run-after-fix       # JSON written to bench/results/<label>.json
   --headed                    # show the browser (debugging)
+  --chromium-arg "--enable-blink-features=CSSBorderShape"
 ```
 
 ---

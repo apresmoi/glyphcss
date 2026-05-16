@@ -52,6 +52,11 @@ export const PRESETS = {
     options: { targetSize: 60 },
     zoom: 0.25, rotX: 74.4, rotY: 301.6,
   },
+  ducky: {
+    url: "/gallery/glb/poly-pizza/ducky.glb",
+    options: { targetSize: 60 },
+    zoom: 0.4, rotX: 65, rotY: 45,
+  },
   crate: {
     url: "/gallery/obj/opengameart/crate/Box.obj",
     mtlUrl: "/gallery/obj/opengameart/crate/Box.mtl",
@@ -83,6 +88,74 @@ export function dirFromAzEl(azDeg, elDeg) {
   return [cosEl * Math.sin(az), cosEl * Math.cos(az), Math.sin(el)];
 }
 
+const BORDER_SHAPE_TEST_VALUE = "polygon(0 0, 100% 0, 0 100%) circle(0)";
+
+export function collectPolygonStats(polygons = []) {
+  const stats = {
+    total: polygons.length,
+    textured: 0,
+    solid: 0,
+    triangles: 0,
+    texturedTriangles: 0,
+    solidTriangles: 0,
+    nonTriangles: 0,
+    texturedNonTriangles: 0,
+    solidNonTriangles: 0,
+  };
+
+  for (const polygon of polygons) {
+    const textured = Boolean(polygon?.texture);
+    const triangle = polygon?.vertices?.length === 3;
+    if (textured) stats.textured += 1;
+    else stats.solid += 1;
+    if (triangle) {
+      stats.triangles += 1;
+      if (textured) stats.texturedTriangles += 1;
+      else stats.solidTriangles += 1;
+    } else {
+      stats.nonTriangles += 1;
+      if (textured) stats.texturedNonTriangles += 1;
+      else stats.solidNonTriangles += 1;
+    }
+  }
+
+  return stats;
+}
+
+export function collectRenderStats({ polygons, root } = {}) {
+  const sceneRoot = root ?? document.querySelector(".polycss-scene");
+  const tags = { b: 0, i: 0, s: 0, u: 0, q: 0 };
+  let inlineStyleChars = 0;
+  if (sceneRoot) {
+    for (const tag of Object.keys(tags)) {
+      tags[tag] = sceneRoot.querySelectorAll(tag).length;
+    }
+    for (const el of sceneRoot.querySelectorAll("b,i,s,u,q")) {
+      inlineStyleChars += el.getAttribute("style")?.length ?? 0;
+    }
+  }
+
+  return {
+    support: {
+      borderShape: CSS.supports("border-shape", BORDER_SHAPE_TEST_VALUE),
+      pointerFine: matchMedia("(pointer:fine)").matches,
+      hoverHover: matchMedia("(hover:hover)").matches,
+    },
+    polygons: collectPolygonStats(polygons ?? []),
+    dom: {
+      tags,
+      leafCount: tags.b + tags.i + tags.s + tags.u,
+      shadowCount: tags.q,
+      buckets: sceneRoot?.querySelectorAll(".polycss-bucket").length ?? 0,
+      inlineStyleChars,
+    },
+  };
+}
+
+function formatTagStats(tags) {
+  return `b:${tags.b} i:${tags.i} s:${tags.s} u:${tags.u} q:${tags.q}`;
+}
+
 /**
  * Set up the FPS overlay (matches the layout in each perf-*.html) and
  * the window.__perf__ recorder the headless bench reads.
@@ -92,11 +165,16 @@ export function dirFromAzEl(azDeg, elDeg) {
  *                       FPS readout, appends to window.__perf__.samples,
  *                       and bounds memory.
  */
-export function createPerfRecorder({ rendererLabel, meshId, mode, motion, polyCount }) {
+export function createPerfRecorder({ rendererLabel, meshId, mode, motion, polyCount, polygons, renderStats }) {
+  const resolvedRenderStats = renderStats ?? collectRenderStats({ polygons });
+
   document.getElementById("meta-renderer").textContent = rendererLabel;
   document.getElementById("meta-polys").textContent = String(polyCount ?? "?");
   document.getElementById("meta-mode").textContent = mode;
   document.getElementById("meta-motion").textContent = motion;
+  document.getElementById("meta-tags").textContent = formatTagStats(resolvedRenderStats.dom.tags);
+  document.getElementById("meta-support").textContent =
+    resolvedRenderStats.support.borderShape ? "border-shape" : "no border-shape";
 
   const fpsNow = document.getElementById("fps-now");
   const metaFrames = document.getElementById("meta-frames");
@@ -111,6 +189,7 @@ export function createPerfRecorder({ rendererLabel, meshId, mode, motion, polyCo
     renderer: rendererLabel,
     mesh: meshId, mode, motion,
     polyCount: polyCount ?? 0,
+    renderStats: resolvedRenderStats,
     samples: [],
     ready: true,
     startedAt: performance.now(),
@@ -147,6 +226,8 @@ export const PERF_OVERLAY_HTML = `
     <hr/>
     <div class="row"><small>renderer</small><b id="meta-renderer">—</b></div>
     <div class="row"><small>polys</small><b id="meta-polys">—</b></div>
+    <div class="row"><small>tags</small><b id="meta-tags">—</b></div>
+    <div class="row"><small>support</small><b id="meta-support">—</b></div>
     <div class="row"><small>mode</small><b id="meta-mode">—</b></div>
     <div class="row"><small>motion</small><b id="meta-motion">—</b></div>
     <div class="row"><small>frames</small><b id="meta-frames">—</b></div>

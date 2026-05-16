@@ -40,7 +40,6 @@ describe("PolySceneElement", () => {
       expect(observed).toContain("directional-intensity");
       expect(observed).toContain("ambient-color");
       expect(observed).toContain("ambient-intensity");
-      expect(observed).toContain("experimental-texture-edge-repair");
       expect(observed).toContain("auto-center");
     });
   });
@@ -111,7 +110,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("rot-y", "60");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      const transform = sceneEl.style.getPropertyValue("--scene-transform");
+      const transform = sceneEl.style.transform;
       expect(transform).toContain("rotateX(30deg)");
       // rotY in our API maps to CSS rotate() (i.e. rotateZ) so the model
       // spins around its vertical world-Z axis, matching React's PolyCamera.
@@ -123,7 +122,7 @@ describe("PolySceneElement", () => {
       el.setAttribute("zoom", "1.5");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("scale(1.5)");
+      expect(sceneEl.style.transform).toContain("scale(1.5)");
     });
 
     it("ignores invalid number attribute values", () => {
@@ -160,16 +159,6 @@ describe("PolySceneElement", () => {
       expect(el.getScene()?.getOptions().autoCenter).toBe(true);
     });
 
-    it("defaults texture edge repair on and allows explicit false", () => {
-      const enabled = document.createElement("poly-scene") as PolySceneElement;
-      host.appendChild(enabled);
-      expect(enabled.getScene()?.getOptions().experimentalTextureEdgeRepair).toBe(true);
-
-      const disabled = document.createElement("poly-scene") as PolySceneElement;
-      disabled.setAttribute("experimental-texture-edge-repair", "false");
-      host.appendChild(disabled);
-      expect(disabled.getScene()?.getOptions().experimentalTextureEdgeRepair).toBe(false);
-    });
   });
 
   describe("attributeChangedCallback", () => {
@@ -178,10 +167,10 @@ describe("PolySceneElement", () => {
       el.setAttribute("rot-x", "0");
       host.appendChild(el);
       const sceneEl = el.querySelector(".polycss-scene") as HTMLElement;
-      const before = sceneEl.style.getPropertyValue("--scene-transform");
+      const before = sceneEl.style.transform;
       el.setAttribute("rot-x", "90");
-      expect(sceneEl.style.getPropertyValue("--scene-transform")).not.toBe(before);
-      expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotateX(90deg)");
+      expect(sceneEl.style.transform).not.toBe(before);
+      expect(sceneEl.style.transform).toContain("rotateX(90deg)");
     });
 
     it("noop when oldValue === newValue", () => {

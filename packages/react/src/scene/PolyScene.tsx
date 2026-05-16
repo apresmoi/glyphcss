@@ -15,11 +15,13 @@ import type { TransformProps } from "../shapes/types";
 import {
   buildTextureEdgeRepairSets,
   computeTextureAtlasPlan,
+  isProjectiveQuadPlan,
   isSolidTrianglePlan,
   type TextureQuality,
   type PolyRenderStrategiesOption,
   TextureBorderShapePoly,
   TextureAtlasPoly,
+  TextureProjectiveSolidPoly,
   TextureTrianglePoly,
   useTextureAtlas,
 } from "./textureAtlas";
@@ -62,11 +64,6 @@ export interface PolySceneProps extends TransformProps {
    */
   strategies?: PolyRenderStrategiesOption;
   /**
-   * Repairs antialiased atlas pixels at shared textured polygon edges to
-   * reduce visible seams without expanding polygon geometry. Defaults to true.
-   */
-  experimentalTextureEdgeRepair?: boolean;
-  /**
    * When `true`, rotation pivots around the mesh's bbox center instead of
    * world (0,0,0). Polygon data is not mutated — the scene element's
    * `transform-origin` is moved to the bbox center in CSS. Equivalent to
@@ -103,7 +100,6 @@ function PolySceneInner({
   textureLighting = "baked",
   textureQuality,
   strategies,
-  experimentalTextureEdgeRepair = true,
   autoCenter = false,
   shadow,
   className,
@@ -196,13 +192,12 @@ function PolySceneInner({
       directionalLight: directionalForAtlas,
       ambientLight: ambientForAtlas,
       textureLighting,
-      experimentalTextureEdgeRepair,
     };
-  }, [directionalForAtlas, ambientForAtlas, textureLighting, experimentalTextureEdgeRepair]);
+  }, [directionalForAtlas, ambientForAtlas, textureLighting]);
 
   // Bbox center of all auto-centerable meshes in world coords. Kept as a Vec3
-  // (not a pre-baked CSS string) so it can be added to `target` inside the
-  // scene transform — same approach as vanilla's buildSceneTransform. This
+  // so it can be added to `target` inside the scene transform — same
+  // approach as vanilla's buildSceneTransform. This
   // means the camera orbits `target + autoCenterOffset` with no extra DOM layer.
   // World axes: [0]=X, [1]=Y, [2]=Z. autoCenterOffset is [0,0,0] when disabled.
   const autoCenterOffset = useMemo((): [number, number, number] => {
@@ -243,7 +238,7 @@ function PolySceneInner({
     const cssZ = wz * tileSize;
     const distancePart = s.distance !== 0 ? `translateZ(${-s.distance}px) ` : "";
     const transform = `${distancePart}scale(${s.zoom}) rotateX(${s.rotX}deg) rotate(${s.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`;
-    return { ["--scene-transform" as string]: transform };
+    return { transform };
   }, [cameraState, autoCenterOffset]);
 
   const computedClassName = `polycss-scene${className ? ` ${className}` : ""}`;
@@ -369,9 +364,14 @@ function PolySceneInner({
     // <s> (atlas). The atlas path is handled above via packed.entries; the <i>
     // fallback lands here via TextureBorderShapePoly (same as non-rect solids).
     const useU = !disabledStrategies?.has("u");
-    return (useU && isSolidTrianglePlan(plan))
-      ? <TextureTrianglePoly key={plan.index} entry={plan} textureLighting={textureLighting} />
-      : <TextureBorderShapePoly key={plan.index} entry={plan} disabledStrategies={disabledStrategies} />;
+    const useProjectiveSolid = !disabledStrategies?.has("b");
+    if (useU && isSolidTrianglePlan(plan)) {
+      return <TextureTrianglePoly key={plan.index} entry={plan} textureLighting={textureLighting} />;
+    }
+    if (useProjectiveSolid && isProjectiveQuadPlan(plan)) {
+      return <TextureProjectiveSolidPoly key={plan.index} entry={plan} textureLighting={textureLighting} />;
+    }
+    return <TextureBorderShapePoly key={plan.index} entry={plan} disabledStrategies={disabledStrategies} />;
   });
 
   // Propagate scene-level rendering options to descendants (PolyMesh /
@@ -380,8 +380,8 @@ function PolySceneInner({
   // while the scene's global CSS rule paints over it with the dynamic
   // calc — producing corrupt tints.
   const sceneCtxValue = useMemo(
-    () => ({ textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair, shadow, registerShadowCaster }),
-    [textureLighting, directionalLight, ambientLight, experimentalTextureEdgeRepair, shadow, registerShadowCaster],
+    () => ({ textureLighting, directionalLight, ambientLight, shadow, registerShadowCaster }),
+    [textureLighting, directionalLight, ambientLight, shadow, registerShadowCaster],
   );
 
   return (

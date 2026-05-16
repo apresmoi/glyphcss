@@ -24,6 +24,16 @@ const QUAD: Polygon = {
   color: "#00ff00",
 };
 
+const NON_RECT_QUAD: Polygon = {
+  vertices: [
+    [0, 0, 0],
+    [2, 0, 0],
+    [2, 1, 0],
+    [0, 2, 0],
+  ],
+  color: "#00ffff",
+};
+
 const TEXTURED_TRIANGLE: Polygon = {
   vertices: TRIANGLE.vertices,
   texture: "https://example.com/tex.png",
@@ -92,7 +102,7 @@ describe("PolyScene — basic rendering", () => {
     const scene = container.querySelector(".polycss-scene") as HTMLElement;
     expect(scene.style.top).toBe("");
     expect(scene.style.left).toBe("");
-    expect(scene.style.getPropertyValue("--scene-transform")).toContain("scale(");
+    expect(scene.style.transform).toContain("scale(");
   });
 });
 
@@ -111,6 +121,39 @@ describe("PolyScene — polygon rendering", () => {
     expect(poly?.classList.contains("polycss-poly-solid")).toBe(false);
     expect(poly?.classList.contains("polycss-poly-textured")).toBe(false);
     expect(container.querySelector("svg")).toBeNull();
+  });
+
+  it("renders triangle u elements with canonical geometry by default", () => {
+    const container = renderScene({
+      polygons: [TRIANGLE],
+    });
+    const poly = container.querySelector("u");
+    const style = poly?.getAttribute("style") ?? "";
+    expect(style).not.toContain("border-width");
+    expect(style).not.toContain("background: linear-gradient");
+  });
+
+  it("renders full rectangular solids with canonical geometry by default", () => {
+    const container = renderScene({
+      polygons: [QUAD],
+    });
+    const poly = container.querySelector("b");
+    const style = poly?.getAttribute("style") ?? "";
+    expect(style).not.toContain("width");
+    expect(style).not.toContain("height");
+  });
+
+  it("renders non-rect solid quads as projective b elements by default", () => {
+    const container = renderScene({
+      polygons: [NON_RECT_QUAD],
+    });
+    const poly = container.querySelector("b");
+    const style = poly?.getAttribute("style") ?? "";
+    expect(poly?.tagName.toLowerCase()).toBe("b");
+    expect(style).toContain("transform: matrix3d(");
+    expect(style).not.toContain("width");
+    expect(style).not.toContain("height");
+    expect(style).not.toContain("border-shape");
   });
 
   it("renders multiple polygons", () => {
@@ -148,7 +191,7 @@ describe("PolyScene — autoCenter", () => {
   });
 
   it("does NOT render a .polycss-offset wrapper div when autoCenter=true", () => {
-    // The new design folds the bbox-center offset directly into --scene-transform
+    // The new design folds the bbox-center offset directly into scene transform
     // on the scene element — no extra DOM wrapper layer.
     const container = renderScene({
       polygons: [TRIANGLE, QUAD],
@@ -165,22 +208,22 @@ describe("PolyScene — autoCenter", () => {
     expect(container.querySelector(".polycss-offset")).toBeNull();
   });
 
-  it("autoCenter contributes a non-zero translate3d inside --scene-transform for off-center polygons", () => {
+  it("autoCenter contributes a non-zero translate3d inside scene transform for off-center polygons", () => {
     // With autoCenter=false the translate3d for QUAD at centroid (1,1,1) reflects
     // only target=[0,0,0], so it is translate3d(0px, 0px, 0px).
     const containerOff = renderScene({ polygons: [QUAD], autoCenter: false });
     const sceneOff = containerOff.querySelector(".polycss-scene") as HTMLElement;
-    const transformOff = sceneOff.style.getPropertyValue("--scene-transform");
+    const transformOff = sceneOff.style.transform;
     expect(transformOff).toContain("translate3d(0px, 0px, 0px)");
 
     // With autoCenter=true the bbox center ([1,1,1]) is added to target
-    // inside --scene-transform, producing a non-zero translate3d.
+    // inside scene transform, producing a non-zero translate3d.
     // QUAD centroid: world X=(0+2)/2=1, world Y=(0+2)/2=1, world Z=(1+1)/2=1.
     // CSS: cssX = worldY*50 = 50, cssY = worldX*50 = 50, cssZ = worldZ*50 = 50.
     // Expected translate3d(-50px, -50px, -50px).
     const containerOn = renderScene({ polygons: [QUAD], autoCenter: true });
     const sceneOn = containerOn.querySelector(".polycss-scene") as HTMLElement;
-    const transformOn = sceneOn.style.getPropertyValue("--scene-transform");
+    const transformOn = sceneOn.style.transform;
     expect(transformOn).toContain("translate3d(-50px, -50px, -50px)");
   });
 
@@ -191,17 +234,17 @@ describe("PolyScene — autoCenter", () => {
     // add independently inside translate3d without either clobbering the other.
     //
     // We verify this at the level of what matters: the scene element's
-    // --scene-transform includes the bbox contribution without a wrapper div.
+    // scene transform includes the bbox contribution without a wrapper div.
     const containerA = renderScene({ polygons: [QUAD], autoCenter: true });
     const sceneA = containerA.querySelector(".polycss-scene") as HTMLElement;
-    const tA = sceneA.style.getPropertyValue("--scene-transform");
+    const tA = sceneA.style.transform;
     // QUAD centroid contributes (-50px, -50px, -50px)
     expect(tA).toContain("translate3d(-50px, -50px, -50px)");
 
     // Now render with no polygons (empty bbox → zero offset)
     const containerB = renderScene({ polygons: [], autoCenter: true });
     const sceneB = containerB.querySelector(".polycss-scene") as HTMLElement;
-    const tB = sceneB.style.getPropertyValue("--scene-transform");
+    const tB = sceneB.style.transform;
     // Zero bbox → translate3d stays at (0px, 0px, 0px)
     expect(tB).toContain("translate3d(0px, 0px, 0px)");
   });
@@ -277,6 +320,22 @@ describe("PolyScene — strategies.disable", () => {
     expect(container.querySelector("u")).toBeNull();
     const fallback = container.querySelector("i,s");
     expect(fallback).toBeTruthy();
+  });
+
+  it("disabling b renders a rect through border-shape when supported", () => {
+    vi.stubGlobal("CSS", {
+      supports: vi.fn((property: string) => property === "border-shape"),
+    });
+    const container = renderScene({
+      polygons: [QUAD],
+      strategies: { disable: ["b"] },
+    });
+    const poly = container.querySelector("i") as HTMLElement | null;
+    expect(container.querySelector("b")).toBeNull();
+    expect(poly).toBeTruthy();
+    expect(poly!.style.width).toBe("");
+    expect(poly!.style.height).toBe("");
+    expect(poly!.style.getPropertyValue("border-shape")).toContain("polygon(");
   });
 
   it("disabling b, i, and u forces all polygons to s", () => {

@@ -10,6 +10,7 @@
  *   node scripts/perf-bench.mjs --sample 5000   → sample window ms (default 5000)
  *   node scripts/perf-bench.mjs --mesh chicken  → swap mesh
  *   node scripts/perf-bench.mjs --headed        → open a real browser window
+ *   node scripts/perf-bench.mjs --chromium-arg "--enable-blink-features=CSSBorderShape"
  *
  * Each invocation starts its own static server on an ephemeral OS-assigned
  * port so multiple instances can run in parallel without coordination.
@@ -37,6 +38,19 @@ const optStr = (name, dflt = "") => {
   const i = flag(name);
   return i >= 0 ? argv[i + 1] : dflt;
 };
+const optAll = (name) => {
+  const values = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === `--${name}` && argv[i + 1]) {
+      values.push(argv[i + 1]);
+      i += 1;
+    } else if (arg.startsWith(`--${name}=`)) {
+      values.push(arg.slice(name.length + 3));
+    }
+  }
+  return values;
+};
 const optNum = (name, dflt) => {
   const v = optStr(name);
   return v ? Number(v) : dflt;
@@ -48,8 +62,22 @@ const WARMUP_MS = optNum("warmup", 2000);
 const SAMPLE_MS = optNum("sample", 5000);
 const MESH = optStr("mesh", "saucer");
 const HEADED = hasFlag("headed");
+const TRACE = hasFlag("trace");
+const BROWSER_EXECUTABLE = optStr("browser-executable");
+const CHROMIUM_ARGS = [
+  ...optAll("chromium-arg"),
+  ...optAll("chromium-args").flatMap((value) => value.split(/\s+/).filter(Boolean)),
+];
 // Filter renderer paths via --renderer html,vanilla,react,vue (default: all).
 const RENDERERS = optStr("renderer", "html,vanilla,react,vue").split(",").map((s) => s.trim()).filter(Boolean);
+// Filter scenarios via --scenario dynamic.camera_rotate,baked.camera_rotate
+// (default: all five base scenarios).
+const SCENARIO_FILTER = new Set(
+  optStr("scenario")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 
 // Scenario matrix. baked + light is intentionally excluded — atlas
 // re-rasterizes every frame, no point measuring it. Five base scenarios
@@ -63,7 +91,9 @@ const BASE_SCENARIOS = [
   { mode: "baked",   motion: "rot",   key: "baked.camera_rotate" },
 ];
 const SCENARIOS = RENDERERS.flatMap((renderer) =>
-  BASE_SCENARIOS.map((s) => ({ ...s, renderer, key: `${renderer}.${s.key}` })),
+  BASE_SCENARIOS
+    .filter((s) => SCENARIO_FILTER.size === 0 || SCENARIO_FILTER.has(s.key))
+    .map((s) => ({ ...s, renderer, key: `${renderer}.${s.key}` })),
 );
 
 // ── tiny static server (mirrors scripts/perf-serve.mjs but on
@@ -153,6 +183,126 @@ function summarizeFrameTimes(dts, rawCount) {
   };
 }
 
+function metricMap(metrics) {
+  const out = new Map();
+  for (const metric of metrics?.metrics ?? []) out.set(metric.name, metric.value);
+  return out;
+}
+
+function diffPerformanceMetrics(before, after) {
+  const a = metricMap(before);
+  const b = metricMap(after);
+  const keys = [
+    "Timestamp",
+    "Documents",
+    "Frames",
+    "JSEventListeners",
+    "Nodes",
+    "LayoutCount",
+    "RecalcStyleCount",
+    "LayoutDuration",
+    "RecalcStyleDuration",
+    "ScriptDuration",
+    "TaskDuration",
+    "JSHeapUsedSize",
+    "JSHeapTotalSize",
+  ];
+  const out = {};
+  for (const key of keys) {
+    const beforeValue = a.get(key);
+    const afterValue = b.get(key);
+    if (beforeValue === undefined || afterValue === undefined) continue;
+    const value = key === "Timestamp" || key === "Documents" || key === "Frames" ||
+      key === "JSEventListeners" || key === "Nodes" ||
+      key === "JSHeapUsedSize" || key === "JSHeapTotalSize"
+      ? afterValue
+      : afterValue - beforeValue;
+    out[key] = Number(value.toFixed(key.endsWith("Duration") ? 6 : 3));
+  }
+  return out;
+}
+
+function summarizeTraceEvents(events) {
+  const byName = new Map();
+  let completeEventCount = 0;
+  let totalDurationUs = 0;
+  for (const event of events) {
+    if (event?.ph !== "X" || typeof event.dur !== "number") continue;
+    completeEventCount += 1;
+    totalDurationUs += event.dur;
+    const prev = byName.get(event.name) ?? { count: 0, durationUs: 0 };
+    prev.count += 1;
+    prev.durationUs += event.dur;
+    byName.set(event.name, prev);
+  }
+
+  const get = (...names) => {
+    let count = 0;
+    let durationUs = 0;
+    for (const name of names) {
+      const entry = byName.get(name);
+      if (!entry) continue;
+      count += entry.count;
+      durationUs += entry.durationUs;
+    }
+    return { count, duration_ms: +(durationUs / 1000).toFixed(3) };
+  };
+
+  const topEvents = [...byName.entries()]
+    .sort((a, b) => b[1].durationUs - a[1].durationUs)
+    .slice(0, 16)
+    .map(([name, entry]) => ({
+      name,
+      count: entry.count,
+      duration_ms: +(entry.durationUs / 1000).toFixed(3),
+    }));
+
+  return {
+    eventCount: events.length,
+    completeEventCount,
+    totalCompleteDurationMs: +(totalDurationUs / 1000).toFixed(3),
+    groups: {
+      style: get("UpdateLayoutTree", "RecalculateStyles"),
+      layout: get("Layout"),
+      prePaint: get("PrePaint"),
+      paint: get("Paint"),
+      composite: get("CompositeLayers", "Layerize", "UpdateLayerTree", "Commit", "ActivateLayerTree"),
+      raster: get("RasterTask", "ImageDecodeTask", "Decode Image"),
+      script: get("FunctionCall", "EvaluateScript", "EventDispatch", "TimerFire", "FireAnimationFrame"),
+    },
+    topEvents,
+  };
+}
+
+async function startTrace(cdp) {
+  const events = [];
+  cdp.on("Tracing.dataCollected", (payload) => {
+    if (Array.isArray(payload.value)) events.push(...payload.value);
+  });
+  await cdp.send("Performance.enable");
+  await cdp.send("Tracing.start", {
+    transferMode: "ReportEvents",
+    categories: [
+      "devtools.timeline",
+      "disabled-by-default-devtools.timeline",
+      "blink",
+      "cc",
+      "gpu",
+      "renderer.scheduler",
+    ].join(","),
+  });
+  return events;
+}
+
+async function stopTrace(cdp, events) {
+  const done = new Promise((resolve) => {
+    cdp.once("Tracing.tracingComplete", resolve);
+  });
+  await cdp.send("Tracing.end");
+  await done;
+  return summarizeTraceEvents(events);
+}
+
 // ── main ───────────────────────────────────────────────────────────────
 // Each scenario gets a FRESH browser instance to prevent GPU/render-pipeline
 // resource exhaustion from accumulating across scenarios. With a single shared
@@ -162,7 +312,9 @@ function summarizeFrameTimes(dts, rawCount) {
 // browser per scenario adds ~1–2 s per scenario but eliminates false-zero
 // sample counts (the bug that appeared as the H32 "auto-mode race").
 async function runScenario(port, scenario) {
-  const browser = await chromium.launch({ headless: !HEADED });
+  const launchOptions = { headless: !HEADED, args: CHROMIUM_ARGS };
+  if (BROWSER_EXECUTABLE) launchOptions.executablePath = BROWSER_EXECUTABLE;
+  const browser = await chromium.launch(launchOptions);
   try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     const page = await ctx.newPage();
@@ -174,13 +326,24 @@ async function runScenario(port, scenario) {
 
     // Warmup: let the renderer settle and atlas blob URLs resolve.
     await page.waitForTimeout(WARMUP_MS);
+    const cdp = TRACE ? await ctx.newCDPSession(page) : null;
+    let traceEvents = null;
+    let metricsBefore = null;
+    if (cdp) {
+      traceEvents = await startTrace(cdp);
+      metricsBefore = await cdp.send("Performance.getMetrics");
+    }
 
     // Snapshot sample-list length so we can take a delta after SAMPLE_MS.
     const startIdx = await page.evaluate(() => window.__perf__.samples.length);
     await page.waitForTimeout(SAMPLE_MS);
-    const samples = await page.evaluate((from) => window.__perf__.samples.slice(from), startIdx);
-    const polyCount = await page.evaluate(() => window.__perf__.polyCount);
-    const domNodes = await page.evaluate(() => document.querySelectorAll(".polycss-scene i").length);
+    const metricsAfter = cdp ? await cdp.send("Performance.getMetrics") : null;
+    const trace = cdp ? await stopTrace(cdp, traceEvents) : null;
+    const pageResult = await page.evaluate((from) => ({
+      samples: window.__perf__.samples.slice(from),
+      polyCount: window.__perf__.polyCount,
+      renderStats: window.__perf__.renderStats ?? null,
+    }), startIdx);
 
     await ctx.close();
 
@@ -189,9 +352,17 @@ async function runScenario(port, scenario) {
     // run at 2–5 fps (e.g. camera_rotate, quantized animations). A 2000 ms
     // threshold still catches browser-tab-switch pauses (which always produce
     // ≥1000 ms gaps) while retaining all slow-but-valid frames.
-    const rawDts = samples.map((s) => s.dt).filter((dt) => dt > 0);
+    const rawDts = pageResult.samples.map((s) => s.dt).filter((dt) => dt > 0);
     const dts = rawDts.filter((dt) => dt < 2000);
-    return { ...summarizeFrameTimes(dts, rawDts.length), polyCount, domNodes };
+    return {
+      ...summarizeFrameTimes(dts, rawDts.length),
+      polyCount: pageResult.polyCount,
+      renderStats: pageResult.renderStats,
+      trace,
+      performanceMetrics: metricsBefore && metricsAfter
+        ? diffPerformanceMetrics(metricsBefore, metricsAfter)
+        : null,
+    };
   } finally {
     await browser.close();
   }
@@ -199,6 +370,10 @@ async function runScenario(port, scenario) {
 
 (async () => {
   console.log(`[bench] mesh=${MESH} warmup=${WARMUP_MS}ms sample=${SAMPLE_MS}ms`);
+  if (BROWSER_EXECUTABLE) console.log(`[bench] browser=${BROWSER_EXECUTABLE}`);
+  if (CHROMIUM_ARGS.length > 0) console.log(`[bench] chromium args=${CHROMIUM_ARGS.join(" ")}`);
+  if (SCENARIO_FILTER.size > 0) console.log(`[bench] scenarios=${[...SCENARIO_FILTER].join(",")}`);
+  if (TRACE) console.log("[bench] trace=on");
 
   const { server, port } = await startServer();
   console.log(`[bench] server :${port}`);
@@ -206,7 +381,6 @@ async function runScenario(port, scenario) {
   try {
     const results = {};
     let polyCount = 0;
-    let domNodes = 0;
     let lastRenderer = null;
     for (const sc of SCENARIOS) {
       if (sc.renderer !== lastRenderer) {
@@ -220,7 +394,6 @@ async function runScenario(port, scenario) {
       process.stdout.write(`  ${displayKey.padEnd(28)}`);
       const r = await runScenario(port, sc);
       polyCount = r.polyCount;
-      domNodes = r.domNodes;
       // JSON nests as results[renderer][groupKey][leaf] for natural
       // per-renderer subtotals.
       const [, groupKey, leaf] = sc.key.split(".");
@@ -234,14 +407,29 @@ async function runScenario(port, scenario) {
         sample_count_raw: r.sample_count_raw,
         sample_count_filtered: r.sample_count_filtered,
         is_bimodal: r.is_bimodal,
+        renderStats: r.renderStats,
+        trace: r.trace,
+        performanceMetrics: r.performanceMetrics,
       };
       const filterNote = r.sample_count_filtered > 0 ? ` [${r.sample_count_filtered} outliers dropped]` : "";
       const bimodalNote = r.is_bimodal ? `  ⚠ BIMODAL (p99 ${(r.frame_time_p99_ms / r.frame_time_p50_ms).toFixed(1)}× p50 — periodic stalls hiding behind a fast median)` : "";
-      process.stdout.write(`p50=${r.fps_p50.toFixed(1).padStart(5)}fps  p95=${r.fps_p95.toFixed(1).padStart(5)}fps  p99=${r.frame_time_p99_ms.toFixed(1).padStart(5)}ms  (${r.sample_count}/${r.sample_count_raw} samples${filterNote})${bimodalNote}\n`);
+      const tags = r.renderStats?.dom?.tags;
+      const tagNote = tags ? `  tags b/i/s/u/q=${tags.b}/${tags.i}/${tags.s}/${tags.u}/${tags.q}` : "";
+      const styleNote = typeof r.renderStats?.dom?.inlineStyleChars === "number"
+        ? `  styles=${r.renderStats.dom.inlineStyleChars}`
+        : "";
+      const borderShape = r.renderStats?.support?.borderShape;
+      const supportNote = typeof borderShape === "boolean" ? `  borderShape=${borderShape ? "yes" : "no"}` : "";
+      const traceNote = r.trace?.groups
+        ? `  trace style/layout/paint/comp=${r.trace.groups.style.duration_ms.toFixed(1)}/${r.trace.groups.layout.duration_ms.toFixed(1)}/${r.trace.groups.paint.duration_ms.toFixed(1)}/${r.trace.groups.composite.duration_ms.toFixed(1)}ms`
+        : "";
+      process.stdout.write(`p50=${r.fps_p50.toFixed(1).padStart(5)}fps  p95=${r.fps_p95.toFixed(1).padStart(5)}fps  p99=${r.frame_time_p99_ms.toFixed(1).padStart(5)}ms  (${r.sample_count}/${r.sample_count_raw} samples${filterNote})${tagNote}${styleNote}${supportNote}${traceNote}${bimodalNote}\n`);
     }
     const out = {
       mesh: MESH,
-      polyCount, domNodes,
+      polyCount,
+      browserExecutable: BROWSER_EXECUTABLE || null,
+      chromiumArgs: CHROMIUM_ARGS,
       warmup_ms: WARMUP_MS, sample_ms: SAMPLE_MS,
       ...results,
     };

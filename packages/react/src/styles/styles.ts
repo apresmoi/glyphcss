@@ -26,7 +26,6 @@ const CORE_BASE_STYLES = `
   height: 0;
   transform-style: preserve-3d;
   perspective: none;
-  transform: var(--scene-transform);
 }
 
 /* ── Camera wrapper (perspective + interactive drag) ────────────────────── */
@@ -84,15 +83,19 @@ const CORE_BASE_STYLES = `
 
 .polycss-scene b {
   background: currentColor;
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene i {
-  border-style: solid;
-  border-width: 1px;
+  width: 16px;
+  height: 16px;
   border-color: currentColor;
 }
 
 .polycss-scene s {
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene u {
@@ -102,6 +105,7 @@ const CORE_BASE_STYLES = `
   box-sizing: content-box;
   border: 0 solid transparent;
   border-color: transparent transparent currentColor transparent;
+  border-width: 0 1px 1px 1px;
 }
 
 /* ── Gizmo override ─────────────────────────────────────────────────────── */

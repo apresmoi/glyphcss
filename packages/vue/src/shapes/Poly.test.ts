@@ -132,6 +132,16 @@ describe("Poly (Vue) — non-horizontal geometry", () => {
     expect(poly.tagName.toLowerCase()).toBe("u");
     expect(poly.style.transform).toContain("matrix3d(");
   });
+
+  it("renders a solid non-rect quad as a projective b element", () => {
+    const container = renderPoly({ vertices: NON_RECT_QUAD });
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("b");
+    expect(poly.style.transform).toContain("matrix3d(");
+    expect(poly.style.getPropertyValue("border-shape")).toBe("");
+    expect(poly.style.width).toBe("");
+    expect(poly.style.height).toBe("");
+  });
 });
 
 describe("Poly (Vue) — texture without UVs", () => {
@@ -214,6 +224,8 @@ describe("Poly (Vue) — material direct path", () => {
     });
     const poly = getPoly(container);
     expect(poly.style.transform).toContain("matrix3d(");
+    expect(poly.style.width).toBe("");
+    expect(poly.style.height).toBe("");
   });
 
   it("sets backgroundPosition to 0px 0px for full UV rect [0,1]x[0,1]", () => {

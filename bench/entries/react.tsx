@@ -2,7 +2,7 @@
  * Bench entry — React. Bundled by bench/build.mjs into bench/polycss-react.js
  * and loaded by bench/perf-react.html.
  *
- * Mounts a <PolyCamera><PolyScene><PolyControls + mesh> tree and drives
+ * Mounts a <PolyCamera><PolyScene><PolyOrbitControls + mesh> tree and drives
  * per-frame state via React useState updates from a shared rAF loop.
  * Measures the React reconciliation cost on top of the polycss renderer.
  */
@@ -11,7 +11,7 @@ import { createRoot } from "react-dom/client";
 import {
   PolyCamera,
   PolyScene,
-  PolyControls,
+  PolyOrbitControls,
   PolyMesh,
   Poly,
 } from "@layoutit/polycss-react";
@@ -44,6 +44,7 @@ function PerfApp({
     const recorder = createPerfRecorder({
       rendererLabel: "react",
       meshId, mode, motion, polyCount,
+      polygons: parseResult?.polygons ?? [],
     });
 
     let azimuth = az;
@@ -81,7 +82,7 @@ function PerfApp({
         textureLighting={mode}
         autoCenter
       >
-        <PolyControls drag wheel animate={false} />
+        <PolyOrbitControls drag wheel animate={false} />
         {parseResult
           ? parseResult.polygons.map((p, i) => <Poly key={i} {...p} />)
           : preset.url

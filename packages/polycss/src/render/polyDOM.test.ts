@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderPoly } from "./polyDOM";
-import { renderPolygonsWithTextureAtlas } from "./textureAtlas";
+import { renderPolygonsWithTextureAtlas, renderPolygonsWithTextureAtlasAsync } from "./textureAtlas";
 import type { Polygon } from "@layoutit/polycss-core";
 
 const FLAT_TRIANGLE: Polygon = {
@@ -8,6 +8,15 @@ const FLAT_TRIANGLE: Polygon = {
     [0, 0, 0],
     [1, 0, 0],
     [0, 1, 0],
+  ],
+  color: "#ff0000",
+};
+
+const SECOND_FLAT_TRIANGLE: Polygon = {
+  vertices: [
+    [1, 0, 0],
+    [2, 0, 0],
+    [1, 1, 0],
   ],
   color: "#ff0000",
 };
@@ -32,6 +41,16 @@ const NON_RECT_QUAD: Polygon = {
   color: "#00ffff",
 };
 
+const UNSTABLE_PROJECTIVE_QUAD: Polygon = {
+  vertices: [
+    [0, 0, 0],
+    [0, 0.02, 0],
+    [0.2, 2, 0],
+    [0.2, 0, 0],
+  ],
+  color: "#ff00ff",
+};
+
 const OFFAXIS_TRIANGLE: Polygon = {
   vertices: [
     [0, 0, 0],
@@ -51,11 +70,11 @@ function roundedMatrix(values: number[], decimals = 3): number[] {
   return values.map((value) => Number(value.toFixed(decimals)));
 }
 
-function computeExpectedMatrix(
+function computeExpectedPlan(
   vertices: [number, number, number][],
   tileSize = 50,
   elev = tileSize,
-): number[] {
+): { matrix: number[]; canvasW: number; canvasH: number } {
   const toCss = (v: [number, number, number]): [number, number, number] => [
     v[1] * tileSize,
     v[0] * tileSize,
@@ -84,22 +103,65 @@ function computeExpectedMatrix(
       dx * yAxis[0] + dy * yAxis[1] + dz * yAxis[2],
     ];
   });
-  let xMin = Infinity, yMin = Infinity;
+  let xMin = Infinity, yMin = Infinity, xMax = -Infinity, yMax = -Infinity;
   for (const [x, y] of local2D) {
     if (x < xMin) xMin = x;
     if (y < yMin) yMin = y;
+    if (x > xMax) xMax = x;
+    if (y > yMax) yMax = y;
   }
   const shiftX = -xMin;
   const shiftY = -yMin;
   const tx = p0[0] - shiftX * xAxis[0] - shiftY * yAxis[0];
   const ty = p0[1] - shiftX * xAxis[1] - shiftY * yAxis[1];
   const tz = p0[2] - shiftX * xAxis[2] - shiftY * yAxis[2];
+  return {
+    matrix: [
+      xAxis[0], xAxis[1], xAxis[2], 0,
+      yAxis[0], yAxis[1], yAxis[2], 0,
+      nx, ny, nz, 0,
+      tx, ty, tz, 1,
+    ],
+    canvasW: Math.max(1, Math.ceil(xMax - xMin)),
+    canvasH: Math.max(1, Math.ceil(yMax - yMin)),
+  };
+}
+
+function computeExpectedMatrix(
+  vertices: [number, number, number][],
+  tileSize = 50,
+  elev = tileSize,
+): number[] {
+  return computeExpectedPlan(vertices, tileSize, elev).matrix;
+}
+
+function computeExpectedCanonicalMatrix(
+  vertices: [number, number, number][],
+  tileSize = 50,
+  elev = tileSize,
+): number[] {
+  const { matrix, canvasW, canvasH } = computeExpectedPlan(vertices, tileSize, elev);
   return [
-    xAxis[0], xAxis[1], xAxis[2], 0,
-    yAxis[0], yAxis[1], yAxis[2], 0,
-    nx, ny, nz, 0,
-    tx, ty, tz, 1,
+    matrix[0] * canvasW, matrix[1] * canvasW, matrix[2] * canvasW, 0,
+    matrix[4] * canvasH, matrix[5] * canvasH, matrix[6] * canvasH, 0,
+    matrix[8], matrix[9], matrix[10], 0,
+    matrix[12], matrix[13], matrix[14], 1,
   ];
+}
+
+function expectColumnDirection(actual: number[], expected: number[], start: 0 | 4): void {
+  const actualLen = Math.hypot(actual[start], actual[start + 1], actual[start + 2]);
+  const expectedLen = Math.hypot(expected[start], expected[start + 1], expected[start + 2]);
+  expect(actualLen).toBeGreaterThan(0);
+  expect(expectedLen).toBeGreaterThan(0);
+  expect(actual[start] / actualLen).toBeCloseTo(expected[start] / expectedLen, 3);
+  expect(actual[start + 1] / actualLen).toBeCloseTo(expected[start + 1] / expectedLen, 3);
+  expect(actual[start + 2] / actualLen).toBeCloseTo(expected[start + 2] / expectedLen, 3);
+}
+
+function expectMatrixClose(actual: number[], expected: number[]): void {
+  expect(actual.length).toBe(expected.length);
+  for (let i = 0; i < expected.length; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
 }
 
 describe("renderPoly — solid polygons", () => {
@@ -189,14 +251,14 @@ describe("renderPoly — matrix math parity", () => {
     expect(actual.every(Number.isFinite)).toBe(true);
     expect(result.element.style.width).toBe("");
     expect(result.element.style.height).toBe("");
-    expect(parseFloat(result.element.style.borderBottomWidth)).toBeGreaterThan(0);
+    expect(result.element.style.borderBottomWidth).toBe("");
     result.dispose();
   });
 
   it("vertical quad matrix3d values match expected", () => {
     const result = renderPoly(VERTICAL_QUAD)!;
     const actual = extractMatrix(result.element);
-    const expected = computeExpectedMatrix(VERTICAL_QUAD.vertices as [number, number, number][]);
+    const expected = roundedMatrix(computeExpectedCanonicalMatrix(VERTICAL_QUAD.vertices as [number, number, number][]));
     expect(actual.length).toBe(16);
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
@@ -207,7 +269,7 @@ describe("renderPoly — matrix math parity", () => {
     const actual = extractMatrix(result.element);
     expect(actual.length).toBe(16);
     expect(actual.every(Number.isFinite)).toBe(true);
-    expect(parseFloat(result.element.style.borderBottomWidth)).toBeGreaterThan(0);
+    expect(result.element.style.borderBottomWidth).toBe("");
     result.dispose();
   });
 
@@ -222,7 +284,7 @@ describe("renderPoly — matrix math parity", () => {
     };
     const result = renderPoly(poly, { tileSize: 50, layerElevation: 25 })!;
     const actual = extractMatrix(result.element);
-    const expected = computeExpectedMatrix(poly.vertices as [number, number, number][], 50, 25);
+    const expected = roundedMatrix(computeExpectedCanonicalMatrix(poly.vertices as [number, number, number][], 50, 25));
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
   });
@@ -234,27 +296,32 @@ describe("renderPolygonsWithTextureAtlas", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns a triangle u element for a solid triangle", () => {
+  it("uses canonical u geometry by default", () => {
     const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE]);
     const element = result.rendered[0].element;
-    expect(element.tagName.toLowerCase()).toBe("u");
-    expect(element.classList.contains("polycss-poly")).toBe(false);
-    expect(element.classList.contains("polycss-poly-atlas")).toBe(false);
-    expect(element.classList.contains("polycss-poly-solid")).toBe(false);
-    expect(element.classList.contains("polycss-poly-textured")).toBe(false);
-    expect(element.style.transform).toContain("matrix3d(");
-    expect(element.getAttribute("style")?.trim().startsWith("transform:")).toBe(true);
     const styleText = element.getAttribute("style") ?? "";
-    const borderWidth = styleText.match(/border-width:([^;]+)/)?.[1] ?? "";
-    expect(styleText).toMatch(/^transform:[^;]+;border-width:[^;]+;color:/);
-    expect(styleText).not.toMatch(/:\s|;\s/);
-    expect(styleText).toMatch(/border-width:0(?:\s|;)/);
-    expect(styleText).not.toMatch(/border-width:0px/);
-    expect(borderWidth).not.toMatch(/\.\d{2,}px/);
-    expect(styleText).toMatch(/color:\s*#[0-9a-f]{6}/);
-    expect(styleText).not.toMatch(/color:rgb/i);
-    expect(element.style.color).not.toBe("");
-    expect(element.style.borderBottomColor).toBe("");
+    expect(element.tagName.toLowerCase()).toBe("u");
+    expect(styleText).toMatch(/^transform:[^;]+;color:/);
+    expect(styleText).not.toContain("border-width:");
+    expect(styleText).not.toContain("background:linear-gradient");
+    expect(styleText).not.toMatch(/(^|;)width:/);
+    expect(styleText).not.toMatch(/(^|;)height:/);
+    result.dispose();
+  });
+
+  it("async renderer returns the same solid triangle element shape", async () => {
+    const result = await renderPolygonsWithTextureAtlasAsync([FLAT_TRIANGLE, SECOND_FLAT_TRIANGLE]);
+    const element = result.rendered[0].element;
+    expect(result.rendered).toHaveLength(2);
+    expect(element.tagName.toLowerCase()).toBe("u");
+    expect(element.style.transform).toContain("matrix3d(");
+    expect(result.solidPaintDefaults.paintColor).toMatch(/^#[0-9a-f]{6}$/);
+    result.dispose();
+  });
+
+  it("async renderer returns empty output when cancelled before planning", async () => {
+    const result = await renderPolygonsWithTextureAtlasAsync([FLAT_TRIANGLE], {}, () => true);
+    expect(result.rendered).toEqual([]);
     result.dispose();
   });
 
@@ -299,7 +366,9 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(canvases).toHaveLength(0);
     const styleText = element.getAttribute("style") ?? "";
     expect(styleText.trim().startsWith("transform:")).toBe(true);
-    expect(styleText).toMatch(/^transform:[^;]+;width:[^;]+;height:[^;]+;color:/);
+    expect(styleText).toMatch(/^transform:[^;]+;color:/);
+    expect(styleText).not.toContain("width:");
+    expect(styleText).not.toContain("height:");
     expect(styleText).not.toMatch(/:\s|;\s/);
     expect(styleText).toMatch(/color:\s*#[0-9a-f]{6}/);
     expect(styleText).not.toMatch(/color:rgb/i);
@@ -308,7 +377,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("can render solid non-rect polygons with border-shape instead of an atlas canvas", () => {
+  it("can render solid non-rect polygons with border-shape when projective quads are disabled", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
       defaultView: {
@@ -326,7 +395,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], { doc });
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], {
+      doc,
+      strategies: { disable: ["b"] },
+    });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(0);
     expect(element.tagName.toLowerCase()).toBe("i");
@@ -335,9 +407,11 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.style.boxSizing).toBe("");
     expect(element.style.borderStyle).toBe("");
     expect(element.style.borderWidth).toBe("");
+    expect(element.style.width).toBe("");
+    expect(element.style.height).toBe("");
     const styleText = element.getAttribute("style") ?? "";
     const borderShape = styleText.match(/border-shape:([^;]+)/)?.[1] ?? "";
-    expect(styleText).toMatch(/^transform:[^;]+;border-shape:[^;]+;width:[^;]+;height:[^;]+;color:/);
+    expect(styleText).toMatch(/^transform:[^;]+;border-shape:[^;]+;color:/);
     expect(styleText).not.toMatch(/:\s|;\s/);
     expect(borderShape).not.toContain(", ");
     expect(borderShape).not.toMatch(/\b0%/);
@@ -350,7 +424,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("uses the atlas fallback for solid non-rect polygons on non-desktop pointers", () => {
+  it("uses the atlas fallback for solid non-rect polygons on non-desktop pointers when projective quads are disabled", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
       defaultView: {
@@ -371,7 +445,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], { doc });
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], {
+      doc,
+      strategies: { disable: ["b"] },
+    });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(1);
     expect(element.style.getPropertyValue("border-shape")).toBe("");
@@ -407,7 +484,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("falls back to atlas for solid non-rect polygons when border-shape is unsupported", () => {
+  it("falls back to atlas for solid non-rect polygons when border-shape and projective quads are unavailable", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
       defaultView: {
@@ -425,7 +502,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
       },
     } as unknown as Document;
 
-    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], { doc });
+    const result = renderPolygonsWithTextureAtlas([NON_RECT_QUAD], {
+      doc,
+      strategies: { disable: ["b"] },
+    });
     const element = result.rendered[0].element;
     expect(canvases).toHaveLength(1);
     expect(element.style.getPropertyValue("border-shape")).toBe("");
@@ -448,7 +528,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     result.dispose();
   });
 
-  it("uses the smallest in-plane DOM box for untextured oblique non-triangle polygons", () => {
+  it("uses matrix scale for the fixed border-shape paint box", () => {
     const obliqueQuad: Polygon = {
       vertices: [
         [0, 0, 0],
@@ -463,12 +543,15 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const element = result.rendered[0].element;
     const matrix = extractMatrix(element);
 
-    expect(parseFloat(element.style.width)).toBe(10);
-    expect(parseFloat(element.style.height)).toBe(1);
-    expect(matrix[0]).toBeCloseTo(1, 6);
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.style.width).toBe("");
+    expect(element.style.height).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
+    expect(matrix[0]).toBeCloseTo(10 / 16, 3);
     expect(matrix[1]).toBeCloseTo(0, 6);
     expect(matrix[4]).toBeCloseTo(0, 6);
-    expect(matrix[5]).toBeCloseTo(1, 6);
+    expect(matrix[5]).toBeCloseTo(1 / 16, 2);
     result.dispose();
   });
 
@@ -489,11 +572,13 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const matrix = extractMatrix(element);
     const expected = roundedMatrix(computeExpectedMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1));
 
-    expect(parseFloat(element.style.width)).toBe(10);
-    expect(parseFloat(element.style.height)).toBe(2);
-    for (let i = 0; i < expected.length; i++) {
-      expect(matrix[i]).toBeCloseTo(expected[i], 6);
-    }
+    expect(element.style.width).toBe("");
+    expect(element.style.height).toBe("");
+    expectColumnDirection(matrix, expected, 0);
+    expectColumnDirection(matrix, expected, 4);
+    expect(matrix[12]).toBeCloseTo(expected[12], 6);
+    expect(matrix[13]).toBeCloseTo(expected[13], 6);
+    expect(matrix[14]).toBeCloseTo(expected[14], 6);
     result.dispose();
   });
 
@@ -517,14 +602,15 @@ describe("renderPolygonsWithTextureAtlas", () => {
       color: "#ff0000",
     };
 
-    const result = renderPolygonsWithTextureAtlas([left, right], { tileSize: 1 });
+    const result = renderPolygonsWithTextureAtlas([left, right], {
+      tileSize: 1,
+      strategies: { disable: ["b"] },
+    });
     const leftMatrix = extractMatrix(result.rendered[0].element);
     const rightMatrix = extractMatrix(result.rendered[1].element);
 
-    expect(leftMatrix[0]).toBeCloseTo(rightMatrix[0], 6);
-    expect(leftMatrix[1]).toBeCloseTo(rightMatrix[1], 6);
-    expect(leftMatrix[4]).toBeCloseTo(rightMatrix[4], 6);
-    expect(leftMatrix[5]).toBeCloseTo(rightMatrix[5], 6);
+    expectColumnDirection(leftMatrix, rightMatrix, 0);
+    expectColumnDirection(leftMatrix, rightMatrix, 4);
     result.dispose();
   });
 
@@ -554,14 +640,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const sharedEdgeMatrix = roundedMatrix(computeExpectedMatrix(bladeFace.vertices as [number, number, number][], 1, 1));
 
     const isolatedMatrix = extractMatrix(isolated.rendered[0].element);
-    expect(isolatedMatrix[0]).toBeCloseTo(sharedEdgeMatrix[0], 6);
-    expect(isolatedMatrix[1]).toBeCloseTo(sharedEdgeMatrix[1], 6);
-    expect(isolatedMatrix[4]).toBeCloseTo(sharedEdgeMatrix[4], 6);
-    expect(isolatedMatrix[5]).toBeCloseTo(sharedEdgeMatrix[5], 6);
-    expect(sharedMatrix[0]).toBeCloseTo(sharedEdgeMatrix[0], 6);
-    expect(sharedMatrix[1]).toBeCloseTo(sharedEdgeMatrix[1], 6);
-    expect(sharedMatrix[4]).toBeCloseTo(sharedEdgeMatrix[4], 6);
-    expect(sharedMatrix[5]).toBeCloseTo(sharedEdgeMatrix[5], 6);
+    expectColumnDirection(isolatedMatrix, sharedEdgeMatrix, 0);
+    expectColumnDirection(isolatedMatrix, sharedEdgeMatrix, 4);
+    expectColumnDirection(sharedMatrix, sharedEdgeMatrix, 0);
+    expectColumnDirection(sharedMatrix, sharedEdgeMatrix, 4);
     isolated.dispose();
     shared.dispose();
   });
@@ -586,23 +668,19 @@ describe("renderPolygonsWithTextureAtlas", () => {
       uvs: [[1, 0], [1, 1], [0, 1]],
     };
 
-    const normal = renderPolygonsWithTextureAtlas([left, right], {
-      tileSize: 1,
-      textureQuality: 1,
-      experimentalTextureEdgeRepair: false,
-    });
     const repaired = renderPolygonsWithTextureAtlas([left, right], {
       tileSize: 1,
       textureQuality: 1,
     });
 
-    expect(parseFloat(repaired.rendered[0].element.style.width))
-      .toBe(parseFloat(normal.rendered[0].element.style.width));
-    expect(parseFloat(repaired.rendered[0].element.style.height))
-      .toBe(parseFloat(normal.rendered[0].element.style.height));
+    expect(repaired.rendered[0].element.style.width).toBe("");
+    expect(repaired.rendered[0].element.style.height).toBe("");
+    expectMatrixClose(
+      extractMatrix(repaired.rendered[0].element),
+      roundedMatrix(computeExpectedMatrix(left.vertices as [number, number, number][], 1, 1)),
+    );
     expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
 
-    normal.dispose();
     repaired.dispose();
   });
 
@@ -626,27 +704,25 @@ describe("renderPolygonsWithTextureAtlas", () => {
       uvs: [[1, 0], [0, 0], [0, 1]],
     };
 
-    const normal = renderPolygonsWithTextureAtlas([floor, wall], {
-      tileSize: 1,
-      textureQuality: 1,
-      experimentalTextureEdgeRepair: false,
-    });
     const repaired = renderPolygonsWithTextureAtlas([floor, wall], {
       tileSize: 1,
       textureQuality: 1,
     });
 
-    expect(parseFloat(repaired.rendered[0].element.style.width))
-      .toBe(parseFloat(normal.rendered[0].element.style.width));
-    expect(parseFloat(repaired.rendered[0].element.style.height))
-      .toBe(parseFloat(normal.rendered[0].element.style.height));
-    expect(parseFloat(repaired.rendered[1].element.style.width))
-      .toBe(parseFloat(normal.rendered[1].element.style.width));
-    expect(parseFloat(repaired.rendered[1].element.style.height))
-      .toBe(parseFloat(normal.rendered[1].element.style.height));
+    expect(repaired.rendered[0].element.style.width).toBe("");
+    expect(repaired.rendered[0].element.style.height).toBe("");
+    expect(repaired.rendered[1].element.style.width).toBe("");
+    expect(repaired.rendered[1].element.style.height).toBe("");
+    expectMatrixClose(
+      extractMatrix(repaired.rendered[0].element),
+      roundedMatrix(computeExpectedMatrix(floor.vertices as [number, number, number][], 1, 1)),
+    );
+    expectMatrixClose(
+      extractMatrix(repaired.rendered[1].element),
+      roundedMatrix(computeExpectedMatrix(wall.vertices as [number, number, number][], 1, 1)),
+    );
     expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
 
-    normal.dispose();
     repaired.dispose();
   });
 
@@ -681,13 +757,14 @@ describe("renderPolygonsWithTextureAtlas", () => {
       getImageData,
       putImageData,
     } as unknown as CanvasRenderingContext2D;
+    const getContext = vi.fn(() => ctx);
     const doc = {
       createElement(tagName: string) {
         if (tagName === "canvas") {
           const canvas = {
             width: 0,
             height: 0,
-            getContext: () => ctx,
+            getContext,
             toBlob: (callback: (blob: Blob | null) => void) => callback(null),
           } as unknown as HTMLCanvasElement;
           (ctx as { canvas?: HTMLCanvasElement }).canvas = canvas;
@@ -732,10 +809,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
       doc,
       tileSize: 1,
       textureQuality: 1,
-      experimentalTextureEdgeRepair: true,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
+    expect(getContext).toHaveBeenCalledWith("2d", { willReadFrequently: true });
     expect(getImageData).toHaveBeenCalled();
     expect(putImageData).toHaveBeenCalled();
     const repaired = putImageData.mock.calls[0][0] as ImageData;
@@ -1058,6 +1135,10 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     );
     const element = result.rendered[0].element;
     expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.style.width).toBe("");
+    expect(element.style.height).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
     expect(canvases).toHaveLength(0);
     result.dispose();
   });
@@ -1108,6 +1189,10 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     );
     const element = result.rendered[0].element;
     expect(element.tagName.toLowerCase()).toBe("i");
+    expect(element.style.width).toBe("");
+    expect(element.style.height).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
     expect(canvases).toHaveLength(0);
     result.dispose();
   });
@@ -1130,7 +1215,7 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
 
     const result = renderPolygonsWithTextureAtlas(
       [NON_RECT_QUAD],
-      { doc, strategies: { disable: ["i"] } },
+      { doc, strategies: { disable: ["b", "i"] } },
     );
     const element = result.rendered[0].element;
     expect(element.tagName.toLowerCase()).toBe("s");
@@ -1138,7 +1223,68 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     result.dispose();
   });
 
-  it("all three strategies disabled → everything falls through to atlas", () => {
+  it("non-rect solid quads use projective b elements by default", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: { CSS: { supports: () => false } },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [NON_RECT_QUAD],
+      { doc },
+    );
+    const element = result.rendered[0].element;
+    const style = element.getAttribute("style") ?? "";
+    expect(element.tagName.toLowerCase()).toBe("b");
+    expect(result.rendered[0].kind).toBe("solid");
+    expect(style).toContain("transform:matrix3d(");
+    expect(style).not.toContain("width");
+    expect(style).not.toContain("height");
+    expect(style).not.toContain("border-shape");
+    expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("unstable projective quads fall back to border-shape by default", () => {
+    const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
+    const doc = {
+      defaultView: {
+        CSS: { supports: (property: string) => property === "border-shape" },
+      },
+      createElement(tagName: string) {
+        if (tagName === "canvas") {
+          const canvas = { width: 0, height: 0, getContext: () => null };
+          canvases.push(canvas);
+          return canvas;
+        }
+        return document.createElement(tagName);
+      },
+    } as unknown as Document;
+
+    const result = renderPolygonsWithTextureAtlas(
+      [UNSTABLE_PROJECTIVE_QUAD],
+      { doc },
+    );
+    const element = result.rendered[0].element;
+    expect(element.tagName.toLowerCase()).toBe("i");
+    expect(result.rendered[0].kind).toBe("border");
+    expect(element.style.width).toBe("");
+    expect(element.style.height).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
+    expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
+    expect(canvases).toHaveLength(0);
+    result.dispose();
+  });
+
+  it("solid strategies disabled → everything falls through to atlas", () => {
     const canvases: Array<{ width: number; height: number; getContext: () => null }> = [];
     const doc = {
       defaultView: {
@@ -1175,10 +1321,11 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     result.dispose();
   });
 
-  it("omitting strategies option has no effect (backward compat)", () => {
+  it("omitting strategies uses canonical geometry defaults", () => {
     const result = renderPolygonsWithTextureAtlas([FLAT_TRIANGLE]);
     const element = result.rendered[0].element;
     expect(element.tagName.toLowerCase()).toBe("u");
+    expect(element.getAttribute("style")).not.toContain("border-width:");
     result.dispose();
   });
 });

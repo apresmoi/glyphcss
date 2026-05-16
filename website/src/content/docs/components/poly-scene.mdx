@@ -19,11 +19,8 @@ It's available as a custom element (`<poly-scene>`), via the imperative `createP
 | `ambientLight` | `PolyAmbientLight` | None | Ambient fill light. |
 | `textureLighting` | `"baked" \| "dynamic"` | `"baked"` | Whether texture lighting is rasterized into atlases or computed with CSS variables. |
 | `textureQuality` | `number \| "auto"` | `"auto"` | Raster scale for generated atlas pages. Auto caps large runtime bitmaps by workload; lower numeric values reduce texture memory and detail. |
-| `experimentalTextureEdgeRepair` | `boolean` | `true` | Repairs antialiased atlas pixels at shared textured polygon edges without expanding geometry. |
 | `polygons` | `Polygon[]` | None | (Framework only.) Flat array of polygon objects rendered as direct children. Composes with JSX/slot children. |
 | `children` | None | None | `<poly-mesh>` / `<poly-polygon>` / `<poly-orbit-controls>` (vanilla) or `<PolyMesh>` / `<Poly>` / `<PolyOrbitControls>` (React / Vue). |
-
-For the vanilla custom element, omit `experimental-texture-edge-repair` or set it with no value to keep edge repair enabled; set `experimental-texture-edge-repair="false"` to disable it.
 
 **Camera state and input** are separate layers. For vanilla, set camera attributes (`rot-x`, `rot-y`, `zoom`, `perspective`) on `<poly-scene>`. For React/Vue, set those props on `<PolyCamera>`. Add a child `<poly-orbit-controls>` / `<PolyOrbitControls>` to enable drag, wheel, or autorotate: see [PolyOrbitControls](/components/poly-controls).
 
@@ -39,7 +36,6 @@ For the vanilla custom element, omit `experimental-texture-edge-repair` or set i
 | `scale` | `number \| Vec3` | Uniform or per-axis scale. |
 | `rotation` | `Vec3` | Euler rotation in degrees `[x, y, z]`. |
 | `textureQuality` | `number \| "auto"` | Raster scale for generated atlas pages. React / Vue only; vanilla meshes inherit the scene's `texture-quality`. |
-| `experimentalTextureEdgeRepair` | `boolean` | Textured atlas edge repair. React / Vue meshes inherit the scene value, then default to `true`; vanilla meshes inherit the scene's `experimental-texture-edge-repair`. |
 | `autoCenter` | `boolean` | Shift the loaded mesh so its bounding-box center sits at the local origin before applying `position`. Useful when assets aren't centered in their file coordinates. |
 | `mtl` | `string` | Companion `.mtl` URL for OBJ models. |
 | `parseOptions` | `UseMeshOptions` | Parser options forwarded to `loadMesh`; `meshResolution` defaults to `"lossy"`. |

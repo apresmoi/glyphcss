@@ -2,7 +2,7 @@
  * Bench entry — Vue 3. Bundled by bench/build.mjs into bench/polycss-vue.js
  * and loaded by bench/perf-vue.html.
  *
- * Mounts a <PolyCamera><PolyScene><PolyControls + mesh> tree and drives
+ * Mounts a <PolyCamera><PolyScene><PolyOrbitControls + mesh> tree and drives
  * per-frame state via reactive ref() updates from a shared rAF loop.
  * Measures Vue's reactivity flush + render cost on top of the polycss
  * renderer.
@@ -14,7 +14,7 @@ import { createApp, defineComponent, h, onMounted, onBeforeUnmount, ref, compute
 import {
   PolyCamera,
   PolyScene,
-  PolyControls,
+  PolyOrbitControls,
   PolyMesh,
   Poly,
 } from "@layoutit/polycss-vue";
@@ -58,6 +58,7 @@ const PerfApp = defineComponent({
         mode: props.mode,
         motion: props.motion,
         polyCount,
+        polygons: props.parseResult?.polygons ?? [],
       });
 
       let azimuth = props.az;
@@ -93,7 +94,7 @@ const PerfApp = defineComponent({
           },
           {
             default: () => [
-              h(PolyControls, { drag: true, wheel: true, animate: false }),
+              h(PolyOrbitControls, { drag: true, wheel: true, animate: false }),
               props.parseResult
                 ? props.parseResult.polygons.map((p, i) => h(Poly, { key: i, ...p }))
                 : props.preset.url

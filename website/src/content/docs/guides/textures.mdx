@@ -154,7 +154,7 @@ For textured polygons, polycss runs a one-time atlas canvas pass at mount. Flat-
 2. Solve a 6-DOF affine transform from the polygon's UV coordinates to its 2D screen footprint when UVs are available.
 3. Pack polygon footprints into one or more atlas pages.
 4. Clip, draw texture pixels or shaded color fills, and export atlas pages to blob URLs via `canvas.toBlob()`. `textureQuality="auto"` can rasterize these pages below full CSS resolution when packed pages would create oversized runtime bitmaps.
-5. Render each polygon as an `<i>` with `background-image`, `background-size`, and `background-position`.
+5. Repair antialiased atlas pixels along shared textured edges, then render each polygon as an `<s>` with `background-image`, `background-size`, and `background-position`.
 
 Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyMesh` / `usePolyMesh` handle it).
 
@@ -162,7 +162,7 @@ Generated atlas blob URLs are revoked on unmount (call `dispose()` or let `PolyM
 
 - **`targetSize`**: scale the model so its longest axis fits this many world units (default: `60`). Set it to roughly match the scale of your other scene content.
 - **`textureQuality`**: leave at `"auto"` for workload-based bitmap caps, or set a numeric scale for explicit quality. `0.5` uses about one quarter of the atlas bitmap memory of `1`.
-- **`experimentalTextureEdgeRepair`**: enabled by default to repair antialiased atlas pixels at shared textured polygon edges; set it to `false` to compare against the unrepaired atlas path. Geometry stays unchanged.
+- Shared textured edges are repaired automatically during atlas generation. Geometry stays unchanged; only low-alpha atlas pixels at those shared edges are filled from nearby opaque texels.
 - **`baseUrl`**: for OBJ/glTF files with external texture paths, pass the file's URL so relative paths resolve correctly.
 - For large meshes: blob URLs for embedded textures and generated atlases are revoked when `dispose()` is called. Always let polycss manage this: don't hold references to blob URLs across remounts.
 

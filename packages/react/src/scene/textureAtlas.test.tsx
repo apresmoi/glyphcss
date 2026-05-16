@@ -86,19 +86,7 @@ describe("computeTextureAtlasPlan", () => {
   });
 
   it("keeps textured edge repair disabled when there are no shared texture edges", () => {
-    const repaired = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {
-      experimentalTextureEdgeRepair: true,
-    });
-
-    expect(repaired).not.toBeNull();
-    expect(repaired!.textureEdgeRepair).toBe(false);
-  });
-
-  it("allows textured edge repair to be disabled explicitly", () => {
-    const repaired = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {
-      textureEdgeRepairEdges: new Set([1]),
-      experimentalTextureEdgeRepair: false,
-    });
+    const repaired = computeTextureAtlasPlan(TEXTURED_QUAD_60, 0, {});
 
     expect(repaired).not.toBeNull();
     expect(repaired!.textureEdgeRepair).toBe(false);

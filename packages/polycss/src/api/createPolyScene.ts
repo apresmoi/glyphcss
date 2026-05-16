@@ -39,6 +39,7 @@ import {
   cssBorderShapeForPlan,
   getSolidPaintDefaults,
   renderPolygonsWithTextureAtlas,
+  renderPolygonsWithTextureAtlasAsync,
   renderPolygonsWithStableTriangles,
   updatePolygonsWithStableTopology,
   type TextureQuality,
@@ -47,6 +48,11 @@ import {
   type SolidPaintDefaults,
 } from "../render/textureAtlas";
 import { injectPolyBaseStyles } from "../styles/styles";
+
+// Used only by the internal async mesh update path. Batching DOM insertion
+// keeps large gallery meshes below Chrome's long-task warning threshold
+// without changing the synchronous public setPolygons() contract.
+const ASYNC_MOUNT_BATCH_SIZE = 750;
 
 export interface PolySceneOptions {
   perspective?: number | false;
@@ -84,11 +90,6 @@ export interface PolySceneOptions {
    * `<s>` is the universal fallback and cannot be disabled.
    */
   strategies?: PolyRenderStrategiesOption;
-  /**
-   * Repairs antialiased atlas pixels at shared textured polygon edges to
-   * reduce visible seams without expanding polygon geometry. Defaults to true.
-   */
-  experimentalTextureEdgeRepair?: boolean;
   /**
    * When `true`, rotation pivots around the union bbox of all added meshes
    * instead of world (0,0,0). The scene wraps polygons in an inner div
@@ -217,6 +218,17 @@ export interface PolyMeshHandle {
   getPolygons(): Polygon[];
 }
 
+// Internal-only async update hook for large imperative scene users. Keeping it
+// off PolyMeshHandle avoids turning a debug-workbench long-task fix into a
+// public API contract that React/Vue also need to mirror.
+interface InternalPolyMeshHandle extends PolyMeshHandle {
+  setPolygonsChunked(polygons: Polygon[], options?: {
+    merge?: boolean;
+    stableDom?: boolean;
+    recomputeAutoCenter?: boolean;
+  }): Promise<void>;
+}
+
 export interface PolySceneHandle {
   /** Add a mesh to the scene. Returns a handle for later removal. */
   add(mesh: ParseResult, opts?: PolyMeshTransform): PolyMeshHandle;
@@ -232,8 +244,8 @@ export interface PolySceneHandle {
   readonly host: HTMLElement;
   /**
    * Snapshot of the current options (camera, lighting, merge, autoCenter,
-   * textureLighting, textureQuality, perspective, and experimental renderer
-   * flags). Returned by reference, so callers must treat it as read-only —
+   * textureLighting, textureQuality, and perspective). Returned by reference,
+   * so callers must treat it as read-only —
    * mutations won't propagate. Used by helpers that need to read the current
    * camera state without duplicating it.
    */
@@ -398,10 +410,7 @@ export function createPolyScene(
     if (computed.position === "static") host.style.position = "relative";
   }
 
-  let currentOptions: PolySceneOptions = {
-    experimentalTextureEdgeRepair: true,
-    ...options,
-  };
+  let currentOptions: PolySceneOptions = { ...options };
 
   // Bbox-center of all live meshes (helpers opt out). Auto-managed by
   // `recomputeAutoCenter`. Folded into the scene transform alongside
@@ -442,7 +451,7 @@ export function createPolyScene(
   const meshes = new Set<MeshEntry>();
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
-    el.style.setProperty("--scene-transform", buildSceneTransform(opts, autoCenterOffset));
+    el.style.transform = buildSceneTransform(opts, autoCenterOffset);
     if (typeof opts.perspective === "number") {
       el.style.perspective = `${opts.perspective}px`;
     } else if (opts.perspective === false) {
@@ -606,6 +615,37 @@ export function createPolyScene(
     entry.wrapper.appendChild(fragment);
   }
 
+  function yieldToMainThread(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  async function syncMountedRenderedChunked(
+    entry: MeshEntry,
+    shouldCancel: () => boolean,
+  ): Promise<boolean> {
+    const useBuckets =
+      currentOptions.textureLighting === "dynamic" && !entry.stableDom;
+    if (useBuckets) {
+      syncMountedRendered(entry);
+      return !shouldCancel();
+    }
+
+    let fragment = doc.createDocumentFragment();
+    let count = 0;
+    for (const item of entry.rendered) {
+      if (shouldCancel()) return false;
+      fragment.appendChild(item.element);
+      count++;
+      if (count % ASYNC_MOUNT_BATCH_SIZE === 0) {
+        entry.wrapper.appendChild(fragment);
+        fragment = doc.createDocumentFragment();
+        await yieldToMainThread();
+      }
+    }
+    if (fragment.childNodes.length > 0) entry.wrapper.appendChild(fragment);
+    return !shouldCancel();
+  }
+
   // Dynamic-mode per-mesh light override: when the mesh has a non-zero rotation
   // and the scene is in dynamic lighting mode, emit --plx/ly/lz on the
   // wrapper element, computed by inverse-rotating the world-space light into the
@@ -753,7 +793,6 @@ export function createPolyScene(
       textureLighting: currentOptions.textureLighting,
       textureQuality: currentOptions.textureQuality,
       strategies: currentOptions.strategies,
-      experimentalTextureEdgeRepair: currentOptions.experimentalTextureEdgeRepair,
     };
     const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
     applySolidPaintVars(entry.wrapper, solidPaintDefaults);
@@ -808,6 +847,49 @@ export function createPolyScene(
     sceneEl.style.setProperty("--shadow-ground-cssz", groundCssZ.toFixed(3));
   }
 
+  async function renderEntryChunked(
+    entry: MeshEntry,
+    shouldCancel: () => boolean,
+  ): Promise<boolean> {
+    clearRendered(entry);
+    const renderOptions = {
+      doc,
+      directionalLight: currentOptions.directionalLight,
+      ambientLight: currentOptions.ambientLight,
+      textureLighting: currentOptions.textureLighting,
+      textureQuality: currentOptions.textureQuality,
+      strategies: currentOptions.strategies,
+    };
+    const atlas = entry.stableDom
+      ? renderPolygonsWithStableTriangles(entry.polygons, renderOptions)
+      : null;
+    if (atlas) {
+      const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
+      applySolidPaintVars(entry.wrapper, solidPaintDefaults);
+      entry.rendered = atlas.rendered;
+      entry.disposeAtlas = atlas.dispose;
+      syncMountedRendered(entry);
+      emitShadowLeaves(entry);
+      return !shouldCancel();
+    }
+
+    const asyncAtlas = await renderPolygonsWithTextureAtlasAsync(
+      entry.polygons,
+      renderOptions,
+      shouldCancel,
+    );
+    if (shouldCancel()) {
+      asyncAtlas.dispose();
+      return false;
+    }
+    applySolidPaintVars(entry.wrapper, asyncAtlas.solidPaintDefaults);
+    entry.rendered = asyncAtlas.rendered;
+    entry.disposeAtlas = asyncAtlas.dispose;
+    const mounted = await syncMountedRenderedChunked(entry, shouldCancel);
+    if (mounted) emitShadowLeaves(entry);
+    return mounted;
+  }
+
   function recomputeAutoCenter(): void {
     // Three.js–style: instead of moving the meshes (via a wrapper translate),
     // store the bbox center as a camera-target offset. `buildSceneTransform`
@@ -844,6 +926,7 @@ export function createPolyScene(
     let transform: PolyMeshTransform = { ...transformIn };
     let mergeOnUpdate = transformIn.merge !== false;
     let stableDomOnUpdate = !!transformIn.stableDom;
+    let polygonUpdateVersion = 0;
     const css = buildMeshTransform(transform);
     if (css) wrapper.style.transform = css;
 
@@ -904,12 +987,13 @@ export function createPolyScene(
       bakedRotation: (transformIn.rotation ? [...transformIn.rotation] : [0, 0, 0]) as Vec3,
     };
 
-    const handle: PolyMeshHandle = {
+    const handle: InternalPolyMeshHandle = {
       polygons: sourcePolygons,
       element: wrapper,
       id: transformIn.id,
       get transform() { return transform; },
       remove() {
+        polygonUpdateVersion++;
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
         // Removing from DOM doesn't auto-dispose generated atlas/blob URLs.
         clearRendered(entry);
@@ -922,6 +1006,7 @@ export function createPolyScene(
         stableDom?: boolean;
         recomputeAutoCenter?: boolean;
       }) {
+        polygonUpdateVersion++;
         mergeOnUpdate = options?.merge ?? mergeOnUpdate;
         stableDomOnUpdate = options?.stableDom ?? stableDomOnUpdate;
         entry.stableDom = stableDomOnUpdate;
@@ -936,7 +1021,6 @@ export function createPolyScene(
             ambientLight: currentOptions.ambientLight,
             textureLighting: currentOptions.textureLighting,
             textureQuality: currentOptions.textureQuality,
-            experimentalTextureEdgeRepair: currentOptions.experimentalTextureEdgeRepair,
           };
           const solidPaintDefaults = getSolidPaintDefaults(entry.polygons, renderOptions);
           applySolidPaintVars(entry.wrapper, solidPaintDefaults);
@@ -962,6 +1046,27 @@ export function createPolyScene(
         Object.assign(entry.polygons[idx], partial);
         renderEntry(entry);
       },
+      async setPolygonsChunked(polygons: Polygon[], options?: {
+        merge?: boolean;
+        stableDom?: boolean;
+        recomputeAutoCenter?: boolean;
+      }) {
+        const version = ++polygonUpdateVersion;
+        mergeOnUpdate = options?.merge ?? mergeOnUpdate;
+        stableDomOnUpdate = options?.stableDom ?? stableDomOnUpdate;
+        entry.stableDom = stableDomOnUpdate;
+        entry.polygons = preparePolygons(polygons, mergeOnUpdate);
+        handle.polygons = entry.polygons;
+        applyTransformOrigin(entry.polygons);
+        const shouldRecomputeAutoCenter = options?.recomputeAutoCenter ?? true;
+        const shouldCancel = () => entry.disposed || version !== polygonUpdateVersion;
+        const completed = await renderEntryChunked(entry, shouldCancel);
+        if (!completed) {
+          clearRendered(entry);
+          return;
+        }
+        if (shouldRecomputeAutoCenter) recomputeAutoCenter();
+      },
       setTransform(t: Partial<PolyMeshTransform>) {
         const prevCastShadow = entry.castShadow;
         if (t.castShadow !== undefined) entry.castShadow = !!t.castShadow;
@@ -977,6 +1082,7 @@ export function createPolyScene(
       dispose() {
         if (entry.disposed) return;
         entry.disposed = true;
+        polygonUpdateVersion++;
         if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
         clearRendered(entry);
         try { parseResult.dispose(); } catch { /* ignore */ }
@@ -1015,12 +1121,10 @@ export function createPolyScene(
   function setOptions(partial: Partial<PolySceneOptions>): void {
     const prevAutoCenter = !!currentOptions.autoCenter;
     const prevStrategies = currentOptions.strategies;
-    const prevExperimentalTextureEdgeRepair = !!currentOptions.experimentalTextureEdgeRepair;
     const prevTextureLighting = currentOptions.textureLighting;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
-    const nextExperimentalTextureEdgeRepair = !!currentOptions.experimentalTextureEdgeRepair;
     // Re-evaluate per-mesh light overrides when lighting settings change —
     // textureLighting or directionalLight may have changed.
     for (const entry of meshes) {
@@ -1033,9 +1137,7 @@ export function createPolyScene(
     // updates) don't blow up the atlas every frame.
     const strategiesChanged = partial.strategies !== undefined &&
       !strategiesEqual(partial.strategies, prevStrategies);
-    const textureEdgeRepairChanged = partial.experimentalTextureEdgeRepair !== undefined &&
-      prevExperimentalTextureEdgeRepair !== nextExperimentalTextureEdgeRepair;
-    if (strategiesChanged || textureEdgeRepairChanged) {
+    if (strategiesChanged) {
       for (const entry of meshes) renderEntry(entry);
     }
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();

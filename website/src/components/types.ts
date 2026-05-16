@@ -6,7 +6,7 @@ import type {
 } from "@layoutit/polycss-react";
 import type { TextureQuality } from "@layoutit/polycss";
 
-// Shared types used by both DebugWorkbench and VanillaScene.
+// Shared types used by GalleryWorkbench and scene components.
 
 export type GizmoMode = "translate" | "rotate";
 
@@ -47,7 +47,7 @@ export interface SceneOptionsState {
   ambientColor: string;
   textureLighting: PolyTextureLightingMode;
   textureQuality: TextureQuality;
-  experimentalTextureEdgeRepair: boolean;
+  solidMaterials: boolean;
   matrixPrecision: "exact" | "2" | "3" | "4" | "5" | "6";
   borderShapePrecision: "exact" | "2" | "3" | "4" | "5" | "6";
   meshResolution: MeshResolution;

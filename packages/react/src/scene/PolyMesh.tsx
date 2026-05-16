@@ -90,12 +90,6 @@ export interface PolyMeshProps extends TransformProps, InteractionProps {
    *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
    *  Numeric values 0.1..1 force an explicit scale. */
   textureQuality?: TextureQuality;
-  /**
-   * Repairs antialiased atlas pixels at shared textured polygon edges to
-   * reduce visible seams without expanding polygon geometry. Defaults to the
-   * scene context, then true.
-   */
-  experimentalTextureEdgeRepair?: boolean;
   /** Per-polygon override render. Receives the polygon + its index. */
   children?: (polygon: Polygon, index: number) => ReactNode;
   /** Loading slot — rendered while `src` is being fetched/parsed. */
@@ -171,7 +165,6 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     autoCenter,
     textureLighting,
     textureQuality,
-    experimentalTextureEdgeRepair,
     castShadow,
     children,
     fallback,
@@ -454,8 +447,6 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   // global CSS rule with default normals.
   const sceneCtx = usePolySceneContext();
   const effectiveTextureLighting = textureLighting ?? sceneCtx?.textureLighting ?? "baked";
-  const effectiveTextureEdgeRepair =
-    experimentalTextureEdgeRepair ?? sceneCtx?.experimentalTextureEdgeRepair ?? true;
   const effectiveDirectional =
     effectiveTextureLighting === "dynamic" ? undefined : sceneCtx?.directionalLight;
   const effectiveAmbient =
@@ -505,10 +496,9 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
         directionalLight: bakedDirectional,
         ambientLight: effectiveAmbient,
         textureEdgeRepairEdges: repairEdges[i],
-        experimentalTextureEdgeRepair: effectiveTextureEdgeRepair,
       }));
     },
-    [children, polygons, bakedDirectional, effectiveAmbient, effectiveTextureEdgeRepair],
+    [children, polygons, bakedDirectional, effectiveAmbient],
   );
   const textureAtlas = useTextureAtlas(
     atlasPlans,

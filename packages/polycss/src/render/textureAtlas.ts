@@ -71,6 +71,8 @@ interface TextureAtlasPlan {
   tileSize: number;
   layerElevation: number;
   matrix: string;
+  canonicalMatrix: string;
+  projectiveMatrix: string | null;
   canvasW: number;
   canvasH: number;
   screenPts: number[];
@@ -171,6 +173,10 @@ interface BasisHint {
   textureEdgeRepairEdges?: Set<number>;
 }
 
+// Budget for the internal async atlas planner used by large imperative
+// scene updates. Keep comfortably under the 50ms long-task threshold.
+const ASYNC_RENDER_BUDGET_MS = 12;
+
 interface PolygonBasisInfo {
   pts: Vec3[];
   normal: Vec3;
@@ -195,11 +201,6 @@ export interface RenderTextureAtlasOptions {
   textureQuality?: TextureQuality;
   solidPaintDefaults?: SolidPaintDefaults;
   strategies?: PolyRenderStrategiesOption;
-  /**
-   * Repairs antialiased atlas pixels at shared textured polygon edges without
-   * expanding polygon geometry. Defaults to true.
-   */
-  experimentalTextureEdgeRepair?: boolean;
 }
 
 export interface RenderedPoly {
@@ -215,6 +216,10 @@ export interface RenderTextureAtlasResult {
   dispose(): void;
 }
 
+export interface RenderTextureAtlasAsyncResult extends RenderTextureAtlasResult {
+  solidPaintDefaults: SolidPaintDefaults;
+}
+
 const TEXTURE_IMAGE_CACHE = new Map<string, Promise<HTMLImageElement>>();
 const ELEMENT_DATA_KEYS = new WeakMap<HTMLElement, string[]>();
 const RECT_EPS = 1e-3;
@@ -226,12 +231,23 @@ const TEXTURE_TRIANGLE_BLEED = 0.75;
 const TEXTURE_EDGE_REPAIR_ALPHA_MIN = 1;
 const TEXTURE_EDGE_REPAIR_SOURCE_ALPHA_MIN = 250;
 const TEXTURE_EDGE_REPAIR_RADIUS = 1.5;
-const SOLID_TRIANGLE_BLEED = 0.45;
+const SOLID_TRIANGLE_BLEED = 0.6;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
-const DEFAULT_TRIANGLE_BORDER_DECIMALS = 1;
+const DEFAULT_ATLAS_CSS_DECIMALS = 4;
 const BORDER_SHAPE_CENTER_PERCENT = 50;
 const BORDER_SHAPE_POINT_EPS = 1e-7;
+const BORDER_SHAPE_CANONICAL_SIZE = 16;
+const PROJECTIVE_QUAD_DENOM_EPS = 0.05;
+const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = 4;
+const PROJECTIVE_QUAD_BLEED = 0.6;
+
+interface ProjectiveQuadCoefficients {
+  g: number;
+  h: number;
+  w1: number;
+  w3: number;
+}
 
 function loadTextureImage(url: string): Promise<HTMLImageElement> {
   let p = TEXTURE_IMAGE_CACHE.get(url);
@@ -267,17 +283,201 @@ function roundDecimal(value: number, decimals: number): string {
   return Object.is(Number(next), -0) ? "0" : next;
 }
 
-function formatTriangleBorderPx(value: number, decimals = DEFAULT_TRIANGLE_BORDER_DECIMALS): string {
+function formatCssLength(value: number, decimals = DEFAULT_ATLAS_CSS_DECIMALS): string {
   const next = roundDecimal(value, decimals);
   return Number(next) === 0 || Object.is(Number(next), -0) ? "0" : `${next}px`;
 }
 
-function formatInlinePx(value: number): string {
-  return value === 0 || Object.is(value, -0) ? "0" : `${value}px`;
-}
-
 function formatMatrix3dValues(values: readonly number[], decimals = DEFAULT_MATRIX_DECIMALS): string {
   return values.map((value) => roundDecimal(value, decimals)).join(",");
+}
+
+function isConvexPolygonPoints(points: Array<[number, number]>): boolean {
+  if (points.length < 3) return false;
+  let sign = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    const c = points[(i + 2) % points.length];
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (Math.abs(cross) <= BASIS_EPS) return false;
+    const nextSign = Math.sign(cross);
+    if (sign === 0) sign = nextSign;
+    else if (nextSign !== sign) return false;
+  }
+  return true;
+}
+
+function signedArea2D(points: Array<[number, number]>): number {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    area += a[0] * b[1] - a[1] * b[0];
+  }
+  return area / 2;
+}
+
+function intersect2DLines(
+  a0: [number, number],
+  a1: [number, number],
+  b0: [number, number],
+  b1: [number, number],
+): [number, number] | null {
+  const rx = a1[0] - a0[0];
+  const ry = a1[1] - a0[1];
+  const sx = b1[0] - b0[0];
+  const sy = b1[1] - b0[1];
+  const det = rx * sy - ry * sx;
+  if (Math.abs(det) <= BASIS_EPS) return null;
+
+  const qpx = b0[0] - a0[0];
+  const qpy = b0[1] - a0[1];
+  const t = (qpx * sy - qpy * sx) / det;
+  return [a0[0] + t * rx, a0[1] + t * ry];
+}
+
+function offsetConvexPolygonPoints(points: number[], amount: number): number[] {
+  if (points.length < 6 || points.length % 2 !== 0 || amount <= 0) return points;
+  const q: Array<[number, number]> = [];
+  for (let i = 0; i < points.length; i += 2) q.push([points[i], points[i + 1]]);
+  if (!isConvexPolygonPoints(q)) return expandClipPoints(points, amount);
+
+  const area = signedArea2D(q);
+  if (Math.abs(area) <= BASIS_EPS) return expandClipPoints(points, amount);
+  const outwardSign = area > 0 ? 1 : -1;
+  const offsetLines: Array<{ a: [number, number]; b: [number, number] }> = [];
+  for (let i = 0; i < q.length; i++) {
+    const a = q[i];
+    const b = q[(i + 1) % q.length];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy);
+    if (length <= BASIS_EPS) return expandClipPoints(points, amount);
+    const ox = outwardSign * (dy / length) * amount;
+    const oy = outwardSign * (-dx / length) * amount;
+    offsetLines.push({
+      a: [a[0] + ox, a[1] + oy],
+      b: [b[0] + ox, b[1] + oy],
+    });
+  }
+
+  const expanded: number[] = [];
+  const maxMiter = Math.max(2, amount * 4);
+  for (let i = 0; i < q.length; i++) {
+    const prev = offsetLines[(i + q.length - 1) % q.length];
+    const next = offsetLines[i];
+    const intersection = intersect2DLines(prev.a, prev.b, next.a, next.b);
+    if (!intersection) return expandClipPoints(points, amount);
+
+    const original = q[i];
+    const dx = intersection[0] - original[0];
+    const dy = intersection[1] - original[1];
+    const miter = Math.hypot(dx, dy);
+    if (miter > maxMiter) {
+      expanded.push(
+        original[0] + (dx / miter) * maxMiter,
+        original[1] + (dy / miter) * maxMiter,
+      );
+    } else {
+      expanded.push(intersection[0], intersection[1]);
+    }
+  }
+  return expanded;
+}
+
+function computeProjectiveQuadCoefficients(
+  q: Array<[number, number]>,
+): ProjectiveQuadCoefficients | null {
+  if (q.length !== 4 || !isConvexPolygonPoints(q)) return null;
+
+  const [q0, q1, q2, q3] = q;
+  const sx = q0[0] - q1[0] + q2[0] - q3[0];
+  const sy = q0[1] - q1[1] + q2[1] - q3[1];
+  const dx1 = q1[0] - q2[0];
+  const dx2 = q3[0] - q2[0];
+  const dy1 = q1[1] - q2[1];
+  const dy2 = q3[1] - q2[1];
+  const det = dx1 * dy2 - dy1 * dx2;
+  if (Math.abs(det) <= BASIS_EPS) return null;
+
+  const g = (sx * dy2 - sy * dx2) / det;
+  const h = (dx1 * sy - dy1 * sx) / det;
+  const weights = [1, 1 + g, 1 + g + h, 1 + h];
+  if (weights.some((weight) => !Number.isFinite(weight) || weight <= PROJECTIVE_QUAD_DENOM_EPS)) {
+    return null;
+  }
+
+  const minWeight = Math.min(...weights);
+  const maxWeight = Math.max(...weights);
+  // Very large homogeneous-weight variation means the rectangle's vanishing
+  // line is too close to the primitive. Chrome can then tessellate the leaf
+  // visibly wrong; the clipped polygon path is steadier for those quads.
+  if (maxWeight / minWeight > PROJECTIVE_QUAD_MAX_WEIGHT_RATIO) return null;
+
+  return {
+    g,
+    h,
+    w1: 1 + g,
+    w3: 1 + h,
+  };
+}
+
+function computeProjectiveQuadMatrix(
+  screenPts: number[],
+  xAxis: Vec3,
+  yAxis: Vec3,
+  normal: Vec3,
+  tx: number,
+  ty: number,
+  tz: number,
+): string | null {
+  if (screenPts.length !== 8) return null;
+  const rawQ: Array<[number, number]> = [
+    [screenPts[0], screenPts[1]],
+    [screenPts[2], screenPts[3]],
+    [screenPts[4], screenPts[5]],
+    [screenPts[6], screenPts[7]],
+  ];
+  if (!computeProjectiveQuadCoefficients(rawQ)) return null;
+
+  const expandedPts = offsetConvexPolygonPoints(screenPts, PROJECTIVE_QUAD_BLEED);
+  const q: Array<[number, number]> = [
+    [expandedPts[0], expandedPts[1]],
+    [expandedPts[2], expandedPts[3]],
+    [expandedPts[4], expandedPts[5]],
+    [expandedPts[6], expandedPts[7]],
+  ];
+  const coeffs = computeProjectiveQuadCoefficients(q);
+  if (!coeffs) return null;
+  const { g, h, w1, w3 } = coeffs;
+  const [q0, q1, , q3] = q;
+
+  const toCssPoint = ([x, y]: [number, number]): Vec3 => [
+    tx + x * xAxis[0] + y * yAxis[0],
+    ty + x * xAxis[1] + y * yAxis[1],
+    tz + x * xAxis[2] + y * yAxis[2],
+  ];
+  const p0 = toCssPoint(q0);
+  const p1 = toCssPoint(q1);
+  const p3 = toCssPoint(q3);
+  const xCol: Vec3 = [
+    p1[0] * w1 - p0[0],
+    p1[1] * w1 - p0[1],
+    p1[2] * w1 - p0[2],
+  ];
+  const yCol: Vec3 = [
+    p3[0] * w3 - p0[0],
+    p3[1] * w3 - p0[1],
+    p3[2] * w3 - p0[2],
+  ];
+
+  return formatMatrix3dValues([
+    xCol[0], xCol[1], xCol[2], g,
+    yCol[0], yCol[1], yCol[2], h,
+    normal[0], normal[1], normal[2], 0,
+    p0[0], p0[1], p0[2], 1,
+  ]);
 }
 
 function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
@@ -1232,9 +1432,7 @@ function computeTextureAtlasPlan(
   const textureEdgeRepairEdges = texture && basisHint?.textureEdgeRepairEdges?.size
     ? basisHint.textureEdgeRepairEdges
     : null;
-  const textureEdgeRepair = Boolean(
-    texture && (options.experimentalTextureEdgeRepair ?? true) && textureEdgeRepairEdges,
-  );
+  const textureEdgeRepair = Boolean(texture && textureEdgeRepairEdges);
   const shiftX = basis.shiftX;
   const shiftY = basis.shiftY;
   const canvasW = basis.canvasW;
@@ -1252,6 +1450,15 @@ function computeTextureAtlasPlan(
     normal[0], normal[1], normal[2], 0,
     tx, ty, tz, 1,
   ]);
+  const canonicalMatrix = formatMatrix3dValues([
+    xAxis[0] * canvasW, xAxis[1] * canvasW, xAxis[2] * canvasW, 0,
+    yAxis[0] * canvasH, yAxis[1] * canvasH, yAxis[2] * canvasH, 0,
+    normal[0], normal[1], normal[2], 0,
+    tx, ty, tz, 1,
+  ]);
+  const projectiveMatrix = !texture && vertices.length === 4
+    ? computeProjectiveQuadMatrix(screenPts, xAxis, yAxis, normal, tx, ty, tz)
+    : null;
 
   const directionalCfg = options.directionalLight;
   const ambientCfg = options.ambientLight;
@@ -1292,6 +1499,8 @@ function computeTextureAtlasPlan(
     tileSize: tile,
     layerElevation: elev,
     matrix,
+    canonicalMatrix,
+    projectiveMatrix,
     canvasW,
     canvasH,
     screenPts,
@@ -1402,20 +1611,26 @@ function computeSolidTrianglePlan(
 
   const left = Math.max(0, Math.min(baseLength, apexX));
   const right = Math.max(0, baseLength - left);
-  const bleed = SOLID_TRIANGLE_BLEED;
-  const leftPx = left + bleed;
-  const rightPx = right + bleed;
-  const heightPx = height + bleed * 2;
-  const tx = cv[0] - leftPx * xAxis[0] - bleed * yAxis[0];
-  const ty = cv[1] - leftPx * xAxis[1] - bleed * yAxis[1];
-  const tz = cv[2] - leftPx * xAxis[2] - bleed * yAxis[2];
-  const matrix = formatMatrix3dValues([
-    xAxis[0], xAxis[1], xAxis[2], 0,
-    yAxis[0], yAxis[1], yAxis[2], 0,
-    normal[0], normal[1], normal[2], 0,
-    tx, ty, tz, 1,
-  ]);
-
+  const expanded = offsetConvexPolygonPoints([
+    left, 0,
+    0, height,
+    left + right, height,
+  ], SOLID_TRIANGLE_BLEED);
+  const apex2: Vec2 = [expanded[0], expanded[1]];
+  const baseLeft2: Vec2 = [expanded[2], expanded[3]];
+  const baseRight2: Vec2 = [expanded[4], expanded[5]];
+  const baseY = (baseLeft2[1] + baseRight2[1]) / 2;
+  const leftPx = apex2[0] - baseLeft2[0];
+  const rightPx = baseRight2[0] - apex2[0];
+  const heightPx = baseY - apex2[1];
+  if (
+    leftPx <= BASIS_EPS ||
+    rightPx <= BASIS_EPS ||
+    heightPx <= BASIS_EPS ||
+    !Number.isFinite(leftPx + rightPx + heightPx)
+  ) {
+    return null;
+  }
   const directionalCfg = options.directionalLight;
   const ambientCfg = options.ambientLight;
   const lightDir = directionalCfg?.direction ?? DEFAULT_LIGHT_DIR;
@@ -1441,11 +1656,38 @@ function computeSolidTrianglePlan(
         ? ""
         : `--psr:${(base.r / 255).toFixed(4)};--psg:${(base.g / 255).toFixed(4)};--psb:${(base.b / 255).toFixed(4)};`)
     : "";
-  const styleText =
-    `transform:matrix3d(${matrix});` +
-    `border-width:${formatTriangleBorderPx(0)} ${formatTriangleBorderPx(rightPx)} ${formatTriangleBorderPx(heightPx)} ${formatTriangleBorderPx(leftPx)};` +
-    bakedColor +
-    dynamicVars;
+  const worldPoint = ([x, y]: Vec2): Vec3 => [
+    cv[0] + (x - left) * xAxis[0] + y * yAxis[0],
+    cv[1] + (x - left) * xAxis[1] + y * yAxis[1],
+    cv[2] + (x - left) * xAxis[2] + y * yAxis[2],
+  ];
+  const apex = worldPoint(apex2);
+  const baseLeft = worldPoint([baseLeft2[0], baseY]);
+  const baseRight = worldPoint([baseRight2[0], baseY]);
+  const xCol: Vec3 = [
+    (baseRight[0] - baseLeft[0]) / 2,
+    (baseRight[1] - baseLeft[1]) / 2,
+    (baseRight[2] - baseLeft[2]) / 2,
+  ];
+  const txCol: Vec3 = [
+    apex[0] - xCol[0],
+    apex[1] - xCol[1],
+    apex[2] - xCol[2],
+  ];
+  const yCol: Vec3 = [
+    baseLeft[0] - txCol[0],
+    baseLeft[1] - txCol[1],
+    baseLeft[2] - txCol[2],
+  ];
+  const canonicalMatrix = formatMatrix3dValues([
+    xCol[0], xCol[1], xCol[2], 0,
+    yCol[0], yCol[1], yCol[2], 0,
+    normal[0], normal[1], normal[2], 0,
+    txCol[0], txCol[1], txCol[2], 1,
+  ]);
+  const styleText = `transform:matrix3d(${canonicalMatrix});` +
+      bakedColor +
+      dynamicVars;
 
   return {
     index,
@@ -1831,7 +2073,13 @@ async function buildAtlasPage(
   const canvas = doc.createElement("canvas");
   canvas.width = Math.max(1, Math.ceil(page.width * atlasScale));
   canvas.height = Math.max(1, Math.ceil(page.height * atlasScale));
-  const ctx = canvas.getContext("2d");
+  const needsReadback = page.entries.some((entry) =>
+    entry.textureEdgeRepair &&
+    entry.texture &&
+    entry.textureEdgeRepairEdges &&
+    entry.textureEdgeRepairEdges.size > 0
+  );
+  const ctx = canvas.getContext("2d", needsReadback ? { willReadFrequently: true } : undefined);
   if (!ctx) return { width: page.width, height: page.height, url: null };
 
   const uniqueTextures = Array.from(new Set(
@@ -1909,8 +2157,10 @@ function applyAtlasBackground(
 ): void {
   if (!page.url) return;
   const url = `url(${page.url})`;
-  const pos = `-${entry.x}px -${entry.y}px`;
-  const size = `${page.width}px ${page.height}px`;
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  const pos = `${formatCssLength(-entry.x / width)} ${formatCssLength(-entry.y / height)}`;
+  const size = `${formatCssLength(page.width / width)} ${formatCssLength(page.height / height)}`;
   if (textureLighting === "dynamic") {
     setInlineStyleProperty(el, "background-image", url);
     setInlineStyleProperty(el, "background-position", pos);
@@ -1961,12 +2211,52 @@ function applyPolygonDataAttrs(el: HTMLElement, polygon: Polygon): void {
   ELEMENT_DATA_KEYS.set(el, nextDataKeys);
 }
 
-function formatPlanElementStyle(entry: TextureAtlasPlan, shapeDeclaration?: string): string {
-  const shapeStyle = shapeDeclaration ? `${shapeDeclaration};` : "";
-  return `transform:matrix3d(${entry.matrix});${shapeStyle}width:${formatInlinePx(entry.canvasW)};height:${formatInlinePx(entry.canvasH)}`;
+function formatPlanElementStyle(
+  entry: TextureAtlasPlan,
+  shapeDeclaration?: string,
+): string {
+  const shape = shapeDeclaration ? `;${shapeDeclaration}` : "";
+  return `transform:matrix3d(${entry.canonicalMatrix})${shape}`;
 }
 
-function applyPlanElementBase(el: HTMLElement, entry: TextureAtlasPlan, shapeDeclaration?: string): void {
+function formatScaledMatrixFromPlan(
+  entry: TextureAtlasPlan,
+  scaleX: number,
+  scaleY: number,
+): string {
+  const values = entry.matrix.split(",").map((value) => Number(value));
+  if (values.length !== 16 || values.some((value) => !Number.isFinite(value))) {
+    return entry.matrix;
+  }
+  values[0] *= scaleX;
+  values[1] *= scaleX;
+  values[2] *= scaleX;
+  values[4] *= scaleY;
+  values[5] *= scaleY;
+  values[6] *= scaleY;
+  return formatMatrix3dValues(values);
+}
+
+function formatBorderShapeMatrix(entry: TextureAtlasPlan): string {
+  return formatScaledMatrixFromPlan(
+    entry,
+    (entry.canvasW || 1) / BORDER_SHAPE_CANONICAL_SIZE,
+    (entry.canvasH || 1) / BORDER_SHAPE_CANONICAL_SIZE,
+  );
+}
+
+function formatBorderShapeElementStyle(entry: TextureAtlasPlan): string {
+  return [
+    `transform:matrix3d(${formatBorderShapeMatrix(entry)})`,
+    `border-shape:${cssBorderShapeForPlan(entry)}`,
+  ].join(";");
+}
+
+function applyPlanElementBase(
+  el: HTMLElement,
+  entry: TextureAtlasPlan,
+  shapeDeclaration?: string,
+): void {
   el.setAttribute(
     "style",
     formatPlanElementStyle(entry, shapeDeclaration),
@@ -2116,6 +2406,10 @@ function isSolidTrianglePlan(entry: TextureAtlasPlan): boolean {
   return !entry.texture && entry.polygon.vertices.length === 3;
 }
 
+function isProjectiveQuadPlan(entry: TextureAtlasPlan): entry is TextureAtlasPlan & { projectiveMatrix: string } {
+  return !entry.texture && !!entry.projectiveMatrix && !isFullRectSolid(entry);
+}
+
 function borderShapeSupported(doc: Document): boolean {
   const css = doc.defaultView?.CSS ?? (typeof CSS !== "undefined" ? CSS : undefined);
   const supportsBorderShape = !!css?.supports?.(
@@ -2157,6 +2451,7 @@ function getSolidPaintDefaultsForPlans(
   const dynamicCounts = new Map<string, number>();
   const dynamicColors = new Map<string, RGB>();
   const useFullRectSolid = !disabled.has("b");
+  const useProjectiveQuad = useFullRectSolid;
   const useStableTriangle = !disabled.has("u");
   const useBorderShape = !disabled.has("i") && borderShapeSupported(doc);
 
@@ -2167,6 +2462,7 @@ function getSolidPaintDefaultsForPlans(
       if (
         !(useStableTriangle && isSolidTrianglePlan(plan)) &&
         !(useFullRectSolid && isFullRectSolid(plan)) &&
+        !(useProjectiveQuad && isProjectiveQuadPlan(plan)) &&
         !useBorderShape
       ) continue;
       const color = parseHex(plan.polygon.color ?? "#cccccc");
@@ -2179,6 +2475,7 @@ function getSolidPaintDefaultsForPlans(
     if (
       !(useStableTriangle && isSolidTrianglePlan(plan)) &&
       !(useFullRectSolid && isFullRectSolid(plan)) &&
+      !(useProjectiveQuad && isProjectiveQuadPlan(plan)) &&
       !useBorderShape
     ) continue;
     incrementCount(paintCounts, plan.shadedColor);
@@ -2193,6 +2490,16 @@ function getSolidPaintDefaultsForPlans(
   };
 }
 
+function yieldToMainThread(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function yieldIfOverBudget(started: number): Promise<number> {
+  if (performance.now() - started < ASYNC_RENDER_BUDGET_MS) return started;
+  await yieldToMainThread();
+  return performance.now();
+}
+
 export function getSolidPaintDefaults(
   polygons: Polygon[],
   options: RenderTextureAtlasOptions = {},
@@ -2204,7 +2511,12 @@ export function getSolidPaintDefaults(
   const plans = polygons.map((polygon, index) =>
     computeTextureAtlasPlan(polygon, index, options, basisHints[index])
   );
-  return getSolidPaintDefaultsForPlans(plans, options.textureLighting ?? "baked", doc, disabled);
+  return getSolidPaintDefaultsForPlans(
+    plans,
+    options.textureLighting ?? "baked",
+    doc,
+    disabled,
+  );
 }
 
 function borderShapePointsForPlan(entry: TextureAtlasPlan): Array<[number, number]> {
@@ -2296,7 +2608,22 @@ function createBorderShapeSolidElement(
   solidPaintDefaults?: SolidPaintDefaults,
 ): HTMLElement {
   const el = doc.createElement("i");
-  applyPlanElementBase(el, entry, `border-shape:${cssBorderShapeForPlan(entry)}`);
+  el.setAttribute("style", formatBorderShapeElementStyle(entry));
+  applyPolygonDataAttrs(el, entry.polygon);
+  applySolidPaint(el, entry, textureLighting, solidPaintDefaults);
+
+  return el;
+}
+
+function createProjectiveSolidElement(
+  entry: TextureAtlasPlan & { projectiveMatrix: string },
+  textureLighting: PolyTextureLightingMode,
+  doc: Document,
+  solidPaintDefaults?: SolidPaintDefaults,
+): HTMLElement {
+  const el = doc.createElement("b");
+  el.setAttribute("style", `transform:matrix3d(${entry.projectiveMatrix})`);
+  applyPolygonDataAttrs(el, entry.polygon);
   applySolidPaint(el, entry, textureLighting, solidPaintDefaults);
 
   return el;
@@ -2309,7 +2636,9 @@ function createAtlasElement(
 ): HTMLElement {
   const el = doc.createElement("s");
   applyPlanElementBase(el, entry);
-  setInlineStyleProperty(el, "background-position", `-${entry.x}px -${entry.y}px`);
+  const width = entry.canvasW || 1;
+  const height = entry.canvasH || 1;
+  setInlineStyleProperty(el, "background-position", `${formatCssLength(-entry.x / width)} ${formatCssLength(-entry.y / height)}`);
   setInlineStyleProperty(el, "opacity", "0");
 
   if (textureLighting === "dynamic") applyDynamicNormalVars(el, entry);
@@ -2326,6 +2655,7 @@ export function renderPolygonsWithTextureAtlas(
   const textureLighting = options.textureLighting ?? "baked";
   const disabled = new Set(options.strategies?.disable ?? []);
   const useFullRectSolid = !disabled.has("b");
+  const useProjectiveQuad = useFullRectSolid;
   const useStableTriangle = !disabled.has("u");
   const useBorderShape = !disabled.has("i") && borderShapeSupported(doc);
   const basisHints = buildBasisHints(polygons, options);
@@ -2341,7 +2671,7 @@ export function renderPolygonsWithTextureAtlas(
     plan &&
     (plan.texture
       ? plan
-      : (!(useFullRectSolid && isFullRectSolid(plan)) && !trianglePlans[index] && !useBorderShape) ? plan : null)
+      : (!(useFullRectSolid && isFullRectSolid(plan)) && !trianglePlans[index] && !(useProjectiveQuad && isProjectiveQuadPlan(plan)) && !useBorderShape) ? plan : null)
   );
   const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.textureQuality, doc);
   const atlasElements = new Map<number, HTMLElement>();
@@ -2365,6 +2695,9 @@ export function renderPolygonsWithTextureAtlas(
     } else if (!plan.texture && trianglePlan) {
       const element = createSolidTriangleElement(trianglePlan, doc);
       rendered.push({ polygonIndex: i, element, kind: "triangle", plan, dispose: () => {} });
+    } else if (!plan.texture && useProjectiveQuad && isProjectiveQuadPlan(plan)) {
+      const element = createProjectiveSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
+      rendered.push({ polygonIndex: i, element, kind: "solid", plan, dispose: () => {} });
     } else if (!plan.texture && useBorderShape) {
       const element = createBorderShapeSolidElement(plan, textureLighting, doc, options.solidPaintDefaults);
       rendered.push({ polygonIndex: i, element, kind: "border", plan, dispose: () => {} });
@@ -2404,6 +2737,130 @@ export function renderPolygonsWithTextureAtlas(
 
   return {
     rendered,
+    dispose() {
+      cancelled = true;
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls = [];
+    },
+  };
+}
+
+export async function renderPolygonsWithTextureAtlasAsync(
+  polygons: Polygon[],
+  options: RenderTextureAtlasOptions = {},
+  shouldCancel: () => boolean = () => false,
+): Promise<RenderTextureAtlasAsyncResult> {
+  const doc = options.doc ?? (typeof document !== "undefined" ? document : null);
+  if (!doc || shouldCancel()) {
+    return { rendered: [], solidPaintDefaults: {}, dispose: () => {} };
+  }
+
+  const textureLighting = options.textureLighting ?? "baked";
+  const disabled = new Set(options.strategies?.disable ?? []);
+  const useFullRectSolid = !disabled.has("b");
+  const useProjectiveQuad = useFullRectSolid;
+  const useStableTriangle = !disabled.has("u");
+  const useBorderShape = !disabled.has("i") && borderShapeSupported(doc);
+  await yieldToMainThread();
+  if (shouldCancel()) return { rendered: [], solidPaintDefaults: {}, dispose: () => {} };
+
+  const basisHints = buildBasisHints(polygons, options);
+  let batchStarted = performance.now();
+  const plans: Array<TextureAtlasPlan | null> = new Array(polygons.length);
+  for (let i = 0; i < polygons.length; i++) {
+    plans[i] = computeTextureAtlasPlan(polygons[i], i, options, basisHints[i]);
+    batchStarted = await yieldIfOverBudget(batchStarted);
+    if (shouldCancel()) return { rendered: [], solidPaintDefaults: {}, dispose: () => {} };
+  }
+
+  const solidPaintDefaults = options.solidPaintDefaults ??
+    getSolidPaintDefaultsForPlans(plans, textureLighting, doc, disabled);
+  const trianglePlans: Array<SolidTrianglePlan | null> = new Array(plans.length);
+  const atlasPlans: Array<TextureAtlasPlan | null> = new Array(plans.length);
+  for (let i = 0; i < plans.length; i++) {
+    const plan = plans[i];
+    const trianglePlan = plan && useStableTriangle && isSolidTrianglePlan(plan)
+      ? computeSolidTrianglePlan(plan.polygon, plan.index, { ...options, solidPaintDefaults })
+      : null;
+    trianglePlans[i] = trianglePlan;
+    atlasPlans[i] = plan &&
+      (plan.texture
+        ? plan
+        : (!(useFullRectSolid && isFullRectSolid(plan)) && !trianglePlan && !(useProjectiveQuad && isProjectiveQuadPlan(plan)) && !useBorderShape) ? plan : null);
+    batchStarted = await yieldIfOverBudget(batchStarted);
+    if (shouldCancel()) return { rendered: [], solidPaintDefaults, dispose: () => {} };
+  }
+
+  const { packed, atlasScale } = packTextureAtlasPlansWithScale(atlasPlans, options.textureQuality, doc);
+  const atlasElements = new Map<number, HTMLElement>();
+  const rendered: RenderedPoly[] = [];
+  let cancelled = false;
+  let urls: string[] = [];
+
+  for (let i = 0; i < polygons.length; i++) {
+    const plan = plans[i];
+    const trianglePlan = trianglePlans[i];
+    if (!plan) continue;
+
+    const entry = packed.entries[i];
+    if (entry) {
+      const element = createAtlasElement(entry, textureLighting, doc);
+      atlasElements.set(i, element);
+      rendered.push({ polygonIndex: i, element, kind: "atlas", plan, dispose: () => {} });
+    } else if (!plan.texture && useFullRectSolid && isFullRectSolid(plan)) {
+      const element = createSolidElement(plan, textureLighting, doc, solidPaintDefaults);
+      rendered.push({ polygonIndex: i, element, kind: "solid", plan, dispose: () => {} });
+    } else if (!plan.texture && trianglePlan) {
+      const element = createSolidTriangleElement(trianglePlan, doc);
+      rendered.push({ polygonIndex: i, element, kind: "triangle", plan, dispose: () => {} });
+    } else if (!plan.texture && useProjectiveQuad && isProjectiveQuadPlan(plan)) {
+      const element = createProjectiveSolidElement(plan, textureLighting, doc, solidPaintDefaults);
+      rendered.push({ polygonIndex: i, element, kind: "solid", plan, dispose: () => {} });
+    } else if (!plan.texture && useBorderShape) {
+      const element = createBorderShapeSolidElement(plan, textureLighting, doc, solidPaintDefaults);
+      rendered.push({ polygonIndex: i, element, kind: "border", plan, dispose: () => {} });
+    }
+    batchStarted = await yieldIfOverBudget(batchStarted);
+    if (shouldCancel()) {
+      for (const item of rendered) item.dispose();
+      return { rendered: [], solidPaintDefaults, dispose: () => {} };
+    }
+  }
+
+  rendered.sort((a, b) => a.polygonIndex - b.polygonIndex);
+
+  buildAtlasPages(packed.pages, textureLighting, doc, atlasScale, () => cancelled || shouldCancel())
+    .then((pages) => {
+      if (cancelled || shouldCancel()) {
+        for (const page of pages) {
+          if (page.url?.startsWith("blob:")) URL.revokeObjectURL(page.url);
+        }
+        return;
+      }
+      urls = pages.flatMap((page) => page.url?.startsWith("blob:") ? [page.url] : []);
+      for (let pageIndex = 0; pageIndex < packed.pages.length; pageIndex++) {
+        const page = packed.pages[pageIndex];
+        const built = pages[pageIndex];
+        if (!built) continue;
+        for (const entry of page.entries) {
+          const el = atlasElements.get(entry.index);
+          if (!el || !built.url) continue;
+          applyAtlasBackground(el, built, textureLighting, entry);
+          removeInlineStyleProperty(el, "opacity");
+        }
+      }
+    })
+    .catch(() => {
+      if (cancelled || shouldCancel()) return;
+      for (const element of atlasElements.values()) {
+        setInlineStyleProperty(element, "opacity", "0.5");
+        setInlineStyleProperty(element, "outline", "1px dashed rgba(255, 0, 0, 0.6)");
+      }
+    });
+
+  return {
+    rendered,
+    solidPaintDefaults,
     dispose() {
       cancelled = true;
       for (const url of urls) URL.revokeObjectURL(url);

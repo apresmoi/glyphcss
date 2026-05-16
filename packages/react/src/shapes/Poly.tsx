@@ -5,15 +5,24 @@ import type { Vec2, PolyMaterial } from "@layoutit/polycss-core";
 import type { PolyProps } from "./types";
 import {
   computeTextureAtlasPlan,
+  isProjectiveQuadPlan,
   isSolidTrianglePlan,
   TextureBorderShapePoly,
   TextureAtlasPoly,
+  TextureProjectiveSolidPoly,
   TextureTrianglePoly,
   useTextureAtlas,
   type TextureAtlasPlan,
 } from "../scene/textureAtlas";
 
 // ── Material / direct render path ────────────────────────────────────────────
+
+const DIRECT_TEXTURE_CSS_DECIMALS = 4;
+
+function formatCssLength(value: number, decimals = DIRECT_TEXTURE_CSS_DECIMALS): string {
+  const next = value.toFixed(decimals).replace(/\.?0+$/, "");
+  return Number(next) === 0 || Object.is(Number(next), -0) ? "0" : `${next}px`;
+}
 
 /**
  * Detect whether a 4-vertex UV array forms an axis-aligned rectangle.
@@ -45,15 +54,16 @@ function isAxisAlignedRectUVs(uvs: Vec2[]): { u0: number; u1: number; v0: number
  *   points DOWN (top=0, bottom=1), so in source-pixel space the visual
  *   top of the UV slice is at y = (1 - vMax) * sourceH.
  *
- *   Scale: we want the UV rect [du × dv] to fill [canvasW × canvasH].
- *     sourceW = canvasW / du
- *     sourceH = canvasH / dv
+ *   Scale: the <i> primitive is 1px, so normalize the source dimensions by
+ *   the polygon's local texture box:
+ *     sourceW = 1 / du
+ *     sourceH = 1 / dv
  *
  *   Offset: background-position specifies where the source top-left lands
  *   relative to the <i> top-left. We need the UV slice's top-left
  *   (u0, 1-vMax in source Y) to land at the <i> origin (0,0):
- *     offsetX = u0 * sourceW
- *     offsetY = (1 - vMax) * sourceH
+ *     offsetX = u0 / du
+ *     offsetY = (1 - vMax) / dv
  */
 function MaterialDirectPoly({
   plan,
@@ -77,19 +87,17 @@ function MaterialDirectPoly({
   const { u0, u1, v0, v1 } = uvRect;
   const du = u1 - u0;
   const dv = v1 - v0;
-  const sourceW = plan.canvasW / du;
-  const sourceH = plan.canvasH / dv;
+  const sourceW = 1 / du;
+  const sourceH = 1 / dv;
   const vMax = Math.max(v0, v1);
-  const offsetX = u0 * sourceW;
-  const offsetY = (1 - vMax) * sourceH;
+  const offsetX = u0 / du;
+  const offsetY = (1 - vMax) / dv;
 
   const style: CSSProperties = {
-    transform: `matrix3d(${plan.matrix})`,
-    width: plan.canvasW,
-    height: plan.canvasH,
+    transform: `matrix3d(${plan.canonicalMatrix})`,
     backgroundImage: `url(${material.texture})`,
-    backgroundSize: `${sourceW}px ${sourceH}px`,
-    backgroundPosition: `-${offsetX}px -${offsetY}px`,
+    backgroundSize: `${formatCssLength(sourceW)} ${formatCssLength(sourceH)}`,
+    backgroundPosition: `${formatCssLength(-offsetX)} ${formatCssLength(-offsetY)}`,
     pointerEvents: pointerEvents === "none" ? "none" : undefined,
     ...styleProp,
   };
@@ -288,6 +296,16 @@ function PolyInner({
     } else if (atlasPlan && !atlasPlan.texture) {
       front = isSolidTrianglePlan(atlasPlan) ? (
         <TextureTrianglePoly
+          entry={atlasPlan}
+          textureLighting={textureLighting}
+          className={className}
+          style={styleProp}
+          domAttrs={domAttrs}
+          domEventHandlers={domEventHandlers}
+          pointerEvents={pointerEventsProp ?? "auto"}
+        />
+      ) : isProjectiveQuadPlan(atlasPlan) ? (
+        <TextureProjectiveSolidPoly
           entry={atlasPlan}
           textureLighting={textureLighting}
           className={className}

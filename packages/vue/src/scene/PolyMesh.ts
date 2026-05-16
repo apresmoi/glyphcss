@@ -75,8 +75,6 @@ export interface PolyMeshProps extends InteractionProps {
    *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
    *  Numeric values 0.1..1 force an explicit scale. */
   textureQuality?: TextureQuality;
-  /** Repairs antialiased atlas pixels at shared textured polygon edges without expanding geometry. Defaults to the scene context, then true. */
-  experimentalTextureEdgeRepair?: boolean;
   /**
    * When `true` and the scene is in dynamic lighting mode, the renderer emits
    * a flat shadow leaf sibling for each non-duplicate polygon. The shadow is
@@ -147,7 +145,6 @@ export const PolyMesh = defineComponent({
     autoCenter: { type: Boolean, default: false },
     textureLighting: { type: String as PropType<PolyTextureLightingMode>, default: undefined },
     textureQuality: { type: [Number, String] as PropType<TextureQuality>, default: undefined },
-    experimentalTextureEdgeRepair: { type: Boolean as PropType<boolean>, default: undefined },
     castShadow: { type: Boolean as PropType<boolean>, default: false },
     class: { type: String },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
@@ -205,9 +202,6 @@ export const PolyMesh = defineComponent({
     const atlasAmbient = computed(() =>
       atlasTextureLighting.value === "dynamic" ? undefined : sceneCtx?.value.ambientLight,
     );
-    const atlasTextureEdgeRepair = computed(() =>
-      props.experimentalTextureEdgeRepair ?? sceneCtx?.value.experimentalTextureEdgeRepair ?? true,
-    );
 
     // Dynamic lighting override: when textureLighting is "dynamic" AND the
     // mesh has a non-zero rotation, we emit overridden --plx/ly/lz
@@ -253,7 +247,6 @@ export const PolyMesh = defineComponent({
           directionalLight: effectiveLight,
           ambientLight: atlasAmbient.value,
           textureEdgeRepairEdges: repairEdges[i],
-          experimentalTextureEdgeRepair: atlasTextureEdgeRepair.value,
         }),
       );
     });

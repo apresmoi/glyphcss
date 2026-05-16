@@ -13,9 +13,11 @@ import type { CSSProperties, PropType } from "vue";
 import type { PolyDirectionalLight, PolyTextureLightingMode, Vec2, Vec3, PolyMaterial } from "@layoutit/polycss-core";
 import {
   computeTextureAtlasPlan,
+  isProjectiveQuadPlan,
   isSolidTrianglePlan,
   renderTextureBorderShapePoly,
   renderTextureAtlasPoly,
+  renderTextureProjectiveSolidPoly,
   renderTextureTrianglePoly,
   useTextureAtlas,
   type TextureQuality,
@@ -23,6 +25,13 @@ import {
 } from "../scene/textureAtlas";
 
 // ── Material / direct render path ────────────────────────────────────────────
+
+const DIRECT_TEXTURE_CSS_DECIMALS = 4;
+
+function formatCssLength(value: number, decimals = DIRECT_TEXTURE_CSS_DECIMALS): string {
+  const next = value.toFixed(decimals).replace(/\.?0+$/, "");
+  return Number(next) === 0 || Object.is(Number(next), -0) ? "0" : `${next}px`;
+}
 
 /**
  * Detect whether a 4-vertex UV array forms an axis-aligned rectangle.
@@ -65,19 +74,17 @@ function renderMaterialDirectPoly({
   const { u0, u1, v0, v1 } = uvRect;
   const du = u1 - u0;
   const dv = v1 - v0;
-  const sourceW = plan.canvasW / du;
-  const sourceH = plan.canvasH / dv;
+  const sourceW = 1 / du;
+  const sourceH = 1 / dv;
   const vMax = Math.max(v0, v1);
-  const offsetX = u0 * sourceW;
-  const offsetY = (1 - vMax) * sourceH;
+  const offsetX = u0 / du;
+  const offsetY = (1 - vMax) / dv;
 
   const style: CSSProperties = {
-    transform: `matrix3d(${plan.matrix})`,
-    width: `${plan.canvasW}px`,
-    height: `${plan.canvasH}px`,
+    transform: `matrix3d(${plan.canonicalMatrix})`,
     backgroundImage: `url(${material.texture})`,
-    backgroundSize: `${sourceW}px ${sourceH}px`,
-    backgroundPosition: `-${offsetX}px -${offsetY}px`,
+    backgroundSize: `${formatCssLength(sourceW)} ${formatCssLength(sourceH)}`,
+    backgroundPosition: `${formatCssLength(-offsetX)} ${formatCssLength(-offsetY)}`,
     pointerEvents: pointerEvents === "none" ? "none" : undefined,
     ...styleProp,
   };
@@ -262,6 +269,15 @@ export const Poly = defineComponent({
               domAttrs: forwardedDomAttrs,
               pointerEvents: props.pointerEvents ?? "auto",
             })
+          : isProjectiveQuadPlan(plan)
+            ? renderTextureProjectiveSolidPoly({
+                entry: plan,
+                textureLighting: atlasTextureLighting.value,
+                className: (forwardedAttrs.class as string) ?? undefined,
+                style: forwardedAttrs.style as CSSProperties | undefined,
+                domAttrs: forwardedDomAttrs,
+                pointerEvents: props.pointerEvents ?? "auto",
+              })
           : renderTextureBorderShapePoly({
               entry: plan,
               className: (forwardedAttrs.class as string) ?? undefined,

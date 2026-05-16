@@ -33,9 +33,8 @@ const CORE_BASE_STYLES = `
   height: 0;
   transform-style: preserve-3d;
   perspective: 8000px;
-  transform: var(--scene-transform);
   /* Pin the scene as a composited layer. Without this, mobile Chrome
-     re-rasterizes every descendant tile when --scene-transform changes
+     re-rasterizes every descendant tile when the scene transform changes
      each animation frame, which overruns the raster budget on textured
      meshes (faces drop, fragments float). With will-change, the GPU
      reuses the cached layer pixels and only re-composites. */
@@ -79,13 +78,19 @@ const CORE_BASE_STYLES = `
 
 .polycss-scene b {
   background: currentColor;
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene i {
+  width: 16px;
+  height: 16px;
   border-color: currentColor;
 }
 
 .polycss-scene s {
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene u {
@@ -95,6 +100,7 @@ const CORE_BASE_STYLES = `
   box-sizing: content-box;
   border: 0 solid transparent;
   border-color: transparent transparent currentColor transparent;
+  border-width: 0 1px 1px 1px;
 }
 
 /* <q> — dedicated shadow leaf. Same border-shape rendering trick as <i>

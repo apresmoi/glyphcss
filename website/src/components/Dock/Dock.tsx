@@ -6,6 +6,11 @@ import type { GizmoMode, SceneOptionsState, DomMetrics, DragMode, PerspectiveMod
 
 // Internal type — not exported as it's an implementation detail of the GUI instance.
 type GuiControllerMap = Record<string, any>;
+type TextureMode = "disabled" | PolyTextureLightingMode;
+
+function textureModeForScene(sceneOptions: SceneOptionsState): TextureMode {
+  return sceneOptions.solidMaterials ? "disabled" : sceneOptions.textureLighting;
+}
 
 function disableWithoutDisabledClass<T extends Controller>(controller: T): T {
   controller.disable();
@@ -14,7 +19,7 @@ function disableWithoutDisabledClass<T extends Controller>(controller: T): T {
 }
 
 const DEBUG_SHAPE_LABELS = {
-  rectangle: "Rects <b>",
+  rectangle: "Quads <b>",
   triangle: "Triangles <u>",
   irregular: "Polygons <i>",
 };
@@ -37,6 +42,7 @@ export interface DockProps {
   // Scene state
   sceneOptions: SceneOptionsState;
   metrics: DomMetrics;
+  hasSpriteLeaves: boolean;
   selectedAnimation: string;
   selectedPreset: PresetModelMinimal;
   loaded: LoadedModelMinimal | null;
@@ -64,6 +70,7 @@ export interface DockProps {
 export function Dock({
   sceneOptions,
   metrics,
+  hasSpriteLeaves,
   selectedAnimation,
   selectedPreset,
   loaded,
@@ -118,7 +125,7 @@ export function Dock({
         ? sceneOptions.textureQuality
         : 1,
       textureQualityAuto: sceneOptions.textureQuality === "auto",
-      experimentalTextureEdgeRepair: sceneOptions.experimentalTextureEdgeRepair,
+      textureMode: textureModeForScene(sceneOptions),
     };
 
     const animationState = {
@@ -161,7 +168,6 @@ export function Dock({
     };
 
     const lightState = {
-      textureLighting: sceneOptions.textureLighting,
       showLight: sceneOptions.showLight,
       lightAzimuth: sceneOptions.lightAzimuth,
       lightElevation: sceneOptions.lightElevation,
@@ -231,14 +237,16 @@ export function Dock({
       .add(modelState, "meshInteriorFill")
       .name("Interior fill")
       .onChange((value: boolean) => onUpdateScene({ meshInteriorFill: value }));
-    const textureEdgeRepairController = rendering
-      .add(modelState, "experimentalTextureEdgeRepair")
-      .name("Edge repair")
-      .onChange((value: boolean) => onUpdateScene({ experimentalTextureEdgeRepair: value }));
-    const textureLightingController = rendering
-      .add(lightState, "textureLighting", { baked: "baked", dynamic: "dynamic" })
+    const textureModeController = rendering
+      .add(modelState, "textureMode", { disabled: "disabled", baked: "baked", dynamic: "dynamic" })
       .name("Texture")
-      .onChange((value: PolyTextureLightingMode) => onUpdateScene({ textureLighting: value }));
+      .onChange((value: TextureMode) => {
+        if (value === "disabled") {
+          onUpdateScene({ solidMaterials: true });
+          return;
+        }
+        onUpdateScene({ solidMaterials: false, textureLighting: value });
+      });
 
     const textureQualityController = rendering
       .add(modelState, "textureQualityValue", 0.1, 1, 0.05)
@@ -285,6 +293,10 @@ export function Dock({
       return cb;
     }
     textureQualityAutoCheckbox = injectAutoToggle(textureQualityController);
+    if (!hasSpriteLeaves) {
+      textureModeController.hide();
+      textureQualityController.hide();
+    }
 
     const animation = gui.addFolder("Animation");
     animation.open();
@@ -487,6 +499,9 @@ export function Dock({
       meshResolutionController.disable();
       meshInteriorFillController.disable();
     }
+    if (hasSpriteLeaves) {
+      meshInteriorFillController.hide();
+    }
     if (!sceneOptions.selection) {
       gizmoController.disable();
     }
@@ -514,13 +529,12 @@ export function Dock({
       meshInteriorFill: meshInteriorFillController,
       textureQuality: textureQualityController,
       textureQualityAutoCheckbox,
-      experimentalTextureEdgeRepair: textureEdgeRepairController,
       interactive: interactiveController,
       autoRotate: autoRotateController,
       selection: selectionController,
       hoverEffects: hoverController,
       gizmoMode: gizmoController,
-      textureLighting: textureLightingController,
+      textureMode: textureModeController,
       autoCenter: autoCenterController,
       showAxes: axesController,
       dragMode: dragModeController,
@@ -587,13 +601,22 @@ export function Dock({
       if (enabled) controller.enable();
       else controller.disable();
     };
+    const setVisible = (key: string, visible: boolean) => {
+      const controller = controllers[key] as { hide: () => void; show: () => void } | undefined;
+      if (!controller?.hide || !controller?.show) return;
+      if (visible) controller.show();
+      else controller.hide();
+    };
 
     setCtrlValue("animation", selectedAnimation);
     setCtrlValue("animationPaused", sceneOptions.animationPaused);
     setCtrlValue("animationTimeScale", sceneOptions.animationTimeScale);
     setCtrlValue("meshResolution", sceneOptions.meshResolution);
     setCtrlValue("meshInteriorFill", sceneOptions.meshInteriorFill);
-    setCtrlValue("experimentalTextureEdgeRepair", sceneOptions.experimentalTextureEdgeRepair);
+    setCtrlValue("textureMode", textureModeForScene(sceneOptions));
+    setVisible("meshInteriorFill", !hasSpriteLeaves);
+    setVisible("textureMode", hasSpriteLeaves);
+    setVisible("textureQuality", hasSpriteLeaves);
     setCtrlValue("domCount", metrics.nodeCount);
     setCtrlValue("sprites", metrics.sprites);
     setCtrlValue("shapeRectangle", metrics.rects);
@@ -629,7 +652,6 @@ export function Dock({
     setCtrlValue("hoverEffects", sceneOptions.hoverEffects);
     setCtrlValue("gizmoMode", gizmoMode);
 
-    setCtrlValue("textureLighting", sceneOptions.textureLighting);
     setCtrlValue("autoCenter", sceneOptions.autoCenter);
     setCtrlValue("showAxes", sceneOptions.showAxes);
     setCtrlValue("castShadow", sceneOptions.castShadow);
@@ -677,7 +699,7 @@ export function Dock({
     setCtrlValue("ambientColor", sceneOptions.ambientColor);
 
     setEnabled("meshResolution", !hasActiveAnimation);
-    setEnabled("meshInteriorFill", !hasActiveAnimation);
+    setEnabled("meshInteriorFill", !hasActiveAnimation && !hasSpriteLeaves);
     setEnabled("gizmoMode", sceneOptions.selection);
 
     if (sceneOptions.perspective === false) {
@@ -697,7 +719,7 @@ export function Dock({
       overpaintPercent?: number;
       textureQualityValue?: number;
       textureQualityAuto?: boolean;
-      experimentalTextureEdgeRepair?: boolean;
+      textureMode?: TextureMode;
     };
     if (modelState) {
       modelState.meshResolution = sceneOptions.meshResolution;
@@ -708,7 +730,7 @@ export function Dock({
       modelState.shapeTriangle = metrics.triangles;
       modelState.shapeIrregular = metrics.irregular;
       modelState.overpaintPercent = metrics.overpaintPercent;
-      modelState.experimentalTextureEdgeRepair = sceneOptions.experimentalTextureEdgeRepair;
+      modelState.textureMode = textureModeForScene(sceneOptions);
       // Mirror external textureQuality changes back into the slider state.
       // Numeric → slider value + auto off (slider enabled); "auto" → keep
       // last numeric value, auto on (slider disabled). User unchecks Auto
@@ -798,7 +820,6 @@ export function Dock({
       cameraState.targetZ = sceneOptions.target[2];
     }
     const lightState = controllers.lightState as {
-      textureLighting?: PolyTextureLightingMode;
       showLight?: boolean;
       lightAzimuth?: number;
       lightElevation?: number;
@@ -810,7 +831,6 @@ export function Dock({
       showGround?: boolean;
     };
     if (lightState) {
-      lightState.textureLighting = sceneOptions.textureLighting;
       lightState.showLight = sceneOptions.showLight;
       lightState.lightAzimuth = sceneOptions.lightAzimuth;
       lightState.lightElevation = sceneOptions.lightElevation;

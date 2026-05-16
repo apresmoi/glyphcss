@@ -88,6 +88,7 @@
       const recorder = createPerfRecorder({
         rendererLabel: "html",
         meshId, mode, motion, polyCount,
+        polygons: mesh?.polygons ?? [],
       });
 
       let frameCount = 0;

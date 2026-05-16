@@ -143,7 +143,6 @@ export function VanillaScene({
       autoCenter: options.autoCenter,
       textureQuality: options.textureQuality,
       strategies: { disable: options.disableStrategies },
-      experimentalTextureEdgeRepair: options.experimentalTextureEdgeRepair,
     };
     const scene = createPolyScene(host, sceneOptions);
     sceneRef.current = scene;
@@ -358,14 +357,6 @@ export function VanillaScene({
       strategies: { disable: options.disableStrategies },
     });
   }, [options.disableStrategies]);
-
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    scene.setOptions({
-      experimentalTextureEdgeRepair: options.experimentalTextureEdgeRepair,
-    });
-  }, [options.experimentalTextureEdgeRepair]);
 
   // Effect 2.5 — vanilla controls. The React renderer wires interactive +
   // animate through <PolyCamera>; the vanilla path uses createPolyOrbitControls.

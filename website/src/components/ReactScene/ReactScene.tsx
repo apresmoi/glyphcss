@@ -102,7 +102,6 @@ export function ReactScene({
         textureLighting={sceneOptions.textureLighting}
         textureQuality={textureQuality}
         strategies={{ disable: sceneOptions.disableStrategies }}
-        experimentalTextureEdgeRepair={sceneOptions.experimentalTextureEdgeRepair}
       >
         {sceneOptions.selection ? (
           <PolySelect onChange={setSelectedMeshes} clearOnMiss={false}>
@@ -118,7 +117,6 @@ export function ReactScene({
                   : "dn-model-mesh"
               }
               style={sceneOptions.hoverEffects ? { cursor: "pointer" } : undefined}
-              experimentalTextureEdgeRepair={sceneOptions.experimentalTextureEdgeRepair}
               onPointerOver={
                 sceneOptions.hoverEffects
                   ? (event) => setHoveredMeshId(event.eventObject.id ?? null)
@@ -135,7 +133,6 @@ export function ReactScene({
             id={loaded?.label ?? "model"}
             polygons={scenePolygons}
             className="dn-model-mesh"
-            experimentalTextureEdgeRepair={sceneOptions.experimentalTextureEdgeRepair}
           />
         ) : null}
         {sceneOptions.selection && selectedMeshes.length > 0 && (

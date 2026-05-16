@@ -34,7 +34,6 @@ export interface PolySceneContextValue {
   textureLighting: PolyTextureLightingMode;
   directionalLight?: PolyDirectionalLight;
   ambientLight?: PolyAmbientLight;
-  experimentalTextureEdgeRepair?: boolean;
   shadow?: PolyShadowOptions;
   shadowRegistry?: PolyShadowRegistry;
 }

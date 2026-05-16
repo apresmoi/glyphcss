@@ -31,6 +31,14 @@ const NON_RECT_QUAD_VERTS: [number, number, number][] = [
   [0, 2, 0],
 ];
 
+const IRREGULAR_SOLID_VERTS: [number, number, number][] = [
+  [0, 0, 0],
+  [2, 0, 0],
+  [2, 1, 0],
+  [1, 2, 0],
+  [0, 1, 0],
+];
+
 const OFFAXIS_TRIANGLE_VERTS: [number, number, number][] = [
   [0, 0, 0],
   [1, 1, 0],
@@ -134,6 +142,16 @@ describe("Poly — non-horizontal geometry", () => {
     expect(poly.tagName.toLowerCase()).toBe("u");
     expect(poly.style.transform).toContain("matrix3d(");
   });
+
+  it("renders a solid non-rect quad as a projective b element", () => {
+    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
+    const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("b");
+    expect(poly.style.transform).toContain("matrix3d(");
+    expect(poly.style.getPropertyValue("border-shape")).toBe("");
+    expect(poly.style.width).toBe("");
+    expect(poly.style.height).toBe("");
+  });
 });
 
 describe("Poly — texture without UVs", () => {
@@ -168,7 +186,7 @@ describe("Poly — border-shape", () => {
   });
 
   it("renders solid non-rect polygons with border-shape when supported", () => {
-    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
+    const container = renderPoly({ vertices: IRREGULAR_SOLID_VERTS });
     const poly = getPoly(container);
     expect(poly.tagName.toLowerCase()).toBe("i");
     expect(poly.className).toBe("");
@@ -177,7 +195,11 @@ describe("Poly — border-shape", () => {
     expect(poly.style.borderWidth).toBe("");
     expect(poly.style.color).not.toBe("");
     expect(poly.style.getPropertyValue("border-shape")).toContain("polygon(");
-    expect(poly.getAttribute("style")).toMatch(/^transform:\s*[^;]+;border-shape:\s*[^;]+;width:\s*[^;]+;height:\s*[^;]+;color:/);
+    expect(poly.getAttribute("style")).toMatch(/^transform:\s*[^;]+;border-shape:\s*[^;]+;color:/);
+    expect(poly.style.width).toBe("");
+    expect(poly.style.height).toBe("");
+    expect(poly.style.getPropertyValue("--polycss-local-w")).toBe("");
+    expect(poly.style.getPropertyValue("--polycss-local-h")).toBe("");
     expect(poly.style.backgroundImage).toBe("");
   });
 
@@ -199,8 +221,9 @@ describe("Poly — border-shape", () => {
       supports: vi.fn(() => false),
     });
 
-    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
+    const container = renderPoly({ vertices: IRREGULAR_SOLID_VERTS });
     const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("s");
     expect(poly.style.getPropertyValue("border-shape")).toBe("");
   });
 
@@ -209,8 +232,9 @@ describe("Poly — border-shape", () => {
       matches: query.includes("pointer: coarse") || query.includes("hover: none"),
     })));
 
-    const container = renderPoly({ vertices: NON_RECT_QUAD_VERTS });
+    const container = renderPoly({ vertices: IRREGULAR_SOLID_VERTS });
     const poly = getPoly(container);
+    expect(poly.tagName.toLowerCase()).toBe("s");
     expect(poly.style.getPropertyValue("border-shape")).toBe("");
   });
 });
@@ -277,6 +301,8 @@ describe("Poly — material direct path", () => {
     });
     const poly = getPoly(container);
     expect(poly.style.transform).toContain("matrix3d(");
+    expect(poly.style.width).toBe("");
+    expect(poly.style.height).toBe("");
   });
 
   it("sets backgroundSize and backgroundPosition for a full UV rect [0,1]x[0,1]", () => {

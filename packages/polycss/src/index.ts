@@ -83,7 +83,11 @@ export { PolyTransformControlsElement } from "./elements/PolyTransformControlsEl
 export { PolySelectElement } from "./elements/PolySelectElement";
 
 // ── Render strategy options ───────────────────────────────────────
-export type { PolyRenderStrategy, PolyRenderStrategiesOption, TextureQuality } from "./render/textureAtlas";
+export type {
+  PolyRenderStrategy,
+  PolyRenderStrategiesOption,
+  TextureQuality,
+} from "./render/textureAtlas";
 
 // ── Style injection ───────────────────────────────────────────────
 export { injectPolyBaseStyles } from "./styles/styles";

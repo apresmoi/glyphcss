@@ -20,33 +20,33 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 
 ## Rendering model — the mental model
 
-**One `Polygon` → one leaf DOM element.** The element's box is the polygon's local-2D bounding rect (`canvasW × canvasH`), transformed into 3D via `matrix3d`. The HTML tag *is* the render strategy — the renderer picks one tag per polygon based on its shape and material.
+**One `Polygon` → one leaf DOM element.** Leaves use canonical CSS primitives where possible and move scale into `matrix3d`; `border-shape` uses a larger fixed primitive because its paint geometry becomes unstable when collapsed to 1px. Textured polygons still pack their local-2D bounding rect (`canvasW × canvasH`) into the atlas. The HTML tag *is* the render strategy — the renderer picks one tag per polygon based on its shape and material.
 
 ### Tag-as-strategy table
 
 | Tag | Strategy | When chosen | Paint mechanism | Atlas memory |
 |---|---|---|---|---|
-| `<b>` | **Solid full-rect** | Axis-aligned rectangle that fills its bounding box | `background: currentColor` | None |
-| `<i>` | **Border-shape clipped solid** | Untextured non-rect on browsers with CSS `border-shape` (Chromium + `pointer:fine` + `hover:hover`) | `border-color: currentColor` clipped by `border-shape: polygon(...)` | None |
-| `<s>` | **Atlas slice** | Textured polygons, or untextured non-rect on browsers without `border-shape` | `background-image` slice of packed bitmap | Bounding-rect area |
-| `<u>` | **Stable solid triangle** | Opt-in for triangles via `renderPolygonsWithStableTriangles` | CSS border-color triangle trick (collapsed `width:0/height:0` element with asymmetric border) | None |
+| `<b>` | **Quads** | Axis-aligned rectangle, or untextured convex quad when the homography passes stability guards | `background: currentColor`; canonical quads use a 1px rectangle mapped by `matrix3d` / projective `matrix3d` with tiny solid bleed to overlap antialias seams | None |
+| `<i>` | **Border-shape clipped solid** | Untextured non-rect on browsers with CSS `border-shape` (Chromium + `pointer:fine` + `hover:hover`) | `border-color: currentColor` on a fixed 16px border-shape primitive, clipped by `border-shape: polygon(...)`; polygon bbox scale is folded into `matrix3d` | None |
+| `<s>` | **Atlas slice** | Textured polygons, or untextured non-rect on browsers without `border-shape` | `background-image` slice of packed bitmap on a canonical 1px primitive; atlas position/size are normalized to the slice, scale lives in `matrix3d`, and shared textured edges get low-alpha atlas pixels repaired during atlas generation | Bounding-rect area |
+| `<u>` | **Stable solid triangle** | Opt-in for triangles via `renderPolygonsWithStableTriangles` | CSS border-color triangle trick with a fixed canonical 1px border triangle; scale lives in `matrix3d` | None |
 | `<q>` | **Cast shadow leaf** | Per casting polygon when `castShadow: true` and dynamic lighting mode. Applies regardless of caster strategy — `<b>`/`<i>`/`<s>`/`<u>` all produce a `<q>` shadow because only the polygon's outline matters, not its surface. | Same `border-color: currentColor` + `border-shape: polygon(...)` as `<i>`, but transform composes `var(--shadow-proj)` to project the polygon onto the ground plane along the CSS-space light direction | None |
 
 Strategies are ordered cheapest → most expensive. The mesher's job is to maximise `<b>` / `<i>` and minimise `<s>` (see "Meshing implications" below).
 
-Callers can opt out of specific strategies via `strategies: { disable: ["b" | "i" | "u"] }` on `RenderTextureAtlasOptions`. Disabled strategies fall through the chain (`b → i → s`, `u → i → s`, `i → s`). `<s>` is the universal fallback and cannot be disabled. Useful for diagnostic A/B testing.
+Callers can opt out of specific strategies via `strategies: { disable: ["b" | "i" | "u"] }` on `RenderTextureAtlasOptions`. Disabled strategies fall through the chain (`b → i → s`, `u → i → s`, `i → s`). `<s>` is the universal fallback and cannot be disabled.
 
 ### Lighting modes (`PolyTextureLightingMode = "baked" | "dynamic"`)
 
 - **Baked.** Lambert is computed once on the CPU per polygon, multiplied into the inline `color` (for `<b>`/`<i>`/`<u>`) or into the rasterised atlas pixels (for `<s>`). Moving a light requires re-rasterising affected polys.
 - **Dynamic.** Scene root carries the light setup as custom properties (`--plx/y/z`, `--plr/g/b`, `--pli`, `--par/g/b`, `--pai`). Each leaf embeds its surface normal (`--pnx/y/z`) and base color (`--psr/g/b`) inline. CSS `calc()` resolves the Lambert dot product and per-channel tint at paint time. Moving a light mutates one var on the scene root — zero JS, no atlas redraw.
 
-All four tags work in both modes. The full coverage matrix is in `packages/polycss/src/styles/styles.ts`.
+All solid/atlas tags work in both modes. The full coverage matrix is in `packages/polycss/src/styles/styles.ts`.
 
 ### Meshing implications (what generators must respect)
 
 - **Polygon count is the dominant cost.** Each polygon is one DOM node, one `matrix3d`, one paint. Halving the polygon count is almost always worth a more complex mesher.
-- **Fill ratio matters.** A polygon's `<i>` or `<s>` box equals its local-2D bounding rect. Empty space inside that box is wasted layout area and (on the atlas path) wasted bitmap pixels. Prefer shapes with high `area / boundingRect.area`:
+- **Fill ratio matters.** A textured polygon's atlas slice equals its local-2D bounding rect. Empty space inside that slice is wasted bitmap pixels. Prefer shapes with high `area / boundingRect.area`:
   - axis-aligned rectangle = 1.0 (and hits the fastest path)
   - right-isosceles triangle = 0.5
   - skinny/long triangle ≪ 0.5 (worst case — many such triangles balloon atlas memory)

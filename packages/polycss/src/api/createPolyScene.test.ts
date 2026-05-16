@@ -54,9 +54,9 @@ function getSceneEl(host: HTMLElement): HTMLElement {
   return sceneEl!;
 }
 
-/** Extract the innermost translate3d(...) from the --scene-transform value. */
+/** Extract the innermost translate3d(...) from the scene transform value. */
 function getSceneTranslatePart(host: HTMLElement): string {
-  const t = getSceneEl(host).style.getPropertyValue("--scene-transform");
+  const t = getSceneEl(host).style.transform;
   const m = t.match(/translate3d\([^)]+\)/);
   return m ? m[0] : "";
 }
@@ -88,13 +88,12 @@ describe("createPolyScene", () => {
       expect(scene.host).toBe(host);
     });
 
-    it("getOptions() returns the current options snapshot including defaults that were passed", () => {
+    it("getOptions() returns the current options snapshot including values that were passed", () => {
       scene = createPolyScene(host, { rotX: 30, rotY: 60, zoom: 2 });
       const opts = scene.getOptions();
       expect(opts.rotX).toBe(30);
       expect(opts.rotY).toBe(60);
       expect(opts.zoom).toBe(2);
-      expect(opts.experimentalTextureEdgeRepair).toBe(true);
     });
 
     it("getOptions() reflects updates made via setOptions", () => {
@@ -120,7 +119,7 @@ describe("createPolyScene", () => {
       expect(sceneEl.style.height).toBe("");
     });
 
-    it("applies scene transform from options through a custom property", () => {
+    it("applies scene transform from options", () => {
       scene = createPolyScene(host, {
         perspective: 1500,
         rotX: 30,
@@ -128,7 +127,7 @@ describe("createPolyScene", () => {
         zoom: 2,
       });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      const transform = sceneEl.style.getPropertyValue("--scene-transform");
+      const transform = sceneEl.style.transform;
       expect(sceneEl.style.perspective).toBe("1500px");
       expect(transform).toContain("scale(2)");
       expect(transform).toContain("rotateX(30deg)");
@@ -326,7 +325,7 @@ describe("createPolyScene", () => {
       expect(poly).not.toBeNull();
       expect(poly.tagName.toLowerCase()).toBe("u");
       expect(poly.style.transform).toContain("matrix3d(");
-      expect(poly.style.borderBottomWidth).not.toBe("");
+      expect(poly.style.borderBottomWidth).toBe("");
     });
 
     describe("rebakeAtlas", () => {
@@ -506,10 +505,10 @@ describe("createPolyScene", () => {
     it("updates scene transform when rotation options change", () => {
       scene = createPolyScene(host, { rotX: 0 });
       const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
-      const before = sceneEl.style.getPropertyValue("--scene-transform");
+      const before = sceneEl.style.transform;
       scene.setOptions({ rotX: 90 });
-      expect(sceneEl.style.getPropertyValue("--scene-transform")).not.toBe(before);
-      expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotateX(90deg)");
+      expect(sceneEl.style.transform).not.toBe(before);
+      expect(sceneEl.style.transform).toContain("rotateX(90deg)");
     });
 
     it("inlines perspective on setOptions update", () => {
@@ -597,7 +596,7 @@ describe("createPolyScene", () => {
     // so geometry changes are correctly reflected).
     //
     // We observe the side effect of recomputeAutoCenter via the innermost
-    // translate3d in --scene-transform: if the bbox-center offset changed,
+    // translate3d in scene transform: if the bbox-center offset changed,
     // the translate3d values change. Camera-only setOptions must leave the
     // translate3d component unchanged (the rest of the transform — scale,
     // rotateX, rotate — will update; only the innermost translate3d reflects
@@ -673,7 +672,7 @@ describe("createPolyScene", () => {
         scene.add(makeParseResult([triangle()]));
         const sceneEl = host.querySelector(".polycss-scene") as HTMLElement;
         scene.setOptions({ rotY: 137 });
-        expect(sceneEl.style.getPropertyValue("--scene-transform")).toContain("rotate(137deg)");
+        expect(sceneEl.style.transform).toContain("rotate(137deg)");
       });
     });
   });

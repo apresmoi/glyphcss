@@ -86,7 +86,7 @@ export function usePolyCamera(options: UseCameraOptions): UseCameraResult {
 
   // Apply camera transform directly to scene element (bypasses React).
   // Reads autoCenterOffset from the store so orbit/pan always pivots around
-  // target + autoCenterOffset — the same point PolyScene writes to --scene-transform.
+  // target + autoCenterOffset — the same point PolyScene writes to the scene transform.
   const applyTransformDirect = useCallback(() => {
     const el = sceneElRef.current;
     if (!el) return;
