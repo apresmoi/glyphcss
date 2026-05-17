@@ -4,6 +4,8 @@ An ASCII polygon mesh renderer for the DOM. Glyphcss projects 3D scenes to 2D, r
 
 Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files. Supports wireframe, solid, and voxel render modes.
 
+> **Forked from [LayoutitStudio/polycss](https://github.com/LayoutitStudio/polycss).** The mesh math, parsers (OBJ / glTF / GLB / VOX), scene composition, camera math, and input controls are inherited. The paint backend is rewritten: instead of one CSS-transformed DOM leaf per polygon, glyphcss walks all polygons, fills a character grid, and writes a single text string to `<pre>.textContent` per frame.
+
 ## Installation
 
 ```bash
