@@ -1,91 +1,42 @@
-import { useEffect, useRef, type RefObject } from "react";
-import type { DroppedModelSource, LoadedModel, ParserOptionsState, PresetModel } from "../types";
-import { loadPresetModel, loadDroppedModel } from "../helpers/loaders";
-import {
-  smartAmbientForModel,
-  smartKeyIntensityForModel,
-  defaultZoomForModel,
-} from "../helpers/smartDefaults";
+import { useEffect } from "react";
+import type { DroppedModelSource, PresetModel } from "../types";
 
 export interface UsePresetLoaderOptions {
   selectedPreset: PresetModel;
   selectedDroppedSource: DroppedModelSource | null;
-  parserOptions: ParserOptionsState;
-  onLoaded: (model: LoadedModel) => void;
-  onLoadError: (message: string) => void;
-  onLoadingChange: (loading: boolean) => void;
-  onSceneDefaults: (zoom: number | null, ambientIntensity: number | null, lightIntensity: number | null) => void;
-  autoZoomPresetRef: RefObject<string | null>;
-  autoAmbientPresetRef: RefObject<string | null>;
-  autoKeyPresetRef: RefObject<string | null>;
+  onMeshUrl: (url: string) => void;
+  onSceneDefaults: (zoom: number | undefined, rotX: number | undefined, rotY: number | undefined) => void;
+  autoZoomPresetRef: React.RefObject<string | null>;
 }
 
+// The actual model loading (fetch + parse) happens inside the GlyphcssScene
+// runtime. This hook's job is to resolve the URL and per-preset camera
+// defaults and push them into state when the selection changes.
 export function usePresetLoader({
   selectedPreset,
   selectedDroppedSource,
-  parserOptions,
-  onLoaded,
-  onLoadError,
-  onLoadingChange,
+  onMeshUrl,
   onSceneDefaults,
   autoZoomPresetRef,
-  autoAmbientPresetRef,
-  autoKeyPresetRef,
 }: UsePresetLoaderOptions): void {
-  const disposeRef = useRef<(() => void) | null>(null);
-
   useEffect(() => {
-    let cancelled = false;
-    onLoadingChange(true);
-    onLoadError("");
+    const url = selectedDroppedSource
+      ? URL.createObjectURL(selectedDroppedSource.primaryFile)
+      : selectedPreset.url;
 
-    const run = async () => {
-      const presetForLoad = selectedPreset;
-      try {
-        disposeRef.current?.();
-        disposeRef.current = null;
-        const next = selectedDroppedSource
-          ? await loadDroppedModel(selectedDroppedSource, parserOptions)
-          : await loadPresetModel(presetForLoad, parserOptions);
-        if (cancelled) {
-          next.dispose();
-          return;
-        }
-        disposeRef.current = next.dispose;
-        const nextZoom = autoZoomPresetRef.current !== presetForLoad.id
-          ? defaultZoomForModel(presetForLoad, next.rawPolygons)
-          : null;
-        const nextAmbient = autoAmbientPresetRef.current !== presetForLoad.id
-          ? smartAmbientForModel(presetForLoad, next.rawPolygons)
-          : null;
-        const nextKey = autoKeyPresetRef.current !== presetForLoad.id
-          ? smartKeyIntensityForModel(next.rawPolygons)
-          : null;
+    onMeshUrl(url);
 
-        if (nextZoom !== null || nextAmbient !== null || nextKey !== null) {
-          onSceneDefaults(nextZoom, nextAmbient, nextKey);
-          autoZoomPresetRef.current = presetForLoad.id;
-          autoAmbientPresetRef.current = presetForLoad.id;
-          autoKeyPresetRef.current = presetForLoad.id;
-        }
-        onLoaded(next);
-      } catch (error) {
-        if (cancelled) return;
-        onLoadError(error instanceof Error ? error.message : String(error));
-      } finally {
-        if (!cancelled) onLoadingChange(false);
+    if (autoZoomPresetRef.current !== selectedPreset.id) {
+      autoZoomPresetRef.current = selectedPreset.id;
+      // Pass through undefined when the preset doesn't override — the consumer
+      // keeps its current DEFAULT_SCENE value rather than getting a stale fallback.
+      onSceneDefaults(selectedPreset.zoom, selectedPreset.rotX, selectedPreset.rotY);
+    }
+
+    return () => {
+      if (selectedDroppedSource) {
+        URL.revokeObjectURL(url);
       }
     };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedPreset, selectedDroppedSource, parserOptions]);
-
-  useEffect(() => {
-    return () => {
-      disposeRef.current?.();
-    };
-  }, []);
+  }, [selectedPreset.id, selectedDroppedSource?.id]);
 }

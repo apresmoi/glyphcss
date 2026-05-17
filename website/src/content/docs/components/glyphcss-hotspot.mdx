@@ -1,0 +1,41 @@
+---
+title: GlyphcssHotspot
+description: Sparse interactive hit anchor over the ASCII strip.
+---
+
+`<GlyphcssHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII strip,
+tracking a 3D anchor through every baked frame. The `<div>` is `pointer-events: auto`
+inside an otherwise transparent hit layer — events fire on it like any normal DOM
+element.
+
+## Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `at` | `Vec3 \| string` | required | World-space anchor. Either `[x, y, z]` or a string like `"vertex:42"` |
+| `size` | `[number, number]` | `[1, 1]` | Hitbox size in character cells |
+| `onClick` | `MouseEventHandler` | — | Click handler |
+| `aria-label` | `string` | — | Accessibility label |
+| `className` | `string` | — | CSS class |
+| `children` | `ReactNode` | — | Rendered inside the `<div>` (use for tooltips/badges) |
+
+## Tracking math
+
+For an animated scene, the hotspot is projected once per frame during the bake.
+The resulting positions are emitted as a `@keyframes` rule with `0%`, `1.667%`,
+`3.333%`, ..., `100%` waypoints — matching the strip's `steps(60, end)` exactly.
+
+When the user drags, the strip's animation pauses and the hotspot's `transform` is
+live-updated per pointermove. On release, both animations re-start from the new
+camera state.
+
+## Example with badge
+
+```tsx
+<GlyphcssHotspot at={[0, 1.2, 0]} size={[3, 2]} aria-label="Roof">
+  <span className="badge">Roof</span>
+</GlyphcssHotspot>
+```
+
+The `.badge` child gets free `:hover` styling via the parent — `opacity: 0`
+collapsed by default, `opacity: 1` on hover.

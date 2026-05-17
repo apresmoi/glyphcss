@@ -1,95 +1,45 @@
 ---
 title: Performance
-description: Optimizing polycss scenes and understanding DOM-based rendering tradeoffs.
+description: Understanding what scales with what.
 ---
 
-import PolyDemo from '../../../components/PolyDemo.astro';
+## Cost dominator: grid cells, not polygons
 
-polycss renders everything as real DOM elements: every polygon of every mesh is an HTML element with CSS transforms. That gives you DevTools inspection, DOM events, and CSS styling on every polygon, but it means **performance scales with element count**. Understanding how to manage that count is key to building smooth scenes.
+The glyphcss renderer scales with **grid cells**, not polygon count. A 10k-triangle
+GLB and a unit cube cost the same per frame, because both rasterize into the same
+`cols × rows` `Uint8Array` stamp.
 
-## Live demo: polygon count vs. performance
+Frame size:
+- 80×24 grid (~tiny): ~2,000 cells, < 1ms per frame
+- 160×48 grid (typical): ~7,500 cells, ~3ms per frame
+- 240×72 grid (large): ~17,000 cells, ~6ms per frame
 
-The sphere below starts at subdivision level 3 (320 triangles). Bump subdivisions up to 4 (1,280) or 5 (5,120) and watch the frame rate drop. This illustrates how quadrupling the subdivision level quadruples the DOM node count: and rendering cost.
+The bake (60 frames × per-frame cost) happens once at init and then again only on
+drag-end / wheel-end. Steady-state animation costs **zero JavaScript** — the strip
+is a static `<pre>` and the browser composites the `translate3d` transform on the
+GPU.
 
-<PolyDemo
-  id="perf-sphere-demo"
-  generator="sphere"
-  generatorParams='{"subdivisions":2,"radius":15}'
-  controls='["subdivisions","radius","zoom","rotX","rotY","animate"]'
-  defaults='{"rotX":65,"rotY":45,"zoom":0.15,"animate":true}'
-  showStats
-/>
+## When to drop hotspot count
 
-## Polygon count matters
+The hit layer's per-frame cost is `O(hotspots × N_frames)` during the bake. For
+60 hotspots and 60 frames, that's 3,600 projections per bake. Still fast (< 5ms)
+but you'll notice if you push past ~500 hotspots in one scene.
 
-The dominant rendering cost in polycss is **style recalc + layout** (not paint or compositing). Each camera rotation triggers a CSS class change on the scene root, which re-evaluates descendant selectors. The more DOM nodes, the heavier this recalc.
+For "highlight every vertex" UIs, consider:
+- Group nearby vertices into one logical hotspot.
+- Render hotspots only for the front-facing hemisphere (skip backface verts).
+- Lower `N_frames` to 30 — half the bake cost, slight loss of rotation smoothness.
 
-Confirmed during benchmarking on a 10k-triangle mesh with auto-rotate:
-- **Scripting**: ~579ms / 7s (mostly React re-renders)
-- **Rendering (style recalc + layout)**: ~2,130ms / 7s: the dominant cost
+## Avoid steady-state JS
 
-## Automatic polygon merge
+If you find yourself reaching for `requestAnimationFrame` to update the scene
+every frame, stop. The strip flipbook is designed to make that unnecessary. Two
+recipes that come up:
 
-polycss automatically merges contiguous coplanar polygons that share the same material (color + texture). The engine finds flat regions and combines them into larger elements before rendering.
+**"I want the scene to react to scroll position":** map scroll to camera.rotY in
+chunks of `2π / 60`, debounce 100ms, re-bake. The user sees ~10fps of camera
+updates which feels smooth enough.
 
-This is most useful for architectural meshes with large flat surfaces: walls, floors, ceilings, voxel faces, and other areas where many same-material triangles can collapse without visual change.
-
-**Limitations:**
-- Per-polygon DOM addressing is lost for merged groups.
-- UV-textured polygons only merge with same-texture neighbors whose shared-edge UVs match. Lossless mode requires coplanarity; lossy mode may project near-coplanar textured neighbors into one atlas sprite within the configured displacement budget.
-
-## `targetSize` and polygon count
-
-Use `targetSize` when parsing to keep models at a predictable world-space scale. This does not decimate the source mesh by itself, but it affects how large the generated DOM geometry and atlas footprints are. For real element-count reduction, rely on automatic coplanar merge, interior culling, or lower-poly source assets.
-
-```ts
-// Vanilla imperative loading
-const result = await loadMesh("/castle.obj", {
-  objOptions: { targetSize: 30 },
-});
-```
-
-```tsx
-// React
-<PolyMesh src="/castle.obj" parseOptions={{ objOptions: { targetSize: 30 } }} />
-<PolyMesh src="/castle.obj" parseOptions={{ objOptions: { targetSize: 80 } }} />
-```
-
-## `textureQuality` and texture memory
-
-Generated atlas pages default to `textureQuality="auto"`. Auto starts from the packed atlas area and then caps oversized runtime bitmaps by page side length and decoded-memory budget. For dense textured meshes this prevents very large canvas/PNG work at mount while keeping DOM geometry and hit areas unchanged.
-
-```html
-<!-- Vanilla -->
-<poly-scene texture-quality="0.5">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
-```
-
-```tsx
-// React
-<PolyCamera>
-  <PolyScene textureQuality={0.5}>
-    <PolyMesh src="/cottage.glb" />
-  </PolyScene>
-</PolyCamera>
-
-// Or per mesh:
-<PolyMesh src="/cottage.glb" textureQuality={0.5} />
-```
-
-Use explicit numeric values when you want to override auto: `0.5` or `0.75` for distant or dense assets, `1` for close-up inspection when the runtime bitmap cost is acceptable.
-
-## Atlas and Blob URL Lifecycle
-
-UV-textured polygons share generated atlas blob URLs (created during the canvas rasterization pass at mount). These are revoked on unmount. Keep these rules in mind:
-
-- Textured meshes do a one-time atlas generation pass at mount; very large texture footprints can still cost memory and startup time.
-- Call `dispose()` on `ParseResult` (or `usePolyMesh` result) when you've loaded the mesh imperatively.
-- The mesh element (`<poly-mesh>` / `<PolyMesh>`) handles disposal automatically on unmount or `src` change.
-
-## Related
-
-- [PolyScene](/components/poly-scene): Scene props reference.
-- [Loading Meshes](/guides/textures): Parsing options including `targetSize`.
-- [Core Concepts: Automatic Polygon Merge](/core-concepts#automatic-polygon-merge): Conceptual overview.
+**"I want a continuous color pulse on a hotspot":** put the pulse on the hotspot's
+`<div>` directly via CSS animation. The hotspot div is real DOM — `@keyframes
+pulse` on it works the same as any other CSS animation.

@@ -1,71 +1,66 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  PolyMeshHandle as ReactPolyMeshHandle,
-  Polygon,
-  Vec3 as ReactVec3,
-} from "@layoutit/polycss-react";
-import type {
-  PolyMeshHandle as VanillaPolyMeshHandle,
-} from "@layoutit/polycss";
-import {
-  Inspector as InspectorPanel,
-  type InspectorColorGroup,
-  type InspectorMesh,
-} from "../Inspector";
-import { VanillaScene } from "../VanillaScene";
-import { ReactScene } from "../ReactScene";
+import { useCallback, useMemo, useState, useRef } from "react";
+import { Inspector, type InspectorMesh } from "../Inspector";
+import { GlyphcssScene } from "../GlyphcssScene";
 import {
   Dock,
   DockModel,
   DockRendering,
   DockAnimation,
-  DockInteraction,
   DockCamera,
   DockLighting,
 } from "../Dock";
 import { ModelsSidebar } from "../ModelsSidebar";
 import { DropOverlay } from "../DropOverlay";
 import { StatsOverlay } from "../StatsOverlay";
-import type { GizmoMode, SceneOptionsState, DomMetrics } from "../types";
+import type { GlyphcssMetrics, SceneOptionsState } from "./types";
 import "./gallery-workbench.css";
-import type {
-  PresetModel,
-  LoadedModel,
-  ParserOptionsState,
-} from "./types";
 import {
   PRESETS,
   GALLERY_BUCKET_ORDER,
   galleryBucketForPreset,
   galleryBucketRank,
+  labelFromFile,
   stripParenthesizedText,
 } from "./presets";
 import {
-  EMPTY_METRICS,
-  measureDom,
-} from "./helpers/domMetrics";
-import {
-  applyDebugMatrixPrecision,
-  applyDebugBorderShapePrecision,
-  applyDebugTriangleBrushPrecision,
-  applyDebugSolidColorHex,
-  applyDebugInlineStyleOrder,
-  applyDebugInlineStyleMinify,
-} from "./helpers/debugPrecision";
-import { defaultZoomForModel } from "./helpers/smartDefaults";
-import { directionalFromOptions, ambientFromOptions } from "./helpers/lighting";
-import {
   useDroppedFiles,
   usePresetLoader,
-  useScenePolygons,
-  useAnimationFrames,
   useRouteSync,
   useGuiCameraSync,
   setRoutePresetId,
   routeInitialPresetId,
 } from "./hooks";
-import { useFpvHost } from "../fpv";
-import type { ObjParseOptions, GltfParseOptions, VoxParseOptions } from "@layoutit/polycss";
+import type { PresetModel } from "./types";
+
+/**
+ * Floating "Copy" button overlaid on the viewport. Grabs the rendered ASCII
+ * text from the strip and writes it to the clipboard. Reads the strip's
+ * `innerText` (HTML stripped) so spans-with-color come out as plain glyphs.
+ */
+function CopySceneButton() {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(async () => {
+    const strip = document.querySelector(".glyphcss-demo__strip") as HTMLElement | null;
+    if (!strip) return;
+    try {
+      await navigator.clipboard.writeText(strip.innerText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard write rejected (permissions, insecure origin, etc.). No-op.
+    }
+  }, []);
+  return (
+    <button
+      type="button"
+      className="dn-copy-scene"
+      onClick={handleCopy}
+      title="Copy rendered ASCII to clipboard"
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
 
 function presetPickerItem(preset: PresetModel, local = false) {
   return {
@@ -79,19 +74,16 @@ const PRESET_PICKER_ITEMS = PRESETS.map((preset) => presetPickerItem(preset));
 const ALL_PRESET_IDS = PRESETS.map((p) => p.id);
 
 const DEFAULT_SCENE: SceneOptionsState = {
-  renderer: "vanilla",
   animationPaused: false,
   animationTimeScale: 1,
   autoCenter: true,
   interactive: true,
-  animate: false,
   showAxes: false,
-  selection: false,
-  hoverEffects: false,
   showLight: false,
-  zoom: PRESETS[0].zoom ?? 0.35,
-  rotX: PRESETS[0].rotX ?? 65,
-  rotY: PRESETS[0].rotY ?? 45,
+  showGround: false,
+  zoom: 0.25,
+  rotX: 65,
+  rotY: 45,
   perspective: false,
   lightAzimuth: 50,
   lightElevation: 45,
@@ -99,53 +91,35 @@ const DEFAULT_SCENE: SceneOptionsState = {
   lightColor: "#ffffff",
   ambientIntensity: 0.4,
   ambientColor: "#ffffff",
-  textureLighting: "baked",
-  textureQuality: "auto",
-  solidMaterials: false,
-  matrixPrecision: "exact",
-  borderShapePrecision: "exact",
-  meshResolution: "lossy",
-  meshInteriorFill: false,
-  outlinePolygons: false,
-  dragMode: "orbit",
   target: [0, 0, 0],
-  disableStrategies: [],
-  castShadow: false,
-  showGround: false,
+  renderMode: "solid",
+  featureEdges: 30,
+  glyphPalette: "default",
+  lineHeight: 1.0,
+  useColors: true,
+  dragMode: "orbit",
   fpvLook: true,
   fpvMove: true,
   fpvJump: true,
   fpvCrouch: true,
-  fpvMoveSpeed: 30,
-  fpvJumpVelocity: 25,
-  fpvGravity: 60,
-  fpvEyeHeight: 6,
-  fpvCrouchHeight: 3,
+  fpvMoveSpeed: 1,
+  fpvJumpVelocity: 0.7,
+  fpvGravity: 1.8,
+  fpvEyeHeight: 0.2,
+  fpvCrouchHeight: 0.1,
   fpvLookSensitivity: 0.15,
   fpvInvertY: false,
-  fpvRenderDistance: 40,
-  snapToGrid: true,
-  gridResolution: 5,
 };
 
-const DEFAULT_PARSER: ParserOptionsState = {
-  targetSize: 60,
-  gridShift: 1,
-  defaultColor: "#8b95a1",
+const EMPTY_METRICS: GlyphcssMetrics = {
+  measuredAt: 0,
+  cells: 0,
+  edges: 0,
+  triangles: 0,
+  vertices: 0,
+  frames: 60,
+  bakeMs: 0,
 };
-
-function parserDefaultsFor(model: PresetModel): Partial<ParserOptionsState> {
-  const options = model.options as (ObjParseOptions & GltfParseOptions & VoxParseOptions) | undefined;
-  return {
-    ...(typeof options?.targetSize === "number" ? { targetSize: options.targetSize } : {}),
-    ...(typeof options?.gridShift === "number" ? { gridShift: options.gridShift } : {}),
-    ...(typeof options?.defaultColor === "string" ? { defaultColor: options.defaultColor } : {}),
-  };
-}
-
-function randomPreset(): PresetModel {
-  return PRESETS[Math.floor(Math.random() * PRESETS.length)] ?? PRESETS[0];
-}
 
 function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
   return {
@@ -156,30 +130,8 @@ function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
   };
 }
 
-function parserStateFor(model: PresetModel): ParserOptionsState {
-  return {
-    ...DEFAULT_PARSER,
-    ...parserDefaultsFor(model),
-  };
-}
-
-function withSolidMaterials(polygons: Polygon[], fallbackColor: string): Polygon[] {
-  return polygons.map((polygon) => {
-    if (!polygon.texture && !polygon.uvs?.length && !polygon.textureTriangles?.length) {
-      return polygon;
-    }
-    return {
-      ...polygon,
-      texture: undefined,
-      uvs: undefined,
-      textureTriangles: undefined,
-      color: polygon.color ?? fallbackColor,
-    };
-  });
-}
-
-function polygonHasTextureData(polygon: Polygon): boolean {
-  return Boolean(polygon.texture || polygon.uvs?.length || polygon.textureTriangles?.length);
+function randomPreset(): PresetModel {
+  return PRESETS[Math.floor(Math.random() * PRESETS.length)] ?? PRESETS[0];
 }
 
 function resolveInitialPreset(): PresetModel {
@@ -189,50 +141,18 @@ function resolveInitialPreset(): PresetModel {
 
 export default function GalleryWorkbench() {
   const [initialPreset] = useState<PresetModel>(resolveInitialPreset);
-  const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(() => sceneDefaultsFor(initialPreset));
-  const [parserOptions, setParserOptions] = useState<ParserOptionsState>(() => parserStateFor(initialPreset));
+  // Initialize from DEFAULT_SCENE so sliders always start at documented defaults.
+  // usePresetLoader fires on first render and applies per-preset overrides,
+  // so the preset's zoom/rotX/rotY still win — but only after the first tick.
+  const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(DEFAULT_SCENE);
   const [presetId, setPresetId] = useState(initialPreset.id);
-  const [loaded, setLoaded] = useState<LoadedModel | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [meshUrl, setMeshUrl] = useState(initialPreset.url);
+  const [metrics, setMetrics] = useState<GlyphcssMetrics>(EMPTY_METRICS);
   const [selectedAnimation, setSelectedAnimation] = useState("");
-  const [metrics, setMetrics] = useState<DomMetrics>(EMPTY_METRICS);
-  const [vanillaBuildMs, setVanillaBuildMs] = useState(0);
+  const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
   const [modelSearch, setModelSearch] = useState("");
   const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
-  const viewportRef = useRef<HTMLDivElement | null>(null);
   const autoZoomPresetRef = useRef<string | null>(null);
-  const autoAmbientPresetRef = useRef<string | null>(null);
-  const autoKeyPresetRef = useRef<string | null>(null);
-
-  // Selection + drag state for the React renderer's <PolyMesh> wrapper.
-  // Lives at this level so a model swap can reset both — the gizmo
-  // shouldn't follow a stale handle, and a freshly loaded mesh should
-  // sit at its authored origin.
-  const meshRef = useRef<ReactPolyMeshHandle>(null);
-  const [meshPosition, setMeshPosition] = useState<ReactVec3>([0, 0, 0]);
-  const [meshRotation, setMeshRotation] = useState<ReactVec3>([0, 0, 0]);
-  const [gizmoMode, setGizmoMode] = useState<GizmoMode>("translate");
-  const [selectedMeshes, setSelectedMeshes] = useState<ReactPolyMeshHandle[]>([]);
-  // Mirror of PolyTransformControls' drag state — three.js convention is to
-  // disable OrbitControls while a transform gizmo is being dragged so
-  // the camera doesn't co-rotate. Same idea here: gate PolyOrbitControls'
-  // drag/wheel on this flag.
-  const [gizmoDragging, setGizmoDragging] = useState(false);
-  // Hover state for the mesh — wired the r3f / three.js way via
-  // onPointerOver / onPointerOut on <PolyMesh>. Demonstrates the
-  // mesh-event API (events.ts → InteractionProps) — same shape as
-  // r3f, no raycasting needed because polycss uses DOM events.
-  const [hoveredMeshId, setHoveredMeshId] = useState<string | null>(null);
-  // Mesh handle for the currently rendered model (vanilla path only). The
-  // Inspector folder uses this to push color-group edits back into the
-  // scene via setPolygons. Set by VanillaScene's onMeshHandleChange.
-  const activeMeshHandleRef = useRef<VanillaPolyMeshHandle | null>(null);
-  // Vanilla selection state — kept separate from React's
-  // `selectedMeshes` because vanilla MeshHandles aren't comparable to
-  // React PolyMeshHandles. Stored as IDs since that's what both paths
-  // can agree on for the toolbar display.
-  const [, setVanillaSelectedIds] = useState<string[]>([]);
 
   const updateScene = useCallback((partial: Partial<SceneOptionsState>) => {
     setSceneOptions((current) => ({ ...current, ...partial }));
@@ -243,22 +163,16 @@ export default function GalleryWorkbench() {
   const dropped = useDroppedFiles({
     onDroppedSource: (source) => {
       autoZoomPresetRef.current = null;
-      autoAmbientPresetRef.current = null;
-      autoKeyPresetRef.current = null;
       setRoutePresetId(null);
       setPresetId(source.id);
       setSelectedAnimation("");
-      setParserOptions((current) => ({
-        ...current,
-        ...parserDefaultsFor(source.preset),
-      }));
       setSceneOptions((current) => ({
         ...current,
         rotX: source.preset.rotX ?? current.rotX,
         rotY: source.preset.rotY ?? current.rotY,
       }));
     },
-    onDropError: (message) => setLoadError(message),
+    onDropError: (message) => console.warn("[GalleryWorkbench] drop error:", message),
   });
 
   const availablePresets = useMemo(
@@ -274,6 +188,7 @@ export default function GalleryWorkbench() {
   const selectedPresetPickerCategory =
     pickerItems.find((preset) => preset.id === selectedPreset.id)?.category ??
     galleryBucketForPreset(selectedPreset);
+
   const trimmedModelSearch = modelSearch.trim().toLowerCase();
   const filteredPresetItems = useMemo(() => {
     if (!trimmedModelSearch) return pickerItems;
@@ -282,6 +197,7 @@ export default function GalleryWorkbench() {
       preset.category.toLowerCase().includes(trimmedModelSearch),
     );
   }, [pickerItems, trimmedModelSearch]);
+
   const modelCategories = useMemo(() => {
     const buckets = new Map<string, { id: string; label: string; models: typeof PRESET_PICKER_ITEMS }>();
     if (!trimmedModelSearch) {
@@ -297,13 +213,14 @@ export default function GalleryWorkbench() {
       buckets.get(category)!.models.push(preset);
     }
     const orderedCategories = Array.from(buckets.values()).sort((a, b) =>
-      galleryBucketRank(a.id) - galleryBucketRank(b.id)
+      galleryBucketRank(a.id) - galleryBucketRank(b.id),
     );
     for (const category of orderedCategories) {
       category.models.sort((a, b) => a.label.localeCompare(b.label));
     }
     return orderedCategories;
   }, [filteredPresetItems, trimmedModelSearch]);
+
   const defaultCategoryId = modelCategories.find((category) => category.models.length > 0)?.id ?? modelCategories[0]?.id;
   const isCategoryOpen = useCallback(
     (categoryId: string): boolean => {
@@ -318,157 +235,40 @@ export default function GalleryWorkbench() {
   }, []);
   const modelTreeId = useMemo(() => {
     const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "");
-    return modelCategories.map((category) => `debug-model-cat-${slug(category.id) || "category"}`);
+    return modelCategories.map((category) => `gallery-model-cat-${slug(category.id) || "category"}`);
   }, [modelCategories]);
-
-  useEffect(() => {
-    if (trimmedModelSearch) {
-      return;
-    }
-    setOpenModelCategory((prev) => (prev === selectedPresetPickerCategory ? prev : selectedPresetPickerCategory));
-  }, [trimmedModelSearch, selectedPresetPickerCategory]);
 
   usePresetLoader({
     selectedPreset,
     selectedDroppedSource,
-    parserOptions,
-    onLoaded: setLoaded,
-    onLoadError: (msg) => {
-      setLoaded(null);
-      setLoadError(msg || null);
-    },
-    onLoadingChange: setLoading,
-    onSceneDefaults: (zoom, ambientIntensity, lightIntensity) => {
-      setSceneOptions((current) => {
-        const nextZoom = zoom ?? current.zoom;
-        const nextAmbient = ambientIntensity ?? current.ambientIntensity;
-        const nextKey = lightIntensity ?? current.lightIntensity;
-        if (
-          current.zoom === nextZoom &&
-          current.ambientIntensity === nextAmbient &&
-          current.lightIntensity === nextKey
-        ) return current;
-        return { ...current, zoom: nextZoom, ambientIntensity: nextAmbient, lightIntensity: nextKey };
-      });
+    onMeshUrl: setMeshUrl,
+    onSceneDefaults: (zoom, rotX, rotY) => {
+      setSceneOptions((current) => ({
+        ...current,
+        zoom: zoom ?? current.zoom,
+        rotX: rotX ?? current.rotX,
+        rotY: rotY ?? current.rotY,
+      }));
     },
     autoZoomPresetRef,
-    autoAmbientPresetRef,
-    autoKeyPresetRef,
-  });
-
-  // Drop selection + reset gizmo position when the model changes. The
-  // PolyMesh wrapper persists across model swaps, so without this the
-  // user would inherit the previous model's drag offset.
-  useEffect(() => {
-    setSelectedMeshes([]);
-    setVanillaSelectedIds([]);
-    setMeshPosition([0, 0, 0]);
-    setMeshRotation([0, 0, 0]);
-  }, [loaded?.label]);
-
-  const directionalLight = useMemo(
-    () => directionalFromOptions(sceneOptions),
-    [
-      sceneOptions.lightAzimuth,
-      sceneOptions.lightElevation,
-      sceneOptions.lightColor,
-      sceneOptions.lightIntensity,
-    ],
-  );
-  const ambientLight = useMemo(
-    () => ambientFromOptions(sceneOptions),
-    [sceneOptions.ambientColor, sceneOptions.ambientIntensity],
-  );
-  const textureQuality = sceneOptions.textureQuality;
-
-  const animationClips = loaded?.animation?.clips ?? [];
-  const activeAnimation = useMemo(
-    () => animationClips.find((clip) => String(clip.index) === selectedAnimation) ?? null,
-    [animationClips, selectedAnimation],
-  );
-  const hasActiveAnimation = activeAnimation !== null;
-
-  const animation = useAnimationFrames({
-    loaded,
-    activeAnimation,
-    renderer: sceneOptions.renderer,
-    animationPaused: sceneOptions.animationPaused,
-    animationTimeScale: sceneOptions.animationTimeScale,
-  });
-
-  const { modelPolygons, interiorFillPolygons, scenePolygons, helperScale, helperTarget } = useScenePolygons({
-    loaded,
-    hasActiveAnimation,
-    meshResolution: sceneOptions.meshResolution,
-    renderer: sceneOptions.renderer,
-    reactAnimatedPolygons: animation.reactAnimatedPolygons,
-    meshInteriorFill: sceneOptions.meshInteriorFill,
-  });
-  const renderModelPolygons = useMemo(
-    () => sceneOptions.solidMaterials
-      ? withSolidMaterials(modelPolygons, parserOptions.defaultColor)
-      : modelPolygons,
-    [modelPolygons, sceneOptions.solidMaterials, parserOptions.defaultColor],
-  );
-  const renderInteriorFillPolygons = useMemo(
-    () => sceneOptions.solidMaterials
-      ? withSolidMaterials(interiorFillPolygons, parserOptions.defaultColor)
-      : interiorFillPolygons,
-    [interiorFillPolygons, sceneOptions.solidMaterials, parserOptions.defaultColor],
-  );
-  const renderPolygons = useMemo(
-    () => renderInteriorFillPolygons.length > 0
-      ? [...renderModelPolygons, ...renderInteriorFillPolygons]
-      : renderModelPolygons,
-    [renderModelPolygons, renderInteriorFillPolygons],
-  );
-  const hasSpriteLeaves = useMemo(
-    () => metrics.sprites > 0 || scenePolygons.some(polygonHasTextureData),
-    [metrics.sprites, scenePolygons],
-  );
-  const vanillaAnimationFrameFactory = useMemo(() => {
-    if (!animation.vanillaAnimationFrameFactory) return undefined;
-    if (!sceneOptions.solidMaterials) return animation.vanillaAnimationFrameFactory;
-    return (timeSeconds: number) =>
-      withSolidMaterials(animation.vanillaAnimationFrameFactory!(timeSeconds), parserOptions.defaultColor);
-  }, [
-    animation.vanillaAnimationFrameFactory,
-    sceneOptions.solidMaterials,
-    parserOptions.defaultColor,
-  ]);
-
-  useFpvHost({
-    dragMode: sceneOptions.dragMode,
-    autoCenter: sceneOptions.autoCenter,
-    perspective: sceneOptions.perspective,
-    rotY: sceneOptions.rotY,
-    scenePolygons,
-    updateScene,
   });
 
   const resetToPreset = useCallback((id: string, options: { updateRoute?: boolean } = {}) => {
     const next = availablePresets.find((preset) => preset.id === id);
     autoZoomPresetRef.current = null;
-    autoAmbientPresetRef.current = null;
-    autoKeyPresetRef.current = null;
     setPresetId(id);
     setSelectedAnimation("");
-    animation.setReactAnimatedPolygons(null);
     if (!next) return;
     if (options.updateRoute) {
       if (dropped.droppedSource?.id === next.id) setRoutePresetId(null);
       else setRoutePresetId(next.id);
     }
-    setParserOptions((current) => ({
-      ...current,
-      ...parserDefaultsFor(next),
-    }));
     setSceneOptions((current) => ({
       ...current,
       rotX: next.rotX ?? current.rotX,
       rotY: next.rotY ?? current.rotY,
     }));
-  }, [availablePresets, dropped.droppedSource, animation.setReactAnimatedPolygons]);
+  }, [availablePresets, dropped.droppedSource]);
 
   const handleRandomPreset = useCallback(() => {
     const next = randomPreset();
@@ -481,92 +281,6 @@ export default function GalleryWorkbench() {
     resetToPreset,
   });
 
-  useEffect(() => {
-    const root = viewportRef.current;
-    if (!root) return;
-    let raf = 0;
-    const update = () => {
-      raf = 0;
-      setMetrics(measureDom(root));
-    };
-    const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(update);
-    };
-    schedule();
-    const observer = new MutationObserver(schedule);
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-    });
-    return () => {
-      observer.disconnect();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
-  useEffect(() => {
-    const root = viewportRef.current;
-    if (!root) return;
-    let raf = 0;
-    const apply = () => {
-      raf = 0;
-      applyDebugMatrixPrecision(root, sceneOptions.matrixPrecision);
-      applyDebugBorderShapePrecision(root, sceneOptions.borderShapePrecision);
-      applyDebugTriangleBrushPrecision(root);
-      applyDebugSolidColorHex(root);
-      applyDebugInlineStyleOrder(root);
-      applyDebugInlineStyleMinify(root);
-    };
-    const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(apply);
-    };
-    schedule();
-    const observer = new MutationObserver(schedule);
-    observer.observe(root, {
-      childList: true,
-      subtree: true,
-    });
-    return () => {
-      observer.disconnect();
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [
-    sceneOptions.matrixPrecision,
-    sceneOptions.borderShapePrecision,
-    sceneOptions.renderer,
-    sceneOptions.textureLighting,
-    sceneOptions.textureQuality,
-    sceneOptions.solidMaterials,
-    scenePolygons,
-    renderPolygons,
-    vanillaBuildMs,
-  ]);
-
-  const rendererDebugKey = useMemo(
-    () => [
-      sceneOptions.renderer,
-      sceneOptions.matrixPrecision,
-      sceneOptions.borderShapePrecision,
-      sceneOptions.textureLighting,
-      sceneOptions.textureQuality,
-      sceneOptions.solidMaterials ? "solid-materials" : "authored-materials",
-      sceneOptions.autoCenter,
-      sceneOptions.perspective === false ? "none" : sceneOptions.perspective,
-      loaded?.label ?? "none",
-    ].join(":"),
-    [
-      sceneOptions.renderer,
-      sceneOptions.matrixPrecision,
-      sceneOptions.borderShapePrecision,
-      sceneOptions.textureLighting,
-      sceneOptions.textureQuality,
-      sceneOptions.solidMaterials,
-      sceneOptions.autoCenter,
-      sceneOptions.perspective,
-      loaded?.label,
-    ],
-  );
-
   const animationOptions = useMemo(() => {
     const options: Record<string, string> = { None: "" };
     for (const clip of animationClips) {
@@ -574,69 +288,12 @@ export default function GalleryWorkbench() {
     }
     return options;
   }, [animationClips]);
+
   const perspectiveMode = sceneOptions.perspective === false ? "orthographic" : "perspective";
   const perspectivePx = sceneOptions.perspective === false ? 8000 : sceneOptions.perspective;
 
-  // Inspector data — grouped by mesh, then by polygon color. Recomputed
-  // when renderModelPolygons or the loaded model change. Mutations to a
-  // polygon's color via the picker do NOT change the renderModelPolygons
-  // reference, so this memo doesn't re-fire on each tweak and the swatch
-  // local state stays in sync.
-  const inspectorMeshes = useMemo<InspectorMesh[]>(() => {
-    if (renderModelPolygons.length === 0) return [];
-    const colorGroups = new Map<string, Polygon[]>();
-    const textured: Polygon[] = [];
-    for (const p of renderModelPolygons) {
-      if (p.texture) {
-        textured.push(p);
-        continue;
-      }
-      if (!p.color) continue;
-      let arr = colorGroups.get(p.color);
-      if (!arr) {
-        arr = [];
-        colorGroups.set(p.color, arr);
-      }
-      arr.push(p);
-    }
-    if (colorGroups.size === 0 && textured.length === 0) return [];
-    const sortedColors = [...colorGroups.entries()]
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([color, polys]) => ({
-        color,
-        count: polys.length,
-        editable: true,
-        polygons: polys,
-      }));
-    const groups: InspectorColorGroup[] = sortedColors;
-    if (textured.length > 0) {
-      groups.push({
-        color: "textured",
-        count: textured.length,
-        editable: false,
-        polygons: textured,
-      });
-    }
-    const label = loaded?.label ?? "model";
-    return [{ id: label, label, groups }];
-  }, [renderModelPolygons, loaded?.label]);
-
-  const handleInspectorColorChange = useCallback(
-    (
-      _mesh: InspectorMesh,
-      group: InspectorColorGroup,
-      next: string,
-    ) => {
-      for (const p of group.polygons) p.color = next;
-      const handle = activeMeshHandleRef.current;
-      // Pass the *source* polygons (pre-merge) — the renderer holds a
-      // merged copy that doesn't see in-place edits. setPolygons without
-      // an explicit merge flag reuses the mesh's current merge setting
-      // (true for static models, false during animation playback).
-      if (handle) handle.setPolygons(renderModelPolygons);
-    },
-    [renderModelPolygons],
-  );
+  // Inspector is read-only for first cut — no triangle mutations.
+  const inspectorMeshes: InspectorMesh[] = [];
 
   return (
     <div
@@ -662,90 +319,41 @@ export default function GalleryWorkbench() {
         attribution={selectedPreset.attribution}
       />
 
-      <InspectorPanel
+      <Inspector
         meshes={inspectorMeshes}
-        onColorChange={handleInspectorColorChange}
+        onColorChange={() => {}}
       />
 
       <main className="dn-main">
-        <div
-          className={`dn-viewport${sceneOptions.outlinePolygons ? " dn-viewport--outline-polygons" : ""}`}
-          ref={viewportRef}
-        >
-          {sceneOptions.renderer === "vanilla" ? (
-            <VanillaScene
-              key={rendererDebugKey}
-              polygons={renderModelPolygons}
-              interiorFillPolygons={renderInteriorFillPolygons}
-              options={sceneOptions}
-              directionalLight={directionalLight}
-              ambientLight={ambientLight}
-              showAxes={sceneOptions.showAxes}
-              showLight={sceneOptions.showLight}
-              showGround={sceneOptions.showGround}
-              helperScale={helperScale}
-              helperTarget={helperTarget}
-              mergePolygonsForMesh={!hasActiveAnimation}
-              stableDomForMesh={hasActiveAnimation}
-              animationKey={activeAnimation ? `${selectedAnimation}:${loaded?.label ?? ""}` : undefined}
-              animationFrameFactory={vanillaAnimationFrameFactory}
-              onBuild={setVanillaBuildMs}
-              onCameraChange={handleCameraChange}
-              enableSelection={sceneOptions.selection}
-              meshId={loaded?.label ?? "model"}
-              onSelectionChange={setVanillaSelectedIds}
-              gizmoMode={gizmoMode}
-              enableHover={sceneOptions.hoverEffects}
-              onHoverChange={setHoveredMeshId}
-              onMeshHandleChange={(h) => { activeMeshHandleRef.current = h; }}
-            />
-          ) : (
-            <ReactScene
-              rendererDebugKey={rendererDebugKey}
-              sceneOptions={sceneOptions}
-              scenePolygons={renderModelPolygons}
-              interiorFillPolygons={renderInteriorFillPolygons}
-              directionalLight={directionalLight}
-              ambientLight={ambientLight}
-              textureQuality={textureQuality}
-              gizmoDragging={gizmoDragging}
-              setGizmoDragging={setGizmoDragging}
-              handleCameraChange={handleCameraChange}
-              loaded={loaded}
-              selectedMeshes={selectedMeshes}
-              setSelectedMeshes={setSelectedMeshes}
-              meshRef={meshRef}
-              meshPosition={meshPosition}
-              setMeshPosition={setMeshPosition}
-              meshRotation={meshRotation}
-              setMeshRotation={setMeshRotation}
-              hoveredMeshId={hoveredMeshId}
-              setHoveredMeshId={setHoveredMeshId}
-              gizmoMode={gizmoMode}
-              helperScale={helperScale}
-              helperTarget={helperTarget}
-            />
-          )}
+        <div className="dn-viewport">
+          <GlyphcssScene
+            meshUrl={meshUrl}
+            options={sceneOptions}
+            onBuild={(ms) => setMetrics((m) => ({ ...m, bakeMs: ms }))}
+            onCameraChange={handleCameraChange}
+            onStatsChange={setMetrics}
+            onAnimationInfoChange={({ clips }) => {
+              setAnimationClips(clips);
+            }}
+            selectedAnimation={selectedAnimation}
+            animationPaused={sceneOptions.animationPaused}
+            animationTimeScale={sceneOptions.animationTimeScale}
+          />
+          <CopySceneButton />
         </div>
         <DropOverlay active={dropped.dropActive} />
       </main>
 
       <StatsOverlay />
 
-      <Dock loading={loading} loadError={loadError}>
-        <DockModel
-          metrics={metrics}
-          disableStrategies={sceneOptions.disableStrategies}
-          onUpdateScene={updateScene}
-        />
+      <Dock>
+        <DockModel metrics={metrics} />
         <DockRendering
-          meshResolution={sceneOptions.meshResolution}
-          meshInteriorFill={sceneOptions.meshInteriorFill}
-          solidMaterials={sceneOptions.solidMaterials}
-          textureLighting={sceneOptions.textureLighting}
-          textureQuality={sceneOptions.textureQuality}
-          hasActiveAnimation={hasActiveAnimation}
-          hasSpriteLeaves={hasSpriteLeaves}
+          renderMode={sceneOptions.renderMode}
+          featureEdges={sceneOptions.featureEdges}
+          glyphPalette={sceneOptions.glyphPalette}
+          lineHeight={sceneOptions.lineHeight}
+          useColors={sceneOptions.useColors}
           onUpdateScene={updateScene}
         />
         <DockAnimation
@@ -755,22 +363,13 @@ export default function GalleryWorkbench() {
           animationTimeScale={sceneOptions.animationTimeScale}
           animationClipCount={animationClips.length}
           onAnimationChange={setSelectedAnimation}
-          onResetAnimatedPolygons={() => animation.setReactAnimatedPolygons(null)}
           onSelectAnimationClear={() => setSelectedAnimation("")}
           onUpdateScene={updateScene}
-        />
-        <DockInteraction
-          interactive={sceneOptions.interactive}
-          hoverEffects={sceneOptions.hoverEffects}
-          selection={sceneOptions.selection}
-          gizmoMode={gizmoMode}
-          onUpdateScene={updateScene}
-          onGizmoModeChange={setGizmoMode}
         />
         <DockCamera
           autoCenter={sceneOptions.autoCenter}
           showAxes={sceneOptions.showAxes}
-          animate={sceneOptions.animate}
+          interactive={sceneOptions.interactive}
           dragMode={sceneOptions.dragMode}
           fpvLook={sceneOptions.fpvLook}
           fpvMove={sceneOptions.fpvMove}
@@ -783,7 +382,6 @@ export default function GalleryWorkbench() {
           fpvCrouchHeight={sceneOptions.fpvCrouchHeight}
           fpvLookSensitivity={sceneOptions.fpvLookSensitivity}
           fpvInvertY={sceneOptions.fpvInvertY}
-          fpvRenderDistance={sceneOptions.fpvRenderDistance}
           perspectiveMode={perspectiveMode}
           perspectivePx={perspectivePx}
           perspective={sceneOptions.perspective}
@@ -791,13 +389,10 @@ export default function GalleryWorkbench() {
           rotX={sceneOptions.rotX}
           rotY={sceneOptions.rotY}
           target={sceneOptions.target}
-          loaded={loaded}
           selectedPreset={selectedPreset}
-          defaultZoomForModel={(preset, polys) => defaultZoomForModel(preset as PresetModel, polys as Polygon[])}
           onUpdateScene={updateScene}
         />
         <DockLighting
-          castShadow={sceneOptions.castShadow}
           showGround={sceneOptions.showGround}
           showLight={sceneOptions.showLight}
           lightAzimuth={sceneOptions.lightAzimuth}
@@ -809,6 +404,7 @@ export default function GalleryWorkbench() {
           onUpdateScene={updateScene}
         />
       </Dock>
+
     </div>
   );
 }

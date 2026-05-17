@@ -1,0 +1,78 @@
+---
+// Mounts a responsive ASCII composition into a <pre>. The `composer` slot
+// must produce a Renderable on the client — pass it as a serialized module
+// import name via the `module` and `factory` props.
+//
+//   <AsciiArt module="../lib/ascii-diagrams" factory="howItWorksDiagram" />
+//
+// The factory is dynamically imported in a client script; its return value
+// (a Renderable) is mounted with mountAsciiArt() so it re-renders on resize.
+
+interface Props {
+  module: string;
+  factory: string;
+  className?: string;
+  minCols?: number;
+  maxCols?: number;
+  ariaLabel?: string;
+}
+
+const { module, factory, className, minCols, maxCols, ariaLabel } = Astro.props;
+const id = `ascii-${Math.random().toString(36).slice(2, 10)}`;
+---
+
+<pre
+  id={id}
+  class={`ascii-art ${className ?? ""}`}
+  data-module={module}
+  data-factory={factory}
+  data-min-cols={minCols ?? ""}
+  data-max-cols={maxCols ?? ""}
+  aria-label={ariaLabel}
+></pre>
+
+<script>
+  import { mountAsciiArt } from "../lib/ascii-layout";
+
+  const factories = import.meta.glob("../lib/ascii-diagrams/*.ts", { eager: true }) as Record<
+    string,
+    Record<string, unknown>
+  >;
+
+  document.querySelectorAll<HTMLPreElement>("pre.ascii-art[data-module]").forEach((el) => {
+    if (el.dataset.mounted === "1") return;
+    el.dataset.mounted = "1";
+
+    const moduleKey = `../lib/${el.dataset.module}.ts`;
+    const mod = factories[moduleKey];
+    if (!mod) {
+      console.warn(`[AsciiArt] module not found: ${moduleKey}`);
+      return;
+    }
+    const factory = mod[el.dataset.factory!];
+    if (typeof factory !== "function") {
+      console.warn(`[AsciiArt] factory not callable: ${el.dataset.factory} in ${moduleKey}`);
+      return;
+    }
+
+    const minCols = el.dataset.minCols ? Number(el.dataset.minCols) : undefined;
+    const maxCols = el.dataset.maxCols ? Number(el.dataset.maxCols) : undefined;
+    const renderable = (factory as () => import("../lib/ascii-layout").Renderable)();
+    mountAsciiArt(el, renderable, { minCols, maxCols });
+  });
+</script>
+
+<style>
+  .ascii-art {
+    font: inherit;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    white-space: pre;
+    overflow: hidden;
+    width: 100%;
+    display: block;
+    box-sizing: border-box;
+  }
+</style>

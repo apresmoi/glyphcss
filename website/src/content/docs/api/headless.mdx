@@ -1,242 +1,76 @@
 ---
 title: Headless API
-description: Vanilla JavaScript API for loading meshes and rendering polygon scenes without a framework.
+description: Imperative API for building scenes outside React / Vue.
 ---
 
-The headless API (`@layoutit/polycss-core`) gives you direct access to polycss parsers and utilities without React, Vue, or any framework. All exports are also available from `@layoutit/polycss` (the vanilla package) so vanilla users install just one package.
+The `glyphcss` vanilla package exposes a polycss-shaped imperative API plus the raw
+`glyphcss-core` math primitives.
 
-## `parseObj(text, options?)`
-
-Parses an OBJ file text string into a `ParseResult`.
-
-```ts
-import { parseObj } from "@layoutit/polycss-core";
-
-const text = await fetch("/cottage.obj").then(r => r.text());
-const { polygons, warnings, dispose } = parseObj(text, {
-  targetSize: 60,
-  defaultColor: "#cccccc",
-});
-// polygons: Polygon[] ready for rendering
-// warnings: non-fatal issues found during parse
-dispose(); // revoke any blob URLs (OBJ rarely creates them)
-```
-
-**Options:** See [`ObjParseOptions`](/api/types/#objparseoptions).
-
----
-
-## `parseGltf(buffer, options?)`
-
-Parses a GLB or glTF file into a `ParseResult`. Accepts `ArrayBuffer` or `Uint8Array`.
+## Scene factory
 
 ```ts
-import { parseGltf } from "@layoutit/polycss-core";
+import { createGlyphcssScene } from "glyphcss";
 
-const buf = await fetch("/model.glb").then(r => r.arrayBuffer());
-const { polygons, objectUrls, dispose } = parseGltf(buf, {
-  targetSize: 60,
-  baseUrl: new URL("/model.glb", location.href).href,
-});
-// polygons: Polygon[]
-// objectUrls: blob: URLs for embedded textures (auto-revoked by dispose())
-dispose(); // always call on cleanup
-```
-
-**Options:** See [`GltfParseOptions`](/api/types/#gltfparseoptions).
-
----
-
-## `parseMtl(text)`
-
-Parses an MTL file text string into a material map.
-
-```ts
-import { parseMtl } from "@layoutit/polycss-core";
-
-const { colors, textures } = parseMtl(mtlText);
-// colors: Record<materialName, cssColor>
-// textures: Record<materialName, imagePath>
-```
-
----
-
-## `loadMesh(url, options?)`
-
-High-level convenience function: fetches a URL, detects OBJ vs glTF/GLB/VOX by extension (`.obj`, `.gltf`, `.glb`, `.vox`), parses it, and returns a `ParseResult`. Mesh optimization defaults to `meshResolution: "lossy"`; pass `"lossless"` for exact planar candidates only.
-
-```ts
-import { loadMesh } from "@layoutit/polycss-core";
-
-const { polygons, dispose } = await loadMesh("/cottage.glb", {
-  baseUrl: new URL("/cottage.glb", location.href).href,
-  gltfOptions: { targetSize: 60 },
-});
-// use polygons...
-dispose(); // always call on cleanup
-```
-
----
-
-## `normalizePolygons(polygons)`
-
-Validates a polygon array. Drops degenerate polygons (collinear, zero-area), auto-triangulates non-coplanar N-gons via fan decomposition, and strips UV arrays that don't match `vertices.length`. Returns the validated polygons plus a list of human-readable warnings describing every change made.
-
-```ts
-import { normalizePolygons } from "@layoutit/polycss-core";
-import type { Polygon } from "@layoutit/polycss-core";
-
-const raw: Polygon[] = [
-  { vertices: [[0,0,0],[1,0,0],[0,1,0]], color: "#f00" },
-  { vertices: [[0,0,0],[0,0,0],[0,0,0]] }, // degenerate: will be dropped
-];
-
-const { polygons, warnings } = normalizePolygons(raw);
-warnings.forEach(w => console.warn(w));
-```
-
----
-
-## `mergePolygons(polygons)`
-
-Merges coplanar adjacent polygons that share the same material (color + texture). Reduces DOM element count on large flat surfaces without changing visual output. UV-aware.
-
-```ts
-import { mergePolygons } from "@layoutit/polycss-core";
-
-const merged = mergePolygons(polygons);
-console.log(`${polygons.length} polygons → ${merged.length} after merge`);
-```
-
----
-
-## `optimizeMeshPolygons(polygons, options?)`
-
-Runs the shared mesh-resolution optimizer. It defaults to `meshResolution: "lossy"`. `meshResolution: "lossless"` uses exact candidates; `"lossy"` also tries bounded approximate merge candidates and returns the smallest accepted polygon list.
-
-```ts
-import { optimizeMeshPolygons } from "@layoutit/polycss-core";
-
-const polygons = optimizeMeshPolygons(rawPolygons, {
-  meshResolution: "lossy",
-});
-```
-
----
-
-## `createIsometricCamera(initial?)`
-
-Creates an isometric-style camera state object. Used internally by the imperative `createPolyScene` API and by `<PolyCamera>` (React / Vue).
-
-```ts
-import { createIsometricCamera } from "@layoutit/polycss-core";
-
-const cam = createIsometricCamera({
-  rotX: 65,
-  rotY: 45,
-});
-// cam.state: current CameraState
-// cam.update(partial): merge partial state
-// cam.getStyle(...): returns CSS property map
-```
-
----
-
-## `createPolyOrbitControls(scene, options?)`
-
-Attach pointer drag, wheel zoom, and an optional autorotate loop to a scene returned by `createPolyScene`. Pure additive layer: the renderer stays free of input concerns. Modelled on Three.js `OrbitControls`.
-
-Use `createPolyMapControls(scene, options?)` instead when you want map/pan-style drag (pointer pans the camera across a flat surface rather than orbiting the scene center).
-
-```ts
-import { createPolyScene, createPolyOrbitControls, loadMesh } from "@layoutit/polycss";
-
-const scene = createPolyScene(host, { rotX: 65, rotY: 45 });
-scene.add(await loadMesh("/cottage.glb"));
-
-const controls = createPolyOrbitControls(scene, {
-  drag: true,                                                // default true
-  wheel: true,                                               // default true
-  invert: false,                                             // bool or sensitivity number
-  minZoom: 0.1,
-  maxZoom: 10,
-  animate: { speed: 0.3, axis: "y", pauseOnInteraction: true },
+const host = document.querySelector("#scene")!;
+const scene = createGlyphcssScene(host, {
+  mesh: "/cottage.glb",        // path | ArrayBuffer | triangle list
+  rotX: 0.4,
+  rotY: 0,
+  scale: 0.32,
+  stretch: 0.95,
+  distance: 3,
+  mode: "wireframe",            // | "solid" | "voxel"
+  animate: { axis: "y", durationMs: 6000 },
 });
 
-controls.update({ animate: false });   // mutate options live
-controls.pause();                       // pause loop + detach listeners (reversible)
-controls.resume();                      // re-attach after pause()
-controls.destroy();                     // hard teardown
+scene.addHotspot(
+  { id: "roof", at: [0, 1.2, 0], size: [3, 2] },
+  () => alert("roof clicked"),
+);
 
-// Three.js OrbitControls-style event subscription
-controls.addEventListener("change", (e) => updateUi(e.camera));
-controls.addEventListener("start", () => beginInteraction());
-controls.addEventListener("end",   () => endInteraction());
+scene.dispose();
 ```
 
-### Options
+## Camera factories
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `drag` | `boolean` | `true` | Pointer-drag rotation. Tracks the pointer (drag-right turns the front of the scene rightward). |
-| `wheel` | `boolean` | `true` | Wheel / pinch zoom. |
-| `invert` | `boolean \| number` | `false` | Reverse drag direction (`true`) or scale sensitivity (number; negative = invert). |
-| `minZoom` | `number` | `0.1` | Minimum zoom scale clamp. |
-| `maxZoom` | `number` | `10` | Maximum zoom scale clamp. |
-| `dolly` | `boolean` | `false` | When `true`, wheel drives `distance` (dolly pull-back) instead of `zoom` scale. |
-| `minDistance` | `number` | `0` | Minimum distance clamp when `dolly` is enabled. |
-| `maxDistance` | `number` | `5000` | Maximum distance clamp when `dolly` is enabled. |
-| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotate. `speed` is in degrees per 60 Hz-equivalent frame; the tick is `dt`-clamped at 50 ms. |
+```ts
+import { createGlyphcssPerspectiveCamera, createGlyphcssOrthographicCamera } from "glyphcss";
 
-### Returned `PolyOrbitControlsHandle`
+const perspective = createGlyphcssPerspectiveCamera({
+  rotX: 0.4, rotY: 0, distance: 3, scale: 0.32, stretch: 0.95,
+});
 
-| Method | Description |
-|--------|-------------|
-| `update(partial)` | Mutate options live (toggle drag/wheel/animate, change speed, etc.). |
-| `resume()` | Re-attach input listeners and (re)start autorotate after `pause()`. |
-| `pause()` | Detach input listeners and halt the autorotate loop. Reversible by `resume()`. |
-| `destroy()` | Hard teardown. Drops all event listeners; functionally identical to `pause()` for input/animate state. |
-| `addEventListener(type, fn)` | Subscribe to `'change'` (carries `{ camera: { rotX, rotY, zoom, target, distance } }`) or `'start'` / `'end'` interaction-boundary events. Mirrors Three.js OrbitControls. |
-| `removeEventListener(type, fn)` | Unsubscribe by exact listener reference. |
-| `hasEventListener(type, fn)` | Returns `true` if the listener is currently subscribed. |
+const ortho = createGlyphcssOrthographicCamera({ rotX: 0.4, zoom: 0.4 });
 
-`'change'` fires on every camera mutation the controls trigger: pointer drag (per `pointermove`), wheel zoom (per wheel event), and autorotate (per rAF tick). `'start'` / `'end'` fire once per gesture: pointerdown→pointerup for drags, first-wheel→idle (~150 ms) for wheel bursts. Autorotate emits `'change'` only: no `'start'` / `'end'`, since there's no user gesture.
-
-### Required scene surface
-
-`createPolyOrbitControls` reads from and writes to its scene argument via two members on `PolySceneHandle`:
-
-- `scene.host: HTMLElement`: the element handlers are attached to.
-- `scene.getOptions()`: read current `rotX` / `rotY` / `zoom` / `target` / `distance`.
-- `scene.setOptions({ rotX, rotY, zoom, target, distance })`: apply state changes.
-
-Anything that satisfies that subset works, so layered helpers can compose multiple controls or build their own input on top.
-
----
-
-## Custom elements (vanilla)
-
-Register the `<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`, `<poly-orbit-controls>`, and `<poly-map-controls>` custom elements by importing the side-effect entry point:
-
-```html
-<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
-
-<poly-scene rot-x="65" rot-y="45">
-  <poly-orbit-controls drag wheel animate-speed="0.3"></poly-orbit-controls>
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
+// All five state fields are mutable after construction:
+perspective.rotY = Math.PI / 4;
+perspective.distance = 4;
 ```
 
-See the [polycss README](https://github.com/LayoutitStudio/polycss/tree/main/packages/polycss) for the full custom element attribute reference.
+## Lower-level pieces (`glyphcss-core`)
 
----
+```ts
+import {
+  buildSceneContext,
+  rasterize,
+  bakeFrames,
+  projectHotspots,
+  parseObj, parseGltf, parseVox, loadMesh,
+} from "glyphcss-core";
 
-## Package Exports
+const triangles = await loadMesh("/cottage.glb");
+const camera = createGlyphcssPerspectiveCamera({ /* ... */ });
+const grid = { cols: 160, rows: 48, cellAspect: 2.0 };
 
-| Import path | Contents |
-|---|---|
-| `@layoutit/polycss-react` | React components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera`, hooks |
-| `@layoutit/polycss-vue` | Vue components: `PolyScene`, `PolyMesh`, `Poly`, `PolyCamera` |
-| `@layoutit/polycss` | Vanilla imperative API + custom element classes |
-| `@layoutit/polycss/elements` | Side-effect: registers the polycss custom elements |
-| `@layoutit/polycss-core` | Pure parsers / math, zero DOM: `parseObj`, `parseGltf`, `parseVox`, `loadMesh`, types |
+const scene = buildSceneContext({ camera, grid, triangles, mode: "solid" });
+
+const frames = bakeFrames(scene, 60, "y");
+// frames is string[] — stack them into a <pre> and animate via CSS steps(60).
+
+const cells = projectHotspots(hotspots, camera, 160, 48, 2.0);
+// cells is { id, col, row, depth, visible }[]
+```
+
+`glyphcss-core` is renderer-agnostic and has zero browser globals — you can run it in
+Node or a web worker. The DOM construction lives in `glyphcss` (vanilla) and the
+framework packages.

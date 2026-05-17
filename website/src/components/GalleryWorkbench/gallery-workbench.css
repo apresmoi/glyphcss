@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+/* ── Workbench root ──────────────────────────────────────────────────── */
 
 .dn-root {
   width: 100%;
@@ -6,12 +6,11 @@
   position: relative;
   display: block;
   min-height: 0;
-  background: #0a0b0d;
-  color: #e8edf2;
-  font: 13px/1.35 Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b0d10;
+  color: rgba(255, 232, 184, 0.94);
+  font: 13px/1.35 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   overflow: hidden;
 }
-
 
 .dn-root .lil-gui {
   font-family: inherit;
@@ -34,38 +33,42 @@
 }
 
 .dn-root .lil-gui.root {
-  --background-color: #11141a;
-  --title-background-color: #111827;
-  --title-text-color: #e8edf2;
-  --text-color: #e8edf2;
-  --widget-color: #0b0d10;
-  --hover-color: #151b28;
-  --focus-color: #22374f;
-  --number-color: #22d3ee;
-  --string-color: #86efac;
+  --background-color: #0d1018;
+  --title-background-color: #0b0d14;
+  --title-text-color: rgba(255, 232, 184, 0.94);
+  --text-color: rgba(255, 232, 184, 0.94);
+  --widget-color: #080a0e;
+  --hover-color: #111621;
+  --focus-color: #1a2235;
+  --number-color: #38bdf8;
+  --string-color: rgba(255, 232, 184, 0.72);
   --font-size: 13px;
   --input-font-size: 13px;
   --padding: 8px;
   --spacing: 7px;
   --widget-height: 26px;
-  --widget-border-radius: 6px;
+  --widget-border-radius: 0;
   --scrollbar-width: 6px;
   --folder-indent: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  border-radius: 0;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
   padding: 6px;
-  /* Cap to viewport-minus-nav so the gui scrolls instead of overflowing.
-     `100%` doesn't resolve here because the absolute-positioned parent has
-     no explicit `height` property — only a `max-height`. Viewport math is
-     the reliable bound. */
   max-height: calc(100vh - var(--sl-nav-height, 72px) - var(--overlay-top, 12px) - var(--overlay-bottom, 12px) - 12px);
   overflow-y: auto !important;
   overscroll-behavior: contain;
+  /* Faint scanline texture matching landing page panels */
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(255, 255, 255, 0.006) 3px,
+      rgba(255, 255, 255, 0.006) 4px
+    );
 }
 
-/* Themed scrollbar so the dark panel doesn't sprout a bright OS bar. */
 .dn-root .lil-gui.root::-webkit-scrollbar {
   width: 6px;
 }
@@ -73,11 +76,11 @@
   background: transparent;
 }
 .dn-root .lil-gui.root::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 3px;
+  background: rgba(255, 232, 184, 0.15);
+  border-radius: 0;
 }
 .dn-root .lil-gui.root::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 232, 184, 0.28);
 }
 
 .dn-root .lil-gui.root > .title {
@@ -87,6 +90,7 @@
 .dn-root .lil-gui.root > .children > .lil-gui > .title {
   border: 0 solid var(--widget-color);
   border-top-width: 1px;
+  border-top-color: rgba(255, 232, 184, 0.1);
 }
 
 .dn-root .lil-gui.root > .children > .lil-gui:first-child > .title {
@@ -101,81 +105,50 @@
   --overlay-left: calc(var(--overlay-gap) + env(safe-area-inset-left, 0px));
 }
 
-.dn-sidebar {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: #0a0b0d;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.dn-sidebar--left {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  width: min(360px, calc(100vw - 24px));
-  max-height: calc(100vh - 24px);
-  z-index: 15;
-  pointer-events: none;
-  padding: 10px;
-}
-
-.dn-sidebar--left .dn-panel {
-  pointer-events: auto;
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  max-height: 100%;
-  padding: 10px;
-  background: rgba(17, 19, 22, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(6px);
-}
-
-.dn-main {
-  min-width: 0;
-  min-height: 0;
-  position: relative;
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-}
-
 .models-sidebar {
   position: absolute;
   top: var(--overlay-top);
   left: var(--overlay-left);
   width: clamp(260px, 22vw, 340px);
-  /* Cap height so the Inspector panel underneath has room. */
   max-height: min(55vh, calc(100% - var(--overlay-top) - var(--overlay-bottom)));
   min-height: 0;
-  overflow: hidden;
-  overflow: clip;
+  /* display: flex column so the body can flex-fill the sidebar's max-height
+     and scroll internally. Plain overflow: hidden would clip the [ MODELS ]
+     legend that sits above the top border; flex + per-child overflow lets
+     the legend escape while the body still scrolls in place. */
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
   z-index: 15;
-  background: #11141a;
-  border: 0;
-  border-radius: 12px;
+  background: #0d1018;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  border-radius: 0;
   transform: translateZ(0);
   will-change: transform;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  contain: paint;
   isolation: isolate;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(255, 255, 255, 0.006) 3px,
+      rgba(255, 255, 255, 0.006) 4px
+    );
 }
 
 .models-sidebar__body {
   box-sizing: border-box;
-  height: 100%;
-  max-height: inherit;
+  /* Fill the sidebar's flex column, but cap height so internal content
+     scrolls in place rather than spilling below the panel. */
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
-  overflow: clip;
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow: hidden;
   isolation: isolate;
 }
 
@@ -194,22 +167,23 @@
 
 .models-sidebar .model-search {
   width: 100%;
-  padding: 7px 8px;
-  border-radius: 8px;
-  border: 0;
-  background: #0b0f18;
-  color: #e2e8f0;
-  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  background: #080a0e;
+  color: rgba(255, 232, 184, 0.94);
+  font-size: 12px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
 }
 
 .models-sidebar .model-search:focus {
   outline: none;
-  background: #111827;
+  border-color: rgba(56, 189, 248, 0.45);
+  background: #0b0d14;
 }
 
 .models-sidebar .model-search::placeholder {
-  color: #64748b;
-  font-weight: 500;
+  color: rgba(255, 232, 184, 0.3);
 }
 
 .model-file-input {
@@ -229,27 +203,50 @@
   display: grid;
   place-items: center;
   pointer-events: none;
-  background: rgba(5, 6, 7, 0.64);
-  color: #ecfeff;
-  font-size: clamp(20px, 3vw, 40px);
-  font-weight: 700;
+  background: rgba(3, 5, 10, 0.82);
+  color: rgba(255, 232, 184, 0.94);
+  font-size: clamp(14px, 2vw, 22px);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  /* faint scanline */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 232, 184, 0.018) 2px,
+    rgba(255, 232, 184, 0.018) 4px
+  );
 }
 
+/* double-line ASCII frame */
 .drop-overlay::before {
   content: "";
   position: absolute;
-  inset: 22px;
-  border: 2px dashed rgba(125, 211, 252, 0.72);
-  border-radius: 10px;
+  inset: 24px;
+  border: 2px solid rgba(255, 232, 184, 0.28);
+  /* CSS box-shadow trick for double border feel */
+  box-shadow:
+    inset 0 0 0 4px rgba(3, 5, 10, 0.82),
+    inset 0 0 0 6px rgba(255, 232, 184, 0.15);
+}
+
+/* ▼ arrow below text */
+.drop-overlay::after {
+  content: "▼";
+  position: absolute;
+  bottom: calc(24px + 18px);
+  left: 50%;
+  transform: translateX(-50%);
+  color: #38bdf8;
+  font-size: clamp(12px, 1.5vw, 18px);
+  opacity: 0.8;
 }
 
 .dn-floating-controls {
   position: absolute;
   top: var(--overlay-top);
   right: var(--overlay-right);
-  /* Bound by the absolute-positioned parent (.dn-root) so the inner lil-gui
-     can flex-grow to fill, then scroll. The 100% here resolves against
-     .dn-root, which is already viewport-minus-nav-height. */
   max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom, 12px));
   display: flex;
   flex-direction: column;
@@ -258,34 +255,9 @@
   max-width: min(420px, calc(100vw - 24px));
   z-index: 20;
   pointer-events: auto;
-  overflow: hidden;
-}
-
-.dn-floating-kpis {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.dn-toolbar__kpi {
-  min-width: 96px;
-  max-width: 140px;
-  background: rgba(17, 19, 22, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 7px;
-  padding: 6px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: #cbd5f5;
-  font-size: 11px;
-}
-
-.dn-toolbar__kpi b {
-  color: #e2e8f0;
-  font-weight: 600;
+  /* overflow visible so the .lil-gui.root::before legend can sit on top of
+     the panel border. Scrolling is delegated to .lil-gui.root below. */
+  overflow: visible;
 }
 
 .dn-floating-controls .dn-note {
@@ -294,72 +266,17 @@
   font-size: 11px;
 }
 
-.dn-floating-controls .dn-lil-gui-host {
-  width: fit-content;
-  max-width: 100%;
-}
-
 .dn-floating-controls .dn-note--error {
   color: #fda4af;
 }
 
-.dn-panel {
-  padding: 12px 14px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.dn-panel--model-selector {
-  display: flex;
-  flex-direction: column;
+.dn-main {
+  min-width: 0;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
   height: 100%;
-  padding: 10px;
-}
-
-.dn-panel--details {
-  padding: 0;
-}
-
-.dn-panel--details > summary {
-  min-height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 12px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.dn-panel--details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.dn-panel--details > summary::after {
-  content: "+";
-  color: #7f8b97;
-  font: 700 14px/1 Consolas, Monaco, monospace;
-}
-
-.dn-panel--details[open] > summary::after {
-  content: "-";
-}
-
-.dn-panel__body {
-  padding: 0 14px 14px;
-}
-
-.dn-panel h2 {
-  margin: 0 0 10px;
-  color: #f5f7fa;
-  font-size: 11px;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.dn-panel--details > summary h2 {
-  margin: 0;
 }
 
 .dn-viewport {
@@ -367,378 +284,91 @@
   height: 100%;
   position: relative;
   overflow: hidden;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    #050607;
-  background-size: 48px 48px;
+  /* Dark scanline grid — matches landing page terminal aesthetic */
+  background: #03050a;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 3px,
+      rgba(255, 255, 255, 0.007) 3px,
+      rgba(255, 255, 255, 0.007) 4px
+    ),
+    linear-gradient(rgba(255, 232, 184, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 232, 184, 0.02) 1px, transparent 1px);
+  background-size: auto, 48px 48px, 48px 48px;
 }
 
-.dn-viewport--outline-polygons .polycss-scene i,
-.dn-viewport--outline-polygons .polycss-scene b,
-.dn-viewport--outline-polygons .polycss-scene s,
-.dn-viewport--outline-polygons .polycss-scene u {
-  outline: 1px solid rgba(248, 113, 113, 0.75) !important;
+.dn-copy-scene {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 6px 14px;
+  font: 12px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  letter-spacing: 0.06em;
+  color: rgba(255, 232, 184, 0.85);
+  background: rgba(3, 5, 10, 0.82);
+  border: 1px solid rgba(255, 232, 184, 0.25);
+  border-radius: 0;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+  transition: background 100ms, border-color 100ms, color 100ms;
+}
+.dn-copy-scene::before { content: "[ "; color: rgba(255, 232, 184, 0.4); }
+.dn-copy-scene::after  { content: " ]"; color: rgba(255, 232, 184, 0.4); }
+.dn-copy-scene:hover {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: rgba(255, 232, 184, 0.98);
+}
+.dn-copy-scene:hover::before,
+.dn-copy-scene:hover::after {
+  color: rgba(56, 189, 248, 0.7);
+}
+.dn-copy-scene:active {
+  transform: translate(-50%, 1px);
 }
 
-.dn-viewport .dn-interior-fill-mesh {
-  pointer-events: none;
-}
-
-.dn-viewport .dn-interior-fill-mesh i {
-  border-shape: circle(50% at 50% 50%) circle(0 at 50% 50%) !important;
-}
-
-.dn-viewport .dn-interior-fill-mesh b,
-.dn-viewport .dn-interior-fill-mesh s {
-  border-radius: 50% !important;
-  overflow: hidden;
-}
-
-.dn-viewport .polycss-camera,
 .dn-vanilla-host {
   width: 100%;
   height: 100%;
   min-height: 100%;
-}
-
-/* Was: pointer-events: none on .polycss-scene/.polycss-mesh/.polycss-bucket/leaves.
- * Removed so polygons receive native clicks — the JS bbox hit-test in
- * <Select>/<TransformControls> was masking this rule, doing the work
- * the browser would do for free. */
-
-/* Hover effect: brighten polygons when their owning mesh is the
- * currently-hovered one. `filter: brightness(...)` is applied per
- * polygon leaf instead of the wrapper because the wrapper is a 0×0
- * anchor — filter on it would have nothing to brighten. Filter
- * doesn't conflict with the polygon's inline `transform` /
- * `border-color` and doesn't trigger atlas rebuilds, so it's instant. */
-/* Render-strategy enable/disable checkbox injected into the Model
- * folder's <b>/<u>/<i> count controllers (right of the read-only count
- * input). The parent controller is .disabled to keep the number input
- * read-only, but we re-enable the checkbox so it stays interactive. */
-.dn-root .lil-gui .controller .widget .dn-strategy-toggle {
-  flex: 0 0 auto;
-  margin: 0 0 0 8px;
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-  opacity: 1;
-  pointer-events: auto;
-}
-.dn-root .lil-gui .controller.disabled .widget .dn-strategy-toggle {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Auto toggle injected at the START of the Texture Quality slider's
- * widget row — layout matches the slider rows above (Azimuth / Elev / Key
- * / Ambient): [label] [Auto checkbox] [slider] [number]. The slider stays
- * interactive even in Auto mode; dragging it auto-unchecks Auto and
- * commits the numeric value. */
-.dn-root .lil-gui .controller .widget .dn-auto-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  margin-right: 8px;
-  font-size: 0.85em;
-  color: var(--text-color, #aaa);
-  cursor: pointer;
-  opacity: 1;
-  pointer-events: auto;
-  user-select: none;
-}
-.dn-root .lil-gui .controller .widget .dn-auto-toggle input {
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  width: 14px;
-  height: 14px;
-  min-width: 14px;
-  max-width: 14px;
-  cursor: pointer;
-}
-/* Slider controller becomes .disabled when Auto is on (to lock the
- * numeric input), but the Auto toggle itself must stay interactive so the
- * user can switch back to manual. */
-.dn-root .lil-gui .controller.disabled .widget .dn-auto-toggle,
-.dn-root .lil-gui .controller.disabled .widget .dn-auto-toggle input,
-.dn-root .lil-gui .controller.disabled .widget .dn-auto-toggle span {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.polycss-mesh.is-hovered i,
-.polycss-mesh.is-hovered b,
-.polycss-mesh.is-hovered s,
-.polycss-mesh.is-hovered u {
-  filter: brightness(1.25);
-  transition: filter 150ms ease-out;
-}
-.polycss-mesh i,
-.polycss-mesh b,
-.polycss-mesh s,
-.polycss-mesh u {
-  transition: filter 150ms ease-out;
-}
-
-.dn-vanilla-host {
   position: relative;
   overflow: hidden;
 }
 
-.dn-field,
-.dn-range,
-.dn-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  margin-top: 8px;
+.dark-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 232, 184, 0.2) transparent;
 }
 
-.dn-field > span,
-.dn-range > span {
-  width: 74px;
-  flex: 0 0 auto;
-  color: #9aa6b2;
-  font-size: 12px;
+.dark-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.dn-field select,
-.dn-field input[type="text"],
-.dn-field input[type="number"] {
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  color: #e8edf2;
-  background: #0b0d10;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 0 8px;
-}
-
-.dn-field--color input[type="color"] {
-  width: 34px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 6px;
+.dark-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.dn-field code {
-  color: #b7c2cc;
-  font: 12px/1 Consolas, Monaco, monospace;
+.dark-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 232, 184, 0.18);
+  border-radius: 0;
 }
 
-.dn-preset-picker {
-  margin-top: 8px;
-}
-
-.dn-sidebar--left .dn-preset-picker {
-  margin-top: 8px;
-  height: calc(100% - 42px);
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.dn-sidebar--left .model-picker__tree {
-  max-height: none;
-}
-
-.dn-preset-picker .model-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  font-family: Consolas, Monaco, monospace;
-}
-
-.dn-preset-picker .model-picker__search {
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: #0b0d10;
-  color: #e8edf2;
-  font: inherit;
-}
-
-.dn-preset-picker .model-picker__search:focus {
-  outline: none;
-  border-color: rgba(34, 211, 238, 0.45);
-  background: #0f141a;
-}
-
-.dn-preset-picker .model-picker__search::placeholder {
-  color: #6f7b87;
-}
-
-.dn-preset-picker .model-picker__empty {
-  padding: 8px 2px;
-  color: #9aa6b2;
-  font-size: 12px;
-}
-
-.dn-preset-picker .model-picker__tree {
-  max-height: min(42vh, 520px);
-  min-width: 0;
-  overflow-y: auto;
-  padding-right: 4px;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
-}
-
-.dn-preset-picker .model-picker__category + .model-picker__category {
-  margin-top: 6px;
-}
-
-.dn-preset-picker .model-picker__heading {
-  width: 100%;
-  margin: 0;
-  padding: 4px 0 3px;
-  border: 0;
-  background: transparent;
-  color: #eef3f8;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  font: 700 12px/1.2 Consolas, Monaco, monospace;
-  letter-spacing: 0;
-  text-align: left;
-  cursor: pointer;
-}
-
-.dn-preset-picker .model-picker__label {
-  min-width: 0;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.dn-preset-picker .model-picker__caret {
-  width: 10px;
-  flex: 0 0 auto;
-  color: #8f9aa5;
-  transform: rotate(0deg);
-  font-size: 11px;
-}
-
-.dn-preset-picker .model-picker__caret.open {
-  transform: rotate(90deg);
-}
-
-.dn-preset-picker .model-picker__count {
-  flex: 0 0 auto;
-  color: #8f9aa5;
-  font-size: 11px;
-}
-
-.dn-preset-picker .model-picker__items {
-  margin-top: 4px;
-  display: grid;
-  gap: 2px;
-}
-
-.dn-preset-picker .model-picker__item {
-  width: 100%;
-  min-height: 26px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: #0b0d10;
-  color: #c7d0d9;
-  padding: 4px 7px;
-  font: 12px/1.2 Consolas, Monaco, monospace;
-  text-align: left;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.dn-preset-picker .model-picker__item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #eef3f8;
-}
-
-.dn-preset-picker .model-picker__item.active {
-  background: #12313a;
-  border-color: rgba(34, 211, 238, 0.45);
-  color: #ecfeff;
-}
-
-.dn-range input {
-  min-width: 0;
-  flex: 1;
-  accent-color: #22d3ee;
-}
-
-.dn-range output {
-  width: 58px;
-  text-align: right;
-  color: #d8dee6;
-  font: 12px/1 Consolas, Monaco, monospace;
-}
-
-.dn-toggle {
-  color: #d8dee6;
-}
-
-.dn-toggle input {
-  accent-color: #22d3ee;
-}
-
-.dn-segment {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 4px;
-  margin-top: 8px;
-}
-
-.dn-field--segment .dn-segment {
-  flex: 1;
-  margin-top: 0;
-}
-
-.dn-segment button {
-  height: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  background: #0b0d10;
-  color: #c7d0d9;
-  cursor: pointer;
-}
-
-.dn-segment button.active {
-  background: #12313a;
-  border-color: rgba(34, 211, 238, 0.45);
-  color: #ecfeff;
-}
-
-.dn-note {
-  color: #9aa6b2;
-  font-size: 12px;
-}
-
-.dn-note {
-  margin: 8px 0 0;
-}
-
-.dn-note--error {
-  color: #fca5a5;
+.dark-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 232, 184, 0.32);
 }
 
 .control-btn {
-  border: 0;
-  background: #0f172a;
-  color: #e2e8f0;
-  padding: 6px 8px;
-  border-radius: 8px;
-  font-weight: 650;
+  border: 1px solid rgba(255, 232, 184, 0.2);
+  background: #0b0d10;
+  color: rgba(255, 232, 184, 0.85);
+  padding: 5px 8px;
+  border-radius: 0;
+  font-weight: 400;
   font-size: 12px;
   cursor: pointer;
   text-decoration: none;
@@ -747,34 +377,25 @@
   justify-content: center;
   gap: 8px;
   white-space: nowrap;
-  font-family: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  letter-spacing: 0.04em;
 }
 
 .control-btn:hover {
-  background: #1e293b;
-}
-
-.control-btn--primary {
-  background: #0284c7;
-  color: #e0f2fe;
-}
-
-.control-btn--primary:hover {
-  background: #0ea5e9;
-}
-
-.control-btn--primary:active {
-  background: #38bdf8;
+  border-color: #f97316;
+  color: rgba(255, 232, 184, 0.94);
+  background: rgba(249, 115, 22, 0.06);
 }
 
 .control-btn:active {
-  background: #0b1020;
+  background: rgba(249, 115, 22, 0.1);
 }
 
 .control-btn:disabled {
   cursor: not-allowed;
-  background: #0b1020;
-  color: #94a3b8;
+  border-color: rgba(255, 232, 184, 0.08);
+  color: rgba(255, 232, 184, 0.3);
+  background: transparent;
 }
 
 .model-tree {
@@ -788,15 +409,34 @@
 .model-credit {
   flex: 0 0 auto;
   margin-top: auto;
-  padding: 0 4px 2px;
-  font-size: 12px;
+  padding: 4px 6px 2px;
+  font-size: 11px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   line-height: 1.4;
-  color: #94a3b8;
+  color: rgba(255, 232, 184, 0.55);
+  border-top: 1px solid rgba(255, 232, 184, 0.1);
 }
 
 .model-credit a {
-  color: #7dd3fc;
+  color: #38bdf8;
   text-decoration: none;
+}
+
+.model-credit a:hover {
+  color: rgba(56, 189, 248, 0.85);
+}
+
+.model-credit__seg {
+  color: rgba(255, 232, 184, 0.55);
+}
+
+.model-credit__sep {
+  color: rgba(255, 232, 184, 0.2);
+  margin: 0 2px;
+}
+
+.model-credit__tris {
+  color: #38bdf8;
 }
 
 .tree-category + .tree-category {
@@ -808,10 +448,11 @@
   padding: 4px 0 3px;
   border: 0;
   background: transparent;
-  color: #e2e8f0;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.75);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -819,7 +460,12 @@
   cursor: pointer;
   text-align: left;
   width: 100%;
-  font-family: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  transition: color 80ms;
+}
+
+.tree-heading:hover {
+  color: rgba(255, 232, 184, 0.95);
 }
 
 .tree-label {
@@ -832,7 +478,7 @@
 .tree-caret {
   display: inline-block;
   width: 10px;
-  color: #cbd5e1;
+  color: rgba(56, 189, 248, 0.65);
   transform: rotate(0deg);
   font-size: 11px;
 }
@@ -842,9 +488,8 @@
 }
 
 .tree-count {
-  color: #94a3b8;
-  font-weight: 700;
-  font-size: 12px;
+  color: rgba(255, 232, 184, 0.3);
+  font-size: 11px;
 }
 
 .model-button-list {
@@ -859,55 +504,36 @@
 
 .model-empty {
   padding: 10px 4px;
-  color: #94a3b8;
-  font-weight: 600;
+  color: rgba(255, 232, 184, 0.35);
+  font-size: 12px;
 }
 
 .sidebar-item {
   width: 100%;
   border: 0;
-  background: #0b0f18;
-  color: #e2e8f0;
-  padding: 4px 6px;
-  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 232, 184, 0.72);
+  padding: 3px 6px;
+  border-radius: 0;
   cursor: pointer;
   text-align: left;
-  line-height: 1.2;
-  font-size: 13px;
+  line-height: 1.3;
+  font-size: 12px;
   isolation: isolate;
-  font-family: inherit;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  transition: background 80ms, color 80ms;
 }
 
 .sidebar-item:hover {
-  background: #131a26;
+  background: rgba(255, 232, 184, 0.04);
+  color: rgba(255, 232, 184, 0.94);
 }
 
 .sidebar-item.active {
-  background: #1a2435;
-}
-
-.dark-scrollbar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
-}
-
-.dark-scrollbar::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.dark-scrollbar::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5);
-  border-radius: 999px;
-}
-
-.dark-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.4);
-  border-radius: 999px;
-}
-
-.dark-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.6);
+  background: rgba(249, 115, 22, 0.08);
+  color: rgba(255, 232, 184, 0.98);
+  /* Orange left accent bar — active item indicator */
+  box-shadow: inset 2px 0 0 rgba(249, 115, 22, 0.7);
 }
 
 /* ── Inspector panel ──────────────────────────────────────────────────── */
@@ -919,26 +545,44 @@
   width: clamp(260px, 22vw, 340px);
   max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom) - 55vh - 12px);
   z-index: 15;
-  background: #11141a;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  background: #0b0d10;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  border-radius: 0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  /* faint scanline */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 232, 184, 0.012) 2px,
+    rgba(255, 232, 184, 0.012) 4px
+  );
 }
 
 .dn-inspector__title {
   flex: 0 0 auto;
-  padding: 9px 12px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #94a3b8;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.015);
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: rgba(255, 232, 184, 0.55);
+  border-bottom: 1px solid rgba(255, 232, 184, 0.18);
+  background: rgba(255, 232, 184, 0.03);
+  font-family: inherit;
+}
+
+/* "┌─ INSPECTOR ─┐" header rendered via CSS pseudo-elements */
+.dn-inspector__title::before {
+  content: "┌─ ";
+  color: rgba(255, 232, 184, 0.3);
+}
+.dn-inspector__title::after {
+  content: " ─┐";
+  color: rgba(255, 232, 184, 0.3);
 }
 
 .dn-inspector__body {
@@ -953,47 +597,50 @@
   align-items: center;
   gap: 7px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 5px 10px;
   background: none;
   border: 0;
-  color: #e2e8f0;
+  color: rgba(255, 232, 184, 0.94);
   font-size: 12px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   cursor: pointer;
   text-align: left;
 }
 
 .dn-mesh-header:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 232, 184, 0.04);
 }
 
 .dn-mesh-chevron {
   font-size: 9px;
-  color: #64748b;
+  color: rgba(255, 232, 184, 0.35);
   width: 10px;
   flex: 0 0 auto;
 }
 
 .dn-mesh-icon {
-  color: #22d3ee;
+  color: #38bdf8;
   font-size: 11px;
   flex: 0 0 auto;
 }
 
 .dn-mesh-label {
   flex: 1 1 auto;
-  font-weight: 500;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: rgba(255, 232, 184, 0.94);
 }
 
 .dn-mesh-meta {
   flex: 0 0 auto;
-  font: 10px/1 Consolas, Monaco, monospace;
-  color: #64748b;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
+  font: 10px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: #38bdf8;
+  padding: 1px 4px;
+  border-radius: 0;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
 }
 
 .dn-mesh-groups {
@@ -1006,28 +653,38 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 12px 4px 30px;
+  padding: 3px 10px 3px 24px;
   position: relative;
+  font-size: 11px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+
+/* "> " cyan prompt prefix for each group row */
+.dn-group-row::before {
+  content: "> ";
+  position: absolute;
+  left: 10px;
+  color: #38bdf8;
   font-size: 11px;
 }
 
 .dn-group-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 232, 184, 0.03);
 }
 
 .dn-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  width: 12px;
+  height: 12px;
+  border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
   cursor: pointer;
   padding: 0;
   flex: 0 0 auto;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 
 .dn-swatch:hover {
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 232, 184, 0.6);
 }
 
 .dn-swatch--readonly {
@@ -1035,10 +692,10 @@
   background:
     repeating-linear-gradient(
       45deg,
-      #2a2f3a 0,
-      #2a2f3a 3px,
-      #1a1d24 3px,
-      #1a1d24 6px
+      rgba(255, 232, 184, 0.08) 0,
+      rgba(255, 232, 184, 0.08) 2px,
+      transparent 2px,
+      transparent 4px
     );
 }
 
@@ -1054,22 +711,48 @@
 
 .dn-group-label {
   flex: 1 1 auto;
-  font: 11px/1.2 Consolas, Monaco, monospace;
-  color: #cbd5f5;
+  font: 11px/1.2 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.85);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dn-group-row.is-readonly .dn-group-label {
-  color: #64748b;
-  font-style: italic;
+  color: rgba(255, 232, 184, 0.4);
+  font-style: normal;
 }
 
 .dn-group-count {
   flex: 0 0 auto;
-  font: 11px/1 Consolas, Monaco, monospace;
-  color: #64748b;
+  font: 11px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: #38bdf8;
+}
+
+/* ── Attribution credit ───────────────────────────────────────────────── */
+
+.dn-attribution {
+  position: absolute;
+  bottom: var(--overlay-bottom);
+  right: var(--overlay-right);
+  z-index: 10;
+  font-size: 11px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.55);
+  line-height: 1.4;
+  text-align: right;
+  pointer-events: none;
+}
+
+.dn-attribution a {
+  color: #38bdf8;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.dn-attribution a:hover {
+  color: rgba(56, 189, 248, 0.85);
+  text-decoration: none;
 }
 
 @media (max-width: 1100px) {
@@ -1078,13 +761,6 @@
     max-width: min(390px, calc(100vw - 20px));
     top: 10px;
     right: 10px;
-  }
-
-  .dn-sidebar--left {
-    width: min(320px, calc(100vw - 20px));
-    max-height: calc(100vh - 20px);
-    top: 10px;
-    left: 10px;
   }
 
   .models-sidebar {
@@ -1110,4 +786,448 @@
     left: 8px;
     max-height: calc(100% - 16px);
   }
+}
+
+/* ── Dock terminal-aesthetic fine-grained overrides ──────────────────────────
+ * Targeted to .dn-floating-controls so they apply only to the right-panel
+ * Dock, not any other lil-gui instance. Behavior / interactivity untouched.
+ * All inputs remain pointer-events:auto and visible.
+ */
+
+/* Override font on all lil-gui children inside the Dock */
+.dn-floating-controls .lil-gui,
+.dn-floating-controls .lil-gui * {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+}
+
+/* Panel: sharp amber border, scanline, no border-radius */
+.dn-floating-controls .lil-gui.root {
+  --background-color: #0b0d10;
+  --title-background-color: #03050a;
+  --title-text-color: rgba(255, 232, 184, 0.94);
+  --text-color: rgba(255, 232, 184, 0.94);
+  --widget-color: rgba(255, 232, 184, 0.06);
+  --hover-color: rgba(255, 232, 184, 0.10);
+  --focus-color: rgba(56, 189, 248, 0.22);
+  --number-color: #38bdf8;
+  --string-color: rgba(255, 232, 184, 0.75);
+  --font-size: 12px;
+  --input-font-size: 12px;
+  --padding: 6px;
+  --spacing: 5px;
+  --widget-height: 24px;
+  --widget-border-radius: 0;
+  --folder-indent: 8px;
+  border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  box-shadow: 0 0 0 1px rgba(255, 232, 184, 0.06), 0 18px 48px rgba(0, 0, 0, 0.65);
+  background-color: #0b0d10;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0, 0, 0, 0.09) 3px,
+    rgba(0, 0, 0, 0.09) 4px
+  );
+}
+
+/* Top-border legend — must live on the wrapper (.dn-floating-controls) so it
+   isn't clipped by .lil-gui.root's overflow:auto (needed for vertical scroll).
+   bg matches the page so the label appears cut into the panel border. */
+.dn-floating-controls {
+  position: absolute; /* already absolute, restate so ::before anchors correctly */
+}
+.dn-floating-controls::before {
+  content: "[ CONTROLS ]";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  transform: translateY(-50%);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: rgba(255, 232, 184, 0.85);
+  background: #0b0d10;
+  padding: 0 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* The root <button class="title">Controls</button> is hidden — its function is
+   replaced by the ::before legend on .lil-gui.root above. Nested folders
+   (each a child .lil-gui) keep their own title button. */
+.dn-floating-controls .lil-gui.root > .title {
+  display: none !important;
+}
+
+/* Folder titles (Model, Rendering, Camera, Lighting, …): section-rule style.
+   Selector is `.lil-gui .lil-gui > .title` — the inner .lil-gui is the
+   folder; lil-gui does NOT add a .folder class. Kept slim so the labels
+   don't fight the rows below for visual weight. */
+.dn-floating-controls .lil-gui .lil-gui > .title {
+  font-size: 10px !important;
+  font-weight: normal !important;
+  letter-spacing: 0.10em !important;
+  text-transform: uppercase !important;
+  color: rgba(255, 232, 184, 0.70) !important;
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid rgba(255, 232, 184, 0.10) !important;
+  padding: 2px 10px !important;
+  min-height: 0 !important;
+  line-height: 1.2 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  text-align: left !important;
+  cursor: pointer !important;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+}
+
+/* Caret — driven by aria-expanded since lil-gui doesn't emit a .caret span. */
+.dn-floating-controls .lil-gui .lil-gui > .title::before {
+  content: "▶";
+  color: #f97316;
+  font-size: 10px;
+  flex: 0 0 auto;
+  line-height: 1;
+}
+.dn-floating-controls .lil-gui .lil-gui > .title[aria-expanded="true"]::before {
+  content: "▼";
+  color: #38bdf8;
+}
+
+/* Rails extending to the right edge, like .term-section-rule on landing. */
+.dn-floating-controls .lil-gui .lil-gui > .title::after {
+  content: "═══════════════════════════════════════════════════════════════";
+  flex: 1 1 0;
+  overflow: hidden;
+  color: rgba(255, 232, 184, 0.22);
+  letter-spacing: 0;
+  font-weight: normal;
+  pointer-events: none;
+}
+
+.dn-floating-controls .lil-gui .lil-gui > .title:hover {
+  background: rgba(255, 232, 184, 0.04) !important;
+  color: rgba(255, 232, 184, 1) !important;
+}
+.dn-floating-controls .lil-gui .lil-gui > .title:hover::after {
+  color: rgba(255, 232, 184, 0.35);
+}
+
+/* Controller label — no `>` prompt (reads as "expandable" which it isn't) */
+.dn-floating-controls .lil-gui .controller .name {
+  font-size: 11px !important;
+  color: rgba(255, 232, 184, 0.70) !important;
+  letter-spacing: 0.02em !important;
+}
+
+/* Disabled / readonly rows: dim */
+.dn-floating-controls .lil-gui .controller.disabled .name {
+  color: rgba(255, 232, 184, 0.38) !important;
+}
+
+/* Disabled inputs (stat read-outs like Cells, Edges, Triangles) — lil-gui
+   sets disabled on the <input> not on .controller, so target both. Render as
+   plain right-aligned cyan number, no gray bar, no border. */
+.dn-floating-controls .lil-gui .controller.disabled input,
+.dn-floating-controls .lil-gui input:disabled,
+.dn-floating-controls .lil-gui input[disabled] {
+  color: #38bdf8 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  -webkit-text-fill-color: #38bdf8 !important;
+  opacity: 1 !important;
+  padding: 0 !important;
+  text-align: right !important;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+  font-size: 11px !important;
+  cursor: default !important;
+}
+
+/* Lighten the widget area so controls feel "row" not "form box".
+   align-items: center keeps the widget vertically centered with the .name
+   label, which is important since label + widget have different heights. */
+.dn-floating-controls .lil-gui .controller {
+  --widget-color: transparent !important;
+  background: transparent !important;
+  align-items: center !important;
+}
+.dn-floating-controls .lil-gui .widget {
+  background: transparent !important;
+}
+
+/* Sliders — lil-gui doesn't use <input type="range">; it builds a custom
+   .slider track containing a .fill div. Style the track as a bracketed bar
+   with cyan fill that ends in a visible thumb cap. */
+.dn-floating-controls .lil-gui .controller.number .slider {
+  height: 10px !important;
+  border: 1px solid rgba(255, 232, 184, 0.28) !important;
+  background: rgba(255, 232, 184, 0.04) !important;
+  border-radius: 0 !important;
+  position: relative !important;
+  overflow: visible !important;
+  cursor: ew-resize !important;
+}
+/* Open-bracket / close-bracket pseudos so the slider reads as [ ─█──── ] */
+.dn-floating-controls .lil-gui .controller.number .slider::before {
+  content: "[";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", monospace;
+  color: rgba(255, 232, 184, 0.55);
+  pointer-events: none;
+}
+.dn-floating-controls .lil-gui .controller.number .slider::after {
+  content: "]";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", monospace;
+  color: rgba(255, 232, 184, 0.55);
+  pointer-events: none;
+}
+.dn-floating-controls .lil-gui .controller.number .slider .fill {
+  background: linear-gradient(to right,
+    rgba(56, 189, 248, 0.55),
+    #38bdf8) !important;
+  height: 100% !important;
+  border-right: 2px solid #38bdf8 !important;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
+}
+/* Reserve space for the brackets so the slider stays within the widget cell */
+.dn-floating-controls .lil-gui .controller.number .widget {
+  padding-inline: 8px !important;
+}
+
+/* Number inputs (editable, e.g. value beside a slider): inline-text style,
+   no fill — matches the Models sidebar's clean row aesthetic. */
+.dn-floating-controls .lil-gui .controller.number input[type="number"],
+.dn-floating-controls .lil-gui .controller.number input:not([type]) {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18) !important;
+  border-radius: 0 !important;
+  color: #38bdf8 !important;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+  font-size: 11px !important;
+  padding: 1px 3px !important;
+  text-align: right !important;
+  pointer-events: auto !important;
+  max-width: 70px !important;
+}
+
+.dn-floating-controls .lil-gui .controller.number input[type="number"]:focus,
+.dn-floating-controls .lil-gui .controller.number input:not([type]):focus {
+  outline: none !important;
+  border-color: rgba(56, 189, 248, 0.55) !important;
+  background: rgba(56, 189, 248, 0.07) !important;
+}
+
+/* Selects — lil-gui hides the real <select> (opacity:0, absolute) on top of a
+   visible <div class="display"> showing the current value. Style the
+   .display, keep the <select> as the invisible click target. */
+.dn-floating-controls .lil-gui .controller.option .widget {
+  position: relative !important;
+}
+.dn-floating-controls .lil-gui .controller.option select {
+  /* native <select> sits invisibly on top of .display for click handling */
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}
+.dn-floating-controls .lil-gui .controller.option .display {
+  border: 1px solid rgba(255, 232, 184, 0.28) !important;
+  border-radius: 0 !important;
+  background: rgba(255, 232, 184, 0.03) !important;
+  color: rgba(255, 232, 184, 0.94) !important;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+  font-size: 11px !important;
+  padding: 2px 22px 2px 8px !important;
+  line-height: 1.4 !important;
+  /* orange ▾ chevron on the right */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Ctext x='0' y='9' font-size='10' fill='%23f97316'%3E%E2%96%BE%3C/text%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 5px center !important;
+}
+.dn-floating-controls .lil-gui .controller.option .widget:focus-within .display {
+  border-color: rgba(56, 189, 248, 0.55) !important;
+}
+
+/* Checkboxes: "[x]" / "[ ]" via pseudo */
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 32px !important;
+  height: 16px !important;
+  background: rgba(255, 232, 184, 0.05) !important;
+  border: 1px solid rgba(255, 232, 184, 0.25) !important;
+  border-radius: 0 !important;
+  cursor: pointer !important;
+  position: relative !important;
+  flex-shrink: 0 !important;
+  pointer-events: auto !important;
+}
+
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  color: rgba(255, 232, 184, 0.45);
+  pointer-events: none;
+  line-height: 1;
+}
+
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:checked {
+  background: rgba(56, 189, 248, 0.10) !important;
+  border-color: rgba(56, 189, 248, 0.55) !important;
+}
+
+.dn-floating-controls .lil-gui .controller.boolean input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: #38bdf8;
+}
+
+/* Color pickers — lil-gui's structure:
+     .widget > .display (background-color set by JS to the chosen color)
+                > input[type="color"]  (opacity:0, full-cover click target)
+              > input[type="text"]  (hex field on the right)
+   Match the slider aesthetic — slim 10px bracketed bar where the .display
+   bg IS the chosen color, with [ / ] pseudo brackets. */
+.dn-floating-controls .lil-gui .controller.color .widget {
+  padding-inline: 8px !important;
+  position: relative !important;
+}
+.dn-floating-controls .lil-gui .controller.color .display {
+  height: 10px !important;
+  border: 1px solid rgba(255, 232, 184, 0.28) !important;
+  border-radius: 0 !important;
+  position: relative !important;
+  /* overflow visible so the [ ] pseudo brackets (positioned at -8px /
+     left|right) are not clipped. The swatch's bg fills the box already, so
+     there's nothing to overflow horizontally. */
+  overflow: visible !important;
+  box-shadow: 0 0 4px rgba(56, 189, 248, 0.25);
+}
+/* same [ ] brackets as the sliders */
+.dn-floating-controls .lil-gui .controller.color .display::before {
+  content: "[";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", monospace;
+  color: rgba(255, 232, 184, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+.dn-floating-controls .lil-gui .controller.color .display::after {
+  content: "]";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", monospace;
+  color: rgba(255, 232, 184, 0.55);
+  pointer-events: none;
+  z-index: 2;
+}
+.dn-floating-controls .lil-gui .controller.color input[type="color"] {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  opacity: 0 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+
+.dn-floating-controls .lil-gui .controller.color input[type="text"] {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18) !important;
+  border-radius: 0 !important;
+  color: rgba(255, 232, 184, 0.65) !important;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+  font-size: 11px !important;
+  padding: 1px 3px !important;
+  pointer-events: auto !important;
+  text-align: right !important;
+  max-width: 70px !important;
+}
+
+/* Buttons: orange bracket style */
+.dn-floating-controls .lil-gui .controller.function button {
+  background: rgba(255, 232, 184, 0.04) !important;
+  border: 1px solid rgba(249, 115, 22, 0.45) !important;
+  border-radius: 0 !important;
+  color: #f97316 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  padding: 3px 10px !important;
+  pointer-events: auto !important;
+  transition: background 100ms, border-color 100ms !important;
+}
+
+.dn-floating-controls .lil-gui .controller.function button:hover {
+  background: rgba(249, 115, 22, 0.10) !important;
+  border-color: #f97316 !important;
+}
+
+/* Status notes below the GUI */
+.dn-floating-controls .dn-note {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+  font-size: 11px !important;
+  color: rgba(255, 232, 184, 0.50) !important;
+  border-top: 1px solid rgba(255, 232, 184, 0.10) !important;
+  padding: 4px 8px !important;
+  margin: 0 !important;
+  background: #03050a !important;
+}
+
+.dn-floating-controls .dn-note::before {
+  content: "> ";
+  color: rgba(255, 232, 184, 0.30);
+}
+
+.dn-floating-controls .dn-note--error {
+  color: #fda4af !important;
+}
+
+.dn-floating-controls .dn-note--error::before {
+  content: "! ";
+  color: #fda4af;
+}
+
+/* Dock panel scrollbar */
+.dn-floating-controls .lil-gui.root::-webkit-scrollbar {
+  width: 4px !important;
+}
+.dn-floating-controls .lil-gui.root::-webkit-scrollbar-thumb {
+  background: rgba(255, 232, 184, 0.15) !important;
+  border-radius: 0 !important;
+}
+.dn-floating-controls .lil-gui.root::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 232, 184, 0.30) !important;
 }

@@ -186,6 +186,9 @@ importers:
       astro:
         specifier: ^6.0.8
         version: 6.1.1(@types/node@25.5.0)(rollup@4.60.0)(typescript@5.9.3)
+      glyphcss:
+        specifier: workspace:^
+        version: link:../packages/glyphcss
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1

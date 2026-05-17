@@ -9,19 +9,16 @@ export interface DockProps {
 }
 
 /**
- * Container component that owns the lil-gui instance and exposes it to
- * `Dock*` slot children via context. Pages compose the dock by listing
- * the slots they want — gallery picks Model/Rendering/Animation/
- * Interaction/Camera/Lighting; builder picks Scene/Model/Rendering/
- * Camera/Lighting.
+ * Container that owns the lil-gui instance and exposes it to `Dock*` slot
+ * children via context. Pages compose the dock by listing the slots they
+ * want — GalleryWorkbench uses Model/Rendering/Animation/Camera/Lighting.
  *
- * The optional `loading` + `loadError` props render Dock chrome under
- * the GUI (status notes for model loading), which is Dock-level UI
- * rather than per-folder state.
+ * `loading` and `loadError` render status notes below the GUI for model
+ * loading feedback; this is Dock-level chrome rather than per-folder state.
  */
 export function Dock({ children, loading, loadError }: DockProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const gui = useGui(hostRef);
+  const gui = useGui(hostRef, { closeFolders: true });
   return (
     <div className="dn-floating-controls">
       <div ref={hostRef} />

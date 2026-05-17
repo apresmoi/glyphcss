@@ -16,24 +16,38 @@ export default defineConfig({
       dedupe: ['react', 'react-dom'],
       alias: [
         {
-          find: /^@polycss\/core$/,
+          find: /^@layoutit\/polycss-core$/,
           replacement: repoPath('../packages/core/src/index.ts'),
         },
         {
-          find: /^@polycss\/react$/,
+          find: /^@layoutit\/polycss-react$/,
           replacement: repoPath('../packages/react/src/index.ts'),
         },
         {
-          find: /^@polycss\/vue$/,
+          find: /^@layoutit\/polycss-vue$/,
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
+        // glyphcss package aliases (used by glyphcss-runtime.ts and gallery components)
         {
-          find: /^@layoutit\/polycss\/elements$/,
-          replacement: repoPath('../packages/polycss/src/elements/index.ts'),
+          find: /^glyphcss\/elements$/,
+          replacement: repoPath('../packages/glyphcss/src/elements/index.ts'),
         },
         {
-          find: /^@layoutit\/polycss$/,
-          replacement: repoPath('../packages/polycss/src/index.ts'),
+          find: /^glyphcss$/,
+          replacement: repoPath('../packages/glyphcss/src/index.ts'),
+        },
+        // Shim @glyphcss/* → @layoutit/polycss-* for any remaining asciss imports
+        {
+          find: /^@glyphcss\/core$/,
+          replacement: repoPath('../packages/core/src/index.ts'),
+        },
+        {
+          find: /^@glyphcss\/react$/,
+          replacement: repoPath('../packages/react/src/index.ts'),
+        },
+        {
+          find: /^@glyphcss\/vue$/,
+          replacement: repoPath('../packages/vue/src/index.ts'),
         },
       ],
     },
@@ -42,8 +56,8 @@ export default defineConfig({
     react(),
     sitemap(),
     starlight({
-      title: 'Polycss',
-      description: 'A CSS polygon mesh engine. DOM-native 3D rendering.',
+      title: 'glyphcss',
+      description: 'An ASCII polygon mesh engine. DOM-native 3D rendering in a character grid.',
       components: {
         Header: './src/components/DocsHeader.astro',
         ThemeSelect: './src/components/EmptyThemeSelect.astro',
@@ -65,18 +79,19 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'PolyScene', slug: 'components/poly-scene' },
-            { label: 'PolyCamera', slug: 'components/poly-camera' },
-            { label: 'PolyOrbitControls / PolyMapControls', slug: 'components/poly-controls' },
+            { label: 'GlyphcssScene', slug: 'components/glyphcss-scene' },
+            { label: 'GlyphcssCamera', slug: 'components/glyphcss-camera' },
+            { label: 'GlyphcssOrbitControls', slug: 'components/glyphcss-controls' },
+            { label: 'GlyphcssHotspot', slug: 'components/glyphcss-hotspot' },
           ],
         },
         {
           label: 'Guides',
           items: [
-            { label: 'Loading Meshes', slug: 'guides/textures' },
-            { label: 'Per-polygon Interaction', slug: 'guides/shapes' },
+            { label: 'Loading Meshes', slug: 'guides/meshes' },
+            { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
             { label: 'Performance', slug: 'guides/performance' },
-            { label: 'Projections', slug: 'guides/projections' },
+            { label: 'Render Modes', slug: 'guides/render-modes' },
           ],
         },
         {

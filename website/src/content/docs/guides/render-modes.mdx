@@ -1,0 +1,75 @@
+---
+title: Render Modes
+description: wireframe, solid, and voxel — when to pick which.
+---
+
+glyphcss has three render modes. Each maps the same projected mesh to a different
+glyph layout.
+
+## `wireframe`
+
+Bresenham-rasterizes each edge into a `Uint8Array` stamp with three weight tiers,
+then maps the stamp to glyphs:
+
+| Weight | Glyph palette | Used for |
+|---|---|---|
+| 1 (thin) | `·⋅∙˙·⋅∙` | Spokes, inner lattice, decorative scaffolding |
+| 2 (normal) | `╋╬┼╳◆◇◊▲△▼▽◈⬡⬢∴∵⊥⊕⊗⊙⊚⊛` | Main cage edges |
+| 3 (core) | `✦✧✩◉⊙◎` | Focal accents, "sun" centre |
+
+```ts
+import { buildSceneContext } from "glyphcss";
+
+const scene = buildSceneContext({
+  camera, grid,
+  wireframe: [
+    { from: [1, 0, 0], to: [-1, 0, 0], weight: 2 }, // bold edge
+    { from: [0, 1, 0], to: [0, -1, 0], weight: 1 }, // thin spoke
+  ],
+  mode: "wireframe",
+});
+```
+
+Best for: geometric meshes, lattices, iconic visuals.
+
+## `solid`
+
+Triangle scan-fill, with Lambert shading per cell mapped to a ramp:
+
+```
+" .:-=+*#%@"
+```
+
+Darker glyphs for cells facing away from the directional light, brighter glyphs
+for cells facing it. Per-cell normal is interpolated from the triangle's vertex
+normals.
+
+```ts
+const scene = buildSceneContext({
+  camera, grid,
+  triangles: parseObj(objSource),
+  directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1 },
+  ambientLight: { intensity: 0.4 },
+  mode: "solid",
+});
+```
+
+Best for: smooth-shaded surfaces from real mesh files.
+
+## `voxel`
+
+One glyph per voxel face, depth-sorted. Natural fit for MagicaVoxel `.vox` files
+where the source data is already cell-aligned.
+
+```ts
+const scene = buildSceneContext({
+  camera, grid,
+  triangles: parseVox(voxBuffer),
+  mode: "voxel",
+});
+```
+
+Each face's color (from the VOX palette) maps to a glyph density — bright colors
+become `#` / `@`, dim colors become `.` / `:`. Back faces are culled.
+
+Best for: voxel art, chunky low-poly aesthetics.

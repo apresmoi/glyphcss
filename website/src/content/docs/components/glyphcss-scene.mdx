@@ -1,0 +1,42 @@
+---
+title: GlyphcssScene
+description: Root container for an glyphcss scene.
+---
+
+import GlyphcssDemo from "../../../components/GlyphcssDemo.astro";
+
+`<GlyphcssScene>` is the visual host. It owns the `<pre>` strip, the sibling hit layer,
+and the CSS variables (`--rows`, `--cell-h`, `--cell-fs`, `--dur`) that the strip
+keyframes consume.
+
+<GlyphcssDemo id="scene-demo" geometry="cuboctahedron" />
+
+## Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"wireframe"` for edges, `"solid"` for meshes | Render mode |
+| `className` | `string` | — | CSS class on the outer host |
+| `style` | `CSSProperties` | — | Inline styles on the outer host |
+| `children` | `ReactNode` | — | `<GlyphcssMesh>`, `<GlyphcssOrbitControls>`, etc. |
+
+## Vanilla
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+
+const scene = createGlyphcssScene(host, {
+  mode: "wireframe",
+  animate: { axis: "y", durationMs: 6000 },
+});
+
+scene.addHotspot({ id: "roof", at: [0, 1.2, 0] }, () => alert("roof"));
+```
+
+## Custom element
+
+```html
+<glyphcss-scene mode="wireframe">
+  <glyphcss-mesh geometry="cuboctahedron"></glyphcss-mesh>
+</glyphcss-scene>
+```

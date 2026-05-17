@@ -1,7 +1,7 @@
 ---
-import { GalleryWorkbench } from '../components/GalleryWorkbench';
+import GalleryWorkbench from '../components/GalleryWorkbench/GalleryWorkbench.tsx';
 import DocsHeader from '../components/DocsHeader.astro';
-import '../styles/custom.css';
+import '../styles/glyphcss-demo.css';
 ---
 <html lang="en">
   <head>
@@ -23,8 +23,9 @@ import '../styles/custom.css';
 
     :global(html, body) {
       margin: 0;
-      background: #0a0b0d;
-      color: #e8edf2;
+      background: #0b0d10;
+      color: rgba(255, 232, 184, 0.94);
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
     }
 
     :global(body) {
@@ -34,7 +35,7 @@ import '../styles/custom.css';
 
     .page {
       min-height: 100vh;
-      background: #0a0b0d;
+      background: #0b0d10;
     }
 
     .debug-page-shell {
@@ -46,6 +47,28 @@ import '../styles/custom.css';
     :global(.dn-root) {
       width: 100%;
       height: 100%;
+    }
+    /* Gallery canvas overrides — make the GlyphcssDemo fill the workbench's
+       center viewport AND let the workbench's dark theme show through (no
+       opaque background-rect like the hero/standalone variants). */
+    :global(.debug-page-shell .glyphcss-demo) {
+      width: 100% !important;
+      height: 100% !important;
+      margin: 0 !important;
+      border: 0 !important;
+      border-radius: 0 !important;
+      background: transparent !important;
+    }
+    :global(.debug-page-shell .glyphcss-demo__viewer),
+    :global(.debug-page-shell .glyphcss-demo__canvas),
+    :global(.debug-page-shell .glyphcss-demo__scene-host) {
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 0 !important;
+      background: transparent !important;
+    }
+    :global(.debug-page-shell .glyphcss-demo__code) {
+      display: none !important;
     }
   </style>
 </html>
