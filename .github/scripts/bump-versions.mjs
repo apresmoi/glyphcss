@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // __dirname is .github/scripts — repo root is two levels up.
 const root = resolve(__dirname, "..", "..");
-const packages = ["core", "polycss", "react", "vue"].map((d) =>
+const packages = ["core", "glyphcss", "react", "vue"].map((d) =>
   resolve(root, "packages", d, "package.json"),
 );
 
