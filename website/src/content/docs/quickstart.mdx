@@ -1,101 +1,99 @@
 ---
 title: Quickstart
-description: Render your first polycss 3D mesh in under a minute.
+description: Get an glyphcss scene rendering in 30 seconds.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
-import PolyDemo from '../../components/PolyDemo.astro';
 
-Get a 3D mesh rendering in your project in two steps.
-
-## 1. Install the package
+## Install
 
 <Tabs syncKey="fw">
-<TabItem label="Vanilla JS">
+  <TabItem label="React">
+
 ```bash
-npm install @layoutit/polycss
+npm install @glyphcss/react
 ```
-</TabItem>
-<TabItem label="React">
+
+  </TabItem>
+  <TabItem label="Vue">
+
 ```bash
-npm install @layoutit/polycss-react
+npm install @glyphcss/vue
 ```
-</TabItem>
-<TabItem label="Vue">
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
 ```bash
-npm install @layoutit/polycss-vue
+npm install glyphcss
 ```
-</TabItem>
+
+  </TabItem>
 </Tabs>
 
-## 2. Add a scene and load a mesh
-
-The vanilla scene element (`<poly-scene>`) sets up the 3D viewport: perspective, camera, lighting. In React and Vue, wrap `<PolyScene>` in `<PolyCamera>` to provide the camera context. The mesh element (`<poly-mesh>` / `PolyMesh`) loads OBJ, glTF, GLB, or VOX files and renders their polygons. Pass `rot-x` / `rot-y` to `<poly-scene>` or `<PolyCamera>` to set the camera angle.
+## Hello cuboctahedron
 
 <Tabs syncKey="fw">
-<TabItem label="Vanilla JS">
-```html
-<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
+  <TabItem label="React">
 
-<poly-scene perspective="1000" rot-x="65" rot-y="45">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
-```
-</TabItem>
-<TabItem label="React">
 ```tsx
-import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
+import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
 
 export function App() {
   return (
-    <PolyCamera rotX={65} rotY={45} perspective={1000}>
-      <PolyScene>
-        <PolyMesh src="/cottage.glb" />
-      </PolyScene>
-    </PolyCamera>
+    <GlyphcssCamera rotX={0.4} scale={0.32}>
+      <GlyphcssScene>
+        <GlyphcssOrbitControls drag wheel />
+        <GlyphcssMesh geometry="cuboctahedron">
+          <GlyphcssHotspot at={[1, 0, 0]} onClick={() => alert("vertex")} />
+        </GlyphcssMesh>
+      </GlyphcssScene>
+    </GlyphcssCamera>
   );
 }
 ```
-</TabItem>
-<TabItem label="Vue">
+
+  </TabItem>
+  <TabItem label="Vue">
+
 ```vue
 <template>
-  <PolyCamera :rot-x="65" :rot-y="45" :perspective="1000">
-    <PolyScene>
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
-  </PolyCamera>
+  <GlyphcssCamera :rot-x="0.4" :scale="0.32">
+    <GlyphcssScene>
+      <GlyphcssOrbitControls drag wheel />
+      <GlyphcssMesh geometry="cuboctahedron">
+        <GlyphcssHotspot :at="[1, 0, 0]" @click="onClick" />
+      </GlyphcssMesh>
+    </GlyphcssScene>
+  </GlyphcssCamera>
 </template>
 
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-vue";
+import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/vue";
+function onClick() { alert("vertex"); }
 </script>
 ```
-</TabItem>
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```html
+<script type="module" src="https://esm.sh/glyphcss/elements"></script>
+
+<glyphcss-scene rot-x="0.4" geometry="cuboctahedron">
+  <glyphcss-orbit-controls drag wheel></glyphcss-orbit-controls>
+  <glyphcss-hotspot at="1,0,0"></glyphcss-hotspot>
+</glyphcss-scene>
+```
+
+  </TabItem>
 </Tabs>
-
-## Live preview
-
-<PolyDemo
-  id="quickstart-demo"
-  model="/gallery/obj/cottage.obj"
-  mtl="/gallery/obj/cottage.mtl"
-  controls='["zoom","rotX","rotY","rotZ","animate","interactive"]'
-  defaults='{"rotX":80,"rotY":50,"zoom":0.15,"interactive":true}'
-/>
 
 ## What you get
 
-Every polygon in the loaded mesh becomes a real DOM element: an atlas-backed `<i>` for UV-textured and flat-color polygons, positioned with `transform: matrix3d(...)`. You can:
+- A single `<pre>` rendered as ASCII glyphs, animating a full rotation in ~6 seconds.
+- One absolutely-positioned `<div role="button">` for each `<GlyphcssHotspot>`,
+  tracking the rotating mesh exactly (per-frame keyframes synced via `steps(N)`).
+- Drag-to-rotate and scroll-to-zoom out of the box via `<GlyphcssOrbitControls>`.
 
-- Inspect individual polygons in DevTools.
-- Target them with CSS selectors.
-- Attach `onClick`, `onMouseEnter`, and other standard DOM event handlers.
-
-## Related
-
-- [Core Concepts](/core-concepts): The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
-- [PolyCamera](/components/poly-camera): Camera props and usage reference.
-- [PolyScene](/components/poly-scene): Scene props and mesh options.
-- [Loading Meshes](/guides/textures): OBJ, glTF, GLB, VOX, MTL loading, and UV textures.
-- [Gallery](/gallery): Browse mesh models for inspiration.
+Next: [Core Concepts](/core-concepts) to understand what's happening under the hood.

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import type { Polygon } from "@layoutit/polycss";
+import type { TextureTriangle } from "@glyphcss/core";
 
 export interface InspectorColorGroup {
   /** Hex when `editable`; group label (e.g. "textured") when not. */
   color: string;
   count: number;
   editable: boolean;
-  polygons: Polygon[];
+  triangles: TextureTriangle[];
 }
 
 export interface InspectorMesh {
@@ -93,7 +93,6 @@ function GroupRow({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [currentColor, setCurrentColor] = useState(group.color);
-  // Reset when the upstream group changes (model reload, polygon rebuild).
   useEffect(() => {
     setCurrentColor(group.color);
   }, [group.color]);
@@ -113,7 +112,7 @@ function GroupRow({
         className="dn-swatch"
         style={{ background: currentColor }}
         onClick={() => inputRef.current?.click()}
-        aria-label={`Change color of ${group.count} polygons (currently ${currentColor})`}
+        aria-label={`Change color of ${group.count} triangles (currently ${currentColor})`}
       />
       <input
         ref={inputRef}

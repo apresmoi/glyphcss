@@ -2,19 +2,6 @@
 export const DEFAULT_PROJECTION = "cubic" as const;
 
 /**
- * How polygon lighting is applied by DOM renderers.
- * - "baked": multiply the light tint into the off-DOM canvas before the
- *   polygon becomes an atlas sprite. Best fidelity (full RGB tint) but
- *   the atlas re-rasterizes whenever the light changes.
- * - "dynamic": lighting computed entirely in CSS via per-polygon normals
- *   embedded in calc() and scene-root light vars (background-color +
- *   background-blend-mode multiply, masked by the atlas alpha). Atlas
- *   stays light-independent — sliding the light only writes a few CSS
- *   variables, no JS work, no atlas re-rasterization.
- */
-export type PolyTextureLightingMode = "baked" | "dynamic";
-
-/**
  * Mesh post-processing intent.
  * - "lossless": preserve the authored surface while applying exact
  *   reductions such as interior culling and coplanar merge.
@@ -44,15 +31,17 @@ export type Vec2 = [number, number];
 export interface TextureTriangle {
   vertices: [Vec3, Vec3, Vec3];
   uvs: [Vec2, Vec2, Vec2];
+  /** Hex color string (`#rrggbb`) propagated from source model material. */
+  color?: string;
 }
 
 /**
  * Directional light — simulates a single distant source (sun, key light).
  * Contributes Lambert shading scaled by `intensity`. `direction` is in
- * scene-local CSS-pixel coords and does not need to be pre-normalized.
+ * scene-local coords and does not need to be pre-normalized.
  * Mirrors three.js's `DirectionalLight`.
  */
-export interface PolyDirectionalLight {
+export interface GlyphcssDirectionalLight {
   /** Direction the light shines TOWARD (typical convention). */
   direction: Vec3;
   /** Light tint, hex string. White by default. */
@@ -67,7 +56,7 @@ export interface PolyDirectionalLight {
  * directional contribution: the two add independently rather than
  * splitting a fixed energy budget.
  */
-export interface PolyAmbientLight {
+export interface GlyphcssAmbientLight {
   /** Tint, hex string. White by default. */
   color?: string;
   /** Scalar multiplier on the ambient contribution. Default 0.4. */
@@ -143,4 +132,63 @@ export interface Polygon {
    * values are kept; other shapes are dropped by `normalizePolygons`.
    */
   data?: Record<string, string | number | boolean>;
+}
+
+// ── Glyphcss-specific (ASCII rendering) ─────────────────────────
+
+/** Rendering mode for `rasterize`. See README for tradeoffs. */
+export type RenderMode = "wireframe" | "solid" | "voxel";
+
+/**
+ * Character ramp used by `solid` mode to map shaded intensity to a glyph.
+ * Index 0 = darkest (transparent / unset), last index = brightest.
+ */
+export type CharRamp = string[];
+
+/**
+ * Wireframe edge weight. Maps to glyph density in the rasterizer:
+ *   1 — thin (spokes, inner cage)
+ *   2 — normal (main cage edges)
+ *   3 — core (focal accents)
+ */
+export type EdgeWeight = 1 | 2 | 3;
+
+/** A single drawable edge in wireframe mode. */
+export interface WireframeEdge {
+  from: Vec3;
+  to: Vec3;
+  weight?: EdgeWeight;
+  /** Hex color string (`#rrggbb`) propagated from the adjacent triangle's material. */
+  color?: string;
+}
+
+/** Grid dimensions in character cells. */
+export interface GridSize {
+  cols: number;
+  rows: number;
+  /** Character cell aspect ratio (height / width). Typically ~2.0 for monospace. */
+  cellAspect: number;
+}
+
+/**
+ * A 3D anchor that should produce a 2D hitbox in the consumer's DOM.
+ * Consumers absolute-position a `<div>` at the projected cell, sized by
+ * `size` (in character cells). Pure-math: this module just projects.
+ */
+export interface Hotspot {
+  id: string;
+  at: Vec3;
+  /** Hitbox size in cells. Default `[1, 1]`. */
+  size?: [number, number];
+}
+
+/** Result of projecting a single hotspot through the camera. */
+export interface HotspotCell {
+  id: string;
+  col: number;
+  row: number;
+  /** Camera-space Z. Useful for `z-index` / occlusion checks. */
+  depth: number;
+  /** False if behind the camera or off-grid. */
+  visible: boolean;
 }

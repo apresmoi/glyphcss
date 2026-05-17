@@ -1,22 +1,22 @@
 {
-  "name": "@layoutit/polycss-react",
+  "name": "@glyphcss/react",
   "version": "0.0.1",
-  "description": "React components for the CSS-based polygon mesh rendering engine",
+  "description": "React components for the glyphcss ASCII polygon mesh rendering engine",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "keywords": ["polycss", "polygon", "mesh", "3d", "css", "matrix3d", "dom", "react", "rendering"],
+  "keywords": ["glyphcss", "ascii", "polygon", "mesh", "3d", "dom", "react", "rendering"],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LayoutitStudio/polycss.git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
     "directory": "packages/react"
   },
   "bugs": {
-    "url": "https://github.com/LayoutitStudio/polycss/issues"
+    "url": "https://github.com/apresmoi/glyphcss/issues"
   },
-  "homepage": "https://github.com/LayoutitStudio/polycss#readme",
+  "homepage": "https://github.com/apresmoi/glyphcss#readme",
   "files": [
     "dist"
   ],
@@ -37,7 +37,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@layoutit/polycss-core": "workspace:^"
+    "@glyphcss/core": "workspace:^",
+    "glyphcss": "workspace:^"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

@@ -4,12 +4,6 @@ export type { UseDroppedFilesOptions, UseDroppedFilesResult } from "./useDropped
 export { usePresetLoader } from "./usePresetLoader";
 export type { UsePresetLoaderOptions } from "./usePresetLoader";
 
-export { useScenePolygons } from "./useScenePolygons";
-export type { UseScenePolygonsOptions, UseScenePolygonsResult } from "./useScenePolygons";
-
-export { useAnimationFrames } from "./useAnimationFrames";
-export type { UseAnimationFramesOptions, UseAnimationFramesResult } from "./useAnimationFrames";
-
 export { useRouteSync, setRoutePresetId, routeInitialPresetId } from "./useRouteSync";
 export type { UseRouteSyncOptions } from "./useRouteSync";
 

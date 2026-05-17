@@ -1,7 +1,7 @@
-import type { PolyDirectionalLight, PolyAmbientLight } from "@layoutit/polycss";
-import type { SceneOptionsState } from "../../types";
+import type { GlyphcssDirectionalLight, GlyphcssAmbientLight } from "glyphcss";
+import type { SceneOptionsState } from "../types";
 
-export function directionalFromOptions(options: SceneOptionsState): PolyDirectionalLight {
+export function directionalFromOptions(options: SceneOptionsState): GlyphcssDirectionalLight {
   const az = (options.lightAzimuth * Math.PI) / 180;
   const el = (options.lightElevation * Math.PI) / 180;
   const cosEl = Math.cos(el);
@@ -11,14 +11,12 @@ export function directionalFromOptions(options: SceneOptionsState): PolyDirectio
       cosEl * Math.cos(az),
       Math.sin(el),
     ],
-    color: options.lightColor,
     intensity: options.lightIntensity,
   };
 }
 
-export function ambientFromOptions(options: SceneOptionsState): PolyAmbientLight {
+export function ambientFromOptions(options: SceneOptionsState): GlyphcssAmbientLight {
   return {
-    color: options.ambientColor,
     intensity: options.ambientIntensity,
   };
 }

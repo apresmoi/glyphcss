@@ -1,0 +1,70 @@
+---
+title: Hit Layer Interactivity
+description: Attaching click handlers and tooltips to 3D anchors.
+---
+
+The glyphcss hit layer is **sparse** — you opt-in to interactivity by registering
+hotspots at specific 3D anchors. No polygon-per-DOM-node overhead.
+
+## Why sparse
+
+A polycss-style "one DOM node per polygon" model gives you per-polygon events but
+balloons the DOM for large meshes (a 10k-triangle GLB → 10k `<div>`s). glyphcss takes
+the opposite trade: a single `<pre>` for visuals, and only the hotspots you
+explicitly register become DOM nodes.
+
+For most real apps this is what you want. You don't need click handlers on every
+roof shingle; you need them on the front door.
+
+## Authoring hotspots
+
+```tsx
+<GlyphcssScene>
+  <GlyphcssMesh src="/cottage.glb">
+    <GlyphcssHotspot at={[0, 1.2, 0]} onClick={() => alert("roof")}>
+      <span className="badge">Roof</span>
+    </GlyphcssHotspot>
+    <GlyphcssHotspot at={[0, 0, 0.5]} onClick={() => alert("door")}>
+      <span className="badge">Door</span>
+    </GlyphcssHotspot>
+  </GlyphcssMesh>
+</GlyphcssScene>
+```
+
+Each `<GlyphcssHotspot>` becomes:
+
+```html
+<div class="glyphcss-demo__hotspot"
+     role="button"
+     style="position: absolute; transform: translate3d(...); width: ...; height: ...">
+  <span class="badge">Roof</span>
+</div>
+```
+
+The `transform: translate3d(...)` updates every frame via `@keyframes` matching the
+strip's `steps(60, end)` timing.
+
+## Anchors
+
+`at` accepts either an explicit `Vec3` or a string anchor:
+
+| Anchor | Resolves to |
+|---|---|
+| `[x, y, z]` | World-space coordinate |
+| `"vertex:42"` | Vertex index 42 of the parent mesh |
+| `"face:roof"` | Named face (requires mesh authoring) |
+| `"centroid"` | Mesh centroid |
+
+## Visibility
+
+Hotspots behind the camera get `opacity: 0` automatically. Use this for "show
+this label only when the user is looking at the front of the house":
+
+```css
+.glyphcss-demo__hotspot {
+  transition: opacity 200ms ease;
+}
+```
+
+The fade is free — the renderer just writes `opacity: 0` into the keyframe at any
+frame where the anchor is behind the camera.

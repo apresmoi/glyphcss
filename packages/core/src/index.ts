@@ -1,4 +1,4 @@
-// @layoutit/polycss-core — Pure-math polygon rendering engine (zero browser globals).
+// @glyphcss/core — Pure-math polygon + ASCII rendering engine (zero browser globals).
 //
 // Public exports define the supported core package surface. Anything not
 // exported here is implementation detail.
@@ -9,10 +9,8 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
-  PolyMaterial,
-  PolyDirectionalLight,
-  PolyAmbientLight,
-  PolyTextureLightingMode,
+  GlyphcssDirectionalLight,
+  GlyphcssAmbientLight,
   MeshResolution,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
@@ -32,12 +30,8 @@ export type {
 } from "./scene/context";
 
 // ── Polygon geometry helper ──────────────────────────────────────
-export { polygonFaces, computeTexturePaintMetrics } from "./scene/polygonGeometry";
-export type {
-  PolygonFace,
-  TexturePaintMetrics,
-  TexturePaintMetricsOptions,
-} from "./scene/polygonGeometry";
+export { polygonFaces } from "./scene/polygonGeometry";
+export type { PolygonFace } from "./scene/polygonGeometry";
 
 // ── Rotation math ────────────────────────────────────────────────
 export { rotateVec3, inverseRotateVec3 } from "./math/rotation";
@@ -123,16 +117,16 @@ export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, Ring
 
 // ── Animation ─────────────────────────────────────────────────────
 export {
-  createPolyAnimationMixer,
+  createGlyphcssAnimationMixer,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
 } from "./animation";
 export type {
-  PolyAnimationClip,
-  PolyAnimationAction,
-  PolyAnimationMixer,
-  PolyAnimationTarget,
+  GlyphcssAnimationClip,
+  GlyphcssAnimationAction,
+  GlyphcssAnimationMixer,
+  GlyphcssAnimationTarget,
   LoopMode,
 } from "./animation";
 
@@ -157,3 +151,16 @@ export { parseVox } from "./parser/parseVox";
 export type { VoxParseOptions } from "./parser/parseVox";
 export { loadMesh } from "./parser/loadMesh";
 export type { LoadMeshOptions } from "./parser/loadMesh";
+
+// ── Glyphcss-specific (ASCII rendering) ─────────────────────────
+export type {
+  RenderMode,
+  CharRamp,
+  EdgeWeight,
+  WireframeEdge,
+  GridSize,
+  Hotspot,
+  HotspotCell,
+} from "./types";
+export { project } from "./math/projection";
+export { trianglesToFeatureEdges } from "./scene/featureEdges";

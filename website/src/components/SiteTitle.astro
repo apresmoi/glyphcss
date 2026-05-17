@@ -1,17 +1,46 @@
 ---
 ---
-<a href="/" class="site-title">
-  <img src="/voxisologo.png" alt="VoxCSS" class="site-title__logo" />
+<a href="/" class="site-title" aria-label="glyphcss home">
+  <span class="site-title__bracket">[</span><span class="site-title__name">glyphcss</span><span class="site-title__bracket">]</span>
+  <span class="site-title__cursor" aria-hidden="true">_</span>
 </a>
 <style>
   .site-title {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     text-decoration: none;
+    color: rgba(255, 232, 184, 0.94);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 1;
+    white-space: nowrap;
+    letter-spacing: 0;
   }
-  .site-title__logo {
-    width: 85px;
-    height: 44px;
-    object-fit: contain;
+  .site-title__bracket {
+    color: rgba(56, 189, 248, 0.85);
+  }
+  .site-title__name {
+    background: linear-gradient(90deg, #f97316 0%, #f97316 53%, #38bdf8 53%, #38bdf8 100%);
+    -webkit-background-clip: text;
+            background-clip: text;
+    -webkit-text-fill-color: transparent;
+            color: transparent;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+    padding: 0 2px;
+  }
+  .site-title__cursor {
+    color: rgba(56, 189, 248, 0.6);
+    animation: blink 1.1s steps(2, start) infinite;
+    margin-left: 2px;
+    font-weight: 900;
+  }
+  @keyframes blink {
+    to { visibility: hidden; }
+  }
+  .site-title:hover .site-title__bracket {
+    color: rgba(56, 189, 248, 1);
   }
 </style>

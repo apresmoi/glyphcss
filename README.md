@@ -1,39 +1,42 @@
-<p align="center">
-  <img src="website/public/voxisologo.png" alt="polycss" width="300" />
-</p>
+# glyphcss
 
-# polycss
+An ASCII polygon mesh renderer for the DOM. Glyphcss projects 3D scenes to 2D, rasterises them as monospace text, and writes the result into a single `<pre>` element — no WebGL, no canvas-per-frame, no per-polygon DOM nodes.
 
-Render textured 3D meshes as inspectable DOM. No WebGL, no scene canvas, no runtime 3D engine: just DOM polygons positioned with CSS `matrix3d(...)`. Style them with CSS, inspect them in DevTools, and make them interactive through framework components, custom elements, or render props.
+Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files. Supports wireframe, solid, and voxel render modes.
 
-Visit [polycss.com](https://polycss.com) for docs and model examples.
+> **Forked from [LayoutitStudio/polycss](https://github.com/LayoutitStudio/polycss).** The mesh math, parsers (OBJ / glTF / GLB / VOX), scene composition, camera math, and input controls are inherited. The paint backend is rewritten: instead of one CSS-transformed DOM leaf per polygon, glyphcss walks all polygons, fills a character grid, and writes a single text string to `<pre>.textContent` per frame.
 
 ## Installation
 
 ```bash
-# React
-npm install @layoutit/polycss-react
-
-# Vue
-npm install @layoutit/polycss-vue
-
 # Vanilla / custom elements
-npm install @layoutit/polycss
+npm install glyphcss
+
+# React
+npm install @glyphcss/react
+
+# Vue 3
+npm install @glyphcss/vue
 ```
 
 ## Quick start: React
 
 ```tsx
-import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-react";
+import {
+  GlyphcssScene,
+  GlyphcssCamera,
+  GlyphcssOrbitControls,
+  GlyphcssMesh,
+} from "@glyphcss/react";
 
 export function App() {
   return (
-    <PolyCamera rotX={65} rotY={45}>
-      <PolyScene>
-        <PolyOrbitControls drag wheel />
-        <PolyMesh src="/cottage.glb" />
-      </PolyScene>
-    </PolyCamera>
+    <GlyphcssScene cols={80} rows={40}>
+      <GlyphcssCamera rotX={65} rotY={45}>
+        <GlyphcssOrbitControls />
+        <GlyphcssMesh src="/cottage.glb" />
+      </GlyphcssCamera>
+    </GlyphcssScene>
   );
 }
 ```
@@ -42,57 +45,42 @@ export function App() {
 
 ```vue
 <template>
-  <PolyCamera :rot-x="65" :rot-y="45">
-    <PolyScene>
-      <PolyOrbitControls drag wheel />
-      <PolyMesh src="/cottage.glb" />
-    </PolyScene>
-  </PolyCamera>
+  <GlyphcssScene :cols="80" :rows="40">
+    <GlyphcssCamera :rot-x="65" :rot-y="45">
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh src="/cottage.glb" />
+    </GlyphcssCamera>
+  </GlyphcssScene>
 </template>
 
 <script setup lang="ts">
-import { PolyCamera, PolyScene, PolyOrbitControls, PolyMesh } from "@layoutit/polycss-vue";
+import {
+  GlyphcssScene,
+  GlyphcssCamera,
+  GlyphcssOrbitControls,
+  GlyphcssMesh,
+} from "@glyphcss/vue";
 </script>
 ```
 
 ## Quick start: Vanilla HTML
 
 ```html
-<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
+<script type="module" src="https://esm.sh/glyphcss/elements"></script>
 
-<poly-scene rot-x="65" rot-y="45">
-  <poly-orbit-controls drag wheel></poly-orbit-controls>
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
-```
-
-## Per-polygon interactivity
-
-Render polygons directly when you need per-face DOM events or custom styling:
-
-```tsx
-<PolyCamera>
-  <PolyScene>
-    {polygons.map((p, index) => (
-      <Poly
-        key={index}
-        {...p}
-        onClick={() => alert(`clicked polygon ${index}`)}
-        className="my-polygon"
-      />
-    ))}
-  </PolyScene>
-</PolyCamera>
+<glyphcss-scene cols="80" rows="40">
+  <glyphcss-mesh src="/cottage.glb"></glyphcss-mesh>
+</glyphcss-scene>
 ```
 
 ## Packages
 
 | Package | Description |
 |---|---|
-| `@layoutit/polycss-core` | Parsers, geometry, lighting, and camera helpers. |
-| `@layoutit/polycss-react` | React components (`PolyCamera`, `PolyScene`, `PolyOrbitControls`, `PolyMapControls`, `PolyMesh`, `Poly`). |
-| `@layoutit/polycss-vue` | Vue 3 components with the same rendering surface. |
-| `@layoutit/polycss` | Vanilla custom elements + imperative `createPolyScene` API. |
+| `@glyphcss/core` | Parsers, geometry, lighting, and camera helpers. Zero browser globals. |
+| `glyphcss` | ASCII rasteriser + vanilla custom elements + imperative `createGlyphcssScene` API. |
+| `@glyphcss/react` | React components (`GlyphcssScene`, `GlyphcssCamera`, `GlyphcssMesh`, controls). |
+| `@glyphcss/vue` | Vue 3 mirror of the React package. |
 
 ## Supported formats
 
@@ -102,4 +90,4 @@ Render polygons directly when you need per-face DOM events or custom styling:
 
 ## License
 
-MIT.
+MIT

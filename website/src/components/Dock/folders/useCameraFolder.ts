@@ -1,25 +1,18 @@
 /**
- * Camera folder — extracted from the legacy Dock.tsx mega-effect.
+ * Camera folder — projection, zoom/rotX/rotY/target sliders, drag mode
+ * dropdown, and a nested FPV sub-folder with all FPV sub-options.
  *
- * Largest of the per-folder hooks: ~25 controllers split across the top-level
- * "Camera" folder and a nested "FPV" sub-folder. The whole thing starts closed
- * because most users never touch it, and the FPV sub-folder is gated by the
- * Drag mode dropdown — when Drag isn't "fpv", every FPV row is dimmed (kept
- * visible to advertise the feature, just non-interactive) and the
- * "Perspective px" row is hidden whenever projection is orthographic.
+ * The FPV sub-folder controllers are dimmed when drag mode is not "fpv" —
+ * kept visible to advertise the feature, just non-interactive. The
+ * "Perspective px" row is hidden when projection is orthographic.
+ *
+ * Ported from polycss useCameraFolder.ts; adapted for glyphcss types (rotX in
+ * degrees 0–100, target range ±2, no auto-center axes or reset-model callback).
  */
 import { useEffect, useRef } from "react";
 import type { GUI } from "lil-gui";
-import type { Vec3 } from "@layoutit/polycss-react";
-
-import {
-  useButton,
-  useFolder,
-  useOption,
-  useSlider,
-  useToggle,
-} from "../primitives";
-import type { DragMode, PerspectiveMode, SceneOptionsState } from "../../types";
+import type { SceneOptionsState, DragMode, PerspectiveMode } from "../../GalleryWorkbench/types";
+import { useButton, useFolder, useOption, useSlider, useToggle } from "../primitives";
 
 interface PresetModelMinimal {
   zoom?: number;
@@ -27,14 +20,10 @@ interface PresetModelMinimal {
   rotY?: number;
 }
 
-interface LoadedModelMinimal {
-  rawPolygons: Array<{ vertices: [number, number, number][] }>;
-}
-
 export interface CameraFolderInputs {
   autoCenter: boolean;
   showAxes: boolean;
-  animate: boolean;
+  interactive: boolean;
   dragMode: DragMode;
   fpvLook: boolean;
   fpvMove: boolean;
@@ -47,21 +36,14 @@ export interface CameraFolderInputs {
   fpvCrouchHeight: number;
   fpvLookSensitivity: number;
   fpvInvertY: boolean;
-  fpvRenderDistance: number;
   perspectiveMode: PerspectiveMode;
   perspectivePx: number;
   perspective: number | false;
   zoom: number;
   rotX: number;
   rotY: number;
-  target: Vec3;
-  /** For the Reset button: derives the reset zoom from the loaded model. */
-  loaded: LoadedModelMinimal | null;
+  target: [number, number, number];
   selectedPreset: PresetModelMinimal;
-  defaultZoomForModel: (
-    preset: PresetModelMinimal,
-    rawPolygons: LoadedModelMinimal["rawPolygons"],
-  ) => number;
   onUpdateScene: (partial: Partial<SceneOptionsState>) => void;
 }
 
@@ -91,7 +73,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   const {
     autoCenter,
     showAxes,
-    animate,
+    interactive,
     dragMode,
     fpvLook,
     fpvMove,
@@ -104,7 +86,6 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     fpvCrouchHeight,
     fpvLookSensitivity,
     fpvInvertY,
-    fpvRenderDistance,
     perspectiveMode,
     perspectivePx,
     perspective,
@@ -112,55 +93,41 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     rotX,
     rotY,
     target,
-    loaded,
     selectedPreset,
-    defaultZoomForModel,
     onUpdateScene,
   } = inputs;
 
-  // Reset-camera closure must always read the latest preset + loaded model
-  // without re-creating the button (which would also re-mount the lil-gui row,
-  // shuffling controller order). Keep these in a single ref bag and read
-  // through it in the click handler.
-  const resetCtxRef = useRef({ loaded, selectedPreset, defaultZoomForModel, onUpdateScene });
-  resetCtxRef.current = { loaded, selectedPreset, defaultZoomForModel, onUpdateScene };
+  // Refs so the reset button and target sliders always see the latest values
+  // without recreating their controllers on every render.
+  const resetCtxRef = useRef({ selectedPreset, onUpdateScene });
+  resetCtxRef.current = { selectedPreset, onUpdateScene };
 
-  // Target moves three sliders at once — keep the latest tuple in a ref so each
-  // slider's onChange can splat the other two axes without forcing the hook to
-  // re-create the controllers when `target` reference changes.
-  const targetRef = useRef<Vec3>(target);
+  const targetRef = useRef<[number, number, number]>(target);
   targetRef.current = target;
 
-  // Same story for perspectivePx: the Projection dropdown reads it when
-  // flipping from orthographic → perspective.
   const perspectivePxRef = useRef(perspectivePx);
   perspectivePxRef.current = perspectivePx;
 
   const folder = useFolder(parent, "Camera", { open: false });
 
   useButton(folder, "Reset camera", () => {
-    const { loaded: l, selectedPreset: p, defaultZoomForModel: f, onUpdateScene: u } =
-      resetCtxRef.current;
-    const resetZoom = l ? f(p, l.rawPolygons) : p.zoom ?? 0.35;
+    const { selectedPreset: p, onUpdateScene: u } = resetCtxRef.current;
     u({
-      zoom: resetZoom,
+      zoom: p.zoom ?? 0.35,
       rotX: p.rotX ?? 65,
       rotY: p.rotY ?? 45,
       target: [0, 0, 0],
     });
   });
 
-  useToggle(folder, "Auto center", autoCenter, (value) =>
-    onUpdateScene({ autoCenter: value }),
-  );
+  useToggle(folder, "Auto center", autoCenter, (value) => onUpdateScene({ autoCenter: value }));
   useToggle(folder, "Axes", showAxes, (value) => onUpdateScene({ showAxes: value }));
-  useToggle(folder, "Auto rotate", animate, (value) => onUpdateScene({ animate: value }));
-  useOption<DragMode>(folder, "Drag", DRAG_MODE_OPTIONS, dragMode, (value) =>
+  useToggle(folder, "Interactive", interactive, (value) => onUpdateScene({ interactive: value }));
+  useOption<DragMode>(folder, "Drag mode", DRAG_MODE_OPTIONS, dragMode, (value) =>
     onUpdateScene({ dragMode: value }),
   );
 
-  // FPV sub-folder — nested directly under the Camera folder. All 11
-  // controllers below are dimmed when Drag isn't "fpv" (see effect at end).
+  // FPV sub-folder — nested under Camera. All controllers dimmed when not in FPV mode.
   const fpvFolder = useFolder(folder, "FPV", { open: false });
 
   const fpvLookCtrl = useToggle(fpvFolder, "Look", fpvLook, (value) =>
@@ -178,35 +145,35 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   const fpvMoveSpeedCtrl = useSlider(
     fpvFolder,
     "Move speed",
-    { min: 1, max: 300, step: 1 },
+    { min: 0.05, max: 20, step: 0.05 },
     fpvMoveSpeed,
     (value) => onUpdateScene({ fpvMoveSpeed: value }),
   );
   const fpvJumpVelocityCtrl = useSlider(
     fpvFolder,
     "Jump velocity",
-    { min: 1, max: 200, step: 1 },
+    { min: 0.05, max: 20, step: 0.05 },
     fpvJumpVelocity,
     (value) => onUpdateScene({ fpvJumpVelocity: value }),
   );
   const fpvGravityCtrl = useSlider(
     fpvFolder,
     "Gravity",
-    { min: 1, max: 500, step: 1 },
+    { min: 0.1, max: 50, step: 0.1 },
     fpvGravity,
     (value) => onUpdateScene({ fpvGravity: value }),
   );
   const fpvEyeHeightCtrl = useSlider(
     fpvFolder,
     "Eye height",
-    { min: 0.1, max: 100, step: 0.5 },
+    { min: 0.02, max: 10, step: 0.02 },
     fpvEyeHeight,
     (value) => onUpdateScene({ fpvEyeHeight: value }),
   );
   const fpvCrouchHeightCtrl = useSlider(
     fpvFolder,
     "Crouch height",
-    { min: 0.1, max: 100, step: 0.5 },
+    { min: 0.02, max: 10, step: 0.02 },
     fpvCrouchHeight,
     (value) => onUpdateScene({ fpvCrouchHeight: value }),
   );
@@ -219,13 +186,6 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   );
   const fpvInvertYCtrl = useToggle(fpvFolder, "Invert Y", fpvInvertY, (value) =>
     onUpdateScene({ fpvInvertY: value }),
-  );
-  const fpvRenderDistanceCtrl = useSlider(
-    fpvFolder,
-    "Render distance",
-    { min: 0, max: 200, step: 1 },
-    fpvRenderDistance,
-    (value) => onUpdateScene({ fpvRenderDistance: value }),
   );
 
   useOption<PerspectiveMode>(
@@ -258,7 +218,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   useSlider(
     folder,
     "Target X",
-    { min: -50, max: 50, step: 0.1 },
+    { min: -2, max: 2, step: 0.01 },
     target[0],
     (value) => {
       const t = targetRef.current;
@@ -268,7 +228,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   useSlider(
     folder,
     "Target Y",
-    { min: -50, max: 50, step: 0.1 },
+    { min: -2, max: 2, step: 0.01 },
     target[1],
     (value) => {
       const t = targetRef.current;
@@ -278,7 +238,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   useSlider(
     folder,
     "Target Z",
-    { min: -50, max: 50, step: 0.1 },
+    { min: -2, max: 2, step: 0.01 },
     target[2],
     (value) => {
       const t = targetRef.current;
@@ -286,9 +246,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     },
   );
 
-  // FPV enable/disable: dim every FPV row when not in FPV drag mode. Keeping
-  // the rows visible (rather than hiding the folder) preserves muscle memory
-  // and signals the feature exists.
+  // Dim every FPV controller when drag mode is not "fpv".
   useEffect(() => {
     const isFpv = dragMode === "fpv";
     fpvLookCtrl?.setEnabled(isFpv, { dim: true });
@@ -317,8 +275,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     fpvInvertYCtrl,
   ]);
 
-  // Perspective-px row only makes sense in perspective projection; hide it
-  // outright when projection is orthographic (`perspective === false`).
+  // Hide "Perspective px" when projection is orthographic.
   useEffect(() => {
     perspectivePxCtrl?.setVisible(perspective !== false);
   }, [perspectivePxCtrl, perspective]);

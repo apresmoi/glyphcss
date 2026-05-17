@@ -9,31 +9,31 @@ import react from '@astrojs/react';
 const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
-  site: 'https://polycss.com',
+  site: 'https://glyphcss.com',
   devToolbar: { enabled: false },
   vite: {
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: [
         {
-          find: /^@polycss\/core$/,
+          find: /^@glyphcss\/core$/,
           replacement: repoPath('../packages/core/src/index.ts'),
         },
         {
-          find: /^@polycss\/react$/,
+          find: /^@glyphcss\/react$/,
           replacement: repoPath('../packages/react/src/index.ts'),
         },
         {
-          find: /^@polycss\/vue$/,
+          find: /^@glyphcss\/vue$/,
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
         {
-          find: /^@layoutit\/polycss\/elements$/,
-          replacement: repoPath('../packages/polycss/src/elements/index.ts'),
+          find: /^glyphcss\/elements$/,
+          replacement: repoPath('../packages/glyphcss/src/elements/index.ts'),
         },
         {
-          find: /^@layoutit\/polycss$/,
-          replacement: repoPath('../packages/polycss/src/index.ts'),
+          find: /^glyphcss$/,
+          replacement: repoPath('../packages/glyphcss/src/index.ts'),
         },
       ],
     },
@@ -42,15 +42,15 @@ export default defineConfig({
     react(),
     sitemap(),
     starlight({
-      title: 'Polycss',
-      description: 'A CSS polygon mesh engine. DOM-native 3D rendering.',
+      title: 'glyphcss',
+      description: 'An ASCII polygon mesh engine. DOM-native 3D rendering in a character grid.',
       components: {
         Header: './src/components/DocsHeader.astro',
         ThemeSelect: './src/components/EmptyThemeSelect.astro',
         SiteTitle: './src/components/SiteTitle.astro',
       },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/LayoutitStudio/polycss' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/apresmoi/glyphcss' },
       ],
       customCss: ['./src/styles/custom.css'],
       sidebar: [
@@ -65,18 +65,19 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'PolyScene', slug: 'components/poly-scene' },
-            { label: 'PolyCamera', slug: 'components/poly-camera' },
-            { label: 'PolyOrbitControls / PolyMapControls', slug: 'components/poly-controls' },
+            { label: 'GlyphcssScene', slug: 'components/glyphcss-scene' },
+            { label: 'GlyphcssCamera', slug: 'components/glyphcss-camera' },
+            { label: 'GlyphcssOrbitControls', slug: 'components/glyphcss-controls' },
+            { label: 'GlyphcssHotspot', slug: 'components/glyphcss-hotspot' },
           ],
         },
         {
           label: 'Guides',
           items: [
-            { label: 'Loading Meshes', slug: 'guides/textures' },
-            { label: 'Per-polygon Interaction', slug: 'guides/shapes' },
+            { label: 'Loading Meshes', slug: 'guides/meshes' },
+            { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
             { label: 'Performance', slug: 'guides/performance' },
-            { label: 'Projections', slug: 'guides/projections' },
+            { label: 'Render Modes', slug: 'guides/render-modes' },
           ],
         },
         {

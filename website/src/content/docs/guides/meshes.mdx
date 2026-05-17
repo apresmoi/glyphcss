@@ -1,0 +1,48 @@
+---
+title: Loading Meshes
+description: Loading OBJ, glTF, GLB, and VOX files.
+---
+
+glyphcss ships parsers for four mesh formats. All return a `TextureTriangle[]` that
+the rasterizer consumes:
+
+| Format | Parser | Notes |
+|---|---|---|
+| Wavefront OBJ | `parseObj(source: string)` | + optional MTL for vertex colors |
+| glTF / GLB | `parseGltf(buffer: ArrayBuffer)` | embedded textures supported |
+| MagicaVoxel `.vox` | `parseVox(buffer: ArrayBuffer)` | natural fit for `voxel` render mode |
+
+Or use the format-detecting wrapper:
+
+```ts
+import { loadMesh } from "glyphcss";
+
+const triangles = await loadMesh("/cottage.glb");
+```
+
+## Choosing a render mode
+
+| Mode | When |
+|---|---|
+| `wireframe` | Geometric meshes, lattices, anything that should look like line art |
+| `solid` | Smooth-shaded surfaces — Lambert shading mapped to a glyph ramp (` .:-=+*#%@`) |
+| `voxel` | VOX models — one glyph per voxel face, depth-sorted |
+
+```tsx
+<GlyphcssMesh src="/cottage.glb" mode="solid" />
+<GlyphcssMesh src="/tree.vox" mode="voxel" />
+<GlyphcssMesh geometry="cuboctahedron" mode="wireframe" />
+```
+
+## Built-in geometries
+
+For the common case of "I just want a rotating shape", glyphcss ships generators:
+
+```tsx
+<GlyphcssMesh geometry="cuboctahedron" />
+<GlyphcssMesh geometry="icosahedron" />
+<GlyphcssMesh geometry="cube" />
+```
+
+These render as wireframe by default with the Prime Radiant–style inner lattice
+(for cuboctahedron) or plain edge-only (for icosahedron / cube).

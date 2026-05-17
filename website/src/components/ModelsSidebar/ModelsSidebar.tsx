@@ -1,4 +1,5 @@
 import React from "react";
+import "./ModelsSidebar.css";
 
 export interface ModelAttribution {
   creator: string;

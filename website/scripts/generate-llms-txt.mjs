@@ -74,7 +74,7 @@ for (const file of files) {
   indexLines.push(`- [${title}](${url})`);
 }
 
-indexLines.push('', '## Source', '', '- GitHub: https://github.com/LayoutitStudio/polycss', '- License: MIT', '');
+indexLines.push('', '## Source', '', '- GitHub: https://github.com/apresmoi/glyphcss', '- License: MIT', '');
 
 writeFileSync(join(DIST_DIR, 'llms.txt'), indexLines.join('\n'));
 

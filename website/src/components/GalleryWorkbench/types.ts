@@ -2,13 +2,10 @@
 // type declarations that flow between subfolders (presets/, helpers/, the
 // component itself) live here. Component-internal types stay local.
 
-import type { ObjParseOptions, GltfParseOptions, VoxParseOptions, Polygon, ParseAnimationController } from "@layoutit/polycss";
-
-export type Renderer = "react" | "vanilla";
 export type ModelKind = "obj" | "glb" | "gltf" | "vox";
 export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel";
-export type MatrixPrecision = "exact" | "2" | "3" | "4" | "5" | "6";
-export type BorderShapePrecision = "exact" | "2" | "3" | "4" | "5" | "6";
+export type PerspectiveMode = "perspective" | "orthographic";
+export type DragMode = "orbit" | "pan" | "fpv";
 
 export interface ModelAttribution {
   creator: string;
@@ -27,7 +24,6 @@ export interface PresetModel {
   zoom?: number;
   rotX?: number;
   rotY?: number;
-  options?: ObjParseOptions | GltfParseOptions | VoxParseOptions;
   galleryBucket?: GalleryBucket;
   attribution?: ModelAttribution;
 }
@@ -39,25 +35,6 @@ export interface DroppedModelSource {
   primaryFile: File;
   files: File[];
   preset: PresetModel;
-}
-
-export interface LoadedModel {
-  label: string;
-  kind: ModelKind;
-  rawPolygons: Polygon[];
-  polygons: Polygon[];
-  sourcePolygons: number;
-  sourceBytes: number;
-  warnings: string[];
-  parseMs: number;
-  dispose: () => void;
-  animation?: ParseAnimationController;
-}
-
-export interface ParserOptionsState {
-  targetSize: number;
-  gridShift: number;
-  defaultColor: string;
 }
 
 export interface GalleryPresetFile {
@@ -75,5 +52,52 @@ export interface GalleryPresetFile {
 export interface ObjGalleryPresetFile extends GalleryPresetFile {
   mtlFile?: string | null;
   defaultColor?: string;
-  options?: ObjParseOptions;
+}
+
+export interface GlyphcssMetrics {
+  measuredAt: number;
+  cells: number;
+  edges: number;
+  triangles: number;
+  vertices: number;
+  frames: number;
+  bakeMs: number;
+}
+
+export interface SceneOptionsState {
+  animationPaused: boolean;
+  animationTimeScale: number;
+  autoCenter: boolean;
+  interactive: boolean;
+  showAxes: boolean;
+  showLight: boolean;
+  showGround: boolean;
+  zoom: number;
+  rotX: number;
+  rotY: number;
+  perspective: number | false;
+  lightAzimuth: number;
+  lightElevation: number;
+  lightIntensity: number;
+  lightColor: string;
+  ambientIntensity: number;
+  ambientColor: string;
+  target: [number, number, number];
+  renderMode: "wireframe" | "solid";
+  featureEdges: number;
+  glyphPalette: "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
+  lineHeight: number;
+  useColors: boolean;
+  dragMode: DragMode;
+  fpvLook: boolean;
+  fpvMove: boolean;
+  fpvJump: boolean;
+  fpvCrouch: boolean;
+  fpvMoveSpeed: number;
+  fpvJumpVelocity: number;
+  fpvGravity: number;
+  fpvEyeHeight: number;
+  fpvCrouchHeight: number;
+  fpvLookSensitivity: number;
+  fpvInvertY: boolean;
 }

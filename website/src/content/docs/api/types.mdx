@@ -1,286 +1,118 @@
 ---
 title: Core Types
-description: TypeScript type definitions for polygons, camera state, lighting, and parse results.
+description: TypeScript types exported by glyphcss-core.
 ---
 
-All types are exported from `@layoutit/polycss-react`, `@layoutit/polycss-vue`, `@layoutit/polycss`, and `@layoutit/polycss-core`.
-
-## `Polygon`
-
-The atomic renderable primitive. Each polygon becomes one atlas-backed `<i>` DOM element for textured and flat-color faces.
-
-```ts
-interface Polygon {
-  /** Three or more [x, y, z] world-space points, CCW winding from the outside. */
-  vertices: [number, number, number][];
-  /** CSS color. Falls back to "#cccccc" when neither color nor texture is set. */
-  color?: string;
-  /** Image URL for UV-mapped rendering. When set with `uvs`, the renderer
-   *  applies an affine UV transform. Without `uvs`, single-tile fill. */
-  texture?: string;
-  /** Shared material. `material.texture` takes precedence over `texture`. */
-  material?: PolyMaterial;
-  /** UV coordinates: one per vertex. Must match vertices.length.
-   *  Mismatched arrays are stripped during normalizePolygons(). */
-  uvs?: [number, number][];
-  /** User-controlled metadata. Reflected to the DOM as data-* attributes
-   *  when rendering via <Poly>. Keys must have string, number, or boolean values. */
-  data?: Record<string, string | number | boolean>;
-}
-```
-
----
-
-## `PolyMaterial`
-
-Shared texture material referenced by one or more polygons.
-
-```ts
-interface PolyMaterial {
-  /** Image source. Anything CSS background-image: url(...) can use. */
-  texture: string;
-  /** Optional stable identity for renderer-side dedupe/cache paths. */
-  key?: string;
-}
-```
-
----
-
-## `PolyDirectionalLight`
-
-Controls the directional light for the scene.
-
-```ts
-interface PolyDirectionalLight {
-  /** Direction the light shines toward. Normalization is handled internally. */
-  direction: [number, number, number];
-  /** Directional light color hex (default: "#ffffff"). */
-  color?: string;
-  /** Directional light intensity (default: 1). */
-  intensity?: number;
-}
-```
-
----
-
-## `PolyAmbientLight`
-
-Ambient-only light (no directional component).
-
-```ts
-interface PolyAmbientLight {
-  /** Ambient light tint hex (default: "#ffffff"). */
-  color?: string;
-  /** Ambient light intensity (default: 0.4). */
-  intensity?: number;
-}
-```
-
----
-
-## `PolyTextureLightingMode`
-
-Controls how texture lighting is applied to atlas-backed polygons.
-
-```ts
-type PolyTextureLightingMode = "baked" | "dynamic";
-```
-
----
-
-## `Vec2`
-
-A 2D point or UV coordinate.
+## Geometry primitives
 
 ```ts
 type Vec2 = [number, number];
-```
-
----
-
-## `Vec3`
-
-A 3D point or direction.
-
-```ts
 type Vec3 = [number, number, number];
-```
 
----
+interface TextureTriangle {
+  vertices: [Vec3, Vec3, Vec3];
+  uvs?: [Vec2, Vec2, Vec2];
+}
 
-## `ParseResult`
+type EdgeWeight = 1 | 2 | 3; // thin / normal / core
 
-Unified return shape from all mesh parsers (`parseObj`, `parseGltf`, `parseVox`, `loadMesh`).
-
-```ts
-interface ParseResult {
-  /** Parsed and validated polygon array, ready for rendering. */
-  polygons: Polygon[];
-  /** Blob URLs minted during parse (e.g. embedded GLB textures).
-   *  Revoked when dispose() is called. */
-  objectUrls: string[];
-  /** Revoke all objectUrls. Idempotent. Safe to call on unmount. */
-  dispose: () => void;
-  /** Non-fatal warnings raised during parse (dropped polygons, UV mismatches, etc.). */
-  warnings: string[];
-  /** Optional animation sampler for glTF/GLB files with usable animation clips. */
-  animation?: ParseAnimationController;
-  /** Optional format-specific metadata. */
-  metadata?: {
-    triangleCount?: number;
-    meshes?: string[];
-    materials?: string[];
-    animations?: ParseAnimationClip[];
-    sourceBytes?: number;
-  };
+interface WireframeEdge {
+  from: Vec3;
+  to: Vec3;
+  weight?: EdgeWeight;
 }
 ```
 
----
-
-## `LoadMeshOptions`
-
-Options for the high-level `loadMesh` dispatcher. Format-specific parser settings are nested under the matching key.
+## Lighting
 
 ```ts
-interface LoadMeshOptions {
-  /** Base URL for resolving relative .gltf textures/buffers. */
-  baseUrl?: string;
-  /** Companion .mtl URL for OBJ models. Ignored for glTF/GLB/VOX. */
-  mtlUrl?: string;
-  /** Forwarded to parseObj; merged with materials from mtlUrl when present. */
-  objOptions?: ObjParseOptions;
-  /** Forwarded to parseGltf. */
-  gltfOptions?: GltfParseOptions;
-  /** Forwarded to parseVox. */
-  voxOptions?: VoxParseOptions;
-  /** Shared mesh-resolution optimizer. Defaults to "lossy". */
-  meshResolution?: "lossless" | "lossy";
+interface GlyphcssDirectionalLight {
+  direction: Vec3;
+  intensity?: number;
+}
+
+interface GlyphcssAmbientLight {
+  intensity?: number;
 }
 ```
 
----
-
-## `NormalizeResult`
-
-Return type of `normalizePolygons`.
+## Camera
 
 ```ts
-interface NormalizeResult {
-  polygons: Polygon[];
-  warnings: string[];
+interface GlyphcssPerspectiveCameraOptions {
+  rotX?: number;
+  rotY?: number;
+  distance?: number;
+  scale?: number;
+  stretch?: number;
+  center?: [number, number]; // normalized [0..1, 0..1]
+}
+
+interface GlyphcssOrthographicCameraOptions {
+  rotX?: number;
+  rotY?: number;
+  zoom?: number;
+  center?: [number, number];
+}
+
+interface GlyphcssCamera {
+  readonly kind: "perspective" | "orthographic";
+  rotX: number; rotY: number;
+  distance: number; scale: number; stretch: number;
+  project(v: Vec3, cols: number, rows: number, cellAspect: number): [number, number, number];
+}
+
+type GlyphcssCameraOptions = GlyphcssPerspectiveCameraOptions | GlyphcssOrthographicCameraOptions;
+type GlyphcssPerspectiveCameraHandle = GlyphcssCamera;
+type GlyphcssOrthographicCameraHandle = GlyphcssCamera;
+```
+
+## Scene
+
+```ts
+interface GridSize {
+  cols: number;
+  rows: number;
+  cellAspect: number; // cellH / cellW — typically ~2.0 for monospace
+}
+
+type RenderMode = "wireframe" | "solid" | "voxel";
+
+interface SceneContextOptions {
+  camera: GlyphcssCamera;
+  grid: GridSize;
+  triangles?: TextureTriangle[];
+  wireframe?: WireframeEdge[];
+  mode?: RenderMode;
+  directionalLight?: GlyphcssDirectionalLight;
+  ambientLight?: GlyphcssAmbientLight;
+}
+
+interface SceneContext {
+  camera: GlyphcssCamera;
+  grid: GridSize;
+  triangles: TextureTriangle[];
+  wireframe: WireframeEdge[];
+  mode: RenderMode;
+  directionalLight: GlyphcssDirectionalLight;
+  ambientLight: GlyphcssAmbientLight;
 }
 ```
 
----
-
-## `ObjParseOptions`
-
-Options for `parseObj`.
+## Hotspots
 
 ```ts
-interface ObjParseOptions {
-  /** Scale the model so its longest axis is this many world units. */
-  targetSize?: number;
-  /** Shift all vertices by this amount after scaling. */
-  gridShift?: number;
-  /** Fallback color for un-colored faces (default: "#cccccc"). */
-  defaultColor?: string;
-  /** Override per-material colors (material name → CSS color). */
-  materialColors?: Record<string, string>;
-  /** Override per-material textures (material name → image URL). */
-  materialTextures?: Record<string, string>;
-  /** Only include these named OBJ objects. */
-  includeObjects?: string[];
-  /** Exclude these named OBJ objects. */
-  excludeObjects?: string[];
-  /** Quantize vertex colors to this palette. */
-  palette?: string[];
+interface Hotspot {
+  id: string;
+  at: Vec3;
+  size?: [number, number]; // cols × rows in character cells; default [1, 1]
 }
-```
 
----
-
-## `VoxParseOptions`
-
-Options for `parseVox`.
-
-```ts
-interface VoxParseOptions {
-  /** Scale the model so its longest axis is this many world units. Default: 60. */
-  targetSize?: number;
-  /** Shift all vertices by this amount after scaling. Default: 0. */
-  gridShift?: number;
-}
-```
-
----
-
-## `GltfParseOptions`
-
-Options for `parseGltf`.
-
-```ts
-interface GltfParseOptions {
-  /** Scale the model so its longest axis is this many world units. */
-  targetSize?: number;
-  /** Shift all vertices by this amount after scaling. */
-  gridShift?: number;
-  /** Fallback color for un-colored faces. */
-  defaultColor?: string;
-  /** Override per-material colors. */
-  materialColors?: Record<string, string>;
-  /** Treat the model's up axis as Y or Z. Most GLB files use Y. */
-  upAxis?: "y" | "z";
-  /** Base URL for resolving external texture references in .gltf files. */
-  baseUrl?: string;
-  /** Custom buffer resolver for external .bin files. */
-  resolveBuffer?: (uri: string) => Promise<Uint8Array> | Uint8Array;
-}
-```
-
----
-
-## `MtlParseResult`
-
-Return type of `parseMtl`.
-
-```ts
-interface MtlParseResult {
-  /** Material name → CSS color. */
-  colors: Record<string, string>;
-  /** Material name → texture image path. */
-  textures: Record<string, string>;
-}
-```
-
----
-
-## `AutoRotateOption`
-
-Configures automatic camera rotation.
-
-```ts
-type AutoRotateOption =
-  | boolean          // true = default Y-axis at speed 0.3, pauseOnInteraction
-  | number           // speed in degrees/frame on Y axis
-  | {
-      axis?: "x" | "y";
-      speed?: number;
-      pauseOnInteraction?: boolean;
-    };
-```
-
-## `CameraState`
-
-Internal camera state (used by `createIsometricCamera`).
-
-```ts
-interface CameraState {
-  target: [number, number, number];
-  rotX: number;
-  rotY: number;
-  zoom: number;
-  distance: number;           // dolly pull-back in pixels (default 0); adds translateZ(-distance)px
+interface HotspotCell {
+  id: string;
+  col: number;
+  row: number;
+  depth: number; // camera-space Z
+  visible: boolean; // false when behind camera or off-grid
 }
 ```

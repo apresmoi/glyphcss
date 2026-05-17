@@ -1,0 +1,36 @@
+---
+title: GlyphcssOrbitControls
+description: Drag-to-rotate and scroll-to-zoom on the parent scene.
+---
+
+`<GlyphcssOrbitControls>` listens for pointer + wheel events on the parent
+`<GlyphcssScene>` viewport. On drag, the CSS strip animation pauses and the renderer
+live-rasterizes one frame per pointermove. On release, the scene re-bakes a fresh
+60-frame strip + hotspot keyframes. On wheel, `camera.distance` adjusts and a
+debounced re-bake runs after the last scroll event.
+
+## Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `drag` | `boolean` | `false` | Enable click-and-drag rotation |
+| `wheel` | `boolean` | `false` | Enable scroll-to-zoom |
+| `dragSensitivity` | `number` | `0.012` | Radians per pixel of pointer movement |
+
+## React
+
+```tsx
+<GlyphcssScene>
+  <GlyphcssOrbitControls drag wheel dragSensitivity={0.015} />
+  <GlyphcssMesh geometry="cuboctahedron" />
+</GlyphcssScene>
+```
+
+## Vanilla / custom element
+
+```html
+<glyphcss-scene>
+  <glyphcss-orbit-controls drag wheel></glyphcss-orbit-controls>
+  <glyphcss-mesh geometry="cuboctahedron"></glyphcss-mesh>
+</glyphcss-scene>
+```

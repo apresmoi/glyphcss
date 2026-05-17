@@ -35,7 +35,6 @@ export function glbPreset(input: GalleryPresetFile): PresetModel {
     category: input.category,
     kind: "glb",
     url: galleryFileUrl("glb", input.file),
-    options: { targetSize: input.targetSize ?? 60 },
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
@@ -47,7 +46,6 @@ export function glbPreset(input: GalleryPresetFile): PresetModel {
 export function objPreset(input: ObjGalleryPresetFile): PresetModel {
   const inferredMtlFile = input.file.replace(/\.obj$/i, ".mtl");
   const mtlFile = input.mtlFile === null ? undefined : input.mtlFile ?? inferredMtlFile;
-  const hasMaterialTextures = Object.keys(input.options?.materialTextures ?? {}).length > 0;
   return {
     id: presetIdFromFile("obj", input.file),
     label: input.label ?? labelFromFile(input.file),
@@ -55,15 +53,10 @@ export function objPreset(input: ObjGalleryPresetFile): PresetModel {
     kind: "obj",
     url: galleryFileUrl("obj", input.file),
     mtlUrl: mtlFile ? galleryFileUrl("obj", mtlFile) : undefined,
-    options: {
-      targetSize: input.targetSize ?? 60,
-      defaultColor: input.defaultColor ?? "#8b95a1",
-      ...(input.options ?? {}),
-    },
     zoom: input.zoom ?? 0.35,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
-    galleryBucket: input.galleryBucket ?? (hasMaterialTextures ? "Textured" : undefined),
+    galleryBucket: input.galleryBucket,
     attribution: input.attribution,
   };
 }
@@ -75,7 +68,6 @@ export function voxPreset(input: GalleryPresetFile): PresetModel {
     category: input.category,
     kind: "vox",
     url: galleryFileUrl("vox", input.file),
-    options: { targetSize: input.targetSize ?? 60, gridShift: 0 },
     zoom: input.zoom ?? 0.4,
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,

@@ -1,0 +1,43 @@
+{
+  "name": "glyphcss",
+  "version": "0.0.1",
+  "description": "Glyphcss — ASCII paint backend with polycss's scene-composition API. Renders 3D meshes as ASCII art in a <pre> element.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": ["glyphcss", "ascii", "3d", "mesh", "terminal", "dom", "custom-elements", "vanilla"],
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./elements": {
+      "types": "./dist/elements.d.ts",
+      "import": "./dist/elements.js",
+      "require": "./dist/elements.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@glyphcss/core": "workspace:^"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1",
+    "vite": "^6.0.0",
+    "@vitest/coverage-v8": "^3.1.1",
+    "happy-dom": "^20.7.0"
+  }
+}

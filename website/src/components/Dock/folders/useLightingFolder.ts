@@ -1,17 +1,12 @@
 /**
- * "Lighting" folder of the Dock GUI.
- *
- * Three toggles (cast shadow, ground plane, light helper) plus the directional
- * key-light azimuth/elevation/intensity/color and an ambient
- * intensity/color pair. All controllers funnel into a single
- * `onUpdateScene` callback so the parent owns the scene-options state.
+ * Lighting folder — show-ground, light-helper toggles, directional key-light
+ * (azimuth / elevation / intensity / color), and ambient (intensity / color).
  */
 import type { GUI } from "lil-gui";
-
+import type { SceneOptionsState } from "../../GalleryWorkbench/types";
 import { useColor, useFolder, useSlider, useToggle } from "../primitives";
 
 export interface LightingFolderInputs {
-  castShadow: boolean;
   showGround: boolean;
   showLight: boolean;
   lightAzimuth: number;
@@ -20,22 +15,20 @@ export interface LightingFolderInputs {
   lightColor: string;
   ambientIntensity: number;
   ambientColor: string;
-  onUpdateScene: (partial: {
-    castShadow?: boolean;
-    showGround?: boolean;
-    showLight?: boolean;
-    lightAzimuth?: number;
-    lightElevation?: number;
-    lightIntensity?: number;
-    lightColor?: string;
-    ambientIntensity?: number;
-    ambientColor?: string;
-  }) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState,
+    | "showGround"
+    | "showLight"
+    | "lightAzimuth"
+    | "lightElevation"
+    | "lightIntensity"
+    | "lightColor"
+    | "ambientIntensity"
+    | "ambientColor"
+  >>) => void;
 }
 
 export function useLightingFolder(parent: GUI | null, inputs: LightingFolderInputs): void {
   const {
-    castShadow,
     showGround,
     showLight,
     lightAzimuth,
@@ -49,7 +42,6 @@ export function useLightingFolder(parent: GUI | null, inputs: LightingFolderInpu
 
   const folder = useFolder(parent, "Lighting", { open: true });
 
-  useToggle(folder, "Cast shadow", castShadow, (value) => onUpdateScene({ castShadow: value }));
   useToggle(folder, "Show ground", showGround, (value) => onUpdateScene({ showGround: value }));
   useToggle(folder, "Light helper", showLight, (value) => onUpdateScene({ showLight: value }));
 
@@ -63,7 +55,6 @@ export function useLightingFolder(parent: GUI | null, inputs: LightingFolderInpu
     onUpdateScene({ lightIntensity: value }),
   );
   useColor(folder, "Key color", lightColor, (value) => onUpdateScene({ lightColor: value }));
-
   useSlider(folder, "Ambient", { min: 0, max: 2, step: 0.05 }, ambientIntensity, (value) =>
     onUpdateScene({ ambientIntensity: value }),
   );

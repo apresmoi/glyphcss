@@ -9,26 +9,43 @@ export function AttributionCredit({
   attribution,
 }: {
   attribution?: ModelAttribution;
-}): JSX.Element {
+}) {
   if (!attribution) {
-    return <p className="model-credit">Source: Unknown</p>;
+    return (
+      <p className="model-credit">
+        <span className="model-credit__seg">[ source: Unknown ]</span>
+      </p>
+    );
   }
 
   const trisText =
-    typeof attribution.tris === "number" ? ` · ${attribution.tris.toLocaleString()} tris` : "";
+    typeof attribution.tris === "number"
+      ? attribution.tris.toLocaleString() + " tris"
+      : null;
+
+  const creatorNode = attribution.sourceUrl ? (
+    <a href={attribution.sourceUrl} target="_blank" rel="noreferrer">
+      {attribution.creator}
+    </a>
+  ) : (
+    attribution.creator
+  );
 
   return (
     <p className="model-credit">
-      Source:{" "}
-      {attribution.sourceUrl ? (
-        <a href={attribution.sourceUrl} target="_blank" rel="noreferrer">
-          {attribution.creator}
-        </a>
-      ) : (
-        attribution.creator
+      <span className="model-credit__seg">[ source: {creatorNode} ]</span>
+      {attribution.license && (
+        <>
+          <span className="model-credit__sep">──</span>
+          <span className="model-credit__seg">[ license: {attribution.license} ]</span>
+        </>
       )}
-      {attribution.license ? ` · ${attribution.license}` : ""}
-      {trisText}
+      {trisText && (
+        <>
+          <span className="model-credit__sep">──</span>
+          <span className="model-credit__seg model-credit__tris">[ {trisText} ]</span>
+        </>
+      )}
     </p>
   );
 }

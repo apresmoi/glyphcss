@@ -1,15 +1,10 @@
 import { useCallback, useRef, useState, type ChangeEvent, type Dispatch, type DragEvent, type RefObject, type SetStateAction } from "react";
-import type { DroppedModelSource, PresetModel, ParserOptionsState } from "../types";
+import type { DroppedModelSource, PresetModel } from "../types";
 import { labelFromFile } from "../presets";
 
 const DROPPED_MESH_EXTENSIONS = new Set(["obj", "glb", "vox"]);
 
 const DEFAULT_COLOR = "#8b95a1";
-
-interface DroppedFileIndex {
-  byPath: Map<string, File>;
-  byBasename: Map<string, File[]>;
-}
 
 function fileListToArray(fileList: FileList | null): File[] {
   const files: File[] = [];
@@ -40,78 +35,6 @@ function droppedKindForFile(file: File): DroppedModelSource["kind"] | null {
   return null;
 }
 
-function droppedFilePath(file: File): string {
-  const withRelativePath = file as File & { webkitRelativePath?: string };
-  return withRelativePath.webkitRelativePath || file.name;
-}
-
-function normalizeDroppedPath(value: string): string {
-  let normalized = value.trim().replace(/\\+/g, "/").replace(/^\.\/+/, "");
-  try {
-    normalized = decodeURIComponent(normalized);
-  } catch {
-    // Keep the original path when it is not URI encoded.
-  }
-  return normalized.toLowerCase();
-}
-
-function droppedBasename(value: string): string {
-  const normalized = normalizeDroppedPath(value);
-  return normalized.split("/").pop() ?? normalized;
-}
-
-function buildDroppedFileIndex(files: File[]): DroppedFileIndex {
-  const byPath = new Map<string, File>();
-  const byBasename = new Map<string, File[]>();
-  for (const file of files) {
-    const path = normalizeDroppedPath(droppedFilePath(file));
-    byPath.set(path, file);
-    byPath.set(normalizeDroppedPath(file.name), file);
-
-    const base = droppedBasename(file.name);
-    const bucket = byBasename.get(base) ?? [];
-    bucket.push(file);
-    byBasename.set(base, bucket);
-  }
-  return { byPath, byBasename };
-}
-
-function findDroppedFile(index: DroppedFileIndex, path: string): File | null {
-  const normalized = normalizeDroppedPath(path);
-  return index.byPath.get(normalized) ?? index.byBasename.get(droppedBasename(normalized))?.[0] ?? null;
-}
-
-function extractObjMtllibRefs(objText: string): string[] {
-  const refs: string[] = [];
-  for (const raw of objText.split("\n")) {
-    const line = raw.trim();
-    if (!line.startsWith("mtllib ")) continue;
-    const rest = line.slice(7).trim();
-    if (!rest) continue;
-    refs.push(rest);
-    for (const token of rest.split(/\s+/)) {
-      if (token.toLowerCase().endsWith(".mtl")) refs.push(token);
-    }
-  }
-  return Array.from(new Set(refs));
-}
-
-export function findDroppedMtlFiles(objText: string, files: File[], index: DroppedFileIndex): File[] {
-  const matched = new Map<string, File>();
-  for (const ref of extractObjMtllibRefs(objText)) {
-    const file = findDroppedFile(index, ref);
-    if (file) matched.set(droppedFilePath(file), file);
-  }
-  if (matched.size > 0) return Array.from(matched.values());
-
-  const mtlFiles = files.filter((file) => fileExtension(file.name) === "mtl");
-  return mtlFiles.length === 1 ? mtlFiles : [];
-}
-
-export function buildDroppedFileIndexExport(files: File[]): DroppedFileIndex {
-  return buildDroppedFileIndex(files);
-}
-
 function droppedSourceFromFiles(files: File[], id: string): DroppedModelSource | null {
   const primaryFile = files.find((file) => DROPPED_MESH_EXTENSIONS.has(fileExtension(file.name)));
   if (!primaryFile) return null;
@@ -126,11 +49,6 @@ function droppedSourceFromFiles(files: File[], id: string): DroppedModelSource |
     kind,
     category: "Dropped",
     url: "",
-    options: {
-      targetSize: 60,
-      gridShift: kind === "vox" ? 0 : 1,
-      defaultColor: DEFAULT_COLOR,
-    },
     zoom: kind === "vox" ? 0.4 : 0.35,
     rotX: 65,
     rotY: 45,

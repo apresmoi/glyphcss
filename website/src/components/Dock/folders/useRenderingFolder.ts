@@ -1,164 +1,58 @@
 /**
- * "Rendering" folder of the Dock GUI.
- *
- * Mesh resolution + Interior fill toggles, plus a single "Texture mode"
- * dropdown that collapses the old separate Solid-materials toggle and
- * Texture-lighting selector into one row (disabled | baked | dynamic).
- *
- * Texture quality is a slider with an Auto checkbox injected inside the
- * slider's `.widget`. Auto handling: the React-side `textureQuality` value
- * is either the string `"auto"` or a number in [0.1, 1]. The slider always
- * needs *some* numeric value to display, so we remember the last numeric
- * value in a ref and use that whenever the effective value is `"auto"`.
- * Touching the slider commits the number (implicitly clears Auto).
- *
- * Texture mode + quality are both hidden when `hasSpriteLeaves` is false —
- * a model with no atlas leaves has nothing for these controls to affect.
+ * Rendering folder — render mode, feature-edge threshold, glyph palette,
+ * line-height multiplier, and colors toggle.
  */
-import { useEffect, useRef } from "react";
 import type { GUI } from "lil-gui";
-import type { MeshResolution, PolyTextureLightingMode } from "@layoutit/polycss-react";
-
+import type { SceneOptionsState } from "../../GalleryWorkbench/types";
 import { useFolder, useOption, useSlider, useToggle } from "../primitives";
 
-export type TextureMode = "disabled" | PolyTextureLightingMode;
-
 export interface RenderingFolderInputs {
-  meshResolution: MeshResolution;
-  meshInteriorFill: boolean;
-  solidMaterials: boolean;
-  textureLighting: PolyTextureLightingMode;
-  /** Either "auto" or a number in [0.1, 1]. */
-  textureQuality: "auto" | number;
-  hasActiveAnimation: boolean;
-  hasSpriteLeaves: boolean;
-  onUpdateScene: (partial: {
-    meshResolution?: MeshResolution;
-    meshInteriorFill?: boolean;
-    solidMaterials?: boolean;
-    textureLighting?: PolyTextureLightingMode;
-    textureQuality?: "auto" | number;
-  }) => void;
+  renderMode: SceneOptionsState["renderMode"];
+  featureEdges: number;
+  glyphPalette: SceneOptionsState["glyphPalette"];
+  lineHeight: number;
+  useColors: boolean;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "lineHeight" | "useColors">>) => void;
 }
 
-const MESH_RESOLUTION_OPTIONS: Record<string, MeshResolution> = {
-  Lossless: "lossless",
-  Lossy: "lossy",
-};
 
-const TEXTURE_MODE_OPTIONS: Record<string, TextureMode> = {
-  disabled: "disabled",
-  baked: "baked",
-  dynamic: "dynamic",
+const RENDER_MODE_OPTIONS: Record<string, "wireframe" | "solid"> = {
+  Wireframe: "wireframe",
+  Solid: "solid",
 };
-
-function textureModeFor(solidMaterials: boolean, textureLighting: PolyTextureLightingMode): TextureMode {
-  return solidMaterials ? "disabled" : textureLighting;
-}
+type GlyphPaletteId = "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
+const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
+  Default: "default",
+  ASCII: "ascii",
+  Dots: "dots",
+  Lines: "lines",
+  Blocks: "blocks",
+  Stars: "stars",
+  Arrows: "arrows",
+  Braille: "braille",
+  Runes: "runes",
+  Math: "math",
+  Binary: "binary",
+  Hex: "hex",
+};
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): void {
-  const {
-    meshResolution,
-    meshInteriorFill,
-    solidMaterials,
-    textureLighting,
-    textureQuality,
-    hasActiveAnimation,
-    hasSpriteLeaves,
-    onUpdateScene,
-  } = inputs;
+  const { renderMode, featureEdges, glyphPalette, lineHeight, useColors, onUpdateScene } = inputs;
+  const folder = useFolder(parent, "Rendering", { open: true });
 
-  const folder = useFolder(parent, "Rendering");
-
-  const isAuto = textureQuality === "auto";
-
-  const lastNumericRef = useRef<number>(typeof textureQuality === "number" ? textureQuality : 1);
-  if (typeof textureQuality === "number") lastNumericRef.current = textureQuality;
-  const sliderValue = typeof textureQuality === "number" ? textureQuality : lastNumericRef.current;
-
-  const meshResolutionCtrl = useOption(
-    folder,
-    "Mesh resolution",
-    MESH_RESOLUTION_OPTIONS,
-    meshResolution,
-    (value) => onUpdateScene({ meshResolution: value }),
+  useOption<"wireframe" | "solid">(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, (value) =>
+    onUpdateScene({ renderMode: value }),
   );
-
-  const meshInteriorFillCtrl = useToggle(folder, "Interior fill", meshInteriorFill, (value) =>
-    onUpdateScene({ meshInteriorFill: value }),
+  useSlider(folder, "Feature edges °", { min: 0, max: 90, step: 1 }, featureEdges, (value) =>
+    onUpdateScene({ featureEdges: value }),
   );
-
-  const textureMode = textureModeFor(solidMaterials, textureLighting);
-  const textureModeCtrl = useOption<TextureMode>(
-    folder,
-    "Texture mode",
-    TEXTURE_MODE_OPTIONS,
-    textureMode,
-    (value) => {
-      if (value === "disabled") {
-        onUpdateScene({ solidMaterials: true });
-        return;
-      }
-      onUpdateScene({ solidMaterials: false, textureLighting: value });
-    },
+  useOption<GlyphPaletteId>(folder, "Glyph palette", GLYPH_PALETTE_OPTIONS, glyphPalette as GlyphPaletteId, (value) =>
+    onUpdateScene({ glyphPalette: value }),
   );
-
-  const textureQualityCtrl = useSlider(
-    folder,
-    "Texture quality",
-    { min: 0.1, max: 1, step: 0.05 },
-    sliderValue,
-    (value) => {
-      lastNumericRef.current = value;
-      onUpdateScene({ textureQuality: value });
-    },
+  useToggle(folder, "Colors", useColors, (value) =>
+    onUpdateScene({ useColors: value }),
   );
-
-  const onUpdateSceneRef = useRef(onUpdateScene);
-  onUpdateSceneRef.current = onUpdateScene;
-
-  useEffect(() => {
-    meshResolutionCtrl?.setEnabled(!hasActiveAnimation);
-    meshInteriorFillCtrl?.setEnabled(!hasActiveAnimation);
-  }, [meshResolutionCtrl, meshInteriorFillCtrl, hasActiveAnimation]);
-
-  useEffect(() => {
-    textureModeCtrl?.setVisible(hasSpriteLeaves);
-    textureQualityCtrl?.setVisible(hasSpriteLeaves);
-  }, [textureModeCtrl, textureQualityCtrl, hasSpriteLeaves]);
-
-  const autoCheckboxRef = useRef<HTMLInputElement | null>(null);
-  useEffect(() => {
-    if (!textureQualityCtrl) return;
-    const widget = textureQualityCtrl.raw.domElement.querySelector<HTMLElement>(".widget");
-    if (!widget) return;
-
-    const wrap = document.createElement("label");
-    wrap.className = "dn-auto-toggle";
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    const lbl = document.createElement("span");
-    lbl.textContent = "Auto";
-    wrap.appendChild(cb);
-    wrap.appendChild(lbl);
-    cb.addEventListener("change", () => {
-      if (cb.checked) {
-        onUpdateSceneRef.current({ textureQuality: "auto" });
-      } else {
-        onUpdateSceneRef.current({ textureQuality: lastNumericRef.current });
-      }
-    });
-    widget.insertBefore(wrap, widget.firstChild);
-    autoCheckboxRef.current = cb;
-
-    return () => {
-      wrap.remove();
-      autoCheckboxRef.current = null;
-    };
-  }, [textureQualityCtrl]);
-
-  useEffect(() => {
-    if (autoCheckboxRef.current) autoCheckboxRef.current.checked = isAuto;
-    textureQualityCtrl?.setEnabled(!isAuto, { dim: false });
-  }, [textureQualityCtrl, isAuto]);
+  useSlider(folder, "Line-height ×", { min: 0.5, max: 1.2, step: 0.01 }, lineHeight, (value) =>
+    onUpdateScene({ lineHeight: value }),
+  );
 }

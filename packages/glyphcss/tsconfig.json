@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "lib": ["DOM", "ES2020"],
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@glyphcss/core": ["../core/src/index.ts"],
+      "@glyphcss/core/*": ["../core/src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../core" }
+  ]
+}

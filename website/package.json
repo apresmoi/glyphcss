@@ -1,21 +1,21 @@
 {
-  "name": "@layoutit/polycss-website",
+  "name": "@glyphcss/website",
   "type": "module",
   "version": "0.1.0",
   "private": true,
-  "description": "Polycss documentation and landing page.",
+  "description": "Glyphcss documentation and landing page.",
   "license": "MIT",
   "scripts": {
-    "dev": "astro dev",
+    "dev": "astro dev --port 4324",
     "build": "astro build && node scripts/generate-llms-txt.mjs",
-    "preview": "astro preview"
+    "preview": "astro preview --port 4324"
   },
   "dependencies": {
     "@astrojs/react": "^5.0.2",
     "@astrojs/sitemap": "^3.7.1",
     "@astrojs/starlight": "^0.38.2",
-    "@layoutit/polycss": "workspace:^",
-    "@layoutit/polycss-react": "workspace:^",
+    "@glyphcss/react": "workspace:^",
+    "glyphcss": "workspace:^",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "astro": "^6.0.8",

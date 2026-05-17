@@ -1,24 +1,14 @@
 export { Dock } from "./Dock";
 export type { DockProps } from "./Dock";
 export {
-  DockGuiContext,
-  useDockGui,
   DockModel,
   DockRendering,
   DockAnimation,
-  DockInteraction,
   DockCamera,
   DockLighting,
-  DockScene,
 } from "./slots";
-export {
-  useGui,
-  useFolder,
-  useToggle,
-  useSlider,
-  useOption,
-  useColor,
-  useButton,
-  useReadonlyNumber,
-} from "./primitives";
-export type { DockController, DockOptionController } from "./primitives";
+export type { ModelFolderInputs } from "./folders/useModelFolder";
+export type { RenderingFolderInputs } from "./folders/useRenderingFolder";
+export type { AnimationFolderInputs } from "./folders/useAnimationFolder";
+export type { CameraFolderInputs } from "./folders/useCameraFolder";
+export type { LightingFolderInputs } from "./folders/useLightingFolder";

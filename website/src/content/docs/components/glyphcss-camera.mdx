@@ -1,0 +1,52 @@
+---
+title: GlyphcssCamera
+description: Perspective or orthographic camera handle shared by the renderer and hit layer.
+---
+
+`<GlyphcssCamera>` (alias for `<GlyphcssPerspectiveCamera>`) is the canonical projection
+state. The renderer and the hit layer both read from it — mutating `rotY` updates
+both simultaneously.
+
+## Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `rotX` | `number` (radians) | `0` | Tilt around X axis |
+| `rotY` | `number` (radians) | `0` | Spin around Y axis |
+| `distance` | `number` | `3` | Camera distance — smaller = more perspective foreshortening |
+| `scale` | `number` | `0.4` | Mesh size as a fraction of `min(cols, rows)` |
+| `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` — use `0.95` to match polycss / RadiantHero |
+
+## Vanilla factory
+
+```ts
+import { createGlyphcssPerspectiveCamera } from "glyphcss";
+
+const camera = createGlyphcssPerspectiveCamera({
+  rotX: 0.4, rotY: 0,
+  distance: 3, scale: 0.32, stretch: 0.95,
+});
+
+// All five properties are mutable after creation:
+camera.rotY = Math.PI / 4;
+camera.distance = 4;
+```
+
+## Orthographic
+
+```ts
+import { createGlyphcssOrthographicCamera } from "glyphcss";
+
+const camera = createGlyphcssOrthographicCamera({ rotX: 0.4, zoom: 0.4 });
+```
+
+Orthographic projection ignores `distance` (no foreshortening). Use it for
+isometric-style scenes where parallel lines should stay parallel.
+
+## Notes
+
+- Distance ranges that work well: `1.6` (strong perspective) → `5.0` (nearly flat).
+- The default `rotX: 0` looks down the Z axis. Try `0.38` (RadiantHero) for a
+  slight downward tilt that gives the mesh visual weight.
+- `stretch: 0.95` counteracts the over-stretching that comes from `cellAspect ≈ 2`
+  on typical monospace fonts. Leave at `1.0` if you tighten line-height instead.

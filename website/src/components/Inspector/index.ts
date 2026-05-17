@@ -1,2 +1,2 @@
 export { Inspector, InspectorPanel } from "./Inspector";
-export type { InspectorMesh, InspectorColorGroup } from "./Inspector";
+export type { InspectorColorGroup, InspectorMesh } from "./Inspector";

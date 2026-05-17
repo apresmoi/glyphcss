@@ -1,18 +1,15 @@
 /**
- * Animation folder — extracted from the legacy Dock.tsx mega-effect.
+ * Animation folder — sequence picker, pause toggle, and playback speed.
  *
- * Owns three controllers (Sequence / Paused / Playback speed) plus the folder
- * shell itself. When the model has no animation clips the whole folder is
- * hidden via lil-gui's `.hide()` and the three controllers are dimmed so any
- * direct DOM access doesn't fire stale onChange callbacks. The Sequence
- * dropdown's option list is refreshed at runtime whenever `animationOptions`
- * changes reference (model swap), and the current `selectedAnimation` is
- * re-validated against the new list — if it's missing we ask the parent to
- * clear it.
+ * The folder is hidden when the loaded mesh has no animation clips, and the
+ * sequence dropdown's option list refreshes at runtime on model swap. A stale
+ * `selectedAnimation` that no longer exists in the new list triggers
+ * `onSelectAnimationClear` so the parent can reset cleanly.
  */
 import { useEffect, useRef } from "react";
 import type { GUI } from "lil-gui";
 import { useFolder, useOption, useSlider, useToggle } from "../primitives";
+import type { SceneOptionsState } from "../../GalleryWorkbench/types";
 
 export interface AnimationFolderInputs {
   selectedAnimation: string;
@@ -21,9 +18,8 @@ export interface AnimationFolderInputs {
   animationTimeScale: number;
   animationClipCount: number;
   onAnimationChange: (value: string) => void;
-  onResetAnimatedPolygons: () => void;
   onSelectAnimationClear: () => void;
-  onUpdateScene: (partial: { animationPaused?: boolean; animationTimeScale?: number }) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "animationPaused" | "animationTimeScale">>) => void;
 }
 
 export function useAnimationFolder(parent: GUI | null, inputs: AnimationFolderInputs): void {
@@ -34,22 +30,18 @@ export function useAnimationFolder(parent: GUI | null, inputs: AnimationFolderIn
     animationTimeScale,
     animationClipCount,
     onAnimationChange,
-    onResetAnimatedPolygons,
     onSelectAnimationClear,
     onUpdateScene,
   } = inputs;
 
-  const folder = useFolder(parent, "Animation");
+  const folder = useFolder(parent, "Animation", { open: true });
 
   const sequenceController = useOption<string>(
     folder,
     "Sequence",
     animationOptions,
     selectedAnimation,
-    (value) => {
-      onAnimationChange(value);
-      onResetAnimatedPolygons();
-    },
+    (value) => onAnimationChange(value),
   );
 
   const pausedController = useToggle(
@@ -67,11 +59,7 @@ export function useAnimationFolder(parent: GUI | null, inputs: AnimationFolderIn
     (value) => onUpdateScene({ animationTimeScale: value }),
   );
 
-  // Refresh the dropdown options when the model changes. lil-gui's `options()`
-  // call replaces the underlying controller; the primitive's `setOptions`
-  // hides that swap. Re-validate `selectedAnimation` against the new list and
-  // clear it upstream if it's gone — leaving a stale value in the dropdown
-  // would let `onChange` fire with a key the model can no longer resolve.
+  // Refresh dropdown when the model changes and re-validate the selected value.
   const prevOptionsRef = useRef(animationOptions);
   useEffect(() => {
     if (!sequenceController) return;
@@ -85,10 +73,6 @@ export function useAnimationFolder(parent: GUI | null, inputs: AnimationFolderIn
     }
   }, [sequenceController, animationOptions, selectedAnimation, onSelectAnimationClear]);
 
-  // Folder visibility + controller enabled state follow clip availability.
-  // Hiding the folder also collapses the controllers visually, but we still
-  // disable them so any programmatic access (or lil-gui internals) doesn't
-  // route through dead controls.
   useEffect(() => {
     if (!folder) return;
     if (animationClipCount > 0) folder.show();

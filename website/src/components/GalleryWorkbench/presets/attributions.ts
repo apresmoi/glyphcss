@@ -192,7 +192,6 @@ export const GLB_PRESET_ATTRIBUTIONS: Record<string, ModelAttribution> = {
   "FishAnimated.glb": QUATERNIUS_ANIMATED_FISH_ATTRIBUTION,
   "AnimatedMushnub.glb": QUATERNIUS_ANIMATED_MONSTERS_ATTRIBUTION,
   "AnimatedSnake.glb": QUATERNIUS_EASY_ENEMIES_ATTRIBUTION,
-  "AnimatedWizard.glb": QUATERNIUS_ANIMATED_MONSTERS_ATTRIBUTION,
   "Bat.glb": WEBXR_CAVE_BAT_ATTRIBUTION,
   "Bear.glb": polyPizzaJeremyAttribution("evjB26aGfTh"),
   "Cheetah.glb": polyPizzaJeremyAttribution("ew0sr-amXFo"),

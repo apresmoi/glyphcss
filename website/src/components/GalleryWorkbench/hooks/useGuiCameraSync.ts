@@ -1,17 +1,15 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import type { Vec3 as ReactVec3 } from "@layoutit/polycss-react";
-import type { SceneOptionsState } from "../../types";
+import type { SceneOptionsState } from "../types";
 
 export interface UseGuiCameraSyncOptions {
   setSceneOptions: Dispatch<SetStateAction<SceneOptionsState>>;
 }
 
 export function useGuiCameraSync({ setSceneOptions }: UseGuiCameraSyncOptions) {
-  // Mirror controls-driven camera changes (drag/wheel/autorotate) back into
-  // React state. Without this, the sliders don't track the live drag and a
-  // subsequent scene rebuild (baked → dynamic, mesh swap, etc.) reads the
-  // stale slider value and resets the user's camera.
-  const handleCameraChange = useCallback((camera: { rotX: number; rotY: number; zoom: number; target?: ReactVec3 }) => {
+  // Mirror controls-driven camera changes (drag/wheel) back into React state.
+  // Without this, the lil-gui sliders don't track the live drag and a
+  // subsequent scene option change reads the stale slider value.
+  const handleCameraChange = useCallback((camera: { rotX: number; rotY: number; zoom: number; target?: [number, number, number] }) => {
     setSceneOptions((current) => {
       const nextTarget = camera.target ?? current.target;
       if (

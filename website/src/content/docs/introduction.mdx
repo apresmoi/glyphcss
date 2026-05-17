@@ -1,79 +1,43 @@
 ---
 title: Introduction
-description: "polycss is a CSS polygon-mesh renderer: DOM-native 3D without WebGL."
+description: What glyphcss is and the problem it solves.
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import GlyphcssDemo from "../../components/GlyphcssDemo.astro";
 
-**polycss** renders textured 3D meshes in the DOM. No WebGL, no canvas-as-scene: the rendered output is a tree of standard DOM elements (atlas-backed `<i>` sprites for both textured and flat-color faces) positioned with `transform: matrix3d(...)`. Each polygon is one DOM node you can target with CSS, attach event handlers to, and inspect in DevTools.
+**glyphcss** is an ASCII polygon-mesh rendering engine for the DOM. It paints 3D meshes
+(OBJ / glTF / GLB / VOX) into a character grid, then animates rotation via CSS
+`steps(N)` keyframes. JavaScript runs once at scene init and again only when the user
+drags or zooms — never per frame.
 
-Internally, polycss uses an off-DOM canvas to pack textured and flat-color polygons into atlas pages once at mount; each polygon then references its atlas region with CSS background positioning. So the user-visible runtime tree is plain DOM, with one-time atlas generation at load.
+<GlyphcssDemo id="intro-demo" geometry="cuboctahedron" />
 
-## Framework Support
+## The mental model
 
-polycss is **vanilla-first**. The default entry point is custom elements (`<poly-scene>`, `<poly-mesh>`, `<poly-polygon>`) plus an imperative `createPolyScene` API: no framework required. First-class bindings for **React** and **Vue** ship as separate packages on top of the same engine. Pick whatever fits your stack.
+A polycss scene is **one DOM node per polygon** — every triangle is an absolutely
+positioned `<div>` transformed with `matrix3d(...)`. The browser composites the result.
 
-## Installation
+An **glyphcss** scene is **one `<pre>` per scene plus a sparse `<div>` hit layer**.
+The `<pre>` contains N pre-baked rotation frames stacked vertically; CSS animates the
+strip with `steps(N, end)` over a configurable duration. Hotspots (one per registered
+3D anchor) get their own `@keyframes` that step through projected positions in sync
+with the strip.
 
-<Tabs syncKey="pkg">
-<TabItem label="Vanilla JS">
-```bash
-npm install @layoutit/polycss
-```
-</TabItem>
-<TabItem label="React">
-```bash
-npm install @layoutit/polycss-react
-```
-</TabItem>
-<TabItem label="Vue">
-```bash
-npm install @layoutit/polycss-vue
-```
-</TabItem>
-</Tabs>
+## Tradeoffs vs polycss
 
-### CDN (custom elements)
+| | polycss | glyphcss |
+|---|---|---|
+| Cost dominator | polygon count | grid cell count |
+| Per-polygon DOM events | ✓ (one node per polygon) | opt-in via `<GlyphcssHotspot>` |
+| Texture / material support | full UVs, atlas, lighting | wireframe + Lambert ramp + voxel face |
+| Per-frame JS work | none (CSS-driven) | none (CSS-driven) |
+| Visual style | smooth-shaded | ASCII / glyph art |
 
-You can also load polycss directly from a CDN with no build step:
+glyphcss is the right tool when you want **iconic, terminal-aesthetic 3D** with
+**handpicked interactivity** — not when you need photorealistic texture mapping.
 
-```html
-<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
-```
+## What's next
 
-## A quick taste
-
-Load a GLB mesh into an interactive scene with zero JS: just custom elements:
-
-```html
-<script type="module" src="https://esm.sh/@layoutit/polycss/elements"></script>
-
-<poly-scene rot-x="65" rot-y="45" perspective="1000">
-  <poly-mesh src="/cottage.glb"></poly-mesh>
-</poly-scene>
-```
-
-Or with React:
-
-```tsx
-import { PolyCamera, PolyScene, PolyMesh } from "@layoutit/polycss-react";
-
-export function App() {
-  return (
-    <PolyCamera>
-      <PolyScene>
-        <PolyMesh src="/cottage.glb" />
-      </PolyScene>
-    </PolyCamera>
-  );
-}
-```
-
-Continue to **[Quickstart →](/quickstart)** for the full walkthrough with Vanilla JS, React, and Vue versions.
-
-## Related
-
-- [Quickstart](/quickstart): Full install + first scene walkthrough.
-- [Core Concepts](/core-concepts): The mental model: PolyScene, PolyMesh, Poly, polygon data, pipeline.
-- [PolyCamera](/components/poly-camera): Camera component reference.
-- [PolyScene](/components/poly-scene): Scene component reference.
+- [Quickstart](/quickstart) — npm-installable demo in 30 seconds.
+- [Core Concepts](/core-concepts) — the strip flipbook, the hit layer, the camera contract.
+- [Gallery](/gallery) — tune live, see the renderer at work.

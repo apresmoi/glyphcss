@@ -1,0 +1,259 @@
+/* ── ModelsSidebar — terminal/ASCII aesthetic ─────────────────────────── */
+
+/* Panel container */
+.models-sidebar {
+  background: #0b0d10;
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 0;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.94);
+  position: relative;
+}
+
+/* Top-border legend — sits ON the border, bg matches the page behind the
+   panel so the border line is "cut" by the label. */
+.models-sidebar::before {
+  content: "[ MODELS ]";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  transform: translateY(-50%);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: rgba(255, 232, 184, 0.85);
+  background: #0b0d10;
+  padding: 0 6px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.models-sidebar__body {
+  background: transparent;
+  padding: 14px 10px 10px;
+  gap: 6px;
+}
+
+/* ── Search input ─────────────────────────────────────────────────────── */
+.models-sidebar .model-search {
+  background: #03050a;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  border-radius: 0;
+  color: rgba(255, 232, 184, 0.94);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  padding: 5px 8px 5px 24px;
+  width: 100%;
+  /* ">" prompt handled via background-image trick — simpler than a wrapper */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'%3E%3Ctext x='2' y='11' font-family='monospace' font-size='11' fill='%2338bdf8'%3E%3E%3C/text%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 6px center;
+  background-color: #03050a;
+}
+
+.models-sidebar .model-search:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.5);
+  background-color: #03050a;
+}
+
+.models-sidebar .model-search::placeholder {
+  color: rgba(255, 232, 184, 0.35);
+  font-style: normal;
+}
+
+/* Suppress browser's built-in search clear button */
+.models-sidebar .model-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+/* ── Buttons (Import, Load Random) ────────────────────────────────────── */
+.models-sidebar .control-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 0;
+  color: rgba(255, 232, 184, 0.94);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 80ms, color 80ms, background 80ms;
+}
+
+.models-sidebar .control-btn::before {
+  content: "[ ";
+  color: #f97316;
+}
+
+.models-sidebar .control-btn::after {
+  content: " ]";
+  color: #f97316;
+}
+
+.models-sidebar .control-btn:hover {
+  background: rgba(56, 189, 248, 0.08);
+  border-color: rgba(56, 189, 248, 0.45);
+  color: rgba(255, 232, 184, 1);
+}
+
+.models-sidebar .control-btn:active {
+  background: rgba(56, 189, 248, 0.15);
+}
+
+/* ── Category headers ─────────────────────────────────────────────────── */
+.models-sidebar .tree-heading {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.55);
+  background: transparent;
+  padding: 5px 0 3px;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+}
+
+/* ═══ SECTION ═══ rails via flex pseudo-elements on the label */
+.models-sidebar .tree-label {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.models-sidebar .tree-label::before {
+  content: "══ ";
+  color: rgba(255, 232, 184, 0.28);
+  letter-spacing: 0;
+}
+
+.models-sidebar .tree-label::after {
+  content: " ══";
+  color: rgba(255, 232, 184, 0.28);
+  letter-spacing: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.models-sidebar .tree-caret {
+  color: rgba(56, 189, 248, 0.75);
+  font-size: 10px;
+}
+
+.models-sidebar .tree-heading:hover .tree-label {
+  color: rgba(255, 232, 184, 0.85);
+}
+
+.models-sidebar .tree-count {
+  color: rgba(255, 232, 184, 0.35);
+  font-size: 10px;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+
+/* ── Model list items ─────────────────────────────────────────────────── */
+.models-sidebar .sidebar-item {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  background: transparent;
+  color: rgba(255, 232, 184, 0.75);
+  border: 0;
+  border-radius: 0;
+  padding: 3px 6px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  line-height: 1.35;
+  transition: color 60ms, background 60ms;
+  position: relative;
+}
+
+.models-sidebar .sidebar-item::before {
+  content: "  ";
+  color: #f97316;
+  opacity: 0;
+  transition: opacity 60ms;
+}
+
+.models-sidebar .sidebar-item::after {
+  content: "";
+  color: #f97316;
+  opacity: 0;
+  transition: opacity 60ms;
+}
+
+.models-sidebar .sidebar-item:hover {
+  background: rgba(255, 232, 184, 0.04);
+  color: rgba(255, 232, 184, 0.94);
+}
+
+.models-sidebar .sidebar-item:hover::before,
+.models-sidebar .sidebar-item:hover::after {
+  opacity: 1;
+}
+
+.models-sidebar .sidebar-item:hover::before {
+  content: "[ ";
+}
+
+.models-sidebar .sidebar-item:hover::after {
+  content: " ]";
+}
+
+/* Active item — always show brackets in orange */
+.models-sidebar .sidebar-item.active {
+  background: rgba(249, 115, 22, 0.08);
+  color: #f97316;
+}
+
+.models-sidebar .sidebar-item.active::before {
+  content: "[ ";
+  opacity: 1;
+}
+
+.models-sidebar .sidebar-item.active::after {
+  content: " ]";
+  opacity: 1;
+}
+
+/* ── Attribution credit ───────────────────────────────────────────────── */
+.models-sidebar .model-credit {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 10px;
+  color: rgba(255, 232, 184, 0.35);
+  margin-top: 6px;
+  padding: 0 2px 0;
+  border-top: 1px solid rgba(255, 232, 184, 0.1);
+  padding-top: 6px;
+}
+
+.models-sidebar .model-credit a {
+  color: rgba(56, 189, 248, 0.8);
+  text-decoration: none;
+}
+
+.models-sidebar .model-credit a:hover {
+  color: #38bdf8;
+  text-decoration: underline;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────── */
+.models-sidebar .model-empty {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 12px;
+  color: rgba(255, 232, 184, 0.35);
+  padding: 8px 4px;
+}

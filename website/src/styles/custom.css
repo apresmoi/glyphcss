@@ -61,3 +61,534 @@ html {
   background: #0b0d10;
   color-scheme: dark;
 }
+
+/* ── Terminal / ASCII rebrand for Starlight doc pages ────────────────────────
+ * All rules are outside @layer so they beat starlight.core regardless of
+ * specificity. Pattern mirrors DocsHeader: no border-radius, monospace
+ * everywhere, cream-amber palette, cyan prompt accents, orange active brackets.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Shared token variables ─────────────────────────────────────────────── */
+:root {
+  --gc-cream:        rgba(255, 232, 184, 0.94);
+  --gc-cream-dim:    rgba(255, 232, 184, 0.55);
+  --gc-cream-faint:  rgba(255, 232, 184, 0.22);
+  --gc-border:       rgba(255, 232, 184, 0.18);
+  --gc-border-mid:   rgba(255, 232, 184, 0.28);
+  --gc-cyan:         #38bdf8;
+  --gc-cyan-dim:     rgba(56, 189, 248, 0.85);
+  --gc-orange:       #f97316;
+  --gc-bg-panel:     #0b0d10;
+  --gc-bg-dark:      #03050a;
+  --gc-scanline:     repeating-linear-gradient(
+                       to bottom,
+                       transparent 0px, transparent 3px,
+                       rgba(255, 255, 255, 0.007) 3px,
+                       rgba(255, 255, 255, 0.007) 4px
+                     );
+  --gc-mono:         ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+
+/* Override Starlight's font vars to go full monospace in docs pages */
+:root,
+:root[data-theme='dark'],
+:root[data-theme='light'] {
+  --sl-font: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  --sl-color-text: rgba(255, 232, 184, 0.88);
+  --sl-color-text-accent: #38bdf8;
+  --sl-color-white: rgba(255, 232, 184, 0.98);
+  --sl-color-gray-1: rgba(255, 232, 184, 0.85);
+  --sl-color-gray-2: rgba(255, 232, 184, 0.65);
+  --sl-color-gray-3: rgba(255, 232, 184, 0.45);
+  --sl-color-hairline-light: rgba(255, 232, 184, 0.12);
+  --sl-color-hairline: rgba(255, 232, 184, 0.08);
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+.sidebar-pane {
+  background: var(--gc-bg-panel) !important;
+  border-inline-end: 1px solid var(--gc-border) !important;
+  background-image: var(--gc-scanline) !important;
+  font-family: var(--gc-mono) !important;
+}
+
+.sidebar-content {
+  background: transparent !important;
+}
+
+/* Category group labels: ═══ GETTING STARTED ═══ */
+.group-label {
+  display: flex !important;
+  align-items: center !important;
+  font-family: var(--gc-mono) !important;
+  font-size: 11px !important;
+  color: var(--gc-cream-faint) !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  width: 100% !important;
+}
+
+.group-label::before,
+.group-label::after {
+  content: "════════════════════════════════════════════════════════════════════════════════";
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--gc-cream-faint);
+}
+
+.group-label .large {
+  flex: 0 0 auto !important;
+  padding: 0 8px !important;
+  color: var(--gc-cyan-dim) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.1em !important;
+}
+
+/* Hide the Starlight caret (chevron svg) on group summary — the ═══ rail is
+   the visual enough; the caret looks out of place with the terminal style. */
+.sidebar-content summary .caret {
+  display: none !important;
+}
+
+/* Sidebar items: > label */
+.sidebar-content a {
+  font-family: var(--gc-mono) !important;
+  font-size: 12.5px !important;
+  color: var(--gc-cream-dim) !important;
+  text-decoration: none !important;
+  padding-inline-start: 0.25rem !important;
+  position: relative !important;
+}
+
+.sidebar-content a::before {
+  content: "> " !important;
+  color: var(--gc-cyan) !important;
+  font-weight: 400 !important;
+}
+
+.sidebar-content a:hover {
+  color: var(--gc-cream) !important;
+  background: rgba(56, 189, 248, 0.06) !important;
+}
+
+/* Active sidebar item: [ label ] orange brackets */
+.sidebar-content a[aria-current="page"] {
+  color: var(--gc-cream) !important;
+  background: rgba(249, 115, 22, 0.07) !important;
+  border-inline-start: 2px solid var(--gc-orange) !important;
+}
+
+.sidebar-content a[aria-current="page"]::before {
+  content: "[ " !important;
+  color: var(--gc-orange) !important;
+}
+
+.sidebar-content a[aria-current="page"]::after {
+  content: " ]" !important;
+  color: var(--gc-orange) !important;
+}
+
+/* ── Page H1 ──────────────────────────────────────────────────────────────── */
+.content-panel h1 {
+  font-family: var(--gc-mono) !important;
+  color: var(--gc-cream) !important;
+  letter-spacing: 0.03em !important;
+  font-weight: 700 !important;
+}
+
+.content-panel h1::before {
+  content: "[ " !important;
+  color: var(--gc-orange) !important;
+}
+
+.content-panel h1::after {
+  content: " ]" !important;
+  color: var(--gc-orange) !important;
+}
+
+/* ── H2: ═══ section rails ────────────────────────────────────────────────── */
+/* Starlight renders: <div class="sl-heading-wrapper level-h2"><h2>text</h2><a class="sl-anchor-link">…</a></div>
+   Apply flex-rail to the wrapper div, shrink h2 to its content, then add rails
+   on the wrapper's ::before/::after. The h2 itself gets trimmed to label-only. */
+.sl-heading-wrapper.level-h2 {
+  display: flex !important;
+  align-items: center !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  margin-block: 2rem 1rem !important;
+}
+
+.sl-heading-wrapper.level-h2::before,
+.sl-heading-wrapper.level-h2::after {
+  content: "════════════════════════════════════════════════════════════════════════════════";
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--gc-cream-faint);
+  font-family: var(--gc-mono);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.sl-heading-wrapper.level-h2 h2 {
+  flex: 0 0 auto !important;
+  font-family: var(--gc-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--gc-cyan-dim) !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.sl-heading-wrapper.level-h2 .sl-anchor-link {
+  flex: 0 0 auto !important;
+  color: var(--gc-cream-faint) !important;
+  margin-inline-start: 0 !important;
+}
+
+/* ── H3: ── thinner rails ─────────────────────────────────────────────────── */
+.sl-heading-wrapper.level-h3 {
+  display: flex !important;
+  align-items: center !important;
+  overflow: hidden !important;
+  white-space: nowrap !important;
+  margin-block: 1.5rem 0.75rem !important;
+}
+
+.sl-heading-wrapper.level-h3::before,
+.sl-heading-wrapper.level-h3::after {
+  content: "────────────────────────────────────────────────────────────────────────────────";
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--gc-cream-faint);
+  font-family: var(--gc-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.sl-heading-wrapper.level-h3 h3 {
+  flex: 0 0 auto !important;
+  font-family: var(--gc-mono) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: var(--gc-cream-dim) !important;
+  margin: 0 !important;
+  padding: 0 10px !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.sl-heading-wrapper.level-h3 .sl-anchor-link {
+  flex: 0 0 auto !important;
+  color: var(--gc-cream-faint) !important;
+}
+
+/* ── Body text ────────────────────────────────────────────────────────────── */
+.sl-markdown-content p {
+  font-family: var(--gc-mono) !important;
+  color: var(--gc-cream) !important;
+  line-height: 1.7 !important;
+  font-size: 13.5px !important;
+}
+
+/* ── Links ────────────────────────────────────────────────────────────────── */
+.sl-markdown-content a {
+  color: var(--gc-cyan) !important;
+  text-decoration: underline !important;
+  text-decoration-color: rgba(56, 189, 248, 0.35) !important;
+  text-underline-offset: 2px !important;
+}
+
+.sl-markdown-content a:hover {
+  color: #7dd3fc !important;
+  text-decoration-color: rgba(56, 189, 248, 0.7) !important;
+}
+
+/* ── Inline code ──────────────────────────────────────────────────────────── */
+.sl-markdown-content :not(pre) > code {
+  font-family: var(--gc-mono) !important;
+  background: rgba(56, 189, 248, 0.10) !important;
+  border: 1px solid rgba(56, 189, 248, 0.22) !important;
+  color: #7dd3fc !important;
+  padding: 1px 5px !important;
+  border-radius: 0 !important;
+  font-size: 0.93em !important;
+}
+
+/* ── Code blocks (expressive-code) ───────────────────────────────────────── */
+.expressive-code {
+  font-family: var(--gc-mono) !important;
+}
+
+.expressive-code .frame {
+  border: 1px solid var(--gc-border) !important;
+  border-radius: 0 !important;
+  background: var(--gc-bg-dark) !important;
+  overflow: hidden !important;
+}
+
+/* Code block title/tab bar */
+.expressive-code .frame .header {
+  background: rgba(255, 232, 184, 0.04) !important;
+  border-bottom: 1px solid var(--gc-border) !important;
+  border-radius: 0 !important;
+  padding: 4px 10px !important;
+  font-family: var(--gc-mono) !important;
+}
+
+/* Terminal-style title label */
+.expressive-code .frame .header .title {
+  font-family: var(--gc-mono) !important;
+  font-size: 10px !important;
+  color: var(--gc-cream-dim) !important;
+  letter-spacing: 0.06em !important;
+}
+
+.expressive-code .frame .header .title:not(:empty)::before {
+  content: "[ " !important;
+  color: var(--gc-orange) !important;
+}
+
+.expressive-code .frame .header .title:not(:empty)::after {
+  content: " ]" !important;
+  color: var(--gc-orange) !important;
+}
+
+/* Code pre area */
+.expressive-code .frame pre {
+  background: var(--gc-bg-dark) !important;
+  border-radius: 0 !important;
+  font-family: var(--gc-mono) !important;
+}
+
+/* Copy button */
+.expressive-code .copy button {
+  border-radius: 0 !important;
+  background: rgba(255, 232, 184, 0.06) !important;
+  border: 1px solid var(--gc-border) !important;
+  color: var(--gc-cream-dim) !important;
+}
+
+.expressive-code .copy button:hover {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+}
+
+/* ── Framework / Starlight Tabs ───────────────────────────────────────────── */
+.tablist-wrapper {
+  background: rgba(255, 232, 184, 0.03) !important;
+  border: 1px solid var(--gc-border) !important;
+  border-radius: 0 !important;
+  font-family: var(--gc-mono) !important;
+}
+
+.tablist-wrapper [role="tablist"] {
+  background: rgba(255, 232, 184, 0.04) !important;
+  border-bottom: 1px solid var(--gc-border) !important;
+  border-radius: 0 !important;
+  gap: 2px !important;
+  padding: 4px 8px !important;
+}
+
+.tablist-wrapper [role="tab"] {
+  font-family: var(--gc-mono) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.04em !important;
+  color: var(--gc-cream-dim) !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 0 !important;
+  padding: 3px 10px !important;
+  text-decoration: none !important;
+}
+
+.tablist-wrapper [role="tab"]::before {
+  content: "[ " !important;
+  color: rgba(255, 232, 184, 0.22) !important;
+}
+
+.tablist-wrapper [role="tab"]::after {
+  content: " ]" !important;
+  color: rgba(255, 232, 184, 0.22) !important;
+}
+
+.tablist-wrapper [role="tab"]:hover {
+  color: var(--gc-cream) !important;
+}
+
+.tablist-wrapper [role="tab"][aria-selected="true"] {
+  color: var(--gc-cream) !important;
+  border-color: rgba(249, 115, 22, 0.5) !important;
+  background: rgba(249, 115, 22, 0.07) !important;
+}
+
+.tablist-wrapper [role="tab"][aria-selected="true"]::before {
+  color: var(--gc-orange) !important;
+}
+
+.tablist-wrapper [role="tab"][aria-selected="true"]::after {
+  color: var(--gc-orange) !important;
+}
+
+/* ── Right TOC sidebar ────────────────────────────────────────────────────── */
+.right-sidebar {
+  font-family: var(--gc-mono) !important;
+  background: var(--gc-bg-panel) !important;
+  border-inline-start: 1px solid var(--gc-border) !important;
+}
+
+.right-sidebar-panel {
+  background: transparent !important;
+}
+
+/* TOC "On this page" header */
+.right-sidebar-panel h2 {
+  font-family: var(--gc-mono) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--gc-cream-faint) !important;
+  display: block !important;
+  margin-bottom: 0.75rem !important;
+}
+
+.right-sidebar-panel h2::before {
+  content: "┌─ " !important;
+  color: var(--gc-cream-faint) !important;
+}
+
+.right-sidebar-panel h2::after {
+  content: " ─┐" !important;
+  color: var(--gc-cream-faint) !important;
+}
+
+/* TOC links */
+.right-sidebar-panel a {
+  font-family: var(--gc-mono) !important;
+  font-size: 11.5px !important;
+  color: var(--gc-cream-dim) !important;
+  text-decoration: none !important;
+}
+
+.right-sidebar-panel a::before {
+  content: "> " !important;
+  color: var(--gc-cyan) !important;
+}
+
+.right-sidebar-panel a:hover {
+  color: var(--gc-cream) !important;
+}
+
+/* TOC active link */
+.right-sidebar-panel a[aria-current="true"] {
+  color: var(--gc-cream) !important;
+}
+
+.right-sidebar-panel a[aria-current="true"]::before {
+  content: "[ " !important;
+  color: var(--gc-orange) !important;
+}
+
+.right-sidebar-panel a[aria-current="true"]::after {
+  content: " ]" !important;
+  color: var(--gc-orange) !important;
+}
+
+/* ── Pagination (prev/next footer) ───────────────────────────────────────── */
+.pagination-links {
+  font-family: var(--gc-mono) !important;
+  border-top: 1px solid var(--gc-border) !important;
+  margin-top: 2rem !important;
+}
+
+.pagination-links a {
+  font-family: var(--gc-mono) !important;
+  font-size: 12.5px !important;
+  color: var(--gc-cream-dim) !important;
+  text-decoration: none !important;
+  border: 1px solid var(--gc-border) !important;
+  border-radius: 0 !important;
+  padding: 8px 14px !important;
+  background: transparent !important;
+  transition: background 100ms, border-color 100ms, color 100ms !important;
+}
+
+.pagination-links a:hover {
+  background: rgba(56, 189, 248, 0.07) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  color: var(--gc-cream) !important;
+}
+
+.pagination-links a[rel="prev"] .link-title::before {
+  content: "← " !important;
+  color: var(--gc-cyan) !important;
+}
+
+.pagination-links a[rel="next"] .link-title::after {
+  content: " →" !important;
+  color: var(--gc-cyan) !important;
+}
+
+/* ── Main content area background ─────────────────────────────────────────── */
+.main-pane {
+  background: var(--gc-bg-panel) !important;
+}
+
+/* ── Lists in markdown ─────────────────────────────────────────────────────── */
+.sl-markdown-content ul,
+.sl-markdown-content ol {
+  font-family: var(--gc-mono) !important;
+  color: var(--gc-cream) !important;
+  font-size: 13.5px !important;
+  line-height: 1.7 !important;
+}
+
+.sl-markdown-content li::marker {
+  color: var(--gc-cyan) !important;
+}
+
+/* ── Blockquotes / asides ──────────────────────────────────────────────────── */
+.sl-markdown-content blockquote {
+  border-inline-start: 2px solid var(--gc-orange) !important;
+  background: rgba(249, 115, 22, 0.05) !important;
+  font-family: var(--gc-mono) !important;
+  color: var(--gc-cream-dim) !important;
+  border-radius: 0 !important;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────────── */
+.sl-markdown-content table {
+  font-family: var(--gc-mono) !important;
+  font-size: 12.5px !important;
+  border-collapse: collapse !important;
+}
+
+.sl-markdown-content th {
+  color: var(--gc-cyan-dim) !important;
+  border-bottom: 1px solid var(--gc-border-mid) !important;
+  background: rgba(255, 232, 184, 0.04) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.05em !important;
+}
+
+.sl-markdown-content td {
+  color: var(--gc-cream) !important;
+  border-bottom: 1px solid var(--gc-border) !important;
+}
+
+.sl-markdown-content tr:hover td {
+  background: rgba(56, 189, 248, 0.04) !important;
+}
