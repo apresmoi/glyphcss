@@ -10,9 +10,6 @@ export type { UseScenePolygonsOptions, UseScenePolygonsResult } from "./useScene
 export { useAnimationFrames } from "./useAnimationFrames";
 export type { UseAnimationFramesOptions, UseAnimationFramesResult } from "./useAnimationFrames";
 
-export { useFpvSpawn } from "./useFpvSpawn";
-export type { UseFpvSpawnOptions } from "./useFpvSpawn";
-
 export { useRouteSync, setRoutePresetId, routeInitialPresetId } from "./useRouteSync";
 export type { UseRouteSyncOptions } from "./useRouteSync";
 

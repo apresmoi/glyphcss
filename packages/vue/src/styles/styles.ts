@@ -48,9 +48,20 @@ const CORE_BASE_STYLES = `
   position: absolute;
 }
 
-.polycss-mesh {
-  -webkit-user-select: none;
-  user-select: none;
+/* ── First-person controls perspective context ──────────────────────────── */
+
+/* PolyFirstPersonControls toggles this class on its host element (the camera
+   wrapper). FPV needs a real perspective context so scene Z translation
+   produces visible depth motion - without it, walking forward looks like a
+   planar pan. The class wins over inline perspective styles (e.g.
+   PolyOrthographicCamera's perspective: none) via !important. The actual
+   perspective value is set inline by the controls as the
+   --polycss-fpv-perspective custom property; the default of 2000px matches
+   the controls' lookOffset fallback so the FPV math and visual perspective
+   stay in sync. */
+.polycss-fpv-host {
+  perspective: var(--polycss-fpv-perspective, 2000px) !important;
+  transform-style: preserve-3d !important;
 }
 
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
@@ -78,8 +89,6 @@ const CORE_BASE_STYLES = `
   text-decoration: none;
   backface-visibility: hidden;
   background-repeat: no-repeat;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 .polycss-scene b,
@@ -90,19 +99,19 @@ const CORE_BASE_STYLES = `
 
 .polycss-scene b {
   background: currentColor;
-  width: 64px;
-  height: 64px;
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene i {
-  width: 64px;
-  height: 64px;
+  width: 16px;
+  height: 16px;
   border-color: currentColor;
 }
 
 .polycss-scene s {
-  width: 128px;
-  height: 128px;
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene u {
@@ -112,7 +121,7 @@ const CORE_BASE_STYLES = `
   box-sizing: content-box;
   border: 0 solid transparent;
   border-color: transparent transparent currentColor transparent;
-  border-width: 0 64px 64px 64px;
+  border-width: 0 1px 1px 1px;
 }
 
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */
@@ -237,12 +246,35 @@ const CORE_BASE_STYLES = `
   backface-visibility: visible;
   border-color: currentColor;
   pointer-events: none;
-  -webkit-user-select: none;
-  user-select: none;
 }
 .polycss-scene q::before,
 .polycss-scene q::after {
   content: none;
+}
+
+/*
+ * Rotate rings: one square quad per ring, masked to a donut. The mask uses
+ * --ring-inner-ratio (set inline by PolyTransformControls); hit-testing
+ * matches the donut shape so the inner hole isn't clickable.
+ */
+.polycss-transform-ring i,
+.polycss-transform-ring b,
+.polycss-transform-ring s,
+.polycss-transform-ring u {
+  --ring-inner-r: calc(var(--ring-inner-ratio, 0.92) * 50%);
+  --ring-outer-r: calc(var(--ring-outer-ratio, 1) * 50%);
+  -webkit-mask: radial-gradient(circle at 50% 50%,
+    transparent 0%,
+    transparent var(--ring-inner-r),
+    black var(--ring-inner-r),
+    black var(--ring-outer-r),
+    transparent var(--ring-outer-r));
+          mask: radial-gradient(circle at 50% 50%,
+    transparent 0%,
+    transparent var(--ring-inner-r),
+    black var(--ring-inner-r),
+    black var(--ring-outer-r),
+    transparent var(--ring-outer-r));
 }
 
 /* Shadow projection matrix. Projects any 3D point P onto the horizontal

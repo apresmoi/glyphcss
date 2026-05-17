@@ -3,6 +3,8 @@ export type { PolySceneProps } from "./PolyScene";
 export type { PolyRenderStrategy, PolyRenderStrategiesOption } from "./textureAtlas";
 export { PolyMesh } from "./PolyMesh";
 export type { PolyMeshProps } from "./PolyMesh";
+export { PolyGround } from "./PolyGround";
+export type { PolyGroundProps } from "./PolyGround";
 export { usePolySceneContext } from "./useSceneContext";
 export type { UseSceneContextOptions, UseSceneContextResult } from "./useSceneContext";
 export { usePolyMesh } from "./useMesh";

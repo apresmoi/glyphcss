@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { Polygon } from "@layoutit/polycss-react";
-import type { SceneOptionsState } from "../../types";
+import type { SceneOptionsState } from "../types";
 
 export interface UseFpvSpawnOptions {
   dragMode: SceneOptionsState["dragMode"];

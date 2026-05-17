@@ -466,6 +466,18 @@ export const PolyFirstPersonControls = defineComponent({
       win.addEventListener("keyup", onKeyUp);
       win.addEventListener("blur", onBlur);
 
+      // FPV needs a perspective context on the host so scene Z motion shows
+      // as depth, not as a planar pan. Read the current effective perspective
+      // BEFORE adding the class so we honor any value the camera component
+      // set; fall back to 2000px for orthographic so the FPV math and visual
+      // stay in sync. The `.polycss-fpv-host` class uses `!important` to
+      // override inline `perspective: none`.
+      const computedPersp = win.getComputedStyle(host).perspective;
+      const persp = parseFloat(computedPersp);
+      const effectivePersp = Number.isFinite(persp) && persp > 0 ? persp : 2000;
+      host.style.setProperty("--polycss-fpv-perspective", `${effectivePersp}px`);
+      host.classList.add("polycss-fpv-host");
+
       cleanupListeners = (): void => {
         host.removeEventListener("click", onHostClick);
         doc.removeEventListener("pointerlockchange", onPointerLockChange);
@@ -474,6 +486,8 @@ export const PolyFirstPersonControls = defineComponent({
         win.removeEventListener("keyup", onKeyUp);
         win.removeEventListener("blur", onBlur);
         host.style.cursor = "";
+        host.classList.remove("polycss-fpv-host");
+        host.style.removeProperty("--polycss-fpv-perspective");
         keysHeld.clear();
         if (pointerLocked) {
           try { doc.exitPointerLock(); } catch { /* ignore */ }

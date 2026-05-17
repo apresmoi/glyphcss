@@ -17,7 +17,15 @@
  *   tc.detach();
  *   tc.destroy();
  */
-import { arrowPolygons, ringPolygons } from "@layoutit/polycss-core";
+import {
+  arrowPolygons,
+  eulerXYZFromQuat,
+  planePolygons,
+  quatFromAxisAngle,
+  quatFromEulerXYZ,
+  quatMultiply,
+  ringQuadPolygons,
+} from "@layoutit/polycss-core";
 import type { Polygon, Vec3 } from "@layoutit/polycss-core";
 import type { PolyMeshHandle, PolySceneHandle } from "./createPolyScene";
 
@@ -34,8 +42,20 @@ const SHAFT_HALF_THICKNESS_RATIO = 0.0125;
 const HEAD_LENGTH_RATIO = 0.15;
 const HEAD_HALF_THICKNESS_RATIO = 0.04;
 const RING_RADIUS_RATIO = 1.0;
-const RING_HALF_THICKNESS_RATIO = 0.012;
-const RING_SEGMENTS = 64;
+// Visible band half-width relative to the ring's mid-radius. Drives ONLY
+// the CSS mask; the underlying click target (quad bbox) is sized separately
+// by RING_QUAD_OUTER_RATIO so we can show a thin ring without shrinking
+// the hit area. Keep small for a clean look.
+const RING_HALF_THICKNESS_RATIO = 0.02;
+// Outer radius of the ring's quad polygon as a multiple of mid-radius. The
+// quad's bbox IS the click target — generous quad = generous click margin
+// even when the visible band is very thin. 1.04 leaves a 2% margin past the
+// visible ring's outer edge while keeping the previous hit footprint.
+const RING_QUAD_OUTER_RATIO = 1.04;
+// Plane handle proportions, relative to the arrow's shaft length: the square
+// sits at ~25% of the arrow length and is ~20% of the arrow length wide.
+const PLANE_HALF_SIZE_RATIO = 0.1;
+const PLANE_OFFSET_RATIO = 0.25;
 const SCREEN_AXIS_DEAD_ZONE_SQ = 0.0001;
 
 const ALPHA_IDLE = 0.6;
@@ -64,6 +84,52 @@ const RING_SPECS: Array<{ cssAxis: 0 | 1 | 2; key: string; color: string }> = [
   { cssAxis: 2, key: "z", color: COLOR_Z },
 ];
 
+/** Three plane specs (translate mode — planar drag). `perpAxis` is the
+ *  axis perpendicular to the plane (the one the drag does NOT move along);
+ *  `axisA` and `axisB` are the two axes the drag DOES update. All three
+ *  refer to the CSS axes in `PolyMeshHandle.transform.position`. */
+// Each plane handle is colored with the axis it's PERPENDICULAR to — so the
+// XY plane (containing the red+green arrows) reads as the blue (Z) handle,
+// the XZ plane as the green (Y) handle, and the YZ plane as the red (X)
+// handle. Inversion of three.js's convention but maps cleanly to "the axis
+// you can't drag along is this color".
+const PLANE_SPECS: Array<{
+  perpAxis: 0 | 1 | 2;
+  axisA: 0 | 1 | 2;
+  axisB: 0 | 1 | 2;
+  key: "xy" | "xz" | "yz";
+  color: string;
+}> = [
+  { perpAxis: 2, axisA: 0, axisB: 1, key: "xy", color: COLOR_Z },
+  { perpAxis: 1, axisA: 0, axisB: 2, key: "xz", color: COLOR_Y },
+  { perpAxis: 0, axisA: 1, axisB: 2, key: "yz", color: COLOR_X },
+];
+
+/** Returns true when the given signed CSS-space axis points AWAY from the
+ *  viewer under the scene's current rotation (rotateZ(rotY) · rotateX(rotX)).
+ *  Computed from screen-Z: a CSS-Z component < 0 after applying the scene
+ *  rotation = into the screen = back-facing. Used by `<TransformControls>`
+ *  to drop the shaft on the back-facing axis of each pair so the gizmo
+ *  doesn't double-paint at the gizmo center. */
+function isAxisBackFacing(
+  cssAxis: 0 | 1 | 2,
+  sign: 1 | -1,
+  rotXDeg: number,
+  rotYDeg: number,
+): boolean {
+  const rx = (rotXDeg * Math.PI) / 180;
+  const ry = (rotYDeg * Math.PI) / 180;
+  const a: [number, number, number] = [0, 0, 0];
+  a[cssAxis] = sign;
+  // rotateZ(rotY)
+  const bx = a[0] * Math.cos(ry) - a[1] * Math.sin(ry);
+  const by = a[0] * Math.sin(ry) + a[1] * Math.cos(ry);
+  const bz = a[2];
+  // rotateX(rotX) — only Y and Z change
+  const cz = by * Math.sin(rx) + bz * Math.cos(rx);
+  return cz < 0;
+}
+
 function withAlpha(hex: string, alpha: number): string {
   const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   if (!m) return hex;
@@ -81,11 +147,10 @@ function snap(value: number, step: number | null | undefined): number {
 /** Compute the bbox center of a mesh's polygons in scene-CSS pixels.
  *  polycss world→CSS axis remap: world-Y → CSS-x, world-X → CSS-y,
  *  world-Z → CSS-z. The result is the offset we add to the gizmo
- *  position so the gizmo overlays the visible center of the mesh —
- *  required because scene-level `autoCenter` translates the
- *  centerWrapper by `-bboxCenter`, which would otherwise leave the
- *  gizmo (whose polygons are generated around world origin) sitting at
- *  `-bboxCenter` in screen space rather than aligned with the mesh. */
+ *  position so the gizmo overlays the visible center of the mesh. The
+ *  mesh wrapper sets `transform-origin: var(--origin)` to the same bbox
+ *  center, so its visible center is `position + bboxCenter` regardless
+ *  of scale or rotation — no per-axis scale multiplication needed. */
 function bboxCenterCss(polygons: Polygon[]): Vec3 {
   if (polygons.length === 0) return [0, 0, 0];
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -280,6 +345,98 @@ function startAxisDrag(opts: DragOptions): void {
   window.addEventListener("pointercancel", handleUp);
 }
 
+interface PlaneDragOptions {
+  axisA: 0 | 1 | 2;
+  axisB: 0 | 1 | 2;
+  probeDistanceCss: number;
+  wrapper: HTMLElement;
+  target: PolyMeshHandle;
+  startClientX: number;
+  startClientY: number;
+  translationSnap: number | null;
+  onPlaneDelta(tA: number, tB: number, axisAVec: Vec3, axisBVec: Vec3): void;
+  onMouseDown?: () => void;
+  onMouseUp?: () => void;
+  onDraggingChanged?: (dragging: boolean) => void;
+}
+
+/** Project pointer screen-px deltas onto a 2D basis (screen projections of
+ *  two world axes) and solve a 2x2 system for the planar motion. Mirror of
+ *  the single-axis projection in `startAxisDrag`, extended to two axes. */
+function startPlaneDrag(opts: PlaneDragOptions): void {
+  const {
+    axisA,
+    axisB,
+    probeDistanceCss,
+    wrapper,
+    startClientX,
+    startClientY,
+    translationSnap,
+    onPlaneDelta,
+    onMouseDown,
+    onMouseUp,
+    onDraggingChanged,
+  } = opts;
+
+  // Probe both in-plane axes to measure their screen projections. Same
+  // technique as startAxisDrag: place a 0×0 element at `axis * dist`, read
+  // its bounding rect against the wrapper's, divide by `dist` to get the
+  // unit screen vector for that world axis.
+  const axisAVec: Vec3 = [0, 0, 0]; axisAVec[axisA] = 1;
+  const axisBVec: Vec3 = [0, 0, 0]; axisBVec[axisB] = 1;
+  function probe(axisVec: Vec3): { x: number; y: number } {
+    const el = wrapper.ownerDocument!.createElement("div");
+    el.style.position = "absolute";
+    el.style.left = "0";
+    el.style.top = "0";
+    el.style.width = "0";
+    el.style.height = "0";
+    el.style.transform = `translate3d(${axisVec[0] * probeDistanceCss}px, ${axisVec[1] * probeDistanceCss}px, ${axisVec[2] * probeDistanceCss}px)`;
+    wrapper.appendChild(el);
+    const wR = wrapper.getBoundingClientRect();
+    const pR = el.getBoundingClientRect();
+    wrapper.removeChild(el);
+    return {
+      x: (pR.left - wR.left) / probeDistanceCss,
+      y: (pR.top - wR.top) / probeDistanceCss,
+    };
+  }
+  const pA = probe(axisAVec);
+  const pB = probe(axisBVec);
+  // Cramer's rule on the 2x2: [pA.x pB.x; pA.y pB.y] * [tA tB]' = [dx dy]'
+  const det = pA.x * pB.y - pB.x * pA.y;
+  if (Math.abs(det) < SCREEN_AXIS_DEAD_ZONE_SQ) return; // plane edge-on to camera
+
+  onMouseDown?.();
+  onDraggingChanged?.(true);
+
+  const handleMove = (ev: PointerEvent): void => {
+    const dx = ev.clientX - startClientX;
+    const dy = ev.clientY - startClientY;
+    let tA = (pB.y * dx - pB.x * dy) / det;
+    let tB = (-pA.y * dx + pA.x * dy) / det;
+    tA = snap(tA, translationSnap);
+    tB = snap(tB, translationSnap);
+    onPlaneDelta(tA, tB, axisAVec, axisBVec);
+  };
+  const handleUp = (): void => {
+    window.removeEventListener("pointermove", handleMove);
+    window.removeEventListener("pointerup", handleUp);
+    window.removeEventListener("pointercancel", handleUp);
+    const swallow = (e: Event): void => {
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener("click", swallow, { capture: true, once: true });
+    setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+    onMouseUp?.();
+    onDraggingChanged?.(false);
+  };
+  window.addEventListener("pointermove", handleMove);
+  window.addEventListener("pointerup", handleUp);
+  window.addEventListener("pointercancel", handleUp);
+}
+
 interface RingDragOptions {
   cssAxis: 0 | 1 | 2;
   wrapper: HTMLElement;
@@ -368,12 +525,13 @@ export function createTransformControls(
   // gizmo mesh is positioned at `target.transform.position` via
   // setTransform — that's the gizmo origin.
 
-  // Per-key tracking. Each gizmo arrow / ring is a polycss PolyMeshHandle
-  // added to the scene, then re-parented under our wrapper.
-  type GizmoMesh = {
-    handle: PolyMeshHandle;
-    spec: { key: string; cssAxis: 0 | 1 | 2; sign?: 1 | -1; color: string };
-  };
+  // Per-key tracking. Each gizmo arrow / ring / plane is a polycss
+  // PolyMeshHandle added to the scene, then re-parented under our wrapper.
+  type GizmoSpec =
+    | { kind: "arrow"; key: string; cssAxis: 0 | 1 | 2; sign: 1 | -1; color: string }
+    | { kind: "ring"; key: string; cssAxis: 0 | 1 | 2; color: string }
+    | { kind: "plane"; key: string; perpAxis: 0 | 1 | 2; axisA: 0 | 1 | 2; axisB: 0 | 1 | 2; color: string };
+  type GizmoMesh = { handle: PolyMeshHandle; spec: GizmoSpec };
   const gizmos = new Map<string, GizmoMesh>();
   let hoveredKey: string | null = null;
   let draggingKey: string | null = null;
@@ -403,34 +561,102 @@ export function createTransformControls(
     }
   }
 
-  function buildPolygonsFor(
-    spec: { key: string; cssAxis: 0 | 1 | 2; sign?: 1 | -1; color: string },
-    alpha: number,
-  ): Polygon[] {
+  function buildPolygonsFor(spec: GizmoSpec, alpha: number): Polygon[] {
     const baseLength = gizmoLengthForMesh(target?.polygons ?? []);
     const shaftLengthCss = baseLength * size;
     const lengthWorld = shaftLengthCss / SCENE_TILE_SIZE;
     const color = withAlpha(spec.color, alpha);
-    if (mode === "translate") {
+    if (spec.kind === "arrow") {
+      // Strip the shaft for back-facing arrows so the visible-only-from-
+      // outside silhouette stays clean. Both halves of a pair otherwise
+      // share the same shaft volume at the gizmo origin.
+      const sceneOpts = scene.getOptions();
+      const backFacing = isAxisBackFacing(
+        spec.cssAxis,
+        spec.sign,
+        sceneOpts.rotX ?? 65,
+        sceneOpts.rotY ?? 45,
+      );
       return arrowPolygons({
         axis: WORLD_AXIS_FOR_CSS[spec.cssAxis],
-        sign: spec.sign ?? 1,
+        sign: spec.sign,
         shaftLength: lengthWorld,
         shaftHalfThickness: lengthWorld * SHAFT_HALF_THICKNESS_RATIO,
         headLength: lengthWorld * HEAD_LENGTH_RATIO,
         headHalfThickness: lengthWorld * HEAD_HALF_THICKNESS_RATIO,
         color,
+        shaft: !backFacing,
       });
     }
-    // rotate
+    if (spec.kind === "plane") {
+      // Place the quad in the camera-facing octant: for each in-plane axis,
+      // flip the offset sign if the +axis is back-facing. planePolygons
+      // works in WORLD axes (a = (perp+1)%3, b = (perp+2)%3); since
+      // WORLD_AXIS_FOR_CSS is involutive, the CSS axis we test for back-
+      // facing is just WORLD_AXIS_FOR_CSS[worldA / worldB].
+      const sceneOpts = scene.getOptions();
+      const rotX = sceneOpts.rotX ?? 65;
+      const rotY = sceneOpts.rotY ?? 45;
+      const worldPerp = WORLD_AXIS_FOR_CSS[spec.perpAxis];
+      const worldA = ((worldPerp + 1) % 3) as 0 | 1 | 2;
+      const worldB = ((worldPerp + 2) % 3) as 0 | 1 | 2;
+      const cssAForOffset = WORLD_AXIS_FOR_CSS[worldA];
+      const cssBForOffset = WORLD_AXIS_FOR_CSS[worldB];
+      const signA = isAxisBackFacing(cssAForOffset, 1, rotX, rotY) ? -1 : 1;
+      const signB = isAxisBackFacing(cssBForOffset, 1, rotX, rotY) ? -1 : 1;
+      const mag = lengthWorld * PLANE_OFFSET_RATIO;
+      return planePolygons({
+        axis: worldPerp,
+        size: lengthWorld * PLANE_HALF_SIZE_RATIO,
+        offset: [signA * mag, signB * mag],
+        color,
+      });
+    }
+    // ring — single square quad masked to a donut via CSS (see
+    // .polycss-transform-ring rule in styles.ts). One DOM node per ring
+    // instead of N segment quads. Quad outer radius is sized by
+    // RING_QUAD_OUTER_RATIO so the hit footprint stays generous even when
+    // the visible band (driven by RING_HALF_THICKNESS_RATIO) is thin.
     const radiusWorld = (shaftLengthCss * RING_RADIUS_RATIO) / SCENE_TILE_SIZE;
-    return ringPolygons({
+    const outerWorld = radiusWorld * RING_QUAD_OUTER_RATIO;
+    return ringQuadPolygons({
       axis: WORLD_AXIS_FOR_CSS[spec.cssAxis],
-      radius: radiusWorld,
-      halfThickness: radiusWorld * RING_HALF_THICKNESS_RATIO,
-      segments: RING_SEGMENTS,
+      outerRadius: outerWorld,
       color,
     });
+  }
+
+  function classPrefixFor(spec: GizmoSpec): string {
+    if (spec.kind === "arrow") return "polycss-transform-arrow";
+    if (spec.kind === "plane") return "polycss-transform-plane";
+    return "polycss-transform-ring";
+  }
+
+  /** Resolve the active spec list for the current mode. Translate mode mixes
+   *  the 6 axis arrows with the 3 planar handles; rotate mode just rings. */
+  function activeSpecs(): GizmoSpec[] {
+    if (mode === "translate") {
+      const arrows: GizmoSpec[] = ARROW_SPECS.map((a) => ({
+        kind: "arrow",
+        key: a.key,
+        cssAxis: a.cssAxis,
+        sign: a.sign,
+        color: a.color,
+      }));
+      const planes: GizmoSpec[] = PLANE_SPECS.map((p) => ({
+        kind: "plane",
+        key: p.key,
+        perpAxis: p.perpAxis,
+        axisA: p.axisA,
+        axisB: p.axisB,
+        color: p.color,
+      }));
+      return [...arrows, ...planes];
+    }
+    if (mode === "rotate") {
+      return RING_SPECS.map((r) => ({ kind: "ring", key: r.key, cssAxis: r.cssAxis, color: r.color }));
+    }
+    return [];
   }
 
   function buildGizmos(): void {
@@ -441,12 +667,22 @@ export function createTransformControls(
       y: opts.showY !== false,
       z: opts.showZ !== false,
     };
-    const specs = mode === "translate" ? ARROW_SPECS : mode === "rotate" ? RING_SPECS : [];
-    const classPrefix = mode === "translate" ? "polycss-transform-arrow" : "polycss-transform-ring";
+    function specVisible(spec: GizmoSpec): boolean {
+      if (spec.kind === "arrow") {
+        const userAxis = spec.key.replace("-", "")[0] as "x" | "y" | "z";
+        return showByKey[userAxis];
+      }
+      if (spec.kind === "ring") {
+        return showByKey[spec.key as "x" | "y" | "z"];
+      }
+      // Plane handles need BOTH in-plane axes visible.
+      const aName = (["x", "y", "z"] as const)[spec.axisA];
+      const bName = (["x", "y", "z"] as const)[spec.axisB];
+      return showByKey[aName] && showByKey[bName];
+    }
     const targetPos = gizmoPosition();
-    for (const spec of specs) {
-      const userAxis = spec.key.replace("-", "")[0] as "x" | "y" | "z";
-      if (!showByKey[userAxis]) continue;
+    for (const spec of activeSpecs()) {
+      if (!specVisible(spec)) continue;
       const polys = buildPolygonsFor(spec, alphaFor(spec.key));
       // Each gizmo mesh is added directly to the scene at the target's
       // position. scene.add appends to centerWrapper (the camera-
@@ -461,11 +697,24 @@ export function createTransformControls(
           position: targetPos,
         },
       );
+      const classPrefix = classPrefixFor(spec);
       handle.element.classList.add(
         "polycss-transform-gizmo",
         classPrefix,
         `${classPrefix}--${spec.key}`,
       );
+      if (spec.kind === "ring") {
+        // Two CSS vars consumed by the .polycss-transform-ring mask: where
+        // the visible band STARTS and ENDS, both as a fraction of the quad
+        // edge (50%). The quad's outer radius is RING_QUAD_OUTER_RATIO ·
+        // mid-radius, so we normalize the visible inner/outer edges
+        // (mid ± halfThickness) against the quad outer to get the mask
+        // positions inside the quad.
+        const innerRatio = (1 - RING_HALF_THICKNESS_RATIO) / RING_QUAD_OUTER_RATIO;
+        const outerRatio = (1 + RING_HALF_THICKNESS_RATIO) / RING_QUAD_OUTER_RATIO;
+        handle.element.style.setProperty("--ring-inner-ratio", `${innerRatio}`);
+        handle.element.style.setProperty("--ring-outer-ratio", `${outerRatio}`);
+      }
       gizmos.set(spec.key, { handle, spec });
     }
   }
@@ -552,6 +801,54 @@ export function createTransformControls(
       z: opts.showZ !== false,
     };
     if (mode === "translate") {
+      // Plane handles are hit-tested FIRST so they win when overlapping with
+      // the arrow shafts at the corner.
+      for (const spec of PLANE_SPECS) {
+        const aName = (["x", "y", "z"] as const)[spec.axisA];
+        const bName = (["x", "y", "z"] as const)[spec.axisB];
+        if (!showByKey[aName] || !showByKey[bName]) continue;
+        const gm = gizmos.get(spec.key);
+        if (!gm) continue;
+        if (!pointInMeshElement(gm.handle.element, event.clientX, event.clientY)) continue;
+        event.preventDefault();
+        event.stopPropagation();
+        draggingKey = spec.key;
+        rebuildGizmoColors();
+        dragStartPosition = (target.transform.position ?? [0, 0, 0]).slice() as Vec3;
+        startPlaneDrag({
+          axisA: spec.axisA,
+          axisB: spec.axisB,
+          probeDistanceCss: gizmoLengthForMesh(target.polygons) * size,
+          wrapper: gm.handle.element,
+          target,
+          startClientX: event.clientX,
+          startClientY: event.clientY,
+          translationSnap: opts.translationSnap ?? null,
+          onPlaneDelta: (tA, tB, aVec, bVec) => {
+            if (!target || !dragStartPosition) return;
+            const next: Vec3 = [
+              dragStartPosition[0] + tA * aVec[0] + tB * bVec[0],
+              dragStartPosition[1] + tA * aVec[1] + tB * bVec[1],
+              dragStartPosition[2] + tA * aVec[2] + tB * bVec[2],
+            ];
+            target.setTransform({ position: next });
+            syncGizmoPositions();
+            opts.onObjectChange?.({ object: target, position: next });
+            opts.onChange?.();
+          },
+          onMouseDown: opts.onMouseDown,
+          onMouseUp: opts.onMouseUp,
+          onDraggingChanged: (d) => {
+            if (!d) {
+              draggingKey = null;
+              dragStartPosition = null;
+              rebuildGizmoColors();
+            }
+            opts.onDraggingChanged?.(d);
+          },
+        });
+        return;
+      }
       for (const spec of ARROW_SPECS) {
         const userAxis = spec.key.replace("-", "")[0] as "x" | "y" | "z";
         if (!showByKey[userAxis]) continue;
@@ -599,6 +896,8 @@ export function createTransformControls(
         if (!showByKey[spec.key as "x" | "y" | "z"]) continue;
         const gm = gizmos.get(spec.key);
         if (!gm) continue;
+        // Plain bbox-containment hit-test. The donut mask is decoration; the
+        // entire ring quad bbox is clickable so the rings are easy to land on.
         if (!pointInMeshElement(gm.handle.element, event.clientX, event.clientY)) continue;
         event.preventDefault();
         event.stopPropagation();
@@ -614,21 +913,19 @@ export function createTransformControls(
           rotationSnap: opts.rotationSnap ?? null,
           onAngleDelta: (degrees) => {
             if (!target || !dragStartRotation) return;
-            const next: Vec3 = [
-              dragStartRotation[0],
-              dragStartRotation[1],
-              dragStartRotation[2],
-            ];
-            // Invert the X-axis sign empirically — vanilla's rotateX
-            // applied around `transform-origin: bboxCenter` reads as
-            // backward from what users expect after dragging the red
-            // ring CW. Y and Z behave correctly with the raw sign.
-            // (The math is the same as React's; the perceptual
-            // difference comes from the chicken's polygon coords
-            // sitting at world coordinates rather than recentered to
-            // origin like React's PolyMesh does.)
+            // World-frame quaternion compose. Rings stay at world axes
+            // visually (the gizmo isn't rotated with the mesh), so each
+            // ring drag rotates the mesh around the WORLD axis the ring
+            // points to — pre-multiply Qdelta · Qstart. Cumulative across
+            // repeated drags. X-axis sign stays empirically inverted to
+            // match user expectation for CW drag on the red ring.
             const sign = spec.cssAxis === 0 ? -1 : 1;
-            next[spec.cssAxis] = dragStartRotation[spec.cssAxis] + degrees * sign;
+            const axisVec: Vec3 = [0, 0, 0];
+            axisVec[spec.cssAxis] = 1;
+            const deltaRad = (degrees * sign * Math.PI) / 180;
+            const qStart = quatFromEulerXYZ(dragStartRotation);
+            const qDelta = quatFromAxisAngle(axisVec, deltaRad);
+            const next = eulerXYZFromQuat(quatMultiply(qDelta, qStart));
             target.setTransform({ rotation: next });
             opts.onObjectChange?.({ object: target, rotation: next });
             opts.onChange?.();

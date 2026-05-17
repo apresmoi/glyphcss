@@ -21,3 +21,6 @@ packages/vue/tsconfig.tsbuildinfo
 
 # Agent-tool internal state — worktree refs, scheduled-task locks, etc.
 /.claude/
+log.md
+log-texture.md
+website/.baseline-shots/

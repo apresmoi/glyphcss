@@ -41,14 +41,28 @@ const CORE_BASE_STYLES = `
   will-change: transform;
 }
 
+/* ── First-person controls perspective context ──────────────────────────── */
+
+/* PolyFirstPersonControls toggles this class on its host element (vanilla:
+   scene.host; react/vue: the camera wrapper). FPV needs a real perspective
+   context so scene Z translation produces visible depth motion - without
+   it, walking forward looks like a planar pan. The class wins over inline
+   perspective styles (e.g. PolyOrthographicCamera's perspective: none)
+   via !important. The actual perspective value is set inline by the
+   controls as the --polycss-fpv-perspective custom property; the default
+   of 2000px matches the controls' lookOffset fallback so the FPV math and
+   visual perspective stay in sync. */
+.polycss-fpv-host {
+  perspective: var(--polycss-fpv-perspective, 2000px) !important;
+  transform-style: preserve-3d !important;
+}
+
 /* ── Mesh wrapper ───────────────────────────────────────────────────────── */
 
 .polycss-mesh {
   position: absolute;
   transform-style: preserve-3d;
   transform-origin: var(--origin);
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
@@ -70,8 +84,6 @@ const CORE_BASE_STYLES = `
   text-decoration: none;
   backface-visibility: hidden;
   background-repeat: no-repeat;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 .polycss-scene b,
@@ -82,19 +94,19 @@ const CORE_BASE_STYLES = `
 
 .polycss-scene b {
   background: currentColor;
-  width: 64px;
-  height: 64px;
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene i {
-  width: 64px;
-  height: 64px;
+  width: 16px;
+  height: 16px;
   border-color: currentColor;
 }
 
 .polycss-scene s {
-  width: 128px;
-  height: 128px;
+  width: 1px;
+  height: 1px;
 }
 
 .polycss-scene u {
@@ -104,7 +116,7 @@ const CORE_BASE_STYLES = `
   box-sizing: content-box;
   border: 0 solid transparent;
   border-color: transparent transparent currentColor transparent;
-  border-width: 0 64px 64px 64px;
+  border-width: 0 1px 1px 1px;
 }
 
 /* <q> — dedicated shadow leaf. Same border-shape rendering trick as <i>
@@ -132,8 +144,6 @@ const CORE_BASE_STYLES = `
   border-color: currentColor;
   pointer-events: none;
   will-change: transform;
-  -webkit-user-select: none;
-  user-select: none;
 }
 .polycss-scene q::before,
 .polycss-scene q::after {
@@ -156,6 +166,33 @@ const CORE_BASE_STYLES = `
 .polycss-mesh.polycss-transform-gizmo u {
   backface-visibility: visible;
   transition: color 150ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
+/*
+ * Rotate rings are rendered as a single square quad per ring, then masked
+ * to a donut via a radial-gradient. The --ring-inner-ratio CSS var is set
+ * inline by createTransformControls (= innerR / outerR, where outerR maps
+ * to the quad's edge at 50%). Hit-testing has to use the donut shape too.
+ * Single DOM node per ring instead of N segment quads.
+ */
+.polycss-mesh.polycss-transform-ring i,
+.polycss-mesh.polycss-transform-ring b,
+.polycss-mesh.polycss-transform-ring s,
+.polycss-mesh.polycss-transform-ring u {
+  --ring-inner-r: calc(var(--ring-inner-ratio, 0.92) * 50%);
+  --ring-outer-r: calc(var(--ring-outer-ratio, 1) * 50%);
+  -webkit-mask: radial-gradient(circle at 50% 50%,
+    transparent 0%,
+    transparent var(--ring-inner-r),
+    black var(--ring-inner-r),
+    black var(--ring-outer-r),
+    transparent var(--ring-outer-r));
+          mask: radial-gradient(circle at 50% 50%,
+    transparent 0%,
+    transparent var(--ring-inner-r),
+    black var(--ring-inner-r),
+    black var(--ring-outer-r),
+    transparent var(--ring-outer-r));
 }
 
 /* ── Dynamic lighting cascade vars (scene root → polygons) ─────────────── */

@@ -12,19 +12,6 @@
   overflow: hidden;
 }
 
-/* FPV needs the vanilla host to be a preserve-3d perspective context so
-   that scene Z translation actually moves it in 3D space relative to a
-   fixed viewer. The perspective value is driven by --fpv-perspective from
-   React (matches sceneOptions.perspective) — otherwise the FPV camera's
-   lookOffset math (perspective/tile) and the host's perspective disagree
-   and the scene gets shoved past the viewer plane at high perspective
-   values. Scoped to FPV via data-camera-mode so orbit/pan keep their
-   default flat-host rendering. */
-.dn-root[data-camera-mode="fpv"] .dn-vanilla-host {
-  perspective: var(--fpv-perspective, 2000px);
-  transform-style: preserve-3d;
-}
-
 
 .dn-root .lil-gui {
   font-family: inherit;

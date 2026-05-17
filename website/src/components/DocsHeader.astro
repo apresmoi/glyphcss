@@ -10,9 +10,11 @@ const shouldRenderSearch =
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
-// Hide search dock on landing + gallery (workbench-style pages where the
-// Starlight floating search position doesn't fit). Branding + GitHub still
-// render on /gallery — only /landing strips them entirely.
+const isBuilder = pathname.startsWith('/builder');
+// Hide search dock on landing + workbench pages (gallery, builder) where
+// the Starlight floating search position overlaps the workbench's own
+// sidebar / search input. Branding + GitHub still render on workbenches —
+// only /landing strips them entirely.
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
   {
@@ -28,6 +30,7 @@ const topLinks = [
     active: pathname.startsWith('/api'),
   },
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
+  { href: '/builder', label: 'Builder', active: isBuilder },
 ];
 ---
 
@@ -37,7 +40,7 @@ const topLinks = [
       <SiteTitle />
     </div>
   )}
-  {!isLanding && !isGallery && (
+  {!isLanding && !isGallery && !isBuilder && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>

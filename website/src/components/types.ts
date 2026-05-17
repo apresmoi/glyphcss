@@ -21,6 +21,7 @@ export interface DomMetrics {
   rects: number;
   triangles: number;
   irregular: number;
+  overpaintPercent: number;
 }
 
 export interface SceneOptionsState {
@@ -68,4 +69,14 @@ export interface SceneOptionsState {
   fpvCrouchHeight: number;
   fpvLookSensitivity: number;
   fpvInvertY: boolean;
+  /** Distance-based mesh culling in FPV mode. Meshes farther than this
+   *  many world units from the camera origin are unmounted. 0 disables
+   *  culling (render everything). */
+  fpvRenderDistance: number;
+  /** Builder placement: snap the ghost to the floor grid before
+   *  committing. */
+  snapToGrid: boolean;
+  /** Grid resolution in world units (cell side length). Drives both
+   *  the rendered grid and snap-to-grid rounding. */
+  gridResolution: number;
 }

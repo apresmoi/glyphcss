@@ -16,6 +16,8 @@ export type { PolySceneProps } from "./scene";
 export type { PolyRenderStrategy, PolyRenderStrategiesOption } from "./scene/textureAtlas";
 export { PolyMesh } from "./scene";
 export type { PolyMeshProps } from "./scene";
+export { PolyGround } from "./scene";
+export type { PolyGroundProps } from "./scene";
 export { usePolySceneContext } from "./scene";
 export type { UseSceneContextOptions, UseSceneContextResult } from "./scene";
 export { usePolyMesh } from "./scene";

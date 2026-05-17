@@ -235,6 +235,31 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
 
   const transform = buildTransform(position, scale, rotation);
 
+  // Pivot rotation + scale around the polygon bbox center, matching vanilla's
+  // `.polycss-mesh { transform-origin: var(--origin) }`. Without this the
+  // wrapper would pivot at its own (0,0,0) — which usually doesn't coincide
+  // with the visible mesh center, so rotateX/Y/Z would orbit the mesh around
+  // the asset's authoring origin and scale would push it sideways. World→CSS
+  // axis swap: world[1]→CSS x, world[0]→CSS y, world[2]→CSS z.
+  const transformOrigin = useMemo(() => {
+    if (polygons.length === 0) return undefined;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const poly of polygons) {
+      for (const v of poly.vertices) {
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+        if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+      }
+    }
+    if (!Number.isFinite(minX)) return undefined;
+    const tile = 50;
+    const x = ((minY + maxY) / 2) * tile;
+    const y = ((minX + maxX) / 2) * tile;
+    const z = ((minZ + maxZ) / 2) * tile;
+    return `${x}px ${y}px ${z}px`;
+  }, [polygons]);
+
   // ── Imperative ref handle + DOM registry ──────────────────────────────
   // The handle is a stable object whose getters always read the latest
   // props. Refs keep getters cheap without rebuilding the handle on every
@@ -578,6 +603,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
 
   const wrapperStyle: CSSProperties = {
     transform,
+    ...(transformOrigin ? { transformOrigin } : null),
     ...dynamicLightOverride,
     ...style,
     ...defaultPaintVars,

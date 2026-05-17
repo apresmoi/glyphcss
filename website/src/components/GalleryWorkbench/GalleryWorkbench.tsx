@@ -14,7 +14,15 @@ import {
 } from "../Inspector";
 import { VanillaScene } from "../VanillaScene";
 import { ReactScene } from "../ReactScene";
-import { Dock } from "../Dock";
+import {
+  Dock,
+  DockModel,
+  DockRendering,
+  DockAnimation,
+  DockInteraction,
+  DockCamera,
+  DockLighting,
+} from "../Dock";
 import { ModelsSidebar } from "../ModelsSidebar";
 import { DropOverlay } from "../DropOverlay";
 import { StatsOverlay } from "../StatsOverlay";
@@ -30,12 +38,10 @@ import {
   GALLERY_BUCKET_ORDER,
   galleryBucketForPreset,
   galleryBucketRank,
-  labelFromFile,
   stripParenthesizedText,
 } from "./presets";
 import {
   EMPTY_METRICS,
-  domMetricCountsEqual,
   measureDom,
 } from "./helpers/domMetrics";
 import {
@@ -53,12 +59,12 @@ import {
   usePresetLoader,
   useScenePolygons,
   useAnimationFrames,
-  useFpvSpawn,
   useRouteSync,
   useGuiCameraSync,
   setRoutePresetId,
   routeInitialPresetId,
 } from "./hooks";
+import { useFpvHost } from "../fpv";
 import type { ObjParseOptions, GltfParseOptions, VoxParseOptions } from "@layoutit/polycss";
 
 function presetPickerItem(preset: PresetModel, local = false) {
@@ -117,6 +123,9 @@ const DEFAULT_SCENE: SceneOptionsState = {
   fpvCrouchHeight: 3,
   fpvLookSensitivity: 0.15,
   fpvInvertY: false,
+  fpvRenderDistance: 40,
+  snapToGrid: true,
+  gridResolution: 5,
 };
 
 const DEFAULT_PARSER: ParserOptionsState = {
@@ -223,7 +232,7 @@ export default function GalleryWorkbench() {
   // `selectedMeshes` because vanilla MeshHandles aren't comparable to
   // React PolyMeshHandles. Stored as IDs since that's what both paths
   // can agree on for the toolbar display.
-  const [vanillaSelectedIds, setVanillaSelectedIds] = useState<string[]>([]);
+  const [, setVanillaSelectedIds] = useState<string[]>([]);
 
   const updateScene = useCallback((partial: Partial<SceneOptionsState>) => {
     setSceneOptions((current) => ({ ...current, ...partial }));
@@ -373,7 +382,6 @@ export default function GalleryWorkbench() {
   const textureQuality = sceneOptions.textureQuality;
 
   const animationClips = loaded?.animation?.clips ?? [];
-  const hasAnimation = animationClips.length > 0;
   const activeAnimation = useMemo(
     () => animationClips.find((clip) => String(clip.index) === selectedAnimation) ?? null,
     [animationClips, selectedAnimation],
@@ -429,7 +437,7 @@ export default function GalleryWorkbench() {
     parserOptions.defaultColor,
   ]);
 
-  useFpvSpawn({
+  useFpvHost({
     dragMode: sceneOptions.dragMode,
     autoCenter: sceneOptions.autoCenter,
     perspective: sceneOptions.perspective,
@@ -479,8 +487,7 @@ export default function GalleryWorkbench() {
     let raf = 0;
     const update = () => {
       raf = 0;
-      const next = measureDom(root);
-      setMetrics((current) => domMetricCountsEqual(current, next) ? current : next);
+      setMetrics(measureDom(root));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -634,18 +641,6 @@ export default function GalleryWorkbench() {
   return (
     <div
       className={`dn-root${dropped.dropActive ? " dn-root--drop-active" : ""}`}
-      data-camera-mode={sceneOptions.dragMode}
-      style={{
-        // FPV: host's CSS perspective must match the scene's perspective so
-        // the FPV controls' lookOffset (perspective/tile) and the host viewer
-        // plane agree on where the camera "eye" lives in CSS space. Without
-        // this, raising the scene perspective swings target on a longer lever
-        // arm while the host's plane stays at 2000px → the scene visibly
-        // jumps in Z and pitches dramatically on mouselook.
-        ["--fpv-perspective" as const]: typeof sceneOptions.perspective === "number"
-          ? `${sceneOptions.perspective}px`
-          : "2000px",
-      }}
       onDragEnter={dropped.handleDragEnter}
       onDragOver={dropped.handleDragOver}
       onDragLeave={dropped.handleDragLeave}
@@ -737,29 +732,83 @@ export default function GalleryWorkbench() {
 
       <StatsOverlay />
 
-      <Dock
-        sceneOptions={sceneOptions}
-        metrics={metrics}
-        hasSpriteLeaves={hasSpriteLeaves}
-        selectedAnimation={selectedAnimation}
-        selectedPreset={selectedPreset}
-        loaded={loaded}
-        animationOptions={animationOptions}
-        animationClipCount={animationClips.length}
-        hasActiveAnimation={hasActiveAnimation}
-        activeAnimation={activeAnimation !== null}
-        perspectivePx={perspectivePx}
-        perspectiveMode={perspectiveMode}
-        gizmoMode={gizmoMode}
-        defaultZoomForModel={defaultZoomForModel}
-        onUpdateScene={updateScene}
-        onAnimationChange={setSelectedAnimation}
-        onResetAnimatedPolygons={() => animation.setReactAnimatedPolygons(null)}
-        onGizmoModeChange={setGizmoMode}
-        onSelectAnimationClear={() => setSelectedAnimation("")}
-        loading={loading}
-        loadError={loadError}
-      />
+      <Dock loading={loading} loadError={loadError}>
+        <DockModel
+          metrics={metrics}
+          disableStrategies={sceneOptions.disableStrategies}
+          onUpdateScene={updateScene}
+        />
+        <DockRendering
+          meshResolution={sceneOptions.meshResolution}
+          meshInteriorFill={sceneOptions.meshInteriorFill}
+          solidMaterials={sceneOptions.solidMaterials}
+          textureLighting={sceneOptions.textureLighting}
+          textureQuality={sceneOptions.textureQuality}
+          hasActiveAnimation={hasActiveAnimation}
+          hasSpriteLeaves={hasSpriteLeaves}
+          onUpdateScene={updateScene}
+        />
+        <DockAnimation
+          selectedAnimation={selectedAnimation}
+          animationOptions={animationOptions}
+          animationPaused={sceneOptions.animationPaused}
+          animationTimeScale={sceneOptions.animationTimeScale}
+          animationClipCount={animationClips.length}
+          onAnimationChange={setSelectedAnimation}
+          onResetAnimatedPolygons={() => animation.setReactAnimatedPolygons(null)}
+          onSelectAnimationClear={() => setSelectedAnimation("")}
+          onUpdateScene={updateScene}
+        />
+        <DockInteraction
+          interactive={sceneOptions.interactive}
+          hoverEffects={sceneOptions.hoverEffects}
+          selection={sceneOptions.selection}
+          gizmoMode={gizmoMode}
+          onUpdateScene={updateScene}
+          onGizmoModeChange={setGizmoMode}
+        />
+        <DockCamera
+          autoCenter={sceneOptions.autoCenter}
+          showAxes={sceneOptions.showAxes}
+          animate={sceneOptions.animate}
+          dragMode={sceneOptions.dragMode}
+          fpvLook={sceneOptions.fpvLook}
+          fpvMove={sceneOptions.fpvMove}
+          fpvJump={sceneOptions.fpvJump}
+          fpvCrouch={sceneOptions.fpvCrouch}
+          fpvMoveSpeed={sceneOptions.fpvMoveSpeed}
+          fpvJumpVelocity={sceneOptions.fpvJumpVelocity}
+          fpvGravity={sceneOptions.fpvGravity}
+          fpvEyeHeight={sceneOptions.fpvEyeHeight}
+          fpvCrouchHeight={sceneOptions.fpvCrouchHeight}
+          fpvLookSensitivity={sceneOptions.fpvLookSensitivity}
+          fpvInvertY={sceneOptions.fpvInvertY}
+          fpvRenderDistance={sceneOptions.fpvRenderDistance}
+          perspectiveMode={perspectiveMode}
+          perspectivePx={perspectivePx}
+          perspective={sceneOptions.perspective}
+          zoom={sceneOptions.zoom}
+          rotX={sceneOptions.rotX}
+          rotY={sceneOptions.rotY}
+          target={sceneOptions.target}
+          loaded={loaded}
+          selectedPreset={selectedPreset}
+          defaultZoomForModel={(preset, polys) => defaultZoomForModel(preset as PresetModel, polys as Polygon[])}
+          onUpdateScene={updateScene}
+        />
+        <DockLighting
+          castShadow={sceneOptions.castShadow}
+          showGround={sceneOptions.showGround}
+          showLight={sceneOptions.showLight}
+          lightAzimuth={sceneOptions.lightAzimuth}
+          lightElevation={sceneOptions.lightElevation}
+          lightIntensity={sceneOptions.lightIntensity}
+          lightColor={sceneOptions.lightColor}
+          ambientIntensity={sceneOptions.ambientIntensity}
+          ambientColor={sceneOptions.ambientColor}
+          onUpdateScene={updateScene}
+        />
+      </Dock>
     </div>
   );
 }

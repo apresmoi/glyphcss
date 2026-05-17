@@ -22,10 +22,11 @@ export type {
   PolyCameraContextValue,
 } from "./camera";
 
-export { PolyScene, PolyMesh, usePolySceneContext, usePolyMesh, findPolyMeshHandle, pointInMeshElement, findMeshUnderPoint, usePolyMaterial } from "./scene";
+export { PolyScene, PolyMesh, PolyGround, usePolySceneContext, usePolyMesh, findPolyMeshHandle, pointInMeshElement, findMeshUnderPoint, usePolyMaterial } from "./scene";
 export type {
   PolySceneProps,
   PolyMeshProps,
+  PolyGroundProps,
   UseSceneContextOptions,
   UseSceneContextResult,
   UseMeshResult,

@@ -41,6 +41,14 @@ export type {
 
 // ── Rotation math ────────────────────────────────────────────────
 export { rotateVec3, inverseRotateVec3 } from "./math/rotation";
+export {
+  quatFromAxisAngle,
+  quatFromEulerXYZ,
+  quatMultiply,
+  eulerXYZFromQuat,
+  QUAT_IDENTITY,
+} from "./math/quaternion";
+export type { Quat } from "./math/quaternion";
 
 // ── Camera ────────────────────────────────────────────────────────
 export {
@@ -110,8 +118,8 @@ export type {
 } from "./cull/cameraBackfaceCulling";
 
 // ── Helper-gizmo geometry (axes, light marker, transform arrows / rings) ─
-export { axesHelperPolygons, arrowPolygons, ringPolygons, octahedronPolygons } from "./helpers";
-export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, OctahedronPolygonsOptions } from "./helpers";
+export { axesHelperPolygons, arrowPolygons, ringPolygons, ringQuadPolygons, planePolygons, octahedronPolygons } from "./helpers";
+export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, RingQuadPolygonsOptions, PlanePolygonsOptions, OctahedronPolygonsOptions } from "./helpers";
 
 // ── Animation ─────────────────────────────────────────────────────
 export {

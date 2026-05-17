@@ -431,6 +431,27 @@ export function createPolyFirstPersonControls(
     rafId = null;
   }
 
+  // FPV needs a perspective context on the host so scene Z motion shows as
+  // depth, not as a planar pan. We honor whatever perspective the host
+  // already has (e.g. user picked a value via sceneOptions.perspective);
+  // when the host has none (orthographic mode), fall back to 2000px to
+  // match lookOffset's fallback so the math and visual stay in sync.
+  // Applied via `.polycss-fpv-host` (see styles.ts) so the class's
+  // `!important` overrides any inline `perspective: none`.
+  function applyFpvHostPerspective(): void {
+    const view = host.ownerDocument?.defaultView;
+    const current = view?.getComputedStyle(host).perspective ?? "";
+    const n = parseFloat(current);
+    const effective = Number.isFinite(n) && n > 0 ? n : 2000;
+    host.style.setProperty("--polycss-fpv-perspective", `${effective}px`);
+    host.classList.add("polycss-fpv-host");
+  }
+
+  function clearFpvHostPerspective(): void {
+    host.classList.remove("polycss-fpv-host");
+    host.style.removeProperty("--polycss-fpv-perspective");
+  }
+
   function attach(): void {
     host.addEventListener("click", onHostClick);
     doc.addEventListener("pointerlockchange", onPointerLockChange);
@@ -439,6 +460,7 @@ export function createPolyFirstPersonControls(
     win.addEventListener("keyup", onKeyUp);
     win.addEventListener("blur", onBlur);
     host.style.cursor = opts.lookEnabled ? "crosshair" : "";
+    applyFpvHostPerspective();
   }
 
   function detach(): void {
@@ -453,6 +475,7 @@ export function createPolyFirstPersonControls(
     if (pointerLocked) {
       try { doc.exitPointerLock(); } catch { /* ignore */ }
     }
+    clearFpvHostPerspective();
   }
 
   initializeOriginFromTarget();

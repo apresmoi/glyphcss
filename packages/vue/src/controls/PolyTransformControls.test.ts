@@ -23,6 +23,25 @@ afterEach(() => {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+/** The ring is now one quad masked to a donut via CSS; its JS hit-test
+ *  (pointInRingMeshElement) rejects clicks at the bbox center (= the inner
+ *  hole). This helper patches the leaf bbox so the click coordinates land
+ *  at the right edge of the bbox — normalized distance from center = 1,
+ *  in the donut band. */
+function patchRingLeafBboxForDonut(
+  ringEl: HTMLElement,
+  clientX = 100,
+  clientY = 0,
+): void {
+  const leaf = ringEl.querySelector("i,b,s,u") as HTMLElement;
+  if (!leaf) return;
+  leaf.getBoundingClientRect = () => ({
+    left: clientX - 100, top: clientY - 50, right: clientX, bottom: clientY + 50,
+    width: 100, height: 100, x: clientX - 100, y: clientY - 50,
+    toJSON() { return this; },
+  } as DOMRect);
+}
+
 function withFakeLayout(cameraScale: number, fn: () => void): void {
   const TRANSFORM_RE = /translate3d\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px,\s*(-?[\d.]+)px\s*\)/;
   const orig = Element.prototype.getBoundingClientRect;
@@ -126,7 +145,11 @@ describe("PolyTransformControls (Vue)", () => {
     const wrapper = container.querySelector("[data-poly-transform-controls]") as HTMLElement;
     expect(wrapper).not.toBeNull();
     expect(wrapper.getAttribute("data-poly-mode")).toBe("translate");
-    expect(wrapper.style.transform).toContain("translate3d(50px, 60px, 70px)");
+    // Wrapper plants itself on the mesh's visible center:
+    // position + bboxCenter * scale. TRIANGLE bbox center is (0.5, 0.5, 0)
+    // in world space → (25, 25, 0) CSS px at the standard tile (50). Scale 1
+    // means it adds straight to [50, 60, 70].
+    expect(wrapper.style.transform).toContain("translate3d(75px, 85px, 70px)");
     const arrows = wrapper.querySelectorAll(".polycss-transform-arrow");
     expect(arrows.length).toBe(6);
     expect(Array.from(arrows).map(axisKeyOf)).toEqual(["x", "-x", "y", "-y", "z", "-z"]);
@@ -331,19 +354,24 @@ describe("PolyTransformControls (Vue)", () => {
 
     const yRing = container.querySelector(".polycss-transform-ring--y") as HTMLElement;
     expect(yRing).not.toBeNull();
+    patchRingLeafBboxForDonut(yRing, 100, 0);
 
     withFakeLayout(2, () => {
       yRing.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 0, pointerId: 1 }),
       );
-      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 100, pointerId: 1 }));
+      // Small angular delta keeps Euler XYZ unambiguous — at exactly 90°
+      // we hit the gimbal-lock branch and the round-trip can flip the
+      // rotation onto a different component.
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 100, clientY: 10, pointerId: 1 }));
     });
 
     expect(onObjectChange).toHaveBeenCalled();
     const event = onObjectChange.mock.calls[0][0];
     expect(typeof event.rotation[1]).toBe("number");
-    expect(event.rotation[0]).toBe(0);
-    expect(event.rotation[2]).toBe(0);
+    expect(event.rotation[1]).not.toBe(0);
+    expect(Math.abs(event.rotation[0])).toBeLessThan(1e-6);
+    expect(Math.abs(event.rotation[2])).toBeLessThan(1e-6);
   });
 
   it("dragging Z ring: rotation[2] changes after pointer move", async () => {
@@ -356,19 +384,21 @@ describe("PolyTransformControls (Vue)", () => {
 
     const zRing = container.querySelector(".polycss-transform-ring--z") as HTMLElement;
     expect(zRing).not.toBeNull();
+    patchRingLeafBboxForDonut(zRing, 100, 0);
 
     withFakeLayout(2, () => {
       zRing.dispatchEvent(
         new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 0, pointerId: 1 }),
       );
-      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 100, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 100, clientY: 10, pointerId: 1 }));
     });
 
     expect(onObjectChange).toHaveBeenCalled();
     const event = onObjectChange.mock.calls[0][0];
     expect(typeof event.rotation[2]).toBe("number");
-    expect(event.rotation[0]).toBe(0);
-    expect(event.rotation[1]).toBe(0);
+    expect(event.rotation[2]).not.toBe(0);
+    expect(Math.abs(event.rotation[0])).toBeLessThan(1e-6);
+    expect(Math.abs(event.rotation[1])).toBeLessThan(1e-6);
   });
 
   it("rotationSnap=15 rounds raw rotation to nearest 15° step", async () => {
@@ -381,6 +411,7 @@ describe("PolyTransformControls (Vue)", () => {
 
     const xRing = container.querySelector(".polycss-transform-ring--x") as HTMLElement;
     expect(xRing).not.toBeNull();
+    patchRingLeafBboxForDonut(xRing, 1, 0);
 
     withFakeLayout(1, () => {
       xRing.dispatchEvent(
@@ -406,6 +437,7 @@ describe("PolyTransformControls (Vue)", () => {
 
     const yRing = container.querySelector(".polycss-transform-ring--y") as HTMLElement;
     expect(yRing).not.toBeNull();
+    patchRingLeafBboxForDonut(yRing, 100, 0);
 
     withFakeLayout(2, () => {
       yRing.dispatchEvent(
@@ -432,6 +464,7 @@ describe("PolyTransformControls (Vue)", () => {
 
     const yRing = container.querySelector(".polycss-transform-ring--y") as HTMLElement;
     expect(yRing).not.toBeNull();
+    patchRingLeafBboxForDonut(yRing, 100, 0);
 
     withFakeLayout(2, () => {
       yRing.dispatchEvent(
@@ -472,6 +505,7 @@ describe("PolyTransformControls (Vue)", () => {
 
     const xRing = container.querySelector(".polycss-transform-ring--x") as HTMLElement;
     expect(xRing).not.toBeNull();
+    patchRingLeafBboxForDonut(xRing, 100, 0);
 
     withFakeLayout(2, () => {
       xRing.dispatchEvent(
@@ -518,6 +552,7 @@ describe("PolyTransformControls (Vue)", () => {
 
     const yRing = container.querySelector(".polycss-transform-ring--y") as HTMLElement;
     expect(yRing).not.toBeNull();
+    patchRingLeafBboxForDonut(yRing, 100, 0);
 
     withFakeLayout(2, () => {
       yRing.dispatchEvent(

@@ -10,6 +10,7 @@ const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   site: 'https://polycss.com',
+  devToolbar: { enabled: false },
   vite: {
     resolve: {
       dedupe: ['react', 'react-dom'],

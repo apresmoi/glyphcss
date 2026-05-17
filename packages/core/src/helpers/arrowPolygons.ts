@@ -25,6 +25,11 @@ export interface ArrowPolygonsOptions {
   headHalfThickness?: number;
   /** Fill color. */
   color?: string;
+  /** Emit the rectangular shaft polygons. Default `true`. Set `false` to
+   *  render just the pyramid head — used by transform-control gizmos to
+   *  declutter back-facing axes (only the head still identifies direction
+   *  while the shaft would visually overlap the front-facing arrow). */
+  shaft?: boolean;
 }
 
 function makeAxisVec(axis: 0 | 1 | 2, along: number, sideA: number, sideB: number): Vec3 {
@@ -106,6 +111,7 @@ export function arrowPolygons(options: ArrowPolygonsOptions): Polygon[] {
   const headLength = options.headLength ?? 0.8;
   const headHalf = options.headHalfThickness ?? 0.2;
   const color = options.color ?? "#ffffff";
+  const includeShaft = options.shaft ?? true;
 
   // Shaft spans from origin to ±shaftLength along the axis. Use min/max
   // so the cuboid is built with from < to (axisBox convention) — the
@@ -118,8 +124,10 @@ export function arrowPolygons(options: ArrowPolygonsOptions): Polygon[] {
   const headApex = (shaftLength + headLength) * sign;
 
   const head = pyramidPolygons(axis, headBase, headApex, headHalf, color);
+  const headPolys = sign === -1 ? reverseWinding(head) : head;
+  if (!includeShaft) return headPolys;
   return [
     ...shaftPolygons(axis, shaftMin, shaftMax, shaftHalf, color),
-    ...(sign === -1 ? reverseWinding(head) : head),
+    ...headPolys,
   ];
 }

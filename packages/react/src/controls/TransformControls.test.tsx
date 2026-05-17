@@ -428,12 +428,24 @@ describe("<PolyTransformControls>", () => {
       );
       const yRing = container.querySelector('.polycss-transform-ring--y') as HTMLElement;
       expect(yRing).not.toBeNull();
+      // The ring is a single quad masked to a donut via CSS; the JS hit-test
+      // (pointInRingMeshElement) rejects clicks at the bbox center. Patch the
+      // leaf rect so the click at (100, 0) lands at the right edge of the
+      // bbox — that maps to normalized distance 1 from center, inside the
+      // donut band (innerRatio < 1).
+      const leaf = yRing.querySelector("i,b,s,u") as HTMLElement;
+      const origLeafRect = leaf.getBoundingClientRect.bind(leaf);
+      leaf.getBoundingClientRect = () => ({
+        left: 0, top: -50, right: 100, bottom: 50, width: 100, height: 100, x: 0, y: -50,
+        toJSON() { return this; },
+      } as DOMRect);
       // Trigger pointerdown via the PolyMesh synthetic event path
       act(() => {
         yRing.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 0, pointerId: 1 }),
         );
       });
+      leaf.getBoundingClientRect = origLeafRect;
       expect(onMouseDown).toHaveBeenCalledOnce();
       // Move pointer to accumulate angle change
       act(() => {
@@ -636,6 +648,14 @@ describe("<PolyTransformControls>", () => {
         </PolyCamera>,
       );
       const xRing = container.querySelector('.polycss-transform-ring--x') as HTMLElement;
+      // Patch the leaf bbox so the click at (100, 0) is at the right edge of
+      // the bbox — passes the donut-shaped hit-test (clicks at the bbox
+      // center would land in the inner hole and be rejected).
+      const leaf = xRing.querySelector("i,b,s,u") as HTMLElement;
+      leaf.getBoundingClientRect = () => ({
+        left: 0, top: -50, right: 100, bottom: 50, width: 100, height: 100, x: 0, y: -50,
+        toJSON() { return this; },
+      } as DOMRect);
       act(() => {
         xRing.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 0, pointerId: 1 }),
@@ -666,6 +686,12 @@ describe("<PolyTransformControls>", () => {
       const rebakeSpy = vi.spyOn(handle, "rebakeAtlas");
 
       const xRing = container.querySelector('.polycss-transform-ring--x') as HTMLElement;
+      // Patch the leaf bbox so click at (100, 0) hits the donut band.
+      const leaf = xRing.querySelector("i,b,s,u") as HTMLElement;
+      leaf.getBoundingClientRect = () => ({
+        left: 0, top: -50, right: 100, bottom: 50, width: 100, height: 100, x: 0, y: -50,
+        toJSON() { return this; },
+      } as DOMRect);
       act(() => {
         xRing.dispatchEvent(
           new PointerEvent("pointerdown", { bubbles: true, clientX: 100, clientY: 0, pointerId: 1 }),

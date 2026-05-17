@@ -71,16 +71,21 @@ function triggerPointerDownOnGizmoEl(
   // pointer coordinates.
   const iEls = el.querySelectorAll("i,b,s,u");
   const origRects = new Map<Element, () => DOMRect>();
+  // Offset bbox so the click sits at the bbox's right edge instead of its
+  // center. Rings use a donut-shaped hit-test that rejects clicks AT the
+  // bbox center (it's the inner hole). A click at the boundary passes both
+  // the arrow rect test (clientX <= r.right) AND the donut test (normalized
+  // distance from bbox center = 1, on the outer edge).
   iEls.forEach((i) => {
     origRects.set(i, i.getBoundingClientRect.bind(i));
     i.getBoundingClientRect = () => ({
-      left: clientX - 1,
+      left: clientX - 2,
       top: clientY - 1,
-      right: clientX + 1,
+      right: clientX,
       bottom: clientY + 1,
       width: 2,
       height: 2,
-      x: clientX - 1,
+      x: clientX - 2,
       y: clientY - 1,
       toJSON() { return this; },
     } as DOMRect);
@@ -123,8 +128,8 @@ describe("createTransformControls", () => {
     expect(gizmos.length).toBe(0);
   });
 
-  // ── Test 2: translate mode renders 6 arrows ─────────────────────────────────
-  it("attach(mesh) in translate mode mounts 6 .polycss-transform-arrow meshes", () => {
+  // ── Test 2: translate mode renders 6 arrows + 3 plane handles ───────────────
+  it("attach(mesh) in translate mode mounts 6 arrows + 3 plane handles", () => {
     const mesh = scene.add(parseResult(), { id: "target" });
     tc = createTransformControls(scene, { mode: "translate" });
     tc.attach(mesh);
@@ -132,15 +137,23 @@ describe("createTransformControls", () => {
     const arrows = host.querySelectorAll(".polycss-transform-arrow");
     expect(arrows.length).toBe(6);
 
-    const keys = Array.from(arrows).map((el) => {
+    const arrowKeys = Array.from(arrows).map((el) => {
       const m = /polycss-transform-arrow--(-?[a-z])/.exec(el.className);
       return m ? m[1] : null;
     });
-    expect(keys).toEqual(["x", "-x", "y", "-y", "z", "-z"]);
+    expect(arrowKeys).toEqual(["x", "-x", "y", "-y", "z", "-z"]);
 
-    // All should also carry the shared gizmo class
+    const planes = host.querySelectorAll(".polycss-transform-plane");
+    expect(planes.length).toBe(3);
+    const planeKeys = Array.from(planes).map((el) => {
+      const m = /polycss-transform-plane--([a-z]+)/.exec(el.className);
+      return m ? m[1] : null;
+    });
+    expect(planeKeys.sort()).toEqual(["xy", "xz", "yz"]);
+
+    // All nine carry the shared gizmo class.
     const gizmos = host.querySelectorAll(".polycss-transform-gizmo");
-    expect(gizmos.length).toBe(6);
+    expect(gizmos.length).toBe(9);
   });
 
   // ── Test 3: rotate mode renders 3 rings ─────────────────────────────────────
@@ -353,9 +366,12 @@ describe("createTransformControls", () => {
       expect(evt.rotation).toBeDefined();
       // X-axis rotation is inverted; moving CW should produce positive rotation
       expect(evt.rotation![0]).toBeTypeOf("number");
-      // y and z should remain 0 (X ring drag only affects cssAxis=0)
-      expect(evt.rotation![1]).toBe(0);
-      expect(evt.rotation![2]).toBe(0);
+      // y and z should remain ~0 (X ring drag only affects cssAxis=0). With
+      // quaternion compose the round-trip through Euler can yield -0 for
+      // nominally-zero components, so check the magnitude instead of strict
+      // +0 equality.
+      expect(Math.abs(evt.rotation![1])).toBeLessThan(1e-6);
+      expect(Math.abs(evt.rotation![2])).toBeLessThan(1e-6);
       expect(evt.object).toBe(mesh);
 
       window.dispatchEvent(new PointerEvent("pointerup", { clientX: 200, clientY: 100, pointerId: 1 }));
@@ -370,7 +386,7 @@ describe("createTransformControls", () => {
     tc.attach(mesh);
 
     // Confirm gizmos are present
-    expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBe(6);
+    expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBe(9);
 
     tc.destroy();
     tc = null;
@@ -393,7 +409,7 @@ describe("createTransformControls", () => {
     const mesh = scene.add(parseResult(), { id: "target" });
     tc = createTransformControls(scene, { mode: "translate" });
     tc.attach(mesh);
-    expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBe(6);
+    expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBe(9);
 
     tc.detach();
     expect(host.querySelectorAll(".polycss-transform-gizmo").length).toBe(0);

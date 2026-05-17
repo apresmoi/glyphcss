@@ -61,9 +61,6 @@ const UNSTABLE_PROJECTIVE_QUAD: Polygon = {
   color: "#ff00ff",
 };
 
-const QUAD_CANONICAL_SIZE = 64;
-const ATLAS_SLICE_CANONICAL_SIZE = 128;
-
 const OFFAXIS_TRIANGLE: Polygon = {
   vertices: [
     [0, 0, 0],
@@ -163,41 +160,15 @@ function computeExpectedMatrix(
   return computeExpectedPlan(vertices, tileSize, elev).matrix;
 }
 
-function computeExpectedQuadMatrix(
+function computeExpectedCanonicalMatrix(
   vertices: [number, number, number][],
   tileSize = 50,
   elev = tileSize,
 ): number[] {
   const { matrix, canvasW, canvasH } = computeExpectedPlan(vertices, tileSize, elev);
   return [
-    matrix[0] * canvasW / QUAD_CANONICAL_SIZE,
-    matrix[1] * canvasW / QUAD_CANONICAL_SIZE,
-    matrix[2] * canvasW / QUAD_CANONICAL_SIZE,
-    0,
-    matrix[4] * canvasH / QUAD_CANONICAL_SIZE,
-    matrix[5] * canvasH / QUAD_CANONICAL_SIZE,
-    matrix[6] * canvasH / QUAD_CANONICAL_SIZE,
-    0,
-    matrix[8], matrix[9], matrix[10], 0,
-    matrix[12], matrix[13], matrix[14], 1,
-  ];
-}
-
-function computeExpectedAtlasMatrix(
-  vertices: [number, number, number][],
-  tileSize = 50,
-  elev = tileSize,
-): number[] {
-  const { matrix, canvasW, canvasH } = computeExpectedPlan(vertices, tileSize, elev);
-  return [
-    matrix[0] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
-    matrix[1] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
-    matrix[2] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
-    0,
-    matrix[4] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
-    matrix[5] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
-    matrix[6] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
-    0,
+    matrix[0] * canvasW, matrix[1] * canvasW, matrix[2] * canvasW, 0,
+    matrix[4] * canvasH, matrix[5] * canvasH, matrix[6] * canvasH, 0,
     matrix[8], matrix[9], matrix[10], 0,
     matrix[12], matrix[13], matrix[14], 1,
   ];
@@ -312,7 +283,7 @@ describe("renderPoly — matrix math parity", () => {
   it("vertical quad matrix3d values match expected", () => {
     const result = renderPoly(VERTICAL_QUAD)!;
     const actual = extractMatrix(result.element);
-    const expected = roundedMatrix(computeExpectedQuadMatrix(VERTICAL_QUAD.vertices as [number, number, number][]));
+    const expected = roundedMatrix(computeExpectedCanonicalMatrix(VERTICAL_QUAD.vertices as [number, number, number][]));
     expect(actual.length).toBe(16);
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
@@ -338,7 +309,7 @@ describe("renderPoly — matrix math parity", () => {
     };
     const result = renderPoly(poly, { tileSize: 50, layerElevation: 25 })!;
     const actual = extractMatrix(result.element);
-    const expected = roundedMatrix(computeExpectedQuadMatrix(poly.vertices as [number, number, number][], 50, 25));
+    const expected = roundedMatrix(computeExpectedCanonicalMatrix(poly.vertices as [number, number, number][], 50, 25));
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
   });
@@ -499,8 +470,8 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const yScale = Math.hypot(matrix[4], matrix[5], matrix[6]);
 
     expect(element.tagName.toLowerCase()).toBe("i");
-    expect(xScale).toBeGreaterThan(2 / 64);
-    expect(yScale).toBeGreaterThan(2 / 64);
+    expect(xScale).toBeGreaterThan(2 / 16);
+    expect(yScale).toBeGreaterThan(2 / 16);
     expect(element.style.getPropertyValue("border-shape")).toContain("polygon(");
     result.dispose();
   });
@@ -631,10 +602,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.style.height).toBe("");
     expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
     expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
-    expect(matrix[0]).toBeGreaterThan(10 / 64);
+    expect(matrix[0]).toBeGreaterThan(10 / 16);
     expect(matrix[1]).toBeCloseTo(0, 6);
     expect(matrix[4]).toBeCloseTo(0, 6);
-    expect(matrix[5]).toBeGreaterThan(1 / 64);
+    expect(matrix[5]).toBeGreaterThan(1 / 16);
     result.dispose();
   });
 
@@ -653,7 +624,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const result = renderPolygonsWithTextureAtlas([obliqueTriangle], { tileSize: 1 });
     const element = result.rendered[0].element;
     const matrix = extractMatrix(element);
-    const expected = roundedMatrix(computeExpectedAtlasMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1), 6);
+    const expected = roundedMatrix(computeExpectedMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1));
 
     expect(element.style.width).toBe("");
     expect(element.style.height).toBe("");
@@ -720,7 +691,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const isolated = renderPolygonsWithTextureAtlas([bladeFace], { tileSize: 1 });
     const shared = renderPolygonsWithTextureAtlas([bladeFace, bevelFace], { tileSize: 1 });
     const sharedMatrix = extractMatrix(shared.rendered[0].element);
-    const sharedEdgeMatrix = roundedMatrix(computeExpectedAtlasMatrix(bladeFace.vertices as [number, number, number][], 1, 1), 6);
+    const sharedEdgeMatrix = roundedMatrix(computeExpectedMatrix(bladeFace.vertices as [number, number, number][], 1, 1));
 
     const isolatedMatrix = extractMatrix(isolated.rendered[0].element);
     expectColumnDirection(isolatedMatrix, sharedEdgeMatrix, 0);
@@ -760,7 +731,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(repaired.rendered[0].element.style.height).toBe("");
     expectMatrixClose(
       extractMatrix(repaired.rendered[0].element),
-      roundedMatrix(computeExpectedAtlasMatrix(left.vertices as [number, number, number][], 1, 1), 6),
+      roundedMatrix(computeExpectedMatrix(left.vertices as [number, number, number][], 1, 1)),
     );
     expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
 
@@ -798,11 +769,11 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(repaired.rendered[1].element.style.height).toBe("");
     expectMatrixClose(
       extractMatrix(repaired.rendered[0].element),
-      roundedMatrix(computeExpectedAtlasMatrix(floor.vertices as [number, number, number][], 1, 1), 6),
+      roundedMatrix(computeExpectedMatrix(floor.vertices as [number, number, number][], 1, 1)),
     );
     expectMatrixClose(
       extractMatrix(repaired.rendered[1].element),
-      roundedMatrix(computeExpectedAtlasMatrix(wall.vertices as [number, number, number][], 1, 1), 6),
+      roundedMatrix(computeExpectedMatrix(wall.vertices as [number, number, number][], 1, 1)),
     );
     expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
 
@@ -1327,7 +1298,6 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     const element = result.rendered[0].element;
     const style = element.getAttribute("style") ?? "";
     expect(element.tagName.toLowerCase()).toBe("b");
-    expect(element.className).toBe("");
     expect(result.rendered[0].kind).toBe("solid");
     expect(style).toContain("transform:matrix3d(");
     expect(style).not.toContain("width");
@@ -1360,9 +1330,9 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     ]);
 
     expectPointClose(transformMatrixPoint(matrix, 0, 0), expected[0]);
-    expectPointClose(transformMatrixPoint(matrix, 64, 0), expected[1]);
-    expectPointClose(transformMatrixPoint(matrix, 64, 64), expected[2]);
-    expectPointClose(transformMatrixPoint(matrix, 0, 64), expected[3]);
+    expectPointClose(transformMatrixPoint(matrix, 1, 0), expected[1]);
+    expectPointClose(transformMatrixPoint(matrix, 1, 1), expected[2]);
+    expectPointClose(transformMatrixPoint(matrix, 0, 1), expected[3]);
     result.dispose();
   });
 

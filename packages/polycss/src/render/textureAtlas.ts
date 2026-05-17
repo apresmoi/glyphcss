@@ -232,17 +232,13 @@ const TEXTURE_EDGE_REPAIR_ALPHA_MIN = 1;
 const TEXTURE_EDGE_REPAIR_SOURCE_ALPHA_MIN = 250;
 const TEXTURE_EDGE_REPAIR_RADIUS = 1.5;
 const SOLID_TRIANGLE_BLEED = 0.75;
-const SOLID_ATLAS_EDGE_BLEED = 0.9;
 const DEFAULT_MATRIX_DECIMALS = 3;
 const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 const DEFAULT_ATLAS_CSS_DECIMALS = 4;
 const BORDER_SHAPE_CENTER_PERCENT = 50;
 const BORDER_SHAPE_POINT_EPS = 1e-7;
-const BORDER_SHAPE_CANONICAL_SIZE = 64;
+const BORDER_SHAPE_CANONICAL_SIZE = 16;
 const BORDER_SHAPE_BLEED = 0.9;
-const QUAD_CANONICAL_SIZE = 64;
-const ATLAS_SLICE_CANONICAL_SIZE = 128;
-const SOLID_TRIANGLE_CANONICAL_SIZE = 64;
 const PROJECTIVE_QUAD_DENOM_EPS = 0.05;
 const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = Number.POSITIVE_INFINITY;
 const PROJECTIVE_QUAD_BLEED = 0.6;
@@ -522,7 +518,6 @@ function computeProjectiveQuadMatrix(
   if (!coeffs) return null;
   const { g, h, w1, w3 } = coeffs;
   const [q0, q1, , q3] = q;
-  const sourceSize = QUAD_CANONICAL_SIZE;
 
   const p0: Vec3 = [
     tx + q0[0] * xAxis[0] + q0[1] * yAxis[0],
@@ -536,11 +531,11 @@ function computeProjectiveQuadMatrix(
   ];
 
   return formatMatrix3dValues([
-    ...projectiveColumn(q1, w1).map((value) => value / sourceSize), g / sourceSize,
-    ...projectiveColumn(q3, w3).map((value) => value / sourceSize), h / sourceSize,
+    ...projectiveColumn(q1, w1), g,
+    ...projectiveColumn(q3, w3), h,
     normal[0], normal[1], normal[2], 0,
     p0[0], p0[1], p0[2], 1,
-  ], 6);
+  ]);
 }
 
 function formatPercent(value: number, decimals = DEFAULT_BORDER_SHAPE_DECIMALS): string {
@@ -1515,17 +1510,11 @@ function computeTextureAtlasPlan(
     tx, ty, tz, 1,
   ]);
   const canonicalMatrix = formatMatrix3dValues([
-    xAxis[0] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
-    xAxis[1] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
-    xAxis[2] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
-    0,
-    yAxis[0] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
-    yAxis[1] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
-    yAxis[2] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
-    0,
+    xAxis[0] * canvasW, xAxis[1] * canvasW, xAxis[2] * canvasW, 0,
+    yAxis[0] * canvasH, yAxis[1] * canvasH, yAxis[2] * canvasH, 0,
     normal[0], normal[1], normal[2], 0,
     tx, ty, tz, 1,
-  ], 6);
+  ]);
   const projectiveMatrix = !texture && vertices.length === 4
     ? computeProjectiveQuadMatrix(
         screenPts,
@@ -1758,13 +1747,12 @@ function computeSolidTrianglePlan(
     baseLeft[1] - txCol[1],
     baseLeft[2] - txCol[2],
   ];
-  const sourceSize = SOLID_TRIANGLE_CANONICAL_SIZE;
   const canonicalMatrix = formatMatrix3dValues([
-    xCol[0] / sourceSize, xCol[1] / sourceSize, xCol[2] / sourceSize, 0,
-    yCol[0] / sourceSize, yCol[1] / sourceSize, yCol[2] / sourceSize, 0,
+    xCol[0], xCol[1], xCol[2], 0,
+    yCol[0], yCol[1], yCol[2], 0,
     normal[0], normal[1], normal[2], 0,
     txCol[0], txCol[1], txCol[2], 1,
-  ], 6);
+  ]);
   const styleText = `transform:matrix3d(${canonicalMatrix});` +
       bakedColor +
       dynamicVars;
@@ -1877,30 +1865,17 @@ function paintSolidAtlasEntry(
   textureLighting: PolyTextureLightingMode,
   atlasScale: number,
 ): void {
-  // Dynamic mode multiplies the tint at render time via background-blend-mode,
-  // so the atlas keeps the polygon's unshaded base color.
-  const paintColor = textureLighting === "dynamic"
-    ? (entry.polygon.color ?? "#cccccc")
-    : entry.shadedColor;
-
-  ctx.save();
   setCssTransform(ctx, atlasScale);
   ctx.beginPath();
   tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
   ctx.clip();
-  ctx.fillStyle = paintColor;
-  ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
-  ctx.restore();
-
-  ctx.save();
   setCssTransform(ctx, atlasScale);
-  ctx.beginPath();
-  tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
-  ctx.strokeStyle = paintColor;
-  ctx.lineWidth = SOLID_ATLAS_EDGE_BLEED * 2;
-  ctx.lineJoin = "round";
-  ctx.stroke();
-  ctx.restore();
+  // Dynamic mode multiplies the tint at render time via background-blend-mode,
+  // so the atlas keeps the polygon's unshaded base color.
+  ctx.fillStyle = textureLighting === "dynamic"
+    ? (entry.polygon.color ?? "#cccccc")
+    : entry.shadedColor;
+  ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
 }
 
 function clampSourceCoord(value: number, max: number): number {
@@ -2186,7 +2161,9 @@ async function buildAtlasPage(
   for (const entry of page.entries) {
     const srcImg = entry.texture ? loaded.get(entry.texture) : null;
     if (!entry.texture) {
+      ctx.save();
       paintSolidAtlasEntry(ctx, entry, textureLighting, atlasScale);
+      ctx.restore();
       continue;
     }
 
@@ -2250,10 +2227,8 @@ function applyAtlasBackground(
   const url = `url(${page.url})`;
   const width = entry.canvasW || 1;
   const height = entry.canvasH || 1;
-  const scaleX = ATLAS_SLICE_CANONICAL_SIZE / width;
-  const scaleY = ATLAS_SLICE_CANONICAL_SIZE / height;
-  const pos = `${formatCssLength(-entry.x * scaleX)} ${formatCssLength(-entry.y * scaleY)}`;
-  const size = `${formatCssLength(page.width * scaleX)} ${formatCssLength(page.height * scaleY)}`;
+  const pos = `${formatCssLength(-entry.x / width)} ${formatCssLength(-entry.y / height)}`;
+  const size = `${formatCssLength(page.width / width)} ${formatCssLength(page.height / height)}`;
   if (textureLighting === "dynamic") {
     setInlineStyleProperty(el, "background-image", url);
     setInlineStyleProperty(el, "background-position", pos);
@@ -2310,14 +2285,6 @@ function formatPlanElementStyle(
 ): string {
   const shape = shapeDeclaration ? `;${shapeDeclaration}` : "";
   return `transform:matrix3d(${entry.canonicalMatrix})${shape}`;
-}
-
-function formatQuadMatrix(entry: TextureAtlasPlan): string {
-  return formatScaledMatrixFromPlan(
-    entry,
-    entry.canvasW / QUAD_CANONICAL_SIZE,
-    entry.canvasH / QUAD_CANONICAL_SIZE,
-  );
 }
 
 function formatScaledMatrixFromPlan(
@@ -2433,14 +2400,8 @@ function stableMatrixFromPlan(
   return {
     normal,
     matrix: formatMatrix3dValues([
-      xAxis[0] * (source.canvasW || 1) / ATLAS_SLICE_CANONICAL_SIZE,
-      xAxis[1] * (source.canvasW || 1) / ATLAS_SLICE_CANONICAL_SIZE,
-      xAxis[2] * (source.canvasW || 1) / ATLAS_SLICE_CANONICAL_SIZE,
-      0,
-      yAxis[0] * (source.canvasH || 1) / ATLAS_SLICE_CANONICAL_SIZE,
-      yAxis[1] * (source.canvasH || 1) / ATLAS_SLICE_CANONICAL_SIZE,
-      yAxis[2] * (source.canvasH || 1) / ATLAS_SLICE_CANONICAL_SIZE,
-      0,
+      xAxis[0], xAxis[1], xAxis[2], 0,
+      yAxis[0], yAxis[1], yAxis[2], 0,
       normal[0], normal[1], normal[2], 0,
       tx, ty, tz, 1,
     ]),
@@ -2762,8 +2723,7 @@ function createSolidElement(
   solidPaintDefaults?: SolidPaintDefaults,
 ): HTMLElement {
   const el = doc.createElement("b");
-  el.setAttribute("style", `transform:matrix3d(${formatQuadMatrix(entry)})`);
-  applyPolygonDataAttrs(el, entry.polygon);
+  applyPlanElementBase(el, entry);
   applySolidPaint(el, entry, textureLighting, solidPaintDefaults);
 
   return el;
@@ -2806,11 +2766,7 @@ function createAtlasElement(
   applyPlanElementBase(el, entry);
   const width = entry.canvasW || 1;
   const height = entry.canvasH || 1;
-  setInlineStyleProperty(
-    el,
-    "background-position",
-    `${formatCssLength(-entry.x * ATLAS_SLICE_CANONICAL_SIZE / width)} ${formatCssLength(-entry.y * ATLAS_SLICE_CANONICAL_SIZE / height)}`,
-  );
+  setInlineStyleProperty(el, "background-position", `${formatCssLength(-entry.x / width)} ${formatCssLength(-entry.y / height)}`);
   setInlineStyleProperty(el, "opacity", "0");
 
   if (textureLighting === "dynamic") applyDynamicNormalVars(el, entry);

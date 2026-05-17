@@ -429,8 +429,33 @@ export const PolyMesh = defineComponent({
 
     return () => {
       const transform = buildTransform(props.position, props.scale, props.rotation);
+      // Pivot rotation + scale around the polygon bbox center, matching
+      // vanilla's `.polycss-mesh { transform-origin: var(--origin) }`. Without
+      // this the wrapper would pivot at (0,0,0) — usually NOT the visible
+      // center — so rotateX/Y/Z would orbit the mesh around the asset's
+      // authoring origin and scale would shift it sideways. World→CSS axis
+      // swap matches polygonGeometry: world[1]→CSS x, world[0]→CSS y,
+      // world[2]→CSS z.
+      const originPolys = polygons.value;
+      let transformOrigin: string | undefined;
+      if (originPolys.length > 0) {
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        for (const poly of originPolys) {
+          for (const v of poly.vertices) {
+            if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+            if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+            if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+          }
+        }
+        if (Number.isFinite(minX)) {
+          const tile = 50;
+          transformOrigin = `${((minY + maxY) / 2) * tile}px ${((minX + maxX) / 2) * tile}px ${((minZ + maxZ) / 2) * tile}px`;
+        }
+      }
       const wrapperStyle: CSSProperties = {
         transform,
+        ...(transformOrigin ? { transformOrigin } : null),
         ...(dynamicLightOverride.value as CSSProperties | null ?? undefined),
         ...(attrs.style as CSSProperties | undefined),
         ...(defaultPaintVars.value ?? undefined),

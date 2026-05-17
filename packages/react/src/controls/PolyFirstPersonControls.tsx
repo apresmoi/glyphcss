@@ -453,6 +453,19 @@ export const PolyFirstPersonControls = forwardRef<
     // Apply initial cursor
     host.style.cursor = opts.lookEnabled ? "crosshair" : "";
 
+    // FPV needs a perspective context on the host so scene Z motion shows
+    // as depth, not as a planar pan. Read the current effective perspective
+    // BEFORE adding the class so we honor any value the camera component
+    // set (PolyPerspectiveCamera's inline `perspective: Npx`); fall back to
+    // 2000px for orthographic (`perspective: none`) so the FPV math and
+    // visual perspective stay in sync. The `.polycss-fpv-host` class uses
+    // `!important` (see styles.ts) to override inline `perspective: none`.
+    const computedPersp = win.getComputedStyle(host).perspective;
+    const persp = parseFloat(computedPersp);
+    const effectivePersp = Number.isFinite(persp) && persp > 0 ? persp : 2000;
+    host.style.setProperty("--polycss-fpv-perspective", `${effectivePersp}px`);
+    host.classList.add("polycss-fpv-host");
+
     // ── Pointer-lock ──────────────────────────────────────────────────────────
     const onHostClick = (): void => {
       const o = optsRef.current;
@@ -556,6 +569,8 @@ export const PolyFirstPersonControls = forwardRef<
       win.removeEventListener("keyup", onKeyUp);
       win.removeEventListener("blur", onBlur);
       host.style.cursor = "";
+      host.classList.remove("polycss-fpv-host");
+      host.style.removeProperty("--polycss-fpv-perspective");
       keysHeldRef.current.clear();
       if (pointerLockedRef.current) {
         try { doc.exitPointerLock(); } catch { /* ignore */ }
