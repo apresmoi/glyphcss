@@ -32,24 +32,147 @@ import {
 } from "./hooks";
 import type { PresetModel } from "./types";
 
+type AsciiCell = { ch: string; color?: string };
+type TrimmedStrip = { rows: AsciiCell[][]; left: number; right: number; top: number; bottom: number };
+
+/** Walk the strip's DOM, collect (char, color) cells per row, then compute the
+ * trim bounds (leading/trailing empty rows, common left/right padding). */
+function parseStripCells(strip: HTMLElement): TrimmedStrip | null {
+  const rows: AsciiCell[][] = [[]];
+  let row = rows[0]!;
+  const visit = (node: Node, color?: string): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const t = node.nodeValue ?? "";
+      for (const ch of t) {
+        if (ch === "\n") {
+          row = [];
+          rows.push(row);
+        } else {
+          row.push(color ? { ch, color } : { ch });
+        }
+      }
+      return;
+    }
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      const next = el.style?.color || color;
+      el.childNodes.forEach((c) => visit(c, next));
+    }
+  };
+  strip.childNodes.forEach((c) => visit(c));
+
+  let top = 0;
+  let bottom = rows.length - 1;
+  const rowEmpty = (r: AsciiCell[]) => r.every((c) => c.ch === " ");
+  while (top <= bottom && rowEmpty(rows[top]!)) top++;
+  while (bottom >= top && rowEmpty(rows[bottom]!)) bottom--;
+  if (bottom < top) return null;
+
+  let left = Infinity;
+  let right = 0;
+  for (let i = top; i <= bottom; i++) {
+    const r = rows[i]!;
+    let first = -1;
+    let last = -1;
+    for (let j = 0; j < r.length; j++) {
+      if (r[j]!.ch !== " ") {
+        if (first === -1) first = j;
+        last = j + 1;
+      }
+    }
+    if (first === -1) continue;
+    if (first < left) left = first;
+    if (last > right) right = last;
+  }
+  if (!Number.isFinite(left) || right === 0) return null;
+  return { rows, top, bottom, left, right };
+}
+
+/** Render the trimmed strip as plain text + inline-color HTML. */
+function renderHtmlAndText(strip: TrimmedStrip): { text: string; html: string } {
+  const { rows, top, bottom, left, right } = strip;
+
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const textLines: string[] = [];
+  const htmlLines: string[] = [];
+  for (let i = top; i <= bottom; i++) {
+    const r = rows[i]!;
+    const slice = r.slice(left, right);
+    while (slice.length < right - left) slice.push({ ch: " " });
+    textLines.push(slice.map((c) => c.ch).join(""));
+
+    let html = "";
+    let buf = "";
+    let cur: string | undefined;
+    const flush = () => {
+      if (!buf) return;
+      // Cells with a color render as solid blocks of that color (background
+      // matches the glyph color, so the glyph itself disappears) — yields
+      // a clean colored silhouette of the mesh when pasted into rich-text
+      // editors. Plain cells stay bare so empty padding inherits the paste
+      // target's background.
+      html += cur
+        ? `<span style="color:${cur};background:${cur}">${esc(buf)}</span>`
+        : esc(buf);
+      buf = "";
+    };
+    for (const cell of slice) {
+      if (cell.color !== cur) {
+        flush();
+        cur = cell.color;
+      }
+      buf += cell.ch;
+    }
+    flush();
+    htmlLines.push(html);
+  }
+  const text = textLines.join("\n");
+  // Background + default color intentionally omitted so the paste target's
+  // theme (Docs/Notion white, terminals dark) shows through. Per-cell colors
+  // still survive via inline span styles.
+  const html = `<pre style="font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace;white-space:pre;line-height:1.05;margin:0">${htmlLines.join("\n")}</pre>`;
+  return { text, html };
+}
+
 /**
  * Floating "Copy" button overlaid on the viewport. Grabs the rendered ASCII
- * text from the strip and writes it to the clipboard. Reads the strip's
- * `innerText` (HTML stripped) so spans-with-color come out as plain glyphs.
+ * (trimmed to the mesh bounding box) and writes both plain text and HTML to
+ * the clipboard so color is preserved in rich-text editors.
  */
 function CopySceneButton() {
   const [copied, setCopied] = useState(false);
+
   const handleCopy = useCallback(async () => {
     const strip = document.querySelector(".glyphcss-demo__strip") as HTMLElement | null;
     if (!strip) return;
+    const parsed = parseStripCells(strip);
+    if (!parsed) return;
+    const { text, html } = renderHtmlAndText(parsed);
     try {
-      await navigator.clipboard.writeText(strip.innerText);
+      const ClipboardItemCtor = (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
+      if (ClipboardItemCtor && navigator.clipboard?.write) {
+        const item = new ClipboardItemCtor({
+          "text/plain": new Blob([text], { type: "text/plain" }),
+          "text/html": new Blob([html], { type: "text/html" }),
+        });
+        await navigator.clipboard.write([item]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {
-      // Clipboard write rejected (permissions, insecure origin, etc.). No-op.
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      } catch {
+        // No-op.
+      }
     }
   }, []);
+
   return (
     <button
       type="button"
