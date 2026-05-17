@@ -12,7 +12,7 @@ import {
   type GlyphcssSceneHandle,
   type GlyphcssSceneOptions,
 } from "../api/createGlyphcssScene";
-import type { RenderMode } from "@layoutit/polycss-core";
+import type { RenderMode } from "@glyphcss/core";
 
 const ELEMENT_BASE: typeof HTMLElement =
   typeof HTMLElement !== "undefined"

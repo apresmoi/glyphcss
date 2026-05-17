@@ -1,4 +1,4 @@
-import type { CharRamp } from "@layoutit/polycss-core";
+import type { CharRamp } from "@glyphcss/core";
 
 /** Default shading ramp — darkest → brightest. */
 export const DEFAULT_RAMP: CharRamp = " .:-=+*#%@".split("");

@@ -5,8 +5,8 @@
  *
  * On disconnect: disposes the registered mesh handle.
  */
-import type { Vec3 } from "@layoutit/polycss-core";
-import { loadMesh } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
+import { loadMesh } from "@glyphcss/core";
 import type { GlyphcssMeshHandle, GlyphcssSceneHandle, GlyphcssTriangle } from "../api/createGlyphcssScene";
 import type { GlyphcssMeshTransform } from "../api/types";
 import type { GlyphcssSceneElement } from "./GlyphcssSceneElement";
@@ -41,7 +41,7 @@ function findScene(el: HTMLElement): GlyphcssSceneElement | null {
 
 /** Convert polycss Polygon[] to GlyphcssTriangle[] by fan-triangulating each polygon. */
 function polygonsToTriangles(polygons: { vertices: Vec3[]; color?: string }[]): GlyphcssTriangle[] {
-  const ZERO_UV: [import("@layoutit/polycss-core").Vec2, import("@layoutit/polycss-core").Vec2, import("@layoutit/polycss-core").Vec2] =
+  const ZERO_UV: [import("@glyphcss/core").Vec2, import("@glyphcss/core").Vec2, import("@glyphcss/core").Vec2] =
     [[0, 0], [0, 0], [0, 0]];
   const out: GlyphcssTriangle[] = [];
   for (const poly of polygons) {

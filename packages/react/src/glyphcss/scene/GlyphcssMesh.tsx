@@ -8,7 +8,7 @@
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 import type { GlyphcssTriangle, GlyphcssMeshTransform } from "glyphcss";
 import { useGlyphcssSceneContext } from "./context";
 import { registerMeshElement, unregisterMeshElement } from "./events";

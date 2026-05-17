@@ -6,7 +6,7 @@
  */
 import { defineComponent, h, provide, shallowRef, onMounted, onBeforeUnmount, watch } from "vue";
 import type { PropType } from "vue";
-import type { RenderMode } from "@layoutit/polycss-core";
+import type { RenderMode } from "@glyphcss/core";
 import type { GlyphcssSceneOptions, GlyphcssDirectionalLight, GlyphcssAmbientLight } from "glyphcss";
 import { createGlyphcssScene, injectGlyphcssBaseStyles } from "glyphcss";
 import { GlyphcssSceneContextKey } from "./context";

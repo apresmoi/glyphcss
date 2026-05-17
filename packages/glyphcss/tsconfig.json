@@ -13,8 +13,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@layoutit/polycss-core": ["../core/src/index.ts"],
-      "@layoutit/polycss-core/*": ["../core/src/*"]
+      "@glyphcss/core": ["../core/src/index.ts"],
+      "@glyphcss/core/*": ["../core/src/*"]
     }
   },
   "include": ["src"],

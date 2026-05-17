@@ -10,7 +10,7 @@
  *   - Rasterizer — `rasterize`, `bakeFrames`
  *   - Custom element classes (importing this entry does NOT auto-register them;
  *     use `glyphcss/elements` for that side effect).
- *   - Re-exports everything from `@layoutit/polycss-core`.
+ *   - Re-exports everything from `@glyphcss/core`.
  */
 
 // ── Imperative scene API ──────────────────────────────────────────
@@ -95,5 +95,5 @@ export { GlyphcssOrthographicCameraElement } from "./elements/GlyphcssOrthograph
 export { GlyphcssOrbitControlsElement } from "./elements/GlyphcssOrbitControlsElement";
 export { GlyphcssMapControlsElement } from "./elements/GlyphcssMapControlsElement";
 
-// ── Re-exports from @layoutit/polycss-core ───────────────────────
-export * from "@layoutit/polycss-core";
+// ── Re-exports from @glyphcss/core ───────────────────────────────
+export * from "@glyphcss/core";

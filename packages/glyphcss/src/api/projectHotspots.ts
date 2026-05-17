@@ -1,4 +1,4 @@
-import type { Hotspot, HotspotCell } from "@layoutit/polycss-core";
+import type { Hotspot, HotspotCell } from "@glyphcss/core";
 import type { GlyphcssCamera } from "./createGlyphcssCamera";
 
 /**

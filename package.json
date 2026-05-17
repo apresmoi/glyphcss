@@ -1,12 +1,12 @@
 {
-  "name": "polycss-monorepo",
+  "name": "glyphcss-monorepo",
   "version": "0.0.0",
   "private": true,
   "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22.12.0"
   },
-  "description": "CSS-based polygon mesh rendering engine monorepo.",
+  "description": "Glyphcss ASCII polygon mesh rendering engine monorepo.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -23,8 +23,8 @@
     "test": "pnpm --filter './packages/*' -r --if-present test",
     "test:coverage": "pnpm --filter './packages/*' -r --if-present test:coverage",
     "publish:all": "pnpm --filter './packages/*' -r publish --access public",
-    "dev:website": "pnpm --filter @layoutit/polycss-website dev",
-    "build:website": "pnpm --filter @layoutit/polycss-website build"
+    "dev:website": "pnpm --filter @glyphcss/website dev",
+    "build:website": "pnpm --filter @glyphcss/website build"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

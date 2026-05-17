@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { TextureTriangle } from "@layoutit/polycss-core";
+import type { TextureTriangle } from "@glyphcss/core";
 
 export interface InspectorColorGroup {
   /** Hex when `editable`; group label (e.g. "textured") when not. */

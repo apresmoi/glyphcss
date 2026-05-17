@@ -25,7 +25,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@layoutit/polycss-core": path.resolve(__dirname, "../core/src/index.ts"),
+      "@glyphcss/core": path.resolve(__dirname, "../core/src/index.ts"),
     },
   },
 });

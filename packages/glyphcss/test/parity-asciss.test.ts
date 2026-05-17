@@ -16,7 +16,7 @@ import { rasterize } from "../src/render/rasterize";
 import { buildRasterizeContext } from "../src/api/rasterizeContext";
 import { createGlyphcssPerspectiveCamera } from "../src/api/createGlyphcssCamera";
 import type { GlyphcssTriangle } from "../src/api/types";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 
 const FIXTURE_DIR = resolve(__dirname, "fixtures");
 

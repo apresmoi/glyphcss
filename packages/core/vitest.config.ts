@@ -14,7 +14,7 @@ export default defineConfig({
         "src/**/*.d.ts",
       ],
       thresholds: {
-        // Uniform floor across @layoutit/polycss, -core, -react, -vue.
+        // Uniform floor across @glyphcss/core, glyphcss, @glyphcss/react, @glyphcss/vue.
         // Reflects reality today (core is comfortably above 90 on three
         // metrics; this is the shared minimum). Ratchet up over time.
         statements: 80,

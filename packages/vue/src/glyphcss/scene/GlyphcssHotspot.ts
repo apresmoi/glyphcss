@@ -4,7 +4,7 @@
  */
 import { defineComponent, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
 import type { PropType } from "vue";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 import type { GlyphcssHotspotHandle } from "glyphcss";
 import { GlyphcssSceneContextKey } from "./context";
 

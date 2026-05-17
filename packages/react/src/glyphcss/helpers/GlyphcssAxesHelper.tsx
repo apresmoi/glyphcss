@@ -7,7 +7,7 @@
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { GlyphcssMeshHandle, GlyphcssTriangle } from "glyphcss";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 import { useGlyphcssSceneContext } from "../scene/context";
 
 export interface GlyphcssAxesHelperProps {

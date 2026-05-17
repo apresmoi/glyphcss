@@ -1,4 +1,4 @@
-import type { Vec3, Vec2 } from "@layoutit/polycss-core";
+import type { Vec3, Vec2 } from "@glyphcss/core";
 
 /**
  * Triangle type for the glyphcss rasterizer. Unlike polycss-core's TextureTriangle,

@@ -9,7 +9,7 @@
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { ReactNode, MouseEventHandler } from "react";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 import type { GlyphcssHotspotHandle } from "glyphcss";
 import { useGlyphcssSceneContext } from "./context";
 

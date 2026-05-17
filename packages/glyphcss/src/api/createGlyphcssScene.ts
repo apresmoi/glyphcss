@@ -25,7 +25,7 @@ import type {
   Vec3,
   RenderMode,
   Hotspot,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 import type { GlyphcssCamera } from "./createGlyphcssCamera";
 import { createGlyphcssPerspectiveCamera } from "./createGlyphcssCamera";
 import { buildRasterizeContext } from "./rasterizeContext";

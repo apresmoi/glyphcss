@@ -10,7 +10,7 @@
  * The internal camera algorithms are byte-identical to asciss's createCamera.ts.
  */
 
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 
 /**
  * Rotate `v` to match polycss's world→screen transform for identical (rotY, rotX) values.

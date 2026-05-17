@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { GlyphcssMetrics, SceneOptionsState } from "../GalleryWorkbench/types";
-import type { ParseAnimationClip } from "@layoutit/polycss-core";
+import type { ParseAnimationClip } from "@glyphcss/core";
 
 // Mirror of the handle shape exposed by glyphcss-runtime on demoEl.glyphcssDemo.
 interface DemoHandle {

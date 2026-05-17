@@ -30,7 +30,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@layoutit/polycss-core": "workspace:^"
+    "@glyphcss/core": "workspace:^"
   },
   "devDependencies": {
     "tsup": "^8.0.1",

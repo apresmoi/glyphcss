@@ -3,7 +3,7 @@
  */
 import { defineComponent, inject, onMounted, onBeforeUnmount, watch, computed, shallowRef } from "vue";
 import type { PropType } from "vue";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 import type { GlyphcssMeshHandle, GlyphcssTriangle } from "glyphcss";
 import { GlyphcssSceneContextKey } from "../scene/context";
 

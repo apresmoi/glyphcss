@@ -47,7 +47,7 @@ importers:
 
   packages/glyphcss:
     dependencies:
-      '@layoutit/polycss-core':
+      '@glyphcss/core':
         specifier: workspace:^
         version: link:../core
     devDependencies:
@@ -72,7 +72,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@layoutit/polycss-core':
+      '@glyphcss/core':
         specifier: workspace:^
         version: link:../core
       glyphcss:
@@ -109,7 +109,7 @@ importers:
 
   packages/vue:
     dependencies:
-      '@layoutit/polycss-core':
+      '@glyphcss/core':
         specifier: workspace:^
         version: link:../core
       glyphcss:
@@ -146,7 +146,7 @@ importers:
       '@astrojs/starlight':
         specifier: ^0.38.2
         version: 0.38.2(astro@6.1.1(@types/node@25.5.0)(rollup@4.60.0)(typescript@5.9.3))
-      '@layoutit/polycss-react':
+      '@glyphcss/react':
         specifier: workspace:^
         version: link:../packages/react
       '@types/react':

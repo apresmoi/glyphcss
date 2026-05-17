@@ -3,7 +3,7 @@
  * Walks up to the parent `<glyphcss-scene>` and registers itself as a hotspot.
  * Normal DOM events (click, hover, focus) fire on the projected overlay element.
  */
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 import type { GlyphcssHotspotHandle } from "../api/createGlyphcssScene";
 import type { GlyphcssSceneElement } from "./GlyphcssSceneElement";
 

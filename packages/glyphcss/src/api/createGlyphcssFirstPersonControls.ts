@@ -6,7 +6,7 @@
  */
 
 import type { GlyphcssSceneHandle } from "./createGlyphcssScene";
-import type { Vec3 } from "@layoutit/polycss-core";
+import type { Vec3 } from "@glyphcss/core";
 
 export interface GlyphcssFirstPersonControlsOptions {
   drag?: boolean;

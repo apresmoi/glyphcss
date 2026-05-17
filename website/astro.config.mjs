@@ -16,28 +16,6 @@ export default defineConfig({
       dedupe: ['react', 'react-dom'],
       alias: [
         {
-          find: /^@layoutit\/polycss-core$/,
-          replacement: repoPath('../packages/core/src/index.ts'),
-        },
-        {
-          find: /^@layoutit\/polycss-react$/,
-          replacement: repoPath('../packages/react/src/index.ts'),
-        },
-        {
-          find: /^@layoutit\/polycss-vue$/,
-          replacement: repoPath('../packages/vue/src/index.ts'),
-        },
-        // glyphcss package aliases (used by glyphcss-runtime.ts and gallery components)
-        {
-          find: /^glyphcss\/elements$/,
-          replacement: repoPath('../packages/glyphcss/src/elements/index.ts'),
-        },
-        {
-          find: /^glyphcss$/,
-          replacement: repoPath('../packages/glyphcss/src/index.ts'),
-        },
-        // Shim @glyphcss/* → @layoutit/polycss-* for any remaining asciss imports
-        {
           find: /^@glyphcss\/core$/,
           replacement: repoPath('../packages/core/src/index.ts'),
         },
@@ -48,6 +26,14 @@ export default defineConfig({
         {
           find: /^@glyphcss\/vue$/,
           replacement: repoPath('../packages/vue/src/index.ts'),
+        },
+        {
+          find: /^glyphcss\/elements$/,
+          replacement: repoPath('../packages/glyphcss/src/elements/index.ts'),
+        },
+        {
+          find: /^glyphcss$/,
+          replacement: repoPath('../packages/glyphcss/src/index.ts'),
         },
       ],
     },

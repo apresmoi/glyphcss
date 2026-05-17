@@ -1,12 +1,12 @@
 {
-  "name": "@layoutit/polycss-vue",
+  "name": "@glyphcss/vue",
   "version": "0.0.1",
-  "description": "Native Vue 3 components for CSS polygon mesh rendering with 60fps imperative updates.",
+  "description": "Native Vue 3 components for the glyphcss ASCII polygon mesh rendering engine.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "keywords": ["polycss", "polygon", "mesh", "3d", "css", "matrix3d", "dom", "vue", "vue3", "rendering"],
+  "keywords": ["glyphcss", "ascii", "polygon", "mesh", "3d", "dom", "vue", "vue3", "rendering"],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,7 +37,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@layoutit/polycss-core": "workspace:^",
+    "@glyphcss/core": "workspace:^",
     "glyphcss": "workspace:^"
   },
   "peerDependencies": {

@@ -2,8 +2,8 @@ import type {
   GridSize,
   RenderMode,
   WireframeEdge,
-} from "@layoutit/polycss-core";
-import { trianglesToFeatureEdges } from "@layoutit/polycss-core";
+} from "@glyphcss/core";
+import { trianglesToFeatureEdges } from "@glyphcss/core";
 import type { GlyphcssCamera } from "./createGlyphcssCamera";
 import type { GlyphcssDirectionalLight, GlyphcssAmbientLight, GlyphcssTriangle } from "./types";
 

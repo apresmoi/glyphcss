@@ -10,7 +10,7 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { RenderMode } from "@layoutit/polycss-core";
+import type { RenderMode } from "@glyphcss/core";
 import type {
   GlyphcssSceneOptions,
   GlyphcssDirectionalLight,

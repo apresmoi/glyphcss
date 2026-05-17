@@ -1,12 +1,12 @@
 {
-  "name": "@layoutit/polycss-core",
+  "name": "@glyphcss/core",
   "version": "0.0.1",
-  "description": "Pure math engine for CSS polygon mesh rendering. Zero browser globals.",
+  "description": "Pure math engine for ASCII polygon mesh rendering. Zero browser globals.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "keywords": ["polycss", "polygon", "mesh", "3d", "css", "matrix3d", "dom", "rendering"],
+  "keywords": ["glyphcss", "ascii", "polygon", "mesh", "3d", "dom", "rendering"],
   "license": "MIT",
   "repository": {
     "type": "git",
