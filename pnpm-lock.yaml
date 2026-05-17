@@ -100,6 +100,9 @@ importers:
       '@layoutit/polycss-core':
         specifier: workspace:^
         version: link:../core
+      glyphcss:
+        specifier: workspace:^
+        version: link:../glyphcss
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
@@ -134,6 +137,9 @@ importers:
       '@layoutit/polycss-core':
         specifier: workspace:^
         version: link:../core
+      glyphcss:
+        specifier: workspace:^
+        version: link:../glyphcss
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^3.2.4

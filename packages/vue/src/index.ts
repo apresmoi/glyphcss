@@ -169,3 +169,40 @@ export {
   LoopRepeat,
   LoopPingPong,
 } from "@layoutit/polycss-core";
+
+// ── Glyphcss (ASCII paint backend) bindings ─────────────────────────────────
+export {
+  GlyphcssScene,
+  GlyphcssMesh,
+  GlyphcssHotspot,
+  GlyphcssSceneContextKey,
+  useGlyphcssSceneContext,
+  GlyphcssCamera,
+  GlyphcssPerspectiveCamera,
+  GlyphcssOrthographicCamera,
+  GlyphcssCameraContextKey,
+  useGlyphcssCamera,
+  GlyphcssOrbitControls,
+  GlyphcssMapControls,
+  GlyphcssFirstPersonControls,
+  GlyphcssAxesHelper,
+  GlyphcssDirectionalLightHelper,
+  injectGlyphcssBaseStyles,
+  useGlyphcssAnimation,
+} from "./glyphcss";
+export type {
+  GlyphcssSceneProps,
+  GlyphcssMeshProps,
+  GlyphcssHotspotProps,
+  GlyphcssSceneContextValue,
+  GlyphcssCameraProps,
+  GlyphcssPerspectiveCameraProps,
+  GlyphcssOrthographicCameraProps,
+  GlyphcssCameraContextValue,
+  GlyphcssOrbitControlsProps,
+  GlyphcssMapControlsProps,
+  GlyphcssFirstPersonControlsProps,
+  GlyphcssAxesHelperProps,
+  GlyphcssDirectionalLightHelperProps,
+  UseGlyphcssAnimationResultVue,
+} from "./glyphcss";

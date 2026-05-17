@@ -37,7 +37,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@layoutit/polycss-core": "workspace:^"
+    "@layoutit/polycss-core": "workspace:^",
+    "glyphcss": "workspace:^"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

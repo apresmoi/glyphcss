@@ -37,7 +37,8 @@
     "access": "public"
   },
   "dependencies": {
-    "@layoutit/polycss-core": "workspace:^"
+    "@layoutit/polycss-core": "workspace:^",
+    "glyphcss": "workspace:^"
   },
   "peerDependencies": {
     "vue": "^3.0.0"
