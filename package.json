@@ -11,12 +11,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LayoutitStudio/polycss.git"
+    "url": "https://github.com/apresmoi/glyphcss.git"
   },
   "bugs": {
-    "url": "https://github.com/LayoutitStudio/polycss/issues"
+    "url": "https://github.com/apresmoi/glyphcss/issues"
   },
-  "homepage": "https://github.com/LayoutitStudio/polycss#readme",
+  "homepage": "https://github.com/apresmoi/glyphcss#readme",
   "scripts": {
     "build": "pnpm -r --if-present build",
     "build:packages": "pnpm --filter './packages/*' -r build",

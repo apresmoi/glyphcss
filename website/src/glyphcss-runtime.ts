@@ -7,7 +7,7 @@
 
 import GUI from 'lil-gui';
 import {
-  buildSceneContext,
+  buildRasterizeContext,
   createGlyphcssPerspectiveCamera,
   createGlyphcssOrthographicCamera,
   createGlyphcssFirstPersonCamera,
@@ -15,7 +15,6 @@ import {
   projectHotspots,
   rasterize,
   loadMesh,
-  normalizePolygons,
 } from 'glyphcss';
 import type { Hotspot, Vec3, WireframeEdge, TextureTriangle, GlyphcssCamera, ParseAnimationClip } from 'glyphcss';
 
@@ -94,9 +93,58 @@ interface MeshGeometry {
   sample: (clipIndex: number, time: number) => TextureTriangle[];
 }
 
+/** Fan-triangulate a Polygon (N vertices) into N-2 TextureTriangles. */
+function polygonsToTriangles(polygons: import('glyphcss').Polygon[]): TextureTriangle[] {
+  const triangles: TextureTriangle[] = [];
+  for (const poly of polygons) {
+    if (!poly.vertices || poly.vertices.length < 3) continue;
+    const v = poly.vertices;
+    const color = poly.color;
+    // If the polygon was already pre-triangulated by the parser into textureTriangles,
+    // prefer those (they carry per-triangle UVs from the source mesh).
+    if (poly.textureTriangles && poly.textureTriangles.length > 0) {
+      for (const t of poly.textureTriangles) triangles.push(t);
+      continue;
+    }
+    for (let i = 1; i < v.length - 1; i++) {
+      const tri: TextureTriangle = {
+        vertices: [v[0]!, v[i]!, v[i + 1]!],
+        uvs: [[0, 0], [0, 0], [0, 0]],
+      };
+      if (color) tri.color = color;
+      triangles.push(tri);
+    }
+  }
+  return triangles;
+}
+
+/** Recenter + scale triangles to fit a unit bbox (asciss-style mesh-fit). */
+function fitTrianglesToUnitBbox(triangles: TextureTriangle[]): TextureTriangle[] {
+  if (triangles.length === 0) return triangles;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const t of triangles) for (const v of t.vertices) {
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+    if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+  }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
+  const k = 2 / size;
+  return triangles.map((t) => ({
+    ...t,
+    vertices: t.vertices.map((v) => [
+      (v[0] - cx) * k,
+      (v[1] - cy) * k,
+      (v[2] - cz) * k,
+    ]) as TextureTriangle["vertices"],
+  }));
+}
+
 async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGeometry> {
   const result = await loadMesh(url);
-  const polys = normalize ? normalizePolygons(result.triangles) : result.triangles;
+  const rawTris = polygonsToTriangles(result.polygons);
+  const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
   const edges = trianglesToEdges(polys);
   const vertSet = new Map<string, Vec3>();
   for (const e of edges) {
@@ -105,11 +153,14 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
   }
 
   // For animated meshes, wrap the sample function to apply the same normalization.
+  const clips = result.animation?.clips ?? [];
   let sample: (clipIndex: number, time: number) => TextureTriangle[];
-  if (result.animations.length > 0) {
+  if (clips.length > 0 && result.animation) {
+    const animation = result.animation;
     sample = (clipIndex: number, time: number) => {
-      const raw = result.sample(clipIndex, time);
-      return normalize ? normalizePolygons(raw) : raw;
+      const rawPolys = animation.sample(clipIndex, time);
+      const raw = polygonsToTriangles(rawPolys);
+      return normalize ? fitTrianglesToUnitBbox(raw) : raw;
     };
   } else {
     sample = () => polys;
@@ -119,7 +170,7 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
     vertices: Array.from(vertSet.values()),
     edges,
     triangles: polys,
-    animations: result.animations,
+    animations: clips,
     sample,
   };
 }
@@ -573,7 +624,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   let grid = computeGrid(cellMetrics.cellW, cellMetrics.cellH);
   sceneHost.style.setProperty('--rows', String(grid.rows));
 
-  let scene = buildSceneContext({ camera, grid, wireframe: geometry.edges, mode: 'wireframe' });
+  let scene = buildRasterizeContext({ camera, grid, wireframe: geometry.edges, mode: 'wireframe' });
   // Canonical wireframe for the current scene: feature-filtered, no selection highlight.
   // Interactive paths (drag, wheel, FPV) use this as the base so they don't
   // accumulate selection edges and also benefit from the feature-edge filter.
@@ -763,7 +814,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       ? trianglesToEdges(geometry.triangles, featureAngle)
       : geometry.edges;
     baseWireframe = activeEdges;
-    scene = buildSceneContext({
+    scene = buildRasterizeContext({
       camera, grid,
       wireframe: activeEdges,
       triangles: geometry.triangles,

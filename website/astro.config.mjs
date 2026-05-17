@@ -9,7 +9,7 @@ import react from '@astrojs/react';
 const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
-  site: 'https://polycss.com',
+  site: 'https://glyphcss.com',
   devToolbar: { enabled: false },
   vite: {
     resolve: {
@@ -50,7 +50,7 @@ export default defineConfig({
         SiteTitle: './src/components/SiteTitle.astro',
       },
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/LayoutitStudio/polycss' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/apresmoi/glyphcss' },
       ],
       customCss: ['./src/styles/custom.css'],
       sidebar: [

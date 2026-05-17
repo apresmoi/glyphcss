@@ -10,11 +10,7 @@ const shouldRenderSearch =
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
-const isBuilder = pathname.startsWith('/builder');
-// Hide search dock on landing + workbench pages (gallery, builder) where
-// the Starlight floating search position overlaps the workbench's own
-// sidebar / search input. Branding + GitHub still render on workbenches —
-// only /landing strips them entirely.
+
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
   {
@@ -30,7 +26,6 @@ const topLinks = [
     active: pathname.startsWith('/api'),
   },
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
-  { href: '/builder', label: 'Builder', active: isBuilder },
 ];
 ---
 
@@ -40,7 +35,7 @@ const topLinks = [
       <SiteTitle />
     </div>
   )}
-  {!isLanding && !isGallery && !isBuilder && (
+  {!isLanding && !isGallery && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>
@@ -57,21 +52,21 @@ const topLinks = [
   </nav>
   {!isLanding && (
     <div class="header-spacer print:hidden">
-    <a
-      class="github-social github-social--compact"
-      href="https://github.com/LayoutitStudio/polycss"
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label="View polycss on GitHub"
-    >
-      <span class="github-social__main">
-        <svg class="github-social__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
-        </svg>
-        <span>GitHub</span>
-      </span>
-      <span class="github-social__count" id="star-count-docs">&#9733; &hellip;</span>
-    </a>
+      <a
+        class="github-social github-social--compact"
+        href="https://github.com/apresmoi/glyphcss"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="View glyphcss on GitHub"
+      >
+        <span class="github-social__main">
+          <svg class="github-social__icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.19 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+          </svg>
+          <span>GitHub</span>
+        </span>
+        <span class="github-social__count" id="star-count-docs">&#9733; &hellip;</span>
+      </a>
     </div>
   )}
 </div>
@@ -79,7 +74,7 @@ const topLinks = [
 <script>
   async function fetchStars() {
     try {
-      const res = await fetch("https://api.github.com/repos/LayoutitStudio/polycss");
+      const res = await fetch("https://api.github.com/repos/apresmoi/glyphcss");
       if (!res.ok) return;
       const json = await res.json();
       if (typeof json?.stargazers_count === "number") {
@@ -88,7 +83,6 @@ const topLinks = [
       }
     } catch (_) {}
   }
-
   fetchStars();
 </script>
 
@@ -103,21 +97,38 @@ const topLinks = [
       grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
       align-items: center;
       gap: 24px;
-      /* Fixed at the top of the viewport on all routes. The Starlight outer
-         <header class="header"> wrapper is neutralised in custom.css so it
-         does not interfere with our own fixed positioning. */
       position: fixed;
       inset-block-start: 0;
       inset-inline-start: 0;
       width: 100%;
       height: var(--sl-nav-height);
-      /* Starlight's --sl-z-index-navbar is 10; DebugWorkbench uses up to 30,
-         so bump the header above everything else on /gallery. */
       z-index: 100;
-      background-color: var(--sl-color-bg-nav);
-      border-bottom: 1px solid var(--sl-color-hairline-shade);
+      background: #03050a;
+      border-bottom: 1px solid rgba(255, 232, 184, 0.18);
       box-sizing: border-box;
-      font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+      /* Faint scanline texture so the bar reads as a terminal strip */
+      background-image:
+        repeating-linear-gradient(
+          to bottom,
+          transparent 0px,
+          transparent 2px,
+          rgba(255, 255, 255, 0.012) 2px,
+          rgba(255, 255, 255, 0.012) 3px
+        );
+    }
+    .header::before {
+      content: "[ glyphcss v1.0 ]──[ status: ok ]";
+      position: absolute;
+      inset-block-start: -1px;
+      inset-inline-start: 18px;
+      font-family: ui-monospace, monospace;
+      font-size: 9px;
+      letter-spacing: 0.05em;
+      color: rgba(56, 189, 248, 0.55);
+      background: #03050a;
+      padding: 0 6px;
+      pointer-events: none;
     }
 
     .title-wrapper {
@@ -135,30 +146,46 @@ const topLinks = [
       min-width: 0;
     }
 
-    /* On landing the side columns aren't rendered (logo + github hidden),
-       so the nav would otherwise fall into col 1 and `justify-self:center`
-       would only center within that left third. Span all columns when it's
-       the only child of .header so the centering takes the full width. */
     .docs-top-nav:only-child {
       grid-column: 1 / -1;
     }
 
     .docs-top-nav a {
-      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: #94a3b8;
-      font-size: 0.9rem;
-      font-weight: 700;
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+      color: rgba(226, 232, 240, 0.55);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
       line-height: 1;
       text-decoration: none;
       white-space: nowrap;
-      border-radius: 999px;
-      padding: 0.55rem 0.7rem;
+      border-radius: 0;
+      padding: 0.55rem 0.75rem;
+      position: relative;
     }
-
-    .docs-top-nav a:hover,
+    .docs-top-nav a::before {
+      content: "> ";
+      color: rgba(56, 189, 248, 0.45);
+    }
+    .docs-top-nav a:hover {
+      color: rgba(255, 232, 184, 0.95);
+      background: transparent;
+    }
+    .docs-top-nav a:hover::before {
+      color: #f97316;
+    }
     .docs-top-nav a.active {
-      color: #fff;
-      background: rgba(56, 189, 248, 0.14);
+      color: rgba(255, 232, 184, 0.98);
+      background: transparent;
+      text-shadow: 0 0 6px rgba(249, 115, 22, 0.4);
+    }
+    .docs-top-nav a.active::before {
+      content: "[ ";
+      color: #f97316;
+    }
+    .docs-top-nav a.active::after {
+      content: " ]";
+      color: #f97316;
     }
 
     .sidebar-search-dock {
@@ -175,27 +202,36 @@ const topLinks = [
     .github-social {
       display: inline-flex;
       align-items: center;
+      gap: 6px;
       text-decoration: none;
-      border-radius: 6px;
-      border: 1px solid #d0d7de;
+      border-radius: 0;
+      border: 1px solid rgba(255, 232, 184, 0.3);
       overflow: hidden;
-      background: #f6f8fa;
-      color: #1f2328;
-      font-weight: 500;
+      background: rgba(15, 17, 21, 0.6);
+      color: rgba(255, 232, 184, 0.94);
+      font-family: ui-monospace, monospace;
+      font-weight: 600;
+      transition: border-color 100ms, color 100ms;
+    }
+    .github-social:hover {
+      border-color: rgba(56, 189, 248, 0.7);
+      color: #e2e8f0;
     }
 
     .github-social__main {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 10px;
-      border-right: 1px solid #d0d7de;
-      font-size: 13px;
+      gap: 6px;
+      padding: 5px 9px;
+      border-right: 1px solid rgba(255, 232, 184, 0.2);
+      font-size: 12px;
     }
+    .github-social__main::before { content: "["; color: rgba(56, 189, 248, 0.65); margin-right: 2px; }
+    .github-social__main::after  { content: "]"; color: rgba(56, 189, 248, 0.65); margin-left: 2px; }
 
     .github-social__icon {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       fill: currentColor;
     }
 
@@ -204,11 +240,10 @@ const topLinks = [
       align-items: center;
       justify-content: center;
       min-width: 40px;
-      padding: 6px 8px;
-      background: #ffffff;
-      border-radius: 0 6px 6px 0;
-      color: #24292f;
-      font-size: 13px;
+      padding: 5px 9px;
+      background: transparent;
+      color: rgba(255, 232, 184, 0.85);
+      font-size: 12px;
     }
 
     @media (max-width: 38rem) {
