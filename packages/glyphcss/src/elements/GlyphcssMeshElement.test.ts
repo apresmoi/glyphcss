@@ -58,15 +58,18 @@ describe("GlyphcssMeshElement", () => {
   });
 
   it("dispatches glyphcss:error when src fetch fails", async () => {
-    // @glyphcss/core's loadMesh will throw for an invalid URL.
-    let errorDetail: unknown = undefined;
-    scene.addEventListener("glyphcss:error", (e) => {
-      errorDetail = (e as CustomEvent).detail;
+    // @glyphcss/core's loadMesh will throw for an invalid URL. Wait for the
+    // event rather than racing a fixed timer — CI fetch teardown can take
+    // much longer than 50ms.
+    const errorDetail = await new Promise<unknown>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("glyphcss:error not dispatched within 5s")), 5000);
+      scene.addEventListener("glyphcss:error", (e) => {
+        clearTimeout(timeout);
+        resolve((e as CustomEvent).detail);
+      }, { once: true });
+      mesh.setAttribute("src", "http://invalid.example/no-such-file.obj");
+      scene.appendChild(mesh);
     });
-    mesh.setAttribute("src", "http://invalid.example/no-such-file.obj");
-    scene.appendChild(mesh);
-    // Allow the async load to fail.
-    await new Promise((r) => setTimeout(r, 50));
     expect(errorDetail).toBeTruthy();
   });
 
