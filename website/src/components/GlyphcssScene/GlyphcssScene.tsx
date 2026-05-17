@@ -14,6 +14,7 @@ interface DemoHandle {
   getCameraState: () => { rotX: number; rotY: number; scale: number; target: [number, number, number] };
   getStats: () => { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number };
   setAnimation: (clipIndex: number) => void;
+  clearAnimation: () => void;
   setAnimationPaused: (paused: boolean) => void;
   setAnimationTimeScale: (scale: number) => void;
   getAnimationInfo: () => { clips: ParseAnimationClip[]; current: number; time: number; paused: boolean };
@@ -340,8 +341,7 @@ export function GlyphcssScene({
     const handle = getHandle();
     if (!handle) return;
     if (selectedAnimation === "") {
-      // "None" — no direct API to deselect a clip; restart at clip 0 but pause immediately
-      // so the baked-frames path picks up. The runtime handles this via no active clip.
+      handle.clearAnimation();
       return;
     }
     const clipIndex = parseInt(selectedAnimation, 10);

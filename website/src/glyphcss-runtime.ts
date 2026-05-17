@@ -825,19 +825,15 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       ambientLight: { intensity: lightingState.ambientIntensity, color: lightingState.ambientColor },
     });
 
-    // Start animation loop if this geometry has animations, else bake static frames.
-    if (geometry.animations.length > 0) {
-      // Reset animation state for the new mesh.
-      animState.clipIndex = 0;
-      animState.currentTime = 0;
-      // Pause auto-rotate CSS animation for animated meshes.
-      demoEl.classList.add('no-autorotate');
-      startAnimationLoop();
-      loadingEl.style.display = 'none';
-    } else {
-      stopAnimationLoop();
-      bakeAndApply();
-    }
+    // Always bake a static pose by default; animation only runs when the user
+    // explicitly picks a clip via setAnimation(). Reset state so a stale clip
+    // index from a previous mesh doesn't carry over. Do NOT toggle the
+    // no-autorotate class — that's controlled by the host (hero uses CSS
+    // autorotate, gallery starts paused).
+    stopAnimationLoop();
+    animState.clipIndex = 0;
+    animState.currentTime = 0;
+    bakeAndApply();
   }
 
   async function setMeshUrl(url: string): Promise<void> {
@@ -1343,9 +1339,23 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     if (clipIndex < 0 || clipIndex >= geometry.animations.length) return;
     animState.clipIndex = clipIndex;
     animState.currentTime = 0;
+    demoEl.classList.add('no-autorotate');
     if (geometry.animations.length > 0 && animState.rafHandle === null) {
       startAnimationLoop();
     }
+  }
+
+  function clearAnimation(): void {
+    stopAnimationLoop();
+    animState.clipIndex = 0;
+    animState.currentTime = 0;
+    demoEl.classList.remove('no-autorotate');
+    // Restore the static rest pose so the scene doesn't keep the last sampled frame.
+    scene.triangles = geometry.triangles;
+    if (scene.mode !== 'solid') {
+      scene.wireframe = baseWireframe;
+    }
+    bakeAndApply();
   }
 
   function setAnimationPaused(paused: boolean): void {
@@ -1378,6 +1388,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       resumeAutoRotate: () => void;
       setProjection: (kind: 'perspective' | 'orthographic') => void;
       setAnimation: (clipIndex: number) => void;
+      clearAnimation: () => void;
       setAnimationPaused: (paused: boolean) => void;
       setAnimationTimeScale: (scale: number) => void;
       getAnimationInfo: () => { clips: ParseAnimationClip[]; current: number; time: number; paused: boolean };
@@ -1398,6 +1409,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     resumeAutoRotate,
     setProjection,
     setAnimation,
+    clearAnimation,
     setAnimationPaused,
     setAnimationTimeScale,
     getAnimationInfo,
