@@ -1,21 +1,17 @@
-// ── Animation (shared core; re-used by Glyphcss bindings) ──────────────────
-export { usePolyAnimation } from "./animation/usePolyAnimation";
-export type { UsePolyAnimationResultVue } from "./animation/usePolyAnimation";
-
-// ── Re-exports from @layoutit/polycss-core ─────────────────────────────────────────────
+// ── Re-exports from @glyphcss/core ─────────────────────────────────────────
 export type {
   Polygon,
   Vec2,
   Vec3,
-  PolyDirectionalLight,
-  PolyAmbientLight,
+  GlyphcssDirectionalLight,
+  GlyphcssAmbientLight,
   ParseResult,
   ParseAnimationClip,
   ParseAnimationController,
-  PolyAnimationClip,
-  PolyAnimationAction,
-  PolyAnimationMixer,
-  PolyAnimationTarget,
+  GlyphcssAnimationClip,
+  GlyphcssAnimationAction,
+  GlyphcssAnimationMixer,
+  GlyphcssAnimationTarget,
   LoopMode,
   ObjParseOptions,
   GltfParseOptions,
@@ -46,7 +42,7 @@ export type {
   CameraCullRotation,
   ApproximateMergeOptions,
   OptimizeMeshPolygonsOptions,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 export {
   CAMERA_BACKFACE_CULL_EPS,
   VOXEL_CAMERA_CULL_AXIS_EPS,
@@ -95,11 +91,11 @@ export {
   DEFAULT_CAMERA_STATE,
   DEFAULT_PROJECTION,
   normalizeInvertMultiplier,
-  createPolyAnimationMixer,
+  createGlyphcssAnimationMixer,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 
 // ── Glyphcss (ASCII paint backend) bindings ─────────────────────────────────
 export {

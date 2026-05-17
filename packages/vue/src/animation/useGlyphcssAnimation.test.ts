@@ -1,26 +1,26 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { ref, computed, nextTick } from "vue";
 import { createApp, h } from "vue";
-import { usePolyAnimation } from "./usePolyAnimation";
-import type { UsePolyAnimationResultVueVue } from "./usePolyAnimation";
+import { useGlyphcssAnimation } from "./useGlyphcssAnimation";
+import type { UseGlyphcssAnimationResultVue } from "./useGlyphcssAnimation";
 import type {
-  PolyAnimationTarget,
-  PolyAnimationClip,
+  GlyphcssAnimationTarget,
+  GlyphcssAnimationClip,
   ParseAnimationController,
   Polygon,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 
 const TRI: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#f00" };
 
-function makeClip(index: number, name: string, duration = 1): PolyAnimationClip {
+function makeClip(index: number, name: string, duration = 1): GlyphcssAnimationClip {
   return { index, name, duration, channelCount: 1 };
 }
 
-function makeController(clips: PolyAnimationClip[]): ParseAnimationController {
+function makeController(clips: GlyphcssAnimationClip[]): ParseAnimationController {
   return { clips, sample: () => [TRI] };
 }
 
-function makeTarget(): PolyAnimationTarget & { calls: Polygon[][] } {
+function makeTarget(): GlyphcssAnimationTarget & { calls: Polygon[][] } {
   const calls: Polygon[][] = [];
   return { calls, setPolygons(polys) { calls.push(polys); } };
 }
@@ -28,20 +28,20 @@ function makeTarget(): PolyAnimationTarget & { calls: Polygon[][] } {
 // ── Harness ──────────────────────────────────────────────────────────────────
 
 interface CaptureResult {
-  result: UsePolyAnimationResultVue;
+  result: UseGlyphcssAnimationResultVue;
   app: ReturnType<typeof createApp>;
 }
 
 function mountComposable(
-  clips?: PolyAnimationClip[],
+  clips?: GlyphcssAnimationClip[],
   controller?: ParseAnimationController,
-  root?: PolyAnimationTarget | null,
+  root?: GlyphcssAnimationTarget | null,
 ): CaptureResult {
-  let captured!: UsePolyAnimationResultVue;
+  let captured!: UseGlyphcssAnimationResultVue;
   const container = document.createElement("div");
   const app = createApp({
     setup() {
-      captured = usePolyAnimation(
+      captured = useGlyphcssAnimation(
         ref(clips),
         ref(controller),
         root != null ? ref(root) : undefined,
@@ -60,7 +60,7 @@ afterEach(() => {
 
 // ── No-input state ────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — no inputs", () => {
+describe("useGlyphcssAnimation — no inputs", () => {
   it("mixer.value is null when no clips are passed", () => {
     const { result } = mountComposable();
     expect(result.mixer.value).toBeNull();
@@ -98,7 +98,7 @@ describe("usePolyAnimation — no inputs", () => {
 
 // ── With clips + controller + root ────────────────────────────────────────────
 
-describe("usePolyAnimation — with inputs", () => {
+describe("useGlyphcssAnimation — with inputs", () => {
   it("clips.value matches provided clips", () => {
     const clips = [makeClip(0, "walk"), makeClip(1, "run")];
     const ctrl = makeController(clips);
@@ -136,7 +136,7 @@ describe("usePolyAnimation — with inputs", () => {
 
 // ── Actions proxy ─────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — actions proxy", () => {
+describe("useGlyphcssAnimation — actions proxy", () => {
   it("actions.value has enumerable keys matching clip names", () => {
     const clips = [makeClip(0, "walk"), makeClip(1, "run")];
     const ctrl = makeController(clips);
@@ -166,7 +166,7 @@ describe("usePolyAnimation — actions proxy", () => {
 
 // ── RAF loop ─────────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — RAF loop", () => {
+describe("useGlyphcssAnimation — RAF loop", () => {
   it("calls requestAnimationFrame when clips, controller, and root are provided", () => {
     const rafSpy = vi.fn((_cb: FrameRequestCallback) => 1);
     const cafSpy = vi.fn();
@@ -212,7 +212,7 @@ describe("usePolyAnimation — RAF loop", () => {
 
 // ── Mixer drives setPolygons ──────────────────────────────────────────────────
 
-describe("usePolyAnimation — mixer drives setPolygons", () => {
+describe("useGlyphcssAnimation — mixer drives setPolygons", () => {
   it("playing an action and manually updating mixer calls setPolygons on target", () => {
     const clips = [makeClip(0, "walk", 2)];
     const target = makeTarget();
@@ -260,17 +260,17 @@ describe("usePolyAnimation — mixer drives setPolygons", () => {
 
 // ── Reactive inputs ────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — reactive inputs", () => {
+describe("useGlyphcssAnimation — reactive inputs", () => {
   it("mixer rebuilds when clips ref changes", async () => {
-    const clipsRef = ref<PolyAnimationClip[]>([makeClip(0, "walk")]);
+    const clipsRef = ref<GlyphcssAnimationClip[]>([makeClip(0, "walk")]);
     const ctrlRef = ref<ParseAnimationController | undefined>(makeController(clipsRef.value));
     const target = makeTarget();
 
-    let captured!: UsePolyAnimationResultVue;
+    let captured!: UseGlyphcssAnimationResultVue;
     const container = document.createElement("div");
     const app = createApp({
       setup() {
-        captured = usePolyAnimation(clipsRef, ctrlRef, ref(target));
+        captured = useGlyphcssAnimation(clipsRef, ctrlRef, ref(target));
         return () => h("div");
       },
     });
@@ -293,13 +293,13 @@ describe("usePolyAnimation — reactive inputs", () => {
   it("builds mixer when root ref resolves after clips and controller are set", async () => {
     const clips = [makeClip(0, "walk", 2)];
     const ctrl = makeController(clips);
-    const rootRef = ref<PolyAnimationTarget | null>(null);
+    const rootRef = ref<GlyphcssAnimationTarget | null>(null);
 
-    let captured!: UsePolyAnimationResultVue;
+    let captured!: UseGlyphcssAnimationResultVue;
     const container = document.createElement("div");
     const app = createApp({
       setup() {
-        captured = usePolyAnimation(ref(clips), ref(ctrl), rootRef);
+        captured = useGlyphcssAnimation(ref(clips), ref(ctrl), rootRef);
         return () => h("div");
       },
     });

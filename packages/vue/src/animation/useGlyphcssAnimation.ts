@@ -1,8 +1,8 @@
 /**
- * usePolyAnimation — Vue 3 composable mirroring drei's `useAnimations`.
+ * useGlyphcssAnimation — Vue 3 composable mirroring drei's `useAnimations`.
  *
  * Returns a `mixer`, `actions`, `clips`, `names`, and `ref`. The mixer is
- * built when `clips`, `controller`, and a root `PolyAnimationTarget` are all
+ * built when `clips`, `controller`, and a root `GlyphcssAnimationTarget` are all
  * available. Drives `mixer.update(dt)` via `requestAnimationFrame` using
  * `performance.now()` deltas (no three.js dependency).
  *
@@ -21,31 +21,31 @@ import {
   computed,
 } from "vue";
 import type { Ref, ComputedRef, MaybeRef } from "vue";
-import { createPolyAnimationMixer } from "@layoutit/polycss-core";
+import { createGlyphcssAnimationMixer } from "@glyphcss/core";
 import type {
-  PolyAnimationClip,
-  PolyAnimationAction,
-  PolyAnimationMixer,
-  PolyAnimationTarget,
+  GlyphcssAnimationClip,
+  GlyphcssAnimationAction,
+  GlyphcssAnimationMixer,
+  GlyphcssAnimationTarget,
   ParseAnimationController,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 
-export type { PolyAnimationClip, PolyAnimationAction, PolyAnimationMixer };
+export type { GlyphcssAnimationClip, GlyphcssAnimationAction, GlyphcssAnimationMixer };
 
-export interface UsePolyAnimationResultVue {
+export interface UseGlyphcssAnimationResultVue {
   /** Attach to a mesh handle when not passing `root` directly. */
-  ref: Ref<PolyAnimationTarget | null>;
+  ref: Ref<GlyphcssAnimationTarget | null>;
   /** The active mixer, or null if inputs are not ready yet. */
-  mixer: ComputedRef<PolyAnimationMixer | null>;
+  mixer: ComputedRef<GlyphcssAnimationMixer | null>;
   /** Resolved clip list. */
-  clips: ComputedRef<PolyAnimationClip[]>;
+  clips: ComputedRef<GlyphcssAnimationClip[]>;
   /** Clip names in input order. */
   names: ComputedRef<string[]>;
   /**
    * Lazy action proxy keyed by clip name. Accessing `actions.value["walk"]`
    * instantiates the action via the mixer. Returns null when mixer is null.
    */
-  actions: ComputedRef<Record<string, PolyAnimationAction | null>>;
+  actions: ComputedRef<Record<string, GlyphcssAnimationAction | null>>;
 }
 
 function unwrapRef<T>(v: MaybeRef<T>): T {
@@ -54,24 +54,24 @@ function unwrapRef<T>(v: MaybeRef<T>): T {
     : (v as T);
 }
 
-export function usePolyAnimation(
-  clips: MaybeRef<PolyAnimationClip[] | undefined>,
+export function useGlyphcssAnimation(
+  clips: MaybeRef<GlyphcssAnimationClip[] | undefined>,
   controller: MaybeRef<ParseAnimationController | undefined>,
-  root?: MaybeRef<PolyAnimationTarget | null | undefined>,
-): UsePolyAnimationResultVue {
+  root?: MaybeRef<GlyphcssAnimationTarget | null | undefined>,
+): UseGlyphcssAnimationResultVue {
   // Internal ref: used as the root target when `root` is not passed.
-  const internalRef = ref<PolyAnimationTarget | null>(null);
+  const internalRef = ref<GlyphcssAnimationTarget | null>(null);
 
   // Plain mutable state (not reactive) — we don't want Vue to track mixer
   // internals. The mixerSignal ref is a reactive counter that we increment
   // to signal computed properties to re-evaluate.
-  let _mixer: PolyAnimationMixer | null = null;
+  let _mixer: GlyphcssAnimationMixer | null = null;
   let _rafId: number | null = null;
   let _lastTime: number | null = null;
   // Reactive signal: incremented whenever the mixer is replaced.
   const _mixerEpoch = ref(0);
 
-  function resolveRoot(): PolyAnimationTarget | null {
+  function resolveRoot(): GlyphcssAnimationTarget | null {
     if (root == null) return internalRef.value;
     const r = unwrapRef(root);
     return r ?? internalRef.value;
@@ -118,7 +118,7 @@ export function usePolyAnimation(
     if (!resolvedClips || resolvedClips.length === 0 || !resolvedCtrl) return;
     const resolvedRoot = resolveRoot();
     if (!resolvedRoot) return;
-    _mixer = createPolyAnimationMixer(resolvedRoot, resolvedCtrl);
+    _mixer = createGlyphcssAnimationMixer(resolvedRoot, resolvedCtrl);
     _mixerEpoch.value++;
     startLoop();
   }
@@ -144,7 +144,7 @@ export function usePolyAnimation(
 
   // ── Computed API ─────────────────────────────────────────────────────────
 
-  const resolvedClipsComputed = computed<PolyAnimationClip[]>(() => {
+  const resolvedClipsComputed = computed<GlyphcssAnimationClip[]>(() => {
     const c = unwrapRef(clips);
     return c ?? [];
   });
@@ -154,15 +154,15 @@ export function usePolyAnimation(
   );
 
   // `mixer` computed reads _mixerEpoch to invalidate when the mixer changes.
-  const mixerComputed = computed<PolyAnimationMixer | null>(() => {
+  const mixerComputed = computed<GlyphcssAnimationMixer | null>(() => {
     void _mixerEpoch.value; // subscribe to epoch changes
     return _mixer;
   });
 
-  const actionsComputed = computed<Record<string, PolyAnimationAction | null>>(() => {
+  const actionsComputed = computed<Record<string, GlyphcssAnimationAction | null>>(() => {
     void _mixerEpoch.value; // subscribe to epoch changes
     const clips_ = resolvedClipsComputed.value;
-    const result: Record<string, PolyAnimationAction | null> = {};
+    const result: Record<string, GlyphcssAnimationAction | null> = {};
     for (const clip of clips_) {
       Object.defineProperty(result, clip.name, {
         enumerable: true,

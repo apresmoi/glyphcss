@@ -1,26 +1,22 @@
-// @layoutit/polycss-react — React bindings for the glyphcss ASCII paint backend.
+// @glyphcss/react — React bindings for the glyphcss ASCII paint backend.
 //
 // Public exports define the supported React package surface. Anything not
 // exported here is an implementation detail.
 
-// ── Animation (shared core; re-used by Glyphcss bindings) ──────────────────
-export { usePolyAnimation } from "./animation/usePolyAnimation";
-export type { UsePolyAnimationResult } from "./animation/usePolyAnimation";
-
-// ── Re-exports from @layoutit/polycss-core for convenience ──────────────────
+// ── Re-exports from @glyphcss/core for convenience ──────────────────────────
 export type {
   Vec2,
   Vec3,
   Polygon,
-  PolyDirectionalLight,
-  PolyAmbientLight,
+  GlyphcssDirectionalLight,
+  GlyphcssAmbientLight,
   ParseAnimationClip,
   ParseAnimationController,
   ParseResult,
-  PolyAnimationClip,
-  PolyAnimationAction,
-  PolyAnimationMixer,
-  PolyAnimationTarget,
+  GlyphcssAnimationClip,
+  GlyphcssAnimationAction,
+  GlyphcssAnimationMixer,
+  GlyphcssAnimationTarget,
   LoopMode,
   ObjParseOptions,
   GltfParseOptions,
@@ -51,7 +47,7 @@ export type {
   CameraCullRotation,
   ApproximateMergeOptions,
   OptimizeMeshPolygonsOptions,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 export {
   CAMERA_BACKFACE_CULL_EPS,
   VOXEL_CAMERA_CULL_AXIS_EPS,
@@ -100,11 +96,11 @@ export {
   DEFAULT_CAMERA_STATE,
   DEFAULT_PROJECTION,
   normalizeInvertMultiplier,
-  createPolyAnimationMixer,
+  createGlyphcssAnimationMixer,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 
 // ── Glyphcss (ASCII paint backend) bindings ─────────────────────────────────
 export {

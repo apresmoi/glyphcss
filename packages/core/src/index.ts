@@ -1,4 +1,4 @@
-// @layoutit/polycss-core — Pure-math polygon rendering engine (zero browser globals).
+// @glyphcss/core — Pure-math polygon + ASCII rendering engine (zero browser globals).
 //
 // Public exports define the supported core package surface. Anything not
 // exported here is implementation detail.
@@ -9,8 +9,8 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
-  PolyDirectionalLight,
-  PolyAmbientLight,
+  GlyphcssDirectionalLight,
+  GlyphcssAmbientLight,
   MeshResolution,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
@@ -117,16 +117,16 @@ export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, Ring
 
 // ── Animation ─────────────────────────────────────────────────────
 export {
-  createPolyAnimationMixer,
+  createGlyphcssAnimationMixer,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
 } from "./animation";
 export type {
-  PolyAnimationClip,
-  PolyAnimationAction,
-  PolyAnimationMixer,
-  PolyAnimationTarget,
+  GlyphcssAnimationClip,
+  GlyphcssAnimationAction,
+  GlyphcssAnimationMixer,
+  GlyphcssAnimationTarget,
   LoopMode,
 } from "./animation";
 

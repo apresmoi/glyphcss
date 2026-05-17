@@ -38,10 +38,10 @@ export interface TextureTriangle {
 /**
  * Directional light — simulates a single distant source (sun, key light).
  * Contributes Lambert shading scaled by `intensity`. `direction` is in
- * scene-local CSS-pixel coords and does not need to be pre-normalized.
+ * scene-local coords and does not need to be pre-normalized.
  * Mirrors three.js's `DirectionalLight`.
  */
-export interface PolyDirectionalLight {
+export interface GlyphcssDirectionalLight {
   /** Direction the light shines TOWARD (typical convention). */
   direction: Vec3;
   /** Light tint, hex string. White by default. */
@@ -56,7 +56,7 @@ export interface PolyDirectionalLight {
  * directional contribution: the two add independently rather than
  * splitting a fixed energy budget.
  */
-export interface PolyAmbientLight {
+export interface GlyphcssAmbientLight {
   /** Tint, hex string. White by default. */
   color?: string;
   /** Scalar multiplier on the ambient contribution. Default 0.4. */

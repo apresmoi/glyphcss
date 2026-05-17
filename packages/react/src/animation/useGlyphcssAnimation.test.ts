@@ -1,24 +1,24 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { usePolyAnimation } from "./usePolyAnimation";
-import type { UsePolyAnimationResult } from "./usePolyAnimation";
-import type { PolyAnimationTarget, PolyAnimationClip, ParseAnimationController, Polygon } from "@layoutit/polycss-core";
+import { useGlyphcssAnimation } from "./useGlyphcssAnimation";
+import type { UseGlyphcssAnimationResult } from "./useGlyphcssAnimation";
+import type { GlyphcssAnimationTarget, GlyphcssAnimationClip, ParseAnimationController, Polygon } from "@glyphcss/core";
 
 const TRI: Polygon = { vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]], color: "#f00" };
 
-function makeClip(index: number, name: string, duration = 1): PolyAnimationClip {
+function makeClip(index: number, name: string, duration = 1): GlyphcssAnimationClip {
   return { index, name, duration, channelCount: 1 };
 }
 
-function makeController(clips: PolyAnimationClip[]): ParseAnimationController {
+function makeController(clips: GlyphcssAnimationClip[]): ParseAnimationController {
   return {
     clips,
     sample: (_clip, _t) => [TRI],
   };
 }
 
-function makeTarget(): PolyAnimationTarget & { calls: Polygon[][] } {
+function makeTarget(): GlyphcssAnimationTarget & { calls: Polygon[][] } {
   const calls: Polygon[][] = [];
   return { calls, setPolygons(polys) { calls.push(polys); } };
 }
@@ -26,20 +26,20 @@ function makeTarget(): PolyAnimationTarget & { calls: Polygon[][] } {
 // ── Harness ─────────────────────────────────────────────────────────────────
 
 interface HarnessProps {
-  clips?: PolyAnimationClip[];
+  clips?: GlyphcssAnimationClip[];
   controller?: ParseAnimationController;
-  root?: PolyAnimationTarget | null;
-  onResult: (r: UsePolyAnimationResult) => void;
+  root?: GlyphcssAnimationTarget | null;
+  onResult: (r: UseGlyphcssAnimationResult) => void;
 }
 
 function HarnessComponent({ clips, controller, root, onResult }: HarnessProps) {
-  const result = usePolyAnimation(clips, controller, root ?? undefined);
+  const result = useGlyphcssAnimation(clips, controller, root ?? undefined);
   onResult(result);
   return null;
 }
 
 function renderHarness(props: Omit<HarnessProps, "onResult">) {
-  let captured: UsePolyAnimationResult | null = null;
+  let captured: UseGlyphcssAnimationResult | null = null;
   const container = document.createElement("div");
   const root = createRoot(container);
 
@@ -77,7 +77,7 @@ afterEach(() => {
 
 // ── No-input state ────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — no inputs", () => {
+describe("useGlyphcssAnimation — no inputs", () => {
   it("returns mixer=null when no clips are passed", () => {
     const harness = renderHarness({});
     expect(harness.result.mixer).toBeNull();
@@ -116,7 +116,7 @@ describe("usePolyAnimation — no inputs", () => {
 
 // ── With clips + controller + root ────────────────────────────────────────────
 
-describe("usePolyAnimation — with inputs", () => {
+describe("useGlyphcssAnimation — with inputs", () => {
   it("exposes clip names from the clips array", () => {
     const clips = [makeClip(0, "walk"), makeClip(1, "run")];
     const ctrl = makeController(clips);
@@ -161,7 +161,7 @@ describe("usePolyAnimation — with inputs", () => {
 
 // ── RAF loop ─────────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — RAF loop", () => {
+describe("useGlyphcssAnimation — RAF loop", () => {
   it("calls requestAnimationFrame when clips and controller are provided", () => {
     const rafSpy = vi.fn((cb: FrameRequestCallback) => {
       // Don't actually call the callback to avoid infinite loop
@@ -221,7 +221,7 @@ describe("usePolyAnimation — RAF loop", () => {
 
 // ── Mixer drives setPolygons ──────────────────────────────────────────────────
 
-describe("usePolyAnimation — mixer drives setPolygons", () => {
+describe("useGlyphcssAnimation — mixer drives setPolygons", () => {
   it("playing an action and advancing the mixer calls setPolygons on the target", () => {
     const clips = [makeClip(0, "walk", 2)];
     const target = makeTarget();
@@ -270,7 +270,7 @@ describe("usePolyAnimation — mixer drives setPolygons", () => {
 
 // ── actions proxy ─────────────────────────────────────────────────────────────
 
-describe("usePolyAnimation — actions proxy", () => {
+describe("useGlyphcssAnimation — actions proxy", () => {
   it("actions object has enumerable keys matching clip names", () => {
     const clips = [makeClip(0, "walk"), makeClip(1, "run")];
     const ctrl = makeController(clips);

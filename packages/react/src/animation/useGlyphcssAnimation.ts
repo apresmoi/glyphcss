@@ -1,9 +1,9 @@
 /**
- * usePolyAnimation — React hook mirroring drei's `useAnimations`.
+ * useGlyphcssAnimation — React hook mirroring drei's `useAnimations`.
  *
  * Returns a `mixer`, `actions` record (lazy-instantiated per clip name),
  * `clips`, `names`, and `ref`. The `ref` can be attached to any imperative
- * handle that implements `PolyAnimationTarget` (i.e. exposes `setPolygons`).
+ * handle that implements `GlyphcssAnimationTarget` (i.e. exposes `setPolygons`).
  *
  * Drives `mixer.update(dt)` via `requestAnimationFrame`, computing dt from
  * `performance.now()` deltas (no three.js dependency).
@@ -18,24 +18,24 @@
  */
 import { useEffect, useRef, useMemo } from "react";
 import type { RefObject } from "react";
-import { createPolyAnimationMixer } from "@layoutit/polycss-core";
+import { createGlyphcssAnimationMixer } from "@glyphcss/core";
 import type {
-  PolyAnimationClip,
-  PolyAnimationAction,
-  PolyAnimationMixer,
-  PolyAnimationTarget,
+  GlyphcssAnimationClip,
+  GlyphcssAnimationAction,
+  GlyphcssAnimationMixer,
+  GlyphcssAnimationTarget,
   ParseAnimationController,
-} from "@layoutit/polycss-core";
+} from "@glyphcss/core";
 
-export type { PolyAnimationClip, PolyAnimationAction, PolyAnimationMixer };
+export type { GlyphcssAnimationClip, GlyphcssAnimationAction, GlyphcssAnimationMixer };
 
-export interface UsePolyAnimationResult {
-  /** Attach to a `PolyAnimationTarget`-compatible handle when not using `root`. */
-  ref: RefObject<PolyAnimationTarget | null>;
+export interface UseGlyphcssAnimationResult {
+  /** Attach to a `GlyphcssAnimationTarget`-compatible handle when not using `root`. */
+  ref: RefObject<GlyphcssAnimationTarget | null>;
   /** The active mixer, or null if inputs are not ready yet. */
-  mixer: PolyAnimationMixer | null;
+  mixer: GlyphcssAnimationMixer | null;
   /** Resolved clip list (empty when `clips` is undefined). */
-  clips: PolyAnimationClip[];
+  clips: GlyphcssAnimationClip[];
   /** Clip names in input order. */
   names: string[];
   /**
@@ -43,28 +43,28 @@ export interface UsePolyAnimationResult {
    * instantiates the action if it does not exist yet. Returns null when the
    * mixer is not ready.
    */
-  actions: Record<string, PolyAnimationAction | null>;
+  actions: Record<string, GlyphcssAnimationAction | null>;
 }
 
 function resolveRoot(
-  rootArg: RefObject<PolyAnimationTarget | null> | PolyAnimationTarget | null | undefined,
-): PolyAnimationTarget | null {
+  rootArg: RefObject<GlyphcssAnimationTarget | null> | GlyphcssAnimationTarget | null | undefined,
+): GlyphcssAnimationTarget | null {
   if (!rootArg) return null;
   if ("current" in rootArg) return rootArg.current;
   return rootArg;
 }
 
-export function usePolyAnimation(
-  clips: PolyAnimationClip[] | undefined,
+export function useGlyphcssAnimation(
+  clips: GlyphcssAnimationClip[] | undefined,
   controller: ParseAnimationController | undefined,
-  root?: RefObject<PolyAnimationTarget | null> | PolyAnimationTarget | null,
-): UsePolyAnimationResult {
-  // Internal ref — users can attach this to any PolyAnimationTarget-compatible
+  root?: RefObject<GlyphcssAnimationTarget | null> | GlyphcssAnimationTarget | null,
+): UseGlyphcssAnimationResult {
+  // Internal ref — users can attach this to any GlyphcssAnimationTarget-compatible
   // handle when they don't pass `root` explicitly.
-  const internalRef = useRef<PolyAnimationTarget | null>(null);
+  const internalRef = useRef<GlyphcssAnimationTarget | null>(null);
 
   // Stable ref to the live mixer. Updated synchronously inside effects.
-  const mixerRef = useRef<PolyAnimationMixer | null>(null);
+  const mixerRef = useRef<GlyphcssAnimationMixer | null>(null);
 
   // Build (and tear down) the mixer whenever clips or controller change.
   useEffect(() => {
@@ -77,7 +77,7 @@ export function usePolyAnimation(
       mixerRef.current = null;
       return;
     }
-    mixerRef.current = createPolyAnimationMixer(resolvedRoot, controller);
+    mixerRef.current = createGlyphcssAnimationMixer(resolvedRoot, controller);
     return () => {
       mixerRef.current?.stopAllAction();
       mixerRef.current?.uncacheRoot();
@@ -119,8 +119,8 @@ export function usePolyAnimation(
   const resolvedNames = resolvedClips.map((c) => c.name);
 
   // Lazy actions proxy: accessing actions[name] instantiates via clipAction.
-  const actions = useMemo<Record<string, PolyAnimationAction | null>>(() => {
-    const target: Record<string, PolyAnimationAction | null> = {};
+  const actions = useMemo<Record<string, GlyphcssAnimationAction | null>>(() => {
+    const target: Record<string, GlyphcssAnimationAction | null> = {};
     for (const clip of resolvedClips) {
       Object.defineProperty(target, clip.name, {
         enumerable: true,

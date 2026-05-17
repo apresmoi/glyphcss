@@ -1,6 +1,6 @@
 /**
  * Geometry for a small solid-color octahedron — the marker shape used by
- * `PolyDirectionalLightHelper` to indicate where a directional light is
+ * `GlyphcssDirectionalLightHelper` to indicate where a directional light is
  * shining from. Eight CCW-from-outside triangular faces, vertices at
  * `center ± (size, 0, 0)` etc.
  */
