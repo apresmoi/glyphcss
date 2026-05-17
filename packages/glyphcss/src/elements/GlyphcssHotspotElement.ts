@@ -1,0 +1,80 @@
+/**
+ * `<glyphcss-hotspot at="x,y,z" size="3,2">` — declarative hit anchor.
+ * Walks up to the parent `<glyphcss-scene>` and registers itself as a hotspot.
+ * Normal DOM events (click, hover, focus) fire on the projected overlay element.
+ */
+import type { Vec3 } from "@layoutit/polycss-core";
+import type { GlyphcssHotspotHandle } from "../api/createGlyphcssScene";
+import type { GlyphcssSceneElement } from "./GlyphcssSceneElement";
+
+const ELEMENT_BASE: typeof HTMLElement =
+  typeof HTMLElement !== "undefined"
+    ? HTMLElement
+    : (class {} as unknown as typeof HTMLElement);
+
+function parseVec3(value: string | null): Vec3 | undefined {
+  if (!value) return undefined;
+  const parts = value.split(",").map((p) => parseFloat(p.trim()));
+  if (parts.length !== 3 || parts.some((p) => !Number.isFinite(p))) return undefined;
+  return [parts[0]!, parts[1]!, parts[2]!];
+}
+
+function parseSize(value: string | null): [number, number] | undefined {
+  if (!value) return undefined;
+  const parts = value.split(",").map((p) => parseFloat(p.trim()));
+  if (parts.length !== 2 || parts.some((p) => !Number.isFinite(p))) return undefined;
+  return [parts[0]!, parts[1]!];
+}
+
+function findScene(el: HTMLElement): GlyphcssSceneElement | null {
+  const found = el.closest("glyphcss-scene") as unknown as (GlyphcssSceneElement & { getScene?: () => unknown }) | null;
+  return found ?? null;
+}
+
+export class GlyphcssHotspotElement extends ELEMENT_BASE {
+  static get observedAttributes(): string[] {
+    return ["at", "size", "hotspot-id"];
+  }
+
+  private _handle: GlyphcssHotspotHandle | null = null;
+
+  connectedCallback(): void {
+    this._register();
+  }
+
+  disconnectedCallback(): void {
+    if (this._handle) {
+      this._handle.remove();
+      this._handle = null;
+    }
+  }
+
+  attributeChangedCallback(
+    _name: string,
+    oldValue: string | null,
+    newValue: string | null,
+  ): void {
+    if (oldValue === newValue) return;
+    if (this._handle) {
+      this._handle.remove();
+      this._handle = null;
+    }
+    this._register();
+  }
+
+  private _register(): void {
+    const at = parseVec3(this.getAttribute("at"));
+    if (!at) return;
+    const sceneEl = findScene(this);
+    const scene = sceneEl?.getScene();
+    if (!scene) return;
+
+    const id = this.getAttribute("hotspot-id") ?? this.getAttribute("id") ?? String(Math.random());
+    const size = parseSize(this.getAttribute("size"));
+
+    this._handle = scene.addHotspot(
+      { id, at, size },
+      () => this.dispatchEvent(new CustomEvent("glyphcss:hotspot-click", { detail: { id }, bubbles: true })),
+    );
+  }
+}
