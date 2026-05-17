@@ -157,3 +157,16 @@ export { parseVox } from "./parser/parseVox";
 export type { VoxParseOptions } from "./parser/parseVox";
 export { loadMesh } from "./parser/loadMesh";
 export type { LoadMeshOptions } from "./parser/loadMesh";
+
+// ── Glyphcss-specific (ASCII rendering) ─────────────────────────
+export type {
+  RenderMode,
+  CharRamp,
+  EdgeWeight,
+  WireframeEdge,
+  GridSize,
+  Hotspot,
+  HotspotCell,
+} from "./types";
+export { project } from "./math/projection";
+export { trianglesToFeatureEdges } from "./scene/featureEdges";
