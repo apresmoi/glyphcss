@@ -9,10 +9,8 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
-  PolyMaterial,
   PolyDirectionalLight,
   PolyAmbientLight,
-  PolyTextureLightingMode,
   MeshResolution,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
@@ -32,12 +30,8 @@ export type {
 } from "./scene/context";
 
 // ── Polygon geometry helper ──────────────────────────────────────
-export { polygonFaces, computeTexturePaintMetrics } from "./scene/polygonGeometry";
-export type {
-  PolygonFace,
-  TexturePaintMetrics,
-  TexturePaintMetricsOptions,
-} from "./scene/polygonGeometry";
+export { polygonFaces } from "./scene/polygonGeometry";
+export type { PolygonFace } from "./scene/polygonGeometry";
 
 // ── Rotation math ────────────────────────────────────────────────
 export { rotateVec3, inverseRotateVec3 } from "./math/rotation";

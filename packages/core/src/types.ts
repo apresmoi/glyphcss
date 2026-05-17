@@ -2,19 +2,6 @@
 export const DEFAULT_PROJECTION = "cubic" as const;
 
 /**
- * How polygon lighting is applied by DOM renderers.
- * - "baked": multiply the light tint into the off-DOM canvas before the
- *   polygon becomes an atlas sprite. Best fidelity (full RGB tint) but
- *   the atlas re-rasterizes whenever the light changes.
- * - "dynamic": lighting computed entirely in CSS via per-polygon normals
- *   embedded in calc() and scene-root light vars (background-color +
- *   background-blend-mode multiply, masked by the atlas alpha). Atlas
- *   stays light-independent — sliding the light only writes a few CSS
- *   variables, no JS work, no atlas re-rasterization.
- */
-export type PolyTextureLightingMode = "baked" | "dynamic";
-
-/**
  * Mesh post-processing intent.
  * - "lossless": preserve the authored surface while applying exact
  *   reductions such as interior culling and coplanar merge.
