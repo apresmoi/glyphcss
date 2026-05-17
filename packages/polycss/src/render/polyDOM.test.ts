@@ -61,6 +61,8 @@ const UNSTABLE_PROJECTIVE_QUAD: Polygon = {
   color: "#ff00ff",
 };
 
+const QUAD_CANONICAL_SIZE = 64;
+
 const OFFAXIS_TRIANGLE: Polygon = {
   vertices: [
     [0, 0, 0],
@@ -160,15 +162,21 @@ function computeExpectedMatrix(
   return computeExpectedPlan(vertices, tileSize, elev).matrix;
 }
 
-function computeExpectedCanonicalMatrix(
+function computeExpectedQuadMatrix(
   vertices: [number, number, number][],
   tileSize = 50,
   elev = tileSize,
 ): number[] {
   const { matrix, canvasW, canvasH } = computeExpectedPlan(vertices, tileSize, elev);
   return [
-    matrix[0] * canvasW, matrix[1] * canvasW, matrix[2] * canvasW, 0,
-    matrix[4] * canvasH, matrix[5] * canvasH, matrix[6] * canvasH, 0,
+    matrix[0] * canvasW / QUAD_CANONICAL_SIZE,
+    matrix[1] * canvasW / QUAD_CANONICAL_SIZE,
+    matrix[2] * canvasW / QUAD_CANONICAL_SIZE,
+    0,
+    matrix[4] * canvasH / QUAD_CANONICAL_SIZE,
+    matrix[5] * canvasH / QUAD_CANONICAL_SIZE,
+    matrix[6] * canvasH / QUAD_CANONICAL_SIZE,
+    0,
     matrix[8], matrix[9], matrix[10], 0,
     matrix[12], matrix[13], matrix[14], 1,
   ];
@@ -283,7 +291,7 @@ describe("renderPoly — matrix math parity", () => {
   it("vertical quad matrix3d values match expected", () => {
     const result = renderPoly(VERTICAL_QUAD)!;
     const actual = extractMatrix(result.element);
-    const expected = roundedMatrix(computeExpectedCanonicalMatrix(VERTICAL_QUAD.vertices as [number, number, number][]));
+    const expected = roundedMatrix(computeExpectedQuadMatrix(VERTICAL_QUAD.vertices as [number, number, number][]));
     expect(actual.length).toBe(16);
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
@@ -309,7 +317,7 @@ describe("renderPoly — matrix math parity", () => {
     };
     const result = renderPoly(poly, { tileSize: 50, layerElevation: 25 })!;
     const actual = extractMatrix(result.element);
-    const expected = roundedMatrix(computeExpectedCanonicalMatrix(poly.vertices as [number, number, number][], 50, 25));
+    const expected = roundedMatrix(computeExpectedQuadMatrix(poly.vertices as [number, number, number][], 50, 25));
     for (let i = 0; i < 16; i++) expect(actual[i]).toBeCloseTo(expected[i], 6);
     result.dispose();
   });
@@ -1298,10 +1306,11 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     const element = result.rendered[0].element;
     const style = element.getAttribute("style") ?? "";
     expect(element.tagName.toLowerCase()).toBe("b");
+    expect(element.className).toBe("");
     expect(result.rendered[0].kind).toBe("solid");
     expect(style).toContain("transform:matrix3d(");
-    expect(style).toContain("width:");
-    expect(style).toContain("height:");
+    expect(style).not.toContain("width");
+    expect(style).not.toContain("height");
     expect(style).not.toContain("border-shape");
     expect(canvases).toHaveLength(0);
     result.dispose();
@@ -1323,9 +1332,6 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
       { doc },
     );
     const matrix = extractMatrix(result.rendered[0].element);
-    const plan = result.rendered[0].plan!;
-    const width = plan.canvasW;
-    const height = plan.canvasH;
     const expected = NON_RECT_QUAD.vertices.map((vertex): [number, number, number] => [
       vertex[1] * 50,
       vertex[0] * 50,
@@ -1333,9 +1339,9 @@ describe("renderPolygonsWithTextureAtlas — strategies.disable", () => {
     ]);
 
     expectPointClose(transformMatrixPoint(matrix, 0, 0), expected[0]);
-    expectPointClose(transformMatrixPoint(matrix, width, 0), expected[1]);
-    expectPointClose(transformMatrixPoint(matrix, width, height), expected[2]);
-    expectPointClose(transformMatrixPoint(matrix, 0, height), expected[3]);
+    expectPointClose(transformMatrixPoint(matrix, 64, 0), expected[1]);
+    expectPointClose(transformMatrixPoint(matrix, 64, 64), expected[2]);
+    expectPointClose(transformMatrixPoint(matrix, 0, 64), expected[3]);
     result.dispose();
   });
 

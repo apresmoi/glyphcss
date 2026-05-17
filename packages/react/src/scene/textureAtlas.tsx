@@ -43,6 +43,7 @@ const DEFAULT_ATLAS_CSS_DECIMALS = 4;
 const BORDER_SHAPE_CENTER_PERCENT = 50;
 const BORDER_SHAPE_POINT_EPS = 1e-7;
 const BORDER_SHAPE_CANONICAL_SIZE = 16;
+const QUAD_CANONICAL_SIZE = 64;
 const PROJECTIVE_QUAD_DENOM_EPS = 0.05;
 const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = 4;
 const PROJECTIVE_QUAD_BLEED = 0.6;
@@ -577,6 +578,14 @@ function formatScaledMatrixFromPlan(
   return formatMatrix3dValues(values);
 }
 
+function formatQuadMatrix(entry: TextureAtlasPlan): string {
+  return formatScaledMatrixFromPlan(
+    entry,
+    entry.canvasW / QUAD_CANONICAL_SIZE,
+    entry.canvasH / QUAD_CANONICAL_SIZE,
+  );
+}
+
 function formatBorderShapeMatrix(entry: TextureAtlasPlan): string {
   return formatScaledMatrixFromPlan(
     entry,
@@ -764,13 +773,14 @@ function computeProjectiveQuadMatrix(
     p3[1] * w3 - p0[1],
     p3[2] * w3 - p0[2],
   ];
+  const sourceSize = QUAD_CANONICAL_SIZE;
 
-  return [
-    xCol[0], xCol[1], xCol[2], g,
-    yCol[0], yCol[1], yCol[2], h,
+  return formatMatrix3dValues([
+    xCol[0] / sourceSize, xCol[1] / sourceSize, xCol[2] / sourceSize, g / sourceSize,
+    yCol[0] / sourceSize, yCol[1] / sourceSize, yCol[2] / sourceSize, h / sourceSize,
     normal[0], normal[1], normal[2], 0,
     p0[0], p0[1], p0[2], 1,
-  ].join(",");
+  ], 6);
 }
 
 function cssPoints(vertices: Vec3[], tile: number, elev: number): Vec3[] {
@@ -1958,7 +1968,7 @@ export function TextureBorderShapePoly({
     else el.style.removeProperty("border-shape");
     orderBrushInlineStyle(el);
   }, [borderShape]);
-  const transform = formatMatrix3d(borderShape ? formatBorderShapeMatrix(entry) : entry.canonicalMatrix);
+  const transform = formatMatrix3d(borderShape ? formatBorderShapeMatrix(entry) : formatQuadMatrix(entry));
   const style: CSSProperties = fullRect
     ? {
         transform,
@@ -2027,7 +2037,7 @@ export function TextureProjectiveSolidPoly({
   const base = parseHex(entry.polygon.color ?? "#cccccc");
   const useDefaultDynamicColor = dynamic && rgbKey(base) === solidPaintDefaults?.dynamicColorKey;
   const style: CSSProperties = {
-    transform: formatMatrix3d(entry.projectiveMatrix),
+    transform: formatMatrix3d(entry.projectiveMatrix, 6),
     color: dynamic || entry.shadedColor === solidPaintDefaults?.paintColor
       ? undefined
       : entry.shadedColor,

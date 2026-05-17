@@ -83,8 +83,8 @@ const CORE_BASE_STYLES = `
 
 .polycss-scene b {
   background: currentColor;
-  width: 1px;
-  height: 1px;
+  width: 64px;
+  height: 64px;
 }
 
 .polycss-scene i {
