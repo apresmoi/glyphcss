@@ -14,7 +14,6 @@
     "@astrojs/react": "^5.0.2",
     "@astrojs/sitemap": "^3.7.1",
     "@astrojs/starlight": "^0.38.2",
-    "@layoutit/polycss": "workspace:^",
     "@layoutit/polycss-react": "workspace:^",
     "glyphcss": "workspace:^",
     "@types/react": "^19.2.14",
