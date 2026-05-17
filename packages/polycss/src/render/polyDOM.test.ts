@@ -478,8 +478,8 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const yScale = Math.hypot(matrix[4], matrix[5], matrix[6]);
 
     expect(element.tagName.toLowerCase()).toBe("i");
-    expect(xScale).toBeGreaterThan(2 / 16);
-    expect(yScale).toBeGreaterThan(2 / 16);
+    expect(xScale).toBeGreaterThan(2 / 64);
+    expect(yScale).toBeGreaterThan(2 / 64);
     expect(element.style.getPropertyValue("border-shape")).toContain("polygon(");
     result.dispose();
   });
@@ -610,10 +610,10 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(element.style.height).toBe("");
     expect(element.style.getPropertyValue("--polycss-local-w")).toBe("");
     expect(element.style.getPropertyValue("--polycss-local-h")).toBe("");
-    expect(matrix[0]).toBeGreaterThan(10 / 16);
+    expect(matrix[0]).toBeGreaterThan(10 / 64);
     expect(matrix[1]).toBeCloseTo(0, 6);
     expect(matrix[4]).toBeCloseTo(0, 6);
-    expect(matrix[5]).toBeGreaterThan(1 / 16);
+    expect(matrix[5]).toBeGreaterThan(1 / 64);
     result.dispose();
   });
 

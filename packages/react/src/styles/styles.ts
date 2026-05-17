@@ -88,8 +88,8 @@ const CORE_BASE_STYLES = `
 }
 
 .polycss-scene i {
-  width: 16px;
-  height: 16px;
+  width: 64px;
+  height: 64px;
   border-color: currentColor;
 }
 
@@ -105,7 +105,7 @@ const CORE_BASE_STYLES = `
   box-sizing: content-box;
   border: 0 solid transparent;
   border-color: transparent transparent currentColor transparent;
-  border-width: 0 1px 1px 1px;
+  border-width: 0 64px 64px 64px;
 }
 
 /* ── Gizmo override ─────────────────────────────────────────────────────── */

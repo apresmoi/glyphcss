@@ -237,9 +237,10 @@ const DEFAULT_BORDER_SHAPE_DECIMALS = 2;
 const DEFAULT_ATLAS_CSS_DECIMALS = 4;
 const BORDER_SHAPE_CENTER_PERCENT = 50;
 const BORDER_SHAPE_POINT_EPS = 1e-7;
-const BORDER_SHAPE_CANONICAL_SIZE = 16;
+const BORDER_SHAPE_CANONICAL_SIZE = 64;
 const BORDER_SHAPE_BLEED = 0.9;
 const QUAD_CANONICAL_SIZE = 64;
+const SOLID_TRIANGLE_CANONICAL_SIZE = 64;
 const PROJECTIVE_QUAD_DENOM_EPS = 0.05;
 const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = Number.POSITIVE_INFINITY;
 const PROJECTIVE_QUAD_BLEED = 0.6;
@@ -1749,12 +1750,13 @@ function computeSolidTrianglePlan(
     baseLeft[1] - txCol[1],
     baseLeft[2] - txCol[2],
   ];
+  const sourceSize = SOLID_TRIANGLE_CANONICAL_SIZE;
   const canonicalMatrix = formatMatrix3dValues([
-    xCol[0], xCol[1], xCol[2], 0,
-    yCol[0], yCol[1], yCol[2], 0,
+    xCol[0] / sourceSize, xCol[1] / sourceSize, xCol[2] / sourceSize, 0,
+    yCol[0] / sourceSize, yCol[1] / sourceSize, yCol[2] / sourceSize, 0,
     normal[0], normal[1], normal[2], 0,
     txCol[0], txCol[1], txCol[2], 1,
-  ]);
+  ], 6);
   const styleText = `transform:matrix3d(${canonicalMatrix});` +
       bakedColor +
       dynamicVars;
