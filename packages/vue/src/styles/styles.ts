@@ -48,6 +48,11 @@ const CORE_BASE_STYLES = `
   position: absolute;
 }
 
+.polycss-mesh {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* ── Polygon leaf element ───────────────────────────────────────────────── */
 
 /*
@@ -73,6 +78,8 @@ const CORE_BASE_STYLES = `
   text-decoration: none;
   backface-visibility: hidden;
   background-repeat: no-repeat;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .polycss-scene b,
@@ -94,8 +101,8 @@ const CORE_BASE_STYLES = `
 }
 
 .polycss-scene s {
-  width: 1px;
-  height: 1px;
+  width: 128px;
+  height: 128px;
 }
 
 .polycss-scene u {
@@ -230,6 +237,8 @@ const CORE_BASE_STYLES = `
   backface-visibility: visible;
   border-color: currentColor;
   pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .polycss-scene q::before,
 .polycss-scene q::after {

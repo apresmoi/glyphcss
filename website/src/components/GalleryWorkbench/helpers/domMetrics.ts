@@ -27,3 +27,13 @@ export function measureDom(root: HTMLElement | null): DomMetrics {
     irregular: countInScopes("i"),
   };
 }
+
+export function domMetricCountsEqual(a: DomMetrics, b: DomMetrics): boolean {
+  return (
+    a.nodeCount === b.nodeCount &&
+    a.sprites === b.sprites &&
+    a.rects === b.rects &&
+    a.triangles === b.triangles &&
+    a.irregular === b.irregular
+  );
+}

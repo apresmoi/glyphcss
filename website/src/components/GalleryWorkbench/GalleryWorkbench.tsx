@@ -35,6 +35,7 @@ import {
 } from "./presets";
 import {
   EMPTY_METRICS,
+  domMetricCountsEqual,
   measureDom,
 } from "./helpers/domMetrics";
 import {
@@ -478,7 +479,8 @@ export default function GalleryWorkbench() {
     let raf = 0;
     const update = () => {
       raf = 0;
-      setMetrics(measureDom(root));
+      const next = measureDom(root);
+      setMetrics((current) => domMetricCountsEqual(current, next) ? current : next);
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(update);

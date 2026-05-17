@@ -27,6 +27,7 @@ import {
 // ── Material / direct render path ────────────────────────────────────────────
 
 const DIRECT_TEXTURE_CSS_DECIMALS = 4;
+const DIRECT_TEXTURE_CANONICAL_SIZE = 128;
 
 function formatCssLength(value: number, decimals = DIRECT_TEXTURE_CSS_DECIMALS): string {
   const next = value.toFixed(decimals).replace(/\.?0+$/, "");
@@ -83,8 +84,8 @@ function renderMaterialDirectPoly({
   const style: CSSProperties = {
     transform: `matrix3d(${plan.canonicalMatrix})`,
     backgroundImage: `url(${material.texture})`,
-    backgroundSize: `${formatCssLength(sourceW)} ${formatCssLength(sourceH)}`,
-    backgroundPosition: `${formatCssLength(-offsetX)} ${formatCssLength(-offsetY)}`,
+    backgroundSize: `${formatCssLength(sourceW * DIRECT_TEXTURE_CANONICAL_SIZE)} ${formatCssLength(sourceH * DIRECT_TEXTURE_CANONICAL_SIZE)}`,
+    backgroundPosition: `${formatCssLength(-offsetX * DIRECT_TEXTURE_CANONICAL_SIZE)} ${formatCssLength(-offsetY * DIRECT_TEXTURE_CANONICAL_SIZE)}`,
     pointerEvents: pointerEvents === "none" ? "none" : undefined,
     ...styleProp,
   };
@@ -96,7 +97,7 @@ function renderMaterialDirectPoly({
     : {};
   const elementClassName = className?.trim() || undefined;
 
-  return h("i", {
+  return h("s", {
     class: elementClassName,
     style,
     ...dataAttrs,

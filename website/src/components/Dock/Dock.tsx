@@ -8,6 +8,17 @@ import type { GizmoMode, SceneOptionsState, DomMetrics, DragMode, PerspectiveMod
 type GuiControllerMap = Record<string, any>;
 type TextureMode = "disabled" | PolyTextureLightingMode;
 
+function stringRecordEqual(
+  a: Record<string, string> | undefined,
+  b: Record<string, string>,
+): boolean {
+  if (!a) return false;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return bKeys.every((key) => a[key] === b[key]);
+}
+
 function textureModeForScene(sceneOptions: SceneOptionsState): TextureMode {
   return sceneOptions.solidMaterials ? "disabled" : sceneOptions.textureLighting;
 }
@@ -561,6 +572,7 @@ export function Dock({
       ambientColor: ambientColorController,
       modelState,
       animationState,
+      animationOptions,
       animationFolder: animation,
       interactionState,
       cameraState,
@@ -622,9 +634,12 @@ export function Dock({
 
     const validAnimation = Object.values(animationOptions).includes(selectedAnimation);
     const nextAnimation = validAnimation ? selectedAnimation : "";
-    setCtrlValue("animation", nextAnimation);
     const animationController = controllers.animation as { options: (opts: Record<string, string>) => void } | undefined;
-    animationController?.options(animationOptions);
+    if (animationController && !stringRecordEqual(controllers.animationOptions, animationOptions)) {
+      animationController.options(animationOptions);
+      controllers.animationOptions = animationOptions;
+    }
+    setCtrlValue("animation", nextAnimation);
     const animationFolder = controllers.animationFolder as { show: (show?: boolean) => void } | undefined;
     animationFolder?.show(animationClipCount > 0);
     if (animationController) {

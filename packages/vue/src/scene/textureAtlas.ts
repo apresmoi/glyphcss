@@ -44,12 +44,14 @@ const BORDER_SHAPE_CENTER_PERCENT = 50;
 const BORDER_SHAPE_POINT_EPS = 1e-7;
 const BORDER_SHAPE_CANONICAL_SIZE = 64;
 const QUAD_CANONICAL_SIZE = 64;
+const ATLAS_SLICE_CANONICAL_SIZE = 128;
 const SOLID_TRIANGLE_CANONICAL_SIZE = 64;
 const PROJECTIVE_QUAD_DENOM_EPS = 0.05;
 const PROJECTIVE_QUAD_MAX_WEIGHT_RATIO = 4;
 const PROJECTIVE_QUAD_BLEED = 0.6;
 const BASIS_EPS = 1e-9;
 const SOLID_TRIANGLE_BLEED = 0.75;
+const SOLID_ATLAS_EDGE_BLEED = 0.9;
 
 export type TextureQuality = number | "auto";
 
@@ -1133,6 +1135,38 @@ function drawImageCover(
   ctx.drawImage(img, x + (width - drawW) / 2, y + (height - drawH) / 2, drawW, drawH);
 }
 
+function paintSolidAtlasEntry(
+  ctx: CanvasRenderingContext2D,
+  entry: PackedTextureAtlasEntry,
+  textureLighting: PolyTextureLightingMode,
+  atlasScale: number,
+): void {
+  // Dynamic mode multiplies the tint at render time via background-blend-mode,
+  // so the atlas keeps the polygon's unshaded base color.
+  const paintColor = textureLighting === "dynamic"
+    ? (entry.polygon.color ?? "#cccccc")
+    : entry.shadedColor;
+
+  ctx.save();
+  setCssTransform(ctx, atlasScale);
+  ctx.beginPath();
+  tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
+  ctx.clip();
+  ctx.fillStyle = paintColor;
+  ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
+  ctx.restore();
+
+  ctx.save();
+  setCssTransform(ctx, atlasScale);
+  ctx.beginPath();
+  tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
+  ctx.strokeStyle = paintColor;
+  ctx.lineWidth = SOLID_ATLAS_EDGE_BLEED * 2;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+  ctx.restore();
+}
+
 function computeUvAffine(points: Vec2[], uvs: Vec2[]): UvAffine | null {
   if (points.length < 3 || uvs.length < 3) return null;
   const [p0, p1, p2] = points;
@@ -1611,8 +1645,14 @@ export function computeTextureAtlasPlan(
     tx, ty, tz, 1,
   ].join(",");
   const canonicalMatrix = [
-    xAxis[0] * canvasW, xAxis[1] * canvasW, xAxis[2] * canvasW, 0,
-    yAxis[0] * canvasH, yAxis[1] * canvasH, yAxis[2] * canvasH, 0,
+    xAxis[0] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
+    xAxis[1] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
+    xAxis[2] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
+    0,
+    yAxis[0] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
+    yAxis[1] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
+    yAxis[2] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
+    0,
     nx, ny, nz, 0,
     tx, ty, tz, 1,
   ].join(",");
@@ -1804,19 +1844,7 @@ async function buildAtlasPage(
   for (const entry of page.entries) {
     const srcImg = entry.texture ? loaded.get(entry.texture) : null;
     if (!entry.texture) {
-      ctx.save();
-      setCssTransform(ctx, atlasScale);
-      ctx.beginPath();
-      tracePolygonPath(ctx, entry.x, entry.y, entry.screenPts);
-      ctx.clip();
-      // Dynamic mode multiplies the tint at render time via
-      // background-blend-mode, so the atlas keeps the polygon's unshaded
-      // base color. Baked bakes the JS-computed shadedColor.
-      ctx.fillStyle = textureLighting === "dynamic"
-        ? (entry.polygon.color ?? "#cccccc")
-        : entry.shadedColor;
-      ctx.fillRect(entry.x, entry.y, entry.canvasW, entry.canvasH);
-      ctx.restore();
+      paintSolidAtlasEntry(ctx, entry, textureLighting, atlasScale);
       continue;
     }
 
@@ -1981,11 +2009,13 @@ export function renderTextureAtlasPoly({
   const dynamic = textureLighting === "dynamic";
   const atlasWidth = entry.canvasW || 1;
   const atlasHeight = entry.canvasH || 1;
+  const atlasScaleX = ATLAS_SLICE_CANONICAL_SIZE / atlasWidth;
+  const atlasScaleY = ATLAS_SLICE_CANONICAL_SIZE / atlasHeight;
   const atlasPosition = page
-    ? `${formatCssLength(-entry.x / atlasWidth)} ${formatCssLength(-entry.y / atlasHeight)}`
+    ? `${formatCssLength(-entry.x * atlasScaleX)} ${formatCssLength(-entry.y * atlasScaleY)}`
     : undefined;
   const atlasSize = page
-    ? `${formatCssLength(page.width / atlasWidth)} ${formatCssLength(page.height / atlasHeight)}`
+    ? `${formatCssLength(page.width * atlasScaleX)} ${formatCssLength(page.height * atlasScaleY)}`
     : undefined;
 
   // Dynamic mode: emit ONLY the per-polygon surface normal vars + the
@@ -2001,7 +2031,7 @@ export function renderTextureAtlasPoly({
     : undefined;
 
   const style: CSSProperties = {
-    transform: formatMatrix3d(entry.canonicalMatrix),
+    transform: formatMatrix3d(entry.canonicalMatrix, 6),
     background,
     backgroundImage: dynamic && page?.url ? `url(${page.url})` : undefined,
     backgroundPosition: dynamic ? atlasPosition : undefined,

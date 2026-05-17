@@ -62,6 +62,7 @@ const UNSTABLE_PROJECTIVE_QUAD: Polygon = {
 };
 
 const QUAD_CANONICAL_SIZE = 64;
+const ATLAS_SLICE_CANONICAL_SIZE = 128;
 
 const OFFAXIS_TRIANGLE: Polygon = {
   vertices: [
@@ -176,6 +177,26 @@ function computeExpectedQuadMatrix(
     matrix[4] * canvasH / QUAD_CANONICAL_SIZE,
     matrix[5] * canvasH / QUAD_CANONICAL_SIZE,
     matrix[6] * canvasH / QUAD_CANONICAL_SIZE,
+    0,
+    matrix[8], matrix[9], matrix[10], 0,
+    matrix[12], matrix[13], matrix[14], 1,
+  ];
+}
+
+function computeExpectedAtlasMatrix(
+  vertices: [number, number, number][],
+  tileSize = 50,
+  elev = tileSize,
+): number[] {
+  const { matrix, canvasW, canvasH } = computeExpectedPlan(vertices, tileSize, elev);
+  return [
+    matrix[0] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
+    matrix[1] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
+    matrix[2] * canvasW / ATLAS_SLICE_CANONICAL_SIZE,
+    0,
+    matrix[4] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
+    matrix[5] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
+    matrix[6] * canvasH / ATLAS_SLICE_CANONICAL_SIZE,
     0,
     matrix[8], matrix[9], matrix[10], 0,
     matrix[12], matrix[13], matrix[14], 1,
@@ -632,7 +653,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const result = renderPolygonsWithTextureAtlas([obliqueTriangle], { tileSize: 1 });
     const element = result.rendered[0].element;
     const matrix = extractMatrix(element);
-    const expected = roundedMatrix(computeExpectedMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1));
+    const expected = roundedMatrix(computeExpectedAtlasMatrix(obliqueTriangle.vertices as [number, number, number][], 1, 1), 6);
 
     expect(element.style.width).toBe("");
     expect(element.style.height).toBe("");
@@ -699,7 +720,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     const isolated = renderPolygonsWithTextureAtlas([bladeFace], { tileSize: 1 });
     const shared = renderPolygonsWithTextureAtlas([bladeFace, bevelFace], { tileSize: 1 });
     const sharedMatrix = extractMatrix(shared.rendered[0].element);
-    const sharedEdgeMatrix = roundedMatrix(computeExpectedMatrix(bladeFace.vertices as [number, number, number][], 1, 1));
+    const sharedEdgeMatrix = roundedMatrix(computeExpectedAtlasMatrix(bladeFace.vertices as [number, number, number][], 1, 1), 6);
 
     const isolatedMatrix = extractMatrix(isolated.rendered[0].element);
     expectColumnDirection(isolatedMatrix, sharedEdgeMatrix, 0);
@@ -739,7 +760,7 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(repaired.rendered[0].element.style.height).toBe("");
     expectMatrixClose(
       extractMatrix(repaired.rendered[0].element),
-      roundedMatrix(computeExpectedMatrix(left.vertices as [number, number, number][], 1, 1)),
+      roundedMatrix(computeExpectedAtlasMatrix(left.vertices as [number, number, number][], 1, 1), 6),
     );
     expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
 
@@ -777,11 +798,11 @@ describe("renderPolygonsWithTextureAtlas", () => {
     expect(repaired.rendered[1].element.style.height).toBe("");
     expectMatrixClose(
       extractMatrix(repaired.rendered[0].element),
-      roundedMatrix(computeExpectedMatrix(floor.vertices as [number, number, number][], 1, 1)),
+      roundedMatrix(computeExpectedAtlasMatrix(floor.vertices as [number, number, number][], 1, 1), 6),
     );
     expectMatrixClose(
       extractMatrix(repaired.rendered[1].element),
-      roundedMatrix(computeExpectedMatrix(wall.vertices as [number, number, number][], 1, 1)),
+      roundedMatrix(computeExpectedAtlasMatrix(wall.vertices as [number, number, number][], 1, 1), 6),
     );
     expect(repaired.rendered[0].plan?.textureEdgeRepair).toBe(true);
 

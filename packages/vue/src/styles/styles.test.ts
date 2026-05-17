@@ -47,6 +47,7 @@ describe("injectPolyBaseStyles", () => {
     expect(el.textContent).toContain("transform-origin: 0 0");
     expect(el.textContent).toContain("backface-visibility: hidden");
     expect(el.textContent).toContain("background-repeat: no-repeat");
+    expect(el.textContent).toContain("user-select: none");
     expect(el.textContent).toContain("width: 0;");
     expect(el.textContent).toContain("height: 0;");
   });
