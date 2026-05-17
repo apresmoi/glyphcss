@@ -99,7 +99,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   matrixPrecision: "exact",
   borderShapePrecision: "exact",
   meshResolution: "lossy",
-  meshInteriorFill: true,
+  meshInteriorFill: false,
   outlinePolygons: false,
   dragMode: "orbit",
   target: [0, 0, 0],
@@ -490,8 +490,6 @@ export default function GalleryWorkbench() {
     observer.observe(root, {
       childList: true,
       subtree: true,
-      attributes: true,
-      attributeFilter: ["class", "style"],
     });
     return () => {
       observer.disconnect();
@@ -520,8 +518,6 @@ export default function GalleryWorkbench() {
     observer.observe(root, {
       childList: true,
       subtree: true,
-      attributes: true,
-      attributeFilter: ["style"],
     });
     return () => {
       observer.disconnect();
@@ -576,7 +572,7 @@ export default function GalleryWorkbench() {
 
   // Inspector data — grouped by mesh, then by polygon color. Recomputed
   // when renderModelPolygons or the loaded model change. Mutations to a
-  // polygon's color via the picker do NOT change the renderPolygons
+  // polygon's color via the picker do NOT change the renderModelPolygons
   // reference, so this memo doesn't re-fire on each tweak and the swatch
   // local state stays in sync.
   const inspectorMeshes = useMemo<InspectorMesh[]>(() => {

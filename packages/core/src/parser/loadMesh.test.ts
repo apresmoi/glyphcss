@@ -26,6 +26,19 @@ const TEXTURED_QUAD_OBJ = [
   "f 1/1 2/2 3/3 4/4",
   "",
 ].join("\n");
+const TEXTURED_SMALL_UV_QUAD_OBJ = [
+  "v 0 0 0",
+  "v 1 0 0",
+  "v 1 1 0",
+  "v 0 1 0",
+  "vt 0 0",
+  "vt 0.49 0",
+  "vt 0.49 0.49",
+  "vt 0 0.49",
+  "usemtl Swatch",
+  "f 1/1 2/2 3/3 4/4",
+  "",
+].join("\n");
 
 function makeMockFetch(opts: {
   ok?: boolean;
@@ -160,6 +173,108 @@ describe("loadMesh", () => {
       expect(result.polygons[0].uvs).toBeUndefined();
       expect(result.polygons[0].color).toBe("#ff0000");
       expect(result.polygons[0].vertices).toHaveLength(4);
+    });
+
+    it("bakes noisy color-swatch texture samples into solid polygons by default", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_QUAD_OBJ }));
+      stubTexturePixels(2, 2, new Uint8Array([
+        100, 80, 60, 255, 106, 85, 65, 255,
+        103, 83, 62, 255, 110, 90, 70, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+      });
+
+      expect(result.polygons.length).toBeGreaterThan(0);
+      expect(result.polygons.every((polygon) => polygon.texture === undefined)).toBe(true);
+      expect(result.polygons.every((polygon) => polygon.uvs === undefined)).toBe(true);
+      expect(result.polygons.every((polygon) => /^#[0-9a-f]{6}$/.test(polygon.color))).toBe(true);
+    });
+
+    it("bakes smooth low-detail swatch gradients into solid polygons by default", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_QUAD_OBJ }));
+      stubTexturePixels(4, 4, new Uint8Array([
+        226, 194, 163, 255, 229, 199, 171, 255, 232, 204, 179, 255, 236, 214, 193, 255,
+        227, 196, 166, 255, 230, 201, 174, 255, 233, 206, 182, 255, 235, 212, 190, 255,
+        228, 198, 169, 255, 231, 203, 177, 255, 234, 208, 185, 255, 235, 211, 188, 255,
+        230, 203, 176, 255, 232, 205, 180, 255, 234, 209, 186, 255, 236, 214, 193, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+      });
+
+      expect(result.polygons.length).toBeGreaterThan(0);
+      expect(result.polygons.every((polygon) => polygon.texture === undefined)).toBe(true);
+      expect(result.polygons.every((polygon) => polygon.uvs === undefined)).toBe(true);
+    });
+
+    it("honors a looser solid texture sample tolerance", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_QUAD_OBJ }));
+      stubTexturePixels(2, 2, new Uint8Array([
+        226, 194, 163, 255, 232, 206, 181, 255,
+        230, 203, 176, 255, 236, 214, 193, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+        solidTextureSamples: { colorTolerance: 32 },
+      });
+
+      expect(result.polygons.length).toBeGreaterThan(0);
+      expect(result.polygons.every((polygon) => polygon.texture === undefined)).toBe(true);
+      expect(result.polygons.every((polygon) => polygon.uvs === undefined)).toBe(true);
+    });
+
+    it("honors a tighter solid texture sample tolerance", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_QUAD_OBJ }));
+      stubTexturePixels(2, 2, new Uint8Array([
+        226, 194, 163, 255, 232, 206, 181, 255,
+        230, 203, 176, 255, 236, 214, 193, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+        solidTextureSamples: { colorTolerance: 2 },
+      });
+
+      expect(result.polygons.some((polygon) => polygon.texture === "swatch.png")).toBe(true);
+      expect(result.polygons.some((polygon) => polygon.uvs !== undefined)).toBe(true);
+    });
+
+    it("keeps smooth local samples texture-backed when the source texture is detailed", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_SMALL_UV_QUAD_OBJ }));
+      stubTexturePixels(4, 4, new Uint8Array([
+        0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+        226, 194, 163, 255, 232, 206, 181, 255, 0, 0, 0, 255, 255, 255, 255, 255,
+        230, 203, 176, 255, 236, 214, 193, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+      });
+
+      expect(result.polygons.some((polygon) => polygon.texture === "swatch.png")).toBe(true);
+      expect(result.polygons.some((polygon) => polygon.uvs !== undefined)).toBe(true);
+    });
+
+    it("keeps uniform local samples texture-backed when the source texture is detailed", async () => {
+      vi.stubGlobal("fetch", makeMockFetch({ text: TEXTURED_SMALL_UV_QUAD_OBJ }));
+      stubTexturePixels(4, 4, new Uint8Array([
+        0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255,
+        255, 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+        100, 80, 60, 255, 100, 80, 60, 255, 0, 0, 0, 255, 255, 255, 255, 255,
+        100, 80, 60, 255, 100, 80, 60, 255, 255, 255, 255, 255, 0, 0, 0, 255,
+      ]));
+
+      const result = await loadMesh("model.obj", {
+        objOptions: { materialTextures: { Swatch: "swatch.png" } },
+      });
+
+      expect(result.polygons.some((polygon) => polygon.texture === "swatch.png")).toBe(true);
+      expect(result.polygons.some((polygon) => polygon.uvs !== undefined)).toBe(true);
     });
 
     it("keeps non-uniform texture samples texture-backed", async () => {

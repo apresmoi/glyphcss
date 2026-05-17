@@ -11,7 +11,7 @@ export const EMPTY_METRICS: DomMetrics = {
 
 export function measureDom(root: HTMLElement | null): DomMetrics {
   if (!root) return EMPTY_METRICS;
-  const modelScopes = Array.from(root.querySelectorAll<HTMLElement>(".dn-model-mesh, .dn-interior-fill-mesh"));
+  const modelScopes = Array.from(root.querySelectorAll<HTMLElement>(".dn-model-mesh"));
   if (modelScopes.length === 0) return EMPTY_METRICS;
   const scopes = modelScopes;
   const countInScopes = (selector: string): number =>

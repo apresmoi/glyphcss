@@ -1,6 +1,5 @@
 import {
   bakeSolidTextureSamples,
-  optimizeMeshPolygons,
   parseGltf,
   parseMtl,
   parseObj,
@@ -95,12 +94,11 @@ export async function loadPresetModel(
       },
     });
     const parsed = await bakeSolidTextureSamples(parsedObj);
-    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
     return {
       label: model.label,
       kind: "obj",
       rawPolygons: parsed.polygons,
-      polygons: finalPolys,
+      polygons: parsed.polygons,
       sourcePolygons: parsed.polygons.length,
       sourceBytes: objText.length + (mtlText?.length ?? 0),
       warnings: parsed.warnings ?? [],
@@ -116,12 +114,11 @@ export async function loadPresetModel(
 
   if (model.kind === "vox") {
     const parsed = parseVox(buf, mergeParserOptions(model.options, parser));
-    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
     return {
       label: model.label,
       kind: "vox",
       rawPolygons: parsed.polygons,
-      polygons: finalPolys,
+      polygons: parsed.polygons,
       sourcePolygons: parsed.polygons.length,
       sourceBytes: buf.byteLength,
       warnings: parsed.warnings ?? [],
@@ -135,12 +132,11 @@ export async function loadPresetModel(
     baseUrl: new URL(model.url, window.location.href).href,
   });
   const parsed = await bakeSolidTextureSamples(parsedGltf);
-  const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
   return {
     label: model.label,
     kind: model.kind,
     rawPolygons: parsed.polygons,
-    polygons: finalPolys,
+    polygons: parsed.polygons,
     sourcePolygons: parsed.polygons.length,
     sourceBytes: buf.byteLength,
     warnings: parsed.warnings ?? [],
@@ -204,13 +200,12 @@ export async function loadDroppedModel(
       },
     });
     const parsed = await bakeSolidTextureSamples(parsedObj);
-    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
     let disposed = false;
     return {
       label: source.label,
       kind: "obj",
       rawPolygons: parsed.polygons,
-      polygons: finalPolys,
+      polygons: parsed.polygons,
       sourcePolygons: parsed.polygons.length,
       sourceBytes,
       warnings: [...(parsed.warnings ?? []), ...warnings],
@@ -228,12 +223,11 @@ export async function loadDroppedModel(
 
   if (source.kind === "vox") {
     const parsed = parseVox(buf, options);
-    const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
     return {
       label: source.label,
       kind: "vox",
       rawPolygons: parsed.polygons,
-      polygons: finalPolys,
+      polygons: parsed.polygons,
       sourcePolygons: parsed.polygons.length,
       sourceBytes,
       warnings: parsed.warnings ?? [],
@@ -244,12 +238,11 @@ export async function loadDroppedModel(
 
   const parsedGltf = parseGltf(buf, options);
   const parsed = await bakeSolidTextureSamples(parsedGltf);
-  const finalPolys = optimizeMeshPolygons(parsed.polygons, { meshResolution: "lossless" });
   return {
     label: source.label,
     kind: "glb",
     rawPolygons: parsed.polygons,
-    polygons: finalPolys,
+    polygons: parsed.polygons,
     sourcePolygons: parsed.polygons.length,
     sourceBytes,
     warnings: parsed.warnings ?? [],

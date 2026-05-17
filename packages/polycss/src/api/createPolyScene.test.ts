@@ -21,6 +21,66 @@ function triangle(color = "#ff0000"): Polygon {
   };
 }
 
+function backTriangle(color = "#00ff00"): Polygon {
+  return {
+    vertices: [
+      [0, 0, 0],
+      [0, 1, 0],
+      [1, 0, 0],
+    ],
+    color,
+  };
+}
+
+function sideTriangle(color = "#0000ff"): Polygon {
+  return {
+    vertices: [
+      [0, 0, 0],
+      [0, 0, 1],
+      [1, 0, 0],
+    ],
+    color,
+  };
+}
+
+function oppositeSideTriangle(color = "#ffff00"): Polygon {
+  return {
+    vertices: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 0, 1],
+    ],
+    color,
+  };
+}
+
+function rotatedSideTriangle(deg: number, color = "#0000ff"): Polygon {
+  const r = deg * Math.PI / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  const rotate = (v: [number, number, number]): [number, number, number] => [
+    v[0] * c - v[1] * s,
+    v[0] * s + v[1] * c,
+    v[2],
+  ];
+  return {
+    vertices: sideTriangle(color).vertices.map(rotate),
+    color,
+  };
+}
+
+function highNormalTrianglePairs(count = 26): Polygon[] {
+  const out: Polygon[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const poly = rotatedSideTriangle(i * 7, "#224466");
+    out.push(poly, {
+      ...poly,
+      vertices: poly.vertices.map((v) => [v[0], v[1], v[2]] as [number, number, number]),
+    });
+  }
+  return out;
+}
+
 function texturedTriangle(): Polygon {
   return {
     vertices: triangle().vertices,
@@ -275,6 +335,20 @@ describe("createPolyScene", () => {
       expect(after.length).toBe(1);
       expect(after[0]).toBe(before[0]);
       expect(after[0].style.transform).not.toBe(beforeTransform);
+    });
+
+    it("preserves caller-mounted mesh wrapper children across setPolygons()", () => {
+      scene = createPolyScene(host);
+      const handle = scene.add(makeParseResult([triangle()]), { merge: false });
+      const nested = document.createElement("div");
+      nested.className = "nested-helper";
+      handle.element.appendChild(nested);
+
+      handle.setPolygons([triangle("#00ff00")], { merge: false });
+
+      expect(handle.element.contains(nested)).toBe(true);
+      expect(handle.element.lastElementChild).toBe(nested);
+      expect(handle.element.querySelectorAll("i,b,s,u").length).toBe(1);
     });
 
     it("updates stableDom textured triangles without replacing loaded atlas elements", () => {
@@ -607,6 +681,118 @@ describe("createPolyScene", () => {
       // `strategies` into every camera-update setOptions call.
       scene.setOptions({ strategies: { disable: ["u"] } });
       expect(host.querySelector("i, s")).toBe(firstLeaf);
+    });
+
+    it("mounts only camera-facing voxel leaves by default", () => {
+      scene = createPolyScene(host, {
+        rotX: 0,
+        rotY: 0,
+      });
+      const handle = scene.add(makeParseResult([triangle(), backTriangle()]), { merge: false });
+      expect(handle.polygons.length).toBe(2);
+      const firstLeaf = host.querySelector(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u");
+      expect(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u").length).toBe(1);
+
+      scene.setOptions({ rotX: 180 });
+      const nextLeaf = host.querySelector(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u");
+      expect(nextLeaf).not.toBe(firstLeaf);
+      expect(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u").length).toBe(1);
+    });
+
+    it("does not remount culling leaves when camera rotation keeps the same visible normal set", () => {
+      scene = createPolyScene(host, {
+        rotX: 0,
+        rotY: 0,
+      });
+      scene.add(makeParseResult([triangle(), backTriangle()]), { merge: false });
+      const firstLeaf = host.querySelector(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u");
+      expect(firstLeaf).not.toBeNull();
+
+      scene.setOptions({ rotY: 10 });
+
+      expect(host.querySelector(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u")).toBe(firstLeaf);
+      expect(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u").length).toBe(1);
+    });
+
+    it("keeps caller-mounted children when camera culling remounts leaves", () => {
+      scene = createPolyScene(host, {
+        rotX: 0,
+        rotY: 0,
+      });
+      const handle = scene.add(makeParseResult([triangle(), backTriangle()]), { merge: false });
+      const nested = document.createElement("div");
+      nested.className = "nested-helper";
+      handle.element.appendChild(nested);
+
+      scene.setOptions({ rotX: 180 });
+
+      expect(handle.element.contains(nested)).toBe(true);
+      expect(handle.element.lastElementChild).toBe(nested);
+      expect(handle.element.querySelectorAll("i,b,s,u").length).toBe(1);
+    });
+
+    it("patches culling deltas without removing leaves that stayed visible", () => {
+      scene = createPolyScene(host, {
+        rotX: 65,
+        rotY: 45,
+      });
+      const handle = scene.add(
+        makeParseResult([
+          triangle("#111111"),
+          sideTriangle("#222222"),
+          oppositeSideTriangle("#333333"),
+        ]),
+        { merge: false },
+      );
+      const leaves = handle.element.querySelectorAll("i,b,s,u");
+      expect(leaves.length).toBe(2);
+      const stableLeaf = leaves[0];
+      const removed: Node[] = [];
+      const observer = new MutationObserver((records) => {
+        for (const record of records) removed.push(...Array.from(record.removedNodes));
+      });
+      observer.observe(handle.element, { childList: true });
+
+      scene.setOptions({ rotY: 225 });
+      observer.disconnect();
+
+      expect(handle.element.querySelectorAll("i,b,s,u").length).toBe(2);
+      expect(handle.element.querySelector("i,b,s,u")).toBe(stableLeaf);
+      expect(removed).not.toContain(stableLeaf);
+    });
+
+    it("uses strict culling for low-normal meshes so voxel faces do not linger behind the camera", () => {
+      scene = createPolyScene(host, {
+        rotX: 65,
+        rotY: 179,
+      });
+      scene.add(makeParseResult([triangle(), sideTriangle()]), { merge: false, stableDom: true });
+      expect(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u").length).toBe(2);
+
+      scene.setOptions({ rotY: 181 });
+
+      expect(host.querySelectorAll(".polycss-mesh i, .polycss-mesh b, .polycss-mesh s, .polycss-mesh u").length).toBe(1);
+    });
+
+    it("leaves high-normal meshes on the stable DOM path", () => {
+      scene = createPolyScene(host, {
+        rotX: 65,
+        rotY: 0,
+        textureLighting: "dynamic",
+      });
+      const handle = scene.add(makeParseResult(highNormalTrianglePairs()), { merge: false });
+      expect(handle.element.querySelector(".polycss-bucket")).not.toBeNull();
+      const leafCount = handle.element.querySelectorAll("i,b,s,u").length;
+
+      const records: MutationRecord[] = [];
+      const observer = new MutationObserver((items) => records.push(...items));
+      observer.observe(handle.element, { childList: true, subtree: true });
+
+      scene.setOptions({ rotY: 180 });
+      observer.disconnect();
+
+      expect(records).toHaveLength(0);
+      expect(handle.element.querySelectorAll("i,b,s,u").length).toBe(leafCount);
     });
 
     // Perf-fix tests: setOptions used to call recomputeAutoCenter() on every

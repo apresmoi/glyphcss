@@ -52,10 +52,24 @@ interface TextureSampler {
   width: number;
   height: number;
   data: ArrayLike<number>;
+  lowDetail: boolean;
+}
+
+interface ColorStats {
+  min: SampledColor;
+  max: SampledColor;
+  sum: SampledColor;
+  count: number;
 }
 
 const DEFAULT_MAX_TEXTURE_PIXELS = 16 * 1024 * 1024;
 const DEFAULT_COLOR_TOLERANCE = 2;
+const SMOOTH_SWATCH_TOLERANCE = 32;
+const DETAIL_SAMPLE_TARGET = 128;
+const DETAIL_EDGE_THRESHOLD = 32;
+const LOW_DETAIL_MAX_EDGE_RATIO = 0.045;
+const LOW_DETAIL_MAX_AVERAGE_DELTA = 10;
+const TRIANGLE_GRID_STEPS = 6;
 
 function textureForPolygon(polygon: Polygon): string | undefined {
   return polygon.material?.texture ?? polygon.texture;
@@ -118,10 +132,56 @@ async function createSampler(
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, width, height);
-    return { width, height, data: ctx.getImageData(0, 0, width, height).data };
+    const data = ctx.getImageData(0, 0, width, height).data;
+    return { width, height, data, lowDetail: isLowDetailTexture(width, height, data) };
   } catch {
     return null;
   }
+}
+
+function maxRgbDeltaAt(
+  data: ArrayLike<number>,
+  width: number,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): number {
+  const a = (y1 * width + x1) * 4;
+  const b = (y2 * width + x2) * 4;
+  return Math.max(
+    Math.abs((data[a] ?? 0) - (data[b] ?? 0)),
+    Math.abs((data[a + 1] ?? 0) - (data[b + 1] ?? 0)),
+    Math.abs((data[a + 2] ?? 0) - (data[b + 2] ?? 0)),
+  );
+}
+
+function isLowDetailTexture(width: number, height: number, data: ArrayLike<number>): boolean {
+  const step = Math.max(1, Math.floor(Math.max(width, height) / DETAIL_SAMPLE_TARGET));
+  let total = 0;
+  let edgeCount = 0;
+  let deltaSum = 0;
+
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (x + step < width) {
+        const delta = maxRgbDeltaAt(data, width, x, y, x + step, y);
+        deltaSum += delta;
+        total++;
+        if (delta > DETAIL_EDGE_THRESHOLD) edgeCount++;
+      }
+      if (y + step < height) {
+        const delta = maxRgbDeltaAt(data, width, x, y, x, y + step);
+        deltaSum += delta;
+        total++;
+        if (delta > DETAIL_EDGE_THRESHOLD) edgeCount++;
+      }
+    }
+  }
+
+  return total > 0 &&
+    edgeCount / total <= LOW_DETAIL_MAX_EDGE_RATIO &&
+    deltaSum / total <= LOW_DETAIL_MAX_AVERAGE_DELTA;
 }
 
 function clampInt(value: number, min: number, max: number): number {
@@ -163,6 +223,26 @@ function triangleSampleUvs(uvs: readonly [Vec2, Vec2, Vec2]): Vec2[] {
   ];
 }
 
+function triangleGridSampleUvs(uvs: readonly [Vec2, Vec2, Vec2]): Vec2[] {
+  const [a, b, c] = uvs;
+  const out = triangleSampleUvs(uvs);
+  for (let wa = 1; wa < TRIANGLE_GRID_STEPS; wa++) {
+    for (let wb = 1; wb < TRIANGLE_GRID_STEPS - wa; wb++) {
+      const wc = TRIANGLE_GRID_STEPS - wa - wb;
+      if (wc <= 0) continue;
+      out.push(mixUv(
+        a,
+        b,
+        c,
+        wa / TRIANGLE_GRID_STEPS,
+        wb / TRIANGLE_GRID_STEPS,
+        wc / TRIANGLE_GRID_STEPS,
+      ));
+    }
+  }
+  return out;
+}
+
 function polygonTextureTriangles(polygon: Polygon): Array<Pick<TextureTriangle, "uvs">> {
   if (polygon.textureTriangles?.length) return polygon.textureTriangles;
   const uvs = polygon.uvs;
@@ -197,27 +277,65 @@ function colorToCss(color: SampledColor): string {
   return `rgba(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)}, ${alpha})`;
 }
 
+function createColorStats(): ColorStats {
+  return {
+    min: { r: 255, g: 255, b: 255, a: 255 },
+    max: { r: 0, g: 0, b: 0, a: 0 },
+    sum: { r: 0, g: 0, b: 0, a: 0 },
+    count: 0,
+  };
+}
+
+function addColor(stats: ColorStats, color: SampledColor): void {
+  stats.min.r = Math.min(stats.min.r, color.r);
+  stats.min.g = Math.min(stats.min.g, color.g);
+  stats.min.b = Math.min(stats.min.b, color.b);
+  stats.min.a = Math.min(stats.min.a, color.a);
+  stats.max.r = Math.max(stats.max.r, color.r);
+  stats.max.g = Math.max(stats.max.g, color.g);
+  stats.max.b = Math.max(stats.max.b, color.b);
+  stats.max.a = Math.max(stats.max.a, color.a);
+  stats.sum.r += color.r;
+  stats.sum.g += color.g;
+  stats.sum.b += color.b;
+  stats.sum.a += color.a;
+  stats.count++;
+}
+
+function statsColor(stats: ColorStats): SampledColor {
+  return {
+    r: stats.sum.r / stats.count,
+    g: stats.sum.g / stats.count,
+    b: stats.sum.b / stats.count,
+    a: stats.sum.a / stats.count,
+  };
+}
+
 function solidColorForPolygon(
   polygon: Polygon,
   sampler: TextureSampler,
   tolerance: number,
+  explicitTolerance: boolean,
 ): string | null {
   const triangles = polygonTextureTriangles(polygon);
   if (triangles.length === 0) return null;
+  if (!explicitTolerance && !sampler.lowDetail) return null;
 
-  let first: SampledColor | null = null;
+  const stats = createColorStats();
+
   for (const triangle of triangles) {
-    for (const uv of triangleSampleUvs(triangle.uvs)) {
+    for (const uv of triangleGridSampleUvs(triangle.uvs)) {
       const color = sampleUv(sampler, uv);
       if (!color) return null;
-      if (!first) {
-        first = color;
-      } else if (!colorsClose(first, color, tolerance)) {
-        return null;
-      }
+      addColor(stats, color);
     }
   }
-  return first ? colorToCss(first) : null;
+
+  if (stats.count === 0) return null;
+  if (colorsClose(stats.min, stats.max, tolerance)) return colorToCss(statsColor(stats));
+  if (explicitTolerance) return null;
+  if (!colorsClose(stats.min, stats.max, SMOOTH_SWATCH_TOLERANCE)) return null;
+  return colorToCss(statsColor(stats));
 }
 
 function bakePolygon(polygon: Polygon, color: string): Polygon {
@@ -260,6 +378,7 @@ async function createSolidTextureBaker(
   );
 
   const tolerance = options.colorTolerance ?? DEFAULT_COLOR_TOLERANCE;
+  const explicitTolerance = options.colorTolerance !== undefined;
   return {
     bake(nextPolygons: Polygon[]): { polygons: Polygon[]; changed: boolean } {
       let changed = false;
@@ -268,7 +387,7 @@ async function createSolidTextureBaker(
         if (!texture) return polygon;
         const sampler = samplerByTexture.get(texture);
         if (!sampler) return polygon;
-        const color = solidColorForPolygon(polygon, sampler, tolerance);
+        const color = solidColorForPolygon(polygon, sampler, tolerance, explicitTolerance);
         if (!color) return polygon;
         changed = true;
         return bakePolygon(polygon, color);

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ParseAnimationController, PolyAmbientLight, PolyDirectionalLight, Polygon, Vec3 as ReactVec3 } from "@layoutit/polycss-react";
 import {
   axesHelperPolygons,
@@ -118,6 +118,15 @@ export function VanillaScene({
   const animationTimeScaleRef = useRef(options.animationTimeScale);
   animationTimeScaleRef.current = options.animationTimeScale;
 
+  const mountInteriorFillInsideModel = useCallback(() => {
+    const modelEl = meshHandleRef.current?.element;
+    const fillEl = interiorFillHandleRef.current?.element;
+    if (!modelEl || !fillEl) return;
+    if (fillEl.parentElement !== modelEl || fillEl.nextSibling !== null) {
+      modelEl.appendChild(fillEl);
+    }
+  }, []);
+
   // Split things into "structural" (require destroying the scene) vs
   // "incremental" (can be applied via setOptions / setTransform). In
   // dynamic mode the chicken's atlas is light-independent, so we drop the
@@ -182,8 +191,9 @@ export function VanillaScene({
   ]);
 
   // Effect 1.5 — replace geometry on the existing mesh. This is the path
-  // used by animated GLB playback. Interior fill lives in a trailing helper
-  // mesh so its oval CSS can be scoped without stamping every leaf.
+  // used by animated GLB playback. Interior fill remains a non-shadow mesh,
+  // but its wrapper is mounted inside the model mesh wrapper so it inherits
+  // the same mesh transform.
   useEffect(() => {
     const handle = meshHandleRef.current;
     const scene = sceneRef.current;
@@ -204,6 +214,7 @@ export function VanillaScene({
         stableDom: stableDomForMesh,
         recomputeAutoCenter: false,
       });
+      mountInteriorFillInsideModel();
     } else {
       fillHandle = scene.add(
         {
@@ -220,17 +231,14 @@ export function VanillaScene({
         },
       );
       fillHandle.element.classList.add("dn-interior-fill-mesh");
-      fillHandle.setTransform({
-        position: handle.transform.position,
-        rotation: handle.transform.rotation,
-      });
       interiorFillHandleRef.current = fillHandle;
+      mountInteriorFillInsideModel();
     }
 
     requestAnimationFrame(() =>
       onBuildRef.current(performance.now() - started),
     );
-  }, [polygons, interiorFillPolygons, mergePolygonsForMesh, stableDomForMesh]);
+  }, [polygons, interiorFillPolygons, mergePolygonsForMesh, stableDomForMesh, mountInteriorFillInsideModel]);
 
   // Effect 1.6 — live-toggle castShadow without rebuilding the scene.
   useEffect(() => {
@@ -256,13 +264,6 @@ export function VanillaScene({
     if (!scene) return;
     const tc = createTransformControls(scene, {
       mode: gizmoMode ?? "translate",
-      onObjectChange: (event) => {
-        if (event.object !== meshHandleRef.current) return;
-        interiorFillHandleRef.current?.setTransform({
-          position: event.object.transform.position,
-          rotation: event.object.transform.rotation,
-        });
-      },
     });
     transformControlsRef.current = tc;
     const select = createSelect(scene, {

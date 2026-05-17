@@ -68,7 +68,7 @@ function renderMesh(props: React.ComponentProps<typeof PolyMesh>): HTMLElement {
 
 function renderMeshWithChildren(
   props: React.ComponentProps<typeof PolyMesh>,
-  children: (polygon: Polygon, index: number) => React.ReactNode
+  children: React.ComponentProps<typeof PolyMesh>["children"]
 ): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -285,6 +285,18 @@ describe("PolyMesh — render-prop children", () => {
     const custom = container.querySelector(".custom-poly-render");
     expect(custom).toBeTruthy();
     expect(custom?.getAttribute("data-index")).toBe("0");
+  });
+
+  it("static children render inside the mesh wrapper without replacing polygon leaves", () => {
+    const container = renderMeshWithChildren(
+      { polygons: [TRIANGLE] },
+      React.createElement("div", { className: "static-mesh-child" }),
+    );
+    const mesh = container.querySelector(".polycss-mesh") as HTMLElement;
+    const child = container.querySelector(".static-mesh-child");
+    expect(child).toBeTruthy();
+    expect(child?.parentElement).toBe(mesh);
+    expect(mesh.querySelectorAll("i,b,s,u").length).toBe(1);
   });
 });
 

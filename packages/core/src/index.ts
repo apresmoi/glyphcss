@@ -89,6 +89,25 @@ export type {
 } from "./merge/optimizePolygons";
 export { cullInteriorPolygons } from "./cull/cullInteriorPolygons";
 export type { CullInteriorOptions } from "./cull/cullInteriorPolygons";
+export {
+  CAMERA_BACKFACE_CULL_EPS,
+  VOXEL_CAMERA_CULL_AXIS_EPS,
+  VOXEL_CAMERA_CULL_NORMAL_LIMIT,
+  cameraCullNormalGroups,
+  cameraCullNormalGroupsFromPolygons,
+  cameraCullNormalKey,
+  cameraCullVisibleSignature,
+  cameraFacingDepth,
+  isAxisAlignedSurfaceNormal,
+  isVoxelCameraCullableNormalGroups,
+  normalFacesCamera,
+  polygonCssSurfaceNormal,
+  polygonFacesCamera,
+} from "./cull/cameraBackfaceCulling";
+export type {
+  CameraCullNormalGroup,
+  CameraCullRotation,
+} from "./cull/cameraBackfaceCulling";
 
 // ── Helper-gizmo geometry (axes, light marker, transform arrows / rings) ─
 export { axesHelperPolygons, arrowPolygons, ringPolygons, octahedronPolygons } from "./helpers";

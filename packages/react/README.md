@@ -64,7 +64,7 @@ Loads a mesh from a URL and renders its polygons. Manages blob-URL lifecycle aut
 | `parseOptions` | `UseMeshOptions` | Forwarded to `loadMesh`; `meshResolution` defaults to `"lossy"` |
 | `fallback` | `ReactNode` | Rendered while loading |
 | `errorFallback` | `(error: Error) => ReactNode` | Rendered on parse failure |
-| `children` | `(polygon, index) => ReactNode` | Per-polygon render prop override |
+| `children` | `((polygon, index) => ReactNode) \| ReactNode` | Per-polygon render prop override, or static children mounted inside the mesh wrapper |
 
 ### `<Poly>`
 

@@ -20,7 +20,9 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 
 ## Rendering model — the mental model
 
-**One `Polygon` → one leaf DOM element.** Leaves use canonical CSS primitives where possible and move scale into `matrix3d`; `border-shape` uses a larger fixed primitive because its paint geometry becomes unstable when collapsed to 1px. Textured polygons still pack their local-2D bounding rect (`canvasW × canvasH`) into the atlas. The HTML tag *is* the render strategy — the renderer picks one tag per polygon based on its shape and material.
+**One visible `Polygon` → one leaf DOM element.** Leaves use canonical CSS primitives where possible and move scale into `matrix3d`; `border-shape` uses a larger fixed primitive because its paint geometry becomes unstable when collapsed to 1px. Textured polygons still pack their local-2D bounding rect (`canvasW × canvasH`) into the atlas. The HTML tag *is* the render strategy — the renderer picks one tag per polygon based on its shape and material.
+
+Voxel-shaped meshes are the exception to "all polygons stay mounted": meshes with at most the six axis-aligned face normals, excluding helpers/auto-center-exempt meshes, automatically mount only camera-facing leaves and patch the mounted set when the camera or mesh rotation crosses a visible-normal boundary. Non-voxel meshes keep the full leaf DOM mounted; broad camera-dependent DOM culling is not worth the mutation cost.
 
 ### Tag-as-strategy table
 

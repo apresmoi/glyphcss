@@ -149,7 +149,6 @@ export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/bird.glb",
     label: "Bird",
     category: "Animals",
-    galleryBucket: "Textured",
     attribution: {
       creator: "Quaternius",
       license: "CC0 1.0",
@@ -172,7 +171,6 @@ export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/ducky.glb",
     label: "Ducky",
     category: "Animals",
-    galleryBucket: "Textured",
     attribution: {
       creator: "Isa Lousberg",
       license: "CC0 1.0",
@@ -283,7 +281,6 @@ export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/bucket.glb",
     label: "Bucket",
     category: "Objects",
-    galleryBucket: "Textured",
     attribution: {
       creator: "Quaternius",
       license: "CC0 1.0",
@@ -374,7 +371,6 @@ export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/empty-box.glb",
     label: "Empty Box",
     category: "Objects",
-    galleryBucket: "Textured",
     attribution: {
       creator: "CreativeTrio",
       license: "CC0 1.0",
@@ -441,7 +437,6 @@ export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
     file: "poly-pizza/arrow.glb",
     label: "Arrow",
     category: "Weapons",
-    galleryBucket: "Textured",
     attribution: {
       creator: "CreativeTrio",
       license: "CC0 1.0",

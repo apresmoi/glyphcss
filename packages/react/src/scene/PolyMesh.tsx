@@ -11,6 +11,8 @@
  *   - Returned elements render INSIDE the .polycss-mesh wrapper, so they
  *     inherit the mesh transform automatically. Don't re-apply position
  *     or you'll double-transform.
+ *   - Non-function children are static wrapper children, matching Vue's
+ *     default slot behavior.
  */
 import {
   forwardRef,
@@ -90,8 +92,8 @@ export interface PolyMeshProps extends TransformProps, InteractionProps {
    *  a device-appropriate memory budget (~4 MB mobile / ~16 MB desktop).
    *  Numeric values 0.1..1 force an explicit scale. */
   textureQuality?: TextureQuality;
-  /** Per-polygon override render. Receives the polygon + its index. */
-  children?: (polygon: Polygon, index: number) => ReactNode;
+  /** Per-polygon override render, or static children mounted inside the mesh wrapper. */
+  children?: ((polygon: Polygon, index: number) => ReactNode) | ReactNode;
   /** Loading slot — rendered while `src` is being fetched/parsed. */
   fallback?: ReactNode;
   /** Error slot — rendered if parse fails. Receives the Error. */
@@ -218,6 +220,11 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   }
 
   const sourcePolygons = localPolygons ?? externalPolygons;
+  const hasRenderProp = typeof children === "function";
+  const renderPolygon = hasRenderProp
+    ? children as (polygon: Polygon, index: number) => ReactNode
+    : null;
+  const staticChildren: ReactNode = hasRenderProp ? null : children as ReactNode;
 
   // Re-center vertices into mesh-local space if autoCenter is set. Done
   // once per polygon-list identity — bake into vertices, not per frame.
@@ -490,7 +497,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
 
   const atlasPlans = useMemo(
     () => {
-      if (children) return [];
+      if (renderPolygon) return [];
       const repairEdges = buildTextureEdgeRepairSets(polygons);
       return polygons.map((p, i) => computeTextureAtlasPlan(p, i, {
         directionalLight: bakedDirectional,
@@ -498,7 +505,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
         textureEdgeRepairEdges: repairEdges[i],
       }));
     },
-    [children, polygons, bakedDirectional, effectiveAmbient],
+    [renderPolygon, polygons, bakedDirectional, effectiveAmbient],
   );
   const textureAtlas = useTextureAtlas(
     atlasPlans,
@@ -506,8 +513,8 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     textureQuality,
   );
   const solidPaintDefaults = useMemo(
-    () => !children ? getSolidPaintDefaults(atlasPlans, effectiveTextureLighting) : {},
-    [children, atlasPlans, effectiveTextureLighting],
+    () => !renderPolygon ? getSolidPaintDefaults(atlasPlans, effectiveTextureLighting) : {},
+    [renderPolygon, atlasPlans, effectiveTextureLighting],
   );
   const defaultPaintVars = useMemo(
     () => solidPaintVars(solidPaintDefaults),
@@ -538,7 +545,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
   // the outlines are identical. Deduplication removes stacked coplanar
   // shadow leaves that would produce visible double-shadows on the receiver.
   const shadowLeaves = useMemo<ReactNode[]>(() => {
-    if (!castShadow || effectiveTextureLighting !== "dynamic" || children) return [];
+    if (!castShadow || effectiveTextureLighting !== "dynamic" || renderPolygon) return [];
 
     const shadowColor = sceneCtx?.shadow?.color ?? "#000000";
     const shadowOpacity = sceneCtx?.shadow?.opacity ?? 0.25;
@@ -567,7 +574,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
       );
     }
     return leaves;
-  }, [castShadow, effectiveTextureLighting, children, polygons, atlasPlans, sceneCtx?.shadow]);
+  }, [castShadow, effectiveTextureLighting, renderPolygon, polygons, atlasPlans, sceneCtx?.shadow]);
 
   const wrapperStyle: CSSProperties = {
     transform,
@@ -576,12 +583,12 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     ...defaultPaintVars,
   };
 
-  const renderedPolygons = children
+  const renderedPolygons = renderPolygon
     ? polygons.map((p, i) => (
         // Render-prop: caller controls how each polygon renders. We still
         // wrap in a fragment with key so React reconciliation works.
         <RenderPropPolygon key={i} polygon={p} index={i}>
-          {children}
+          {renderPolygon}
         </RenderPropPolygon>
       ))
     : textureAtlas.entries.map((entry, index) => {
@@ -656,6 +663,7 @@ export const PolyMesh = forwardRef<PolyMeshHandle, PolyMeshProps>(function PolyM
     >
       {shadowLeaves}
       {renderedPolygons}
+      {staticChildren}
     </div>
   );
 });

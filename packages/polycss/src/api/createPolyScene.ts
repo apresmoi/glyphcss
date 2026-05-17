@@ -26,14 +26,22 @@ import type {
   Polygon,
   PolyTextureLightingMode,
   Vec3,
+  CameraCullNormalGroup,
+  CameraCullRotation,
 } from "@layoutit/polycss-core";
 import {
   BASE_TILE,
+  CAMERA_BACKFACE_CULL_EPS,
+  cameraCullNormalGroups,
+  cameraCullVisibleSignature,
   computeSceneBbox,
   findOverlappingPolygonDuplicates,
   inverseRotateVec3,
+  isVoxelCameraCullableNormalGroups,
   mergePolygons,
+  normalFacesCamera,
   parseHexColor,
+  polygonCssSurfaceNormal,
 } from "@layoutit/polycss-core";
 import {
   cssBorderShapeForPlan,
@@ -448,6 +456,7 @@ export function createPolyScene(
   }
 
   let currentOptions: PolySceneOptions = { ...options };
+  const layoutScale = effectiveCssZoom(host);
 
   // Bbox-center of all live meshes (helpers opt out). Auto-managed by
   // `recomputeAutoCenter`. Folded into the scene transform alongside
@@ -481,6 +490,8 @@ export function createPolyScene(
     stableDom: boolean;
     excludeFromAutoCenter: boolean;
     castShadow: boolean;
+    cameraCullGroups: CameraCullNormalGroup[];
+    cameraCullSignature: string;
     /** Rotation snapshot used by the baked atlas baker. Advances only when
      *  `rebakeAtlas()` is called — not on every `setTransform`. */
     bakedRotation: Vec3;
@@ -488,7 +499,6 @@ export function createPolyScene(
   const meshes = new Set<MeshEntry>();
 
   function applySceneStyle(el: HTMLElement, opts: PolySceneOptions): void {
-    const layoutScale = effectiveCssZoom(host);
     applyCssZoomCompensation(el, layoutScale);
     el.style.transform = buildSceneTransform(opts, autoCenterOffset, layoutScale);
     if (typeof opts.perspective === "number") {
@@ -576,8 +586,40 @@ export function createPolyScene(
     disposeRendered(entry.rendered, entry.disposeAtlas);
     entry.disposeAtlas = undefined;
     entry.rendered.length = 0;
+    entry.cameraCullGroups.length = 0;
+    entry.cameraCullSignature = "";
     clearShadowLeaves(entry);
-    while (entry.wrapper.firstChild) entry.wrapper.removeChild(entry.wrapper.firstChild);
+    for (const child of Array.from(entry.wrapper.children)) {
+      if (child instanceof HTMLElement && child.classList.contains("polycss-bucket")) {
+        child.remove();
+      }
+    }
+  }
+
+  function firstPreservedChild(entry: MeshEntry): ChildNode | null {
+    for (const child of Array.from(entry.wrapper.childNodes)) {
+      if (!(child instanceof HTMLElement)) return child;
+      if (child.classList.contains("polycss-bucket")) continue;
+      if (child.classList.contains("polycss-shadow")) continue;
+      const tag = child.tagName.toLowerCase();
+      if (tag === "b" || tag === "i" || tag === "s" || tag === "u" || tag === "q") continue;
+      return child;
+    }
+    return null;
+  }
+
+  function mountRenderedFragment(entry: MeshEntry, fragment: DocumentFragment, before: ChildNode | null): void {
+    if (before?.parentNode === entry.wrapper) {
+      entry.wrapper.insertBefore(fragment, before);
+    } else {
+      entry.wrapper.appendChild(fragment);
+    }
+  }
+
+  function hasDirectBucket(wrapper: HTMLDivElement): boolean {
+    return Array.from(wrapper.children).some(
+      (child) => child instanceof HTMLElement && child.classList.contains("polycss-bucket"),
+    );
   }
 
   function clearShadowLeaves(entry: MeshEntry): void {
@@ -595,7 +637,196 @@ export function createPolyScene(
     }
   }
 
+  function clearMountedRendered(entry: MeshEntry): void {
+    for (const child of Array.from(entry.wrapper.children)) {
+      if (child instanceof HTMLElement && child.classList.contains("polycss-bucket")) {
+        child.remove();
+      }
+    }
+    for (const item of entry.rendered) {
+      if (item.element.parentNode) item.element.parentNode.removeChild(item.element);
+    }
+  }
+
+  function normalForRendered(entry: MeshEntry, item: RenderedPoly): Vec3 | null {
+    const poly = entry.polygons[item.polygonIndex];
+    if (entry.stableDom && poly) return polygonCssSurfaceNormal(poly);
+    return item.plan?.normal ?? (poly ? polygonCssSurfaceNormal(poly) : null);
+  }
+
+  function renderedItemsForCamera(entry: MeshEntry): RenderedPoly[] {
+    if (!canDomCullCamera(entry)) return entry.rendered;
+    const rotation = cameraCullRotation(entry);
+    return entry.rendered.filter((item) =>
+      renderedItemFacesCamera(entry, item, CAMERA_BACKFACE_CULL_EPS, rotation)
+    );
+  }
+
+  function cameraCullRotation(entry: MeshEntry): CameraCullRotation {
+    return {
+      rotX: currentOptions.rotX ?? DEFAULT_ROT_X,
+      rotY: currentOptions.rotY ?? DEFAULT_ROT_Y,
+      meshRotation: entry.handle.transform.rotation,
+    };
+  }
+
+  function renderedItemFacesCamera(
+    entry: MeshEntry,
+    item: RenderedPoly,
+    depthThreshold = CAMERA_BACKFACE_CULL_EPS,
+    rotation = cameraCullRotation(entry),
+  ): boolean {
+    const normal = normalForRendered(entry, item);
+    return normal === null || normalFacesCamera(normal, rotation, depthThreshold);
+  }
+
+  function recomputeCameraCullGroups(entry: MeshEntry): void {
+    entry.cameraCullGroups = cameraCullNormalGroups(
+      entry.rendered.map((item) => normalForRendered(entry, item)),
+    );
+  }
+
+  function cameraCullSignature(entry: MeshEntry): string {
+    return canDomCullCamera(entry)
+      ? cameraCullVisibleSignature(entry.cameraCullGroups, cameraCullRotation(entry))
+      : "all";
+  }
+
+  function canDomCullCamera(entry: MeshEntry): boolean {
+    return !entry.excludeFromAutoCenter &&
+      isVoxelCameraCullableNormalGroups(entry.cameraCullGroups);
+  }
+
+  function syncCameraCullSignature(entry: MeshEntry): void {
+    entry.cameraCullSignature = canDomCullCamera(entry)
+      ? cameraCullSignature(entry)
+      : "all";
+  }
+
+  function patchMountedRenderedForCamera(entry: MeshEntry, depthThreshold: number): boolean {
+    const visible = new Array<boolean>(entry.rendered.length);
+    let changed = false;
+    const rotation = cameraCullRotation(entry);
+
+    for (let i = 0; i < entry.rendered.length; i += 1) {
+      const item = entry.rendered[i];
+      const shouldMount = renderedItemFacesCamera(entry, item, depthThreshold, rotation);
+      visible[i] = shouldMount;
+    }
+
+    let removeStart: HTMLElement | null = null;
+    let removeEnd: HTMLElement | null = null;
+    const flushRemove = () => {
+      if (!removeStart || !removeEnd) return;
+      if (removeStart === removeEnd) {
+        removeStart.remove();
+      } else {
+        const range = doc.createRange();
+        range.setStartBefore(removeStart);
+        range.setEndAfter(removeEnd);
+        range.deleteContents();
+        range.detach();
+      }
+      removeStart = null;
+      removeEnd = null;
+      changed = true;
+    };
+
+    for (let i = 0; i < entry.rendered.length; i += 1) {
+      const item = entry.rendered[i];
+      if (!visible[i] && item.element.parentNode === entry.wrapper) {
+        if (removeEnd && removeEnd.nextSibling === item.element) {
+          removeEnd = item.element;
+        } else {
+          flushRemove();
+          removeStart = item.element;
+          removeEnd = item.element;
+        }
+      } else {
+        flushRemove();
+      }
+    }
+    flushRemove();
+
+    const insertionPointAfter = (index: number): ChildNode | null => {
+      for (let i = index; i < entry.rendered.length; i += 1) {
+        const next = entry.rendered[i].element;
+        if (next.parentNode === entry.wrapper) return next;
+      }
+      return firstPreservedChild(entry);
+    };
+
+    let addStart = -1;
+    const flushAdd = (endExclusive: number) => {
+      if (addStart < 0) return;
+      const fragment = doc.createDocumentFragment();
+      for (let i = addStart; i < endExclusive; i += 1) {
+        const item = entry.rendered[i];
+        restoreInlineDynamicNormalVars(entry, item);
+        fragment.appendChild(item.element);
+      }
+      mountRenderedFragment(entry, fragment, insertionPointAfter(endExclusive));
+      addStart = -1;
+      changed = true;
+    };
+
+    for (let i = 0; i < entry.rendered.length; i += 1) {
+      const item = entry.rendered[i];
+      if (visible[i] && item.element.parentNode !== entry.wrapper) {
+        if (addStart < 0) addStart = i;
+      } else {
+        flushAdd(i);
+      }
+    }
+    flushAdd(entry.rendered.length);
+
+    return changed;
+  }
+
+  function syncMountedRenderedForCameraChange(entry: MeshEntry, force = false): void {
+    if (!canDomCullCamera(entry)) {
+      const wasCulled = entry.cameraCullSignature !== "all";
+      entry.cameraCullSignature = "all";
+      if (wasCulled) remountEntry(entry);
+      return;
+    }
+
+    if (hasDirectBucket(entry.wrapper)) {
+      remountEntryIfCullSignatureChanged(entry, force);
+      return;
+    }
+
+    const nextSignature = cameraCullSignature(entry);
+    if (!force && nextSignature === entry.cameraCullSignature) return;
+
+    const changed = patchMountedRenderedForCamera(entry, CAMERA_BACKFACE_CULL_EPS);
+    entry.cameraCullSignature = nextSignature;
+    if (changed) emitShadowLeaves(entry);
+  }
+
+  function remountEntryIfCullSignatureChanged(entry: MeshEntry, force = false): void {
+    const next = canDomCullCamera(entry)
+      ? cameraCullSignature(entry)
+      : "all";
+    if (!force && next === entry.cameraCullSignature) return;
+    remountEntry(entry);
+  }
+
+  function dynamicNormalForRendered(entry: MeshEntry, item: RenderedPoly): Vec3 | null {
+    return normalForRendered(entry, item);
+  }
+
+  function restoreInlineDynamicNormalVars(entry: MeshEntry, item: RenderedPoly): void {
+    if (currentOptions.textureLighting !== "dynamic") return;
+    const normal = dynamicNormalForRendered(entry, item);
+    if (!normal) return;
+    item.element.style.setProperty("--pnx", normal[0].toFixed(4));
+    item.element.style.setProperty("--pny", normal[1].toFixed(4));
+    item.element.style.setProperty("--pnz", normal[2].toFixed(4));
+  }
+
   function syncMountedRendered(entry: MeshEntry): void {
+    clearMountedRendered(entry);
     const fragment = doc.createDocumentFragment();
 
     // Lambert-bucketing only pays off in dynamic mode, where the cascade
@@ -612,7 +843,7 @@ export function createPolyScene(
     const soloItems: RenderedPoly[] = [];
 
     // Pass 1 — gather per (quantized-normal × color) keys.
-    for (const item of entry.rendered) {
+    for (const item of renderedItemsForCamera(entry)) {
       const poly = entry.polygons[item.polygonIndex];
       const q = useBuckets && poly ? quantizeNormalKey(poly) : null;
       if (!q) {
@@ -631,10 +862,16 @@ export function createPolyScene(
     // Pass 2 — wrap groups of ≥ 2 (where one bucket-level lambert calc
     // beats the per-poly calcs it replaces). Singletons fall back to the
     // per-poly path so we don't add a wrapper that costs more than it saves.
-    for (const item of soloItems) fragment.appendChild(item.element);
+    for (const item of soloItems) {
+      restoreInlineDynamicNormalVars(entry, item);
+      fragment.appendChild(item.element);
+    }
     for (const group of groups.values()) {
       if (group.items.length < 2) {
-        for (const item of group.items) fragment.appendChild(item.element);
+        for (const item of group.items) {
+          restoreInlineDynamicNormalVars(entry, item);
+          fragment.appendChild(item.element);
+        }
         continue;
       }
       const bucketEl = doc.createElement("div");
@@ -655,7 +892,8 @@ export function createPolyScene(
       fragment.appendChild(bucketEl);
     }
 
-    entry.wrapper.appendChild(fragment);
+    mountRenderedFragment(entry, fragment, firstPreservedChild(entry));
+    syncCameraCullSignature(entry);
   }
 
   function yieldToMainThread(): Promise<void> {
@@ -673,19 +911,23 @@ export function createPolyScene(
       return !shouldCancel();
     }
 
+    clearMountedRendered(entry);
     let fragment = doc.createDocumentFragment();
+    const before = firstPreservedChild(entry);
     let count = 0;
-    for (const item of entry.rendered) {
+    for (const item of renderedItemsForCamera(entry)) {
       if (shouldCancel()) return false;
+      restoreInlineDynamicNormalVars(entry, item);
       fragment.appendChild(item.element);
       count++;
       if (count % ASYNC_MOUNT_BATCH_SIZE === 0) {
-        entry.wrapper.appendChild(fragment);
+        mountRenderedFragment(entry, fragment, before);
         fragment = doc.createDocumentFragment();
         await yieldToMainThread();
       }
     }
-    if (fragment.childNodes.length > 0) entry.wrapper.appendChild(fragment);
+    if (fragment.childNodes.length > 0) mountRenderedFragment(entry, fragment, before);
+    syncCameraCullSignature(entry);
     return !shouldCancel();
   }
 
@@ -767,7 +1009,7 @@ export function createPolyScene(
     });
 
     const fragment = doc.createDocumentFragment();
-    for (const item of entry.rendered) {
+    for (const item of renderedItemsForCamera(entry)) {
       // Atlas (<s>) polygons cast shadows too — the shadow only needs
       // the polygon's OUTLINE (border-shape) and a flat dark color, not
       // the texture content. So fully textured meshes like the Frog Guy
@@ -823,6 +1065,12 @@ export function createPolyScene(
     }
   }
 
+  function remountEntry(entry: MeshEntry): void {
+    clearShadowLeaves(entry);
+    syncMountedRendered(entry);
+    emitShadowLeaves(entry);
+  }
+
   function renderEntry(entry: MeshEntry, lightDirectionOverride?: Vec3): void {
     clearRendered(entry);
     const baseDirLight = currentOptions.directionalLight;
@@ -850,6 +1098,7 @@ export function createPolyScene(
     ) ?? renderPolygonsWithTextureAtlas(entry.polygons, renderOptionsWithDefaults);
     entry.rendered = atlas.rendered;
     entry.disposeAtlas = atlas.dispose;
+    recomputeCameraCullGroups(entry);
     syncMountedRendered(entry);
     emitShadowLeaves(entry);
   }
@@ -911,6 +1160,7 @@ export function createPolyScene(
       applySolidPaintVars(entry.wrapper, solidPaintDefaults);
       entry.rendered = atlas.rendered;
       entry.disposeAtlas = atlas.dispose;
+      recomputeCameraCullGroups(entry);
       syncMountedRendered(entry);
       emitShadowLeaves(entry);
       return !shouldCancel();
@@ -928,6 +1178,7 @@ export function createPolyScene(
     applySolidPaintVars(entry.wrapper, asyncAtlas.solidPaintDefaults);
     entry.rendered = asyncAtlas.rendered;
     entry.disposeAtlas = asyncAtlas.dispose;
+    recomputeCameraCullGroups(entry);
     const mounted = await syncMountedRenderedChunked(entry, shouldCancel);
     if (mounted) emitShadowLeaves(entry);
     return mounted;
@@ -1027,6 +1278,8 @@ export function createPolyScene(
       stableDom: stableDomOnUpdate,
       excludeFromAutoCenter: !!transformIn.excludeFromAutoCenter,
       castShadow: !!transformIn.castShadow,
+      cameraCullGroups: [],
+      cameraCullSignature: "",
       bakedRotation: (transformIn.rotation ? [...transformIn.rotation] : [0, 0, 0]) as Vec3,
     };
 
@@ -1057,7 +1310,7 @@ export function createPolyScene(
         handle.polygons = entry.polygons;
         applyTransformOrigin(entry.polygons);
         const shouldRecomputeAutoCenter = options?.recomputeAutoCenter ?? true;
-        if (entry.stableDom && !entry.wrapper.querySelector(".polycss-bucket")) {
+        if (entry.stableDom && !hasDirectBucket(entry.wrapper)) {
           const renderOptions = {
             doc,
             directionalLight: currentOptions.directionalLight,
@@ -1074,6 +1327,8 @@ export function createPolyScene(
               { ...renderOptions, solidPaintDefaults },
             )
           ) {
+            recomputeCameraCullGroups(entry);
+            syncMountedRenderedForCameraChange(entry, true);
             if (shouldRecomputeAutoCenter) recomputeAutoCenter();
             return;
           }
@@ -1117,6 +1372,7 @@ export function createPolyScene(
         const css2 = buildMeshTransform(transform);
         wrapper.style.transform = css2 ?? "";
         applyMeshLightVarOverride(wrapper, transform.rotation);
+        if (t.rotation !== undefined) syncMountedRenderedForCameraChange(entry);
         if (entry.castShadow !== prevCastShadow) {
           emitShadowLeaves(entry);
           recomputeShadowGround();
@@ -1165,6 +1421,8 @@ export function createPolyScene(
     const prevAutoCenter = !!currentOptions.autoCenter;
     const prevStrategies = currentOptions.strategies;
     const prevTextureLighting = currentOptions.textureLighting;
+    const prevRotX = currentOptions.rotX ?? DEFAULT_ROT_X;
+    const prevRotY = currentOptions.rotY ?? DEFAULT_ROT_Y;
     currentOptions = { ...currentOptions, ...partial };
     applySceneStyle(sceneEl, currentOptions);
     const nextAutoCenter = !!currentOptions.autoCenter;
@@ -1182,6 +1440,12 @@ export function createPolyScene(
       !strategiesEqual(partial.strategies, prevStrategies);
     if (strategiesChanged) {
       for (const entry of meshes) renderEntry(entry);
+    }
+    const cameraRotationChanged =
+      (partial.rotX !== undefined && (currentOptions.rotX ?? DEFAULT_ROT_X) !== prevRotX) ||
+      (partial.rotY !== undefined && (currentOptions.rotY ?? DEFAULT_ROT_Y) !== prevRotY);
+    if (!strategiesChanged && cameraRotationChanged) {
+      for (const entry of meshes) syncMountedRenderedForCameraChange(entry);
     }
     if (prevAutoCenter !== nextAutoCenter) recomputeAutoCenter();
     // When lighting mode changes, re-emit or clear shadow leaves on all meshes
