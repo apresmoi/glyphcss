@@ -1,77 +1,9 @@
-// @layoutit/polycss-react — React bindings for the polycss CSS-based polygon mesh
-// rendering engine.
+// @layoutit/polycss-react — React bindings for the glyphcss ASCII paint backend.
 //
 // Public exports define the supported React package surface. Anything not
 // exported here is an implementation detail.
 
-// ── Components & hooks ─────────────────────────────────────────────────
-export {
-  PolyPerspectiveCamera,
-  PolyOrthographicCamera,
-  PolyCamera,
-  usePolyCamera,
-  PolyCameraContext,
-  useCameraContext,
-} from "./camera";
-export type {
-  PolyPerspectiveCameraProps,
-  PolyOrthographicCameraProps,
-  PolyCameraProps,
-  UseCameraOptions,
-  UseCameraResult,
-  PolyCameraContextValue,
-} from "./camera";
-
-export { PolyScene, PolyMesh, PolyGround, usePolySceneContext, usePolyMesh, findPolyMeshHandle, pointInMeshElement, findMeshUnderPoint, usePolyMaterial } from "./scene";
-export type {
-  PolySceneProps,
-  PolyMeshProps,
-  PolyGroundProps,
-  UseSceneContextOptions,
-  UseSceneContextResult,
-  UseMeshResult,
-  UseMeshOptions,
-  PolyMeshHandle,
-  PolyPointerEvent,
-  PolyMouseEvent,
-  PolyWheelEvent,
-  PolyEventHandler,
-  InteractionProps,
-  PolyRenderStrategy,
-  PolyRenderStrategiesOption,
-} from "./scene";
-
-export { Poly } from "./shapes";
-export type { PolyProps, TransformProps, DOMPassthroughProps } from "./shapes";
-
-export { PolyFirstPersonControls, PolyOrbitControls, PolyMapControls, PolyTransformControls } from "./controls";
-export type {
-  PolyFirstPersonControlsProps,
-  PolyFirstPersonControlsOptions,
-  PolyFirstPersonControlsHandle,
-  PolyOrbitControlsProps,
-  PolyOrbitControlsCamera,
-  PolyMapControlsProps,
-  PolyMapControlsCamera,
-  PolyControlsAnimateOptions,
-  PolyControlsCamera,
-  SharedControlsProps,
-  PolyTransformControlsProps,
-  PolyTransformControlsObject,
-  PolyTransformControlsObjectChangeEvent,
-} from "./controls";
-
-export { PolySelect, usePolySelect, usePolySelectionApi } from "./select";
-export type { PolySelectProps, PolySelectionApi } from "./select";
-
-export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
-export type {
-  PolyAxesHelperProps,
-  PolyDirectionalLightHelperProps,
-} from "./helpers";
-
-export { injectPolyBaseStyles } from "./styles";
-
+// ── Animation (shared core; re-used by Glyphcss bindings) ──────────────────
 export { usePolyAnimation } from "./animation/usePolyAnimation";
 export type { UsePolyAnimationResult } from "./animation/usePolyAnimation";
 
@@ -80,11 +12,8 @@ export type {
   Vec2,
   Vec3,
   Polygon,
-  PolyMaterial,
   PolyDirectionalLight,
   PolyAmbientLight,
-  PolyTextureLightingMode,
-  MeshResolution,
   ParseAnimationClip,
   ParseAnimationController,
   ParseResult,
@@ -116,8 +45,6 @@ export type {
   LoadMeshOptions,
   VoxParseOptions,
   SolidTextureSampleOptions,
-  TexturePaintMetrics,
-  TexturePaintMetricsOptions,
   CoverPlanarPolygonsOptions,
   CullInteriorOptions,
   CameraCullNormalGroup,
@@ -153,7 +80,6 @@ export {
   createIsometricCamera,
   parseVox,
   polygonFaces,
-  computeTexturePaintMetrics,
   computeShapeLighting,
   parseColor,
   parsePureColor,

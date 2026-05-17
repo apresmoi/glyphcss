@@ -1,80 +1,14 @@
-// ── Components & composables ─────────────────────────────────────────────────
-
-export { PolyCamera } from "./camera";
-export type { PolyCameraProps } from "./camera";
-export { PolyPerspectiveCamera } from "./camera";
-export type { PolyPerspectiveCameraProps } from "./camera";
-export { PolyOrthographicCamera } from "./camera";
-export type { PolyOrthographicCameraProps } from "./camera";
-export { usePolyCamera } from "./camera";
-export type { UseCameraOptions, UseCameraResult } from "./camera";
-export { PolyCameraContextKey } from "./camera";
-export type { PolyCameraContextValue } from "./camera";
-
-export { PolyScene } from "./scene";
-export type { PolySceneProps } from "./scene";
-export type { PolyRenderStrategy, PolyRenderStrategiesOption } from "./scene/textureAtlas";
-export { PolyMesh } from "./scene";
-export type { PolyMeshProps } from "./scene";
-export { PolyGround } from "./scene";
-export type { PolyGroundProps } from "./scene";
-export { usePolySceneContext } from "./scene";
-export type { UseSceneContextOptions, UseSceneContextResult } from "./scene";
-export { usePolyMesh } from "./scene";
-export type { UseMeshOptions, UseMeshResult } from "./scene";
-export { usePolyMaterial } from "./scene/usePolyMaterial";
-
-export { Poly } from "./shapes";
-export type { PolyProps, PolyContext } from "./shapes";
-
-export { PolyOrbitControls, PolyMapControls, PolyTransformControls, PolyFirstPersonControls } from "./controls";
-export type {
-  PolyOrbitControlsProps,
-  PolyOrbitControlsCamera,
-  PolyMapControlsProps,
-  PolyMapControlsCamera,
-  PolyControlsAnimateOptions,
-  PolyTransformControlsObject,
-  PolyTransformControlsObjectChangeEvent,
-  PolyTransformControlsProps,
-  PolyFirstPersonControlsOptions,
-  PolyFirstPersonControlsHandle,
-} from "./controls";
-
-export { PolySelect, usePolySelect, usePolySelectionApi, PolySelectionContextKey } from "./select";
-export type { PolySelectionApi, PolySelectProps } from "./select";
-
-export { findPolyMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./scene/events";
-export type {
-  PolyMeshHandle,
-  PolyPointerEvent,
-  PolyMouseEvent,
-  PolyWheelEvent,
-  PolyEventHandler,
-  InteractionProps,
-} from "./scene/events";
-
-export { PolyAxesHelper, PolyDirectionalLightHelper } from "./helpers";
-export type {
-  PolyAxesHelperProps,
-  PolyDirectionalLightHelperProps,
-} from "./helpers";
-
-export { injectPolyBaseStyles } from "./styles";
-
+// ── Animation (shared core; re-used by Glyphcss bindings) ──────────────────
 export { usePolyAnimation } from "./animation/usePolyAnimation";
 export type { UsePolyAnimationResultVue } from "./animation/usePolyAnimation";
 
 // ── Re-exports from @layoutit/polycss-core ─────────────────────────────────────────────
 export type {
   Polygon,
-  PolyMaterial,
   Vec2,
   Vec3,
   PolyDirectionalLight,
   PolyAmbientLight,
-  PolyTextureLightingMode,
-  MeshResolution,
   ParseResult,
   ParseAnimationClip,
   ParseAnimationController,
@@ -106,8 +40,6 @@ export type {
   LoadMeshOptions,
   VoxParseOptions,
   SolidTextureSampleOptions,
-  TexturePaintMetrics,
-  TexturePaintMetricsOptions,
   CoverPlanarPolygonsOptions,
   CullInteriorOptions,
   CameraCullNormalGroup,
@@ -143,7 +75,6 @@ export {
   createIsometricCamera,
   parseVox,
   polygonFaces,
-  computeTexturePaintMetrics,
   computeShapeLighting,
   parseColor,
   parsePureColor,
