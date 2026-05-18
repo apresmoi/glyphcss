@@ -5,7 +5,7 @@
  * attached mesh along two axes simultaneously (XY, XZ, or YZ), instead of
  * the single-axis motion the arrow shafts provide.
  *
- * The polygon lives in standard polycss world space; wrap it in the
+ * The polygon lives in standard glyphcss world space; wrap it in the
  * framework's PolyMesh equivalent for rendering.
  */
 import type { Polygon, Vec3 } from "../types";
@@ -48,7 +48,7 @@ export function planePolygons(options: PlanePolygonsOptions): Polygon[] {
     return v;
   };
   // CCW when viewed from the +axis side. The quad is double-sided in CSS
-  // (no back-face cull when rendered through .polycss-mesh), so winding is
+  // (no back-face cull when rendered through .glyphcss-mesh), so winding is
   // primarily a documentation aid here.
   return [
     {

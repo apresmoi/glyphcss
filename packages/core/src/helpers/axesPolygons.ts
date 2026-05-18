@@ -3,7 +3,7 @@
  * cuboids stretching along world-X, world-Y and world-Z. Mirrors the
  * convention `red=X, green=Y, blue=Z`.
  *
- * Returned polygons are in the standard polycss world-space convention
+ * Returned polygons are in the standard glyphcss world-space convention
  * (`+X right, +Y forward, +Z up`). Wrap with the framework's PolyMesh /
  * PolyScene equivalent to render.
  */

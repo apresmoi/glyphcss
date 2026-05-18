@@ -5,7 +5,7 @@
  * drag handle for `<TransformControls>` — same primitive recipe as
  * `axesHelperPolygons`, plus an arrowhead.
  *
- * Returned polygons are in standard polycss world space and intended
+ * Returned polygons are in standard glyphcss world space and intended
  * to be wrapped in the framework's PolyMesh equivalent for rendering.
  */
 import type { Polygon, Vec3 } from "../types";
@@ -51,7 +51,7 @@ function shaftPolygons(
     makeAxisVec(axis, along, sideA, sideB);
   // Vertex layout matches axesHelperPolygons' axisBox: 4 corners at
   // each end of the box, 6 quad faces. Same winding so the cuboid
-  // renders front-faces-out under polycss's backface-visibility:hidden.
+  // renders front-faces-out under glyphcss's backface-visibility:hidden.
   const c0 = m(from, -half, -half);
   const c1 = m(from,  half, -half);
   const c2 = m(from,  half,  half);

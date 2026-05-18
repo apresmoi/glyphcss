@@ -143,10 +143,11 @@ where the source data is already cell-aligned.
 
 ```tsx
 import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
-import { loadMesh } from "glyphcss";
+import type { GlyphcssTriangle } from "glyphcss";
 
-// Assumes triangles were loaded outside the component:
-export function VoxelDemo({ triangles }) {
+// `triangles` comes from parseVox() — load the file outside the component.
+// Replace "/tree.vox" with your own MagicaVoxel file path.
+export function VoxelDemo({ triangles }: { triangles: GlyphcssTriangle[] }) {
   return (
     <GlyphcssScene mode="voxel" cols={80} rows={24}>
       <GlyphcssOrbitControls />
@@ -163,6 +164,7 @@ export function VoxelDemo({ triangles }) {
 import { createGlyphcssScene } from "glyphcss";
 import { parseVox } from "@glyphcss/core";
 
+// Replace "/tree.vox" with the path to your own MagicaVoxel file.
 const voxBuffer = await fetch("/tree.vox").then((r) => r.arrayBuffer());
 const { polygons } = parseVox(voxBuffer);
 

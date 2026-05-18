@@ -14,7 +14,7 @@ drags or zooms — never per frame.
 
 ## The mental model
 
-A polycss scene is **one DOM node per polygon** — every triangle is an absolutely
+A glyphcss scene is **one DOM node per polygon** — every triangle is an absolutely
 positioned `<div>` transformed with `matrix3d(...)`. The browser composites the result.
 
 An **glyphcss** scene is **one `<pre>` per scene plus a sparse `<div>` hit layer**.
@@ -23,9 +23,9 @@ strip with `steps(N, end)` over a configurable duration. Hotspots (one per regis
 3D anchor) get their own `@keyframes` that step through projected positions in sync
 with the strip.
 
-## Tradeoffs vs polycss
+## Tradeoffs vs glyphcss
 
-| | polycss | glyphcss |
+| | glyphcss | glyphcss |
 |---|---|---|
 | Cost dominator | polygon count | grid cell count |
 | Per-polygon DOM events | ✓ (one node per polygon) | opt-in via `<GlyphcssHotspot>` |

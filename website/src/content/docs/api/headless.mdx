@@ -3,7 +3,7 @@ title: Headless API
 description: Imperative API for building scenes outside React / Vue.
 ---
 
-The `glyphcss` vanilla package exposes a polycss-shaped imperative API plus the raw
+The `glyphcss` vanilla package exposes a glyphcss-shaped imperative API plus the raw
 `glyphcss-core` math primitives.
 
 ## `createGlyphcssScene`
@@ -162,11 +162,11 @@ import {
   buildSceneContext,
   rasterize,
   projectHotspots,
-  parseObj, parseGltf, parseVox, loadMesh,
+  icosahedronPolygons,
 } from "glyphcss-core";
 import { createGlyphcssPerspectiveCamera } from "glyphcss";
 
-const triangles = await loadMesh("/cottage.glb");
+const triangles = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
 
 const camera = createGlyphcssPerspectiveCamera({ rotX: 0.4, scale: 0.32 });
 const grid = { cols: 160, rows: 48, cellAspect: 2.0 };
@@ -178,7 +178,7 @@ const text = rasterize(ctx);
 
 // Project hotspots to grid cells:
 const cells = projectHotspots(
-  [{ id: "roof", at: [0, 1.2, 0] }],
+  [{ id: "top", at: [0, 1, 0] }],
   camera, 160, 48, 2.0,
 );
 // cells is { id, col, row, depth, visible }[]

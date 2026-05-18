@@ -9,7 +9,7 @@
  * "rotation circle" and keeps the polygon count proportional to the
  * `segments` knob.
  *
- * Returned polygons are in standard polycss world space and intended
+ * Returned polygons are in standard glyphcss world space and intended
  * to be wrapped in the framework's PolyMesh equivalent for rendering.
  */
 import type { Polygon, Vec3 } from "../types";

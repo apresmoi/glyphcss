@@ -8,7 +8,7 @@ hotspots at specific 3D anchors. No polygon-per-DOM-node overhead.
 
 ## Why sparse
 
-A polycss-style "one DOM node per polygon" model gives you per-polygon events but
+A glyphcss-style "one DOM node per polygon" model gives you per-polygon events but
 balloons the DOM for large meshes (a 10k-triangle GLB → 10k `<div>`s). glyphcss takes
 the opposite trade: a single `<pre>` for visuals, and only the hotspots you
 explicitly register become DOM nodes.
@@ -19,13 +19,18 @@ roof shingle; you need them on the front door.
 ## Authoring hotspots
 
 ```tsx
-<GlyphcssScene>
-  <GlyphcssMesh src="/cottage.glb">
-    <GlyphcssHotspot at={[0, 1.2, 0]} onClick={() => alert("roof")}>
-      <span className="badge">Roof</span>
+import { GlyphcssScene, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
+import { octahedronPolygons } from "@glyphcss/core";
+
+const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
+
+<GlyphcssScene mode="solid" cols={80} rows={24}>
+  <GlyphcssMesh triangles={shape}>
+    <GlyphcssHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>
+      <span className="badge">Top</span>
     </GlyphcssHotspot>
-    <GlyphcssHotspot at={[0, 0, 0.5]} onClick={() => alert("door")}>
-      <span className="badge">Door</span>
+    <GlyphcssHotspot at={[0, -1, 0]} onClick={() => alert("bottom vertex")}>
+      <span className="badge">Bottom</span>
     </GlyphcssHotspot>
   </GlyphcssMesh>
 </GlyphcssScene>

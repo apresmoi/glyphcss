@@ -23,15 +23,20 @@ release, the strip is re-baked with the new camera state.
 
 ## The hit layer
 
-Polycss-style "every polygon is a DOM node" doesn't fit ASCII rendering: the visible
+Glyphcss-style "every polygon is a DOM node" doesn't fit ASCII rendering: the visible
 output is a single character grid, not a set of clickable polygons. Instead, glyphcss
 exposes a **sparse** hit layer: you opt-in to interactivity by registering hotspots
 at specific 3D anchors.
 
 ```tsx
-<GlyphcssMesh src="cottage.glb">
+import { GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
+import { dodecahedronPolygons } from "@glyphcss/core";
+
+const shape = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" });
+
+<GlyphcssMesh triangles={shape}>
   <GlyphcssHotspot at={[0, 1.2, 0]} onClick={...}>
-    <span className="badge">Roof</span>
+    <span className="badge">Top</span>
   </GlyphcssHotspot>
 </GlyphcssMesh>
 ```

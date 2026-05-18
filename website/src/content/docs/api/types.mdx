@@ -152,8 +152,9 @@ interface ParseAnimationClip {
 | `GlyphcssAnimationAction` | Per-clip playback state | `mixer.clipAction()` |
 
 ```ts
-// Minimal usage:
-import { createGlyphcssAnimationMixer, LoopRepeat } from "@glyphcss/core";
+// Minimal usage — requires a glTF/GLB file with embedded animation clips.
+// Replace "/character.glb" with the path to your own animated mesh.
+import { createGlyphcssAnimationMixer, LoopRepeat, loadMesh } from "@glyphcss/core";
 
 const { polygons, animation } = await loadMesh("/character.glb");
 const mixer = createGlyphcssAnimationMixer(meshHandle, animation!);
