@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { axesHelperPolygons } from "./axesPolygons";
 import { octahedronPolygons } from "./octahedronPolygons";
+import { tetrahedronPolygons } from "./tetrahedronPolygons";
+import { cubePolygons } from "./cubePolygons";
+import { dodecahedronPolygons } from "./dodecahedronPolygons";
+import { icosahedronPolygons } from "./icosahedronPolygons";
 
 describe("axesHelperPolygons", () => {
   it("returns 18 quads (6 per axis × 3 axes)", () => {
@@ -91,6 +95,214 @@ describe("octahedronPolygons", () => {
 
   it("uses white as the default color", () => {
     const polygons = octahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) expect(p.color).toBe("#ffffff");
+  });
+});
+
+describe("tetrahedronPolygons", () => {
+  it("returns 4 triangular faces", () => {
+    const polygons = tetrahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff0000" });
+    expect(polygons).toHaveLength(4);
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("all polygons have valid vertex arrays", () => {
+    const polygons = tetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(typeof coord).toBe("number");
+      }
+    }
+  });
+
+  it("size option scales vertices linearly", () => {
+    const small = tetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const large = tetrahedronPolygons({ center: [0, 0, 0], size: 3 });
+    // Simpler sanity: max extent doubles proportionally.
+    const allSmall = small.flatMap((p) => p.vertices);
+    const allLarge = large.flatMap((p) => p.vertices);
+    const maxSmall = Math.max(...allSmall.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    const maxLarge = Math.max(...allLarge.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    expect(maxLarge).toBeCloseTo(maxSmall * 3, 5);
+  });
+
+  it("position option translates the whole mesh", () => {
+    const offset: [number, number, number] = [5, 10, 15];
+    const base = tetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = tetrahedronPolygons({ center: offset, size: 1 });
+    for (let i = 0; i < base.length; i++) {
+      for (let j = 0; j < 3; j++) {
+        expect(moved[i].vertices[j][0]).toBeCloseTo(base[i].vertices[j][0] + 5, 10);
+        expect(moved[i].vertices[j][1]).toBeCloseTo(base[i].vertices[j][1] + 10, 10);
+        expect(moved[i].vertices[j][2]).toBeCloseTo(base[i].vertices[j][2] + 15, 10);
+      }
+    }
+  });
+
+  it("color option propagates to every polygon", () => {
+    const polygons = tetrahedronPolygons({ center: [0, 0, 0], size: 1, color: "#abcdef" });
+    for (const p of polygons) expect(p.color).toBe("#abcdef");
+  });
+
+  it("uses white as the default color", () => {
+    const polygons = tetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) expect(p.color).toBe("#ffffff");
+  });
+});
+
+describe("cubePolygons", () => {
+  it("returns 6 square faces", () => {
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 2, color: "#00ff00" });
+    expect(polygons).toHaveLength(6);
+    for (const p of polygons) expect(p.vertices).toHaveLength(4);
+  });
+
+  it("all polygons have valid vertex arrays", () => {
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(typeof coord).toBe("number");
+      }
+    }
+  });
+
+  it("size option controls the edge length", () => {
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 4 });
+    const allVerts = polygons.flatMap((p) => p.vertices);
+    const maxCoord = Math.max(...allVerts.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    expect(maxCoord).toBeCloseTo(2, 10); // half-extent = size/2 = 2
+  });
+
+  it("position option translates the whole mesh", () => {
+    const offset: [number, number, number] = [3, -2, 7];
+    const base = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const moved = cubePolygons({ center: offset, size: 1 });
+    for (let i = 0; i < base.length; i++) {
+      for (let j = 0; j < 4; j++) {
+        expect(moved[i].vertices[j][0]).toBeCloseTo(base[i].vertices[j][0] + 3, 10);
+        expect(moved[i].vertices[j][1]).toBeCloseTo(base[i].vertices[j][1] - 2, 10);
+        expect(moved[i].vertices[j][2]).toBeCloseTo(base[i].vertices[j][2] + 7, 10);
+      }
+    }
+  });
+
+  it("color option propagates to every polygon", () => {
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 1, color: "#112233" });
+    for (const p of polygons) expect(p.color).toBe("#112233");
+  });
+
+  it("uses white as the default color", () => {
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) expect(p.color).toBe("#ffffff");
+  });
+});
+
+describe("dodecahedronPolygons", () => {
+  it("returns 12 pentagonal faces", () => {
+    const polygons = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#0000ff" });
+    expect(polygons).toHaveLength(12);
+    for (const p of polygons) expect(p.vertices).toHaveLength(5);
+  });
+
+  it("all polygons have valid vertex arrays", () => {
+    const polygons = dodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(typeof coord).toBe("number");
+      }
+    }
+  });
+
+  it("size option scales vertices linearly", () => {
+    const small = dodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const large = dodecahedronPolygons({ center: [0, 0, 0], size: 2 });
+    const allSmall = small.flatMap((p) => p.vertices);
+    const allLarge = large.flatMap((p) => p.vertices);
+    const maxSmall = Math.max(...allSmall.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    const maxLarge = Math.max(...allLarge.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    expect(maxLarge).toBeCloseTo(maxSmall * 2, 5);
+  });
+
+  it("position option translates the whole mesh", () => {
+    const offset: [number, number, number] = [1, 2, 3];
+    const base = dodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = dodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    // Centroid of all vertices should shift by the offset.
+    const n = allBase.length;
+    const cx = allBase.reduce((s, v) => s + v[0], 0) / n;
+    const cy = allBase.reduce((s, v) => s + v[1], 0) / n;
+    const cz = allBase.reduce((s, v) => s + v[2], 0) / n;
+    const mx = allMoved.reduce((s, v) => s + v[0], 0) / n;
+    const my = allMoved.reduce((s, v) => s + v[1], 0) / n;
+    const mz = allMoved.reduce((s, v) => s + v[2], 0) / n;
+    expect(mx - cx).toBeCloseTo(1, 5);
+    expect(my - cy).toBeCloseTo(2, 5);
+    expect(mz - cz).toBeCloseTo(3, 5);
+  });
+
+  it("color option propagates to every polygon", () => {
+    const polygons = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#fedcba" });
+    for (const p of polygons) expect(p.color).toBe("#fedcba");
+  });
+
+  it("uses white as the default color", () => {
+    const polygons = dodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) expect(p.color).toBe("#ffffff");
+  });
+});
+
+describe("icosahedronPolygons", () => {
+  it("returns 20 triangular faces", () => {
+    const polygons = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff8800" });
+    expect(polygons).toHaveLength(20);
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("all polygons have valid vertex arrays", () => {
+    const polygons = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(typeof coord).toBe("number");
+      }
+    }
+  });
+
+  it("size option scales vertices linearly", () => {
+    const small = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const large = icosahedronPolygons({ center: [0, 0, 0], size: 4 });
+    const allSmall = small.flatMap((p) => p.vertices);
+    const allLarge = large.flatMap((p) => p.vertices);
+    const maxSmall = Math.max(...allSmall.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    const maxLarge = Math.max(...allLarge.flatMap(([x, y, z]) => [Math.abs(x), Math.abs(y), Math.abs(z)]));
+    expect(maxLarge).toBeCloseTo(maxSmall * 4, 5);
+  });
+
+  it("position option translates the whole mesh", () => {
+    const offset: [number, number, number] = [-5, 0, 3];
+    const base = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = icosahedronPolygons({ center: offset, size: 1 });
+    for (let i = 0; i < base.length; i++) {
+      for (let j = 0; j < 3; j++) {
+        expect(moved[i].vertices[j][0]).toBeCloseTo(base[i].vertices[j][0] - 5, 10);
+        expect(moved[i].vertices[j][1]).toBeCloseTo(base[i].vertices[j][1] + 0, 10);
+        expect(moved[i].vertices[j][2]).toBeCloseTo(base[i].vertices[j][2] + 3, 10);
+      }
+    }
+  });
+
+  it("color option propagates to every polygon", () => {
+    const polygons = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#aabbcc" });
+    for (const p of polygons) expect(p.color).toBe("#aabbcc");
+  });
+
+  it("uses white as the default color", () => {
+    const polygons = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
     for (const p of polygons) expect(p.color).toBe("#ffffff");
   });
 });
