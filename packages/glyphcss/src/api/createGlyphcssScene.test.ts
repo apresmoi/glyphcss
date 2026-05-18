@@ -118,4 +118,30 @@ describe("createGlyphcssScene", () => {
     hotspot.remove();
     scene.destroy();
   });
+
+  it("GlyphcssMeshHandle.name is undefined when no id is supplied", () => {
+    const scene = createGlyphcssScene(host, { cols: 20, rows: 10 });
+    const handle = scene.add(makeSinglePolygon());
+    expect(handle.name).toBeUndefined();
+    handle.dispose();
+    scene.destroy();
+  });
+
+  it("GlyphcssMeshHandle.name matches the id supplied via transform", () => {
+    const scene = createGlyphcssScene(host, { cols: 20, rows: 10 });
+    const handle = scene.add(makeSinglePolygon(), { id: "hero-mesh" });
+    expect(handle.name).toBe("hero-mesh");
+    handle.dispose();
+    scene.destroy();
+  });
+
+  it("GlyphcssMeshHandle.name updates when setTransform changes the id", () => {
+    const scene = createGlyphcssScene(host, { cols: 20, rows: 10 });
+    const handle = scene.add(makeSinglePolygon(), { id: "first" });
+    expect(handle.name).toBe("first");
+    handle.setTransform({ id: "second" });
+    expect(handle.name).toBe("second");
+    handle.dispose();
+    scene.destroy();
+  });
 });

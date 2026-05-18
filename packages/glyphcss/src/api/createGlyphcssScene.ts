@@ -66,6 +66,8 @@ export interface GlyphcssHotspotHandle {
 
 export interface GlyphcssMeshHandle {
   readonly id: number;
+  /** String identifier supplied via the `id` prop / transform option. */
+  readonly name: string | undefined;
   /** The raw polygons registered with this mesh. */
   readonly polygons: Polygon[];
   setTransform(transform: GlyphcssMeshTransform): void;
@@ -250,6 +252,7 @@ export function createGlyphcssScene(
 
     return {
       get id() { return id; },
+      get name() { return meshes.get(id)?.transform.id; },
       get polygons() { return polygons; },
       setTransform(next: GlyphcssMeshTransform): void {
         const entry = meshes.get(id);

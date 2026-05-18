@@ -2,6 +2,8 @@ export { GlyphcssScene } from "./GlyphcssScene";
 export type { GlyphcssSceneProps } from "./GlyphcssScene";
 export { GlyphcssMesh } from "./GlyphcssMesh";
 export type { GlyphcssMeshProps } from "./GlyphcssMesh";
+export { GlyphcssGround } from "./GlyphcssGround";
+export type { GlyphcssGroundProps } from "./GlyphcssGround";
 export { GlyphcssHotspot } from "./GlyphcssHotspot";
 export type { GlyphcssHotspotProps } from "./GlyphcssHotspot";
 export { GlyphcssSceneContext } from "./context";

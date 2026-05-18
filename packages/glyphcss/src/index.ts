@@ -62,6 +62,17 @@ export type {
   GlyphcssFirstPersonControlsHandle,
 } from "./api/createGlyphcssFirstPersonControls";
 
+// ── Mesh finders ──────────────────────────────────────────────────
+export { findGlyphcssMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./api/meshFinders";
+
+// ── Event types ───────────────────────────────────────────────────
+export type {
+  GlyphcssPointerEvent,
+  GlyphcssMouseEvent,
+  GlyphcssWheelEvent,
+  GlyphcssEventHandler,
+} from "./api/events";
+
 // ── Hotspot projection (hit layer) ────────────────────────────────
 export { projectHotspots } from "./api/projectHotspots";
 

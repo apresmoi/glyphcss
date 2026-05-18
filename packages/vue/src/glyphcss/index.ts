@@ -1,8 +1,9 @@
 // ── Scene ───────────────────────────────────────────────────────────────────
-export { GlyphcssScene, GlyphcssMesh, GlyphcssHotspot, GlyphcssSceneContextKey, useGlyphcssSceneContext } from "./scene";
+export { GlyphcssScene, GlyphcssMesh, GlyphcssGround, GlyphcssHotspot, GlyphcssSceneContextKey, useGlyphcssSceneContext, findGlyphcssMeshHandle, pointInMeshElement, findMeshUnderPoint } from "./scene";
 export type {
   GlyphcssSceneProps,
   GlyphcssMeshProps,
+  GlyphcssGroundProps,
   GlyphcssHotspotProps,
   GlyphcssSceneContextValue,
 } from "./scene";

@@ -5,7 +5,7 @@
 import { defineComponent, h, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
 import type { PropType } from "vue";
 import type { Vec3, Polygon } from "@glyphcss/core";
-import type { GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
+import type { GlyphcssMeshHandle, GlyphcssMeshTransform, GlyphcssPointerEvent, GlyphcssMouseEvent, GlyphcssWheelEvent } from "glyphcss";
 import { GlyphcssSceneContextKey } from "./context";
 
 export interface GlyphcssMeshProps {
@@ -15,6 +15,16 @@ export interface GlyphcssMeshProps {
   scale?: number | Vec3;
   rotation?: Vec3;
   class?: string;
+  // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
+  // TODO(hit-layer): wire these to the hit layer raycasting once the
+  // rasterizer hit-map is wired to the hit-layer dispatch.
+  onPointerDown?: (event: GlyphcssPointerEvent) => void;
+  onPointerUp?: (event: GlyphcssPointerEvent) => void;
+  onPointerMove?: (event: GlyphcssPointerEvent) => void;
+  onPointerEnter?: (event: GlyphcssPointerEvent) => void;
+  onPointerLeave?: (event: GlyphcssPointerEvent) => void;
+  onClick?: (event: GlyphcssMouseEvent) => void;
+  onWheel?: (event: GlyphcssWheelEvent) => void;
 }
 
 export const GlyphcssMesh = defineComponent({
@@ -26,6 +36,15 @@ export const GlyphcssMesh = defineComponent({
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
     class: { type: String, default: undefined },
+    // TODO(hit-layer): wire these to the hit layer raycasting once the
+    // rasterizer hit-map is wired to the hit-layer dispatch.
+    onPointerDown: { type: Function as PropType<(e: GlyphcssPointerEvent) => void>, default: undefined },
+    onPointerUp: { type: Function as PropType<(e: GlyphcssPointerEvent) => void>, default: undefined },
+    onPointerMove: { type: Function as PropType<(e: GlyphcssPointerEvent) => void>, default: undefined },
+    onPointerEnter: { type: Function as PropType<(e: GlyphcssPointerEvent) => void>, default: undefined },
+    onPointerLeave: { type: Function as PropType<(e: GlyphcssPointerEvent) => void>, default: undefined },
+    onClick: { type: Function as PropType<(e: GlyphcssMouseEvent) => void>, default: undefined },
+    onWheel: { type: Function as PropType<(e: GlyphcssWheelEvent) => void>, default: undefined },
   },
   setup(props, { slots }) {
     const ctx = inject(GlyphcssSceneContextKey);
@@ -37,6 +56,7 @@ export const GlyphcssMesh = defineComponent({
 
     function buildTransform(): GlyphcssMeshTransform {
       const t: GlyphcssMeshTransform = {};
+      if (props.id) t.id = props.id;
       if (props.position) t.position = props.position;
       if (props.scale !== undefined) t.scale = props.scale;
       if (props.rotation) t.rotation = props.rotation;
@@ -64,9 +84,9 @@ export const GlyphcssMesh = defineComponent({
       register();
     });
 
-    // Update transform on position/scale/rotation changes
+    // Update transform on id/position/scale/rotation changes
     watch(
-      () => ({ position: props.position, scale: props.scale, rotation: props.rotation }),
+      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation }),
       () => {
         const mesh = meshRef.value;
         if (!mesh) return;

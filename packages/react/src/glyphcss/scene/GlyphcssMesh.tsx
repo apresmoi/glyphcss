@@ -9,7 +9,7 @@
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { Vec3, Polygon } from "@glyphcss/core";
-import type { GlyphcssMeshTransform } from "glyphcss";
+import type { GlyphcssMeshTransform, GlyphcssPointerEvent, GlyphcssMouseEvent, GlyphcssWheelEvent } from "glyphcss";
 import { useGlyphcssSceneContext } from "./context";
 import { registerMeshElement, unregisterMeshElement } from "./events";
 import type { GlyphcssMeshHandle } from "./context";
@@ -23,6 +23,16 @@ export interface GlyphcssMeshProps {
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
+  // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
+  // TODO(hit-layer): wire these to the hit layer raycasting once the
+  // rasterizer hit-map is wired to the hit-layer dispatch.
+  onPointerDown?: (event: GlyphcssPointerEvent) => void;
+  onPointerUp?: (event: GlyphcssPointerEvent) => void;
+  onPointerMove?: (event: GlyphcssPointerEvent) => void;
+  onPointerEnter?: (event: GlyphcssPointerEvent) => void;
+  onPointerLeave?: (event: GlyphcssPointerEvent) => void;
+  onClick?: (event: GlyphcssMouseEvent) => void;
+  onWheel?: (event: GlyphcssWheelEvent) => void;
 }
 
 function GlyphcssMeshInner({
@@ -42,10 +52,11 @@ function GlyphcssMeshInner({
   const polygons = useMemo(() => polygonsProp ?? [], [polygonsProp]);
 
   const transform = useMemo<GlyphcssMeshTransform>(() => ({
+    id,
     position,
     scale,
     rotation,
-  }), [position, scale, rotation]);
+  }), [id, position, scale, rotation]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {
@@ -60,7 +71,7 @@ function GlyphcssMeshInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneRef, polygons]);
 
-  // Update transform when position/scale/rotation change
+  // Update transform when id/position/scale/rotation change
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;

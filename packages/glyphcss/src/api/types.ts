@@ -22,6 +22,8 @@ export interface GlyphcssMeshState {
 }
 
 export interface GlyphcssMeshTransform {
+  /** String identifier for the mesh — surfaced as `GlyphcssMeshHandle.name`. */
+  id?: string;
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
