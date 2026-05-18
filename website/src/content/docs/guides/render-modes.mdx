@@ -3,8 +3,16 @@ title: Render Modes
 description: wireframe, solid, and voxel — when to pick which.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 glyphcss has three render modes. Each maps the same projected mesh to a different
 glyph layout.
+
+| Mode | Best for | Cost |
+|---|---|---|
+| `wireframe` | Geometric meshes, lattices, line art | Scales with edge count |
+| `solid` | Smooth-shaded surfaces from real mesh files | Scales with triangle count × grid cells |
+| `voxel` | MagicaVoxel `.vox` files, chunky low-poly | Scales with visible voxel faces |
 
 ## `wireframe`
 
@@ -17,18 +25,52 @@ then maps the stamp to glyphs:
 | 2 (normal) | `╋╬┼╳◆◇◊▲△▼▽◈⬡⬢∴∵⊥⊕⊗⊙⊚⊛` | Main cage edges |
 | 3 (core) | `✦✧✩◉⊙◎` | Focal accents, "sun" centre |
 
-```ts
-import { buildSceneContext } from "glyphcss";
+<Tabs syncKey="fw">
+  <TabItem label="React">
 
-const scene = buildSceneContext({
+```tsx
+import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+
+export function WireframeDemo() {
+  return (
+    <GlyphcssScene mode="wireframe" cols={80} rows={24}>
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh triangles={icosa} />
+    </GlyphcssScene>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+
+const scene = createGlyphcssScene(document.querySelector("#scene")!, {
+  mode: "wireframe",
+  cols: 80,
+  rows: 24,
+});
+
+// Custom wireframe edges with explicit weights:
+import { buildSceneContext } from "glyphcss-core";
+
+const ctx = buildSceneContext({
   camera, grid,
   wireframe: [
-    { from: [1, 0, 0], to: [-1, 0, 0], weight: 2 }, // bold edge
-    { from: [0, 1, 0], to: [0, -1, 0], weight: 1 }, // thin spoke
+    { from: [1, 0, 0], to: [-1, 0, 0], weight: 2 },  // bold edge
+    { from: [0, 1, 0], to: [0, -1, 0], weight: 1 },  // thin spoke
   ],
   mode: "wireframe",
 });
 ```
+
+  </TabItem>
+</Tabs>
 
 Best for: geometric meshes, lattices, iconic visuals.
 
@@ -44,15 +86,50 @@ Darker glyphs for cells facing away from the directional light, brighter glyphs
 for cells facing it. Per-cell normal is interpolated from the triangle's vertex
 normals.
 
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { dodecahedronPolygons } from "@glyphcss/core";
+
+const dodeca = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" });
+
+export function SolidDemo() {
+  return (
+    <GlyphcssScene
+      mode="solid"
+      cols={100}
+      rows={30}
+      directionalLight={{ direction: [0.5, 0.7, 0.5], intensity: 1 }}
+      ambientLight={{ intensity: 0.4 }}
+    >
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh triangles={dodeca} />
+    </GlyphcssScene>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
 ```ts
-const scene = buildSceneContext({
-  camera, grid,
-  triangles: parseObj(objSource),
+import { createGlyphcssScene } from "glyphcss";
+import { dodecahedronPolygons } from "@glyphcss/core";
+
+const scene = createGlyphcssScene(document.querySelector("#scene")!, {
+  mode: "solid",
+  cols: 100,
+  rows: 30,
   directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1 },
   ambientLight: { intensity: 0.4 },
-  mode: "solid",
 });
+scene.add(dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" }));
 ```
+
+  </TabItem>
+</Tabs>
 
 Best for: smooth-shaded surfaces from real mesh files.
 
@@ -61,15 +138,68 @@ Best for: smooth-shaded surfaces from real mesh files.
 One glyph per voxel face, depth-sorted. Natural fit for MagicaVoxel `.vox` files
 where the source data is already cell-aligned.
 
-```ts
-const scene = buildSceneContext({
-  camera, grid,
-  triangles: parseVox(voxBuffer),
-  mode: "voxel",
-});
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { loadMesh } from "glyphcss";
+
+// Assumes triangles were loaded outside the component:
+export function VoxelDemo({ triangles }) {
+  return (
+    <GlyphcssScene mode="voxel" cols={80} rows={24}>
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh triangles={triangles} />
+    </GlyphcssScene>
+  );
+}
 ```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+import { parseVox } from "@glyphcss/core";
+
+const voxBuffer = await fetch("/tree.vox").then((r) => r.arrayBuffer());
+const { polygons } = parseVox(voxBuffer);
+
+const scene = createGlyphcssScene(document.querySelector("#scene")!, {
+  mode: "voxel",
+  cols: 80,
+  rows: 24,
+});
+scene.add(polygons);
+```
+
+  </TabItem>
+</Tabs>
 
 Each face's color (from the VOX palette) maps to a glyph density — bright colors
 become `#` / `@`, dim colors become `.` / `:`. Back faces are culled.
 
 Best for: voxel art, chunky low-poly aesthetics.
+
+## Built-in `geometry` attribute
+
+The `<glyphcss-mesh>` custom element and the `GlyphcssMesh` component accept a
+`geometry` string shortcut for three built-in shapes. These are runtime-internal
+presets, not public core helpers — for procedural code use the `@glyphcss/core`
+generators instead.
+
+| Value | Shape | Notes |
+|---|---|---|
+| `"cuboctahedron"` | Cuboctahedron with inner lattice | Default demo shape |
+| `"icosahedron"` | Icosahedron, edge-only wireframe | 20 faces |
+| `"cube"` | Plain cube wireframe | 6 faces |
+
+```tsx
+// Built-in preset (no import needed):
+<GlyphcssMesh geometry="cuboctahedron" />
+
+// Equivalent procedural form (more control):
+import { icosahedronPolygons } from "@glyphcss/core";
+<GlyphcssMesh triangles={icosahedronPolygons({ center: [0,0,0], size:1 })} />
+```

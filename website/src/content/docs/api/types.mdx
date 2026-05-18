@@ -1,118 +1,166 @@
 ---
 title: Core Types
-description: TypeScript types exported by glyphcss-core.
+description: TypeScript types exported by glyphcss-core and glyphcss.
 ---
 
+All types below are exported from `@glyphcss/core` unless marked with `glyphcss`
+(the vanilla package).
+
 ## Geometry primitives
+
+| Type | Description | Used in |
+|---|---|---|
+| `Vec2` | `[u, v]` tuple — UV coordinates | `TextureTriangle.uvs`, polygon UVs |
+| `Vec3` | `[x, y, z]` tuple — world-space point or vector | Vertices, directions, hotspot anchors |
+| `Polygon` | N coplanar vertices + optional color/texture | Helper generators, mesh parsers |
+| `TextureTriangle` | 3 vertices + 3 UV pairs + optional color | Parser output, `GlyphcssTriangle` base |
+| `WireframeEdge` | `from`/`to` Vec3 pair + optional weight/color | `buildSceneContext` wireframe mode |
 
 ```ts
 type Vec2 = [number, number];
 type Vec3 = [number, number, number];
 
-interface TextureTriangle {
-  vertices: [Vec3, Vec3, Vec3];
-  uvs?: [Vec2, Vec2, Vec2];
+interface Polygon {
+  vertices: Vec3[];
+  color?: string;
+  texture?: string;
+  uvs?: Vec2[];
 }
 
-type EdgeWeight = 1 | 2 | 3; // thin / normal / core
+interface TextureTriangle {
+  vertices: [Vec3, Vec3, Vec3];
+  uvs: [Vec2, Vec2, Vec2];
+  color?: string;
+}
 
 interface WireframeEdge {
   from: Vec3;
   to: Vec3;
-  weight?: EdgeWeight;
+  weight?: EdgeWeight;  // 1 | 2 | 3
+  color?: string;
 }
+```
+
+## Render mode and glyph mapping
+
+| Type | Description | Used in |
+|---|---|---|
+| `RenderMode` | `"wireframe" \| "solid" \| "voxel"` | `SceneContextOptions.mode`, all framework props |
+| `CharRamp` | `string[]` — index 0 = darkest, last = brightest | Solid-mode Lambert → glyph mapping |
+| `EdgeWeight` | `1 \| 2 \| 3` — thin / normal / core | `WireframeEdge.weight` |
+
+```ts
+type RenderMode = "wireframe" | "solid" | "voxel";
+type CharRamp = string[];          // e.g. [" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"]
+type EdgeWeight = 1 | 2 | 3;
 ```
 
 ## Lighting
 
+| Type | Description | Used in |
+|---|---|---|
+| `GlyphcssDirectionalLight` | Single distant light source | `SceneContextOptions.directionalLight` |
+| `GlyphcssAmbientLight` | Uniform fill light | `SceneContextOptions.ambientLight` |
+
 ```ts
 interface GlyphcssDirectionalLight {
   direction: Vec3;
-  intensity?: number;
+  intensity?: number;  // default 1
+  color?: string;      // hex, default white
 }
 
 interface GlyphcssAmbientLight {
-  intensity?: number;
+  intensity?: number;  // default 0.4
+  color?: string;      // hex, default white
 }
 ```
 
-## Camera
+## Grid and scene
 
-```ts
-interface GlyphcssPerspectiveCameraOptions {
-  rotX?: number;
-  rotY?: number;
-  distance?: number;
-  scale?: number;
-  stretch?: number;
-  center?: [number, number]; // normalized [0..1, 0..1]
-}
-
-interface GlyphcssOrthographicCameraOptions {
-  rotX?: number;
-  rotY?: number;
-  zoom?: number;
-  center?: [number, number];
-}
-
-interface GlyphcssCamera {
-  readonly kind: "perspective" | "orthographic";
-  rotX: number; rotY: number;
-  distance: number; scale: number; stretch: number;
-  project(v: Vec3, cols: number, rows: number, cellAspect: number): [number, number, number];
-}
-
-type GlyphcssCameraOptions = GlyphcssPerspectiveCameraOptions | GlyphcssOrthographicCameraOptions;
-type GlyphcssPerspectiveCameraHandle = GlyphcssCamera;
-type GlyphcssOrthographicCameraHandle = GlyphcssCamera;
-```
-
-## Scene
+| Type | Description | Used in |
+|---|---|---|
+| `GridSize` | `{ cols, rows, cellAspect }` | `buildSceneContext`, camera `project()` |
+| `SceneContext` | Resolved scene state used by the rasterizer | `buildSceneContext` return value |
 
 ```ts
 interface GridSize {
   cols: number;
   rows: number;
-  cellAspect: number; // cellH / cellW — typically ~2.0 for monospace
-}
-
-type RenderMode = "wireframe" | "solid" | "voxel";
-
-interface SceneContextOptions {
-  camera: GlyphcssCamera;
-  grid: GridSize;
-  triangles?: TextureTriangle[];
-  wireframe?: WireframeEdge[];
-  mode?: RenderMode;
-  directionalLight?: GlyphcssDirectionalLight;
-  ambientLight?: GlyphcssAmbientLight;
-}
-
-interface SceneContext {
-  camera: GlyphcssCamera;
-  grid: GridSize;
-  triangles: TextureTriangle[];
-  wireframe: WireframeEdge[];
-  mode: RenderMode;
-  directionalLight: GlyphcssDirectionalLight;
-  ambientLight: GlyphcssAmbientLight;
+  cellAspect: number;  // cellH / cellW — typically ~2.0
 }
 ```
 
 ## Hotspots
 
+| Type | Description | Used in |
+|---|---|---|
+| `Hotspot` | A 3D anchor that projects to a 2D hitbox | `scene.addHotspot()`, `projectHotspots()` |
+| `HotspotCell` | Projected result for one frame | `projectHotspots()` return value |
+
 ```ts
 interface Hotspot {
   id: string;
   at: Vec3;
-  size?: [number, number]; // cols × rows in character cells; default [1, 1]
+  size?: [number, number];  // cols × rows in cells; default [1, 1]
 }
 
 interface HotspotCell {
   id: string;
   col: number;
   row: number;
-  depth: number; // camera-space Z
+  depth: number;    // camera-space Z; use for z-index
   visible: boolean; // false when behind camera or off-grid
 }
+```
+
+## Parse results
+
+| Type | Description | Used in |
+|---|---|---|
+| `ParseResult` | Unified output of all polygon-emitting parsers | `parseObj`, `parseGltf`, `loadMesh` |
+| `ParseAnimationClip` | Metadata for one animation in a glTF file | `ParseResult.animation.clips` |
+
+```ts
+interface ParseResult {
+  polygons: Polygon[];
+  animation?: ParseAnimationController;
+  objectUrls: string[];
+  dispose: () => void;    // revoke blob URLs — always call on unmount
+  warnings: string[];
+  metadata?: {
+    triangleCount?: number;
+    meshes?: string[];
+    materials?: string[];
+    animations?: ParseAnimationClip[];
+    sourceBytes?: number;
+  };
+}
+
+interface ParseAnimationClip {
+  index: number;
+  name: string;
+  duration: number;   // seconds
+  channelCount: number;
+}
+```
+
+## Animation
+
+| Type | Description | Used in |
+|---|---|---|
+| `GlyphcssAnimationMixer` | Drives one or more animation actions against a mesh target | `createGlyphcssAnimationMixer()` |
+| `GlyphcssAnimationAction` | Per-clip playback state | `mixer.clipAction()` |
+
+```ts
+// Minimal usage:
+import { createGlyphcssAnimationMixer, LoopRepeat } from "@glyphcss/core";
+
+const { polygons, animation } = await loadMesh("/character.glb");
+const mixer = createGlyphcssAnimationMixer(meshHandle, animation!);
+
+const action = mixer.clipAction("walk");
+action.setLoop(LoopRepeat, Infinity).play();
+
+// In your animation loop (requestAnimationFrame):
+mixer.update(deltaSeconds);
 ```

@@ -6,71 +6,180 @@ description: Imperative API for building scenes outside React / Vue.
 The `glyphcss` vanilla package exposes a polycss-shaped imperative API plus the raw
 `glyphcss-core` math primitives.
 
-## Scene factory
+## `createGlyphcssScene`
+
+The main entry point. Creates and mounts a scene into a host element and returns a
+`GlyphcssSceneHandle` with methods to add meshes, hotspots, and update options.
 
 ```ts
 import { createGlyphcssScene } from "glyphcss";
 
-const host = document.querySelector("#scene")!;
-const scene = createGlyphcssScene(host, {
-  mesh: "/cottage.glb",        // path | ArrayBuffer | triangle list
-  rotX: 0.4,
-  rotY: 0,
-  scale: 0.32,
-  stretch: 0.95,
-  distance: 3,
-  mode: "wireframe",            // | "solid" | "voxel"
-  animate: { axis: "y", durationMs: 6000 },
-});
+const host = document.querySelector<HTMLElement>("#scene")!;
 
-scene.addHotspot(
-  { id: "roof", at: [0, 1.2, 0], size: [3, 2] },
-  () => alert("roof clicked"),
+const scene = createGlyphcssScene(host, {
+  mode: "solid",            // "wireframe" | "solid" | "voxel"
+  cols: 100,                // grid width in character columns
+  rows: 30,                 // grid height in character rows
+  cellAspect: 2.0,          // cell height ÷ width (typical monospace: ~2.0)
+  glyphPalette: "default",  // named glyph palette
+  useColors: true,          // emit color <span>s in output
+  directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1 },
+  ambientLight: { intensity: 0.4 },
+});
+```
+
+### `.add(triangles, transform?)`
+
+Register a `GlyphcssTriangle[]` as a mesh. Returns a `GlyphcssMeshHandle`.
+
+```ts
+import { cubePolygons } from "@glyphcss/core";
+
+const meshHandle = scene.add(
+  cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }),
+  {
+    position: [1, 0, 0],     // translate in world space
+    scale: 0.8,              // uniform scale (or [sx, sy, sz])
+    rotation: [0, Math.PI / 4, 0],  // Euler angles in radians
+  }
 );
 
-scene.dispose();
+// Later, update the transform and re-render:
+meshHandle.setTransform({ position: [2, 0, 0] });
+scene.rerender();
+
+// Remove the mesh:
+meshHandle.dispose();
+```
+
+### `.setOptions(partial)`
+
+Update any scene option. Triggers an automatic re-render.
+
+```ts
+scene.setOptions({
+  mode: "wireframe",
+  cols: 120,
+  rows: 36,
+  directionalLight: { direction: [1, 0.5, 0.2], intensity: 1.2 },
+});
+```
+
+### `.destroy()`
+
+Remove the scene DOM and clear all registered meshes and hotspots.
+
+```ts
+scene.destroy();
+```
+
+## End-to-end example
+
+The following snippet covers `add`, `setOptions`, `addHotspot`, and `destroy` in
+one runnable block:
+
+```ts
+import {
+  createGlyphcssScene,
+  createGlyphcssOrbitControls,
+} from "glyphcss";
+import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+
+// 1. Create the scene.
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
+
+// 2. Add meshes. Each call returns a handle.
+const cubeHandle = scene.add(
+  cubePolygons({ center: [-1, 0, 0], size: 0.8, color: "#4488ff" })
+);
+const octaHandle = scene.add(
+  octahedronPolygons({ center: [1, 0, 0], size: 0.8, color: "#ffcc44" })
+);
+scene.add(axesHelperPolygons({ size: 1.5 }));
+
+// 3. Add a hotspot.
+const hotspot = scene.addHotspot(
+  { id: "octa-top", at: [1, 0.8, 0], size: [4, 2] },
+  () => alert("octahedron top"),
+);
+
+// 4. Attach orbit controls.
+const controls = createGlyphcssOrbitControls(scene, { drag: true, wheel: true });
+
+// 5. Update options at any time.
+scene.setOptions({ mode: "wireframe" });
+
+// 6. Move a mesh.
+cubeHandle.setTransform({ position: [-2, 0, 0] });
+scene.rerender();
+
+// 7. Cleanup everything.
+hotspot.remove();
+controls.destroy();
+octaHandle.dispose();
+cubeHandle.dispose();
+scene.destroy();
 ```
 
 ## Camera factories
 
 ```ts
-import { createGlyphcssPerspectiveCamera, createGlyphcssOrthographicCamera } from "glyphcss";
+import {
+  createGlyphcssPerspectiveCamera,
+  createGlyphcssOrthographicCamera,
+  createGlyphcssFirstPersonCamera,
+} from "glyphcss";
 
+// Perspective (default)
 const perspective = createGlyphcssPerspectiveCamera({
-  rotX: 0.4, rotY: 0, distance: 3, scale: 0.32, stretch: 0.95,
+  rotX: 0.4, rotY: 0,
+  distance: 3, scale: 0.32, stretch: 0.95,
 });
 
+// Orthographic — no foreshortening
 const ortho = createGlyphcssOrthographicCamera({ rotX: 0.4, zoom: 0.4 });
 
-// All five state fields are mutable after construction:
+// First-person — eye at origin
+const fpv = createGlyphcssFirstPersonCamera({ rotX: Math.PI / 2, focal: 1 });
+
+// All camera properties are mutable after creation:
 perspective.rotY = Math.PI / 4;
 perspective.distance = 4;
+
+// Swap the camera on a running scene:
+scene.setOptions({ camera: ortho });
 ```
 
 ## Lower-level pieces (`glyphcss-core`)
+
+`glyphcss-core` is browser-agnostic (no DOM globals) and can run in Node or a
+web worker.
 
 ```ts
 import {
   buildSceneContext,
   rasterize,
-  bakeFrames,
   projectHotspots,
   parseObj, parseGltf, parseVox, loadMesh,
 } from "glyphcss-core";
+import { createGlyphcssPerspectiveCamera } from "glyphcss";
 
 const triangles = await loadMesh("/cottage.glb");
-const camera = createGlyphcssPerspectiveCamera({ /* ... */ });
+
+const camera = createGlyphcssPerspectiveCamera({ rotX: 0.4, scale: 0.32 });
 const grid = { cols: 160, rows: 48, cellAspect: 2.0 };
 
-const scene = buildSceneContext({ camera, grid, triangles, mode: "solid" });
+const ctx = buildSceneContext({ camera, grid, triangles, mode: "solid" });
 
-const frames = bakeFrames(scene, 60, "y");
-// frames is string[] — stack them into a <pre> and animate via CSS steps(60).
+// Rasterize one frame to a string:
+const text = rasterize(ctx);
 
-const cells = projectHotspots(hotspots, camera, 160, 48, 2.0);
+// Project hotspots to grid cells:
+const cells = projectHotspots(
+  [{ id: "roof", at: [0, 1.2, 0] }],
+  camera, 160, 48, 2.0,
+);
 // cells is { id, col, row, depth, visible }[]
 ```
-
-`glyphcss-core` is renderer-agnostic and has zero browser globals — you can run it in
-Node or a web worker. The DOM construction lives in `glyphcss` (vanilla) and the
-framework packages.

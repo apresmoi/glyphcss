@@ -17,8 +17,12 @@ Or use the format-detecting wrapper:
 ```ts
 import { loadMesh } from "glyphcss";
 
+// Replace "/cottage.glb" with the path to your own file.
 const triangles = await loadMesh("/cottage.glb");
 ```
+
+> The URL `/cottage.glb` is a placeholder — substitute the path to your own asset.
+> For runnable examples that don't require a file, see [Creating Shapes](/guides/creating-shapes).
 
 ## Choosing a render mode
 
@@ -29,6 +33,7 @@ const triangles = await loadMesh("/cottage.glb");
 | `voxel` | VOX models — one glyph per voxel face, depth-sorted |
 
 ```tsx
+{/* Replace placeholder paths with paths to your own assets. */}
 <GlyphcssMesh src="/cottage.glb" mode="solid" />
 <GlyphcssMesh src="/tree.vox" mode="voxel" />
 <GlyphcssMesh geometry="cuboctahedron" mode="wireframe" />
@@ -46,3 +51,12 @@ For the common case of "I just want a rotating shape", glyphcss ships generators
 
 These render as wireframe by default with the Prime Radiant–style inner lattice
 (for cuboctahedron) or plain edge-only (for icosahedron / cube).
+
+## Procedural meshes
+
+For shapes that don't come from a file, build `GlyphcssTriangle[]` arrays directly
+in JavaScript. The `@glyphcss/core` package ships generators for all the Platonic
+solids plus utility shapes (rings, planes, axes gizmos).
+
+See the full walkthrough — with copy-paste examples for every helper and a
+parametric wavy-plane example — in [Creating Shapes](/guides/creating-shapes).

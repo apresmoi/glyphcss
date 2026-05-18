@@ -96,4 +96,63 @@ function onClick() { alert("vertex"); }
   tracking the rotating mesh exactly (per-frame keyframes synced via `steps(N)`).
 - Drag-to-rotate and scroll-to-zoom out of the box via `<GlyphcssOrbitControls>`.
 
+## Try a Platonic solid
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh } from "@glyphcss/react";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+
+export function IcosahedronDemo() {
+  return (
+    <GlyphcssCamera rotX={0.4} scale={0.32}>
+      <GlyphcssScene mode="solid">
+        <GlyphcssOrbitControls />
+        <GlyphcssMesh triangles={icosa} />
+      </GlyphcssScene>
+    </GlyphcssCamera>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphcssCamera :rot-x="0.4" :scale="0.32">
+    <GlyphcssScene mode="solid">
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh :triangles="icosa" />
+    </GlyphcssScene>
+  </GlyphcssCamera>
+</template>
+
+<script setup lang="ts">
+import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh } from "@glyphcss/vue";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 80, rows: 24 });
+scene.add(icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
+```
+
+  </TabItem>
+</Tabs>
+
 Next: [Core Concepts](/core-concepts) to understand what's happening under the hood.

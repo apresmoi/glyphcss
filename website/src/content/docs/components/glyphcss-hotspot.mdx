@@ -3,6 +3,8 @@ title: GlyphcssHotspot
 description: Sparse interactive hit anchor over the ASCII strip.
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 `<GlyphcssHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII strip,
 tracking a 3D anchor through every baked frame. The `<div>` is `pointer-events: auto`
 inside an otherwise transparent hit layer — events fire on it like any normal DOM
@@ -12,6 +14,7 @@ element.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
+| `id` | `string` | required | Stable identifier for this hotspot |
 | `at` | `Vec3 \| string` | required | World-space anchor. Either `[x, y, z]` or a string like `"vertex:42"` |
 | `size` | `[number, number]` | `[1, 1]` | Hitbox size in character cells |
 | `onClick` | `MouseEventHandler` | — | Click handler |
@@ -29,13 +32,144 @@ When the user drags, the strip's animation pauses and the hotspot's `transform` 
 live-updated per pointermove. On release, both animations re-start from the new
 camera state.
 
-## Example with badge
+## Full examples
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
 
 ```tsx
-<GlyphcssHotspot at={[0, 1.2, 0]} size={[3, 2]} aria-label="Roof">
-  <span className="badge">Roof</span>
-</GlyphcssHotspot>
+import {
+  GlyphcssScene,
+  GlyphcssMesh,
+  GlyphcssOrbitControls,
+  GlyphcssHotspot,
+} from "@glyphcss/react";
+import { cubePolygons } from "@glyphcss/core";
+
+const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
+
+export function HotspotDemo() {
+  return (
+    <GlyphcssScene mode="solid" cols={100} rows={30}>
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh triangles={cube}>
+        {/* Hotspot on the top face */}
+        <GlyphcssHotspot
+          id="top"
+          at={[0, 0.5, 0]}
+          size={[5, 3]}
+          aria-label="Top face"
+          onClick={() => alert("top face clicked")}
+        >
+          <span className="badge">Top</span>
+        </GlyphcssHotspot>
+        {/* Hotspot on the right face */}
+        <GlyphcssHotspot
+          id="right"
+          at={[0.5, 0, 0]}
+          size={[5, 3]}
+          aria-label="Right face"
+          onClick={() => alert("right face clicked")}
+        >
+          <span className="badge">Right</span>
+        </GlyphcssHotspot>
+      </GlyphcssMesh>
+    </GlyphcssScene>
+  );
+}
 ```
 
-The `.badge` child gets free `:hover` styling via the parent — `opacity: 0`
-collapsed by default, `opacity: 1` on hover.
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphcssScene mode="solid" :cols="100" :rows="30">
+    <GlyphcssOrbitControls />
+    <GlyphcssMesh :triangles="cube">
+      <GlyphcssHotspot
+        id="top"
+        :at="[0, 0.5, 0]"
+        :size="[5, 3]"
+        aria-label="Top face"
+        @click="onTopClick"
+      />
+      <GlyphcssHotspot
+        id="right"
+        :at="[0.5, 0, 0]"
+        :size="[5, 3]"
+        aria-label="Right face"
+        @click="onRightClick"
+      />
+    </GlyphcssMesh>
+  </GlyphcssScene>
+</template>
+
+<script setup lang="ts">
+import {
+  GlyphcssScene,
+  GlyphcssMesh,
+  GlyphcssOrbitControls,
+  GlyphcssHotspot,
+} from "@glyphcss/vue";
+import { cubePolygons } from "@glyphcss/core";
+
+const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
+function onTopClick() { alert("top face clicked"); }
+function onRightClick() { alert("right face clicked"); }
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+import { cubePolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
+
+scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));
+
+const topHotspot = scene.addHotspot(
+  { id: "top", at: [0, 0.5, 0], size: [5, 3] },
+  () => alert("top face clicked"),
+);
+
+const rightHotspot = scene.addHotspot(
+  { id: "right", at: [0.5, 0, 0], size: [5, 3] },
+  () => alert("right face clicked"),
+);
+
+// Remove a hotspot when no longer needed:
+// topHotspot.remove();
+```
+
+  </TabItem>
+</Tabs>
+
+## Visibility
+
+Hotspots behind the camera get `opacity: 0` automatically. Add a CSS transition to
+fade them gracefully:
+
+```css
+.glyphcss-hotspot {
+  transition: opacity 200ms ease;
+}
+```
+
+The fade is free — the renderer writes `opacity: 0` into the keyframe at any frame
+where the anchor is behind the camera.
+
+## Anchors
+
+`at` accepts either an explicit `Vec3` or a string anchor:
+
+| Anchor | Resolves to |
+|---|---|
+| `[x, y, z]` | World-space coordinate |
+| `"vertex:42"` | Vertex index 42 of the parent mesh |
+| `"face:roof"` | Named face (requires mesh authoring) |
+| `"centroid"` | Mesh centroid |

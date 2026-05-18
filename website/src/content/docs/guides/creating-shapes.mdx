@@ -1,0 +1,317 @@
+---
+title: Creating Shapes
+description: Building meshes in code — from scratch, with helpers, and via math functions.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide covers building `GlyphcssTriangle[]` arrays by hand, using the built-in
+geometry helpers from `@glyphcss/core`, and generating procedural meshes from math
+functions. All examples are self-contained — copy any block and it will run.
+
+## From scratch: a tetrahedron
+
+A tetrahedron has 4 vertices and 4 triangular faces. The simplest approach: write
+the vertices as a `Vec3[]` and the face indices by hand, then map to triangles.
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+import type { GlyphcssTriangle } from "glyphcss";
+import type { Vec3 } from "@glyphcss/core";
+
+// 4 vertices of a regular tetrahedron (circumradius ≈ 1).
+const s = 1 / Math.sqrt(3);
+const verts: Vec3[] = [
+  [ s,  s,  s],  // 0
+  [-s, -s,  s],  // 1
+  [-s,  s, -s],  // 2
+  [ s, -s, -s],  // 3
+];
+
+// 4 CCW-from-outside triangular faces.
+const faceIndices: [number, number, number][] = [
+  [0, 2, 1],
+  [0, 1, 3],
+  [0, 3, 2],
+  [1, 2, 3],
+];
+
+const triangles: GlyphcssTriangle[] = faceIndices.map(([a, b, c]) => ({
+  vertices: [verts[a], verts[b], verts[c]],
+  color: "#aaffcc",
+}));
+
+// Render it.
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 80, rows: 24 });
+scene.add(triangles);
+```
+
+The resulting `GlyphcssTriangle[]` is a flat array — no scene graph, no hierarchy.
+Each element has `vertices: [Vec3, Vec3, Vec3]` and an optional `color` hex string.
+
+## Built-in helpers
+
+`@glyphcss/core` ships geometry generators for all common shapes. Each returns
+`Polygon[]` — convert to `GlyphcssTriangle[]` for the glyphcss rasterizer, or pass
+directly to `@glyphcss/react` / `@glyphcss/vue` mesh components.
+
+### Platonic solids
+
+#### `tetrahedronPolygons`
+
+4 triangular faces. `size` is the circumradius.
+
+```ts
+import { tetrahedronPolygons } from "@glyphcss/core";
+
+const polys = tetrahedronPolygons({
+  center: [0, 0, 0],
+  size: 1,
+  color: "#ff6644",
+});
+// Returns Polygon[] — 4 triangular polygons.
+```
+
+#### `cubePolygons`
+
+6 square faces. `size` is the edge length.
+
+```ts
+import { cubePolygons } from "@glyphcss/core";
+
+const polys = cubePolygons({
+  center: [0, 0, 0],
+  size: 1,
+  color: "#4488ff",
+});
+// Returns Polygon[] — 6 quad polygons.
+```
+
+#### `octahedronPolygons`
+
+8 triangular faces. `size` is the half-extent (distance from center to each pole).
+
+```ts
+import { octahedronPolygons } from "@glyphcss/core";
+
+const polys = octahedronPolygons({
+  center: [0, 0, 0],
+  size: 1,
+  color: "#ffcc44",
+});
+// Returns Polygon[] — 8 triangular polygons.
+```
+
+#### `dodecahedronPolygons`
+
+12 pentagonal faces. `size` is the circumradius. Vertices follow the golden-ratio
+form; winding is CCW from outside, same as three.js `DodecahedronGeometry`.
+
+```ts
+import { dodecahedronPolygons } from "@glyphcss/core";
+
+const polys = dodecahedronPolygons({
+  center: [0, 0, 0],
+  size: 1,
+  color: "#cc44ff",
+});
+// Returns Polygon[] — 12 pentagonal polygons.
+```
+
+#### `icosahedronPolygons`
+
+20 triangular faces. `size` is the circumradius.
+
+```ts
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const polys = icosahedronPolygons({
+  center: [0, 0, 0],
+  size: 1,
+  color: "#44ffcc",
+});
+// Returns Polygon[] — 20 triangular polygons.
+```
+
+### Utility shapes
+
+#### `planePolygons`
+
+A single axis-aligned quad. `axis` picks the perpendicular direction (0=YZ, 1=XZ,
+2=XY); `size` is the half-extent of the quad.
+
+```ts
+import { planePolygons } from "@glyphcss/core";
+
+const polys = planePolygons({
+  axis: 1,      // quad lies in the XZ plane
+  size: 0.4,
+  color: "#ffffff",
+});
+// Returns Polygon[] — 1 quad polygon.
+```
+
+#### `ringPolygons`
+
+A flat annulus (ring) perpendicular to a chosen axis. Made of `segments` quads
+around the circle.
+
+```ts
+import { ringPolygons } from "@glyphcss/core";
+
+const polys = ringPolygons({
+  axis: 1,           // ring perpendicular to Y axis
+  radius: 1.2,
+  halfThickness: 0.05,
+  segments: 32,
+  color: "#ff4488",
+});
+// Returns Polygon[] — 32 quad segments forming the annulus.
+```
+
+#### `axesHelperPolygons`
+
+Three thin colored cuboids along world X (red), Y (green), Z (blue). Mirrors the
+three.js `AxesHelper` gizmo.
+
+```ts
+import { axesHelperPolygons } from "@glyphcss/core";
+
+const polys = axesHelperPolygons({
+  size: 2,
+  thickness: 0.02,
+  negative: false,   // only positive halves
+  xColor: "#ff3a3a",
+  yColor: "#3aff3a",
+  zColor: "#3a8aff",
+});
+// Returns Polygon[] — 18 quads (6 per axis bar × 3 axes).
+```
+
+## Combining shapes
+
+Stack multiple meshes in one scene by calling `scene.add()` for each, or by
+composing multiple framework components.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import {
+  GlyphcssScene,
+  GlyphcssMesh,
+  GlyphcssOrbitControls,
+} from "@glyphcss/react";
+import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
+
+// Build each shape once (outside render).
+const cube = cubePolygons({ center: [-1.5, 0, 0], size: 0.8, color: "#4488ff" });
+const octa = octahedronPolygons({ center: [0, 0, 0], size: 0.8, color: "#ffcc44" });
+const axes = axesHelperPolygons({ size: 1.5 });
+
+export function App() {
+  return (
+    <GlyphcssScene mode="solid" cols={120} rows={36}>
+      <GlyphcssOrbitControls />
+      <GlyphcssMesh triangles={cube} />
+      <GlyphcssMesh triangles={octa} />
+      <GlyphcssMesh triangles={axes} />
+    </GlyphcssScene>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphcssScene mode="solid" :cols="120" :rows="36">
+    <GlyphcssOrbitControls />
+    <GlyphcssMesh :triangles="cube" />
+    <GlyphcssMesh :triangles="octa" />
+    <GlyphcssMesh :triangles="axes" />
+  </GlyphcssScene>
+</template>
+
+<script setup lang="ts">
+import {
+  GlyphcssScene,
+  GlyphcssMesh,
+  GlyphcssOrbitControls,
+} from "@glyphcss/vue";
+import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
+
+const cube = cubePolygons({ center: [-1.5, 0, 0], size: 0.8, color: "#4488ff" });
+const octa = octahedronPolygons({ center: [0, 0, 0], size: 0.8, color: "#ffcc44" });
+const axes = axesHelperPolygons({ size: 1.5 });
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 120, rows: 36 });
+
+scene.add(cubePolygons({ center: [-1.5, 0, 0], size: 0.8, color: "#4488ff" }));
+scene.add(octahedronPolygons({ center: [0, 0, 0], size: 0.8, color: "#ffcc44" }));
+scene.add(axesHelperPolygons({ size: 1.5 }));
+```
+
+  </TabItem>
+</Tabs>
+
+## Mesh from a math function
+
+Generate arbitrary triangulated surfaces with a `for` loop. This example builds a
+wavy plane by pushing two triangles per grid cell.
+
+```ts
+import { createGlyphcssScene } from "glyphcss";
+import type { GlyphcssTriangle } from "glyphcss";
+import type { Vec3 } from "@glyphcss/core";
+
+const COLS = 20;
+const ROWS = 20;
+const SIZE = 2;
+
+function waveY(x: number, z: number, t = 0): number {
+  return Math.sin(x * 3 + t) * 0.15 + Math.cos(z * 2.5 + t) * 0.1;
+}
+
+function makeGrid(): GlyphcssTriangle[] {
+  const triangles: GlyphcssTriangle[] = [];
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const x0 = (c / COLS - 0.5) * SIZE;
+      const x1 = ((c + 1) / COLS - 0.5) * SIZE;
+      const z0 = (r / ROWS - 0.5) * SIZE;
+      const z1 = ((r + 1) / ROWS - 0.5) * SIZE;
+
+      const v00: Vec3 = [x0, waveY(x0, z0), z0];
+      const v10: Vec3 = [x1, waveY(x1, z0), z0];
+      const v01: Vec3 = [x0, waveY(x0, z1), z1];
+      const v11: Vec3 = [x1, waveY(x1, z1), z1];
+
+      triangles.push({ vertices: [v00, v10, v11], color: "#33aaff" });
+      triangles.push({ vertices: [v00, v11, v01], color: "#2299ee" });
+    }
+  }
+  return triangles;
+}
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
+scene.add(makeGrid());
+```
+
+Each cell produces two triangles sharing the quad diagonal `v00→v11`. To animate
+the wave, call `handle.dispose()` and `scene.add(makeGrid(newTime))` after each
+camera-end event — do not call it every frame.

@@ -1,36 +1,234 @@
 ---
 title: GlyphcssOrbitControls
-description: Drag-to-rotate and scroll-to-zoom on the parent scene.
+description: Orbit, map, and first-person controls for a GlyphcssScene.
 ---
 
-`<GlyphcssOrbitControls>` listens for pointer + wheel events on the parent
-`<GlyphcssScene>` viewport. On drag, the CSS strip animation pauses and the renderer
-live-rasterizes one frame per pointermove. On release, the scene re-bakes a fresh
-60-frame strip + hotspot keyframes. On wheel, `camera.distance` adjusts and a
-debounced re-bake runs after the last scroll event.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Props
+glyphcss ships three pointer-based control modes. All must be placed inside a
+`<GlyphcssScene>` (React / Vue) or receive a scene handle (vanilla).
+
+| Control | Interaction | When to use |
+|---|---|---|
+| `GlyphcssOrbitControls` | Left-drag orbits; wheel zooms | General-purpose — object inspection |
+| `GlyphcssMapControls` | Left-drag pans; right-drag / Shift+left orbits; wheel zooms | Top-down maps, floor plans |
+| `GlyphcssFirstPersonControls` | Drag looks around; WASD / arrows move | Walk-through scenes |
+
+## Orbit controls
+
+`GlyphcssOrbitControls` pauses the strip animation on drag, live-rasterizes per
+pointermove, and re-bakes a fresh strip on release.
+
+### Props
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `drag` | `boolean` | `false` | Enable click-and-drag rotation |
-| `wheel` | `boolean` | `false` | Enable scroll-to-zoom |
-| `dragSensitivity` | `number` | `0.012` | Radians per pixel of pointer movement |
+| `drag` | `boolean` | `true` | Enable click-and-drag rotation |
+| `wheel` | `boolean` | `true` | Enable scroll-to-zoom |
+| `invert` | `boolean \| number` | `false` | Invert drag direction |
+| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation config |
 
-## React
+<Tabs syncKey="fw">
+  <TabItem label="React">
 
 ```tsx
-<GlyphcssScene>
-  <GlyphcssOrbitControls drag wheel dragSensitivity={0.015} />
-  <GlyphcssMesh geometry="cuboctahedron" />
-</GlyphcssScene>
+import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+
+export function App() {
+  return (
+    <GlyphcssScene mode="solid">
+      <GlyphcssOrbitControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
+      <GlyphcssMesh triangles={icosa} />
+    </GlyphcssScene>
+  );
+}
 ```
 
-## Vanilla / custom element
+  </TabItem>
+  <TabItem label="Vue">
 
-```html
-<glyphcss-scene>
-  <glyphcss-orbit-controls drag wheel></glyphcss-orbit-controls>
-  <glyphcss-mesh geometry="cuboctahedron"></glyphcss-mesh>
-</glyphcss-scene>
+```vue
+<template>
+  <GlyphcssScene mode="solid">
+    <GlyphcssOrbitControls drag wheel :animate="{ axis: 'y', speed: 0.5 }" />
+    <GlyphcssMesh :triangles="icosa" />
+  </GlyphcssScene>
+</template>
+
+<script setup lang="ts">
+import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/vue";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
+</script>
 ```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene, createGlyphcssOrbitControls } from "glyphcss";
+import { icosahedronPolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid" });
+scene.add(icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
+
+const controls = createGlyphcssOrbitControls(scene, {
+  drag: true,
+  wheel: true,
+  animate: { axis: "y", speed: 0.5 },
+});
+
+// Cleanup:
+// controls.destroy();
+```
+
+  </TabItem>
+</Tabs>
+
+## Map controls
+
+Left-drag pans the camera target. Right-drag (or Shift + left-drag) orbits. Wheel
+zooms. Best for top-down maps or floor-plan scenes.
+
+### Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `drag` | `boolean` | `true` | Enable pointer-drag pan |
+| `wheel` | `boolean` | `true` | Enable scroll-to-zoom |
+| `invert` | `boolean \| number` | `false` | Invert drag direction |
+| `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation |
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphcssScene, GlyphcssMesh, GlyphcssMapControls } from "@glyphcss/react";
+import { cubePolygons } from "@glyphcss/core";
+
+const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
+
+export function MapDemo() {
+  return (
+    <GlyphcssScene mode="solid" cols={120} rows={36}>
+      <GlyphcssMapControls drag wheel />
+      <GlyphcssMesh triangles={cube} />
+    </GlyphcssScene>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphcssScene mode="solid" :cols="120" :rows="36">
+    <GlyphcssMapControls drag wheel />
+    <GlyphcssMesh :triangles="cube" />
+  </GlyphcssScene>
+</template>
+
+<script setup lang="ts">
+import { GlyphcssScene, GlyphcssMesh, GlyphcssMapControls } from "@glyphcss/vue";
+import { cubePolygons } from "@glyphcss/core";
+
+const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene, createGlyphcssMapControls } from "glyphcss";
+import { cubePolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 120, rows: 36 });
+scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));
+
+const controls = createGlyphcssMapControls(scene, { drag: true, wheel: true });
+```
+
+  </TabItem>
+</Tabs>
+
+## First-person controls
+
+Pointer-drag looks around; WASD / arrow keys move the camera. Good for walk-through
+environments and large scenes where the mesh fills the whole grid.
+
+### Props
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `drag` | `boolean` | `true` | Enable pointer-drag look |
+| `keyboard` | `boolean` | `true` | Enable WASD / arrow key movement |
+| `moveSpeed` | `number` | `0.05` | World units per keypress |
+| `lookSpeed` | `number` | `0.004` | Radians per pixel of drag |
+| `invert` | `boolean \| number` | `false` | Invert look direction |
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphcssScene, GlyphcssMesh, GlyphcssFirstPersonControls } from "@glyphcss/react";
+import { cubePolygons } from "@glyphcss/core";
+
+const floor = cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" });
+
+export function FPVDemo() {
+  return (
+    <GlyphcssScene mode="solid" cols={140} rows={42}>
+      <GlyphcssFirstPersonControls drag keyboard moveSpeed={0.1} />
+      <GlyphcssMesh triangles={floor} />
+    </GlyphcssScene>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphcssScene mode="solid" :cols="140" :rows="42">
+    <GlyphcssFirstPersonControls drag keyboard :move-speed="0.1" />
+    <GlyphcssMesh :triangles="floor" />
+  </GlyphcssScene>
+</template>
+
+<script setup lang="ts">
+import { GlyphcssScene, GlyphcssMesh, GlyphcssFirstPersonControls } from "@glyphcss/vue";
+import { cubePolygons } from "@glyphcss/core";
+
+const floor = cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" });
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphcssScene, createGlyphcssFirstPersonControls } from "glyphcss";
+import { cubePolygons } from "@glyphcss/core";
+
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphcssScene(host, { mode: "solid", cols: 140, rows: 42 });
+scene.add(cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" }));
+
+const controls = createGlyphcssFirstPersonControls(scene, {
+  drag: true,
+  keyboard: true,
+  moveSpeed: 0.1,
+});
+```
+
+  </TabItem>
+</Tabs>
