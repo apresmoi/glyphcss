@@ -244,7 +244,7 @@ function buildSelectionEdges(t: TextureTriangle): WireframeEdge[] {
 }
 
 interface Tunables {
-  scale: number;
+  zoom: number;
   stretch: number;
   distance: number;
   rotX: number;
@@ -481,7 +481,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   const tunables: Tunables = { ...DEFAULT_TUNABLES, geometry: initialGeometry, ...userDefaults };
 
-  let controlList: string[] = ['scale', 'stretch', 'distance', 'rotX', 'duration', 'geometry'];
+  let controlList: string[] = ['zoom', 'stretch', 'distance', 'rotX', 'duration', 'geometry'];
   const controlsAttr = demoEl.getAttribute('data-controls');
   if (controlsAttr) { try { controlList = JSON.parse(controlsAttr); } catch {} }
 
@@ -624,7 +624,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   let camera = createGlyphcssPerspectiveCamera({
     rotX: tunables.rotX, rotY: 0,
     distance: tunables.distance,
-    scale: tunables.scale,
+    zoom: tunables.zoom,
     stretch: tunables.stretch,
   });
 
@@ -786,17 +786,17 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
         rotX: tunables.rotX, rotY: preservedRotY,
         focal: 5,
       });
-      camera.zoom = tunables.scale;
+      camera.zoom = tunables.zoom;
     } else if (controlState.projection === 'orthographic') {
       camera = createGlyphcssOrthographicCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
-        zoom: tunables.scale,
+        zoom: tunables.zoom,
       });
     } else {
       camera = createGlyphcssPerspectiveCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
         distance: tunables.distance,
-        scale: tunables.scale,
+        zoom: tunables.zoom,
         stretch: tunables.stretch,
       });
     }
@@ -1309,7 +1309,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   let lastBakeMs = 0;
 
-  function getCameraState(): { rotX: number; rotY: number; scale: number; target: [number, number, number] } {
+  function getCameraState(): { rotX: number; rotY: number; zoom: number; target: [number, number, number] } {
     return {
       rotX: camera.rotX,
       rotY: camera.rotY,
@@ -1387,7 +1387,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       setMeshUrl: (u: string) => Promise<void>;
       setTunables: (p: Partial<Tunables>) => void;
       setControlState: (p: Partial<ControlState>) => void;
-      getCameraState: () => { rotX: number; rotY: number; scale: number; target: [number, number, number] };
+      getCameraState: () => { rotX: number; rotY: number; zoom: number; target: [number, number, number] };
       getStats: () => { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number };
       getSelection: () => { index: number; triangle: TextureTriangle | null };
       clearSelection: () => void;
@@ -1430,7 +1430,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   const gui = controlsEl ? new GUI({ container: controlsEl, title: 'Tuning', width: 240 }) : null;
   // lil-gui ranges aligned to glyphcss gallery defaults.
   const controlMakers: Record<string, () => void> = gui ? {
-    scale: () => { gui.add(tunables, 'scale', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
+    scale: () => { gui.add(tunables, 'zoom', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
     stretch: () => { gui.add(tunables, 'stretch', 0.5, 1.5, 0.01).onChange(rebuildAll); },
     distance: () => { gui.add(tunables, 'distance', 100, 100000, 100).name('perspective').onChange(rebuildAll); },
     rotX: () => { gui.add(tunables, 'rotX', 0, 1.75, 0.01).name('tilt (rotX)').onChange(rebuildAll); },
@@ -1581,7 +1581,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     const factor = Math.exp(-delta * 0.000513); // glyphcss ZOOM_STEP
     const newScale = Math.max(0.02, Math.min(20, camera.zoom * factor));
     camera.zoom = newScale;
-    tunables.scale = newScale;
+    tunables.zoom = newScale;
     viewportEl.classList.add('dragging');
     if (scene.mode !== 'solid') {
       const selEdgesWhl = getSelectionEdges();
