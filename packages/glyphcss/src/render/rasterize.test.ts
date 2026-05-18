@@ -2,11 +2,11 @@ import { describe, it, expect } from "vitest";
 import { rasterize } from "./rasterize";
 import { buildRasterizeContext } from "../api/rasterizeContext";
 import { createGlyphcssPerspectiveCamera } from "../api/createGlyphcssCamera";
-import type { GlyphcssTriangle } from "../api/types";
+import type { Polygon } from "@glyphcss/core";
 
-/** Simple unit cube — 12 triangles (2 per face × 6 faces). */
-function makeCubeTriangles(): GlyphcssTriangle[] {
-  const out: GlyphcssTriangle[] = [];
+/** Simple unit cube — 12 triangular polygons (2 per face × 6 faces). */
+function makeCubePolygons(): Polygon[] {
+  const out: Polygon[] = [];
   const faces: Array<[number, number, number, number, number, number, number, number, number, string]> = [
     // front face  (z = 1)
     [-1, -1, 1,  1, -1, 1,  1,  1, 1, "#ff4444"],
@@ -39,7 +39,7 @@ describe("rasterize", () => {
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 40, rows: 20, cellAspect: 2.0 },
-      triangles: makeCubeTriangles(),
+      polygons: makeCubePolygons(),
       mode: "solid",
       useColors: false,
     });
@@ -56,7 +56,7 @@ describe("rasterize", () => {
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 30, rows: 15, cellAspect: 2.0 },
-      triangles: makeCubeTriangles(),
+      polygons: makeCubePolygons(),
       mode: "wireframe",
       useColors: false,
     });
@@ -69,7 +69,7 @@ describe("rasterize", () => {
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 40, rows: 20, cellAspect: 2.0 },
-      triangles: makeCubeTriangles(),
+      polygons: makeCubePolygons(),
       mode: "solid",
       useColors: true,
     });
@@ -84,7 +84,7 @@ describe("rasterize", () => {
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 20, rows, cellAspect: 2.0 },
-      triangles: makeCubeTriangles(),
+      polygons: makeCubePolygons(),
       mode: "solid",
       useColors: false,
     });

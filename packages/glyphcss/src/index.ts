@@ -25,7 +25,7 @@ export type {
 } from "./api/createGlyphcssScene";
 
 // Re-export glyphcss-specific types
-export type { GlyphcssDirectionalLight, GlyphcssAmbientLight, GlyphcssTriangle } from "./api/types";
+export type { GlyphcssDirectionalLight, GlyphcssAmbientLight } from "./api/types";
 
 // ── Camera factories ──────────────────────────────────────────────
 export {

@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { GlyphcssSceneHandle, GlyphcssHotspotHandle, GlyphcssHotspotOptions, GlyphcssMeshHandle, GlyphcssMeshTransform, GlyphcssTriangle } from "glyphcss";
+import type { GlyphcssSceneHandle, GlyphcssHotspotHandle, GlyphcssHotspotOptions, GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
 
 export interface GlyphcssSceneContextValue {
   sceneRef: React.MutableRefObject<GlyphcssSceneHandle | null>;
@@ -21,4 +21,4 @@ export interface GlyphcssMeshContextValue {
 
 export const GlyphcssMeshContext = createContext<GlyphcssMeshContextValue | null>(null);
 
-export type { GlyphcssSceneHandle, GlyphcssHotspotHandle, GlyphcssHotspotOptions, GlyphcssMeshHandle, GlyphcssMeshTransform, GlyphcssTriangle };
+export type { GlyphcssSceneHandle, GlyphcssHotspotHandle, GlyphcssHotspotOptions, GlyphcssMeshHandle, GlyphcssMeshTransform };

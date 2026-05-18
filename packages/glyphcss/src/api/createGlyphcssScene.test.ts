@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createGlyphcssScene } from "./createGlyphcssScene";
-import type { GlyphcssTriangle } from "./createGlyphcssScene";
+import type { Polygon } from "@glyphcss/core";
 
 function makeDiv(): HTMLElement {
   return document.createElement("div");
 }
 
-function makeSingleTriangle(): GlyphcssTriangle[] {
+function makeSinglePolygon(): Polygon[] {
   return [{
     vertices: [
       [0, 1, 0],
@@ -17,8 +17,8 @@ function makeSingleTriangle(): GlyphcssTriangle[] {
   }];
 }
 
-function makeCubeTriangles(): GlyphcssTriangle[] {
-  const out: GlyphcssTriangle[] = [];
+function makeCubePolygons(): Polygon[] {
+  const out: Polygon[] = [];
   const faces: Array<[number,number,number, number,number,number, number,number,number]> = [
     [-1,-1, 1, 1,-1, 1, 1, 1, 1],
     [-1,-1, 1, 1, 1, 1,-1, 1, 1],
@@ -59,7 +59,7 @@ describe("createGlyphcssScene", () => {
 
   it("renders text content after adding a mesh", async () => {
     const scene = createGlyphcssScene(host, { cols: 30, rows: 15, useColors: false });
-    scene.add(makeCubeTriangles());
+    scene.add(makeCubePolygons());
     // Await the microtask queue so scheduleRender fires
     await Promise.resolve();
     const pre = scene.output;
@@ -69,7 +69,7 @@ describe("createGlyphcssScene", () => {
 
   it("returns a GlyphcssMeshHandle with dispose", () => {
     const scene = createGlyphcssScene(host, { cols: 20, rows: 10 });
-    const handle = scene.add(makeSingleTriangle());
+    const handle = scene.add(makeSinglePolygon());
     expect(typeof handle.dispose).toBe("function");
     expect(typeof handle.setTransform).toBe("function");
     handle.dispose();
@@ -78,7 +78,7 @@ describe("createGlyphcssScene", () => {
 
   it("removes mesh on dispose and re-renders empty", async () => {
     const scene = createGlyphcssScene(host, { cols: 20, rows: 10, useColors: false });
-    const handle = scene.add(makeCubeTriangles());
+    const handle = scene.add(makeCubePolygons());
     await Promise.resolve();
     const withMesh = scene.output.textContent ?? "";
 
@@ -102,7 +102,7 @@ describe("createGlyphcssScene", () => {
 
   it("setOptions changes mode and re-renders", async () => {
     const scene = createGlyphcssScene(host, { cols: 30, rows: 15, mode: "solid", useColors: false });
-    scene.add(makeCubeTriangles());
+    scene.add(makeCubePolygons());
     await Promise.resolve();
     scene.setOptions({ mode: "wireframe" });
     await Promise.resolve();

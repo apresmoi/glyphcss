@@ -8,10 +8,9 @@ import { createRoot } from "react-dom/client";
 import { GlyphcssScene } from "../scene/GlyphcssScene";
 import { GlyphcssMesh } from "../scene/GlyphcssMesh";
 import { useGlyphcssAnimation } from "./useGlyphcssAnimation";
-import type { GlyphcssTriangle } from "glyphcss";
-import type { GlyphcssAnimationClip, ParseAnimationController, GlyphcssAnimationTarget } from "@glyphcss/core";
+import type { Polygon, GlyphcssAnimationClip, ParseAnimationController, GlyphcssAnimationTarget } from "@glyphcss/core";
 
-const TRIANGLE: GlyphcssTriangle = {
+const POLYGON: Polygon = {
   vertices: [
     [0, 0, 0],
     [1, 0, 0],
@@ -67,7 +66,7 @@ function renderWithAnimation(
       React.createElement(
         GlyphcssScene,
         {},
-        React.createElement(GlyphcssMesh, { triangles: [TRIANGLE] }),
+        React.createElement(GlyphcssMesh, { polygons: [POLYGON] }),
         React.createElement(AnimationConsumer, animProps),
       ),
     ),

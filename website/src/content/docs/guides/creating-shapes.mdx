@@ -5,19 +5,18 @@ description: Building meshes in code — from scratch, with helpers, and via mat
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide covers building `GlyphcssTriangle[]` arrays by hand, using the built-in
+This guide covers building `Polygon[]` arrays by hand, using the built-in
 geometry helpers from `@glyphcss/core`, and generating procedural meshes from math
 functions. All examples are self-contained — copy any block and it will run.
 
 ## From scratch: a tetrahedron
 
 A tetrahedron has 4 vertices and 4 triangular faces. The simplest approach: write
-the vertices as a `Vec3[]` and the face indices by hand, then map to triangles.
+the vertices as a `Vec3[]` and the face indices by hand, then map to polygons.
 
 ```ts
 import { createGlyphcssScene } from "glyphcss";
-import type { GlyphcssTriangle } from "glyphcss";
-import type { Vec3 } from "@glyphcss/core";
+import type { Polygon, Vec3 } from "@glyphcss/core";
 
 // 4 vertices of a regular tetrahedron (circumradius ≈ 1).
 const s = 1 / Math.sqrt(3);
@@ -36,7 +35,7 @@ const faceIndices: [number, number, number][] = [
   [1, 2, 3],
 ];
 
-const triangles: GlyphcssTriangle[] = faceIndices.map(([a, b, c]) => ({
+const polygons: Polygon[] = faceIndices.map(([a, b, c]) => ({
   vertices: [verts[a], verts[b], verts[c]],
   color: "#aaffcc",
 }));
@@ -44,17 +43,17 @@ const triangles: GlyphcssTriangle[] = faceIndices.map(([a, b, c]) => ({
 // Render it.
 const host = document.querySelector<HTMLElement>("#scene")!;
 const scene = createGlyphcssScene(host, { mode: "solid", cols: 80, rows: 24 });
-scene.add(triangles);
+scene.add(polygons);
 ```
 
-The resulting `GlyphcssTriangle[]` is a flat array — no scene graph, no hierarchy.
-Each element has `vertices: [Vec3, Vec3, Vec3]` and an optional `color` hex string.
+The resulting `Polygon[]` is a flat array — no scene graph, no hierarchy.
+Each element has `vertices: Vec3[]` and an optional `color` hex string.
+The rasterizer fan-triangulates N-gons internally.
 
 ## Built-in helpers
 
 `@glyphcss/core` ships geometry generators for all common shapes. Each returns
-`Polygon[]` — convert to `GlyphcssTriangle[]` for the glyphcss rasterizer, or pass
-directly to `@glyphcss/react` / `@glyphcss/vue` mesh components.
+`Polygon[]` — pass directly to `scene.add()` or to the `GlyphcssMesh` `polygons` prop.
 
 ### Platonic solids
 
@@ -214,9 +213,9 @@ export function App() {
   return (
     <GlyphcssScene mode="solid" cols={120} rows={36}>
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={cube} />
-      <GlyphcssMesh triangles={octa} />
-      <GlyphcssMesh triangles={axes} />
+      <GlyphcssMesh polygons={cube} />
+      <GlyphcssMesh polygons={octa} />
+      <GlyphcssMesh polygons={axes} />
     </GlyphcssScene>
   );
 }
@@ -229,9 +228,9 @@ export function App() {
 <template>
   <GlyphcssScene mode="solid" :cols="120" :rows="36">
     <GlyphcssOrbitControls />
-    <GlyphcssMesh :triangles="cube" />
-    <GlyphcssMesh :triangles="octa" />
-    <GlyphcssMesh :triangles="axes" />
+    <GlyphcssMesh :polygons="cube" />
+    <GlyphcssMesh :polygons="octa" />
+    <GlyphcssMesh :polygons="axes" />
   </GlyphcssScene>
 </template>
 
@@ -269,13 +268,13 @@ scene.add(axesHelperPolygons({ size: 1.5 }));
 
 ## Mesh from a math function
 
-Generate arbitrary triangulated surfaces with a `for` loop. This example builds a
-wavy plane by pushing two triangles per grid cell.
+Generate arbitrary surfaces with a `for` loop. This example builds a wavy plane
+by pushing two triangles per grid cell. You can also push quads (4 vertices) —
+the rasterizer fan-triangulates them automatically.
 
 ```ts
 import { createGlyphcssScene } from "glyphcss";
-import type { GlyphcssTriangle } from "glyphcss";
-import type { Vec3 } from "@glyphcss/core";
+import type { Polygon, Vec3 } from "@glyphcss/core";
 
 const COLS = 20;
 const ROWS = 20;
@@ -285,8 +284,8 @@ function waveY(x: number, z: number, t = 0): number {
   return Math.sin(x * 3 + t) * 0.15 + Math.cos(z * 2.5 + t) * 0.1;
 }
 
-function makeGrid(): GlyphcssTriangle[] {
-  const triangles: GlyphcssTriangle[] = [];
+function makeGrid(): Polygon[] {
+  const polygons: Polygon[] = [];
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -300,11 +299,11 @@ function makeGrid(): GlyphcssTriangle[] {
       const v01: Vec3 = [x0, waveY(x0, z1), z1];
       const v11: Vec3 = [x1, waveY(x1, z1), z1];
 
-      triangles.push({ vertices: [v00, v10, v11], color: "#33aaff" });
-      triangles.push({ vertices: [v00, v11, v01], color: "#2299ee" });
+      polygons.push({ vertices: [v00, v10, v11], color: "#33aaff" });
+      polygons.push({ vertices: [v00, v11, v01], color: "#2299ee" });
     }
   }
-  return triangles;
+  return polygons;
 }
 
 const host = document.querySelector<HTMLElement>("#scene")!;
@@ -312,6 +311,6 @@ const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
 scene.add(makeGrid());
 ```
 
-Each cell produces two triangles sharing the quad diagonal `v00→v11`. To animate
-the wave, call `handle.dispose()` and `scene.add(makeGrid(newTime))` after each
-camera-end event — do not call it every frame.
+Each cell produces two triangular polygons sharing the quad diagonal `v00→v11`.
+To animate the wave, call `handle.dispose()` and `scene.add(makeGrid(newTime))`
+after each camera-end event — do not call it every frame.

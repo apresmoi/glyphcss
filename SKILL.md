@@ -39,7 +39,7 @@ export function App() {
   return (
     <GlyphcssScene mode="solid" cols={100} rows={30}>
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={icosa} />
+      <GlyphcssMesh polygons={icosa} />
     </GlyphcssScene>
   );
 }
@@ -50,7 +50,7 @@ export function App() {
 <template>
   <GlyphcssScene mode="solid" :cols="100" :rows="30">
     <GlyphcssOrbitControls />
-    <GlyphcssMesh :triangles="icosa" />
+    <GlyphcssMesh :polygons="icosa" />
   </GlyphcssScene>
 </template>
 <script setup lang="ts">
@@ -72,7 +72,7 @@ createGlyphcssOrbitControls(scene, { drag: true, wheel: true });
 ## Built-in shapes
 
 All generators live in `@glyphcss/core` and return `Polygon[]`. Pass them directly
-to `GlyphcssMesh` via the `triangles` prop.
+to `GlyphcssMesh` via the `polygons` prop.
 
 | Helper | Shape | Key options |
 |---|---|---|
@@ -138,7 +138,7 @@ baked frame. They fire normal DOM events.
 // React
 import { GlyphcssHotspot } from "@glyphcss/react";
 
-<GlyphcssMesh triangles={cube}>
+<GlyphcssMesh polygons={cube}>
   <GlyphcssHotspot
     id="top"
     at={[0, 0.5, 0]}
@@ -180,8 +180,8 @@ scene.setOptions({
 
 ## Common pitfalls
 
-- **Triangles must form valid closed-ish surfaces.** Each `GlyphcssTriangle` is
-  rasterized independently; gaps between triangles show as black holes in solid mode.
+- **Polygons must form valid closed-ish surfaces.** Each `Polygon` is fan-triangulated
+  internally; gaps between polygons show as black holes in solid mode.
 - **VOX files render best in `voxel` mode.** Using `solid` on `.vox` output works
   but loses the palette-aligned density mapping and looks muddier.
 - **`cols`/`rows` do not auto-size.** The grid is fixed at creation time. If the
@@ -190,7 +190,7 @@ scene.setOptions({
 - **Cell aspect drift.** If `cellAspect` mismatches your actual font (typically
   `2.0` for monospace), the mesh will appear squished or stretched. Measure with a
   hidden `<span>` probe on the same font.
-- **Never `requestAnimationFrame` to update many triangles per frame.** The strip
+- **Never `requestAnimationFrame` to update many polygons per frame.** The strip
   is pre-baked — rebuild and re-add meshes only on user interaction or data changes,
   not on every tick.
 - **`ParseResult.dispose()` must be called on unmount.** `parseGltf` and

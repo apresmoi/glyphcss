@@ -4,9 +4,9 @@ import { createRoot } from "react-dom/client";
 import { GlyphcssScene } from "./GlyphcssScene";
 import { GlyphcssMesh } from "./GlyphcssMesh";
 import { GlyphcssOrbitControls } from "../controls/GlyphcssOrbitControls";
-import type { GlyphcssTriangle } from "glyphcss";
+import type { Polygon } from "@glyphcss/core";
 
-const TRIANGLE: GlyphcssTriangle = {
+const POLYGON: Polygon = {
   vertices: [
     [0, 0, 0],
     [1, 0, 0],
@@ -103,7 +103,7 @@ describe("GlyphcssScene — GlyphcssMesh child", () => {
     expect(() =>
       renderScene(
         {},
-        React.createElement(GlyphcssMesh, { triangles: [TRIANGLE] }),
+        React.createElement(GlyphcssMesh, { polygons: [POLYGON] }),
       ),
     ).not.toThrow();
   });
@@ -111,7 +111,7 @@ describe("GlyphcssScene — GlyphcssMesh child", () => {
   it("GlyphcssMesh renders a wrapper div", () => {
     const container = renderScene(
       {},
-      React.createElement(GlyphcssMesh, { id: "test-mesh", triangles: [TRIANGLE] }),
+      React.createElement(GlyphcssMesh, { id: "test-mesh", polygons: [POLYGON] }),
     );
     const mesh = container.querySelector(".glyphcss-mesh");
     expect(mesh).toBeTruthy();
@@ -145,7 +145,7 @@ describe("GlyphcssScene — error (no context)", () => {
     const root = createRoot(container);
     expect(() => {
       act(() =>
-        root.render(React.createElement(GlyphcssMesh, { triangles: [] })),
+        root.render(React.createElement(GlyphcssMesh, { polygons: [] })),
       );
     }).toThrow();
   });

@@ -13,7 +13,7 @@ All types below are exported from `@glyphcss/core` unless marked with `glyphcss`
 | `Vec2` | `[u, v]` tuple — UV coordinates | `TextureTriangle.uvs`, polygon UVs |
 | `Vec3` | `[x, y, z]` tuple — world-space point or vector | Vertices, directions, hotspot anchors |
 | `Polygon` | N coplanar vertices + optional color/texture | Helper generators, mesh parsers |
-| `TextureTriangle` | 3 vertices + 3 UV pairs + optional color | Parser output, `GlyphcssTriangle` base |
+| `TextureTriangle` | 3 vertices + 3 UV pairs + optional color | Parser-internal type for UV-mapped meshes |
 | `WireframeEdge` | `from`/`to` Vec3 pair + optional weight/color | `buildSceneContext` wireframe mode |
 
 ```ts

@@ -4,9 +4,9 @@ import type { VNode } from "vue";
 import { GlyphcssScene } from "./GlyphcssScene";
 import { GlyphcssMesh } from "./GlyphcssMesh";
 import { GlyphcssOrbitControls } from "../controls/GlyphcssOrbitControls";
-import type { GlyphcssTriangle } from "glyphcss";
+import type { Polygon } from "@glyphcss/core";
 
-const TRIANGLE: GlyphcssTriangle = {
+const POLYGON: Polygon = {
   vertices: [
     [0, 0, 0],
     [1, 0, 0],
@@ -107,7 +107,7 @@ describe("GlyphcssScene (Vue) — GlyphcssMesh child", () => {
     expect(() =>
       renderScene(
         {},
-        () => h(GlyphcssMesh, { triangles: [TRIANGLE] }),
+        () => h(GlyphcssMesh, { polygons: [POLYGON] }),
       ),
     ).not.toThrow();
     await nextTick();
@@ -116,7 +116,7 @@ describe("GlyphcssScene (Vue) — GlyphcssMesh child", () => {
   it("GlyphcssMesh renders a wrapper div", async () => {
     const { container } = renderScene(
       {},
-      () => h(GlyphcssMesh, { id: "test-mesh", triangles: [TRIANGLE] }),
+      () => h(GlyphcssMesh, { id: "test-mesh", polygons: [POLYGON] }),
     );
     await nextTick();
     const mesh = container.querySelector(".glyphcss-mesh");
@@ -151,7 +151,7 @@ describe("GlyphcssScene (Vue) — error (no context)", () => {
     const container = document.createElement("div");
     const app = createApp({
       setup() {
-        return () => h(GlyphcssMesh, { triangles: [] });
+        return () => h(GlyphcssMesh, { polygons: [] });
       },
     });
     expect(() => app.mount(container)).toThrow();

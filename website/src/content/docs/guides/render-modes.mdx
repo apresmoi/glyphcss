@@ -38,7 +38,7 @@ export function WireframeDemo() {
   return (
     <GlyphcssScene mode="wireframe" cols={80} rows={24}>
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={icosa} />
+      <GlyphcssMesh polygons={icosa} />
     </GlyphcssScene>
   );
 }
@@ -105,7 +105,7 @@ export function SolidDemo() {
       ambientLight={{ intensity: 0.4 }}
     >
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={dodeca} />
+      <GlyphcssMesh polygons={dodeca} />
     </GlyphcssScene>
   );
 }
@@ -143,15 +143,15 @@ where the source data is already cell-aligned.
 
 ```tsx
 import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
-import type { GlyphcssTriangle } from "glyphcss";
+import type { Polygon } from "@glyphcss/core";
 
-// `triangles` comes from parseVox() — load the file outside the component.
+// `polygons` comes from parseVox() — load the file outside the component.
 // Replace "/tree.vox" with your own MagicaVoxel file path.
-export function VoxelDemo({ triangles }: { triangles: GlyphcssTriangle[] }) {
+export function VoxelDemo({ polygons }: { polygons: Polygon[] }) {
   return (
     <GlyphcssScene mode="voxel" cols={80} rows={24}>
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={triangles} />
+      <GlyphcssMesh polygons={polygons} />
     </GlyphcssScene>
   );
 }
@@ -203,5 +203,5 @@ generators instead.
 
 // Equivalent procedural form (more control):
 import { icosahedronPolygons } from "@glyphcss/core";
-<GlyphcssMesh triangles={icosahedronPolygons({ center: [0,0,0], size:1 })} />
+<GlyphcssMesh polygons={icosahedronPolygons({ center: [0,0,0], size:1 })} />
 ```

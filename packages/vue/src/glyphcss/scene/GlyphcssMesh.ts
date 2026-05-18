@@ -1,16 +1,16 @@
 /**
- * GlyphcssMesh — Vue 3 component to register a triangle list with the parent
+ * GlyphcssMesh — Vue 3 component to register a polygon list with the parent
  * GlyphcssScene. Mirrors PolyMesh's prop surface for the ASCII backend.
  */
 import { defineComponent, h, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
 import type { PropType } from "vue";
-import type { Vec3 } from "@glyphcss/core";
-import type { GlyphcssTriangle, GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
+import type { Vec3, Polygon } from "@glyphcss/core";
+import type { GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
 import { GlyphcssSceneContextKey } from "./context";
 
 export interface GlyphcssMeshProps {
   id?: string;
-  triangles?: GlyphcssTriangle[];
+  polygons?: Polygon[];
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
@@ -21,7 +21,7 @@ export const GlyphcssMesh = defineComponent({
   name: "GlyphcssMesh",
   props: {
     id: { type: String, default: undefined },
-    triangles: { type: Array as PropType<GlyphcssTriangle[]>, default: () => [] },
+    polygons: { type: Array as PropType<Polygon[]>, default: () => [] },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
@@ -46,7 +46,7 @@ export const GlyphcssMesh = defineComponent({
     function register(): void {
       const scene = sceneRef.value;
       if (!scene) return;
-      const handle = scene.add(props.triangles ?? [], buildTransform());
+      const handle = scene.add(props.polygons ?? [], buildTransform());
       meshRef.value = handle;
     }
 
@@ -58,8 +58,8 @@ export const GlyphcssMesh = defineComponent({
     onMounted(register);
     onBeforeUnmount(unregister);
 
-    // Re-register when triangles array identity changes
-    watch(() => props.triangles, () => {
+    // Re-register when polygons array identity changes
+    watch(() => props.polygons, () => {
       unregister();
       register();
     });

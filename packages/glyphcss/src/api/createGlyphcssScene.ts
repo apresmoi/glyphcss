@@ -4,7 +4,7 @@
  *
  * Mirrors glyphcss's `createPolyScene` architecturally:
  *   - Takes a host element + scene options, returns a `GlyphcssSceneHandle`.
- *   - `handle.add(triangles, transform?)` registers a mesh and returns a
+ *   - `handle.add(polygons, transform?)` registers a mesh and returns a
  *     removable `GlyphcssMeshHandle`.
  *
  * DOM: injects `<div class="glyphcss-scene">` containing one `<pre>` (text
@@ -12,7 +12,7 @@
  * for hotspot dots).
  *
  * Paint backend: on each render, walks all registered meshes, applies each
- * mesh's transform to its triangles in memory, builds a `RasterizeContext`,
+ * mesh's transform to its polygons in memory, builds a `RasterizeContext`,
  * calls `rasterize`, and sets `<pre>.innerHTML` (or `.textContent` when
  * `useColors` is false).
  *
@@ -25,6 +25,7 @@ import type {
   Vec3,
   RenderMode,
   Hotspot,
+  Polygon,
 } from "@glyphcss/core";
 import type { GlyphcssCamera } from "./createGlyphcssCamera";
 import { createGlyphcssPerspectiveCamera } from "./createGlyphcssCamera";
@@ -32,8 +33,8 @@ import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 import { injectGlyphcssBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphcssDirectionalLight, GlyphcssAmbientLight, GlyphcssMeshTransform, GlyphcssTriangle } from "./types";
-export type { GlyphcssMeshTransform, GlyphcssTriangle } from "./types";
+import type { GlyphcssDirectionalLight, GlyphcssAmbientLight, GlyphcssMeshTransform } from "./types";
+export type { GlyphcssMeshTransform } from "./types";
 
 export interface GlyphcssSceneOptions {
   /** Render mode: "wireframe" | "solid". Default "solid". */
@@ -65,8 +66,8 @@ export interface GlyphcssHotspotHandle {
 
 export interface GlyphcssMeshHandle {
   readonly id: number;
-  /** The raw triangles registered with this mesh. */
-  readonly triangles: GlyphcssTriangle[];
+  /** The raw polygons registered with this mesh. */
+  readonly polygons: Polygon[];
   setTransform(transform: GlyphcssMeshTransform): void;
   dispose(): void;
 }
@@ -79,10 +80,10 @@ export interface GlyphcssSceneHandle {
   /** The camera attached to this scene (mutate then call `rerender()`). */
   readonly camera: GlyphcssCamera;
   /**
-   * Register a triangle list as a mesh. Optionally supply a transform.
+   * Register a polygon list as a mesh. Optionally supply a transform.
    * Returns a handle to update or dispose the mesh.
    */
-  add(triangles: GlyphcssTriangle[], transform?: GlyphcssMeshTransform): GlyphcssMeshHandle;
+  add(polygons: Polygon[], transform?: GlyphcssMeshTransform): GlyphcssMeshHandle;
   addHotspot(opts: GlyphcssHotspotOptions, onClick?: () => void): GlyphcssHotspotHandle;
   /** Force an immediate re-rasterize. Normally called automatically on add/remove/setOptions. */
   rerender(): void;
@@ -93,15 +94,15 @@ export interface GlyphcssSceneHandle {
 
 interface MeshEntry {
   id: number;
-  triangles: GlyphcssTriangle[];
+  polygons: Polygon[];
   transform: GlyphcssMeshTransform;
 }
 
 let nextMeshId = 1;
 
-function applyTransform(triangles: GlyphcssTriangle[], transform: GlyphcssMeshTransform): GlyphcssTriangle[] {
+function applyTransform(polygons: Polygon[], transform: GlyphcssMeshTransform): Polygon[] {
   const { position, scale, rotation } = transform;
-  if (!position && !scale && !rotation) return triangles;
+  if (!position && !scale && !rotation) return polygons;
 
   const [px, py, pz] = position ?? [0, 0, 0];
   let sx = 1, sy = 1, sz = 1;
@@ -135,13 +136,9 @@ function applyTransform(triangles: GlyphcssTriangle[], transform: GlyphcssMeshTr
     return [nx + px, ny + py, nz + pz];
   }
 
-  return triangles.map((t) => ({
-    ...t,
-    vertices: [
-      transformVertex(t.vertices[0]),
-      transformVertex(t.vertices[1]),
-      transformVertex(t.vertices[2]),
-    ] as [Vec3, Vec3, Vec3],
+  return polygons.map((p) => ({
+    ...p,
+    vertices: p.vertices.map(transformVertex),
   }));
 }
 
@@ -188,17 +185,17 @@ export function createGlyphcssScene(
   }
 
   function doRender(): void {
-    // Gather all triangles after transforms.
-    const allTriangles: GlyphcssTriangle[] = [];
+    // Gather all polygons after transforms.
+    const allPolygons: Polygon[] = [];
     for (const entry of meshes.values()) {
-      const transformed = applyTransform(entry.triangles, entry.transform);
-      for (const t of transformed) allTriangles.push(t);
+      const transformed = applyTransform(entry.polygons, entry.transform);
+      for (const p of transformed) allPolygons.push(p);
     }
 
     const ctx = buildRasterizeContext({
       camera: options.camera,
       grid: { cols: options.cols, rows: options.rows, cellAspect: options.cellAspect },
-      triangles: allTriangles,
+      polygons: allPolygons,
       mode: options.mode,
       directionalLight: options.directionalLight,
       ambientLight: options.ambientLight,
@@ -246,14 +243,14 @@ export function createGlyphcssScene(
     }
   }
 
-  function add(triangles: GlyphcssTriangle[], transform: GlyphcssMeshTransform = {}): GlyphcssMeshHandle {
+  function add(polygons: Polygon[], transform: GlyphcssMeshTransform = {}): GlyphcssMeshHandle {
     const id = nextMeshId++;
-    meshes.set(id, { id, triangles, transform });
+    meshes.set(id, { id, polygons, transform });
     scheduleRender();
 
     return {
       get id() { return id; },
-      get triangles() { return triangles; },
+      get polygons() { return polygons; },
       setTransform(next: GlyphcssMeshTransform): void {
         const entry = meshes.get(id);
         if (entry) { entry.transform = next; scheduleRender(); }
