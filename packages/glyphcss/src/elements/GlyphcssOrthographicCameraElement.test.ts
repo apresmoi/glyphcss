@@ -71,7 +71,7 @@ describe("GlyphcssOrthographicCameraElement", () => {
     // createGlyphcssOrthographicCamera maps zoom→scale.
     cam.setAttribute("zoom", "0.7");
     sceneEl.appendChild(cam);
-    expect(sceneEl.getScene()!.camera.scale).toBeCloseTo(0.7, 5);
+    expect(sceneEl.getScene()!.camera.zoom).toBeCloseTo(0.7, 5);
   });
 
   it("changing rot-y attribute updates camera", () => {

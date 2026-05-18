@@ -48,7 +48,7 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 export function App() {
   return (
     <GlyphcssScene mode="solid" cols={100} rows={30}>
-      <GlyphcssPerspectiveCamera rotX={0.4} scale={0.3} distance={3} />
+      <GlyphcssPerspectiveCamera rotX={0.4} zoom={0.3} distance={3} />
       <GlyphcssOrbitControls drag wheel />
       <GlyphcssMesh triangles={cube}>
         <GlyphcssHotspot
@@ -69,7 +69,7 @@ export function App() {
 ```vue
 <template>
   <GlyphcssScene mode="solid" :cols="100" :rows="30">
-    <GlyphcssPerspectiveCamera :rot-x="0.4" :scale="0.3" :distance="3" />
+    <GlyphcssPerspectiveCamera :rot-x="0.4" :zoom="0.3" :distance="3" />
     <GlyphcssOrbitControls drag wheel />
     <GlyphcssMesh :triangles="cube">
       <GlyphcssHotspot

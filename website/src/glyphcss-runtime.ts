@@ -309,11 +309,10 @@ interface ControlState {
 }
 
 const FRAMES = 60;
-// Defaults aligned to glyphcss gallery's createPolyScene defaults:
-//   zoom: 0.65, perspective: 8000, rotX: 65deg, rotY: 45deg.
-// `scale` = glyphcss `zoom`; `distance` = glyphcss `perspective` (pixel-ish focal length).
+// Default scene tunables. `scale` is the camera zoom; `distance` is the
+// perspective focal length in pixels.
 const DEFAULT_TUNABLES: Tunables = {
-  scale: 0.65,
+  scale: 0.3,
   stretch: 1.0,
   distance: 8000,
   rotX: 1.134, // 65° in radians, matches glyphcss rotX
@@ -786,7 +785,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
         rotX: tunables.rotX, rotY: preservedRotY,
         focal: 5,
       });
-      camera.scale = tunables.scale;
+      camera.zoom = tunables.scale;
     } else if (controlState.projection === 'orthographic') {
       camera = createGlyphcssOrthographicCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
@@ -1313,7 +1312,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     return {
       rotX: camera.rotX,
       rotY: camera.rotY,
-      scale: camera.scale,
+      scale: camera.zoom,
       target: [...camera.target] as [number, number, number],
     };
   }
@@ -1495,7 +1494,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       // k = world-units-per-pixel divisor. col_pixels = r[0]*radius*cellH, so for
       // 1:1 cursor tracking, k = radius * cellH. Previously used cellW which
       // made pan ~cellAspect (≈2x) faster than the cursor.
-      const k = camera.scale * Math.min(scene.grid.cols, scene.grid.rows) * 1.5 * cellMetrics.cellH;
+      const k = camera.zoom * Math.min(scene.grid.cols, scene.grid.rows) * 1.5 * cellMetrics.cellH;
       const cosA = Math.cos(camera.rotY), sinA = Math.sin(camera.rotY);
       const cosB = Math.cos(camera.rotX);
       const dySafe = cosB !== 0 ? dy / cosB : dy;
@@ -1579,8 +1578,8 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     if (e.ctrlKey) delta *= 10; // trackpad pinch (browser sets ctrlKey)
     else delta *= 3;             // two-finger scroll amp
     const factor = Math.exp(-delta * 0.000513); // glyphcss ZOOM_STEP
-    const newScale = Math.max(0.02, Math.min(20, camera.scale * factor));
-    camera.scale = newScale;
+    const newScale = Math.max(0.02, Math.min(20, camera.zoom * factor));
+    camera.zoom = newScale;
     tunables.scale = newScale;
     viewportEl.classList.add('dragging');
     if (scene.mode !== 'solid') {

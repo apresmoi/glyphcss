@@ -58,7 +58,7 @@ This is enforced by both reading from a shared `GlyphcssCamera` handle:
 
 ```ts
 const camera = createGlyphcssPerspectiveCamera({
-  rotX: 0.4, rotY: 0, distance: 3, scale: 0.32, stretch: 1.0,
+  rotX: 0.4, rotY: 0, distance: 3, zoom: 0.32, stretch: 1.0,
 });
 
 const scene = buildSceneContext({ camera, grid, wireframe: edges, mode: "wireframe" });

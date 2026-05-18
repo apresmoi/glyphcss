@@ -23,7 +23,7 @@ function findScene(el: HTMLElement): GlyphcssSceneElement | null {
 
 export class GlyphcssPerspectiveCameraElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["rot-x", "rot-y", "distance", "scale", "stretch"];
+    return ["rot-x", "rot-y", "distance", "zoom", "stretch"];
   }
 
   connectedCallback(): void { this._apply(); }
@@ -41,7 +41,7 @@ export class GlyphcssPerspectiveCameraElement extends ELEMENT_BASE {
       rotX: parseNumber(this.getAttribute("rot-x")),
       rotY: parseNumber(this.getAttribute("rot-y")),
       distance: parseNumber(this.getAttribute("distance")),
-      scale: parseNumber(this.getAttribute("scale")),
+      zoom: parseNumber(this.getAttribute("zoom")),
       stretch: parseNumber(this.getAttribute("stretch")),
     });
     scene.setOptions({ camera: cam });

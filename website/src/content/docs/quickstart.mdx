@@ -41,7 +41,7 @@ import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, Gly
 
 export function App() {
   return (
-    <GlyphcssCamera rotX={0.4} scale={0.32}>
+    <GlyphcssCamera rotX={0.4} zoom={0.32}>
       <GlyphcssScene>
         <GlyphcssOrbitControls drag wheel />
         <GlyphcssMesh geometry="cuboctahedron">
@@ -58,7 +58,7 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphcssCamera :rot-x="0.4" :scale="0.32">
+  <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
     <GlyphcssScene>
       <GlyphcssOrbitControls drag wheel />
       <GlyphcssMesh geometry="cuboctahedron">
@@ -109,7 +109,7 @@ const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc"
 
 export function IcosahedronDemo() {
   return (
-    <GlyphcssCamera rotX={0.4} scale={0.32}>
+    <GlyphcssCamera rotX={0.4} zoom={0.32}>
       <GlyphcssScene mode="solid">
         <GlyphcssOrbitControls />
         <GlyphcssMesh triangles={icosa} />
@@ -124,7 +124,7 @@ export function IcosahedronDemo() {
 
 ```vue
 <template>
-  <GlyphcssCamera :rot-x="0.4" :scale="0.32">
+  <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
     <GlyphcssScene mode="solid">
       <GlyphcssOrbitControls />
       <GlyphcssMesh :triangles="icosa" />

@@ -38,8 +38,8 @@ export interface GlyphcssCamera {
   rotY: number;
   /** Distance from origin along the view axis. Only meaningful for perspective cameras. */
   distance: number;
-  /** Mesh size in the viewport (fraction of `min(cols, rows)`). */
-  scale: number;
+  /** Camera zoom — mesh size in the viewport (fraction of `min(cols, rows)`). */
+  zoom: number;
   /** Extra horizontal stretch on top of `cellAspect`. */
   stretch: number;
   /**
@@ -61,8 +61,8 @@ export interface GlyphcssPerspectiveCameraOptions {
    * more dramatic. Default 3.
    */
   distance?: number;
-  /** Size of the mesh in the viewport (fraction of `min(cols, rows)`). Default 0.4. */
-  scale?: number;
+  /** Camera zoom — mesh size in the viewport (fraction of `min(cols, rows)`). Default 0.4. */
+  zoom?: number;
   /**
    * Extra horizontal scale on top of `cellAspect`. Use to counteract
    * over-stretching when monospace cells are taller than wide. Default 1.0.
@@ -101,7 +101,7 @@ export function createGlyphcssPerspectiveCamera(opts: GlyphcssPerspectiveCameraO
     rotX: opts.rotX ?? 0,
     rotY: opts.rotY ?? 0,
     distance: opts.distance ?? 3,
-    scale: opts.scale ?? 0.4,
+    zoom: opts.zoom ?? 0.4,
     stretch: opts.stretch ?? 1.0,
     target: [0, 0, 0] as Vec3,
   };
@@ -115,29 +115,23 @@ export function createGlyphcssPerspectiveCamera(opts: GlyphcssPerspectiveCameraO
     set rotY(v: number) { state.rotY = v; },
     get distance(): number { return state.distance; },
     set distance(v: number) { state.distance = v; },
-    get scale(): number { return state.scale; },
-    set scale(v: number) { state.scale = v; },
+    get zoom(): number { return state.zoom; },
+    set zoom(v: number) { state.zoom = v; },
     get stretch(): number { return state.stretch; },
     set stretch(v: number) { state.stretch = v; },
     get target(): Vec3 { return state.target; },
     set target(v: Vec3) { state.target = v; },
     project(v, cols, rows, cellAspect) {
-      // Subtract the pan target before rotating — mirrors glyphcss target semantics.
       const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
-      // rotateVec3(v, rotY, rotX) applies rotZ(rotY) then rotX(rotX) —
-      // matches CSS `rotateX(rotX) rotate(rotY)` (CSS reads right-to-left).
       const r = rotateVec3(shifted, state.rotY, state.rotX);
-      // Glyphcss-equivalent perspective math: `persp = 1 / (1 - z/distance)`.
       const MESH_UNIT = 30;
       const ZOOM_TO_RADIUS = 1.5;
       const zPx = r[2] * MESH_UNIT;
-      // Near-plane culling: reject the vertex by returning NaN so the rasterizer
-      // skips lines through it.
       const NEAR = 0.001;
       const denom = 1 - zPx / state.distance;
       if (denom < NEAR) return [NaN, NaN, r[2]];
       const persp = 1 / denom;
-      const radius = Math.min(cols, rows) * state.scale * ZOOM_TO_RADIUS * persp;
+      const radius = Math.min(cols, rows) * state.zoom * ZOOM_TO_RADIUS * persp;
       const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
       const row = rows * cyN + r[1] * radius;
       return [col, row, r[2]];
@@ -150,7 +144,7 @@ export function createGlyphcssOrthographicCamera(opts: GlyphcssOrthographicCamer
     rotX: opts.rotX ?? 0,
     rotY: opts.rotY ?? 0,
     distance: 0,
-    scale: opts.zoom ?? 0.4,
+    zoom: opts.zoom ?? 0.4,
     stretch: 1.0,
     target: [0, 0, 0] as Vec3,
   };
@@ -164,8 +158,8 @@ export function createGlyphcssOrthographicCamera(opts: GlyphcssOrthographicCamer
     set rotY(v: number) { state.rotY = v; },
     get distance(): number { return state.distance; },
     set distance(v: number) { state.distance = v; },
-    get scale(): number { return state.scale; },
-    set scale(v: number) { state.scale = v; },
+    get zoom(): number { return state.zoom; },
+    set zoom(v: number) { state.zoom = v; },
     get stretch(): number { return state.stretch; },
     set stretch(v: number) { state.stretch = v; },
     get target(): Vec3 { return state.target; },
@@ -174,7 +168,7 @@ export function createGlyphcssOrthographicCamera(opts: GlyphcssOrthographicCamer
       const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
       const r = rotateVec3(shifted, state.rotY, state.rotX);
       const ZOOM_TO_RADIUS = 1.5;
-      const radius = Math.min(cols, rows) * state.scale * ZOOM_TO_RADIUS;
+      const radius = Math.min(cols, rows) * state.zoom * ZOOM_TO_RADIUS;
       const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
       const row = rows * cyN + r[1] * radius;
       return [col, row, r[2]];
@@ -191,7 +185,7 @@ export function createGlyphcssFirstPersonCamera(opts: GlyphcssFirstPersonCameraO
     rotX: opts.rotX ?? Math.PI / 2,
     rotY: opts.rotY ?? 0,
     distance: 0,
-    scale: 1,
+    zoom: 1,
     stretch: 1.0,
     target: (opts.origin ?? [0, 0, 0]) as Vec3,
     focal: opts.focal ?? 1,
@@ -205,8 +199,8 @@ export function createGlyphcssFirstPersonCamera(opts: GlyphcssFirstPersonCameraO
     set rotY(v: number) { state.rotY = v; },
     get distance(): number { return state.distance; },
     set distance(v: number) { state.distance = v; state.focal = Math.max(0.05, v / 100); },
-    get scale(): number { return state.scale; },
-    set scale(v: number) { state.scale = v; },
+    get zoom(): number { return state.zoom; },
+    set zoom(v: number) { state.zoom = v; },
     get stretch(): number { return state.stretch; },
     set stretch(v: number) { state.stretch = v; },
     get target(): Vec3 { return state.target; },
@@ -218,7 +212,7 @@ export function createGlyphcssFirstPersonCamera(opts: GlyphcssFirstPersonCameraO
       const NEAR = 0.001;
       if (r[2] >= -NEAR) return [NaN, NaN, r[2]];
       const inv = state.focal / -r[2];
-      const radius = Math.min(cols, rows) * state.scale * inv;
+      const radius = Math.min(cols, rows) * state.zoom * inv;
       const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
       const row = rows * cyN + r[1] * radius;
       return [col, row, r[2]];

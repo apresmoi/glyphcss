@@ -13,7 +13,7 @@ export interface GlyphcssPerspectiveCameraProps {
   rotX?: number;
   rotY?: number;
   distance?: number;
-  scale?: number;
+  zoom?: number;
   stretch?: number;
   center?: [number, number];
 }
@@ -24,7 +24,7 @@ export const GlyphcssPerspectiveCamera = defineComponent({
     rotX: { type: Number, default: undefined },
     rotY: { type: Number, default: undefined },
     distance: { type: Number, default: undefined },
-    scale: { type: Number, default: undefined },
+    zoom: { type: Number, default: undefined },
     stretch: { type: Number, default: undefined },
     center: { type: Array as unknown as PropType<[number, number]>, default: undefined },
   },
@@ -48,7 +48,7 @@ export const GlyphcssPerspectiveCamera = defineComponent({
       if (props.rotX !== undefined) opts.rotX = props.rotX;
       if (props.rotY !== undefined) opts.rotY = props.rotY;
       if (props.distance !== undefined) opts.distance = props.distance;
-      if (props.scale !== undefined) opts.scale = props.scale;
+      if (props.zoom !== undefined) opts.zoom = props.zoom;
       if (props.stretch !== undefined) opts.stretch = props.stretch;
       if (props.center !== undefined) opts.center = props.center;
       const camera = createGlyphcssPerspectiveCamera(opts);
@@ -62,7 +62,7 @@ export const GlyphcssPerspectiveCamera = defineComponent({
 
     // Sync prop changes
     watch(
-      () => ({ rotX: props.rotX, rotY: props.rotY, distance: props.distance, scale: props.scale, stretch: props.stretch }),
+      () => ({ rotX: props.rotX, rotY: props.rotY, distance: props.distance, zoom: props.zoom, stretch: props.stretch }),
       (next) => {
         const camera = cameraRef.value;
         if (!camera) return;
@@ -70,7 +70,7 @@ export const GlyphcssPerspectiveCamera = defineComponent({
         if (next.rotX !== undefined && camera.rotX !== next.rotX) { camera.rotX = next.rotX; dirty = true; }
         if (next.rotY !== undefined && camera.rotY !== next.rotY) { camera.rotY = next.rotY; dirty = true; }
         if (next.distance !== undefined && camera.distance !== next.distance) { camera.distance = next.distance; dirty = true; }
-        if (next.scale !== undefined && camera.scale !== next.scale) { camera.scale = next.scale; dirty = true; }
+        if (next.zoom !== undefined && camera.zoom !== next.zoom) { camera.zoom = next.zoom; dirty = true; }
         if (next.stretch !== undefined && camera.stretch !== next.stretch) { camera.stretch = next.stretch; dirty = true; }
         if (dirty) sceneRef.value?.rerender();
       },

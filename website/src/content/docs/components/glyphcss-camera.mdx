@@ -16,8 +16,8 @@ both simultaneously.
 | `rotX` | `number` (radians) | `0` | Tilt around X axis |
 | `rotY` | `number` (radians) | `0` | Spin around Y axis |
 | `distance` | `number` | `3` | Camera distance — smaller = more perspective foreshortening |
-| `scale` | `number` | `0.4` | Mesh size as a fraction of `min(cols, rows)` |
-| `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` — use `0.95` to match glyphcss |
+| `zoom` | `number` | `0.4` | Camera zoom — mesh fills this fraction of `min(cols, rows)` |
+| `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
 
 ## Props — orthographic
 
@@ -48,7 +48,7 @@ const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }
 export function PerspectiveExample() {
   return (
     <GlyphcssScene mode="solid" cols={100} rows={30}>
-      <GlyphcssPerspectiveCamera rotX={0.38} scale={0.4} distance={3} stretch={0.95} />
+      <GlyphcssPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95} />
       <GlyphcssOrbitControls />
       <GlyphcssMesh triangles={octa} />
     </GlyphcssScene>
@@ -74,7 +74,7 @@ export function OrthoExample() {
 <template>
   <GlyphcssScene mode="solid" :cols="100" :rows="30">
     <!-- Toggle between perspective and orthographic -->
-    <GlyphcssPerspectiveCamera v-if="perspective" :rot-x="0.38" :scale="0.4" :distance="3" />
+    <GlyphcssPerspectiveCamera v-if="perspective" :rot-x="0.38" :zoom="0.4" :distance="3" />
     <GlyphcssOrthographicCamera v-else :rot-x="0.62" :zoom="0.4" />
     <GlyphcssOrbitControls />
     <GlyphcssMesh :triangles="octa" />
@@ -114,7 +114,7 @@ const scene = createGlyphcssScene(host, { mode: "solid" });
 // Perspective camera
 const perspective = createGlyphcssPerspectiveCamera({
   rotX: 0.38,
-  scale: 0.4,
+  zoom: 0.4,
   distance: 3,
   stretch: 0.95,
 });

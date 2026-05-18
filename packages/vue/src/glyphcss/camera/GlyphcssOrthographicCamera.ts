@@ -60,7 +60,7 @@ export const GlyphcssOrthographicCamera = defineComponent({
         let dirty = false;
         if (next.rotX !== undefined && camera.rotX !== next.rotX) { camera.rotX = next.rotX; dirty = true; }
         if (next.rotY !== undefined && camera.rotY !== next.rotY) { camera.rotY = next.rotY; dirty = true; }
-        if (next.zoom !== undefined && camera.scale !== next.zoom) { camera.scale = next.zoom; dirty = true; }
+        if (next.zoom !== undefined && camera.zoom !== next.zoom) { camera.zoom = next.zoom; dirty = true; }
         if (dirty) sceneRef.value?.rerender();
       },
     );

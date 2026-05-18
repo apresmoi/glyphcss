@@ -18,8 +18,8 @@ export interface GlyphcssPerspectiveCameraProps {
   rotY?: number;
   /** Perspective distance. Default 3. */
   distance?: number;
-  /** Mesh scale in viewport fraction. Default 0.4. */
-  scale?: number;
+  /** Camera zoom — mesh fraction of min(cols, rows). Default 0.4. */
+  zoom?: number;
   /** Extra horizontal stretch on top of cellAspect. Default 1.0. */
   stretch?: number;
   /** Center of projection in normalized grid coords. Default [0.5, 0.5]. */
@@ -31,7 +31,7 @@ function GlyphcssPerspectiveCameraInner({
   rotX,
   rotY,
   distance,
-  scale,
+  zoom,
   stretch,
   center,
   children,
@@ -44,7 +44,7 @@ function GlyphcssPerspectiveCameraInner({
     if (rotX !== undefined) opts.rotX = rotX;
     if (rotY !== undefined) opts.rotY = rotY;
     if (distance !== undefined) opts.distance = distance;
-    if (scale !== undefined) opts.scale = scale;
+    if (zoom !== undefined) opts.zoom = zoom;
     if (stretch !== undefined) opts.stretch = stretch;
     if (center !== undefined) opts.center = center;
     cameraRef.current = createGlyphcssPerspectiveCamera(opts);
@@ -66,7 +66,7 @@ function GlyphcssPerspectiveCameraInner({
     if (rotX !== undefined && camera.rotX !== rotX) { camera.rotX = rotX; dirty = true; }
     if (rotY !== undefined && camera.rotY !== rotY) { camera.rotY = rotY; dirty = true; }
     if (distance !== undefined && camera.distance !== distance) { camera.distance = distance; dirty = true; }
-    if (scale !== undefined && camera.scale !== scale) { camera.scale = scale; dirty = true; }
+    if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
     if (stretch !== undefined && camera.stretch !== stretch) { camera.stretch = stretch; dirty = true; }
     if (dirty) {
       sceneRef.current?.rerender();

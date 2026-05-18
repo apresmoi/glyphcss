@@ -87,7 +87,7 @@ export function createGlyphcssOrbitControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    camera.scale = Math.max(0.05, Math.min(10, camera.scale * (1 - delta)));
+    camera.zoom = Math.max(0.05, Math.min(10, camera.zoom * (1 - delta)));
     scene.rerender();
   }
 

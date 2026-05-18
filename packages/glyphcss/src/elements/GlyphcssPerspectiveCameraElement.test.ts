@@ -35,11 +35,11 @@ describe("GlyphcssPerspectiveCameraElement", () => {
     expect(cam).toBeInstanceOf(GlyphcssPerspectiveCameraElement);
   });
 
-  it("observes rot-x, rot-y, distance, scale, stretch attributes", () => {
+  it("observes rot-x, rot-y, distance, zoom, stretch attributes", () => {
     expect(GlyphcssPerspectiveCameraElement.observedAttributes).toContain("rot-x");
     expect(GlyphcssPerspectiveCameraElement.observedAttributes).toContain("rot-y");
     expect(GlyphcssPerspectiveCameraElement.observedAttributes).toContain("distance");
-    expect(GlyphcssPerspectiveCameraElement.observedAttributes).toContain("scale");
+    expect(GlyphcssPerspectiveCameraElement.observedAttributes).toContain("zoom");
     expect(GlyphcssPerspectiveCameraElement.observedAttributes).toContain("stretch");
   });
 
@@ -75,10 +75,10 @@ describe("GlyphcssPerspectiveCameraElement", () => {
     expect(sceneEl.getScene()!.camera.distance).toBeCloseTo(5, 5);
   });
 
-  it("applies scale attribute to scene camera", () => {
-    cam.setAttribute("scale", "0.6");
+  it("applies zoom attribute to scene camera", () => {
+    cam.setAttribute("zoom", "0.6");
     sceneEl.appendChild(cam);
-    expect(sceneEl.getScene()!.camera.scale).toBeCloseTo(0.6, 5);
+    expect(sceneEl.getScene()!.camera.zoom).toBeCloseTo(0.6, 5);
   });
 
   it("changing rot-x attribute updates camera", () => {

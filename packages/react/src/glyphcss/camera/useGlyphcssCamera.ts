@@ -30,7 +30,7 @@ export function useGlyphcssCameraHook(options: UseGlyphcssCameraOptions): UseGly
     if (options.rotX !== undefined) camera.rotX = options.rotX;
     if (options.rotY !== undefined) camera.rotY = options.rotY;
     if (options.distance !== undefined) camera.distance = options.distance;
-    if (options.scale !== undefined) camera.scale = options.scale;
+    if (options.zoom !== undefined) camera.zoom = options.zoom;
     if (options.stretch !== undefined) camera.stretch = options.stretch;
 
     // Set the camera on the scene

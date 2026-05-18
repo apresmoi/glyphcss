@@ -121,21 +121,21 @@ describe("createGlyphcssMapControls", () => {
 
   it("wheel deltaY < 0 increases scale (zoom in)", () => {
     const controls = createGlyphcssMapControls(scene);
-    const initialScale = scene.camera.scale;
+    const initialZoom = scene.camera.zoom;
 
     scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
 
-    expect(scene.camera.scale).toBeGreaterThan(initialScale);
+    expect(scene.camera.zoom).toBeGreaterThan(initialZoom);
     controls.destroy();
   });
 
   it("wheel deltaY > 0 decreases scale (zoom out)", () => {
     const controls = createGlyphcssMapControls(scene);
-    const initialScale = scene.camera.scale;
+    const initialZoom = scene.camera.zoom;
 
     scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 100, bubbles: true }));
 
-    expect(scene.camera.scale).toBeLessThan(initialScale);
+    expect(scene.camera.zoom).toBeLessThan(initialZoom);
     controls.destroy();
   });
 
@@ -145,12 +145,12 @@ describe("createGlyphcssMapControls", () => {
     for (let i = 0; i < 50; i++) {
       scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 10000, bubbles: true }));
     }
-    expect(scene.camera.scale).toBeGreaterThanOrEqual(0.05);
+    expect(scene.camera.zoom).toBeGreaterThanOrEqual(0.05);
 
     for (let i = 0; i < 50; i++) {
       scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -10000, bubbles: true }));
     }
-    expect(scene.camera.scale).toBeLessThanOrEqual(10);
+    expect(scene.camera.zoom).toBeLessThanOrEqual(10);
     controls.destroy();
   });
 
@@ -170,10 +170,10 @@ describe("createGlyphcssMapControls", () => {
     const controls = createGlyphcssMapControls(scene);
     controls.destroy();
 
-    const scaleBefore = scene.camera.scale;
+    const zoomBefore = scene.camera.zoom;
     scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
 
-    expect(scene.camera.scale).toBe(scaleBefore);
+    expect(scene.camera.zoom).toBe(zoomBefore);
   });
 
   it("invert option reverses orbit direction (right-drag) but NOT pan direction", () => {
@@ -196,11 +196,11 @@ describe("createGlyphcssMapControls", () => {
   it("pan magnitude is proportional to PAN_SCALE / scale", () => {
     // Use a higher scale so pan distance is smaller
     const sceneHighZoom = makeScene();
-    sceneHighZoom.camera.scale = 2;
+    sceneHighZoom.camera.zoom = 2;
     const controlsHigh = createGlyphcssMapControls(sceneHighZoom);
 
     const sceneLowZoom = makeScene();
-    sceneLowZoom.camera.scale = 1;
+    sceneLowZoom.camera.zoom = 1;
     const controlsLow = createGlyphcssMapControls(sceneLowZoom);
 
     const dx = 100;
@@ -258,11 +258,11 @@ describe("createGlyphcssMapControls", () => {
 
   it("wheel disabled via option produces no scale change", () => {
     const controls = createGlyphcssMapControls(scene, { wheel: false });
-    const initialScale = scene.camera.scale;
+    const initialZoom = scene.camera.zoom;
 
     scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
 
-    expect(scene.camera.scale).toBe(initialScale);
+    expect(scene.camera.zoom).toBe(initialZoom);
     controls.destroy();
   });
 

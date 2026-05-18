@@ -76,8 +76,8 @@ export function createGlyphcssMapControls(
       // Pan: translate target in camera-tangent plane
       const t = camera.target;
       camera.target = [
-        t[0] - dx * PAN_SCALE / camera.scale,
-        t[1] - dy * PAN_SCALE / camera.scale,
+        t[0] - dx * PAN_SCALE / camera.zoom,
+        t[1] - dy * PAN_SCALE / camera.zoom,
         t[2],
       ] as Vec3;
     }
@@ -99,7 +99,7 @@ export function createGlyphcssMapControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    camera.scale = Math.max(0.05, Math.min(10, camera.scale * (1 - delta)));
+    camera.zoom = Math.max(0.05, Math.min(10, camera.zoom * (1 - delta)));
     scene.rerender();
   }
 

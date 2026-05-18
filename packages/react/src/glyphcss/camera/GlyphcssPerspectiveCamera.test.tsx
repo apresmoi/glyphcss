@@ -50,8 +50,8 @@ describe("GlyphcssPerspectiveCamera — mount inside scene", () => {
     expect(() => renderScene({ rotX: 0.5, rotY: 1.2 })).not.toThrow();
   });
 
-  it("accepts scale prop without throwing", () => {
-    expect(() => renderScene({ scale: 0.6 })).not.toThrow();
+  it("accepts zoom prop without throwing", () => {
+    expect(() => renderScene({ zoom: 0.6 })).not.toThrow();
   });
 
   it("accepts stretch prop without throwing", () => {

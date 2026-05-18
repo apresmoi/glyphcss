@@ -51,7 +51,7 @@ function GlyphcssOrthographicCameraInner({
     let dirty = false;
     if (rotX !== undefined && camera.rotX !== rotX) { camera.rotX = rotX; dirty = true; }
     if (rotY !== undefined && camera.rotY !== rotY) { camera.rotY = rotY; dirty = true; }
-    if (zoom !== undefined && camera.scale !== zoom) { camera.scale = zoom; dirty = true; }
+    if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
     if (dirty) sceneRef.current?.rerender();
   });
 
