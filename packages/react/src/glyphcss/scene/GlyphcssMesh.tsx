@@ -1,33 +1,43 @@
 /**
- * GlyphcssMesh — register a triangle list with the parent GlyphcssScene.
+ * GlyphcssMesh — register a polygon list with the parent GlyphcssScene.
  *
  * Mirrors PolyMesh's prop surface (id, position/scale/rotation transform,
  * children) but for the ASCII paint backend — no atlas, no polygon leaves.
  * Children are static React children mounted inside the host's wrapper div
- * (not rendered per-triangle).
+ * (not rendered per-polygon).
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { Vec3 } from "@glyphcss/core";
-import type { GlyphcssTriangle, GlyphcssMeshTransform } from "glyphcss";
+import type { Vec3, Polygon } from "@glyphcss/core";
+import type { GlyphcssMeshTransform, GlyphcssPointerEvent, GlyphcssMouseEvent, GlyphcssWheelEvent } from "glyphcss";
 import { useGlyphcssSceneContext } from "./context";
 import { registerMeshElement, unregisterMeshElement } from "./events";
 import type { GlyphcssMeshHandle } from "./context";
 
 export interface GlyphcssMeshProps {
   id?: string;
-  triangles?: GlyphcssTriangle[];
+  polygons?: Polygon[];
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
+  // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
+  // TODO(hit-layer): wire these to the hit layer raycasting once the
+  // rasterizer hit-map is wired to the hit-layer dispatch.
+  onPointerDown?: (event: GlyphcssPointerEvent) => void;
+  onPointerUp?: (event: GlyphcssPointerEvent) => void;
+  onPointerMove?: (event: GlyphcssPointerEvent) => void;
+  onPointerEnter?: (event: GlyphcssPointerEvent) => void;
+  onPointerLeave?: (event: GlyphcssPointerEvent) => void;
+  onClick?: (event: GlyphcssMouseEvent) => void;
+  onWheel?: (event: GlyphcssWheelEvent) => void;
 }
 
 function GlyphcssMeshInner({
   id,
-  triangles: trianglesProp,
+  polygons: polygonsProp,
   position,
   scale,
   rotation,
@@ -39,28 +49,29 @@ function GlyphcssMeshInner({
   const meshRef = useRef<GlyphcssMeshHandle | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  const triangles = useMemo(() => trianglesProp ?? [], [trianglesProp]);
+  const polygons = useMemo(() => polygonsProp ?? [], [polygonsProp]);
 
   const transform = useMemo<GlyphcssMeshTransform>(() => ({
+    id,
     position,
     scale,
     rotation,
-  }), [position, scale, rotation]);
+  }), [id, position, scale, rotation]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const handle = scene.add(triangles, transform);
+    const handle = scene.add(polygons, transform);
     meshRef.current = handle;
     return () => {
       handle.dispose();
       meshRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRef, triangles]);
+  }, [sceneRef, polygons]);
 
-  // Update transform when position/scale/rotation change
+  // Update transform when id/position/scale/rotation change
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;

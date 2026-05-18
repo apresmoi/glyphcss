@@ -50,7 +50,7 @@ export function PerspectiveExample() {
     <GlyphcssScene mode="solid" cols={100} rows={30}>
       <GlyphcssPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95} />
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={octa} />
+      <GlyphcssMesh polygons={octa} />
     </GlyphcssScene>
   );
 }
@@ -61,7 +61,7 @@ export function OrthoExample() {
     <GlyphcssScene mode="solid" cols={100} rows={30}>
       <GlyphcssOrthographicCamera rotX={0.62} zoom={0.4} />
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={octa} />
+      <GlyphcssMesh polygons={octa} />
     </GlyphcssScene>
   );
 }
@@ -77,7 +77,7 @@ export function OrthoExample() {
     <GlyphcssPerspectiveCamera v-if="perspective" :rot-x="0.38" :zoom="0.4" :distance="3" />
     <GlyphcssOrthographicCamera v-else :rot-x="0.62" :zoom="0.4" />
     <GlyphcssOrbitControls />
-    <GlyphcssMesh :triangles="octa" />
+    <GlyphcssMesh :polygons="octa" />
   </GlyphcssScene>
 </template>
 

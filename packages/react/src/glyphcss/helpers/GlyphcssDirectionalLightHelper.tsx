@@ -5,8 +5,8 @@
  * Shows the light origin as an ASCII octahedron glyph in the output.
  */
 import { memo, useEffect, useMemo, useRef } from "react";
-import type { GlyphcssMeshHandle, GlyphcssTriangle } from "glyphcss";
-import type { Vec3 } from "@glyphcss/core";
+import type { GlyphcssMeshHandle } from "glyphcss";
+import type { Vec3, Polygon } from "@glyphcss/core";
 import { useGlyphcssSceneContext } from "../scene/context";
 
 export interface GlyphcssDirectionalLightHelperProps {
@@ -18,7 +18,7 @@ export interface GlyphcssDirectionalLightHelperProps {
   size?: number;
 }
 
-function lightMarkerTriangles(position: Vec3, color: string, size: number): GlyphcssTriangle[] {
+function lightMarkerPolygons(position: Vec3, color: string, size: number): Polygon[] {
   const [px, py, pz] = position;
   const s = size;
   const top: Vec3 = [px, py, pz + s];
@@ -46,21 +46,21 @@ function GlyphcssDirectionalLightHelperInner({
 }: GlyphcssDirectionalLightHelperProps) {
   const { sceneRef } = useGlyphcssSceneContext();
   const meshRef = useRef<GlyphcssMeshHandle | null>(null);
-  const triangles = useMemo(
-    () => lightMarkerTriangles(position, color, size),
+  const polygons = useMemo(
+    () => lightMarkerPolygons(position, color, size),
     [position, color, size],
   );
 
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const handle = scene.add(triangles);
+    const handle = scene.add(polygons);
     meshRef.current = handle;
     return () => {
       handle.dispose();
       meshRef.current = null;
     };
-  }, [sceneRef, triangles]);
+  }, [sceneRef, polygons]);
 
   return null;
 }

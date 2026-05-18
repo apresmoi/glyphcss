@@ -52,7 +52,7 @@ export function HotspotDemo() {
   return (
     <GlyphcssScene mode="solid" cols={100} rows={30}>
       <GlyphcssOrbitControls />
-      <GlyphcssMesh triangles={cube}>
+      <GlyphcssMesh polygons={cube}>
         {/* Hotspot on the top face */}
         <GlyphcssHotspot
           id="top"
@@ -86,7 +86,7 @@ export function HotspotDemo() {
 <template>
   <GlyphcssScene mode="solid" :cols="100" :rows="30">
     <GlyphcssOrbitControls />
-    <GlyphcssMesh :triangles="cube">
+    <GlyphcssMesh :polygons="cube">
       <GlyphcssHotspot
         id="top"
         :at="[0, 0.5, 0]"

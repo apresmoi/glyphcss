@@ -78,7 +78,7 @@ function initPicker(): void {
         await demo.setMeshUrl(url);
         // Apply per-preset camera state after mesh loads.
         const tunables: Record<string, number> = {};
-        if (Number.isFinite(presetScale))    tunables.scale    = presetScale;
+        if (Number.isFinite(presetScale))    tunables.zoom    = presetScale;
         if (Number.isFinite(presetDistance)) tunables.distance = presetDistance;
         if (Number.isFinite(presetRotX))     tunables.rotX     = presetRotX;
         if (Object.keys(tunables).length > 0) {
@@ -156,7 +156,7 @@ function initPicker(): void {
       if (demo) {
         await demo.setMeshUrl(url);
         const tunables: Record<string, number> = {};
-        if (Number.isFinite(presetScale))    tunables.scale    = presetScale;
+        if (Number.isFinite(presetScale))    tunables.zoom    = presetScale;
         if (Number.isFinite(presetDistance)) tunables.distance = presetDistance;
         if (Number.isFinite(presetRotX))     tunables.rotX     = presetRotX;
         if (Object.keys(tunables).length > 0) {

@@ -1,14 +1,4 @@
-import type { Vec3, Vec2 } from "@glyphcss/core";
-
-/**
- * Triangle type for the glyphcss rasterizer. Unlike glyphcss-core's TextureTriangle,
- * `uvs` is optional — the ASCII rasterizer never samples UV texture coordinates.
- */
-export interface GlyphcssTriangle {
-  vertices: [Vec3, Vec3, Vec3];
-  uvs?: [Vec2, Vec2, Vec2];
-  color?: string;
-}
+import type { Vec3, Polygon } from "@glyphcss/core";
 
 /** Directional light — single distant source for the ASCII rasterizer. */
 export interface GlyphcssDirectionalLight {
@@ -27,11 +17,13 @@ export interface GlyphcssAmbientLight {
 
 export interface GlyphcssMeshState {
   id: number;
-  triangles: GlyphcssTriangle[];
+  polygons: Polygon[];
   transform: GlyphcssMeshTransform;
 }
 
 export interface GlyphcssMeshTransform {
+  /** String identifier for the mesh — surfaced as `GlyphcssMeshHandle.name`. */
+  id?: string;
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;

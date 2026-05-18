@@ -34,7 +34,7 @@ import { dodecahedronPolygons } from "@glyphcss/core";
 
 const shape = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" });
 
-<GlyphcssMesh triangles={shape}>
+<GlyphcssMesh polygons={shape}>
   <GlyphcssHotspot at={[0, 1.2, 0]} onClick={...}>
     <span className="badge">Top</span>
   </GlyphcssHotspot>

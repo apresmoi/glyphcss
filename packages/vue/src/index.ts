@@ -101,9 +101,13 @@ export {
 export {
   GlyphcssScene,
   GlyphcssMesh,
+  GlyphcssGround,
   GlyphcssHotspot,
   GlyphcssSceneContextKey,
   useGlyphcssSceneContext,
+  findGlyphcssMeshHandle,
+  pointInMeshElement,
+  findMeshUnderPoint,
   GlyphcssCamera,
   GlyphcssPerspectiveCamera,
   GlyphcssOrthographicCamera,
@@ -120,6 +124,7 @@ export {
 export type {
   GlyphcssSceneProps,
   GlyphcssMeshProps,
+  GlyphcssGroundProps,
   GlyphcssHotspotProps,
   GlyphcssSceneContextValue,
   GlyphcssCameraProps,
@@ -133,3 +138,14 @@ export type {
   GlyphcssDirectionalLightHelperProps,
   UseGlyphcssAnimationResultVue,
 } from "./glyphcss";
+
+// ── Mesh handle type ──────────────────────────────────────────────────────────
+export type { GlyphcssMeshHandle } from "glyphcss";
+
+// ── Event types ───────────────────────────────────────────────────────────────
+export type {
+  GlyphcssPointerEvent,
+  GlyphcssMouseEvent,
+  GlyphcssWheelEvent,
+  GlyphcssEventHandler,
+} from "glyphcss";

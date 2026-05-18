@@ -1,13 +1,12 @@
 /**
  * `<glyphcss-mesh src="…">` custom element. Fetches a mesh via the glyphcss-core
- * `loadMesh` parser, converts polygons to triangles, and registers with the
- * parent `<glyphcss-scene>`.
+ * `loadMesh` parser and registers with the parent `<glyphcss-scene>`.
  *
  * On disconnect: disposes the registered mesh handle.
  */
-import type { Vec3 } from "@glyphcss/core";
 import { loadMesh } from "@glyphcss/core";
-import type { GlyphcssMeshHandle, GlyphcssSceneHandle, GlyphcssTriangle } from "../api/createGlyphcssScene";
+import type { Vec3 } from "@glyphcss/core";
+import type { GlyphcssMeshHandle, GlyphcssSceneHandle } from "../api/createGlyphcssScene";
 import type { GlyphcssMeshTransform } from "../api/types";
 import type { GlyphcssSceneElement } from "./GlyphcssSceneElement";
 
@@ -39,24 +38,6 @@ function findScene(el: HTMLElement): GlyphcssSceneElement | null {
   return found ?? null;
 }
 
-/** Convert glyphcss Polygon[] to GlyphcssTriangle[] by fan-triangulating each polygon. */
-function polygonsToTriangles(polygons: { vertices: Vec3[]; color?: string }[]): GlyphcssTriangle[] {
-  const ZERO_UV: [import("@glyphcss/core").Vec2, import("@glyphcss/core").Vec2, import("@glyphcss/core").Vec2] =
-    [[0, 0], [0, 0], [0, 0]];
-  const out: GlyphcssTriangle[] = [];
-  for (const poly of polygons) {
-    const verts = poly.vertices;
-    if (verts.length < 3) continue;
-    for (let i = 1; i < verts.length - 1; i++) {
-      out.push({
-        vertices: [verts[0]!, verts[i]!, verts[i + 1]!],
-        uvs: ZERO_UV,
-        ...(poly.color ? { color: poly.color } : {}),
-      });
-    }
-  }
-  return out;
-}
 
 export class GlyphcssMeshElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
@@ -136,9 +117,8 @@ export class GlyphcssMeshElement extends ELEMENT_BASE {
       return;
     }
 
-    const triangles = polygonsToTriangles(parsed.polygons);
-    this._handle = scene.add(triangles, this._readTransform());
+    this._handle = scene.add(parsed.polygons, this._readTransform());
 
-    this.dispatchEvent(new CustomEvent("glyphcss:loaded", { detail: { triangles }, bubbles: true }));
+    this.dispatchEvent(new CustomEvent("glyphcss:loaded", { detail: { polygons: parsed.polygons }, bubbles: true }));
   }
 }

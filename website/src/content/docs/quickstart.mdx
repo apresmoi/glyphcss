@@ -112,7 +112,7 @@ export function IcosahedronDemo() {
     <GlyphcssCamera rotX={0.4} zoom={0.32}>
       <GlyphcssScene mode="solid">
         <GlyphcssOrbitControls />
-        <GlyphcssMesh triangles={icosa} />
+        <GlyphcssMesh polygons={icosa} />
       </GlyphcssScene>
     </GlyphcssCamera>
   );
@@ -127,7 +127,7 @@ export function IcosahedronDemo() {
   <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
     <GlyphcssScene mode="solid">
       <GlyphcssOrbitControls />
-      <GlyphcssMesh :triangles="icosa" />
+      <GlyphcssMesh :polygons="icosa" />
     </GlyphcssScene>
   </GlyphcssCamera>
 </template>

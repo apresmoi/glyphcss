@@ -3,7 +3,7 @@ title: Loading Meshes
 description: Loading OBJ, glTF, GLB, and VOX files.
 ---
 
-glyphcss ships parsers for four mesh formats. All return a `TextureTriangle[]` that
+glyphcss ships parsers for four mesh formats. All return a `Polygon[]` that
 the rasterizer consumes:
 
 | Format | Parser | Notes |
@@ -18,7 +18,7 @@ Or use the format-detecting wrapper:
 import { loadMesh } from "glyphcss";
 
 // Replace "/cottage.glb" with the path to your own file.
-const triangles = await loadMesh("/cottage.glb");
+const { polygons, dispose } = await loadMesh("/cottage.glb");
 ```
 
 > The URL `/cottage.glb` is a placeholder — substitute the path to your own asset.
@@ -54,7 +54,7 @@ These render as wireframe by default with the Prime Radiant–style inner lattic
 
 ## Procedural meshes
 
-For shapes that don't come from a file, build `GlyphcssTriangle[]` arrays directly
+For shapes that don't come from a file, build `Polygon[]` arrays directly
 in JavaScript. The `@glyphcss/core` package ships generators for all the Platonic
 solids plus utility shapes (rings, planes, axes gizmos).
 

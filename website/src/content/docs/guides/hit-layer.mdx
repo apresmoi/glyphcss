@@ -25,7 +25,7 @@ import { octahedronPolygons } from "@glyphcss/core";
 const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
 
 <GlyphcssScene mode="solid" cols={80} rows={24}>
-  <GlyphcssMesh triangles={shape}>
+  <GlyphcssMesh polygons={shape}>
     <GlyphcssHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>
       <span className="badge">Top</span>
     </GlyphcssHotspot>

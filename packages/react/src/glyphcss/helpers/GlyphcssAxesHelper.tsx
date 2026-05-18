@@ -2,12 +2,12 @@
  * GlyphcssAxesHelper — ASCII-mode axes helper.
  *
  * In ASCII rendering there are no polygon mesh overlays, so this helper
- * registers axis-indicator triangles with the scene so they appear in the
+ * registers axis-indicator polygons with the scene so they appear in the
  * rasterized output. Mirrors PolyAxesHelper's prop surface.
  */
 import { memo, useEffect, useMemo, useRef } from "react";
-import type { GlyphcssMeshHandle, GlyphcssTriangle } from "glyphcss";
-import type { Vec3 } from "@glyphcss/core";
+import type { GlyphcssMeshHandle } from "glyphcss";
+import type { Vec3, Polygon } from "@glyphcss/core";
 import { useGlyphcssSceneContext } from "../scene/context";
 
 export interface GlyphcssAxesHelperProps {
@@ -15,42 +15,42 @@ export interface GlyphcssAxesHelperProps {
   size?: number;
 }
 
-function axisTriangles(size: number): GlyphcssTriangle[] {
+function axisPolygons(size: number): Polygon[] {
   const s = size;
   const t = s * 0.05;
-  const triangles: GlyphcssTriangle[] = [];
+  const polygons: Polygon[] = [];
 
   function addBar(a: Vec3, b: Vec3, color: string): void {
     const v0: Vec3 = [a[0] - t, a[1] - t, a[2]];
     const v1: Vec3 = [b[0] - t, b[1] - t, b[2]];
     const v2: Vec3 = [b[0] + t, b[1] + t, b[2]];
     const v3: Vec3 = [a[0] + t, a[1] + t, a[2]];
-    triangles.push({ vertices: [v0, v1, v2], color });
-    triangles.push({ vertices: [v0, v2, v3], color });
+    polygons.push({ vertices: [v0, v1, v2], color });
+    polygons.push({ vertices: [v0, v2, v3], color });
   }
 
   addBar([0, 0, 0], [s, 0, 0], "#ff0000"); // X axis: red
   addBar([0, 0, 0], [0, s, 0], "#00ff00"); // Y axis: green
   addBar([0, 0, 0], [0, 0, s], "#0000ff"); // Z axis: blue
 
-  return triangles;
+  return polygons;
 }
 
 function GlyphcssAxesHelperInner({ size = 1 }: GlyphcssAxesHelperProps) {
   const { sceneRef } = useGlyphcssSceneContext();
   const meshRef = useRef<GlyphcssMeshHandle | null>(null);
-  const triangles = useMemo(() => axisTriangles(size), [size]);
+  const polygons = useMemo(() => axisPolygons(size), [size]);
 
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const handle = scene.add(triangles);
+    const handle = scene.add(polygons);
     meshRef.current = handle;
     return () => {
       handle.dispose();
       meshRef.current = null;
     };
-  }, [sceneRef, triangles]);
+  }, [sceneRef, polygons]);
 
   return null;
 }

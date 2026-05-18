@@ -42,7 +42,7 @@ const frameworkTabs = [
 
 export function App() {
   return (
-    <GlyphcssCamera rotX={0.4} scale={0.32}>
+    <GlyphcssCamera rotX={0.4} zoom={0.32}>
       <GlyphcssScene>
         <GlyphcssOrbitControls drag wheel />
         <GlyphcssMesh src="/cottage.glb">
@@ -58,7 +58,7 @@ export function App() {
     label: "Vue",
     language: "vue",
     code: `<template>
-  <GlyphcssCamera :rot-x="0.4" :scale="0.32">
+  <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
     <GlyphcssScene>
       <GlyphcssOrbitControls drag wheel />
       <GlyphcssMesh src="/cottage.glb">
@@ -132,7 +132,7 @@ const ldJson = {
           <div class="hero-scene" aria-hidden="true">
             <GlyphcssDemo id="hero-demo"
               mesh="/gallery/glb/apple.glb"
-              defaults={JSON.stringify({ scale: 0.2625, distance: 100000, rotX: 1.299, rotY: 5.264, duration: 14, renderMode: 'solid' })}
+              defaults={JSON.stringify({ zoom: 0.25, distance: 100000, rotX: 1.299, rotY: 5.264, duration: 6, renderMode: 'solid' })}
               noCode
               noControls
             />

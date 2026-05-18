@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { GlyphcssTriangle, GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
+import type { Polygon } from "@glyphcss/core";
+import type { GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
 import { useGlyphcssSceneContext } from "./context";
 
 export interface UseGlyphcssMeshOptions {
@@ -12,11 +13,11 @@ export interface UseGlyphcssMeshResult {
 }
 
 /**
- * useGlyphcssMesh — register a triangle list with the parent GlyphcssScene.
+ * useGlyphcssMesh — register a polygon list with the parent GlyphcssScene.
  * Mirrors usePolyMesh but for the ASCII paint backend.
  */
 export function useGlyphcssMesh(
-  triangles: GlyphcssTriangle[],
+  polygons: Polygon[],
   options?: UseGlyphcssMeshOptions,
 ): UseGlyphcssMeshResult {
   const { sceneRef } = useGlyphcssSceneContext();
@@ -26,14 +27,14 @@ export function useGlyphcssMesh(
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const handle = scene.add(triangles, options?.transform);
+    const handle = scene.add(polygons, options?.transform);
     meshRef.current = handle;
     return () => {
       handle.dispose();
       meshRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRef, triangles]);
+  }, [sceneRef, polygons]);
 
   useEffect(() => {
     const mesh = meshRef.current;

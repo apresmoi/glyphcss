@@ -3,8 +3,8 @@
  */
 import { defineComponent, inject, onMounted, onBeforeUnmount, watch, computed, shallowRef } from "vue";
 import type { PropType } from "vue";
-import type { Vec3 } from "@glyphcss/core";
-import type { GlyphcssMeshHandle, GlyphcssTriangle } from "glyphcss";
+import type { Vec3, Polygon } from "@glyphcss/core";
+import type { GlyphcssMeshHandle } from "glyphcss";
 import { GlyphcssSceneContextKey } from "../scene/context";
 
 export interface GlyphcssDirectionalLightHelperProps {
@@ -13,7 +13,7 @@ export interface GlyphcssDirectionalLightHelperProps {
   size?: number;
 }
 
-function lightMarkerTriangles(position: Vec3, color: string, size: number): GlyphcssTriangle[] {
+function lightMarkerPolygons(position: Vec3, color: string, size: number): Polygon[] {
   const [px, py, pz] = position;
   const s = size;
   const top: Vec3 = [px, py, pz + s];
@@ -49,14 +49,14 @@ export const GlyphcssDirectionalLightHelper = defineComponent({
     const { sceneRef } = sceneCtx;
     const meshRef = shallowRef<GlyphcssMeshHandle | null>(null);
 
-    const triangles = computed(() =>
-      lightMarkerTriangles(props.position ?? [1, 1, 1], props.color ?? "#ffff00", props.size ?? 0.1),
+    const polygons = computed(() =>
+      lightMarkerPolygons(props.position ?? [1, 1, 1], props.color ?? "#ffff00", props.size ?? 0.1),
     );
 
     function register(): void {
       const scene = sceneRef.value;
       if (!scene) return;
-      meshRef.value = scene.add(triangles.value);
+      meshRef.value = scene.add(polygons.value);
     }
 
     onMounted(register);
@@ -65,7 +65,7 @@ export const GlyphcssDirectionalLightHelper = defineComponent({
       meshRef.value = null;
     });
 
-    watch(triangles, () => {
+    watch(polygons, () => {
       meshRef.value?.dispose();
       meshRef.value = null;
       register();

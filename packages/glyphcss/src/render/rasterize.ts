@@ -1,5 +1,5 @@
 import type { RasterizeContext } from "../api/rasterizeContext";
-import type { GlyphcssTriangle } from "../api/types";
+import type { Vec3 } from "@glyphcss/core";
 import { SOLID_RAMP, getWireframeGlyphs } from "./ramps";
 
 /**
@@ -19,7 +19,7 @@ import { SOLID_RAMP, getWireframeGlyphs } from "./ramps";
  * same stamp, same weight scheme, same projection.
  */
 export function rasterize(scene: RasterizeContext): string {
-  const { camera, grid, wireframe, triangles, mode, directionalLight, ambientLight } = scene;
+  const { camera, grid, wireframe, mode } = scene;
   const { cols, rows, cellAspect } = grid;
 
   if (mode === "solid") {
@@ -44,14 +44,14 @@ export function rasterize(scene: RasterizeContext): string {
   return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs);
 }
 
-/** Solid-mode: scan-fill triangles with Lambert shading + depth buffer. */
+/** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
 function rasterizeSolid(
   scene: RasterizeContext,
   cols: number,
   rows: number,
   cellAspect: number,
 ): string {
-  const { camera, triangles, directionalLight, ambientLight } = scene;
+  const { camera, polygons, directionalLight, ambientLight } = scene;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -76,53 +76,62 @@ function rasterizeSolid(
   const keyRgb = hexToRgb(directionalLight.color ?? "#ffffff");
   const ambRgb = hexToRgb(ambientLight.color ?? "#ffffff");
 
-  for (const tri of triangles) {
-    const [v0, v1, v2] = tri.vertices;
-    const pa = camera.project(v0, cols, rows, cellAspect);
-    const pb = camera.project(v1, cols, rows, cellAspect);
-    const pc = camera.project(v2, cols, rows, cellAspect);
-    // NaN-cull: any vertex behind the near plane → skip triangle.
-    if (pa[0] !== pa[0] || pb[0] !== pb[0] || pc[0] !== pc[0]) continue;
+  for (const poly of polygons) {
+    const verts = poly.vertices;
+    if (verts.length < 3) continue;
+    // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
+    // For N=3 this produces exactly one triangle.
+    for (let fanIdx = 1; fanIdx < verts.length - 1; fanIdx++) {
+      const v0 = verts[0]! as Vec3;
+      const v1 = verts[fanIdx]! as Vec3;
+      const v2 = verts[fanIdx + 1]! as Vec3;
 
-    // Compute face normal in world space (before projection) for Lambert.
-    const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
-    const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
-    const nx = uy * vvz - uz * vvy;
-    const ny = uz * vvx - ux * vvz;
-    const nz = ux * vvy - uy * vvx;
-    const nLen = Math.hypot(nx, ny, nz) || 1;
-    const dot = (nx * lx + ny * ly + nz * lz) / nLen;
-    const keyFactor = Math.max(0, dot) * keyIntensity;
-    const intensity = Math.min(1, Math.max(0, ambIntensity + keyFactor));
-    const glyphIdx = Math.min(ramp.length - 1, (intensity * (ramp.length - 1)) | 0);
-    const glyph = ramp[glyphIdx]!;
+      const pa = camera.project(v0, cols, rows, cellAspect);
+      const pb = camera.project(v1, cols, rows, cellAspect);
+      const pc = camera.project(v2, cols, rows, cellAspect);
+      // NaN-cull: any vertex behind the near plane → skip triangle.
+      if (pa[0] !== pa[0] || pb[0] !== pb[0] || pc[0] !== pc[0]) continue;
 
-    // Per-channel light-mix only when colors are enabled. Otherwise pass null
-    // so scanFillTriangle skips the color write and the emitter skips spans.
-    let litColor: string | null = null;
-    if (useColors) {
-      const triRgb = tri.color ? hexToRgb(tri.color) : [255, 255, 255];
-      const tintR = ambIntensity * ambRgb[0] / 255 + keyFactor * keyRgb[0] / 255;
-      const tintG = ambIntensity * ambRgb[1] / 255 + keyFactor * keyRgb[1] / 255;
-      const tintB = ambIntensity * ambRgb[2] / 255 + keyFactor * keyRgb[2] / 255;
-      const litR = Math.min(255, triRgb[0] * tintR);
-      const litG = Math.min(255, triRgb[1] * tintG);
-      const litB = Math.min(255, triRgb[2] * tintB);
-      litColor = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
+      // Compute face normal in world space (before projection) for Lambert.
+      const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
+      const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
+      const nx = uy * vvz - uz * vvy;
+      const ny = uz * vvx - ux * vvz;
+      const nz = ux * vvy - uy * vvx;
+      const nLen = Math.hypot(nx, ny, nz) || 1;
+      const dot = (nx * lx + ny * ly + nz * lz) / nLen;
+      const keyFactor = Math.max(0, dot) * keyIntensity;
+      const intensity = Math.min(1, Math.max(0, ambIntensity + keyFactor));
+      const glyphIdx = Math.min(ramp.length - 1, (intensity * (ramp.length - 1)) | 0);
+      const glyph = ramp[glyphIdx]!;
+
+      // Per-channel light-mix only when colors are enabled. Otherwise pass null
+      // so scanFillTriangle skips the color write and the emitter skips spans.
+      let litColor: string | null = null;
+      if (useColors) {
+        const triRgb = poly.color ? hexToRgb(poly.color) : [255, 255, 255];
+        const tintR = ambIntensity * ambRgb[0] / 255 + keyFactor * keyRgb[0] / 255;
+        const tintG = ambIntensity * ambRgb[1] / 255 + keyFactor * keyRgb[1] / 255;
+        const tintB = ambIntensity * ambRgb[2] / 255 + keyFactor * keyRgb[2] / 255;
+        const litR = Math.min(255, triRgb[0] * tintR);
+        const litG = Math.min(255, triRgb[1] * tintG);
+        const litB = Math.min(255, triRgb[2] * tintB);
+        litColor = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
+      }
+
+      // Average depth for the triangle (camera-space Z, lower = closer).
+      const depth = (pa[2] + pb[2] + pc[2]) / 3;
+
+      // Scan-fill the projected triangle in grid coords.
+      scanFillTriangle(
+        pa[0], pa[1],
+        pb[0], pb[1],
+        pc[0], pc[1],
+        depth, glyph, litColor,
+        glyphBuf, colorBuf, depthBuf,
+        cols, rows,
+      );
     }
-
-    // Average depth for the triangle (camera-space Z, lower = closer).
-    const depth = (pa[2] + pb[2] + pc[2]) / 3;
-
-    // Scan-fill the projected triangle in grid coords.
-    scanFillTriangle(
-      pa[0], pa[1],
-      pb[0], pb[1],
-      pc[0], pc[1],
-      depth, glyph, litColor,
-      glyphBuf, colorBuf, depthBuf,
-      cols, rows,
-    );
   }
 
   return solidBufToString(glyphBuf, colorBuf, cols, rows);

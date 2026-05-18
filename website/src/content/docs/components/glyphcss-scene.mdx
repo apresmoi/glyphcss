@@ -50,7 +50,7 @@ export function App() {
     <GlyphcssScene mode="solid" cols={100} rows={30}>
       <GlyphcssPerspectiveCamera rotX={0.4} zoom={0.3} distance={3} />
       <GlyphcssOrbitControls drag wheel />
-      <GlyphcssMesh triangles={cube}>
+      <GlyphcssMesh polygons={cube}>
         <GlyphcssHotspot
           id="top"
           at={[0, 0.5, 0]}
@@ -71,7 +71,7 @@ export function App() {
   <GlyphcssScene mode="solid" :cols="100" :rows="30">
     <GlyphcssPerspectiveCamera :rot-x="0.4" :zoom="0.3" :distance="3" />
     <GlyphcssOrbitControls drag wheel />
-    <GlyphcssMesh :triangles="cube">
+    <GlyphcssMesh :polygons="cube">
       <GlyphcssHotspot
         id="top"
         :at="[0, 0.5, 0]"
@@ -147,7 +147,7 @@ const controls = createGlyphcssOrbitControls(scene, { drag: true, wheel: true })
 
 | Method | Description |
 |---|---|
-| `scene.add(triangles, transform?)` | Register a mesh, returns a `GlyphcssMeshHandle` |
+| `scene.add(polygons, transform?)` | Register a mesh, returns a `GlyphcssMeshHandle` |
 | `scene.addHotspot(opts, onClick?)` | Register a hotspot overlay, returns a `GlyphcssHotspotHandle` |
 | `scene.setOptions(partial)` | Update any scene option and trigger a re-render |
 | `scene.getOptions()` | Return a snapshot of current options |

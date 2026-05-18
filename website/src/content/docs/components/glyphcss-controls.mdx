@@ -41,7 +41,7 @@ export function App() {
   return (
     <GlyphcssScene mode="solid">
       <GlyphcssOrbitControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
-      <GlyphcssMesh triangles={icosa} />
+      <GlyphcssMesh polygons={icosa} />
     </GlyphcssScene>
   );
 }
@@ -54,7 +54,7 @@ export function App() {
 <template>
   <GlyphcssScene mode="solid">
     <GlyphcssOrbitControls drag wheel :animate="{ axis: 'y', speed: 0.5 }" />
-    <GlyphcssMesh :triangles="icosa" />
+    <GlyphcssMesh :polygons="icosa" />
   </GlyphcssScene>
 </template>
 
@@ -117,7 +117,7 @@ export function MapDemo() {
   return (
     <GlyphcssScene mode="solid" cols={120} rows={36}>
       <GlyphcssMapControls drag wheel />
-      <GlyphcssMesh triangles={cube} />
+      <GlyphcssMesh polygons={cube} />
     </GlyphcssScene>
   );
 }
@@ -130,7 +130,7 @@ export function MapDemo() {
 <template>
   <GlyphcssScene mode="solid" :cols="120" :rows="36">
     <GlyphcssMapControls drag wheel />
-    <GlyphcssMesh :triangles="cube" />
+    <GlyphcssMesh :polygons="cube" />
   </GlyphcssScene>
 </template>
 
@@ -187,7 +187,7 @@ export function FPVDemo() {
   return (
     <GlyphcssScene mode="solid" cols={140} rows={42}>
       <GlyphcssFirstPersonControls drag keyboard moveSpeed={0.1} />
-      <GlyphcssMesh triangles={floor} />
+      <GlyphcssMesh polygons={floor} />
     </GlyphcssScene>
   );
 }
@@ -200,7 +200,7 @@ export function FPVDemo() {
 <template>
   <GlyphcssScene mode="solid" :cols="140" :rows="42">
     <GlyphcssFirstPersonControls drag keyboard :move-speed="0.1" />
-    <GlyphcssMesh :triangles="floor" />
+    <GlyphcssMesh :polygons="floor" />
   </GlyphcssScene>
 </template>
 

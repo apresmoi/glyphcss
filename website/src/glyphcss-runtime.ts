@@ -88,13 +88,14 @@ function trianglesToEdges(triangles: TextureTriangle[], featureAngleDeg = 20): W
 interface MeshGeometry {
   vertices: Vec3[];
   edges: WireframeEdge[];
-  triangles: TextureTriangle[];
+  /** Fan-triangulated TextureTriangles used internally for feature edges and picking. */
+  polygons: TextureTriangle[];
   animations: ParseAnimationClip[];
   sample: (clipIndex: number, time: number) => TextureTriangle[];
 }
 
 /** Fan-triangulate a Polygon (N vertices) into N-2 TextureTriangles. */
-function polygonsToTriangles(polygons: import('glyphcss').Polygon[]): TextureTriangle[] {
+function fanTriangulate(polygons: import('glyphcss').Polygon[]): TextureTriangle[] {
   const triangles: TextureTriangle[] = [];
   for (const poly of polygons) {
     if (!poly.vertices || poly.vertices.length < 3) continue;
@@ -143,7 +144,7 @@ function fitTrianglesToUnitBbox(triangles: TextureTriangle[]): TextureTriangle[]
 
 async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGeometry> {
   const result = await loadMesh(url);
-  const rawTris = polygonsToTriangles(result.polygons);
+  const rawTris = fanTriangulate(result.polygons);
   const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
   const edges = trianglesToEdges(polys);
   const vertSet = new Map<string, Vec3>();
@@ -159,7 +160,7 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
     const animation = result.animation;
     sample = (clipIndex: number, time: number) => {
       const rawPolys = animation.sample(clipIndex, time);
-      const raw = polygonsToTriangles(rawPolys);
+      const raw = fanTriangulate(rawPolys);
       return normalize ? fitTrianglesToUnitBbox(raw) : raw;
     };
   } else {
@@ -169,7 +170,7 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
   return {
     vertices: Array.from(vertSet.values()),
     edges,
-    triangles: polys,
+    polygons: polys,
     animations: clips,
     sample,
   };
@@ -243,7 +244,7 @@ function buildSelectionEdges(t: TextureTriangle): WireframeEdge[] {
 }
 
 interface Tunables {
-  scale: number;
+  zoom: number;
   stretch: number;
   distance: number;
   rotX: number;
@@ -480,7 +481,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   const tunables: Tunables = { ...DEFAULT_TUNABLES, geometry: initialGeometry, ...userDefaults };
 
-  let controlList: string[] = ['scale', 'stretch', 'distance', 'rotX', 'duration', 'geometry'];
+  let controlList: string[] = ['zoom', 'stretch', 'distance', 'rotX', 'duration', 'geometry'];
   const controlsAttr = demoEl.getAttribute('data-controls');
   if (controlsAttr) { try { controlList = JSON.parse(controlsAttr); } catch {} }
 
@@ -527,13 +528,13 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   type GeometryState = {
     vertices: Vec3[];
     edges: WireframeEdge[];
-    triangles?: TextureTriangle[];
+    polygons?: TextureTriangle[];
     animations: ParseAnimationClip[];
     sample: (clipIndex: number, time: number) => TextureTriangle[];
   };
 
-  function staticGeometry(g: { vertices: Vec3[]; edges: WireframeEdge[]; triangles?: TextureTriangle[] }): GeometryState {
-    const tris = g.triangles ?? [];
+  function staticGeometry(g: { vertices: Vec3[]; edges: WireframeEdge[]; polygons?: TextureTriangle[] }): GeometryState {
+    const tris = g.polygons ?? [];
     return { ...g, animations: [], sample: () => tris };
   }
 
@@ -543,7 +544,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   // replaces it. Empty placeholder = nothing to rasterize until the mesh lands.
   const willLoadMesh = !!demoEl.getAttribute('data-mesh');
   let geometry: GeometryState = willLoadMesh
-    ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], triangles: [] })
+    ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], polygons: [] })
     : staticGeometry(buildGeometry(tunables.geometry));
 
   // ── Animation state ──────────────────────────────────────────────────────
@@ -604,14 +605,14 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
         animState.currentTime = ((animState.currentTime % duration) + duration) % duration;
       }
 
-      // Sample new triangles at current time
+      // Sample new polygons at current time
       const sampledTriangles = geometry.sample(animState.clipIndex, animState.currentTime);
 
       // Re-derive edges and update scene (featureEdges not applied to animated
       // frames for perf; use all edges so the animation reads correctly).
       const newEdges = trianglesToEdges(sampledTriangles);
       scene.wireframe = newEdges;
-      scene.triangles = sampledTriangles;
+      scene.polygons = sampledTriangles as import('glyphcss').Polygon[];
 
       // Live-render a single frame (don't re-bake all 60)
       stripEl.innerHTML = rasterize(scene);
@@ -623,7 +624,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   let camera = createGlyphcssPerspectiveCamera({
     rotX: tunables.rotX, rotY: 0,
     distance: tunables.distance,
-    scale: tunables.scale,
+    zoom: tunables.zoom,
     stretch: tunables.stretch,
   });
 
@@ -642,7 +643,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   function getSelectionEdges(): WireframeEdge[] {
     if (selectedTriangleIndex < 0) return [];
-    const tris = geometry.triangles;
+    const tris = geometry.polygons;
     if (!tris || selectedTriangleIndex >= tris.length) return [];
     return buildSelectionEdges(tris[selectedTriangleIndex]!);
   }
@@ -695,7 +696,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   function bakeAndApply(): void {
     const { cols, rows, cellAspect } = scene.grid;
     // In wireframe mode, augment base wireframe with selection highlight edges before baking.
-    // In solid mode, the wireframe array is unused; leave scene.triangles as-is.
+    // In solid mode, the wireframe array is unused; leave scene.polygons as-is.
     const selEdges = getSelectionEdges();
     if (scene.mode !== 'solid') {
       scene.wireframe = selEdges.length > 0 ? [...baseWireframe, ...selEdges] : baseWireframe;
@@ -785,17 +786,17 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
         rotX: tunables.rotX, rotY: preservedRotY,
         focal: 5,
       });
-      camera.zoom = tunables.scale;
+      camera.zoom = tunables.zoom;
     } else if (controlState.projection === 'orthographic') {
       camera = createGlyphcssOrthographicCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
-        zoom: tunables.scale,
+        zoom: tunables.zoom,
       });
     } else {
       camera = createGlyphcssPerspectiveCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
         distance: tunables.distance,
-        scale: tunables.scale,
+        zoom: tunables.zoom,
         stretch: tunables.stretch,
       });
     }
@@ -816,14 +817,14 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     // and a threshold is set. geometry.edges was built at load time with the
     // default threshold; re-derive here so the Dock slider takes effect
     // without reloading the mesh.
-    const activeEdges = (activeMode === 'wireframe' && featureAngle > 0 && geometry.triangles && geometry.triangles.length > 0)
-      ? trianglesToEdges(geometry.triangles, featureAngle)
+    const activeEdges = (activeMode === 'wireframe' && featureAngle > 0 && geometry.polygons && geometry.polygons.length > 0)
+      ? trianglesToEdges(geometry.polygons, featureAngle)
       : geometry.edges;
     baseWireframe = activeEdges;
     scene = buildRasterizeContext({
       camera, grid,
       wireframe: activeEdges,
-      triangles: geometry.triangles,
+      polygons: geometry.polygons as import('glyphcss').Polygon[],
       mode: activeMode,
       glyphPalette: tunables.glyphPalette ?? 'default',
       useColors: tunables.useColors ?? true,
@@ -1308,7 +1309,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   let lastBakeMs = 0;
 
-  function getCameraState(): { rotX: number; rotY: number; scale: number; target: [number, number, number] } {
+  function getCameraState(): { rotX: number; rotY: number; zoom: number; target: [number, number, number] } {
     return {
       rotX: camera.rotX,
       rotY: camera.rotY,
@@ -1324,13 +1325,13 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       rows: scene.grid.rows,
       edges: geometry.edges.length,
       verts: geometry.vertices.length,
-      triangles: geometry.triangles?.length ?? 0,
+      triangles: geometry.polygons?.length ?? 0,
       bakeMs: lastBakeMs,
     };
   }
 
   function getSelection(): { index: number; triangle: TextureTriangle | null } {
-    const tris = geometry.triangles;
+    const tris = geometry.polygons;
     const tri = (tris && selectedTriangleIndex >= 0) ? (tris[selectedTriangleIndex] ?? null) : null;
     return { index: selectedTriangleIndex, triangle: tri };
   }
@@ -1357,7 +1358,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     animState.currentTime = 0;
     demoEl.classList.remove('no-autorotate');
     // Restore the static rest pose so the scene doesn't keep the last sampled frame.
-    scene.triangles = geometry.triangles;
+    scene.polygons = geometry.polygons as import('glyphcss').Polygon[];
     if (scene.mode !== 'solid') {
       scene.wireframe = baseWireframe;
     }
@@ -1386,7 +1387,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       setMeshUrl: (u: string) => Promise<void>;
       setTunables: (p: Partial<Tunables>) => void;
       setControlState: (p: Partial<ControlState>) => void;
-      getCameraState: () => { rotX: number; rotY: number; scale: number; target: [number, number, number] };
+      getCameraState: () => { rotX: number; rotY: number; zoom: number; target: [number, number, number] };
       getStats: () => { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number };
       getSelection: () => { index: number; triangle: TextureTriangle | null };
       clearSelection: () => void;
@@ -1429,7 +1430,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   const gui = controlsEl ? new GUI({ container: controlsEl, title: 'Tuning', width: 240 }) : null;
   // lil-gui ranges aligned to glyphcss gallery defaults.
   const controlMakers: Record<string, () => void> = gui ? {
-    scale: () => { gui.add(tunables, 'scale', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
+    scale: () => { gui.add(tunables, 'zoom', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
     stretch: () => { gui.add(tunables, 'stretch', 0.5, 1.5, 0.01).onChange(rebuildAll); },
     distance: () => { gui.add(tunables, 'distance', 100, 100000, 100).name('perspective').onChange(rebuildAll); },
     rotX: () => { gui.add(tunables, 'rotX', 0, 1.75, 0.01).name('tilt (rotX)').onChange(rebuildAll); },
@@ -1522,7 +1523,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   });
 
   function handleClick(e: PointerEvent): void {
-    const tris = geometry.triangles;
+    const tris = geometry.polygons;
     if (!tris || tris.length === 0) return;
 
     const vpRect = viewportEl.getBoundingClientRect();
@@ -1580,7 +1581,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     const factor = Math.exp(-delta * 0.000513); // glyphcss ZOOM_STEP
     const newScale = Math.max(0.02, Math.min(20, camera.zoom * factor));
     camera.zoom = newScale;
-    tunables.scale = newScale;
+    tunables.zoom = newScale;
     viewportEl.classList.add('dragging');
     if (scene.mode !== 'solid') {
       const selEdgesWhl = getSelectionEdges();
