@@ -2,7 +2,7 @@
  * createGlyphcssScene — imperative scene API. The vanilla counterpart to
  * `<glyphcss-scene>` custom element.
  *
- * Mirrors polycss's `createPolyScene` architecturally:
+ * Mirrors glyphcss's `createPolyScene` architecturally:
  *   - Takes a host element + scene options, returns a `GlyphcssSceneHandle`.
  *   - `handle.add(triangles, transform?)` registers a mesh and returns a
  *     removable `GlyphcssMeshHandle`.

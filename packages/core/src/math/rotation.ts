@@ -2,7 +2,7 @@ import type { Vec3 } from "../types";
 
 /**
  * Apply CSS-style chained `rotateX(rx) rotateY(ry) rotateZ(rz)` rotation
- * to a 3D vector. Matches the matrix composition used by polycss mesh
+ * to a 3D vector. Matches the matrix composition used by glyphcss mesh
  * wrapper transforms (see `buildTransform` in each PolyMesh implementation).
  *
  * CSS composes `transform: rotateX(rx) rotateY(ry) rotateZ(rz)` as the

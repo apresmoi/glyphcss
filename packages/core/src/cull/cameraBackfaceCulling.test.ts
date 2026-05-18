@@ -53,7 +53,7 @@ function rotatedSideTriangle(deg: number): Polygon {
 }
 
 describe("cameraBackfaceCulling", () => {
-  it("computes normals in polycss CSS space", () => {
+  it("computes normals in glyphcss CSS space", () => {
     expect(polygonCssSurfaceNormal(triangle())).toEqual([0, 0, 1]);
     expect(polygonCssSurfaceNormal(backTriangle())).toEqual([0, 0, -1]);
   });

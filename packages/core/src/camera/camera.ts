@@ -2,7 +2,7 @@
 import type { Vec3 } from "../types";
 
 /**
- * Base tile size in CSS pixels. One polycss world unit = BASE_TILE CSS
+ * Base tile size in CSS pixels. One glyphcss world unit = BASE_TILE CSS
  * pixels (pre-scale). Used to convert world-coordinate target values to
  * CSS translations in the transform string.
  */
@@ -20,7 +20,7 @@ export type AutoRotateOption = boolean | number | AutoRotateConfig;
  * World-coordinate camera state (Three.js-style).
  *
  * `target` is the world point that should appear at the viewport centre.
- * Polycss world axes: [0]=X (rows/south), [1]=Y (cols/east), [2]=Z (up).
+ * Glyphcss world axes: [0]=X (rows/south), [1]=Y (cols/east), [2]=Z (up).
  *
  * `pan`, `tilt`, and `depthOffset` are gone. Translations now live inside
  * `target` so they happen BEFORE rotations — enabling correct world-space
@@ -114,7 +114,7 @@ export function createIsometricCamera(initial: Partial<CameraState> = {}): Camer
     const height = (input.rows ?? 0) * tileSize;
 
     // Convert world target to CSS-space translation.
-    // Polycss world→CSS mapping: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
+    // Glyphcss world→CSS mapping: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
     // Negate so that the world moves such that `target` ends up at scene origin.
     const [tx, ty, tz] = state.target;
     const cssX = ty * tileSize;  // world Y → CSS X

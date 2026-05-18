@@ -1,4 +1,4 @@
-/* Shared lighting helpers for polycss polygons.
+/* Shared lighting helpers for glyphcss polygons.
  * Pure module — zero DOM dependencies.
  *
  * Voxcss carried per-cube-face shading helpers (`shadeCubeFace`,

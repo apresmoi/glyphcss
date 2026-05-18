@@ -2,7 +2,7 @@
  * createGlyphcssMapControls — map/pan-mode camera input for a GlyphcssScene.
  *
  * Left-drag pans the target (slippy-map semantics). Right-drag or
- * Shift+left-drag orbits. Wheel zooms. Mirrors polycss's createPolyMapControls
+ * Shift+left-drag orbits. Wheel zooms. Mirrors glyphcss's createPolyMapControls
  * semantics, adapted for the ASCII rasterizer's GlyphcssCamera.
  */
 

@@ -348,7 +348,7 @@ export function mergePolygons(input: Polygon[]): Polygon[] {
 
     // findSharedEdge returns the (e0, e1) endpoints of the edge a and b
     // currently share, or null if a's vertex list has been mutated since
-    // edgeIndex was built and no longer touches b. Because polycss CCW
+    // edgeIndex was built and no longer touches b. Because glyphcss CCW
     // winding faces opposite directions on the two sides of a shared edge,
     // a's edge va→vb matches b's edge vb→va.
     const findSharedEdge = (a: PolyState, b: PolyState): [Vec3, Vec3] | null => {

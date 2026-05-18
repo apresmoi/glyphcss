@@ -16,11 +16,11 @@
  *    `Plane` next to the actual model) that shouldn't render.
  *
  * The mesh is fit to `targetSize` units and remapped from OBJ's +Y-up
- * convention to polycss's +Z-up via the cyclic permutation (x,y,z) → (z,x,y),
+ * convention to glyphcss's +Z-up via the cyclic permutation (x,y,z) → (z,x,y),
  * which preserves handedness so triangle winding stays consistent.
  *
  * Vertex coords are kept as floats; bbox is NOT computed per-polygon
- * (polycss has no per-polygon bbox; the scene container derives the overall
+ * (glyphcss has no per-polygon bbox; the scene container derives the overall
  * mesh bbox from all polygons in `buildSceneContext`).
  */
 import type { Polygon, Vec2, Vec3 } from "../types";
@@ -173,7 +173,7 @@ export function parseObj(text: string, options?: ObjParseOptions): ParseResult {
   const scale = maxDim > 0 ? targetSize / maxDim : 1;
 
   // Cyclic axis permutation (x,y,z) → (z,x,y) puts OBJ's +Y up axis into
-  // polycss's +Z (elevation). Single axis swaps invert handedness; a cyclic
+  // glyphcss's +Z (elevation). Single axis swaps invert handedness; a cyclic
   // shift doesn't, so triangle CCW-from-outside winding survives.
   const round = (n: number) => Math.round(n * 1000) / 1000;
   const grid: Vec3[] = verts.map(([x, y, z]) => [

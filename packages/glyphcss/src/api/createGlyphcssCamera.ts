@@ -6,17 +6,17 @@
  * handle with a `project()` method that maps world-space vertices to
  * [col, row, depth] in character-cell grid space.
  *
- * Public names are Glyphcss-prefixed to mirror polycss's naming convention.
+ * Public names are Glyphcss-prefixed to mirror glyphcss's naming convention.
  * The internal camera algorithms are byte-identical to asciss's createCamera.ts.
  */
 
 import type { Vec3 } from "@glyphcss/core";
 
 /**
- * Rotate `v` to match polycss's world→screen transform for identical (rotY, rotX) values.
+ * Rotate `v` to match glyphcss's world→screen transform for identical (rotY, rotX) values.
  *
  * This is asciss's rotateVec3 (radians, (rotY, rotX) parameter order) — NOT the
- * polycss-core rotateVec3 which takes degrees and (rx, ry, rz). Kept internal
+ * glyphcss-core rotateVec3 which takes degrees and (rx, ry, rz). Kept internal
  * so the camera math stays byte-identical to asciss.
  */
 function rotateVec3(v: Vec3, a: number, b: number): Vec3 {
@@ -89,11 +89,11 @@ export interface GlyphcssFirstPersonCameraOptions {
   center?: [number, number];
 }
 
-/** Handle alias — same surface as `GlyphcssCamera`, names matched to polycss. */
+/** Handle alias — same surface as `GlyphcssCamera`, names matched to glyphcss. */
 export type GlyphcssPerspectiveCameraHandle = GlyphcssCamera;
-/** Handle alias — same surface as `GlyphcssCamera`, names matched to polycss. */
+/** Handle alias — same surface as `GlyphcssCamera`, names matched to glyphcss. */
 export type GlyphcssOrthographicCameraHandle = GlyphcssCamera;
-/** Handle alias — same surface as `GlyphcssCamera`, names matched to polycss. */
+/** Handle alias — same surface as `GlyphcssCamera`, names matched to glyphcss. */
 export type GlyphcssFirstPersonCameraHandle = GlyphcssCamera;
 
 export function createGlyphcssPerspectiveCamera(opts: GlyphcssPerspectiveCameraOptions = {}): GlyphcssPerspectiveCameraHandle {
@@ -122,12 +122,12 @@ export function createGlyphcssPerspectiveCamera(opts: GlyphcssPerspectiveCameraO
     get target(): Vec3 { return state.target; },
     set target(v: Vec3) { state.target = v; },
     project(v, cols, rows, cellAspect) {
-      // Subtract the pan target before rotating — mirrors polycss target semantics.
+      // Subtract the pan target before rotating — mirrors glyphcss target semantics.
       const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
       // rotateVec3(v, rotY, rotX) applies rotZ(rotY) then rotX(rotX) —
       // matches CSS `rotateX(rotX) rotate(rotY)` (CSS reads right-to-left).
       const r = rotateVec3(shifted, state.rotY, state.rotX);
-      // Polycss-equivalent perspective math: `persp = 1 / (1 - z/distance)`.
+      // Glyphcss-equivalent perspective math: `persp = 1 / (1 - z/distance)`.
       const MESH_UNIT = 30;
       const ZOOM_TO_RADIUS = 1.5;
       const zPx = r[2] * MESH_UNIT;

@@ -309,14 +309,14 @@ interface ControlState {
 }
 
 const FRAMES = 60;
-// Defaults aligned to polycss gallery's createPolyScene defaults:
+// Defaults aligned to glyphcss gallery's createPolyScene defaults:
 //   zoom: 0.65, perspective: 8000, rotX: 65deg, rotY: 45deg.
-// `scale` = polycss `zoom`; `distance` = polycss `perspective` (pixel-ish focal length).
+// `scale` = glyphcss `zoom`; `distance` = glyphcss `perspective` (pixel-ish focal length).
 const DEFAULT_TUNABLES: Tunables = {
   scale: 0.65,
   stretch: 1.0,
   distance: 8000,
-  rotX: 1.134, // 65° in radians, matches polycss rotX
+  rotX: 1.134, // 65° in radians, matches glyphcss rotX
   duration: 6,
   lineHeight: 1.0,
   geometry: 'cuboctahedron',
@@ -538,7 +538,14 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     return { ...g, animations: [], sample: () => tris };
   }
 
-  let geometry: GeometryState = staticGeometry(buildGeometry(tunables.geometry));
+  // When a `data-mesh` URL will be fetched, skip the procedural-geometry build.
+  // Otherwise any pre-load bake (resize listeners, first paint) renders the
+  // built-in shape (e.g. cuboctahedron) for a brief flash before the real mesh
+  // replaces it. Empty placeholder = nothing to rasterize until the mesh lands.
+  const willLoadMesh = !!demoEl.getAttribute('data-mesh');
+  let geometry: GeometryState = willLoadMesh
+    ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], triangles: [] })
+    : staticGeometry(buildGeometry(tunables.geometry));
 
   // ── Animation state ──────────────────────────────────────────────────────
   interface AnimationState {
@@ -768,7 +775,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     const prevTarget = camera.target;
     // True orthographic when requested — skips the perspective division so FPV
     // (which places target far from the mesh) doesn't hit the focal-plane
-    // singularity. Matches polycss's `perspective: false` semantics.
+    // singularity. Matches glyphcss's `perspective: false` semantics.
     if (controlState.dragMode === 'fpv') {
       // First-person camera: viewer at z=0 (the eye), perspective diverges at
       // the eye, behind-camera vertices are NaN-culled. Proper FPV semantics,
@@ -886,7 +893,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   };
 
   // Lighting state — applied to scene on rebuild. Default direction is up-and-right
-  // (azimuth 50°, elevation 45°), matching polycss gallery defaults.
+  // (azimuth 50°, elevation 45°), matching glyphcss gallery defaults.
   const lightingState = {
     direction: [0.454, 0.541, 0.707] as [number, number, number],
     keyIntensity: 1,
@@ -918,7 +925,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   let sphericalEl = 45;
 
   // ── FPV state ────────────────────────────────────────────────────────────
-  // Two-state model ported from polycss createPolyFirstPersonControls:
+  // Two-state model ported from glyphcss createPolyFirstPersonControls:
   //   - `fpvOrigin` is the camera's WORLD position (the eye).
   //   - `camera.target` is DERIVED each frame: fpvOrigin + forwardDir * lookOffset.
   //   - Mouselook rotates target AROUND the fixed fpvOrigin (in-place rotation,
@@ -947,7 +954,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   const FPV_CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight']);
 
   // MESH_UNIT = 30 matches the projection constant in createCamera.ts. The
-  // lookOffset converts from the pixel-ish `distance` (= polycss `perspective`)
+  // lookOffset converts from the pixel-ish `distance` (= glyphcss `perspective`)
   // back to world units so the derived target lives exactly `distance/MESH_UNIT`
   // world units ahead of the eye — placing the CSS perspective vanishing point
   // at the eye position (true first-person semantics).
@@ -962,7 +969,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   function fpvForwardDir(rotX: number, rotY: number): [number, number, number] {
     // World direction that maps to CSS -Z (into the screen, away from viewer)
-    // under glyphcss's rotateVec3(., rotY, rotX). Matches polycss verbatim:
+    // under glyphcss's rotateVec3(., rotY, rotX). Matches glyphcss verbatim:
     // [-sin(rx)·cos(ry), -sin(rx)·sin(ry), -cos(rx)] in radians.
     // rotX=π/2 = horizontal; rotX<π/2 = looking up; rotX>π/2 = looking down.
     return [
@@ -983,7 +990,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   }
 
   function fpvSyncTarget(): void {
-    // Re-derive target from the current origin and camera angles so polycss's
+    // Re-derive target from the current origin and camera angles so glyphcss's
     // perspective viewer tracks the eye. Without this, walking forward would
     // move `fpvOrigin` but target would stay put, drifting the visible center.
     camera.target = fpvDeriveTarget();
@@ -991,7 +998,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   function fpvInitOriginFromCamera(): void {
     // Position camera OUTSIDE the mesh in the look direction's opposite so the
-    // user can walk TOWARD the mesh. polycss puts the user at scene center
+    // user can walk TOWARD the mesh. glyphcss puts the user at scene center
     // (inside the mesh) which works in their 60-unit world — you have room to
     // walk around interior detail. Our normalize fits meshes to a 2-unit box,
     // leaving no interior; backing up 3 units gives the user something to
@@ -1026,7 +1033,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     if (dx === 0 && dy === 0) return;
     const sens = controlState.fpv.lookSensitivity;
     const dyDir = controlState.fpv.invertY ? -1 : 1;
-    // Yaw: mouse right → look right → rotY decreases (same as polycss line 284).
+    // Yaw: mouse right → look right → rotY decreases (same as glyphcss line 284).
     // Yaw range wraps; no clamp needed.
     const DEG_TO_RAD = Math.PI / 180;
     camera.rotY = camera.rotY - dx * sens * DEG_TO_RAD;
@@ -1101,7 +1108,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
     // ── Horizontal movement: WASD walks fpvOrigin on the world XY plane. ────
     // Movement is pitch-independent: always floor-walking, never flying.
-    // Mirrors polycss's horizontal-only projection (drop the vertical component
+    // Mirrors glyphcss's horizontal-only projection (drop the vertical component
     // by projecting the look direction onto XY, matching three.js PointerLockControls).
     if (controlState.fpv.move) {
       let mf = 0;
@@ -1115,7 +1122,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       if (mf !== 0 || mr !== 0) {
         const r = camera.rotY;
         // Yaw-aligned horizontal forward and right vectors (world XY, Z-up).
-        // Derived from polycss's WASD math after radian substitution.
+        // Derived from glyphcss's WASD math after radian substitution.
         const fx = -Math.cos(r);
         const fy = -Math.sin(r);
         const rx = -Math.sin(r);
@@ -1166,7 +1173,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     // Save orbit-mode perspective so we can restore on exit. FPV needs its own
     // perspective tuning — orbit's distance=8000 makes walking look like a
     // planar pan (foreshortening is 1/8000 per world-unit walked = invisible).
-    // polycss does the equivalent via the `.polycss-fpv-host` CSS class that
+    // glyphcss does the equivalent via the `.glyphcss-fpv-host` CSS class that
     // sets `perspective: 2000px` matching `lookOffset` so the CSS viewer
     // coincides with cameraOrigin. For our raster, switching to perspective
     // mode with a short focal length (200) gives noticeable foreshortening
@@ -1233,7 +1240,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
     Object.assign(controlState.fpv, partial);
     if (controlState.dragMode === 'fpv') {
       // Re-snap vertical position when standing height or ground plane changes,
-      // preserving horizontal position. Mirrors polycss's update() behaviour.
+      // preserving horizontal position. Mirrors glyphcss's update() behaviour.
       if ('eyeHeight' in partial || 'groundZ' in partial) {
         fpvOrigin[2] = controlState.fpv.groundZ + controlState.fpv.eyeHeight;
         fpvSyncTarget();
@@ -1421,7 +1428,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
   // Skip lil-gui entirely if the controls slot was opted-out (noControls prop).
   const gui = controlsEl ? new GUI({ container: controlsEl, title: 'Tuning', width: 240 }) : null;
-  // lil-gui ranges aligned to polycss gallery defaults.
+  // lil-gui ranges aligned to glyphcss gallery defaults.
   const controlMakers: Record<string, () => void> = gui ? {
     scale: () => { gui.add(tunables, 'scale', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
     stretch: () => { gui.add(tunables, 'stretch', 0.5, 1.5, 0.01).onChange(rebuildAll); },
@@ -1435,8 +1442,8 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   } : {};
   for (const key of controlList) controlMakers[key]?.();
 
-  // Drag math mirrors polycss createPolyOrbitControls (incremental frame-to-frame
-  // deltas, dx/4 sensitivity in degrees, mouse-up rotates "up"). Polycss uses
+  // Drag math mirrors glyphcss createPolyOrbitControls (incremental frame-to-frame
+  // deltas, dx/4 sensitivity in degrees, mouse-up rotates "up"). Glyphcss uses
   // degrees; we convert (0.25 deg/px × π/180 ≈ 0.00436 rad/px) to keep the same
   // tactile feel.
   const DRAG_SENSITIVITY = (0.25 * Math.PI) / 180; // rad per pixel
@@ -1480,7 +1487,7 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
 
     if (controlState.dragMode === 'pan' || e.shiftKey) {
       // Pan mode: translate camera.target proportional to drag delta in a
-      // slippy-map fashion (terrain follows pointer). Derived for the polycss
+      // slippy-map fashion (terrain follows pointer). Derived for the glyphcss
       // world frame (col = cx + r[0]*radius, row = cy + r[1]*radius) where
       // r[0] = cos(rotY)*world[1] - sin(rotY)*world[0] and
       // r[1] ~ sin(rotY)*world[1] + cos(rotY)*world[0] (before rotX tilt).
@@ -1497,12 +1504,12 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
       const t = camera.target;
       camera.target = [t[0] + targetD0 * f, t[1] + targetD1 * f, t[2]];
     } else {
-      // Orbit mode: matches polycss createPolyOrbitControls which subtracts dX/dY.
+      // Orbit mode: matches glyphcss createPolyOrbitControls which subtracts dX/dY.
       // Drag-right (dx > 0) decreases rotY (same direction as CSS rotate spin).
-      // Drag-down (dy > 0) decreases rotX (same direction as polycss).
+      // Drag-down (dy > 0) decreases rotX (same direction as glyphcss).
       camera.rotY = camera.rotY - dx * DRAG_SENSITIVITY * f;
       // Clamp rotX to the same [0, 100°] range as the sidebar slider.
-      // polycss uses `Math.max(0, Math.min(100, rotX - dY))` in degrees;
+      // glyphcss uses `Math.max(0, Math.min(100, rotX - dY))` in degrees;
       // we work in radians so the upper bound is 100° × π/180.
       const ROT_X_MAX = Math.PI * 100 / 180;
       camera.rotX = Math.max(0, Math.min(ROT_X_MAX, camera.rotX - dy * DRAG_SENSITIVITY * f));
@@ -1564,14 +1571,14 @@ function initGlyphcssDemo(demoEl: HTMLElement): void {
   viewportEl.addEventListener('wheel', (e) => {
     if (!controlState.wheelEnabled) return;
     e.preventDefault();
-    // polycss-equivalent wheel zoom: change `scale` (= polycss `zoom`), not
-    // `distance` (= polycss `perspective`). Distance only tunes perspective
+    // glyphcss-equivalent wheel zoom: change `scale` (= glyphcss `zoom`), not
+    // `distance` (= glyphcss `perspective`). Distance only tunes perspective
     // intensity; scale is the visual zoom the sidebar slider drives.
     const lineFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
     let delta = e.deltaY * lineFactor;
     if (e.ctrlKey) delta *= 10; // trackpad pinch (browser sets ctrlKey)
     else delta *= 3;             // two-finger scroll amp
-    const factor = Math.exp(-delta * 0.000513); // polycss ZOOM_STEP
+    const factor = Math.exp(-delta * 0.000513); // glyphcss ZOOM_STEP
     const newScale = Math.max(0.02, Math.min(20, camera.scale * factor));
     camera.scale = newScale;
     tunables.scale = newScale;

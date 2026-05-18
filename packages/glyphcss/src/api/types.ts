@@ -1,7 +1,7 @@
 import type { Vec3, Vec2 } from "@glyphcss/core";
 
 /**
- * Triangle type for the glyphcss rasterizer. Unlike polycss-core's TextureTriangle,
+ * Triangle type for the glyphcss rasterizer. Unlike glyphcss-core's TextureTriangle,
  * `uvs` is optional — the ASCII rasterizer never samples UV texture coordinates.
  */
 export interface GlyphcssTriangle {

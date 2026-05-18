@@ -10,12 +10,13 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@polycss-core/*": ["packages/core/src/*"]
+      "@glyphcss/core/*": ["packages/core/src/*"]
     }
   },
   "references": [
     { "path": "packages/core" },
-    { "path": "packages/html" },
-    { "path": "packages/react" }
+    { "path": "packages/glyphcss" },
+    { "path": "packages/react" },
+    { "path": "packages/vue" }
   ]
 }

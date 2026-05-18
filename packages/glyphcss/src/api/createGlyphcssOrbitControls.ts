@@ -2,7 +2,7 @@
  * createGlyphcssOrbitControls — orbit-mode camera input for a GlyphcssScene.
  *
  * Left-drag rotates rotX / rotY around the target (orbit). Wheel zooms or
- * dollies. Mirrors polycss's createPolyOrbitControls semantics, adapted for
+ * dollies. Mirrors glyphcss's createPolyOrbitControls semantics, adapted for
  * the ASCII rasterizer's GlyphcssCamera instead of the CSS matrix3d camera.
  */
 

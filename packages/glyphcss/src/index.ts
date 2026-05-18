@@ -1,5 +1,5 @@
 /**
- * glyphcss — ASCII paint backend with polycss's scene-composition API.
+ * glyphcss — ASCII paint backend with glyphcss's scene-composition API.
  *
  * Public surface:
  *   - `createGlyphcssScene(host, options)` — imperative scene API

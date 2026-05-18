@@ -2,7 +2,7 @@
  * createGlyphcssFirstPersonControls — first-person camera input for a GlyphcssScene.
  *
  * Mouse-drag looks around (rotX/rotY). WASD or arrow keys move forward/backward/strafe.
- * Mirrors polycss's createPolyFirstPersonControls semantics for the ASCII rasterizer.
+ * Mirrors glyphcss's createPolyFirstPersonControls semantics for the ASCII rasterizer.
  */
 
 import type { GlyphcssSceneHandle } from "./createGlyphcssScene";

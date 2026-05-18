@@ -1,7 +1,7 @@
 /**
  * Gallery picker runtime — wires search box, model selection, load-random,
  * and the right-rail controls to the GlyphcssDemo's exposed handle.
- * Controls mirror polycss DebugWorkbench exactly.
+ * Controls mirror glyphcss DebugWorkbench exactly.
  */
 
 interface ControlState {

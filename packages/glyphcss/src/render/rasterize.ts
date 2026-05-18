@@ -233,10 +233,10 @@ export function bakeFrames(scene: RasterizeContext, frameCount: number, axis: "x
   const original = axis === "y" ? camera.rotY : camera.rotX;
   const frames: string[] = new Array(frameCount);
   for (let i = 0; i < frameCount; i++) {
-    // Positive direction: matches polycss's CSS autorotate (increasing rotY =
+    // Positive direction: matches glyphcss's CSS autorotate (increasing rotY =
     // CW on screen, right side goes down). Drag-right decreases rotY (CCW)
     // which is the orbit-controls convention; the strip plays CW to match
-    // polycss's default autorotate appearance.
+    // glyphcss's default autorotate appearance.
     const angle = original + (i / frameCount) * Math.PI * 2;
     if (axis === "y") camera.rotY = angle;
     else camera.rotX = angle;

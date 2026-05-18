@@ -6,7 +6,7 @@
  * kept visible to advertise the feature, just non-interactive. The
  * "Perspective px" row is hidden when projection is orthographic.
  *
- * Ported from polycss useCameraFolder.ts; adapted for glyphcss types (rotX in
+ * Ported from glyphcss useCameraFolder.ts; adapted for glyphcss types (rotX in
  * degrees 0–100, target range ±2, no auto-center axes or reset-model callback).
  */
 import { useEffect, useRef } from "react";

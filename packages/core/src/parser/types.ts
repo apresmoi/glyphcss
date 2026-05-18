@@ -33,7 +33,7 @@ export interface ParseAnimationController {
 }
 
 export interface ParseResult {
-  /** The mesh, as a flat polygon list. Already vertex-permuted to polycss space. */
+  /** The mesh, as a flat polygon list. Already vertex-permuted to glyphcss space. */
   polygons: Polygon[];
   /** Optional animation sampler for formats that carry timeline data. */
   animation?: ParseAnimationController;

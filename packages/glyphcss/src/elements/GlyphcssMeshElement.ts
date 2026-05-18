@@ -1,5 +1,5 @@
 /**
- * `<glyphcss-mesh src="…">` custom element. Fetches a mesh via the polycss-core
+ * `<glyphcss-mesh src="…">` custom element. Fetches a mesh via the glyphcss-core
  * `loadMesh` parser, converts polygons to triangles, and registers with the
  * parent `<glyphcss-scene>`.
  *
@@ -39,7 +39,7 @@ function findScene(el: HTMLElement): GlyphcssSceneElement | null {
   return found ?? null;
 }
 
-/** Convert polycss Polygon[] to GlyphcssTriangle[] by fan-triangulating each polygon. */
+/** Convert glyphcss Polygon[] to GlyphcssTriangle[] by fan-triangulating each polygon. */
 function polygonsToTriangles(polygons: { vertices: Vec3[]; color?: string }[]): GlyphcssTriangle[] {
   const ZERO_UV: [import("@glyphcss/core").Vec2, import("@glyphcss/core").Vec2, import("@glyphcss/core").Vec2] =
     [[0, 0], [0, 0], [0, 0]];

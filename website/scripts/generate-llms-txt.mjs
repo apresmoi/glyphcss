@@ -8,7 +8,7 @@ import { join, relative, dirname } from 'path';
 
 const DOCS_DIR = new URL('../src/content/docs', import.meta.url).pathname;
 const DIST_DIR = new URL('../dist', import.meta.url).pathname;
-const SITE_URL = 'https://polycss.com';
+const SITE_URL = 'https://glyphcss.com';
 
 function walkDir(dir) {
   const files = [];
@@ -56,9 +56,9 @@ for (const file of files) {
 }
 
 const indexLines = [
-  '# Polycss',
+  '# Glyphcss',
   '',
-  '> A CSS polygon mesh engine. DOM-native 3D rendering. MIT licensed.',
+  '> An ASCII polygon mesh renderer for the DOM. Projects 3D meshes into a monospace character grid. MIT licensed.',
   '',
   '## Documentation',
   '',
@@ -79,9 +79,9 @@ indexLines.push('', '## Source', '', '- GitHub: https://github.com/apresmoi/glyp
 writeFileSync(join(DIST_DIR, 'llms.txt'), indexLines.join('\n'));
 
 const fullLines = [
-  '# Polycss -- Full Documentation',
+  '# Glyphcss -- Full Documentation',
   '',
-  '> A CSS polygon mesh engine. DOM-native 3D rendering.',
+  '> An ASCII polygon mesh renderer for the DOM. Projects 3D meshes into a monospace character grid.',
   '',
 ];
 

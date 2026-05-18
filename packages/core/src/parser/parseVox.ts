@@ -14,10 +14,10 @@
  * Face culling: for each voxel, each of its 6 neighbours is checked. When a
  * neighbour cell is empty (or out of grid bounds) the shared face is visible
  * and emitted as a quad polygon.
- * Winding follows CCW-from-outside convention, consistent with polycss's
+ * Winding follows CCW-from-outside convention, consistent with glyphcss's
  * backface culling.
  *
- * Coordinate system: MagicaVoxel is Z-up — same as polycss — so no axis
+ * Coordinate system: MagicaVoxel is Z-up — same as glyphcss — so no axis
  * permutation is needed (unlike OBJ/glTF which are Y-up and need a cyclic
  * swap). Voxel coordinates are always non-negative (origin at 0), so no
  * shift is required by default.

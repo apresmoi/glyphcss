@@ -7,7 +7,7 @@
  * just pass the current state value and the controller mirrors it without
  * extra `setValue(...)` boilerplate per slot.
  *
- * Ported from polycss primitives.tsx — glyphcss-specific metric labels and
+ * Ported from glyphcss primitives.tsx — glyphcss-specific metric labels and
  * ranges are the only divergence.
  */
 import { useEffect, useRef, useState } from "react";

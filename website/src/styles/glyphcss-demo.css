@@ -2,7 +2,7 @@
 
 /* GlyphcssDemo — interactive ASCII scene viewer with code panel + tuning bench.
  * Ported from poly-demo.css; glyphcss-specific additions preserved for the
- * flipbook viewport/strip/hit-layer/hotspot layer that doesn't exist in polycss. */
+ * flipbook viewport/strip/hit-layer/hotspot layer that doesn't exist in glyphcss. */
 
 .glyphcss-demo {
   margin: 1.5rem 0;
@@ -47,7 +47,7 @@
   overflow: hidden;
 }
 
-/* ── Flipbook viewport — glyphcss-specific; no polycss equivalent ─────────
+/* ── Flipbook viewport — glyphcss-specific; no glyphcss equivalent ─────────
  * Clipped to exactly one frame's height; centered vertically.
  * `overscroll-behavior: contain` stops wheel zoom from leaking to the page
  * scroll container where preventDefault() would be silently no-op'd. */
@@ -276,7 +276,7 @@
   color: #64748b;
 }
 
-/* lil-gui panel — themed to match the polycss range-control palette */
+/* lil-gui panel — themed to match the glyphcss range-control palette */
 .glyphcss-demo__controls .lil-gui {
   --background-color: #11141a;
   --text-color: #cbd5e1;

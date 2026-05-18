@@ -1,9 +1,9 @@
 /**
  * Minimal glTF 2.0 / GLB loader — extracts triangle meshes (positions +
- * indices + per-material color) into polycss polygons. Also exposes a
+ * indices + per-material color) into glyphcss polygons. Also exposes a
  * lightweight animation sampler for node TRS animation and simple skinned
  * meshes. Skips PBR extras and morph targets: the goal is still to render
- * polycss polygons, not be a complete glTF runtime.
+ * glyphcss polygons, not be a complete glTF runtime.
  *
  * Supports both .glb (binary container with magic "glTF") and .gltf (JSON
  * with separate .bin) — for .gltf the caller must supply the buffers via
@@ -18,7 +18,7 @@
  *
  * After parsing, the mesh is uniformly scaled to fit `targetSize` units
  * and the y/z axes are cyclically permuted (so glTF's +Y-up becomes
- * polycss's +Z-up without inverting handedness — a single y↔z swap would
+ * glyphcss's +Z-up without inverting handedness — a single y↔z swap would
  * flip every triangle's winding and break backface culling).
  */
 import type { Polygon, Vec2, Vec3 } from "../types";
@@ -39,7 +39,7 @@ export interface GltfParseOptions {
   /**
    * Which axis is "up" in the source mesh.
    *  - "y" (default, glTF spec): cyclic permutation (x,y,z) → (z,x,y) so
-   *    +Y ends up on polycss's +Z (elevation).
+   *    +Y ends up on glyphcss's +Z (elevation).
    *  - "z" (Blender-style, FBX2glTF often emits this): identity, no swap.
    * Pick "z" if the model lands on its side / lies down instead of
    * standing.
@@ -125,7 +125,7 @@ interface GltfNode {
   mesh?: number;
   skin?: number;
   children?: number[];
-  /** TRS — polycss reads either matrix or these three components. */
+  /** TRS — glyphcss reads either matrix or these three components. */
   matrix?: number[];
   translation?: number[];
   rotation?: number[]; // quaternion (x, y, z, w)

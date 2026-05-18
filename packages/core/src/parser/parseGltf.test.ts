@@ -618,7 +618,7 @@ describe("parseGltf", () => {
   });
 
   describe("axis conversion (upAxis)", () => {
-    it("upAxis=y (default) permutes axes (z,x,y) → +Y in glTF ends up on +Z polycss", () => {
+    it("upAxis=y (default) permutes axes (z,x,y) → +Y in glTF ends up on +Z glyphcss", () => {
       const { glb } = buildTriangleGlb();
       const rY = parseGltf(glb, { upAxis: "y", gridShift: 0 });
       const rZ = parseGltf(glb, { upAxis: "z", gridShift: 0 });
