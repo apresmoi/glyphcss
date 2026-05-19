@@ -4,6 +4,14 @@ import { icosidodecahedronPolygons } from "./icosidodecahedronPolygons";
 import { truncatedTetrahedronPolygons } from "./truncatedTetrahedronPolygons";
 import { truncatedCubePolygons } from "./truncatedCubePolygons";
 import { truncatedOctahedronPolygons } from "./truncatedOctahedronPolygons";
+import { truncatedDodecahedronPolygons } from "./truncatedDodecahedronPolygons";
+import { truncatedIcosahedronPolygons } from "./truncatedIcosahedronPolygons";
+import { truncatedCuboctahedronPolygons } from "./truncatedCuboctahedronPolygons";
+import { truncatedIcosidodecahedronPolygons } from "./truncatedIcosidodecahedronPolygons";
+import { rhombicuboctahedronPolygons } from "./rhombicuboctahedronPolygons";
+import { rhombicosidodecahedronPolygons } from "./rhombicosidodecahedronPolygons";
+import { snubCubePolygons } from "./snubCubePolygons";
+import { snubDodecahedronPolygons } from "./snubDodecahedronPolygons";
 import { smallStellatedDodecahedronPolygons } from "./smallStellatedDodecahedronPolygons";
 import { greatDodecahedronPolygons } from "./greatDodecahedronPolygons";
 import { greatStellatedDodecahedronPolygons } from "./greatStellatedDodecahedronPolygons";
@@ -1284,6 +1292,420 @@ describe("truncatedOctahedronPolygons", () => {
     const n = allBase.length;
     expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(4, 5);
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-2, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+});
+
+describe("truncatedDodecahedronPolygons", () => {
+  it("returns 32 faces total (20 triangles + 12 decagons)", () => {
+    const polygons = truncatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(32);
+    const tris = polygons.filter((p) => p.vertices.length === 3);
+    const decas = polygons.filter((p) => p.vertices.length === 10);
+    expect(tris).toHaveLength(20);
+    expect(decas).toHaveLength(12);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = truncatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 2;
+    const polygons = truncatedDodecahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = truncatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = truncatedDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#aabbcc" });
+    for (const p of colorPolygons) expect(p.color).toBe("#aabbcc");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [1, -2, 3];
+    const base = truncatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = truncatedDodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-2, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+});
+
+describe("truncatedIcosahedronPolygons", () => {
+  it("returns 32 faces total (12 pentagons + 20 hexagons)", () => {
+    const polygons = truncatedIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(32);
+    const pentas = polygons.filter((p) => p.vertices.length === 5);
+    const hexes = polygons.filter((p) => p.vertices.length === 6);
+    expect(pentas).toHaveLength(12);
+    expect(hexes).toHaveLength(20);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = truncatedIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 3;
+    const polygons = truncatedIcosahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = truncatedIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = truncatedIcosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#112233" });
+    for (const p of colorPolygons) expect(p.color).toBe("#112233");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [2, 3, -1];
+    const base = truncatedIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = truncatedIcosahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(3, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-1, 5);
+  });
+});
+
+describe("truncatedCuboctahedronPolygons", () => {
+  it("returns 26 faces total (12 squares + 8 hexagons + 6 octagons)", () => {
+    const polygons = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(26);
+    const squares = polygons.filter((p) => p.vertices.length === 4);
+    const hexes   = polygons.filter((p) => p.vertices.length === 6);
+    const octs    = polygons.filter((p) => p.vertices.length === 8);
+    expect(squares).toHaveLength(12);
+    expect(hexes).toHaveLength(8);
+    expect(octs).toHaveLength(6);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 2;
+    const polygons = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size: 1, color: "#c0ffee" });
+    for (const p of colorPolygons) expect(p.color).toBe("#c0ffee");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [-1, 4, 2];
+    const base = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = truncatedCuboctahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(4, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
+  });
+});
+
+describe("truncatedIcosidodecahedronPolygons", () => {
+  it("returns 62 faces total (30 squares + 20 hexagons + 12 decagons)", () => {
+    const polygons = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(62);
+    const squares = polygons.filter((p) => p.vertices.length === 4);
+    const hexes   = polygons.filter((p) => p.vertices.length === 6);
+    const decas   = polygons.filter((p) => p.vertices.length === 10);
+    expect(squares).toHaveLength(30);
+    expect(hexes).toHaveLength(20);
+    expect(decas).toHaveLength(12);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 2;
+    const polygons = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff8800" });
+    for (const p of colorPolygons) expect(p.color).toBe("#ff8800");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [5, -3, 1];
+    const base = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = truncatedIcosidodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(5, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-3, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(1, 5);
+  });
+});
+
+describe("rhombicuboctahedronPolygons", () => {
+  it("returns 26 faces total (8 triangles + 18 squares)", () => {
+    const polygons = rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(26);
+    const tris    = polygons.filter((p) => p.vertices.length === 3);
+    const squares = polygons.filter((p) => p.vertices.length === 4);
+    expect(tris).toHaveLength(8);
+    expect(squares).toHaveLength(18);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 2.5;
+    const polygons = rhombicuboctahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ab4567" });
+    for (const p of colorPolygons) expect(p.color).toBe("#ab4567");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [3, 0, -2];
+    const base = rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = rhombicuboctahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(3, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(0, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+});
+
+describe("rhombicosidodecahedronPolygons", () => {
+  it("returns 62 faces total (20 triangles + 30 squares + 12 pentagons)", () => {
+    const polygons = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(62);
+    const tris    = polygons.filter((p) => p.vertices.length === 3);
+    const squares = polygons.filter((p) => p.vertices.length === 4);
+    const pentas  = polygons.filter((p) => p.vertices.length === 5);
+    expect(tris).toHaveLength(20);
+    expect(squares).toHaveLength(30);
+    expect(pentas).toHaveLength(12);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 2;
+    const polygons = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#fedcba" });
+    for (const p of colorPolygons) expect(p.color).toBe("#fedcba");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [-2, 1, 4];
+    const base = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = rhombicosidodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-2, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(1, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(4, 5);
+  });
+});
+
+describe("snubCubePolygons", () => {
+  it("returns 38 faces total (32 triangles + 6 squares)", () => {
+    const polygons = snubCubePolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(38);
+    const tris    = polygons.filter((p) => p.vertices.length === 3);
+    const squares = polygons.filter((p) => p.vertices.length === 4);
+    expect(tris).toHaveLength(32);
+    expect(squares).toHaveLength(6);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = snubCubePolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 3;
+    const polygons = snubCubePolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = snubCubePolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = snubCubePolygons({ center: [0, 0, 0], size: 1, color: "#0077ff" });
+    for (const p of colorPolygons) expect(p.color).toBe("#0077ff");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [1, 2, -3];
+    const base = snubCubePolygons({ center: [0, 0, 0], size: 1 });
+    const moved = snubCubePolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-3, 5);
+  });
+});
+
+describe("snubDodecahedronPolygons", () => {
+  it("returns 92 faces total (80 triangles + 12 pentagons)", () => {
+    const polygons = snubDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(92);
+    const tris   = polygons.filter((p) => p.vertices.length === 3);
+    const pentas = polygons.filter((p) => p.vertices.length === 5);
+    expect(tris).toHaveLength(80);
+    expect(pentas).toHaveLength(12);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = snubDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies on the circumscribing sphere (distance from center == size)", () => {
+    const size = 2;
+    const polygons = snubDodecahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = snubDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = snubDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#aaff00" });
+    for (const p of colorPolygons) expect(p.color).toBe("#aaff00");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [2, -1, 3];
+    const base = snubDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = snubDodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-1, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
   });
 });
