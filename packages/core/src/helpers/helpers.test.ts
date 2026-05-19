@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { smallStellatedDodecahedronPolygons } from "./smallStellatedDodecahedronPolygons";
+import { greatDodecahedronPolygons } from "./greatDodecahedronPolygons";
+import { greatStellatedDodecahedronPolygons } from "./greatStellatedDodecahedronPolygons";
+import { greatIcosahedronPolygons } from "./greatIcosahedronPolygons";
 import { axesHelperPolygons } from "./axesPolygons";
 import { octahedronPolygons } from "./octahedronPolygons";
 import { tetrahedronPolygons } from "./tetrahedronPolygons";
@@ -791,6 +795,235 @@ describe("trapezohedronPolygons", () => {
       const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
       const residual = Math.abs(dot) / (len || 1);
       expect(residual).toBeLessThan(1e-6);
+    }
+  });
+});
+
+describe("smallStellatedDodecahedronPolygons", () => {
+  it("returns 60 triangular faces (12 pentagrams × 5 triangles)", () => {
+    const polygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(60);
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#abcdef" });
+    for (const p of colorPolygons) expect(p.color).toBe("#abcdef");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [3, -2, 5];
+    const base = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = smallStellatedDodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(3, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-2, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(5, 5);
+  });
+
+  it("all non-centroid vertices lie on the circumscribing sphere (distance == size)", () => {
+    const size = 2;
+    const polygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size });
+    // The centroid vertices sit strictly inside the sphere; the outer vertices
+    // (vertices 1 and 2 of each triangle) are icosahedron vertices on the sphere.
+    for (const p of polygons) {
+      for (const vtx of [p.vertices[1], p.vertices[2]]) {
+        const [x, y, z] = vtx;
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+
+  it("the 12 distinct pentagram centroids lie strictly inside the circumscribing sphere", () => {
+    const size = 1;
+    const polygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size });
+    // vertex[0] of each triangle is the pentagram centroid; 5 triangles share
+    // each centroid so there are 12 distinct centroids.
+    const centroids = new Map<string, [number, number, number]>();
+    for (const p of polygons) {
+      const [x, y, z] = p.vertices[0];
+      const key = `${x.toFixed(8)},${y.toFixed(8)},${z.toFixed(8)}`;
+      centroids.set(key, [x, y, z]);
+    }
+    expect(centroids.size).toBe(12);
+    for (const [x, y, z] of centroids.values()) {
+      const dist = Math.sqrt(x * x + y * y + z * z);
+      expect(dist).toBeLessThan(size);
+    }
+  });
+});
+
+describe("greatDodecahedronPolygons", () => {
+  it("returns 12 pentagonal faces", () => {
+    const polygons = greatDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(12);
+    for (const p of polygons) expect(p.vertices).toHaveLength(5);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = greatDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = greatDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = greatDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#123456" });
+    for (const p of colorPolygons) expect(p.color).toBe("#123456");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [1, 4, -2];
+    const base = greatDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = greatDodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(4, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+
+  it("all vertices lie on the circumscribing sphere (distance == size)", () => {
+    const size = 3;
+    const polygons = greatDodecahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+});
+
+describe("greatStellatedDodecahedronPolygons", () => {
+  it("returns 60 triangular faces (12 pentagrams × 5 triangles)", () => {
+    const polygons = greatStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(60);
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = greatStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = greatStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = greatStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff8800" });
+    for (const p of colorPolygons) expect(p.color).toBe("#ff8800");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [-1, 2, 4];
+    const base = greatStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = greatStellatedDodecahedronPolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(4, 5);
+  });
+
+  it("all non-centroid vertices lie on the circumscribing sphere (distance == size)", () => {
+    const size = 2;
+    const polygons = greatStellatedDodecahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const vtx of [p.vertices[1], p.vertices[2]]) {
+        const [x, y, z] = vtx;
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 5);
+      }
+    }
+  });
+});
+
+describe("greatIcosahedronPolygons", () => {
+  it("returns 20 triangular faces", () => {
+    const polygons = greatIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(20);
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = greatIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = greatIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = greatIcosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff0000" });
+    for (const p of colorPolygons) expect(p.color).toBe("#ff0000");
+  });
+
+  it("center offset shifts the bounding box centroid by the offset", () => {
+    const offset: [number, number, number] = [2, -3, 1];
+    const base = greatIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = greatIcosahedronPolygons({ center: offset, size: 1 });
+    for (let i = 0; i < base.length; i++) {
+      for (let j = 0; j < 3; j++) {
+        expect(moved[i].vertices[j][0]).toBeCloseTo(base[i].vertices[j][0] + 2, 10);
+        expect(moved[i].vertices[j][1]).toBeCloseTo(base[i].vertices[j][1] - 3, 10);
+        expect(moved[i].vertices[j][2]).toBeCloseTo(base[i].vertices[j][2] + 1, 10);
+      }
+    }
+  });
+
+  it("all vertices lie on the circumscribing sphere (distance == size)", () => {
+    const size = 2.5;
+    const polygons = greatIcosahedronPolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 8);
+      }
+    }
+  });
+
+  it("all 20 faces are non-degenerate (positive area)", () => {
+    const polygons = greatIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      const [a, b, c] = p.vertices as [[number,number,number],[number,number,number],[number,number,number]];
+      const abx = b[0]-a[0], aby = b[1]-a[1], abz = b[2]-a[2];
+      const acx = c[0]-a[0], acy = c[1]-a[1], acz = c[2]-a[2];
+      const nx = aby*acz - abz*acy;
+      const ny = abz*acx - abx*acz;
+      const nz = abx*acy - aby*acx;
+      const area2 = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      expect(area2).toBeGreaterThan(1e-6);
     }
   });
 });
