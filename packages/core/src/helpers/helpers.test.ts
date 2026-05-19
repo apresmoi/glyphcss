@@ -5,6 +5,11 @@ import { tetrahedronPolygons } from "./tetrahedronPolygons";
 import { cubePolygons } from "./cubePolygons";
 import { dodecahedronPolygons } from "./dodecahedronPolygons";
 import { icosahedronPolygons } from "./icosahedronPolygons";
+import { spherePolygons } from "./spherePolygons";
+import { cylinderPolygons } from "./cylinderPolygons";
+import { conePolygons } from "./conePolygons";
+import { torusPolygons } from "./torusPolygons";
+import { pyramidPolygons } from "./pyramidPolygons";
 
 describe("axesHelperPolygons", () => {
   it("returns 18 quads (6 per axis × 3 axes)", () => {
@@ -304,5 +309,255 @@ describe("icosahedronPolygons", () => {
   it("uses white as the default color", () => {
     const polygons = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
     for (const p of polygons) expect(p.color).toBe("#ffffff");
+  });
+});
+
+describe("spherePolygons", () => {
+  it("returns 80 triangles at default subdivisions=1", () => {
+    const polygons = spherePolygons({ center: [0, 0, 0], size: 1 });
+    expect(polygons).toHaveLength(80);
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("returns 20 triangles at subdivisions=0 (bare icosahedron)", () => {
+    const polygons = spherePolygons({ center: [0, 0, 0], size: 1, subdivisions: 0 });
+    expect(polygons).toHaveLength(20);
+  });
+
+  it("returns 320 triangles at subdivisions=2", () => {
+    const polygons = spherePolygons({ center: [0, 0, 0], size: 1, subdivisions: 2 });
+    expect(polygons).toHaveLength(320);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = spherePolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("every vertex lies exactly on the sphere surface (distance from center == size)", () => {
+    const size = 2.5;
+    const polygons = spherePolygons({ center: [0, 0, 0], size });
+    for (const p of polygons) {
+      for (const [x, y, z] of p.vertices) {
+        const dist = Math.sqrt(x * x + y * y + z * z);
+        expect(dist).toBeCloseTo(size, 8);
+      }
+    }
+  });
+
+  it("center offset shifts all vertices by that offset", () => {
+    const offset: [number, number, number] = [3, -1, 5];
+    const base = spherePolygons({ center: [0, 0, 0], size: 1 });
+    const moved = spherePolygons({ center: offset, size: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    const bCx = allBase.reduce((s, v) => s + v[0], 0) / n;
+    const bCy = allBase.reduce((s, v) => s + v[1], 0) / n;
+    const bCz = allBase.reduce((s, v) => s + v[2], 0) / n;
+    const mCx = allMoved.reduce((s, v) => s + v[0], 0) / n;
+    const mCy = allMoved.reduce((s, v) => s + v[1], 0) / n;
+    const mCz = allMoved.reduce((s, v) => s + v[2], 0) / n;
+    expect(mCx - bCx).toBeCloseTo(3, 5);
+    expect(mCy - bCy).toBeCloseTo(-1, 5);
+    expect(mCz - bCz).toBeCloseTo(5, 5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = spherePolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = spherePolygons({ center: [0, 0, 0], size: 1, color: "#123456" });
+    for (const p of colorPolygons) expect(p.color).toBe("#123456");
+  });
+});
+
+describe("cylinderPolygons", () => {
+  it("returns sides + 2 polygons at defaults (16 + 2 = 18)", () => {
+    const polygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(polygons).toHaveLength(18);
+  });
+
+  it("respects a custom sides value", () => {
+    const polygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 8 });
+    expect(polygons).toHaveLength(10); // 8 + 2
+  });
+
+  it("side quads have 4 vertices, caps have sides vertices", () => {
+    const sides = 10;
+    const polygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides });
+    for (let i = 0; i < sides; i++) expect(polygons[i].vertices).toHaveLength(4);
+    expect(polygons[sides].vertices).toHaveLength(sides);     // top cap
+    expect(polygons[sides + 1].vertices).toHaveLength(sides); // bottom cap
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("center offset shifts all vertex centroids", () => {
+    const offset: [number, number, number] = [1, 2, 3];
+    const base = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    const moved = cylinderPolygons({ center: offset, radius: 1, height: 2 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2, color: "#aabbcc" });
+    for (const p of colorPolygons) expect(p.color).toBe("#aabbcc");
+  });
+});
+
+describe("conePolygons", () => {
+  it("returns sides + 1 polygons at defaults (16 + 1 = 17)", () => {
+    const polygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(polygons).toHaveLength(17);
+  });
+
+  it("respects a custom sides value", () => {
+    const polygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 6 });
+    expect(polygons).toHaveLength(7); // 6 + 1
+  });
+
+  it("side faces are triangles, base cap is an N-gon", () => {
+    const sides = 8;
+    const polygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2, sides });
+    for (let i = 0; i < sides; i++) expect(polygons[i].vertices).toHaveLength(3);
+    expect(polygons[sides].vertices).toHaveLength(sides);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("center offset shifts all vertex centroids", () => {
+    const offset: [number, number, number] = [5, 0, -2];
+    const base = conePolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    const moved = conePolygons({ center: offset, radius: 1, height: 2 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(5, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2, color: "#ff0000" });
+    for (const p of colorPolygons) expect(p.color).toBe("#ff0000");
+  });
+});
+
+describe("torusPolygons", () => {
+  it("returns segments * sides quads at defaults (24 * 12 = 288)", () => {
+    const polygons = torusPolygons({ center: [0, 0, 0], majorRadius: 2, minorRadius: 0.5 });
+    expect(polygons).toHaveLength(288);
+    for (const p of polygons) expect(p.vertices).toHaveLength(4);
+  });
+
+  it("respects custom segments and sides values", () => {
+    const polygons = torusPolygons({ center: [0, 0, 0], majorRadius: 2, minorRadius: 0.5, segments: 8, sides: 6 });
+    expect(polygons).toHaveLength(48); // 8 * 6
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = torusPolygons({ center: [0, 0, 0], majorRadius: 2, minorRadius: 0.5 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("center offset shifts all vertex centroids", () => {
+    const offset: [number, number, number] = [2, 4, -3];
+    const base = torusPolygons({ center: [0, 0, 0], majorRadius: 2, minorRadius: 0.5 });
+    const moved = torusPolygons({ center: offset, majorRadius: 2, minorRadius: 0.5 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(4, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-3, 5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = torusPolygons({ center: [0, 0, 0], majorRadius: 2, minorRadius: 0.5 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = torusPolygons({ center: [0, 0, 0], majorRadius: 2, minorRadius: 0.5, color: "#00ff00" });
+    for (const p of colorPolygons) expect(p.color).toBe("#00ff00");
+  });
+});
+
+describe("pyramidPolygons", () => {
+  it("returns sides + 1 polygons at defaults (4 + 1 = 5, square pyramid)", () => {
+    const polygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(polygons).toHaveLength(5);
+  });
+
+  it("respects a custom sides value", () => {
+    const polygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 6 });
+    expect(polygons).toHaveLength(7); // 6 + 1
+  });
+
+  it("side faces are triangles, base cap is an N-gon", () => {
+    const sides = 5;
+    const polygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides });
+    for (let i = 0; i < sides; i++) expect(polygons[i].vertices).toHaveLength(3);
+    expect(polygons[sides].vertices).toHaveLength(sides);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("center offset shifts all vertex centroids", () => {
+    const offset: [number, number, number] = [-1, 3, 2];
+    const base = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    const moved = pyramidPolygons({ center: offset, radius: 1, height: 2 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(3, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2, color: "#654321" });
+    for (const p of colorPolygons) expect(p.color).toBe("#654321");
   });
 });
