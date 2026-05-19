@@ -44,3 +44,13 @@ export { greatStellatedDodecahedronPolygons } from "./greatStellatedDodecahedron
 export type { GreatStellatedDodecahedronPolygonsOptions } from "./greatStellatedDodecahedronPolygons";
 export { greatIcosahedronPolygons } from "./greatIcosahedronPolygons";
 export type { GreatIcosahedronPolygonsOptions } from "./greatIcosahedronPolygons";
+export { cuboctahedronPolygons } from "./cuboctahedronPolygons";
+export type { CuboctahedronPolygonsOptions } from "./cuboctahedronPolygons";
+export { icosidodecahedronPolygons } from "./icosidodecahedronPolygons";
+export type { IcosidodecahedronPolygonsOptions } from "./icosidodecahedronPolygons";
+export { truncatedTetrahedronPolygons } from "./truncatedTetrahedronPolygons";
+export type { TruncatedTetrahedronPolygonsOptions } from "./truncatedTetrahedronPolygons";
+export { truncatedCubePolygons } from "./truncatedCubePolygons";
+export type { TruncatedCubePolygonsOptions } from "./truncatedCubePolygons";
+export { truncatedOctahedronPolygons } from "./truncatedOctahedronPolygons";
+export type { TruncatedOctahedronPolygonsOptions } from "./truncatedOctahedronPolygons";
