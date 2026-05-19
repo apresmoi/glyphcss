@@ -10,6 +10,10 @@ import { cylinderPolygons } from "./cylinderPolygons";
 import { conePolygons } from "./conePolygons";
 import { torusPolygons } from "./torusPolygons";
 import { pyramidPolygons } from "./pyramidPolygons";
+import { prismPolygons } from "./prismPolygons";
+import { antiprismPolygons } from "./antiprismPolygons";
+import { bipyramidPolygons } from "./bipyramidPolygons";
+import { trapezohedronPolygons } from "./trapezohedronPolygons";
 
 describe("axesHelperPolygons", () => {
   it("returns 18 quads (6 per axis × 3 axes)", () => {
@@ -559,5 +563,234 @@ describe("pyramidPolygons", () => {
     for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
     const colorPolygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2, color: "#654321" });
     for (const p of colorPolygons) expect(p.color).toBe("#654321");
+  });
+});
+
+describe("prismPolygons", () => {
+  it("returns sides + 2 polygons at defaults (6 + 2 = 8)", () => {
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(polygons).toHaveLength(8);
+  });
+
+  it("respects sides=3 (triangular prism, 5 polygons)", () => {
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 3 });
+    expect(polygons).toHaveLength(5); // 3 + 2
+  });
+
+  it("respects sides=8 (octagonal prism, 10 polygons)", () => {
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 8 });
+    expect(polygons).toHaveLength(10); // 8 + 2
+  });
+
+  it("side faces are quads, cap faces are N-gons", () => {
+    const sides = 6;
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides });
+    for (let i = 0; i < sides; i++) expect(polygons[i].vertices).toHaveLength(4);
+    expect(polygons[sides].vertices).toHaveLength(sides);     // top cap
+    expect(polygons[sides + 1].vertices).toHaveLength(sides); // bottom cap
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2, color: "#aabbcc" });
+    for (const p of colorPolygons) expect(p.color).toBe("#aabbcc");
+  });
+
+  it("center offset shifts the bounding box centroid by exactly the offset", () => {
+    const offset: [number, number, number] = [3, -1, 2];
+    const base = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    const moved = prismPolygons({ center: offset, radius: 1, height: 2 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(3, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-1, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
+  });
+});
+
+describe("antiprismPolygons", () => {
+  it("returns 2*sides + 2 polygons at defaults (2*6 + 2 = 14)", () => {
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(polygons).toHaveLength(14);
+  });
+
+  it("respects sides=3 (triangular antiprism, 8 polygons)", () => {
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 3 });
+    expect(polygons).toHaveLength(8); // 2*3 + 2
+  });
+
+  it("respects sides=8 (octagonal antiprism, 18 polygons)", () => {
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 8 });
+    expect(polygons).toHaveLength(18); // 2*8 + 2
+  });
+
+  it("side faces are triangles, cap faces are N-gons", () => {
+    const sides = 6;
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides });
+    for (let i = 0; i < 2 * sides; i++) expect(polygons[i].vertices).toHaveLength(3);
+    expect(polygons[2 * sides].vertices).toHaveLength(sides);     // top cap
+    expect(polygons[2 * sides + 1].vertices).toHaveLength(sides); // bottom cap
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2, color: "#112233" });
+    for (const p of colorPolygons) expect(p.color).toBe("#112233");
+  });
+
+  it("center offset shifts the bounding box centroid by exactly the offset", () => {
+    const offset: [number, number, number] = [1, 4, -2];
+    const base = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    const moved = antiprismPolygons({ center: offset, radius: 1, height: 2 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(4, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+});
+
+describe("bipyramidPolygons", () => {
+  it("returns 2*sides polygons at defaults (2*6 = 12)", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    expect(polygons).toHaveLength(12);
+  });
+
+  it("respects sides=3 (triangular bipyramid, 6 polygons)", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides: 3 });
+    expect(polygons).toHaveLength(6); // 2*3
+  });
+
+  it("respects sides=8 (octagonal bipyramid, 16 polygons)", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides: 8 });
+    expect(polygons).toHaveLength(16); // 2*8
+  });
+
+  it("every face is a triangle", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of polygons) expect(p.vertices).toHaveLength(3);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, color: "#ff8800" });
+    for (const p of colorPolygons) expect(p.color).toBe("#ff8800");
+  });
+
+  it("center offset shifts the bounding box centroid by exactly the offset", () => {
+    const offset: [number, number, number] = [-2, 5, 1];
+    const base = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    const moved = bipyramidPolygons({ center: offset, radius: 1, halfHeight: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-2, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(5, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(1, 5);
+  });
+});
+
+describe("trapezohedronPolygons", () => {
+  it("returns 2*sides polygons at defaults (2*5 = 10)", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    expect(polygons).toHaveLength(10);
+  });
+
+  it("respects sides=3 (trigonal trapezohedron, 6 polygons)", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides: 3 });
+    expect(polygons).toHaveLength(6); // 2*3
+  });
+
+  it("respects sides=8 (octagonal trapezohedron, 16 polygons)", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides: 8 });
+    expect(polygons).toHaveLength(16); // 2*8
+  });
+
+  it("every face is a kite (4 vertices)", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of polygons) expect(p.vertices).toHaveLength(4);
+  });
+
+  it("all polygon vertices have length 3 and contain finite numbers", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of polygons) {
+      for (const vtx of p.vertices) {
+        expect(vtx).toHaveLength(3);
+        for (const coord of vtx) expect(Number.isFinite(coord)).toBe(true);
+      }
+    }
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const defaultPolygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of defaultPolygons) expect(p.color).toBe("#ffffff");
+    const colorPolygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, color: "#abcdef" });
+    for (const p of colorPolygons) expect(p.color).toBe("#abcdef");
+  });
+
+  it("center offset shifts the bounding box centroid by exactly the offset", () => {
+    const offset: [number, number, number] = [2, -3, 4];
+    const base = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    const moved = trapezohedronPolygons({ center: offset, radius: 1, halfHeight: 1 });
+    const allBase = base.flatMap((p) => p.vertices);
+    const allMoved = moved.flatMap((p) => p.vertices);
+    const n = allBase.length;
+    expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
+    expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-3, 5);
+    expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(4, 5);
+  });
+
+  it("each kite face is planar (4th vertex lies on the plane of the first 3)", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    for (const p of polygons) {
+      const [a, b, c, d] = p.vertices as [[number,number,number],[number,number,number],[number,number,number],[number,number,number]];
+      // Normal from first 3 vertices
+      const ab: [number,number,number] = [b[0]-a[0], b[1]-a[1], b[2]-a[2]];
+      const ac: [number,number,number] = [c[0]-a[0], c[1]-a[1], c[2]-a[2]];
+      const nx = ab[1]*ac[2] - ab[2]*ac[1];
+      const ny = ab[2]*ac[0] - ab[0]*ac[2];
+      const nz = ab[0]*ac[1] - ab[1]*ac[0];
+      // Signed distance of 4th vertex from the plane
+      const ad: [number,number,number] = [d[0]-a[0], d[1]-a[1], d[2]-a[2]];
+      const dot = ad[0]*nx + ad[1]*ny + ad[2]*nz;
+      const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+      const residual = Math.abs(dot) / (len || 1);
+      expect(residual).toBeLessThan(1e-6);
+    }
   });
 });

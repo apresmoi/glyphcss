@@ -112,8 +112,8 @@ export type {
 } from "./cull/cameraBackfaceCulling";
 
 // ── Helper-gizmo geometry (axes, light marker, transform arrows / rings) ─
-export { axesHelperPolygons, arrowPolygons, ringPolygons, ringQuadPolygons, planePolygons, octahedronPolygons, tetrahedronPolygons, cubePolygons, dodecahedronPolygons, icosahedronPolygons, spherePolygons, cylinderPolygons, conePolygons, torusPolygons, pyramidPolygons } from "./helpers";
-export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, RingQuadPolygonsOptions, PlanePolygonsOptions, OctahedronPolygonsOptions, TetrahedronPolygonsOptions, CubePolygonsOptions, DodecahedronPolygonsOptions, IcosahedronPolygonsOptions, SpherePolygonsOptions, CylinderPolygonsOptions, ConePolygonsOptions, TorusPolygonsOptions, PyramidPolygonsOptions } from "./helpers";
+export { axesHelperPolygons, arrowPolygons, ringPolygons, ringQuadPolygons, planePolygons, octahedronPolygons, tetrahedronPolygons, cubePolygons, dodecahedronPolygons, icosahedronPolygons, spherePolygons, cylinderPolygons, conePolygons, torusPolygons, pyramidPolygons, prismPolygons, antiprismPolygons, bipyramidPolygons, trapezohedronPolygons } from "./helpers";
+export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, RingQuadPolygonsOptions, PlanePolygonsOptions, OctahedronPolygonsOptions, TetrahedronPolygonsOptions, CubePolygonsOptions, DodecahedronPolygonsOptions, IcosahedronPolygonsOptions, SpherePolygonsOptions, CylinderPolygonsOptions, ConePolygonsOptions, TorusPolygonsOptions, PyramidPolygonsOptions, PrismPolygonsOptions, AntiprismPolygonsOptions, BipyramidPolygonsOptions, TrapezohedronPolygonsOptions } from "./helpers";
 
 // ── Animation ─────────────────────────────────────────────────────
 export {
