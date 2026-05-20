@@ -10,6 +10,9 @@ import GlyphDemo from "../../../components/GlyphDemo.astro";
 and the CSS variables (`--rows`, `--cell-h`, `--cell-fs`, `--dur`) that the strip
 keyframes consume.
 
+`<GlyphScene>` must be a child of a camera component (`<GlyphCamera>`,
+`<GlyphPerspectiveCamera>`, or `<GlyphOrthographicCamera>`).
+
 <GlyphDemo id="scene-demo" geometry="cuboctahedron" />
 
 ## Props
@@ -35,8 +38,8 @@ keyframes consume.
 
 ```tsx
 import {
-  GlyphScene,
   GlyphPerspectiveCamera,
+  GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
   GlyphHotspot,
@@ -47,18 +50,19 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function App() {
   return (
-    <GlyphScene mode="solid" cols={100} rows={30}>
-      <GlyphPerspectiveCamera rotX={0.4} zoom={0.3} distance={3} />
-      <GlyphOrbitControls drag wheel />
-      <GlyphMesh polygons={cube}>
-        <GlyphHotspot
-          id="top"
-          at={[0, 0.5, 0]}
-          size={[3, 2]}
-          onClick={() => alert("top face")}
-        />
-      </GlyphMesh>
-    </GlyphScene>
+    <GlyphPerspectiveCamera rotX={0.4} zoom={0.3} distance={3}>
+      <GlyphScene mode="solid" cols={100} rows={30}>
+        <GlyphOrbitControls drag wheel />
+        <GlyphMesh polygons={cube}>
+          <GlyphHotspot
+            id="top"
+            at={[0, 0.5, 0]}
+            size={[3, 2]}
+            onClick={() => alert("top face")}
+          />
+        </GlyphMesh>
+      </GlyphScene>
+    </GlyphPerspectiveCamera>
   );
 }
 ```
@@ -68,24 +72,25 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphScene mode="solid" :cols="100" :rows="30">
-    <GlyphPerspectiveCamera :rot-x="0.4" :zoom="0.3" :distance="3" />
-    <GlyphOrbitControls drag wheel />
-    <GlyphMesh :polygons="cube">
-      <GlyphHotspot
-        id="top"
-        :at="[0, 0.5, 0]"
-        :size="[3, 2]"
-        @click="() => alert('top face')"
-      />
-    </GlyphMesh>
-  </GlyphScene>
+  <GlyphPerspectiveCamera :rot-x="0.4" :zoom="0.3" :distance="3">
+    <GlyphScene mode="solid" :cols="100" :rows="30">
+      <GlyphOrbitControls drag wheel />
+      <GlyphMesh :polygons="cube">
+        <GlyphHotspot
+          id="top"
+          :at="[0, 0.5, 0]"
+          :size="[3, 2]"
+          @click="() => alert('top face')"
+        />
+      </GlyphMesh>
+    </GlyphScene>
+  </GlyphPerspectiveCamera>
 </template>
 
 <script setup lang="ts">
 import {
-  GlyphScene,
   GlyphPerspectiveCamera,
+  GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
   GlyphHotspot,
@@ -101,6 +106,7 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 ```ts
 import {
+  createGlyphPerspectiveCamera,
   createGlyphScene,
   createGlyphOrbitControls,
 } from "glyphcss";
@@ -108,7 +114,9 @@ import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
+const camera = createGlyphPerspectiveCamera({ rotX: 0.4, zoom: 0.3, distance: 3 });
 const scene = createGlyphScene(host, {
+  camera,
   mode: "solid",
   cols: 100,
   rows: 30,
@@ -134,10 +142,12 @@ const controls = createGlyphOrbitControls(scene, { drag: true, wheel: true });
 ```html
 <script type="module" src="https://esm.sh/glyphcss/elements"></script>
 
-<glyph-scene mode="solid">
-  <glyph-mesh geometry="cuboctahedron"></glyph-mesh>
-  <glyph-orbit-controls drag wheel></glyph-orbit-controls>
-</glyph-scene>
+<glyph-camera>
+  <glyph-scene mode="solid">
+    <glyph-mesh geometry="cuboctahedron"></glyph-mesh>
+    <glyph-orbit-controls drag wheel></glyph-orbit-controls>
+  </glyph-scene>
+</glyph-camera>
 ```
 
   </TabItem>

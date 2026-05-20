@@ -5,27 +5,27 @@ description: Perspective or orthographic camera handle shared by the renderer an
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`<GlyphCamera>` (alias for `<GlyphPerspectiveCamera>`) is the canonical projection
-state. The renderer and the hit layer both read from it — mutating `rotY` updates
-both simultaneously.
+`<GlyphCamera>` (alias for `<GlyphOrthographicCamera>`) is the outermost element in
+a glyphcss tree. Wrap `<GlyphScene>` inside it. The renderer and the hit layer both
+read from the same camera state — mutating `rotY` updates both simultaneously.
 
-## Props — perspective
+## Props — orthographic (`GlyphCamera` / `GlyphOrthographicCamera`)
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `rotX` | `number` (radians) | `0` | Tilt around X axis |
 | `rotY` | `number` (radians) | `0` | Spin around Y axis |
-| `distance` | `number` | `3` | Camera distance — smaller = more perspective foreshortening |
 | `zoom` | `number` | `0.4` | Camera zoom — mesh fills this fraction of `min(cols, rows)` |
-| `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
 
-## Props — orthographic
+## Props — perspective (`GlyphPerspectiveCamera`)
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `rotX` | `number` (radians) | `0` | Tilt around X axis |
 | `rotY` | `number` (radians) | `0` | Spin around Y axis |
-| `zoom` | `number` | `0.4` | Scale (fraction of `min(cols, rows)`). Replaces `distance`. |
+| `zoom` | `number` | `0.4` | Camera zoom — mesh fills this fraction of `min(cols, rows)` |
+| `distance` | `number` | `3` | Camera distance — smaller = more perspective foreshortening |
+| `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
 
 ## Full examples
 
@@ -34,9 +34,9 @@ both simultaneously.
 
 ```tsx
 import {
-  GlyphScene,
   GlyphPerspectiveCamera,
   GlyphOrthographicCamera,
+  GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
 } from "@glyphcss/react";
@@ -44,25 +44,27 @@ import { octahedronPolygons } from "@glyphcss/core";
 
 const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
 
-// Perspective (default)
+// Perspective (foreshortened)
 export function PerspectiveExample() {
   return (
-    <GlyphScene mode="solid" cols={100} rows={30}>
-      <GlyphPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95} />
-      <GlyphOrbitControls />
-      <GlyphMesh polygons={octa} />
-    </GlyphScene>
+    <GlyphPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95}>
+      <GlyphScene mode="solid" cols={100} rows={30}>
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={octa} />
+      </GlyphScene>
+    </GlyphPerspectiveCamera>
   );
 }
 
 // Orthographic — parallel lines stay parallel (isometric style)
 export function OrthoExample() {
   return (
-    <GlyphScene mode="solid" cols={100} rows={30}>
-      <GlyphOrthographicCamera rotX={0.62} zoom={0.4} />
-      <GlyphOrbitControls />
-      <GlyphMesh polygons={octa} />
-    </GlyphScene>
+    <GlyphOrthographicCamera rotX={0.62} zoom={0.4}>
+      <GlyphScene mode="solid" cols={100} rows={30}>
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={octa} />
+      </GlyphScene>
+    </GlyphOrthographicCamera>
   );
 }
 ```
@@ -72,21 +74,25 @@ export function OrthoExample() {
 
 ```vue
 <template>
-  <GlyphScene mode="solid" :cols="100" :rows="30">
-    <!-- Toggle between perspective and orthographic -->
-    <GlyphPerspectiveCamera v-if="perspective" :rot-x="0.38" :zoom="0.4" :distance="3" />
-    <GlyphOrthographicCamera v-else :rot-x="0.62" :zoom="0.4" />
-    <GlyphOrbitControls />
-    <GlyphMesh :polygons="octa" />
-  </GlyphScene>
+  <component
+    :is="perspective ? GlyphPerspectiveCamera : GlyphOrthographicCamera"
+    :rot-x="perspective ? 0.38 : 0.62"
+    :zoom="0.4"
+    v-bind="perspective ? { distance: 3 } : {}"
+  >
+    <GlyphScene mode="solid" :cols="100" :rows="30">
+      <GlyphOrbitControls />
+      <GlyphMesh :polygons="octa" />
+    </GlyphScene>
+  </component>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
 import {
-  GlyphScene,
   GlyphPerspectiveCamera,
   GlyphOrthographicCamera,
+  GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
 } from "@glyphcss/vue";
@@ -102,29 +108,28 @@ const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }
 
 ```ts
 import {
-  createGlyphScene,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
+  createGlyphScene,
 } from "glyphcss";
 import { octahedronPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphScene(host, { mode: "solid" });
 
-// Perspective camera
+// Camera constructed first, then passed into the scene
 const perspective = createGlyphPerspectiveCamera({
   rotX: 0.38,
   zoom: 0.4,
   distance: 3,
   stretch: 0.95,
 });
-scene.setOptions({ camera: perspective });
-
-// Or switch to orthographic:
-const ortho = createGlyphOrthographicCamera({ rotX: 0.62, zoom: 0.4 });
-scene.setOptions({ camera: ortho });
+const scene = createGlyphScene(host, { camera: perspective, mode: "solid" });
 
 scene.add(octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }));
+
+// Switch to orthographic:
+const ortho = createGlyphOrthographicCamera({ rotX: 0.62, zoom: 0.4 });
+scene.setOptions({ camera: ortho });
 
 // Mutate camera state and re-render:
 perspective.rotY = Math.PI / 4;
@@ -143,3 +148,6 @@ scene.rerender();
 - `stretch: 0.95` counteracts over-stretching from `cellAspect ≈ 2` on typical
   monospace fonts. Leave at `1.0` if you tighten `line-height` instead.
 - Orthographic cameras ignore `distance` — use `zoom` to scale the mesh instead.
+- `GlyphCamera` is the ergonomic default alias for `GlyphOrthographicCamera`. Use it
+  for iso/diagrammatic scenes; use `GlyphPerspectiveCamera` explicitly for
+  character or walkthrough scenes.

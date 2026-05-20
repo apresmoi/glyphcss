@@ -65,10 +65,10 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'GlyphcssScene', slug: 'components/glyphcss-scene' },
-            { label: 'GlyphcssCamera', slug: 'components/glyphcss-camera' },
-            { label: 'GlyphcssOrbitControls', slug: 'components/glyphcss-controls' },
-            { label: 'GlyphcssHotspot', slug: 'components/glyphcss-hotspot' },
+            { label: 'GlyphScene', slug: 'components/glyph-scene' },
+            { label: 'GlyphCamera', slug: 'components/glyph-camera' },
+            { label: 'GlyphOrbitControls', slug: 'components/glyph-controls' },
+            { label: 'GlyphHotspot', slug: 'components/glyph-hotspot' },
           ],
         },
         {

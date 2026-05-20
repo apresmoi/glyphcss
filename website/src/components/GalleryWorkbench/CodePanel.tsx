@@ -59,15 +59,17 @@ function generateSnippets({ meshUrl, options }: CodePanelProps): Record<Tab, str
   const ambientColor = options.ambientColor ?? "#ffffff";
 
   // ── React ────────────────────────────────────────────────────────────
-  const cameraTag = isOrtho
-    ? `<GlyphOrthographicCamera rotX={${fmt(rotX)}} rotY={${fmt(rotY)}} zoom={${fmt(zoom)}} />`
-    : `<GlyphPerspectiveCamera rotX={${fmt(rotX)}} rotY={${fmt(rotY)}} zoom={${fmt(zoom)}} distance={${fmt(distance)}} />`;
+  const cameraComponentName = isOrtho ? "GlyphOrthographicCamera" : "GlyphPerspectiveCamera";
+  const cameraOpenTag = isOrtho
+    ? `<GlyphOrthographicCamera rotX={${fmt(rotX)}} rotY={${fmt(rotY)}} zoom={${fmt(zoom)}}>`
+    : `<GlyphPerspectiveCamera rotX={${fmt(rotX)}} rotY={${fmt(rotY)}} zoom={${fmt(zoom)}} distance={${fmt(distance)}}>`;
+  const cameraCloseTag = isOrtho ? `</GlyphOrthographicCamera>` : `</GlyphPerspectiveCamera>`;
   const featureEdgesProp = mode === "wireframe" ? ` featureEdges={${fmt(featureEdges)}}` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
 
   const react = `import {
+  ${cameraComponentName},
   GlyphScene,
-  ${isOrtho ? "GlyphOrthographicCamera" : "GlyphPerspectiveCamera"},
   GlyphMesh,
   GlyphOrbitControls,
 } from "@glyphcss/react";
@@ -81,53 +83,56 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
 
 export function App() {
   return (
-    <GlyphScene
-      mode="${mode}"
-      cols={100}
-      rows={30}
-      glyphPalette="${palette}"
-      useColors={${useColors}}
-      autoCenter={${autoCenter}}
-      lineHeight={${fmt(lineHeight)}}${featureEdgesProp}${targetReact}
-      directionalLight={directionalLight}
-      ambientLight={ambientLight}
-    >
-      ${cameraTag}
-      <GlyphOrbitControls drag wheel />
-      <GlyphMesh src="${url}" />
-    </GlyphScene>
+    ${cameraOpenTag}
+      <GlyphScene
+        mode="${mode}"
+        cols={100}
+        rows={30}
+        glyphPalette="${palette}"
+        useColors={${useColors}}
+        autoCenter={${autoCenter}}
+        lineHeight={${fmt(lineHeight)}}${featureEdgesProp}${targetReact}
+        directionalLight={directionalLight}
+        ambientLight={ambientLight}
+      >
+        <GlyphOrbitControls drag wheel />
+        <GlyphMesh src="${url}" />
+      </GlyphScene>
+    ${cameraCloseTag}
   );
 }`;
 
   // ── Vue ──────────────────────────────────────────────────────────────
-  const cameraTagVue = isOrtho
-    ? `<GlyphOrthographicCamera :rot-x="${fmt(rotX)}" :rot-y="${fmt(rotY)}" :zoom="${fmt(zoom)}" />`
-    : `<GlyphPerspectiveCamera :rot-x="${fmt(rotX)}" :rot-y="${fmt(rotY)}" :zoom="${fmt(zoom)}" :distance="${fmt(distance)}" />`;
+  const cameraOpenTagVue = isOrtho
+    ? `<GlyphOrthographicCamera :rot-x="${fmt(rotX)}" :rot-y="${fmt(rotY)}" :zoom="${fmt(zoom)}">`
+    : `<GlyphPerspectiveCamera :rot-x="${fmt(rotX)}" :rot-y="${fmt(rotY)}" :zoom="${fmt(zoom)}" :distance="${fmt(distance)}">`;
+  const cameraCloseTagVue = isOrtho ? `</GlyphOrthographicCamera>` : `</GlyphPerspectiveCamera>`;
   const featureEdgesVue = mode === "wireframe" ? `\n    :feature-edges="${fmt(featureEdges)}"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
 
   const vue = `<template>
-  <GlyphScene
-    mode="${mode}"
-    :cols="100"
-    :rows="30"
-    glyphPalette="${palette}"
-    :use-colors="${useColors}"
-    :auto-center="${autoCenter}"
-    :line-height="${fmt(lineHeight)}"${featureEdgesVue}${targetVue}
-    :directional-light="directionalLight"
-    :ambient-light="ambientLight"
-  >
-    ${cameraTagVue}
-    <GlyphOrbitControls drag wheel />
-    <GlyphMesh src="${url}" />
-  </GlyphScene>
+  ${cameraOpenTagVue}
+    <GlyphScene
+      mode="${mode}"
+      :cols="100"
+      :rows="30"
+      glyphPalette="${palette}"
+      :use-colors="${useColors}"
+      :auto-center="${autoCenter}"
+      :line-height="${fmt(lineHeight)}"${featureEdgesVue}${targetVue}
+      :directional-light="directionalLight"
+      :ambient-light="ambientLight"
+    >
+      <GlyphOrbitControls drag wheel />
+      <GlyphMesh src="${url}" />
+    </GlyphScene>
+  ${cameraCloseTagVue}
 </template>
 
 <script setup lang="ts">
 import {
+  ${cameraComponentName},
   GlyphScene,
-  ${isOrtho ? "GlyphOrthographicCamera" : "GlyphPerspectiveCamera"},
   GlyphMesh,
   GlyphOrbitControls,
 } from "@glyphcss/vue";
@@ -149,15 +154,18 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const targetV = hasTarget ? `\ncamera.target = ${vec3(target)};` : "";
 
   const vanilla = `import {
-  createGlyphScene,
   ${cameraImport},
+  createGlyphScene,
   createGlyphOrbitControls,
   loadMesh,
 } from "glyphcss";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
+const camera = ${createCameraCall};${targetV}
+
 const scene = createGlyphScene(host, {
+  camera,
   mode: "${mode}",
   cols: 100,
   rows: 30,
@@ -173,18 +181,17 @@ const scene = createGlyphScene(host, {
   ambientLight: { intensity: ${fmt(ambientIntensity)}, color: "${ambientColor}" },
 });
 
-const camera = ${createCameraCall};${targetV}
-scene.setOptions({ camera });
-
 const { polygons } = await loadMesh("${url}");
 scene.add(polygons);
 
 createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 
   // ── HTML (custom elements) ──────────────────────────────────────────
-  const cameraTagHtml = isOrtho
-    ? `<glyph-orthographic-camera rot-x="${fmt(rotX)}" rot-y="${fmt(rotY)}" zoom="${fmt(zoom)}"></glyph-orthographic-camera>`
-    : `<glyph-perspective-camera rot-x="${fmt(rotX)}" rot-y="${fmt(rotY)}" zoom="${fmt(zoom)}" distance="${fmt(distance)}"></glyph-perspective-camera>`;
+  const cameraHtmlTag = isOrtho ? "glyph-orthographic-camera" : "glyph-perspective-camera";
+  const cameraOpenHtml = isOrtho
+    ? `<glyph-orthographic-camera rot-x="${fmt(rotX)}" rot-y="${fmt(rotY)}" zoom="${fmt(zoom)}">`
+    : `<glyph-perspective-camera rot-x="${fmt(rotX)}" rot-y="${fmt(rotY)}" zoom="${fmt(zoom)}" distance="${fmt(distance)}">`;
+  const cameraCloseHtml = `</${cameraHtmlTag}>`;
   const featureEdgesHtml = mode === "wireframe" ? ` feature-edges="${fmt(featureEdges)}"` : "";
 
   const html = `<!DOCTYPE html>
@@ -193,24 +200,25 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
     <script type="module" src="https://esm.sh/glyphcss/elements"></script>
   </head>
   <body>
-    <glyph-scene
-      mode="${mode}"
-      cols="100"
-      rows="30"
-      glyph-palette="${palette}"
-      use-colors="${useColors}"
-      auto-center="${autoCenter}"
-      line-height="${fmt(lineHeight)}"${featureEdgesHtml}
-      light-direction="${fmt(lightDir[0])},${fmt(lightDir[1])},${fmt(lightDir[2])}"
-      light-intensity="${fmt(lightIntensity)}"
-      light-color="${lightColor}"
-      ambient-intensity="${fmt(ambientIntensity)}"
-      ambient-color="${ambientColor}"
-    >
-      ${cameraTagHtml}
-      <glyph-orbit-controls drag wheel></glyph-orbit-controls>
-      <glyph-mesh src="${url}"></glyph-mesh>
-    </glyph-scene>
+    ${cameraOpenHtml}
+      <glyph-scene
+        mode="${mode}"
+        cols="100"
+        rows="30"
+        glyph-palette="${palette}"
+        use-colors="${useColors}"
+        auto-center="${autoCenter}"
+        line-height="${fmt(lineHeight)}"${featureEdgesHtml}
+        light-direction="${fmt(lightDir[0])},${fmt(lightDir[1])},${fmt(lightDir[2])}"
+        light-intensity="${fmt(lightIntensity)}"
+        light-color="${lightColor}"
+        ambient-intensity="${fmt(ambientIntensity)}"
+        ambient-color="${ambientColor}"
+      >
+        <glyph-orbit-controls drag wheel></glyph-orbit-controls>
+        <glyph-mesh src="${url}"></glyph-mesh>
+      </glyph-scene>
+    ${cameraCloseHtml}
   </body>
 </html>`;
 

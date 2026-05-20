@@ -16,18 +16,18 @@ Requires Vue 3 as a peer dependency.
 
 ```vue
 <template>
-  <GlyphScene :cols="80" :rows="40">
-    <GlyphCamera :rot-x="65" :rot-y="45">
+  <GlyphCamera :rot-x="0.4" :zoom="0.32">
+    <GlyphScene :cols="80" :rows="40">
       <GlyphOrbitControls />
       <GlyphMesh src="/cottage.glb" />
-    </GlyphCamera>
-  </GlyphScene>
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 
 <script setup lang="ts">
 import {
-  GlyphScene,
   GlyphCamera,
+  GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
 } from "@glyphcss/vue";
@@ -36,19 +36,10 @@ import {
 
 ## Component reference
 
-### `<GlyphScene>`
-
-Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change.
-
-| Prop | Type | Default | Description |
-|---|---|---|---|
-| `cols` | `number` | `80` | Grid width in character cells |
-| `rows` | `number` | `40` | Grid height in character cells |
-| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
-
 ### `<GlyphCamera>` / `<GlyphOrthographicCamera>`
 
-Orthographic camera. `GlyphCamera` is the ergonomic default alias.
+Orthographic camera. `GlyphCamera` is the ergonomic default alias. Wraps
+`<GlyphScene>` — the camera is always the outermost element.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
@@ -66,6 +57,16 @@ Perspective (foreshortened) camera. Required for `<GlyphFirstPersonControls>`.
 | `rot-y` | `number` | `0` | Azimuth in radians |
 | `distance` | `number` | `3` | Perspective distance in world units |
 | `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+
+### `<GlyphScene>`
+
+Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change. Must be a child of a camera component.
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `cols` | `number` | `80` | Grid width in character cells |
+| `rows` | `number` | `40` | Grid height in character cells |
+| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
 
 ### `<GlyphMesh>`
 

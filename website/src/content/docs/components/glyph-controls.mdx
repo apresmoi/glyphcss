@@ -6,7 +6,8 @@ description: Orbit, map, and first-person controls for a GlyphScene.
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 glyphcss ships three pointer-based control modes. All must be placed inside a
-`<GlyphScene>` (React / Vue) or receive a scene handle (vanilla).
+`<GlyphScene>` (React / Vue) or receive a scene handle (vanilla). The camera
+component wraps the scene.
 
 | Control | Interaction | When to use |
 |---|---|---|
@@ -32,17 +33,19 @@ pointermove, and re-bakes a fresh strip on release.
   <TabItem label="React">
 
 ```tsx
-import { GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
 
 export function App() {
   return (
-    <GlyphScene mode="solid">
-      <GlyphOrbitControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
-      <GlyphMesh polygons={icosa} />
-    </GlyphScene>
+    <GlyphCamera rotX={0.4}>
+      <GlyphScene mode="solid">
+        <GlyphOrbitControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
+        <GlyphMesh polygons={icosa} />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -52,14 +55,16 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphScene mode="solid">
-    <GlyphOrbitControls drag wheel :animate="{ axis: 'y', speed: 0.5 }" />
-    <GlyphMesh :polygons="icosa" />
-  </GlyphScene>
+  <GlyphCamera :rot-x="0.4">
+    <GlyphScene mode="solid">
+      <GlyphOrbitControls drag wheel :animate="{ axis: 'y', speed: 0.5 }" />
+      <GlyphMesh :polygons="icosa" />
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 
 <script setup lang="ts">
-import { GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/vue";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/vue";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
@@ -70,11 +75,12 @@ const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc"
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphScene, createGlyphOrbitControls } from "glyphcss";
+import { createGlyphCamera, createGlyphScene, createGlyphOrbitControls } from "glyphcss";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphScene(host, { mode: "solid" });
+const camera = createGlyphCamera({ rotX: 0.4 });
+const scene = createGlyphScene(host, { camera, mode: "solid" });
 scene.add(icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
 
 const controls = createGlyphOrbitControls(scene, {
@@ -108,17 +114,19 @@ zooms. Best for top-down maps or floor-plan scenes.
   <TabItem label="React">
 
 ```tsx
-import { GlyphScene, GlyphMesh, GlyphMapControls } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphMapControls } from "@glyphcss/react";
 import { cubePolygons } from "@glyphcss/core";
 
 const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function MapDemo() {
   return (
-    <GlyphScene mode="solid" cols={120} rows={36}>
-      <GlyphMapControls drag wheel />
-      <GlyphMesh polygons={cube} />
-    </GlyphScene>
+    <GlyphCamera rotX={0.6}>
+      <GlyphScene mode="solid" cols={120} rows={36}>
+        <GlyphMapControls drag wheel />
+        <GlyphMesh polygons={cube} />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -128,14 +136,16 @@ export function MapDemo() {
 
 ```vue
 <template>
-  <GlyphScene mode="solid" :cols="120" :rows="36">
-    <GlyphMapControls drag wheel />
-    <GlyphMesh :polygons="cube" />
-  </GlyphScene>
+  <GlyphCamera :rot-x="0.6">
+    <GlyphScene mode="solid" :cols="120" :rows="36">
+      <GlyphMapControls drag wheel />
+      <GlyphMesh :polygons="cube" />
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 
 <script setup lang="ts">
-import { GlyphScene, GlyphMesh, GlyphMapControls } from "@glyphcss/vue";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphMapControls } from "@glyphcss/vue";
 import { cubePolygons } from "@glyphcss/core";
 
 const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
@@ -146,11 +156,12 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphScene, createGlyphMapControls } from "glyphcss";
+import { createGlyphCamera, createGlyphScene, createGlyphMapControls } from "glyphcss";
 import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphScene(host, { mode: "solid", cols: 120, rows: 36 });
+const camera = createGlyphCamera({ rotX: 0.6 });
+const scene = createGlyphScene(host, { camera, mode: "solid", cols: 120, rows: 36 });
 scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));
 
 const controls = createGlyphMapControls(scene, { drag: true, wheel: true });
@@ -165,8 +176,8 @@ Pointer-drag looks around; WASD / arrow keys move the camera. Good for walk-thro
 environments and large scenes where the mesh fills the whole grid.
 
 **Requires a perspective camera.** `GlyphFirstPersonControls` throws if attached
-to a scene with an orthographic camera. Use `<GlyphPerspectiveCamera>` (not
-`<GlyphCamera>`, which aliases orthographic).
+to a scene with an orthographic camera. Use `<GlyphPerspectiveCamera>` explicitly
+(not `<GlyphCamera>`, which aliases orthographic).
 
 ### Props
 

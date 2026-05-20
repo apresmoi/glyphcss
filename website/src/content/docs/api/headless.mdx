@@ -10,13 +10,17 @@ The `glyphcss` vanilla package exposes a glyph-shaped imperative API plus the ra
 
 The main entry point. Creates and mounts a scene into a host element and returns a
 `GlyphSceneHandle` with methods to add meshes, hotspots, and update options.
+**Always construct a camera first and pass it in.**
 
 ```ts
-import { createGlyphScene } from "glyphcss";
+import { createGlyphCamera, createGlyphScene } from "glyphcss";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
+const camera = createGlyphCamera({ rotX: 0.4, zoom: 0.4 });
+
 const scene = createGlyphScene(host, {
+  camera,
   mode: "solid",            // "wireframe" | "solid" | "voxel"
   cols: 100,                // grid width in character columns
   rows: 30,                 // grid height in character rows
@@ -80,6 +84,7 @@ one runnable block:
 
 ```ts
 import {
+  createGlyphCamera,
   createGlyphScene,
   createGlyphOrbitControls,
 } from "glyphcss";
@@ -87,10 +92,13 @@ import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
-// 1. Create the scene.
-const scene = createGlyphScene(host, { mode: "solid", cols: 100, rows: 30 });
+// 1. Create the camera first.
+const camera = createGlyphCamera({ rotX: 0.4, zoom: 0.4 });
 
-// 2. Add meshes. Each call returns a handle.
+// 2. Create the scene with the camera.
+const scene = createGlyphScene(host, { camera, mode: "solid", cols: 100, rows: 30 });
+
+// 3. Add meshes. Each call returns a handle.
 const cubeHandle = scene.add(
   cubePolygons({ center: [-1, 0, 0], size: 0.8, color: "#4488ff" })
 );
@@ -99,23 +107,23 @@ const octaHandle = scene.add(
 );
 scene.add(axesHelperPolygons({ size: 1.5 }));
 
-// 3. Add a hotspot.
+// 4. Add a hotspot.
 const hotspot = scene.addHotspot(
   { id: "octa-top", at: [1, 0.8, 0], size: [4, 2] },
   () => alert("octahedron top"),
 );
 
-// 4. Attach orbit controls.
+// 5. Attach orbit controls.
 const controls = createGlyphOrbitControls(scene, { drag: true, wheel: true });
 
-// 5. Update options at any time.
+// 6. Update options at any time.
 scene.setOptions({ mode: "wireframe" });
 
-// 6. Move a mesh.
+// 7. Move a mesh.
 cubeHandle.setTransform({ position: [-2, 0, 0] });
 scene.rerender();
 
-// 7. Cleanup everything.
+// 8. Cleanup everything.
 hotspot.remove();
 controls.destroy();
 octaHandle.dispose();

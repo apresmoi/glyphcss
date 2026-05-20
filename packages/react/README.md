@@ -16,40 +16,30 @@ Requires React 18 or 19 as a peer dependency.
 
 ```tsx
 import {
-  GlyphScene,
   GlyphCamera,
+  GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
 } from "@glyphcss/react";
 
 export function App() {
   return (
-    <GlyphScene cols={80} rows={40}>
-      <GlyphCamera rotX={65} rotY={45}>
+    <GlyphCamera rotX={0.4} zoom={0.32}>
+      <GlyphScene cols={80} rows={40}>
         <GlyphOrbitControls />
         <GlyphMesh src="/cottage.glb" />
-      </GlyphCamera>
-    </GlyphScene>
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
 
 ## Component reference
 
-### `<GlyphScene>`
-
-Root of every React glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change.
-
-| Prop | Type | Default | Description |
-|---|---|---|---|
-| `cols` | `number` | `80` | Grid width in character cells |
-| `rows` | `number` | `40` | Grid height in character cells |
-| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
-| `className` | `string` | — | CSS class on the `<pre>` container |
-
 ### `<GlyphCamera>` / `<GlyphOrthographicCamera>`
 
-Orthographic camera. `GlyphCamera` is the ergonomic default alias.
+Orthographic camera. `GlyphCamera` is the ergonomic default alias. Wraps
+`<GlyphScene>` — the camera is always the outermost element.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
@@ -67,6 +57,17 @@ Perspective (foreshortened) camera. Required for `<GlyphFirstPersonControls>`.
 | `rotY` | `number` | `0` | Azimuth in radians |
 | `distance` | `number` | `3` | Perspective distance in world units |
 | `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+
+### `<GlyphScene>`
+
+Root of every React glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change. Must be a child of a camera component.
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `cols` | `number` | `80` | Grid width in character cells |
+| `rows` | `number` | `40` | Grid height in character cells |
+| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
+| `className` | `string` | — | CSS class on the `<pre>` container |
 
 ### `<GlyphMesh>`
 

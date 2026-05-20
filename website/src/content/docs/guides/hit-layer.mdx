@@ -19,21 +19,23 @@ roof shingle; you need them on the front door.
 ## Authoring hotspots
 
 ```tsx
-import { GlyphScene, GlyphMesh, GlyphHotspot } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphHotspot } from "@glyphcss/react";
 import { octahedronPolygons } from "@glyphcss/core";
 
 const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
 
-<GlyphScene mode="solid" cols={80} rows={24}>
-  <GlyphMesh polygons={shape}>
-    <GlyphHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>
-      <span className="badge">Top</span>
-    </GlyphHotspot>
-    <GlyphHotspot at={[0, -1, 0]} onClick={() => alert("bottom vertex")}>
-      <span className="badge">Bottom</span>
-    </GlyphHotspot>
-  </GlyphMesh>
-</GlyphScene>
+<GlyphCamera rotX={0.4}>
+  <GlyphScene mode="solid" cols={80} rows={24}>
+    <GlyphMesh polygons={shape}>
+      <GlyphHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>
+        <span className="badge">Top</span>
+      </GlyphHotspot>
+      <GlyphHotspot at={[0, -1, 0]} onClick={() => alert("bottom vertex")}>
+        <span className="badge">Bottom</span>
+      </GlyphHotspot>
+    </GlyphMesh>
+  </GlyphScene>
+</GlyphCamera>
 ```
 
 Each `<GlyphHotspot>` becomes:

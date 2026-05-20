@@ -39,6 +39,7 @@ camera state.
 
 ```tsx
 import {
+  GlyphCamera,
   GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
@@ -50,31 +51,33 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function HotspotDemo() {
   return (
-    <GlyphScene mode="solid" cols={100} rows={30}>
-      <GlyphOrbitControls />
-      <GlyphMesh polygons={cube}>
-        {/* Hotspot on the top face */}
-        <GlyphHotspot
-          id="top"
-          at={[0, 0.5, 0]}
-          size={[5, 3]}
-          aria-label="Top face"
-          onClick={() => alert("top face clicked")}
-        >
-          <span className="badge">Top</span>
-        </GlyphHotspot>
-        {/* Hotspot on the right face */}
-        <GlyphHotspot
-          id="right"
-          at={[0.5, 0, 0]}
-          size={[5, 3]}
-          aria-label="Right face"
-          onClick={() => alert("right face clicked")}
-        >
-          <span className="badge">Right</span>
-        </GlyphHotspot>
-      </GlyphMesh>
-    </GlyphScene>
+    <GlyphCamera rotX={0.4}>
+      <GlyphScene mode="solid" cols={100} rows={30}>
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={cube}>
+          {/* Hotspot on the top face */}
+          <GlyphHotspot
+            id="top"
+            at={[0, 0.5, 0]}
+            size={[5, 3]}
+            aria-label="Top face"
+            onClick={() => alert("top face clicked")}
+          >
+            <span className="badge">Top</span>
+          </GlyphHotspot>
+          {/* Hotspot on the right face */}
+          <GlyphHotspot
+            id="right"
+            at={[0.5, 0, 0]}
+            size={[5, 3]}
+            aria-label="Right face"
+            onClick={() => alert("right face clicked")}
+          >
+            <span className="badge">Right</span>
+          </GlyphHotspot>
+        </GlyphMesh>
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -84,29 +87,32 @@ export function HotspotDemo() {
 
 ```vue
 <template>
-  <GlyphScene mode="solid" :cols="100" :rows="30">
-    <GlyphOrbitControls />
-    <GlyphMesh :polygons="cube">
-      <GlyphHotspot
-        id="top"
-        :at="[0, 0.5, 0]"
-        :size="[5, 3]"
-        aria-label="Top face"
-        @click="onTopClick"
-      />
-      <GlyphHotspot
-        id="right"
-        :at="[0.5, 0, 0]"
-        :size="[5, 3]"
-        aria-label="Right face"
-        @click="onRightClick"
-      />
-    </GlyphMesh>
-  </GlyphScene>
+  <GlyphCamera :rot-x="0.4">
+    <GlyphScene mode="solid" :cols="100" :rows="30">
+      <GlyphOrbitControls />
+      <GlyphMesh :polygons="cube">
+        <GlyphHotspot
+          id="top"
+          :at="[0, 0.5, 0]"
+          :size="[5, 3]"
+          aria-label="Top face"
+          @click="onTopClick"
+        />
+        <GlyphHotspot
+          id="right"
+          :at="[0.5, 0, 0]"
+          :size="[5, 3]"
+          aria-label="Right face"
+          @click="onRightClick"
+        />
+      </GlyphMesh>
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 
 <script setup lang="ts">
 import {
+  GlyphCamera,
   GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
