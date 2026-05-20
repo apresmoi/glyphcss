@@ -31,6 +31,19 @@ import { prismPolygons } from "./prismPolygons";
 import { antiprismPolygons } from "./antiprismPolygons";
 import { bipyramidPolygons } from "./bipyramidPolygons";
 import { trapezohedronPolygons } from "./trapezohedronPolygons";
+import { rhombicDodecahedronPolygons } from "./rhombicDodecahedronPolygons";
+import { rhombicTriacontahedronPolygons } from "./rhombicTriacontahedronPolygons";
+import { triakisTetrahedronPolygons } from "./triakisTetrahedronPolygons";
+import { triakisOctahedronPolygons } from "./triakisOctahedronPolygons";
+import { tetrakisHexahedronPolygons } from "./tetrakisHexahedronPolygons";
+import { triakisIcosahedronPolygons } from "./triakisIcosahedronPolygons";
+import { pentakisDodecahedronPolygons } from "./pentakisDodecahedronPolygons";
+import { disdyakisDodecahedronPolygons } from "./disdyakisDodecahedronPolygons";
+import { disdyakisTriacontahedronPolygons } from "./disdyakisTriacontahedronPolygons";
+import { deltoidalIcositetrahedronPolygons } from "./deltoidalIcositetrahedronPolygons";
+import { deltoidalHexecontahedronPolygons } from "./deltoidalHexecontahedronPolygons";
+import { pentagonalIcositetrahedronPolygons } from "./pentagonalIcositetrahedronPolygons";
+import { pentagonalHexecontahedronPolygons } from "./pentagonalHexecontahedronPolygons";
 
 describe("axesHelperPolygons", () => {
   it("returns 18 quads (6 per axis × 3 axes)", () => {
@@ -1707,5 +1720,460 @@ describe("snubDodecahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-1, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+});
+
+// ── Catalan polyhedra ────────────────────────────────────────────────────────
+
+/** Residual distance of all vertices after the first 3 from the plane of the first 3. */
+function maxPlanarResidual(verts: readonly (readonly [number, number, number])[]): number {
+  if (verts.length <= 3) return 0;
+  const [a, b, c] = verts as [[number,number,number],[number,number,number],[number,number,number]];
+  const abx = b[0]-a[0], aby = b[1]-a[1], abz = b[2]-a[2];
+  const acx = c[0]-a[0], acy = c[1]-a[1], acz = c[2]-a[2];
+  const nx = aby*acz - abz*acy;
+  const ny = abz*acx - abx*acz;
+  const nz = abx*acy - aby*acx;
+  const len = Math.sqrt(nx*nx + ny*ny + nz*nz);
+  if (len < 1e-12) return 0;
+  let max = 0;
+  for (let k = 3; k < verts.length; k++) {
+    const dx = verts[k][0]-a[0], dy = verts[k][1]-a[1], dz = verts[k][2]-a[2];
+    const dist = Math.abs(dx*nx + dy*ny + dz*nz) / len;
+    if (dist > max) max = dist;
+  }
+  return max;
+}
+
+describe("rhombicDodecahedronPolygons", () => {
+  it("returns 12 rhombic (4-vertex) faces", () => {
+    const p = rhombicDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(12);
+    for (const f of p) expect(f.vertices).toHaveLength(4);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = rhombicDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("each face is planar (4th vertex within 1e-5 of the plane of the first 3)", () => {
+    const p = rhombicDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) expect(maxPlanarResidual(f.vertices)).toBeLessThan(1e-5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = rhombicDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = rhombicDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#aabb11" });
+    for (const f of col) expect(f.color).toBe("#aabb11");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [3, -2, 5];
+    const base = rhombicDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = rhombicDodecahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(3, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-2, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(5, 5);
+  });
+});
+
+describe("rhombicTriacontahedronPolygons", () => {
+  it("returns 30 rhombic (4-vertex) faces", () => {
+    const p = rhombicTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(30);
+    for (const f of p) expect(f.vertices).toHaveLength(4);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = rhombicTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("each face is planar", () => {
+    const p = rhombicTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) expect(maxPlanarResidual(f.vertices)).toBeLessThan(1e-5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = rhombicTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = rhombicTriacontahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc1122" });
+    for (const f of col) expect(f.color).toBe("#cc1122");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [1, 2, 3];
+    const base = rhombicTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = rhombicTriacontahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(2, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+});
+
+describe("triakisTetrahedronPolygons", () => {
+  it("returns 12 triangular faces", () => {
+    const p = triakisTetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(12);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = triakisTetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = triakisTetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = triakisTetrahedronPolygons({ center: [0, 0, 0], size: 1, color: "#001122" });
+    for (const f of col) expect(f.color).toBe("#001122");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [4, -1, 2];
+    const base = triakisTetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = triakisTetrahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(4, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-1, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
+  });
+});
+
+describe("triakisOctahedronPolygons", () => {
+  it("returns 24 triangular faces", () => {
+    const p = triakisOctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(24);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = triakisOctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = triakisOctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = triakisOctahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff8800" });
+    for (const f of col) expect(f.color).toBe("#ff8800");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [-3, 0, 2];
+    const base = triakisOctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = triakisOctahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-3, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(0, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
+  });
+});
+
+describe("tetrakisHexahedronPolygons", () => {
+  it("returns 24 triangular faces", () => {
+    const p = tetrakisHexahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(24);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = tetrakisHexahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = tetrakisHexahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = tetrakisHexahedronPolygons({ center: [0, 0, 0], size: 1, color: "#00aaff" });
+    for (const f of col) expect(f.color).toBe("#00aaff");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [2, 3, -1];
+    const base = tetrakisHexahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = tetrakisHexahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(3, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-1, 5);
+  });
+});
+
+describe("triakisIcosahedronPolygons", () => {
+  it("returns 60 triangular faces", () => {
+    const p = triakisIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(60);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = triakisIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = triakisIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = triakisIcosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#112233" });
+    for (const f of col) expect(f.color).toBe("#112233");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [5, -5, 5];
+    const base = triakisIcosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = triakisIcosahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(5, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-5, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(5, 5);
+  });
+});
+
+describe("pentakisDodecahedronPolygons", () => {
+  it("returns 60 triangular faces", () => {
+    const p = pentakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(60);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = pentakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = pentakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = pentakisDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#abcdef" });
+    for (const f of col) expect(f.color).toBe("#abcdef");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [0, 4, -2];
+    const base = pentakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = pentakisDodecahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(0, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(4, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+});
+
+describe("disdyakisDodecahedronPolygons", () => {
+  it("returns 48 triangular faces", () => {
+    const p = disdyakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(48);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = disdyakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = disdyakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = disdyakisDodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ff0077" });
+    for (const f of col) expect(f.color).toBe("#ff0077");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [-1, 3, 2];
+    const base = disdyakisDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = disdyakisDodecahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-1, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(3, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
+  });
+});
+
+describe("disdyakisTriacontahedronPolygons", () => {
+  it("returns 120 triangular faces", () => {
+    const p = disdyakisTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(120);
+    for (const f of p) expect(f.vertices).toHaveLength(3);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = disdyakisTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = disdyakisTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = disdyakisTriacontahedronPolygons({ center: [0, 0, 0], size: 1, color: "#7700cc" });
+    for (const f of col) expect(f.color).toBe("#7700cc");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [2, -3, 1];
+    const base = disdyakisTriacontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = disdyakisTriacontahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-3, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(1, 5);
+  });
+});
+
+describe("deltoidalIcositetrahedronPolygons", () => {
+  it("returns 24 kite (4-vertex) faces", () => {
+    const p = deltoidalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(24);
+    for (const f of p) expect(f.vertices).toHaveLength(4);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = deltoidalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("each face is planar", () => {
+    const p = deltoidalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) expect(maxPlanarResidual(f.vertices)).toBeLessThan(1e-5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = deltoidalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = deltoidalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1, color: "#123456" });
+    for (const f of col) expect(f.color).toBe("#123456");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [1, -4, 3];
+    const base = deltoidalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = deltoidalIcositetrahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(1, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-4, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+});
+
+describe("deltoidalHexecontahedronPolygons", () => {
+  it("returns 60 kite (4-vertex) faces", () => {
+    const p = deltoidalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(60);
+    for (const f of p) expect(f.vertices).toHaveLength(4);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = deltoidalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("each face is planar", () => {
+    const p = deltoidalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) expect(maxPlanarResidual(f.vertices)).toBeLessThan(1e-5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = deltoidalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = deltoidalHexecontahedronPolygons({ center: [0, 0, 0], size: 1, color: "#654321" });
+    for (const f of col) expect(f.color).toBe("#654321");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [-2, 1, 4];
+    const base = deltoidalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = deltoidalHexecontahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-2, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(1, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(4, 5);
+  });
+});
+
+describe("pentagonalIcositetrahedronPolygons", () => {
+  it("returns 24 pentagonal (5-vertex) faces", () => {
+    const p = pentagonalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(24);
+    for (const f of p) expect(f.vertices).toHaveLength(5);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = pentagonalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("each face is planar (all 5 vertices within 1e-5 of the plane of the first 3)", () => {
+    const p = pentagonalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) expect(maxPlanarResidual(f.vertices)).toBeLessThan(1e-5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = pentagonalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = pentagonalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1, color: "#0077ff" });
+    for (const f of col) expect(f.color).toBe("#0077ff");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [3, 1, -2];
+    const base = pentagonalIcositetrahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = pentagonalIcositetrahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(3, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(1, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+});
+
+describe("pentagonalHexecontahedronPolygons", () => {
+  it("returns 60 pentagonal (5-vertex) faces", () => {
+    const p = pentagonalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    expect(p).toHaveLength(60);
+    for (const f of p) expect(f.vertices).toHaveLength(5);
+  });
+
+  it("all vertex coords are finite", () => {
+    const p = pentagonalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) for (const v of f.vertices) for (const c of v) expect(Number.isFinite(c)).toBe(true);
+  });
+
+  it("each face is planar (all 5 vertices within 1e-5 of the plane of the first 3)", () => {
+    const p = pentagonalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of p) expect(maxPlanarResidual(f.vertices)).toBeLessThan(1e-5);
+  });
+
+  it("color defaults to #ffffff and propagates when supplied", () => {
+    const def = pentagonalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const f of def) expect(f.color).toBe("#ffffff");
+    const col = pentagonalHexecontahedronPolygons({ center: [0, 0, 0], size: 1, color: "#aaff00" });
+    for (const f of col) expect(f.color).toBe("#aaff00");
+  });
+
+  it("center offset shifts bounding-box centroid", () => {
+    const offset: [number, number, number] = [-1, 2, -3];
+    const base = pentagonalHexecontahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const moved = pentagonalHexecontahedronPolygons({ center: offset, size: 1 });
+    const bv = base.flatMap((p) => p.vertices), mv = moved.flatMap((p) => p.vertices);
+    const n = bv.length;
+    expect(mv.reduce((s, v) => s + v[0], 0) / n - bv.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(-1, 5);
+    expect(mv.reduce((s, v) => s + v[1], 0) / n - bv.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(2, 5);
+    expect(mv.reduce((s, v) => s + v[2], 0) / n - bv.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-3, 5);
   });
 });
