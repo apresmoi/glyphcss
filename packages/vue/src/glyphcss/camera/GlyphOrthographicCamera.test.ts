@@ -18,8 +18,8 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphOrthographicCamera, cameraProps),
+        h(GlyphOrthographicCamera, cameraProps, {
+          default: () => h(GlyphScene, {}),
         });
     },
   });
@@ -27,7 +27,7 @@ function renderScene(
   return { container, app };
 }
 
-describe("GlyphOrthographicCamera (Vue) — mount inside scene", () => {
+describe("GlyphOrthographicCamera (Vue) — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -68,8 +68,8 @@ describe("GlyphOrthographicCamera (Vue) — mount inside scene", () => {
     const app = createApp({
       setup() {
         return () =>
-          h(GlyphScene, {}, {
-            default: () => h(GlyphOrthographicCamera, { zoom: zoom.value }),
+          h(GlyphOrthographicCamera, { zoom: zoom.value }, {
+            default: () => h(GlyphScene, {}),
           });
       },
     });
@@ -91,19 +91,20 @@ describe("GlyphOrthographicCamera (Vue) — mount inside scene", () => {
   });
 });
 
-describe("GlyphOrthographicCamera (Vue) — outside scene", () => {
+describe("GlyphOrthographicCamera (Vue) — standalone (no scene child)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
-  it("throws when mounted outside GlyphScene", () => {
+  it("mounts without throwing when used without a scene child", () => {
     const container = document.createElement("div");
     const app = createApp({
       setup() {
         return () => h(GlyphOrthographicCamera, {});
       },
     });
-    expect(() => app.mount(container)).toThrow();
+    expect(() => app.mount(container)).not.toThrow();
+    app.unmount();
   });
 });

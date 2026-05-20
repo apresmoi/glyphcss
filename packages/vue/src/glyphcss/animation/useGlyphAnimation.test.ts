@@ -5,6 +5,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, defineComponent, h, nextTick } from "vue";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { useGlyphAnimation } from "./useGlyphAnimation";
 import type { GlyphAnimationClip, ParseAnimationController, GlyphAnimationTarget } from "@glyphcss/core";
 
@@ -47,6 +48,22 @@ function makeConsumer(
   });
 }
 
+function mountWithCamera(Consumer: ReturnType<typeof defineComponent>) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const app = createApp({
+    setup() {
+      return () =>
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, { default: () => h(Consumer) }),
+        });
+    },
+  });
+  app.mount(container);
+  return { container, app };
+}
+
 describe("useGlyphAnimation (Vue) — no clips", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -55,29 +72,13 @@ describe("useGlyphAnimation (Vue) — no clips", () => {
 
   it("renders consumer without throwing when no clips provided", () => {
     const Consumer = makeConsumer();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    expect(() => app.mount(container)).not.toThrow();
+    const { app } = mountWithCamera(Consumer);
     app.unmount();
   });
 
   it("consumer is in the DOM when no clips provided", async () => {
     const Consumer = makeConsumer();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(Consumer);
     await nextTick();
     expect(container.querySelector(".animation-consumer")).toBeTruthy();
     app.unmount();
@@ -85,15 +86,7 @@ describe("useGlyphAnimation (Vue) — no clips", () => {
 
   it("clip count is 0 when no clips provided", async () => {
     const Consumer = makeConsumer();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(Consumer);
     await nextTick();
     const consumer = container.querySelector(".animation-consumer");
     expect(consumer?.getAttribute("data-clip-count")).toBe("0");
@@ -102,15 +95,7 @@ describe("useGlyphAnimation (Vue) — no clips", () => {
 
   it("names is empty string when no clips", async () => {
     const Consumer = makeConsumer();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(Consumer);
     await nextTick();
     const consumer = container.querySelector(".animation-consumer");
     expect(consumer?.getAttribute("data-names")).toBe("");
@@ -126,29 +111,13 @@ describe("useGlyphAnimation (Vue) — with clips", () => {
 
   it("renders consumer with clips without throwing", () => {
     const Consumer = makeConsumer([CLIP], CONTROLLER);
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    expect(() => app.mount(container)).not.toThrow();
+    const { app } = mountWithCamera(Consumer);
     app.unmount();
   });
 
   it("clip count reflects provided clips", async () => {
     const Consumer = makeConsumer([CLIP], CONTROLLER);
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(Consumer);
     await nextTick();
     const consumer = container.querySelector(".animation-consumer");
     expect(consumer?.getAttribute("data-clip-count")).toBe("1");
@@ -157,15 +126,7 @@ describe("useGlyphAnimation (Vue) — with clips", () => {
 
   it("names reflects clip name", async () => {
     const Consumer = makeConsumer([CLIP], CONTROLLER);
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(Consumer);
     await nextTick();
     const consumer = container.querySelector(".animation-consumer");
     expect(consumer?.getAttribute("data-names")).toBe("idle");
@@ -174,15 +135,7 @@ describe("useGlyphAnimation (Vue) — with clips", () => {
 
   it("unmounts cleanly", async () => {
     const Consumer = makeConsumer([CLIP], CONTROLLER);
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(Consumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(Consumer);
     await nextTick();
     app.unmount();
     expect(container.querySelector(".animation-consumer")).toBeFalsy();
@@ -208,15 +161,7 @@ describe("useGlyphAnimation (Vue) — ref is exposed", () => {
       },
     });
 
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const app = createApp({
-      setup() {
-        return () =>
-          h(GlyphScene, {}, { default: () => h(RefConsumer) });
-      },
-    });
-    app.mount(container);
+    const { container, app } = mountWithCamera(RefConsumer);
     await nextTick();
     const consumer = container.querySelector(".ref-consumer");
     expect(consumer?.getAttribute("data-attached")).toBe("false");

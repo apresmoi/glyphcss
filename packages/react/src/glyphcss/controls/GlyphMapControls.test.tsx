@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMapControls } from "./GlyphMapControls";
 
 function renderScene(
@@ -13,9 +14,13 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
+        GlyphPerspectiveCamera,
         {},
-        React.createElement(GlyphMapControls, controlsProps),
+        React.createElement(
+          GlyphScene,
+          {},
+          React.createElement(GlyphMapControls, controlsProps),
+        ),
       ),
     ),
   );
@@ -60,9 +65,13 @@ describe("GlyphMapControls — mount inside scene", () => {
     act(() =>
       root.render(
         React.createElement(
-          GlyphScene,
+          GlyphPerspectiveCamera,
           {},
-          React.createElement(GlyphMapControls, { drag: false, wheel: false }),
+          React.createElement(
+            GlyphScene,
+            {},
+            React.createElement(GlyphMapControls, { drag: false, wheel: false }),
+          ),
         ),
       ),
     );

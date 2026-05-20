@@ -1,9 +1,10 @@
 /**
  * GlyphScene — React wrapper for the ASCII paint backend.
  *
- * Mounts a `createGlyphScene` handle in a host div, injects base styles,
- * and provides the scene handle via GlyphSceneContext so child components
- * (GlyphMesh, GlyphHotspot, controls) can register with it.
+ * Must be placed inside a <GlyphPerspectiveCamera> or <GlyphOrthographicCamera>.
+ * Reads the camera handle from GlyphCameraContext, mounts a `createGlyphScene`
+ * handle in a host div, and provides the scene handle via GlyphSceneContext so
+ * child components (GlyphMesh, GlyphHotspot, controls) can register with it.
  *
  * No atlas, no matrix3d, no CSS polygon leaves — the ASCII rasterizer
  * writes into a single <pre> element per render.
@@ -17,6 +18,7 @@ import type {
   GlyphAmbientLight,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
+import { useGlyphCameraContext } from "../camera/context";
 import { GlyphSceneContext } from "./context";
 
 export interface GlyphSceneProps {
@@ -52,10 +54,11 @@ function GlyphSceneInner({
   style,
   children,
 }: GlyphSceneProps) {
+  const { cameraRef, sceneRerenderRef } = useGlyphCameraContext();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<ReturnType<typeof createGlyphScene> | null>(null);
 
-  // Build the initial scene options once
+  // Build the initial scene options once (camera must exist at this point)
   const initialOpts: GlyphSceneOptions = useMemo(() => ({
     mode,
     glyphPalette,
@@ -65,6 +68,7 @@ function GlyphSceneInner({
     cellAspect,
     directionalLight,
     ambientLight,
+    camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mount / destroy the scene when the host element mounts / unmounts
@@ -72,13 +76,18 @@ function GlyphSceneInner({
     if (el && !sceneRef.current) {
       hostRef.current = el;
       injectGlyphBaseStyles(el.ownerDocument ?? undefined);
-      sceneRef.current = createGlyphScene(el, initialOpts);
+      const camera = cameraRef.current ?? undefined;
+      sceneRef.current = createGlyphScene(el, { ...initialOpts, camera });
+      // Register the scene rerender function with the camera context so
+      // prop changes on the camera component trigger rerenders.
+      sceneRerenderRef.current = () => sceneRef.current?.rerender();
     } else if (!el && sceneRef.current) {
       sceneRef.current.destroy();
       sceneRef.current = null;
+      sceneRerenderRef.current = null;
       hostRef.current = null;
     }
-  }, [initialOpts]);
+  }, [initialOpts, cameraRef, sceneRerenderRef]);
 
   // Sync option props to the live scene handle
   useEffect(() => {

@@ -1,20 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
+import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 
-// Register the element if not already registered.
+// Register elements if not already registered.
 if (!customElements.get("glyph-scene")) {
   customElements.define("glyph-scene", GlyphSceneElement);
 }
+if (!customElements.get("glyph-perspective-camera")) {
+  customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
+}
 
 describe("GlyphSceneElement", () => {
+  let camEl: GlyphPerspectiveCameraElement;
   let host: GlyphSceneElement;
 
   beforeEach(() => {
+    camEl = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     host = document.createElement("glyph-scene") as GlyphSceneElement;
+    camEl.appendChild(host);
   });
 
   afterEach(() => {
-    if (host.isConnected) host.remove();
+    if (camEl.isConnected) camEl.remove();
   });
 
   it("is registered under the 'glyph-scene' tag", () => {
@@ -40,28 +47,28 @@ describe("GlyphSceneElement", () => {
     expect(host.getScene()).toBeNull();
   });
 
-  it("appending to document emits .glyph-scene wrapper and <pre> output", () => {
-    document.body.appendChild(host);
+  it("appending camera to document emits .glyph-scene wrapper and <pre> output", () => {
+    document.body.appendChild(camEl);
     expect(host.querySelector(".glyph-scene")).toBeTruthy();
     expect(host.querySelector("pre.glyph-output")).toBeTruthy();
   });
 
   it("getScene() is non-null after connect", () => {
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     expect(host.getScene()).not.toBeNull();
   });
 
   it("dispatches glyphcss:scene-ready on connect", () => {
     let fired = false;
     host.addEventListener("glyphcss:scene-ready", () => { fired = true; });
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     expect(fired).toBe(true);
   });
 
   it("passes cols/rows attributes down to the scene", async () => {
     host.setAttribute("cols", "40");
     host.setAttribute("rows", "10");
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     // Let the microtask render flush.
     await Promise.resolve();
     const pre = host.querySelector("pre.glyph-output") as HTMLPreElement;
@@ -72,7 +79,7 @@ describe("GlyphSceneElement", () => {
   it("mode attribute change triggers re-render without throwing", async () => {
     host.setAttribute("cols", "20");
     host.setAttribute("rows", "5");
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     await Promise.resolve();
     host.setAttribute("mode", "wireframe");
     await Promise.resolve();
@@ -88,29 +95,34 @@ describe("GlyphSceneElement", () => {
   });
 
   it("disconnect destroys the scene (removes .glyph-scene from DOM)", () => {
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     expect(host.querySelector(".glyph-scene")).toBeTruthy();
-    host.remove();
+    camEl.remove();
     expect(host.querySelector(".glyph-scene")).toBeFalsy();
     expect(host.getScene()).toBeNull();
   });
 
   it("reconnect after disconnect creates a fresh scene", () => {
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     const first = host.getScene();
-    host.remove();
-    document.body.appendChild(host);
-    const second = host.getScene();
+    camEl.remove();
+    // Re-create the camera element to avoid the "already connected" guard
+    const camEl2 = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
+    const host2 = document.createElement("glyph-scene") as GlyphSceneElement;
+    camEl2.appendChild(host2);
+    document.body.appendChild(camEl2);
+    const second = host2.getScene();
     expect(second).not.toBeNull();
     // Should be a fresh handle object (not the same reference).
     expect(second).not.toBe(first);
+    camEl2.remove();
   });
 
   it("use-colors=false attribute is forwarded (no crash on render)", async () => {
     host.setAttribute("use-colors", "false");
     host.setAttribute("cols", "20");
     host.setAttribute("rows", "5");
-    document.body.appendChild(host);
+    document.body.appendChild(camEl);
     await Promise.resolve();
     const pre = host.querySelector("pre.glyph-output") as HTMLPreElement;
     expect(pre).toBeTruthy();
@@ -119,6 +131,16 @@ describe("GlyphSceneElement", () => {
   it("directional-intensity and ambient-intensity attributes are forwarded without error", () => {
     host.setAttribute("directional-intensity", "0.8");
     host.setAttribute("ambient-intensity", "0.3");
-    expect(() => { document.body.appendChild(host); }).not.toThrow();
+    expect(() => { document.body.appendChild(camEl); }).not.toThrow();
+  });
+
+  it("throws when connected without a camera ancestor", () => {
+    const orphanScene = document.createElement("glyph-scene") as GlyphSceneElement;
+    expect(() => {
+      document.body.appendChild(orphanScene);
+    }).toThrow(
+      "glyphcss: <glyph-scene> must be placed inside a <glyph-perspective-camera> or <glyph-orthographic-camera>.",
+    );
+    orphanScene.remove();
   });
 });

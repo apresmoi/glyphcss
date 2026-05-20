@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphOrbitControls } from "./GlyphOrbitControls";
 
 function renderScene(
@@ -13,9 +14,13 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
+        GlyphPerspectiveCamera,
         {},
-        React.createElement(GlyphOrbitControls, controlsProps),
+        React.createElement(
+          GlyphScene,
+          {},
+          React.createElement(GlyphOrbitControls, controlsProps),
+        ),
       ),
     ),
   );
@@ -68,9 +73,13 @@ describe("GlyphOrbitControls — mount inside scene", () => {
     act(() =>
       root.render(
         React.createElement(
-          GlyphScene,
+          GlyphPerspectiveCamera,
           {},
-          React.createElement(GlyphOrbitControls, { drag: false }),
+          React.createElement(
+            GlyphScene,
+            {},
+            React.createElement(GlyphOrbitControls, { drag: false }),
+          ),
         ),
       ),
     );
@@ -90,9 +99,13 @@ describe("GlyphOrbitControls — mount inside scene", () => {
     act(() =>
       r1.render(
         React.createElement(
-          GlyphScene,
+          GlyphPerspectiveCamera,
           {},
-          React.createElement(GlyphOrbitControls, {}),
+          React.createElement(
+            GlyphScene,
+            {},
+            React.createElement(GlyphOrbitControls, {}),
+          ),
         ),
       ),
     );
@@ -105,9 +118,13 @@ describe("GlyphOrbitControls — mount inside scene", () => {
     act(() =>
       r2.render(
         React.createElement(
-          GlyphScene,
+          GlyphPerspectiveCamera,
           {},
-          React.createElement(GlyphOrbitControls, {}),
+          React.createElement(
+            GlyphScene,
+            {},
+            React.createElement(GlyphOrbitControls, {}),
+          ),
         ),
       ),
     );

@@ -1,11 +1,12 @@
 /**
- * GlyphOrthographicCamera — Vue 3 orthographic camera for the ASCII backend.
+ * GlyphOrthographicCamera — outer wrapper that creates an orthographic camera
+ * handle and provides it via GlyphCameraContextKey. <GlyphScene> must be
+ * placed inside this component.
  */
-import { defineComponent, inject, provide, shallowRef, watch, onMounted } from "vue";
-import type { PropType } from "vue";
+import { defineComponent, h, provide, shallowRef, watch } from "vue";
+import type { PropType, ShallowRef } from "vue";
 import type { GlyphCamera, GlyphOrthographicCameraOptions } from "glyphcss";
 import { createGlyphOrthographicCamera } from "glyphcss";
-import { GlyphSceneContextKey } from "../scene/context";
 import { GlyphCameraContextKey } from "./context";
 
 export interface GlyphOrthographicCameraProps {
@@ -24,33 +25,21 @@ export const GlyphOrthographicCamera = defineComponent({
     center: { type: Array as unknown as PropType<[number, number]>, default: undefined },
   },
   setup(props, { slots }) {
-    const sceneCtx = inject(GlyphSceneContextKey);
-    if (!sceneCtx) {
-      throw new Error("glyphcss: GlyphOrthographicCamera must be used inside a GlyphScene.");
-    }
-    const { sceneRef } = sceneCtx;
-    const cameraRef = shallowRef<GlyphCamera | null>(null);
+    const opts: GlyphOrthographicCameraOptions = {};
+    if (props.rotX !== undefined) opts.rotX = props.rotX;
+    if (props.rotY !== undefined) opts.rotY = props.rotY;
+    if (props.zoom !== undefined) opts.zoom = props.zoom;
+    if (props.center !== undefined) opts.center = props.center;
+
+    const cameraRef = shallowRef<GlyphCamera | null>(createGlyphOrthographicCamera(opts));
+    // The child GlyphScene will set this to trigger rerenders when camera props change.
+    const sceneRerenderRef: ShallowRef<(() => void) | null> = shallowRef(null);
 
     function rerender(): void {
-      sceneRef.value?.rerender();
+      sceneRerenderRef.value?.();
     }
 
-    provide(GlyphCameraContextKey, { cameraRef, rerender });
-
-    onMounted(() => {
-      const opts: GlyphOrthographicCameraOptions = {};
-      if (props.rotX !== undefined) opts.rotX = props.rotX;
-      if (props.rotY !== undefined) opts.rotY = props.rotY;
-      if (props.zoom !== undefined) opts.zoom = props.zoom;
-      if (props.center !== undefined) opts.center = props.center;
-      const camera = createGlyphOrthographicCamera(opts);
-      cameraRef.value = camera;
-      const scene = sceneRef.value;
-      if (scene) {
-        scene.setOptions({ camera });
-        scene.rerender();
-      }
-    });
+    provide(GlyphCameraContextKey, { cameraRef, rerender, sceneRerenderRef });
 
     watch(
       () => ({ rotX: props.rotX, rotY: props.rotY, zoom: props.zoom }),
@@ -61,10 +50,10 @@ export const GlyphOrthographicCamera = defineComponent({
         if (next.rotX !== undefined && camera.rotX !== next.rotX) { camera.rotX = next.rotX; dirty = true; }
         if (next.rotY !== undefined && camera.rotY !== next.rotY) { camera.rotY = next.rotY; dirty = true; }
         if (next.zoom !== undefined && camera.zoom !== next.zoom) { camera.zoom = next.zoom; dirty = true; }
-        if (dirty) sceneRef.value?.rerender();
+        if (dirty) sceneRerenderRef.value?.();
       },
     );
 
-    return () => slots.default?.() ?? null;
+    return () => h("div", slots.default?.() ?? []);
   },
 });

@@ -30,11 +30,11 @@ function renderWithCamera(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
-        {},
+        GlyphPerspectiveCamera,
+        cameraProps,
         React.createElement(
-          GlyphPerspectiveCamera,
-          cameraProps,
+          GlyphScene,
+          {},
           React.createElement(CameraConsumer, null),
         ),
       ),
@@ -84,11 +84,7 @@ describe("useGlyphCamera — error when outside camera context", () => {
     expect(() => {
       act(() =>
         root.render(
-          React.createElement(
-            GlyphScene,
-            {},
-            React.createElement(CameraConsumer, null),
-          ),
+          React.createElement(CameraConsumer, null),
         ),
       );
     }).toThrow();

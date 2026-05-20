@@ -13,16 +13,16 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
-        {},
-        React.createElement(GlyphPerspectiveCamera, cameraProps),
+        GlyphPerspectiveCamera,
+        cameraProps,
+        React.createElement(GlyphScene, {}),
       ),
     ),
   );
   return { container, root };
 }
 
-describe("GlyphPerspectiveCamera — mount inside scene", () => {
+describe("GlyphPerspectiveCamera — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -32,12 +32,12 @@ describe("GlyphPerspectiveCamera — mount inside scene", () => {
     expect(() => renderScene()).not.toThrow();
   });
 
-  it("scene host is still rendered after mounting camera", () => {
+  it("scene host is still rendered when camera wraps it", () => {
     const { container } = renderScene({ distance: 5 });
     expect(container.querySelector(".glyph-host")).toBeTruthy();
   });
 
-  it("scene output <pre> is still rendered after mounting camera", () => {
+  it("scene output <pre> is still rendered when camera wraps it", () => {
     const { container } = renderScene({ distance: 5 });
     expect(container.querySelector(".glyph-output")).toBeTruthy();
   });
@@ -68,9 +68,9 @@ describe("GlyphPerspectiveCamera — mount inside scene", () => {
     act(() =>
       root.render(
         React.createElement(
-          GlyphScene,
-          {},
-          React.createElement(GlyphPerspectiveCamera, { distance: 7 }),
+          GlyphPerspectiveCamera,
+          { distance: 7 },
+          React.createElement(GlyphScene, {}),
         ),
       ),
     );
@@ -84,19 +84,19 @@ describe("GlyphPerspectiveCamera — mount inside scene", () => {
   });
 });
 
-describe("GlyphPerspectiveCamera — outside scene", () => {
+describe("GlyphPerspectiveCamera — standalone (no scene child)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
-  it("throws when mounted outside GlyphScene", () => {
+  it("mounts without throwing when used without a scene child", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     expect(() => {
       act(() =>
         root.render(React.createElement(GlyphPerspectiveCamera, {})),
       );
-    }).toThrow();
+    }).not.toThrow();
   });
 });

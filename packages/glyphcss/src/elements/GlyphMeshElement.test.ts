@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphMeshElement } from "./GlyphMeshElement";
+import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 
 // Register elements if not already.
 if (!customElements.get("glyph-scene")) {
@@ -9,22 +10,28 @@ if (!customElements.get("glyph-scene")) {
 if (!customElements.get("glyph-mesh")) {
   customElements.define("glyph-mesh", GlyphMeshElement);
 }
+if (!customElements.get("glyph-perspective-camera")) {
+  customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
+}
 
 describe("GlyphMeshElement", () => {
+  let camEl: GlyphPerspectiveCameraElement;
   let scene: GlyphSceneElement;
   let mesh: GlyphMeshElement;
 
   beforeEach(() => {
+    camEl = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     scene = document.createElement("glyph-scene") as GlyphSceneElement;
     scene.setAttribute("cols", "20");
     scene.setAttribute("rows", "5");
-    document.body.appendChild(scene);
+    camEl.appendChild(scene);
+    document.body.appendChild(camEl);
 
     mesh = document.createElement("glyph-mesh") as GlyphMeshElement;
   });
 
   afterEach(() => {
-    if (scene.isConnected) scene.remove();
+    if (camEl.isConnected) camEl.remove();
   });
 
   it("is registered under the 'glyph-mesh' tag", () => {

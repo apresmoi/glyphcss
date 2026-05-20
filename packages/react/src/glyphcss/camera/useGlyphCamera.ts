@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { GlyphCamera, GlyphPerspectiveCameraOptions } from "glyphcss";
 import { createGlyphPerspectiveCamera } from "glyphcss";
-import { useGlyphSceneContext } from "../scene/context";
+import { useGlyphCamera } from "./context";
 
 export interface UseGlyphCameraOptions extends GlyphPerspectiveCameraOptions {}
 
@@ -16,30 +16,11 @@ export function useGlyphCameraHook(options: UseGlyphCameraOptions): UseGlyphCame
     cameraRef.current = createGlyphPerspectiveCamera(options);
   }
 
-  const { sceneRef } = useGlyphSceneContext();
+  const { sceneRerenderRef } = useGlyphCamera();
 
   const rerender = useCallback(() => {
-    const scene = sceneRef.current;
-    if (scene) scene.rerender();
-  }, [sceneRef]);
-
-  // Sync camera props to the scene
-  useEffect(() => {
-    const camera = cameraRef.current;
-    if (!camera) return;
-    if (options.rotX !== undefined) camera.rotX = options.rotX;
-    if (options.rotY !== undefined) camera.rotY = options.rotY;
-    if (options.distance !== undefined) camera.distance = options.distance;
-    if (options.zoom !== undefined) camera.zoom = options.zoom;
-    if (options.stretch !== undefined) camera.stretch = options.stretch;
-
-    // Set the camera on the scene
-    const scene = sceneRef.current;
-    if (scene) {
-      scene.setOptions({ camera });
-      scene.rerender();
-    }
-  });
+    sceneRerenderRef.current?.();
+  }, [sceneRerenderRef]);
 
   return { cameraRef, rerender };
 }

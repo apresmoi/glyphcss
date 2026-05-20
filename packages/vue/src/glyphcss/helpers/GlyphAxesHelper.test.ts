@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick, ref } from "vue";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphAxesHelper } from "./GlyphAxesHelper";
 
 function renderScene(
@@ -11,8 +12,11 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphAxesHelper, helperProps),
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, {
+              default: () => h(GlyphAxesHelper, helperProps),
+            }),
         });
     },
   });
@@ -61,8 +65,11 @@ describe("GlyphAxesHelper (Vue) — mount inside scene", () => {
     const app = createApp({
       setup() {
         return () =>
-          h(GlyphScene, {}, {
-            default: () => h(GlyphAxesHelper, { size: size.value }),
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, {
+                default: () => h(GlyphAxesHelper, { size: size.value }),
+              }),
           });
       },
     });
@@ -88,7 +95,11 @@ describe("GlyphAxesHelper (Vue) — mount inside scene", () => {
     document.body.appendChild(c1);
     const a1 = createApp({
       setup() {
-        return () => h(GlyphScene, {}, { default: () => h(GlyphAxesHelper, {}) });
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, { default: () => h(GlyphAxesHelper, {}) }),
+          });
       },
     });
     a1.mount(c1);
@@ -100,7 +111,11 @@ describe("GlyphAxesHelper (Vue) — mount inside scene", () => {
     document.body.appendChild(c2);
     const a2 = createApp({
       setup() {
-        return () => h(GlyphScene, {}, { default: () => h(GlyphAxesHelper, { size: 2 }) });
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, { default: () => h(GlyphAxesHelper, { size: 2 }) }),
+          });
       },
     });
     a2.mount(c2);

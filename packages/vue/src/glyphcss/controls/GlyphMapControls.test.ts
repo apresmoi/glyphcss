@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick, ref } from "vue";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMapControls } from "./GlyphMapControls";
 
 type MapControlsProps = {
@@ -18,8 +19,11 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphMapControls, controlsProps),
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, {
+              default: () => h(GlyphMapControls, controlsProps),
+            }),
         });
     },
   });
@@ -68,8 +72,11 @@ describe("GlyphMapControls (Vue) — mount inside scene", () => {
     const app = createApp({
       setup() {
         return () =>
-          h(GlyphScene, {}, {
-            default: () => h(GlyphMapControls, { wheel: wheel.value }),
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, {
+                default: () => h(GlyphMapControls, { wheel: wheel.value }),
+              }),
           });
       },
     });

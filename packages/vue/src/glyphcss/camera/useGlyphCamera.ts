@@ -11,3 +11,4 @@ export function useGlyphCamera(): GlyphCameraContextValue {
 }
 
 export type { GlyphCameraContextValue };
+export { useGlyphCameraContext } from "./context";

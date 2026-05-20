@@ -10,7 +10,7 @@ export const GlyphSceneContext = createContext<GlyphSceneContextValue | null>(nu
 export function useGlyphSceneContext(): GlyphSceneContextValue {
   const ctx = useContext(GlyphSceneContext);
   if (!ctx) {
-    throw new Error("glyphcss: GlyphMesh must be used inside a GlyphScene.");
+    throw new Error("glyphcss: component must be used inside a GlyphScene.");
   }
   return ctx;
 }

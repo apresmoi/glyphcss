@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick } from "vue";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import type { Polygon } from "@glyphcss/core";
 
@@ -21,7 +22,10 @@ function renderMesh(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, { default: () => h(GlyphMesh, meshProps) });
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, { default: () => h(GlyphMesh, meshProps) }),
+        });
     },
   });
   app.mount(container);

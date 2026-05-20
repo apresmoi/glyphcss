@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphMapControlsElement } from "./GlyphMapControlsElement";
+import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 
 if (!customElements.get("glyph-scene")) {
   customElements.define("glyph-scene", GlyphSceneElement);
@@ -8,23 +9,29 @@ if (!customElements.get("glyph-scene")) {
 if (!customElements.get("glyph-map-controls")) {
   customElements.define("glyph-map-controls", GlyphMapControlsElement);
 }
+if (!customElements.get("glyph-perspective-camera")) {
+  customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
+}
 
 describe("GlyphMapControlsElement", () => {
+  let camEl: GlyphPerspectiveCameraElement;
   let sceneEl: GlyphSceneElement;
   let controls: GlyphMapControlsElement;
 
   beforeEach(() => {
+    camEl = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     sceneEl = document.createElement("glyph-scene") as GlyphSceneElement;
     sceneEl.setAttribute("cols", "20");
     sceneEl.setAttribute("rows", "5");
-    document.body.appendChild(sceneEl);
+    camEl.appendChild(sceneEl);
+    document.body.appendChild(camEl);
 
     controls = document.createElement("glyph-map-controls") as GlyphMapControlsElement;
   });
 
   afterEach(() => {
     if (controls.isConnected) controls.remove();
-    if (sceneEl.isConnected) sceneEl.remove();
+    if (camEl.isConnected) camEl.remove();
   });
 
   it("is registered under the 'glyph-map-controls' tag", () => {
@@ -74,13 +81,14 @@ describe("GlyphMapControlsElement", () => {
   });
 
   it("waits for glyphcss:scene-ready when connected before scene is ready", () => {
-    sceneEl.remove();
+    const freshCam = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     const freshScene = document.createElement("glyph-scene") as GlyphSceneElement;
     freshScene.setAttribute("cols", "10");
     freshScene.setAttribute("rows", "5");
+    freshCam.appendChild(freshScene);
     freshScene.appendChild(controls);
-    expect(() => { document.body.appendChild(freshScene); }).not.toThrow();
-    freshScene.remove();
+    expect(() => { document.body.appendChild(freshCam); }).not.toThrow();
+    freshCam.remove();
   });
 
   it("invert=true attribute is forwarded without error", () => {

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import type { Polygon } from "@glyphcss/core";
 
@@ -22,7 +23,11 @@ function renderMesh(
   const root = createRoot(container);
   act(() =>
     root.render(
-      React.createElement(GlyphScene, {}, React.createElement(GlyphMesh, meshProps)),
+      React.createElement(
+        GlyphPerspectiveCamera,
+        {},
+        React.createElement(GlyphScene, {}, React.createElement(GlyphMesh, meshProps)),
+      ),
     ),
   );
   return container;

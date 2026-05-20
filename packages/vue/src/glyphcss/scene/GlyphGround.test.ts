@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick } from "vue";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphGround } from "./GlyphGround";
 
 function renderInScene(
@@ -11,7 +12,10 @@ function renderInScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, { default: () => h(GlyphGround, groundProps) });
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, { default: () => h(GlyphGround, groundProps) }),
+        });
     },
   });
   app.mount(container);

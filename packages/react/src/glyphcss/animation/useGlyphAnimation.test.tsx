@@ -3,9 +3,10 @@
  * Tests use a thin consumer component to exercise observable behavior.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import React, { act, useRef } from "react";
+import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMesh } from "../scene/GlyphMesh";
 import { useGlyphAnimation } from "./useGlyphAnimation";
 import type { Polygon, GlyphAnimationClip, ParseAnimationController, GlyphAnimationTarget } from "@glyphcss/core";
@@ -64,10 +65,14 @@ function renderWithAnimation(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
+        GlyphPerspectiveCamera,
         {},
-        React.createElement(GlyphMesh, { polygons: [POLYGON] }),
-        React.createElement(AnimationConsumer, animProps),
+        React.createElement(
+          GlyphScene,
+          {},
+          React.createElement(GlyphMesh, { polygons: [POLYGON] }),
+          React.createElement(AnimationConsumer, animProps),
+        ),
       ),
     ),
   );
@@ -160,9 +165,13 @@ describe("useGlyphAnimation — ref attachment pattern", () => {
     act(() =>
       root.render(
         React.createElement(
-          GlyphScene,
+          GlyphPerspectiveCamera,
           {},
-          React.createElement(RefAttachConsumer, null),
+          React.createElement(
+            GlyphScene,
+            {},
+            React.createElement(RefAttachConsumer, null),
+          ),
         ),
       ),
     );

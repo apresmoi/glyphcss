@@ -13,16 +13,16 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
-        {},
-        React.createElement(GlyphOrthographicCamera, cameraProps),
+        GlyphOrthographicCamera,
+        cameraProps,
+        React.createElement(GlyphScene, {}),
       ),
     ),
   );
   return { container, root };
 }
 
-describe("GlyphOrthographicCamera — mount inside scene", () => {
+describe("GlyphOrthographicCamera — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -32,7 +32,7 @@ describe("GlyphOrthographicCamera — mount inside scene", () => {
     expect(() => renderScene()).not.toThrow();
   });
 
-  it("scene host is still rendered after mounting camera", () => {
+  it("scene host is still rendered when orthographic camera wraps it", () => {
     const { container } = renderScene();
     expect(container.querySelector(".glyph-host")).toBeTruthy();
   });
@@ -60,9 +60,9 @@ describe("GlyphOrthographicCamera — mount inside scene", () => {
     act(() =>
       root.render(
         React.createElement(
-          GlyphScene,
-          {},
-          React.createElement(GlyphOrthographicCamera, { zoom: 0.8 }),
+          GlyphOrthographicCamera,
+          { zoom: 0.8 },
+          React.createElement(GlyphScene, {}),
         ),
       ),
     );
@@ -76,19 +76,19 @@ describe("GlyphOrthographicCamera — mount inside scene", () => {
   });
 });
 
-describe("GlyphOrthographicCamera — outside scene", () => {
+describe("GlyphOrthographicCamera — standalone (no scene child)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
-  it("throws when mounted outside GlyphScene", () => {
+  it("mounts without throwing when used without a scene child", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     expect(() => {
       act(() =>
         root.render(React.createElement(GlyphOrthographicCamera, {})),
       );
-    }).toThrow();
+    }).not.toThrow();
   });
 });

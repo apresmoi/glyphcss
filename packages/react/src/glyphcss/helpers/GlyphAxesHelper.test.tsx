@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphAxesHelper } from "./GlyphAxesHelper";
 
 function renderScene(
@@ -13,9 +14,13 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
+        GlyphPerspectiveCamera,
         {},
-        React.createElement(GlyphAxesHelper, helperProps),
+        React.createElement(
+          GlyphScene,
+          {},
+          React.createElement(GlyphAxesHelper, helperProps),
+        ),
       ),
     ),
   );
@@ -59,9 +64,13 @@ describe("GlyphAxesHelper — mount inside scene", () => {
     act(() =>
       root.render(
         React.createElement(
-          GlyphScene,
+          GlyphPerspectiveCamera,
           {},
-          React.createElement(GlyphAxesHelper, { size: 3 }),
+          React.createElement(
+            GlyphScene,
+            {},
+            React.createElement(GlyphAxesHelper, { size: 3 }),
+          ),
         ),
       ),
     );
@@ -80,7 +89,11 @@ describe("GlyphAxesHelper — mount inside scene", () => {
     const r1 = createRoot(c1);
     act(() =>
       r1.render(
-        React.createElement(GlyphScene, {}, React.createElement(GlyphAxesHelper, {})),
+        React.createElement(
+          GlyphPerspectiveCamera,
+          {},
+          React.createElement(GlyphScene, {}, React.createElement(GlyphAxesHelper, {})),
+        ),
       ),
     );
     act(() => r1.unmount());
@@ -91,7 +104,11 @@ describe("GlyphAxesHelper — mount inside scene", () => {
     const r2 = createRoot(c2);
     act(() =>
       r2.render(
-        React.createElement(GlyphScene, {}, React.createElement(GlyphAxesHelper, { size: 2 })),
+        React.createElement(
+          GlyphPerspectiveCamera,
+          {},
+          React.createElement(GlyphScene, {}, React.createElement(GlyphAxesHelper, { size: 2 })),
+        ),
       ),
     );
     expect(c2.querySelector(".glyph-host")).toBeTruthy();

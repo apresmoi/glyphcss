@@ -1,12 +1,12 @@
 /**
- * GlyphOrthographicCamera — configures an orthographic ASCII camera on the
- * parent GlyphScene.
+ * GlyphOrthographicCamera — outer wrapper that creates an orthographic camera
+ * handle and provides it via GlyphCameraContext. <GlyphScene> must be placed
+ * inside this component.
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import type { GlyphCamera, GlyphOrthographicCameraOptions } from "glyphcss";
 import { createGlyphOrthographicCamera } from "glyphcss";
-import { useGlyphSceneContext } from "../scene/context";
 import { GlyphCameraContext } from "./context";
 
 export interface GlyphOrthographicCameraProps {
@@ -26,8 +26,8 @@ function GlyphOrthographicCameraInner({
   center,
   children,
 }: GlyphOrthographicCameraProps) {
-  const { sceneRef } = useGlyphSceneContext();
   const cameraRef = useRef<GlyphCamera | null>(null);
+  const sceneRerenderRef = useRef<(() => void) | null>(null);
 
   if (!cameraRef.current) {
     const opts: GlyphOrthographicCameraOptions = {};
@@ -38,13 +38,7 @@ function GlyphOrthographicCameraInner({
     cameraRef.current = createGlyphOrthographicCamera(opts);
   }
 
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene || !cameraRef.current) return;
-    scene.setOptions({ camera: cameraRef.current });
-    scene.rerender();
-  }, [sceneRef]);
-
+  // Sync prop changes to the camera handle and trigger scene rerender
   useEffect(() => {
     const camera = cameraRef.current;
     if (!camera) return;
@@ -52,15 +46,17 @@ function GlyphOrthographicCameraInner({
     if (rotX !== undefined && camera.rotX !== rotX) { camera.rotX = rotX; dirty = true; }
     if (rotY !== undefined && camera.rotY !== rotY) { camera.rotY = rotY; dirty = true; }
     if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
-    if (dirty) sceneRef.current?.rerender();
+    if (dirty) {
+      sceneRerenderRef.current?.();
+    }
   });
 
-  const rerender = () => sceneRef.current?.rerender();
-  const ctxValue = useMemo(() => ({ cameraRef, rerender }), [cameraRef]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rerender = useMemo(() => () => sceneRerenderRef.current?.(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const ctxValue = useMemo(() => ({ cameraRef, rerender, sceneRerenderRef }), [cameraRef, rerender]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <GlyphCameraContext.Provider value={ctxValue}>
-      {children}
+      <div>{children}</div>
     </GlyphCameraContext.Provider>
   );
 }

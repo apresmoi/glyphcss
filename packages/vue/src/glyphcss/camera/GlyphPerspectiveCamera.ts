@@ -1,12 +1,12 @@
 /**
- * GlyphPerspectiveCamera — Vue 3 camera component for the ASCII backend.
- * Must be placed inside <GlyphScene>.
+ * GlyphPerspectiveCamera — outer wrapper that creates a perspective camera
+ * handle and provides it via GlyphCameraContextKey. <GlyphScene> must be
+ * placed inside this component.
  */
-import { defineComponent, inject, provide, shallowRef, watch, onMounted } from "vue";
-import type { PropType } from "vue";
+import { defineComponent, h, provide, shallowRef, watch } from "vue";
+import type { PropType, ShallowRef } from "vue";
 import type { GlyphCamera, GlyphPerspectiveCameraOptions } from "glyphcss";
 import { createGlyphPerspectiveCamera } from "glyphcss";
-import { GlyphSceneContextKey } from "../scene/context";
 import { GlyphCameraContextKey } from "./context";
 
 export interface GlyphPerspectiveCameraProps {
@@ -29,36 +29,23 @@ export const GlyphPerspectiveCamera = defineComponent({
     center: { type: Array as unknown as PropType<[number, number]>, default: undefined },
   },
   setup(props, { slots }) {
-    const sceneCtx = inject(GlyphSceneContextKey);
-    if (!sceneCtx) {
-      throw new Error("glyphcss: GlyphPerspectiveCamera must be used inside a GlyphScene.");
-    }
-    const { sceneRef } = sceneCtx;
+    const opts: GlyphPerspectiveCameraOptions = {};
+    if (props.rotX !== undefined) opts.rotX = props.rotX;
+    if (props.rotY !== undefined) opts.rotY = props.rotY;
+    if (props.distance !== undefined) opts.distance = props.distance;
+    if (props.zoom !== undefined) opts.zoom = props.zoom;
+    if (props.stretch !== undefined) opts.stretch = props.stretch;
+    if (props.center !== undefined) opts.center = props.center;
 
-    const cameraRef = shallowRef<GlyphCamera | null>(null);
+    const cameraRef = shallowRef<GlyphCamera | null>(createGlyphPerspectiveCamera(opts));
+    // The child GlyphScene will set this to trigger rerenders when camera props change.
+    const sceneRerenderRef: ShallowRef<(() => void) | null> = shallowRef(null);
 
     function rerender(): void {
-      sceneRef.value?.rerender();
+      sceneRerenderRef.value?.();
     }
 
-    provide(GlyphCameraContextKey, { cameraRef, rerender });
-
-    onMounted(() => {
-      const opts: GlyphPerspectiveCameraOptions = {};
-      if (props.rotX !== undefined) opts.rotX = props.rotX;
-      if (props.rotY !== undefined) opts.rotY = props.rotY;
-      if (props.distance !== undefined) opts.distance = props.distance;
-      if (props.zoom !== undefined) opts.zoom = props.zoom;
-      if (props.stretch !== undefined) opts.stretch = props.stretch;
-      if (props.center !== undefined) opts.center = props.center;
-      const camera = createGlyphPerspectiveCamera(opts);
-      cameraRef.value = camera;
-      const scene = sceneRef.value;
-      if (scene) {
-        scene.setOptions({ camera });
-        scene.rerender();
-      }
-    });
+    provide(GlyphCameraContextKey, { cameraRef, rerender, sceneRerenderRef });
 
     // Sync prop changes
     watch(
@@ -72,10 +59,10 @@ export const GlyphPerspectiveCamera = defineComponent({
         if (next.distance !== undefined && camera.distance !== next.distance) { camera.distance = next.distance; dirty = true; }
         if (next.zoom !== undefined && camera.zoom !== next.zoom) { camera.zoom = next.zoom; dirty = true; }
         if (next.stretch !== undefined && camera.stretch !== next.stretch) { camera.stretch = next.stretch; dirty = true; }
-        if (dirty) sceneRef.value?.rerender();
+        if (dirty) sceneRerenderRef.value?.();
       },
     );
 
-    return () => slots.default?.() ?? null;
+    return () => h("div", slots.default?.() ?? []);
   },
 });

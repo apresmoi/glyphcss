@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import { GlyphOrbitControls } from "../controls/GlyphOrbitControls";
 import type { Polygon } from "@glyphcss/core";
@@ -24,7 +25,11 @@ function renderScene(
   const root = createRoot(container);
   act(() =>
     root.render(
-      React.createElement(GlyphScene, sceneProps, children),
+      React.createElement(
+        GlyphPerspectiveCamera,
+        {},
+        React.createElement(GlyphScene, sceneProps, children),
+      ),
     ),
   );
   return container;
@@ -146,6 +151,16 @@ describe("GlyphScene — error (no context)", () => {
     expect(() => {
       act(() =>
         root.render(React.createElement(GlyphMesh, { polygons: [] })),
+      );
+    }).toThrow();
+  });
+
+  it("GlyphScene throws when used without a camera ancestor", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    expect(() => {
+      act(() =>
+        root.render(React.createElement(GlyphScene, {})),
       );
     }).toThrow();
   });

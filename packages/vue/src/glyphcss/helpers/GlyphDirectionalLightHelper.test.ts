@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick, ref } from "vue";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphDirectionalLightHelper } from "./GlyphDirectionalLightHelper";
 import type { Vec3 } from "@glyphcss/core";
 
@@ -18,8 +19,11 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphDirectionalLightHelper, helperProps),
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, {
+              default: () => h(GlyphDirectionalLightHelper, helperProps),
+            }),
         });
     },
   });
@@ -74,9 +78,12 @@ describe("GlyphDirectionalLightHelper (Vue) — mount inside scene", () => {
     const app = createApp({
       setup() {
         return () =>
-          h(GlyphScene, {}, {
+          h(GlyphPerspectiveCamera, {}, {
             default: () =>
-              h(GlyphDirectionalLightHelper, { position: position.value }),
+              h(GlyphScene, {}, {
+                default: () =>
+                  h(GlyphDirectionalLightHelper, { position: position.value }),
+              }),
           });
       },
     });

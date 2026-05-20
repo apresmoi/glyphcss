@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphHotspot } from "./GlyphHotspot";
 
 function renderScene(
@@ -14,9 +15,13 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
+        GlyphPerspectiveCamera,
         {},
-        React.createElement(GlyphHotspot, hotspotProps, children),
+        React.createElement(
+          GlyphScene,
+          {},
+          React.createElement(GlyphHotspot, hotspotProps, children),
+        ),
       ),
     ),
   );

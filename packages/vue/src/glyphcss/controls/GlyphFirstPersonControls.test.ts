@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick, ref } from "vue";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphFirstPersonControls } from "./GlyphFirstPersonControls";
 
 type FPControlsProps = {
@@ -19,8 +20,11 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphFirstPersonControls, controlsProps),
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, {
+              default: () => h(GlyphFirstPersonControls, controlsProps),
+            }),
         });
     },
   });
@@ -67,8 +71,11 @@ describe("GlyphFirstPersonControls (Vue) — mount inside scene", () => {
     const app = createApp({
       setup() {
         return () =>
-          h(GlyphScene, {}, {
-            default: () => h(GlyphFirstPersonControls, { drag: drag.value }),
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, {
+                default: () => h(GlyphFirstPersonControls, { drag: drag.value }),
+              }),
           });
       },
     });

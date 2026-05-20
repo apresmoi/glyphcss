@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick } from "vue";
 import type { VNode } from "vue";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import { GlyphOrbitControls } from "../controls/GlyphOrbitControls";
 import type { Polygon } from "@glyphcss/core";
@@ -24,7 +25,10 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, sceneProps, slotChildren ? { default: slotChildren } : undefined);
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, sceneProps, slotChildren ? { default: slotChildren } : undefined),
+        });
     },
   });
   app.mount(container);
@@ -152,6 +156,16 @@ describe("GlyphScene (Vue) — error (no context)", () => {
     const app = createApp({
       setup() {
         return () => h(GlyphMesh, { polygons: [] });
+      },
+    });
+    expect(() => app.mount(container)).toThrow();
+  });
+
+  it("GlyphScene throws when used without a camera ancestor", () => {
+    const container = document.createElement("div");
+    const app = createApp({
+      setup() {
+        return () => h(GlyphScene, {});
       },
     });
     expect(() => app.mount(container)).toThrow();

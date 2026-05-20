@@ -11,8 +11,8 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphCamera, cameraProps),
+        h(GlyphCamera, cameraProps, {
+          default: () => h(GlyphScene, {}),
         });
     },
   });
@@ -20,7 +20,7 @@ function renderScene(
   return { container, app };
 }
 
-describe("GlyphCamera (Vue alias for Perspective) — mount inside scene", () => {
+describe("GlyphCamera (Vue alias for Perspective) — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -52,19 +52,20 @@ describe("GlyphCamera (Vue alias for Perspective) — mount inside scene", () =>
   });
 });
 
-describe("GlyphCamera (Vue) — outside scene", () => {
+describe("GlyphCamera (Vue) — standalone (no scene child)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
-  it("throws when mounted outside GlyphScene", () => {
+  it("mounts without throwing when used without a scene child", () => {
     const container = document.createElement("div");
     const app = createApp({
       setup() {
         return () => h(GlyphCamera, {});
       },
     });
-    expect(() => app.mount(container)).toThrow();
+    expect(() => app.mount(container)).not.toThrow();
+    app.unmount();
   });
 });

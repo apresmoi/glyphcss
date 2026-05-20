@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphGround } from "./GlyphGround";
 
 function renderInScene(
@@ -12,7 +13,11 @@ function renderInScene(
   const root = createRoot(container);
   act(() =>
     root.render(
-      React.createElement(GlyphScene, {}, React.createElement(GlyphGround, groundProps)),
+      React.createElement(
+        GlyphPerspectiveCamera,
+        {},
+        React.createElement(GlyphScene, {}, React.createElement(GlyphGround, groundProps)),
+      ),
     ),
   );
   return container;

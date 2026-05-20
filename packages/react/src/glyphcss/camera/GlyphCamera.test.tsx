@@ -13,16 +13,16 @@ function renderScene(
   act(() =>
     root.render(
       React.createElement(
-        GlyphScene,
-        {},
-        React.createElement(GlyphCamera, cameraProps),
+        GlyphCamera,
+        cameraProps,
+        React.createElement(GlyphScene, {}),
       ),
     ),
   );
   return { container, root };
 }
 
-describe("GlyphCamera (alias for Perspective) — mount inside scene", () => {
+describe("GlyphCamera (alias for Perspective) — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -52,19 +52,19 @@ describe("GlyphCamera (alias for Perspective) — mount inside scene", () => {
   });
 });
 
-describe("GlyphCamera — outside scene", () => {
+describe("GlyphCamera — standalone (no scene child)", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
   });
 
-  it("throws when mounted outside GlyphScene", () => {
+  it("mounts without throwing when used without a scene child", () => {
     const container = document.createElement("div");
     const root = createRoot(container);
     expect(() => {
       act(() =>
         root.render(React.createElement(GlyphCamera, {})),
       );
-    }).toThrow();
+    }).not.toThrow();
   });
 });

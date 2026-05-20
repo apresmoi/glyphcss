@@ -1,7 +1,11 @@
 /**
- * `<glyph-scene>` custom element. Vanilla counterpart to React's future GlyphScene.
+ * `<glyph-scene>` custom element.
  *
- * On `connectedCallback`, instantiates `createGlyphScene(this, options)`.
+ * Must be placed inside a `<glyph-perspective-camera>` or
+ * `<glyph-orthographic-camera>` element. On `connectedCallback`, walks up
+ * `parentElement` until it finds a camera ancestor, then instantiates
+ * `createGlyphScene(this, { camera, ...options })`.
+ *
  * Children (`<glyph-mesh>`) walk up the tree to find this element and call
  * `getScene()` to register themselves.
  *
@@ -81,10 +85,55 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     return opts;
   }
 
+  private _findCameraAncestor(): (HTMLElement & { getCamera?: () => unknown }) | null {
+    let el: HTMLElement | null = this.parentElement;
+    while (el) {
+      const tag = el.tagName.toLowerCase();
+      if (tag === "glyph-perspective-camera" || tag === "glyph-orthographic-camera") {
+        return el as HTMLElement & { getCamera?: () => unknown };
+      }
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  private _initScene(cameraAncestor: HTMLElement & { getCamera?: () => unknown }): void {
+    const camera = typeof cameraAncestor.getCamera === "function"
+      ? (cameraAncestor.getCamera() as GlyphSceneOptions["camera"])
+      : undefined;
+    const opts = this._readOptions();
+    if (camera) opts.camera = camera;
+    this._scene = createGlyphScene(this, opts);
+    this.dispatchEvent(new CustomEvent("glyphcss:scene-ready", { bubbles: false }));
+  }
+
   connectedCallback(): void {
     if (this._scene) return;
-    this._scene = createGlyphScene(this, this._readOptions());
-    this.dispatchEvent(new CustomEvent("glyphcss:scene-ready", { bubbles: false }));
+    const cameraAncestor = this._findCameraAncestor();
+    if (!cameraAncestor) {
+      throw new Error(
+        "glyphcss: <glyph-scene> must be placed inside a <glyph-perspective-camera> or <glyph-orthographic-camera>.",
+      );
+    }
+    const cam = typeof cameraAncestor.getCamera === "function"
+      ? (cameraAncestor.getCamera() as unknown)
+      : null;
+    if (cam !== null) {
+      // Camera already created — initialize immediately.
+      this._initScene(cameraAncestor);
+    } else {
+      // Camera element connected after scene (ordering edge case in some environments).
+      // Wait for the camera-ready event.
+      const onReady = () => {
+        cameraAncestor.removeEventListener("glyph:camera-ready", onReady);
+        if (!this._scene) this._initScene(cameraAncestor);
+      };
+      cameraAncestor.addEventListener("glyph:camera-ready", onReady);
+    }
+  }
+
+  rerender(): void {
+    this._scene?.rerender();
   }
 
   disconnectedCallback(): void {

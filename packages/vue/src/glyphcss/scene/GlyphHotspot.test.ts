@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick } from "vue";
 import type { VNode } from "vue";
 import { GlyphScene } from "./GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphHotspot } from "./GlyphHotspot";
 
 type HotspotProps = {
@@ -19,9 +20,12 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
+        h(GlyphPerspectiveCamera, {}, {
           default: () =>
-            h(GlyphHotspot, hotspotProps, slotChildren ? { default: slotChildren } : undefined),
+            h(GlyphScene, {}, {
+              default: () =>
+                h(GlyphHotspot, hotspotProps, slotChildren ? { default: slotChildren } : undefined),
+            }),
         });
     },
   });

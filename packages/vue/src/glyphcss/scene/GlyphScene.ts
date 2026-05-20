@@ -1,14 +1,17 @@
 /**
  * GlyphScene — Vue 3 wrapper for the ASCII paint backend.
  *
- * Mounts a `createGlyphScene` handle in a host div and provides the scene
- * handle via GlyphSceneContextKey for child components to register with.
+ * Must be placed inside a <GlyphPerspectiveCamera> or <GlyphOrthographicCamera>.
+ * Reads the camera handle from GlyphCameraContextKey, mounts a `createGlyphScene`
+ * handle in a host div, and provides the scene handle via GlyphSceneContextKey
+ * for child components to register with.
  */
 import { defineComponent, h, provide, shallowRef, onMounted, onBeforeUnmount, watch } from "vue";
 import type { PropType } from "vue";
 import type { RenderMode } from "@glyphcss/core";
 import type { GlyphSceneOptions, GlyphDirectionalLight, GlyphAmbientLight } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
+import { useGlyphCameraContext } from "../camera/context";
 import { GlyphSceneContextKey } from "./context";
 
 export interface GlyphSceneProps {
@@ -38,6 +41,8 @@ export const GlyphScene = defineComponent({
     class: { type: String, default: undefined },
   },
   setup(props, { slots, attrs }) {
+    const { cameraRef, sceneRerenderRef } = useGlyphCameraContext();
+
     const hostRef = shallowRef<HTMLElement | null>(null);
     const sceneRef = shallowRef<ReturnType<typeof createGlyphScene> | null>(null);
 
@@ -56,12 +61,17 @@ export const GlyphScene = defineComponent({
       if (props.cellAspect !== undefined) opts.cellAspect = props.cellAspect;
       if (props.directionalLight !== undefined) opts.directionalLight = props.directionalLight;
       if (props.ambientLight !== undefined) opts.ambientLight = props.ambientLight;
+      if (cameraRef.value !== null) opts.camera = cameraRef.value;
       sceneRef.value = createGlyphScene(el, opts);
+      // Register the rerender callback with the camera context so prop changes
+      // on the camera component trigger rerenders on this scene.
+      sceneRerenderRef.value = () => sceneRef.value?.rerender();
     });
 
     onBeforeUnmount(() => {
       sceneRef.value?.destroy();
       sceneRef.value = null;
+      sceneRerenderRef.value = null;
     });
 
     // Sync option prop changes to the live scene handle

@@ -10,21 +10,19 @@ if (!customElements.get("glyph-orthographic-camera")) {
 }
 
 describe("GlyphOrthographicCameraElement", () => {
+  let camEl: GlyphOrthographicCameraElement;
   let sceneEl: GlyphSceneElement;
-  let cam: GlyphOrthographicCameraElement;
 
   beforeEach(() => {
+    camEl = document.createElement("glyph-orthographic-camera") as GlyphOrthographicCameraElement;
     sceneEl = document.createElement("glyph-scene") as GlyphSceneElement;
     sceneEl.setAttribute("cols", "20");
     sceneEl.setAttribute("rows", "5");
-    document.body.appendChild(sceneEl);
-
-    cam = document.createElement("glyph-orthographic-camera") as GlyphOrthographicCameraElement;
+    camEl.appendChild(sceneEl);
   });
 
   afterEach(() => {
-    if (cam.isConnected) cam.remove();
-    if (sceneEl.isConnected) sceneEl.remove();
+    if (camEl.isConnected) camEl.remove();
   });
 
   it("is registered under the 'glyph-orthographic-camera' tag", () => {
@@ -32,7 +30,7 @@ describe("GlyphOrthographicCameraElement", () => {
   });
 
   it("createElement produces a GlyphOrthographicCameraElement instance", () => {
-    expect(cam).toBeInstanceOf(GlyphOrthographicCameraElement);
+    expect(camEl).toBeInstanceOf(GlyphOrthographicCameraElement);
   });
 
   it("observes rot-x, rot-y, zoom attributes", () => {
@@ -41,51 +39,68 @@ describe("GlyphOrthographicCameraElement", () => {
     expect(GlyphOrthographicCameraElement.observedAttributes).toContain("zoom");
   });
 
-  it("connects without throwing inside a scene", () => {
-    expect(() => { sceneEl.appendChild(cam); }).not.toThrow();
+  it("getCamera() returns null before connect", () => {
+    expect(camEl.getCamera()).toBeNull();
   });
 
-  it("connects without throwing outside a scene", () => {
-    expect(() => { document.body.appendChild(cam); }).not.toThrow();
-    cam.remove();
+  it("connects without throwing", () => {
+    expect(() => { document.body.appendChild(camEl); }).not.toThrow();
   });
 
-  it("replaces the scene camera with an orthographic camera on connect", () => {
-    sceneEl.appendChild(cam);
+  it("getCamera() is non-null after connect", () => {
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()).not.toBeNull();
+  });
+
+  it("dispatches glyph:camera-ready on connect", () => {
+    let fired = false;
+    camEl.addEventListener("glyph:camera-ready", () => { fired = true; });
+    document.body.appendChild(camEl);
+    expect(fired).toBe(true);
+  });
+
+  it("scene is created with orthographic camera", () => {
+    document.body.appendChild(camEl);
     expect(sceneEl.getScene()!.camera.kind).toBe("orthographic");
   });
 
-  it("applies rot-x attribute to scene camera", () => {
-    cam.setAttribute("rot-x", "0.4");
-    sceneEl.appendChild(cam);
-    expect(sceneEl.getScene()!.camera.rotX).toBeCloseTo(0.4, 5);
+  it("applies rot-x attribute to camera", () => {
+    camEl.setAttribute("rot-x", "0.4");
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()!.rotX).toBeCloseTo(0.4, 5);
   });
 
-  it("applies rot-y attribute to scene camera", () => {
-    cam.setAttribute("rot-y", "0.9");
-    sceneEl.appendChild(cam);
-    expect(sceneEl.getScene()!.camera.rotY).toBeCloseTo(0.9, 5);
+  it("applies rot-y attribute to camera", () => {
+    camEl.setAttribute("rot-y", "0.9");
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()!.rotY).toBeCloseTo(0.9, 5);
   });
 
-  it("applies zoom as the camera scale", () => {
-    // createGlyphOrthographicCamera maps zoom→scale.
-    cam.setAttribute("zoom", "0.7");
-    sceneEl.appendChild(cam);
-    expect(sceneEl.getScene()!.camera.zoom).toBeCloseTo(0.7, 5);
+  it("applies zoom attribute to camera", () => {
+    camEl.setAttribute("zoom", "0.7");
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()!.zoom).toBeCloseTo(0.7, 5);
   });
 
   it("changing rot-y attribute updates camera", () => {
-    sceneEl.appendChild(cam);
-    cam.setAttribute("rot-y", "1.5");
-    expect(sceneEl.getScene()!.camera.rotY).toBeCloseTo(1.5, 5);
+    document.body.appendChild(camEl);
+    camEl.setAttribute("rot-y", "1.5");
+    expect(camEl.getCamera()!.rotY).toBeCloseTo(1.5, 5);
   });
 
-  it("attribute change without scene parent is a no-op (no throw)", () => {
-    expect(() => { cam.setAttribute("zoom", "2.0"); }).not.toThrow();
+  it("attribute change before connect is a no-op (no throw)", () => {
+    expect(() => { camEl.setAttribute("zoom", "2.0"); }).not.toThrow();
   });
 
   it("invalid zoom value is ignored gracefully", () => {
-    cam.setAttribute("zoom", "bad");
-    expect(() => { sceneEl.appendChild(cam); }).not.toThrow();
+    camEl.setAttribute("zoom", "bad");
+    expect(() => { document.body.appendChild(camEl); }).not.toThrow();
+  });
+
+  it("disconnects cleanly", () => {
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()).not.toBeNull();
+    camEl.remove();
+    expect(camEl.getCamera()).toBeNull();
   });
 });

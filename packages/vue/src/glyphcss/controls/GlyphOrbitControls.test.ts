@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createApp, h, nextTick, ref } from "vue";
 import { GlyphScene } from "../scene/GlyphScene";
+import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphOrbitControls } from "./GlyphOrbitControls";
 
 type OrbitProps = {
@@ -18,8 +19,11 @@ function renderScene(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
-          default: () => h(GlyphOrbitControls, controlsProps),
+        h(GlyphPerspectiveCamera, {}, {
+          default: () =>
+            h(GlyphScene, {}, {
+              default: () => h(GlyphOrbitControls, controlsProps),
+            }),
         });
     },
   });
@@ -68,8 +72,11 @@ describe("GlyphOrbitControls (Vue) — mount inside scene", () => {
     const app = createApp({
       setup() {
         return () =>
-          h(GlyphScene, {}, {
-            default: () => h(GlyphOrbitControls, { drag: drag.value }),
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, {
+                default: () => h(GlyphOrbitControls, { drag: drag.value }),
+              }),
           });
       },
     });
@@ -95,7 +102,11 @@ describe("GlyphOrbitControls (Vue) — mount inside scene", () => {
     document.body.appendChild(c1);
     const a1 = createApp({
       setup() {
-        return () => h(GlyphScene, {}, { default: () => h(GlyphOrbitControls, {}) });
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, { default: () => h(GlyphOrbitControls, {}) }),
+          });
       },
     });
     a1.mount(c1);
@@ -107,7 +118,11 @@ describe("GlyphOrbitControls (Vue) — mount inside scene", () => {
     document.body.appendChild(c2);
     const a2 = createApp({
       setup() {
-        return () => h(GlyphScene, {}, { default: () => h(GlyphOrbitControls, {}) });
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () =>
+              h(GlyphScene, {}, { default: () => h(GlyphOrbitControls, {}) }),
+          });
       },
     });
     a2.mount(c2);

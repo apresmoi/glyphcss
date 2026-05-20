@@ -4,7 +4,7 @@ export { GlyphPerspectiveCamera } from "./GlyphPerspectiveCamera";
 export type { GlyphPerspectiveCameraProps } from "./GlyphPerspectiveCamera";
 export { GlyphOrthographicCamera } from "./GlyphOrthographicCamera";
 export type { GlyphOrthographicCameraProps } from "./GlyphOrthographicCamera";
-export { GlyphCameraContext, useGlyphCamera } from "./context";
+export { GlyphCameraContext, useGlyphCamera, useGlyphCameraContext } from "./context";
 export type { GlyphCameraContextValue } from "./context";
 export { useGlyphCameraHook } from "./useGlyphCamera";
 export type { UseGlyphCameraOptions, UseGlyphCameraResult } from "./useGlyphCamera";

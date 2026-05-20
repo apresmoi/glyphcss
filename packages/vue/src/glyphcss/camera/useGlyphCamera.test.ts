@@ -36,9 +36,9 @@ function renderWithCamera(
   const app = createApp({
     setup() {
       return () =>
-        h(GlyphScene, {}, {
+        h(GlyphPerspectiveCamera, cameraProps, {
           default: () =>
-            h(GlyphPerspectiveCamera, cameraProps, {
+            h(GlyphScene, {}, {
               default: () => h(CameraConsumer),
             }),
         });
@@ -88,10 +88,7 @@ describe("useGlyphCamera (Vue) — error when outside camera context", () => {
     const container = document.createElement("div");
     const app = createApp({
       setup() {
-        return () =>
-          h(GlyphScene, {}, {
-            default: () => h(CameraConsumer),
-          });
+        return () => h(CameraConsumer);
       },
     });
     expect(() => app.mount(container)).toThrow();

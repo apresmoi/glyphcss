@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphOrbitControlsElement } from "./GlyphOrbitControlsElement";
+import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 
 if (!customElements.get("glyph-scene")) {
   customElements.define("glyph-scene", GlyphSceneElement);
@@ -8,23 +9,29 @@ if (!customElements.get("glyph-scene")) {
 if (!customElements.get("glyph-orbit-controls")) {
   customElements.define("glyph-orbit-controls", GlyphOrbitControlsElement);
 }
+if (!customElements.get("glyph-perspective-camera")) {
+  customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
+}
 
 describe("GlyphOrbitControlsElement", () => {
+  let camEl: GlyphPerspectiveCameraElement;
   let sceneEl: GlyphSceneElement;
   let controls: GlyphOrbitControlsElement;
 
   beforeEach(() => {
+    camEl = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     sceneEl = document.createElement("glyph-scene") as GlyphSceneElement;
     sceneEl.setAttribute("cols", "20");
     sceneEl.setAttribute("rows", "5");
-    document.body.appendChild(sceneEl);
+    camEl.appendChild(sceneEl);
+    document.body.appendChild(camEl);
 
     controls = document.createElement("glyph-orbit-controls") as GlyphOrbitControlsElement;
   });
 
   afterEach(() => {
     if (controls.isConnected) controls.remove();
-    if (sceneEl.isConnected) sceneEl.remove();
+    if (camEl.isConnected) camEl.remove();
   });
 
   it("is registered under the 'glyph-orbit-controls' tag", () => {
@@ -77,15 +84,16 @@ describe("GlyphOrbitControlsElement", () => {
   });
 
   it("waits for glyphcss:scene-ready when attached before scene is ready", () => {
-    // Detach scene, create a fresh one (not yet connected) and insert controls first.
-    sceneEl.remove();
+    // Create a fresh camera+scene tree (not yet connected) and insert controls first.
+    const freshCam = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     const freshScene = document.createElement("glyph-scene") as GlyphSceneElement;
     freshScene.setAttribute("cols", "10");
     freshScene.setAttribute("rows", "5");
-    // Append controls into scene before scene is connected — scene not ready yet.
+    freshCam.appendChild(freshScene);
+    // Append controls into scene before camera+scene is connected — scene not ready yet.
     freshScene.appendChild(controls);
-    // Now connect scene — dispatches glyphcss:scene-ready which controls listens to.
-    expect(() => { document.body.appendChild(freshScene); }).not.toThrow();
-    freshScene.remove();
+    // Now connect camera — triggers camera-ready then scene-ready.
+    expect(() => { document.body.appendChild(freshCam); }).not.toThrow();
+    freshCam.remove();
   });
 });

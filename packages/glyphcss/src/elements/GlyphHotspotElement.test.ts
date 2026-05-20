@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphHotspotElement } from "./GlyphHotspotElement";
+import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 
 if (!customElements.get("glyph-scene")) {
   customElements.define("glyph-scene", GlyphSceneElement);
@@ -8,22 +9,28 @@ if (!customElements.get("glyph-scene")) {
 if (!customElements.get("glyph-hotspot")) {
   customElements.define("glyph-hotspot", GlyphHotspotElement);
 }
+if (!customElements.get("glyph-perspective-camera")) {
+  customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
+}
 
 describe("GlyphHotspotElement", () => {
+  let camEl: GlyphPerspectiveCameraElement;
   let sceneEl: GlyphSceneElement;
   let hotspot: GlyphHotspotElement;
 
   beforeEach(() => {
+    camEl = document.createElement("glyph-perspective-camera") as GlyphPerspectiveCameraElement;
     sceneEl = document.createElement("glyph-scene") as GlyphSceneElement;
     sceneEl.setAttribute("cols", "20");
     sceneEl.setAttribute("rows", "5");
-    document.body.appendChild(sceneEl);
+    camEl.appendChild(sceneEl);
+    document.body.appendChild(camEl);
 
     hotspot = document.createElement("glyph-hotspot") as GlyphHotspotElement;
   });
 
   afterEach(() => {
-    if (sceneEl.isConnected) sceneEl.remove();
+    if (camEl.isConnected) camEl.remove();
   });
 
   it("is registered under the 'glyph-hotspot' tag", () => {

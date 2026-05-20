@@ -1,16 +1,12 @@
 /**
- * GlyphPerspectiveCamera — configures a perspective ASCII camera on the
- * parent GlyphScene. Mirrors PolyPerspectiveCamera's prop surface, adapted
- * for the ASCII rasterizer (no CSS perspective value; uses GlyphCamera
- * distance/scale/stretch instead).
- *
- * Must be placed inside <GlyphScene>.
+ * GlyphPerspectiveCamera — outer wrapper that creates a perspective camera
+ * handle and provides it via GlyphCameraContext. <GlyphScene> must be placed
+ * inside this component.
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { ReactNode } from "react";
 import type { GlyphCamera, GlyphPerspectiveCameraOptions } from "glyphcss";
 import { createGlyphPerspectiveCamera } from "glyphcss";
-import { useGlyphSceneContext } from "../scene/context";
 import { GlyphCameraContext } from "./context";
 
 export interface GlyphPerspectiveCameraProps {
@@ -36,8 +32,8 @@ function GlyphPerspectiveCameraInner({
   center,
   children,
 }: GlyphPerspectiveCameraProps) {
-  const { sceneRef } = useGlyphSceneContext();
   const cameraRef = useRef<GlyphCamera | null>(null);
+  const sceneRerenderRef = useRef<(() => void) | null>(null);
 
   if (!cameraRef.current) {
     const opts: GlyphPerspectiveCameraOptions = {};
@@ -50,15 +46,7 @@ function GlyphPerspectiveCameraInner({
     cameraRef.current = createGlyphPerspectiveCamera(opts);
   }
 
-  // Register camera with the scene on mount
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene || !cameraRef.current) return;
-    scene.setOptions({ camera: cameraRef.current });
-    scene.rerender();
-  }, [sceneRef]);
-
-  // Sync prop changes
+  // Sync prop changes to the camera handle and trigger scene rerender
   useEffect(() => {
     const camera = cameraRef.current;
     if (!camera) return;
@@ -69,16 +57,16 @@ function GlyphPerspectiveCameraInner({
     if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
     if (stretch !== undefined && camera.stretch !== stretch) { camera.stretch = stretch; dirty = true; }
     if (dirty) {
-      sceneRef.current?.rerender();
+      sceneRerenderRef.current?.();
     }
   });
 
-  const rerender = () => sceneRef.current?.rerender();
-  const ctxValue = useMemo(() => ({ cameraRef, rerender }), [cameraRef]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rerender = useMemo(() => () => sceneRerenderRef.current?.(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const ctxValue = useMemo(() => ({ cameraRef, rerender, sceneRerenderRef }), [cameraRef, rerender]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <GlyphCameraContext.Provider value={ctxValue}>
-      {children}
+      <div>{children}</div>
     </GlyphCameraContext.Provider>
   );
 }
