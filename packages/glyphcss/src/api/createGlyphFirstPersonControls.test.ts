@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphFirstPersonControls } from "./createGlyphFirstPersonControls";
+import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import type { GlyphSceneHandle } from "./createGlyphScene";
 
 function makeScene(): GlyphSceneHandle {
@@ -321,5 +322,36 @@ describe("createGlyphFirstPersonControls", () => {
 
     expect(scene.camera.rotY).toBe(initialRotY);
     controls.destroy();
+  });
+
+  it("sets eyeMode=true on the camera at attach time", () => {
+    expect(scene.camera.eyeMode).toBe(false);
+    const controls = createGlyphFirstPersonControls(scene);
+    expect(scene.camera.eyeMode).toBe(true);
+    controls.destroy();
+  });
+
+  it("restores eyeMode=false on the camera after destroy", () => {
+    const controls = createGlyphFirstPersonControls(scene);
+    expect(scene.camera.eyeMode).toBe(true);
+    controls.destroy();
+    expect(scene.camera.eyeMode).toBe(false);
+  });
+});
+
+describe("createGlyphFirstPersonControls — orthographic camera rejection", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("throws when the scene has an orthographic camera", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const orthoCamera = createGlyphOrthographicCamera();
+    const scene = createGlyphScene(host, { camera: orthoCamera, cols: 20, rows: 10 });
+    expect(() => createGlyphFirstPersonControls(scene)).toThrow(
+      /GlyphFirstPersonControls requires a perspective camera/,
+    );
+    scene.destroy();
   });
 });

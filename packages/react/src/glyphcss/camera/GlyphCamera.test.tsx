@@ -22,7 +22,7 @@ function renderScene(
   return { container, root };
 }
 
-describe("GlyphCamera (alias for Perspective) — wraps scene", () => {
+describe("GlyphCamera (alias for Orthographic) — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -33,12 +33,12 @@ describe("GlyphCamera (alias for Perspective) — wraps scene", () => {
   });
 
   it("scene host is present after mounting GlyphCamera", () => {
-    const { container } = renderScene({ distance: 5 });
+    const { container } = renderScene({ zoom: 0.5 });
     expect(container.querySelector(".glyph-host")).toBeTruthy();
   });
 
-  it("accepts distance prop", () => {
-    expect(() => renderScene({ distance: 8 })).not.toThrow();
+  it("accepts zoom prop", () => {
+    expect(() => renderScene({ zoom: 0.8 })).not.toThrow();
   });
 
   it("accepts rotX/rotY props", () => {
@@ -46,7 +46,7 @@ describe("GlyphCamera (alias for Perspective) — wraps scene", () => {
   });
 
   it("unmounts cleanly", () => {
-    const { container, root } = renderScene({ distance: 4 });
+    const { container, root } = renderScene({ zoom: 0.4 });
     act(() => root.unmount());
     expect(container.querySelector(".glyph-output")).toBeFalsy();
   });

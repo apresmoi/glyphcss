@@ -3,8 +3,8 @@
  *
  * Public surface:
  *   - `createGlyphScene(host, options)` — imperative scene API
- *   - Camera factories — `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`,
- *     `createGlyphFirstPersonCamera`
+ *   - Camera factories — `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`,
+ *     `createGlyphOrthographicCamera`
  *   - Controls — `createGlyphOrbitControls`, `createGlyphMapControls`,
  *     `createGlyphFirstPersonControls`
  *   - Rasterizer — `rasterize`, `bakeFrames`
@@ -29,18 +29,16 @@ export type { GlyphDirectionalLight, GlyphAmbientLight } from "./api/types";
 
 // ── Camera factories ──────────────────────────────────────────────
 export {
+  createGlyphCamera,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
-  createGlyphFirstPersonCamera,
 } from "./api/createGlyphCamera";
 export type {
   GlyphCamera,
   GlyphPerspectiveCameraOptions,
   GlyphOrthographicCameraOptions,
-  GlyphFirstPersonCameraOptions,
   GlyphPerspectiveCameraHandle,
   GlyphOrthographicCameraHandle,
-  GlyphFirstPersonCameraHandle,
 } from "./api/createGlyphCamera";
 
 // ── Controls ──────────────────────────────────────────────────────

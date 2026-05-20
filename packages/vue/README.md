@@ -46,16 +46,26 @@ Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rast
 | `rows` | `number` | `40` | Grid height in character cells |
 | `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
 
-### `<GlyphCamera>` / `<GlyphPerspectiveCamera>`
+### `<GlyphCamera>` / `<GlyphOrthographicCamera>`
 
-Perspective camera. `GlyphCamera` is the ergonomic alias.
+Orthographic camera. `GlyphCamera` is the ergonomic default alias.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `fov` | `number` | `60` | Vertical field of view in degrees |
-| `rot-x` | `number` | `35` | Tilt in degrees |
-| `rot-y` | `number` | `45` | Azimuth in degrees |
-| `zoom` | `number` | `1` | Zoom multiplier |
+| `rot-x` | `number` | `0` | Tilt in radians |
+| `rot-y` | `number` | `0` | Azimuth in radians |
+| `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+
+### `<GlyphPerspectiveCamera>`
+
+Perspective (foreshortened) camera. Required for `<GlyphFirstPersonControls>`.
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `rot-x` | `number` | `0` | Tilt in radians |
+| `rot-y` | `number` | `0` | Azimuth in radians |
+| `distance` | `number` | `3` | Perspective distance in world units |
+| `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
 
 ### `<GlyphMesh>`
 

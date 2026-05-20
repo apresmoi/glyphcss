@@ -1,8 +1,12 @@
 /**
  * createGlyphFirstPersonControls — first-person camera input for a GlyphScene.
  *
+ * Requires the scene to have a perspective camera. On attach, sets
+ * `camera.eyeMode = true` so the perspective projection switches to the
+ * eye-at-origin formulation (target = eye position, near-plane cull). On
+ * detach, restores `eyeMode = false`.
+ *
  * Mouse-drag looks around (rotX/rotY). WASD or arrow keys move forward/backward/strafe.
- * Mirrors glyphcss's createPolyFirstPersonControls semantics for the ASCII rasterizer.
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
@@ -27,6 +31,14 @@ export function createGlyphFirstPersonControls(
   scene: GlyphSceneHandle,
   options: GlyphFirstPersonControlsOptions = {},
 ): GlyphFirstPersonControlsHandle {
+  if (scene.camera.kind !== "perspective") {
+    throw new Error(
+      "glyphcss: GlyphFirstPersonControls requires a perspective camera. " +
+      "Use <GlyphPerspectiveCamera> (not <GlyphOrthographicCamera> / <GlyphCamera>).",
+    );
+  }
+  scene.camera.eyeMode = true;
+
   const host = scene.host;
   let drag = options.drag ?? true;
   let keyboard = options.keyboard ?? true;
@@ -126,6 +138,7 @@ export function createGlyphFirstPersonControls(
     host.style.userSelect = "";
     if (rafId !== null) { if (typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(rafId); rafId = null; }
     keys.clear();
+    scene.camera.eyeMode = false;
   }
 
   attach();

@@ -1,6 +1,6 @@
 /**
- * createGlyphPerspectiveCamera / createGlyphOrthographicCamera /
- * createGlyphFirstPersonCamera — vanilla camera factories for glyphcss.
+ * createGlyphPerspectiveCamera / createGlyphOrthographicCamera — vanilla camera
+ * factories for glyphcss.
  *
  * These mirror the asciss camera factories and provide a `GlyphCamera`
  * handle with a `project()` method that maps world-space vertices to
@@ -8,6 +8,9 @@
  *
  * Public names use the Glyph prefix per glyphcss naming convention.
  * The internal camera algorithms are byte-identical to asciss's createCamera.ts.
+ *
+ * `createGlyphCamera` is the ergonomic default alias — it creates an
+ * orthographic camera, matching the voxel/iso identity of glyphcss.
  */
 
 import type { Vec3 } from "@glyphcss/core";
@@ -33,7 +36,7 @@ function rotateVec3(v: Vec3, a: number, b: number): Vec3 {
 }
 
 export interface GlyphCamera {
-  readonly kind: "perspective" | "orthographic" | "firstPerson";
+  readonly kind: "perspective" | "orthographic";
   rotX: number;
   rotY: number;
   /** Distance from origin along the view axis. Only meaningful for perspective cameras. */
@@ -47,6 +50,13 @@ export interface GlyphCamera {
    * Subtracted from world coords before projection so the mesh appears to pan without re-baking.
    */
   target: Vec3;
+  /**
+   * Eye-at-origin projection mode. When true, the perspective camera uses a
+   * first-person formulation: `target` is treated as the eye position and
+   * vertices behind the eye (`r[2] >= 0`) are NaN-culled. Toggled by
+   * `createGlyphFirstPersonControls` at attach / detach time.
+   */
+  eyeMode: boolean;
   /** Project a world-space vector to `[col, row, depth]`. Same projection used by the renderer and the hit layer. */
   project(v: Vec3, cols: number, rows: number, cellAspect: number): [number, number, number];
 }
@@ -79,22 +89,10 @@ export interface GlyphOrthographicCameraOptions {
   center?: [number, number];
 }
 
-export interface GlyphFirstPersonCameraOptions {
-  rotY?: number;
-  rotX?: number;
-  /** Focal length in world units. Smaller = wider FOV. */
-  focal?: number;
-  /** Eye position in world space. Used as the projection origin. */
-  origin?: Vec3;
-  center?: [number, number];
-}
-
 /** Handle alias — same surface as `GlyphCamera`, names matched to glyphcss. */
 export type GlyphPerspectiveCameraHandle = GlyphCamera;
 /** Handle alias — same surface as `GlyphCamera`, names matched to glyphcss. */
 export type GlyphOrthographicCameraHandle = GlyphCamera;
-/** Handle alias — same surface as `GlyphCamera`, names matched to glyphcss. */
-export type GlyphFirstPersonCameraHandle = GlyphCamera;
 
 export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions = {}): GlyphPerspectiveCameraHandle {
   const state = {
@@ -104,6 +102,10 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     zoom: opts.zoom ?? 0.4,
     stretch: opts.stretch ?? 1.0,
     target: [0, 0, 0] as Vec3,
+    eyeMode: false,
+    // Focal length used in eye mode. Tuned so the scene fills the viewport
+    // at a similar fraction as a standard perspective view from ~3 units back.
+    focal: 5,
   };
   const [cxN, cyN] = opts.center ?? [0.5, 0.5];
 
@@ -121,9 +123,22 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     set stretch(v: number) { state.stretch = v; },
     get target(): Vec3 { return state.target; },
     set target(v: Vec3) { state.target = v; },
+    get eyeMode(): boolean { return state.eyeMode; },
+    set eyeMode(v: boolean) { state.eyeMode = v; },
     project(v, cols, rows, cellAspect) {
       const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
       const r = rotateVec3(shifted, state.rotY, state.rotX);
+      if (state.eyeMode) {
+        // Eye-at-origin projection: target is the eye position, vertices at or
+        // behind the eye plane are culled. Used by GlyphFirstPersonControls.
+        const NEAR = 0.001;
+        if (r[2] >= -NEAR) return [NaN, NaN, r[2]];
+        const inv = state.focal / -r[2];
+        const radius = Math.min(cols, rows) * state.zoom * inv;
+        const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
+        const row = rows * cyN + r[1] * radius;
+        return [col, row, r[2]];
+      }
       const MESH_UNIT = 30;
       const ZOOM_TO_RADIUS = 1.5;
       const zPx = r[2] * MESH_UNIT;
@@ -164,6 +179,10 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     set stretch(v: number) { state.stretch = v; },
     get target(): Vec3 { return state.target; },
     set target(v: Vec3) { state.target = v; },
+    // Orthographic cameras never use eye-mode projection. The setter is a no-op
+    // so the field satisfies the GlyphCamera interface.
+    get eyeMode(): boolean { return false; },
+    set eyeMode(_v: boolean) { /* no-op — orthographic projection has no eye mode */ },
     project(v, cols, rows, cellAspect) {
       const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
       const r = rotateVec3(shifted, state.rotY, state.rotX);
@@ -177,45 +196,8 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
 }
 
 /**
- * First-person camera. Projection origin = eye (`target`). Vertices
- * behind the eye (`r[2] >= 0`) are NaN-culled.
+ * Default camera alias — orthographic projection. The voxel render mode and
+ * iso/diagrammatic scenes are glyphcss's differentiator; ortho is the more
+ * representative default.
  */
-export function createGlyphFirstPersonCamera(opts: GlyphFirstPersonCameraOptions = {}): GlyphFirstPersonCameraHandle {
-  const state = {
-    rotX: opts.rotX ?? Math.PI / 2,
-    rotY: opts.rotY ?? 0,
-    distance: 0,
-    zoom: 1,
-    stretch: 1.0,
-    target: (opts.origin ?? [0, 0, 0]) as Vec3,
-    focal: opts.focal ?? 1,
-  };
-  const [cxN, cyN] = opts.center ?? [0.5, 0.5];
-  return {
-    kind: "firstPerson",
-    get rotX(): number { return state.rotX; },
-    set rotX(v: number) { state.rotX = v; },
-    get rotY(): number { return state.rotY; },
-    set rotY(v: number) { state.rotY = v; },
-    get distance(): number { return state.distance; },
-    set distance(v: number) { state.distance = v; state.focal = Math.max(0.05, v / 100); },
-    get zoom(): number { return state.zoom; },
-    set zoom(v: number) { state.zoom = v; },
-    get stretch(): number { return state.stretch; },
-    set stretch(v: number) { state.stretch = v; },
-    get target(): Vec3 { return state.target; },
-    set target(v: Vec3) { state.target = v; },
-    project(v, cols, rows, cellAspect) {
-      const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
-      const r = rotateVec3(shifted, state.rotY, state.rotX);
-      // Cull at or behind the eye plane.
-      const NEAR = 0.001;
-      if (r[2] >= -NEAR) return [NaN, NaN, r[2]];
-      const inv = state.focal / -r[2];
-      const radius = Math.min(cols, rows) * state.zoom * inv;
-      const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
-      const row = rows * cyN + r[1] * radius;
-      return [col, row, r[2]];
-    },
-  };
-}
+export const createGlyphCamera = createGlyphOrthographicCamera;

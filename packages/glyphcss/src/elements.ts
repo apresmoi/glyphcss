@@ -33,6 +33,14 @@ if (typeof customElements !== "undefined") {
   if (!customElements.get("glyph-orthographic-camera")) {
     customElements.define("glyph-orthographic-camera", GlyphOrthographicCameraElement);
   }
+  // `glyph-camera` is the ergonomic default alias — an orthographic camera.
+  // Custom elements require one constructor per tag name, so this is a distinct
+  // subclass of GlyphOrthographicCameraElement even though it is behaviorally
+  // identical. The subclass has no additional logic.
+  if (!customElements.get("glyph-camera")) {
+    class GlyphCameraElement extends GlyphOrthographicCameraElement {}
+    customElements.define("glyph-camera", GlyphCameraElement);
+  }
   if (!customElements.get("glyph-orbit-controls")) {
     customElements.define("glyph-orbit-controls", GlyphOrbitControlsElement);
   }

@@ -1,3 +1,3 @@
-/** GlyphCamera — alias for GlyphPerspectiveCamera (ergonomic default). */
-export { GlyphPerspectiveCamera as GlyphCamera } from "./GlyphPerspectiveCamera";
-export type { GlyphPerspectiveCameraProps as GlyphCameraProps } from "./GlyphPerspectiveCamera";
+/** GlyphCamera — alias for GlyphOrthographicCamera (ergonomic default). */
+export { GlyphOrthographicCamera as GlyphCamera } from "./GlyphOrthographicCamera";
+export type { GlyphOrthographicCameraProps as GlyphCameraProps } from "./GlyphOrthographicCamera";

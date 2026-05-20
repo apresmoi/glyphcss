@@ -125,24 +125,27 @@ scene.destroy();
 
 ## Camera factories
 
+Two cameras: orthographic (default, `createGlyphCamera`) and perspective.
+First-person view is `createGlyphPerspectiveCamera` + `createGlyphFirstPersonControls`.
+
 ```ts
 import {
+  createGlyphCamera,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
-  createGlyphFirstPersonCamera,
 } from "glyphcss";
 
-// Perspective (default)
-const perspective = createGlyphPerspectiveCamera({
-  rotX: 0.4, rotY: 0,
-  distance: 3, scale: 0.32, stretch: 0.95,
-});
+// Orthographic — default alias, best for voxel/iso scenes
+const camera = createGlyphCamera({ rotX: 0.4, zoom: 0.4 });
 
-// Orthographic — no foreshortening
+// Orthographic — explicit form
 const ortho = createGlyphOrthographicCamera({ rotX: 0.4, zoom: 0.4 });
 
-// First-person — eye at origin
-const fpv = createGlyphFirstPersonCamera({ rotX: Math.PI / 2, focal: 1 });
+// Perspective — foreshortened; required for first-person controls
+const perspective = createGlyphPerspectiveCamera({
+  rotX: 0.4, rotY: 0,
+  distance: 3, zoom: 0.32, stretch: 0.95,
+});
 
 // All camera properties are mutable after creation:
 perspective.rotY = Math.PI / 4;

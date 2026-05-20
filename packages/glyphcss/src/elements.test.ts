@@ -24,6 +24,10 @@ describe("elements auto-registration", () => {
     expect(customElements.get("glyph-orthographic-camera")).toBeDefined();
   });
 
+  it("registers glyph-camera (orthographic alias)", () => {
+    expect(customElements.get("glyph-camera")).toBeDefined();
+  });
+
   it("registers glyph-orbit-controls", () => {
     expect(customElements.get("glyph-orbit-controls")).toBeDefined();
   });

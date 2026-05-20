@@ -164,6 +164,10 @@ const controls = createGlyphMapControls(scene, { drag: true, wheel: true });
 Pointer-drag looks around; WASD / arrow keys move the camera. Good for walk-through
 environments and large scenes where the mesh fills the whole grid.
 
+**Requires a perspective camera.** `GlyphFirstPersonControls` throws if attached
+to a scene with an orthographic camera. Use `<GlyphPerspectiveCamera>` (not
+`<GlyphCamera>`, which aliases orthographic).
+
 ### Props
 
 | Prop | Type | Default | Description |
@@ -178,17 +182,19 @@ environments and large scenes where the mesh fills the whole grid.
   <TabItem label="React">
 
 ```tsx
-import { GlyphScene, GlyphMesh, GlyphFirstPersonControls } from "@glyphcss/react";
+import { GlyphPerspectiveCamera, GlyphScene, GlyphMesh, GlyphFirstPersonControls } from "@glyphcss/react";
 import { cubePolygons } from "@glyphcss/core";
 
 const floor = cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" });
 
 export function FPVDemo() {
   return (
-    <GlyphScene mode="solid" cols={140} rows={42}>
-      <GlyphFirstPersonControls drag keyboard moveSpeed={0.1} />
-      <GlyphMesh polygons={floor} />
-    </GlyphScene>
+    <GlyphPerspectiveCamera>
+      <GlyphScene mode="solid" cols={140} rows={42}>
+        <GlyphFirstPersonControls drag keyboard moveSpeed={0.1} />
+        <GlyphMesh polygons={floor} />
+      </GlyphScene>
+    </GlyphPerspectiveCamera>
   );
 }
 ```
@@ -198,14 +204,16 @@ export function FPVDemo() {
 
 ```vue
 <template>
-  <GlyphScene mode="solid" :cols="140" :rows="42">
-    <GlyphFirstPersonControls drag keyboard :move-speed="0.1" />
-    <GlyphMesh :polygons="floor" />
-  </GlyphScene>
+  <GlyphPerspectiveCamera>
+    <GlyphScene mode="solid" :cols="140" :rows="42">
+      <GlyphFirstPersonControls drag keyboard :move-speed="0.1" />
+      <GlyphMesh :polygons="floor" />
+    </GlyphScene>
+  </GlyphPerspectiveCamera>
 </template>
 
 <script setup lang="ts">
-import { GlyphScene, GlyphMesh, GlyphFirstPersonControls } from "@glyphcss/vue";
+import { GlyphPerspectiveCamera, GlyphScene, GlyphMesh, GlyphFirstPersonControls } from "@glyphcss/vue";
 import { cubePolygons } from "@glyphcss/core";
 
 const floor = cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" });
@@ -216,11 +224,12 @@ const floor = cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" });
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphScene, createGlyphFirstPersonControls } from "glyphcss";
+import { createGlyphPerspectiveCamera, createGlyphScene, createGlyphFirstPersonControls } from "glyphcss";
 import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphScene(host, { mode: "solid", cols: 140, rows: 42 });
+const camera = createGlyphPerspectiveCamera();
+const scene = createGlyphScene(host, { camera, mode: "solid", cols: 140, rows: 42 });
 scene.add(cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" }));
 
 const controls = createGlyphFirstPersonControls(scene, {

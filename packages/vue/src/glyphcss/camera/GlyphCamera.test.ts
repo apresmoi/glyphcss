@@ -20,7 +20,7 @@ function renderScene(
   return { container, app };
 }
 
-describe("GlyphCamera (Vue alias for Perspective) — wraps scene", () => {
+describe("GlyphCamera (Vue alias for Orthographic) — wraps scene", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
@@ -31,13 +31,13 @@ describe("GlyphCamera (Vue alias for Perspective) — wraps scene", () => {
   });
 
   it("scene host is present after mounting GlyphCamera", async () => {
-    const { container } = renderScene({ distance: 5 });
+    const { container } = renderScene({ zoom: 0.5 });
     await nextTick();
     expect(container.querySelector(".glyph-host")).toBeTruthy();
   });
 
-  it("accepts distance prop", () => {
-    expect(() => renderScene({ distance: 8 })).not.toThrow();
+  it("accepts zoom prop", () => {
+    expect(() => renderScene({ zoom: 0.8 })).not.toThrow();
   });
 
   it("accepts rotX/rotY props", () => {
@@ -45,7 +45,7 @@ describe("GlyphCamera (Vue alias for Perspective) — wraps scene", () => {
   });
 
   it("unmounts cleanly", async () => {
-    const { container, app } = renderScene({ distance: 4 });
+    const { container, app } = renderScene({ zoom: 0.4 });
     await nextTick();
     app.unmount();
     expect(container.querySelector(".glyph-output")).toBeFalsy();

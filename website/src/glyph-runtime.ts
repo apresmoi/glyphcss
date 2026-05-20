@@ -10,7 +10,6 @@ import {
   buildRasterizeContext,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
-  createGlyphFirstPersonCamera,
   bakeFrames,
   projectHotspots,
   rasterize,
@@ -782,11 +781,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       // not the orbit perspective with shifted viewer.
       // focal tuned so a 2-unit mesh viewed from ~3 units back fills a
       // similar fraction of the screen as orbit-mode default (~30%).
-      camera = createGlyphFirstPersonCamera({
+      camera = createGlyphPerspectiveCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
-        focal: 5,
+        zoom: tunables.zoom,
       });
-      camera.zoom = tunables.zoom;
+      camera.eyeMode = true;
     } else if (controlState.projection === 'orthographic') {
       camera = createGlyphOrthographicCamera({
         rotX: tunables.rotX, rotY: preservedRotY,
@@ -961,9 +960,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const FPV_MESH_UNIT = 30;
 
   function fpvLookOffset(): number {
-    // With the dedicated first-person camera (createGlyphFirstPersonCamera),
-    // target == eye → the projection origin is the eye, perspective diverges
-    // at the eye, behind-eye vertices are NaN-culled. True FPV semantics.
+    // With eyeMode on the perspective camera, target == eye → the projection
+    // origin is the eye, perspective diverges at the eye, behind-eye vertices
+    // are NaN-culled. True FPV semantics.
     return 0;
   }
 
