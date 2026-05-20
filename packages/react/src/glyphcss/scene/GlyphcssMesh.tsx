@@ -8,7 +8,8 @@
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { Vec3, Polygon } from "@glyphcss/core";
+import { resolveGeometry } from "@glyphcss/core";
+import type { Vec3, Polygon, GlyphcssGeometryName } from "@glyphcss/core";
 import type { GlyphcssMeshTransform, GlyphcssPointerEvent, GlyphcssMouseEvent, GlyphcssWheelEvent } from "glyphcss";
 import { useGlyphcssSceneContext } from "./context";
 import { registerMeshElement, unregisterMeshElement } from "./events";
@@ -17,6 +18,17 @@ import type { GlyphcssMeshHandle } from "./context";
 export interface GlyphcssMeshProps {
   id?: string;
   polygons?: Polygon[];
+  /**
+   * Built-in geometry name. Resolved via `resolveGeometry` when neither
+   * `polygons` nor `src` is provided.
+   *
+   * Precedence: explicit `polygons` > `src` > `geometry`.
+   */
+  geometry?: GlyphcssGeometryName;
+  /** Uniform size passed to `resolveGeometry` when `geometry` is set. Defaults to 1. */
+  size?: number;
+  /** Fill color passed to `resolveGeometry` when `geometry` is set. */
+  color?: string;
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
@@ -38,6 +50,9 @@ export interface GlyphcssMeshProps {
 function GlyphcssMeshInner({
   id,
   polygons: polygonsProp,
+  geometry,
+  size = 1,
+  color,
   position,
   scale,
   rotation,
@@ -49,7 +64,12 @@ function GlyphcssMeshInner({
   const meshRef = useRef<GlyphcssMeshHandle | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  const polygons = useMemo(() => polygonsProp ?? [], [polygonsProp]);
+  // Precedence: explicit polygons > geometry shortcut
+  const polygons = useMemo(() => {
+    if (polygonsProp !== undefined) return polygonsProp;
+    if (geometry !== undefined) return resolveGeometry(geometry, { size, color });
+    return [];
+  }, [polygonsProp, geometry, size, color]);
 
   const transform = useMemo<GlyphcssMeshTransform>(() => ({
     id,

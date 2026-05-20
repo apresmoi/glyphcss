@@ -2,15 +2,27 @@
  * GlyphcssMesh — Vue 3 component to register a polygon list with the parent
  * GlyphcssScene. Mirrors PolyMesh's prop surface for the ASCII backend.
  */
-import { defineComponent, h, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
+import { defineComponent, h, inject, onMounted, onBeforeUnmount, watch, shallowRef, computed } from "vue";
 import type { PropType } from "vue";
-import type { Vec3, Polygon } from "@glyphcss/core";
+import { resolveGeometry } from "@glyphcss/core";
+import type { Vec3, Polygon, GlyphcssGeometryName } from "@glyphcss/core";
 import type { GlyphcssMeshHandle, GlyphcssMeshTransform, GlyphcssPointerEvent, GlyphcssMouseEvent, GlyphcssWheelEvent } from "glyphcss";
 import { GlyphcssSceneContextKey } from "./context";
 
 export interface GlyphcssMeshProps {
   id?: string;
   polygons?: Polygon[];
+  /**
+   * Built-in geometry name. Resolved via `resolveGeometry` when neither
+   * `polygons` nor `src` is provided.
+   *
+   * Precedence: explicit `polygons` > `geometry`.
+   */
+  geometry?: GlyphcssGeometryName;
+  /** Uniform size passed to `resolveGeometry` when `geometry` is set. Defaults to 1. */
+  size?: number;
+  /** Fill color passed to `resolveGeometry` when `geometry` is set. */
+  color?: string;
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
@@ -31,7 +43,10 @@ export const GlyphcssMesh = defineComponent({
   name: "GlyphcssMesh",
   props: {
     id: { type: String, default: undefined },
-    polygons: { type: Array as PropType<Polygon[]>, default: () => [] },
+    polygons: { type: Array as PropType<Polygon[]>, default: undefined },
+    geometry: { type: String as PropType<GlyphcssGeometryName>, default: undefined },
+    size: { type: Number, default: 1 },
+    color: { type: String, default: undefined },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
@@ -54,6 +69,15 @@ export const GlyphcssMesh = defineComponent({
     const { sceneRef } = ctx;
     const meshRef = shallowRef<GlyphcssMeshHandle | null>(null);
 
+    // Precedence: explicit polygons > geometry shortcut
+    const resolvedPolygons = computed<Polygon[]>(() => {
+      if (props.polygons !== undefined) return props.polygons;
+      if (props.geometry !== undefined) {
+        return resolveGeometry(props.geometry, { size: props.size, color: props.color });
+      }
+      return [];
+    });
+
     function buildTransform(): GlyphcssMeshTransform {
       const t: GlyphcssMeshTransform = {};
       if (props.id) t.id = props.id;
@@ -66,7 +90,7 @@ export const GlyphcssMesh = defineComponent({
     function register(): void {
       const scene = sceneRef.value;
       if (!scene) return;
-      const handle = scene.add(props.polygons ?? [], buildTransform());
+      const handle = scene.add(resolvedPolygons.value, buildTransform());
       meshRef.value = handle;
     }
 
@@ -78,8 +102,8 @@ export const GlyphcssMesh = defineComponent({
     onMounted(register);
     onBeforeUnmount(unregister);
 
-    // Re-register when polygons array identity changes
-    watch(() => props.polygons, () => {
+    // Re-register when resolved polygons change (covers polygons, geometry, size, color)
+    watch(resolvedPolygons, () => {
       unregister();
       register();
     });

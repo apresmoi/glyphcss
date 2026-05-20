@@ -42,6 +42,8 @@ export type {
   CameraCullRotation,
   ApproximateMergeOptions,
   OptimizeMeshPolygonsOptions,
+  GlyphcssGeometryName,
+  GlyphcssGeometryOptions,
 } from "@glyphcss/core";
 export {
   CAMERA_BACKFACE_CULL_EPS,
@@ -81,6 +83,7 @@ export {
   shadeColor,
   rotateVec3,
   inverseRotateVec3,
+  resolveGeometry,
   tetrahedronPolygons,
   cubePolygons,
   octahedronPolygons,

@@ -477,6 +477,11 @@ scene.add(polygons, {
   rotation: [0, Math.PI / 4, 0],
   autoCenter: true,
 });
+
+// Built-in geometry via resolveGeometry:
+import { resolveGeometry } from "@glyphcss/core";
+scene.add(resolveGeometry("dodecahedron", { size: 1 }));
+scene.add(resolveGeometry("torus", { size: 0.8, color: "#f97316" }));
 ```
 
 On React / Vue, every field lifts to a `<GlyphMesh>` prop:
@@ -493,6 +498,49 @@ On React / Vue, every field lifts to a `<GlyphMesh>` prop:
 ```
 
 On custom elements, each lifts to an attribute (`position="0,0,0"`, `scale="1.5"`, `auto-center`, `mesh-resolution="lossless"`, etc.).
+
+### Geometry shortcut
+
+`<GlyphcssMesh>` / `<glyphcss-mesh>` accepts a `geometry` prop/attribute that resolves to a built-in polygon factory by name, eliminating the need to import the factory explicitly for common shapes.
+
+```ts
+geometry?: GlyphcssGeometryName    // <GlyphcssMesh> / <glyphcss-mesh>
+size?: number                       // default 1
+```
+
+Precedence: explicit `polygons` > `src` > `geometry`. When `src` and `geometry` are both supplied, `src` wins silently.
+
+**React / Vue:**
+
+```tsx
+<GlyphcssMesh geometry="dodecahedron" size={1} />
+<GlyphcssMesh geometry="sphere" size={0.8} color="#44aaff" />
+```
+
+**Custom elements:**
+
+```html
+<glyphcss-mesh geometry="dodecahedron"></glyphcss-mesh>
+<glyphcss-mesh geometry="torus" size="1.2" color="#f97316"></glyphcss-mesh>
+```
+
+**Vanilla JS** — call `resolveGeometry` directly from `@glyphcss/core`:
+
+```js
+import { resolveGeometry } from "@glyphcss/core";
+scene.add(resolveGeometry("dodecahedron", { size: 1 }));
+```
+
+**`GlyphcssGeometryName` union** covers all 44 built-in factories:
+
+- Platonic (5): `tetrahedron`, `cube`, `octahedron`, `dodecahedron`, `icosahedron`
+- Kepler-Poinsot (4): `smallStellatedDodecahedron`, `greatDodecahedron`, `greatStellatedDodecahedron`, `greatIcosahedron`
+- Archimedean (13): `cuboctahedron`, `icosidodecahedron`, `truncatedTetrahedron`, `truncatedCube`, `truncatedOctahedron`, `truncatedDodecahedron`, `truncatedIcosahedron`, `truncatedCuboctahedron`, `truncatedIcosidodecahedron`, `rhombicuboctahedron`, `rhombicosidodecahedron`, `snubCube`, `snubDodecahedron`
+- Catalan duals (13): `rhombicDodecahedron`, `rhombicTriacontahedron`, `triakisTetrahedron`, `triakisOctahedron`, `triakisIcosahedron`, `tetrakisHexahedron`, `pentakisDodecahedron`, `disdyakisDodecahedron`, `disdyakisTriacontahedron`, `deltoidalIcositetrahedron`, `deltoidalHexecontahedron`, `pentagonalIcositetrahedron`, `pentagonalHexecontahedron`
+- Parametric families (4): `prism`, `antiprism`, `bipyramid`, `trapezohedron`
+- Round / parametric primitives (5): `sphere`, `cylinder`, `cone`, `torus`, `pyramid`
+
+For parametric shapes (`cylinder`, `cone`, `torus`, `pyramid`, `prism`, `antiprism`, `bipyramid`, `trapezohedron`), the `size` field drives radius/height with reasonable defaults derived from a single scalar. When richer control is needed (e.g. different `majorRadius` and `minorRadius` on a torus), call the factory directly instead.
 
 ### Auto center
 
@@ -591,6 +639,8 @@ Per-path syntactic differences (camelCase vs kebab-case, JSX vs HTML) are expect
 | Mesh rotation | Mesh | `rotation` | `Vec3` (Euler radians, XYZ) | `[0,0,0]` | `scene.add(p, { rotation: [0,1,0] })` | `rotation="0,1,0"` | `rotation={[0,1,0]}` |
 | Mesh id | Mesh | `id` | `string` | (none) | `scene.add(p, { id: "cottage" })` | `id="cottage"` | `id="cottage"` |
 | Auto-rotate (orbit / map) | Controls | `animate` | `{ speed: number; axis?: "x"\|"y"; pauseOnInteraction?: boolean } \| false` | (off) | `{ animate: { speed: 0.3 } }` | flat attrs `animate-speed="0.3"` `animate-axis="x"` | object prop |
+| Geometry shortcut | Mesh | `geometry` | `GlyphcssGeometryName` | (none) | `scene.add(resolveGeometry("dodecahedron"))` | `geometry="dodecahedron"` | `geometry="dodecahedron"` |
+| Geometry size | Mesh | `size` | `number` | `1` | `resolveGeometry("dodecahedron", { size: 1.5 })` | `size="1.5"` | `size={1.5}` |
 | Hotspot anchor | Hotspot | `at` | `Vec3` | (required) | `scene.addHotspot({ at: [0,1,0] })` | `at="0,1,0"` | `at={[0,1,0]}` |
 
 **Nested-object props on custom elements** follow the same split as voxcss:
