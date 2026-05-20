@@ -339,6 +339,106 @@
   overflow: hidden;
 }
 
+/* ── Code panel ──────────────────────────────────────────────────────────
+   Floating bottom-left dock with framework-tabs (JS / React / Vue) that
+   regenerates a runnable snippet from the current gallery state. Mirror
+   styling of the models sidebar to feel like part of the same dock family. */
+.gw-code-panel {
+  position: absolute;
+  left: var(--overlay-left);
+  bottom: var(--overlay-bottom);
+  width: clamp(320px, 30vw, 460px);
+  max-height: min(42vh, calc(100% - var(--overlay-top) - var(--overlay-bottom) - 60vh));
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  background: #0d1018;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  isolation: isolate;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(255, 255, 255, 0.006) 3px,
+    rgba(255, 255, 255, 0.006) 4px
+  );
+}
+.gw-code-panel--collapsed {
+  max-height: none;
+  height: auto;
+}
+.gw-code-panel__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 232, 184, 0.12);
+  background: rgba(3, 5, 10, 0.5);
+}
+.gw-code-panel__legend {
+  color: rgba(56, 189, 248, 0.85);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.gw-code-panel__tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+.gw-code-panel__tab {
+  background: none;
+  border: 1px solid rgba(255, 232, 184, 0.15);
+  color: rgba(255, 232, 184, 0.6);
+  padding: 3px 10px;
+  font: 11px/1 inherit;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 100ms, background 100ms, border-color 100ms;
+}
+.gw-code-panel__tab:hover {
+  color: rgba(255, 232, 184, 0.95);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+.gw-code-panel__tab.is-active {
+  color: #03050a;
+  background: rgba(56, 189, 248, 0.85);
+  border-color: rgba(56, 189, 248, 0.85);
+}
+.gw-code-panel__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.gw-code-panel__action {
+  background: none;
+  border: 1px solid rgba(255, 232, 184, 0.15);
+  color: rgba(255, 232, 184, 0.7);
+  padding: 3px 8px;
+  font: 11px/1 inherit;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.gw-code-panel__action:hover {
+  color: rgba(255, 232, 184, 0.98);
+  border-color: rgba(56, 189, 248, 0.5);
+}
+.gw-code-panel__code {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 10px 12px;
+  background: #03050a;
+  color: rgba(255, 232, 184, 0.94);
+  font: 11px/1.5 inherit;
+  white-space: pre;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 232, 184, 0.2) transparent;
+}
+.gw-code-panel__code::-webkit-scrollbar { width: 6px; height: 6px; }
+.gw-code-panel__code::-webkit-scrollbar-thumb { background: rgba(255, 232, 184, 0.2); }
+
 .dark-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 232, 184, 0.2) transparent;

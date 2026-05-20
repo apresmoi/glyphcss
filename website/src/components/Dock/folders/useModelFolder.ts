@@ -4,11 +4,11 @@
  * displays; no user input originates here.
  */
 import type { GUI } from "lil-gui";
-import type { GlyphcssMetrics } from "../../GalleryWorkbench/types";
+import type { GlyphMetrics } from "../../GalleryWorkbench/types";
 import { useFolder, useReadonlyNumber } from "../primitives";
 
 export interface ModelFolderInputs {
-  metrics: GlyphcssMetrics;
+  metrics: GlyphMetrics;
 }
 
 export function useModelFolder(parent: GUI | null, inputs: ModelFolderInputs): void {

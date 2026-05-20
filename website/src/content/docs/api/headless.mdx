@@ -3,20 +3,20 @@ title: Headless API
 description: Imperative API for building scenes outside React / Vue.
 ---
 
-The `glyphcss` vanilla package exposes a glyphcss-shaped imperative API plus the raw
-`glyphcss-core` math primitives.
+The `glyphcss` vanilla package exposes a glyph-shaped imperative API plus the raw
+`glyph-core` math primitives.
 
-## `createGlyphcssScene`
+## `createGlyphScene`
 
 The main entry point. Creates and mounts a scene into a host element and returns a
-`GlyphcssSceneHandle` with methods to add meshes, hotspots, and update options.
+`GlyphSceneHandle` with methods to add meshes, hotspots, and update options.
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphScene } from "glyphcss";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
-const scene = createGlyphcssScene(host, {
+const scene = createGlyphScene(host, {
   mode: "solid",            // "wireframe" | "solid" | "voxel"
   cols: 100,                // grid width in character columns
   rows: 30,                 // grid height in character rows
@@ -30,7 +30,7 @@ const scene = createGlyphcssScene(host, {
 
 ### `.add(polygons, transform?)`
 
-Register a `Polygon[]` as a mesh. Returns a `GlyphcssMeshHandle`.
+Register a `Polygon[]` as a mesh. Returns a `GlyphMeshHandle`.
 
 ```ts
 import { cubePolygons } from "@glyphcss/core";
@@ -80,15 +80,15 @@ one runnable block:
 
 ```ts
 import {
-  createGlyphcssScene,
-  createGlyphcssOrbitControls,
+  createGlyphScene,
+  createGlyphOrbitControls,
 } from "glyphcss";
 import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
 // 1. Create the scene.
-const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
+const scene = createGlyphScene(host, { mode: "solid", cols: 100, rows: 30 });
 
 // 2. Add meshes. Each call returns a handle.
 const cubeHandle = scene.add(
@@ -106,7 +106,7 @@ const hotspot = scene.addHotspot(
 );
 
 // 4. Attach orbit controls.
-const controls = createGlyphcssOrbitControls(scene, { drag: true, wheel: true });
+const controls = createGlyphOrbitControls(scene, { drag: true, wheel: true });
 
 // 5. Update options at any time.
 scene.setOptions({ mode: "wireframe" });
@@ -127,22 +127,22 @@ scene.destroy();
 
 ```ts
 import {
-  createGlyphcssPerspectiveCamera,
-  createGlyphcssOrthographicCamera,
-  createGlyphcssFirstPersonCamera,
+  createGlyphPerspectiveCamera,
+  createGlyphOrthographicCamera,
+  createGlyphFirstPersonCamera,
 } from "glyphcss";
 
 // Perspective (default)
-const perspective = createGlyphcssPerspectiveCamera({
+const perspective = createGlyphPerspectiveCamera({
   rotX: 0.4, rotY: 0,
   distance: 3, scale: 0.32, stretch: 0.95,
 });
 
 // Orthographic — no foreshortening
-const ortho = createGlyphcssOrthographicCamera({ rotX: 0.4, zoom: 0.4 });
+const ortho = createGlyphOrthographicCamera({ rotX: 0.4, zoom: 0.4 });
 
 // First-person — eye at origin
-const fpv = createGlyphcssFirstPersonCamera({ rotX: Math.PI / 2, focal: 1 });
+const fpv = createGlyphFirstPersonCamera({ rotX: Math.PI / 2, focal: 1 });
 
 // All camera properties are mutable after creation:
 perspective.rotY = Math.PI / 4;
@@ -152,9 +152,9 @@ perspective.distance = 4;
 scene.setOptions({ camera: ortho });
 ```
 
-## Lower-level pieces (`glyphcss-core`)
+## Lower-level pieces (`glyph-core`)
 
-`glyphcss-core` is browser-agnostic (no DOM globals) and can run in Node or a
+`glyph-core` is browser-agnostic (no DOM globals) and can run in Node or a
 web worker.
 
 ```ts
@@ -163,12 +163,12 @@ import {
   rasterize,
   projectHotspots,
   icosahedronPolygons,
-} from "glyphcss-core";
-import { createGlyphcssPerspectiveCamera } from "glyphcss";
+} from "glyph-core";
+import { createGlyphPerspectiveCamera } from "glyphcss";
 
 const triangles = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
 
-const camera = createGlyphcssPerspectiveCamera({ rotX: 0.4, scale: 0.32 });
+const camera = createGlyphPerspectiveCamera({ rotX: 0.4, scale: 0.32 });
 const grid = { cols: 160, rows: 48, cellAspect: 2.0 };
 
 const ctx = buildSceneContext({ camera, grid, triangles, mode: "solid" });

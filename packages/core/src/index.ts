@@ -9,8 +9,8 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
-  GlyphcssDirectionalLight,
-  GlyphcssAmbientLight,
+  GlyphDirectionalLight,
+  GlyphAmbientLight,
   MeshResolution,
 } from "./types";
 export { DEFAULT_PROJECTION } from "./types";
@@ -113,20 +113,20 @@ export type {
 
 // ── Helper-gizmo geometry (axes, light marker, transform arrows / rings) ─
 export { axesHelperPolygons, arrowPolygons, ringPolygons, ringQuadPolygons, planePolygons, octahedronPolygons, tetrahedronPolygons, cubePolygons, dodecahedronPolygons, icosahedronPolygons, spherePolygons, cylinderPolygons, conePolygons, torusPolygons, pyramidPolygons, prismPolygons, antiprismPolygons, bipyramidPolygons, trapezohedronPolygons, smallStellatedDodecahedronPolygons, greatDodecahedronPolygons, greatStellatedDodecahedronPolygons, greatIcosahedronPolygons, cuboctahedronPolygons, icosidodecahedronPolygons, truncatedTetrahedronPolygons, truncatedCubePolygons, truncatedOctahedronPolygons, truncatedDodecahedronPolygons, truncatedIcosahedronPolygons, truncatedCuboctahedronPolygons, truncatedIcosidodecahedronPolygons, rhombicuboctahedronPolygons, rhombicosidodecahedronPolygons, snubCubePolygons, snubDodecahedronPolygons, rhombicDodecahedronPolygons, rhombicTriacontahedronPolygons, triakisTetrahedronPolygons, triakisOctahedronPolygons, tetrakisHexahedronPolygons, triakisIcosahedronPolygons, pentakisDodecahedronPolygons, disdyakisDodecahedronPolygons, disdyakisTriacontahedronPolygons, deltoidalIcositetrahedronPolygons, deltoidalHexecontahedronPolygons, pentagonalIcositetrahedronPolygons, pentagonalHexecontahedronPolygons, resolveGeometry } from "./helpers";
-export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, RingQuadPolygonsOptions, PlanePolygonsOptions, OctahedronPolygonsOptions, TetrahedronPolygonsOptions, CubePolygonsOptions, DodecahedronPolygonsOptions, IcosahedronPolygonsOptions, SpherePolygonsOptions, CylinderPolygonsOptions, ConePolygonsOptions, TorusPolygonsOptions, PyramidPolygonsOptions, PrismPolygonsOptions, AntiprismPolygonsOptions, BipyramidPolygonsOptions, TrapezohedronPolygonsOptions, SmallStellatedDodecahedronPolygonsOptions, GreatDodecahedronPolygonsOptions, GreatStellatedDodecahedronPolygonsOptions, GreatIcosahedronPolygonsOptions, CuboctahedronPolygonsOptions, IcosidodecahedronPolygonsOptions, TruncatedTetrahedronPolygonsOptions, TruncatedCubePolygonsOptions, TruncatedOctahedronPolygonsOptions, TruncatedDodecahedronPolygonsOptions, TruncatedIcosahedronPolygonsOptions, TruncatedCuboctahedronPolygonsOptions, TruncatedIcosidodecahedronPolygonsOptions, RhombicuboctahedronPolygonsOptions, RhombicosidodecahedronPolygonsOptions, SnubCubePolygonsOptions, SnubDodecahedronPolygonsOptions, RhombicDodecahedronPolygonsOptions, RhombicTriacontahedronPolygonsOptions, TriakisTetrahedronPolygonsOptions, TriakisOctahedronPolygonsOptions, TetrakisHexahedronPolygonsOptions, TriakisIcosahedronPolygonsOptions, PentakisDodecahedronPolygonsOptions, DisdyakisDodecahedronPolygonsOptions, DisdyakisTriacontahedronPolygonsOptions, DeltoidalIcositetrahedronPolygonsOptions, DeltoidalHexecontahedronPolygonsOptions, PentagonalIcositetrahedronPolygonsOptions, PentagonalHexecontahedronPolygonsOptions, GlyphcssGeometryName, GlyphcssGeometryOptions } from "./helpers";
+export type { AxesHelperOptions, ArrowPolygonsOptions, RingPolygonsOptions, RingQuadPolygonsOptions, PlanePolygonsOptions, OctahedronPolygonsOptions, TetrahedronPolygonsOptions, CubePolygonsOptions, DodecahedronPolygonsOptions, IcosahedronPolygonsOptions, SpherePolygonsOptions, CylinderPolygonsOptions, ConePolygonsOptions, TorusPolygonsOptions, PyramidPolygonsOptions, PrismPolygonsOptions, AntiprismPolygonsOptions, BipyramidPolygonsOptions, TrapezohedronPolygonsOptions, SmallStellatedDodecahedronPolygonsOptions, GreatDodecahedronPolygonsOptions, GreatStellatedDodecahedronPolygonsOptions, GreatIcosahedronPolygonsOptions, CuboctahedronPolygonsOptions, IcosidodecahedronPolygonsOptions, TruncatedTetrahedronPolygonsOptions, TruncatedCubePolygonsOptions, TruncatedOctahedronPolygonsOptions, TruncatedDodecahedronPolygonsOptions, TruncatedIcosahedronPolygonsOptions, TruncatedCuboctahedronPolygonsOptions, TruncatedIcosidodecahedronPolygonsOptions, RhombicuboctahedronPolygonsOptions, RhombicosidodecahedronPolygonsOptions, SnubCubePolygonsOptions, SnubDodecahedronPolygonsOptions, RhombicDodecahedronPolygonsOptions, RhombicTriacontahedronPolygonsOptions, TriakisTetrahedronPolygonsOptions, TriakisOctahedronPolygonsOptions, TetrakisHexahedronPolygonsOptions, TriakisIcosahedronPolygonsOptions, PentakisDodecahedronPolygonsOptions, DisdyakisDodecahedronPolygonsOptions, DisdyakisTriacontahedronPolygonsOptions, DeltoidalIcositetrahedronPolygonsOptions, DeltoidalHexecontahedronPolygonsOptions, PentagonalIcositetrahedronPolygonsOptions, PentagonalHexecontahedronPolygonsOptions, GlyphGeometryName, GlyphGeometryOptions } from "./helpers";
 
 // ── Animation ─────────────────────────────────────────────────────
 export {
-  createGlyphcssAnimationMixer,
+  createGlyphAnimationMixer,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
 } from "./animation";
 export type {
-  GlyphcssAnimationClip,
-  GlyphcssAnimationAction,
-  GlyphcssAnimationMixer,
-  GlyphcssAnimationTarget,
+  GlyphAnimationClip,
+  GlyphAnimationAction,
+  GlyphAnimationMixer,
+  GlyphAnimationTarget,
   LoopMode,
 } from "./animation";
 

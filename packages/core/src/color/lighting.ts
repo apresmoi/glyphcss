@@ -11,7 +11,7 @@
  * for performance, but the helper exists for users who want to shade
  * polygons outside the renderer (e.g. SSR, validators, alternate backends).
  */
-import type { GlyphcssAmbientLight, GlyphcssDirectionalLight, Vec3 } from "../types";
+import type { GlyphAmbientLight, GlyphDirectionalLight, Vec3 } from "../types";
 import {
   type ParsedColor,
   parsePureColor,
@@ -54,13 +54,13 @@ export function shadeColor(base: string, delta: number): string {
   return formatColor({ rgb, alpha: parsed.alpha });
 }
 
-const DEFAULT_DIRECTIONAL: Required<GlyphcssDirectionalLight> = {
+const DEFAULT_DIRECTIONAL: Required<GlyphDirectionalLight> = {
   direction: [0, 0, -1],
   color: "#ffffff",
   intensity: 1,
 };
 
-const DEFAULT_AMBIENT: Required<GlyphcssAmbientLight> = {
+const DEFAULT_AMBIENT: Required<GlyphAmbientLight> = {
   color: "#ffffff",
   intensity: 0.4,
 };
@@ -93,8 +93,8 @@ function tintChannel(base: number, tintHex: string, channel: 0 | 1 | 2): number 
 export function computeShapeLighting(
   normal: Vec3,
   baseColor: string,
-  directional?: GlyphcssDirectionalLight,
-  ambient?: GlyphcssAmbientLight,
+  directional?: GlyphDirectionalLight,
+  ambient?: GlyphAmbientLight,
 ): string {
   const base = parseColor(baseColor) ?? defaultColor;
   const dir = normalizeVec3(directional?.direction ?? DEFAULT_DIRECTIONAL.direction);

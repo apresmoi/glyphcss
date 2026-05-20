@@ -54,7 +54,7 @@ export interface ObjGalleryPresetFile extends GalleryPresetFile {
   defaultColor?: string;
 }
 
-export interface GlyphcssMetrics {
+export interface GlyphMetrics {
   measuredAt: number;
   cells: number;
   edges: number;

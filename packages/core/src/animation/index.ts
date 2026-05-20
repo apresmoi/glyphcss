@@ -1,5 +1,5 @@
 /**
- * GlyphcssAnimationMixer — three.js-shaped animation API for glyphcss.
+ * GlyphAnimationMixer — three.js-shaped animation API for glyphcss.
  *
  * Mirrors three.js's AnimationMixer + AnimationAction surface closely enough
  * that users familiar with drei's `useAnimations` can migrate without friction.
@@ -18,15 +18,15 @@ export const LoopPingPong = 2202 as const;
 
 export type LoopMode = typeof LoopOnce | typeof LoopRepeat | typeof LoopPingPong;
 
-// Re-export clip type under the Glyphcss-prefixed alias.
-export type { ParseAnimationClip as GlyphcssAnimationClip };
+// Re-export clip type under the Glyph-prefixed alias.
+export type { ParseAnimationClip as GlyphAnimationClip };
 
 /**
- * Minimal target interface the mixer requires. `GlyphcssMeshHandle` from both
+ * Minimal target interface the mixer requires. `GlyphMeshHandle` from both
  * the glyphcss vanilla API and the React/Vue frameworks satisfies this
  * structurally — no import needed.
  */
-export interface GlyphcssAnimationTarget {
+export interface GlyphAnimationTarget {
   setPolygons(polygons: Polygon[]): void;
 }
 
@@ -34,33 +34,33 @@ export interface GlyphcssAnimationTarget {
  * Per-clip playback action. Mirrors three.js `AnimationAction` method surface.
  * All mutating methods return `this` for chaining.
  */
-export interface GlyphcssAnimationAction {
+export interface GlyphAnimationAction {
   /** Start playing (sets weight=1, resets time if not already playing). */
-  play(): GlyphcssAnimationAction;
+  play(): GlyphAnimationAction;
   /** Stop playing and reset time to 0. */
-  stop(): GlyphcssAnimationAction;
+  stop(): GlyphAnimationAction;
   /** Reset time to 0 without stopping. */
-  reset(): GlyphcssAnimationAction;
+  reset(): GlyphAnimationAction;
   /** Fade weight from 0 to 1 over `durationSeconds`. */
-  fadeIn(durationSeconds: number): GlyphcssAnimationAction;
+  fadeIn(durationSeconds: number): GlyphAnimationAction;
   /** Fade weight from current to 0 over `durationSeconds`. */
-  fadeOut(durationSeconds: number): GlyphcssAnimationAction;
+  fadeOut(durationSeconds: number): GlyphAnimationAction;
   /**
    * Cross-fade from this action to `target` over `durationSeconds`.
    * Fades this out and target in simultaneously.
    */
-  crossFadeTo(target: GlyphcssAnimationAction, durationSeconds: number): GlyphcssAnimationAction;
+  crossFadeTo(target: GlyphAnimationAction, durationSeconds: number): GlyphAnimationAction;
   /**
    * Cross-fade from `from` into this action over `durationSeconds`.
    * Sugar for `from.fadeOut(d); this.fadeIn(d)`.
    */
-  crossFadeFrom(from: GlyphcssAnimationAction, durationSeconds: number): GlyphcssAnimationAction;
+  crossFadeFrom(from: GlyphAnimationAction, durationSeconds: number): GlyphAnimationAction;
   /** Set loop mode and repetition count. */
-  setLoop(mode: LoopMode, repetitions: number): GlyphcssAnimationAction;
+  setLoop(mode: LoopMode, repetitions: number): GlyphAnimationAction;
   /** Override the effective time scale. */
-  setEffectiveTimeScale(scale: number): GlyphcssAnimationAction;
+  setEffectiveTimeScale(scale: number): GlyphAnimationAction;
   /** Override the effective weight. */
-  setEffectiveWeight(weight: number): GlyphcssAnimationAction;
+  setEffectiveWeight(weight: number): GlyphAnimationAction;
   /** When true, the action freezes on the last frame after finishing. */
   clampWhenFinished: boolean;
   /** Playback speed multiplier. Default 1. */
@@ -84,20 +84,20 @@ export interface GlyphcssAnimationAction {
 }
 
 /**
- * Drives one or more `GlyphcssAnimationAction`s against a single mesh target.
+ * Drives one or more `GlyphAnimationAction`s against a single mesh target.
  * Mirrors the three.js `AnimationMixer` API.
  */
-export interface GlyphcssAnimationMixer {
+export interface GlyphAnimationMixer {
   /**
    * Return the action for a clip (by index or name). Creates the action if it
    * doesn't exist yet (lazy instantiation, same as three.js).
    */
-  clipAction(clip: number | string): GlyphcssAnimationAction;
+  clipAction(clip: number | string): GlyphAnimationAction;
   /**
    * Return an existing action without creating one. Returns null if the
    * action hasn't been instantiated yet.
    */
-  existingAction(clip: number | string): GlyphcssAnimationAction | null;
+  existingAction(clip: number | string): GlyphAnimationAction | null;
   /**
    * Advance all active actions by `deltaSeconds` and apply the resulting
    * polygon frame to the root target. Call this once per animation frame.
@@ -123,7 +123,7 @@ interface FadeState {
 function createAction(
   clip: ParseAnimationClip,
   controller: ParseAnimationController,
-): GlyphcssAnimationAction {
+): GlyphAnimationAction {
   let _time = 0;
   let _weight = 1;
   let _timeScale = 1;
@@ -135,7 +135,7 @@ function createAction(
   let _enabled = true;
   let _paused = false;
 
-  const action: GlyphcssAnimationAction = {
+  const action: GlyphAnimationAction = {
     clampWhenFinished: false,
 
     get timeScale() { return _timeScale; },
@@ -185,13 +185,13 @@ function createAction(
       return action;
     },
 
-    crossFadeTo(target: GlyphcssAnimationAction, durationSeconds: number) {
+    crossFadeTo(target: GlyphAnimationAction, durationSeconds: number) {
       action.fadeOut(durationSeconds);
       target.fadeIn(durationSeconds);
       return action;
     },
 
-    crossFadeFrom(from: GlyphcssAnimationAction, durationSeconds: number) {
+    crossFadeFrom(from: GlyphAnimationAction, durationSeconds: number) {
       from.fadeOut(durationSeconds);
       action.fadeIn(durationSeconds);
       return action;
@@ -322,7 +322,7 @@ interface ActionInternal {
   sampleTime(): number;
 }
 
-function getInternal(action: GlyphcssAnimationAction): ActionInternal {
+function getInternal(action: GlyphAnimationAction): ActionInternal {
   return (action as unknown as { _internal: ActionInternal })._internal;
 }
 
@@ -334,17 +334,17 @@ function resolveClip(
   return clips.find((c) => c.name === key);
 }
 
-export function createGlyphcssAnimationMixer(
-  root: GlyphcssAnimationTarget,
+export function createGlyphAnimationMixer(
+  root: GlyphAnimationTarget,
   controller: ParseAnimationController,
-): GlyphcssAnimationMixer {
-  const actionCache = new Map<number, GlyphcssAnimationAction>();
+): GlyphAnimationMixer {
+  const actionCache = new Map<number, GlyphAnimationAction>();
 
-  function clipAction(key: number | string): GlyphcssAnimationAction {
+  function clipAction(key: number | string): GlyphAnimationAction {
     const clip = resolveClip(controller.clips, key);
     if (!clip) {
       throw new Error(
-        `GlyphcssAnimationMixer: no clip found for key "${key}". Available: ${controller.clips.map((c) => c.name).join(", ")}`,
+        `GlyphAnimationMixer: no clip found for key "${key}". Available: ${controller.clips.map((c) => c.name).join(", ")}`,
       );
     }
     let action = actionCache.get(clip.index);
@@ -355,7 +355,7 @@ export function createGlyphcssAnimationMixer(
     return action;
   }
 
-  function existingAction(key: number | string): GlyphcssAnimationAction | null {
+  function existingAction(key: number | string): GlyphAnimationAction | null {
     const clip = resolveClip(controller.clips, key);
     if (!clip) return null;
     return actionCache.get(clip.index) ?? null;

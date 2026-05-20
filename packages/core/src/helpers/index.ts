@@ -97,4 +97,4 @@ export type { PentagonalIcositetrahedronPolygonsOptions } from "./pentagonalIcos
 export { pentagonalHexecontahedronPolygons } from "./pentagonalHexecontahedronPolygons";
 export type { PentagonalHexecontahedronPolygonsOptions } from "./pentagonalHexecontahedronPolygons";
 export { resolveGeometry } from "./geometryRegistry";
-export type { GlyphcssGeometryName, GlyphcssGeometryOptions } from "./geometryRegistry";
+export type { GlyphGeometryName, GlyphGeometryOptions } from "./geometryRegistry";

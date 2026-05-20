@@ -1,11 +1,11 @@
 ---
-title: GlyphcssHotspot
+title: GlyphHotspot
 description: Sparse interactive hit anchor over the ASCII strip.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`<GlyphcssHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII strip,
+`<GlyphHotspot>` renders a real, absolutely-positioned `<div>` over the ASCII strip,
 tracking a 3D anchor through every baked frame. The `<div>` is `pointer-events: auto`
 inside an otherwise transparent hit layer — events fire on it like any normal DOM
 element.
@@ -39,10 +39,10 @@ camera state.
 
 ```tsx
 import {
-  GlyphcssScene,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
-  GlyphcssHotspot,
+  GlyphScene,
+  GlyphMesh,
+  GlyphOrbitControls,
+  GlyphHotspot,
 } from "@glyphcss/react";
 import { cubePolygons } from "@glyphcss/core";
 
@@ -50,11 +50,11 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function HotspotDemo() {
   return (
-    <GlyphcssScene mode="solid" cols={100} rows={30}>
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={cube}>
+    <GlyphScene mode="solid" cols={100} rows={30}>
+      <GlyphOrbitControls />
+      <GlyphMesh polygons={cube}>
         {/* Hotspot on the top face */}
-        <GlyphcssHotspot
+        <GlyphHotspot
           id="top"
           at={[0, 0.5, 0]}
           size={[5, 3]}
@@ -62,9 +62,9 @@ export function HotspotDemo() {
           onClick={() => alert("top face clicked")}
         >
           <span className="badge">Top</span>
-        </GlyphcssHotspot>
+        </GlyphHotspot>
         {/* Hotspot on the right face */}
-        <GlyphcssHotspot
+        <GlyphHotspot
           id="right"
           at={[0.5, 0, 0]}
           size={[5, 3]}
@@ -72,9 +72,9 @@ export function HotspotDemo() {
           onClick={() => alert("right face clicked")}
         >
           <span className="badge">Right</span>
-        </GlyphcssHotspot>
-      </GlyphcssMesh>
-    </GlyphcssScene>
+        </GlyphHotspot>
+      </GlyphMesh>
+    </GlyphScene>
   );
 }
 ```
@@ -84,33 +84,33 @@ export function HotspotDemo() {
 
 ```vue
 <template>
-  <GlyphcssScene mode="solid" :cols="100" :rows="30">
-    <GlyphcssOrbitControls />
-    <GlyphcssMesh :polygons="cube">
-      <GlyphcssHotspot
+  <GlyphScene mode="solid" :cols="100" :rows="30">
+    <GlyphOrbitControls />
+    <GlyphMesh :polygons="cube">
+      <GlyphHotspot
         id="top"
         :at="[0, 0.5, 0]"
         :size="[5, 3]"
         aria-label="Top face"
         @click="onTopClick"
       />
-      <GlyphcssHotspot
+      <GlyphHotspot
         id="right"
         :at="[0.5, 0, 0]"
         :size="[5, 3]"
         aria-label="Right face"
         @click="onRightClick"
       />
-    </GlyphcssMesh>
-  </GlyphcssScene>
+    </GlyphMesh>
+  </GlyphScene>
 </template>
 
 <script setup lang="ts">
 import {
-  GlyphcssScene,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
-  GlyphcssHotspot,
+  GlyphScene,
+  GlyphMesh,
+  GlyphOrbitControls,
+  GlyphHotspot,
 } from "@glyphcss/vue";
 import { cubePolygons } from "@glyphcss/core";
 
@@ -124,11 +124,11 @@ function onRightClick() { alert("right face clicked"); }
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphScene } from "glyphcss";
 import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
+const scene = createGlyphScene(host, { mode: "solid", cols: 100, rows: 30 });
 
 scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));
 
@@ -155,7 +155,7 @@ Hotspots behind the camera get `opacity: 0` automatically. Add a CSS transition 
 fade them gracefully:
 
 ```css
-.glyphcss-hotspot {
+.glyph-hotspot {
   transition: opacity 200ms ease;
 }
 ```

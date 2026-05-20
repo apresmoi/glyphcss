@@ -34,9 +34,9 @@ const { polygons, dispose } = await loadMesh("/cottage.glb");
 
 ```tsx
 {/* Replace placeholder paths with paths to your own assets. */}
-<GlyphcssMesh src="/cottage.glb" mode="solid" />
-<GlyphcssMesh src="/tree.vox" mode="voxel" />
-<GlyphcssMesh geometry="cuboctahedron" mode="wireframe" />
+<GlyphMesh src="/cottage.glb" mode="solid" />
+<GlyphMesh src="/tree.vox" mode="voxel" />
+<GlyphMesh geometry="cuboctahedron" mode="wireframe" />
 ```
 
 ## Built-in geometries
@@ -44,9 +44,9 @@ const { polygons, dispose } = await loadMesh("/cottage.glb");
 For the common case of "I just want a rotating shape", glyphcss ships generators:
 
 ```tsx
-<GlyphcssMesh geometry="cuboctahedron" />
-<GlyphcssMesh geometry="icosahedron" />
-<GlyphcssMesh geometry="cube" />
+<GlyphMesh geometry="cuboctahedron" />
+<GlyphMesh geometry="icosahedron" />
+<GlyphMesh geometry="cube" />
 ```
 
 These render as wireframe by default with the Prime Radiant–style inner lattice

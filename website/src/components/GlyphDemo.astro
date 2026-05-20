@@ -1,0 +1,75 @@
+---
+/**
+ * GlyphDemo — live interactive ASCII scene for docs + landing pages.
+ *
+ * Usage in MDX:
+ *   <GlyphDemo id="cubocta-demo" geometry="cuboctahedron"
+ *     controls='["scale","stretch","distance","rotX","duration","geometry"]'
+ *     showStats />
+ *
+ * Renders a `<pre>` strip with N pre-baked rotation frames + a sparse hit
+ * layer of <div> hotspots, animated entirely via CSS `steps(N)`. JavaScript
+ * runs once at init and again only when the user drags / zooms / changes a
+ * lil-gui control.
+ *
+ * The full runtime lives in `src/glyph-runtime.ts`. It's imported as a
+ * client script so Astro's template parser never sees TS generics or block
+ * `{ ... }` bodies and mis-classifies them as JSX / template expressions.
+ */
+
+interface Props {
+  id: string;
+  geometry?: 'cuboctahedron' | 'icosahedron' | 'cube';
+  /** URL of an OBJ / GLB / glTF / VOX mesh. Takes priority over `geometry`. */
+  mesh?: string;
+  controls?: string;
+  defaults?: string;
+  showStats?: boolean;
+  /** Hide the code panel beneath the demo (landing hero, gallery). */
+  noCode?: boolean;
+  /** Hide the lil-gui controls column (landing hero clean view). */
+  noControls?: boolean;
+}
+
+import '../styles/glyph-demo.css';
+
+const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls } = Astro.props;
+---
+
+<div class="glyph-demo" id={id}
+  data-geometry={geometry || 'cuboctahedron'}
+  data-mesh={mesh || undefined}
+  data-controls={controls}
+  data-defaults={defaults}
+  data-show-stats={showStats ? "1" : undefined}
+  data-no-controls={noControls ? "1" : undefined}>
+  <div class="glyph-demo__viewer not-content" data-layout={noControls ? "canvas-only" : "two-col"}>
+    <div class="glyph-demo__canvas">
+      <div class="glyph-demo__scene-host">
+        <div class="glyph-demo__viewport">
+          <pre class="glyph-demo__strip"></pre>
+        </div>
+        <div class="glyph-demo__hit-layer"></div>
+        <div class="glyph-demo__stats"></div>
+      </div>
+      <div class="glyph-demo__loading">Loading…</div>
+    </div>
+    {!noControls && <div class="glyph-demo__controls"></div>}
+  </div>
+  {!noCode && (
+    <div class="glyph-demo__code not-content">
+      <div class="glyph-demo__tabs">
+        <button class="glyph-demo__tab active" data-fw="vanilla">Vanilla JS</button>
+        <button class="glyph-demo__tab" data-fw="react">React</button>
+        <button class="glyph-demo__tab" data-fw="vue">Vue</button>
+      </div>
+      <pre class="glyph-demo__snippet" data-fw="vanilla"><code></code></pre>
+      <pre class="glyph-demo__snippet glyph-demo__snippet--hidden" data-fw="react"><code></code></pre>
+      <pre class="glyph-demo__snippet glyph-demo__snippet--hidden" data-fw="vue"><code></code></pre>
+    </div>
+  )}
+</div>
+
+<script>
+  import '../glyph-runtime';
+</script>

@@ -1,11 +1,11 @@
 ---
-title: GlyphcssCamera
+title: GlyphCamera
 description: Perspective or orthographic camera handle shared by the renderer and hit layer.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-`<GlyphcssCamera>` (alias for `<GlyphcssPerspectiveCamera>`) is the canonical projection
+`<GlyphCamera>` (alias for `<GlyphPerspectiveCamera>`) is the canonical projection
 state. The renderer and the hit layer both read from it — mutating `rotY` updates
 both simultaneously.
 
@@ -34,11 +34,11 @@ both simultaneously.
 
 ```tsx
 import {
-  GlyphcssScene,
-  GlyphcssPerspectiveCamera,
-  GlyphcssOrthographicCamera,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphScene,
+  GlyphPerspectiveCamera,
+  GlyphOrthographicCamera,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/react";
 import { octahedronPolygons } from "@glyphcss/core";
 
@@ -47,22 +47,22 @@ const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }
 // Perspective (default)
 export function PerspectiveExample() {
   return (
-    <GlyphcssScene mode="solid" cols={100} rows={30}>
-      <GlyphcssPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95} />
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={octa} />
-    </GlyphcssScene>
+    <GlyphScene mode="solid" cols={100} rows={30}>
+      <GlyphPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95} />
+      <GlyphOrbitControls />
+      <GlyphMesh polygons={octa} />
+    </GlyphScene>
   );
 }
 
 // Orthographic — parallel lines stay parallel (isometric style)
 export function OrthoExample() {
   return (
-    <GlyphcssScene mode="solid" cols={100} rows={30}>
-      <GlyphcssOrthographicCamera rotX={0.62} zoom={0.4} />
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={octa} />
-    </GlyphcssScene>
+    <GlyphScene mode="solid" cols={100} rows={30}>
+      <GlyphOrthographicCamera rotX={0.62} zoom={0.4} />
+      <GlyphOrbitControls />
+      <GlyphMesh polygons={octa} />
+    </GlyphScene>
   );
 }
 ```
@@ -72,23 +72,23 @@ export function OrthoExample() {
 
 ```vue
 <template>
-  <GlyphcssScene mode="solid" :cols="100" :rows="30">
+  <GlyphScene mode="solid" :cols="100" :rows="30">
     <!-- Toggle between perspective and orthographic -->
-    <GlyphcssPerspectiveCamera v-if="perspective" :rot-x="0.38" :zoom="0.4" :distance="3" />
-    <GlyphcssOrthographicCamera v-else :rot-x="0.62" :zoom="0.4" />
-    <GlyphcssOrbitControls />
-    <GlyphcssMesh :polygons="octa" />
-  </GlyphcssScene>
+    <GlyphPerspectiveCamera v-if="perspective" :rot-x="0.38" :zoom="0.4" :distance="3" />
+    <GlyphOrthographicCamera v-else :rot-x="0.62" :zoom="0.4" />
+    <GlyphOrbitControls />
+    <GlyphMesh :polygons="octa" />
+  </GlyphScene>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
 import {
-  GlyphcssScene,
-  GlyphcssPerspectiveCamera,
-  GlyphcssOrthographicCamera,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphScene,
+  GlyphPerspectiveCamera,
+  GlyphOrthographicCamera,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/vue";
 import { octahedronPolygons } from "@glyphcss/core";
 
@@ -102,17 +102,17 @@ const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }
 
 ```ts
 import {
-  createGlyphcssScene,
-  createGlyphcssPerspectiveCamera,
-  createGlyphcssOrthographicCamera,
+  createGlyphScene,
+  createGlyphPerspectiveCamera,
+  createGlyphOrthographicCamera,
 } from "glyphcss";
 import { octahedronPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphcssScene(host, { mode: "solid" });
+const scene = createGlyphScene(host, { mode: "solid" });
 
 // Perspective camera
-const perspective = createGlyphcssPerspectiveCamera({
+const perspective = createGlyphPerspectiveCamera({
   rotX: 0.38,
   zoom: 0.4,
   distance: 3,
@@ -121,7 +121,7 @@ const perspective = createGlyphcssPerspectiveCamera({
 scene.setOptions({ camera: perspective });
 
 // Or switch to orthographic:
-const ortho = createGlyphcssOrthographicCamera({ rotX: 0.62, zoom: 0.4 });
+const ortho = createGlyphOrthographicCamera({ rotX: 0.62, zoom: 0.4 });
 scene.setOptions({ camera: ortho });
 
 scene.add(octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }));

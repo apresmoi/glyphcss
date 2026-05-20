@@ -3,14 +3,14 @@ title: Introduction
 description: What glyphcss is and the problem it solves.
 ---
 
-import GlyphcssDemo from "../../components/GlyphcssDemo.astro";
+import GlyphDemo from "../../components/GlyphDemo.astro";
 
 **glyphcss** is an ASCII polygon-mesh rendering engine for the DOM. It paints 3D meshes
 (OBJ / glTF / GLB / VOX) into a character grid, then animates rotation via CSS
 `steps(N)` keyframes. JavaScript runs once at scene init and again only when the user
 drags or zooms — never per frame.
 
-<GlyphcssDemo id="intro-demo" geometry="cuboctahedron" />
+<GlyphDemo id="intro-demo" geometry="cuboctahedron" />
 
 ## The mental model
 
@@ -28,7 +28,7 @@ with the strip.
 | | glyphcss | glyphcss |
 |---|---|---|
 | Cost dominator | polygon count | grid cell count |
-| Per-polygon DOM events | ✓ (one node per polygon) | opt-in via `<GlyphcssHotspot>` |
+| Per-polygon DOM events | ✓ (one node per polygon) | opt-in via `<GlyphHotspot>` |
 | Texture / material support | full UVs, atlas, lighting | wireframe + Lambert ramp + voxel face |
 | Per-frame JS work | none (CSS-driven) | none (CSS-driven) |
 | Visual style | smooth-shaded | ASCII / glyph art |

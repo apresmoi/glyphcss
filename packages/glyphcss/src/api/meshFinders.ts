@@ -2,25 +2,25 @@
  * Mesh lookup helpers — mirrors voxcss's `findPolyMeshHandle`,
  * `findMeshUnderPoint`, and `pointInMeshElement`.
  *
- * `findGlyphcssMeshHandle(host, id)` performs an O(n) walk of mesh elements
- * under the given host, matching on the `data-glyphcss-mesh-id` attribute.
+ * `findGlyphMeshHandle(host, id)` performs an O(n) walk of mesh elements
+ * under the given host, matching on the `data-glyph-mesh-id` attribute.
  *
  * `findMeshUnderPoint` and `pointInMeshElement` use bounding-box checks.
  * TODO(hit-layer): replace the bbox check with proper polygon raycasting once
  * the rasterizer hit-map is wired to the hit layer.
  */
 
-import type { GlyphcssSceneHandle } from "./createGlyphcssScene";
+import type { GlyphSceneHandle } from "./createGlyphScene";
 
 /**
  * Given a host element and a string mesh id, return the mesh's HTMLElement
- * (the `.glyphcss-mesh` wrapper div) if found, or `null`.
+ * (the `.glyph-mesh` wrapper div) if found, or `null`.
  */
-export function findGlyphcssMeshHandle(
+export function findGlyphMeshHandle(
   host: HTMLElement,
   id: string,
 ): HTMLElement | null {
-  const el = host.querySelector(`[data-glyphcss-mesh-id="${CSS.escape(id)}"]`);
+  const el = host.querySelector(`[data-glyph-mesh-id="${CSS.escape(id)}"]`);
   return el instanceof HTMLElement ? el : null;
 }
 
@@ -41,7 +41,7 @@ export function pointInMeshElement(
 }
 
 /**
- * Returns the `.glyphcss-mesh` element whose bounding box contains the
+ * Returns the `.glyph-mesh` element whose bounding box contains the
  * given client coordinates, or `null`.
  *
  * The `host` parameter scopes the search; pass the scene host element to
@@ -57,7 +57,7 @@ export function findMeshUnderPoint(
 ): HTMLElement | null {
   const root = host instanceof Document ? host : host;
   const meshEls = Array.from(
-    root.querySelectorAll(".glyphcss-mesh"),
+    root.querySelectorAll(".glyph-mesh"),
   ) as HTMLElement[];
   for (const meshEl of meshEls) {
     if (pointInMeshElement(meshEl, clientX, clientY)) return meshEl;
@@ -66,4 +66,4 @@ export function findMeshUnderPoint(
   return null;
 }
 
-export type { GlyphcssSceneHandle };
+export type { GlyphSceneHandle };

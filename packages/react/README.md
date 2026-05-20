@@ -16,27 +16,27 @@ Requires React 18 or 19 as a peer dependency.
 
 ```tsx
 import {
-  GlyphcssScene,
-  GlyphcssCamera,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphScene,
+  GlyphCamera,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/react";
 
 export function App() {
   return (
-    <GlyphcssScene cols={80} rows={40}>
-      <GlyphcssCamera rotX={65} rotY={45}>
-        <GlyphcssOrbitControls />
-        <GlyphcssMesh src="/cottage.glb" />
-      </GlyphcssCamera>
-    </GlyphcssScene>
+    <GlyphScene cols={80} rows={40}>
+      <GlyphCamera rotX={65} rotY={45}>
+        <GlyphOrbitControls />
+        <GlyphMesh src="/cottage.glb" />
+      </GlyphCamera>
+    </GlyphScene>
   );
 }
 ```
 
 ## Component reference
 
-### `<GlyphcssScene>`
+### `<GlyphScene>`
 
 Root of every React glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change.
 
@@ -47,9 +47,9 @@ Root of every React glyphcss render tree. Owns the `<pre>` output element and ra
 | `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
 | `className` | `string` | — | CSS class on the `<pre>` container |
 
-### `<GlyphcssCamera>` / `<GlyphcssPerspectiveCamera>`
+### `<GlyphCamera>` / `<GlyphPerspectiveCamera>`
 
-Perspective camera. `GlyphcssCamera` is the ergonomic alias.
+Perspective camera. `GlyphCamera` is the ergonomic alias.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
@@ -58,7 +58,7 @@ Perspective camera. `GlyphcssCamera` is the ergonomic alias.
 | `rotY` | `number` | `45` | Azimuth in degrees |
 | `zoom` | `number` | `1` | Zoom multiplier |
 
-### `<GlyphcssMesh>`
+### `<GlyphMesh>`
 
 Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
 
@@ -67,16 +67,16 @@ Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
 | `src` | `string` | URL of the mesh file |
 | `color` | `string` | Override mesh color |
 
-### `<GlyphcssOrbitControls>` / `<GlyphcssMapControls>`
+### `<GlyphOrbitControls>` / `<GlyphMapControls>`
 
 Mouse/touch/keyboard camera controls.
 
 ### Hooks
 
-- `useGlyphcssCamera()` — access the camera context
-- `useGlyphcssSceneContext()` — access scene state
-- `useGlyphcssMesh(handle)` — mesh state and imperative API
-- `useGlyphcssAnimation(clips, controller)` — three.js-style animation mixer
+- `useGlyphCamera()` — access the camera context
+- `useGlyphSceneContext()` — access scene state
+- `useGlyphMesh(handle)` — mesh state and imperative API
+- `useGlyphAnimation(clips, controller)` — three.js-style animation mixer
 
 ## License
 

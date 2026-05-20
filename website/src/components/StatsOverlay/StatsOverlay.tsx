@@ -4,7 +4,7 @@ import Stats from "stats-js/src/Stats.js";
 // Terminal aesthetic override for stats-js panels.
 // stats-js injects its own inline styles; we have to beat them with !important.
 const STATS_STYLE = `
-  .glyphcss-stats-host {
+  .glyph-stats-host {
     position: fixed;
     right: 12px;
     bottom: 12px;
@@ -16,7 +16,7 @@ const STATS_STYLE = `
     gap: 4px;
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
   }
-  .glyphcss-stats-host > div {
+  .glyph-stats-host > div {
     border: 1px solid rgba(255, 232, 184, 0.18) !important;
     background: #0b0d10 !important;
     border-radius: 0 !important;
@@ -25,10 +25,10 @@ const STATS_STYLE = `
   /* No display override here — stats-js sets display: none on inactive
      canvases (each panel has 3 canvases for FPS/MS/MB modes), and forcing
      display: block makes all three render at once, triplicating each panel. */
-  .glyphcss-stats-host canvas {
+  .glyph-stats-host canvas {
     filter: hue-rotate(180deg) saturate(0.6) brightness(0.75) !important;
   }
-  .glyphcss-stats-host > div > div:first-child {
+  .glyph-stats-host > div > div:first-child {
     background: #0b0d10 !important;
     color: rgba(255, 232, 184, 0.94) !important;
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
@@ -44,12 +44,12 @@ export function StatsOverlay(): null {
   useEffect(() => {
     // Inject terminal style for stats panels
     const styleEl = document.createElement("style");
-    styleEl.setAttribute("data-glyphcss-stats", "");
+    styleEl.setAttribute("data-glyph-stats", "");
     styleEl.textContent = STATS_STYLE;
     document.head.appendChild(styleEl);
 
     const statsContainer = document.createElement("div");
-    statsContainer.className = "glyphcss-stats-host";
+    statsContainer.className = "glyph-stats-host";
     statsContainer.style.position = "fixed";
     statsContainer.style.right = "12px";
     statsContainer.style.bottom = "12px";

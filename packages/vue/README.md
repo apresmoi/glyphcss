@@ -16,27 +16,27 @@ Requires Vue 3 as a peer dependency.
 
 ```vue
 <template>
-  <GlyphcssScene :cols="80" :rows="40">
-    <GlyphcssCamera :rot-x="65" :rot-y="45">
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh src="/cottage.glb" />
-    </GlyphcssCamera>
-  </GlyphcssScene>
+  <GlyphScene :cols="80" :rows="40">
+    <GlyphCamera :rot-x="65" :rot-y="45">
+      <GlyphOrbitControls />
+      <GlyphMesh src="/cottage.glb" />
+    </GlyphCamera>
+  </GlyphScene>
 </template>
 
 <script setup lang="ts">
 import {
-  GlyphcssScene,
-  GlyphcssCamera,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphScene,
+  GlyphCamera,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/vue";
 </script>
 ```
 
 ## Component reference
 
-### `<GlyphcssScene>`
+### `<GlyphScene>`
 
 Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change.
 
@@ -46,9 +46,9 @@ Root of every Vue glyphcss render tree. Owns the `<pre>` output element and rast
 | `rows` | `number` | `40` | Grid height in character cells |
 | `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
 
-### `<GlyphcssCamera>` / `<GlyphcssPerspectiveCamera>`
+### `<GlyphCamera>` / `<GlyphPerspectiveCamera>`
 
-Perspective camera. `GlyphcssCamera` is the ergonomic alias.
+Perspective camera. `GlyphCamera` is the ergonomic alias.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
@@ -57,7 +57,7 @@ Perspective camera. `GlyphcssCamera` is the ergonomic alias.
 | `rot-y` | `number` | `45` | Azimuth in degrees |
 | `zoom` | `number` | `1` | Zoom multiplier |
 
-### `<GlyphcssMesh>`
+### `<GlyphMesh>`
 
 Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
 
@@ -66,15 +66,15 @@ Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
 | `src` | `string` | URL of the mesh file |
 | `color` | `string` | Override mesh color |
 
-### `<GlyphcssOrbitControls>` / `<GlyphcssMapControls>`
+### `<GlyphOrbitControls>` / `<GlyphMapControls>`
 
 Mouse/touch/keyboard camera controls.
 
 ### Composables
 
-- `useGlyphcssCamera()` — access the camera context
-- `useGlyphcssSceneContext()` — access scene state
-- `useGlyphcssAnimation(clips, controller)` — three.js-style animation mixer
+- `useGlyphCamera()` — access the camera context
+- `useGlyphSceneContext()` — access scene state
+- `useGlyphAnimation(clips, controller)` — three.js-style animation mixer
 
 ## License
 

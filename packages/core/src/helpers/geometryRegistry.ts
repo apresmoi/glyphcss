@@ -44,7 +44,7 @@ import { antiprismPolygons } from "./antiprismPolygons";
 import { bipyramidPolygons } from "./bipyramidPolygons";
 import { trapezohedronPolygons } from "./trapezohedronPolygons";
 
-export type GlyphcssGeometryName =
+export type GlyphGeometryName =
   | "tetrahedron"
   | "cube"
   | "octahedron"
@@ -90,7 +90,7 @@ export type GlyphcssGeometryName =
   | "bipyramid"
   | "trapezohedron";
 
-export interface GlyphcssGeometryOptions {
+export interface GlyphGeometryOptions {
   center?: Vec3;
   size?: number;
   color?: string;
@@ -103,8 +103,8 @@ export interface GlyphcssGeometryOptions {
  * When both `src` and `geometry` are supplied, `src` wins silently.
  */
 export function resolveGeometry(
-  name: GlyphcssGeometryName,
-  opts: GlyphcssGeometryOptions = {},
+  name: GlyphGeometryName,
+  opts: GlyphGeometryOptions = {},
 ): Polygon[] {
   const { center = [0, 0, 0] as Vec3, size = 1, color } = opts;
   switch (name) {

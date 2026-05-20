@@ -1,4 +1,4 @@
-export { GlyphcssAxesHelper } from "./GlyphcssAxesHelper";
-export type { GlyphcssAxesHelperProps } from "./GlyphcssAxesHelper";
-export { GlyphcssDirectionalLightHelper } from "./GlyphcssDirectionalLightHelper";
-export type { GlyphcssDirectionalLightHelperProps } from "./GlyphcssDirectionalLightHelper";
+export { GlyphAxesHelper } from "./GlyphAxesHelper";
+export type { GlyphAxesHelperProps } from "./GlyphAxesHelper";
+export { GlyphDirectionalLightHelper } from "./GlyphDirectionalLightHelper";
+export type { GlyphDirectionalLightHelperProps } from "./GlyphDirectionalLightHelper";

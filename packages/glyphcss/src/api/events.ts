@@ -10,7 +10,7 @@
  * Until then, consumers receive plain DOM events with `meshId` left undefined.
  */
 
-export type GlyphcssPointerEvent = PointerEvent & { meshId?: string };
-export type GlyphcssMouseEvent = MouseEvent & { meshId?: string };
-export type GlyphcssWheelEvent = WheelEvent & { meshId?: string };
-export type GlyphcssEventHandler<E = Event> = (event: E) => void;
+export type GlyphPointerEvent = PointerEvent & { meshId?: string };
+export type GlyphMouseEvent = MouseEvent & { meshId?: string };
+export type GlyphWheelEvent = WheelEvent & { meshId?: string };
+export type GlyphEventHandler<E = Event> = (event: E) => void;

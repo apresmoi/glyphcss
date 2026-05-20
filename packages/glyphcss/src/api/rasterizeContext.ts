@@ -4,19 +4,19 @@ import type {
   WireframeEdge,
   Polygon,
 } from "@glyphcss/core";
-import type { GlyphcssCamera } from "./createGlyphcssCamera";
-import type { GlyphcssDirectionalLight, GlyphcssAmbientLight } from "./types";
+import type { GlyphCamera } from "./createGlyphCamera";
+import type { GlyphDirectionalLight, GlyphAmbientLight } from "./types";
 
 export interface RasterizeContextOptions {
-  camera: GlyphcssCamera;
+  camera: GlyphCamera;
   grid: GridSize;
   /** Polygon list. Required for `solid` / `voxel` modes, optional otherwise. */
   polygons?: Polygon[];
   /** Explicit wireframe edges. If omitted in wireframe mode, edges are derived from `polygons` (fan-triangulated). */
   wireframe?: WireframeEdge[];
   mode?: RenderMode;
-  directionalLight?: GlyphcssDirectionalLight;
-  ambientLight?: GlyphcssAmbientLight;
+  directionalLight?: GlyphDirectionalLight;
+  ambientLight?: GlyphAmbientLight;
   /** Named wireframe glyph palette. Defaults to `"default"`. */
   glyphPalette?: string;
   /**
@@ -27,20 +27,20 @@ export interface RasterizeContextOptions {
 }
 
 export interface RasterizeContext {
-  camera: GlyphcssCamera;
+  camera: GlyphCamera;
   grid: GridSize;
   polygons: Polygon[];
   wireframe: WireframeEdge[];
   mode: RenderMode;
-  directionalLight: GlyphcssDirectionalLight;
-  ambientLight: GlyphcssAmbientLight;
+  directionalLight: GlyphDirectionalLight;
+  ambientLight: GlyphAmbientLight;
   /** Named wireframe glyph palette passed to the rasterizer. */
   glyphPalette: string;
   useColors: boolean;
 }
 
-const DEFAULT_DIRECTIONAL: GlyphcssDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
-const DEFAULT_AMBIENT: GlyphcssAmbientLight = { intensity: 0.4 };
+const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+const DEFAULT_AMBIENT: GlyphAmbientLight = { intensity: 0.4 };
 
 function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {
   // Derive deduplicated edges by fan-triangulating each polygon and collecting

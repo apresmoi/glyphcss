@@ -27,7 +27,7 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { rasterize } from "../src/render/rasterize";
 import { buildRasterizeContext } from "../src/api/rasterizeContext";
-import { createGlyphcssPerspectiveCamera } from "../src/api/createGlyphcssCamera";
+import { createGlyphPerspectiveCamera } from "../src/api/createGlyphCamera";
 import type { Polygon, Vec3 } from "@glyphcss/core";
 
 const FIXTURE_DIR = resolve(__dirname, "fixtures");
@@ -81,7 +81,7 @@ function makeTetrahedronPolygons(): Polygon[] {
 
 describe("parity: glyphcss rasterize vs asciss fixtures", () => {
   it("unit cube (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphcssPerspectiveCamera({ rotX: 0.4, rotY: 0.5, zoom: 0.35 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.4, rotY: 0.5, zoom: 0.35 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -98,7 +98,7 @@ describe("parity: glyphcss rasterize vs asciss fixtures", () => {
   });
 
   it("single triangle (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphcssPerspectiveCamera({ rotX: 0.2, rotY: 0.3, zoom: 0.5 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.2, rotY: 0.3, zoom: 0.5 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -115,7 +115,7 @@ describe("parity: glyphcss rasterize vs asciss fixtures", () => {
   });
 
   it("tetrahedron (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphcssPerspectiveCamera({ rotX: 0.3, rotY: 0.8, zoom: 0.4 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.3, rotY: 0.8, zoom: 0.4 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,

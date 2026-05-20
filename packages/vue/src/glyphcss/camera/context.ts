@@ -1,12 +1,12 @@
 import type { InjectionKey, ShallowRef } from "vue";
-import type { GlyphcssCamera } from "glyphcss";
+import type { GlyphCamera } from "glyphcss";
 
-export interface GlyphcssCameraContextValue {
-  cameraRef: ShallowRef<GlyphcssCamera | null>;
+export interface GlyphCameraContextValue {
+  cameraRef: ShallowRef<GlyphCamera | null>;
   rerender: () => void;
 }
 
-export const GlyphcssCameraContextKey: InjectionKey<GlyphcssCameraContextValue> =
-  Symbol("glyphcss-camera");
+export const GlyphCameraContextKey: InjectionKey<GlyphCameraContextValue> =
+  Symbol("glyph-camera");
 
-export type { GlyphcssCamera };
+export type { GlyphCamera };

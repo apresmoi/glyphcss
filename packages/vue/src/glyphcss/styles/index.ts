@@ -1,1 +1,1 @@
-export { injectGlyphcssBaseStyles } from "glyphcss";
+export { injectGlyphBaseStyles } from "glyphcss";

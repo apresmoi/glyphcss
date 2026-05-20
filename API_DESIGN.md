@@ -2,7 +2,7 @@
 
 Single source of truth for what the **same scene** looks like across the four supported usage paths: vanilla JS, custom elements (HTML), React, Vue. If any path diverges from this shape, it's a bug.
 
-**This describes the target state.** The current codebase ships symbols prefixed `Glyphcss*` / `<glyphcss-*>` / `.glyphcss-*` and a few API gaps relative to this design — see "Known drift" at the bottom. AGENTS.md / CLAUDE.md are updated alongside the implementation PR that closes each drift item.
+**This describes the target state.** A few API gaps remain relative to this design — see "Known drift" at the bottom. AGENTS.md / CLAUDE.md are updated alongside the implementation PR that closes each drift item.
 
 ---
 
@@ -501,11 +501,11 @@ On custom elements, each lifts to an attribute (`position="0,0,0"`, `scale="1.5"
 
 ### Geometry shortcut
 
-`<GlyphcssMesh>` / `<glyphcss-mesh>` accepts a `geometry` prop/attribute that resolves to a built-in polygon factory by name, eliminating the need to import the factory explicitly for common shapes.
+`<GlyphMesh>` / `<glyph-mesh>` accepts a `geometry` prop/attribute that resolves to a built-in polygon factory by name, eliminating the need to import the factory explicitly for common shapes.
 
 ```ts
-geometry?: GlyphcssGeometryName    // <GlyphcssMesh> / <glyphcss-mesh>
-size?: number                       // default 1
+geometry?: GlyphGeometryName    // <GlyphMesh> / <glyph-mesh>
+size?: number                   // default 1
 ```
 
 Precedence: explicit `polygons` > `src` > `geometry`. When `src` and `geometry` are both supplied, `src` wins silently.
@@ -513,15 +513,15 @@ Precedence: explicit `polygons` > `src` > `geometry`. When `src` and `geometry` 
 **React / Vue:**
 
 ```tsx
-<GlyphcssMesh geometry="dodecahedron" size={1} />
-<GlyphcssMesh geometry="sphere" size={0.8} color="#44aaff" />
+<GlyphMesh geometry="dodecahedron" size={1} />
+<GlyphMesh geometry="sphere" size={0.8} color="#44aaff" />
 ```
 
 **Custom elements:**
 
 ```html
-<glyphcss-mesh geometry="dodecahedron"></glyphcss-mesh>
-<glyphcss-mesh geometry="torus" size="1.2" color="#f97316"></glyphcss-mesh>
+<glyph-mesh geometry="dodecahedron"></glyph-mesh>
+<glyph-mesh geometry="torus" size="1.2" color="#f97316"></glyph-mesh>
 ```
 
 **Vanilla JS** — call `resolveGeometry` directly from `@glyphcss/core`:
@@ -531,7 +531,7 @@ import { resolveGeometry } from "@glyphcss/core";
 scene.add(resolveGeometry("dodecahedron", { size: 1 }));
 ```
 
-**`GlyphcssGeometryName` union** covers all 44 built-in factories:
+**`GlyphGeometryName` union** covers all 44 built-in factories:
 
 - Platonic (5): `tetrahedron`, `cube`, `octahedron`, `dodecahedron`, `icosahedron`
 - Kepler-Poinsot (4): `smallStellatedDodecahedron`, `greatDodecahedron`, `greatStellatedDodecahedron`, `greatIcosahedron`
@@ -639,7 +639,7 @@ Per-path syntactic differences (camelCase vs kebab-case, JSX vs HTML) are expect
 | Mesh rotation | Mesh | `rotation` | `Vec3` (Euler radians, XYZ) | `[0,0,0]` | `scene.add(p, { rotation: [0,1,0] })` | `rotation="0,1,0"` | `rotation={[0,1,0]}` |
 | Mesh id | Mesh | `id` | `string` | (none) | `scene.add(p, { id: "cottage" })` | `id="cottage"` | `id="cottage"` |
 | Auto-rotate (orbit / map) | Controls | `animate` | `{ speed: number; axis?: "x"\|"y"; pauseOnInteraction?: boolean } \| false` | (off) | `{ animate: { speed: 0.3 } }` | flat attrs `animate-speed="0.3"` `animate-axis="x"` | object prop |
-| Geometry shortcut | Mesh | `geometry` | `GlyphcssGeometryName` | (none) | `scene.add(resolveGeometry("dodecahedron"))` | `geometry="dodecahedron"` | `geometry="dodecahedron"` |
+| Geometry shortcut | Mesh | `geometry` | `GlyphGeometryName` | (none) | `scene.add(resolveGeometry("dodecahedron"))` | `geometry="dodecahedron"` | `geometry="dodecahedron"` |
 | Geometry size | Mesh | `size` | `number` | `1` | `resolveGeometry("dodecahedron", { size: 1.5 })` | `size="1.5"` | `size={1.5}` |
 | Hotspot anchor | Hotspot | `at` | `Vec3` | (required) | `scene.addHotspot({ at: [0,1,0] })` | `at="0,1,0"` | `at={[0,1,0]}` |
 
@@ -712,25 +712,20 @@ Features that exist in voxcss/polycss (or are commonly requested for 3D engines)
 
 ## Known drift (must fix to reach target)
 
-### Naming (whole-codebase rename)
-
-1. **Symbol prefix is `Glyphcss*`; target is `Glyph*`.** Everything in `packages/*`, the website, the elements registry, CSS classes (`.glyphcss-host`, `.glyphcss-output`, etc.), HTML tags (`<glyphcss-scene>`, …), TS symbol names, and hooks (`useGlyphcss*`) currently use the longer prefix.
-   - **Fix:** mechanical rename across all packages + website + tests. CSS classes: `.glyphcss-*` → `.glyph-*`. HTML tags: `<glyphcss-*>` → `<glyph-*>`. Symbol prefix: `Glyphcss*` → `Glyph*` (functions, types, components, hooks, elements classes). Update CLAUDE.md / AGENTS.md naming section in the same PR. Decide npm package names separately (see "Open questions" below).
-
 ### Architectural
 
-2. **Scene currently wraps camera; target is camera-wraps-scene.** React, Vue, and custom elements today expose `<GlyphcssScene>…<GlyphcssCamera/>…</GlyphcssScene>`. Vanilla `createGlyphcssScene` accepts `{ camera }` directly so it's tree-shape-neutral.
+2. **Scene currently wraps camera; target is camera-wraps-scene.** React, Vue, and custom elements today expose `<GlyphScene>…<GlyphCamera/>…</GlyphScene>`. Vanilla `createGlyphScene` accepts `{ camera }` directly so it's tree-shape-neutral.
    - **Fix:** invert the React + Vue trees so `<GlyphCamera>` wraps `<GlyphScene>`. The camera component creates the camera handle and provides it via context; `<GlyphScene>` reads from context (no `camera` prop). Update the elements wiring so `<glyph-camera>` becomes the outer element and the inner `<glyph-scene>` adopts the camera handle. Drop any `camera`-on-scene shortcut. Update CLAUDE.md component list and the CodePanel snippet generator in the same PR.
 
-3. **`GlyphCamera` alias points to perspective; target is orthographic.** CLAUDE.md says "GlyphcssCamera is a kept alias for GlyphcssPerspectiveCamera — the ergonomic default." Flip to ortho.
-   - **Fix:** repoint `GlyphCamera` → `GlyphOrthographicCamera` in vanilla, custom elements, React, and Vue. Update CLAUDE.md. Gallery defaults stay free to choose perspective explicitly via `<GlyphPerspectiveCamera>`.
+3. **`GlyphCamera` alias points to perspective; target is orthographic.** AGENTS.md says "GlyphCamera is a kept alias for GlyphPerspectiveCamera — the ergonomic default." Flip to ortho.
+   - **Fix:** repoint `GlyphCamera` → `GlyphOrthographicCamera` in vanilla, custom elements, React, and Vue. Update AGENTS.md. Gallery defaults stay free to choose perspective explicitly via `<GlyphPerspectiveCamera>`.
 
-4. **Three camera factories instead of two.** `createGlyphcssFirstPersonCamera` ships alongside perspective and orthographic. Target: two cameras only; FPV is `Perspective + GlyphFirstPersonControls`.
-   - **Fix:** fold FPV-specific projection (eye-at-origin, near-plane cull at `r[2] >= 0`, `focal`) into `GlyphPerspectiveCamera` — either as an internal "eye mode" flag toggled by the controls, or by having the controls drive `target` + a near-plane cull threshold on the existing camera. Drop the factory, the `<glyphcss-first-person-camera>` element, and `GlyphFirstPersonCamera` from React/Vue. Update CLAUDE.md component list.
+4. **Three camera factories instead of two.** `createGlyphFirstPersonCamera` ships alongside perspective and orthographic. Target: two cameras only; FPV is `Perspective + GlyphFirstPersonControls`.
+   - **Fix:** fold FPV-specific projection (eye-at-origin, near-plane cull at `r[2] >= 0`, `focal`) into `GlyphPerspectiveCamera` — either as an internal "eye mode" flag toggled by the controls, or by having the controls drive `target` + a near-plane cull threshold on the existing camera. Drop the factory, the `<glyph-first-person-camera>` element, and `GlyphFirstPersonCamera` from React/Vue. Update AGENTS.md component list.
 
 ### Missing features
 
-5. **`autoCenter` is silently dropped.** `<GlyphcssScene>` (React) doesn't list it in `GlyphcssSceneProps`; `GlyphcssSceneOptions` doesn't have the field. The gallery passes `autoCenter` as a prop and the workbench normalizes geometry itself before handing it to `scene.add()`. Snippets generated by `CodePanel` advertise the prop but the public API ignores it.
+5. **`autoCenter` is silently dropped.** `<GlyphScene>` (React) doesn't list it in `GlyphSceneProps`; `GlyphSceneOptions` doesn't have the field. The gallery passes `autoCenter` as a prop and the workbench normalizes geometry itself before handing it to `scene.add()`. Snippets generated by `CodePanel` advertise the prop but the public API ignores it.
    - **Fix:** add `autoCenter?: boolean` to `GlyphSceneOptions` (default `false`). When enabled, compute the bbox of all live mesh polygons on every `add` / `dispose` and apply a world-translation offset before projecting. Add the matching mesh-level option to `scene.add(polygons, { autoCenter: true })`. Wire `auto-center` attribute on `<glyph-scene>` and `<glyph-mesh>`, and the prop on the React + Vue components. The cross-binding parity test (see "Test surface") will fail until all four paths honor the flag identically.
 
 6. **`meshResolution` is not a top-level mesh prop.** Currently only available via `loadMesh(url, { meshResolution })` at the parser level. Custom elements / React / Vue don't expose it as a `<GlyphMesh>` attribute.

@@ -1,0 +1,367 @@
+@import url("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css");
+
+/* GlyphDemo — interactive ASCII scene viewer with code panel + tuning bench.
+ * Ported from poly-demo.css; glyph-specific additions preserved for the
+ * flipbook viewport/strip/hit-layer/hotspot layer that doesn't exist in glyphcss. */
+
+.glyph-demo {
+  margin: 1.5rem 0;
+  border: 1px solid var(--sl-color-gray-5, rgba(255,255,255,0.08));
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0b0f14;
+  /* The <pre class="glyph-demo__strip"> has white-space: pre, giving it an
+     intrinsic min-content equal to its widest rasterized frame. Without min-width:0
+     here (and on the grid item chain below), the demo refuses to shrink below
+     ~400-500px on narrow viewports, leaving it visually offset inside its container. */
+  min-width: 0;
+}
+
+/* ── Viewer (canvas + controls side by side) ────────────────────────────── */
+
+.glyph-demo__viewer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 320px;
+  min-width: 0;
+}
+.glyph-demo__viewer[data-layout="canvas-only"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.glyph-demo__canvas {
+  position: relative;
+  min-height: 320px;
+  min-width: 0;
+  overflow: hidden;
+  background: #01030a;
+}
+
+/* ── Scene host (contains the flipbook viewport + hit layer) ────────────── */
+
+.glyph-demo__scene-host {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Flipbook viewport — glyph-specific; no glyphcss equivalent ─────────
+ * Clipped to exactly one frame's height; centered vertically.
+ * `overscroll-behavior: contain` stops wheel zoom from leaking to the page
+ * scroll container where preventDefault() would be silently no-op'd. */
+
+.glyph-demo__viewport {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: calc(var(--rows, 1) * var(--cell-h, 12px));
+  transform: translateY(-50%);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.glyph-demo__viewport.dragging { cursor: grabbing; }
+
+/* ── Flipbook strip — glyph-specific; CSS-animated <pre> ───────────────
+ * Runs a steps() scroll driven by ad-rotate. During drag the runtime
+ * freezes the animation and directly sets a translate3d via style. */
+
+.glyph-demo__strip {
+  margin: 0;
+  padding: 0;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: var(--cell-fs, 10px);
+  line-height: var(--cell-h, 12px);
+  /* Amber fallback — overridden per-cell by <span style="color:#xyz"> for colored meshes. */
+  color: rgba(255, 232, 184, 0.94);
+  text-shadow: 0 0 5px rgba(255, 200, 130, 0.45);
+  white-space: pre;
+  will-change: transform;
+  animation: ad-rotate var(--dur, 6s) steps(60, end) infinite;
+}
+/* Inline span colors (from source-model materials) override the amber fallback via
+ * inline style specificity — no additional CSS rule needed. */
+.glyph-demo__viewport.dragging .glyph-demo__strip {
+  animation: none !important;
+  transform: translate3d(0, 0, 0) !important;
+}
+@keyframes ad-rotate {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, calc(-60 * var(--rows, 1) * var(--cell-h, 12px)), 0); }
+}
+
+/* Auto-rotate toggle — pauses (not clears) the strip + hotspot animations so
+   the mesh freezes at whatever frame is currently shown. Drag still works. */
+.glyph-demo.no-autorotate .glyph-demo__strip,
+.glyph-demo.no-autorotate .glyph-demo__hotspot {
+  animation-play-state: paused;
+}
+
+/* ── Hit layer — glyph-specific; sparse DOM hotspots over the <pre> ────
+ * Mirrors .glyph-demo__viewport geometry exactly but is pointer-enabled.
+ * Each .glyph-demo__hotspot inside runs its own ad-hit-* keyframe (emitted
+ * by the runtime) to stay locked to the same steps() cycle as the strip. */
+
+.glyph-demo__hit-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: calc(var(--rows, 1) * var(--cell-h, 12px));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.glyph-demo__hotspot {
+  position: absolute;
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(201, 167, 101, 0);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  will-change: transform;
+  animation-duration: var(--dur, 6s);
+  animation-timing-function: steps(60, end);
+  animation-iteration-count: infinite;
+}
+.glyph-demo__viewport.dragging ~ .glyph-demo__hit-layer .glyph-demo__hotspot {
+  animation: none !important;
+}
+.glyph-demo__hotspot:hover,
+.glyph-demo__hotspot:focus-visible {
+  background: rgba(200, 90, 55, 0.18);
+  border-color: rgba(201, 167, 101, 0.6);
+  outline: none;
+}
+.glyph-demo__hotspot .badge {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  white-space: nowrap;
+  padding: 2px 6px;
+  background: rgba(8, 8, 10, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #e2e8f0;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.glyph-demo__hotspot:hover .badge,
+.glyph-demo__hotspot:focus-visible .badge {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Loading overlay ─────────────────────────────────────────────────────── */
+
+.glyph-demo__loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  font-family: Consolas, Monaco, "Andale Mono", monospace;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* ── Stats overlay ───────────────────────────────────────────────────────── */
+
+.glyph-demo__stats {
+  display: none;
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: Consolas, Monaco, "Andale Mono", monospace;
+  font-size: 12px;
+  color: #e2e8f0;
+  line-height: 1.6;
+  pointer-events: none;
+}
+.glyph-demo__stats.active {
+  display: block;
+}
+.glyph-demo__stats .stat-value {
+  color: #38bdf8;
+  font-weight: 700;
+}
+
+/* ── Controls panel ──────────────────────────────────────────────────────── */
+
+.glyph-demo__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: #11141a;
+  border-left: 1px solid rgba(255,255,255,0.06);
+  min-width: 200px;
+  max-width: 240px;
+  font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+  font-size: 13px;
+  overflow-y: auto;
+  max-height: 400px;
+}
+.glyph-demo__controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #e2e8f0;
+}
+.glyph-demo__controls .range-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+.glyph-demo__controls .range-value {
+  color: #f8fafc;
+  font-weight: 600;
+}
+.glyph-demo__controls input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: #334155;
+  border: 1px solid #3f4c62;
+  padding: 0;
+  outline: none;
+}
+.glyph-demo__controls input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #94a3b8;
+  border: 1px solid #94a3b8;
+  cursor: pointer;
+}
+.glyph-demo__controls input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #94a3b8;
+  border: 1px solid #94a3b8;
+  cursor: pointer;
+}
+.glyph-demo__controls .switch {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+.glyph-demo__controls .switch input:not(:checked) + span {
+  color: #64748b;
+}
+
+/* lil-gui panel — themed to match the glyphcss range-control palette */
+.glyph-demo__controls .lil-gui {
+  --background-color: #11141a;
+  --text-color: #cbd5e1;
+  --title-background-color: #0f1115;
+  --title-text-color: #e2e8f0;
+  --widget-color: #334155;
+  --hover-color: #3f4c62;
+  --focus-color: rgba(56, 189, 248, 0.4);
+  --number-color: #38bdf8;
+  --string-color: #f8fafc;
+  --font-size: 13px;
+  --input-font-size: 13px;
+  --font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+  --folder-indent: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+
+/* ── Code panel ──────────────────────────────────────────────────────────── */
+
+.glyph-demo__code {
+  border-top: 1px solid rgba(255,255,255,0.06);
+  max-height: 300px;
+  overflow: auto;
+}
+
+.glyph-demo__tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  background: #0a0c10;
+}
+
+.glyph-demo__tab {
+  background: none;
+  border: none;
+  color: #64748b;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-family: Consolas, Monaco, "Andale Mono", monospace;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.glyph-demo__tab:hover {
+  color: #cbd5e1;
+}
+.glyph-demo__tab.active {
+  color: #e2e8f0;
+  border-bottom-color: #38bdf8;
+}
+
+.glyph-demo__snippet {
+  margin: 0 !important;
+  padding: 14px 16px !important;
+  background: #000 !important;
+  border-radius: 0 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+.glyph-demo__snippet--hidden {
+  display: none;
+}
+.glyph-demo__snippet code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace !important;
+  color: #e5e9f0 !important;
+  white-space: pre !important;
+  background: none !important;
+  padding: 0 !important;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .glyph-demo__viewer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .glyph-demo__controls {
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .glyph-demo__controls label {
+    flex: 1 1 45%;
+  }
+}

@@ -9,7 +9,7 @@ export interface UsePresetLoaderOptions {
   autoZoomPresetRef: React.RefObject<string | null>;
 }
 
-// The actual model loading (fetch + parse) happens inside the GlyphcssScene
+// The actual model loading (fetch + parse) happens inside the GlyphScene
 // runtime. This hook's job is to resolve the URL and per-preset camera
 // defaults and push them into state when the selection changes.
 export function usePresetLoader({

@@ -15,7 +15,7 @@ A tetrahedron has 4 vertices and 4 triangular faces. The simplest approach: writ
 the vertices as a `Vec3[]` and the face indices by hand, then map to polygons.
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphScene } from "glyphcss";
 import type { Polygon, Vec3 } from "@glyphcss/core";
 
 // 4 vertices of a regular tetrahedron (circumradius ≈ 1).
@@ -42,7 +42,7 @@ const polygons: Polygon[] = faceIndices.map(([a, b, c]) => ({
 
 // Render it.
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphcssScene(host, { mode: "solid", cols: 80, rows: 24 });
+const scene = createGlyphScene(host, { mode: "solid", cols: 80, rows: 24 });
 scene.add(polygons);
 ```
 
@@ -53,7 +53,7 @@ The rasterizer fan-triangulates N-gons internally.
 ## Built-in helpers
 
 `@glyphcss/core` ships geometry generators for all common shapes. Each returns
-`Polygon[]` — pass directly to `scene.add()` or to the `GlyphcssMesh` `polygons` prop.
+`Polygon[]` — pass directly to `scene.add()` or to the `GlyphMesh` `polygons` prop.
 
 ### Platonic solids
 
@@ -198,9 +198,9 @@ composing multiple framework components.
 
 ```tsx
 import {
-  GlyphcssScene,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphScene,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/react";
 import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
 
@@ -211,12 +211,12 @@ const axes = axesHelperPolygons({ size: 1.5 });
 
 export function App() {
   return (
-    <GlyphcssScene mode="solid" cols={120} rows={36}>
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={cube} />
-      <GlyphcssMesh polygons={octa} />
-      <GlyphcssMesh polygons={axes} />
-    </GlyphcssScene>
+    <GlyphScene mode="solid" cols={120} rows={36}>
+      <GlyphOrbitControls />
+      <GlyphMesh polygons={cube} />
+      <GlyphMesh polygons={octa} />
+      <GlyphMesh polygons={axes} />
+    </GlyphScene>
   );
 }
 ```
@@ -226,19 +226,19 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphcssScene mode="solid" :cols="120" :rows="36">
-    <GlyphcssOrbitControls />
-    <GlyphcssMesh :polygons="cube" />
-    <GlyphcssMesh :polygons="octa" />
-    <GlyphcssMesh :polygons="axes" />
-  </GlyphcssScene>
+  <GlyphScene mode="solid" :cols="120" :rows="36">
+    <GlyphOrbitControls />
+    <GlyphMesh :polygons="cube" />
+    <GlyphMesh :polygons="octa" />
+    <GlyphMesh :polygons="axes" />
+  </GlyphScene>
 </template>
 
 <script setup lang="ts">
 import {
-  GlyphcssScene,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphScene,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/vue";
 import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
 
@@ -252,11 +252,11 @@ const axes = axesHelperPolygons({ size: 1.5 });
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphScene } from "glyphcss";
 import { cubePolygons, octahedronPolygons, axesHelperPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphcssScene(host, { mode: "solid", cols: 120, rows: 36 });
+const scene = createGlyphScene(host, { mode: "solid", cols: 120, rows: 36 });
 
 scene.add(cubePolygons({ center: [-1.5, 0, 0], size: 0.8, color: "#4488ff" }));
 scene.add(octahedronPolygons({ center: [0, 0, 0], size: 0.8, color: "#ffcc44" }));
@@ -273,7 +273,7 @@ by pushing two triangles per grid cell. You can also push quads (4 vertices) —
 the rasterizer fan-triangulates them automatically.
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphScene } from "glyphcss";
 import type { Polygon, Vec3 } from "@glyphcss/core";
 
 const COLS = 20;
@@ -307,7 +307,7 @@ function makeGrid(): Polygon[] {
 }
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphcssScene(host, { mode: "solid", cols: 100, rows: 30 });
+const scene = createGlyphScene(host, { mode: "solid", cols: 100, rows: 30 });
 scene.add(makeGrid());
 ```
 

@@ -1,6 +1,6 @@
 ---
 title: Core Types
-description: TypeScript types exported by glyphcss-core and glyphcss.
+description: TypeScript types exported by glyph-core and glyphcss.
 ---
 
 All types below are exported from `@glyphcss/core` unless marked with `glyphcss`
@@ -59,17 +59,17 @@ type EdgeWeight = 1 | 2 | 3;
 
 | Type | Description | Used in |
 |---|---|---|
-| `GlyphcssDirectionalLight` | Single distant light source | `SceneContextOptions.directionalLight` |
-| `GlyphcssAmbientLight` | Uniform fill light | `SceneContextOptions.ambientLight` |
+| `GlyphDirectionalLight` | Single distant light source | `SceneContextOptions.directionalLight` |
+| `GlyphAmbientLight` | Uniform fill light | `SceneContextOptions.ambientLight` |
 
 ```ts
-interface GlyphcssDirectionalLight {
+interface GlyphDirectionalLight {
   direction: Vec3;
   intensity?: number;  // default 1
   color?: string;      // hex, default white
 }
 
-interface GlyphcssAmbientLight {
+interface GlyphAmbientLight {
   intensity?: number;  // default 0.4
   color?: string;      // hex, default white
 }
@@ -148,16 +148,16 @@ interface ParseAnimationClip {
 
 | Type | Description | Used in |
 |---|---|---|
-| `GlyphcssAnimationMixer` | Drives one or more animation actions against a mesh target | `createGlyphcssAnimationMixer()` |
-| `GlyphcssAnimationAction` | Per-clip playback state | `mixer.clipAction()` |
+| `GlyphAnimationMixer` | Drives one or more animation actions against a mesh target | `createGlyphAnimationMixer()` |
+| `GlyphAnimationAction` | Per-clip playback state | `mixer.clipAction()` |
 
 ```ts
 // Minimal usage — requires a glTF/GLB file with embedded animation clips.
 // Replace "/character.glb" with the path to your own animated mesh.
-import { createGlyphcssAnimationMixer, LoopRepeat, loadMesh } from "@glyphcss/core";
+import { createGlyphAnimationMixer, LoopRepeat, loadMesh } from "@glyphcss/core";
 
 const { polygons, animation } = await loadMesh("/character.glb");
-const mixer = createGlyphcssAnimationMixer(meshHandle, animation!);
+const mixer = createGlyphAnimationMixer(meshHandle, animation!);
 
 const action = mixer.clipAction("walk");
 action.setLoop(LoopRepeat, Infinity).play();

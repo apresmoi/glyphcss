@@ -3,13 +3,13 @@
  * Provides minimal positioning and monospace rendering for the ASCII output.
  * Full terminal aesthetic CSS lands in Phase 5.
  */
-const GLYPHCSS_STYLE_ID = "glyphcss-styles";
+const GLYPH_STYLE_ID = "glyph-styles";
 
-export function injectGlyphcssBaseStyles(doc?: Document): void {
+export function injectGlyphBaseStyles(doc?: Document): void {
   const target = doc ?? (typeof document !== "undefined" ? document : undefined);
-  if (!target || target.getElementById(GLYPHCSS_STYLE_ID)) return;
+  if (!target || target.getElementById(GLYPH_STYLE_ID)) return;
   const style = target.createElement("style");
-  style.id = GLYPHCSS_STYLE_ID;
+  style.id = GLYPH_STYLE_ID;
   style.textContent = CORE_BASE_STYLES;
   target.head.appendChild(style);
 }
@@ -17,7 +17,7 @@ export function injectGlyphcssBaseStyles(doc?: Document): void {
 const CORE_BASE_STYLES = `
 /* ── Glyphcss scene container ───────────────────────────────────────── */
 
-.glyphcss-scene {
+.glyph-scene {
   position: relative;
   display: block;
   overflow: hidden;
@@ -26,7 +26,7 @@ const CORE_BASE_STYLES = `
 
 /* ── ASCII output <pre> ──────────────────────────────────────────────── */
 
-.glyphcss-scene .glyphcss-output {
+.glyph-scene .glyph-output {
   display: block;
   margin: 0;
   padding: 0;
@@ -41,13 +41,13 @@ const CORE_BASE_STYLES = `
 
 /* ── Hotspot overlay ─────────────────────────────────────────────────── */
 
-.glyphcss-scene .glyphcss-hotspot-layer {
+.glyph-scene .glyph-hotspot-layer {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.glyphcss-scene .glyphcss-hotspot {
+.glyph-scene .glyph-hotspot {
   position: absolute;
   pointer-events: all;
   cursor: pointer;

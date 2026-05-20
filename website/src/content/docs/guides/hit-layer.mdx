@@ -8,7 +8,7 @@ hotspots at specific 3D anchors. No polygon-per-DOM-node overhead.
 
 ## Why sparse
 
-A glyphcss-style "one DOM node per polygon" model gives you per-polygon events but
+A glyph-style "one DOM node per polygon" model gives you per-polygon events but
 balloons the DOM for large meshes (a 10k-triangle GLB → 10k `<div>`s). glyphcss takes
 the opposite trade: a single `<pre>` for visuals, and only the hotspots you
 explicitly register become DOM nodes.
@@ -19,27 +19,27 @@ roof shingle; you need them on the front door.
 ## Authoring hotspots
 
 ```tsx
-import { GlyphcssScene, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
+import { GlyphScene, GlyphMesh, GlyphHotspot } from "@glyphcss/react";
 import { octahedronPolygons } from "@glyphcss/core";
 
 const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
 
-<GlyphcssScene mode="solid" cols={80} rows={24}>
-  <GlyphcssMesh polygons={shape}>
-    <GlyphcssHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>
+<GlyphScene mode="solid" cols={80} rows={24}>
+  <GlyphMesh polygons={shape}>
+    <GlyphHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>
       <span className="badge">Top</span>
-    </GlyphcssHotspot>
-    <GlyphcssHotspot at={[0, -1, 0]} onClick={() => alert("bottom vertex")}>
+    </GlyphHotspot>
+    <GlyphHotspot at={[0, -1, 0]} onClick={() => alert("bottom vertex")}>
       <span className="badge">Bottom</span>
-    </GlyphcssHotspot>
-  </GlyphcssMesh>
-</GlyphcssScene>
+    </GlyphHotspot>
+  </GlyphMesh>
+</GlyphScene>
 ```
 
-Each `<GlyphcssHotspot>` becomes:
+Each `<GlyphHotspot>` becomes:
 
 ```html
-<div class="glyphcss-demo__hotspot"
+<div class="glyph-demo__hotspot"
      role="button"
      style="position: absolute; transform: translate3d(...); width: ...; height: ...">
   <span class="badge">Roof</span>
@@ -66,7 +66,7 @@ Hotspots behind the camera get `opacity: 0` automatically. Use this for "show
 this label only when the user is looking at the front of the house":
 
 ```css
-.glyphcss-demo__hotspot {
+.glyph-demo__hotspot {
   transition: opacity 200ms ease;
 }
 ```

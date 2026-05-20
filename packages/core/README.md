@@ -29,8 +29,8 @@ npm install @glyphcss/core
 | `Vec2` | `[number, number]`: 2D point or UV coordinate |
 | `Vec3` | `[number, number, number]`: 3D point or direction |
 | `Polygon` | Single renderable polygon: `vertices`, optional `color`, `texture`, `uvs`, `data` |
-| `GlyphcssDirectionalLight` | Directional light: `direction`, optional `color`, optional `intensity` |
-| `GlyphcssAmbientLight` | Ambient fill light: optional `color`, optional `intensity` |
+| `GlyphDirectionalLight` | Directional light: `direction`, optional `color`, optional `intensity` |
+| `GlyphAmbientLight` | Ambient fill light: optional `color`, optional `intensity` |
 | `ParseResult` | Unified parser return: `polygons`, `objectUrls`, `dispose()`, `warnings` |
 | `ObjParseOptions` | Options for `parseObj` |
 | `GltfParseOptions` | Options for `parseGltf` |

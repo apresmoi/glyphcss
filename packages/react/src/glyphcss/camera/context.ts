@@ -1,18 +1,18 @@
 import { createContext, useContext } from "react";
-import type { GlyphcssCamera } from "glyphcss";
+import type { GlyphCamera } from "glyphcss";
 
-export interface GlyphcssCameraContextValue {
-  cameraRef: React.MutableRefObject<GlyphcssCamera | null>;
+export interface GlyphCameraContextValue {
+  cameraRef: React.MutableRefObject<GlyphCamera | null>;
   /** Notify the scene to re-render after camera changes. */
   rerender: () => void;
 }
 
-export const GlyphcssCameraContext = createContext<GlyphcssCameraContextValue | null>(null);
+export const GlyphCameraContext = createContext<GlyphCameraContextValue | null>(null);
 
-export function useGlyphcssCamera(): GlyphcssCameraContextValue {
-  const ctx = useContext(GlyphcssCameraContext);
+export function useGlyphCamera(): GlyphCameraContextValue {
+  const ctx = useContext(GlyphCameraContext);
   if (!ctx) {
-    throw new Error("glyphcss: camera hook must be used inside a GlyphcssCamera.");
+    throw new Error("glyphcss: camera hook must be used inside a GlyphCamera.");
   }
   return ctx;
 }

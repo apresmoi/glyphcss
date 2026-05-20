@@ -1,42 +1,42 @@
 // ── Scene ───────────────────────────────────────────────────────────────────
-export { GlyphcssScene, GlyphcssMesh, GlyphcssGround, GlyphcssHotspot, GlyphcssSceneContext, useGlyphcssSceneContext, useGlyphcssMesh, findGlyphcssMeshHandle, pointInMeshElement, findMeshUnderPoint } from "./scene";
+export { GlyphScene, GlyphMesh, GlyphGround, GlyphHotspot, GlyphSceneContext, useGlyphSceneContext, useGlyphMesh, findGlyphMeshHandle, pointInMeshElement, findMeshUnderPoint } from "./scene";
 export type {
-  GlyphcssSceneProps,
-  GlyphcssMeshProps,
-  GlyphcssGroundProps,
-  GlyphcssHotspotProps,
-  GlyphcssSceneContextValue,
-  UseGlyphcssMeshResult,
-  UseGlyphcssMeshOptions,
+  GlyphSceneProps,
+  GlyphMeshProps,
+  GlyphGroundProps,
+  GlyphHotspotProps,
+  GlyphSceneContextValue,
+  UseGlyphMeshResult,
+  UseGlyphMeshOptions,
 } from "./scene";
 
 // ── Camera ──────────────────────────────────────────────────────────────────
-export { GlyphcssCamera, GlyphcssPerspectiveCamera, GlyphcssOrthographicCamera, GlyphcssCameraContext, useGlyphcssCamera } from "./camera";
+export { GlyphCamera, GlyphPerspectiveCamera, GlyphOrthographicCamera, GlyphCameraContext, useGlyphCamera } from "./camera";
 export type {
-  GlyphcssCameraProps,
-  GlyphcssPerspectiveCameraProps,
-  GlyphcssOrthographicCameraProps,
-  GlyphcssCameraContextValue,
+  GlyphCameraProps,
+  GlyphPerspectiveCameraProps,
+  GlyphOrthographicCameraProps,
+  GlyphCameraContextValue,
 } from "./camera";
 
 // ── Controls ────────────────────────────────────────────────────────────────
-export { GlyphcssOrbitControls, GlyphcssMapControls, GlyphcssFirstPersonControls } from "./controls";
+export { GlyphOrbitControls, GlyphMapControls, GlyphFirstPersonControls } from "./controls";
 export type {
-  GlyphcssOrbitControlsProps,
-  GlyphcssMapControlsProps,
-  GlyphcssFirstPersonControlsProps,
+  GlyphOrbitControlsProps,
+  GlyphMapControlsProps,
+  GlyphFirstPersonControlsProps,
 } from "./controls";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-export { GlyphcssAxesHelper, GlyphcssDirectionalLightHelper } from "./helpers";
+export { GlyphAxesHelper, GlyphDirectionalLightHelper } from "./helpers";
 export type {
-  GlyphcssAxesHelperProps,
-  GlyphcssDirectionalLightHelperProps,
+  GlyphAxesHelperProps,
+  GlyphDirectionalLightHelperProps,
 } from "./helpers";
 
 // ── Styles ──────────────────────────────────────────────────────────────────
-export { injectGlyphcssBaseStyles } from "./styles";
+export { injectGlyphBaseStyles } from "./styles";
 
 // ── Animation ───────────────────────────────────────────────────────────────
-export { useGlyphcssAnimation } from "./animation/useGlyphcssAnimation";
-export type { UseGlyphcssAnimationResult } from "./animation/useGlyphcssAnimation";
+export { useGlyphAnimation } from "./animation/useGlyphAnimation";
+export type { UseGlyphAnimationResult } from "./animation/useGlyphAnimation";

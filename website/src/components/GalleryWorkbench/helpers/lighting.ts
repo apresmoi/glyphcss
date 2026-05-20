@@ -1,7 +1,7 @@
-import type { GlyphcssDirectionalLight, GlyphcssAmbientLight } from "glyphcss";
+import type { GlyphDirectionalLight, GlyphAmbientLight } from "glyphcss";
 import type { SceneOptionsState } from "../types";
 
-export function directionalFromOptions(options: SceneOptionsState): GlyphcssDirectionalLight {
+export function directionalFromOptions(options: SceneOptionsState): GlyphDirectionalLight {
   const az = (options.lightAzimuth * Math.PI) / 180;
   const el = (options.lightElevation * Math.PI) / 180;
   const cosEl = Math.cos(el);
@@ -15,7 +15,7 @@ export function directionalFromOptions(options: SceneOptionsState): GlyphcssDire
   };
 }
 
-export function ambientFromOptions(options: SceneOptionsState): GlyphcssAmbientLight {
+export function ambientFromOptions(options: SceneOptionsState): GlyphAmbientLight {
   return {
     intensity: options.ambientIntensity,
   };

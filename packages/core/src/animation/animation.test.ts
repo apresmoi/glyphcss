@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
-  createGlyphcssAnimationMixer,
+  createGlyphAnimationMixer,
   LoopOnce,
   LoopRepeat,
   LoopPingPong,
 } from "./index";
 import type {
-  GlyphcssAnimationTarget,
-  GlyphcssAnimationAction,
+  GlyphAnimationTarget,
+  GlyphAnimationAction,
 } from "./index";
 import type { ParseAnimationController, ParseAnimationClip } from "../parser/types";
 import type { Polygon } from "../types";
@@ -31,7 +31,7 @@ function makeController(
   };
 }
 
-function makeTarget(): GlyphcssAnimationTarget & { calls: Polygon[][] } {
+function makeTarget(): GlyphAnimationTarget & { calls: Polygon[][] } {
   const calls: Polygon[][] = [];
   return {
     calls,
@@ -47,13 +47,13 @@ describe("loop mode constants", () => {
   it("LoopPingPong is 2202", () => expect(LoopPingPong).toBe(2202));
 });
 
-// ── createGlyphcssAnimationMixer basic lifecycle ──────────────────────────────────
+// ── createGlyphAnimationMixer basic lifecycle ──────────────────────────────────
 
-describe("createGlyphcssAnimationMixer", () => {
+describe("createGlyphAnimationMixer", () => {
   it("returns mixer with expected methods", () => {
     const ctrl = makeController([makeClip(0, "run")]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     expect(typeof mixer.clipAction).toBe("function");
     expect(typeof mixer.existingAction).toBe("function");
     expect(typeof mixer.update).toBe("function");
@@ -64,14 +64,14 @@ describe("createGlyphcssAnimationMixer", () => {
 
   it("clipAction by name returns an action", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action).toBeDefined();
   });
 
   it("clipAction by index returns the same instance as by name", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const byName = mixer.clipAction("run");
     const byIndex = mixer.clipAction(0);
     expect(byName).toBe(byIndex);
@@ -79,37 +79,37 @@ describe("createGlyphcssAnimationMixer", () => {
 
   it("existingAction returns null before clip is instantiated", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     expect(mixer.existingAction("run")).toBeNull();
   });
 
   it("existingAction returns the action after clipAction is called", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(mixer.existingAction("run")).toBe(action);
   });
 
   it("clipAction throws for unknown clip name", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     expect(() => mixer.clipAction("nonexistent")).toThrow();
   });
 });
 
 // ── Action lifecycle ──────────────────────────────────────────────────────────
 
-describe("GlyphcssAnimationAction lifecycle", () => {
+describe("GlyphAnimationAction lifecycle", () => {
   it("is not running after creation", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.isRunning).toBe(false);
   });
 
   it("play() sets isRunning = true", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     expect(action.isRunning).toBe(true);
@@ -117,7 +117,7 @@ describe("GlyphcssAnimationAction lifecycle", () => {
 
   it("stop() resets time to 0 and sets isRunning = false", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.time = 0.5;
@@ -128,7 +128,7 @@ describe("GlyphcssAnimationAction lifecycle", () => {
 
   it("reset() sets time to 0 without stopping", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.time = 0.5;
@@ -139,14 +139,14 @@ describe("GlyphcssAnimationAction lifecycle", () => {
 
   it("play() returns `this` for chaining", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.play()).toBe(action);
   });
 
   it("stop() returns `this` for chaining", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.stop()).toBe(action);
   });
@@ -158,7 +158,7 @@ describe("mixer.update() applies polygons", () => {
   it("does not call setPolygons when no actions are running", () => {
     const ctrl = makeController([makeClip(0, "run")]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     mixer.clipAction("run"); // instantiate but don't play
     mixer.update(0.1);
     expect(target.calls.length).toBe(0);
@@ -167,7 +167,7 @@ describe("mixer.update() applies polygons", () => {
   it("calls setPolygons when an action is playing", () => {
     const ctrl = makeController([makeClip(0, "run")]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     mixer.clipAction("run").play();
     mixer.update(0.1);
     expect(target.calls.length).toBe(1);
@@ -177,7 +177,7 @@ describe("mixer.update() applies polygons", () => {
     const sampled: Polygon[] = [TRI_A];
     const ctrl = makeController([makeClip(0, "run")], () => sampled);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     mixer.clipAction("run").play();
     mixer.update(0.1);
     expect(target.calls[0]).toBe(sampled);
@@ -186,7 +186,7 @@ describe("mixer.update() applies polygons", () => {
   it("advances time with update()", () => {
     const ctrl = makeController([makeClip(0, "run", 2)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const action = mixer.clipAction("run");
     action.play();
     mixer.update(0.5);
@@ -205,7 +205,7 @@ describe("mixer.update() applies polygons", () => {
         return [TRI_A];
       },
     };
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     mixer.clipAction("run").play();
     mixer.update(0.4);
     expect(sampleTimes[0]).toBeCloseTo(0.4);
@@ -218,7 +218,7 @@ describe("LoopOnce", () => {
   it("stops after one full duration", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopOnce, 1).play();
     mixer.update(1.1);
@@ -227,7 +227,7 @@ describe("LoopOnce", () => {
 
   it("clamps time to duration when clampWhenFinished is true", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopOnce, 1);
     action.clampWhenFinished = true;
@@ -239,7 +239,7 @@ describe("LoopOnce", () => {
 
   it("resets time to 0 when clampWhenFinished is false", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopOnce, 1);
     action.clampWhenFinished = false;
@@ -252,7 +252,7 @@ describe("LoopOnce", () => {
   it("does not loop past the end", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopOnce, 1).play();
     mixer.update(0.9);
@@ -267,7 +267,7 @@ describe("LoopOnce", () => {
 describe("LoopRepeat", () => {
   it("wraps time modulo duration", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopRepeat, Infinity).play();
     mixer.update(1.7);
@@ -276,7 +276,7 @@ describe("LoopRepeat", () => {
 
   it("keeps running after one full cycle", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopRepeat, Infinity).play();
     mixer.update(2.5);
@@ -285,7 +285,7 @@ describe("LoopRepeat", () => {
 
   it("stops after exhausting repetitions", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopRepeat, 2).play();
     mixer.update(2.5); // 2 full reps + 0.5
@@ -298,7 +298,7 @@ describe("LoopRepeat", () => {
 describe("LoopPingPong", () => {
   it("time goes forward then backward", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopPingPong, Infinity).play();
 
@@ -309,7 +309,7 @@ describe("LoopPingPong", () => {
     // Advance past the turn-around (total 1.5 → 0.5 into reverse)
     // After full update: time is in range [0,1], internal phase maps to 0.5
     const target = makeTarget();
-    const mixer2 = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer2 = createGlyphAnimationMixer(target, ctrl);
     const action2 = mixer2.clipAction("run");
     action2.setLoop(LoopPingPong, Infinity).play();
     mixer2.update(1.3);
@@ -328,7 +328,7 @@ describe("LoopPingPong", () => {
         return [TRI_A];
       },
     };
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopPingPong, Infinity).play();
     mixer.update(1.5);
@@ -346,7 +346,7 @@ describe("LoopPingPong", () => {
         return [TRI_A];
       },
     };
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopPingPong, Infinity).play();
 
@@ -367,14 +367,14 @@ describe("LoopPingPong", () => {
 describe("setEffectiveTimeScale", () => {
   it("returns this for chaining", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.setEffectiveTimeScale(2)).toBe(action);
   });
 
   it("half speed: time advances at half rate", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setEffectiveTimeScale(0.5).play();
     mixer.update(1);
@@ -383,7 +383,7 @@ describe("setEffectiveTimeScale", () => {
 
   it("double speed: time advances at double rate", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setEffectiveTimeScale(2).play();
     mixer.update(1);
@@ -396,7 +396,7 @@ describe("setEffectiveTimeScale", () => {
 describe("fadeIn / fadeOut", () => {
   it("fadeIn transitions weight from 0 to 1", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.fadeIn(1).play();
     expect(action.weight).toBeCloseTo(0);
@@ -408,7 +408,7 @@ describe("fadeIn / fadeOut", () => {
 
   it("fadeOut transitions weight toward 0 and stops action", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.weight = 1;
@@ -419,14 +419,14 @@ describe("fadeIn / fadeOut", () => {
 
   it("fadeIn returns this", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.fadeIn(1)).toBe(action);
   });
 
   it("fadeOut returns this", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.fadeOut(1)).toBe(action);
   });
@@ -438,7 +438,7 @@ describe("crossFadeTo", () => {
   it("fades out the source and fades in the target", () => {
     const clips = [makeClip(0, "walk", 10), makeClip(1, "run", 10)];
     const ctrl = makeController(clips, () => [TRI_A]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const walk = mixer.clipAction("walk");
     const run = mixer.clipAction("run");
     walk.play();
@@ -454,7 +454,7 @@ describe("crossFadeTo", () => {
   it("returns this for chaining", () => {
     const clips = [makeClip(0, "walk", 10), makeClip(1, "run", 10)];
     const ctrl = makeController(clips);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const walk = mixer.clipAction("walk");
     const run = mixer.clipAction("run");
     expect(walk.crossFadeTo(run, 1)).toBe(walk);
@@ -466,7 +466,7 @@ describe("crossFadeTo", () => {
 describe("setEffectiveWeight", () => {
   it("sets weight and returns this", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     const result = action.setEffectiveWeight(0.7);
     expect(action.weight).toBeCloseTo(0.7);
@@ -480,7 +480,7 @@ describe("stopAllAction", () => {
   it("stops all running actions", () => {
     const clips = [makeClip(0, "walk", 5), makeClip(1, "run", 5)];
     const ctrl = makeController(clips);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const walk = mixer.clipAction("walk").play();
     const run = mixer.clipAction("run").play();
     mixer.stopAllAction();
@@ -491,7 +491,7 @@ describe("stopAllAction", () => {
   it("after stopAllAction, update does not call setPolygons", () => {
     const ctrl = makeController([makeClip(0, "run", 5)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     mixer.clipAction("run").play();
     mixer.stopAllAction();
     mixer.update(0.1);
@@ -504,7 +504,7 @@ describe("stopAllAction", () => {
 describe("uncacheClip / uncacheRoot", () => {
   it("uncacheClip removes the cached action so existingAction returns null", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     mixer.clipAction("run");
     mixer.uncacheClip("run");
     expect(mixer.existingAction("run")).toBeNull();
@@ -513,7 +513,7 @@ describe("uncacheClip / uncacheRoot", () => {
   it("uncacheRoot removes all cached actions", () => {
     const clips = [makeClip(0, "walk"), makeClip(1, "run")];
     const ctrl = makeController(clips);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     mixer.clipAction("walk");
     mixer.clipAction("run");
     mixer.uncacheRoot();
@@ -523,7 +523,7 @@ describe("uncacheClip / uncacheRoot", () => {
 
   it("uncacheClip by index works the same as by name", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     mixer.clipAction("run");
     mixer.uncacheClip(0);
     expect(mixer.existingAction("run")).toBeNull();
@@ -535,7 +535,7 @@ describe("uncacheClip / uncacheRoot", () => {
 describe("setLoop + clampWhenFinished", () => {
   it("LoopOnce + clampWhenFinished: time stays at duration after finish", () => {
     const ctrl = makeController([makeClip(0, "run", 1)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.setLoop(LoopOnce, 1);
     action.clampWhenFinished = true;
@@ -547,7 +547,7 @@ describe("setLoop + clampWhenFinished", () => {
 
   it("setLoop returns this", () => {
     const ctrl = makeController([makeClip(0, "run")]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.setLoop(LoopOnce, 1)).toBe(action);
   });
@@ -565,7 +565,7 @@ describe("multi-action blending", () => {
       sample: (name, _t) => name === "a" ? [polyA] : [polyB],
     };
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const actionA = mixer.clipAction("a");
     const actionB = mixer.clipAction("b");
     actionA.setEffectiveWeight(0.5).play();
@@ -582,7 +582,7 @@ describe("crossFadeFrom", () => {
   it("fades in this action and fades out the from action", () => {
     const clips = [makeClip(0, "walk", 10), makeClip(1, "run", 10)];
     const ctrl = makeController(clips, () => [TRI_A]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const walk = mixer.clipAction("walk");
     const run = mixer.clipAction("run");
     walk.play();
@@ -598,7 +598,7 @@ describe("crossFadeFrom", () => {
   it("returns this for chaining", () => {
     const clips = [makeClip(0, "walk", 10), makeClip(1, "run", 10)];
     const ctrl = makeController(clips);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const walk = mixer.clipAction("walk");
     const run = mixer.clipAction("run");
     expect(run.crossFadeFrom(walk, 1)).toBe(run);
@@ -610,7 +610,7 @@ describe("crossFadeFrom", () => {
 describe("enabled", () => {
   it("defaults to true", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.enabled).toBe(true);
   });
@@ -618,7 +618,7 @@ describe("enabled", () => {
   it("when false, does not drive setPolygons even while running", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.enabled = false;
@@ -628,7 +628,7 @@ describe("enabled", () => {
 
   it("when false, time still advances", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.enabled = false;
@@ -640,7 +640,7 @@ describe("enabled", () => {
   it("re-enabling allows the action to contribute again", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.enabled = false;
@@ -657,14 +657,14 @@ describe("enabled", () => {
 describe("paused", () => {
   it("defaults to false", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     expect(action.paused).toBe(false);
   });
 
   it("when true, time does not advance", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     mixer.update(0.5); // advance to 0.5
@@ -676,7 +676,7 @@ describe("paused", () => {
   it("when true, action still contributes current weight to blend", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
     const target = makeTarget();
-    const mixer = createGlyphcssAnimationMixer(target, ctrl);
+    const mixer = createGlyphAnimationMixer(target, ctrl);
     const action = mixer.clipAction("run");
     action.play();
     action.paused = true;
@@ -687,7 +687,7 @@ describe("paused", () => {
 
   it("unpausing resumes time advancement", () => {
     const ctrl = makeController([makeClip(0, "run", 10)]);
-    const mixer = createGlyphcssAnimationMixer(makeTarget(), ctrl);
+    const mixer = createGlyphAnimationMixer(makeTarget(), ctrl);
     const action = mixer.clipAction("run");
     action.play();
     mixer.update(0.5);

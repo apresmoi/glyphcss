@@ -41,7 +41,7 @@ export interface TextureTriangle {
  * scene-local coords and does not need to be pre-normalized.
  * Mirrors three.js's `DirectionalLight`.
  */
-export interface GlyphcssDirectionalLight {
+export interface GlyphDirectionalLight {
   /** Direction the light shines TOWARD (typical convention). */
   direction: Vec3;
   /** Light tint, hex string. White by default. */
@@ -56,7 +56,7 @@ export interface GlyphcssDirectionalLight {
  * directional contribution: the two add independently rather than
  * splitting a fixed energy budget.
  */
-export interface GlyphcssAmbientLight {
+export interface GlyphAmbientLight {
   /** Tint, hex string. White by default. */
   color?: string;
   /** Scalar multiplier on the ambient contribution. Default 0.4. */

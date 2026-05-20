@@ -48,7 +48,7 @@ export function planePolygons(options: PlanePolygonsOptions): Polygon[] {
     return v;
   };
   // CCW when viewed from the +axis side. The quad is double-sided in CSS
-  // (no back-face cull when rendered through .glyphcss-mesh), so winding is
+  // (no back-face cull when rendered through .glyph-mesh), so winding is
   // primarily a documentation aid here.
   return [
     {

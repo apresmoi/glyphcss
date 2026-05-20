@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { rasterize } from "./rasterize";
 import { buildRasterizeContext } from "../api/rasterizeContext";
-import { createGlyphcssPerspectiveCamera } from "../api/createGlyphcssCamera";
+import { createGlyphPerspectiveCamera } from "../api/createGlyphCamera";
 import type { Polygon } from "@glyphcss/core";
 
 /** Simple unit cube — 12 triangular polygons (2 per face × 6 faces). */
@@ -35,7 +35,7 @@ function makeCubePolygons(): Polygon[] {
 
 describe("rasterize", () => {
   it("renders a solid cube to non-empty text", () => {
-    const camera = createGlyphcssPerspectiveCamera({ rotX: 0.4, rotY: 0.5, scale: 0.35 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.4, rotY: 0.5, scale: 0.35 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 40, rows: 20, cellAspect: 2.0 },
@@ -52,7 +52,7 @@ describe("rasterize", () => {
   });
 
   it("renders wireframe mode to non-empty text", () => {
-    const camera = createGlyphcssPerspectiveCamera({ scale: 0.3 });
+    const camera = createGlyphPerspectiveCamera({ scale: 0.3 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 30, rows: 15, cellAspect: 2.0 },
@@ -65,7 +65,7 @@ describe("rasterize", () => {
   });
 
   it("renders with colors producing html spans", () => {
-    const camera = createGlyphcssPerspectiveCamera({ scale: 0.35 });
+    const camera = createGlyphPerspectiveCamera({ scale: 0.35 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 40, rows: 20, cellAspect: 2.0 },
@@ -80,7 +80,7 @@ describe("rasterize", () => {
 
   it("produces exactly (rows - 1) newlines for a non-empty render", () => {
     const rows = 10;
-    const camera = createGlyphcssPerspectiveCamera({ scale: 0.3 });
+    const camera = createGlyphPerspectiveCamera({ scale: 0.3 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 20, rows, cellAspect: 2.0 },

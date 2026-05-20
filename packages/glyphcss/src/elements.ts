@@ -9,44 +9,44 @@
  * `customElements` is undefined and we silently no-op so importing this
  * module doesn't crash the bundle.
  */
-import { GlyphcssSceneElement } from "./elements/GlyphcssSceneElement";
-import { GlyphcssMeshElement } from "./elements/GlyphcssMeshElement";
-import { GlyphcssHotspotElement } from "./elements/GlyphcssHotspotElement";
-import { GlyphcssPerspectiveCameraElement } from "./elements/GlyphcssPerspectiveCameraElement";
-import { GlyphcssOrthographicCameraElement } from "./elements/GlyphcssOrthographicCameraElement";
-import { GlyphcssOrbitControlsElement } from "./elements/GlyphcssOrbitControlsElement";
-import { GlyphcssMapControlsElement } from "./elements/GlyphcssMapControlsElement";
+import { GlyphSceneElement } from "./elements/GlyphSceneElement";
+import { GlyphMeshElement } from "./elements/GlyphMeshElement";
+import { GlyphHotspotElement } from "./elements/GlyphHotspotElement";
+import { GlyphPerspectiveCameraElement } from "./elements/GlyphPerspectiveCameraElement";
+import { GlyphOrthographicCameraElement } from "./elements/GlyphOrthographicCameraElement";
+import { GlyphOrbitControlsElement } from "./elements/GlyphOrbitControlsElement";
+import { GlyphMapControlsElement } from "./elements/GlyphMapControlsElement";
 
 if (typeof customElements !== "undefined") {
-  if (!customElements.get("glyphcss-scene")) {
-    customElements.define("glyphcss-scene", GlyphcssSceneElement);
+  if (!customElements.get("glyph-scene")) {
+    customElements.define("glyph-scene", GlyphSceneElement);
   }
-  if (!customElements.get("glyphcss-mesh")) {
-    customElements.define("glyphcss-mesh", GlyphcssMeshElement);
+  if (!customElements.get("glyph-mesh")) {
+    customElements.define("glyph-mesh", GlyphMeshElement);
   }
-  if (!customElements.get("glyphcss-hotspot")) {
-    customElements.define("glyphcss-hotspot", GlyphcssHotspotElement);
+  if (!customElements.get("glyph-hotspot")) {
+    customElements.define("glyph-hotspot", GlyphHotspotElement);
   }
-  if (!customElements.get("glyphcss-perspective-camera")) {
-    customElements.define("glyphcss-perspective-camera", GlyphcssPerspectiveCameraElement);
+  if (!customElements.get("glyph-perspective-camera")) {
+    customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
   }
-  if (!customElements.get("glyphcss-orthographic-camera")) {
-    customElements.define("glyphcss-orthographic-camera", GlyphcssOrthographicCameraElement);
+  if (!customElements.get("glyph-orthographic-camera")) {
+    customElements.define("glyph-orthographic-camera", GlyphOrthographicCameraElement);
   }
-  if (!customElements.get("glyphcss-orbit-controls")) {
-    customElements.define("glyphcss-orbit-controls", GlyphcssOrbitControlsElement);
+  if (!customElements.get("glyph-orbit-controls")) {
+    customElements.define("glyph-orbit-controls", GlyphOrbitControlsElement);
   }
-  if (!customElements.get("glyphcss-map-controls")) {
-    customElements.define("glyphcss-map-controls", GlyphcssMapControlsElement);
+  if (!customElements.get("glyph-map-controls")) {
+    customElements.define("glyph-map-controls", GlyphMapControlsElement);
   }
 }
 
 export {
-  GlyphcssSceneElement,
-  GlyphcssMeshElement,
-  GlyphcssHotspotElement,
-  GlyphcssPerspectiveCameraElement,
-  GlyphcssOrthographicCameraElement,
-  GlyphcssOrbitControlsElement,
-  GlyphcssMapControlsElement,
+  GlyphSceneElement,
+  GlyphMeshElement,
+  GlyphHotspotElement,
+  GlyphPerspectiveCameraElement,
+  GlyphOrthographicCameraElement,
+  GlyphOrbitControlsElement,
+  GlyphMapControlsElement,
 };

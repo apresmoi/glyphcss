@@ -1,9 +1,9 @@
-export { GlyphcssCamera } from "./GlyphcssCamera";
-export type { GlyphcssCameraProps } from "./GlyphcssCamera";
-export { GlyphcssPerspectiveCamera } from "./GlyphcssPerspectiveCamera";
-export type { GlyphcssPerspectiveCameraProps } from "./GlyphcssPerspectiveCamera";
-export { GlyphcssOrthographicCamera } from "./GlyphcssOrthographicCamera";
-export type { GlyphcssOrthographicCameraProps } from "./GlyphcssOrthographicCamera";
-export { GlyphcssCameraContextKey } from "./context";
-export type { GlyphcssCameraContextValue } from "./context";
-export { useGlyphcssCamera } from "./useGlyphcssCamera";
+export { GlyphCamera } from "./GlyphCamera";
+export type { GlyphCameraProps } from "./GlyphCamera";
+export { GlyphPerspectiveCamera } from "./GlyphPerspectiveCamera";
+export type { GlyphPerspectiveCameraProps } from "./GlyphPerspectiveCamera";
+export { GlyphOrthographicCamera } from "./GlyphOrthographicCamera";
+export type { GlyphOrthographicCameraProps } from "./GlyphOrthographicCamera";
+export { GlyphCameraContextKey } from "./context";
+export type { GlyphCameraContextValue } from "./context";
+export { useGlyphCamera } from "./useGlyphCamera";

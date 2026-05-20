@@ -11,7 +11,7 @@ hljs.registerLanguage("tsx", typescript);
 hljs.registerLanguage("vue", xml);
 
 import DocsHeader from "../components/DocsHeader.astro";
-import GlyphcssDemo from "../components/GlyphcssDemo.astro";
+import GlyphDemo from "../components/GlyphDemo.astro";
 import AsciiArt from "../components/AsciiArt.astro";
 
 function highlight(code: string, lang: string): string {
@@ -29,31 +29,31 @@ const frameworkTabs = [
     language: "html",
     code: `<script type="module" src="https://esm.sh/glyphcss/elements"></script>
 
-<glyphcss-camera rot-x="0.4">
-  <glyphcss-scene>
-    <glyphcss-orbit-controls drag wheel></glyphcss-orbit-controls>
-    <glyphcss-mesh geometry="dodecahedron">
-      <glyphcss-hotspot at="0,1,0"></glyphcss-hotspot>
-    </glyphcss-mesh>
-  </glyphcss-scene>
-</glyphcss-camera>`,
+<glyph-camera rot-x="0.4">
+  <glyph-scene>
+    <glyph-orbit-controls drag wheel></glyph-orbit-controls>
+    <glyph-mesh geometry="dodecahedron">
+      <glyph-hotspot at="0,1,0"></glyph-hotspot>
+    </glyph-mesh>
+  </glyph-scene>
+</glyph-camera>`,
   },
   {
     id: "react",
     label: "React",
     language: "tsx",
-    code: `import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
+    code: `import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh, GlyphHotspot } from "@glyphcss/react";
 
 export function App() {
   return (
-    <GlyphcssCamera rotX={0.4} zoom={0.32}>
-      <GlyphcssScene>
-        <GlyphcssOrbitControls drag wheel />
-        <GlyphcssMesh geometry="dodecahedron">
-          <GlyphcssHotspot at={[0, 1.2, 0]} onClick={() => alert("vertex")} />
-        </GlyphcssMesh>
-      </GlyphcssScene>
-    </GlyphcssCamera>
+    <GlyphCamera rotX={0.4} zoom={0.32}>
+      <GlyphScene>
+        <GlyphOrbitControls drag wheel />
+        <GlyphMesh geometry="dodecahedron">
+          <GlyphHotspot at={[0, 1.2, 0]} onClick={() => alert("vertex")} />
+        </GlyphMesh>
+      </GlyphScene>
+    </GlyphCamera>
   );
 }`,
   },
@@ -62,17 +62,17 @@ export function App() {
     label: "Vue",
     language: "vue",
     code: `<template>
-  <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
-    <GlyphcssScene>
-      <GlyphcssOrbitControls drag wheel />
-      <GlyphcssMesh geometry="dodecahedron">
-        <GlyphcssHotspot :at="[0, 1.2, 0]" @click="onVertex" />
-      </GlyphcssMesh>
-    </GlyphcssScene>
-  </GlyphcssCamera>
+  <GlyphCamera :rot-x="0.4" :zoom="0.32">
+    <GlyphScene>
+      <GlyphOrbitControls drag wheel />
+      <GlyphMesh geometry="dodecahedron">
+        <GlyphHotspot :at="[0, 1.2, 0]" @click="onVertex" />
+      </GlyphMesh>
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 <script setup lang="ts">
-import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/vue";
+import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh, GlyphHotspot } from "@glyphcss/vue";
 function onVertex() { alert("vertex"); }
 </script>`,
   },
@@ -134,7 +134,7 @@ const ldJson = {
       <div class="home">
         <section class="hero hero--ascii" id="hero">
           <div class="hero-scene" aria-hidden="true">
-            <GlyphcssDemo id="hero-demo"
+            <GlyphDemo id="hero-demo"
               mesh="/gallery/glb/apple.glb"
               defaults={JSON.stringify({ zoom: 0.25, distance: 100000, rotX: 1.299, rotY: 5.264, duration: 6, renderMode: 'solid' })}
               noCode
@@ -239,7 +239,7 @@ const ldJson = {
             </p>
             <p>
               <span class="term-prompt-inline">&gt;</span>
-              Interactivity is opt-in and sparse: drop a <code>&lt;GlyphcssHotspot&gt;</code>
+              Interactivity is opt-in and sparse: drop a <code>&lt;GlyphHotspot&gt;</code>
               at any 3D anchor and glyphcss emits one absolutely-positioned
               <code>&lt;div&gt;</code> over the projected cell. Real DOM events,
               real <code>:hover</code> styles, real <code>role="button"</code>
@@ -258,8 +258,8 @@ const ldJson = {
           <div class="getting-lede">
             <p>
               <span class="term-prompt-inline">&gt;</span>
-              glyphcss provides custom elements (<code>&lt;glyphcss-scene&gt;</code>, <code>&lt;glyphcss-mesh&gt;</code>),
-              an imperative <code>createGlyphcssScene</code> API, and optional React / Vue bindings.
+              glyphcss provides custom elements (<code>&lt;glyph-scene&gt;</code>, <code>&lt;glyph-mesh&gt;</code>),
+              an imperative <code>createGlyphScene</code> API, and optional React / Vue bindings.
               Use whichever entry point fits your stack.
             </p>
           </div>
@@ -492,7 +492,7 @@ const ldJson = {
     overflow: hidden;
     min-width: 0;
   }
-  .hero--ascii .hero-scene > .glyphcss-demo {
+  .hero--ascii .hero-scene > .glyph-demo {
     width: 100%;
     height: 100%;
     margin: 0;
@@ -500,9 +500,9 @@ const ldJson = {
     border: none;
     border-radius: 0;
   }
-  .hero--ascii .hero-scene .glyphcss-demo__viewer,
-  .hero--ascii .hero-scene .glyphcss-demo__canvas,
-  .hero--ascii .hero-scene .glyphcss-demo__scene-host {
+  .hero--ascii .hero-scene .glyph-demo__viewer,
+  .hero--ascii .hero-scene .glyph-demo__canvas,
+  .hero--ascii .hero-scene .glyph-demo__scene-host {
     width: 100%;
     height: 100%;
     min-height: 0;
@@ -670,8 +670,8 @@ const ldJson = {
     height: 100%;
     position: relative;
   }
-  /* Make the GlyphcssDemo inside the hero fill the canvas column. */
-  .hero-canvas > .glyphcss-demo {
+  /* Make the GlyphDemo inside the hero fill the canvas column. */
+  .hero-canvas > .glyph-demo {
     height: 100%;
     margin: 0;
     /* Remove the dark box — hero demo should be transparent */
@@ -679,9 +679,9 @@ const ldJson = {
     border: none;
     border-radius: 0;
   }
-  .hero-canvas .glyphcss-demo__viewer,
-  .hero-canvas .glyphcss-demo__canvas,
-  .hero-canvas .glyphcss-demo__scene-host {
+  .hero-canvas .glyph-demo__viewer,
+  .hero-canvas .glyph-demo__canvas,
+  .hero-canvas .glyph-demo__scene-host {
     height: 100%;
     /* Fills the locked hero-canvas (parent .hero is height: 389.99px). */
     min-height: 0;
