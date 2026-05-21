@@ -112,7 +112,7 @@ export function GlyphScene({
     host.innerHTML = `
       <div class="glyph-demo no-autorotate" id="${demoId}"
         data-geometry="cuboctahedron"
-        ${isPrimitive ? "" : `data-mesh="${meshUrl}"`}
+        ${isPrimitive ? `data-primitive="1"` : `data-mesh="${meshUrl}"`}
         data-defaults='${defaults.replace(/'/g, "&apos;")}'
         data-no-controls="1">
         <div class="glyph-demo__viewer not-content" data-layout="canvas-only">

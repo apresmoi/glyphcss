@@ -545,12 +545,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     return { ...g, animations: [], sample: () => tris };
   }
 
-  // When a `data-mesh` URL will be fetched, skip the procedural-geometry build.
-  // Otherwise any pre-load bake (resize listeners, first paint) renders the
-  // built-in shape (e.g. cuboctahedron) for a brief flash before the real mesh
-  // replaces it. Empty placeholder = nothing to rasterize until the mesh lands.
+  // Skip the procedural-geometry build whenever geometry will arrive
+  // asynchronously — either via a `data-mesh` URL fetch or via a deferred
+  // `setPolygons()` call (the gallery primitives path). Otherwise the first
+  // paint renders the default built-in shape (e.g. cuboctahedron) for a brief
+  // flash before the real geometry replaces it. Empty placeholder = nothing
+  // to rasterize until the geometry lands.
   const willLoadMesh = !!demoEl.getAttribute('data-mesh');
-  let geometry: GeometryState = willLoadMesh
+  const willLoadPrimitive = demoEl.getAttribute('data-primitive') === '1';
+  let geometry: GeometryState = (willLoadMesh || willLoadPrimitive)
     ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], polygons: [] })
     : staticGeometry(buildGeometry(tunables.geometry));
 
