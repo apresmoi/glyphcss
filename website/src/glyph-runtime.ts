@@ -820,9 +820,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     // and a threshold is set. geometry.edges was built at load time with the
     // default threshold; re-derive here so the Dock slider takes effect
     // without reloading the mesh.
-    const activeEdges = (activeMode === 'wireframe' && featureAngle > 0 && geometry.polygons && geometry.polygons.length > 0)
-      ? trianglesToEdges(geometry.polygons, featureAngle)
-      : geometry.edges;
+    // Re-derive feature edges with the requested threshold. If the threshold
+    // filters out every edge (e.g. Catalan solids where all adjacent faces are
+    // nearly coplanar), fall back to the unfiltered edge set so the mesh is
+    // never invisible in wireframe mode.
+    let activeEdges = geometry.edges;
+    if (activeMode === 'wireframe' && featureAngle > 0 && geometry.polygons && geometry.polygons.length > 0) {
+      const filtered = trianglesToEdges(geometry.polygons, featureAngle);
+      activeEdges = filtered.length > 0 ? filtered : geometry.edges;
+    }
     baseWireframe = activeEdges;
     scene = buildRasterizeContext({
       camera, grid,
@@ -867,6 +873,28 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       console.error('setMeshUrl failed', err);
       loadingEl.textContent = `Failed to load mesh: ${(err as Error).message}`;
     }
+  }
+
+  function setPolygons(polygons: import('glyphcss').Polygon[]): void {
+    const rawTris = fanTriangulate(polygons);
+    const polys = fitTrianglesToUnitBbox(rawTris);
+    const edges = trianglesToEdges(polys);
+    const vertSet = new Map<string, Vec3>();
+    for (const e of edges) {
+      vertSet.set(e.from.join(','), e.from);
+      vertSet.set(e.to.join(','), e.to);
+    }
+    controlState.lastMeshUrl = null;
+    geometry = {
+      vertices: Array.from(vertSet.values()),
+      edges,
+      polygons: polys,
+      animations: [],
+      sample: () => polys,
+    };
+    selectedTriangleIndex = -1;
+    onSelectionChange?.(-1, null);
+    rebuildSceneFromGeometry();
   }
 
   // ── Control state (interaction features) ────────────────────────────────
@@ -1286,6 +1314,23 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     demoEl.classList.remove('no-autorotate');
   }
 
+  /**
+   * Toggle the CSS-driven autorotate strip. When enabled, the next bake produces
+   * a 60-frame strip cycling through rotY and the CSS animation scrolls through
+   * it; when disabled, only the current angle is baked. Triggers a rebuild so
+   * the change is visible immediately.
+   */
+  function setAutoRotate(enabled: boolean): void {
+    if (enabled) {
+      controlState.rotYLocked = false;
+      demoEl.classList.remove('no-autorotate');
+    } else {
+      controlState.rotYLocked = true;
+      demoEl.classList.add('no-autorotate');
+    }
+    rebuildSceneFromGeometry();
+  }
+
   function setProjection(kind: 'perspective' | 'orthographic'): void {
     controlState.projection = kind;
     // Projection affects how the camera maps 3D → 2D.
@@ -1390,6 +1435,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   (demoEl as unknown as {
     glyphcssDemo: {
       setMeshUrl: (u: string) => Promise<void>;
+      setPolygons: (polygons: import('glyphcss').Polygon[]) => void;
       setTunables: (p: Partial<Tunables>) => void;
       setControlState: (p: Partial<ControlState>) => void;
       getCameraState: () => { rotX: number; rotY: number; zoom: number; target: [number, number, number] };
@@ -1398,6 +1444,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       clearSelection: () => void;
       setSelectionChangeHandler: (fn: (idx: number, tri: TextureTriangle | null) => void) => void;
       resumeAutoRotate: () => void;
+      setAutoRotate: (enabled: boolean) => void;
       setProjection: (kind: 'perspective' | 'orthographic') => void;
       setAnimation: (clipIndex: number) => void;
       clearAnimation: () => void;
@@ -1411,6 +1458,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     }
   }).glyphcssDemo = {
     setMeshUrl,
+    setPolygons,
     setTunables,
     setControlState,
     getCameraState,
@@ -1419,6 +1467,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     clearSelection,
     setSelectionChangeHandler,
     resumeAutoRotate,
+    setAutoRotate,
     setProjection,
     setAnimation,
     clearAnimation,

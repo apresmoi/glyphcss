@@ -201,6 +201,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   animationPaused: false,
   animationTimeScale: 1,
   autoCenter: true,
+  autoRotate: false,
   interactive: true,
   showAxes: false,
   showLight: false,
@@ -272,7 +273,7 @@ export default function GalleryWorkbench() {
   // so the preset's zoom/rotX/rotY still win — but only after the first tick.
   const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(DEFAULT_SCENE);
   const [presetId, setPresetId] = useState(initialPreset.id);
-  const [meshUrl, setMeshUrl] = useState(initialPreset.url);
+  const [meshUrl, setMeshUrl] = useState(initialPreset.kind !== "primitive" ? initialPreset.url : "");
   const [metrics, setMetrics] = useState<GlyphMetrics>(EMPTY_METRICS);
   const [selectedAnimation, setSelectedAnimation] = useState("");
   const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
@@ -454,6 +455,7 @@ export default function GalleryWorkbench() {
         <div className="dn-viewport">
           <GlyphScene
             meshUrl={meshUrl}
+            selectedPreset={selectedPreset}
             options={sceneOptions}
             onBuild={(ms) => setMetrics((m) => ({ ...m, bakeMs: ms }))}
             onCameraChange={handleCameraChange}
@@ -497,6 +499,7 @@ export default function GalleryWorkbench() {
         />
         <DockCamera
           autoCenter={sceneOptions.autoCenter}
+          autoRotate={sceneOptions.autoRotate}
           showAxes={sceneOptions.showAxes}
           interactive={sceneOptions.interactive}
           dragMode={sceneOptions.dragMode}

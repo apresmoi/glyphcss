@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
-import type { GlyphMetrics, SceneOptionsState } from "../GalleryWorkbench/types";
-import type { ParseAnimationClip } from "@glyphcss/core";
+import type { GlyphMetrics, PresetModel, SceneOptionsState } from "../GalleryWorkbench/types";
+import type { ParseAnimationClip, Polygon } from "@glyphcss/core";
 
 // Mirror of the handle shape exposed by glyph-runtime on demoEl.glyphcssDemo.
 interface DemoHandle {
   setMeshUrl: (url: string) => Promise<void>;
+  setPolygons: (polygons: Polygon[]) => void;
+  setAutoRotate: (enabled: boolean) => void;
   setTunables: (partial: Record<string, number | string | boolean>) => void;
   setControlState: (partial: {
     autoCenter?: boolean;
@@ -47,6 +49,7 @@ interface DemoHandle {
 
 export interface GlyphSceneProps {
   meshUrl: string;
+  selectedPreset?: PresetModel;
   options: SceneOptionsState;
   onBuild: (ms: number) => void;
   onCameraChange?: (cam: { rotX: number; rotY: number; zoom: number; target?: [number, number, number] }) => void;
@@ -62,6 +65,7 @@ const POLL_INTERVAL_MS = 500;
 
 export function GlyphScene({
   meshUrl,
+  selectedPreset,
   options,
   onBuild,
   onCameraChange,
@@ -77,6 +81,10 @@ export function GlyphScene({
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevClipCountRef = useRef(0);
   const prevBakeMsRef = useRef(0);
+  // Keep a live ref to selectedPreset so the initial waitForHandle callback
+  // (which closes over mount-time values) can access the current preset.
+  const selectedPresetRef = useRef(selectedPreset);
+  selectedPresetRef.current = selectedPreset;
   // Last camera state applied via setTunables — guards against echo: when the
   // sidebar sets a value and the poll reads it back, we must not re-fire onCameraChange.
   const lastAppliedCameraRef = useRef<{ rotX: number; rotY: number; zoom: number; target: [number, number, number] } | null>(null);
@@ -100,10 +108,11 @@ export function GlyphScene({
     });
 
     const demoId = demoIdRef.current;
+    const isPrimitive = selectedPresetRef.current?.kind === "primitive";
     host.innerHTML = `
       <div class="glyph-demo no-autorotate" id="${demoId}"
         data-geometry="cuboctahedron"
-        data-mesh="${meshUrl}"
+        ${isPrimitive ? "" : `data-mesh="${meshUrl}"`}
         data-defaults='${defaults.replace(/'/g, "&apos;")}'
         data-no-controls="1">
         <div class="glyph-demo__viewer not-content" data-layout="canvas-only">
@@ -169,6 +178,13 @@ export function GlyphScene({
           keyColor: options.lightColor,
           ambientColor: options.ambientColor,
         });
+        // If the initial preset is a primitive, load its polygons now. The
+        // runtime had no data-mesh attribute so it rendered the placeholder
+        // cuboctahedron; replace it with the actual primitive geometry.
+        const initialPreset = selectedPresetRef.current;
+        if (initialPreset?.kind === "primitive") {
+          handle.setPolygons(initialPreset.generatePolygons());
+        }
         startPolling(handle);
       };
       setTimeout(waitForHandle, 300);
@@ -241,16 +257,20 @@ export function GlyphScene({
     }, POLL_INTERVAL_MS);
   }
 
-  // React to meshUrl changes.
+  // React to meshUrl/preset changes.
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !mountedRef.current) return;
     const handle = getHandle();
     if (!handle) return;
-    void handle.setMeshUrl(meshUrl);
+    if (selectedPreset?.kind === "primitive") {
+      handle.setPolygons(selectedPreset.generatePolygons());
+    } else {
+      void handle.setMeshUrl(meshUrl);
+    }
     // Reset clip tracking so the Dock updates on next poll.
     prevClipCountRef.current = -1;
-  }, [meshUrl]);
+  }, [meshUrl, selectedPreset?.id]);
 
   // React to camera/zoom/rotX/rotY changes.
   useEffect(() => {
@@ -287,6 +307,13 @@ export function GlyphScene({
     if (!handle) return;
     handle.setControlState({ autoCenter: options.autoCenter });
   }, [options.autoCenter]);
+
+  // React to autoRotate toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setAutoRotate(options.autoRotate);
+  }, [options.autoRotate]);
 
   // React to target changes.
   useEffect(() => {
