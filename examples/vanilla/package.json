@@ -1,0 +1,19 @@
+{
+  "name": "@glyphcss/examples-vanilla",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4500",
+    "build": "vite build",
+    "preview": "vite preview --port 4500"
+  },
+  "dependencies": {
+    "@glyphcss/core": "workspace:*",
+    "glyphcss": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^6.0.0"
+  }
+}
