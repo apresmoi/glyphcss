@@ -119,15 +119,17 @@ function rasterizeSolid(
         litColor = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
       }
 
-      // Average depth for the triangle (camera-space Z, lower = closer).
-      const depth = (pa[2] + pb[2] + pc[2]) / 3;
-
-      // Scan-fill the projected triangle in grid coords.
+      // Scan-fill the projected triangle in grid coords. Depth is interpolated
+      // per cell via barycentric coordinates (not averaged), so adjacent
+      // triangles on a curved surface never lose individual cells to the
+      // wrong half — a single average depth flips winners as the camera
+      // rotates by a couple of degrees and shows up as visible dark bands
+      // at the silhouette.
       scanFillTriangle(
-        pa[0], pa[1],
-        pb[0], pb[1],
-        pc[0], pc[1],
-        depth, glyph, litColor,
+        pa[0], pa[1], pa[2],
+        pb[0], pb[1], pb[2],
+        pc[0], pc[1], pc[2],
+        glyph, litColor,
         glyphBuf, colorBuf, depthBuf,
         cols, rows,
       );
@@ -138,15 +140,28 @@ function rasterizeSolid(
 }
 
 /**
- * Scan-fill a triangle in grid space. Uses a top-left fill convention with
- * per-scanline edge interpolation. Overwrites cells only when `depth` is
- * lower than the existing depth buffer entry.
+ * Half-space triangle rasterizer with per-pixel barycentric depth.
+ *
+ * For each cell in the triangle's bounding box, evaluate three edge functions.
+ * A cell is inside iff all three weights have the same sign as the signed
+ * 2× triangle area. The weights also give barycentric coordinates → we
+ * interpolate per-vertex depth so adjacent triangles on a curved surface
+ * never disagree at a shared edge (the previous per-triangle average depth
+ * flipped winners at angle-dependent epsilons and showed up as dark bands
+ * across solid surfaces).
+ *
+ * Shared edges between adjacent triangles get drawn twice (no top-left bias).
+ * That's fine: both triangles write the same per-pixel depth at the shared
+ * edge, so whichever is rasterized second either confirms or correctly loses
+ * the depth test. We can't use the GPU's fixed-point top-left bias trick here
+ * because our edge functions are in floating point — a constant −1 subtracted
+ * from a fractional weight near 0 turns valid interior pixels (w ≈ 0.4) into
+ * "outside" (w ≈ −0.6) and punches holes through every triangle.
  */
 function scanFillTriangle(
-  ax: number, ay: number,
-  bx: number, by: number,
-  cx: number, cy: number,
-  depth: number,
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number,
   glyph: string,
   color: string | null,
   glyphBuf: string[],
@@ -155,38 +170,40 @@ function scanFillTriangle(
   cols: number,
   rows: number,
 ): void {
-  // Sort vertices by row (top → bottom).
-  let x0 = ax, y0 = ay, x1 = bx, y1 = by, x2 = cx, y2 = cy;
-  if (y1 < y0) { let t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
-  if (y2 < y0) { let t = x0; x0 = x2; x2 = t; t = y0; y0 = y2; y2 = t; }
-  if (y2 < y1) { let t = x1; x1 = x2; x2 = t; t = y1; y1 = y2; y2 = t; }
+  // Signed 2× area. Sign tells us screen-space winding.
+  const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (area2 === 0) return;
+  const invArea2 = 1 / area2;
+  const ccw = area2 > 0;
 
-  const rowTop = Math.max(0, Math.ceil(y0));
-  const rowBot = Math.min(rows - 1, Math.floor(y2));
-  if (rowTop > rowBot) return;
+  // Bounding box clamped to grid.
+  let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
+  let maxX = ax > bx ? ax : bx; if (cx > maxX) maxX = cx;
+  let minY = ay < by ? ay : by; if (cy < minY) minY = cy;
+  let maxY = ay > by ? ay : by; if (cy > maxY) maxY = cy;
+  const colLeft = Math.max(0, Math.ceil(minX));
+  const colRight = Math.min(cols - 1, Math.floor(maxX));
+  const rowTop = Math.max(0, Math.ceil(minY));
+  const rowBot = Math.min(rows - 1, Math.floor(maxY));
+  if (colLeft > colRight || rowTop > rowBot) return;
 
   for (let row = rowTop; row <= rowBot; row++) {
-    // Compute left and right X for this scanline by interpolating along the two
-    // relevant edges. The long edge spans the full triangle height; the short
-    // edges span top→mid and mid→bottom.
-    const t = (row - y0) / (y2 - y0 || 1);
-    const xLong = x0 + (x2 - x0) * t;
+    const py = row;
+    for (let col = colLeft; col <= colRight; col++) {
+      const px = col;
+      // Signed 2× areas of sub-triangles (P,B,C), (P,C,A), (P,A,B). Sum = area2.
+      // wA = weight of vertex A, wB = weight of B, wC = weight of C.
+      const wA = (bx - px) * (cy - py) - (by - py) * (cx - px);
+      const wB = (cx - px) * (ay - py) - (cy - py) * (ax - px);
+      const wC = (ax - px) * (by - py) - (ay - py) * (bx - px);
+      // Inside test: all three weights share sign of area2 (≥ 0 inclusive).
+      if (ccw ? (wA < 0 || wB < 0 || wC < 0) : (wA > 0 || wB > 0 || wC > 0)) continue;
 
-    let xShort: number;
-    if (row < y1) {
-      const t2 = (row - y0) / (y1 - y0 || 1);
-      xShort = x0 + (x1 - x0) * t2;
-    } else {
-      const t2 = (row - y1) / (y2 - y1 || 1);
-      xShort = x1 + (x2 - x1) * t2;
-    }
-
-    const colL = Math.max(0, Math.ceil(Math.min(xLong, xShort)));
-    const colR = Math.min(cols - 1, Math.floor(Math.max(xLong, xShort)));
-    for (let col = colL; col <= colR; col++) {
+      // Per-pixel depth via barycentric interpolation.
+      const pixelDepth = (wA * az + wB * bz + wC * cz) * invArea2;
       const idx = row * cols + col;
-      if (depth > depthBuf[idx]!) {
-        depthBuf[idx] = depth;
+      if (pixelDepth > depthBuf[idx]!) {
+        depthBuf[idx] = pixelDepth;
         glyphBuf[idx] = glyph;
         if (colorBuf) colorBuf[idx] = color;
       }
