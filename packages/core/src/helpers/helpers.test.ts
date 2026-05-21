@@ -825,6 +825,158 @@ describe("trapezohedronPolygons", () => {
   });
 });
 
+// ── Winding correctness tests (Bug 1 guard) ───────────────────────────────
+//
+// For each axially-symmetric helper we verify that the face normal of the
+// first SIDE face (index 0) points OUTWARD — i.e. the dot product of the
+// face normal with the face centroid (radial direction) is positive.
+//
+// Convention: outward normal = (B - A) × (C - A) for CCW winding from outside.
+
+function crossProduct(
+  a: [number, number, number],
+  b: [number, number, number],
+  c: [number, number, number],
+): [number, number, number] {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  return [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+}
+
+function faceCentroid(verts: readonly [number, number, number][]): [number, number, number] {
+  const n = verts.length;
+  return [
+    verts.reduce((s, v) => s + v[0], 0) / n,
+    verts.reduce((s, v) => s + v[1], 0) / n,
+    verts.reduce((s, v) => s + v[2], 0) / n,
+  ];
+}
+
+/** Positive dot → normal points outward (same general direction as centroid from origin). */
+function normalDotCentroid(poly: { vertices: [number, number, number][] }): number {
+  const [a, b, c] = poly.vertices as [number, number, number][];
+  const n = crossProduct(a, b, c);
+  const cen = faceCentroid(poly.vertices as [number, number, number][]);
+  return n[0] * cen[0] + n[1] * cen[1] + n[2] * cen[2];
+}
+
+describe("conePolygons — outward normals", () => {
+  it("side triangle [0] has an outward-facing normal", () => {
+    const polygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    // polygons[0] is the first side triangle; its centroid is in the +X half-space.
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all side triangles have outward-facing normals", () => {
+    const polygons = conePolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 8 });
+    for (let i = 0; i < 8; i++) {
+      expect(normalDotCentroid(polygons[i] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("pyramidPolygons — outward normals", () => {
+  it("side triangle [0] has an outward-facing normal", () => {
+    const polygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all side triangles have outward-facing normals", () => {
+    const polygons = pyramidPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 6 });
+    for (let i = 0; i < 6; i++) {
+      expect(normalDotCentroid(polygons[i] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("cylinderPolygons — outward normals", () => {
+  it("side quad [0] has an outward-facing normal", () => {
+    const polygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all side quads have outward-facing normals", () => {
+    const polygons = cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 8 });
+    for (let i = 0; i < 8; i++) {
+      expect(normalDotCentroid(polygons[i] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("prismPolygons — outward normals", () => {
+  it("side quad [0] has an outward-facing normal", () => {
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all side quads have outward-facing normals", () => {
+    const polygons = prismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: 8 });
+    for (let i = 0; i < 8; i++) {
+      expect(normalDotCentroid(polygons[i] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("bipyramidPolygons — outward normals", () => {
+  it("first upper triangle has an outward-facing normal", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("first lower triangle has an outward-facing normal", () => {
+    const sides = 6;
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides });
+    expect(normalDotCentroid(polygons[sides] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all faces have outward-facing normals", () => {
+    const polygons = bipyramidPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides: 8 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("antiprismPolygons — outward normals", () => {
+  it("first up-triangle has an outward-facing normal", () => {
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("first down-triangle has an outward-facing normal", () => {
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2 });
+    expect(normalDotCentroid(polygons[1] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all side triangles have outward-facing normals", () => {
+    const sides = 6;
+    const polygons = antiprismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides });
+    for (let i = 0; i < 2 * sides; i++) {
+      expect(normalDotCentroid(polygons[i] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("trapezohedronPolygons — outward normals", () => {
+  it("first upper kite has an outward-facing normal", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1 });
+    expect(normalDotCentroid(polygons[0] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("first lower kite has an outward-facing normal", () => {
+    const sides = 5;
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides });
+    expect(normalDotCentroid(polygons[sides] as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+  });
+
+  it("all faces have outward-facing normals", () => {
+    const polygons = trapezohedronPolygons({ center: [0, 0, 0], radius: 1, halfHeight: 1, sides: 6 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("smallStellatedDodecahedronPolygons", () => {
   it("returns 60 triangular faces (12 pentagrams × 5 triangles)", () => {
     const polygons = smallStellatedDodecahedronPolygons({ center: [0, 0, 0], size: 1 });

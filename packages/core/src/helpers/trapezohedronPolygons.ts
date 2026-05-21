@@ -54,12 +54,12 @@ export function trapezohedronPolygons(options: TrapezohedronPolygonsOptions): Po
   const topApex: Vec3 = [cx, cy + halfHeight, cz];
   const botApex: Vec3 = [cx, cy - halfHeight, cz];
 
-  // Upper kites: [topApex, topRing[i], botRing[i], topRing[(i+1)%sides]]
+  // Upper kites: [topApex, topRing[(i+1)%sides], botRing[i], topRing[i]]
   // — botRing[i] sits angularly between topRing[i] and topRing[i+1].
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides;
     polygons.push({
-      vertices: [topApex, topRing[i], botRing[i], topRing[next]],
+      vertices: [topApex, topRing[next], botRing[i], topRing[i]],
       color,
     });
   }

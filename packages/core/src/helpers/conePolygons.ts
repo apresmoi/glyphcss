@@ -4,7 +4,7 @@
  * `center`. The base is a regular N-gon with circumradius `radius`.
  *
  * Output (sides + 1 polygons):
- *   - `sides` side triangles — each `[base_i, base_(i+1), apex]` (CCW from outside).
+ *   - `sides` side triangles — each `[apex, base_(i+1), base_i]` (CCW from outside).
  *   - 1 base cap N-gon — CCW when viewed from −Y (reversed ring order).
  */
 import type { Polygon, Vec3 } from "../types";
@@ -37,11 +37,11 @@ export function conePolygons(options: ConePolygonsOptions): Polygon[] {
 
   const apex: Vec3 = [cx, cy + hy, cz];
 
-  // Side triangles: [base_i, base_(i+1), apex] — CCW from outside
+  // Side triangles: [apex, base_(i+1), base_i] — CCW from outside
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides;
     polygons.push({
-      vertices: [base[i], base[next], apex],
+      vertices: [apex, base[next], base[i]],
       color,
     });
   }

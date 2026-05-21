@@ -5,7 +5,7 @@
  * evenly-spaced vertices.
  *
  * Output (sides + 2 polygons):
- *   - `sides` side quads — each connecting bottom_i → bottom_(i+1) → top_(i+1) → top_i (CCW from outside).
+ *   - `sides` side quads — each connecting top_i → top_(i+1) → bottom_(i+1) → bottom_i (CCW from outside).
  *   - 1 top cap N-gon — CCW when viewed from +Y (vertices 0 … sides-1).
  *   - 1 bottom cap N-gon — CCW when viewed from −Y (vertices reversed).
  */
@@ -41,11 +41,11 @@ export function cylinderPolygons(options: CylinderPolygonsOptions): Polygon[] {
     top.push([x, cy + hy, z]);
   }
 
-  // Side quads: [bottom_i, bottom_(i+1), top_(i+1), top_i] — CCW from outside
+  // Side quads: [top_i, top_(i+1), bottom_(i+1), bottom_i] — CCW from outside
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides;
     polygons.push({
-      vertices: [bottom[i], bottom[next], top[next], top[i]],
+      vertices: [top[i], top[next], bottom[next], bottom[i]],
       color,
     });
   }

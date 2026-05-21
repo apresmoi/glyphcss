@@ -5,8 +5,8 @@
  * `radius` is the circumradius of the equatorial ring.
  *
  * Output (2·sides polygons):
- *   - `sides` upper triangles — each `[ring_i, ring_(i+1), topApex]` (CCW from outside).
- *   - `sides` lower triangles — each `[ring_(i+1), ring_i, bottomApex]` (CCW from outside).
+ *   - `sides` upper triangles — each `[topApex, ring_(i+1), ring_i]` (CCW from outside).
+ *   - `sides` lower triangles — each `[bottomApex, ring_i, ring_(i+1)]` (CCW from outside).
  */
 import type { Polygon, Vec3 } from "../types";
 
@@ -38,20 +38,20 @@ export function bipyramidPolygons(options: BipyramidPolygonsOptions): Polygon[] 
   const topApex: Vec3 = [cx, cy + halfHeight, cz];
   const bottomApex: Vec3 = [cx, cy - halfHeight, cz];
 
-  // Upper triangles: [ring_i, ring_(i+1), topApex] — CCW from outside (upper half)
+  // Upper triangles: [topApex, ring_(i+1), ring_i] — CCW from outside (upper half)
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides;
     polygons.push({
-      vertices: [ring[i], ring[next], topApex],
+      vertices: [topApex, ring[next], ring[i]],
       color,
     });
   }
 
-  // Lower triangles: [ring_(i+1), ring_i, bottomApex] — CCW from outside (lower half)
+  // Lower triangles: [bottomApex, ring_i, ring_(i+1)] — CCW from outside (lower half)
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides;
     polygons.push({
-      vertices: [ring[next], ring[i], bottomApex],
+      vertices: [bottomApex, ring[i], ring[next]],
       color,
     });
   }

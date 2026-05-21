@@ -5,7 +5,7 @@
  * bottom, and the side strip consists of 2·sides alternating triangles.
  *
  * Output (2·sides + 2 polygons):
- *   - `2 * sides` side triangles — alternating "up" and "down" triangles (CCW from outside).
+ *   - `2 * sides` side triangles — alternating "up" and "down" triangles, CCW from outside.
  *   - 1 top cap N-gon — CCW when viewed from +Y.
  *   - 1 bottom cap N-gon — CCW when viewed from −Y (reversed ring order).
  */
@@ -45,12 +45,12 @@ export function antiprismPolygons(options: AntiprismPolygonsOptions): Polygon[] 
     const next = (i + 1) % sides;
     // "Up" triangle — faces outward with CCW winding from outside
     polygons.push({
-      vertices: [bottom[i], bottom[next], top[i]],
+      vertices: [top[i], bottom[next], bottom[i]],
       color,
     });
     // "Down" triangle — faces outward with CCW winding from outside
     polygons.push({
-      vertices: [bottom[next], top[next], top[i]],
+      vertices: [top[i], top[next], bottom[next]],
       color,
     });
   }
