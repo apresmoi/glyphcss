@@ -38,23 +38,6 @@ export interface RasterizeContextOptions {
    * shading; `180` smooths every shared vertex. Default `60`.
    */
   creaseAngle?: number;
-  /**
-   * Backface culling. When `true`, skip triangles whose projected winding
-   * indicates they're facing away from the camera. Significantly faster on
-   * closed meshes (~2× fewer pixels rasterized) and removes silhouette
-   * artifacts from back-of-mesh faces leaking through. Default `false` —
-   * opt-in because open / single-sided meshes (ground planes, voxel grids,
-   * two-sided foliage) need both faces drawn.
-   */
-  backfaceCull?: boolean;
-  /**
-   * Bayer-matrix ordered dithering between adjacent glyphs in the intensity
-   * ramp. Smooths out the visible contour bands that appear when intensity
-   * gradients cross glyph boundaries — particularly noticeable on smooth-shaded
-   * curved surfaces. Default `false` — opt-in because the dither pattern is
-   * a deliberate aesthetic choice, not a universal upgrade.
-   */
-  dither?: boolean;
 }
 
 export interface RasterizeContext {
@@ -70,8 +53,6 @@ export interface RasterizeContext {
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
-  backfaceCull: boolean;
-  dither: boolean;
 }
 
 const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
@@ -118,7 +99,5 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
-    backfaceCull: opts.backfaceCull ?? false,
-    dither: opts.dither ?? false,
   };
 }

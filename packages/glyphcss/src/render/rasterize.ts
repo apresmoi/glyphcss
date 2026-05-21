@@ -51,7 +51,7 @@ function rasterizeSolid(
   rows: number,
   cellAspect: number,
 ): string {
-  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull, dither } = scene;
+  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle } = scene;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -163,8 +163,6 @@ function rasterizeSolid(
         ramp, rampMax, litColor,
         glyphBuf, colorBuf, depthBuf,
         cols, rows,
-        backfaceCull,
-        dither,
       );
     }
   }
@@ -216,19 +214,17 @@ function scanFillTriangle(
   depthBuf: Float64Array,
   cols: number,
   rows: number,
-  backfaceCull: boolean,
-  dither: boolean,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
   if (area2 === 0) return;
-  // Backface culling. Glyphcss's camera projects world-CCW polygons (the
-  // input convention is "CCW from outside") to screen-CW under our row
-  // convention (positive r[1] → larger row → visually below center), so
-  // front-facing triangles produce `area2 < 0`. Skip back faces (`area2 > 0`)
-  // when culling is on. The asciss-derived rotateVec3 also swaps the X/Y
-  // input axes, which contributes to the orientation flip.
-  if (backfaceCull && area2 > 0) return;
+  // Backface cull. Glyphcss's camera projects world-CCW polygons (the input
+  // convention is "CCW from outside") to screen-CW under our row convention
+  // (positive r[1] → larger row → visually below center), so front-facing
+  // triangles produce `area2 < 0`. Drop back faces. The asciss-derived
+  // rotateVec3 also swaps the X/Y input axes, which contributes to the
+  // orientation flip.
+  if (area2 > 0) return;
   const invArea2 = 1 / area2;
   const ccw = area2 > 0;
 
@@ -260,29 +256,24 @@ function scanFillTriangle(
       const idx = row * cols + col;
       if (pixelDepth > depthBuf[idx]!) {
         depthBuf[idx] = pixelDepth;
-        // Per-pixel intensity → per-pixel glyph. This is what makes smooth
-        // shading visible: adjacent triangles' shared edge has the same
-        // interpolated intensity on both sides, so the glyph transition
-        // crosses the edge smoothly instead of stepping.
+        // Per-pixel intensity → per-pixel glyph. Two things happen here:
+        //   1. Smooth shading: adjacent triangles' shared edge has the same
+        //      interpolated intensity on both sides, so the glyph transition
+        //      crosses the edge smoothly instead of stepping.
+        //   2. Bayer ordered dithering: pick between two adjacent ramp glyphs
+        //      based on a 4×4 threshold matrix. When the sub-ramp fraction
+        //      exceeds the cell's threshold, step up to the brighter glyph —
+        //      producing a stippled gradient that reads as continuous from a
+        //      distance and breaks up the visible contour bands between ramp
+        //      steps.
         const intensity = (wA * ia + wB * ib + wC * ic) * invArea2;
         const clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
-        let glyphIdx: number;
-        if (dither) {
-          // Pick between two adjacent ramp glyphs using a Bayer threshold.
-          // When the sub-ramp fraction exceeds the cell's threshold, step up
-          // to the brighter glyph — producing a stippled gradient that reads
-          // as continuous from a distance and breaks up the visible contour
-          // bands between ramp steps.
-          const rampPos = clamped * rampMax;
-          const lower = rampPos | 0;
-          const frac = rampPos - lower;
-          const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
-          glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
-        } else {
-          glyphIdx = (clamped * rampMax) | 0;
-          if (glyphIdx > rampMax) glyphIdx = rampMax;
-        }
-        glyphBuf[idx] = ramp[glyphIdx]!;
+        const rampPos = clamped * rampMax;
+        const lower = rampPos | 0;
+        const frac = rampPos - lower;
+        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
+        const glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+        glyphBuf[idx] = ramp[glyphIdx > rampMax ? rampMax : glyphIdx]!;
         if (colorBuf) colorBuf[idx] = color;
       }
     }

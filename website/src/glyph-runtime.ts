@@ -266,14 +266,10 @@ interface Tunables {
   glyphPalette?: string;
   /** When false, rasterizer skips <span> emission — fastest possible DOM. */
   useColors?: boolean;
-  /** Smooth (Gouraud) shading. Default true. */
+  /** Smooth (Gouraud) shading. Default false. */
   smoothShading?: boolean;
   /** Crease angle in degrees. Default 60. */
   creaseAngle?: number;
-  /** Cull back-facing triangles. Default false. */
-  backfaceCull?: boolean;
-  /** Bayer ordered-dither between ramp glyphs. Default false. */
-  dither?: boolean;
 }
 
 type DragMode = 'orbit' | 'pan' | 'fpv';
@@ -837,8 +833,6 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
-      backfaceCull: tunables.backfaceCull ?? false,
-      dither: tunables.dither ?? false,
       directionalLight: { direction: lightingState.direction, intensity: lightingState.keyIntensity, color: lightingState.keyColor },
       ambientLight: { intensity: lightingState.ambientIntensity, color: lightingState.ambientColor },
     });

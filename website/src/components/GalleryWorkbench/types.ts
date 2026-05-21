@@ -90,8 +90,6 @@ export interface SceneOptionsState {
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
-  backfaceCull: boolean;
-  dither: boolean;
   dragMode: DragMode;
   fpvLook: boolean;
   fpvMove: boolean;

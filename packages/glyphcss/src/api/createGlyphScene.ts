@@ -70,24 +70,6 @@ export interface GlyphSceneOptions {
    * Default `60`.
    */
   creaseAngle?: number;
-  /**
-   * Backface culling. Skips triangles whose projected screen-space winding
-   * indicates they're facing away from the camera. About 2× faster on closed
-   * meshes and removes silhouette leaks where back-of-mesh faces win cells
-   * at the same depth as the front. Default `false` — opt-in because open or
-   * single-sided meshes (planes, voxel grids, two-sided foliage) need both
-   * sides drawn.
-   */
-  backfaceCull?: boolean;
-  /**
-   * Bayer-matrix ordered dithering between adjacent ramp glyphs. Smooths out
-   * the visible "contour band" artifact that appears when smooth-shaded
-   * intensity gradients cross glyph boundaries — turns hard steps into a
-   * checkerboard transition that reads as a continuous gradient. Default
-   * `false` because the dither pattern is a distinctive aesthetic choice;
-   * pair with `smoothShading: true` for the strongest visual effect.
-   */
-  dither?: boolean;
 }
 
 export interface GlyphHotspotOptions {
@@ -198,8 +180,6 @@ export function createGlyphScene(
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
-    backfaceCull: opts.backfaceCull ?? false,
-    dither: opts.dither ?? false,
   };
 
   // Build DOM
@@ -245,8 +225,6 @@ export function createGlyphScene(
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
-      backfaceCull: options.backfaceCull,
-      dither: options.dither,
     });
 
     const output = rasterize(ctx);
@@ -355,8 +333,6 @@ export function createGlyphScene(
     if (partial.camera !== undefined) options.camera = partial.camera;
     if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
     if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
-    if (partial.backfaceCull !== undefined) options.backfaceCull = partial.backfaceCull;
-    if (partial.dither !== undefined) options.dither = partial.dither;
     scheduleRender();
   }
 

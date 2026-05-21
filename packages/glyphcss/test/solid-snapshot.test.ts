@@ -77,7 +77,7 @@ function makeTetrahedronPolygons(): Polygon[] {
 
 describe("parity: glyphcss rasterize vs asciss fixtures", () => {
   it("unit cube (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphPerspectiveCamera({ rotX: 0.4, rotY: 0.5, zoom: 0.35 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.4, rotY: 0.5, zoom: 0.35, distance: 100 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -94,7 +94,7 @@ describe("parity: glyphcss rasterize vs asciss fixtures", () => {
   });
 
   it("single triangle (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphPerspectiveCamera({ rotX: 0.2, rotY: 0.3, zoom: 0.5 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.2, rotY: 0.3, zoom: 0.5, distance: 100 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -111,7 +111,7 @@ describe("parity: glyphcss rasterize vs asciss fixtures", () => {
   });
 
   it("tetrahedron (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphPerspectiveCamera({ rotX: 0.3, rotY: 0.8, zoom: 0.4 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 0.3, rotY: 0.8, zoom: 0.4, distance: 100 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
