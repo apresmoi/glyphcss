@@ -1255,6 +1255,13 @@ describe("cuboctahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-1, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
   });
+
+  it("all 14 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = cuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("icosidodecahedronPolygons", () => {
@@ -1614,6 +1621,13 @@ describe("truncatedCuboctahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(4, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(2, 5);
   });
+
+  it("all 26 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = truncatedCuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("truncatedIcosidodecahedronPolygons", () => {
@@ -1667,6 +1681,13 @@ describe("truncatedIcosidodecahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-3, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(1, 5);
   });
+
+  it("all 62 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = truncatedIcosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("rhombicuboctahedronPolygons", () => {
@@ -1717,6 +1738,13 @@ describe("rhombicuboctahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(3, 5);
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(0, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-2, 5);
+  });
+
+  it("all 26 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -1771,6 +1799,13 @@ describe("rhombicosidodecahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(1, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(4, 5);
   });
+
+  it("all 62 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = rhombicosidodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("snubCubePolygons", () => {
@@ -1822,6 +1857,13 @@ describe("snubCubePolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(2, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(-3, 5);
   });
+
+  it("all 38 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = snubCubePolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("snubDodecahedronPolygons", () => {
@@ -1872,6 +1914,13 @@ describe("snubDodecahedronPolygons", () => {
     expect(allMoved.reduce((s, v) => s + v[0], 0) / n - allBase.reduce((s, v) => s + v[0], 0) / n).toBeCloseTo(2, 5);
     expect(allMoved.reduce((s, v) => s + v[1], 0) / n - allBase.reduce((s, v) => s + v[1], 0) / n).toBeCloseTo(-1, 5);
     expect(allMoved.reduce((s, v) => s + v[2], 0) / n - allBase.reduce((s, v) => s + v[2], 0) / n).toBeCloseTo(3, 5);
+  });
+
+  it("all 92 faces have outward-facing normals (CCW winding from outside)", () => {
+    const polygons = snubDodecahedronPolygons({ center: [0, 0, 0], size: 1 });
+    for (const poly of polygons) {
+      expect(normalDotCentroid(poly as { vertices: [number, number, number][] })).toBeGreaterThan(0);
+    }
   });
 });
 

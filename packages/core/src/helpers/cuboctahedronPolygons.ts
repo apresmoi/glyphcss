@@ -52,14 +52,14 @@ export function cuboctahedronPolygons(options: CuboctahedronPolygonsOptions): Po
   // For octant (sx,sy,sz): triangle connects (sx,sy,0), (sx,0,sz), (0,sy,sz).
   // Winding is CCW when viewed from the outward octant direction.
   const triangleFaces: [number, number, number][] = [
-    [ 0,  4,  8],   // (+,+,+)
-    [ 0,  9,  5],   // (+,+,-)
-    [ 1, 10,  4],   // (+,-,+)
-    [ 1,  5, 11],   // (+,-,-)
-    [ 2,  8,  6],   // (-,+,+)
-    [ 2,  7,  9],   // (-,+,-)
-    [ 3,  6, 10],   // (-,-,+)
-    [ 3, 11,  7],   // (-,-,-)
+    [ 0,  8,  4],   // (+,+,+)
+    [ 0,  5,  9],   // (+,+,-)
+    [ 1,  4, 10],   // (+,-,+)
+    [ 1, 11,  5],   // (+,-,-)
+    [ 2,  6,  8],   // (-,+,+)
+    [ 2,  9,  7],   // (-,+,-)
+    [ 3, 10,  6],   // (-,-,+)
+    [ 3,  7, 11],   // (-,-,-)
   ];
 
   // 6 square faces — each corresponds to one face of the parent cube.
@@ -68,15 +68,15 @@ export function cuboctahedronPolygons(options: CuboctahedronPolygonsOptions): Po
   // -z face: (0,1,−1),(1,0,−1),(0,−1,−1),(−1,0,−1)
   // +x face: (1,1,0),(1,0,1),(1,−1,0),(1,0,−1)
   // -x face: (−1,1,0),(−1,0,−1),(−1,−1,0),(−1,0,1)
-  // +y face: (1,1,0),(0,1,1),(−1,1,0),(0,1,−1)
-  // -y face: (1,−1,0),(0,−1,−1),(−1,−1,0),(0,−1,1)
+  // +y face: (1,1,0),(0,1,−1),(−1,1,0),(0,1,1)
+  // -y face: (1,−1,0),(0,−1,1),(−1,−1,0),(0,−1,−1)
   const squareFaces: [number, number, number, number][] = [
     [ 8,  6, 10,  4],   // +Z
     [ 9,  5, 11,  7],   // -Z
     [ 0,  4,  1,  5],   // +X
     [ 2,  7,  3,  6],   // -X
-    [ 0,  8,  2,  9],   // +Y
-    [ 1, 11,  3, 10],   // -Y
+    [ 0,  9,  2,  8],   // +Y
+    [ 1, 10,  3, 11],   // -Y
   ];
 
   return [

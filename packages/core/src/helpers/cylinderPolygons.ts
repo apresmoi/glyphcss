@@ -6,8 +6,12 @@
  *
  * Output (sides + 2 polygons):
  *   - `sides` side quads — each connecting top_i → top_(i+1) → bottom_(i+1) → bottom_i (CCW from outside).
- *   - 1 top cap N-gon — CCW when viewed from +Y (vertices 0 … sides-1).
- *   - 1 bottom cap N-gon — CCW when viewed from −Y (vertices reversed).
+ *   - 1 top cap N-gon — CCW from +Y. Because the ring is generated going
+ *     counter-clockwise in XZ (increasing θ winds X→+Z), the +Y-outward
+ *     normal requires the REVERSED order.
+ *   - 1 bottom cap N-gon — CCW from −Y. The same generation order (CCW in
+ *     XZ) already produces a −Y-outward normal, so the bottom cap keeps the
+ *     natural ring order.
  */
 import type { Polygon, Vec3 } from "../types";
 
@@ -50,15 +54,15 @@ export function cylinderPolygons(options: CylinderPolygonsOptions): Polygon[] {
     });
   }
 
-  // Top cap: CCW from +Y → indices 0, 1, …, sides-1
+  // Top cap: CCW from +Y → reversed ring order
   polygons.push({
-    vertices: [...top] as Vec3[],
+    vertices: [...top].reverse() as Vec3[],
     color,
   });
 
-  // Bottom cap: CCW from −Y → reverse of top order
+  // Bottom cap: CCW from −Y → natural ring order
   polygons.push({
-    vertices: [...bottom].reverse() as Vec3[],
+    vertices: [...bottom] as Vec3[],
     color,
   });
 

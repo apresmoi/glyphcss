@@ -49,15 +49,15 @@ export function prismPolygons(options: PrismPolygonsOptions): Polygon[] {
     });
   }
 
-  // Top cap: CCW from +Y → indices 0, 1, …, sides-1
+  // Top cap: CCW from +Y → reversed ring order
   polygons.push({
-    vertices: [...top] as Vec3[],
+    vertices: [...top].reverse() as Vec3[],
     color,
   });
 
-  // Bottom cap: CCW from −Y → reverse ring order
+  // Bottom cap: CCW from −Y → natural ring order
   polygons.push({
-    vertices: [...bottom].reverse() as Vec3[],
+    vertices: [...bottom] as Vec3[],
     color,
   });
 

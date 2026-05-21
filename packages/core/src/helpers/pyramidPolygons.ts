@@ -48,9 +48,10 @@ export function pyramidPolygons(options: PyramidPolygonsOptions): Polygon[] {
     });
   }
 
-  // Base cap: CCW from −Y → reverse ring order
+  // Base cap: CCW from −Y → natural ring order (ring is generated CCW in XZ,
+  // which already gives a −Y-outward normal for the bottom-facing cap).
   polygons.push({
-    vertices: [...base].reverse() as Vec3[],
+    vertices: [...base] as Vec3[],
     color,
   });
 
