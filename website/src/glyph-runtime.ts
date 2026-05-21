@@ -272,6 +272,8 @@ interface Tunables {
   creaseAngle?: number;
   /** Cull back-facing triangles. Default false. */
   backfaceCull?: boolean;
+  /** Bayer ordered-dither between ramp glyphs. Default false. */
+  dither?: boolean;
 }
 
 type DragMode = 'orbit' | 'pan' | 'fpv';
@@ -836,6 +838,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
       backfaceCull: tunables.backfaceCull ?? false,
+      dither: tunables.dither ?? false,
       directionalLight: { direction: lightingState.direction, intensity: lightingState.keyIntensity, color: lightingState.keyColor },
       ambientLight: { intensity: lightingState.ambientIntensity, color: lightingState.ambientColor },
     });

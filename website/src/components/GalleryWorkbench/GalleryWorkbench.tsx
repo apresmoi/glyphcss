@@ -224,6 +224,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   smoothShading: false,
   creaseAngle: 60,
   backfaceCull: false,
+  dither: false,
   dragMode: "orbit",
   fpvLook: true,
   fpvMove: true,
@@ -485,6 +486,7 @@ export default function GalleryWorkbench() {
           smoothShading={sceneOptions.smoothShading}
           creaseAngle={sceneOptions.creaseAngle}
           backfaceCull={sceneOptions.backfaceCull}
+          dither={sceneOptions.dither}
           onUpdateScene={updateScene}
         />
         <DockAnimation

@@ -51,7 +51,7 @@ function rasterizeSolid(
   rows: number,
   cellAspect: number,
 ): string {
-  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull } = scene;
+  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull, dither } = scene;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -164,6 +164,7 @@ function rasterizeSolid(
         glyphBuf, colorBuf, depthBuf,
         cols, rows,
         backfaceCull,
+        dither,
       );
     }
   }
@@ -190,6 +191,19 @@ function rasterizeSolid(
  * from a fractional weight near 0 turns valid interior pixels (w ≈ 0.4) into
  * "outside" (w ≈ −0.6) and punches holes through every triangle.
  */
+/**
+ * 4×4 Bayer ordered-dither thresholds, normalized to (0, 1). Indexed by
+ * `(row & 3) * 4 + (col & 3)`. The `+0.5` recentring keeps every cell strictly
+ * inside the open interval so neither boundary glyph is favored when intensity
+ * lands exactly on a ramp step.
+ */
+const BAYER_4X4 = new Float64Array([
+  ( 0 + 0.5) / 16, ( 8 + 0.5) / 16, ( 2 + 0.5) / 16, (10 + 0.5) / 16,
+  (12 + 0.5) / 16, ( 4 + 0.5) / 16, (14 + 0.5) / 16, ( 6 + 0.5) / 16,
+  ( 3 + 0.5) / 16, (11 + 0.5) / 16, ( 1 + 0.5) / 16, ( 9 + 0.5) / 16,
+  (15 + 0.5) / 16, ( 7 + 0.5) / 16, (13 + 0.5) / 16, ( 5 + 0.5) / 16,
+]);
+
 function scanFillTriangle(
   ax: number, ay: number, az: number, ia: number,
   bx: number, by: number, bz: number, ib: number,
@@ -203,6 +217,7 @@ function scanFillTriangle(
   cols: number,
   rows: number,
   backfaceCull: boolean,
+  dither: boolean,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -251,7 +266,23 @@ function scanFillTriangle(
         // crosses the edge smoothly instead of stepping.
         const intensity = (wA * ia + wB * ib + wC * ic) * invArea2;
         const clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
-        glyphBuf[idx] = ramp[Math.min(rampMax, (clamped * rampMax) | 0)]!;
+        let glyphIdx: number;
+        if (dither) {
+          // Pick between two adjacent ramp glyphs using a Bayer threshold.
+          // When the sub-ramp fraction exceeds the cell's threshold, step up
+          // to the brighter glyph — producing a stippled gradient that reads
+          // as continuous from a distance and breaks up the visible contour
+          // bands between ramp steps.
+          const rampPos = clamped * rampMax;
+          const lower = rampPos | 0;
+          const frac = rampPos - lower;
+          const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
+          glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+        } else {
+          glyphIdx = (clamped * rampMax) | 0;
+          if (glyphIdx > rampMax) glyphIdx = rampMax;
+        }
+        glyphBuf[idx] = ramp[glyphIdx]!;
         if (colorBuf) colorBuf[idx] = color;
       }
     }

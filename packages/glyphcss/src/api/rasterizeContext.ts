@@ -47,6 +47,14 @@ export interface RasterizeContextOptions {
    * two-sided foliage) need both faces drawn.
    */
   backfaceCull?: boolean;
+  /**
+   * Bayer-matrix ordered dithering between adjacent glyphs in the intensity
+   * ramp. Smooths out the visible contour bands that appear when intensity
+   * gradients cross glyph boundaries — particularly noticeable on smooth-shaded
+   * curved surfaces. Default `false` — opt-in because the dither pattern is
+   * a deliberate aesthetic choice, not a universal upgrade.
+   */
+  dither?: boolean;
 }
 
 export interface RasterizeContext {
@@ -63,6 +71,7 @@ export interface RasterizeContext {
   smoothShading: boolean;
   creaseAngle: number;
   backfaceCull: boolean;
+  dither: boolean;
 }
 
 const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
@@ -110,5 +119,6 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
     backfaceCull: opts.backfaceCull ?? false,
+    dither: opts.dither ?? false,
   };
 }

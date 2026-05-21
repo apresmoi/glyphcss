@@ -147,6 +147,7 @@ export function GlyphScene({
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
           backfaceCull: options.backfaceCull,
+          dither: options.dither,
         });
         handle.setDragMode(options.dragMode);
         handle.setFpvOptions({
@@ -359,6 +360,13 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ backfaceCull: options.backfaceCull });
   }, [options.backfaceCull]);
+
+  // React to dither toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ dither: options.dither });
+  }, [options.dither]);
 
   // React to animation clip selection.
   useEffect(() => {

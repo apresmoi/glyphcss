@@ -15,7 +15,8 @@ export interface RenderingFolderInputs {
   smoothShading: boolean;
   creaseAngle: number;
   backfaceCull: boolean;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "lineHeight" | "useColors" | "smoothShading" | "creaseAngle" | "backfaceCull">>) => void;
+  dither: boolean;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "lineHeight" | "useColors" | "smoothShading" | "creaseAngle" | "backfaceCull" | "dither">>) => void;
 }
 
 
@@ -40,7 +41,7 @@ const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
 };
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): void {
-  const { renderMode, featureEdges, glyphPalette, lineHeight, useColors, smoothShading, creaseAngle, backfaceCull, onUpdateScene } = inputs;
+  const { renderMode, featureEdges, glyphPalette, lineHeight, useColors, smoothShading, creaseAngle, backfaceCull, dither, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   useOption<"wireframe" | "solid">(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, (value) =>
@@ -63,6 +64,9 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   );
   useToggle(folder, "Backface cull", backfaceCull, (value) =>
     onUpdateScene({ backfaceCull: value }),
+  );
+  useToggle(folder, "Dither", dither, (value) =>
+    onUpdateScene({ dither: value }),
   );
   useSlider(folder, "Line-height ×", { min: 0.5, max: 1.2, step: 0.01 }, lineHeight, (value) =>
     onUpdateScene({ lineHeight: value }),

@@ -42,6 +42,8 @@ export interface GlyphSceneProps {
   creaseAngle?: number;
   /** Cull back-facing triangles. Default false. */
   backfaceCull?: boolean;
+  /** Bayer ordered-dither between adjacent glyph-ramp steps. Default false. */
+  dither?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -59,6 +61,7 @@ function GlyphSceneInner({
   smoothShading,
   creaseAngle,
   backfaceCull,
+  dither,
   className,
   style,
   children,
@@ -80,6 +83,7 @@ function GlyphSceneInner({
     smoothShading,
     creaseAngle,
     backfaceCull,
+    dither,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -117,10 +121,11 @@ function GlyphSceneInner({
     if (smoothShading !== undefined) partial.smoothShading = smoothShading;
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
     if (backfaceCull !== undefined) partial.backfaceCull = backfaceCull;
+    if (dither !== undefined) partial.dither = dither;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull]);
+  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull, dither]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 
