@@ -145,7 +145,11 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
   const result = await loadMesh(url);
   const rawTris = fanTriangulate(result.polygons);
   const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
-  const edges = trianglesToEdges(polys);
+  // Store ALL edges (featureAngleDeg=0) as the unfiltered base so the fallback
+  // in rebuildSceneFromGeometry always has a non-empty edge set for any closed
+  // mesh, including very round Catalan solids where all face-normal divergences
+  // are below the default 20° threshold.
+  const edges = trianglesToEdges(polys, 0);
   const vertSet = new Map<string, Vec3>();
   for (const e of edges) {
     vertSet.set(e.from.join(','), e.from);
@@ -878,7 +882,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   function setPolygons(polygons: import('glyphcss').Polygon[]): void {
     const rawTris = fanTriangulate(polygons);
     const polys = fitTrianglesToUnitBbox(rawTris);
-    const edges = trianglesToEdges(polys);
+    // Store ALL edges (featureAngleDeg=0) as the unfiltered base — same reason
+    // as loadMeshAsGeometry: Catalan solids with shallow dihedral angles would
+    // produce an empty edge set at the 20° default, breaking the fallback path
+    // in rebuildSceneFromGeometry.
+    const edges = trianglesToEdges(polys, 0);
     const vertSet = new Map<string, Vec3>();
     for (const e of edges) {
       vertSet.set(e.from.join(','), e.from);
