@@ -266,6 +266,10 @@ interface Tunables {
   glyphPalette?: string;
   /** When false, rasterizer skips <span> emission — fastest possible DOM. */
   useColors?: boolean;
+  /** Smooth (Gouraud) shading. Default true. */
+  smoothShading?: boolean;
+  /** Crease angle in degrees. Default 60. */
+  creaseAngle?: number;
 }
 
 type DragMode = 'orbit' | 'pan' | 'fpv';
@@ -827,6 +831,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       mode: activeMode,
       glyphPalette: tunables.glyphPalette ?? 'default',
       useColors: tunables.useColors ?? true,
+      smoothShading: tunables.smoothShading ?? false,
+      creaseAngle: tunables.creaseAngle ?? 60,
       directionalLight: { direction: lightingState.direction, intensity: lightingState.keyIntensity, color: lightingState.keyColor },
       ambientLight: { intensity: lightingState.ambientIntensity, color: lightingState.ambientColor },
     });

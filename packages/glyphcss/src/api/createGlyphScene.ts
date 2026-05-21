@@ -52,6 +52,24 @@ export interface GlyphSceneOptions {
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
   camera?: GlyphCamera;
+  /**
+   * Smooth (Gouraud) shading. When `true`, per-pixel Lambert intensity is
+   * interpolated from per-vertex normals averaged across adjacent polygons
+   * within `creaseAngle`. Adjacent triangles on a curved surface render
+   * without visible seams along their shared edges. Default `false` — the
+   * faceted ASCII look is part of glyph's identity, so smooth shading is
+   * opt-in. Turn it on for organic / curved-surface meshes (bread, sphere,
+   * character models) where polygon seams hurt the silhouette.
+   */
+  smoothShading?: boolean;
+  /**
+   * Crease angle in degrees. With smooth shading on, adjacent faces whose
+   * normals diverge by more than this angle stay flat-shaded at their shared
+   * edge (preserves hard corners on otherwise smooth meshes). `0` reproduces
+   * flat shading regardless of `smoothShading`; `180` smooths everything.
+   * Default `60`.
+   */
+  creaseAngle?: number;
 }
 
 export interface GlyphHotspotOptions {
@@ -160,6 +178,8 @@ export function createGlyphScene(
     directionalLight: opts.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
+    smoothShading: opts.smoothShading ?? false,
+    creaseAngle: opts.creaseAngle ?? 60,
   };
 
   // Build DOM
@@ -203,6 +223,8 @@ export function createGlyphScene(
       ambientLight: options.ambientLight,
       glyphPalette: options.glyphPalette,
       useColors: options.useColors,
+      smoothShading: options.smoothShading,
+      creaseAngle: options.creaseAngle,
     });
 
     const output = rasterize(ctx);
@@ -309,6 +331,8 @@ export function createGlyphScene(
     if (partial.directionalLight !== undefined) options.directionalLight = partial.directionalLight;
     if (partial.ambientLight !== undefined) options.ambientLight = partial.ambientLight;
     if (partial.camera !== undefined) options.camera = partial.camera;
+    if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
+    if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
     scheduleRender();
   }
 

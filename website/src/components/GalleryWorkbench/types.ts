@@ -88,6 +88,8 @@ export interface SceneOptionsState {
   glyphPalette: "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
   lineHeight: number;
   useColors: boolean;
+  smoothShading: boolean;
+  creaseAngle: number;
   dragMode: DragMode;
   fpvLook: boolean;
   fpvMove: boolean;

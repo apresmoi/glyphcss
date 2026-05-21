@@ -221,6 +221,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   glyphPalette: "default",
   lineHeight: 1.0,
   useColors: true,
+  smoothShading: false,
+  creaseAngle: 60,
   dragMode: "orbit",
   fpvLook: true,
   fpvMove: true,
@@ -479,6 +481,8 @@ export default function GalleryWorkbench() {
           glyphPalette={sceneOptions.glyphPalette}
           lineHeight={sceneOptions.lineHeight}
           useColors={sceneOptions.useColors}
+          smoothShading={sceneOptions.smoothShading}
+          creaseAngle={sceneOptions.creaseAngle}
           onUpdateScene={updateScene}
         />
         <DockAnimation

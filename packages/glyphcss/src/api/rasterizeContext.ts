@@ -24,6 +24,20 @@ export interface RasterizeContextOptions {
    * output is just one text node — fastest possible DOM update. Default `true`.
    */
   useColors?: boolean;
+  /**
+   * Smooth (Gouraud) shading. When `true`, per-pixel Lambert intensity is
+   * interpolated from per-vertex normals (averaged across adjacent polygons
+   * within `creaseAngle`). Default `false` — flat shading is glyph's default
+   * because the facets are part of the ASCII aesthetic.
+   */
+  smoothShading?: boolean;
+  /**
+   * Crease angle in degrees for smooth shading. Vertex normals are averaged
+   * across adjacent faces whose normals diverge by less than this angle;
+   * edges sharper than this stay flat-shaded. `0` collapses to pure flat
+   * shading; `180` smooths every shared vertex. Default `60`.
+   */
+  creaseAngle?: number;
 }
 
 export interface RasterizeContext {
@@ -37,6 +51,8 @@ export interface RasterizeContext {
   /** Named wireframe glyph palette passed to the rasterizer. */
   glyphPalette: string;
   useColors: boolean;
+  smoothShading: boolean;
+  creaseAngle: number;
 }
 
 const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
@@ -81,5 +97,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     ambientLight: opts.ambientLight ?? DEFAULT_AMBIENT,
     glyphPalette: opts.glyphPalette ?? "default",
     useColors: opts.useColors ?? true,
+    smoothShading: opts.smoothShading ?? false,
+    creaseAngle: opts.creaseAngle ?? 60,
   };
 }

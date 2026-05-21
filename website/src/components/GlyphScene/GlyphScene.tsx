@@ -144,6 +144,8 @@ export function GlyphScene({
           featureEdges: options.featureEdges,
           glyphPalette: options.glyphPalette,
           useColors: options.useColors,
+          smoothShading: options.smoothShading,
+          creaseAngle: options.creaseAngle,
         });
         handle.setDragMode(options.dragMode);
         handle.setFpvOptions({
@@ -335,6 +337,20 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ useColors: options.useColors });
   }, [options.useColors]);
+
+  // React to smoothShading toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ smoothShading: options.smoothShading });
+  }, [options.smoothShading]);
+
+  // React to creaseAngle slider.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ creaseAngle: options.creaseAngle });
+  }, [options.creaseAngle]);
 
   // React to animation clip selection.
   useEffect(() => {
