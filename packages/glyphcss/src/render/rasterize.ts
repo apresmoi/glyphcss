@@ -51,7 +51,7 @@ function rasterizeSolid(
   rows: number,
   cellAspect: number,
 ): string {
-  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle } = scene;
+  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull } = scene;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -163,6 +163,7 @@ function rasterizeSolid(
         ramp, rampMax, litColor,
         glyphBuf, colorBuf, depthBuf,
         cols, rows,
+        backfaceCull,
       );
     }
   }
@@ -201,10 +202,18 @@ function scanFillTriangle(
   depthBuf: Float64Array,
   cols: number,
   rows: number,
+  backfaceCull: boolean,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
   if (area2 === 0) return;
+  // Backface culling. Glyphcss's camera projects world-CCW polygons (the
+  // input convention is "CCW from outside") to screen-CW under our row
+  // convention (positive r[1] → larger row → visually below center), so
+  // front-facing triangles produce `area2 < 0`. Skip back faces (`area2 > 0`)
+  // when culling is on. The asciss-derived rotateVec3 also swaps the X/Y
+  // input axes, which contributes to the orientation flip.
+  if (backfaceCull && area2 > 0) return;
   const invArea2 = 1 / area2;
   const ccw = area2 > 0;
 

@@ -146,6 +146,7 @@ export function GlyphScene({
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
+          backfaceCull: options.backfaceCull,
         });
         handle.setDragMode(options.dragMode);
         handle.setFpvOptions({
@@ -351,6 +352,13 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ creaseAngle: options.creaseAngle });
   }, [options.creaseAngle]);
+
+  // React to backfaceCull toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ backfaceCull: options.backfaceCull });
+  }, [options.backfaceCull]);
 
   // React to animation clip selection.
   useEffect(() => {

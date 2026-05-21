@@ -36,10 +36,12 @@ export interface GlyphSceneProps {
   cellAspect?: number;
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
-  /** Smooth (Gouraud) shading. Default true. */
+  /** Smooth (Gouraud) shading. Default false. */
   smoothShading?: boolean;
   /** Crease angle in degrees. Edges sharper than this stay flat-shaded. Default 60. */
   creaseAngle?: number;
+  /** Cull back-facing triangles. Default false. */
+  backfaceCull?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -56,6 +58,7 @@ function GlyphSceneInner({
   ambientLight,
   smoothShading,
   creaseAngle,
+  backfaceCull,
   className,
   style,
   children,
@@ -76,6 +79,7 @@ function GlyphSceneInner({
     ambientLight,
     smoothShading,
     creaseAngle,
+    backfaceCull,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -112,10 +116,11 @@ function GlyphSceneInner({
     if (ambientLight !== undefined) partial.ambientLight = ambientLight;
     if (smoothShading !== undefined) partial.smoothShading = smoothShading;
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
+    if (backfaceCull !== undefined) partial.backfaceCull = backfaceCull;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle]);
+  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, backfaceCull]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 
