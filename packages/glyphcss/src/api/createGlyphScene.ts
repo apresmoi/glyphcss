@@ -70,6 +70,15 @@ export interface GlyphSceneOptions {
    * Default `60`.
    */
   creaseAngle?: number;
+  /**
+   * Auto-size the character grid to fill the host element. When `true`, the
+   * scene measures one monospace character's pixel size from the live `<pre>`
+   * (using whatever font size the host inherits via CSS), computes `cols` and
+   * `rows` that fit the host's `clientWidth × clientHeight`, and re-fits on
+   * host resize via a `ResizeObserver`. Default `false` — fixed `cols`/`rows`
+   * (default 80×24) is the predictable choice for tests and SSR.
+   */
+  autoSize?: boolean;
 }
 
 export interface GlyphHotspotOptions {
@@ -182,6 +191,7 @@ export function createGlyphScene(
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
+    autoSize: opts.autoSize ?? false,
   };
 
   // Build DOM
@@ -341,6 +351,17 @@ export function createGlyphScene(
     if (partial.camera !== undefined) options.camera = partial.camera;
     if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
     if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
+    if (partial.autoSize !== undefined) {
+      options.autoSize = partial.autoSize;
+      if (options.autoSize && !resizeObserver && typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(() => fitToHost());
+        resizeObserver.observe(host);
+        fitToHost();
+      } else if (!options.autoSize && resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
+    }
     scheduleRender();
   }
 
@@ -348,7 +369,49 @@ export function createGlyphScene(
     return { ...options };
   }
 
+  /**
+   * Measure one monospace character cell from the live `<pre>` element and
+   * compute `cols`/`rows` that fill the host's client box. We probe the actual
+   * `<pre>` (not the host) so the measurement reflects the inherited font.
+   * Falls back to the existing cols/rows when the host has zero size (not yet
+   * attached) so the scene still renders.
+   */
+  function measureCell(): { w: number; h: number } {
+    const probe = host.ownerDocument!.createElement("span");
+    probe.textContent = "M";
+    probe.style.cssText =
+      "position:absolute;visibility:hidden;font-family:monospace;white-space:pre;line-height:1;padding:0;margin:0;font-size:inherit";
+    pre.appendChild(probe);
+    const r = probe.getBoundingClientRect();
+    probe.remove();
+    return { w: r.width || 8, h: r.height || 16 };
+  }
+
+  function fitToHost(): void {
+    const w = host.clientWidth;
+    const h = host.clientHeight;
+    if (!w || !h) return;
+    const cell = measureCell();
+    const cols = Math.max(20, Math.floor(w / cell.w));
+    const rows = Math.max(8, Math.floor(h / cell.h));
+    const cellAspect = cell.h / cell.w;
+    let changed = false;
+    if (options.cols !== cols) { options.cols = cols; changed = true; }
+    if (options.rows !== rows) { options.rows = rows; changed = true; }
+    if (Math.abs(options.cellAspect - cellAspect) > 0.01) { options.cellAspect = cellAspect; changed = true; }
+    if (changed) scheduleRender();
+  }
+
+  let resizeObserver: ResizeObserver | null = null;
+  if (options.autoSize && typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(() => fitToHost());
+    resizeObserver.observe(host);
+    // Initial fit (also handles the case where the host already has a size).
+    fitToHost();
+  }
+
   function destroy(): void {
+    if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
     meshes.clear();
     if (host.contains(sceneEl)) host.removeChild(sceneEl);
   }
