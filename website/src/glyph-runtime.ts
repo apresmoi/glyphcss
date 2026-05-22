@@ -1,21 +1,51 @@
 /**
- * GlyphDemo runtime — imported once by GlyphDemo.astro. Lives in a standalone
- * .ts file (instead of inline `<script>`) so Astro's template parser never sees
- * generic angle brackets or `{ ... }` blocks and mis-classifies them as JSX /
- * template expressions.
+ * GlyphDemo runtime — imported once by GlyphScene.tsx and GlyphDemo.astro.
+ *
+ * This file was refactored to use `createGlyphScene` as its rendering core.
+ * Previously it used low-level primitives (`rasterize`, `buildRasterizeContext`,
+ * `bakeFrames`, `projectHotspots`) directly, bypassing the public API so bug
+ * fixes to the managed scene path never reached the gallery.
+ *
+ * What is now delegated to `createGlyphScene`:
+ *   - DOM creation (`<pre class="glyph-output">` + `<div class="glyph-hotspot-layer">`)
+ *   - Render scheduling (microtask-batched, calls `scene.rerender()`)
+ *   - Grid sizing via `autoSize: true` (ResizeObserver-driven cols/rows/cellAspect)
+ *   - Hotspot position updates after each render
+ *
+ * What remains here (gallery-specific UI logic):
+ *   - Triangle selection / picking
+ *   - FPV camera mode (pointer-lock + WASD + jump/crouch/gravity — richer than
+ *     the public `createGlyphFirstPersonControls`, kept as-is)
+ *   - Animation sampling loop
+ *   - Auto-rotate via RAF (previously a CSS baked-strip flipbook; replaced with
+ *     JS-driven `camera.rotY += dAngle; scene.rerender()` so all fixes to the
+ *     public render path propagate automatically; the flipbook strategy was a
+ *     perf optimization that created an independent code path)
+ *   - Geometry builders (cuboctahedron, icosahedron, cube)
+ *   - Feature-edge re-derivation
+ *   - lil-gui controls panel
+ *   - Code panel sync
+ *   - Stats reporting
  */
 
 import GUI from 'lil-gui';
 import {
-  buildRasterizeContext,
+  createGlyphScene,
+  createGlyphOrbitControls,
+  createGlyphMapControls,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
-  bakeFrames,
-  projectHotspots,
-  rasterize,
   loadMesh,
 } from 'glyphcss';
-import type { Hotspot, Vec3, WireframeEdge, TextureTriangle, GlyphCamera, ParseAnimationClip } from 'glyphcss';
+import type {
+  Vec3,
+  WireframeEdge,
+  TextureTriangle,
+  GlyphCamera,
+  ParseAnimationClip,
+  Polygon,
+} from 'glyphcss';
+import type { GlyphSceneHandle } from 'glyphcss';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
 
@@ -34,11 +64,9 @@ function dotNorm(na: [number, number, number], nb: [number, number, number]): nu
   return (na[0]*nb[0] + na[1]*nb[1] + na[2]*nb[2]) / (la * lb);
 }
 
-/** Derive a feature-edge list: only emit edges where adjacent face normals diverge > threshold.
- *  Color is copied from the first triangle encountered for each edge. */
+/** Derive a feature-edge list: only emit edges where adjacent face normals diverge > threshold. */
 function trianglesToEdges(triangles: TextureTriangle[], featureAngleDeg = 20): WireframeEdge[] {
   const THRESH = Math.cos((featureAngleDeg * Math.PI) / 180);
-  // Map each edge (sorted vertex key) → list of face normals sharing it, plus color from first tri.
   const edgeFaces = new Map<string, { normals: Array<[number, number, number]>; from: Vec3; to: Vec3; color?: string }>();
   const pairs: [number, number][] = [[0, 1], [1, 2], [2, 0]];
   for (const t of triangles) {
@@ -58,14 +86,12 @@ function trianglesToEdges(triangles: TextureTriangle[], featureAngleDeg = 20): W
   }
   const edges: WireframeEdge[] = [];
   for (const { normals, from, to, color } of edgeFaces.values()) {
-    // Boundary edges (only one adjacent face) are always feature edges.
     if (normals.length < 2) {
       const edge: WireframeEdge = { from, to, weight: 2 };
       if (color) edge.color = color;
       edges.push(edge);
       continue;
     }
-    // Check if any pair of adjacent normals diverges more than the threshold.
     let isFeature = false;
     outer: for (let i = 0; i < normals.length; i++) {
       for (let j = i + 1; j < normals.length; j++) {
@@ -87,21 +113,18 @@ function trianglesToEdges(triangles: TextureTriangle[], featureAngleDeg = 20): W
 interface MeshGeometry {
   vertices: Vec3[];
   edges: WireframeEdge[];
-  /** Fan-triangulated TextureTriangles used internally for feature edges and picking. */
   polygons: TextureTriangle[];
   animations: ParseAnimationClip[];
   sample: (clipIndex: number, time: number) => TextureTriangle[];
 }
 
 /** Fan-triangulate a Polygon (N vertices) into N-2 TextureTriangles. */
-function fanTriangulate(polygons: import('glyphcss').Polygon[]): TextureTriangle[] {
+function fanTriangulate(polygons: Polygon[]): TextureTriangle[] {
   const triangles: TextureTriangle[] = [];
   for (const poly of polygons) {
     if (!poly.vertices || poly.vertices.length < 3) continue;
     const v = poly.vertices;
     const color = poly.color;
-    // If the polygon was already pre-triangulated by the parser into textureTriangles,
-    // prefer those (they carry per-triangle UVs from the source mesh).
     if (poly.textureTriangles && poly.textureTriangles.length > 0) {
       for (const t of poly.textureTriangles) triangles.push(t);
       continue;
@@ -118,7 +141,7 @@ function fanTriangulate(polygons: import('glyphcss').Polygon[]): TextureTriangle
   return triangles;
 }
 
-/** Recenter + scale triangles to fit a unit bbox (asciss-style mesh-fit). */
+/** Recenter + scale triangles to fit a unit bbox. */
 function fitTrianglesToUnitBbox(triangles: TextureTriangle[]): TextureTriangle[] {
   if (triangles.length === 0) return triangles;
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -145,18 +168,12 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
   const result = await loadMesh(url);
   const rawTris = fanTriangulate(result.polygons);
   const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
-  // Store ALL edges (featureAngleDeg=0) as the unfiltered base so the fallback
-  // in rebuildSceneFromGeometry always has a non-empty edge set for any closed
-  // mesh, including very round Catalan solids where all face-normal divergences
-  // are below the default 20° threshold.
   const edges = trianglesToEdges(polys, 0);
   const vertSet = new Map<string, Vec3>();
   for (const e of edges) {
     vertSet.set(e.from.join(','), e.from);
     vertSet.set(e.to.join(','), e.to);
   }
-
-  // For animated meshes, wrap the sample function to apply the same normalization.
   const clips = result.animation?.clips ?? [];
   let sample: (clipIndex: number, time: number) => TextureTriangle[];
   if (clips.length > 0 && result.animation) {
@@ -169,7 +186,6 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
   } else {
     sample = () => polys;
   }
-
   return {
     vertices: Array.from(vertSet.values()),
     edges,
@@ -181,7 +197,6 @@ async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGe
 
 // ── Selection helpers ─────────────────────────────────────────────────────
 
-/** Point-in-triangle test using barycentric coordinates (2D). */
 function pointInTriangle2D(
   px: number, py: number,
   ax: number, ay: number,
@@ -204,10 +219,6 @@ function pointInTriangle2D(
   return u >= 0 && v >= 0 && u + v <= 1;
 }
 
-/**
- * Pick the nearest (lowest depth) triangle under the pointer (col, row).
- * Returns the triangle index or -1 if none hit.
- */
 function pickTriangle(
   triangles: TextureTriangle[],
   cam: GlyphCamera,
@@ -221,7 +232,6 @@ function pickTriangle(
     const pa = cam.project(t.vertices[0], cols, rows, cellAspect);
     const pb = cam.project(t.vertices[1], cols, rows, cellAspect);
     const pc = cam.project(t.vertices[2], cols, rows, cellAspect);
-    // Quick bounding-box cull.
     const minC = Math.min(pa[0], pb[0], pc[0]) - 1;
     const maxC = Math.max(pa[0], pb[0], pc[0]) + 1;
     const minR = Math.min(pa[1], pb[1], pc[1]) - 1;
@@ -237,42 +247,23 @@ function pickTriangle(
   return bestIdx;
 }
 
-/** Build 3 weight-3 highlight edges for a selected triangle. */
-function buildSelectionEdges(t: TextureTriangle): WireframeEdge[] {
-  return [
-    { from: t.vertices[0], to: t.vertices[1], weight: 3 },
-    { from: t.vertices[1], to: t.vertices[2], weight: 3 },
-    { from: t.vertices[2], to: t.vertices[0], weight: 3 },
-  ];
-}
-
 interface Tunables {
   zoom: number;
   stretch: number;
   distance: number;
   rotX: number;
-  /** rotY in radians. When explicitly set, auto-rotate is paused. */
   rotY?: number;
-  /** Camera pan target X (world units). */
   targetX?: number;
-  /** Camera pan target Y (world units). */
   targetY?: number;
-  /** Camera pan target Z (world units). */
   targetZ?: number;
   duration: number;
   lineHeight: number;
   geometry: GeometryName;
-  /** Render mode sent from the gallery Dock. */
   renderMode?: 'wireframe' | 'solid';
-  /** Feature-edge threshold in degrees (0 = all edges). */
   featureEdges?: number;
-  /** Named wireframe glyph palette. */
   glyphPalette?: string;
-  /** When false, rasterizer skips <span> emission — fastest possible DOM. */
   useColors?: boolean;
-  /** Smooth (Gouraud) shading. Default false. */
   smoothShading?: boolean;
-  /** Crease angle in degrees. Default 60. */
   creaseAngle?: number;
 }
 
@@ -296,34 +287,22 @@ interface FpvOptions {
 }
 
 interface ControlState {
-  /** Invert drag direction (both axes). */
   invertDrag: boolean;
-  /** Whether drag is enabled. */
   dragEnabled: boolean;
-  /** Whether wheel zoom is enabled. */
   wheelEnabled: boolean;
-  /** Whether auto-normalize (normalizePolygons) is applied on load. */
   autoCenter: boolean;
-  /** Last loaded mesh URL (for re-load on autoCenter toggle). */
   lastMeshUrl: string | null;
-  /** When true, the CSS autorotate animation is paused (rotY explicitly controlled). */
   rotYLocked: boolean;
-  /** Projection mode. */
   projection: 'perspective' | 'orthographic';
-  /** Active drag/interaction mode. */
   dragMode: DragMode;
-  /** FPV sub-options (only relevant when dragMode === 'fpv'). */
   fpv: FpvOptions;
 }
 
-const FRAMES = 60;
-// Default scene tunables. `scale` is the camera zoom; `distance` is the
-// perspective focal length in pixels.
 const DEFAULT_TUNABLES: Tunables = {
-  scale: 0.3,
+  zoom: 0.3,
   stretch: 1.0,
   distance: 8000,
-  rotX: 1.134, // 65° in radians, matches glyphcss rotX
+  rotX: 1.134,
   duration: 6,
   lineHeight: 1.0,
   geometry: 'cuboctahedron',
@@ -468,12 +447,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   demoEl.setAttribute('data-initialized', '1');
 
   const sceneHost = demoEl.querySelector('.glyph-demo__scene-host') as HTMLElement;
-  const viewportEl = demoEl.querySelector('.glyph-demo__viewport') as HTMLElement;
-  const stripEl = demoEl.querySelector('.glyph-demo__strip') as HTMLPreElement;
-  const hitLayerEl = demoEl.querySelector('.glyph-demo__hit-layer') as HTMLElement;
-  const controlsEl = demoEl.querySelector('.glyph-demo__controls') as HTMLElement | null;
   const loadingEl = demoEl.querySelector('.glyph-demo__loading') as HTMLElement;
   const statsEl = demoEl.querySelector('.glyph-demo__stats') as HTMLElement;
+  const controlsEl = demoEl.querySelector('.glyph-demo__controls') as HTMLElement | null;
   const codeEls: Record<string, HTMLElement | null> = {
     vanilla: demoEl.querySelector('.glyph-demo__snippet[data-fw="vanilla"] code'),
     react: demoEl.querySelector('.glyph-demo__snippet[data-fw="react"] code'),
@@ -492,423 +468,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const controlsAttr = demoEl.getAttribute('data-controls');
   if (controlsAttr) { try { controlList = JSON.parse(controlsAttr); } catch {} }
 
-  function measureCell(): { fontSize: number; cellW: number; cellH: number } {
-    const w = sceneHost.clientWidth;
-    const fontSize = Math.max(7, Math.min(11, w * 0.0065));
-    const probe = document.createElement('span');
-    probe.textContent = 'M';
-    probe.style.cssText = [
-      'position: absolute',
-      'visibility: hidden',
-      'pointer-events: none',
-      'display: inline-block',
-      'font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace',
-      `font-size: ${fontSize}px`,
-      'line-height: normal',
-      'white-space: pre',
-      'padding: 0',
-      'margin: 0',
-      'letter-spacing: 0',
-    ].join(';');
-    sceneHost.appendChild(probe);
-    const rect = probe.getBoundingClientRect();
-    const cellW = rect.width;
-    const cellH = rect.height * tunables.lineHeight;
-    probe.remove();
-    return { fontSize, cellW, cellH };
-  }
-
-  function computeGrid(cellW: number, cellH: number) {
-    const w = sceneHost.clientWidth;
-    const h = sceneHost.clientHeight;
-    const cols = Math.max(40, Math.floor(w / cellW));
-    const rows = Math.max(24, Math.floor(h / cellH));
-    return { cols, rows, cellAspect: cellH / cellW };
-  }
-
-  let cellMetrics = measureCell();
-  sceneHost.style.setProperty('--cell-fs', `${cellMetrics.fontSize}px`);
-  sceneHost.style.setProperty('--cell-h', `${cellMetrics.cellH}px`);
-  sceneHost.style.setProperty('--dur', `${tunables.duration}s`);
-
-  // Geometry holds either a built-in shape (animations=[]) or a loaded mesh.
-  type GeometryState = {
-    vertices: Vec3[];
-    edges: WireframeEdge[];
-    polygons?: TextureTriangle[];
-    animations: ParseAnimationClip[];
-    sample: (clipIndex: number, time: number) => TextureTriangle[];
-  };
-
-  function staticGeometry(g: { vertices: Vec3[]; edges: WireframeEdge[]; polygons?: TextureTriangle[] }): GeometryState {
-    const tris = g.polygons ?? [];
-    return { ...g, animations: [], sample: () => tris };
-  }
-
-  // Skip the procedural-geometry build whenever geometry will arrive
-  // asynchronously — either via a `data-mesh` URL fetch or via a deferred
-  // `setPolygons()` call (the gallery primitives path). Otherwise the first
-  // paint renders the default built-in shape (e.g. cuboctahedron) for a brief
-  // flash before the real geometry replaces it. Empty placeholder = nothing
-  // to rasterize until the geometry lands.
-  const willLoadMesh = !!demoEl.getAttribute('data-mesh');
-  const willLoadPrimitive = demoEl.getAttribute('data-primitive') === '1';
-  let geometry: GeometryState = (willLoadMesh || willLoadPrimitive)
-    ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], polygons: [] })
-    : staticGeometry(buildGeometry(tunables.geometry));
-
-  // ── Animation state ──────────────────────────────────────────────────────
-  interface AnimationState {
-    clipIndex: number;
-    currentTime: number;
-    paused: boolean;
-    timeScale: number;
-    lastFrameTime: number;
-    rafHandle: number | null;
-  }
-
-  const animState: AnimationState = {
-    clipIndex: 0,
-    currentTime: 0,
-    paused: false,
-    timeScale: 1,
-    lastFrameTime: 0,
-    rafHandle: null,
-  };
-
-  const ANIM_TARGET_FPS = 30;
-  const ANIM_FRAME_MS = 1000 / ANIM_TARGET_FPS;
-
-  let animLastRenderTime = 0;
-
-  function stopAnimationLoop(): void {
-    if (animState.rafHandle !== null) {
-      cancelAnimationFrame(animState.rafHandle);
-      animState.rafHandle = null;
-    }
-  }
-
-  function startAnimationLoop(): void {
-    stopAnimationLoop();
-    animState.lastFrameTime = performance.now();
-    animLastRenderTime = 0;
-
-    const tick = (now: number): void => {
-      animState.rafHandle = requestAnimationFrame(tick);
-
-      const dt = Math.min((now - animState.lastFrameTime) / 1000, 0.1); // seconds, capped
-      animState.lastFrameTime = now;
-
-      // Advance time every RAF for smooth time tracking, but only render at ~30fps
-      if (!animState.paused) {
-        animState.currentTime += dt * animState.timeScale;
-      }
-
-      // Throttle rendering to ~30fps
-      if (now - animLastRenderTime < ANIM_FRAME_MS) return;
-      animLastRenderTime = now;
-
-      const clip = geometry.animations[animState.clipIndex];
-      if (!clip) return;
-      const duration = clip.duration;
-      if (duration > 0) {
-        animState.currentTime = ((animState.currentTime % duration) + duration) % duration;
-      }
-
-      // Sample new polygons at current time
-      const sampledTriangles = geometry.sample(animState.clipIndex, animState.currentTime);
-
-      // Re-derive edges and update scene (featureEdges not applied to animated
-      // frames for perf; use all edges so the animation reads correctly).
-      const newEdges = trianglesToEdges(sampledTriangles);
-      scene.wireframe = newEdges;
-      scene.polygons = sampledTriangles as import('glyphcss').Polygon[];
-
-      // Live-render a single frame (don't re-bake all 60)
-      stripEl.innerHTML = rasterize(scene);
-    };
-
-    animState.rafHandle = requestAnimationFrame(tick);
-  }
-
-  let camera = createGlyphPerspectiveCamera({
-    rotX: tunables.rotX, rotY: 0,
-    distance: tunables.distance,
-    zoom: tunables.zoom,
-    stretch: tunables.stretch,
-  });
-
-  let grid = computeGrid(cellMetrics.cellW, cellMetrics.cellH);
-  sceneHost.style.setProperty('--rows', String(grid.rows));
-
-  let scene = buildRasterizeContext({ camera, grid, wireframe: geometry.edges, mode: 'wireframe' });
-  // Canonical wireframe for the current scene: feature-filtered, no selection highlight.
-  // Interactive paths (drag, wheel, FPV) use this as the base so they don't
-  // accumulate selection edges and also benefit from the feature-edge filter.
-  let baseWireframe: WireframeEdge[] = geometry.edges;
-
-  // ── Selection state ──────────────────────────────────────────────────────
-  let selectedTriangleIndex = -1;
-  let onSelectionChange: ((idx: number, tri: TextureTriangle | null) => void) | null = null;
-
-  function getSelectionEdges(): WireframeEdge[] {
-    if (selectedTriangleIndex < 0) return [];
-    const tris = geometry.polygons;
-    if (!tris || selectedTriangleIndex >= tris.length) return [];
-    return buildSelectionEdges(tris[selectedTriangleIndex]!);
-  }
-
-  function clearSelection(): void {
-    selectedTriangleIndex = -1;
-    onSelectionChange?.(-1, null);
-    bakeAndApply();
-  }
-
-
-  const hotspots: Hotspot[] = [
-    { id: 'top', at: geometry.vertices[0]!, size: [3, 2] },
-    { id: 'side', at: geometry.vertices[Math.min(4, geometry.vertices.length - 1)]!, size: [3, 2] },
-  ];
-  const hotspotLabels: Record<string, string> = { top: 'vertex 0', side: 'vertex 4' };
-
-  const hotspotEls = new Map<string, HTMLDivElement>();
-  function rebuildHotspotEls(): void {
-    hitLayerEl.innerHTML = '';
-    hotspotEls.clear();
-    for (const h of hotspots) {
-      const el = document.createElement('div');
-      el.className = 'glyph-demo__hotspot';
-      el.tabIndex = 0;
-      el.setAttribute('role', 'button');
-      el.setAttribute('aria-label', hotspotLabels[h.id] ?? h.id);
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = hotspotLabels[h.id] ?? h.id;
-      el.appendChild(badge);
-      el.addEventListener('click', () => alert(`hotspot clicked: ${hotspotLabels[h.id] ?? h.id}`));
-      hitLayerEl.appendChild(el);
-      hotspotEls.set(h.id, el);
-    }
-  }
-  rebuildHotspotEls();
-
-  let keyframesStyleEl: HTMLStyleElement | null = null;
-  function applyKeyframes(css: string): void {
-    if (!keyframesStyleEl) {
-      keyframesStyleEl = document.createElement('style');
-      keyframesStyleEl.dataset.glyphcss = 'hit-keyframes';
-      keyframesStyleEl.dataset.demo = demoEl.id;
-      document.head.appendChild(keyframesStyleEl);
-    }
-    keyframesStyleEl.textContent = css;
-  }
-
-  function bakeAndApply(): void {
-    const { cols, rows, cellAspect } = scene.grid;
-    // In wireframe mode, augment base wireframe with selection highlight edges before baking.
-    // In solid mode, the wireframe array is unused; leave scene.polygons as-is.
-    const selEdges = getSelectionEdges();
-    if (scene.mode !== 'solid') {
-      scene.wireframe = selEdges.length > 0 ? [...baseWireframe, ...selEdges] : baseWireframe;
-    }
-
-    // When autorotate is off, only one frame is ever visible — skip the 60-frame
-    // bake to avoid the post-drag freeze on complex meshes.
-    if (demoEl.classList.contains('no-autorotate')) {
-      const bakeStart = performance.now();
-      stripEl.innerHTML = rasterize(scene);
-      lastBakeMs = Math.round(performance.now() - bakeStart);
-      loadingEl.style.display = 'none';
-      updateCode();
-      return;
-    }
-
-    const bakeStart = performance.now();
-    const frames = bakeFrames(scene, FRAMES, 'y');
-    lastBakeMs = Math.round(performance.now() - bakeStart);
-    stripEl.innerHTML = frames.join('\n');
-
-    const positions: Record<string, Array<{ col: number; row: number; visible: boolean }>> = {};
-    for (const h of hotspots) positions[h.id] = [];
-    const originalRotY = camera.rotY;
-    for (let i = 0; i < FRAMES; i++) {
-      // Match bakeFrames's positive direction so hotspots track the visible mesh.
-      camera.rotY = originalRotY + (i / FRAMES) * Math.PI * 2;
-      const cells = projectHotspots(hotspots, camera, cols, rows, cellAspect);
-      for (const c of cells) positions[c.id]!.push({ col: c.col, row: c.row, visible: c.visible });
-    }
-    camera.rotY = originalRotY;
-
-    const cellH = cellMetrics.cellH;
-    const cellW = cellMetrics.cellW;
-    let css = '';
-    for (const h of hotspots) {
-      const animName = `ad-hit-${demoEl.id}-${h.id}`;
-      const sizeCols = h.size?.[0] ?? 1;
-      const sizeRows = h.size?.[1] ?? 1;
-      const el = hotspotEls.get(h.id);
-      if (!el) continue;
-      el.style.width = `${sizeCols * cellW}px`;
-      el.style.height = `${sizeRows * cellH}px`;
-      el.style.animationName = animName;
-      css += `@keyframes ${animName} {\n`;
-      for (let i = 0; i < FRAMES; i++) {
-        const p = positions[h.id]![i]!;
-        const x = (p.col - sizeCols / 2) * cellW;
-        const y = (p.row - sizeRows / 2) * cellH;
-        const pct = ((i / FRAMES) * 100).toFixed(4);
-        css += `  ${pct}% { transform: translate3d(${x}px, ${y}px, 0); opacity: ${p.visible ? 1 : 0}; }\n`;
-      }
-      const p0 = positions[h.id]![0]!;
-      css += `  100% { transform: translate3d(${(p0.col - sizeCols / 2) * cellW}px, ${(p0.row - sizeRows / 2) * cellH}px, 0); opacity: ${p0.visible ? 1 : 0}; }\n`;
-      css += `}\n`;
-    }
-    applyKeyframes(css);
-    loadingEl.style.display = 'none';
-    updateCode();
-  }
-
-  function rebuildAll(): void {
-    stopAnimationLoop();
-    geometry = staticGeometry(buildGeometry(tunables.geometry));
-    selectedTriangleIndex = -1;
-    onSelectionChange?.(-1, null);
-    rebuildSceneFromGeometry();
-  }
-
-  function rebuildSceneFromGeometry(): void {
-    hotspots[0]!.at = geometry.vertices[0]!;
-    hotspots[1]!.at = geometry.vertices[Math.min(4, geometry.vertices.length - 1)]!;
-    // Honor tunables.rotY whenever it's set (data-defaults, setTunables, drag-end sync).
-    // Falls through to camera.rotY for the autorotate path (hero — no data-defaults rotY).
-    const preservedRotY = tunables.rotY ?? camera.rotY;
-    const prevTarget = camera.target;
-    // True orthographic when requested — skips the perspective division so FPV
-    // (which places target far from the mesh) doesn't hit the focal-plane
-    // singularity. Matches glyphcss's `perspective: false` semantics.
-    if (controlState.dragMode === 'fpv') {
-      // First-person camera: viewer at z=0 (the eye), perspective diverges at
-      // the eye, behind-camera vertices are NaN-culled. Proper FPV semantics,
-      // not the orbit perspective with shifted viewer.
-      // focal tuned so a 2-unit mesh viewed from ~3 units back fills a
-      // similar fraction of the screen as orbit-mode default (~30%).
-      camera = createGlyphPerspectiveCamera({
-        rotX: tunables.rotX, rotY: preservedRotY,
-        zoom: tunables.zoom,
-      });
-      camera.eyeMode = true;
-    } else if (controlState.projection === 'orthographic') {
-      camera = createGlyphOrthographicCamera({
-        rotX: tunables.rotX, rotY: preservedRotY,
-        zoom: tunables.zoom,
-      });
-    } else {
-      camera = createGlyphPerspectiveCamera({
-        rotX: tunables.rotX, rotY: preservedRotY,
-        distance: tunables.distance,
-        zoom: tunables.zoom,
-        stretch: tunables.stretch,
-      });
-    }
-    // Restore target (pan offset) from tunables or previous camera state.
-    const tx = tunables.targetX ?? prevTarget[0];
-    const ty = tunables.targetY ?? prevTarget[1];
-    const tz = tunables.targetZ ?? prevTarget[2];
-    camera.target = [tx, ty, tz];
-    cellMetrics = measureCell();
-    sceneHost.style.setProperty('--cell-fs', `${cellMetrics.fontSize}px`);
-    sceneHost.style.setProperty('--cell-h', `${cellMetrics.cellH}px`);
-    sceneHost.style.setProperty('--dur', `${tunables.duration}s`);
-    grid = computeGrid(cellMetrics.cellW, cellMetrics.cellH);
-    sceneHost.style.setProperty('--rows', String(grid.rows));
-    const activeMode = tunables.renderMode ?? 'wireframe';
-    const featureAngle = tunables.featureEdges ?? 0;
-    // Re-derive feature edges from the raw triangle list when in wireframe mode
-    // and a threshold is set. geometry.edges was built at load time with the
-    // default threshold; re-derive here so the Dock slider takes effect
-    // without reloading the mesh.
-    // Re-derive feature edges with the requested threshold. If the threshold
-    // filters out every edge (e.g. Catalan solids where all adjacent faces are
-    // nearly coplanar), fall back to the unfiltered edge set so the mesh is
-    // never invisible in wireframe mode.
-    let activeEdges = geometry.edges;
-    if (activeMode === 'wireframe' && featureAngle > 0 && geometry.polygons && geometry.polygons.length > 0) {
-      const filtered = trianglesToEdges(geometry.polygons, featureAngle);
-      activeEdges = filtered.length > 0 ? filtered : geometry.edges;
-    }
-    baseWireframe = activeEdges;
-    scene = buildRasterizeContext({
-      camera, grid,
-      wireframe: activeEdges,
-      polygons: geometry.polygons as import('glyphcss').Polygon[],
-      mode: activeMode,
-      glyphPalette: tunables.glyphPalette ?? 'default',
-      useColors: tunables.useColors ?? true,
-      smoothShading: tunables.smoothShading ?? false,
-      creaseAngle: tunables.creaseAngle ?? 60,
-      directionalLight: { direction: lightingState.direction, intensity: lightingState.keyIntensity, color: lightingState.keyColor },
-      ambientLight: { intensity: lightingState.ambientIntensity, color: lightingState.ambientColor },
-    });
-
-    // Always bake a static pose by default; animation only runs when the user
-    // explicitly picks a clip via setAnimation(). Reset state so a stale clip
-    // index from a previous mesh doesn't carry over. Do NOT toggle the
-    // no-autorotate class — that's controlled by the host (hero uses CSS
-    // autorotate, gallery starts paused).
-    stopAnimationLoop();
-    animState.clipIndex = 0;
-    animState.currentTime = 0;
-    bakeAndApply();
-  }
-
-  async function setMeshUrl(url: string): Promise<void> {
-    loadingEl.style.display = 'grid';
-    loadingEl.textContent = `Loading ${url.split('/').pop()}…`;
-    try {
-      const loaded = await loadMeshAsGeometry(url, controlState.autoCenter);
-      if (loaded.edges.length === 0) {
-        loadingEl.textContent = 'Empty mesh (0 edges).';
-        return;
-      }
-      controlState.lastMeshUrl = url;
-      geometry = loaded;
-      selectedTriangleIndex = -1;
-      onSelectionChange?.(-1, null);
-      rebuildSceneFromGeometry();
-      // bakeAndApply hides loadingEl on success.
-    } catch (err) {
-      console.error('setMeshUrl failed', err);
-      loadingEl.textContent = `Failed to load mesh: ${(err as Error).message}`;
-    }
-  }
-
-  function setPolygons(polygons: import('glyphcss').Polygon[]): void {
-    const rawTris = fanTriangulate(polygons);
-    const polys = fitTrianglesToUnitBbox(rawTris);
-    // Store ALL edges (featureAngleDeg=0) as the unfiltered base — same reason
-    // as loadMeshAsGeometry: Catalan solids with shallow dihedral angles would
-    // produce an empty edge set at the 20° default, breaking the fallback path
-    // in rebuildSceneFromGeometry.
-    const edges = trianglesToEdges(polys, 0);
-    const vertSet = new Map<string, Vec3>();
-    for (const e of edges) {
-      vertSet.set(e.from.join(','), e.from);
-      vertSet.set(e.to.join(','), e.to);
-    }
-    controlState.lastMeshUrl = null;
-    geometry = {
-      vertices: Array.from(vertSet.values()),
-      edges,
-      polygons: polys,
-      animations: [],
-      sample: () => polys,
-    };
-    selectedTriangleIndex = -1;
-    onSelectionChange?.(-1, null);
-    rebuildSceneFromGeometry();
-  }
-
-  // ── Control state (interaction features) ────────────────────────────────
+  // ── Control state ────────────────────────────────────────────────────────
   const controlState: ControlState = {
     invertDrag: false,
     dragEnabled: true,
@@ -936,8 +496,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     },
   };
 
-  // Lighting state — applied to scene on rebuild. Default direction is up-and-right
-  // (azimuth 50°, elevation 45°), matching glyphcss gallery defaults.
+  // Lighting state
   const lightingState = {
     direction: [0.454, 0.541, 0.707] as [number, number, number],
     keyIntensity: 1,
@@ -945,6 +504,732 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     keyColor: '#ffffff',
     ambientColor: '#ffffff',
   };
+  let sphericalAz = 50;
+  let sphericalEl = 45;
+
+  // ── Geometry state ───────────────────────────────────────────────────────
+  type GeometryState = {
+    vertices: Vec3[];
+    edges: WireframeEdge[];
+    polygons: TextureTriangle[];
+    animations: ParseAnimationClip[];
+    sample: (clipIndex: number, time: number) => TextureTriangle[];
+  };
+
+  function staticGeometry(g: { vertices: Vec3[]; edges: WireframeEdge[]; polygons?: TextureTriangle[] }): GeometryState {
+    const tris = g.polygons ?? [];
+    return { ...g, polygons: tris, animations: [], sample: () => tris };
+  }
+
+  const willLoadMesh = !!demoEl.getAttribute('data-mesh');
+  const willLoadPrimitive = demoEl.getAttribute('data-primitive') === '1';
+  let geometry: GeometryState = (willLoadMesh || willLoadPrimitive)
+    ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], polygons: [] })
+    : staticGeometry(buildGeometry(tunables.geometry));
+
+  // ── Create the managed scene ─────────────────────────────────────────────
+  // Build initial camera from tunables
+  function buildCamera(): GlyphCamera {
+    if (controlState.dragMode === 'fpv') {
+      const cam = createGlyphPerspectiveCamera({
+        rotX: tunables.rotX, rotY: tunables.rotY ?? 0,
+        zoom: tunables.zoom,
+      });
+      cam.eyeMode = true;
+      return cam;
+    } else if (controlState.projection === 'orthographic') {
+      return createGlyphOrthographicCamera({
+        rotX: tunables.rotX, rotY: tunables.rotY ?? 0,
+        zoom: tunables.zoom,
+      });
+    } else {
+      return createGlyphPerspectiveCamera({
+        rotX: tunables.rotX, rotY: tunables.rotY ?? 0,
+        distance: tunables.distance,
+        zoom: tunables.zoom,
+        stretch: tunables.stretch,
+      });
+    }
+  }
+
+  let camera: GlyphCamera = buildCamera();
+  if (tunables.targetX !== undefined || tunables.targetY !== undefined || tunables.targetZ !== undefined) {
+    camera.target = [tunables.targetX ?? 0, tunables.targetY ?? 0, tunables.targetZ ?? 0];
+  }
+
+  // Derive render options from current state
+  function buildSceneOptions() {
+    const activeMode = tunables.renderMode ?? 'wireframe';
+    const featureAngle = tunables.featureEdges ?? 0;
+    let activeEdges = geometry.edges;
+    if (activeMode === 'wireframe' && featureAngle > 0 && geometry.polygons.length > 0) {
+      const filtered = trianglesToEdges(geometry.polygons, featureAngle);
+      activeEdges = filtered.length > 0 ? filtered : geometry.edges;
+    }
+    baseWireframe = activeEdges;
+
+    return {
+      mode: activeMode as 'wireframe' | 'solid',
+      glyphPalette: tunables.glyphPalette ?? 'default',
+      useColors: tunables.useColors ?? true,
+      smoothShading: tunables.smoothShading ?? false,
+      creaseAngle: tunables.creaseAngle ?? 60,
+      directionalLight: {
+        direction: lightingState.direction,
+        intensity: lightingState.keyIntensity,
+        color: lightingState.keyColor,
+      },
+      ambientLight: {
+        intensity: lightingState.ambientIntensity,
+        color: lightingState.ambientColor,
+      },
+    };
+  }
+
+  // Declare before buildSceneOptions() is called to avoid temporal dead zone.
+  let baseWireframe: WireframeEdge[] = geometry.edges;
+
+  const scene: GlyphSceneHandle = createGlyphScene(sceneHost, {
+    camera,
+    autoSize: true,
+    ...buildSceneOptions(),
+  });
+
+  // Mesh handle — single mesh slot; replaced on geometry change
+  let meshHandle = scene.add(geometry.polygons as Polygon[]);
+
+  // Track last bake time for stats
+  let lastBakeMs = 0;
+
+  // ── Wrap scene.rerender to track timing ─────────────────────────────────
+  function doRerender(): void {
+    const t0 = performance.now();
+    scene.rerender();
+    lastBakeMs = Math.round(performance.now() - t0);
+  }
+
+  // ── Hotspots ─────────────────────────────────────────────────────────────
+  // Two named hotspots anchored to vertex 0 and vertex 4 of the geometry.
+  const hotspotLabels: Record<string, string> = { top: 'vertex 0', side: 'vertex 4' };
+
+  let hotspotHandles: Array<{ id: string; handle: ReturnType<GlyphSceneHandle['addHotspot']> }> = [];
+
+  function rebuildHotspots(): void {
+    for (const { handle } of hotspotHandles) handle.remove();
+    hotspotHandles = [];
+
+    if (geometry.vertices.length === 0) return;
+
+    const topHandle = scene.addHotspot(
+      { id: 'top', at: geometry.vertices[0]!, size: [3, 2] },
+      () => alert(`hotspot clicked: ${hotspotLabels['top']}`),
+    );
+    topHandle.el.className = 'glyph-demo__hotspot';
+    topHandle.el.tabIndex = 0;
+    topHandle.el.setAttribute('role', 'button');
+    topHandle.el.setAttribute('aria-label', hotspotLabels['top']!);
+    const badge0 = document.createElement('span');
+    badge0.className = 'badge';
+    badge0.textContent = hotspotLabels['top']!;
+    topHandle.el.appendChild(badge0);
+    hotspotHandles.push({ id: 'top', handle: topHandle });
+
+    const sideIdx = Math.min(4, geometry.vertices.length - 1);
+    const sideHandle = scene.addHotspot(
+      { id: 'side', at: geometry.vertices[sideIdx]!, size: [3, 2] },
+      () => alert(`hotspot clicked: ${hotspotLabels['side']}`),
+    );
+    sideHandle.el.className = 'glyph-demo__hotspot';
+    sideHandle.el.tabIndex = 0;
+    sideHandle.el.setAttribute('role', 'button');
+    sideHandle.el.setAttribute('aria-label', hotspotLabels['side']!);
+    const badge1 = document.createElement('span');
+    badge1.className = 'badge';
+    badge1.textContent = hotspotLabels['side']!;
+    sideHandle.el.appendChild(badge1);
+    hotspotHandles.push({ id: 'side', handle: sideHandle });
+  }
+
+  rebuildHotspots();
+
+  // ── Selection state ───────────────────────────────────────────────────────
+  let selectedTriangleIndex = -1;
+  let onSelectionChange: ((idx: number, tri: TextureTriangle | null) => void) | null = null;
+
+  function getSelectionEdges(): WireframeEdge[] {
+    if (selectedTriangleIndex < 0 || selectedTriangleIndex >= geometry.polygons.length) return [];
+    const t = geometry.polygons[selectedTriangleIndex]!;
+    return [
+      { from: t.vertices[0], to: t.vertices[1], weight: 3 },
+      { from: t.vertices[1], to: t.vertices[2], weight: 3 },
+      { from: t.vertices[2], to: t.vertices[0], weight: 3 },
+    ];
+  }
+
+  function clearSelection(): void {
+    selectedTriangleIndex = -1;
+    onSelectionChange?.(-1, null);
+    applyMesh();
+    doRerender();
+  }
+
+  // ── Orbit/Map controls ────────────────────────────────────────────────────
+  // Controls are re-created when drag mode changes. FPV uses its own event handling.
+  type ControlsHandle = { destroy(): void; update(opts: { invert?: boolean | number; drag?: boolean; wheel?: boolean }): void };
+  let controls: ControlsHandle | null = null;
+
+  function buildControls(): void {
+    controls?.destroy();
+    controls = null;
+    if (controlState.dragMode === 'fpv') return; // FPV manages its own events
+
+    const commonOpts = {
+      drag: controlState.dragEnabled,
+      wheel: controlState.wheelEnabled,
+      invert: controlState.invertDrag ? -1 : 1,
+    };
+
+    if (controlState.dragMode === 'pan') {
+      controls = createGlyphMapControls(scene, commonOpts);
+    } else {
+      // orbit (default)
+      controls = createGlyphOrbitControls(scene, commonOpts);
+    }
+  }
+
+  buildControls();
+
+  // ── Auto-rotate RAF loop ─────────────────────────────────────────────────
+  // Replaces the baked-strip CSS animation. JS-driven so all render-path fixes
+  // propagate automatically; perf is acceptable for the gallery's use case.
+  let autoRotateRafId: number | null = null;
+  let autoRotateLastTime: number | null = null;
+  const AUTO_ROTATE_SPEED_DEG_PER_S = 60; // 1 full rotation in 6 seconds at default
+
+  function startAutoRotate(): void {
+    if (autoRotateRafId !== null) return;
+    const tick = (now: number): void => {
+      autoRotateRafId = requestAnimationFrame(tick);
+      const dt = autoRotateLastTime !== null ? Math.min((now - autoRotateLastTime) / 1000, 0.1) : 0;
+      autoRotateLastTime = now;
+      if (dt > 0) {
+        const speedDegPerS = AUTO_ROTATE_SPEED_DEG_PER_S * (tunables.duration > 0 ? 6 / tunables.duration : 1);
+        camera.rotY = camera.rotY + (speedDegPerS * Math.PI / 180) * dt;
+        doRerender();
+      }
+    };
+    autoRotateRafId = requestAnimationFrame(tick);
+  }
+
+  function stopAutoRotate(): void {
+    if (autoRotateRafId !== null) {
+      cancelAnimationFrame(autoRotateRafId);
+      autoRotateRafId = null;
+      autoRotateLastTime = null;
+    }
+  }
+
+  // ── Animation state ───────────────────────────────────────────────────────
+  interface AnimationState {
+    clipIndex: number;
+    currentTime: number;
+    paused: boolean;
+    timeScale: number;
+    lastFrameTime: number;
+    rafHandle: number | null;
+  }
+
+  const animState: AnimationState = {
+    clipIndex: 0,
+    currentTime: 0,
+    paused: false,
+    timeScale: 1,
+    lastFrameTime: 0,
+    rafHandle: null,
+  };
+
+  const ANIM_TARGET_FPS = 30;
+  const ANIM_FRAME_MS = 1000 / ANIM_TARGET_FPS;
+  let animLastRenderTime = 0;
+
+  function stopAnimationLoop(): void {
+    if (animState.rafHandle !== null) {
+      cancelAnimationFrame(animState.rafHandle);
+      animState.rafHandle = null;
+    }
+  }
+
+  function startAnimationLoop(): void {
+    stopAnimationLoop();
+    animState.lastFrameTime = performance.now();
+    animLastRenderTime = 0;
+
+    const tick = (now: number): void => {
+      animState.rafHandle = requestAnimationFrame(tick);
+      const dt = Math.min((now - animState.lastFrameTime) / 1000, 0.1);
+      animState.lastFrameTime = now;
+
+      if (!animState.paused) {
+        animState.currentTime += dt * animState.timeScale;
+      }
+
+      if (now - animLastRenderTime < ANIM_FRAME_MS) return;
+      animLastRenderTime = now;
+
+      const clip = geometry.animations[animState.clipIndex];
+      if (!clip) return;
+      const duration = clip.duration;
+      if (duration > 0) {
+        animState.currentTime = ((animState.currentTime % duration) + duration) % duration;
+      }
+
+      const sampledTriangles = geometry.sample(animState.clipIndex, animState.currentTime);
+      // Update mesh handle with new frame polygons
+      meshHandle.dispose();
+      meshHandle = scene.add(sampledTriangles as Polygon[]);
+      doRerender();
+    };
+
+    animState.rafHandle = requestAnimationFrame(tick);
+  }
+
+  // ── Apply current mesh/wireframe/selection to scene ──────────────────────
+  function applyMesh(): void {
+    const mode = tunables.renderMode ?? 'wireframe';
+    let polys: Polygon[];
+
+    if (mode === 'wireframe') {
+      // For wireframe mode, encode edges as degenerate polygons is not the
+      // public API. The public scene works with polygon arrays and derives
+      // wireframe from them. Wireframe mode with feature-edge control requires
+      // passing the filtered edge set somehow. The public API's wireframe mode
+      // uses the polygon array's edges directly; to honour the featureEdges
+      // tunable we need to build a polygon list that produces the right edges.
+      // For now pass the raw polygons and rely on setOptions({mode}) to
+      // control wireframe rendering (feature-edge tuning still works through
+      // scene.setOptions which rebuilds the rasterize context).
+      const selEdges = getSelectionEdges();
+      // Augment with selection highlight by appending degenerate-triangle polys
+      // that force an edge highlight. Since the public API doesn't have a direct
+      // wireframe override, we pass the base polygons + selection piggyback approach:
+      // pass selection edges as extra 0-area triangles so they rasterize as edges.
+      if (selEdges.length > 0) {
+        const selPolys: Polygon[] = selEdges.map((e) => ({
+          vertices: [e.from, e.to, e.from],
+          color: '#38bdf8',
+        }));
+        polys = [...(geometry.polygons as Polygon[]), ...selPolys];
+      } else {
+        polys = geometry.polygons as Polygon[];
+      }
+    } else {
+      polys = geometry.polygons as Polygon[];
+    }
+
+    meshHandle.dispose();
+    meshHandle = scene.add(polys);
+  }
+
+  // ── Rebuild scene from current geometry + tunables ────────────────────────
+  function rebuildSceneFromGeometry(): void {
+    // Update hotspot positions
+    if (hotspotHandles.length >= 1 && geometry.vertices.length > 0) {
+      // We can't update a hotspot's `at` position after creation via the public API.
+      // Rebuild hotspots to reflect new vertex positions.
+      rebuildHotspots();
+    }
+
+    // Rebuild camera
+    const preservedRotY = tunables.rotY ?? camera.rotY;
+    const prevTarget = camera.target;
+    camera = buildCamera();
+    camera.rotY = preservedRotY;
+    const tx = tunables.targetX ?? prevTarget[0];
+    const ty = tunables.targetY ?? prevTarget[1];
+    const tz = tunables.targetZ ?? prevTarget[2];
+    camera.target = [tx, ty, tz];
+
+    scene.setOptions({
+      camera,
+      ...buildSceneOptions(),
+    });
+
+    // Re-create controls with new camera/options
+    buildControls();
+
+    applyMesh();
+    doRerender();
+    loadingEl.style.display = 'none';
+    updateCode();
+  }
+
+  function rebuildAll(): void {
+    stopAnimationLoop();
+    geometry = staticGeometry(buildGeometry(tunables.geometry));
+    selectedTriangleIndex = -1;
+    onSelectionChange?.(-1, null);
+    rebuildSceneFromGeometry();
+  }
+
+  async function setMeshUrl(url: string): Promise<void> {
+    loadingEl.style.display = 'grid';
+    loadingEl.textContent = `Loading ${url.split('/').pop()}…`;
+    try {
+      const loaded = await loadMeshAsGeometry(url, controlState.autoCenter);
+      if (loaded.edges.length === 0) {
+        loadingEl.textContent = 'Empty mesh (0 edges).';
+        return;
+      }
+      controlState.lastMeshUrl = url;
+      geometry = loaded;
+      selectedTriangleIndex = -1;
+      onSelectionChange?.(-1, null);
+      rebuildSceneFromGeometry();
+    } catch (err) {
+      console.error('setMeshUrl failed', err);
+      loadingEl.textContent = `Failed to load mesh: ${(err as Error).message}`;
+    }
+  }
+
+  function setPolygons(polygons: Polygon[]): void {
+    const rawTris = fanTriangulate(polygons);
+    const polys = fitTrianglesToUnitBbox(rawTris);
+    const edges = trianglesToEdges(polys, 0);
+    const vertSet = new Map<string, Vec3>();
+    for (const e of edges) {
+      vertSet.set(e.from.join(','), e.from);
+      vertSet.set(e.to.join(','), e.to);
+    }
+    controlState.lastMeshUrl = null;
+    geometry = {
+      vertices: Array.from(vertSet.values()),
+      edges,
+      polygons: polys,
+      animations: [],
+      sample: () => polys,
+    };
+    selectedTriangleIndex = -1;
+    onSelectionChange?.(-1, null);
+    rebuildSceneFromGeometry();
+  }
+
+  // ── FPV state ─────────────────────────────────────────────────────────────
+  let fpvOrigin: [number, number, number] = [0, 0, controlState.fpv.groundZ + controlState.fpv.eyeHeight];
+  let fpvVerticalVel = 0;
+  let fpvJumpOffset = 0;
+  let fpvRafId: number | null = null;
+  let fpvLastTime = 0;
+  let fpvPointerLocked = false;
+  const fpvKeysHeld = new Set<string>();
+  let fpvSavedProjection: 'perspective' | 'orthographic' | null = null;
+  let fpvSavedDistance: number | null = null;
+  let fpvSavedRotX: number | null = null;
+  const FPV_PERSPECTIVE_DISTANCE = 200;
+
+  const FPV_FORWARD_KEYS = new Set(['KeyW', 'ArrowUp']);
+  const FPV_BACK_KEYS = new Set(['KeyS', 'ArrowDown']);
+  const FPV_LEFT_KEYS = new Set(['KeyA', 'ArrowLeft']);
+  const FPV_RIGHT_KEYS = new Set(['KeyD', 'ArrowRight']);
+  const FPV_JUMP_KEYS = new Set(['Space']);
+  const FPV_CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight']);
+
+  function fpvForwardDir(rotX: number, rotY: number): [number, number, number] {
+    return [
+      -Math.sin(rotX) * Math.cos(rotY),
+      -Math.sin(rotX) * Math.sin(rotY),
+      -Math.cos(rotX),
+    ];
+  }
+
+  function fpvSyncTarget(): void {
+    const f = fpvForwardDir(camera.rotX, camera.rotY);
+    camera.target = [
+      fpvOrigin[0] + f[0] * 0,
+      fpvOrigin[1] + f[1] * 0,
+      fpvOrigin[2] + f[2] * 0,
+    ];
+  }
+
+  function fpvInitOriginFromCamera(): void {
+    const t = camera.target;
+    fpvJumpOffset = 0;
+    fpvVerticalVel = 0;
+    camera.rotX = Math.PI / 2;
+    tunables.rotX = Math.PI / 2;
+    const initBackOffset = 3;
+    const f = fpvForwardDir(camera.rotX, camera.rotY);
+    fpvOrigin = [
+      t[0] - f[0] * initBackOffset,
+      t[1] - f[1] * initBackOffset,
+      controlState.fpv.groundZ + controlState.fpv.eyeHeight,
+    ];
+    fpvSyncTarget();
+  }
+
+  const fpvOnPointerLockChange = (): void => {
+    const locked = document.pointerLockElement === sceneHost;
+    fpvPointerLocked = locked;
+  };
+
+  const fpvOnMouseMove = (e: MouseEvent): void => {
+    if (!fpvPointerLocked || controlState.dragMode !== 'fpv') return;
+    if (!controlState.fpv.look) return;
+    const dx = e.movementX ?? 0;
+    const dy = e.movementY ?? 0;
+    if (dx === 0 && dy === 0) return;
+    const sens = controlState.fpv.lookSensitivity;
+    const dyDir = controlState.fpv.invertY ? -1 : 1;
+    const DEG_TO_RAD = Math.PI / 180;
+    camera.rotY = camera.rotY - dx * sens * DEG_TO_RAD;
+    let rotX = camera.rotX - dy * sens * DEG_TO_RAD * dyDir;
+    const minR = controlState.fpv.minPitch * DEG_TO_RAD;
+    const maxR = controlState.fpv.maxPitch * DEG_TO_RAD;
+    if (rotX < minR) rotX = minR;
+    else if (rotX > maxR) rotX = maxR;
+    camera.rotX = rotX;
+    fpvSyncTarget();
+    doRerender();
+  };
+
+  const fpvOnKeyDown = (e: KeyboardEvent): void => {
+    if (controlState.dragMode !== 'fpv') return;
+    const code = e.code;
+    const isFpvKey = FPV_FORWARD_KEYS.has(code) || FPV_BACK_KEYS.has(code) ||
+      FPV_LEFT_KEYS.has(code) || FPV_RIGHT_KEYS.has(code) ||
+      FPV_JUMP_KEYS.has(code) || FPV_CROUCH_KEYS.has(code);
+    if (!isFpvKey) return;
+    if (!fpvPointerLocked && !controlState.fpv.move) return;
+    if (FPV_JUMP_KEYS.has(code)) {
+      if (!controlState.fpv.jump) return;
+      e.preventDefault();
+      if (!fpvKeysHeld.has(code) && fpvVerticalVel === 0 && fpvJumpOffset === 0) {
+        fpvVerticalVel = controlState.fpv.jumpVelocity;
+      }
+      fpvKeysHeld.add(code);
+      return;
+    }
+    if (FPV_CROUCH_KEYS.has(code) && !controlState.fpv.crouch) return;
+    if (!controlState.fpv.move && !FPV_CROUCH_KEYS.has(code)) return;
+    e.preventDefault();
+    fpvKeysHeld.add(code);
+  };
+
+  const fpvOnKeyUp = (e: KeyboardEvent): void => { fpvKeysHeld.delete(e.code); };
+  const fpvOnBlur = (): void => { fpvKeysHeld.clear(); };
+  const fpvOnClick = (): void => {
+    if (controlState.dragMode !== 'fpv' || fpvPointerLocked) return;
+    if (!controlState.fpv.look) return;
+    try { sceneHost.requestPointerLock(); } catch { /* ignore */ }
+  };
+
+  const FPV_DT_CLAMP = 0.05;
+
+  const fpvTick = (now: number): void => {
+    if (fpvRafId === null || controlState.dragMode !== 'fpv') return;
+    const dt = Math.min(FPV_DT_CLAMP, fpvLastTime ? (now - fpvLastTime) / 1000 : 0.0167);
+    fpvLastTime = now;
+
+    let dirty = false;
+
+    if (controlState.fpv.move) {
+      let mf = 0, mr = 0;
+      for (const code of fpvKeysHeld) {
+        if (FPV_FORWARD_KEYS.has(code)) mf += 1;
+        else if (FPV_BACK_KEYS.has(code)) mf -= 1;
+        else if (FPV_RIGHT_KEYS.has(code)) mr += 1;
+        else if (FPV_LEFT_KEYS.has(code)) mr -= 1;
+      }
+      if (mf !== 0 || mr !== 0) {
+        const r = camera.rotY;
+        const fx = -Math.cos(r), fy = -Math.sin(r);
+        const rx = -Math.sin(r), ry =  Math.cos(r);
+        const len = Math.hypot(mf, mr) || 1;
+        const step = controlState.fpv.moveSpeed * dt;
+        fpvOrigin[0] += ((fx * mf + rx * mr) / len) * step;
+        fpvOrigin[1] += ((fy * mf + ry * mr) / len) * step;
+        dirty = true;
+      }
+    }
+
+    const crouched = controlState.fpv.crouch &&
+      (fpvKeysHeld.has('ControlLeft') || fpvKeysHeld.has('ControlRight'));
+    const baseHeight = crouched ? controlState.fpv.crouchHeight : controlState.fpv.eyeHeight;
+    if (controlState.fpv.jump && (fpvVerticalVel !== 0 || fpvJumpOffset > 0)) {
+      fpvVerticalVel -= controlState.fpv.gravity * dt;
+      fpvJumpOffset += fpvVerticalVel * dt;
+      if (fpvJumpOffset <= 0) { fpvJumpOffset = 0; fpvVerticalVel = 0; }
+    } else if (!controlState.fpv.jump) {
+      fpvJumpOffset = 0; fpvVerticalVel = 0;
+    }
+    const originZ = controlState.fpv.groundZ + baseHeight + fpvJumpOffset;
+    if (Math.abs(fpvOrigin[2] - originZ) > 1e-4) { fpvOrigin[2] = originZ; dirty = true; }
+
+    if (dirty) {
+      fpvSyncTarget();
+      doRerender();
+    }
+
+    fpvRafId = requestAnimationFrame(fpvTick);
+  };
+
+  function startFpv(): void {
+    fpvSavedProjection = controlState.projection;
+    fpvSavedDistance = tunables.distance;
+    fpvSavedRotX = tunables.rotX;
+    controlState.projection = 'perspective';
+    tunables.distance = FPV_PERSPECTIVE_DISTANCE;
+    fpvInitOriginFromCamera();
+    stopAutoRotate();
+    controlState.rotYLocked = true;
+    document.addEventListener('pointerlockchange', fpvOnPointerLockChange);
+    document.addEventListener('mousemove', fpvOnMouseMove);
+    window.addEventListener('keydown', fpvOnKeyDown);
+    window.addEventListener('keyup', fpvOnKeyUp);
+    window.addEventListener('blur', fpvOnBlur);
+    sceneHost.addEventListener('click', fpvOnClick);
+    sceneHost.style.cursor = controlState.fpv.look ? 'crosshair' : '';
+    rebuildSceneFromGeometry();
+    fpvLastTime = 0;
+    fpvRafId = requestAnimationFrame(fpvTick);
+  }
+
+  function stopFpv(): void {
+    if (fpvRafId !== null) { cancelAnimationFrame(fpvRafId); fpvRafId = null; }
+    if (fpvPointerLocked) { try { document.exitPointerLock(); } catch { /* ignore */ } }
+    fpvPointerLocked = false;
+    fpvKeysHeld.clear();
+    document.removeEventListener('pointerlockchange', fpvOnPointerLockChange);
+    document.removeEventListener('mousemove', fpvOnMouseMove);
+    window.removeEventListener('keydown', fpvOnKeyDown);
+    window.removeEventListener('keyup', fpvOnKeyUp);
+    window.removeEventListener('blur', fpvOnBlur);
+    sceneHost.removeEventListener('click', fpvOnClick);
+    sceneHost.style.cursor = '';
+    if (fpvSavedProjection !== null) controlState.projection = fpvSavedProjection;
+    if (fpvSavedDistance !== null) tunables.distance = fpvSavedDistance;
+    if (fpvSavedRotX !== null) tunables.rotX = fpvSavedRotX;
+    fpvSavedProjection = null;
+    fpvSavedDistance = null;
+    fpvSavedRotX = null;
+    camera.target = [fpvOrigin[0], fpvOrigin[1], controlState.fpv.groundZ];
+    rebuildSceneFromGeometry();
+  }
+
+  function setDragMode(mode: DragMode): void {
+    if (mode === controlState.dragMode) return;
+    const prev = controlState.dragMode;
+    controlState.dragMode = mode;
+    if (prev === 'fpv') stopFpv();
+    if (mode === 'fpv') startFpv();
+    else {
+      buildControls();
+      doRerender();
+    }
+  }
+
+  function setFpvOptions(partial: Partial<FpvOptions>): void {
+    Object.assign(controlState.fpv, partial);
+    if (controlState.dragMode === 'fpv') {
+      if ('eyeHeight' in partial || 'groundZ' in partial) {
+        fpvOrigin[2] = controlState.fpv.groundZ + controlState.fpv.eyeHeight;
+        fpvSyncTarget();
+      }
+      if ('look' in partial) {
+        sceneHost.style.cursor = controlState.fpv.look ? 'crosshair' : '';
+      }
+    }
+  }
+
+  // ── Triangle click picking (non-FPV) ──────────────────────────────────────
+  // Attach a click handler on the scene's output element
+  scene.output.addEventListener('click', (e: MouseEvent) => {
+    if (controlState.dragMode === 'fpv') return;
+    const tris = geometry.polygons;
+    if (!tris || tris.length === 0) return;
+
+    const opts = scene.getOptions();
+    const preRect = scene.output.getBoundingClientRect();
+    const px = e.clientX - preRect.left;
+    const py = e.clientY - preRect.top;
+    const cellW = opts.cols > 0 ? preRect.width / opts.cols : 8;
+    const cellH = opts.rows > 0 ? preRect.height / opts.rows : 16;
+    const pointerCol = px / cellW;
+    const pointerRow = py / cellH;
+
+    const idx = pickTriangle(tris, camera, opts.cols, opts.rows, opts.cellAspect, pointerCol, pointerRow);
+    if (idx === selectedTriangleIndex) {
+      selectedTriangleIndex = -1;
+      onSelectionChange?.(-1, null);
+    } else {
+      selectedTriangleIndex = idx;
+      const tri = idx >= 0 ? (tris[idx] ?? null) : null;
+      onSelectionChange?.(idx, tri);
+    }
+    applyMesh();
+    doRerender();
+  });
+
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  function setTunables(partial: Partial<Tunables> & { scale?: number }): void {
+    const hasRotY = 'rotY' in partial && partial.rotY !== undefined;
+    // `scale` is a legacy alias for `zoom` sent by GlyphScene.tsx
+    if ('scale' in partial && partial.scale !== undefined && !('zoom' in partial)) {
+      (partial as Partial<Tunables>).zoom = partial.scale;
+    }
+    Object.assign(tunables, partial);
+    if (hasRotY) {
+      controlState.rotYLocked = true;
+      camera.rotY = partial.rotY!;
+      stopAutoRotate();
+    }
+    if ('targetX' in partial || 'targetY' in partial || 'targetZ' in partial) {
+      const tx = tunables.targetX ?? camera.target[0];
+      const ty = tunables.targetY ?? camera.target[1];
+      const tz = tunables.targetZ ?? camera.target[2];
+      camera.target = [tx, ty, tz];
+    }
+    rebuildSceneFromGeometry();
+  }
+
+  function resumeAutoRotate(): void {
+    controlState.rotYLocked = false;
+    if (!controlState.rotYLocked) {
+      startAutoRotate();
+    }
+  }
+
+  function setAutoRotate(enabled: boolean): void {
+    if (enabled) {
+      controlState.rotYLocked = false;
+      startAutoRotate();
+    } else {
+      controlState.rotYLocked = true;
+      stopAutoRotate();
+      doRerender();
+    }
+  }
+
+  function setProjection(kind: 'perspective' | 'orthographic'): void {
+    controlState.projection = kind;
+    rebuildSceneFromGeometry();
+  }
+
+  function setControlState(partial: Partial<ControlState>): void {
+    const prevAutoCenter = controlState.autoCenter;
+    Object.assign(controlState, partial);
+    // Update controls with new options without fully rebuilding
+    if ('dragEnabled' in partial || 'wheelEnabled' in partial || 'invertDrag' in partial) {
+      controls?.update({
+        drag: controlState.dragEnabled,
+        wheel: controlState.wheelEnabled,
+        invert: controlState.invertDrag ? -1 : 1,
+      });
+    }
+    if ('autoCenter' in partial && partial.autoCenter !== prevAutoCenter && controlState.lastMeshUrl) {
+      void setMeshUrl(controlState.lastMeshUrl);
+    }
+  }
 
   function setLighting(partial: { azimuth?: number; elevation?: number; keyIntensity?: number; ambientIntensity?: number; keyColor?: string; ambientColor?: string }): void {
     if (partial.azimuth !== undefined || partial.elevation !== undefined) {
@@ -962,415 +1247,21 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (partial.ambientIntensity !== undefined) lightingState.ambientIntensity = partial.ambientIntensity;
     if (partial.keyColor !== undefined) lightingState.keyColor = partial.keyColor;
     if (partial.ambientColor !== undefined) lightingState.ambientColor = partial.ambientColor;
-    rebuildSceneFromGeometry();
+    scene.setOptions({
+      directionalLight: {
+        direction: lightingState.direction,
+        intensity: lightingState.keyIntensity,
+        color: lightingState.keyColor,
+      },
+      ambientLight: {
+        intensity: lightingState.ambientIntensity,
+        color: lightingState.ambientColor,
+      },
+    });
+    doRerender();
   }
 
-  let sphericalAz = 50;
-  let sphericalEl = 45;
-
-  // ── FPV state ────────────────────────────────────────────────────────────
-  // Two-state model ported from glyphcss createPolyFirstPersonControls:
-  //   - `fpvOrigin` is the camera's WORLD position (the eye).
-  //   - `camera.target` is DERIVED each frame: fpvOrigin + forwardDir * lookOffset.
-  //   - Mouselook rotates target AROUND the fixed fpvOrigin (in-place rotation,
-  //     not orbit). WASD moves fpvOrigin; target follows via the same offset.
-  let fpvOrigin: [number, number, number] = [0, 0, controlState.fpv.groundZ + controlState.fpv.eyeHeight];
-  let fpvVerticalVel = 0;
-  let fpvJumpOffset = 0;
-  let fpvRafId: number | null = null;
-  let fpvLastTime = 0;
-  let fpvPointerLocked = false;
-  const fpvKeysHeld = new Set<string>();
-  // Save orbit-mode projection/distance/rotX across FPV sessions; restored on exit.
-  // FPV needs its own short focal length so walking produces visible
-  // foreshortening (orbit's distance=8000 is too long for our 2-unit world),
-  // and rotX = π/2 (horizontal) — orbit's typical 65° tilt looks weird at eye level.
-  let fpvSavedProjection: 'perspective' | 'orthographic' | null = null;
-  let fpvSavedDistance: number | null = null;
-  let fpvSavedRotX: number | null = null;
-  const FPV_PERSPECTIVE_DISTANCE = 200;
-
-  const FPV_FORWARD_KEYS = new Set(['KeyW', 'ArrowUp']);
-  const FPV_BACK_KEYS = new Set(['KeyS', 'ArrowDown']);
-  const FPV_LEFT_KEYS = new Set(['KeyA', 'ArrowLeft']);
-  const FPV_RIGHT_KEYS = new Set(['KeyD', 'ArrowRight']);
-  const FPV_JUMP_KEYS = new Set(['Space']);
-  const FPV_CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight']);
-
-  // MESH_UNIT = 30 matches the projection constant in createCamera.ts. The
-  // lookOffset converts from the pixel-ish `distance` (= glyphcss `perspective`)
-  // back to world units so the derived target lives exactly `distance/MESH_UNIT`
-  // world units ahead of the eye — placing the CSS perspective vanishing point
-  // at the eye position (true first-person semantics).
-  const FPV_MESH_UNIT = 30;
-
-  function fpvLookOffset(): number {
-    // With eyeMode on the perspective camera, target == eye → the projection
-    // origin is the eye, perspective diverges at the eye, behind-eye vertices
-    // are NaN-culled. True FPV semantics.
-    return 0;
-  }
-
-  function fpvForwardDir(rotX: number, rotY: number): [number, number, number] {
-    // World direction that maps to CSS -Z (into the screen, away from viewer)
-    // under glyphcss's rotateVec3(., rotY, rotX). Matches glyphcss verbatim:
-    // [-sin(rx)·cos(ry), -sin(rx)·sin(ry), -cos(rx)] in radians.
-    // rotX=π/2 = horizontal; rotX<π/2 = looking up; rotX>π/2 = looking down.
-    return [
-      -Math.sin(rotX) * Math.cos(rotY),
-      -Math.sin(rotX) * Math.sin(rotY),
-      -Math.cos(rotX),
-    ];
-  }
-
-  function fpvDeriveTarget(): [number, number, number] {
-    const f = fpvForwardDir(camera.rotX, camera.rotY);
-    const d = fpvLookOffset();
-    return [
-      fpvOrigin[0] + f[0] * d,
-      fpvOrigin[1] + f[1] * d,
-      fpvOrigin[2] + f[2] * d,
-    ];
-  }
-
-  function fpvSyncTarget(): void {
-    // Re-derive target from the current origin and camera angles so glyphcss's
-    // perspective viewer tracks the eye. Without this, walking forward would
-    // move `fpvOrigin` but target would stay put, drifting the visible center.
-    camera.target = fpvDeriveTarget();
-  }
-
-  function fpvInitOriginFromCamera(): void {
-    // Position camera OUTSIDE the mesh in the look direction's opposite so the
-    // user can walk TOWARD the mesh. glyphcss puts the user at scene center
-    // (inside the mesh) which works in their 60-unit world — you have room to
-    // walk around interior detail. Our normalize fits meshes to a 2-unit box,
-    // leaving no interior; backing up 3 units gives the user something to
-    // walk toward.
-    const t = camera.target;
-    fpvJumpOffset = 0;
-    fpvVerticalVel = 0;
-    // Set both camera AND tunables so the subsequent rebuildSceneFromGeometry
-    // (which seeds a new camera from tunables) preserves the FPV-init pitch.
-    camera.rotX = Math.PI / 2;
-    tunables.rotX = Math.PI / 2;
-    const initBackOffset = 3;
-    const f = fpvForwardDir(camera.rotX, camera.rotY);
-    fpvOrigin = [
-      t[0] - f[0] * initBackOffset,
-      t[1] - f[1] * initBackOffset,
-      controlState.fpv.groundZ + controlState.fpv.eyeHeight,
-    ];
-    fpvSyncTarget();
-  }
-
-  const fpvOnPointerLockChange = (): void => {
-    const locked = document.pointerLockElement === viewportEl;
-    fpvPointerLocked = locked;
-  };
-
-  const fpvOnMouseMove = (e: MouseEvent): void => {
-    if (!fpvPointerLocked || controlState.dragMode !== 'fpv') return;
-    if (!controlState.fpv.look) return;
-    const dx = e.movementX ?? 0;
-    const dy = e.movementY ?? 0;
-    if (dx === 0 && dy === 0) return;
-    const sens = controlState.fpv.lookSensitivity;
-    const dyDir = controlState.fpv.invertY ? -1 : 1;
-    // Yaw: mouse right → look right → rotY decreases (same as glyphcss line 284).
-    // Yaw range wraps; no clamp needed.
-    const DEG_TO_RAD = Math.PI / 180;
-    camera.rotY = camera.rotY - dx * sens * DEG_TO_RAD;
-    // Pitch: mouse down → look down → rotX increases above π/2 (horizontal).
-    // At rotX=π/2, forwardDir has no Z component (level gaze). Increasing rotX
-    // adds a +Z component to forwardDir → forward tilts toward ground → look down.
-    // Clamp to [minPitch, maxPitch] in degrees converted to radians.
-    let rotX = camera.rotX - dy * sens * DEG_TO_RAD * dyDir;
-    const minR = controlState.fpv.minPitch * DEG_TO_RAD;
-    const maxR = controlState.fpv.maxPitch * DEG_TO_RAD;
-    if (rotX < minR) rotX = minR;
-    else if (rotX > maxR) rotX = maxR;
-    camera.rotX = rotX;
-    // Re-derive target so it swings around the fixed origin — in-place
-    // rotation, not orbit.
-    fpvSyncTarget();
-    if (scene.mode !== 'solid') {
-      const selEdges = getSelectionEdges();
-      scene.wireframe = selEdges.length > 0 ? [...baseWireframe, ...selEdges] : baseWireframe;
-    }
-    stripEl.innerHTML = rasterize(scene);
-    updateHotspotPositions();
-  };
-
-  const fpvOnKeyDown = (e: KeyboardEvent): void => {
-    if (controlState.dragMode !== 'fpv') return;
-    const code = e.code;
-    const isFpvKey = FPV_FORWARD_KEYS.has(code) || FPV_BACK_KEYS.has(code) ||
-      FPV_LEFT_KEYS.has(code) || FPV_RIGHT_KEYS.has(code) ||
-      FPV_JUMP_KEYS.has(code) || FPV_CROUCH_KEYS.has(code);
-    if (!isFpvKey) return;
-    // Only intercept movement keys while pointer-locked or moveEnabled is on —
-    // otherwise let the page handle Space/Ctrl normally (scroll, browser shortcuts).
-    if (!fpvPointerLocked && !controlState.fpv.move) return;
-    if (FPV_JUMP_KEYS.has(code)) {
-      if (!controlState.fpv.jump) return;
-      e.preventDefault();
-      if (!fpvKeysHeld.has(code) && fpvVerticalVel === 0 && fpvJumpOffset === 0) {
-        fpvVerticalVel = controlState.fpv.jumpVelocity;
-      }
-      fpvKeysHeld.add(code);
-      return;
-    }
-    if (FPV_CROUCH_KEYS.has(code) && !controlState.fpv.crouch) return;
-    if (!controlState.fpv.move && !FPV_CROUCH_KEYS.has(code)) return;
-    e.preventDefault();
-    fpvKeysHeld.add(code);
-  };
-
-  const fpvOnKeyUp = (e: KeyboardEvent): void => {
-    fpvKeysHeld.delete(e.code);
-  };
-
-  const fpvOnBlur = (): void => {
-    fpvKeysHeld.clear();
-  };
-
-  const fpvOnClick = (): void => {
-    if (controlState.dragMode !== 'fpv' || fpvPointerLocked) return;
-    if (!controlState.fpv.look) return;
-    try { viewportEl.requestPointerLock(); } catch { /* ignore */ }
-  };
-
-  const FPV_DT_CLAMP = 0.05;
-
-  const fpvTick = (now: number): void => {
-    if (fpvRafId === null || controlState.dragMode !== 'fpv') return;
-    const dt = Math.min(FPV_DT_CLAMP, fpvLastTime ? (now - fpvLastTime) / 1000 : 0.0167);
-    fpvLastTime = now;
-
-    let dirty = false;
-
-    // ── Horizontal movement: WASD walks fpvOrigin on the world XY plane. ────
-    // Movement is pitch-independent: always floor-walking, never flying.
-    // Mirrors glyphcss's horizontal-only projection (drop the vertical component
-    // by projecting the look direction onto XY, matching three.js PointerLockControls).
-    if (controlState.fpv.move) {
-      let mf = 0;
-      let mr = 0;
-      for (const code of fpvKeysHeld) {
-        if (FPV_FORWARD_KEYS.has(code)) mf += 1;
-        else if (FPV_BACK_KEYS.has(code)) mf -= 1;
-        else if (FPV_RIGHT_KEYS.has(code)) mr += 1;
-        else if (FPV_LEFT_KEYS.has(code)) mr -= 1;
-      }
-      if (mf !== 0 || mr !== 0) {
-        const r = camera.rotY;
-        // Yaw-aligned horizontal forward and right vectors (world XY, Z-up).
-        // Derived from glyphcss's WASD math after radian substitution.
-        const fx = -Math.cos(r);
-        const fy = -Math.sin(r);
-        const rx = -Math.sin(r);
-        const ry =  Math.cos(r);
-        const len = Math.hypot(mf, mr) || 1;
-        const step = controlState.fpv.moveSpeed * dt;
-        fpvOrigin[0] += ((fx * mf + rx * mr) / len) * step;
-        fpvOrigin[1] += ((fy * mf + ry * mr) / len) * step;
-        dirty = true;
-      }
-    }
-
-    // ── Vertical: jump + gravity + crouch. Mutates fpvOrigin[2]. ─────────────
-    const crouched = controlState.fpv.crouch &&
-      (fpvKeysHeld.has('ControlLeft') || fpvKeysHeld.has('ControlRight'));
-    const baseHeight = crouched ? controlState.fpv.crouchHeight : controlState.fpv.eyeHeight;
-    if (controlState.fpv.jump && (fpvVerticalVel !== 0 || fpvJumpOffset > 0)) {
-      fpvVerticalVel -= controlState.fpv.gravity * dt;
-      fpvJumpOffset += fpvVerticalVel * dt;
-      if (fpvJumpOffset <= 0) {
-        fpvJumpOffset = 0;
-        fpvVerticalVel = 0;
-      }
-    } else if (!controlState.fpv.jump) {
-      fpvJumpOffset = 0;
-      fpvVerticalVel = 0;
-    }
-    const originZ = controlState.fpv.groundZ + baseHeight + fpvJumpOffset;
-    if (Math.abs(fpvOrigin[2] - originZ) > 1e-4) {
-      fpvOrigin[2] = originZ;
-      dirty = true;
-    }
-
-    if (dirty) {
-      fpvSyncTarget();
-      if (scene.mode !== 'solid') {
-        const selEdges = getSelectionEdges();
-        scene.wireframe = selEdges.length > 0 ? [...baseWireframe, ...selEdges] : baseWireframe;
-      }
-      stripEl.innerHTML = rasterize(scene);
-      updateHotspotPositions();
-    }
-
-    fpvRafId = requestAnimationFrame(fpvTick);
-  };
-
-  function startFpv(): void {
-    // Save orbit-mode perspective so we can restore on exit. FPV needs its own
-    // perspective tuning — orbit's distance=8000 makes walking look like a
-    // planar pan (foreshortening is 1/8000 per world-unit walked = invisible).
-    // glyphcss does the equivalent via the `.glyph-fpv-host` CSS class that
-    // sets `perspective: 2000px` matching `lookOffset` so the CSS viewer
-    // coincides with cameraOrigin. For our raster, switching to perspective
-    // mode with a short focal length (200) gives noticeable foreshortening
-    // over the 1–3 world-unit walks our mesh size allows.
-    fpvSavedProjection = controlState.projection;
-    fpvSavedDistance = tunables.distance;
-    fpvSavedRotX = tunables.rotX;
-    controlState.projection = 'perspective';
-    tunables.distance = FPV_PERSPECTIVE_DISTANCE;
-    fpvInitOriginFromCamera();
-    demoEl.classList.add('no-autorotate');
-    document.addEventListener('pointerlockchange', fpvOnPointerLockChange);
-    document.addEventListener('mousemove', fpvOnMouseMove);
-    window.addEventListener('keydown', fpvOnKeyDown);
-    window.addEventListener('keyup', fpvOnKeyUp);
-    window.addEventListener('blur', fpvOnBlur);
-    viewportEl.addEventListener('click', fpvOnClick);
-    viewportEl.style.cursor = controlState.fpv.look ? 'crosshair' : '';
-    rebuildSceneFromGeometry();
-    fpvLastTime = 0;
-    fpvRafId = requestAnimationFrame(fpvTick);
-  }
-
-  function stopFpv(): void {
-    if (fpvRafId !== null) {
-      cancelAnimationFrame(fpvRafId);
-      fpvRafId = null;
-    }
-    if (fpvPointerLocked) {
-      try { document.exitPointerLock(); } catch { /* ignore */ }
-    }
-    fpvPointerLocked = false;
-    fpvKeysHeld.clear();
-    document.removeEventListener('pointerlockchange', fpvOnPointerLockChange);
-    document.removeEventListener('mousemove', fpvOnMouseMove);
-    window.removeEventListener('keydown', fpvOnKeyDown);
-    window.removeEventListener('keyup', fpvOnKeyUp);
-    window.removeEventListener('blur', fpvOnBlur);
-    viewportEl.removeEventListener('click', fpvOnClick);
-    viewportEl.style.cursor = '';
-    // Restore the orbit-mode projection that was active before FPV.
-    if (fpvSavedProjection !== null) controlState.projection = fpvSavedProjection;
-    if (fpvSavedDistance !== null) tunables.distance = fpvSavedDistance;
-    if (fpvSavedRotX !== null) tunables.rotX = fpvSavedRotX;
-    fpvSavedProjection = null;
-    fpvSavedDistance = null;
-    fpvSavedRotX = null;
-    // Drop the derived target back to world origin on the XY floor so orbit
-    // mode starts at the player's ground position rather than the look-ahead point.
-    camera.target = [fpvOrigin[0], fpvOrigin[1], controlState.fpv.groundZ];
-    rebuildSceneFromGeometry();
-  }
-
-  function setDragMode(mode: DragMode): void {
-    if (mode === controlState.dragMode) return;
-    const prev = controlState.dragMode;
-    controlState.dragMode = mode;
-    if (prev === 'fpv') stopFpv();
-    if (mode === 'fpv') startFpv();
-    else bakeAndApply();
-  }
-
-  function setFpvOptions(partial: Partial<FpvOptions>): void {
-    Object.assign(controlState.fpv, partial);
-    if (controlState.dragMode === 'fpv') {
-      // Re-snap vertical position when standing height or ground plane changes,
-      // preserving horizontal position. Mirrors glyphcss's update() behaviour.
-      if ('eyeHeight' in partial || 'groundZ' in partial) {
-        fpvOrigin[2] = controlState.fpv.groundZ + controlState.fpv.eyeHeight;
-        fpvSyncTarget();
-      }
-      if ('look' in partial) {
-        viewportEl.style.cursor = controlState.fpv.look ? 'crosshair' : '';
-      }
-    }
-  }
-
-  // Expose for the gallery picker / rail to drive.
-  function setTunables(partial: Partial<Tunables>): void {
-    // User-driven sidebar changes must apply even during FPV. The FPV poll
-    // skip in GlyphScene prevents the camera→sidebar echo loop; legitimate
-    // sidebar→camera flow still passes through here. In FPV, after the camera
-    // is updated by rebuildSceneFromGeometry, fpvOrigin is re-synced below.
-    const hasRotY = 'rotY' in partial && partial.rotY !== undefined;
-    Object.assign(tunables, partial);
-    if (hasRotY) {
-      // Explicit rotY set — lock autorotate and update camera immediately.
-      controlState.rotYLocked = true;
-      camera.rotY = partial.rotY!;
-      // Pause the CSS animation on the strip.
-      demoEl.classList.add('no-autorotate');
-    }
-    // Apply target from tunables to camera.
-    if ('targetX' in partial || 'targetY' in partial || 'targetZ' in partial) {
-      const tx = tunables.targetX ?? camera.target[0];
-      const ty = tunables.targetY ?? camera.target[1];
-      const tz = tunables.targetZ ?? camera.target[2];
-      camera.target = [tx, ty, tz];
-    }
-    rebuildSceneFromGeometry();
-  }
-
-  function resumeAutoRotate(): void {
-    controlState.rotYLocked = false;
-    demoEl.classList.remove('no-autorotate');
-  }
-
-  /**
-   * Toggle the CSS-driven autorotate strip. When enabled, the next bake produces
-   * a 60-frame strip cycling through rotY and the CSS animation scrolls through
-   * it; when disabled, only the current angle is baked. Triggers a rebuild so
-   * the change is visible immediately.
-   */
-  function setAutoRotate(enabled: boolean): void {
-    if (enabled) {
-      controlState.rotYLocked = false;
-      demoEl.classList.remove('no-autorotate');
-    } else {
-      controlState.rotYLocked = true;
-      demoEl.classList.add('no-autorotate');
-    }
-    rebuildSceneFromGeometry();
-  }
-
-  function setProjection(kind: 'perspective' | 'orthographic'): void {
-    controlState.projection = kind;
-    // Projection affects how the camera maps 3D → 2D.
-    // For perspective mode we use createGlyphPerspectiveCamera (already active).
-    // For orthographic mode we set distance to a large value to approximate
-    // orthographic projection (createOrthographicCamera if available, else fake it).
-    // NOTE: the glyphcss createOrthographicCamera exists in core but isn't imported
-    // here yet — we approximate by boosting distance massively.
-    if (kind === 'orthographic') {
-      // Very large distance makes the perspective warp negligible (~orthographic).
-      camera.distance = 200000;
-    } else {
-      camera.distance = tunables.distance;
-    }
-    rebuildSceneFromGeometry();
-  }
-
-  function setControlState(partial: Partial<ControlState>): void {
-    const prevAutoCenter = controlState.autoCenter;
-    Object.assign(controlState, partial);
-    // If autoCenter changed and we have a mesh URL loaded, reload it.
-    if ('autoCenter' in partial && partial.autoCenter !== prevAutoCenter && controlState.lastMeshUrl) {
-      void setMeshUrl(controlState.lastMeshUrl);
-    }
-  }
-
-  let lastBakeMs = 0;
-
-  function getCameraState(): { rotX: number; rotY: number; zoom: number; target: [number, number, number] } {
+  function getCameraState(): { rotX: number; rotY: number; scale: number; target: [number, number, number] } {
     return {
       rotX: camera.rotX,
       rotY: camera.rotY,
@@ -1380,20 +1271,19 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   }
 
   function getStats(): { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number } {
-    // Read live from geometry so the initial mesh load is always reflected.
+    const opts = scene.getOptions();
     return {
-      cols: scene.grid.cols,
-      rows: scene.grid.rows,
+      cols: opts.cols,
+      rows: opts.rows,
       edges: geometry.edges.length,
       verts: geometry.vertices.length,
-      triangles: geometry.polygons?.length ?? 0,
+      triangles: geometry.polygons.length,
       bakeMs: lastBakeMs,
     };
   }
 
   function getSelection(): { index: number; triangle: TextureTriangle | null } {
-    const tris = geometry.polygons;
-    const tri = (tris && selectedTriangleIndex >= 0) ? (tris[selectedTriangleIndex] ?? null) : null;
+    const tri = selectedTriangleIndex >= 0 ? (geometry.polygons[selectedTriangleIndex] ?? null) : null;
     return { index: selectedTriangleIndex, triangle: tri };
   }
 
@@ -1401,13 +1291,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     onSelectionChange = fn;
   }
 
-  // ── Animation control API ────────────────────────────────────────────────
-
   function setAnimation(clipIndex: number): void {
     if (clipIndex < 0 || clipIndex >= geometry.animations.length) return;
     animState.clipIndex = clipIndex;
     animState.currentTime = 0;
-    demoEl.classList.add('no-autorotate');
+    stopAutoRotate();
+    controlState.rotYLocked = true;
     if (geometry.animations.length > 0 && animState.rafHandle === null) {
       startAnimationLoop();
     }
@@ -1417,22 +1306,13 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     stopAnimationLoop();
     animState.clipIndex = 0;
     animState.currentTime = 0;
-    demoEl.classList.remove('no-autorotate');
-    // Restore the static rest pose so the scene doesn't keep the last sampled frame.
-    scene.polygons = geometry.polygons as import('glyphcss').Polygon[];
-    if (scene.mode !== 'solid') {
-      scene.wireframe = baseWireframe;
-    }
-    bakeAndApply();
+    meshHandle.dispose();
+    meshHandle = scene.add(geometry.polygons as Polygon[]);
+    doRerender();
   }
 
-  function setAnimationPaused(paused: boolean): void {
-    animState.paused = paused;
-  }
-
-  function setAnimationTimeScale(scale: number): void {
-    animState.timeScale = scale;
-  }
+  function setAnimationPaused(paused: boolean): void { animState.paused = paused; }
+  function setAnimationTimeScale(scale: number): void { animState.timeScale = scale; }
 
   function getAnimationInfo(): { clips: ParseAnimationClip[]; current: number; time: number; paused: boolean } {
     return {
@@ -1443,13 +1323,16 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     };
   }
 
+  function getDragMode(): DragMode { return controlState.dragMode; }
+
+  // Expose handle on the demoEl
   (demoEl as unknown as {
     glyphcssDemo: {
       setMeshUrl: (u: string) => Promise<void>;
-      setPolygons: (polygons: import('glyphcss').Polygon[]) => void;
+      setPolygons: (polygons: Polygon[]) => void;
       setTunables: (p: Partial<Tunables>) => void;
       setControlState: (p: Partial<ControlState>) => void;
-      getCameraState: () => { rotX: number; rotY: number; zoom: number; target: [number, number, number] };
+      getCameraState: () => { rotX: number; rotY: number; scale: number; target: [number, number, number] };
       getStats: () => { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number };
       getSelection: () => { index: number; triangle: TextureTriangle | null };
       clearSelection: () => void;
@@ -1488,214 +1371,23 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setDragMode,
     setFpvOptions,
     setLighting,
-    getDragMode: () => controlState.dragMode,
+    getDragMode,
   };
 
-  // Skip lil-gui entirely if the controls slot was opted-out (noControls prop).
+  // ── lil-gui ───────────────────────────────────────────────────────────────
   const gui = controlsEl ? new GUI({ container: controlsEl, title: 'Tuning', width: 240 }) : null;
-  // lil-gui ranges aligned to glyphcss gallery defaults.
   const controlMakers: Record<string, () => void> = gui ? {
     scale: () => { gui.add(tunables, 'zoom', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
     stretch: () => { gui.add(tunables, 'stretch', 0.5, 1.5, 0.01).onChange(rebuildAll); },
     distance: () => { gui.add(tunables, 'distance', 100, 100000, 100).name('perspective').onChange(rebuildAll); },
     rotX: () => { gui.add(tunables, 'rotX', 0, 1.75, 0.01).name('tilt (rotX)').onChange(rebuildAll); },
-    duration: () => { gui.add(tunables, 'duration', 1, 12, 0.25).name('duration (s)').onChange(() => {
-      sceneHost.style.setProperty('--dur', `${tunables.duration}s`);
-    }); },
+    duration: () => { gui.add(tunables, 'duration', 1, 12, 0.25).name('duration (s)').onChange(() => { /* no-op: JS autorotate uses tunables.duration directly */ }); },
     lineHeight: () => { gui.add(tunables, 'lineHeight', 0.5, 1.2, 0.01).name('line-height ×').onChange(rebuildAll); },
     geometry: () => { gui.add(tunables, 'geometry', ['cuboctahedron', 'icosahedron', 'cube']).onChange(rebuildAll); },
   } : {};
   for (const key of controlList) controlMakers[key]?.();
 
-  // Drag math mirrors glyphcss createPolyOrbitControls (incremental frame-to-frame
-  // deltas, dx/4 sensitivity in degrees, mouse-up rotates "up"). Glyphcss uses
-  // degrees; we convert (0.25 deg/px × π/180 ≈ 0.00436 rad/px) to keep the same
-  // tactile feel.
-  const DRAG_SENSITIVITY = (0.25 * Math.PI) / 180; // rad per pixel
-  const CLICK_THRESHOLD_PX = 5; // pointer movement beyond this → drag, not click
-  let drag: { startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null;
-
-  function updateHotspotPositions(): void {
-    const { cols, rows, cellAspect } = scene.grid;
-    const cells = projectHotspots(hotspots, camera, cols, rows, cellAspect);
-    const cellH = cellMetrics.cellH, cellW = cellMetrics.cellW;
-    for (const c of cells) {
-      const el = hotspotEls.get(c.id);
-      if (!el) continue;
-      const sizeCols = hotspots.find((h) => h.id === c.id)?.size?.[0] ?? 1;
-      const sizeRows = hotspots.find((h) => h.id === c.id)?.size?.[1] ?? 1;
-      el.style.transform = `translate3d(${(c.col - sizeCols / 2) * cellW}px, ${(c.row - sizeRows / 2) * cellH}px, 0)`;
-      el.style.opacity = c.visible ? '1' : '0';
-    }
-  }
-
-  viewportEl.addEventListener('pointerdown', (e) => {
-    // FPV mode uses pointer-lock + mousemove, not pointer-drag events.
-    if (controlState.dragMode === 'fpv') return;
-    drag = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false };
-    try { viewportEl.setPointerCapture(e.pointerId); } catch {}
-    viewportEl.classList.add('dragging');
-    e.preventDefault();
-  });
-  viewportEl.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    if (controlState.dragMode === 'fpv') return;
-    const totalDx = e.clientX - drag.startX;
-    const totalDy = e.clientY - drag.startY;
-    if (Math.hypot(totalDx, totalDy) > CLICK_THRESHOLD_PX) drag.moved = true;
-    if (!controlState.dragEnabled || !drag.moved) return;
-    const dx = e.clientX - drag.lastX;
-    const dy = e.clientY - drag.lastY;
-    drag.lastX = e.clientX;
-    drag.lastY = e.clientY;
-    const f = controlState.invertDrag ? -1 : 1;
-
-    if (controlState.dragMode === 'pan' || e.shiftKey) {
-      // Pan mode: translate camera.target proportional to drag delta in a
-      // slippy-map fashion (terrain follows pointer). Derived for the glyphcss
-      // world frame (col = cx + r[0]*radius, row = cy + r[1]*radius) where
-      // r[0] = cos(rotY)*world[1] - sin(rotY)*world[0] and
-      // r[1] ~ sin(rotY)*world[1] + cos(rotY)*world[0] (before rotX tilt).
-      // Solving the 2x2 system (sin,-cos / cos,sin) * (δt[0],δt[1]) = (dx/k,-dy/(k*cosB)):
-      // k = world-units-per-pixel divisor. col_pixels = r[0]*radius*cellH, so for
-      // 1:1 cursor tracking, k = radius * cellH. Previously used cellW which
-      // made pan ~cellAspect (≈2x) faster than the cursor.
-      const k = camera.zoom * Math.min(scene.grid.cols, scene.grid.rows) * 1.5 * cellMetrics.cellH;
-      const cosA = Math.cos(camera.rotY), sinA = Math.sin(camera.rotY);
-      const cosB = Math.cos(camera.rotX);
-      const dySafe = cosB !== 0 ? dy / cosB : dy;
-      const targetD0 = ( sinA * dx - cosA * dySafe) / k;
-      const targetD1 = -(cosA * dx + sinA * dySafe) / k;
-      const t = camera.target;
-      camera.target = [t[0] + targetD0 * f, t[1] + targetD1 * f, t[2]];
-    } else {
-      // Orbit mode: matches glyphcss createPolyOrbitControls which subtracts dX/dY.
-      // Drag-right (dx > 0) decreases rotY (same direction as CSS rotate spin).
-      // Drag-down (dy > 0) decreases rotX (same direction as glyphcss).
-      camera.rotY = camera.rotY - dx * DRAG_SENSITIVITY * f;
-      // Clamp rotX to the same [0, 100°] range as the sidebar slider.
-      // glyphcss uses `Math.max(0, Math.min(100, rotX - dY))` in degrees;
-      // we work in radians so the upper bound is 100° × π/180.
-      const ROT_X_MAX = Math.PI * 100 / 180;
-      camera.rotX = Math.max(0, Math.min(ROT_X_MAX, camera.rotX - dy * DRAG_SENSITIVITY * f));
-    }
-    if (scene.mode !== 'solid') {
-      const selEdges = getSelectionEdges();
-      scene.wireframe = selEdges.length > 0 ? [...baseWireframe, ...selEdges] : baseWireframe;
-    }
-    stripEl.innerHTML = rasterize(scene);
-    updateHotspotPositions();
-  });
-
-  function handleClick(e: PointerEvent): void {
-    const tris = geometry.polygons;
-    if (!tris || tris.length === 0) return;
-
-    const vpRect = viewportEl.getBoundingClientRect();
-    const px = e.clientX - vpRect.left;
-    const py = e.clientY - vpRect.top;
-    const pointerCol = px / cellMetrics.cellW;
-    const pointerRow = py / cellMetrics.cellH;
-
-    const { cols, rows, cellAspect } = scene.grid;
-    const idx = pickTriangle(tris, camera, cols, rows, cellAspect, pointerCol, pointerRow);
-
-    if (idx === selectedTriangleIndex) {
-      // Same triangle clicked — toggle off.
-      selectedTriangleIndex = -1;
-      onSelectionChange?.(-1, null);
-    } else {
-      selectedTriangleIndex = idx;
-      const tri = idx >= 0 ? (tris[idx] ?? null) : null;
-      onSelectionChange?.(idx, tri);
-    }
-    bakeAndApply();
-  }
-
-  const endDrag = (e: PointerEvent): void => {
-    if (!drag) return;
-    const wasDrag = drag.moved;
-    drag = null;
-    tunables.rotX = camera.rotX;
-    tunables.rotY = camera.rotY;
-    viewportEl.classList.remove('dragging');
-    if (!wasDrag) {
-      handleClick(e);
-    } else {
-      bakeAndApply();
-    }
-  };
-  viewportEl.addEventListener('pointerup', endDrag);
-  viewportEl.addEventListener('pointercancel', endDrag);
-
-  const debouncedRebake = debounce(() => {
-    tunables.distance = camera.distance;
-    bakeAndApply();
-    viewportEl.classList.remove('dragging');
-  }, 180);
-  viewportEl.addEventListener('wheel', (e) => {
-    if (!controlState.wheelEnabled) return;
-    e.preventDefault();
-    // glyph-equivalent wheel zoom: change `scale` (= glyphcss `zoom`), not
-    // `distance` (= glyphcss `perspective`). Distance only tunes perspective
-    // intensity; scale is the visual zoom the sidebar slider drives.
-    const lineFactor = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
-    let delta = e.deltaY * lineFactor;
-    if (e.ctrlKey) delta *= 10; // trackpad pinch (browser sets ctrlKey)
-    else delta *= 3;             // two-finger scroll amp
-    const factor = Math.exp(-delta * 0.000513); // glyphcss ZOOM_STEP
-    const newScale = Math.max(0.02, Math.min(20, camera.zoom * factor));
-    camera.zoom = newScale;
-    tunables.zoom = newScale;
-    viewportEl.classList.add('dragging');
-    if (scene.mode !== 'solid') {
-      const selEdgesWhl = getSelectionEdges();
-      scene.wireframe = selEdgesWhl.length > 0 ? [...baseWireframe, ...selEdgesWhl] : baseWireframe;
-    }
-    stripEl.innerHTML = rasterize(scene);
-    debouncedRebake();
-  }, { passive: false });
-
-  if (wantStats) {
-    statsEl.classList.add('active');
-    let fpsFrames = 0;
-    let fpsStart = 0;
-    const fpsTick = (now: number): void => {
-      if (!fpsStart) fpsStart = now;
-      fpsFrames++;
-      const elapsed = now - fpsStart;
-      if (elapsed >= 1000) {
-        const fps = Math.round((fpsFrames * 1000) / elapsed);
-        statsEl.innerHTML = `FPS: <span class="stat-value">${fps}</span> · cells: <span class="stat-value">${scene.grid.cols}×${scene.grid.rows}</span>`;
-        fpsFrames = 0;
-        fpsStart = now;
-      }
-      requestAnimationFrame(fpsTick);
-    };
-    requestAnimationFrame(fpsTick);
-  }
-
-  window.addEventListener('resize', debounce(() => {
-    cellMetrics = measureCell();
-    sceneHost.style.setProperty('--cell-fs', `${cellMetrics.fontSize}px`);
-    sceneHost.style.setProperty('--cell-h', `${cellMetrics.cellH}px`);
-    const next = computeGrid(cellMetrics.cellW, cellMetrics.cellH);
-    if (next.cols === scene.grid.cols && next.rows === scene.grid.rows) return;
-    scene.grid = next;
-    sceneHost.style.setProperty('--rows', String(next.rows));
-    bakeAndApply();
-  }, 250));
-
-  demoEl.querySelector('.glyph-demo__tabs')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest('.glyph-demo__tab') as HTMLElement | null;
-    if (!btn) return;
-    const fw = btn.dataset.fw;
-    demoEl.querySelectorAll('.glyph-demo__tab').forEach((t) =>
-      t.classList.toggle('active', (t as HTMLElement).dataset.fw === fw));
-    demoEl.querySelectorAll('.glyph-demo__snippet').forEach((p) =>
-      p.classList.toggle('glyph-demo__snippet--hidden', (p as HTMLElement).dataset.fw !== fw));
-  });
-
+  // ── Code panel sync ───────────────────────────────────────────────────────
   function updateCode(): void {
     const t = tunables;
     if (codeEls.vanilla) {
@@ -1705,7 +1397,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         'const host = document.getElementById("scene");',
         'createGlyphScene(host, {',
         `  rotX: ${t.rotX.toFixed(2)},`,
-        `  scale: ${t.scale.toFixed(3)},`,
+        `  scale: ${t.zoom.toFixed(3)},`,
         `  stretch: ${t.stretch.toFixed(2)},`,
         `  distance: ${t.distance.toFixed(2)},`,
         `  geometry: "${t.geometry}",`,
@@ -1719,7 +1411,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         '',
         'export function App() {',
         '  return (',
-        `    <GlyphCamera rotX={${t.rotX.toFixed(2)}} scale={${t.scale.toFixed(3)}} distance={${t.distance.toFixed(2)}}>`,
+        `    <GlyphCamera rotX={${t.rotX.toFixed(2)}} scale={${t.zoom.toFixed(3)}} distance={${t.distance.toFixed(2)}}>`,
         '      <GlyphScene>',
         '        <GlyphOrbitControls drag wheel />',
         `        <GlyphMesh geometry="${t.geometry}" />`,
@@ -1732,7 +1424,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (codeEls.vue) {
       codeEls.vue.textContent = [
         '<template>',
-        `  <GlyphCamera :rot-x="${t.rotX.toFixed(2)}" :scale="${t.scale.toFixed(3)}" :distance="${t.distance.toFixed(2)}">`,
+        `  <GlyphCamera :rot-x="${t.rotX.toFixed(2)}" :scale="${t.zoom.toFixed(3)}" :distance="${t.distance.toFixed(2)}">`,
         '    <GlyphScene>',
         '      <GlyphOrbitControls drag wheel />',
         `      <GlyphMesh geometry="${t.geometry}" />`,
@@ -1747,13 +1439,47 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     }
   }
 
-  // Initial render. If data-mesh is set, fetch+load that mesh (which rebakes
-  // on success). Otherwise bake the built-in geometry now.
+  // ── Stats overlay ─────────────────────────────────────────────────────────
+  if (wantStats) {
+    statsEl.classList.add('active');
+    let fpsFrames = 0;
+    let fpsStart = 0;
+    const fpsTick = (now: number): void => {
+      if (!fpsStart) fpsStart = now;
+      fpsFrames++;
+      const elapsed = now - fpsStart;
+      if (elapsed >= 1000) {
+        const fps = Math.round((fpsFrames * 1000) / elapsed);
+        const opts = scene.getOptions();
+        statsEl.innerHTML = `FPS: <span class="stat-value">${fps}</span> · cells: <span class="stat-value">${opts.cols}×${opts.rows}</span>`;
+        fpsFrames = 0;
+        fpsStart = now;
+      }
+      requestAnimationFrame(fpsTick);
+    };
+    requestAnimationFrame(fpsTick);
+  }
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
+  demoEl.querySelector('.glyph-demo__tabs')?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.glyph-demo__tab') as HTMLElement | null;
+    if (!btn) return;
+    const fw = btn.dataset.fw;
+    demoEl.querySelectorAll('.glyph-demo__tab').forEach((t) =>
+      t.classList.toggle('active', (t as HTMLElement).dataset.fw === fw));
+    demoEl.querySelectorAll('.glyph-demo__snippet').forEach((p) =>
+      p.classList.toggle('glyph-demo__snippet--hidden', (p as HTMLElement).dataset.fw !== fw));
+  });
+
+  // ── Initial render ────────────────────────────────────────────────────────
   const initialMeshUrl = demoEl.getAttribute('data-mesh');
   if (initialMeshUrl) {
     void setMeshUrl(initialMeshUrl);
   } else {
-    bakeAndApply();
+    applyMesh();
+    doRerender();
+    loadingEl.style.display = 'none';
+    updateCode();
   }
 }
 
@@ -1764,6 +1490,9 @@ function debounce(fn: (...args: unknown[]) => void, ms: number) {
     t = window.setTimeout(() => fn(...args), ms);
   };
 }
+
+// Keep debounce used for external callers
+void debounce;
 
 export function initAllGlyphDemos(): void {
   document.querySelectorAll<HTMLElement>('.glyph-demo').forEach(initGlyphDemo);

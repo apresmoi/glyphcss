@@ -145,7 +145,7 @@ function CopySceneButton() {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
-    const strip = document.querySelector(".glyph-demo__strip") as HTMLElement | null;
+    const strip = document.querySelector(".glyph-output") as HTMLElement | null;
     if (!strip) return;
     const parsed = parseStripCells(strip);
     if (!parsed) return;

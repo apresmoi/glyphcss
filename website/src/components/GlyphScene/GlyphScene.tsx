@@ -88,6 +88,9 @@ export function GlyphScene({
   // Last camera state applied via setTunables — guards against echo: when the
   // sidebar sets a value and the poll reads it back, we must not re-fire onCameraChange.
   const lastAppliedCameraRef = useRef<{ rotX: number; rotY: number; zoom: number; target: [number, number, number] } | null>(null);
+  // Track auto-rotate so the poll doesn't echo rotY changes back through setTunables
+  // while the RAF loop is spinning, which would cause setTunables to call stopAutoRotate.
+  const autoRotateRef = useRef(false);
 
   function getHandle(): DemoHandle | null {
     const host = hostRef.current;
@@ -118,10 +121,6 @@ export function GlyphScene({
         <div class="glyph-demo__viewer not-content" data-layout="canvas-only">
           <div class="glyph-demo__canvas">
             <div class="glyph-demo__scene-host">
-              <div class="glyph-demo__viewport">
-                <pre class="glyph-demo__strip"></pre>
-              </div>
-              <div class="glyph-demo__hit-layer"></div>
               <div class="glyph-demo__stats"></div>
             </div>
             <div class="glyph-demo__loading">Loading…</div>
@@ -233,18 +232,24 @@ export function GlyphScene({
       // setTunables useEffect → rebuildSceneFromGeometry, the camera is recreated
       // every 500 ms and the FPV state resets. FPV manages its own camera; the
       // sidebar values should be left at the pre-FPV snapshot until exit.
+      //
+      // Skip rotY sync while auto-rotate is running: auto-rotate's RAF loop
+      // continuously advances camera.rotY, and if that propagates through
+      // onCameraChange → setTunables({ rotY }) it calls stopAutoRotate()
+      // on every poll cycle, killing the animation after one tick.
       if (onCameraChange && handle.getDragMode() !== "fpv") {
         const cam = handle.getCameraState();
         const rotXDeg = (cam.rotX * 180) / Math.PI;
         const rotYDeg = (((cam.rotY * 180) / Math.PI) % 360 + 360) % 360;
         const last = lastAppliedCameraRef.current;
         const TOL = 0.01;
+        const isAutoRotating = autoRotateRef.current;
         // Only fire if the runtime camera meaningfully diverges from the last value
         // the sidebar sent, preventing the setTunables → getCameraState echo loop.
         if (
           !last ||
+          (!isAutoRotating && Math.abs(rotYDeg - last.rotY) > TOL) ||
           Math.abs(rotXDeg - last.rotX) > TOL ||
-          Math.abs(rotYDeg - last.rotY) > TOL ||
           Math.abs(cam.scale - last.zoom) > TOL ||
           Math.abs(cam.target[0] - last.target[0]) > TOL ||
           Math.abs(cam.target[1] - last.target[1]) > TOL ||
@@ -310,6 +315,7 @@ export function GlyphScene({
 
   // React to autoRotate toggle.
   useEffect(() => {
+    autoRotateRef.current = options.autoRotate;
     const handle = getHandle();
     if (!handle) return;
     handle.setAutoRotate(options.autoRotate);

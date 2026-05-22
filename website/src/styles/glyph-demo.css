@@ -37,7 +37,7 @@
   background: #01030a;
 }
 
-/* ── Scene host (contains the flipbook viewport + hit layer) ────────────── */
+/* ── Scene host (contains the public glyph-scene + hotspot layer) ───────── */
 
 .glyph-demo__scene-host {
   width: 100%;
@@ -45,6 +45,33 @@
   min-height: 320px;
   position: relative;
   overflow: hidden;
+}
+
+/* ── Public scene integration — make the managed scene fill its host ──────
+ * createGlyphScene injects a .glyph-scene div; we need it to fill the
+ * .glyph-demo__scene-host so autoSize:true can measure the full viewport. */
+
+.glyph-demo__scene-host .glyph-scene {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Amber terminal color + monospace font matching the gallery aesthetic. */
+.glyph-demo__scene-host .glyph-output {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.94);
+  text-shadow: 0 0 5px rgba(255, 200, 130, 0.45);
+  touch-action: none;
+  overscroll-behavior: contain;
+  cursor: grab;
+}
+
+.glyph-demo__scene-host .glyph-scene:active .glyph-output,
+.glyph-demo__scene-host .glyph-output:active {
+  cursor: grabbing;
 }
 
 /* ── Flipbook viewport — glyph-specific; no glyphcss equivalent ─────────
