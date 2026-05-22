@@ -1178,18 +1178,47 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       (partial as Partial<Tunables>).zoom = partial.scale;
     }
     Object.assign(tunables, partial);
+
+    // Apply camera-state changes IN-PLACE on the existing camera handle. The
+    // previous implementation rebuilt the entire scene (including destroying
+    // the orbit controls and tearing down pointer capture) for every option
+    // change — which broke mid-drag because the 500 ms poll echoes camera
+    // mutations back through this path. Now we only do the expensive rebuild
+    // when something actually changed the geometry derivation (e.g.,
+    // feature-edge threshold or render-mode wireframe ↔ solid).
     if (hasRotY) {
       controlState.rotYLocked = true;
       camera.rotY = partial.rotY!;
       stopAutoRotate();
     }
+    if ('rotX' in partial && partial.rotX !== undefined) camera.rotX = partial.rotX;
+    if ('zoom' in partial && partial.zoom !== undefined) camera.zoom = partial.zoom;
+    if ('distance' in partial && partial.distance !== undefined) camera.distance = partial.distance;
     if ('targetX' in partial || 'targetY' in partial || 'targetZ' in partial) {
       const tx = tunables.targetX ?? camera.target[0];
       const ty = tunables.targetY ?? camera.target[1];
       const tz = tunables.targetZ ?? camera.target[2];
       camera.target = [tx, ty, tz];
     }
-    rebuildSceneFromGeometry();
+
+    // Forward render-affecting options to the scene without recreating it.
+    const sceneOpts: Partial<Parameters<typeof scene.setOptions>[0]> = {};
+    if ('renderMode' in partial && partial.renderMode !== undefined) sceneOpts.mode = partial.renderMode;
+    if ('glyphPalette' in partial && partial.glyphPalette !== undefined) sceneOpts.glyphPalette = partial.glyphPalette;
+    if ('useColors' in partial && partial.useColors !== undefined) sceneOpts.useColors = partial.useColors;
+    if ('smoothShading' in partial && partial.smoothShading !== undefined) sceneOpts.smoothShading = partial.smoothShading;
+    if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
+    if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
+
+    // Geometry-affecting tunables — wireframe edge threshold changes the
+    // derived edge set, so the polygon→edge cache needs to be re-derived. Same
+    // for switching render mode if it touches the geometry pipeline. Trigger
+    // a full rebuild only here.
+    if ('featureEdges' in partial || 'renderMode' in partial) {
+      rebuildSceneFromGeometry();
+    } else {
+      scene.rerender();
+    }
   }
 
   function resumeAutoRotate(): void {
