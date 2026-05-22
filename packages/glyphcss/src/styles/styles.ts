@@ -15,6 +15,14 @@ export function injectGlyphBaseStyles(doc?: Document): void {
 }
 
 const CORE_BASE_STYLES = `
+/* ── React / Vue host wrapper ────────────────────────────────────────── */
+
+.glyph-host {
+  /* Fill the camera wrapper so autoSize can observe a non-zero height. */
+  width: 100%;
+  height: 100%;
+}
+
 /* ── Glyphcss scene container ───────────────────────────────────────── */
 
 .glyph-scene {

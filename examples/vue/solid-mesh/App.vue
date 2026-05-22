@@ -1,6 +1,6 @@
 <template>
   <GlyphPerspectiveCamera :rot-x="0.5" :rot-y="0.4" :zoom="0.35" :distance="100" style="width:100%;height:100vh">
-    <GlyphScene>
+    <GlyphScene :auto-size="true">
       <GlyphOrbitControls :drag="true" :wheel="true" />
       <GlyphMesh v-if="polygons" :polygons="polygons" />
     </GlyphScene>

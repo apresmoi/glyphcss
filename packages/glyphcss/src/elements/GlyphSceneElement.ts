@@ -33,6 +33,7 @@ const OBSERVED_ATTRS = [
   "directional-direction",
   "directional-intensity",
   "ambient-intensity",
+  "auto-size",
 ] as const;
 
 function parseNumber(value: string | null): number | undefined {
@@ -82,6 +83,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (dirIntensity !== undefined) opts.directionalLight = { direction: [0.5, 0.7, 0.5], intensity: dirIntensity };
     const ambIntensity = parseNumber(this.getAttribute("ambient-intensity"));
     if (ambIntensity !== undefined) opts.ambientLight = { intensity: ambIntensity };
+    if (this.hasAttribute("auto-size")) opts.autoSize = true;
     return opts;
   }
 

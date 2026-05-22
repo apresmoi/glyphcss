@@ -7,7 +7,7 @@ import {
 
 const host = document.getElementById("host")!;
 const camera = createGlyphPerspectiveCamera({ rotX: 1.13, rotY: 0.785, zoom: 0.25, distance: 100 });
-const scene = createGlyphScene(host, { camera });
+const scene = createGlyphScene(host, { camera, autoSize: true });
 
 createGlyphOrbitControls(scene, { drag: true, wheel: true });
 scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));

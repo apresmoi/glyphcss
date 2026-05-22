@@ -23,6 +23,7 @@ export interface GlyphSceneProps {
   cellAspect?: number;
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
+  autoSize?: boolean;
   class?: string;
 }
 
@@ -38,6 +39,7 @@ export const GlyphScene = defineComponent({
     cellAspect: { type: Number, default: undefined },
     directionalLight: { type: Object as PropType<GlyphDirectionalLight>, default: undefined },
     ambientLight: { type: Object as PropType<GlyphAmbientLight>, default: undefined },
+    autoSize: { type: Boolean, default: undefined },
     class: { type: String, default: undefined },
   },
   setup(props, { slots, attrs }) {
@@ -61,6 +63,7 @@ export const GlyphScene = defineComponent({
       if (props.cellAspect !== undefined) opts.cellAspect = props.cellAspect;
       if (props.directionalLight !== undefined) opts.directionalLight = props.directionalLight;
       if (props.ambientLight !== undefined) opts.ambientLight = props.ambientLight;
+      if (props.autoSize !== undefined) opts.autoSize = props.autoSize;
       if (cameraRef.value !== null) opts.camera = cameraRef.value;
       sceneRef.value = createGlyphScene(el, opts);
       // Register the rerender callback with the camera context so prop changes
@@ -85,6 +88,7 @@ export const GlyphScene = defineComponent({
         cellAspect: props.cellAspect,
         directionalLight: props.directionalLight,
         ambientLight: props.ambientLight,
+        autoSize: props.autoSize,
       }),
       (next) => {
         const scene = sceneRef.value;
@@ -98,6 +102,7 @@ export const GlyphScene = defineComponent({
         if (next.cellAspect !== undefined) partial.cellAspect = next.cellAspect;
         if (next.directionalLight !== undefined) partial.directionalLight = next.directionalLight;
         if (next.ambientLight !== undefined) partial.ambientLight = next.ambientLight;
+        if (next.autoSize !== undefined) partial.autoSize = next.autoSize;
         if (Object.keys(partial).length > 0) scene.setOptions(partial);
       },
       { deep: false },

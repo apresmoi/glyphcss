@@ -40,6 +40,8 @@ export interface GlyphSceneProps {
   smoothShading?: boolean;
   /** Crease angle in degrees. Edges sharper than this stay flat-shaded. Default 60. */
   creaseAngle?: number;
+  /** Observe host element and adapt cols/rows to fill it. Default false. */
+  autoSize?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -56,6 +58,7 @@ function GlyphSceneInner({
   ambientLight,
   smoothShading,
   creaseAngle,
+  autoSize,
   className,
   style,
   children,
@@ -76,6 +79,7 @@ function GlyphSceneInner({
     ambientLight,
     smoothShading,
     creaseAngle,
+    autoSize,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -112,10 +116,11 @@ function GlyphSceneInner({
     if (ambientLight !== undefined) partial.ambientLight = ambientLight;
     if (smoothShading !== undefined) partial.smoothShading = smoothShading;
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
+    if (autoSize !== undefined) partial.autoSize = autoSize;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle]);
+  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

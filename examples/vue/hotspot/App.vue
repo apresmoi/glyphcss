@@ -1,6 +1,6 @@
 <template>
   <GlyphPerspectiveCamera :rot-x="1.13" :rot-y="0.785" :zoom="0.25" :distance="100" style="width:100%;height:100vh">
-    <GlyphScene>
+    <GlyphScene :auto-size="true">
       <GlyphOrbitControls :drag="true" :wheel="true" />
       <GlyphMesh geometry="cube" color="#4488ff" />
       <GlyphHotspot id="corner" :at="[-0.5, -0.5, 0.5]" @click="onCornerClick">

@@ -43,7 +43,7 @@ function App() {
 
   return (
     <GlyphPerspectiveCamera rotX={0.5} rotY={0.4} zoom={0.35} distance={100} style={{ width: "100%", height: "100vh" }}>
-      <GlyphScene>
+      <GlyphScene autoSize>
         <GlyphOrbitControls drag wheel />
         {polygons && <GlyphMesh polygons={polygons} />}
       </GlyphScene>
