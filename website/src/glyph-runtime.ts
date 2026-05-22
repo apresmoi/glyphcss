@@ -1210,6 +1210,14 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
     if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
 
+    // `lineHeight` isn't a scene option — it's a CSS multiplier we apply
+    // directly to the rendered <pre>. Pre-line-height changes the character
+    // cell height, so we ask the scene to re-fit cols/rows for the new cell.
+    if ('lineHeight' in partial && partial.lineHeight !== undefined) {
+      scene.output.style.lineHeight = String(partial.lineHeight);
+      scene.fit();
+    }
+
     // Geometry-affecting tunables — wireframe edge threshold changes the
     // derived edge set, so the polygon→edge cache needs to be re-derived. Same
     // for switching render mode if it touches the geometry pipeline. Trigger

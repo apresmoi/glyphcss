@@ -120,6 +120,14 @@ export interface GlyphSceneHandle {
   rerender(): void;
   setOptions(opts: Partial<GlyphSceneOptions>): void;
   getOptions(): GlyphSceneOptions;
+  /**
+   * Re-measure the host's character cell (font-size, line-height) and adapt
+   * `cols`/`rows`/`cellAspect`. Only meaningful when `autoSize` was enabled.
+   * Call when something outside the scene options changes the cell size —
+   * e.g., the consumer overrode `pre.style.lineHeight` directly. The internal
+   * `ResizeObserver` already handles host-size changes automatically.
+   */
+  fit(): void;
   destroy(): void;
 }
 
@@ -377,10 +385,13 @@ export function createGlyphScene(
    * attached) so the scene still renders.
    */
   function measureCell(): { w: number; h: number } {
+    // Inherit line-height + font-size from the `<pre>` so the measurement
+    // reflects any caller-applied overrides (e.g. the gallery's lineHeight
+    // tunable). Hardcoding `line-height: 1` here would defeat the purpose.
     const probe = host.ownerDocument!.createElement("span");
     probe.textContent = "M";
     probe.style.cssText =
-      "position:absolute;visibility:hidden;font-family:monospace;white-space:pre;line-height:1;padding:0;margin:0;font-size:inherit";
+      "position:absolute;visibility:hidden;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre;padding:0;margin:0";
     pre.appendChild(probe);
     const r = probe.getBoundingClientRect();
     probe.remove();
@@ -427,6 +438,7 @@ export function createGlyphScene(
     rerender,
     setOptions,
     getOptions,
+    fit: fitToHost,
     destroy,
   };
 }
