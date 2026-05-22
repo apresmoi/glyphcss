@@ -27,7 +27,11 @@ const CORE_BASE_STYLES = `
 /* ── ASCII output <pre> ──────────────────────────────────────────────── */
 
 .glyph-scene .glyph-output {
-  display: block;
+  /* inline-block so the box shrinks to the text's natural width. With display:
+     block the pre inherits parent width, leaving empty space on the right, and
+     cellW = preRect.width / cols overshoots the actual character cell — placing
+     hotspots to the right of the rasterized glyph they're supposed to anchor. */
+  display: inline-block;
   margin: 0;
   padding: 0;
   font-family: monospace;
@@ -45,6 +49,11 @@ const CORE_BASE_STYLES = `
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Isolate the stacking context so per-hotspot z-index values (derived from
+     camera depth, sometimes negative) stay scoped INSIDE the layer. Without
+     this, a negative-z-index hotspot would render below the sibling <pre>,
+     hidden behind the rasterized glyphs. */
+  isolation: isolate;
 }
 
 .glyph-scene .glyph-hotspot {

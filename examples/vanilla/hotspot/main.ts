@@ -12,7 +12,7 @@ const scene = createGlyphScene(host, { camera });
 createGlyphOrbitControls(scene, { drag: true, wheel: true });
 scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));
 
-// Cube edge length = 1 → corners at ±0.5. Anchor the hotspot at the +X+Y+Z corner.
+// Cube edge length = 1 → corners at ±0.5. Anchor the hotspot at the +Z top corner.
 const handle = scene.addHotspot({ id: "corner", at: [-0.5, -0.5, 0.5] }, () => alert("corner"));
 
 // Style the hotspot overlay div once the scene has mounted.
