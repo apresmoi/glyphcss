@@ -78,27 +78,27 @@ describe("GlyphHotspot (Vue) — mount inside scene (with slot children)", () =>
     document.body.innerHTML = "";
   });
 
-  it("mounts with slot children without throwing", () => {
-    // GlyphHotspot in Vue returns null from its render function — it
-    // registers with the scene imperatively and does not render slot children
-    // into its own DOM subtree. This is the expected Vue idiom.
-    expect(() =>
-      renderScene(
-        { id: "hs-slot", at: [0, 1, 0] },
-        () => h("span", { class: "tooltip" }, "hello"),
-      ),
-    ).not.toThrow();
+  it("teleports slot children into the hotspot overlay element", async () => {
+    const { container } = renderScene(
+      { id: "hs-slot", at: [0, 1, 0] },
+      () => h("span", { class: "tooltip" }, "hello"),
+    );
+    await nextTick();
+    // Children are teleported into the div.glyph-hotspot[data-hotspot-id] overlay.
+    const overlay = container.querySelector("[data-hotspot-id='hs-slot']");
+    expect(overlay).toBeTruthy();
+    expect(overlay?.querySelector(".tooltip")).toBeTruthy();
   });
 
-  it("scene is still rendered when slot children are provided", async () => {
+  it("renders slot content inside the hotspot overlay", async () => {
     const { container } = renderScene(
       { id: "hs-slot2", at: [0, 1, 0] },
       () => h("span", { class: "tooltip-inner" }, "world"),
     );
     await nextTick();
-    // GlyphHotspot renders null — slot content is not projected into its DOM.
-    // The scene itself must still be functional.
-    expect(container.querySelector(".glyph-scene")).toBeTruthy();
+    const tooltip = container.querySelector(".tooltip-inner");
+    expect(tooltip).toBeTruthy();
+    expect(tooltip?.textContent).toBe("world");
   });
 
   it("unmounts cleanly when slot children are provided", async () => {

@@ -80,6 +80,8 @@ export interface GlyphHotspotOptions {
 
 export interface GlyphHotspotHandle {
   remove(): void;
+  /** The absolutely-positioned overlay `<div>` in the hotspot layer. */
+  readonly el: HTMLElement;
 }
 
 export interface GlyphMeshHandle {
@@ -260,8 +262,13 @@ export function createGlyphScene(
         el.style.display = "none";
       } else {
         el.style.display = "";
-        el.style.left = `${cell.col * cellW}px`;
-        el.style.top = `${cell.row * cellH}px`;
+        // Anchor at the CELL CENTER (not top-left). The `.glyph-hotspot` CSS
+        // rule applies `transform: translate(-50%, -50%)` so the visible
+        // label/dot is centered on this point — and the rendered ASCII glyph
+        // at this cell is also drawn at the cell center, so the two visually
+        // coincide.
+        el.style.left = `${(cell.col + 0.5) * cellW}px`;
+        el.style.top = `${(cell.row + 0.5) * cellH}px`;
         el.style.zIndex = String(Math.round(cell.depth * 1000));
       }
     }
@@ -307,6 +314,7 @@ export function createGlyphScene(
     scheduleRender();
 
     return {
+      get el() { return el; },
       remove(): void {
         const idx = hotspots.indexOf(entry);
         if (idx >= 0) hotspots.splice(idx, 1);

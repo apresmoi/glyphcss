@@ -1,7 +1,7 @@
 /**
  * GlyphMapControls — Vue 3 map/pan controls for GlyphScene.
  */
-import { defineComponent, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
+import { defineComponent, inject, onBeforeUnmount, watch, shallowRef, watchEffect } from "vue";
 import type { GlyphMapControlsHandle, GlyphMapControlsOptions } from "glyphcss";
 import { createGlyphMapControls } from "glyphcss";
 import { GlyphSceneContextKey } from "../scene/context";
@@ -29,9 +29,11 @@ export const GlyphMapControls = defineComponent({
     const { sceneRef } = sceneCtx;
     const controlsRef = shallowRef<GlyphMapControlsHandle | null>(null);
 
-    onMounted(() => {
+    // In Vue 3, child onMounted hooks fire before parent onMounted, so
+    // sceneRef.value is null when this runs. Watch for the scene to appear.
+    const stopWatch = watchEffect(() => {
       const scene = sceneRef.value;
-      if (!scene) return;
+      if (!scene || controlsRef.value) return;
       const opts: GlyphMapControlsOptions = {
         drag: props.drag,
         wheel: props.wheel,
@@ -42,6 +44,7 @@ export const GlyphMapControls = defineComponent({
     });
 
     onBeforeUnmount(() => {
+      stopWatch();
       controlsRef.value?.destroy();
       controlsRef.value = null;
     });

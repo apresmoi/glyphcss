@@ -4,7 +4,7 @@
  * placed inside this component.
  */
 import { defineComponent, h, provide, shallowRef, watch } from "vue";
-import type { PropType, ShallowRef } from "vue";
+import type { PropType, ShallowRef, CSSProperties } from "vue";
 import type { GlyphCamera, GlyphOrthographicCameraOptions } from "glyphcss";
 import { createGlyphOrthographicCamera } from "glyphcss";
 import { GlyphCameraContextKey } from "./context";
@@ -14,6 +14,8 @@ export interface GlyphOrthographicCameraProps {
   rotY?: number;
   zoom?: number;
   center?: [number, number];
+  class?: string;
+  style?: CSSProperties | string;
 }
 
 export const GlyphOrthographicCamera = defineComponent({
@@ -23,6 +25,8 @@ export const GlyphOrthographicCamera = defineComponent({
     rotY: { type: Number, default: undefined },
     zoom: { type: Number, default: undefined },
     center: { type: Array as unknown as PropType<[number, number]>, default: undefined },
+    class: { type: String, default: undefined },
+    style: { type: [Object, String] as unknown as PropType<CSSProperties | string>, default: undefined },
   },
   setup(props, { slots }) {
     const opts: GlyphOrthographicCameraOptions = {};
@@ -54,6 +58,13 @@ export const GlyphOrthographicCamera = defineComponent({
       },
     );
 
-    return () => h("div", slots.default?.() ?? []);
+    return () => h(
+      "div",
+      {
+        class: props.class,
+        style: props.style,
+      },
+      slots.default?.() ?? [],
+    );
   },
 });

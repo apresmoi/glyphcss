@@ -2,7 +2,7 @@
  * GlyphMesh — Vue 3 component to register a polygon list with the parent
  * GlyphScene. Mirrors PolyMesh's prop surface for the ASCII backend.
  */
-import { defineComponent, h, inject, onMounted, onBeforeUnmount, watch, shallowRef, computed } from "vue";
+import { defineComponent, h, inject, onBeforeUnmount, watch, shallowRef, computed, watchEffect } from "vue";
 import type { PropType } from "vue";
 import { resolveGeometry } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
@@ -99,8 +99,17 @@ export const GlyphMesh = defineComponent({
       meshRef.value = null;
     }
 
-    onMounted(register);
-    onBeforeUnmount(unregister);
+    // In Vue 3, child onMounted fires before parent onMounted, so sceneRef.value
+    // is null at mount time. Watch for the scene to become available, then register.
+    const stopWatch = watchEffect(() => {
+      if (!sceneRef.value || meshRef.value) return;
+      register();
+    });
+
+    onBeforeUnmount(() => {
+      stopWatch();
+      unregister();
+    });
 
     // Re-register when resolved polygons change (covers polygons, geometry, size, color)
     watch(resolvedPolygons, () => {

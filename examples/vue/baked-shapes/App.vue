@@ -1,12 +1,10 @@
 <template>
-  <div class="scene-host">
-    <GlyphPerspectiveCamera :rot-x="0.5" :rot-y="0.4" :zoom="0.4" :distance="100">
+  <GlyphPerspectiveCamera :rot-x="0.5" :rot-y="0.4" :zoom="0.4" :distance="100" style="width:100%;height:100vh">
+    <GlyphScene>
       <GlyphOrbitControls :drag="true" :wheel="true" />
-      <GlyphScene>
-        <GlyphMesh geometry="dodecahedron" color="#ff6644" />
-      </GlyphScene>
-    </GlyphPerspectiveCamera>
-  </div>
+      <GlyphMesh geometry="dodecahedron" color="#ff6644" />
+    </GlyphScene>
+  </GlyphPerspectiveCamera>
 </template>
 
 <script setup lang="ts">
@@ -20,6 +18,4 @@ import {
 
 <style>
 html, body { margin: 0; height: 100%; background: #111; }
-.scene-host { width: 100%; height: 100vh; }
-.scene-host .glyphcss-camera { width: 100%; height: 100%; }
 </style>

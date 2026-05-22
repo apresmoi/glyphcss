@@ -111,10 +111,12 @@ describe("createGlyphScene", () => {
     scene.destroy();
   });
 
-  it("addHotspot returns a handle with remove()", async () => {
+  it("addHotspot returns a handle with remove() and el", async () => {
     const scene = createGlyphScene(host, { cols: 20, rows: 10 });
     const hotspot = scene.addHotspot({ id: "test", at: [0, 0, 0] });
     expect(typeof hotspot.remove).toBe("function");
+    expect(hotspot.el).toBeInstanceOf(HTMLElement);
+    expect(hotspot.el.getAttribute("data-hotspot-id")).toBe("test");
     hotspot.remove();
     scene.destroy();
   });

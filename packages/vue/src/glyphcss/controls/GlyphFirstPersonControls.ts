@@ -1,7 +1,7 @@
 /**
  * GlyphFirstPersonControls — Vue 3 first-person controls for GlyphScene.
  */
-import { defineComponent, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
+import { defineComponent, inject, onBeforeUnmount, watch, shallowRef, watchEffect } from "vue";
 import type { GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from "glyphcss";
 import { createGlyphFirstPersonControls } from "glyphcss";
 import { GlyphSceneContextKey } from "../scene/context";
@@ -31,9 +31,11 @@ export const GlyphFirstPersonControls = defineComponent({
     const { sceneRef } = sceneCtx;
     const controlsRef = shallowRef<GlyphFirstPersonControlsHandle | null>(null);
 
-    onMounted(() => {
+    // In Vue 3, child onMounted hooks fire before parent onMounted, so
+    // sceneRef.value is null when this runs. Watch for the scene to appear.
+    const stopWatch = watchEffect(() => {
       const scene = sceneRef.value;
-      if (!scene) return;
+      if (!scene || controlsRef.value) return;
       const opts: GlyphFirstPersonControlsOptions = {
         drag: props.drag,
         keyboard: props.keyboard,
@@ -45,6 +47,7 @@ export const GlyphFirstPersonControls = defineComponent({
     });
 
     onBeforeUnmount(() => {
+      stopWatch();
       controlsRef.value?.destroy();
       controlsRef.value = null;
     });

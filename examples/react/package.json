@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 4502",
+    "dev": "vite --port 6175",
     "build": "vite build",
-    "preview": "vite preview --port 4502"
+    "preview": "vite preview --port 6175"
   },
   "dependencies": {
     "@glyphcss/core": "workspace:*",

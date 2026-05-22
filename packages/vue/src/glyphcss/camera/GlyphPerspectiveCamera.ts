@@ -4,7 +4,7 @@
  * placed inside this component.
  */
 import { defineComponent, h, provide, shallowRef, watch } from "vue";
-import type { PropType, ShallowRef } from "vue";
+import type { PropType, ShallowRef, CSSProperties } from "vue";
 import type { GlyphCamera, GlyphPerspectiveCameraOptions } from "glyphcss";
 import { createGlyphPerspectiveCamera } from "glyphcss";
 import { GlyphCameraContextKey } from "./context";
@@ -16,6 +16,8 @@ export interface GlyphPerspectiveCameraProps {
   zoom?: number;
   stretch?: number;
   center?: [number, number];
+  class?: string;
+  style?: CSSProperties | string;
 }
 
 export const GlyphPerspectiveCamera = defineComponent({
@@ -27,6 +29,8 @@ export const GlyphPerspectiveCamera = defineComponent({
     zoom: { type: Number, default: undefined },
     stretch: { type: Number, default: undefined },
     center: { type: Array as unknown as PropType<[number, number]>, default: undefined },
+    class: { type: String, default: undefined },
+    style: { type: [Object, String] as unknown as PropType<CSSProperties | string>, default: undefined },
   },
   setup(props, { slots }) {
     const opts: GlyphPerspectiveCameraOptions = {};
@@ -63,6 +67,13 @@ export const GlyphPerspectiveCamera = defineComponent({
       },
     );
 
-    return () => h("div", slots.default?.() ?? []);
+    return () => h(
+      "div",
+      {
+        class: props.class,
+        style: props.style,
+      },
+      slots.default?.() ?? [],
+    );
   },
 });

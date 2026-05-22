@@ -71,7 +71,10 @@ export function createGlyphOrbitControls(
     const DEG_PER_PX = 1 / 4;
     const RAD_PER_PX = DEG_PER_PX * Math.PI / 180;
     camera.rotY = camera.rotY - dx * RAD_PER_PX * f;
-    camera.rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotX + dy * RAD_PER_PX * f));
+    // Drag in the same direction as the pointer: dragging UP tilts the camera
+    // UP (positive rotX increase from the +Z-is-screen-up convention), so dy
+    // negates here. Matches the horizontal axis's `-dx` direction.
+    camera.rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotX - dy * RAD_PER_PX * f));
     scene.rerender();
   }
 

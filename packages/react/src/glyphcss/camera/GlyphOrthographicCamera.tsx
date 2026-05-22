@@ -4,7 +4,7 @@
  * inside this component.
  */
 import { memo, useEffect, useMemo, useRef } from "react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { GlyphCamera, GlyphOrthographicCameraOptions } from "glyphcss";
 import { createGlyphOrthographicCamera } from "glyphcss";
 import { GlyphCameraContext } from "./context";
@@ -16,6 +16,8 @@ export interface GlyphOrthographicCameraProps {
   zoom?: number;
   /** Center of projection in normalized grid coords. Default [0.5, 0.5]. */
   center?: [number, number];
+  className?: string;
+  style?: CSSProperties;
   children?: ReactNode;
 }
 
@@ -24,6 +26,8 @@ function GlyphOrthographicCameraInner({
   rotY,
   zoom,
   center,
+  className,
+  style,
   children,
 }: GlyphOrthographicCameraProps) {
   const cameraRef = useRef<GlyphCamera | null>(null);
@@ -56,7 +60,7 @@ function GlyphOrthographicCameraInner({
 
   return (
     <GlyphCameraContext.Provider value={ctxValue}>
-      <div>{children}</div>
+      <div className={className} style={style}>{children}</div>
     </GlyphCameraContext.Provider>
   );
 }

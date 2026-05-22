@@ -1,7 +1,7 @@
 /**
  * GlyphOrbitControls — Vue 3 orbit controls for GlyphScene.
  */
-import { defineComponent, inject, onMounted, onBeforeUnmount, watch, shallowRef } from "vue";
+import { defineComponent, inject, onBeforeUnmount, watch, shallowRef, watchEffect } from "vue";
 import type { GlyphOrbitControlsHandle, GlyphOrbitControlsOptions } from "glyphcss";
 import { createGlyphOrbitControls } from "glyphcss";
 import { GlyphSceneContextKey } from "../scene/context";
@@ -29,9 +29,11 @@ export const GlyphOrbitControls = defineComponent({
     const { sceneRef } = sceneCtx;
     const controlsRef = shallowRef<GlyphOrbitControlsHandle | null>(null);
 
-    onMounted(() => {
+    // In Vue 3, child onMounted hooks fire before parent onMounted, so
+    // sceneRef.value is null when this runs. Watch for the scene to appear.
+    const stopWatch = watchEffect(() => {
       const scene = sceneRef.value;
-      if (!scene) return;
+      if (!scene || controlsRef.value) return;
       const opts: GlyphOrbitControlsOptions = {
         drag: props.drag,
         wheel: props.wheel,
@@ -42,6 +44,7 @@ export const GlyphOrbitControls = defineComponent({
     });
 
     onBeforeUnmount(() => {
+      stopWatch();
       controlsRef.value?.destroy();
       controlsRef.value = null;
     });

@@ -7,8 +7,8 @@
  *
  * On disconnect: disposes the registered mesh handle.
  */
-import { loadMesh, resolveGeometry } from "@glyphcss/core";
-import type { Vec3, GlyphGeometryName } from "@glyphcss/core";
+import { loadMesh, resolveGeometry, computeSceneBbox } from "@glyphcss/core";
+import type { Vec3, GlyphGeometryName, Polygon } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphSceneHandle } from "../api/createGlyphScene";
 import type { GlyphMeshTransform } from "../api/types";
 import type { GlyphSceneElement } from "./GlyphSceneElement";
@@ -18,7 +18,29 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "normalize"] as const;
+
+/** Center and scale polygons to fit a 2-unit bounding box at origin. */
+function fitToUnitBbox(polygons: Polygon[]): Polygon[] {
+  const bbox = computeSceneBbox(polygons);
+  const cx = (bbox.min[0] + bbox.max[0]) / 2;
+  const cy = (bbox.min[1] + bbox.max[1]) / 2;
+  const cz = (bbox.min[2] + bbox.max[2]) / 2;
+  const size = Math.max(
+    bbox.max[0] - bbox.min[0],
+    bbox.max[1] - bbox.min[1],
+    bbox.max[2] - bbox.min[2],
+  ) || 1;
+  const k = 2 / size;
+  return polygons.map((p) => ({
+    ...p,
+    vertices: p.vertices.map((v): Vec3 => [
+      (v[0] - cx) * k,
+      (v[1] - cy) * k,
+      (v[2] - cz) * k,
+    ]),
+  }));
+}
 
 function parseVec3(value: string | null): Vec3 | undefined {
   if (!value) return undefined;
@@ -99,6 +121,17 @@ export class GlyphMeshElement extends ELEMENT_BASE {
     const sceneEl = findScene(this);
     if (!sceneEl) return;
 
+    // If the scene handle isn't ready yet (e.g. the camera custom element
+    // upgrades after this element does), wait for it.
+    if (!sceneEl.getScene()) {
+      const onReady = (): void => {
+        sceneEl.removeEventListener("glyphcss:scene-ready", onReady);
+        void this._maybeLoad();
+      };
+      sceneEl.addEventListener("glyphcss:scene-ready", onReady);
+      return;
+    }
+
     if (src) {
       // src wins over geometry
       const token = ++this._loadToken;
@@ -122,8 +155,10 @@ export class GlyphMeshElement extends ELEMENT_BASE {
         return;
       }
 
-      this._handle = scene.add(parsed.polygons, this._readTransform());
-      this.dispatchEvent(new CustomEvent("glyphcss:loaded", { detail: { polygons: parsed.polygons }, bubbles: true }));
+      const shouldNormalize = this.hasAttribute("normalize");
+      const polygons = shouldNormalize ? fitToUnitBbox(parsed.polygons) : parsed.polygons;
+      this._handle = scene.add(polygons, this._readTransform());
+      this.dispatchEvent(new CustomEvent("glyphcss:loaded", { detail: { polygons }, bubbles: true }));
       return;
     }
 

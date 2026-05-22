@@ -51,5 +51,9 @@ const CORE_BASE_STYLES = `
   position: absolute;
   pointer-events: all;
   cursor: pointer;
+  /* Center the label on the projected anchor point rather than anchoring its
+     top-left corner there. Without this, padding / label width visually offset
+     the content from the 3D vertex being labelled. */
+  transform: translate(-50%, -50%);
 }
 `;

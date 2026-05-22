@@ -70,17 +70,18 @@ describe("GlyphHotspot — mount inside scene (with children)", () => {
     document.body.innerHTML = "";
   });
 
-  it("renders a sentinel div when children are provided", () => {
+  it("portals children into the hotspot overlay element", () => {
     const { container } = renderScene(
       { id: "hs-child", at: [0, 1, 0] },
       React.createElement("span", { className: "tooltip" }, "hello"),
     );
-    // When children are provided, the sentinel div with data-glyph-hotspot-id is rendered
-    const sentinel = container.querySelector("[data-glyph-hotspot-id='hs-child']");
-    expect(sentinel).toBeTruthy();
+    // Children are portalled into the div.glyph-hotspot[data-hotspot-id] overlay.
+    const overlay = container.querySelector("[data-hotspot-id='hs-child']");
+    expect(overlay).toBeTruthy();
+    expect(overlay?.querySelector(".tooltip")).toBeTruthy();
   });
 
-  it("renders children inside the sentinel", () => {
+  it("renders children inside the hotspot overlay", () => {
     const { container } = renderScene(
       { id: "hs-child2", at: [0, 1, 0] },
       React.createElement("span", { className: "tooltip-inner" }, "world"),
@@ -90,22 +91,22 @@ describe("GlyphHotspot — mount inside scene (with children)", () => {
     expect(tooltip?.textContent).toBe("world");
   });
 
-  it("applies className to the sentinel div", () => {
+  it("applies className to the hotspot overlay element", () => {
     const { container } = renderScene(
       { id: "hs-cls", at: [0, 0, 0], className: "my-hotspot" },
       React.createElement("span", {}, "x"),
     );
-    const sentinel = container.querySelector(".my-hotspot");
-    expect(sentinel).toBeTruthy();
+    const overlay = container.querySelector(".my-hotspot");
+    expect(overlay).toBeTruthy();
   });
 
-  it("sentinel is removed after unmount", () => {
+  it("overlay and children are removed after unmount", () => {
     const { container, root } = renderScene(
       { id: "hs-unmount", at: [0, 0, 0] },
       React.createElement("span", {}, "bye"),
     );
     act(() => root.unmount());
-    expect(container.querySelector("[data-glyph-hotspot-id]")).toBeFalsy();
+    expect(container.querySelector("[data-hotspot-id='hs-unmount']")).toBeFalsy();
   });
 });
 

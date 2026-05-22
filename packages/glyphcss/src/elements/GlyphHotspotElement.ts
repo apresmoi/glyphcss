@@ -44,8 +44,7 @@ export class GlyphHotspotElement extends ELEMENT_BASE {
 
   disconnectedCallback(): void {
     if (this._handle) {
-      this._handle.remove();
-      this._handle = null;
+      this._unregister();
     }
   }
 
@@ -56,17 +55,38 @@ export class GlyphHotspotElement extends ELEMENT_BASE {
   ): void {
     if (oldValue === newValue) return;
     if (this._handle) {
-      this._handle.remove();
-      this._handle = null;
+      this._unregister();
     }
     this._register();
+  }
+
+  private _unregister(): void {
+    if (!this._handle) return;
+    // Return children from the overlay div back to this element before
+    // removing the handle so they survive re-registration on attribute changes.
+    const overlayEl = this._handle.el;
+    while (overlayEl.firstChild) {
+      this.appendChild(overlayEl.firstChild);
+    }
+    this._handle.remove();
+    this._handle = null;
   }
 
   private _register(): void {
     const at = parseVec3(this.getAttribute("at"));
     if (!at) return;
     const sceneEl = findScene(this);
-    const scene = sceneEl?.getScene();
+    if (!sceneEl) return;
+    // If the scene handle isn't ready yet wait for it.
+    if (!sceneEl.getScene()) {
+      const onReady = (): void => {
+        sceneEl.removeEventListener("glyphcss:scene-ready", onReady);
+        this._register();
+      };
+      sceneEl.addEventListener("glyphcss:scene-ready", onReady);
+      return;
+    }
+    const scene = sceneEl.getScene();
     if (!scene) return;
 
     const id = this.getAttribute("hotspot-id") ?? this.getAttribute("id") ?? String(Math.random());
@@ -76,5 +96,14 @@ export class GlyphHotspotElement extends ELEMENT_BASE {
       { id, at, size },
       () => this.dispatchEvent(new CustomEvent("glyphcss:hotspot-click", { detail: { id }, bubbles: true })),
     );
+
+    // Move child nodes into the overlay div so they are positioned over the
+    // rendered <pre> at the projected anchor point. The <glyph-hotspot> element
+    // itself stays in the document but becomes invisible; its children live in
+    // the hotspot-layer overlay where they track the 3D anchor.
+    const overlayEl = this._handle.el;
+    while (this.firstChild) {
+      overlayEl.appendChild(this.firstChild);
+    }
   }
 }

@@ -76,7 +76,7 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 
-  it("dragging down increases rotX (tilts up)", () => {
+  it("dragging down decreases rotX (camera orbits downward — drag-follows-pointer)", () => {
     const controls = createGlyphOrbitControls(scene);
     const initialRotX = scene.camera.rotX;
 
@@ -84,7 +84,7 @@ describe("createGlyphOrbitControls", () => {
     pm(scene.host, 100, 200); // dy = +100
     pu(scene.host);
 
-    expect(scene.camera.rotX).toBeGreaterThan(initialRotX);
+    expect(scene.camera.rotX).toBeLessThan(initialRotX);
     controls.destroy();
   });
 
