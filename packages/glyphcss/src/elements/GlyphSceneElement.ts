@@ -91,7 +91,11 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     let el: HTMLElement | null = this.parentElement;
     while (el) {
       const tag = el.tagName.toLowerCase();
-      if (tag === "glyph-perspective-camera" || tag === "glyph-orthographic-camera") {
+      if (
+        tag === "glyph-perspective-camera" ||
+        tag === "glyph-orthographic-camera" ||
+        tag === "glyph-camera"
+      ) {
         return el as HTMLElement & { getCamera?: () => unknown };
       }
       el = el.parentElement;
@@ -114,7 +118,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const cameraAncestor = this._findCameraAncestor();
     if (!cameraAncestor) {
       throw new Error(
-        "glyphcss: <glyph-scene> must be placed inside a <glyph-perspective-camera> or <glyph-orthographic-camera>.",
+        "glyphcss: <glyph-scene> must be placed inside a <glyph-camera>, <glyph-perspective-camera>, or <glyph-orthographic-camera>.",
       );
     }
     const cam = typeof cameraAncestor.getCamera === "function"

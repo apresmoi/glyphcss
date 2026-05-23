@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
+import { GlyphOrthographicCameraElement } from "./GlyphOrthographicCameraElement";
 
 // Register elements if not already registered.
 if (!customElements.get("glyph-scene")) {
@@ -8,6 +9,13 @@ if (!customElements.get("glyph-scene")) {
 }
 if (!customElements.get("glyph-perspective-camera")) {
   customElements.define("glyph-perspective-camera", GlyphPerspectiveCameraElement);
+}
+if (!customElements.get("glyph-orthographic-camera")) {
+  customElements.define("glyph-orthographic-camera", GlyphOrthographicCameraElement);
+}
+if (!customElements.get("glyph-camera")) {
+  class GlyphCameraElement extends GlyphOrthographicCameraElement {}
+  customElements.define("glyph-camera", GlyphCameraElement);
 }
 
 describe("GlyphSceneElement", () => {
@@ -139,8 +147,17 @@ describe("GlyphSceneElement", () => {
     expect(() => {
       document.body.appendChild(orphanScene);
     }).toThrow(
-      "glyphcss: <glyph-scene> must be placed inside a <glyph-perspective-camera> or <glyph-orthographic-camera>.",
+      "glyphcss: <glyph-scene> must be placed inside a <glyph-camera>, <glyph-perspective-camera>, or <glyph-orthographic-camera>.",
     );
     orphanScene.remove();
+  });
+
+  it("mounts inside the <glyph-camera> alias (orthographic alias)", () => {
+    const aliasCam = document.createElement("glyph-camera");
+    const aliasHost = document.createElement("glyph-scene") as GlyphSceneElement;
+    aliasCam.appendChild(aliasHost);
+    expect(() => { document.body.appendChild(aliasCam); }).not.toThrow();
+    expect(aliasHost.getScene()).not.toBeNull();
+    aliasCam.remove();
   });
 });
