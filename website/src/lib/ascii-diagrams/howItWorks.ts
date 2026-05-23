@@ -1,16 +1,25 @@
-import { Box, Column, Row, Rule, Spacer, Text } from "../ascii-layout";
+import { Box, Column, Row, Spacer, Text } from "../ascii-layout";
 import type { Renderable } from "../ascii-layout";
 
-// The pipeline diagram: two parallel rows (mesh→rasterize→pre, hotspot→
-// project→keyframes) inside a single box, with a footer noting where JS runs
-// once vs where CSS plays forever.
+// Pipeline diagram for the landing's "How It Works" section.
 //
-// Each cell is its own Renderable so the Row primitive can allocate column
-// widths from the viewport's measured `cols` — the arrows line up at any
-// width down to ~50 columns.
-// Threshold below which the 3-column horizontal layout truncates labels
-// ("rasterize …", "projectHotspo…"). Below this we switch to a stacked
-// vertical layout where each step gets its own line.
+// Two stacked, titled panels with a connecting arrow between them.
+//
+//   ┌─ [ JS · runs once ] ───────────────────────────────────────┐
+//   │   mesh.glb   ─▶  rasterize        ─▶  <pre> × N frames     │
+//   │   hotspot    ─▶  projectHotspots  ─▶  @keyframes positions │
+//   └────────────────────────────────────────────────────────────┘
+//                                  │
+//                                  ▼
+//   ┌─ [ CSS · plays forever ] ──────────────────────────────────┐
+//   │           steps(N) drives the frame strip                  │
+//   │           @keyframes drives the hotspots                   │
+//   └────────────────────────────────────────────────────────────┘
+//
+// Below ~60 cols the horizontal "thing ─▶ thing ─▶ thing" rows get squeezed
+// and labels truncate; we fall back to a stacked layout where each step gets
+// its own line.
+
 const HORIZONTAL_MIN_COLS = 60;
 
 export function howItWorksDiagram(): Renderable {
@@ -20,40 +29,63 @@ export function howItWorksDiagram(): Renderable {
   };
 }
 
-function horizontalLayout(): Renderable {
-  const mesh = Text("mesh.glb", { wrap: "none", align: "center" });
-  const raster = Text("rasterize × N", { wrap: "none", align: "center" });
-  const frames = Text("<pre> × N frames", { wrap: "none", align: "center" });
-  const hotspot = Text("hotspot", { wrap: "none", align: "center" });
-  const project = Text("projectHotspots × N", { wrap: "none", align: "center" });
-  const keyframes = Text("@keyframes hit", { wrap: "none", align: "center" });
-
-  const meshRow = Row([mesh, raster, frames], { divider: "─→", gap: 2 });
-  const stepsNote = Text("▼ CSS steps(N)", { wrap: "none", align: "right" });
-  const hotspotRow = Row([hotspot, project, keyframes], { divider: "─→", gap: 2 });
-
-  const inner = Column(
-    [Spacer(1), meshRow, stepsNote, hotspotRow, Spacer(1)],
+function connector(): Renderable {
+  return Column(
+    [
+      Text("│", { wrap: "none", align: "center" }),
+      Text("▼", { wrap: "none", align: "center" }),
+    ],
     { gap: 0 },
   );
-  const box = Box(inner, { border: "single" });
-  const footer = Row(
+}
+
+function horizontalLayout(): Renderable {
+  const meshRow = Row(
     [
-      Text("JS runs once ↑", { wrap: "none", align: "left" }),
-      Text("↓ CSS plays forever", { wrap: "none", align: "right" }),
+      Text("mesh.glb", { wrap: "none", align: "center" }),
+      Text("rasterize", { wrap: "none", align: "center" }),
+      Text("<pre> × N frames", { wrap: "none", align: "center" }),
     ],
-    { weights: [1, 1] },
+    { divider: "─▶", gap: 2 },
   );
-  return Column([box, footer], { gap: 0 });
+  const hotspotRow = Row(
+    [
+      Text("hotspot", { wrap: "none", align: "center" }),
+      Text("projectHotspots", { wrap: "none", align: "center" }),
+      Text("@keyframes positions", { wrap: "none", align: "center" }),
+    ],
+    { divider: "─▶", gap: 2 },
+  );
+
+  const jsPanel = Box(
+    Column([Spacer(1), meshRow, Spacer(1), hotspotRow, Spacer(1)], { gap: 0 }),
+    { border: "single", title: "JS · runs once" },
+  );
+
+  const cssPanel = Box(
+    Column(
+      [
+        Spacer(1),
+        Text("steps(N) drives the frame strip", { wrap: "none", align: "center" }),
+        Text("@keyframes drives the hotspots", { wrap: "none", align: "center" }),
+        Spacer(1),
+      ],
+      { gap: 0 },
+    ),
+    { border: "single", title: "CSS · plays forever" },
+  );
+
+  return Column([jsPanel, connector(), cssPanel], { gap: 0 });
 }
 
 function verticalLayout(): Renderable {
   const arrow = Text("↓", { wrap: "none", align: "center" });
+
   const meshChain = Column(
     [
       Text("mesh.glb", { wrap: "none", align: "center" }),
       arrow,
-      Text("rasterize × N", { wrap: "none", align: "center" }),
+      Text("rasterize", { wrap: "none", align: "center" }),
       arrow,
       Text("<pre> × N frames", { wrap: "none", align: "center" }),
     ],
@@ -63,25 +95,30 @@ function verticalLayout(): Renderable {
     [
       Text("hotspot", { wrap: "none", align: "center" }),
       arrow,
-      Text("projectHotspots × N", { wrap: "none", align: "center" }),
+      Text("projectHotspots", { wrap: "none", align: "center" }),
       arrow,
-      Text("@keyframes hit", { wrap: "none", align: "center" }),
+      Text("@keyframes positions", { wrap: "none", align: "center" }),
     ],
     { gap: 0 },
   );
-  const stepsNote = Text("▼ CSS steps(N)", { wrap: "none", align: "center" });
 
-  const inner = Column(
-    [Spacer(1), meshChain, Spacer(1), stepsNote, Spacer(1), hotspotChain, Spacer(1)],
-    { gap: 0 },
+  const jsPanel = Box(
+    Column([Spacer(1), meshChain, Spacer(1), hotspotChain, Spacer(1)], { gap: 0 }),
+    { border: "single", title: "JS · once" },
   );
-  const box = Box(inner, { border: "single" });
-  const footer = Column(
-    [
-      Text("JS runs once ↑", { wrap: "none", align: "center" }),
-      Text("↓ CSS plays forever", { wrap: "none", align: "center" }),
-    ],
-    { gap: 0 },
+
+  const cssPanel = Box(
+    Column(
+      [
+        Spacer(1),
+        Text("steps(N) frame strip", { wrap: "none", align: "center" }),
+        Text("@keyframes hotspots", { wrap: "none", align: "center" }),
+        Spacer(1),
+      ],
+      { gap: 0 },
+    ),
+    { border: "single", title: "CSS · forever" },
   );
-  return Column([box, footer], { gap: 0 });
+
+  return Column([jsPanel, connector(), cssPanel], { gap: 0 });
 }
