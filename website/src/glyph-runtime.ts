@@ -488,11 +488,16 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const controlsAttr = demoEl.getAttribute('data-controls');
   if (controlsAttr) { try { controlList = JSON.parse(controlsAttr); } catch {} }
 
+  // Decorative landing demos pass `interactive={false}`; honor that before
+  // controls are built so the orbit handlers never attach in the first place.
+  const interactiveAttr = demoEl.getAttribute('data-interactive');
+  const allowInteract = interactiveAttr !== '0';
+
   // ── Control state ────────────────────────────────────────────────────────
   const controlState: ControlState = {
     invertDrag: false,
-    dragEnabled: true,
-    wheelEnabled: true,
+    dragEnabled: allowInteract,
+    wheelEnabled: allowInteract,
     autoCenter: true,
     lastMeshUrl: null,
     rotYLocked: false,
@@ -607,6 +612,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     autoSize: true,
     ...buildSceneOptions(),
   });
+
+  // Apply the initial line-height multiplier directly. setTunables handles
+  // later updates, but on first paint we want any non-default lineHeight from
+  // `defaults` (landing hero etc.) to take effect before autoSize measures the
+  // cell.
+  if (tunables.lineHeight !== 1) {
+    scene.output.style.lineHeight = String(tunables.lineHeight);
+    scene.fit();
+  }
 
   // Mesh handle — single mesh slot; replaced on geometry change
   let meshHandle = scene.add(geometry.polygons as Polygon[]);
@@ -1538,6 +1552,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     doRerender();
     loadingEl.style.display = 'none';
     updateCode();
+  }
+
+  if (demoEl.getAttribute('data-auto-rotate') === '1') {
+    startAutoRotate();
   }
 }
 

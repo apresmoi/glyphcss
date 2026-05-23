@@ -74,6 +74,14 @@
   cursor: grabbing;
 }
 
+/* Decorative landing demo — no pointer affordance, no event capture. */
+.glyph-demo[data-interactive="0"] .glyph-output,
+.glyph-demo[data-interactive="0"] .glyph-output:active {
+  cursor: default;
+  touch-action: auto;
+  pointer-events: none;
+}
+
 /* ── Flipbook viewport — glyph-specific; no glyphcss equivalent ─────────
  * Clipped to exactly one frame's height; centered vertically.
  * `overscroll-behavior: contain` stops wheel zoom from leaking to the page

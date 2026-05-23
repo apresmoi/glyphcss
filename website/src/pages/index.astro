@@ -136,9 +136,11 @@ const ldJson = {
           <div class="hero-scene" aria-hidden="true">
             <GlyphDemo id="hero-demo"
               mesh="/gallery/glb/apple.glb"
-              defaults={JSON.stringify({ zoom: 0.25, distance: 100000, rotX: 1.299, rotY: 5.264, duration: 6, renderMode: 'solid' })}
+              defaults={JSON.stringify({ zoom: 0.25, distance: 100000, rotX: 1.299, rotY: 5.264, duration: 6, renderMode: 'solid', lineHeight: 0.7 })}
               noCode
               noControls
+              autoRotate
+              interactive={false}
             />
           </div>
           <div class="hero-overlay">
