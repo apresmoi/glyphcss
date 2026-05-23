@@ -64,15 +64,34 @@ function dotNorm(na: [number, number, number], nb: [number, number, number]): nu
   return (na[0]*nb[0] + na[1]*nb[1] + na[2]*nb[2]) / (la * lb);
 }
 
-/** Derive a feature-edge list: only emit edges where adjacent face normals diverge > threshold. */
+/**
+ * Derive a wireframe edge list from polygons of arbitrary vertex count.
+ *
+ * Two things going on:
+ *   1. **Outline-only edges.** Each polygon contributes `verts[i] → verts[(i+1) % N]`
+ *      for i ∈ [0, N) — its actual N-gon boundary. The previous implementation
+ *      hardcoded `[[0,1],[1,2],[2,0]]` which is correct for triangles but for a
+ *      quad it falsely emits `[2,0]` (the diagonal) and ignores vertex 3. That
+ *      produced spurious "X" diagonals across every cube / quad face.
+ *   2. **Coplanar-adjacent merge via face-normal feature filter.** When the
+ *      same edge is shared by two polygons with similar face normals (angle
+ *      below `featureAngleDeg`), the edge is interior to a flat region and is
+ *      dropped. Triangulated meshes (file imports where a cube comes in as 12
+ *      triangles) thus collapse their internal diagonals back into the 6
+ *      perceived quad faces — same look as if the cube were authored as quads.
+ *
+ * Backward-compatible: for triangle input the outline iteration produces the
+ * same `[0,1], [1,2], [2,0]` set as before.
+ */
 function trianglesToEdges(triangles: TextureTriangle[], featureAngleDeg = 20): WireframeEdge[] {
   const THRESH = Math.cos((featureAngleDeg * Math.PI) / 180);
   const edgeFaces = new Map<string, { normals: Array<[number, number, number]>; from: Vec3; to: Vec3; color?: string }>();
-  const pairs: [number, number][] = [[0, 1], [1, 2], [2, 0]];
   for (const t of triangles) {
+    const verts = t.vertices;
+    if (verts.length < 2) continue;
     const n = faceNormal(t);
-    for (const [i, j] of pairs) {
-      const a = t.vertices[i], b = t.vertices[j];
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i]!, b = verts[(i + 1) % verts.length]!;
       const k1 = `${a[0]},${a[1]},${a[2]}`;
       const k2 = `${b[0]},${b[1]},${b[2]}`;
       const key = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
@@ -139,6 +158,97 @@ function fanTriangulate(polygons: Polygon[]): TextureTriangle[] {
     }
   }
   return triangles;
+}
+
+/** Re-center + uniform-scale polygons of any vertex count into a 2-unit bbox. */
+function fitPolygonsToUnitBbox(polygons: Polygon[]): Polygon[] {
+  if (polygons.length === 0) return polygons;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const p of polygons) for (const v of p.vertices) {
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+    if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+  }
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
+  const k = 2 / size;
+  return polygons.map((p) => ({
+    ...p,
+    vertices: p.vertices.map((v) => [
+      (v[0] - cx) * k,
+      (v[1] - cy) * k,
+      (v[2] - cz) * k,
+    ]) as Polygon["vertices"],
+  }));
+}
+
+/**
+ * Derive wireframe edges from polygon outlines (not triangle edges). For each
+ * polygon, emit edges between consecutive vertices: `verts[i] → verts[(i+1) % N]`.
+ *
+ * When `featureAngleDeg > 0`, drop edges where adjacent polygons' face normals
+ * diverge by LESS than that threshold (the edge is interior to a coplanar
+ * region — e.g., the diagonal of two coplanar triangles that together form a
+ * quad). Threshold `0` keeps every outline edge.
+ */
+function polygonsToWireframeEdges(polygons: Polygon[], featureAngleDeg = 0): WireframeEdge[] {
+  const edgeFaces = new Map<string, { normals: Array<[number, number, number]>; from: Vec3; to: Vec3; color?: string }>();
+  for (const p of polygons) {
+    const verts = p.vertices;
+    if (verts.length < 2) continue;
+    // Face normal from the first non-colinear triplet — good enough for the
+    // shapes we render (planar N-gons + fan-triangulated triangles).
+    let n: [number, number, number] = [0, 0, 0];
+    if (verts.length >= 3) {
+      const a = verts[0]!, b = verts[1]!, c = verts[2]!;
+      const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+      const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const L = Math.hypot(nx, ny, nz) || 1;
+      n = [nx / L, ny / L, nz / L];
+    }
+    for (let i = 0; i < verts.length; i++) {
+      const a = verts[i]!, b = verts[(i + 1) % verts.length]!;
+      const k1 = `${a[0]},${a[1]},${a[2]}`;
+      const k2 = `${b[0]},${b[1]},${b[2]}`;
+      const key = k1 < k2 ? `${k1}|${k2}` : `${k2}|${k1}`;
+      const existing = edgeFaces.get(key);
+      if (existing) existing.normals.push(n);
+      else edgeFaces.set(key, { normals: [n], from: a, to: b, color: p.color });
+    }
+  }
+  if (featureAngleDeg <= 0) {
+    return Array.from(edgeFaces.values()).map(({ from, to, color }) => {
+      const e: WireframeEdge = { from, to, weight: 2 };
+      if (color) e.color = color;
+      return e;
+    });
+  }
+  const THRESH = Math.cos((featureAngleDeg * Math.PI) / 180);
+  const out: WireframeEdge[] = [];
+  for (const { normals, from, to, color } of edgeFaces.values()) {
+    if (normals.length < 2) {
+      const e: WireframeEdge = { from, to, weight: 2 };
+      if (color) e.color = color;
+      out.push(e);
+      continue;
+    }
+    let isFeature = false;
+    outer: for (let i = 0; i < normals.length; i++) {
+      for (let j = i + 1; j < normals.length; j++) {
+        const a = normals[i]!, b = normals[j]!;
+        const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        if (dot < THRESH) { isFeature = true; break outer; }
+      }
+    }
+    if (isFeature) {
+      const e: WireframeEdge = { from, to, weight: 2 };
+      if (color) e.color = color;
+      out.push(e);
+    }
+  }
+  return out;
 }
 
 /** Recenter + scale triangles to fit a unit bbox. */
@@ -512,6 +622,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     vertices: Vec3[];
     edges: WireframeEdge[];
     polygons: TextureTriangle[];
+    /** Original N-gon polygons (pre fan-triangulation). Wireframe edge
+     *  derivation uses these so outline edges don't get polluted by
+     *  fan-triangulation diagonals. Empty for triangulated mesh imports. */
+    ngonPolygons?: Polygon[];
     animations: ParseAnimationClip[];
     sample: (clipIndex: number, time: number) => TextureTriangle[];
   };
@@ -562,8 +676,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     const activeMode = tunables.renderMode ?? 'wireframe';
     const featureAngle = tunables.featureEdges ?? 0;
     let activeEdges = geometry.edges;
-    if (activeMode === 'wireframe' && featureAngle > 0 && geometry.polygons.length > 0) {
-      const filtered = trianglesToEdges(geometry.polygons, featureAngle);
+    if (activeMode === 'wireframe' && featureAngle > 0) {
+      // Prefer original N-gon polygons when available — gives true polygon-
+      // outline edges (no fan-triangulation diagonals). Fall back to the
+      // fan-triangulated polygons for file-imported meshes that don't carry
+      // their authored N-gons.
+      const ngons = geometry.ngonPolygons;
+      const filtered = ngons && ngons.length > 0
+        ? polygonsToWireframeEdges(ngons, featureAngle)
+        : trianglesToEdges(geometry.polygons, featureAngle);
       activeEdges = filtered.length > 0 ? filtered : geometry.edges;
     }
     baseWireframe = activeEdges;
@@ -892,9 +1013,18 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   }
 
   function setPolygons(polygons: Polygon[]): void {
-    const rawTris = fanTriangulate(polygons);
-    const polys = fitTrianglesToUnitBbox(rawTris);
-    const edges = trianglesToEdges(polys, 0);
+    // Preserve the ORIGINAL N-gon polygons (don't fan-triangulate up front).
+    // Wireframe edge derivation downstream uses the actual polygon outlines —
+    // a cube stays 6 quads (12 outline edges), a dodecahedron stays 12
+    // pentagons (30 outline edges). Fan-triangulating first would feed
+    // triangles into trianglesToEdges and reintroduce spurious diagonals.
+    // The rasterizer handles N-gons internally (fan-triangulates per render).
+    const fitted = fitPolygonsToUnitBbox(polygons);
+    // Triangles for downstream code paths that still expect TextureTriangle[]:
+    // sampler, selection picking, stats. They only need geometry-equivalent
+    // triangles for hit testing — the wireframe path uses `fitted` directly.
+    const polyTris = fanTriangulate(fitted);
+    const edges = polygonsToWireframeEdges(fitted, 0);
     const vertSet = new Map<string, Vec3>();
     for (const e of edges) {
       vertSet.set(e.from.join(','), e.from);
@@ -904,9 +1034,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     geometry = {
       vertices: Array.from(vertSet.values()),
       edges,
-      polygons: polys,
+      polygons: polyTris,
+      ngonPolygons: fitted,
       animations: [],
-      sample: () => polys,
+      sample: () => polyTris,
     };
     selectedTriangleIndex = -1;
     onSelectionChange?.(-1, null);
