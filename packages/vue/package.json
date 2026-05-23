@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/vue",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Native Vue 3 components for the glyphcss ASCII polygon mesh rendering engine.",
   "type": "module",
   "main": "dist/index.cjs",

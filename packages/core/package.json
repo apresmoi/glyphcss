@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/core",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Pure math engine for ASCII polygon mesh rendering. Zero browser globals.",
   "type": "module",
   "main": "dist/index.cjs",
