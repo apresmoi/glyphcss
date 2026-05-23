@@ -465,7 +465,7 @@ export default function GalleryWorkbench() {
             animationTimeScale={sceneOptions.animationTimeScale}
           />
           <CopySceneButton />
-          <CodePanel meshUrl={meshUrl} options={sceneOptions} />
+          <CodePanel meshUrl={meshUrl} options={sceneOptions} selectedPreset={selectedPreset} />
         </div>
         <DropOverlay active={dropped.dropActive} />
       </main>

@@ -1,11 +1,30 @@
 import { useCallback, useMemo, useState } from "react";
-import type { SceneOptionsState } from "./types";
+import type { PresetModel, SceneOptionsState } from "./types";
 
 type Tab = "html" | "vanilla" | "react" | "vue";
 
 interface CodePanelProps {
   meshUrl: string;
   options: SceneOptionsState;
+  selectedPreset: PresetModel;
+}
+
+// Primitive presets that need a +90° X rotation so their natural Y-up axis maps
+// to the Z-up screen convention (cylinder/cone/pyramid/prism families build
+// along +Y). Mirrors `uprightAlongZ` in presetList.ts.
+const UPRIGHT_PRIMITIVES = new Set([
+  "primitive-cylinder",
+  "primitive-cone",
+  "primitive-pyramid",
+  "primitive-prism",
+  "primitive-antiprism",
+  "primitive-bipyramid",
+  "primitive-trapezohedron",
+]);
+
+/** `primitive-truncated-cube` → `truncatedCube`. */
+function primitiveGeometryName(id: string): string {
+  return id.replace(/^primitive-/, "").replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
 
 const SITE_URL = "https://glyphcss.com";
@@ -35,8 +54,13 @@ function vec3(v: [number, number, number]): string {
   return `[${fmt(v[0])}, ${fmt(v[1])}, ${fmt(v[2])}]`;
 }
 
-function generateSnippets({ meshUrl, options }: CodePanelProps): Record<Tab, string> {
+function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps): Record<Tab, string> {
   const url = absoluteMeshUrl(meshUrl);
+  const isPrimitive = selectedPreset.kind === "primitive";
+  const geometryName = isPrimitive ? primitiveGeometryName(selectedPreset.id) : "";
+  const needsUpright = isPrimitive && UPRIGHT_PRIMITIVES.has(selectedPreset.id);
+  // 1.5708 ≈ π/2. Kept literal so the snippet stays paste-able.
+  const uprightRotation: [number, number, number] = [1.5708, 0, 0];
   const mode = options.renderMode ?? "solid";
   const palette = options.glyphPalette ?? "default";
   const useColors = options.useColors !== false;
@@ -66,6 +90,9 @@ function generateSnippets({ meshUrl, options }: CodePanelProps): Record<Tab, str
   const cameraCloseTag = isOrtho ? `</GlyphOrthographicCamera>` : `</GlyphPerspectiveCamera>`;
   const featureEdgesProp = mode === "wireframe" ? ` featureEdges={${fmt(featureEdges)}}` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
+  const meshTagReact = isPrimitive
+    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""} />`
+    : `<GlyphMesh src="${url}" />`;
 
   const react = `import {
   ${cameraComponentName},
@@ -96,7 +123,7 @@ export function App() {
         ambientLight={ambientLight}
       >
         <GlyphOrbitControls drag wheel />
-        <GlyphMesh src="${url}" />
+        ${meshTagReact}
       </GlyphScene>
     ${cameraCloseTag}
   );
@@ -109,6 +136,9 @@ export function App() {
   const cameraCloseTagVue = isOrtho ? `</GlyphOrthographicCamera>` : `</GlyphPerspectiveCamera>`;
   const featureEdgesVue = mode === "wireframe" ? `\n    :feature-edges="${fmt(featureEdges)}"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
+  const meshTagVue = isPrimitive
+    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""} />`
+    : `<GlyphMesh src="${url}" />`;
 
   const vue = `<template>
   ${cameraOpenTagVue}
@@ -124,7 +154,7 @@ export function App() {
       :ambient-light="ambientLight"
     >
       <GlyphOrbitControls drag wheel />
-      <GlyphMesh src="${url}" />
+      ${meshTagVue}
     </GlyphScene>
   ${cameraCloseTagVue}
 </template>
@@ -152,13 +182,19 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const cameraImport = isOrtho ? "createGlyphOrthographicCamera" : "createGlyphPerspectiveCamera";
   const featureEdgesV = mode === "wireframe" ? `\n  featureEdges: ${fmt(featureEdges)},` : "";
   const targetV = hasTarget ? `\ncamera.target = ${vec3(target)};` : "";
+  const meshImportV = isPrimitive ? "" : "\n  loadMesh,";
+  const polygonsImportV = isPrimitive ? '\nimport { resolveGeometry } from "@glyphcss/core";' : "";
+  const meshLoadV = isPrimitive
+    ? `const polygons = resolveGeometry("${geometryName}", { size: 1 });
+scene.add(polygons${needsUpright ? `, { rotation: ${vec3(uprightRotation)} }` : ""});`
+    : `const { polygons } = await loadMesh("${url}");
+scene.add(polygons);`;
 
   const vanilla = `import {
   ${cameraImport},
   createGlyphScene,
-  createGlyphOrbitControls,
-  loadMesh,
-} from "glyphcss";
+  createGlyphOrbitControls,${meshImportV}
+} from "glyphcss";${polygonsImportV}
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
@@ -181,8 +217,7 @@ const scene = createGlyphScene(host, {
   ambientLight: { intensity: ${fmt(ambientIntensity)}, color: "${ambientColor}" },
 });
 
-const { polygons } = await loadMesh("${url}");
-scene.add(polygons);
+${meshLoadV}
 
 createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 
@@ -193,6 +228,9 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
     : `<glyph-perspective-camera rot-x="${fmt(rotX)}" rot-y="${fmt(rotY)}" zoom="${fmt(zoom)}" distance="${fmt(distance)}">`;
   const cameraCloseHtml = `</${cameraHtmlTag}>`;
   const featureEdgesHtml = mode === "wireframe" ? ` feature-edges="${fmt(featureEdges)}"` : "";
+  const meshTagHtml = isPrimitive
+    ? `<glyph-mesh geometry="${geometryName}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}></glyph-mesh>`
+    : `<glyph-mesh src="${url}"></glyph-mesh>`;
 
   const html = `<!DOCTYPE html>
 <html>
@@ -216,7 +254,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
         ambient-color="${ambientColor}"
       >
         <glyph-orbit-controls drag wheel></glyph-orbit-controls>
-        <glyph-mesh src="${url}"></glyph-mesh>
+        ${meshTagHtml}
       </glyph-scene>
     ${cameraCloseHtml}
   </body>
@@ -228,11 +266,14 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "React", vue: "Vue" };
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
-export function CodePanel({ meshUrl, options }: CodePanelProps) {
+export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) {
   const [tab, setTab] = useState<Tab>("react");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const snippets = useMemo(() => generateSnippets({ meshUrl, options }), [meshUrl, options]);
+  const snippets = useMemo(
+    () => generateSnippets({ meshUrl, options, selectedPreset }),
+    [meshUrl, options, selectedPreset],
+  );
 
   const handleCopy = useCallback(async () => {
     try {
