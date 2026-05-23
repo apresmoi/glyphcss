@@ -1,6 +1,6 @@
 {
   "name": "glyphcss",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Glyphcss — ASCII paint backend with glyphcss's scene-composition API. Renders 3D meshes as ASCII art in a <pre> element.",
   "type": "module",
   "main": "dist/index.cjs",
