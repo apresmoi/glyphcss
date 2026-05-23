@@ -46,6 +46,7 @@ import type {
   Polygon,
 } from 'glyphcss';
 import type { GlyphSceneHandle } from 'glyphcss';
+import { resolveGeometry } from '@glyphcss/core';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
 
@@ -418,136 +419,45 @@ const DEFAULT_TUNABLES: Tunables = {
   geometry: 'cuboctahedron',
 };
 
-// ── Geometry builders ────────────────────────────────────────────────────
+// ── Geometry state ───────────────────────────────────────────────────────
 
-function buildCuboctahedron(): { vertices: Vec3[]; edges: WireframeEdge[] } {
-  const raw: Vec3[] = [
-    [1, 1, 0], [1, -1, 0], [-1, 1, 0], [-1, -1, 0],
-    [1, 0, 1], [1, 0, -1], [-1, 0, 1], [-1, 0, -1],
-    [0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1],
-  ];
-  const verts: Vec3[] = raw.map((v) => {
-    const L = Math.hypot(v[0], v[1], v[2]);
-    return [v[0] / L, v[1] / L, v[2] / L];
-  });
-  const edgePairs: [number, number][] = [
-    [0, 4], [0, 5], [0, 8], [0, 9],
-    [1, 4], [1, 5], [1, 10], [1, 11],
-    [2, 6], [2, 7], [2, 8], [2, 9],
-    [3, 6], [3, 7], [3, 10], [3, 11],
-    [4, 8], [4, 10], [5, 9], [5, 11],
-    [6, 8], [6, 10], [7, 9], [7, 11],
-  ];
-  const SQUARE_FACES: number[][] = [
-    [0, 4, 1, 5], [2, 6, 3, 7],
-    [0, 8, 2, 9], [1, 10, 3, 11],
-    [4, 8, 6, 10], [5, 9, 7, 11],
-  ];
-  const TRIANGLE_FACES: number[][] = [
-    [0, 4, 8], [0, 5, 9], [1, 4, 10], [1, 5, 11],
-    [2, 6, 8], [2, 7, 9], [3, 6, 10], [3, 7, 11],
-  ];
-  const INNER_FACE_SCALE = 1 / 5;
-  const INNER_VE_SCALE = 1 / 3;
+type GeometryState = {
+  vertices: Vec3[];
+  edges: WireframeEdge[];
+  polygons: TextureTriangle[];
+  /** Original N-gon polygons (pre fan-triangulation). Wireframe edge
+   *  derivation uses these so outline edges don't get polluted by
+   *  fan-triangulation diagonals. Empty for triangulated mesh imports. */
+  ngonPolygons?: Polygon[];
+  animations: ParseAnimationClip[];
+  sample: (clipIndex: number, time: number) => TextureTriangle[];
+};
 
-  const allVerts: Vec3[] = [...verts];
-  const edges: WireframeEdge[] = [];
+// ── Geometry builder ─────────────────────────────────────────────────────
 
-  for (const [a, b] of edgePairs) {
-    edges.push({ from: verts[a]!, to: verts[b]!, weight: 2 });
+/**
+ * Build a docs-demo geometry from a `@glyphcss/core` registry name.
+ * Mirrors the shape used by the gallery's `setPolygons`: N-gons preserved in
+ * `ngonPolygons` so the wireframe path emits true outline edges, plus a
+ * fan-triangulated `polygons` array for selection/sampling/stats.
+ */
+function buildDemoGeometry(name: GeometryName): GeometryState {
+  const polygons = resolveGeometry(name, { size: 1 });
+  const polyTris = fanTriangulate(polygons);
+  const edges = polygonsToWireframeEdges(polygons, 0);
+  const vertSet = new Map<string, Vec3>();
+  for (const e of edges) {
+    vertSet.set(e.from.join(','), e.from);
+    vertSet.set(e.to.join(','), e.to);
   }
-
-  const addInnerShape = (face: number[]): void => {
-    const n = face.length;
-    let cx = 0, cy = 0, cz = 0;
-    for (const i of face) { cx += verts[i]![0]; cy += verts[i]![1]; cz += verts[i]![2]; }
-    cx /= n; cy /= n; cz /= n;
-    const innerIdx: number[] = face.map((i) => {
-      const v = verts[i]!;
-      const small: Vec3 = [
-        cx + (v[0] - cx) * INNER_FACE_SCALE,
-        cy + (v[1] - cy) * INNER_FACE_SCALE,
-        cz + (v[2] - cz) * INNER_FACE_SCALE,
-      ];
-      const idx = allVerts.length;
-      allVerts.push(small);
-      return idx;
-    });
-    for (let k = 0; k < n; k++) {
-      edges.push({ from: allVerts[innerIdx[k]!]!, to: allVerts[innerIdx[(k + 1) % n]!]!, weight: 1 });
-    }
-    for (let k = 0; k < n; k++) {
-      edges.push({ from: verts[face[k]!]!, to: allVerts[innerIdx[k]!]!, weight: 1 });
-    }
+  return {
+    vertices: Array.from(vertSet.values()),
+    edges,
+    polygons: polyTris,
+    ngonPolygons: polygons,
+    animations: [],
+    sample: () => polyTris,
   };
-  for (const face of SQUARE_FACES) addInnerShape(face);
-  for (const face of TRIANGLE_FACES) addInnerShape(face);
-
-  const innerVeStart = allVerts.length;
-  for (let i = 0; i < 12; i++) {
-    const v = verts[i]!;
-    allVerts.push([v[0] * INNER_VE_SCALE, v[1] * INNER_VE_SCALE, v[2] * INNER_VE_SCALE]);
-  }
-  for (const [a, b] of edgePairs) {
-    edges.push({ from: allVerts[innerVeStart + a]!, to: allVerts[innerVeStart + b]!, weight: 1 });
-  }
-  for (let i = 0; i < 12; i++) {
-    edges.push({ from: verts[i]!, to: allVerts[innerVeStart + i]!, weight: 1 });
-  }
-  return { vertices: allVerts, edges };
-}
-
-function buildIcosahedron(): { vertices: Vec3[]; edges: WireframeEdge[] } {
-  const phi = (1 + Math.sqrt(5)) / 2;
-  const raw: Vec3[] = [
-    [-1, phi, 0], [1, phi, 0], [-1, -phi, 0], [1, -phi, 0],
-    [0, -1, phi], [0, 1, phi], [0, -1, -phi], [0, 1, -phi],
-    [phi, 0, -1], [phi, 0, 1], [-phi, 0, -1], [-phi, 0, 1],
-  ];
-  const verts: Vec3[] = raw.map((v) => {
-    const L = Math.hypot(v[0], v[1], v[2]);
-    return [v[0] / L, v[1] / L, v[2] / L];
-  });
-  const faces: [number, number, number][] = [
-    [0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],
-    [1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],
-    [3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],
-    [4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1],
-  ];
-  const seen = new Set<string>();
-  const edges: WireframeEdge[] = [];
-  for (const f of faces) {
-    const pairs: [number, number][] = [[0, 1], [1, 2], [2, 0]];
-    for (const [i, j] of pairs) {
-      const a = f[i]!, b = f[j]!;
-      const k = a < b ? `${a}-${b}` : `${b}-${a}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      edges.push({ from: verts[a]!, to: verts[b]!, weight: 2 });
-    }
-  }
-  return { vertices: verts, edges };
-}
-
-function buildCube(): { vertices: Vec3[]; edges: WireframeEdge[] } {
-  const verts: Vec3[] = [];
-  for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [-1, 1]) {
-    verts.push([x / Math.sqrt(3), y / Math.sqrt(3), z / Math.sqrt(3)]);
-  }
-  const pairs: [number, number][] = [
-    [0,1],[0,2],[0,4],[3,1],[3,2],[3,7],
-    [5,1],[5,4],[5,7],[6,2],[6,4],[6,7],
-  ];
-  const edges: WireframeEdge[] = pairs.map(([a, b]) => ({
-    from: verts[a]!, to: verts[b]!, weight: 2,
-  }));
-  return { vertices: verts, edges };
-}
-
-function buildGeometry(name: GeometryName): { vertices: Vec3[]; edges: WireframeEdge[] } {
-  if (name === 'icosahedron') return buildIcosahedron();
-  if (name === 'cube') return buildCube();
-  return buildCuboctahedron();
 }
 
 // ── Init per GlyphDemo instance ──────────────────────────────────────────
@@ -617,29 +527,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let sphericalAz = 50;
   let sphericalEl = 45;
 
-  // ── Geometry state ───────────────────────────────────────────────────────
-  type GeometryState = {
-    vertices: Vec3[];
-    edges: WireframeEdge[];
-    polygons: TextureTriangle[];
-    /** Original N-gon polygons (pre fan-triangulation). Wireframe edge
-     *  derivation uses these so outline edges don't get polluted by
-     *  fan-triangulation diagonals. Empty for triangulated mesh imports. */
-    ngonPolygons?: Polygon[];
-    animations: ParseAnimationClip[];
-    sample: (clipIndex: number, time: number) => TextureTriangle[];
-  };
-
-  function staticGeometry(g: { vertices: Vec3[]; edges: WireframeEdge[]; polygons?: TextureTriangle[] }): GeometryState {
-    const tris = g.polygons ?? [];
-    return { ...g, polygons: tris, animations: [], sample: () => tris };
-  }
-
   const willLoadMesh = !!demoEl.getAttribute('data-mesh');
   const willLoadPrimitive = demoEl.getAttribute('data-primitive') === '1';
   let geometry: GeometryState = (willLoadMesh || willLoadPrimitive)
-    ? staticGeometry({ vertices: [[0, 0, 0]], edges: [], polygons: [] })
-    : staticGeometry(buildGeometry(tunables.geometry));
+    ? { vertices: [[0, 0, 0]], edges: [], polygons: [], animations: [], sample: () => [] }
+    : buildDemoGeometry(tunables.geometry);
 
   // ── Create the managed scene ─────────────────────────────────────────────
   // Build initial camera from tunables

@@ -83,6 +83,9 @@ export default defineConfig({
         {
           label: 'API Reference',
           items: [
+            { label: 'React API', slug: 'api/react' },
+            { label: 'Vue API', slug: 'api/vue' },
+            { label: 'HTML API', slug: 'api/html' },
             { label: 'Headless API', slug: 'api/headless' },
             { label: 'Core Types', slug: 'api/types' },
           ],

@@ -1,0 +1,123 @@
+---
+title: Vue API
+description: Vue components, composables, and types from @glyphcss/vue.
+---
+
+`@glyphcss/vue` is the Vue 3 binding for the ASCII paint backend. It mirrors
+the React surface one-to-one — same component names, same prop shapes, same
+defaults — with idiomatic Vue equivalents (composables in place of hooks,
+`<Teleport>` for hotspot children, kebab-case attributes in templates).
+
+## Install
+
+```bash
+pnpm add @glyphcss/vue
+```
+
+## Component tree
+
+Camera wraps scene. Meshes, controls and hotspots are children of the
+scene. Template attributes are kebab-case (`:rot-x`, `:rot-y`, `:auto-center`).
+
+```vue
+<GlyphPerspectiveCamera :rot-x="1.13" :rot-y="0.78" :zoom="0.3" :distance="3">
+  <GlyphScene mode="solid" :cols="100" :rows="30">
+    <GlyphOrbitControls drag wheel />
+    <GlyphMesh geometry="cube" />
+    <GlyphHotspot id="top" :at="[0, 0.5, 0]" :size="[3, 2]" />
+  </GlyphScene>
+</GlyphPerspectiveCamera>
+```
+
+## Components
+
+| Component | Role |
+|---|---|
+| [`<GlyphScene>`](/components/glyph-scene) | Root container — owns the `<pre>`, grid, glyph palette, lighting |
+| `<GlyphCamera>` | Default camera (alias for `<GlyphOrthographicCamera>`) |
+| `<GlyphPerspectiveCamera>` | Foreshortened projection — needs a `distance` |
+| `<GlyphOrthographicCamera>` | Parallel projection — best for iso / voxel scenes |
+| `<GlyphMesh>` | Polygon registration. Pass `:polygons="…"`, `src="…"`, or `geometry="cube"` |
+| `<GlyphHotspot>` | 3D-anchored DOM hotspot — projects to a screen cell |
+| `<GlyphOrbitControls>` | Drag-rotate + wheel-zoom around the target |
+| `<GlyphMapControls>` | Drag-pan + wheel-zoom across the target plane |
+| `<GlyphFirstPersonControls>` | WASD + pointer-lock first-person camera |
+| `<GlyphAxesHelper>` | Renders world axes as a mesh |
+| `<GlyphDirectionalLightHelper>` | Visualises the directional light vector |
+
+## Composables
+
+| Composable | Returns |
+|---|---|
+| `useGlyphSceneContext()` | The scene + camera handles available to any descendant of `<GlyphScene>` |
+| `useGlyphCamera()` | The camera handle from the surrounding camera component |
+| `useGlyphAnimation(opts)` | Drive a `GlyphAnimationClip` from a mesh handle |
+
+## `<GlyphMesh>` shortcuts
+
+`<GlyphMesh>` accepts three mutually-exclusive geometry inputs, in descending
+precedence: explicit `:polygons`, `src` URL, or `geometry` name.
+
+```vue
+<!-- Explicit polygons -->
+<GlyphMesh :polygons="cube" />
+
+<!-- File URL — OBJ / GLB / glTF / VOX -->
+<GlyphMesh src="/models/teapot.obj" />
+
+<!-- Built-in geometry from @glyphcss/core registry -->
+<GlyphMesh geometry="dodecahedron" :size="1.2" color="#ffcc44" />
+```
+
+`rotation` is an XYZ Euler triple in radians, passed as `:rotation="[x, y, z]"`.
+
+## End-to-end example
+
+```vue
+<template>
+  <GlyphPerspectiveCamera :rot-x="1.13" :rot-y="0.78" :zoom="0.3" :distance="3">
+    <GlyphScene
+      mode="solid"
+      :cols="120"
+      :rows="36"
+      :directional-light="directionalLight"
+      :ambient-light="ambientLight"
+    >
+      <GlyphOrbitControls drag wheel />
+      <GlyphAxesHelper :size="1.5" />
+      <GlyphMesh geometry="dodecahedron" color="#4488ff">
+        <GlyphHotspot id="top" :at="[0, 0.5, 0]" :size="[3, 2]">
+          <span class="badge">top</span>
+        </GlyphHotspot>
+      </GlyphMesh>
+    </GlyphScene>
+  </GlyphPerspectiveCamera>
+</template>
+
+<script setup lang="ts">
+import {
+  GlyphPerspectiveCamera,
+  GlyphScene,
+  GlyphMesh,
+  GlyphHotspot,
+  GlyphOrbitControls,
+  GlyphAxesHelper,
+} from "@glyphcss/vue";
+
+const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+const ambientLight = { intensity: 0.4 };
+</script>
+```
+
+## Re-exports from `@glyphcss/core`
+
+`@glyphcss/vue` re-exports the full `@glyphcss/core` surface — every polygon
+factory (`cubePolygons`, `dodecahedronPolygons`, …), the `resolveGeometry`
+registry, and the mesh parsers (`loadMesh`, `parseObj`, `parseGltf`,
+`parseVox`). You usually only need to import from `@glyphcss/vue`.
+
+## See also
+
+- [React API](/api/react) — same surface, idiomatic React
+- [HTML API](/api/html) — `<glyph-*>` custom elements
+- [Headless API](/api/headless) — the imperative factory the bindings wrap
