@@ -84,9 +84,6 @@ export interface SceneOptionsState {
   autoCenter: boolean;
   autoRotate: boolean;
   interactive: boolean;
-  showAxes: boolean;
-  showLight: boolean;
-  showGround: boolean;
   zoom: number;
   rotX: number;
   rotY: number;
@@ -100,7 +97,7 @@ export interface SceneOptionsState {
   target: [number, number, number];
   renderMode: "wireframe" | "solid";
   featureEdges: number;
-  glyphPalette: "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
+  glyphPalette: "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
   lineHeight: number;
   useColors: boolean;
   smoothShading: boolean;

@@ -23,7 +23,6 @@ interface PresetModelMinimal {
 export interface CameraFolderInputs {
   autoCenter: boolean;
   autoRotate: boolean;
-  showAxes: boolean;
   interactive: boolean;
   dragMode: DragMode;
   fpvLook: boolean;
@@ -74,7 +73,6 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   const {
     autoCenter,
     autoRotate,
-    showAxes,
     interactive,
     dragMode,
     fpvLook,
@@ -124,7 +122,6 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
 
   useToggle(folder, "Auto center", autoCenter, (value) => onUpdateScene({ autoCenter: value }));
   useToggle(folder, "Auto rotate", autoRotate, (value) => onUpdateScene({ autoRotate: value }));
-  useToggle(folder, "Axes", showAxes, (value) => onUpdateScene({ showAxes: value }));
   useToggle(folder, "Interactive", interactive, (value) => onUpdateScene({ interactive: value }));
   useOption<DragMode>(folder, "Drag mode", DRAG_MODE_OPTIONS, dragMode, (value) =>
     onUpdateScene({ dragMode: value }),

@@ -1,14 +1,12 @@
 /**
- * Lighting folder — show-ground, light-helper toggles, directional key-light
- * (azimuth / elevation / intensity / color), and ambient (intensity / color).
+ * Lighting folder — directional key-light (azimuth / elevation / intensity /
+ * color) and ambient (intensity / color).
  */
 import type { GUI } from "lil-gui";
 import type { SceneOptionsState } from "../../GalleryWorkbench/types";
-import { useColor, useFolder, useSlider, useToggle } from "../primitives";
+import { useColor, useFolder, useSlider } from "../primitives";
 
 export interface LightingFolderInputs {
-  showGround: boolean;
-  showLight: boolean;
   lightAzimuth: number;
   lightElevation: number;
   lightIntensity: number;
@@ -16,8 +14,6 @@ export interface LightingFolderInputs {
   ambientIntensity: number;
   ambientColor: string;
   onUpdateScene: (partial: Partial<Pick<SceneOptionsState,
-    | "showGround"
-    | "showLight"
     | "lightAzimuth"
     | "lightElevation"
     | "lightIntensity"
@@ -29,8 +25,6 @@ export interface LightingFolderInputs {
 
 export function useLightingFolder(parent: GUI | null, inputs: LightingFolderInputs): void {
   const {
-    showGround,
-    showLight,
     lightAzimuth,
     lightElevation,
     lightIntensity,
@@ -41,9 +35,6 @@ export function useLightingFolder(parent: GUI | null, inputs: LightingFolderInpu
   } = inputs;
 
   const folder = useFolder(parent, "Lighting", { open: true });
-
-  useToggle(folder, "Show ground", showGround, (value) => onUpdateScene({ showGround: value }));
-  useToggle(folder, "Light helper", showLight, (value) => onUpdateScene({ showLight: value }));
 
   useSlider(folder, "Azimuth", { min: 0, max: 360, step: 1 }, lightAzimuth, (value) =>
     onUpdateScene({ lightAzimuth: value }),

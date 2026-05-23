@@ -22,17 +22,14 @@ const RENDER_MODE_OPTIONS: Record<string, "wireframe" | "solid"> = {
   Wireframe: "wireframe",
   Solid: "solid",
 };
-type GlyphPaletteId = "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
+type GlyphPaletteId = "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
 const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
   Default: "default",
   ASCII: "ascii",
-  Dots: "dots",
   Lines: "lines",
   Blocks: "blocks",
   Stars: "stars",
   Arrows: "arrows",
-  Braille: "braille",
-  Runes: "runes",
   Math: "math",
   Binary: "binary",
   Hex: "hex",

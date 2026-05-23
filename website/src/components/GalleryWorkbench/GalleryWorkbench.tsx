@@ -203,9 +203,6 @@ const DEFAULT_SCENE: SceneOptionsState = {
   autoCenter: true,
   autoRotate: false,
   interactive: true,
-  showAxes: false,
-  showLight: false,
-  showGround: false,
   zoom: 0.25,
   rotX: 65,
   rotY: 45,
@@ -500,7 +497,6 @@ export default function GalleryWorkbench() {
         <DockCamera
           autoCenter={sceneOptions.autoCenter}
           autoRotate={sceneOptions.autoRotate}
-          showAxes={sceneOptions.showAxes}
           interactive={sceneOptions.interactive}
           dragMode={sceneOptions.dragMode}
           fpvLook={sceneOptions.fpvLook}
@@ -525,8 +521,6 @@ export default function GalleryWorkbench() {
           onUpdateScene={updateScene}
         />
         <DockLighting
-          showGround={sceneOptions.showGround}
-          showLight={sceneOptions.showLight}
           lightAzimuth={sceneOptions.lightAzimuth}
           lightElevation={sceneOptions.lightElevation}
           lightIntensity={sceneOptions.lightIntensity}
