@@ -919,32 +919,30 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     const mode = tunables.renderMode ?? 'wireframe';
     let polys: Polygon[];
 
+    // Prefer the original N-gon polygons over the fan-triangulated set. The
+    // public scene's wireframe derivation calls polygonsToWireframeEdges on
+    // whatever we pass in — for triangles it emits 3 edges per face (including
+    // fan diagonals); for N-gons it emits the actual outline. Same polygons
+    // also work for solid mode (the rasterizer fan-triangulates internally).
+    const basePolys = geometry.ngonPolygons && geometry.ngonPolygons.length > 0
+      ? geometry.ngonPolygons
+      : (geometry.polygons as Polygon[]);
+
     if (mode === 'wireframe') {
-      // For wireframe mode, encode edges as degenerate polygons is not the
-      // public API. The public scene works with polygon arrays and derives
-      // wireframe from them. Wireframe mode with feature-edge control requires
-      // passing the filtered edge set somehow. The public API's wireframe mode
-      // uses the polygon array's edges directly; to honour the featureEdges
-      // tunable we need to build a polygon list that produces the right edges.
-      // For now pass the raw polygons and rely on setOptions({mode}) to
-      // control wireframe rendering (feature-edge tuning still works through
-      // scene.setOptions which rebuilds the rasterize context).
       const selEdges = getSelectionEdges();
-      // Augment with selection highlight by appending degenerate-triangle polys
-      // that force an edge highlight. Since the public API doesn't have a direct
-      // wireframe override, we pass the base polygons + selection piggyback approach:
-      // pass selection edges as extra 0-area triangles so they rasterize as edges.
       if (selEdges.length > 0) {
+        // Selection edges piggyback as degenerate triangles so they rasterize
+        // as bright overlays.
         const selPolys: Polygon[] = selEdges.map((e) => ({
           vertices: [e.from, e.to, e.from],
           color: '#38bdf8',
         }));
-        polys = [...(geometry.polygons as Polygon[]), ...selPolys];
+        polys = [...basePolys, ...selPolys];
       } else {
-        polys = geometry.polygons as Polygon[];
+        polys = basePolys;
       }
     } else {
-      polys = geometry.polygons as Polygon[];
+      polys = basePolys;
     }
 
     meshHandle.dispose();
