@@ -9,7 +9,7 @@ export interface UsePresetLoaderOptions {
   autoZoomPresetRef: React.RefObject<string | null>;
 }
 
-// The actual model loading (fetch + parse) happens inside the GlyphcssScene
+// The actual model loading (fetch + parse) happens inside the GlyphScene
 // runtime. This hook's job is to resolve the URL and per-preset camera
 // defaults and push them into state when the selection changes.
 export function usePresetLoader({
@@ -20,23 +20,33 @@ export function usePresetLoader({
   autoZoomPresetRef,
 }: UsePresetLoaderOptions): void {
   useEffect(() => {
-    const url = selectedDroppedSource
-      ? URL.createObjectURL(selectedDroppedSource.primaryFile)
-      : selectedPreset.url;
+    // Primitives carry no URL — GlyphScene reads the preset directly via
+    // selectedPreset and calls setPolygons(). We still call onMeshUrl so the
+    // meshUrl state stays in sync (GlyphScene uses selectedPreset.id to detect
+    // the primitive branch, not the URL value).
+    if (selectedPreset.kind !== "primitive") {
+      const url = selectedDroppedSource
+        ? URL.createObjectURL(selectedDroppedSource.primaryFile)
+        : selectedPreset.url;
 
-    onMeshUrl(url);
+      onMeshUrl(url);
 
-    if (autoZoomPresetRef.current !== selectedPreset.id) {
-      autoZoomPresetRef.current = selectedPreset.id;
-      // Pass through undefined when the preset doesn't override — the consumer
-      // keeps its current DEFAULT_SCENE value rather than getting a stale fallback.
-      onSceneDefaults(selectedPreset.zoom, selectedPreset.rotX, selectedPreset.rotY);
+      if (autoZoomPresetRef.current !== selectedPreset.id) {
+        autoZoomPresetRef.current = selectedPreset.id;
+        onSceneDefaults(selectedPreset.zoom, selectedPreset.rotX, selectedPreset.rotY);
+      }
+
+      return () => {
+        if (selectedDroppedSource) {
+          URL.revokeObjectURL(url);
+        }
+      };
     }
 
-    return () => {
-      if (selectedDroppedSource) {
-        URL.revokeObjectURL(url);
-      }
-    };
+    // Primitive path: no URL fetch needed.
+    if (autoZoomPresetRef.current !== selectedPreset.id) {
+      autoZoomPresetRef.current = selectedPreset.id;
+      onSceneDefaults(selectedPreset.zoom, selectedPreset.rotX, selectedPreset.rotY);
+    }
   }, [selectedPreset.id, selectedDroppedSource?.id]);
 }

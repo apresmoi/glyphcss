@@ -65,10 +65,10 @@ export default defineConfig({
         {
           label: 'Components',
           items: [
-            { label: 'GlyphcssScene', slug: 'components/glyphcss-scene' },
-            { label: 'GlyphcssCamera', slug: 'components/glyphcss-camera' },
-            { label: 'GlyphcssOrbitControls', slug: 'components/glyphcss-controls' },
-            { label: 'GlyphcssHotspot', slug: 'components/glyphcss-hotspot' },
+            { label: 'GlyphScene', slug: 'components/glyph-scene' },
+            { label: 'GlyphCamera', slug: 'components/glyph-camera' },
+            { label: 'GlyphOrbitControls', slug: 'components/glyph-controls' },
+            { label: 'GlyphHotspot', slug: 'components/glyph-hotspot' },
           ],
         },
         {
@@ -83,6 +83,9 @@ export default defineConfig({
         {
           label: 'API Reference',
           items: [
+            { label: 'React API', slug: 'api/react' },
+            { label: 'Vue API', slug: 'api/vue' },
+            { label: 'HTML API', slug: 'api/html' },
             { label: 'Headless API', slug: 'api/headless' },
             { label: 'Core Types', slug: 'api/types' },
           ],

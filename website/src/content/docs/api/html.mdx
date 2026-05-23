@@ -1,0 +1,166 @@
+---
+title: HTML API
+description: Custom elements registered by the glyphcss/elements module.
+---
+
+`glyphcss/elements` is a side-effect import that registers a set of
+`<glyph-*>` custom elements with `customElements`. After the import runs,
+you can use them in plain HTML — no React, no Vue, no build step required.
+
+## Install
+
+```bash
+pnpm add glyphcss
+```
+
+```html
+<script type="module" src="https://esm.sh/glyphcss/elements"></script>
+```
+
+Or in a bundled app:
+
+```ts
+import "glyphcss/elements"; // side-effect — registers customElements
+```
+
+Re-imports are idempotent (the module checks `customElements.get` before
+defining). In non-DOM environments (SSR, Node) the module silently no-ops.
+
+## Element tree
+
+Camera wraps scene. Attribute names are kebab-case (`rot-x`, `rot-y`,
+`feature-edges`, `auto-size`). Boolean attributes follow standard HTML
+convention — present means true.
+
+```html
+<glyph-perspective-camera rot-x="1.13" rot-y="0.78" zoom="0.3" distance="3">
+  <glyph-scene mode="solid" cols="100" rows="30">
+    <glyph-orbit-controls drag wheel></glyph-orbit-controls>
+    <glyph-mesh geometry="cube"></glyph-mesh>
+    <glyph-hotspot hotspot-id="top" at="0,0.5,0" size="3,2"></glyph-hotspot>
+  </glyph-scene>
+</glyph-perspective-camera>
+```
+
+## Elements
+
+### `<glyph-scene>`
+
+Root container. Owns the `<pre>` rasterisation output and the lighting state.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| `mode` | `"wireframe" \| "solid" \| "voxel"` | Default `solid` |
+| `cols` | number | Grid width in character columns |
+| `rows` | number | Grid height in character rows |
+| `cell-aspect` | number | Height ÷ width of the cell (default `2.0`) |
+| `glyph-palette` | string | Named palette: `default`, `ascii`, `lines`, `blocks`, `stars`, `arrows`, `math`, `binary`, `hex` |
+| `use-colors` | bool | Emit color spans in the output |
+| `directional-intensity` | number | Key-light intensity |
+| `ambient-intensity` | number | Ambient fill intensity |
+| `auto-size` | flag | Auto-fit `cols`/`rows` to the host's box via ResizeObserver |
+
+### `<glyph-perspective-camera>` / `<glyph-orthographic-camera>` / `<glyph-camera>`
+
+`<glyph-camera>` is the ergonomic default — an alias for
+`<glyph-orthographic-camera>`. All three accept the same orientation
+attributes; perspective additionally accepts `distance` and `stretch`.
+
+| Attribute | Notes |
+|---|---|
+| `rot-x` | Pitch in radians |
+| `rot-y` | Yaw in radians |
+| `zoom` | Scale factor |
+| `distance` | Perspective only |
+| `stretch` | Perspective only |
+
+### `<glyph-mesh>`
+
+Polygon registration. Picks one source in descending precedence: `geometry`
+< `src` < explicit polygons (only available via JS property, not attribute).
+
+| Attribute | Notes |
+|---|---|
+| `src` | URL of OBJ / GLB / glTF / VOX mesh |
+| `geometry` | Built-in name from `@glyphcss/core` registry (`cube`, `dodecahedron`, …) |
+| `size` | Uniform size for `geometry` |
+| `color` | Fill color for `geometry` |
+| `position` | `x,y,z` translation |
+| `scale` | `s` or `sx,sy,sz` |
+| `rotation` | `rx,ry,rz` XYZ Euler radians |
+| `normalize` | flag — auto-fit imported mesh to a unit bbox |
+
+### `<glyph-hotspot>`
+
+3D-anchored DOM hotspot. Child nodes are positioned at the projected screen
+cell every render.
+
+| Attribute | Notes |
+|---|---|
+| `hotspot-id` | Identifier for handle lookup |
+| `at` | `x,y,z` anchor in world space |
+| `size` | `w,h` in cells |
+
+### `<glyph-orbit-controls>` / `<glyph-map-controls>`
+
+Camera controls. Orbit rotates around the target; map pans across the
+target plane.
+
+| Attribute | Notes |
+|---|---|
+| `drag` | flag — enable drag |
+| `wheel` | flag — enable wheel zoom |
+| `invert` | flag or number — invert axis multiplier |
+| `animate-speed` | Orbit-only: auto-rotation speed |
+| `animate-axis` | Orbit-only: `x` \| `y` \| `z` |
+
+## Scene-ready handshake
+
+Custom elements register asynchronously. If you need to call imperative
+methods on the scene from JavaScript, listen for `glyph-scene-ready` on
+the `<glyph-scene>` element:
+
+```ts
+const sceneEl = document.querySelector("glyph-scene")!;
+sceneEl.addEventListener("glyph-scene-ready", (ev) => {
+  const scene = (ev.target as any).getScene();
+  scene.addHotspot({ id: "runtime", at: [0, 0, 1] }, () => alert("clicked"));
+});
+```
+
+## End-to-end example
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <script type="module" src="https://esm.sh/glyphcss/elements"></script>
+    <style>
+      glyph-scene { display: block; width: 600px; height: 400px; }
+    </style>
+  </head>
+  <body>
+    <glyph-perspective-camera rot-x="1.13" rot-y="0.78" zoom="0.3" distance="3">
+      <glyph-scene
+        mode="solid"
+        cols="120"
+        rows="36"
+        directional-intensity="1"
+        ambient-intensity="0.4"
+      >
+        <glyph-orbit-controls drag wheel></glyph-orbit-controls>
+        <glyph-mesh geometry="dodecahedron" color="#4488ff"></glyph-mesh>
+        <glyph-hotspot hotspot-id="top" at="0,0.5,0" size="3,2">
+          <span class="badge">top</span>
+        </glyph-hotspot>
+      </glyph-scene>
+    </glyph-perspective-camera>
+  </body>
+</html>
+```
+
+## See also
+
+- [React API](/api/react) — same elements, JSX form
+- [Vue API](/api/vue) — same elements, idiomatic Vue
+- [Headless API](/api/headless) — the imperative factory the elements wrap

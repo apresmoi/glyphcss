@@ -1,0 +1,130 @@
+---
+title: React API
+description: React components, hooks, and types from @glyphcss/react.
+---
+
+`@glyphcss/react` is the React binding for the ASCII paint backend. It is a
+thin layer over the imperative `glyphcss` factory API — components register
+meshes / hotspots / cameras with the surrounding `<GlyphScene>`; nothing
+re-renders per frame.
+
+The React surface mirrors the Vue surface one-to-one. Anything you can do
+in React you can do in Vue, with the same option names and defaults.
+
+## Install
+
+```bash
+pnpm add @glyphcss/react
+```
+
+## Component tree
+
+A scene is always **camera-wraps-scene**. The camera component owns the
+projection state; `<GlyphScene>` rasterises into a `<pre>`; meshes, controls
+and hotspots are children of the scene.
+
+```tsx
+<GlyphPerspectiveCamera rotX={1.13} rotY={0.78} zoom={0.3} distance={3}>
+  <GlyphScene mode="solid" cols={100} rows={30}>
+    <GlyphOrbitControls drag wheel />
+    <GlyphMesh geometry="cube" />
+    <GlyphHotspot id="top" at={[0, 0.5, 0]} size={[3, 2]} />
+  </GlyphScene>
+</GlyphPerspectiveCamera>
+```
+
+## Components
+
+| Component | Role |
+|---|---|
+| [`<GlyphScene>`](/components/glyph-scene) | Root container — owns the `<pre>`, grid, glyph palette, lighting |
+| `<GlyphCamera>` | Default camera (alias for `<GlyphOrthographicCamera>`) |
+| `<GlyphPerspectiveCamera>` | Foreshortened projection — needs a `distance` |
+| `<GlyphOrthographicCamera>` | Parallel projection — best for iso / voxel scenes |
+| `<GlyphMesh>` | Polygon registration. Pass `polygons={…}`, `src="…"`, or `geometry="cube"` |
+| `<GlyphHotspot>` | 3D-anchored DOM hotspot — projects to a screen cell |
+| `<GlyphOrbitControls>` | Drag-rotate + wheel-zoom around the target |
+| `<GlyphMapControls>` | Drag-pan + wheel-zoom across the target plane |
+| `<GlyphFirstPersonControls>` | WASD + pointer-lock first-person camera |
+| `<GlyphAxesHelper>` | Renders world axes as a mesh |
+| `<GlyphDirectionalLightHelper>` | Visualises the directional light vector |
+
+## Hooks
+
+| Hook | Returns |
+|---|---|
+| `useGlyphSceneContext()` | The scene + camera handles available to any descendant of `<GlyphScene>` |
+| `useGlyphCamera()` | The camera handle from the surrounding camera component |
+| `useGlyphMesh(opts)` | Imperative handle for a mesh (lower-level than `<GlyphMesh>`) |
+| `useGlyphAnimation(opts)` | Drive a `GlyphAnimationClip` from a mesh handle |
+
+## `<GlyphMesh>` shortcuts
+
+`<GlyphMesh>` accepts three mutually-exclusive geometry inputs, in
+descending precedence:
+
+```tsx
+// 1. Explicit polygons — full control
+<GlyphMesh polygons={cubePolygons({ size: 1, color: "#4488ff" })} />
+
+// 2. File URL — fetched + parsed by the runtime (OBJ / GLB / glTF / VOX)
+<GlyphMesh src="/models/teapot.obj" />
+
+// 3. Built-in geometry name — resolves via @glyphcss/core registry
+<GlyphMesh geometry="dodecahedron" size={1.2} color="#ffcc44" />
+```
+
+The transform props (`position`, `scale`, `rotation`) apply to whichever
+source you pick. `rotation` is an XYZ Euler triple in radians.
+
+## End-to-end example
+
+```tsx
+import {
+  GlyphPerspectiveCamera,
+  GlyphScene,
+  GlyphMesh,
+  GlyphHotspot,
+  GlyphOrbitControls,
+  GlyphAxesHelper,
+} from "@glyphcss/react";
+
+const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+const ambientLight = { intensity: 0.4 };
+
+export function App() {
+  return (
+    <GlyphPerspectiveCamera rotX={1.13} rotY={0.78} zoom={0.3} distance={3}>
+      <GlyphScene
+        mode="solid"
+        cols={120}
+        rows={36}
+        directionalLight={directionalLight}
+        ambientLight={ambientLight}
+      >
+        <GlyphOrbitControls drag wheel />
+        <GlyphAxesHelper size={1.5} />
+        <GlyphMesh geometry="dodecahedron" color="#4488ff">
+          <GlyphHotspot id="top" at={[0, 0.5, 0]} size={[3, 2]}>
+            <span className="badge">top</span>
+          </GlyphHotspot>
+        </GlyphMesh>
+      </GlyphScene>
+    </GlyphPerspectiveCamera>
+  );
+}
+```
+
+## Re-exports from `@glyphcss/core`
+
+`@glyphcss/react` re-exports the full `@glyphcss/core` surface — every
+polygon factory (`cubePolygons`, `dodecahedronPolygons`, …), the
+`resolveGeometry` registry, the math primitives, and the mesh parsers
+(`loadMesh`, `parseObj`, `parseGltf`, `parseVox`). You usually only need
+to import from `@glyphcss/react`.
+
+## See also
+
+- [Vue API](/api/vue) — same surface, idiomatic Vue
+- [HTML API](/api/html) — `<glyph-*>` custom elements
+- [Headless API](/api/headless) — the imperative factory the bindings wrap

@@ -29,16 +29,16 @@ exposes a **sparse** hit layer: you opt-in to interactivity by registering hotsp
 at specific 3D anchors.
 
 ```tsx
-import { GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
+import { GlyphMesh, GlyphHotspot } from "@glyphcss/react";
 import { dodecahedronPolygons } from "@glyphcss/core";
 
 const shape = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" });
 
-<GlyphcssMesh polygons={shape}>
-  <GlyphcssHotspot at={[0, 1.2, 0]} onClick={...}>
+<GlyphMesh polygons={shape}>
+  <GlyphHotspot at={[0, 1.2, 0]} onClick={...}>
     <span className="badge">Top</span>
-  </GlyphcssHotspot>
-</GlyphcssMesh>
+  </GlyphHotspot>
+</GlyphMesh>
 ```
 
 Each hotspot becomes a real `<div>` absolutely positioned at its projected cell,
@@ -54,10 +54,10 @@ lockstep through rotation. Hotspots:
 ## The camera contract
 
 The renderer and the hit layer **must** use the same `camera.project(v, ...)` call.
-This is enforced by both reading from a shared `GlyphcssCamera` handle:
+This is enforced by both reading from a shared `GlyphCamera` handle:
 
 ```ts
-const camera = createGlyphcssPerspectiveCamera({
+const camera = createGlyphPerspectiveCamera({
   rotX: 0.4, rotY: 0, distance: 3, zoom: 0.32, stretch: 1.0,
 });
 

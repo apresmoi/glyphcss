@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, useRef } from "react";
 import { Inspector, type InspectorMesh } from "../Inspector";
-import { GlyphcssScene } from "../GlyphcssScene";
+import { GlyphScene } from "../GlyphScene";
+import { CodePanel } from "./CodePanel";
 import {
   Dock,
   DockModel,
@@ -12,7 +13,7 @@ import {
 import { ModelsSidebar } from "../ModelsSidebar";
 import { DropOverlay } from "../DropOverlay";
 import { StatsOverlay } from "../StatsOverlay";
-import type { GlyphcssMetrics, SceneOptionsState } from "./types";
+import type { GlyphMetrics, SceneOptionsState } from "./types";
 import "./gallery-workbench.css";
 import {
   PRESETS,
@@ -144,7 +145,7 @@ function CopySceneButton() {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
-    const strip = document.querySelector(".glyphcss-demo__strip") as HTMLElement | null;
+    const strip = document.querySelector(".glyph-output") as HTMLElement | null;
     if (!strip) return;
     const parsed = parseStripCells(strip);
     if (!parsed) return;
@@ -200,10 +201,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   animationPaused: false,
   animationTimeScale: 1,
   autoCenter: true,
+  autoRotate: false,
   interactive: true,
-  showAxes: false,
-  showLight: false,
-  showGround: false,
   zoom: 0.25,
   rotX: 65,
   rotY: 45,
@@ -220,6 +219,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   glyphPalette: "default",
   lineHeight: 1.0,
   useColors: true,
+  smoothShading: false,
+  creaseAngle: 60,
   dragMode: "orbit",
   fpvLook: true,
   fpvMove: true,
@@ -234,7 +235,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   fpvInvertY: false,
 };
 
-const EMPTY_METRICS: GlyphcssMetrics = {
+const EMPTY_METRICS: GlyphMetrics = {
   measuredAt: 0,
   cells: 0,
   edges: 0,
@@ -269,8 +270,8 @@ export default function GalleryWorkbench() {
   // so the preset's zoom/rotX/rotY still win — but only after the first tick.
   const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(DEFAULT_SCENE);
   const [presetId, setPresetId] = useState(initialPreset.id);
-  const [meshUrl, setMeshUrl] = useState(initialPreset.url);
-  const [metrics, setMetrics] = useState<GlyphcssMetrics>(EMPTY_METRICS);
+  const [meshUrl, setMeshUrl] = useState(initialPreset.kind !== "primitive" ? initialPreset.url : "");
+  const [metrics, setMetrics] = useState<GlyphMetrics>(EMPTY_METRICS);
   const [selectedAnimation, setSelectedAnimation] = useState("");
   const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
   const [modelSearch, setModelSearch] = useState("");
@@ -449,8 +450,9 @@ export default function GalleryWorkbench() {
 
       <main className="dn-main">
         <div className="dn-viewport">
-          <GlyphcssScene
+          <GlyphScene
             meshUrl={meshUrl}
+            selectedPreset={selectedPreset}
             options={sceneOptions}
             onBuild={(ms) => setMetrics((m) => ({ ...m, bakeMs: ms }))}
             onCameraChange={handleCameraChange}
@@ -463,6 +465,7 @@ export default function GalleryWorkbench() {
             animationTimeScale={sceneOptions.animationTimeScale}
           />
           <CopySceneButton />
+          <CodePanel meshUrl={meshUrl} options={sceneOptions} selectedPreset={selectedPreset} />
         </div>
         <DropOverlay active={dropped.dropActive} />
       </main>
@@ -477,6 +480,8 @@ export default function GalleryWorkbench() {
           glyphPalette={sceneOptions.glyphPalette}
           lineHeight={sceneOptions.lineHeight}
           useColors={sceneOptions.useColors}
+          smoothShading={sceneOptions.smoothShading}
+          creaseAngle={sceneOptions.creaseAngle}
           onUpdateScene={updateScene}
         />
         <DockAnimation
@@ -491,7 +496,7 @@ export default function GalleryWorkbench() {
         />
         <DockCamera
           autoCenter={sceneOptions.autoCenter}
-          showAxes={sceneOptions.showAxes}
+          autoRotate={sceneOptions.autoRotate}
           interactive={sceneOptions.interactive}
           dragMode={sceneOptions.dragMode}
           fpvLook={sceneOptions.fpvLook}
@@ -516,8 +521,6 @@ export default function GalleryWorkbench() {
           onUpdateScene={updateScene}
         />
         <DockLighting
-          showGround={sceneOptions.showGround}
-          showLight={sceneOptions.showLight}
           lightAzimuth={sceneOptions.lightAzimuth}
           lightElevation={sceneOptions.lightElevation}
           lightIntensity={sceneOptions.lightIntensity}

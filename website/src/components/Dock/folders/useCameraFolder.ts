@@ -22,7 +22,7 @@ interface PresetModelMinimal {
 
 export interface CameraFolderInputs {
   autoCenter: boolean;
-  showAxes: boolean;
+  autoRotate: boolean;
   interactive: boolean;
   dragMode: DragMode;
   fpvLook: boolean;
@@ -72,7 +72,7 @@ const PERSPECTIVE_PX_OPTIONS: Record<string, number> = {
 export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs): void {
   const {
     autoCenter,
-    showAxes,
+    autoRotate,
     interactive,
     dragMode,
     fpvLook,
@@ -121,7 +121,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   });
 
   useToggle(folder, "Auto center", autoCenter, (value) => onUpdateScene({ autoCenter: value }));
-  useToggle(folder, "Axes", showAxes, (value) => onUpdateScene({ showAxes: value }));
+  useToggle(folder, "Auto rotate", autoRotate, (value) => onUpdateScene({ autoRotate: value }));
   useToggle(folder, "Interactive", interactive, (value) => onUpdateScene({ interactive: value }));
   useOption<DragMode>(folder, "Drag mode", DRAG_MODE_OPTIONS, dragMode, (value) =>
     onUpdateScene({ dragMode: value }),

@@ -3,35 +3,32 @@ title: Introduction
 description: What glyphcss is and the problem it solves.
 ---
 
-import GlyphcssDemo from "../../components/GlyphcssDemo.astro";
+import GlyphDemo from "../../components/GlyphDemo.astro";
 
 **glyphcss** is an ASCII polygon-mesh rendering engine for the DOM. It paints 3D meshes
 (OBJ / glTF / GLB / VOX) into a character grid, then animates rotation via CSS
 `steps(N)` keyframes. JavaScript runs once at scene init and again only when the user
 drags or zooms — never per frame.
 
-<GlyphcssDemo id="intro-demo" geometry="cuboctahedron" />
+<GlyphDemo id="intro-demo" mesh="/gallery/glb/apple.glb" defaults='{"renderMode":"solid","zoom":0.35}' />
 
 ## The mental model
 
-A glyphcss scene is **one DOM node per polygon** — every triangle is an absolutely
-positioned `<div>` transformed with `matrix3d(...)`. The browser composites the result.
-
-An **glyphcss** scene is **one `<pre>` per scene plus a sparse `<div>` hit layer**.
+A glyphcss scene is **one `<pre>` per scene plus a sparse `<div>` hit layer**.
 The `<pre>` contains N pre-baked rotation frames stacked vertically; CSS animates the
 strip with `steps(N, end)` over a configurable duration. Hotspots (one per registered
 3D anchor) get their own `@keyframes` that step through projected positions in sync
 with the strip.
 
-## Tradeoffs vs glyphcss
+## Tradeoffs
 
-| | glyphcss | glyphcss |
+| | glyphcss | CSS polygon renderers |
 |---|---|---|
-| Cost dominator | polygon count | grid cell count |
-| Per-polygon DOM events | ✓ (one node per polygon) | opt-in via `<GlyphcssHotspot>` |
-| Texture / material support | full UVs, atlas, lighting | wireframe + Lambert ramp + voxel face |
+| Cost dominator | grid cell count | polygon count |
+| Per-polygon DOM events | opt-in via `<GlyphHotspot>` | ✓ (one node per polygon) |
+| Texture / material support | wireframe + Lambert ramp + voxel face | full UVs, atlas, lighting |
 | Per-frame JS work | none (CSS-driven) | none (CSS-driven) |
-| Visual style | smooth-shaded | ASCII / glyph art |
+| Visual style | ASCII / glyph art | smooth-shaded |
 
 glyphcss is the right tool when you want **iconic, terminal-aesthetic 3D** with
 **handpicked interactivity** — not when you need photorealistic texture mapping.

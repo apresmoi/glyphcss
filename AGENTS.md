@@ -13,7 +13,7 @@ Monorepo layout (pnpm workspaces):
 | Package | npm name | Role |
 |---|---|---|
 | `packages/core` | `@glyphcss/core` | Pure math: Vec3, Polygon, scene, camera, mesh ops, parsers. Zero browser globals. |
-| `packages/glyphcss` | `glyphcss` | Vanilla renderer + custom elements (`<glyphcss-scene>`, etc.). Owns the ASCII rasteriser, custom element definitions, and imperative API. |
+| `packages/glyphcss` | `glyphcss` | Vanilla renderer + custom elements (`<glyph-scene>`, etc.). Owns the ASCII rasteriser, custom element definitions, and imperative API. |
 | `packages/react` | `@glyphcss/react` | React components + hooks. Thin wrapper over core + glyphcss. |
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
@@ -53,15 +53,15 @@ Controls (orbit, map, first-person) mutate a single camera state object; the ras
 
 ## Naming
 
-Every public export gets a `Glyphcss` prefix. Exceptions are generic math/geometry types: `Vec2`, `Vec3`, `Polygon`, `TextureTriangle`.
+Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types: `Vec2`, `Vec3`, `Polygon`, `TextureTriangle`.
 
-- **Hooks/composables:** `useGlyphcssCamera`, `useGlyphcssMesh`, `useGlyphcssSceneContext`, `useGlyphcssAnimation`.
-- **Components:** `GlyphcssPerspectiveCamera`, `GlyphcssOrthographicCamera`, `GlyphcssOrbitControls`, `GlyphcssMapControls`, `GlyphcssFirstPersonControls`, `GlyphcssAxesHelper`, `GlyphcssDirectionalLightHelper`.
-- **Types:** `GlyphcssDirectionalLight`, `GlyphcssAmbientLight`, `GlyphcssAnimationMixer`, `GlyphcssAnimationAction`, `GlyphcssAnimationClip`, `GlyphcssAnimationTarget`.
-- **Functions:** `createGlyphcssAnimationMixer`, `injectGlyphcssBaseStyles`.
-- **Vanilla factories:** `createGlyphcssScene`, `createGlyphcssCamera`, `createGlyphcssOrbitControls`, `createGlyphcssMapControls`, `createGlyphcssFirstPersonControls`.
-- **HTML custom elements:** `glyphcss-` prefix + kebab-case. Existing tags: `<glyphcss-scene>`, `<glyphcss-mesh>`, `<glyphcss-hotspot>`, `<glyphcss-perspective-camera>`, `<glyphcss-orthographic-camera>`, `<glyphcss-orbit-controls>`, `<glyphcss-map-controls>`. Any new element follows the same shape.
-- `GlyphcssCamera` is a kept alias for `GlyphcssPerspectiveCamera` — the ergonomic default. **Not deprecated.**
+- **Hooks/composables:** `useGlyphCamera`, `useGlyphMesh`, `useGlyphSceneContext`, `useGlyphAnimation`.
+- **Components:** `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`.
+- **Types:** `GlyphDirectionalLight`, `GlyphAmbientLight`, `GlyphAnimationMixer`, `GlyphAnimationAction`, `GlyphAnimationClip`, `GlyphAnimationTarget`.
+- **Functions:** `createGlyphAnimationMixer`, `injectGlyphBaseStyles`.
+- **Vanilla factories:** `createGlyphScene`, `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`, `createGlyphOrbitControls`, `createGlyphMapControls`, `createGlyphFirstPersonControls`.
+- **HTML custom elements:** `glyph-` prefix + kebab-case. Existing tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-perspective-camera>`, `<glyph-orthographic-camera>`, `<glyph-camera>` (ortho alias), `<glyph-orbit-controls>`, `<glyph-map-controls>`. Any new element follows the same shape.
+- `GlyphCamera` is the ergonomic default alias — it resolves to `GlyphOrthographicCamera`. The voxel render mode and iso/diagrammatic scenes are glyphcss's differentiator; ortho is the more representative default.
 
 ## Cross-package discipline
 

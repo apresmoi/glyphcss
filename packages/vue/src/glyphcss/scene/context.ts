@@ -1,11 +1,11 @@
 import type { InjectionKey, ShallowRef } from "vue";
-import type { GlyphcssSceneHandle } from "glyphcss";
+import type { GlyphSceneHandle } from "glyphcss";
 
-export interface GlyphcssSceneContextValue {
-  sceneRef: ShallowRef<GlyphcssSceneHandle | null>;
+export interface GlyphSceneContextValue {
+  sceneRef: ShallowRef<GlyphSceneHandle | null>;
 }
 
-export const GlyphcssSceneContextKey: InjectionKey<GlyphcssSceneContextValue> =
-  Symbol("glyphcss-scene");
+export const GlyphSceneContextKey: InjectionKey<GlyphSceneContextValue> =
+  Symbol("glyph-scene");
 
-export type { GlyphcssSceneHandle };
+export type { GlyphSceneHandle };

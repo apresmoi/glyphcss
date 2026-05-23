@@ -2,11 +2,11 @@
  * glyphcss — ASCII paint backend with glyphcss's scene-composition API.
  *
  * Public surface:
- *   - `createGlyphcssScene(host, options)` — imperative scene API
- *   - Camera factories — `createGlyphcssPerspectiveCamera`, `createGlyphcssOrthographicCamera`,
- *     `createGlyphcssFirstPersonCamera`
- *   - Controls — `createGlyphcssOrbitControls`, `createGlyphcssMapControls`,
- *     `createGlyphcssFirstPersonControls`
+ *   - `createGlyphScene(host, options)` — imperative scene API
+ *   - Camera factories — `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`,
+ *     `createGlyphOrthographicCamera`
+ *   - Controls — `createGlyphOrbitControls`, `createGlyphMapControls`,
+ *     `createGlyphFirstPersonControls`
  *   - Rasterizer — `rasterize`, `bakeFrames`
  *   - Custom element classes (importing this entry does NOT auto-register them;
  *     use `glyphcss/elements` for that side effect).
@@ -14,63 +14,61 @@
  */
 
 // ── Imperative scene API ──────────────────────────────────────────
-export { createGlyphcssScene } from "./api/createGlyphcssScene";
+export { createGlyphScene } from "./api/createGlyphScene";
 export type {
-  GlyphcssSceneHandle,
-  GlyphcssMeshHandle,
-  GlyphcssMeshTransform,
-  GlyphcssSceneOptions,
-  GlyphcssHotspotOptions,
-  GlyphcssHotspotHandle,
-} from "./api/createGlyphcssScene";
+  GlyphSceneHandle,
+  GlyphMeshHandle,
+  GlyphMeshTransform,
+  GlyphSceneOptions,
+  GlyphHotspotOptions,
+  GlyphHotspotHandle,
+} from "./api/createGlyphScene";
 
-// Re-export glyphcss-specific types
-export type { GlyphcssDirectionalLight, GlyphcssAmbientLight } from "./api/types";
+// Re-export glyph-specific types
+export type { GlyphDirectionalLight, GlyphAmbientLight } from "./api/types";
 
 // ── Camera factories ──────────────────────────────────────────────
 export {
-  createGlyphcssPerspectiveCamera,
-  createGlyphcssOrthographicCamera,
-  createGlyphcssFirstPersonCamera,
-} from "./api/createGlyphcssCamera";
+  createGlyphCamera,
+  createGlyphPerspectiveCamera,
+  createGlyphOrthographicCamera,
+} from "./api/createGlyphCamera";
 export type {
-  GlyphcssCamera,
-  GlyphcssPerspectiveCameraOptions,
-  GlyphcssOrthographicCameraOptions,
-  GlyphcssFirstPersonCameraOptions,
-  GlyphcssPerspectiveCameraHandle,
-  GlyphcssOrthographicCameraHandle,
-  GlyphcssFirstPersonCameraHandle,
-} from "./api/createGlyphcssCamera";
+  GlyphCamera,
+  GlyphPerspectiveCameraOptions,
+  GlyphOrthographicCameraOptions,
+  GlyphPerspectiveCameraHandle,
+  GlyphOrthographicCameraHandle,
+} from "./api/createGlyphCamera";
 
 // ── Controls ──────────────────────────────────────────────────────
-export { createGlyphcssOrbitControls } from "./api/createGlyphcssOrbitControls";
+export { createGlyphOrbitControls } from "./api/createGlyphOrbitControls";
 export type {
-  GlyphcssOrbitControlsOptions,
-  GlyphcssOrbitControlsHandle,
-} from "./api/createGlyphcssOrbitControls";
+  GlyphOrbitControlsOptions,
+  GlyphOrbitControlsHandle,
+} from "./api/createGlyphOrbitControls";
 
-export { createGlyphcssMapControls } from "./api/createGlyphcssMapControls";
+export { createGlyphMapControls } from "./api/createGlyphMapControls";
 export type {
-  GlyphcssMapControlsOptions,
-  GlyphcssMapControlsHandle,
-} from "./api/createGlyphcssMapControls";
+  GlyphMapControlsOptions,
+  GlyphMapControlsHandle,
+} from "./api/createGlyphMapControls";
 
-export { createGlyphcssFirstPersonControls } from "./api/createGlyphcssFirstPersonControls";
+export { createGlyphFirstPersonControls } from "./api/createGlyphFirstPersonControls";
 export type {
-  GlyphcssFirstPersonControlsOptions,
-  GlyphcssFirstPersonControlsHandle,
-} from "./api/createGlyphcssFirstPersonControls";
+  GlyphFirstPersonControlsOptions,
+  GlyphFirstPersonControlsHandle,
+} from "./api/createGlyphFirstPersonControls";
 
 // ── Mesh finders ──────────────────────────────────────────────────
-export { findGlyphcssMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./api/meshFinders";
+export { findGlyphMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./api/meshFinders";
 
 // ── Event types ───────────────────────────────────────────────────
 export type {
-  GlyphcssPointerEvent,
-  GlyphcssMouseEvent,
-  GlyphcssWheelEvent,
-  GlyphcssEventHandler,
+  GlyphPointerEvent,
+  GlyphMouseEvent,
+  GlyphWheelEvent,
+  GlyphEventHandler,
 } from "./api/events";
 
 // ── Hotspot projection (hit layer) ────────────────────────────────
@@ -95,16 +93,16 @@ export type {
 } from "./api/rasterizeContext";
 
 // ── Style injection ───────────────────────────────────────────────
-export { injectGlyphcssBaseStyles } from "./styles/styles";
+export { injectGlyphBaseStyles } from "./styles/styles";
 
 // ── Custom element classes (without auto-registering) ─────────────
-export { GlyphcssSceneElement } from "./elements/GlyphcssSceneElement";
-export { GlyphcssMeshElement } from "./elements/GlyphcssMeshElement";
-export { GlyphcssHotspotElement } from "./elements/GlyphcssHotspotElement";
-export { GlyphcssPerspectiveCameraElement } from "./elements/GlyphcssPerspectiveCameraElement";
-export { GlyphcssOrthographicCameraElement } from "./elements/GlyphcssOrthographicCameraElement";
-export { GlyphcssOrbitControlsElement } from "./elements/GlyphcssOrbitControlsElement";
-export { GlyphcssMapControlsElement } from "./elements/GlyphcssMapControlsElement";
+export { GlyphSceneElement } from "./elements/GlyphSceneElement";
+export { GlyphMeshElement } from "./elements/GlyphMeshElement";
+export { GlyphHotspotElement } from "./elements/GlyphHotspotElement";
+export { GlyphPerspectiveCameraElement } from "./elements/GlyphPerspectiveCameraElement";
+export { GlyphOrthographicCameraElement } from "./elements/GlyphOrthographicCameraElement";
+export { GlyphOrbitControlsElement } from "./elements/GlyphOrbitControlsElement";
+export { GlyphMapControlsElement } from "./elements/GlyphMapControlsElement";
 
 // ── Re-exports from @glyphcss/core ───────────────────────────────
 export * from "@glyphcss/core";

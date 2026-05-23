@@ -45,9 +45,9 @@ function bboxDiagonal(verts: Vec3[]): number {
  * (NODE_ENV !== "production" or a runtime DEV flag on globalThis) as dev.
  */
 function isDevMode(): boolean {
-  const g = globalThis as unknown as { __GLYPHCSS_DEV__?: boolean; process?: { env?: { NODE_ENV?: string } } };
-  if (g.__GLYPHCSS_DEV__ === true) return true;
-  if (g.__GLYPHCSS_DEV__ === false) return false;
+  const g = globalThis as unknown as { __GLYPH_DEV__?: boolean; process?: { env?: { NODE_ENV?: string } } };
+  if (g.__GLYPH_DEV__ === true) return true;
+  if (g.__GLYPH_DEV__ === false) return false;
   const env = g.process?.env?.NODE_ENV;
   if (typeof env === "string") return env !== "production";
   return false;

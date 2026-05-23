@@ -12,7 +12,9 @@ export interface RenderingFolderInputs {
   glyphPalette: SceneOptionsState["glyphPalette"];
   lineHeight: number;
   useColors: boolean;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "lineHeight" | "useColors">>) => void;
+  smoothShading: boolean;
+  creaseAngle: number;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "lineHeight" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
 
 
@@ -20,24 +22,21 @@ const RENDER_MODE_OPTIONS: Record<string, "wireframe" | "solid"> = {
   Wireframe: "wireframe",
   Solid: "solid",
 };
-type GlyphPaletteId = "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
+type GlyphPaletteId = "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
 const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
   Default: "default",
   ASCII: "ascii",
-  Dots: "dots",
   Lines: "lines",
   Blocks: "blocks",
   Stars: "stars",
   Arrows: "arrows",
-  Braille: "braille",
-  Runes: "runes",
   Math: "math",
   Binary: "binary",
   Hex: "hex",
 };
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): void {
-  const { renderMode, featureEdges, glyphPalette, lineHeight, useColors, onUpdateScene } = inputs;
+  const { renderMode, featureEdges, glyphPalette, lineHeight, useColors, smoothShading, creaseAngle, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   useOption<"wireframe" | "solid">(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, (value) =>
@@ -51,6 +50,12 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   );
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),
+  );
+  useToggle(folder, "Smooth shading", smoothShading, (value) =>
+    onUpdateScene({ smoothShading: value }),
+  );
+  useSlider(folder, "Crease angle °", { min: 0, max: 180, step: 1 }, creaseAngle, (value) =>
+    onUpdateScene({ creaseAngle: value }),
   );
   useSlider(folder, "Line-height ×", { min: 0.5, max: 1.2, step: 0.01 }, lineHeight, (value) =>
     onUpdateScene({ lineHeight: value }),

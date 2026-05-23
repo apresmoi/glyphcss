@@ -1,0 +1,21 @@
+{
+  "name": "@glyphcss/examples-vue",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 6176",
+    "build": "vite build",
+    "preview": "vite preview --port 6176"
+  },
+  "dependencies": {
+    "@glyphcss/core": "workspace:*",
+    "@glyphcss/vue": "workspace:*",
+    "vue": "^3.5.12"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "typescript": "^5.3.3",
+    "vite": "^6.0.0"
+  }
+}

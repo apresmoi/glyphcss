@@ -29,17 +29,19 @@ then maps the stamp to glyphs:
   <TabItem label="React">
 
 ```tsx
-import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
 
 export function WireframeDemo() {
   return (
-    <GlyphcssScene mode="wireframe" cols={80} rows={24}>
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={icosa} />
-    </GlyphcssScene>
+    <GlyphCamera rotX={0.4}>
+      <GlyphScene mode="wireframe" cols={80} rows={24}>
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={icosa} />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -48,16 +50,18 @@ export function WireframeDemo() {
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphCamera, createGlyphScene } from "glyphcss";
 
-const scene = createGlyphcssScene(document.querySelector("#scene")!, {
+const camera = createGlyphCamera({ rotX: 0.4 });
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
   mode: "wireframe",
   cols: 80,
   rows: 24,
 });
 
 // Custom wireframe edges with explicit weights:
-import { buildSceneContext } from "glyphcss-core";
+import { buildSceneContext } from "glyph-core";
 
 const ctx = buildSceneContext({
   camera, grid,
@@ -90,23 +94,25 @@ normals.
   <TabItem label="React">
 
 ```tsx
-import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
 import { dodecahedronPolygons } from "@glyphcss/core";
 
 const dodeca = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44ff" });
 
 export function SolidDemo() {
   return (
-    <GlyphcssScene
-      mode="solid"
-      cols={100}
-      rows={30}
-      directionalLight={{ direction: [0.5, 0.7, 0.5], intensity: 1 }}
-      ambientLight={{ intensity: 0.4 }}
-    >
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={dodeca} />
-    </GlyphcssScene>
+    <GlyphCamera rotX={0.4}>
+      <GlyphScene
+        mode="solid"
+        cols={100}
+        rows={30}
+        directionalLight={{ direction: [0.5, 0.7, 0.5], intensity: 1 }}
+        ambientLight={{ intensity: 0.4 }}
+      >
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={dodeca} />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -115,10 +121,12 @@ export function SolidDemo() {
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphCamera, createGlyphScene } from "glyphcss";
 import { dodecahedronPolygons } from "@glyphcss/core";
 
-const scene = createGlyphcssScene(document.querySelector("#scene")!, {
+const camera = createGlyphCamera({ rotX: 0.4 });
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
   mode: "solid",
   cols: 100,
   rows: 30,
@@ -142,17 +150,19 @@ where the source data is already cell-aligned.
   <TabItem label="React">
 
 ```tsx
-import { GlyphcssScene, GlyphcssMesh, GlyphcssOrbitControls } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
 import type { Polygon } from "@glyphcss/core";
 
 // `polygons` comes from parseVox() — load the file outside the component.
 // Replace "/tree.vox" with your own MagicaVoxel file path.
 export function VoxelDemo({ polygons }: { polygons: Polygon[] }) {
   return (
-    <GlyphcssScene mode="voxel" cols={80} rows={24}>
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh polygons={polygons} />
-    </GlyphcssScene>
+    <GlyphCamera rotX={0.4}>
+      <GlyphScene mode="voxel" cols={80} rows={24}>
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={polygons} />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -161,14 +171,16 @@ export function VoxelDemo({ polygons }: { polygons: Polygon[] }) {
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphCamera, createGlyphScene } from "glyphcss";
 import { parseVox } from "@glyphcss/core";
 
 // Replace "/tree.vox" with the path to your own MagicaVoxel file.
 const voxBuffer = await fetch("/tree.vox").then((r) => r.arrayBuffer());
 const { polygons } = parseVox(voxBuffer);
 
-const scene = createGlyphcssScene(document.querySelector("#scene")!, {
+const camera = createGlyphCamera({ rotX: 0.4 });
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
   mode: "voxel",
   cols: 80,
   rows: 24,
@@ -186,7 +198,7 @@ Best for: voxel art, chunky low-poly aesthetics.
 
 ## Built-in `geometry` attribute
 
-The `<glyphcss-mesh>` custom element and the `GlyphcssMesh` component accept a
+The `<glyph-mesh>` custom element and the `GlyphMesh` component accept a
 `geometry` string shortcut for three built-in shapes. These are runtime-internal
 presets, not public core helpers — for procedural code use the `@glyphcss/core`
 generators instead.
@@ -199,9 +211,9 @@ generators instead.
 
 ```tsx
 // Built-in preset (no import needed):
-<GlyphcssMesh geometry="cuboctahedron" />
+<GlyphMesh geometry="cuboctahedron" />
 
 // Equivalent procedural form (more control):
 import { icosahedronPolygons } from "@glyphcss/core";
-<GlyphcssMesh polygons={icosahedronPolygons({ center: [0,0,0], size:1 })} />
+<GlyphMesh polygons={icosahedronPolygons({ center: [0,0,0], size:1 })} />
 ```

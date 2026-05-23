@@ -2,8 +2,10 @@
 // type declarations that flow between subfolders (presets/, helpers/, the
 // component itself) live here. Component-internal types stay local.
 
-export type ModelKind = "obj" | "glb" | "gltf" | "vox";
-export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel";
+import type { Polygon } from "@glyphcss/core";
+
+export type ModelKind = "obj" | "glb" | "gltf" | "vox" | "primitive";
+export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel" | "Primitives";
 export type PerspectiveMode = "perspective" | "orthographic";
 export type DragMode = "orbit" | "pan" | "fpv";
 
@@ -14,19 +16,31 @@ export interface ModelAttribution {
   tris?: number;
 }
 
-export interface PresetModel {
+interface BasePreset {
   id: string;
   label: string;
-  kind: ModelKind;
   category: string;
-  url: string;
-  mtlUrl?: string;
   zoom?: number;
   rotX?: number;
   rotY?: number;
   galleryBucket?: GalleryBucket;
   attribution?: ModelAttribution;
 }
+
+interface UrlPreset extends BasePreset {
+  kind: Exclude<ModelKind, "primitive">;
+  url: string;
+  mtlUrl?: string;
+}
+
+export interface PrimitivePreset extends BasePreset {
+  kind: "primitive";
+  url?: never;
+  mtlUrl?: never;
+  generatePolygons: () => Polygon[];
+}
+
+export type PresetModel = UrlPreset | PrimitivePreset;
 
 export interface DroppedModelSource {
   id: string;
@@ -54,7 +68,7 @@ export interface ObjGalleryPresetFile extends GalleryPresetFile {
   defaultColor?: string;
 }
 
-export interface GlyphcssMetrics {
+export interface GlyphMetrics {
   measuredAt: number;
   cells: number;
   edges: number;
@@ -68,10 +82,8 @@ export interface SceneOptionsState {
   animationPaused: boolean;
   animationTimeScale: number;
   autoCenter: boolean;
+  autoRotate: boolean;
   interactive: boolean;
-  showAxes: boolean;
-  showLight: boolean;
-  showGround: boolean;
   zoom: number;
   rotX: number;
   rotY: number;
@@ -85,9 +97,11 @@ export interface SceneOptionsState {
   target: [number, number, number];
   renderMode: "wireframe" | "solid";
   featureEdges: number;
-  glyphPalette: "default" | "ascii" | "dots" | "lines" | "blocks" | "stars" | "arrows" | "braille" | "runes" | "math" | "binary" | "hex";
+  glyphPalette: "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
   lineHeight: number;
   useColors: boolean;
+  smoothShading: boolean;
+  creaseAngle: number;
   dragMode: DragMode;
   fpvLook: boolean;
   fpvMove: boolean;

@@ -165,6 +165,11 @@ export const UTAH_TEAPOT_ATTRIBUTION: ModelAttribution = {
   sourceUrl: "https://graphics.cs.utah.edu/teapot/",
 };
 
+export const PRIMITIVE_ATTRIBUTION: ModelAttribution = {
+  creator: "Built-in primitive",
+  sourceUrl: "https://github.com/apresmoi/glyphcss",
+};
+
 export function openGameArtAttribution(
   creator: string,
   slug: string,

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>solid-mesh — glyphcss HTML</title>
+  <script type="module">import "glyphcss/elements";</script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #111; }
+    glyph-perspective-camera { display: block; width: 100%; height: 100vh; }
+    glyph-scene { display: block; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <glyph-perspective-camera rot-x="0.5" rot-y="0.4" zoom="0.35" distance="100">
+    <glyph-scene auto-size>
+      <glyph-orbit-controls></glyph-orbit-controls>
+      <glyph-mesh src="/apple.glb" normalize></glyph-mesh>
+    </glyph-scene>
+  </glyph-perspective-camera>
+</body>
+</html>

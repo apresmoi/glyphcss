@@ -1,8 +1,8 @@
-import type { GlyphcssMeshHandle } from "./context";
+import type { GlyphMeshHandle } from "./context";
 
-const MESH_REGISTRY = new WeakMap<HTMLElement, GlyphcssMeshHandle>();
+const MESH_REGISTRY = new WeakMap<HTMLElement, GlyphMeshHandle>();
 
-export function registerMeshElement(el: HTMLElement, handle: GlyphcssMeshHandle): void {
+export function registerMeshElement(el: HTMLElement, handle: GlyphMeshHandle): void {
   MESH_REGISTRY.set(el, handle);
 }
 
@@ -10,7 +10,7 @@ export function unregisterMeshElement(el: HTMLElement): void {
   MESH_REGISTRY.delete(el);
 }
 
-export function findGlyphcssMeshHandle(el: Element | null): GlyphcssMeshHandle | null {
+export function findGlyphMeshHandle(el: Element | null): GlyphMeshHandle | null {
   let cur: Element | null = el;
   while (cur) {
     if (cur instanceof HTMLElement) {
@@ -36,14 +36,14 @@ export function findMeshUnderPoint(
   clientX: number,
   clientY: number,
   filter?: (meshEl: HTMLElement) => boolean,
-): GlyphcssMeshHandle | null {
+): GlyphMeshHandle | null {
   if (typeof document === "undefined") return null;
   const meshEls = Array.from(
-    document.querySelectorAll(".glyphcss-mesh"),
+    document.querySelectorAll(".glyph-mesh"),
   ) as HTMLElement[];
   for (const meshEl of meshEls) {
     if (filter && !filter(meshEl)) continue;
-    const handle = findGlyphcssMeshHandle(meshEl);
+    const handle = findGlyphMeshHandle(meshEl);
     if (!handle) continue;
     if (pointInMeshElement(meshEl, clientX, clientY)) return handle;
   }

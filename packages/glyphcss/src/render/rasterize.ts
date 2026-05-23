@@ -1,6 +1,6 @@
 import type { RasterizeContext } from "../api/rasterizeContext";
-import type { Vec3 } from "@glyphcss/core";
-import { SOLID_RAMP, getWireframeGlyphs } from "./ramps";
+import type { Polygon, Vec3 } from "@glyphcss/core";
+import { getWireframeGlyphs } from "./ramps";
 
 /**
  * Render the scene to a string.
@@ -51,20 +51,19 @@ function rasterizeSolid(
   rows: number,
   cellAspect: number,
 ): string {
-  const { camera, polygons, directionalLight, ambientLight } = scene;
+  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle } = scene;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
+  const rampMax = ramp.length - 1;
 
   // Glyph buffer: one char per cell (space = empty).
   const glyphBuf: string[] = new Array(cols * rows).fill(" ");
   const useColors = scene.useColors;
   const colorBuf: (string | null)[] | null = useColors ? new Array(cols * rows).fill(null) : null;
-  // Depth buffer: -Infinity = nothing drawn yet. In our camera convention,
-  // higher `r[2]` = closer to viewer (perspective: persp > 1 for z > 0; ortho:
-  // higher z is "in front"; FPV: ahead-of-eye is z<0, with closest being the
-  // largest = least-negative z). So newer triangles win when their depth is
-  // GREATER than the existing buffer entry.
+  // Depth buffer: -Infinity = nothing drawn yet. Higher `r[2]` = closer to
+  // viewer in our camera convention, so newer triangles win when their
+  // depth is GREATER than the existing buffer entry.
   const depthBuf = new Float64Array(cols * rows).fill(-Infinity);
 
   // Normalize the light direction once.
@@ -76,15 +75,23 @@ function rasterizeSolid(
   const keyRgb = hexToRgb(directionalLight.color ?? "#ffffff");
   const ambRgb = hexToRgb(ambientLight.color ?? "#ffffff");
 
-  for (const poly of polygons) {
+  // Per-vertex normals for Gouraud shading. `null` when flat-shading.
+  // Index: [polyIdx][vertIdx] → normalized Vec3.
+  const vertexNormals = smoothShading && creaseAngle > 0
+    ? computeVertexNormals(polygons, creaseAngle)
+    : null;
+
+  for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
+    const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
     // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
     // For N=3 this produces exactly one triangle.
     for (let fanIdx = 1; fanIdx < verts.length - 1; fanIdx++) {
-      const v0 = verts[0]! as Vec3;
-      const v1 = verts[fanIdx]! as Vec3;
-      const v2 = verts[fanIdx + 1]! as Vec3;
+      const vi0 = 0, vi1 = fanIdx, vi2 = fanIdx + 1;
+      const v0 = verts[vi0]! as Vec3;
+      const v1 = verts[vi1]! as Vec3;
+      const v2 = verts[vi2]! as Vec3;
 
       const pa = camera.project(v0, cols, rows, cellAspect);
       const pb = camera.project(v1, cols, rows, cellAspect);
@@ -92,42 +99,68 @@ function rasterizeSolid(
       // NaN-cull: any vertex behind the near plane → skip triangle.
       if (pa[0] !== pa[0] || pb[0] !== pb[0] || pc[0] !== pc[0]) continue;
 
-      // Compute face normal in world space (before projection) for Lambert.
+      // Face normal in world space (for flat shading or as a fallback when
+      // vertex normals aren't computed).
       const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
       const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
-      const nx = uy * vvz - uz * vvy;
-      const ny = uz * vvx - ux * vvz;
-      const nz = ux * vvy - uy * vvx;
-      const nLen = Math.hypot(nx, ny, nz) || 1;
-      const dot = (nx * lx + ny * ly + nz * lz) / nLen;
-      const keyFactor = Math.max(0, dot) * keyIntensity;
-      const intensity = Math.min(1, Math.max(0, ambIntensity + keyFactor));
-      const glyphIdx = Math.min(ramp.length - 1, (intensity * (ramp.length - 1)) | 0);
-      const glyph = ramp[glyphIdx]!;
+      const fnx = uy * vvz - uz * vvy;
+      const fny = uz * vvx - ux * vvz;
+      const fnz = ux * vvy - uy * vvx;
+      const fnLen = Math.hypot(fnx, fny, fnz) || 1;
+      const fnxN = fnx / fnLen, fnyN = fny / fnLen, fnzN = fnz / fnLen;
 
-      // Per-channel light-mix only when colors are enabled. Otherwise pass null
-      // so scanFillTriangle skips the color write and the emitter skips spans.
+      // Pick per-vertex normals. Smooth-shaded → look up from precomputed
+      // table. Flat-shaded → all three vertices use the face normal.
+      let nAx: number, nAy: number, nAz: number;
+      let nBx: number, nBy: number, nBz: number;
+      let nCx: number, nCy: number, nCz: number;
+      if (vertexNormals) {
+        const polyNormals = vertexNormals[polyIdx]!;
+        const nA = polyNormals[vi0]!, nB = polyNormals[vi1]!, nC = polyNormals[vi2]!;
+        nAx = nA[0]; nAy = nA[1]; nAz = nA[2];
+        nBx = nB[0]; nBy = nB[1]; nBz = nB[2];
+        nCx = nC[0]; nCy = nC[1]; nCz = nC[2];
+      } else {
+        nAx = nBx = nCx = fnxN;
+        nAy = nBy = nCy = fnyN;
+        nAz = nBz = nCz = fnzN;
+      }
+
+      // Per-vertex Lambert intensity (ambient + clamped key).
+      const dotA = nAx * lx + nAy * ly + nAz * lz;
+      const dotB = nBx * lx + nBy * ly + nBz * lz;
+      const dotC = nCx * lx + nCy * ly + nCz * lz;
+      const iA = Math.min(1, ambIntensity + Math.max(0, dotA) * keyIntensity);
+      const iB = Math.min(1, ambIntensity + Math.max(0, dotB) * keyIntensity);
+      const iC = Math.min(1, ambIntensity + Math.max(0, dotC) * keyIntensity);
+
+      // Triangle color: tint poly.color by the AVERAGE of the three vertex
+      // intensities. Keeping a single color per triangle preserves run-
+      // coalescing in `solidBufToString` — a per-cell color would force one
+      // <span> per cell and hurt innerHTML parse time. The intensity gradient
+      // already lives in the glyph selection per cell.
       let litColor: string | null = null;
       if (useColors) {
+        const avgI = (iA + iB + iC) / 3;
+        const avgKey = Math.max(0, avgI - ambIntensity);
         const triRgb = poly.color ? hexToRgb(poly.color) : [255, 255, 255];
-        const tintR = ambIntensity * ambRgb[0] / 255 + keyFactor * keyRgb[0] / 255;
-        const tintG = ambIntensity * ambRgb[1] / 255 + keyFactor * keyRgb[1] / 255;
-        const tintB = ambIntensity * ambRgb[2] / 255 + keyFactor * keyRgb[2] / 255;
+        const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
+        const tintG = ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255;
+        const tintB = ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255;
         const litR = Math.min(255, triRgb[0] * tintR);
         const litG = Math.min(255, triRgb[1] * tintG);
         const litB = Math.min(255, triRgb[2] * tintB);
         litColor = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
       }
 
-      // Average depth for the triangle (camera-space Z, lower = closer).
-      const depth = (pa[2] + pb[2] + pc[2]) / 3;
-
-      // Scan-fill the projected triangle in grid coords.
+      // Scan-fill the projected triangle. Depth and intensity are both
+      // interpolated per cell via barycentric coordinates so adjacent
+      // triangles on a curved surface never disagree at their shared edge.
       scanFillTriangle(
-        pa[0], pa[1],
-        pb[0], pb[1],
-        pc[0], pc[1],
-        depth, glyph, litColor,
+        pa[0], pa[1], pa[2], iA,
+        pb[0], pb[1], pb[2], iB,
+        pc[0], pc[1], pc[2], iC,
+        ramp, rampMax, litColor,
         glyphBuf, colorBuf, depthBuf,
         cols, rows,
       );
@@ -138,16 +171,43 @@ function rasterizeSolid(
 }
 
 /**
- * Scan-fill a triangle in grid space. Uses a top-left fill convention with
- * per-scanline edge interpolation. Overwrites cells only when `depth` is
- * lower than the existing depth buffer entry.
+ * Half-space triangle rasterizer with per-pixel barycentric depth.
+ *
+ * For each cell in the triangle's bounding box, evaluate three edge functions.
+ * A cell is inside iff all three weights have the same sign as the signed
+ * 2× triangle area. The weights also give barycentric coordinates → we
+ * interpolate per-vertex depth so adjacent triangles on a curved surface
+ * never disagree at a shared edge (the previous per-triangle average depth
+ * flipped winners at angle-dependent epsilons and showed up as dark bands
+ * across solid surfaces).
+ *
+ * Shared edges between adjacent triangles get drawn twice (no top-left bias).
+ * That's fine: both triangles write the same per-pixel depth at the shared
+ * edge, so whichever is rasterized second either confirms or correctly loses
+ * the depth test. We can't use the GPU's fixed-point top-left bias trick here
+ * because our edge functions are in floating point — a constant −1 subtracted
+ * from a fractional weight near 0 turns valid interior pixels (w ≈ 0.4) into
+ * "outside" (w ≈ −0.6) and punches holes through every triangle.
  */
+/**
+ * 4×4 Bayer ordered-dither thresholds, normalized to (0, 1). Indexed by
+ * `(row & 3) * 4 + (col & 3)`. The `+0.5` recentring keeps every cell strictly
+ * inside the open interval so neither boundary glyph is favored when intensity
+ * lands exactly on a ramp step.
+ */
+const BAYER_4X4 = new Float64Array([
+  ( 0 + 0.5) / 16, ( 8 + 0.5) / 16, ( 2 + 0.5) / 16, (10 + 0.5) / 16,
+  (12 + 0.5) / 16, ( 4 + 0.5) / 16, (14 + 0.5) / 16, ( 6 + 0.5) / 16,
+  ( 3 + 0.5) / 16, (11 + 0.5) / 16, ( 1 + 0.5) / 16, ( 9 + 0.5) / 16,
+  (15 + 0.5) / 16, ( 7 + 0.5) / 16, (13 + 0.5) / 16, ( 5 + 0.5) / 16,
+]);
+
 function scanFillTriangle(
-  ax: number, ay: number,
-  bx: number, by: number,
-  cx: number, cy: number,
-  depth: number,
-  glyph: string,
+  ax: number, ay: number, az: number, ia: number,
+  bx: number, by: number, bz: number, ib: number,
+  cx: number, cy: number, cz: number, ic: number,
+  ramp: string[],
+  rampMax: number,
   color: string | null,
   glyphBuf: string[],
   colorBuf: (string | null)[] | null,
@@ -155,43 +215,138 @@ function scanFillTriangle(
   cols: number,
   rows: number,
 ): void {
-  // Sort vertices by row (top → bottom).
-  let x0 = ax, y0 = ay, x1 = bx, y1 = by, x2 = cx, y2 = cy;
-  if (y1 < y0) { let t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
-  if (y2 < y0) { let t = x0; x0 = x2; x2 = t; t = y0; y0 = y2; y2 = t; }
-  if (y2 < y1) { let t = x1; x1 = x2; x2 = t; t = y1; y1 = y2; y2 = t; }
+  // Signed 2× area. Sign tells us screen-space winding.
+  const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (area2 === 0) return;
+  // Backface cull. Glyphcss's camera projects world-CCW polygons (the input
+  // convention is "CCW from outside") to screen-CW under our row convention
+  // (positive r[1] → larger row → visually below center), so front-facing
+  // triangles produce `area2 < 0`. Drop back faces. The asciss-derived
+  // rotateVec3 also swaps the X/Y input axes, which contributes to the
+  // orientation flip.
+  if (area2 > 0) return;
+  const invArea2 = 1 / area2;
+  const ccw = area2 > 0;
 
-  const rowTop = Math.max(0, Math.ceil(y0));
-  const rowBot = Math.min(rows - 1, Math.floor(y2));
-  if (rowTop > rowBot) return;
+  // Bounding box clamped to grid.
+  let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
+  let maxX = ax > bx ? ax : bx; if (cx > maxX) maxX = cx;
+  let minY = ay < by ? ay : by; if (cy < minY) minY = cy;
+  let maxY = ay > by ? ay : by; if (cy > maxY) maxY = cy;
+  const colLeft = Math.max(0, Math.ceil(minX));
+  const colRight = Math.min(cols - 1, Math.floor(maxX));
+  const rowTop = Math.max(0, Math.ceil(minY));
+  const rowBot = Math.min(rows - 1, Math.floor(maxY));
+  if (colLeft > colRight || rowTop > rowBot) return;
 
   for (let row = rowTop; row <= rowBot; row++) {
-    // Compute left and right X for this scanline by interpolating along the two
-    // relevant edges. The long edge spans the full triangle height; the short
-    // edges span top→mid and mid→bottom.
-    const t = (row - y0) / (y2 - y0 || 1);
-    const xLong = x0 + (x2 - x0) * t;
+    const py = row;
+    for (let col = colLeft; col <= colRight; col++) {
+      const px = col;
+      // Signed 2× areas of sub-triangles (P,B,C), (P,C,A), (P,A,B). Sum = area2.
+      // wA = weight of vertex A, wB = weight of B, wC = weight of C.
+      const wA = (bx - px) * (cy - py) - (by - py) * (cx - px);
+      const wB = (cx - px) * (ay - py) - (cy - py) * (ax - px);
+      const wC = (ax - px) * (by - py) - (ay - py) * (bx - px);
+      // Inside test: all three weights share sign of area2 (≥ 0 inclusive).
+      if (ccw ? (wA < 0 || wB < 0 || wC < 0) : (wA > 0 || wB > 0 || wC > 0)) continue;
 
-    let xShort: number;
-    if (row < y1) {
-      const t2 = (row - y0) / (y1 - y0 || 1);
-      xShort = x0 + (x1 - x0) * t2;
-    } else {
-      const t2 = (row - y1) / (y2 - y1 || 1);
-      xShort = x1 + (x2 - x1) * t2;
-    }
-
-    const colL = Math.max(0, Math.ceil(Math.min(xLong, xShort)));
-    const colR = Math.min(cols - 1, Math.floor(Math.max(xLong, xShort)));
-    for (let col = colL; col <= colR; col++) {
+      // Per-pixel depth via barycentric interpolation.
+      const pixelDepth = (wA * az + wB * bz + wC * cz) * invArea2;
       const idx = row * cols + col;
-      if (depth > depthBuf[idx]!) {
-        depthBuf[idx] = depth;
-        glyphBuf[idx] = glyph;
+      if (pixelDepth > depthBuf[idx]!) {
+        depthBuf[idx] = pixelDepth;
+        // Per-pixel intensity → per-pixel glyph. Two things happen here:
+        //   1. Smooth shading: adjacent triangles' shared edge has the same
+        //      interpolated intensity on both sides, so the glyph transition
+        //      crosses the edge smoothly instead of stepping.
+        //   2. Bayer ordered dithering: pick between two adjacent ramp glyphs
+        //      based on a 4×4 threshold matrix. When the sub-ramp fraction
+        //      exceeds the cell's threshold, step up to the brighter glyph —
+        //      producing a stippled gradient that reads as continuous from a
+        //      distance and breaks up the visible contour bands between ramp
+        //      steps.
+        const intensity = (wA * ia + wB * ib + wC * ic) * invArea2;
+        const clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+        const rampPos = clamped * rampMax;
+        const lower = rampPos | 0;
+        const frac = rampPos - lower;
+        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
+        const glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+        glyphBuf[idx] = ramp[glyphIdx > rampMax ? rampMax : glyphIdx]!;
         if (colorBuf) colorBuf[idx] = color;
       }
     }
   }
+}
+
+/**
+ * Compute per-polygon, per-vertex smoothed normals for Gouraud shading.
+ *
+ * Vertices are bucketed by their exact world-space position (string key).
+ * Within each bucket, a polygon's vertex normal is the average of every
+ * adjacent polygon's face normal whose angle to *this* polygon's face normal
+ * is ≤ creaseAngle. This preserves sharp creases (cube corners, hard edges)
+ * while smoothing across genuine curved surfaces (bread crust, sphere).
+ *
+ * Returned shape: `out[polyIdx][vertIdx]` → normalized Vec3.
+ * O(N + E) where N = polygons, E = total polygon-vertex pairs sharing a position.
+ */
+function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3[][] {
+  const n = polygons.length;
+  // 1. Compute one face normal per polygon (from its first three vertices).
+  //    Non-planar polygons get an approximation; acceptable for shading.
+  const faceNormals: Vec3[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const v = polygons[i]!.vertices;
+    if (v.length < 3) { faceNormals[i] = [0, 0, 0]; continue; }
+    const a = v[0]!, b = v[1]!, c = v[2]!;
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    faceNormals[i] = [nx / len, ny / len, nz / len];
+  }
+
+  // 2. Bucket polygons by shared vertex position.
+  const positionMap = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const verts = polygons[i]!.vertices;
+    for (let v = 0; v < verts.length; v++) {
+      const p = verts[v]!;
+      const key = `${p[0]},${p[1]},${p[2]}`;
+      let arr = positionMap.get(key);
+      if (!arr) { arr = []; positionMap.set(key, arr); }
+      // Dedup self-add: a polygon with a repeated vertex shouldn't double-count.
+      if (arr.length === 0 || arr[arr.length - 1] !== i) arr.push(i);
+    }
+  }
+
+  // 3. For each polygon-vertex, average neighbors within the crease cone.
+  const cosThresh = Math.cos((creaseAngleDeg * Math.PI) / 180);
+  const out: Vec3[][] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const verts = polygons[i]!.vertices;
+    const myN = faceNormals[i]!;
+    const polyOut: Vec3[] = new Array(verts.length);
+    for (let v = 0; v < verts.length; v++) {
+      const p = verts[v]!;
+      const sharers = positionMap.get(`${p[0]},${p[1]},${p[2]}`)!;
+      let nx = 0, ny = 0, nz = 0;
+      for (let s = 0; s < sharers.length; s++) {
+        const otherI = sharers[s]!;
+        const oN = faceNormals[otherI]!;
+        const dot = myN[0] * oN[0] + myN[1] * oN[1] + myN[2] * oN[2];
+        if (dot >= cosThresh) { nx += oN[0]; ny += oN[1]; nz += oN[2]; }
+      }
+      const len = Math.hypot(nx, ny, nz) || 1;
+      polyOut[v] = [nx / len, ny / len, nz / len];
+    }
+    out[i] = polyOut;
+  }
+  return out;
 }
 
 function solidBufToString(glyphBuf: string[], colorBuf: (string | null)[] | null, cols: number, rows: number): string {

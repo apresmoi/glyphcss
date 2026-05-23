@@ -1,6 +1,6 @@
 /**
  * Gallery picker runtime — wires search box, model selection, load-random,
- * and the right-rail controls to the GlyphcssDemo's exposed handle.
+ * and the right-rail controls to the GlyphDemo's exposed handle.
  * Controls mirror glyphcss DebugWorkbench exactly.
  */
 
@@ -348,7 +348,7 @@ function initRail(): void {
     onChange: (mult) => {
       const demoEl = document.getElementById('gallery-demo');
       if (!demoEl) return;
-      const sceneHost = demoEl.querySelector('.glyphcss-demo__scene-host') as HTMLElement | null;
+      const sceneHost = demoEl.querySelector('.glyph-demo__scene-host') as HTMLElement | null;
       if (sceneHost) sceneHost.style.setProperty('--dur', `${(6 * mult).toFixed(2)}s`);
     },
   });

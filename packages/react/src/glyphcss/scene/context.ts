@@ -1,24 +1,24 @@
 import { createContext, useContext } from "react";
-import type { GlyphcssSceneHandle, GlyphcssHotspotHandle, GlyphcssHotspotOptions, GlyphcssMeshHandle, GlyphcssMeshTransform } from "glyphcss";
+import type { GlyphSceneHandle, GlyphHotspotHandle, GlyphHotspotOptions, GlyphMeshHandle, GlyphMeshTransform } from "glyphcss";
 
-export interface GlyphcssSceneContextValue {
-  sceneRef: React.MutableRefObject<GlyphcssSceneHandle | null>;
+export interface GlyphSceneContextValue {
+  sceneRef: React.MutableRefObject<GlyphSceneHandle | null>;
 }
 
-export const GlyphcssSceneContext = createContext<GlyphcssSceneContextValue | null>(null);
+export const GlyphSceneContext = createContext<GlyphSceneContextValue | null>(null);
 
-export function useGlyphcssSceneContext(): GlyphcssSceneContextValue {
-  const ctx = useContext(GlyphcssSceneContext);
+export function useGlyphSceneContext(): GlyphSceneContextValue {
+  const ctx = useContext(GlyphSceneContext);
   if (!ctx) {
-    throw new Error("glyphcss: GlyphcssMesh must be used inside a GlyphcssScene.");
+    throw new Error("glyphcss: component must be used inside a GlyphScene.");
   }
   return ctx;
 }
 
-export interface GlyphcssMeshContextValue {
-  meshRef: React.MutableRefObject<GlyphcssMeshHandle | null>;
+export interface GlyphMeshContextValue {
+  meshRef: React.MutableRefObject<GlyphMeshHandle | null>;
 }
 
-export const GlyphcssMeshContext = createContext<GlyphcssMeshContextValue | null>(null);
+export const GlyphMeshContext = createContext<GlyphMeshContextValue | null>(null);
 
-export type { GlyphcssSceneHandle, GlyphcssHotspotHandle, GlyphcssHotspotOptions, GlyphcssMeshHandle, GlyphcssMeshTransform };
+export type { GlyphSceneHandle, GlyphHotspotHandle, GlyphHotspotOptions, GlyphMeshHandle, GlyphMeshTransform };

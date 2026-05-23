@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Get an glyphcss scene rendering in 30 seconds.
+description: Get a glyphcss scene rendering in 30 seconds.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -37,18 +37,18 @@ npm install glyphcss
   <TabItem label="React">
 
 ```tsx
-import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh, GlyphHotspot } from "@glyphcss/react";
 
 export function App() {
   return (
-    <GlyphcssCamera rotX={0.4} zoom={0.32}>
-      <GlyphcssScene>
-        <GlyphcssOrbitControls drag wheel />
-        <GlyphcssMesh geometry="cuboctahedron">
-          <GlyphcssHotspot at={[1, 0, 0]} onClick={() => alert("vertex")} />
-        </GlyphcssMesh>
-      </GlyphcssScene>
-    </GlyphcssCamera>
+    <GlyphCamera rotX={0.4} zoom={0.32}>
+      <GlyphScene>
+        <GlyphOrbitControls drag wheel />
+        <GlyphMesh geometry="cuboctahedron">
+          <GlyphHotspot at={[1, 0, 0]} onClick={() => alert("vertex")} />
+        </GlyphMesh>
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -58,18 +58,18 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
-    <GlyphcssScene>
-      <GlyphcssOrbitControls drag wheel />
-      <GlyphcssMesh geometry="cuboctahedron">
-        <GlyphcssHotspot :at="[1, 0, 0]" @click="onClick" />
-      </GlyphcssMesh>
-    </GlyphcssScene>
-  </GlyphcssCamera>
+  <GlyphCamera :rot-x="0.4" :zoom="0.32">
+    <GlyphScene>
+      <GlyphOrbitControls drag wheel />
+      <GlyphMesh geometry="cuboctahedron">
+        <GlyphHotspot :at="[1, 0, 0]" @click="onClick" />
+      </GlyphMesh>
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 
 <script setup lang="ts">
-import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh, GlyphcssHotspot } from "@glyphcss/vue";
+import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh, GlyphHotspot } from "@glyphcss/vue";
 function onClick() { alert("vertex"); }
 </script>
 ```
@@ -80,10 +80,14 @@ function onClick() { alert("vertex"); }
 ```html
 <script type="module" src="https://esm.sh/glyphcss/elements"></script>
 
-<glyphcss-scene rot-x="0.4" geometry="cuboctahedron">
-  <glyphcss-orbit-controls drag wheel></glyphcss-orbit-controls>
-  <glyphcss-hotspot at="1,0,0"></glyphcss-hotspot>
-</glyphcss-scene>
+<glyph-camera rot-x="0.4" zoom="0.32">
+  <glyph-scene>
+    <glyph-orbit-controls drag wheel></glyph-orbit-controls>
+    <glyph-mesh geometry="cuboctahedron">
+      <glyph-hotspot at="1,0,0"></glyph-hotspot>
+    </glyph-mesh>
+  </glyph-scene>
+</glyph-camera>
 ```
 
   </TabItem>
@@ -92,9 +96,9 @@ function onClick() { alert("vertex"); }
 ## What you get
 
 - A single `<pre>` rendered as ASCII glyphs, animating a full rotation in ~6 seconds.
-- One absolutely-positioned `<div role="button">` for each `<GlyphcssHotspot>`,
+- One absolutely-positioned `<div role="button">` for each `<GlyphHotspot>`,
   tracking the rotating mesh exactly (per-frame keyframes synced via `steps(N)`).
-- Drag-to-rotate and scroll-to-zoom out of the box via `<GlyphcssOrbitControls>`.
+- Drag-to-rotate and scroll-to-zoom out of the box via `<GlyphOrbitControls>`.
 
 ## Try a Platonic solid
 
@@ -102,19 +106,19 @@ function onClick() { alert("vertex"); }
   <TabItem label="React">
 
 ```tsx
-import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh } from "@glyphcss/react";
+import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh } from "@glyphcss/react";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
 
 export function IcosahedronDemo() {
   return (
-    <GlyphcssCamera rotX={0.4} zoom={0.32}>
-      <GlyphcssScene mode="solid">
-        <GlyphcssOrbitControls />
-        <GlyphcssMesh polygons={icosa} />
-      </GlyphcssScene>
-    </GlyphcssCamera>
+    <GlyphCamera rotX={0.4} zoom={0.32}>
+      <GlyphScene mode="solid">
+        <GlyphOrbitControls />
+        <GlyphMesh polygons={icosa} />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
@@ -124,16 +128,16 @@ export function IcosahedronDemo() {
 
 ```vue
 <template>
-  <GlyphcssCamera :rot-x="0.4" :zoom="0.32">
-    <GlyphcssScene mode="solid">
-      <GlyphcssOrbitControls />
-      <GlyphcssMesh :polygons="icosa" />
-    </GlyphcssScene>
-  </GlyphcssCamera>
+  <GlyphCamera :rot-x="0.4" :zoom="0.32">
+    <GlyphScene mode="solid">
+      <GlyphOrbitControls />
+      <GlyphMesh :polygons="icosa" />
+    </GlyphScene>
+  </GlyphCamera>
 </template>
 
 <script setup lang="ts">
-import { GlyphcssCamera, GlyphcssScene, GlyphcssOrbitControls, GlyphcssMesh } from "@glyphcss/vue";
+import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh } from "@glyphcss/vue";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" });
@@ -144,11 +148,12 @@ const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc"
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphcssScene } from "glyphcss";
+import { createGlyphCamera, createGlyphScene } from "glyphcss";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const scene = createGlyphcssScene(host, { mode: "solid", cols: 80, rows: 24 });
+const camera = createGlyphCamera({ rotX: 0.4, zoom: 0.32 });
+const scene = createGlyphScene(host, { camera, mode: "solid", cols: 80, rows: 24 });
 scene.add(icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
 ```
 

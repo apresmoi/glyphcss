@@ -1,5 +1,5 @@
 import type { Hotspot, HotspotCell } from "@glyphcss/core";
-import type { GlyphcssCamera } from "./createGlyphcssCamera";
+import type { GlyphCamera } from "./createGlyphCamera";
 
 /**
  * Project a list of 3D hotspot anchors through the camera. Returns the
@@ -11,7 +11,7 @@ import type { GlyphcssCamera } from "./createGlyphcssCamera";
  */
 export function projectHotspots(
   hotspots: readonly Hotspot[],
-  camera: GlyphcssCamera,
+  camera: GlyphCamera,
   cols: number,
   rows: number,
   cellAspect: number,

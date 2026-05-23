@@ -16,29 +16,51 @@ Requires React 18 or 19 as a peer dependency.
 
 ```tsx
 import {
-  GlyphcssScene,
-  GlyphcssCamera,
-  GlyphcssMesh,
-  GlyphcssOrbitControls,
+  GlyphCamera,
+  GlyphScene,
+  GlyphMesh,
+  GlyphOrbitControls,
 } from "@glyphcss/react";
 
 export function App() {
   return (
-    <GlyphcssScene cols={80} rows={40}>
-      <GlyphcssCamera rotX={65} rotY={45}>
-        <GlyphcssOrbitControls />
-        <GlyphcssMesh src="/cottage.glb" />
-      </GlyphcssCamera>
-    </GlyphcssScene>
+    <GlyphCamera rotX={0.4} zoom={0.32}>
+      <GlyphScene cols={80} rows={40}>
+        <GlyphOrbitControls />
+        <GlyphMesh src="/cottage.glb" />
+      </GlyphScene>
+    </GlyphCamera>
   );
 }
 ```
 
 ## Component reference
 
-### `<GlyphcssScene>`
+### `<GlyphCamera>` / `<GlyphOrthographicCamera>`
 
-Root of every React glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change.
+Orthographic camera. `GlyphCamera` is the ergonomic default alias. Wraps
+`<GlyphScene>` — the camera is always the outermost element.
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `rotX` | `number` | `0` | Tilt in radians |
+| `rotY` | `number` | `0` | Azimuth in radians |
+| `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+
+### `<GlyphPerspectiveCamera>`
+
+Perspective (foreshortened) camera. Required for `<GlyphFirstPersonControls>`.
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `rotX` | `number` | `0` | Tilt in radians |
+| `rotY` | `number` | `0` | Azimuth in radians |
+| `distance` | `number` | `3` | Perspective distance in world units |
+| `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+
+### `<GlyphScene>`
+
+Root of every React glyphcss render tree. Owns the `<pre>` output element and rasterizes all meshes on camera or state change. Must be a child of a camera component.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
@@ -47,18 +69,7 @@ Root of every React glyphcss render tree. Owns the `<pre>` output element and ra
 | `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
 | `className` | `string` | — | CSS class on the `<pre>` container |
 
-### `<GlyphcssCamera>` / `<GlyphcssPerspectiveCamera>`
-
-Perspective camera. `GlyphcssCamera` is the ergonomic alias.
-
-| Prop | Type | Default | Description |
-|---|---|---|---|
-| `fov` | `number` | `60` | Vertical field of view in degrees |
-| `rotX` | `number` | `35` | Tilt in degrees |
-| `rotY` | `number` | `45` | Azimuth in degrees |
-| `zoom` | `number` | `1` | Zoom multiplier |
-
-### `<GlyphcssMesh>`
+### `<GlyphMesh>`
 
 Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
 
@@ -67,16 +78,16 @@ Loads and displays a 3D mesh. Supports `.obj`, `.glb`, `.gltf`, `.vox`.
 | `src` | `string` | URL of the mesh file |
 | `color` | `string` | Override mesh color |
 
-### `<GlyphcssOrbitControls>` / `<GlyphcssMapControls>`
+### `<GlyphOrbitControls>` / `<GlyphMapControls>`
 
 Mouse/touch/keyboard camera controls.
 
 ### Hooks
 
-- `useGlyphcssCamera()` — access the camera context
-- `useGlyphcssSceneContext()` — access scene state
-- `useGlyphcssMesh(handle)` — mesh state and imperative API
-- `useGlyphcssAnimation(clips, controller)` — three.js-style animation mixer
+- `useGlyphCamera()` — access the camera context
+- `useGlyphSceneContext()` — access scene state
+- `useGlyphMesh(handle)` — mesh state and imperative API
+- `useGlyphAnimation(clips, controller)` — three.js-style animation mixer
 
 ## License
 
