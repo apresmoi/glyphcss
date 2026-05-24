@@ -15,6 +15,12 @@ export interface GlyphOrbitControlsOptions {
   wheel?: boolean;
   /** Drag-direction inversion. Default: false. */
   invert?: boolean | number;
+  /**
+   * Clamp vertical drag to ±π/2 (camera stays above the equator, never
+   * flipping past either pole). Default: true. Set to false for globe-style
+   * unrestricted tumbling.
+   */
+  clampPitch?: boolean;
   /** Auto-rotate. Pass false or omit to disable. */
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
 }
@@ -34,6 +40,7 @@ export function createGlyphOrbitControls(
   let drag = options.drag ?? true;
   let wheel = options.wheel ?? true;
   let invertFactor = resolveInvert(options.invert);
+  let clampPitch = options.clampPitch ?? true;
   let animOpts = options.animate ?? false;
   let stopped = false;
   let animPaused = false;
@@ -74,7 +81,8 @@ export function createGlyphOrbitControls(
     // Drag in the same direction as the pointer: dragging UP tilts the camera
     // UP (positive rotX increase from the +Z-is-screen-up convention), so dy
     // negates here. Matches the horizontal axis's `-dx` direction.
-    camera.rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotX - dy * RAD_PER_PX * f));
+    const nextRotX = camera.rotX - dy * RAD_PER_PX * f;
+    camera.rotX = clampPitch ? Math.max(-Math.PI / 2, Math.min(Math.PI / 2, nextRotX)) : nextRotX;
     scene.rerender();
   }
 
@@ -155,6 +163,7 @@ export function createGlyphOrbitControls(
       drag = opts.drag ?? drag;
       wheel = opts.wheel ?? wheel;
       invertFactor = resolveInvert(opts.invert);
+      if (opts.clampPitch !== undefined) clampPitch = opts.clampPitch;
       animOpts = opts.animate ?? animOpts;
       if (!stopped && activePointerId === null) {
         host.style.cursor = drag ? "grab" : "";

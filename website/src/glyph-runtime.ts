@@ -493,9 +493,13 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const interactiveAttr = demoEl.getAttribute('data-interactive');
   const allowInteract = interactiveAttr !== '0';
 
+  // Globe-style "grab and spin east" drag direction. Opposite of the default
+  // camera-orbits-target sign convention used by everything else.
+  const invertDragAttr = demoEl.getAttribute('data-invert-drag') === '1';
+
   // ── Control state ────────────────────────────────────────────────────────
   const controlState: ControlState = {
-    invertDrag: false,
+    invertDrag: invertDragAttr,
     dragEnabled: allowInteract,
     wheelEnabled: allowInteract,
     autoCenter: true,
@@ -531,6 +535,47 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   };
   let sphericalAz = 50;
   let sphericalEl = 45;
+
+  // Real-time sun direction for an Earth globe. Subsolar point = lat/lon on
+  // Earth where the sun is directly overhead right now. Derived from UTC
+  // time + day-of-year (Earth's tilt makes the declination wobble between
+  // ±23.45° over the year).
+  //
+  // Returned vector points FROM the subsolar surface point AWAY from the
+  // sun, i.e. the direction the light TRAVELS. Glyphcss's rasterizer uses
+  // `direction` in the Lambert dot product against face normals, and the
+  // landing-earth bake reverses quad winding to keep backface culling
+  // happy, which flips the effective face-normal sign. The net effect is
+  // that pointing `direction` away from the sun illuminates the correct
+  // hemisphere.
+  function realSunDirection(): [number, number, number] {
+    const now = new Date();
+    const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+    const startOfYear = Date.UTC(now.getUTCFullYear(), 0, 0);
+    const dayOfYear = Math.floor((now.getTime() - startOfYear) / 86400000);
+    // Solar declination (degrees): peaks at +23.45° at summer solstice (~day 172).
+    const declDeg = 23.45 * Math.sin((2 * Math.PI * (dayOfYear - 80)) / 365.25);
+    // Subsolar longitude: sun is at Greenwich at UTC noon; 15° east per
+    // hour earlier than noon.
+    const lonDeg = (12 - utcHours) * 15;
+    const lat = (declDeg * Math.PI) / 180;
+    const lon = (lonDeg * Math.PI) / 180;
+    const cosLat = Math.cos(lat);
+    // Negated relative to the subsolar surface point — see header comment.
+    return [-cosLat * Math.cos(lon), cosLat * Math.sin(lon), -Math.sin(lat)];
+  }
+
+  if (demoEl.getAttribute('data-real-sun-light') === '1') {
+    lightingState.direction = realSunDirection();
+    // Refresh every 30s so a long-open page tracks dusk → night.
+    setInterval(() => {
+      lightingState.direction = realSunDirection();
+      scene.setOptions({
+        directionalLight: { direction: lightingState.direction, intensity: lightingState.keyIntensity, color: lightingState.keyColor },
+      });
+      doRerender();
+    }, 30_000);
+  }
 
   const willLoadMesh = !!demoEl.getAttribute('data-mesh');
   const willLoadPrimitive = demoEl.getAttribute('data-primitive') === '1';
@@ -705,6 +750,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   type ControlsHandle = { destroy(): void; update(opts: { invert?: boolean | number; drag?: boolean; wheel?: boolean }): void };
   let controls: ControlsHandle | null = null;
 
+  // `data-no-clamp-pitch="1"` removes the orbit-controls vertical-rotation
+  // clamp so a globe can roll past either pole.
+  const noClampPitch = demoEl.getAttribute('data-no-clamp-pitch') === '1';
+
   function buildControls(): void {
     controls?.destroy();
     controls = null;
@@ -719,8 +768,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (controlState.dragMode === 'pan') {
       controls = createGlyphMapControls(scene, commonOpts);
     } else {
-      // orbit (default)
-      controls = createGlyphOrbitControls(scene, commonOpts);
+      // orbit (default) — pass through the clamp flag.
+      controls = createGlyphOrbitControls(scene, { ...commonOpts, clampPitch: !noClampPitch });
     }
   }
 
@@ -733,13 +782,19 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let autoRotateLastTime: number | null = null;
   const AUTO_ROTATE_SPEED_DEG_PER_S = 60; // 1 full rotation in 6 seconds at default
 
+  // Suspended while the user is actively dragging. Without this, the autospin
+  // fights direct input — the camera jerks back toward "current frame's auto
+  // rotation" every time the RAF loop ticks. Set from a pointerdown listener
+  // attached after the scene mounts.
+  let autoRotatePaused = false;
+
   function startAutoRotate(): void {
     if (autoRotateRafId !== null) return;
     const tick = (now: number): void => {
       autoRotateRafId = requestAnimationFrame(tick);
       const dt = autoRotateLastTime !== null ? Math.min((now - autoRotateLastTime) / 1000, 0.1) : 0;
       autoRotateLastTime = now;
-      if (dt > 0) {
+      if (dt > 0 && !autoRotatePaused) {
         const speedDegPerS = AUTO_ROTATE_SPEED_DEG_PER_S * (tunables.duration > 0 ? 6 / tunables.duration : 1);
         camera.rotY = camera.rotY + (speedDegPerS * Math.PI / 180) * dt;
         doRerender();
@@ -1544,8 +1599,33 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   });
 
   // ── Initial render ────────────────────────────────────────────────────────
+  // Indexed-polygons URL (compact format used by the landing earth) takes
+  // priority over mesh-file URL takes priority over built-in geometry.
+  const polygonsUrl = demoEl.getAttribute('data-polygons-url');
   const initialMeshUrl = demoEl.getAttribute('data-mesh');
-  if (initialMeshUrl) {
+  if (polygonsUrl) {
+    void (async () => {
+      try {
+        const res = await fetch(polygonsUrl);
+        const data = await res.json() as {
+          vertices: [number, number, number][];
+          colors: string[];
+          faces: { v: number[]; c: number }[];
+        };
+        const polys: Polygon[] = data.faces.map((f) => {
+          const verts = f.v.map((i) => data.vertices[i]!) as Polygon['vertices'];
+          const out: Polygon = { vertices: verts };
+          if (f.c >= 0) out.color = data.colors[f.c];
+          return out;
+        });
+        setPolygons(polys);
+      } catch (err) {
+        console.error('failed to load polygons URL', err);
+      } finally {
+        loadingEl.style.display = 'none';
+      }
+    })();
+  } else if (initialMeshUrl) {
     void setMeshUrl(initialMeshUrl);
   } else {
     applyMesh();
@@ -1555,6 +1635,25 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   }
 
   if (demoEl.getAttribute('data-auto-rotate') === '1') {
+    // Pause the spin while the user is actively dragging so user input
+    // doesn't fight the RAF tick. Resume after a short delay so a quick
+    // release-and-grab doesn't restart the spin mid-gesture.
+    const sceneHost = scene.host;
+    let resumeTimer: number | null = null;
+    sceneHost.addEventListener('pointerdown', () => {
+      autoRotatePaused = true;
+      if (resumeTimer !== null) { window.clearTimeout(resumeTimer); resumeTimer = null; }
+    });
+    const releaseHandler = () => {
+      if (resumeTimer !== null) window.clearTimeout(resumeTimer);
+      resumeTimer = window.setTimeout(() => {
+        autoRotatePaused = false;
+        autoRotateLastTime = null; // reset dt accumulator
+        resumeTimer = null;
+      }, 600);
+    };
+    sceneHost.addEventListener('pointerup', releaseHandler);
+    sceneHost.addEventListener('pointercancel', releaseHandler);
     startAutoRotate();
   }
 }
