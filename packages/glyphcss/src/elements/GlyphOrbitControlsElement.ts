@@ -29,7 +29,7 @@ function findScene(el: HTMLElement): GlyphSceneElement | null {
 
 export class GlyphOrbitControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["drag", "wheel", "invert", "animate-speed", "animate-axis"];
+    return ["drag", "wheel", "invert", "clamp-pitch", "animate-speed", "animate-axis"];
   }
 
   private _controls: GlyphOrbitControlsHandle | null = null;
@@ -49,12 +49,14 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     const drag = parseBool(this.getAttribute("drag"));
     const wheel = parseBool(this.getAttribute("wheel"));
     const invert = parseBool(this.getAttribute("invert"));
+    const clampPitch = parseBool(this.getAttribute("clamp-pitch"));
     const speed = parseNumber(this.getAttribute("animate-speed"));
     const axis: "x" | "y" = this.getAttribute("animate-axis") === "x" ? "x" : "y";
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
       ...(invert !== undefined ? { invert } : {}),
+      ...(clampPitch !== undefined ? { clampPitch } : {}),
       ...(speed !== undefined ? { animate: { speed, axis } } : {}),
     };
   }

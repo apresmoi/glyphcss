@@ -135,12 +135,14 @@ const ldJson = {
         <section class="hero hero--ascii" id="hero">
           <div class="hero-scene" aria-hidden="true">
             <GlyphDemo id="hero-demo"
-              mesh="/gallery/glb/apple.glb"
-              defaults={JSON.stringify({ zoom: 0.25, distance: 100000, rotX: 1.299, rotY: 0, duration: 6, renderMode: 'solid', lineHeight: 0.7 })}
+              polygonsUrl="/data/landing-earth.json"
+              defaults={JSON.stringify({ zoom: 0.29, rotX: 1.49, rotY: 0.79, duration: 12, renderMode: 'solid', lineHeight: 0.55 })}
               noCode
               noControls
               autoRotate
-              interactive={false}
+              invertDrag
+              noClampPitch
+              realSunLight
             />
           </div>
           <div class="hero-overlay">

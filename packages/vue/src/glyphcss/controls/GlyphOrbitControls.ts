@@ -10,6 +10,11 @@ export interface GlyphOrbitControlsProps {
   drag?: boolean;
   wheel?: boolean;
   invert?: boolean | number;
+  /**
+   * Clamp vertical drag to ±π/2. Default true. Set false for globe-style
+   * unrestricted tumbling past the poles.
+   */
+  clampPitch?: boolean;
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
 }
 
@@ -19,6 +24,7 @@ export const GlyphOrbitControls = defineComponent({
     drag: { type: Boolean, default: true },
     wheel: { type: Boolean, default: true },
     invert: { type: [Boolean, Number] as unknown as () => boolean | number, default: false },
+    clampPitch: { type: Boolean, default: true },
     animate: { type: [Boolean, Object] as unknown as () => false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean }, default: false },
   },
   setup(props) {
@@ -38,6 +44,7 @@ export const GlyphOrbitControls = defineComponent({
         drag: props.drag,
         wheel: props.wheel,
         invert: props.invert,
+        clampPitch: props.clampPitch,
         animate: props.animate === false ? false : props.animate,
       };
       controlsRef.value = createGlyphOrbitControls(scene, opts);
@@ -50,12 +57,13 @@ export const GlyphOrbitControls = defineComponent({
     });
 
     watch(
-      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, animate: props.animate }),
+      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, clampPitch: props.clampPitch, animate: props.animate }),
       (next) => {
         controlsRef.value?.update({
           drag: next.drag,
           wheel: next.wheel,
           invert: next.invert,
+          clampPitch: next.clampPitch,
           animate: next.animate === false ? false : next.animate,
         });
       },
