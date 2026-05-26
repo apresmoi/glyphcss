@@ -1,0 +1,70 @@
+---
+interface Props {
+  active: "world" | "flatmap";
+}
+const { active } = Astro.props;
+
+const items = [
+  { id: "world", label: "World", href: "/examples/world", desc: "Globe · ETOPO1" },
+  { id: "flatmap", label: "Flat Map", href: "/examples/flatmap", desc: "Iso · Web Mercator" },
+] as const;
+---
+
+<aside class="ex-sidebar">
+  <a class="ex-brand" href="/">glyph<span>css</span></a>
+  <div class="ex-sb-title">EXAMPLES</div>
+  <nav class="ex-sb-nav">
+    {items.map((it) => (
+      <a class:list={["ex-sb-link", { active: it.id === active }]} href={it.href}>
+        <span class="ex-sb-label">{it.label}</span>
+        <span class="ex-sb-desc">{it.desc}</span>
+      </a>
+    ))}
+  </nav>
+</aside>
+
+<style>
+  .ex-sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: #06080d;
+    border-right: 1px solid rgba(255, 232, 184, 0.12);
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
+  }
+  .ex-brand {
+    padding: 0 20px 18px;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: rgba(255, 232, 184, 0.95);
+    text-decoration: none;
+  }
+  .ex-brand span { color: #38bdf8; }
+  .ex-sb-title {
+    padding: 0 20px 8px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: rgba(255, 232, 184, 0.4);
+  }
+  .ex-sb-nav { display: flex; flex-direction: column; }
+  .ex-sb-link {
+    display: flex;
+    flex-direction: column;
+    padding: 9px 20px;
+    text-decoration: none;
+    border-left: 2px solid transparent;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .ex-sb-link:hover { background: rgba(255, 232, 184, 0.04); }
+  .ex-sb-link.active {
+    border-left-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.08);
+  }
+  .ex-sb-label { font-size: 13px; color: rgba(255, 232, 184, 0.9); }
+  .ex-sb-link.active .ex-sb-label { color: #fff; }
+  .ex-sb-desc { font-size: 10px; color: rgba(255, 232, 184, 0.4); margin-top: 1px; }
+</style>

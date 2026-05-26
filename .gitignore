@@ -17,16 +17,10 @@ log.md
 log-texture.md
 website/.baseline-shots/
 
-# Large geo datasets — not committed
+# Large source geo datasets — not committed. Only needed locally to (re)bake
+# the small tile pyramids under website/public/data/ via the bake scripts.
 etopo/
 gadm_410.gdb/
 
-# /map tile pyramid + legacy single-tile globe (regenerable from etopo via
-# `node website/scripts/bake-globe.mjs --tiles`). The landing-earth.json
-# file IS tracked — it's small (~95 KB) and required by the landing page.
-website/public/data/tiles/
+# Legacy single-tile globe (superseded by the LOD tiles). Regenerable.
 website/public/data/earth.json
-
-# Local-only experimental /map page (LOD-tiled ASCII globe). Depends on the
-# untracked tile pyramid above; not ready to ship.
-website/src/pages/map.astro

@@ -117,6 +117,21 @@ function parseNcHeader(buf) {
   return { dims, gattrs, vars };
 }
 
+// Elevation → band index 0..8 (water + 8 land tiers). The flat-map tiles
+// store the band per face; the client maps band→color via a chosen palette,
+// so palettes can be swapped at runtime without re-baking.
+function elevToBand(elev) {
+  if (elev < 0)    return 0;
+  if (elev < 250)  return 1;
+  if (elev < 800)  return 2;
+  if (elev < 1600) return 3;
+  if (elev < 2600) return 4;
+  if (elev < 3600) return 5;
+  if (elev < 4600) return 6;
+  if (elev < 5600) return 7;
+  return 8;
+}
+
 // ── Terrain → color buckets (ocean depth / land elevation) ───────────────
 function elevToColor(elev) {
   if (elev < -4000) return "#0a1a40";
@@ -305,10 +320,262 @@ function serializePolygonsIndexed(polygons) {
   return JSON.stringify({ vertices, colors, faces });
 }
 
+// ── Flat-map (iso terrain) support ───────────────────────────────────────
+// A small region projected onto a flat plane: x/y from lon/lat (equirect-
+// angular with cos-lat aspect correction so the region isn't stretched),
+// z = elevation relief. Rendered at a fixed iso camera angle; the user pans
+// across the plane. Plane is centered on the region center so the default
+// camera target [0,0,0] frames the middle.
+
+// Andes-tuned palette: more bands in the 0–7000 m land range than the global
+// elevToColor (which spends half its buckets on bathymetry).
+function elevToColorAndes(elev) {
+  if (elev < 0)     return "#2a55a8"; // water (Pacific, lakes)
+  if (elev < 250)   return "#2f5a36"; // coastal green
+  if (elev < 800)   return "#3f6b32";
+  if (elev < 1600)  return "#5f7536"; // foothills
+  if (elev < 2600)  return "#86713f"; // dry slope
+  if (elev < 3600)  return "#9c7b50"; // high desert
+  if (elev < 4600)  return "#b09471"; // bare rock
+  if (elev < 5600)  return "#cdb49a"; // scree
+  return "#f0f0f0";                   // snow / summit
+}
+
+// Web Mercator latitude limit (where the projection becomes square).
+const MERC_MAX_LAT = 85.0511;
+// Inverse Web Mercator: normalized mercator Y (m ∈ [-1,1]) → latitude degrees.
+function invMercatorLat(m) {
+  return (Math.atan(Math.sinh(m * Math.PI)) * 180) / Math.PI;
+}
+
+// Project geographic lat/lon/elev → flat plane world coords, Web Mercator.
+//   worldX = -mercatorY(lat)  → north maps to -X (top); conformal vertical.
+//   worldY = (lon - lonC)/180 → east maps to +Y (right), linear.
+//   worldZ = elevation        → relief toward the iso camera.
+// Square plane: worldX, worldY ∈ [-1, 1]. Latitude is clamped to ±85.05°
+// (Mercator can't represent the poles).
+function flatToPlane(lat, lon, elev, proj) {
+  const { lonC, scaleZ } = proj;
+  const clamped = Math.max(-MERC_MAX_LAT, Math.min(MERC_MAX_LAT, lat));
+  const mercY = Math.log(Math.tan(Math.PI / 4 + (clamped * Math.PI) / 360)) / Math.PI;
+  return [
+    -mercY,
+    (lon - lonC) / 180,
+    Math.max(0, elev) * scaleZ, // clamp ocean to z=0 — flat water reads cleaner
+  ];
+}
+
+// Bake one flat-plane tile covering [lonMin,lonMax]×[latMin,latMax].
+// Returns a serializable tile object:
+//   vertices : deduped plane vertices (terrain surface, z = relief)
+//   faces    : [{ v:[i,j,k,l], b: elevationBand }]  — b drives palette color
+//   coast    : flat [x0,y0,x1,y1,...] sea-level contour (z=0)  — "continents"
+//   wire     : flat [ax,ay,az,bx,by,bz,...] coarse surface lattice (3D)
+//   bbox     : plane-space AABB for client frustum culling
+function bakeFlatTile(sampler, opts, proj) {
+  const { lonMin, lonMax, latMin, latMax, cols, rows } = opts;
+
+  const vertGrid = [];
+  for (let j = 0; j <= rows; j++) {
+    const rowOut = [];
+    const lat = latMax - ((latMax - latMin) * j) / rows;
+    for (let i = 0; i <= cols; i++) {
+      const lon = lonMin + ((lonMax - lonMin) * i) / cols;
+      const elev = sampler.elevAt(lat, lon);
+      rowOut.push({ xyz: flatToPlane(lat, lon, elev, proj), elev });
+    }
+    vertGrid.push(rowOut);
+  }
+
+  // Indexed terrain faces with elevation band.
+  const vertexMap = new Map();
+  const vertices = [];
+  const vertexIndex = (v) => {
+    const key = `${truncTight(v[0])},${truncTight(v[1])},${truncTight(v[2])}`;
+    let idx = vertexMap.get(key);
+    if (idx === undefined) {
+      idx = vertices.length;
+      vertices.push([truncTight(v[0]), truncTight(v[1]), truncTight(v[2])]);
+      vertexMap.set(key, idx);
+    }
+    return idx;
+  };
+  const faces = [];
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const a = vertGrid[j][i], b = vertGrid[j][i + 1];
+      const c = vertGrid[j + 1][i + 1], d = vertGrid[j + 1][i];
+      const elevCenter = (a.elev + b.elev + c.elev + d.elev) / 4;
+      // Winding (a,d,c,b) keeps the top surface as the front face under cull.
+      faces.push({
+        v: [vertexIndex(a.xyz), vertexIndex(d.xyz), vertexIndex(c.xyz), vertexIndex(b.xyz)],
+        b: elevToBand(elevCenter),
+      });
+    }
+  }
+
+  // Coastline contour: marching squares at elevation 0 (z=0, flat).
+  const coast = [];
+  const crossing = (p, q) => {
+    const t = p.elev / (p.elev - q.elev);
+    return [p.xyz[0] + t * (q.xyz[0] - p.xyz[0]), p.xyz[1] + t * (q.xyz[1] - p.xyz[1])];
+  };
+  for (let j = 0; j < rows; j++) {
+    for (let i = 0; i < cols; i++) {
+      const tl = vertGrid[j][i], tr = vertGrid[j][i + 1];
+      const bl = vertGrid[j + 1][i], br = vertGrid[j + 1][i + 1];
+      const pts = [];
+      if ((tl.elev >= 0) !== (tr.elev >= 0)) pts.push(crossing(tl, tr));
+      if ((tr.elev >= 0) !== (br.elev >= 0)) pts.push(crossing(tr, br));
+      if ((bl.elev >= 0) !== (br.elev >= 0)) pts.push(crossing(bl, br));
+      if ((tl.elev >= 0) !== (bl.elev >= 0)) pts.push(crossing(tl, bl));
+      for (let k = 0; k + 1 < pts.length; k += 2) {
+        coast.push(trunc(pts[k][0]), trunc(pts[k][1]), trunc(pts[k + 1][0]), trunc(pts[k + 1][1]));
+      }
+    }
+  }
+
+  // Heightmap wireframe = topographic contour lines at evenly-spaced
+  // elevations, each sitting at its own relief Z. Contours hug terrain
+  // features (ridges, valleys) — sparse on flats, dense on slopes — so they
+  // read as the heightmap far better than an arbitrary grid lattice. Stacked
+  // at elevation Z under the iso camera they show the 3D relief directly.
+  // Grouped by elevation band so the client can color contours with the
+  // active palette (low→high gradient). Each group: { b: band, segs: [...] }.
+  const contourLevels = [200, 1000, 2000, 3000, 4000, 5000, 6000]; // metres
+  const crossingAt = (p, q, level) => {
+    const t = (level - p.elev) / (q.elev - p.elev);
+    return [
+      p.xyz[0] + t * (q.xyz[0] - p.xyz[0]),
+      p.xyz[1] + t * (q.xyz[1] - p.xyz[1]),
+      level * proj.scaleZ,
+    ];
+  };
+  const wire = [];
+  for (const level of contourLevels) {
+    const segs = [];
+    for (let j = 0; j < rows; j++) {
+      for (let i = 0; i < cols; i++) {
+        const tl = vertGrid[j][i], tr = vertGrid[j][i + 1];
+        const bl = vertGrid[j + 1][i], br = vertGrid[j + 1][i + 1];
+        const pts = [];
+        if ((tl.elev >= level) !== (tr.elev >= level)) pts.push(crossingAt(tl, tr, level));
+        if ((tr.elev >= level) !== (br.elev >= level)) pts.push(crossingAt(tr, br, level));
+        if ((bl.elev >= level) !== (br.elev >= level)) pts.push(crossingAt(bl, br, level));
+        if ((tl.elev >= level) !== (bl.elev >= level)) pts.push(crossingAt(tl, bl, level));
+        for (let k = 0; k + 1 < pts.length; k += 2) {
+          segs.push(
+            trunc(pts[k][0]), trunc(pts[k][1]), trunc(pts[k][2]),
+            trunc(pts[k + 1][0]), trunc(pts[k + 1][1]), trunc(pts[k + 1][2]),
+          );
+        }
+      }
+    }
+    if (segs.length > 0) wire.push({ b: elevToBand(level), segs });
+  }
+
+  const corners = [
+    flatToPlane(latMin, lonMin, 0, proj), flatToPlane(latMin, lonMax, 0, proj),
+    flatToPlane(latMax, lonMin, 0, proj), flatToPlane(latMax, lonMax, 0, proj),
+  ];
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  const bbox = { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+  return { vertices, faces, coast, wire, bbox };
+}
+
+async function bakeFlatMap(sampler) {
+  // Whole-world Web Mercator flat map. Square plane (worldX, worldY ∈ [-1,1]);
+  // longitude → worldY (linear), latitude → worldX (Mercator, north up),
+  // elevation → worldZ relief. Standard slippy-map tile pyramid: level z is
+  // 2^z × 2^z square tiles, tile rows spaced evenly in Mercator-Y (so each
+  // tile is square in projected space and seams align). Poles beyond ±85.05°
+  // are not representable in Mercator and are clipped.
+  const lonC = 0;
+
+  // 1 plane unit (worldY) = 180° lon ≈ 20,000 km at the equator. Heavy
+  // exaggeration so relief reads against the planet's scale; it pops as you
+  // zoom in (visible extent shrinks, relief fixed). Tunable live via slider.
+  const METERS_PER_UNIT = 20_000_000;
+  const EXAGG = 200;
+  const scaleZ = (1 / METERS_PER_UNIT) * EXAGG;
+  const proj = { lonC, scaleZ };
+
+  const planeHalfX = 1.0; // worldX ∈ [-1, 1]
+  const planeHalfY = 1.0; // worldY ∈ [-1, 1] — square
+
+  // Per-tile sample grid, ADAPTIVE per zoom level. A tile should carry roughly
+  // as many samples as the glyph cells it occupies on screen when its LOD is
+  // active. Shallow LODs have few tiles covering the whole viewport, so each
+  // tile spans many cells → needs a dense grid. Deep LODs share the viewport
+  // among many small tiles, so a light grid already matches cell density.
+  // (`--grid N` forces a fixed grid for all levels, for A/B testing.)
+  const gridArg = process.argv.indexOf("--grid");
+  const fixedGrid = gridArg >= 0 ? parseInt(process.argv[gridArg + 1], 10) : null;
+  // Balances crispness vs the ~35k-visible-poly / 60fps budget at each level's
+  // active zoom (≈4 tiles fill the screen at LOD1, more tiles as you zoom in).
+  const gridForZoom = (z) =>
+    fixedGrid ?? (z <= 1 ? 96 : z === 2 ? 64 : z === 3 ? 48 : 32);
+  const ROOT = path.join(REPO, "website/public/data/flatmap");
+  await fs.rm(ROOT, { recursive: true, force: true });
+  await fs.mkdir(ROOT, { recursive: true });
+
+  // Square pyramid: z → 2^z × 2^z tiles.
+  const zooms = [0, 1, 2, 3, 4, 5].map((z) => ({ z, n: 2 ** z }));
+
+  const tileBoxes = {};
+  let tileCount = 0;
+  let totalKB = 0;
+
+  for (const { z, n } of zooms) {
+    const zDir = path.join(ROOT, String(z));
+    await fs.mkdir(zDir, { recursive: true });
+    const GRID = gridForZoom(z);
+    const tileLon = 360 / n;
+    for (let ty = 0; ty < n; ty++) {
+      // Tile rows split Mercator-Y evenly (m ∈ [-1,1], +1 = north). Convert
+      // the row's mercator bounds back to latitude for sampling.
+      const mTop = 1 - (2 * ty) / n;
+      const mBot = 1 - (2 * (ty + 1)) / n;
+      const latMax = invMercatorLat(mTop);
+      const latMin = invMercatorLat(mBot);
+      for (let tx = 0; tx < n; tx++) {
+        const lonMin = -180 + tx * tileLon;
+        const lonMax = lonMin + tileLon;
+        const { vertices, faces, coast, wire, bbox } = bakeFlatTile(sampler, { lonMin, lonMax, latMin, latMax, cols: GRID, rows: GRID }, proj);
+        const out = path.join(zDir, `${tx}_${ty}.json`);
+        await fs.writeFile(out, JSON.stringify({ vertices, faces, coast, wire }));
+        tileBoxes[`${z}/${tx}_${ty}`] = {
+          x0: trunc(bbox.x0), x1: trunc(bbox.x1), y0: trunc(bbox.y0), y1: trunc(bbox.y1),
+        };
+        const stat = await fs.stat(out);
+        tileCount++; totalKB += stat.size / 1024;
+      }
+    }
+    console.log(`z=${z}: ${n}×${n} = ${n * n} tiles @ GRID ${GRID}`);
+  }
+  console.log(`Total ${tileCount} tiles, ${(totalKB / 1024).toFixed(1)} MB`);
+
+  const manifest = {
+    plane: { halfX: planeHalfX, halfY: planeHalfY },
+    exagg: EXAGG,
+    zooms: zooms.map(({ z, n }) => ({ z, cols: n, rows: n })),
+    tileBoxes,
+  };
+  await fs.writeFile(path.join(ROOT, "manifest.json"), JSON.stringify(manifest, null, 2));
+  console.log(`Wrote ${path.join(ROOT, "manifest.json")} — Web Mercator, square plane ±1`);
+}
+
 async function main() {
   const tilesMode = process.argv.includes("--tiles");
   const landingMode = process.argv.includes("--landing");
+  const flatMapMode = process.argv.includes("--flatmap");
   const sampler = await loadSampler();
+
+  if (flatMapMode) {
+    await bakeFlatMap(sampler);
+    return;
+  }
 
   if (landingMode) {
     // Landing-page Earth: fixed-zoom, decorative. 120x60 grid (~7200 quads)

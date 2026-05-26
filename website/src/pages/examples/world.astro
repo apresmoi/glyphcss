@@ -1,0 +1,407 @@
+---
+import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+const title = "glyphcss · ASCII Earth";
+const description = "ETOPO1 global topography rasterised into ASCII. Isometric, drag to orbit.";
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <style>
+    html, body { background: #03050a; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
+    body { display: flex; }
+    .ex-layout { flex: 1; display: flex; min-height: 100vh; min-width: 0; }
+    .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .map-shell { flex: 1; display: flex; flex-direction: column; }
+    .map-head { padding: 24px 32px 12px; border-bottom: 1px solid rgba(255, 232, 184, 0.12); }
+    .map-head h1 { margin: 0; font-size: 22px; color: rgba(255, 232, 184, 0.94); font-weight: 600; letter-spacing: 0.04em; }
+    .map-head p { margin: 6px 0 0; font-size: 13px; color: rgba(255, 232, 184, 0.55); }
+    .map-stage { flex: 1; min-height: 0; position: relative; }
+    .globe-host { position: absolute; inset: 0; overflow: hidden; }
+    .globe-host .glyph-output { color: rgba(255, 232, 184, 0.96); text-shadow: 0 0 6px rgba(255, 200, 130, 0.35); cursor: grab; touch-action: none; }
+    .globe-host .glyph-output:active { cursor: grabbing; }
+    .map-foot { padding: 14px 32px; border-top: 1px solid rgba(255, 232, 184, 0.12); font-size: 11px; color: rgba(255, 232, 184, 0.45); display: flex; gap: 18px; flex-wrap: wrap; }
+    .loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: rgba(255, 232, 184, 0.4); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="ex-layout">
+    <ExamplesSidebar active="world" />
+    <div class="ex-main">
+      <div class="map-shell">
+        <header class="map-head">
+          <h1>[ ASCII Earth · ETOPO1 ]</h1>
+          <p>Global terrain + bathymetry baked from NOAA's ETOPO1 1-arc-minute dataset, projected onto a unit sphere with 30× height exaggeration. Solid-mode glyphcss render, orthographic camera — drag to orbit, scroll to zoom.</p>
+        </header>
+        <div class="map-stage">
+          <div class="globe-host" id="globe-host">
+            <div class="loading" id="loading">Loading topography data…</div>
+          </div>
+        </div>
+        <footer class="map-foot">
+          <span>Data: NOAA ETOPO1 (Ice surface, 2013)</span>
+          <span>Polygons: 16,200</span>
+          <span>Renderer: glyphcss solid + dither + backface cull</span>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    import {
+      createGlyphScene,
+      createGlyphOrthographicCamera,
+    } from "glyphcss";
+
+    type Polygon = { vertices: [number, number, number][]; color?: string };
+    type MeshHandle = { dispose(): void; setTransform(t: unknown): void };
+    type Manifest = {
+      zooms: Array<{ z: number; cols: number; rows: number; tileLonSpan: number; tileLatSpan: number }>;
+      heightExagg: number;
+      earthRadiusM: number;
+    };
+
+    // Camera.zoom thresholds for LOD selection. Each entry sets a CEILING; the
+    // last entry catches everything above. Tuned so transitions land near
+    // perceptual "I'm seeing chunky polygons" moments at our cell density.
+    // Globe ships only z0/z1 tiles (decorative orbit view — deep zoom isn't
+    // worth the data weight), so the LOD never exceeds 1.
+    function targetLOD(zoom: number): number {
+      if (zoom < 1.0) return 0;
+      return 1;
+    }
+
+    // Match bake-globe.mjs's latLonToXYZ exactly so the client can predict
+    // where tile corners sit in world space and run the same projection the
+    // renderer uses.
+    function latLonToXYZ(latDeg: number, lonDeg: number): [number, number, number] {
+      const lat = (latDeg * Math.PI) / 180;
+      const lon = (lonDeg * Math.PI) / 180;
+      const cosLat = Math.cos(lat);
+      return [cosLat * Math.cos(lon), -cosLat * Math.sin(lon), Math.sin(lat)];
+    }
+
+    async function mountGlobe() {
+      const host = document.getElementById("globe-host") as HTMLDivElement;
+      const loading = document.getElementById("loading");
+      if (!host) return;
+
+      // Classic iso: rotX ≈ 55°, rotY ≈ 45° (= ~0.96 / 0.79 rad). zoom 0.3
+      // fits the full globe (diameter 2 units) inside the shorter viewport
+      // dimension with margin (radius = min(cols,rows)·zoom·1.5).
+      const camera = createGlyphOrthographicCamera({
+        rotX: 0.96,
+        rotY: 0.79,
+        zoom: 0.33,
+      });
+
+      const scene = createGlyphScene(host, {
+        camera,
+        autoSize: true,
+        mode: "solid",
+        useColors: true,
+        glyphPalette: "default",
+        directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 },
+        ambientLight: { intensity: 0.45 },
+      });
+
+      const manifestRes = await fetch("/data/tiles/manifest.json");
+      const manifest = (await manifestRes.json()) as Manifest;
+
+      // Tile cache (key = "z/x_y") + active mesh handles. We never refetch a
+      // tile once loaded; mounting from cache is dispose-old + scene.add.
+      const tileCache = new Map<string, Polygon[]>();
+      const activeHandles = new Map<string, MeshHandle>();
+      let currentLOD: number | null = null;
+      let updateInFlight = false;
+
+      async function loadTile(z: number, x: number, y: number): Promise<Polygon[]> {
+        const key = `${z}/${x}_${y}`;
+        const cached = tileCache.get(key);
+        if (cached) return cached;
+        const res = await fetch(`/data/tiles/${key}.json`);
+        const polys = await res.json();
+        tileCache.set(key, polys);
+        return polys;
+      }
+
+      // Visibility test built on great-circle distance from the camera's
+      // focal point. Avoids per-tile screen-space projection (which the
+      // earlier corner-projection test got wrong at high zoom: the projection
+      // shoots points way off-grid, so "is the col in [0, 100]" silently
+      // rejects every tile except the one your view is aimed directly at).
+      //
+      //   1. Sample lat/lon grid → find world point with minimum projected
+      //      depth (the surface point closest to camera = focal point).
+      //   2. Visible angular radius shrinks with zoom: at zoom 0.5 the whole
+      //      hemisphere is visible; at zoom 50 we see ~π/50 rad of arc.
+      //   3. A tile is visible if ANY of its 9 sample points is within that
+      //      radius of the focal point on the sphere.
+
+      function findFocalLatLon(): [number, number] {
+        // Coarse scan over the front hemisphere — depth < 0 means front-facing.
+        let bestLat = 0, bestLon = 0, bestDepth = Infinity;
+        for (let lat = -80; lat <= 80; lat += 10) {
+          for (let lon = -180; lon < 180; lon += 10) {
+            const [, , depth] = camera.project(latLonToXYZ(lat, lon), 100, 100, 1);
+            if (depth < bestDepth) {
+              bestDepth = depth; bestLat = lat; bestLon = lon;
+            }
+          }
+        }
+        // Refine in a ±10° window at 2° steps.
+        for (let lat = bestLat - 10; lat <= bestLat + 10; lat += 2) {
+          for (let lon = bestLon - 10; lon <= bestLon + 10; lon += 2) {
+            const [, , depth] = camera.project(latLonToXYZ(lat, lon), 100, 100, 1);
+            if (depth < bestDepth) {
+              bestDepth = depth; bestLat = lat; bestLon = lon;
+            }
+          }
+        }
+        return [bestLat, bestLon];
+      }
+
+      function angularDistanceRad(lat1: number, lon1: number, lat2: number, lon2: number): number {
+        const phi1 = (lat1 * Math.PI) / 180;
+        const phi2 = (lat2 * Math.PI) / 180;
+        const dLambda = ((lon2 - lon1) * Math.PI) / 180;
+        const cos = Math.min(
+          1,
+          Math.max(-1, Math.sin(phi1) * Math.sin(phi2) + Math.cos(phi1) * Math.cos(phi2) * Math.cos(dLambda)),
+        );
+        return Math.acos(cos);
+      }
+
+      function isTileVisible(
+        z: number, x: number, y: number,
+        focalLat: number, focalLon: number, radiusRad: number,
+      ): boolean {
+        const def = manifest.zooms.find((zz) => zz.z === z);
+        if (!def) return false;
+        const lonMin = -180 + x * def.tileLonSpan;
+        const lonMax = lonMin + def.tileLonSpan;
+        const latMax = 90 - y * def.tileLatSpan;
+        const latMin = latMax - def.tileLatSpan;
+        for (const lat of [latMin, (latMin + latMax) / 2, latMax]) {
+          for (const lon of [lonMin, (lonMin + lonMax) / 2, lonMax]) {
+            if (angularDistanceRad(focalLat, focalLon, lat, lon) < radiusRad) return true;
+          }
+        }
+        return false;
+      }
+
+      // Pick the active tile set for the current zoom + view direction, then
+      // diff against currently-mounted handles. Fetches missing tiles in
+      // parallel before doing any DOM changes so the scene never blinks.
+      async function updateActiveSet() {
+        if (updateInFlight) return;
+        updateInFlight = true;
+        try {
+          const lod = targetLOD(camera.zoom);
+          const def = manifest.zooms.find((zz) => zz.z === lod);
+          if (!def) return;
+
+          // Visible angular radius. At zoom 0.5 we see ~π/2 rad (hemisphere).
+          // At zoom 50 we see ~π/50 ≈ 0.063 rad of arc. Pad by a tile's
+          // diagonal so half-on-screen tiles still load.
+          const tileDiagRad =
+            Math.hypot(def.tileLonSpan, def.tileLatSpan) * 0.5 * (Math.PI / 180);
+          const visibleAngularRad = Math.PI / (2 * Math.max(0.5, camera.zoom)) + tileDiagRad;
+
+          const [focalLat, focalLon] = findFocalLatLon();
+
+          const desired = new Set<string>();
+          for (let y = 0; y < def.rows; y++) {
+            for (let x = 0; x < def.cols; x++) {
+              if (isTileVisible(lod, x, y, focalLat, focalLon, visibleAngularRad)) {
+                desired.add(`${lod}/${x}_${y}`);
+              }
+            }
+          }
+          // Failsafe: at high zoom looking near a pole the corner test can
+          // miss every tile. Always include at least one tile.
+          if (desired.size === 0 && def.cols > 0 && def.rows > 0) {
+            desired.add(`${lod}/0_0`);
+          }
+
+          // Fetch missing tiles in parallel.
+          const missing = [...desired].filter((k) => !tileCache.has(k));
+          if (missing.length > 0) {
+            await Promise.all(missing.map((k) => {
+              const [z, xy] = k.split("/");
+              const [x, y] = xy.split("_").map(Number);
+              return loadTile(Number(z), x, y);
+            }));
+          }
+
+          // Diff: dispose handles whose tile no longer belongs, mount new ones.
+          for (const [key, handle] of activeHandles) {
+            if (!desired.has(key)) {
+              handle.dispose();
+              activeHandles.delete(key);
+            }
+          }
+          for (const key of desired) {
+            if (!activeHandles.has(key)) {
+              const polys = tileCache.get(key);
+              if (polys) activeHandles.set(key, scene.add(polys) as unknown as MeshHandle);
+            }
+          }
+
+          currentLOD = lod;
+          scene.rerender();
+        } finally {
+          updateInFlight = false;
+        }
+      }
+
+      // Wheel events fire ~50 per second; a rapid scroll can blow through
+      // every LOD threshold in one burst. Debounce so we only fetch the
+      // tier the user settles on, not every intermediate one.
+      let updateTimer: ReturnType<typeof setTimeout> | null = null;
+      function scheduleUpdate(): void {
+        if (updateTimer) clearTimeout(updateTimer);
+        updateTimer = setTimeout(() => {
+          updateTimer = null;
+          void updateActiveSet();
+        }, 180);
+      }
+
+      await updateActiveSet();
+      loading?.remove();
+
+      // ── Country labels (GADM) anchored on the sphere ──────────────────
+      // Hotspots at each country's lat/lon, lifted just above the terrain so
+      // they float on the globe. We hide far-side labels (projected depth on
+      // the back hemisphere) and declutter by country size.
+      type LabelRec = { name: string; lat: number; lon: number; w: number };
+      const labelEls: HTMLElement[] = [];
+      let labelData: LabelRec[] = [];
+      const LABEL_R = 1.06; // sphere radius for labels (above peak relief ~1.04)
+      function gridDims() {
+        const o = scene.getOptions();
+        return { cols: o.cols ?? 80, rows: o.rows ?? 24, cellAspect: o.cellAspect ?? 2 };
+      }
+      function updateGlobeLabels(): void {
+        const { cols, rows, cellAspect } = gridDims();
+        const hostRect = host.getBoundingClientRect();
+        const cellW = hostRect.width / cols, cellH = hostRect.height / rows;
+        const maxShown = Math.max(8, Math.min(labelData.length, Math.round(camera.zoom * 9)));
+        const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+        let count = 0;
+        for (let i = 0; i < labelEls.length; i++) {
+          const rec = labelData[i];
+          const u = latLonToXYZ(rec.lat, rec.lon);
+          const [col, row, depth] = camera.project([u[0] * LABEL_R, u[1] * LABEL_R, u[2] * LABEL_R], cols, rows, cellAspect);
+          let show = false;
+          // depth < 0 = front hemisphere (facing camera). Back-side labels hide.
+          if (count < maxShown && depth < 0 && Number.isFinite(col)) {
+            const px = col * cellW, py = row * cellH;
+            if (px >= 0 && px <= hostRect.width && py >= 0 && py <= hostRect.height) {
+              const w = rec.name.length * 6 + 6, h = 13;
+              const r = { x: px - w / 2, y: py - h / 2, w, h };
+              if (!placed.some((p) => !(r.x + r.w < p.x || r.x > p.x + p.w || r.y + r.h < p.y || r.y > p.y + p.h))) {
+                placed.push(r); count++; show = true;
+                const el = labelEls[i];
+                el.style.left = `${px}px`; el.style.top = `${py}px`;
+              }
+            }
+          }
+          labelEls[i].style.opacity = show ? "0.92" : "0";
+        }
+      }
+      void (async () => {
+        try {
+          const res = await fetch("/data/flatmap/labels.json");
+          labelData = await res.json();
+          const layer = host.querySelector(".glyph-scene") ?? host;
+          for (const rec of labelData) {
+            const el = document.createElement("div");
+            el.textContent = rec.name;
+            el.style.cssText =
+              "position:absolute;transform:translate(-50%,-50%);white-space:nowrap;font-size:10px;" +
+              "letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,245,224,0.96);" +
+              "text-shadow:0 0 3px #000,0 0 6px #000;opacity:0;transition:opacity 140ms ease;" +
+              "pointer-events:none;z-index:5;";
+            layer.appendChild(el);
+            labelEls.push(el);
+          }
+          updateGlobeLabels();
+        } catch (e) { console.error("labels load failed", e); }
+      })();
+
+      // Custom drag handler — no pitch clamp (lets you flip the globe to view
+      // poles from above/below). `invert`-style sign convention: drag right
+      // spins the visible face east.
+      //
+      // Sensitivity is derived from the globe's on-screen size so dragging
+      // tracks the cursor 1:1 at any zoom. A surface point at the front moves
+      // ≈ dθ · R_screen pixels for a rotation dθ, and the sphere radius is 1
+      // world unit, so dθ = dx_px / pixelsPerWorldUnit.
+      function pixelsPerUnit(): number {
+        const o = scene.getOptions();
+        const cols = o.cols ?? 80, rows = o.rows ?? 24, ca = o.cellAspect ?? 2;
+        const rect = host.getBoundingClientRect();
+        const a = camera.project([0, 0, 0], cols, rows, ca);
+        const b = camera.project([0, 0, 1], cols, rows, ca); // +Z unit (screen-up axis)
+        const dCol = (b[0] - a[0]) * (rect.width / cols);
+        const dRow = (b[1] - a[1]) * (rect.height / rows);
+        return Math.hypot(dCol, dRow) || 1;
+      }
+      let activePtr: number | null = null;
+      let lastX = 0, lastY = 0;
+      let viewDirty = false;
+      host.addEventListener("pointerdown", (e) => {
+        if (activePtr !== null) return;
+        activePtr = e.pointerId;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        (e.target as Element).setPointerCapture(e.pointerId);
+      });
+      host.addEventListener("pointermove", (e) => {
+        if (activePtr !== e.pointerId) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        const radPerPx = 1 / pixelsPerUnit(); // 1:1 cursor tracking at any zoom
+        camera.rotY += dx * radPerPx;
+        camera.rotX += dy * radPerPx;
+        viewDirty = true;
+        scene.rerender();
+        updateGlobeLabels();
+      });
+      const release = (e: PointerEvent) => {
+        if (activePtr !== e.pointerId) return;
+        activePtr = null;
+        try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
+        // Recompute visible tile set after a drag — newly-revealed tiles
+        // get fetched (and cached for next time).
+        if (viewDirty) {
+          viewDirty = false;
+          scheduleUpdate();
+        }
+      };
+      host.addEventListener("pointerup", release);
+      host.addEventListener("pointercancel", release);
+      host.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const delta = e.deltaY * 0.001;
+        // Cap at 3× — only z0/z1 tiles ship, so deeper zoom just enlarges
+        // coarse tiles into mush.
+        camera.zoom = Math.max(0.05, Math.min(3, camera.zoom * (1 - delta)));
+        scene.rerender();
+        updateGlobeLabels();
+        // Always schedule — the debounce coalesces rapid wheel events into
+        // a single fetch for whichever LOD the user lands on.
+        scheduleUpdate();
+      }, { passive: false });
+    }
+
+    void mountGlobe();
+  </script>
+</body>
+</html>
