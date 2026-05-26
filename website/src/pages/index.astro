@@ -136,13 +136,13 @@ const ldJson = {
           <div class="hero-scene" aria-hidden="true">
             <GlyphDemo id="hero-demo"
               polygonsUrl="/data/landing-earth.json"
-              defaults={JSON.stringify({ zoom: 0.29, rotX: 1.49, rotY: 0.79, duration: 12, renderMode: 'solid', lineHeight: 0.55 })}
+              defaults={JSON.stringify({ zoom: 0.46, rotX: 1.8, rotY: 0.79, duration: 12, renderMode: 'solid', lineHeight: 0.4 })}
               noCode
               noControls
               autoRotate
               invertDrag
               noClampPitch
-              realSunLight
+              light={JSON.stringify({ direction: [0.5, 0.7, 0.5], intensity: 2.4, ambient: 0.65 })}
             />
           </div>
           <div class="hero-overlay">
@@ -496,7 +496,7 @@ const ldJson = {
        so the frame needs more vertical room than horizontal on narrow
        viewports. 1.2× the available width gives the apple breathing space
        without making the hero dominate the viewport. */
-    height: clamp(420px, 120vw, 560px);
+    height: clamp(420px, 90vw, 560px);
     overflow: hidden;
     min-width: 0;
   }

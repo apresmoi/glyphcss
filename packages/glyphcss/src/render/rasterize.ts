@@ -81,6 +81,14 @@ function rasterizeSolid(
     ? computeVertexNormals(polygons, creaseAngle)
     : null;
 
+  // Lit-color cache for this render. Meshes share a handful of distinct
+  // base colors (palette buckets) and the shaded output is an 8-bit RGB hex
+  // string, so per-triangle `hexToRgb` parsing + `toHex2` formatting is the
+  // bulk of the color cost (≈doubles rasterize time at high poly counts).
+  // Key on (color, intensity quantized to 8 bits) — lossless for 8-bit
+  // output — and reuse the formatted string across all triangles that match.
+  const litCache = new Map<string, string>();
+
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
@@ -143,14 +151,24 @@ function rasterizeSolid(
       if (useColors) {
         const avgI = (iA + iB + iC) / 3;
         const avgKey = Math.max(0, avgI - ambIntensity);
-        const triRgb = poly.color ? hexToRgb(poly.color) : [255, 255, 255];
-        const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
-        const tintG = ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255;
-        const tintB = ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255;
-        const litR = Math.min(255, triRgb[0] * tintR);
-        const litG = Math.min(255, triRgb[1] * tintG);
-        const litB = Math.min(255, triRgb[2] * tintB);
-        litColor = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
+        const baseColor = poly.color ?? "#ffffff";
+        // Cache key: base color + intensity quantized to 0..255. Two triangles
+        // with the same base and intensity-to-8-bits produce identical output.
+        const q = (avgKey * 255) | 0;
+        const cacheKey = `${baseColor}:${q}`;
+        let cached = litCache.get(cacheKey);
+        if (cached === undefined) {
+          const triRgb = hexToRgb(baseColor); // memoized internally
+          const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
+          const tintG = ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255;
+          const tintB = ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255;
+          const litR = Math.min(255, triRgb[0] * tintR);
+          const litG = Math.min(255, triRgb[1] * tintG);
+          const litB = Math.min(255, triRgb[2] * tintB);
+          cached = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
+          litCache.set(cacheKey, cached);
+        }
+        litColor = cached;
       }
 
       // Scan-fill the projected triangle. Depth and intensity are both
@@ -492,7 +510,18 @@ function stampToGlyphs(
   return parts.join("");
 }
 
+// Memoized: meshes reuse a small set of base colors, so parsing the same hex
+// strings thousands of times per frame is pure waste. Keyed by the raw string.
+const rgbMemo = new Map<string, [number, number, number]>();
 function hexToRgb(hex: string): [number, number, number] {
+  const cached = rgbMemo.get(hex);
+  if (cached !== undefined) return cached;
+  const rgb = parseHexToRgb(hex);
+  rgbMemo.set(hex, rgb);
+  return rgb;
+}
+
+function parseHexToRgb(hex: string): [number, number, number] {
   // Accepts #rgb / #rrggbb. Anything else falls through to white.
   const h = hex.startsWith("#") ? hex.slice(1) : hex;
   if (h.length === 3) {

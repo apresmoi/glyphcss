@@ -536,6 +536,18 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let sphericalAz = 50;
   let sphericalEl = 45;
 
+  // Per-demo lighting override (`light` prop). Applied before the real-sun
+  // branch so realSunLight still owns `direction` when both are present.
+  const lightAttr = demoEl.getAttribute('data-light');
+  if (lightAttr) {
+    try {
+      const l = JSON.parse(lightAttr) as { direction?: [number, number, number]; intensity?: number; ambient?: number };
+      if (Array.isArray(l.direction)) lightingState.direction = l.direction;
+      if (typeof l.intensity === 'number') lightingState.keyIntensity = l.intensity;
+      if (typeof l.ambient === 'number') lightingState.ambientIntensity = l.ambient;
+    } catch { /* malformed light attr — keep defaults */ }
+  }
+
   // Real-time sun direction for an Earth globe. Subsolar point = lat/lon on
   // Earth where the sun is directly overhead right now. Derived from UTC
   // time + day-of-year (Earth's tilt makes the declination wobble between

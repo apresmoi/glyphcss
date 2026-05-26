@@ -49,11 +49,17 @@ interface Props {
    * day/night terminator match reality.
    */
   realSunLight?: boolean;
+  /**
+   * Override the default scene lighting. JSON of
+   * `{ direction?: [x,y,z], intensity?: number, ambient?: number }`.
+   * Ignored when `realSunLight` is set (the sun drives the direction).
+   */
+  light?: string;
 }
 
 import '../styles/glyph-demo.css';
 
-const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, autoRotate, interactive, polygonsUrl, invertDrag, noClampPitch, realSunLight } = Astro.props;
+const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, autoRotate, interactive, polygonsUrl, invertDrag, noClampPitch, realSunLight, light } = Astro.props;
 ---
 
 <div class="glyph-demo" id={id}
@@ -68,7 +74,8 @@ const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, a
   data-interactive={interactive === false ? "0" : undefined}
   data-invert-drag={invertDrag ? "1" : undefined}
   data-no-clamp-pitch={noClampPitch ? "1" : undefined}
-  data-real-sun-light={realSunLight ? "1" : undefined}>
+  data-real-sun-light={realSunLight ? "1" : undefined}
+  data-light={light || undefined}>
   <div class="glyph-demo__viewer not-content" data-layout={noControls ? "canvas-only" : "two-col"}>
     <div class="glyph-demo__canvas">
       <div class="glyph-demo__scene-host">

@@ -247,11 +247,27 @@ export function createGlyphScene(
       creaseAngle: options.creaseAngle,
     });
 
+    // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
+    // record per-render rasterize vs DOM-write timings into it. Zero cost when
+    // the flag is unset. Used by the glyphcss perf benchmark to decide whether
+    // the bottleneck is JS rasterization or the DOM/paint of the <pre>.
+    const perf = (globalThis as { __glyphPerf?: { raster?: number[]; dom?: number[]; polys?: number[] } }).__glyphPerf;
+    const tStart = perf ? performance.now() : 0;
+
     const output = rasterize(ctx);
+    const tRaster = perf ? performance.now() : 0;
+
     if (options.useColors) {
       pre.innerHTML = output;
     } else {
       pre.textContent = output;
+    }
+
+    if (perf) {
+      const tDom = performance.now();
+      (perf.raster ??= []).push(tRaster - tStart);
+      (perf.dom ??= []).push(tDom - tRaster);
+      (perf.polys ??= []).push(allPolygons.length);
     }
 
     // Update hotspot positions.
@@ -388,14 +404,23 @@ export function createGlyphScene(
     // Inherit line-height + font-size from the `<pre>` so the measurement
     // reflects any caller-applied overrides (e.g. the gallery's lineHeight
     // tunable). Hardcoding `line-height: 1` here would defeat the purpose.
+    //
+    // Height is measured from a MULTI-LINE probe (height ÷ N), not a single
+    // character. A single inline span's bounding box can't shrink below the
+    // font's glyph height, so at line-height < ~0.8 it over-reports the cell
+    // height — autoSize then computes too few rows and the rendered <pre>
+    // (which lays out lines at the true line-height) ends up shorter than the
+    // host, visually shrinking the scene. Stacking N lines and dividing
+    // recovers the real per-line advance at any line-height.
+    const LINES = 20;
     const probe = host.ownerDocument!.createElement("span");
-    probe.textContent = "M";
+    probe.textContent = Array(LINES).fill("M").join("\n");
     probe.style.cssText =
       "position:absolute;visibility:hidden;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre;padding:0;margin:0";
     pre.appendChild(probe);
     const r = probe.getBoundingClientRect();
     probe.remove();
-    return { w: r.width || 8, h: r.height || 16 };
+    return { w: r.width || 8, h: r.height ? r.height / LINES : 16 };
   }
 
   function fitToHost(): void {
