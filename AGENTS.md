@@ -63,6 +63,14 @@ Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry 
 - **HTML custom elements:** `glyph-` prefix + kebab-case. Existing tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-perspective-camera>`, `<glyph-orthographic-camera>`, `<glyph-camera>` (ortho alias), `<glyph-orbit-controls>`, `<glyph-map-controls>`. Any new element follows the same shape.
 - `GlyphCamera` is the ergonomic default alias — it resolves to `GlyphOrthographicCamera`. The voxel render mode and iso/diagrammatic scenes are glyphcss's differentiator; ortho is the more representative default.
 
+## Numeric conventions
+
+These conventions match voxcss and three.js exactly — same units, same frames.
+
+- **Rotation units: degrees.** `rotX`, `rotY` on cameras and the `rotation` prop on meshes are all in degrees (XYZ Euler). `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Do not use radians — the asciss-lineage radian convention has been replaced.
+- **Camera `zoom`: absolute, pixels per world unit.** `zoom=50` means one world unit maps to 50 px at `BASE_TILE`. This is three.js-style orthographic zoom, not a fraction of the viewport.
+- **Directional light `direction`: toward convention.** `GlyphDirectionalLight.direction` is the direction the light shines *toward*, matching three.js. A vector pointing down-right-forward lights the top-left-back faces.
+
 ## Cross-package discipline
 
 The React and Vue packages are mirror images. **Any public API change in one must land in the other in the same PR.** Same names, same arguments, same defaults, same return shapes (allowing for idiomatic differences — refs vs reactives, `useEffect` vs `watchEffect`).
