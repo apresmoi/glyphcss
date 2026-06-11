@@ -64,13 +64,14 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       earthRadiusM: number;
     };
 
-    // Camera.zoom thresholds for LOD selection. Each entry sets a CEILING; the
-    // last entry catches everything above. Tuned so transitions land near
-    // perceptual "I'm seeing chunky polygons" moments at our cell density.
+    // Camera.zoom thresholds for LOD selection. zoom is now px/world-unit
+    // (BASE_TILE=50). At default zoom≈16 the whole globe is visible at low
+    // detail (z0). Switch to z1 when the user has zoomed in enough that z0
+    // tiles look coarse (~3 globe-radii worth of zoom = zoom > 50).
     // Globe ships only z0/z1 tiles (decorative orbit view — deep zoom isn't
     // worth the data weight), so the LOD never exceeds 1.
     function targetLOD(zoom: number): number {
-      if (zoom < 1.0) return 0;
+      if (zoom < 50) return 0;
       return 1;
     }
 
@@ -89,13 +90,12 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       const loading = document.getElementById("loading");
       if (!host) return;
 
-      // Classic iso: rotX ≈ 55°, rotY ≈ 45° (= ~0.96 / 0.79 rad). zoom 0.3
-      // fits the full globe (diameter 2 units) inside the shorter viewport
-      // dimension with margin (radius = min(cols,rows)·zoom·1.5).
+      // Classic iso: rotX ≈ 55°, rotY ≈ 45°. zoom=24 (px/world-unit) so the
+      // unit-radius globe fills most of the viewport (still LOD 0, < 50).
       const camera = createGlyphOrthographicCamera({
-        rotX: 0.96,
-        rotY: 0.79,
-        zoom: 0.33,
+        rotX: 55,
+        rotY: 45,
+        zoom: 24,
       });
 
       const scene = createGlyphScene(host, {
@@ -104,7 +104,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         mode: "solid",
         useColors: true,
         glyphPalette: "default",
-        directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 },
+        directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 },
         ambientLight: { intensity: 0.45 },
       });
 
@@ -204,12 +204,12 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
           const def = manifest.zooms.find((zz) => zz.z === lod);
           if (!def) return;
 
-          // Visible angular radius. At zoom 0.5 we see ~π/2 rad (hemisphere).
-          // At zoom 50 we see ~π/50 ≈ 0.063 rad of arc. Pad by a tile's
-          // diagonal so half-on-screen tiles still load.
+          // Visible angular radius. For an orthographic globe view we always see
+          // roughly the front hemisphere (π/2 rad). Pad by a tile diagonal so
+          // tiles straddling the horizon still load before they pop in.
           const tileDiagRad =
             Math.hypot(def.tileLonSpan, def.tileLatSpan) * 0.5 * (Math.PI / 180);
-          const visibleAngularRad = Math.PI / (2 * Math.max(0.5, camera.zoom)) + tileDiagRad;
+          const visibleAngularRad = Math.PI / 2 + tileDiagRad;
 
           const [focalLat, focalLon] = findFocalLatLon();
 
@@ -289,7 +289,9 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         const { cols, rows, cellAspect } = gridDims();
         const hostRect = host.getBoundingClientRect();
         const cellW = hostRect.width / cols, cellH = hostRect.height / rows;
-        const maxShown = Math.max(8, Math.min(labelData.length, Math.round(camera.zoom * 9)));
+        // Scale label count with zoom: at zoom=16 (globe view) show ~8;
+        // at zoom=150 (max) show ~30. (zoom / 16) normalises to the default view.
+        const maxShown = Math.max(8, Math.min(labelData.length, Math.round((camera.zoom / 16) * 9)));
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         let count = 0;
         for (let i = 0; i < labelEls.length; i++) {
@@ -367,9 +369,12 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         const dy = e.clientY - lastY;
         lastX = e.clientX;
         lastY = e.clientY;
-        const radPerPx = 1 / pixelsPerUnit(); // 1:1 cursor tracking at any zoom
-        camera.rotY += dx * radPerPx;
-        camera.rotX += dy * radPerPx;
+        // 1:1 cursor tracking: 1 world-unit subtends pixelsPerUnit() px on
+        // screen; 1 radian of globe rotation moves a surface point ~1 world-unit
+        // (radius 1 globe). Camera is in degrees, so convert.
+        const degPerPx = (1 / pixelsPerUnit()) * (180 / Math.PI);
+        camera.rotY += dx * degPerPx;
+        camera.rotX += dy * degPerPx;
         viewDirty = true;
         scene.rerender();
         updateGlobeLabels();
@@ -390,9 +395,9 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       host.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = e.deltaY * 0.001;
-        // Cap at 3× — only z0/z1 tiles ship, so deeper zoom just enlarges
-        // coarse tiles into mush.
-        camera.zoom = Math.max(0.05, Math.min(3, camera.zoom * (1 - delta)));
+        // Zoom range: 4 (globe tiny) – 150 (z1 tiles fill viewport).
+        // Only z0/z1 tiles ship so deeper zoom just enlarges coarse tiles.
+        camera.zoom = Math.max(4, Math.min(150, camera.zoom * (1 - delta)));
         scene.rerender();
         updateGlobeLabels();
         // Always schedule — the debounce coalesces rapid wheel events into

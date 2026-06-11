@@ -84,7 +84,7 @@ function initPicker(): void {
         if (Object.keys(tunables).length > 0) {
           demo.setTunables(tunables);
           // Reflect new values in the right-rail sliders.
-          const rotXDeg = Number.isFinite(presetRotX) ? Math.round(presetRotX * 180 / Math.PI) : null;
+          const rotXDeg = Number.isFinite(presetRotX) ? Math.round(presetRotX) : null;
           syncRailSlider('rail-scale',    'rail-scale-val',    3, presetScale,    null);
           syncRailSlider('rail-distance', 'rail-distance-val', 0, presetDistance, null);
           if (rotXDeg !== null) syncRailSlider('rail-rotX', 'rail-rotX-val', 0, rotXDeg, '°');
@@ -92,7 +92,7 @@ function initPicker(): void {
         // Reset rotY to preset (resume auto-rotate so CSS animation takes over).
         if (Number.isFinite(presetRotY)) {
           demo.resumeAutoRotate();
-          const rotYDeg = Math.round(presetRotY * 180 / Math.PI);
+          const rotYDeg = Math.round(presetRotY);
           syncRailSlider('rail-rotY', 'rail-rotY-val', 0, rotYDeg, '°');
         }
         // Reset targets to 0.
@@ -161,14 +161,14 @@ function initPicker(): void {
         if (Number.isFinite(presetRotX))     tunables.rotX     = presetRotX;
         if (Object.keys(tunables).length > 0) {
           demo.setTunables(tunables);
-          const rotXDeg = Number.isFinite(presetRotX) ? Math.round(presetRotX * 180 / Math.PI) : null;
+          const rotXDeg = Number.isFinite(presetRotX) ? Math.round(presetRotX) : null;
           syncRailSlider('rail-scale',    'rail-scale-val',    3, presetScale,    null);
           syncRailSlider('rail-distance', 'rail-distance-val', 0, presetDistance, null);
           if (rotXDeg !== null) syncRailSlider('rail-rotX', 'rail-rotX-val', 0, rotXDeg, '°');
         }
         if (Number.isFinite(presetRotY)) {
           demo.resumeAutoRotate();
-          const rotYDeg = Math.round(presetRotY * 180 / Math.PI);
+          const rotYDeg = Math.round(presetRotY);
           syncRailSlider('rail-rotY', 'rail-rotY-val', 0, rotYDeg, '°');
         }
         syncRailSlider('rail-targetX', 'rail-targetX-val', 1, 0, null);
@@ -385,7 +385,7 @@ function initRail(): void {
       if (!demo) return;
       // Reset to defaults: scale 0.65, distance 8000, rotX 65°, rotY=auto
       demo.resumeAutoRotate();
-      demo.setTunables({ scale: 0.65, distance: 8000, rotX: 1.134, targetX: 0, targetY: 0, targetZ: 0 });
+      demo.setTunables({ scale: 0.65, distance: 8000, rotX: 65, targetX: 0, targetY: 0, targetZ: 0 });
       syncRailSlider('rail-scale',    'rail-scale-val',    3, 0.65,   null);
       syncRailSlider('rail-distance', 'rail-distance-val', 0, 8000,   null);
       syncRailSlider('rail-rotX',     'rail-rotX-val',     0, 65,     '°');
@@ -435,7 +435,7 @@ function initRail(): void {
     tunable:  'distance',
   });
 
-  // Rot X (degrees, convert to radians for tunable)
+  // Rot X (degrees — camera now accepts degrees directly)
   const rotXSlider = document.getElementById('rail-rotX') as HTMLInputElement | null;
   const rotXVal    = document.getElementById('rail-rotX-val');
   const rotXDec    = document.getElementById('rail-rotX-dec') as HTMLButtonElement | null;
@@ -446,14 +446,14 @@ function initRail(): void {
       rotXSlider.value = String(clamped);
       if (rotXVal) rotXVal.textContent = `${clamped}°`;
       const demo = getDemo();
-      if (demo) demo.setTunables({ rotX: (clamped * Math.PI) / 180 });
+      if (demo) demo.setTunables({ rotX: clamped });
     };
     rotXSlider.addEventListener('input', () => applyRotX(parseFloat(rotXSlider.value)));
     rotXDec?.addEventListener('click', () => applyRotX(parseFloat(rotXSlider.value) - 1));
     rotXInc?.addEventListener('click', () => applyRotX(parseFloat(rotXSlider.value) + 1));
   }
 
-  // Rot Y (degrees, convert to radians; pauses auto-rotate when dragged)
+  // Rot Y (degrees — camera now accepts degrees directly; pauses auto-rotate when dragged)
   const rotYSlider = document.getElementById('rail-rotY') as HTMLInputElement | null;
   const rotYVal    = document.getElementById('rail-rotY-val');
   const rotYDec    = document.getElementById('rail-rotY-dec') as HTMLButtonElement | null;
@@ -465,7 +465,7 @@ function initRail(): void {
       if (rotYVal) rotYVal.textContent = `${Math.round(wrapped)}°`;
       const demo = getDemo();
       // setTunables with rotY will pause autorotate
-      if (demo) demo.setTunables({ rotY: (wrapped * Math.PI) / 180 });
+      if (demo) demo.setTunables({ rotY: wrapped });
       // Uncheck autorotate checkbox to reflect paused state
       const autorotateCheck = document.getElementById('rail-autorotate') as HTMLInputElement | null;
       if (autorotateCheck && autorotateCheck.checked) autorotateCheck.checked = false;

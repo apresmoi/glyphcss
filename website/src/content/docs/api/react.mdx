@@ -24,7 +24,7 @@ projection state; `<GlyphScene>` rasterises into a `<pre>`; meshes, controls
 and hotspots are children of the scene.
 
 ```tsx
-<GlyphPerspectiveCamera rotX={1.13} rotY={0.78} zoom={0.3} distance={3}>
+<GlyphPerspectiveCamera rotX={65} rotY={45} zoom={50} distance={3}>
   <GlyphScene mode="solid" cols={100} rows={30}>
     <GlyphOrbitControls drag wheel />
     <GlyphMesh geometry="cube" />
@@ -75,7 +75,7 @@ descending precedence:
 ```
 
 The transform props (`position`, `scale`, `rotation`) apply to whichever
-source you pick. `rotation` is an XYZ Euler triple in radians.
+source you pick. `rotation` is an XYZ Euler triple in degrees.
 
 ## End-to-end example
 
@@ -94,7 +94,7 @@ const ambientLight = { intensity: 0.4 };
 
 export function App() {
   return (
-    <GlyphPerspectiveCamera rotX={1.13} rotY={0.78} zoom={0.3} distance={3}>
+    <GlyphPerspectiveCamera rotX={65} rotY={45} zoom={50} distance={3}>
       <GlyphScene
         mode="solid"
         cols={120}

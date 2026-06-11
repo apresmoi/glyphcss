@@ -24,7 +24,7 @@ import { octahedronPolygons } from "@glyphcss/core";
 
 const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
 
-<GlyphCamera rotX={0.4}>
+<GlyphCamera rotX={25}>
   <GlyphScene mode="solid" cols={80} rows={24}>
     <GlyphMesh polygons={shape}>
       <GlyphHotspot at={[0, 1, 0]} onClick={() => alert("top vertex")}>

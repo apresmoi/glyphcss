@@ -43,11 +43,13 @@ function fmt(n: number): string {
   return String(Number(n.toFixed(2)));
 }
 
-/** Spherical (azimuth/elevation in degrees) → cartesian direction Vec3. */
+/** Spherical (azimuth/elevation in degrees) → cartesian direction Vec3.
+ * Returns the "shines TOWARD" vector (three.js convention): the direction
+ * the light travels, i.e. the negated subsolar unit vector. */
 function dirFromSpherical(azimuthDeg: number, elevationDeg: number): [number, number, number] {
   const az = (azimuthDeg * Math.PI) / 180;
   const el = (elevationDeg * Math.PI) / 180;
-  return [Math.cos(el) * Math.cos(az), Math.sin(el), Math.cos(el) * Math.sin(az)];
+  return [-Math.cos(el) * Math.cos(az), -Math.sin(el), -Math.cos(el) * Math.sin(az)];
 }
 
 function vec3(v: [number, number, number]): string {
@@ -59,8 +61,8 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const isPrimitive = selectedPreset.kind === "primitive";
   const geometryName = isPrimitive ? primitiveGeometryName(selectedPreset.id) : "";
   const needsUpright = isPrimitive && UPRIGHT_PRIMITIVES.has(selectedPreset.id);
-  // 1.5708 ≈ π/2. Kept literal so the snippet stays paste-able.
-  const uprightRotation: [number, number, number] = [1.5708, 0, 0];
+  // 90° — uprightAlongZ maps Y-up geometry to Z-up screen convention.
+  const uprightRotation: [number, number, number] = [90, 0, 0];
   const mode = options.renderMode ?? "solid";
   const palette = options.glyphPalette ?? "default";
   const useColors = options.useColors !== false;
@@ -69,7 +71,7 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const featureEdges = options.featureEdges ?? 0;
   const rotX = options.rotX ?? 0;
   const rotY = options.rotY ?? 0;
-  const zoom = options.zoom ?? 0.4;
+  const zoom = options.zoom ?? 1.3;
   const perspective = options.perspective;
   const isOrtho = perspective === false;
   const distance = typeof perspective === "number" ? perspective : 3;

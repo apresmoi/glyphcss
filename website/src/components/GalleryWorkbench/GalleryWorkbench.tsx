@@ -203,7 +203,9 @@ const DEFAULT_SCENE: SceneOptionsState = {
   autoCenter: true,
   autoRotate: false,
   interactive: true,
-  zoom: 0.25,
+  // 0 = auto-fit the model to the viewport (the runtime computes the absolute
+  // px-per-world-unit zoom). The fitted value is read back via camera-sync.
+  zoom: 0,
   rotX: 65,
   rotY: 45,
   perspective: false,
@@ -248,7 +250,9 @@ const EMPTY_METRICS: GlyphMetrics = {
 function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
   return {
     ...DEFAULT_SCENE,
-    zoom: model.zoom ?? DEFAULT_SCENE.zoom,
+    // 0 = auto-fit; the runtime sizes each model to the viewport. The stale
+    // per-preset fraction-scale `model.zoom` values are intentionally ignored.
+    zoom: 0,
     rotX: model.rotX ?? DEFAULT_SCENE.rotX,
     rotY: model.rotY ?? DEFAULT_SCENE.rotY,
   };
@@ -366,10 +370,11 @@ export default function GalleryWorkbench() {
     selectedPreset,
     selectedDroppedSource,
     onMeshUrl: setMeshUrl,
-    onSceneDefaults: (zoom, rotX, rotY) => {
+    onSceneDefaults: (_zoom, rotX, rotY) => {
       setSceneOptions((current) => ({
         ...current,
-        zoom: zoom ?? current.zoom,
+        // Re-fit on every model load; ignore the preset's stale zoom.
+        zoom: 0,
         rotX: rotX ?? current.rotX,
         rotY: rotY ?? current.rotY,
       }));

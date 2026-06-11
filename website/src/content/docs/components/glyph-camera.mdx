@@ -13,17 +13,17 @@ read from the same camera state — mutating `rotY` updates both simultaneously.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `rotX` | `number` (radians) | `0` | Tilt around X axis |
-| `rotY` | `number` (radians) | `0` | Spin around Y axis |
-| `zoom` | `number` | `0.4` | Camera zoom — mesh fills this fraction of `min(cols, rows)` |
+| `rotX` | `number` (degrees) | `0` | Tilt around X axis |
+| `rotY` | `number` (degrees) | `0` | Spin around Y axis |
+| `zoom` | `number` | `50` | Camera zoom — pixels per world unit (`zoom=50` → 50 px per world unit at `BASE_TILE`) |
 
 ## Props — perspective (`GlyphPerspectiveCamera`)
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `rotX` | `number` (radians) | `0` | Tilt around X axis |
-| `rotY` | `number` (radians) | `0` | Spin around Y axis |
-| `zoom` | `number` | `0.4` | Camera zoom — mesh fills this fraction of `min(cols, rows)` |
+| `rotX` | `number` (degrees) | `0` | Tilt around X axis |
+| `rotY` | `number` (degrees) | `0` | Spin around Y axis |
+| `zoom` | `number` | `50` | Camera zoom — pixels per world unit (`zoom=50` → 50 px per world unit at `BASE_TILE`) |
 | `distance` | `number` | `3` | Camera distance — smaller = more perspective foreshortening |
 | `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
 
@@ -47,7 +47,7 @@ const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }
 // Perspective (foreshortened)
 export function PerspectiveExample() {
   return (
-    <GlyphPerspectiveCamera rotX={0.38} zoom={0.4} distance={3} stretch={0.95}>
+    <GlyphPerspectiveCamera rotX={22} zoom={50} distance={3} stretch={0.95}>
       <GlyphScene mode="solid" cols={100} rows={30}>
         <GlyphOrbitControls />
         <GlyphMesh polygons={octa} />
@@ -59,7 +59,7 @@ export function PerspectiveExample() {
 // Orthographic — parallel lines stay parallel (isometric style)
 export function OrthoExample() {
   return (
-    <GlyphOrthographicCamera rotX={0.62} zoom={0.4}>
+    <GlyphOrthographicCamera rotX={35} zoom={50}>
       <GlyphScene mode="solid" cols={100} rows={30}>
         <GlyphOrbitControls />
         <GlyphMesh polygons={octa} />
@@ -76,8 +76,8 @@ export function OrthoExample() {
 <template>
   <component
     :is="perspective ? GlyphPerspectiveCamera : GlyphOrthographicCamera"
-    :rot-x="perspective ? 0.38 : 0.62"
-    :zoom="0.4"
+    :rot-x="perspective ? 22 : 35"
+    :zoom="50"
     v-bind="perspective ? { distance: 3 } : {}"
   >
     <GlyphScene mode="solid" :cols="100" :rows="30">
@@ -118,8 +118,8 @@ const host = document.querySelector<HTMLElement>("#scene")!;
 
 // Camera constructed first, then passed into the scene
 const perspective = createGlyphPerspectiveCamera({
-  rotX: 0.38,
-  zoom: 0.4,
+  rotX: 22,
+  zoom: 50,
   distance: 3,
   stretch: 0.95,
 });
@@ -128,11 +128,11 @@ const scene = createGlyphScene(host, { camera: perspective, mode: "solid" });
 scene.add(octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }));
 
 // Switch to orthographic:
-const ortho = createGlyphOrthographicCamera({ rotX: 0.62, zoom: 0.4 });
+const ortho = createGlyphOrthographicCamera({ rotX: 35, zoom: 50 });
 scene.setOptions({ camera: ortho });
 
 // Mutate camera state and re-render:
-perspective.rotY = Math.PI / 4;
+perspective.rotY = 45;
 perspective.distance = 4;
 scene.rerender();
 ```
@@ -143,11 +143,14 @@ scene.rerender();
 ## Notes
 
 - Distance ranges that work well: `1.6` (strong perspective) → `5.0` (nearly flat).
-- `rotX: 0` looks straight down the Z axis. Try `0.38` for a slight downward tilt
-  that gives the mesh visual weight.
+- `rotX: 0` looks straight down the Z axis. Try `22` (degrees) for a slight downward
+  tilt that gives the mesh visual weight.
 - `stretch: 0.95` counteracts over-stretching from `cellAspect ≈ 2` on typical
   monospace fonts. Leave at `1.0` if you tighten `line-height` instead.
 - Orthographic cameras ignore `distance` — use `zoom` to scale the mesh instead.
 - `GlyphCamera` is the ergonomic default alias for `GlyphOrthographicCamera`. Use it
   for iso/diagrammatic scenes; use `GlyphPerspectiveCamera` explicitly for
   character or walkthrough scenes.
+- Rotation units are **degrees**, matching voxcss/three.js. `rotX=65, rotY=45` is the
+  classic isometric-ish viewpoint. `zoom` is **pixels per world unit** — `zoom=50`
+  means one world unit maps to 50 px.

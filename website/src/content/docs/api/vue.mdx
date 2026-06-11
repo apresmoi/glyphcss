@@ -20,7 +20,7 @@ Camera wraps scene. Meshes, controls and hotspots are children of the
 scene. Template attributes are kebab-case (`:rot-x`, `:rot-y`, `:auto-center`).
 
 ```vue
-<GlyphPerspectiveCamera :rot-x="1.13" :rot-y="0.78" :zoom="0.3" :distance="3">
+<GlyphPerspectiveCamera :rot-x="65" :rot-y="45" :zoom="50" :distance="3">
   <GlyphScene mode="solid" :cols="100" :rows="30">
     <GlyphOrbitControls drag wheel />
     <GlyphMesh geometry="cube" />
@@ -69,13 +69,13 @@ precedence: explicit `:polygons`, `src` URL, or `geometry` name.
 <GlyphMesh geometry="dodecahedron" :size="1.2" color="#ffcc44" />
 ```
 
-`rotation` is an XYZ Euler triple in radians, passed as `:rotation="[x, y, z]"`.
+`rotation` is an XYZ Euler triple in degrees, passed as `:rotation="[x, y, z]"`.
 
 ## End-to-end example
 
 ```vue
 <template>
-  <GlyphPerspectiveCamera :rot-x="1.13" :rot-y="0.78" :zoom="0.3" :distance="3">
+  <GlyphPerspectiveCamera :rot-x="65" :rot-y="45" :zoom="50" :distance="3">
     <GlyphScene
       mode="solid"
       :cols="120"

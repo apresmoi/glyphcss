@@ -50,7 +50,7 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function App() {
   return (
-    <GlyphPerspectiveCamera rotX={0.4} zoom={0.3} distance={3}>
+    <GlyphPerspectiveCamera rotX={25} zoom={50} distance={3}>
       <GlyphScene mode="solid" cols={100} rows={30}>
         <GlyphOrbitControls drag wheel />
         <GlyphMesh polygons={cube}>
@@ -72,7 +72,7 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphPerspectiveCamera :rot-x="0.4" :zoom="0.3" :distance="3">
+  <GlyphPerspectiveCamera :rot-x="25" :zoom="50" :distance="3">
     <GlyphScene mode="solid" :cols="100" :rows="30">
       <GlyphOrbitControls drag wheel />
       <GlyphMesh :polygons="cube">
@@ -114,7 +114,7 @@ import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 
-const camera = createGlyphPerspectiveCamera({ rotX: 0.4, zoom: 0.3, distance: 3 });
+const camera = createGlyphPerspectiveCamera({ rotX: 25, zoom: 50, distance: 3 });
 const scene = createGlyphScene(host, {
   camera,
   mode: "solid",

@@ -33,7 +33,7 @@ Camera wraps scene. Attribute names are kebab-case (`rot-x`, `rot-y`,
 convention — present means true.
 
 ```html
-<glyph-perspective-camera rot-x="1.13" rot-y="0.78" zoom="0.3" distance="3">
+<glyph-perspective-camera rot-x="65" rot-y="45" zoom="50" distance="3">
   <glyph-scene mode="solid" cols="100" rows="30">
     <glyph-orbit-controls drag wheel></glyph-orbit-controls>
     <glyph-mesh geometry="cube"></glyph-mesh>
@@ -68,9 +68,9 @@ attributes; perspective additionally accepts `distance` and `stretch`.
 
 | Attribute | Notes |
 |---|---|
-| `rot-x` | Pitch in radians |
-| `rot-y` | Yaw in radians |
-| `zoom` | Scale factor |
+| `rot-x` | Pitch in degrees |
+| `rot-y` | Yaw in degrees |
+| `zoom` | Pixels per world unit |
 | `distance` | Perspective only |
 | `stretch` | Perspective only |
 
@@ -87,7 +87,7 @@ Polygon registration. Picks one source in descending precedence: `geometry`
 | `color` | Fill color for `geometry` |
 | `position` | `x,y,z` translation |
 | `scale` | `s` or `sx,sy,sz` |
-| `rotation` | `rx,ry,rz` XYZ Euler radians |
+| `rotation` | `rx,ry,rz` XYZ Euler degrees |
 | `normalize` | flag — auto-fit imported mesh to a unit bbox |
 
 ### `<glyph-hotspot>`
@@ -140,7 +140,7 @@ sceneEl.addEventListener("glyph-scene-ready", (ev) => {
     </style>
   </head>
   <body>
-    <glyph-perspective-camera rot-x="1.13" rot-y="0.78" zoom="0.3" distance="3">
+    <glyph-perspective-camera rot-x="65" rot-y="45" zoom="50" distance="3">
       <glyph-scene
         mode="solid"
         cols="120"

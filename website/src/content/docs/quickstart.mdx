@@ -41,7 +41,7 @@ import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh, GlyphHotspot } 
 
 export function App() {
   return (
-    <GlyphCamera rotX={0.4} zoom={0.32}>
+    <GlyphCamera rotX={25} zoom={50}>
       <GlyphScene>
         <GlyphOrbitControls drag wheel />
         <GlyphMesh geometry="cuboctahedron">
@@ -58,7 +58,7 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphCamera :rot-x="0.4" :zoom="0.32">
+  <GlyphCamera :rot-x="25" :zoom="50">
     <GlyphScene>
       <GlyphOrbitControls drag wheel />
       <GlyphMesh geometry="cuboctahedron">
@@ -80,7 +80,7 @@ function onClick() { alert("vertex"); }
 ```html
 <script type="module" src="https://esm.sh/glyphcss/elements"></script>
 
-<glyph-camera rot-x="0.4" zoom="0.32">
+<glyph-camera rot-x="25" zoom="50">
   <glyph-scene>
     <glyph-orbit-controls drag wheel></glyph-orbit-controls>
     <glyph-mesh geometry="cuboctahedron">
@@ -113,7 +113,7 @@ const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc"
 
 export function IcosahedronDemo() {
   return (
-    <GlyphCamera rotX={0.4} zoom={0.32}>
+    <GlyphCamera rotX={25} zoom={50}>
       <GlyphScene mode="solid">
         <GlyphOrbitControls />
         <GlyphMesh polygons={icosa} />
@@ -128,7 +128,7 @@ export function IcosahedronDemo() {
 
 ```vue
 <template>
-  <GlyphCamera :rot-x="0.4" :zoom="0.32">
+  <GlyphCamera :rot-x="25" :zoom="50">
     <GlyphScene mode="solid">
       <GlyphOrbitControls />
       <GlyphMesh :polygons="icosa" />
@@ -152,7 +152,7 @@ import { createGlyphCamera, createGlyphScene } from "glyphcss";
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const camera = createGlyphCamera({ rotX: 0.4, zoom: 0.32 });
+const camera = createGlyphCamera({ rotX: 25, zoom: 50 });
 const scene = createGlyphScene(host, { camera, mode: "solid", cols: 80, rows: 24 });
 scene.add(icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
 ```

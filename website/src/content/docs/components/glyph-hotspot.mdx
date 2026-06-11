@@ -51,7 +51,7 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function HotspotDemo() {
   return (
-    <GlyphCamera rotX={0.4}>
+    <GlyphCamera rotX={25}>
       <GlyphScene mode="solid" cols={100} rows={30}>
         <GlyphOrbitControls />
         <GlyphMesh polygons={cube}>
@@ -87,7 +87,7 @@ export function HotspotDemo() {
 
 ```vue
 <template>
-  <GlyphCamera :rot-x="0.4">
+  <GlyphCamera :rot-x="25">
     <GlyphScene mode="solid" :cols="100" :rows="30">
       <GlyphOrbitControls />
       <GlyphMesh :polygons="cube">

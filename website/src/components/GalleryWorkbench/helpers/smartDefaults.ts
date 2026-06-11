@@ -1,6 +1,6 @@
 import type { PresetModel } from "../types";
 
-const DEFAULT_ZOOM = 0.35;
+const DEFAULT_ZOOM = 1.3;
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -12,5 +12,5 @@ export function defaultZoomForModel(model: PresetModel): number {
 }
 
 export function smartZoomForPreset(model: PresetModel): number {
-  return clamp(model.zoom ?? DEFAULT_ZOOM, 0.06, 1.2);
+  return clamp(model.zoom ?? DEFAULT_ZOOM, 0.2, 5.0);
 }

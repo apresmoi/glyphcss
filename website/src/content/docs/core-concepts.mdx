@@ -58,7 +58,7 @@ This is enforced by both reading from a shared `GlyphCamera` handle:
 
 ```ts
 const camera = createGlyphPerspectiveCamera({
-  rotX: 0.4, rotY: 0, distance: 3, zoom: 0.32, stretch: 1.0,
+  rotX: 25, rotY: 0, distance: 3, zoom: 50, stretch: 1.0,
 });
 
 const scene = buildSceneContext({ camera, grid, wireframe: edges, mode: "wireframe" });
@@ -68,7 +68,7 @@ const frames = bakeFrames(scene, 60, "y");
 
 // Hit layer — same camera, same N angles
 for (let i = 0; i < 60; i++) {
-  camera.rotY = (i / 60) * Math.PI * 2;
+  camera.rotY = (i / 60) * 360;
   const cells = projectHotspots(hotspots, camera, cols, rows, cellAspect);
   // ...
 }

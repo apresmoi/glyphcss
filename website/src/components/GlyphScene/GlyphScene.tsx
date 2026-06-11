@@ -4,7 +4,7 @@ import type { ParseAnimationClip, Polygon } from "@glyphcss/core";
 
 // Mirror of the handle shape exposed by glyph-runtime on demoEl.glyphcssDemo.
 interface DemoHandle {
-  setMeshUrl: (url: string) => Promise<void>;
+  setMeshUrl: (url: string, mtlUrl?: string) => Promise<void>;
   setPolygons: (polygons: Polygon[]) => void;
   setAutoRotate: (enabled: boolean) => void;
   setTunables: (partial: Record<string, number | string | boolean>) => void;
@@ -105,17 +105,19 @@ export function GlyphScene({
     mountedRef.current = true;
 
     const defaults = JSON.stringify({
-      scale: options.zoom,
-      rotX: (options.rotX * Math.PI) / 180,
-      rotY: (options.rotY * Math.PI) / 180,
+      // Omit scale when 0 (auto-fit sentinel) so the runtime fits on first paint.
+      ...(options.zoom > 0 ? { scale: options.zoom } : {}),
+      rotX: options.rotX,
+      rotY: options.rotY,
     });
 
     const demoId = demoIdRef.current;
     const isPrimitive = selectedPresetRef.current?.kind === "primitive";
+    const initialMtl = selectedPresetRef.current?.mtlUrl;
     host.innerHTML = `
       <div class="glyph-demo no-autorotate" id="${demoId}"
         data-geometry="cuboctahedron"
-        ${isPrimitive ? `data-primitive="1"` : `data-mesh="${meshUrl}"`}
+        ${isPrimitive ? `data-primitive="1"` : `data-mesh="${meshUrl}"${initialMtl ? ` data-mtl="${initialMtl}"` : ""}`}
         data-defaults='${defaults.replace(/'/g, "&apos;")}'
         data-no-controls="1">
         <div class="glyph-demo__viewer not-content" data-layout="canvas-only">
@@ -239,8 +241,8 @@ export function GlyphScene({
       // on every poll cycle, killing the animation after one tick.
       if (onCameraChange && handle.getDragMode() !== "fpv") {
         const cam = handle.getCameraState();
-        const rotXDeg = (cam.rotX * 180) / Math.PI;
-        const rotYDeg = (((cam.rotY * 180) / Math.PI) % 360 + 360) % 360;
+        const rotXDeg = cam.rotX;
+        const rotYDeg = ((cam.rotY % 360) + 360) % 360;
         const last = lastAppliedCameraRef.current;
         const TOL = 0.01;
         const isAutoRotating = autoRotateRef.current;
@@ -271,7 +273,7 @@ export function GlyphScene({
     if (selectedPreset?.kind === "primitive") {
       handle.setPolygons(selectedPreset.generatePolygons());
     } else {
-      void handle.setMeshUrl(meshUrl);
+      void handle.setMeshUrl(meshUrl, selectedPreset?.mtlUrl);
     }
     // Reset clip tracking so the Dock updates on next poll.
     prevClipCountRef.current = -1;
@@ -281,11 +283,13 @@ export function GlyphScene({
   useEffect(() => {
     const handle = getHandle();
     if (!handle) return;
-    handle.setTunables({
-      scale: options.zoom,
-      rotX: (options.rotX * Math.PI) / 180,
-      rotY: (options.rotY * Math.PI) / 180,
-    });
+    // zoom === 0 is the "auto-fit" sentinel — let the runtime's fit-to-content
+    // own the zoom (don't push a scale that would override it).
+    handle.setTunables(
+      options.zoom > 0
+        ? { scale: options.zoom, rotX: options.rotX, rotY: options.rotY }
+        : { rotX: options.rotX, rotY: options.rotY },
+    );
     // Record what the sidebar applied so the poll does not echo it back.
     const prev = lastAppliedCameraRef.current;
     lastAppliedCameraRef.current = {
