@@ -39,6 +39,17 @@ There are no per-polygon DOM elements. There is no CSS `matrix3d`. The `<pre>` i
 | `solid` | Filled cells; glyph picked from a `CharRamp` by Lambert-shaded intensity |
 | `voxel` | Cube-aligned geometry; face normals drive glyph selection |
 
+### Shadows
+
+Shadows are opt-in per mesh. To enable them, set `shadow: GlyphShadowOptions` on the scene (undefined by default = no shadows). Then flag individual meshes with `castShadow` (default false) and/or `receiveShadow` (default false). A mesh that is both cast and receive self-shadows — this is free because glyphcss uses a **shadow-map** technique (render depth from the light, compare per cell) rather than polycss's analytic SVG projection. `GlyphGround` defaults `receiveShadow=true`, `castShadow=false`.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `shadow.color` | `string` | `"#000000"` | Shadow tint hex color |
+| `shadow.opacity` | `number` | `0.25` | Darkness 0..1 toward `color` |
+| `shadow.lift` | `number` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces |
+| `shadow.maxExtend` | `number` | `2000` | Half-extent of the light-space projection volume |
+
 ### Hotspots
 
 Hotspots are 3D anchors that produce positioned 2D hitboxes in the consumer's DOM. The rasteriser projects each `Hotspot.at` point through the camera and returns a `HotspotCell` (col, row, depth, visible). Consumers absolute-position a `<div>` at the cell — the rasteriser only computes the position; it does not emit the DOM node.
