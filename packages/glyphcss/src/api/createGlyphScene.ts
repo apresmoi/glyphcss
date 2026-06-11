@@ -139,6 +139,13 @@ interface MeshEntry {
 
 let nextMeshId = 1;
 
+// Convention aligned to voxcss/three.js: rotation is XYZ Euler in DEGREES,
+// world frame. Matches voxcss core/src/math/rotation.ts `rotateVec3` (angles
+// in degrees, composition M = Rx·Ry·Rz, Rz acts first on the point).
+// glyphcss delta vs voxcss: output is baked world-space vertices (no CSS
+// wrapper), so the CSS-frame swap/negate from voxcss PolyMesh.tsx
+// `buildTransform` (rotateY(-rx)…) is NOT applied here — that is a
+// CSS-frame artifact only.
 function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Polygon[] {
   const { position, scale, rotation } = transform;
   if (!position && !scale && !rotation) return polygons;
@@ -149,7 +156,12 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
     if (typeof scale === "number") { sx = sy = sz = scale; }
     else { [sx, sy, sz] = scale; }
   }
-  const [rx, ry, rz] = rotation ?? [0, 0, 0];
+  // Degrees → radians. Rotation is [rxDeg, ryDeg, rzDeg] in world frame.
+  const DEG2RAD = Math.PI / 180;
+  const [rxDeg, ryDeg, rzDeg] = rotation ?? [0, 0, 0];
+  const rx = rxDeg * DEG2RAD;
+  const ry = ryDeg * DEG2RAD;
+  const rz = rzDeg * DEG2RAD;
 
   // Compose rotation matrices: R = Rx(rx) * Ry(ry) * Rz(rz)
   const cosX = Math.cos(rx), sinX = Math.sin(rx);
@@ -194,7 +206,7 @@ export function createGlyphScene(
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
     cellAspect: opts.cellAspect ?? 2.0,
-    directionalLight: opts.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
+    directionalLight: opts.directionalLight ?? { direction: [-0.5, -0.7, -0.5], intensity: 1 },
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
     smoothShading: opts.smoothShading ?? false,

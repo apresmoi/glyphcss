@@ -1,9 +1,14 @@
+// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); no common.ts dependency (inline helpers); no addEventListener/removeEventListener (not yet in glyphcss API surface); zoom clamp widened to absolute scale [0.1,500].
 /**
  * createGlyphOrbitControls — orbit-mode camera input for a GlyphScene.
  *
  * Left-drag rotates rotX / rotY around the target (orbit). Wheel zooms or
- * dollies. Mirrors glyphcss's createPolyOrbitControls semantics, adapted for
+ * dollies. Mirrors voxcss's createPolyOrbitControls semantics, adapted for
  * the ASCII rasterizer's GlyphCamera instead of the CSS matrix3d camera.
+ *
+ * rotX and rotY are in DEGREES (three.js / voxcss convention).
+ * Drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
+ * Animate speed: degrees per 60 Hz-equivalent frame.
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
@@ -16,7 +21,7 @@ export interface GlyphOrbitControlsOptions {
   /** Drag-direction inversion. Default: false. */
   invert?: boolean | number;
   /**
-   * Clamp vertical drag to ±π/2 (camera stays above the equator, never
+   * Clamp vertical drag to ±90° (camera stays above the equator, never
    * flipping past either pole). Default: true. Set to false for globe-style
    * unrestricted tumbling.
    */
@@ -74,15 +79,15 @@ export function createGlyphOrbitControls(
     const dy = e.clientY - pointer.y;
     pointer = { x: e.clientX, y: e.clientY };
     const f = invertFactor;
-    // Drag sensitivity: 4px per degree, converted to radians
+    // Drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
+    // rotX and rotY are in degrees — no radians conversion needed.
     const DEG_PER_PX = 1 / 4;
-    const RAD_PER_PX = DEG_PER_PX * Math.PI / 180;
-    camera.rotY = camera.rotY - dx * RAD_PER_PX * f;
+    camera.rotY = camera.rotY - dx * DEG_PER_PX * f;
     // Drag in the same direction as the pointer: dragging UP tilts the camera
     // UP (positive rotX increase from the +Z-is-screen-up convention), so dy
     // negates here. Matches the horizontal axis's `-dx` direction.
-    const nextRotX = camera.rotX - dy * RAD_PER_PX * f;
-    camera.rotX = clampPitch ? Math.max(-Math.PI / 2, Math.min(Math.PI / 2, nextRotX)) : nextRotX;
+    const nextRotX = camera.rotX - dy * DEG_PER_PX * f;
+    camera.rotX = clampPitch ? Math.max(-90, Math.min(90, nextRotX)) : nextRotX;
     scene.rerender();
   }
 
@@ -98,7 +103,10 @@ export function createGlyphOrbitControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    camera.zoom = Math.max(0.05, Math.min(10, camera.zoom * (1 - delta)));
+    // Absolute px-per-world-unit zoom (BASE_TILE convention): fitted framings
+    // land ~10–40, so the clamp spans a wide range — a low floor to avoid
+    // div-by-zero, a high ceiling for deep zoom.
+    camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
     scene.rerender();
   }
 
@@ -108,7 +116,8 @@ export function createGlyphOrbitControls(
       const dt = lastTime !== null ? Math.min(time - lastTime, 50) : 16.67;
       const speed = (typeof animOpts === "object" && animOpts.speed) ? animOpts.speed : 0.3;
       const axis = (typeof animOpts === "object" && animOpts.axis) ? animOpts.axis : "y";
-      const dAngle = speed * (Math.PI / 180) * (dt / 16.67);
+      // speed is degrees per 60 Hz-equivalent frame; dt normalised to 16.67 ms reference.
+      const dAngle = speed * (dt / 16.67);
       if (axis === "y") camera.rotY = camera.rotY + dAngle;
       else camera.rotX = camera.rotX + dAngle;
       scene.rerender();

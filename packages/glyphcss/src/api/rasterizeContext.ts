@@ -55,7 +55,10 @@ export interface RasterizeContext {
   creaseAngle: number;
 }
 
-const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+// Direction the light shines TOWARD (three.js / computeShapeLighting convention).
+// Negated from the old [0.5, 0.7, 0.5] "light travels from" default so visual
+// output is preserved after the Lambert sign fix in rasterize.ts.
+const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [-0.5, -0.7, -0.5], intensity: 1 };
 const DEFAULT_AMBIENT: GlyphAmbientLight = { intensity: 0.4 };
 
 function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {

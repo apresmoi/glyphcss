@@ -88,16 +88,42 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 
-  it("rotX is clamped to [-π/2, π/2]", () => {
+  it("drag of 80 px tilts the camera by 20 degrees (4 px per degree)", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const initialRotY = scene.camera.rotY;
+
+    pd(scene.host, 100, 100);
+    pm(scene.host, 180, 100); // dx = +80 → 80/4 = 20 deg
+    pu(scene.host);
+
+    // rotY = rotY - 80 * (1/4) = rotY - 20
+    expect(scene.camera.rotY).toBeCloseTo(initialRotY - 20, 5);
+    controls.destroy();
+  });
+
+  it("rotX is clamped to [-90, 90] degrees", () => {
     const controls = createGlyphOrbitControls(scene);
 
-    // Drag down massively
+    // Drag down massively — should clamp at -90
     pd(scene.host, 0, 0);
     pm(scene.host, 0, 100000);
     pu(scene.host);
 
-    expect(scene.camera.rotX).toBeLessThanOrEqual(Math.PI / 2);
-    expect(scene.camera.rotX).toBeGreaterThanOrEqual(-Math.PI / 2);
+    expect(scene.camera.rotX).toBeLessThanOrEqual(90);
+    expect(scene.camera.rotX).toBeGreaterThanOrEqual(-90);
+    controls.destroy();
+  });
+
+  it("rotX clamp stops exactly at -90 degrees when dragging down past limit", () => {
+    const controls = createGlyphOrbitControls(scene);
+    scene.camera.rotX = 0;
+
+    // drag 1000 px down: 1000/4 = 250 deg change, clamped to -90
+    pd(scene.host, 0, 0);
+    pm(scene.host, 0, 1000);
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBe(-90);
     controls.destroy();
   });
 
@@ -122,20 +148,20 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 
-  it("scale is clamped between 0.05 and 10", () => {
+  it("zoom is clamped between 0.1 and 500 (absolute px-per-world-unit scale)", () => {
     const controls = createGlyphOrbitControls(scene);
 
     // Zoom out aggressively
     for (let i = 0; i < 50; i++) {
       scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 10000, bubbles: true }));
     }
-    expect(scene.camera.zoom).toBeGreaterThanOrEqual(0.05);
+    expect(scene.camera.zoom).toBeGreaterThanOrEqual(0.1);
 
     // Zoom in aggressively
     for (let i = 0; i < 50; i++) {
       scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -10000, bubbles: true }));
     }
-    expect(scene.camera.zoom).toBeLessThanOrEqual(10);
+    expect(scene.camera.zoom).toBeLessThanOrEqual(500);
     controls.destroy();
   });
 
@@ -182,10 +208,9 @@ describe("createGlyphOrbitControls", () => {
     pm(scene.host, 200, 100); // dx = +100
     pu(scene.host);
 
-    // invertFactor = 2 → change is twice the default (factor 1)
-    const RAD_PER_PX = (1 / 4) * (Math.PI / 180);
-    const expected = initialRotY - 100 * RAD_PER_PX * 2;
-    expect(scene.camera.rotY).toBeCloseTo(expected, 10);
+    // invertFactor = 2, DEG_PER_PX = 0.25 → change = 100 * 0.25 * 2 = 50 deg
+    const expected = initialRotY - 100 * (1 / 4) * 2;
+    expect(scene.camera.rotY).toBeCloseTo(expected, 5);
     controls2x.destroy();
   });
 

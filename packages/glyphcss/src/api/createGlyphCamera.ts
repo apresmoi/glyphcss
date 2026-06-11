@@ -1,47 +1,79 @@
-/**
- * createGlyphPerspectiveCamera / createGlyphOrthographicCamera — vanilla camera
- * factories for glyphcss.
- *
- * These mirror the asciss camera factories and provide a `GlyphCamera`
- * handle with a `project()` method that maps world-space vertices to
- * [col, row, depth] in character-cell grid space.
- *
- * Public names use the Glyph prefix per glyphcss naming convention.
- * The internal camera algorithms are byte-identical to asciss's createCamera.ts.
- *
- * `createGlyphCamera` is the ergonomic default alias — it creates an
- * orthographic camera, matching the voxel/iso identity of glyphcss.
- */
+// Vendored from voxcss packages/core/src/camera/camera.ts@cac9da3.
+// glyphcss deltas: output target [col,row,depth] char-grid instead of CSS matrix3d;
+//   Poly→Glyph rename; BASE_TILE retained; perspective + eyeMode projection added;
+//   zoom semantic = CSS scale multiplier (same as voxcss); DEG conversion inline.
 
 import type { Vec3 } from "@glyphcss/core";
 
 /**
- * Rotate `v` to match glyphcss's world→screen transform for identical (rotY, rotX) values.
- *
- * This is asciss's rotateVec3 (radians, (rotY, rotX) parameter order) — NOT the
- * glyph-core rotateVec3 which takes degrees and (rx, ry, rz). Kept internal
- * so the camera math stays byte-identical to asciss.
+ * Base tile size in virtual pixels. One glyphcss world unit = BASE_TILE virtual
+ * pixels (pre-zoom). Matches voxcss exactly so world-coordinate values are
+ * numerically compatible across both renderers.
  */
-function rotateVec3(v: Vec3, a: number, b: number): Vec3 {
-  // rotateZ(a) on the axis-swapped input (v[1], v[0], v[2])
-  const cosA = Math.cos(a), sinA = Math.sin(a);
-  const x1 = cosA * v[1] - sinA * v[0];
-  const y1 = sinA * v[1] + cosA * v[0];
-  const z1 = v[2];
-  // rotateX(b)
-  const cosB = Math.cos(b), sinB = Math.sin(b);
-  const y2 = cosB * y1 - sinB * z1;
-  const z2 = sinB * y1 + cosB * z1;
-  return [x1, y2, z2];
+const BASE_TILE = 50;
+
+/** Degrees-to-radians factor (same as voxcss `unproject.ts`). */
+const DEG = Math.PI / 180;
+
+/**
+ * Apply voxcss's world→screen rotation convention to a world-space vector.
+ *
+ * voxcss `getStyle()` transform order (right-to-left for points):
+ *   translate3d(-cssX, -cssY, -cssZ)
+ *   → rotate(rotY deg)      [CSS rotate = rotateZ in 3D]
+ *   → rotateX(rotX deg)
+ *   → scale(zoom)
+ *
+ * world→CSS axis map (same as voxcss camera.ts `getStyle` comments):
+ *   world[0] → CSS Y   (cssY = world[0] * tile)
+ *   world[1] → CSS X   (cssX = world[1] * tile)
+ *   world[2] → CSS Z   (cssZ = world[2] * tile)
+ *
+ * Forward projection (left-to-right):
+ *   1. axis-swap: cx = v[1], cy = v[0], cz = v[2]
+ *   2. rotateZ(rotY): CSS `rotate()` — rotation in the XY plane
+ *   3. rotateX(rotX)
+ *
+ * Returns the rotated [x, y, z] in CSS-frame virtual-pixel units
+ * (caller still needs to multiply by zoom * BASE_TILE to get screen pixels).
+ */
+function rotateVec3Voxcss(v: Vec3, rotXDeg: number, rotYDeg: number): Vec3 {
+  // Axis-swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
+  const cx = v[1];
+  const cy = v[0];
+  const cz = v[2];
+
+  // Step 2: CSS rotate(rotY deg) = rotateZ(rotY).
+  // RotZ(θ): (x,y,z) → (x·cosθ − y·sinθ, x·sinθ + y·cosθ, z)
+  const rotYR = rotYDeg * DEG;
+  const cosY = Math.cos(rotYR);
+  const sinY = Math.sin(rotYR);
+  const rx = cx * cosY - cy * sinY;
+  const ry = cx * sinY + cy * cosY;
+  const rz = cz;
+
+  // Step 3: rotateX(rotX deg).
+  // RotX(θ): (x,y,z) → (x, y·cosθ − z·sinθ, y·sinθ + z·cosθ)
+  const rotXR = rotXDeg * DEG;
+  const cosX = Math.cos(rotXR);
+  const sinX = Math.sin(rotXR);
+  const ry2 = ry * cosX - rz * sinX;
+  const rz2 = ry * sinX + rz * cosX;
+
+  return [rx, ry2, rz2];
 }
 
 export interface GlyphCamera {
   readonly kind: "perspective" | "orthographic";
   rotX: number;
   rotY: number;
-  /** Distance from origin along the view axis. Only meaningful for perspective cameras. */
+  /** Distance from target along the view axis. For perspective cameras: world units. Default 0. */
   distance: number;
-  /** Camera zoom — mesh size in the viewport (fraction of `min(cols, rows)`). */
+  /**
+   * Camera zoom — CSS scale multiplier (same semantic as voxcss).
+   * `zoom = 1` → one world unit = BASE_TILE (50) virtual pixels.
+   * Larger values zoom in; smaller zoom out. NOT a fraction of viewport.
+   */
   zoom: number;
   /** Extra horizontal stretch on top of `cellAspect`. */
   stretch: number;
@@ -53,7 +85,7 @@ export interface GlyphCamera {
   /**
    * Eye-at-origin projection mode. When true, the perspective camera uses a
    * first-person formulation: `target` is treated as the eye position and
-   * vertices behind the eye (`r[2] >= 0`) are NaN-culled. Toggled by
+   * vertices behind the eye (`rz2 >= 0`) are NaN-culled. Toggled by
    * `createGlyphFirstPersonControls` at attach / detach time.
    */
   eyeMode: boolean;
@@ -62,16 +94,25 @@ export interface GlyphCamera {
 }
 
 export interface GlyphPerspectiveCameraOptions {
-  /** Y rotation (radians). The "spin" axis. Default 0. */
-  rotY?: number;
-  /** X rotation (radians). The "tilt" axis. Default 0. */
+  /**
+   * X rotation in **degrees** (tilt). Default 65.
+   * Matches voxcss / three.js convention.
+   */
   rotX?: number;
   /**
-   * Perspective distance. Larger = flatter (less foreshortening); smaller =
-   * more dramatic. Default 3.
+   * Y rotation in **degrees** (spin). Default 45.
+   * Matches voxcss / three.js convention.
+   */
+  rotY?: number;
+  /**
+   * Perspective distance in world units. Larger = flatter (less foreshortening);
+   * smaller = more dramatic. Default 6.
    */
   distance?: number;
-  /** Camera zoom — mesh size in the viewport (fraction of `min(cols, rows)`). Default 0.4. */
+  /**
+   * Camera zoom — CSS scale multiplier. Default 0.3.
+   * `zoom = 1` → BASE_TILE (50) virtual px per world unit.
+   */
   zoom?: number;
   /**
    * Extra horizontal scale on top of `cellAspect`. Use to counteract
@@ -83,9 +124,16 @@ export interface GlyphPerspectiveCameraOptions {
 }
 
 export interface GlyphOrthographicCameraOptions {
-  rotY?: number;
+  /** X rotation in **degrees** (tilt). Default 65. */
   rotX?: number;
+  /** Y rotation in **degrees** (spin). Default 45. */
+  rotY?: number;
+  /**
+   * Camera zoom — CSS scale multiplier. Default 0.3.
+   * `zoom = 1` → BASE_TILE (50) virtual px per world unit.
+   */
   zoom?: number;
+  /** Center of projection in normalized grid coords. Default `[0.5, 0.5]`. */
   center?: [number, number];
 }
 
@@ -96,16 +144,17 @@ export type GlyphOrthographicCameraHandle = GlyphCamera;
 
 export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions = {}): GlyphPerspectiveCameraHandle {
   const state = {
-    rotX: opts.rotX ?? 0,
-    rotY: opts.rotY ?? 0,
-    distance: opts.distance ?? 3,
-    zoom: opts.zoom ?? 0.4,
+    rotX: opts.rotX ?? 65,
+    rotY: opts.rotY ?? 45,
+    distance: opts.distance ?? 6,
+    zoom: opts.zoom ?? 0.65,
     stretch: opts.stretch ?? 1.0,
     target: [0, 0, 0] as Vec3,
     eyeMode: false,
-    // Focal length used in eye mode. Tuned so the scene fills the viewport
-    // at a similar fraction as a standard perspective view from ~3 units back.
-    focal: 5,
+    // Focal length used in eye mode (world units). Governs how "tight" the
+    // first-person field of view feels — 1 world unit behind the eye plane
+    // projects at unit scale.
+    focal: 1.0,
   };
   const [cxN, cyN] = opts.center ?? [0.5, 0.5];
 
@@ -126,29 +175,51 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     get eyeMode(): boolean { return state.eyeMode; },
     set eyeMode(v: boolean) { state.eyeMode = v; },
     project(v, cols, rows, cellAspect) {
-      const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
-      const r = rotateVec3(shifted, state.rotY, state.rotX);
+      // Virtual char-cell pixel sizes (world-unit-to-cell conversion).
+      // cellAspect = cellPxH / cellPxW; we define BASE_TILE as cellPxH so that
+      // vertical and horizontal scales stay consistent with voxcss's BASE_TILE.
+      // cellPxW = BASE_TILE / cellAspect.
+      const cellPxH = BASE_TILE;
+      const cellPxW = BASE_TILE / cellAspect;
+
+      const shifted: Vec3 = [
+        v[0] - state.target[0],
+        v[1] - state.target[1],
+        v[2] - state.target[2],
+      ];
+      const r = rotateVec3Voxcss(shifted, state.rotX, state.rotY);
+
       if (state.eyeMode) {
-        // Eye-at-origin projection: target is the eye position, vertices at or
-        // behind the eye plane are culled. Used by GlyphFirstPersonControls.
+        // Eye-at-origin first-person projection.
+        // `target` is the eye position; rz2 < 0 means in front of the eye.
+        // Perspective scale: objects at depth -d project at scale focal/d.
         const NEAR = 0.001;
         if (r[2] >= -NEAR) return [NaN, NaN, r[2]];
-        const inv = state.focal / -r[2];
-        const radius = Math.min(cols, rows) * state.zoom * inv;
-        const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
-        const row = rows * cyN + r[1] * radius;
+        // Perspective scale in world units. state.focal is the reference depth
+        // (distance of the "screen plane" from the eye).
+        const perspScale = state.focal / -r[2];
+        // world→screen-px: multiply by zoom * BASE_TILE, then divide by cell size.
+        const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
+        const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
+        const col = cols * cxN + screenPxX / cellPxW * state.stretch;
+        const row = rows * cyN + screenPxY / cellPxH;
         return [col, row, r[2]];
       }
-      const MESH_UNIT = 30;
-      const ZOOM_TO_RADIUS = 1.5;
-      const zPx = r[2] * MESH_UNIT;
+
+      // Perspective projection (orthographic when distance is very large).
+      // rz2 is in world units; distance is in world units.
+      // perspective scale = distance / (distance - rz2), same derivation as a
+      // pinhole camera at depth `distance` looking toward +Z.
       const NEAR = 0.001;
-      const denom = 1 - zPx / state.distance;
+      const denom = state.distance - r[2];
       if (denom < NEAR) return [NaN, NaN, r[2]];
-      const persp = 1 / denom;
-      const radius = Math.min(cols, rows) * state.zoom * ZOOM_TO_RADIUS * persp;
-      const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
-      const row = rows * cyN + r[1] * radius;
+      const perspScale = state.distance / denom;
+
+      // world→screen-px→char-cell
+      const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
+      const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
+      const col = cols * cxN + screenPxX / cellPxW * state.stretch;
+      const row = rows * cyN + screenPxY / cellPxH;
       return [col, row, r[2]];
     },
   };
@@ -156,10 +227,10 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
 
 export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptions = {}): GlyphOrthographicCameraHandle {
   const state = {
-    rotX: opts.rotX ?? 0,
-    rotY: opts.rotY ?? 0,
+    rotX: opts.rotX ?? 65,
+    rotY: opts.rotY ?? 45,
     distance: 0,
-    zoom: opts.zoom ?? 0.4,
+    zoom: opts.zoom ?? 0.65,
     stretch: 1.0,
     target: [0, 0, 0] as Vec3,
   };
@@ -184,12 +255,22 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     get eyeMode(): boolean { return false; },
     set eyeMode(_v: boolean) { /* no-op — orthographic projection has no eye mode */ },
     project(v, cols, rows, cellAspect) {
-      const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
-      const r = rotateVec3(shifted, state.rotY, state.rotX);
-      const ZOOM_TO_RADIUS = 1.5;
-      const radius = Math.min(cols, rows) * state.zoom * ZOOM_TO_RADIUS;
-      const col = cols * cxN + r[0] * radius * cellAspect * state.stretch;
-      const row = rows * cyN + r[1] * radius;
+      // Virtual char-cell pixel sizes (see perspective camera for derivation).
+      const cellPxH = BASE_TILE;
+      const cellPxW = BASE_TILE / cellAspect;
+
+      const shifted: Vec3 = [
+        v[0] - state.target[0],
+        v[1] - state.target[1],
+        v[2] - state.target[2],
+      ];
+      const r = rotateVec3Voxcss(shifted, state.rotX, state.rotY);
+
+      // Orthographic: no perspective divide.
+      const screenPxX = r[0] * state.zoom * BASE_TILE;
+      const screenPxY = r[1] * state.zoom * BASE_TILE;
+      const col = cols * cxN + screenPxX / cellPxW;
+      const row = rows * cyN + screenPxY / cellPxH;
       return [col, row, r[2]];
     },
   };

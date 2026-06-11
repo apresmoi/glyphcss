@@ -135,12 +135,16 @@ function rasterizeSolid(
       }
 
       // Per-vertex Lambert intensity (ambient + clamped key).
-      const dotA = nAx * lx + nAy * ly + nAz * lz;
-      const dotB = nBx * lx + nBy * ly + nBz * lz;
-      const dotC = nCx * lx + nCy * ly + nCz * lz;
-      const iA = Math.min(1, ambIntensity + Math.max(0, dotA) * keyIntensity);
-      const iB = Math.min(1, ambIntensity + Math.max(0, dotB) * keyIntensity);
-      const iC = Math.min(1, ambIntensity + Math.max(0, dotC) * keyIntensity);
+      // Convention (mirrors three.js / computeShapeLighting): `direction` is
+      // the direction the light shines TOWARD. A surface is lit when its
+      // outward normal points BACK toward the source, i.e. opposes `dir`.
+      // lambert = max(0, -dot(n, dir))  — note the negation.
+      const lambertA = Math.max(0, -(nAx * lx + nAy * ly + nAz * lz));
+      const lambertB = Math.max(0, -(nBx * lx + nBy * ly + nBz * lz));
+      const lambertC = Math.max(0, -(nCx * lx + nCy * ly + nCz * lz));
+      const iA = Math.min(1, ambIntensity + lambertA * keyIntensity);
+      const iB = Math.min(1, ambIntensity + lambertB * keyIntensity);
+      const iC = Math.min(1, ambIntensity + lambertC * keyIntensity);
 
       // Triangle color: tint poly.color by the AVERAGE of the three vertex
       // intensities. Keeping a single color per triangle preserves run-
