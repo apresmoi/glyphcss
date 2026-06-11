@@ -51,7 +51,7 @@ function rasterizeSolid(
   rows: number,
   cellAspect: number,
 ): string {
-  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle } = scene;
+  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, castShadowFlags, receiveShadowFlags } = scene;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -88,6 +88,17 @@ function rasterizeSolid(
   // Key on (color, intensity quantized to 8 bits) — lossless for 8-bit
   // output — and reuse the formatted string across all triangles that match.
   const litCache = new Map<string, string>();
+
+  // Build shadow map (null when shadows are disabled or no casters).
+  // Zero cost when scene.shadow is undefined.
+  const shadowOpts = scene.shadow;
+  const shadowMap: ShadowMapData | null = (shadowOpts != null && castShadowFlags.length > 0)
+    ? buildShadowMap(polygons, castShadowFlags, lx, ly, lz)
+    : null;
+  const shadowOpacity = shadowOpts?.opacity ?? 0.25;
+  const shadowLift = shadowOpts?.lift ?? 0.05;
+  const shadowColorHex = shadowOpts?.color ?? "#000000";
+  const shadowColorRgb: [number, number, number] = shadowMap ? hexToRgb(shadowColorHex) : [0, 0, 0];
 
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
     const poly = polygons[polyIdx]!;
@@ -175,6 +186,28 @@ function rasterizeSolid(
         litColor = cached;
       }
 
+      // Build shadow context for this triangle if it belongs to a receiver mesh
+      // and the shadow map was successfully built.
+      const receiveShadow = receiveShadowFlags[polyIdx] ?? false;
+      let sh: ScanFillShadowCtx | null = null;
+      if (shadowMap !== null && receiveShadow) {
+        const sm = shadowMap;
+        const uvA = toLightUV(v0, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+        const uvB = toLightUV(v1, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+        const uvC = toLightUV(v2, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+        sh = {
+          map: sm,
+          luA: uvA[0], lvA: uvA[1], ldA: uvA[2],
+          luB: uvB[0], lvB: uvB[1], ldB: uvB[2],
+          luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
+          lift: shadowLift,
+          opacity: shadowOpacity,
+          shadowColorRgb,
+          shadowColorHex,
+          litCache,
+        };
+      }
+
       // Scan-fill the projected triangle. Depth and intensity are both
       // interpolated per cell via barycentric coordinates so adjacent
       // triangles on a curved surface never disagree at their shared edge.
@@ -185,6 +218,7 @@ function rasterizeSolid(
         ramp, rampMax, litColor,
         glyphBuf, colorBuf, depthBuf,
         cols, rows,
+        sh,
       );
     }
   }
@@ -224,6 +258,168 @@ const BAYER_4X4 = new Float64Array([
   (15 + 0.5) / 16, ( 7 + 0.5) / 16, (13 + 0.5) / 16, ( 5 + 0.5) / 16,
 ]);
 
+// ── Shadow map ────────────────────────────────────────────────────────────────
+
+const SHADOW_MAP_SIZE = 256;
+
+interface ShadowMapData {
+  buf: Float64Array;              // SHADOW_MAP_SIZE × SHADOW_MAP_SIZE, lightDepth (higher = closer to light)
+  right: [number, number, number];
+  up: [number, number, number];
+  dir: [number, number, number];  // normalized light direction (toward)
+  uMin: number; uMax: number;
+  vMin: number; vMax: number;
+}
+
+/** Shadow context passed into `scanFillTriangle` for receiver triangles. */
+interface ScanFillShadowCtx {
+  map: ShadowMapData;
+  luA: number; lvA: number; ldA: number;
+  luB: number; lvB: number; ldB: number;
+  luC: number; lvC: number; ldC: number;
+  lift: number;
+  opacity: number;
+  shadowColorRgb: [number, number, number];
+  shadowColorHex: string;
+  litCache: Map<string, string>;
+}
+
+/**
+ * Project a world vertex to light-space [texelU, texelV, lightDepth].
+ * `lightDepth = -dot(v, dir)` — higher = closer to light.
+ */
+function toLightUV(
+  v: Vec3,
+  rx: number, ry: number, rz: number,
+  ux: number, uy: number, uz: number,
+  lx: number, ly: number, lz: number,
+  uMin: number, uMax: number, vMin: number, vMax: number,
+): [number, number, number] {
+  const u = rx * v[0] + ry * v[1] + rz * v[2];
+  const vv = ux * v[0] + uy * v[1] + uz * v[2];
+  // lightDepth = -dot(v, dir): higher = closer to light source
+  const depth = -(lx * v[0] + ly * v[1] + lz * v[2]);
+  const tu = ((u - uMin) / (uMax - uMin)) * (SHADOW_MAP_SIZE - 1);
+  const tv = ((vv - vMin) / (vMax - vMin)) * (SHADOW_MAP_SIZE - 1);
+  return [tu, tv, depth];
+}
+
+/**
+ * Scan-fill a triangle into the shadow depth buffer.
+ * No backface cull — we want depth from ALL caster faces so the shadow map
+ * correctly captures the full caster silhouette from the light's perspective.
+ */
+function scanFillShadowTriangle(
+  buf: Float64Array,
+  a: [number, number, number],
+  b: [number, number, number],
+  c: [number, number, number],
+): void {
+  const ax = a[0], ay = a[1], az = a[2];
+  const bx = b[0], by = b[1], bz = b[2];
+  const cx = c[0], cy = c[1], cz = c[2];
+
+  const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  if (area2 === 0) return;
+  const invArea2 = 1 / area2;
+
+  let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
+  let maxX = ax > bx ? ax : bx; if (cx > maxX) maxX = cx;
+  let minY = ay < by ? ay : by; if (cy < minY) minY = cy;
+  let maxY = ay > by ? ay : by; if (cy > maxY) maxY = cy;
+  const colLeft = Math.max(0, Math.ceil(minX));
+  const colRight = Math.min(SHADOW_MAP_SIZE - 1, Math.floor(maxX));
+  const rowTop = Math.max(0, Math.ceil(minY));
+  const rowBot = Math.min(SHADOW_MAP_SIZE - 1, Math.floor(maxY));
+  if (colLeft > colRight || rowTop > rowBot) return;
+
+  const ccw = area2 > 0;
+  for (let row = rowTop; row <= rowBot; row++) {
+    for (let col = colLeft; col <= colRight; col++) {
+      const px = col, py = row;
+      const wA = (bx - px) * (cy - py) - (by - py) * (cx - px);
+      const wB = (cx - px) * (ay - py) - (cy - py) * (ax - px);
+      const wC = (ax - px) * (by - py) - (ay - py) * (bx - px);
+      if (ccw ? (wA < 0 || wB < 0 || wC < 0) : (wA > 0 || wB > 0 || wC > 0)) continue;
+      const depth = (wA * az + wB * bz + wC * cz) * invArea2;
+      const idx = row * SHADOW_MAP_SIZE + col;
+      if (depth > buf[idx]!) buf[idx] = depth;
+    }
+  }
+}
+
+/**
+ * Build a shadow map from all castShadow polygons.
+ * Returns null when there are no casters (shadow pass is skipped entirely).
+ *
+ * The shadow map is an ortho depth buffer in light-space, aligned to the bounding
+ * box of all caster vertices. `lightDepth = -dot(vertex, lightDir)` — higher = closer
+ * to light. During the main pass, a receiver cell is in shadow when its interpolated
+ * lightDepth (+ bias lift) is less than the stored maximum caster depth at that texel.
+ */
+function buildShadowMap(
+  polygons: Polygon[],
+  castFlags: boolean[],
+  lx: number, ly: number, lz: number,  // normalized light direction (toward)
+): ShadowMapData | null {
+  // Build an orthonormal basis for the light view.
+  // Choose 'right' perpendicular to dir.
+  let rx: number, ry: number, rz: number;
+  if (Math.abs(lx) < 0.9) {
+    // cross(dir, worldX=[1,0,0])
+    rx = 0; ry = lz; rz = -ly;
+  } else {
+    // cross(dir, worldY=[0,1,0])
+    rx = -lz; ry = 0; rz = lx;
+  }
+  const rLen = Math.hypot(rx, ry, rz);
+  rx /= rLen; ry /= rLen; rz /= rLen;
+  // up = cross(right, dir) — completes the orthonormal basis
+  const ux = ry * lz - rz * ly;
+  const uy = rz * lx - rx * lz;
+  const uz = rx * ly - ry * lx;
+
+  // Find light-space bounding box of all castShadow vertices.
+  let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+  let hasCasters = false;
+  for (let i = 0; i < polygons.length; i++) {
+    if (!castFlags[i]) continue;
+    hasCasters = true;
+    for (const v of polygons[i]!.vertices) {
+      const u = rx * v[0] + ry * v[1] + rz * v[2];
+      const vv = ux * v[0] + uy * v[1] + uz * v[2];
+      if (u < uMin) uMin = u; if (u > uMax) uMax = u;
+      if (vv < vMin) vMin = vv; if (vv > vMax) vMax = vv;
+    }
+  }
+  if (!hasCasters) return null;
+
+  // Pad the bounds slightly to avoid edge clipping.
+  const uPad = (uMax - uMin) * 0.05 + 0.01;
+  const vPad = (vMax - vMin) * 0.05 + 0.01;
+  uMin -= uPad; uMax += uPad; vMin -= vPad; vMax += vPad;
+
+  const buf = new Float64Array(SHADOW_MAP_SIZE * SHADOW_MAP_SIZE).fill(-Infinity);
+
+  // Rasterize all castShadow triangles (fan-triangulated) into the depth buffer.
+  for (let i = 0; i < polygons.length; i++) {
+    if (!castFlags[i]) continue;
+    const verts = polygons[i]!.vertices;
+    if (verts.length < 3) continue;
+    for (let f = 1; f < verts.length - 1; f++) {
+      const a = verts[0]!;
+      const bv = verts[f]!;
+      const cv = verts[f + 1]!;
+      const auv = toLightUV(a as Vec3, rx, ry, rz, ux, uy, uz, lx, ly, lz, uMin, uMax, vMin, vMax);
+      const buv = toLightUV(bv as Vec3, rx, ry, rz, ux, uy, uz, lx, ly, lz, uMin, uMax, vMin, vMax);
+      const cuv = toLightUV(cv as Vec3, rx, ry, rz, ux, uy, uz, lx, ly, lz, uMin, uMax, vMin, vMax);
+      scanFillShadowTriangle(buf, auv, buv, cuv);
+    }
+  }
+
+  return { buf, right: [rx, ry, rz], up: [ux, uy, uz], dir: [lx, ly, lz], uMin, uMax, vMin, vMax };
+}
+
 function scanFillTriangle(
   ax: number, ay: number, az: number, ia: number,
   bx: number, by: number, bz: number, ib: number,
@@ -236,6 +432,7 @@ function scanFillTriangle(
   depthBuf: Float64Array,
   cols: number,
   rows: number,
+  sh: ScanFillShadowCtx | null,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -294,9 +491,51 @@ function scanFillTriangle(
         const lower = rampPos | 0;
         const frac = rampPos - lower;
         const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
-        const glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
-        glyphBuf[idx] = ramp[glyphIdx > rampMax ? rampMax : glyphIdx]!;
-        if (colorBuf) colorBuf[idx] = color;
+        let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+        if (glyphIdx > rampMax) glyphIdx = rampMax;
+
+        let cellColor = color;
+
+        // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
+        // sample the shadow map, darken if occluded.
+        if (sh !== null) {
+          const lu = (wA * sh.luA + wB * sh.luB + wC * sh.luC) * invArea2;
+          const lv = (wA * sh.lvA + wB * sh.lvB + wC * sh.lvC) * invArea2;
+          const ld = (wA * sh.ldA + wB * sh.ldB + wC * sh.ldC) * invArea2;
+          // Nearest-neighbor sample (integer texel coords).
+          const tu = lu | 0;
+          const tv = lv | 0;
+          if (tu >= 0 && tu < SHADOW_MAP_SIZE && tv >= 0 && tv < SHADOW_MAP_SIZE) {
+            const mapDepth = sh.map.buf[tv * SHADOW_MAP_SIZE + tu]!;
+            // Surface is in shadow when the closest caster depth at this texel
+            // is greater than the surface's projected lightDepth (+ bias lift).
+            // The lift nudges the surface slightly toward the light to prevent
+            // self-acne on flat lit surfaces.
+            if (mapDepth > -Infinity && ld + sh.lift < mapDepth) {
+              // Darken: reduce glyph intensity toward min.
+              glyphIdx = Math.max(0, glyphIdx - Math.round(sh.opacity * rampMax));
+              if (cellColor !== null) {
+                // Blend cell color toward shadow color. Cache to avoid re-computing
+                // for the same (base color, shadow intensity) combination.
+                const shadowKey = `shadow:${cellColor}:${glyphIdx}`;
+                let shadowedColor = sh.litCache.get(shadowKey);
+                if (shadowedColor === undefined) {
+                  const orig = hexToRgb(cellColor);
+                  const sc = sh.shadowColorRgb;
+                  const r = Math.round(orig[0] * (1 - sh.opacity) + sc[0] * sh.opacity);
+                  const g = Math.round(orig[1] * (1 - sh.opacity) + sc[1] * sh.opacity);
+                  const b = Math.round(orig[2] * (1 - sh.opacity) + sc[2] * sh.opacity);
+                  shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+                  sh.litCache.set(shadowKey, shadowedColor);
+                }
+                cellColor = shadowedColor;
+              }
+            }
+          }
+        }
+
+        glyphBuf[idx] = ramp[glyphIdx]!;
+        if (colorBuf) colorBuf[idx] = cellColor;
       }
     }
   }

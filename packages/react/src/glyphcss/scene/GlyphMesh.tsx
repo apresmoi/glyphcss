@@ -2,9 +2,9 @@
  * GlyphMesh — register a polygon list with the parent GlyphScene.
  *
  * Mirrors PolyMesh's prop surface (id, position/scale/rotation transform,
- * children) but for the ASCII paint backend — no atlas, no polygon leaves.
- * Children are static React children mounted inside the host's wrapper div
- * (not rendered per-polygon).
+ * castShadow/receiveShadow, children) but for the ASCII paint backend —
+ * no atlas, no polygon leaves. Children are static React children mounted
+ * inside the host's wrapper div (not rendered per-polygon).
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
@@ -32,6 +32,17 @@ export interface GlyphMeshProps {
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
+  /**
+   * This mesh casts shadows onto `receiveShadow` surfaces.
+   * Default false — opt-in, matching PolyMesh behaviour.
+   */
+  castShadow?: boolean;
+  /**
+   * This mesh receives (displays) shadows from `castShadow` meshes.
+   * A mesh that is both `castShadow` and `receiveShadow` will self-shadow.
+   * Default false — opt-in, matching PolyMesh behaviour.
+   */
+  receiveShadow?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -56,6 +67,8 @@ function GlyphMeshInner({
   position,
   scale,
   rotation,
+  castShadow = false,
+  receiveShadow = false,
   className,
   style,
   children,
@@ -76,7 +89,9 @@ function GlyphMeshInner({
     position,
     scale,
     rotation,
-  }), [id, position, scale, rotation]);
+    castShadow,
+    receiveShadow,
+  }), [id, position, scale, rotation, castShadow, receiveShadow]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {
@@ -91,7 +106,7 @@ function GlyphMeshInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneRef, polygons]);
 
-  // Update transform when id/position/scale/rotation change
+  // Update transform when id/position/scale/rotation/castShadow/receiveShadow change
   useEffect(() => {
     const mesh = meshRef.current;
     if (!mesh) return;

@@ -18,7 +18,7 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "normalize"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "normalize", "cast-shadow", "receive-shadow"] as const;
 
 /** Center and scale polygons to fit a 2-unit bounding box at origin. */
 function fitToUnitBbox(polygons: Polygon[]): Polygon[] {
@@ -104,6 +104,8 @@ export class GlyphMeshElement extends ELEMENT_BASE {
       position: parseVec3(this.getAttribute("position")),
       scale: parseScale(this.getAttribute("scale")),
       rotation: parseVec3(this.getAttribute("rotation")),
+      castShadow: this.hasAttribute("cast-shadow"),
+      receiveShadow: this.hasAttribute("receive-shadow"),
     };
   }
 

@@ -21,6 +21,16 @@ export interface GlyphGroundProps {
   rotation?: Vec3;
   /** String id forwarded to the underlying mesh handle. */
   id?: string;
+  /**
+   * This ground plane casts shadows onto other `receiveShadow` surfaces.
+   * Default false — ground planes typically only receive shadows, matching PolyGround.
+   */
+  castShadow?: boolean;
+  /**
+   * This ground plane receives (displays) shadows from `castShadow` meshes.
+   * Default true — ground planes are the primary shadow receivers, matching PolyGround.
+   */
+  receiveShadow?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -31,6 +41,8 @@ function GlyphGroundInner({
   position = [0, -0.5, 0],
   rotation,
   id,
+  castShadow = false,
+  receiveShadow = true,
   className,
   style,
 }: GlyphGroundProps) {
@@ -52,6 +64,8 @@ function GlyphGroundInner({
       polygons={polygons}
       position={position}
       rotation={rotation}
+      castShadow={castShadow}
+      receiveShadow={receiveShadow}
       className={className}
       style={style}
     />

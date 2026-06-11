@@ -33,8 +33,8 @@ import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform } from "./types";
-export type { GlyphMeshTransform } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions } from "./types";
+export type { GlyphMeshTransform, GlyphShadowOptions } from "./types";
 
 export interface GlyphSceneOptions {
   /** Render mode: "wireframe" | "solid". Default "solid". */
@@ -79,6 +79,8 @@ export interface GlyphSceneOptions {
    * (default 80×24) is the predictable choice for tests and SSR.
    */
   autoSize?: boolean;
+  /** Shadow-map configuration. `undefined` (default) = no shadows. */
+  shadow?: GlyphShadowOptions;
 }
 
 export interface GlyphHotspotOptions {
@@ -136,6 +138,8 @@ interface MeshEntry {
   polygons: Polygon[];
   transform: GlyphMeshTransform;
 }
+
+type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow"> & { shadow: GlyphShadowOptions | undefined };
 
 let nextMeshId = 1;
 
@@ -199,7 +203,7 @@ export function createGlyphScene(
 ): GlyphSceneHandle {
   injectGlyphBaseStyles(host.ownerDocument ?? undefined);
 
-  const options: Required<GlyphSceneOptions> = {
+  const options: InternalOptions = {
     mode: opts.mode ?? "solid",
     glyphPalette: opts.glyphPalette ?? "default",
     useColors: opts.useColors ?? true,
@@ -212,6 +216,7 @@ export function createGlyphScene(
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
     autoSize: opts.autoSize ?? false,
+    shadow: opts.shadow,
   };
 
   // Build DOM
@@ -241,9 +246,17 @@ export function createGlyphScene(
   function doRender(): void {
     // Gather all polygons after transforms.
     const allPolygons: Polygon[] = [];
+    const castShadowFlags: boolean[] = [];
+    const receiveShadowFlags: boolean[] = [];
     for (const entry of meshes.values()) {
       const transformed = applyTransform(entry.polygons, entry.transform);
-      for (const p of transformed) allPolygons.push(p);
+      const cast = entry.transform.castShadow ?? false;
+      const receive = entry.transform.receiveShadow ?? false;
+      for (const p of transformed) {
+        allPolygons.push(p);
+        castShadowFlags.push(cast);
+        receiveShadowFlags.push(receive);
+      }
     }
 
     const ctx = buildRasterizeContext({
@@ -257,6 +270,9 @@ export function createGlyphScene(
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
+      shadow: options.shadow,
+      castShadowFlags,
+      receiveShadowFlags,
     });
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -387,6 +403,7 @@ export function createGlyphScene(
     if (partial.camera !== undefined) options.camera = partial.camera;
     if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
     if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
+    if ("shadow" in partial) options.shadow = partial.shadow;
     if (partial.autoSize !== undefined) {
       options.autoSize = partial.autoSize;
       if (options.autoSize && !resizeObserver && typeof ResizeObserver !== "undefined") {
