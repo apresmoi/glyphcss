@@ -38,6 +38,7 @@ scene. Template attributes are kebab-case (`:rot-x`, `:rot-y`, `:auto-center`).
 | `<GlyphPerspectiveCamera>` | Foreshortened projection — needs a `distance` |
 | `<GlyphOrthographicCamera>` | Parallel projection — best for iso / voxel scenes |
 | `<GlyphMesh>` | Polygon registration. Pass `:polygons="…"`, `src="…"`, or `geometry="cube"` |
+| `<GlyphGround>` | Horizontal ground plane. `receive-shadow` defaults to `true`; `cast-shadow` defaults to `false` |
 | `<GlyphHotspot>` | 3D-anchored DOM hotspot — projects to a screen cell |
 | `<GlyphOrbitControls>` | Drag-rotate + wheel-zoom around the target |
 | `<GlyphMapControls>` | Drag-pan + wheel-zoom across the target plane |
@@ -70,6 +71,19 @@ precedence: explicit `:polygons`, `src` URL, or `geometry` name.
 ```
 
 `rotation` is an XYZ Euler triple in degrees, passed as `:rotation="[x, y, z]"`.
+
+Shadow props on `<GlyphMesh>`:
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `cast-shadow` | `boolean` | `false` | This mesh casts shadows onto `receive-shadow` surfaces |
+| `receive-shadow` | `boolean` | `false` | This mesh displays shadows from `cast-shadow` meshes. A mesh that is both casts and receives self-shadows |
+
+Shadow prop on `<GlyphScene>`:
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `:shadow` | `GlyphShadowOptions` | `undefined` | Shadow-map config. `undefined` = shadows off. See [`GlyphShadowOptions`](/api/types#shadows) |
 
 ## End-to-end example
 

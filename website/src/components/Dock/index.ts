@@ -6,9 +6,11 @@ export {
   DockAnimation,
   DockCamera,
   DockLighting,
+  DockShadow,
 } from "./slots";
 export type { ModelFolderInputs } from "./folders/useModelFolder";
 export type { RenderingFolderInputs } from "./folders/useRenderingFolder";
 export type { AnimationFolderInputs } from "./folders/useAnimationFolder";
 export type { CameraFolderInputs } from "./folders/useCameraFolder";
 export type { LightingFolderInputs } from "./folders/useLightingFolder";
+export type { ShadowFolderInputs } from "./folders/useShadowFolder";

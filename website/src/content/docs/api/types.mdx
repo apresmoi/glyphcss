@@ -75,6 +75,30 @@ interface GlyphAmbientLight {
 }
 ```
 
+## Shadows
+
+| Type | Description | Used in |
+|---|---|---|
+| `GlyphShadowOptions` | Shadow-map configuration. `undefined` on the scene = shadows off | `SceneContextOptions.shadow`, `<GlyphScene shadow={…}>` |
+
+```ts
+interface GlyphShadowOptions {
+  color?: string;      // shadow tint hex; default "#000000"
+  opacity?: number;    // darkness 0..1 toward color; default 0.25
+  lift?: number;       // depth bias — prevents self-shadow acne; default 0.05
+  maxExtend?: number;  // half-extent of the light-space projection volume; default 2000
+}
+```
+
+Shadow flags on meshes (`GlyphMeshTransform`, `<GlyphMesh>`, `<glyph-mesh>`):
+
+| Field / prop / attribute | Default | Description |
+|---|---|---|
+| `castShadow` / `cast-shadow` | `false` | This mesh casts shadows onto `receiveShadow` surfaces |
+| `receiveShadow` / `receive-shadow` | `false` | This mesh receives shadows. Both flags on the same mesh = self-shadow |
+
+`GlyphGround` sets `receiveShadow=true` and `castShadow=false` by default.
+
 ## Grid and scene
 
 | Type | Description | Used in |

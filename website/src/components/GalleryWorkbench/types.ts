@@ -114,4 +114,12 @@ export interface SceneOptionsState {
   fpvCrouchHeight: number;
   fpvLookSensitivity: number;
   fpvInvertY: boolean;
+  // Shadow
+  shadowEnabled: boolean;
+  shadowOpacity: number;
+  shadowLift: number;
+  shadowColor: string;
+  shadowCast: boolean;
+  shadowReceive: boolean;
+  shadowFloor: boolean;
 }

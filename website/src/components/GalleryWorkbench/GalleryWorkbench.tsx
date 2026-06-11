@@ -9,6 +9,7 @@ import {
   DockAnimation,
   DockCamera,
   DockLighting,
+  DockShadow,
 } from "../Dock";
 import { ModelsSidebar } from "../ModelsSidebar";
 import { DropOverlay } from "../DropOverlay";
@@ -235,6 +236,15 @@ const DEFAULT_SCENE: SceneOptionsState = {
   fpvCrouchHeight: 0.1,
   fpvLookSensitivity: 0.15,
   fpvInvertY: false,
+  // Shadow — off by default; cast+receive both true so enabling immediately
+  // shows self-shadowing. Floor ON by default so a ground plane appears.
+  shadowEnabled: false,
+  shadowOpacity: 0.25,
+  shadowLift: 0.05,
+  shadowColor: "#000000",
+  shadowCast: true,
+  shadowReceive: true,
+  shadowFloor: true,
 };
 
 const EMPTY_METRICS: GlyphMetrics = {
@@ -532,6 +542,16 @@ export default function GalleryWorkbench() {
           lightColor={sceneOptions.lightColor}
           ambientIntensity={sceneOptions.ambientIntensity}
           ambientColor={sceneOptions.ambientColor}
+          onUpdateScene={updateScene}
+        />
+        <DockShadow
+          shadowEnabled={sceneOptions.shadowEnabled}
+          shadowOpacity={sceneOptions.shadowOpacity}
+          shadowLift={sceneOptions.shadowLift}
+          shadowColor={sceneOptions.shadowColor}
+          shadowCast={sceneOptions.shadowCast}
+          shadowReceive={sceneOptions.shadowReceive}
+          shadowFloor={sceneOptions.shadowFloor}
           onUpdateScene={updateScene}
         />
       </Dock>

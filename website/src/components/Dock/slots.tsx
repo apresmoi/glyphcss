@@ -11,6 +11,7 @@ import { useRenderingFolder, type RenderingFolderInputs } from "./folders/useRen
 import { useAnimationFolder, type AnimationFolderInputs } from "./folders/useAnimationFolder";
 import { useCameraFolder, type CameraFolderInputs } from "./folders/useCameraFolder";
 import { useLightingFolder, type LightingFolderInputs } from "./folders/useLightingFolder";
+import { useShadowFolder, type ShadowFolderInputs } from "./folders/useShadowFolder";
 
 export const DockGuiContext = createContext<GUI | null>(null);
 
@@ -40,5 +41,10 @@ export function DockCamera(inputs: CameraFolderInputs): null {
 
 export function DockLighting(inputs: LightingFolderInputs): null {
   useLightingFolder(useDockGui(), inputs);
+  return null;
+}
+
+export function DockShadow(inputs: ShadowFolderInputs): null {
+  useShadowFolder(useDockGui(), inputs);
   return null;
 }

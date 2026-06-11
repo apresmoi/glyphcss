@@ -175,9 +175,14 @@ const title = "glyphcss · ASCII Iso World Map";
     // z0 = whole world, each higher level quarters tile coverage / doubles
     // definition. Only z0–z3 tiles ship, so the LOD is capped at 3.
     function targetLOD(zoom: number): number {
+      // The default zoom (78) shows the WHOLE world filling the viewport. At
+      // that view a ~150-col grid can't resolve LOD-2 detail, so LOD 1 (4
+      // tiles) looks identical to LOD 2 (16 tiles) while rasterising ~4× less
+      // terrain geometry every drag frame. LOD only escalates once you zoom IN
+      // past the whole-world view (where finer tiles actually become visible).
       if (zoom < 19) return 0;
-      if (zoom < 42) return 1;
-      if (zoom < 83) return 2;
+      if (zoom < 120) return 1;
+      if (zoom < 240) return 2;
       return 3;
     }
 

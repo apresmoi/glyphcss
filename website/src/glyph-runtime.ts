@@ -37,6 +37,7 @@ import {
   createGlyphOrthographicCamera,
   loadMesh,
   bakeSolidTextureSamples,
+  planePolygons,
 } from 'glyphcss';
 import type {
   Vec3,
@@ -376,6 +377,16 @@ function pickTriangle(
   return bestIdx;
 }
 
+interface ShadowState {
+  enabled: boolean;
+  opacity: number;
+  lift: number;
+  color: string;
+  castShadow: boolean;
+  receiveShadow: boolean;
+  floor: boolean;
+}
+
 interface Tunables {
   zoom: number;
   stretch: number;
@@ -555,6 +566,17 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     },
   };
 
+  // Shadow state
+  const shadowState: ShadowState = {
+    enabled: demoEl.getAttribute('data-shadow') === '1',
+    opacity: parseFloat(demoEl.getAttribute('data-shadow-opacity') ?? '0.25') || 0.25,
+    lift: parseFloat(demoEl.getAttribute('data-shadow-lift') ?? '0.05') || 0.05,
+    color: demoEl.getAttribute('data-shadow-color') ?? '#000000',
+    castShadow: demoEl.getAttribute('data-cast-shadow') === '1',
+    receiveShadow: demoEl.getAttribute('data-receive-shadow') === '1',
+    floor: demoEl.getAttribute('data-shadow-floor') !== '0',
+  };
+
   // Lighting state
   const lightingState = {
     // "Shines TOWARD" convention (negated subsolar unit vector).
@@ -695,6 +717,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         intensity: lightingState.ambientIntensity,
         color: lightingState.ambientColor,
       },
+      shadow: shadowState.enabled
+        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift }
+        : undefined,
     };
   }
 
@@ -717,7 +742,53 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   }
 
   // Mesh handle — single mesh slot; replaced on geometry change
-  let meshHandle = scene.add(geometry.polygons as Polygon[]);
+  let meshHandle = scene.add(geometry.polygons as Polygon[], {
+    castShadow: shadowState.castShadow,
+    receiveShadow: shadowState.receiveShadow,
+  });
+
+  // Floor handle — ground plane added when shadows + floor are both on.
+  // Separate from meshHandle so it never enters fitContentZoom or stats.
+  let floorHandle: ReturnType<typeof scene.add> | null = null;
+
+  // The floor color is intentionally dim/dark so it reads as a neutral ground
+  // rather than a prominent object. The model's shadow darkens it further.
+  const FLOOR_COLOR = '#2a2d33';
+
+  /**
+   * Compute the floor polygon from the current geometry's bounding box.
+   * +Z is world-up. The floor sits at the model's min-Z edge, sized 1.6× the
+   * model's XY footprint so the shadow spills visibly beyond the model silhouette.
+   * The model is always centered at XY=0 after fitPolygonsToUnitBbox/loadMesh
+   * auto-center, so offset=[0,0] places the floor quad at the XY origin.
+   */
+  function buildFloorPolygons(): Polygon[] {
+    const polys = geometry.polygons as Polygon[];
+    if (polys.length === 0) return [];
+    let minZ = Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of polys) {
+      for (const v of p.vertices) {
+        if (v[2] < minZ) minZ = v[2];
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+      }
+    }
+    if (!isFinite(minZ)) return [];
+    const xySpan = Math.max(maxX - minX, maxY - minY, 0.1);
+    const halfSize = (xySpan / 2) * 1.6;
+    // axis=2 → XY plane (Z is up); along=minZ positions it at the model base.
+    // offset=[0,0] centers the quad at the XY origin.
+    return planePolygons({ axis: 2, size: halfSize, offset: [0, 0], along: minZ, color: FLOOR_COLOR });
+  }
+
+  function rebuildFloor(): void {
+    if (floorHandle) { floorHandle.dispose(); floorHandle = null; }
+    if (!shadowState.enabled || !shadowState.floor) return;
+    const floorPolys = buildFloorPolygons();
+    if (floorPolys.length === 0) return;
+    floorHandle = scene.add(floorPolys, { castShadow: false, receiveShadow: true });
+  }
 
   // Track last bake time for stats
   let lastBakeMs = 0;
@@ -977,7 +1048,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       const sampledTriangles = geometry.sample(animState.clipIndex, animState.currentTime);
       // Update mesh handle with new frame polygons
       meshHandle.dispose();
-      meshHandle = scene.add(sampledTriangles as Polygon[]);
+      meshHandle = scene.add(sampledTriangles as Polygon[], {
+        castShadow: shadowState.castShadow,
+        receiveShadow: shadowState.receiveShadow,
+      });
       doRerender();
     };
 
@@ -1016,7 +1090,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     }
 
     meshHandle.dispose();
-    meshHandle = scene.add(polys);
+    meshHandle = scene.add(polys, {
+      castShadow: shadowState.castShadow,
+      receiveShadow: shadowState.receiveShadow,
+    });
   }
 
   // ── Rebuild scene from current geometry + tunables ────────────────────────
@@ -1047,6 +1124,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     buildControls();
 
     applyMesh();
+    rebuildFloor();
     scene.fit();
     maybeFitContent();
     doRerender();
@@ -1506,6 +1584,25 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     doRerender();
   }
 
+  function setShadow(partial: Partial<ShadowState>): void {
+    Object.assign(shadowState, partial);
+    scene.setOptions({
+      shadow: shadowState.enabled
+        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift }
+        : undefined,
+    });
+    // When cast/receive flags change we must rebuild the mesh handle so the
+    // rasterizer picks up the updated per-mesh flags.
+    if ('castShadow' in partial || 'receiveShadow' in partial) {
+      applyMesh();
+    }
+    // Rebuild floor whenever enabled/floor toggle changes.
+    if ('enabled' in partial || 'floor' in partial) {
+      rebuildFloor();
+    }
+    doRerender();
+  }
+
   function getCameraState(): { rotX: number; rotY: number; scale: number; target: [number, number, number] } {
     return {
       rotX: camera.rotX,
@@ -1552,7 +1649,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     animState.clipIndex = 0;
     animState.currentTime = 0;
     meshHandle.dispose();
-    meshHandle = scene.add(geometry.polygons as Polygon[]);
+    meshHandle = scene.add(geometry.polygons as Polygon[], {
+      castShadow: shadowState.castShadow,
+      receiveShadow: shadowState.receiveShadow,
+    });
     doRerender();
   }
 
@@ -1593,6 +1693,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       setDragMode: (mode: DragMode) => void;
       setFpvOptions: (partial: Partial<FpvOptions>) => void;
       setLighting: (partial: { azimuth?: number; elevation?: number; keyIntensity?: number; ambientIntensity?: number; keyColor?: string; ambientColor?: string }) => void;
+      setShadow: (partial: Partial<ShadowState>) => void;
       getDragMode: () => DragMode;
     }
   }).glyphcssDemo = {
@@ -1616,6 +1717,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setDragMode,
     setFpvOptions,
     setLighting,
+    setShadow,
     getDragMode,
   };
 

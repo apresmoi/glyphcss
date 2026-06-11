@@ -27,6 +27,7 @@ keyframes consume.
 | `useColors` | `boolean` | `true` | Emit color spans in the output |
 | `directionalLight` | `GlyphDirectionalLight` | — | Directional light for solid mode |
 | `ambientLight` | `GlyphAmbientLight` | — | Ambient fill for solid mode |
+| `shadow` | `GlyphShadowOptions` | `undefined` | Shadow-map config. `undefined` = off. Set alongside `castShadow`/`receiveShadow` on meshes |
 | `className` | `string` | — | CSS class on the outer host |
 | `style` | `CSSProperties` | — | Inline styles on the outer host |
 | `children` | `ReactNode` | — | `<GlyphMesh>`, controls, hotspots |
@@ -152,6 +153,105 @@ const controls = createGlyphOrbitControls(scene, { drag: true, wheel: true });
 
   </TabItem>
 </Tabs>
+
+## Shadows
+
+Shadows are opt-in. Set `shadow` on `<GlyphScene>` to enable the shadow-map pass,
+then flag individual meshes with `castShadow` and/or `receiveShadow`.
+A mesh with both flags self-shadows. `<GlyphGround />` defaults to `receiveShadow=true`.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import {
+  GlyphPerspectiveCamera,
+  GlyphScene,
+  GlyphMesh,
+  GlyphGround,
+} from "@glyphcss/react";
+
+const shadow = { color: "#000000", opacity: 0.25, lift: 0.05 };
+const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+
+export function ShadowDemo() {
+  return (
+    <GlyphPerspectiveCamera rotX={45} rotY={30} zoom={50} distance={5}>
+      <GlyphScene mode="solid" cols={100} rows={30}
+        directionalLight={directionalLight}
+        shadow={shadow}
+      >
+        <GlyphMesh geometry="dodecahedron" color="#4488ff"
+          castShadow
+          receiveShadow
+        />
+        <GlyphGround />
+      </GlyphScene>
+    </GlyphPerspectiveCamera>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphPerspectiveCamera :rot-x="45" :rot-y="30" :zoom="50" :distance="5">
+    <GlyphScene mode="solid" :cols="100" :rows="30"
+      :directional-light="directionalLight"
+      :shadow="shadow"
+    >
+      <GlyphMesh geometry="dodecahedron" color="#4488ff"
+        cast-shadow
+        receive-shadow
+      />
+      <GlyphGround />
+    </GlyphScene>
+  </GlyphPerspectiveCamera>
+</template>
+
+<script setup lang="ts">
+import {
+  GlyphPerspectiveCamera,
+  GlyphScene,
+  GlyphMesh,
+  GlyphGround,
+} from "@glyphcss/vue";
+
+const shadow = { color: "#000000", opacity: 0.25, lift: 0.05 };
+const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Custom element">
+
+```html
+<glyph-perspective-camera rot-x="45" rot-y="30" zoom="50" distance="5">
+  <glyph-scene mode="solid" cols="100" rows="30"
+    directional-intensity="1"
+    shadow shadow-color="#000000" shadow-opacity="0.25" shadow-lift="0.05"
+  >
+    <glyph-mesh geometry="dodecahedron" color="#4488ff"
+      cast-shadow receive-shadow
+    ></glyph-mesh>
+    <glyph-mesh geometry="ground" receive-shadow></glyph-mesh>
+  </glyph-scene>
+</glyph-perspective-camera>
+```
+
+  </TabItem>
+</Tabs>
+
+### `GlyphShadowOptions` fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `color` | `string` | `"#000000"` | Shadow tint hex color |
+| `opacity` | `number` | `0.25` | Darkness 0..1 toward `color` |
+| `lift` | `number` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces |
+| `maxExtend` | `number` | `2000` | Half-extent of the light-space projection volume |
 
 ## Lifecycle methods (vanilla)
 

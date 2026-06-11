@@ -45,6 +45,15 @@ interface DemoHandle {
     keyColor?: string;
     ambientColor?: string;
   }) => void;
+  setShadow: (partial: {
+    enabled?: boolean;
+    opacity?: number;
+    lift?: number;
+    color?: string;
+    castShadow?: boolean;
+    receiveShadow?: boolean;
+    floor?: boolean;
+  }) => void;
 }
 
 export interface GlyphSceneProps {
@@ -178,6 +187,15 @@ export function GlyphScene({
           ambientIntensity: options.ambientIntensity,
           keyColor: options.lightColor,
           ambientColor: options.ambientColor,
+        });
+        handle.setShadow({
+          enabled: options.shadowEnabled,
+          opacity: options.shadowOpacity,
+          lift: options.shadowLift,
+          color: options.shadowColor,
+          castShadow: options.shadowCast,
+          receiveShadow: options.shadowReceive,
+          floor: options.shadowFloor,
         });
         // If the initial preset is a primitive, load its polygons now. The
         // runtime had no data-mesh attribute so it rendered the placeholder
@@ -475,6 +493,29 @@ export function GlyphScene({
     options.ambientIntensity,
     options.lightColor,
     options.ambientColor,
+  ]);
+
+  // React to Shadow changes.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setShadow({
+      enabled: options.shadowEnabled,
+      opacity: options.shadowOpacity,
+      lift: options.shadowLift,
+      color: options.shadowColor,
+      castShadow: options.shadowCast,
+      receiveShadow: options.shadowReceive,
+      floor: options.shadowFloor,
+    });
+  }, [
+    options.shadowEnabled,
+    options.shadowOpacity,
+    options.shadowLift,
+    options.shadowColor,
+    options.shadowCast,
+    options.shadowReceive,
+    options.shadowFloor,
   ]);
 
   return (
