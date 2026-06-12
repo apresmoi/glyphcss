@@ -22,6 +22,7 @@ export type {
   GlyphSceneOptions,
   GlyphHotspotOptions,
   GlyphHotspotHandle,
+  GlyphShadowOptions,
 } from "./api/createGlyphScene";
 
 // Re-export glyph-specific types

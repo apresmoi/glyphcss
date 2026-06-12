@@ -9,7 +9,7 @@
 import { defineComponent, h, provide, shallowRef, onMounted, onBeforeUnmount, watch } from "vue";
 import type { PropType } from "vue";
 import type { RenderMode } from "@glyphcss/core";
-import type { GlyphSceneOptions, GlyphDirectionalLight, GlyphAmbientLight } from "glyphcss";
+import type { GlyphSceneOptions, GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
 import { useGlyphCameraContext } from "../camera/context";
 import { GlyphSceneContextKey } from "./context";
@@ -24,6 +24,12 @@ export interface GlyphSceneProps {
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
   autoSize?: boolean;
+  /**
+   * Shadow-map configuration. `undefined` (default) means no shadows.
+   * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
+   * components to enable shadow casting.
+   */
+  shadow?: GlyphShadowOptions;
   class?: string;
 }
 
@@ -40,6 +46,7 @@ export const GlyphScene = defineComponent({
     directionalLight: { type: Object as PropType<GlyphDirectionalLight>, default: undefined },
     ambientLight: { type: Object as PropType<GlyphAmbientLight>, default: undefined },
     autoSize: { type: Boolean, default: undefined },
+    shadow: { type: Object as PropType<GlyphShadowOptions>, default: undefined },
     class: { type: String, default: undefined },
   },
   setup(props, { slots, attrs }) {
@@ -64,6 +71,7 @@ export const GlyphScene = defineComponent({
       if (props.directionalLight !== undefined) opts.directionalLight = props.directionalLight;
       if (props.ambientLight !== undefined) opts.ambientLight = props.ambientLight;
       if (props.autoSize !== undefined) opts.autoSize = props.autoSize;
+      if (props.shadow !== undefined) opts.shadow = props.shadow;
       if (cameraRef.value !== null) opts.camera = cameraRef.value;
       sceneRef.value = createGlyphScene(el, opts);
       // Register the rerender callback with the camera context so prop changes
@@ -89,6 +97,7 @@ export const GlyphScene = defineComponent({
         directionalLight: props.directionalLight,
         ambientLight: props.ambientLight,
         autoSize: props.autoSize,
+        shadow: props.shadow,
       }),
       (next) => {
         const scene = sceneRef.value;
@@ -103,6 +112,9 @@ export const GlyphScene = defineComponent({
         if (next.directionalLight !== undefined) partial.directionalLight = next.directionalLight;
         if (next.ambientLight !== undefined) partial.ambientLight = next.ambientLight;
         if (next.autoSize !== undefined) partial.autoSize = next.autoSize;
+        // Always forward shadow (including undefined) so setOptions can clear it
+        // when the prop is removed. Uses the "in" check in vanilla setOptions.
+        partial.shadow = next.shadow;
         if (Object.keys(partial).length > 0) scene.setOptions(partial);
       },
       { deep: false },

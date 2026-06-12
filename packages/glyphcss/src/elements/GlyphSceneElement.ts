@@ -16,6 +16,7 @@ import {
   type GlyphSceneHandle,
   type GlyphSceneOptions,
 } from "../api/createGlyphScene";
+import type { GlyphShadowOptions } from "../api/types";
 import type { RenderMode } from "@glyphcss/core";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -34,6 +35,11 @@ const OBSERVED_ATTRS = [
   "directional-intensity",
   "ambient-intensity",
   "auto-size",
+  "shadow",
+  "shadow-color",
+  "shadow-opacity",
+  "shadow-lift",
+  "shadow-max-extend",
 ] as const;
 
 function parseNumber(value: string | null): number | undefined {
@@ -80,10 +86,27 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const cellAspect = parseNumber(this.getAttribute("cell-aspect"));
     if (cellAspect !== undefined) opts.cellAspect = cellAspect;
     const dirIntensity = parseNumber(this.getAttribute("directional-intensity"));
-    if (dirIntensity !== undefined) opts.directionalLight = { direction: [0.5, 0.7, 0.5], intensity: dirIntensity };
+    if (dirIntensity !== undefined) opts.directionalLight = { direction: [-0.5, -0.7, -0.5], intensity: dirIntensity };
     const ambIntensity = parseNumber(this.getAttribute("ambient-intensity"));
     if (ambIntensity !== undefined) opts.ambientLight = { intensity: ambIntensity };
     if (this.hasAttribute("auto-size")) opts.autoSize = true;
+    if (this.hasAttribute("shadow")) {
+      const shadowOpts: GlyphShadowOptions = {
+        color: "#000000",
+        opacity: 0.25,
+        lift: 0.05,
+        maxExtend: 2000,
+      };
+      const shadowColor = this.getAttribute("shadow-color");
+      if (shadowColor) shadowOpts.color = shadowColor;
+      const shadowOpacity = parseNumber(this.getAttribute("shadow-opacity"));
+      if (shadowOpacity !== undefined) shadowOpts.opacity = shadowOpacity;
+      const shadowLift = parseNumber(this.getAttribute("shadow-lift"));
+      if (shadowLift !== undefined) shadowOpts.lift = shadowLift;
+      const shadowMaxExtend = parseNumber(this.getAttribute("shadow-max-extend"));
+      if (shadowMaxExtend !== undefined) shadowOpts.maxExtend = shadowMaxExtend;
+      opts.shadow = shadowOpts;
+    }
     return opts;
   }
 

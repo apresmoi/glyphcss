@@ -190,6 +190,9 @@ export type {
 // ── Mesh handle type ──────────────────────────────────────────────────────────
 export type { GlyphMeshHandle } from "glyphcss";
 
+// ── Shadow options ────────────────────────────────────────────────────────────
+export type { GlyphShadowOptions } from "glyphcss";
+
 // ── Event types ───────────────────────────────────────────────────────────────
 export type {
   GlyphPointerEvent,

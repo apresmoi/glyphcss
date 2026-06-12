@@ -113,7 +113,7 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   useButton(folder, "Reset camera", () => {
     const { selectedPreset: p, onUpdateScene: u } = resetCtxRef.current;
     u({
-      zoom: p.zoom ?? 0.35,
+      zoom: p.zoom ?? 1.3,
       rotX: p.rotX ?? 65,
       rotY: p.rotY ?? 45,
       target: [0, 0, 0],
@@ -206,10 +206,12 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     (value) => onUpdateScene({ perspective: value }),
   );
 
-  useSlider(folder, "Zoom", { min: 0.05, max: 2.5, step: 0.01 }, zoom, (value) =>
+  // Absolute px-per-world-unit zoom (BASE_TILE=50); fit-to-content lands ~8–15
+  // for unit-normalized models, so the range must reach well past the old max 10.
+  useSlider(folder, "Zoom", { min: 0.5, max: 60, step: 0.5 }, zoom, (value) =>
     onUpdateScene({ zoom: value }),
   );
-  useSlider(folder, "Rot X", { min: 0, max: 100, step: 1 }, rotX, (value) =>
+  useSlider(folder, "Rot X", { min: 0, max: 180, step: 1 }, rotX, (value) =>
     onUpdateScene({ rotX: value }),
   );
   useSlider(folder, "Rot Y", { min: 0, max: 360, step: 1 }, rotY, (value) =>

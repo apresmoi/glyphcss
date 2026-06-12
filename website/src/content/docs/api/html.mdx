@@ -33,7 +33,7 @@ Camera wraps scene. Attribute names are kebab-case (`rot-x`, `rot-y`,
 convention — present means true.
 
 ```html
-<glyph-perspective-camera rot-x="1.13" rot-y="0.78" zoom="0.3" distance="3">
+<glyph-perspective-camera rot-x="65" rot-y="45" zoom="50" distance="3">
   <glyph-scene mode="solid" cols="100" rows="30">
     <glyph-orbit-controls drag wheel></glyph-orbit-controls>
     <glyph-mesh geometry="cube"></glyph-mesh>
@@ -59,6 +59,11 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 | `directional-intensity` | number | Key-light intensity |
 | `ambient-intensity` | number | Ambient fill intensity |
 | `auto-size` | flag | Auto-fit `cols`/`rows` to the host's box via ResizeObserver |
+| `shadow` | flag | Enable shadow-map pass. Must be present for any shadows to render |
+| `shadow-color` | string | Shadow tint hex color (default `"#000000"`) |
+| `shadow-opacity` | number | Shadow darkness 0..1 (default `0.25`) |
+| `shadow-lift` | number | Depth bias — prevents self-shadow acne (default `0.05`) |
+| `shadow-max-extend` | number | Half-extent of the light-space projection volume (default `2000`) |
 
 ### `<glyph-perspective-camera>` / `<glyph-orthographic-camera>` / `<glyph-camera>`
 
@@ -68,9 +73,9 @@ attributes; perspective additionally accepts `distance` and `stretch`.
 
 | Attribute | Notes |
 |---|---|
-| `rot-x` | Pitch in radians |
-| `rot-y` | Yaw in radians |
-| `zoom` | Scale factor |
+| `rot-x` | Pitch in degrees |
+| `rot-y` | Yaw in degrees |
+| `zoom` | Pixels per world unit |
 | `distance` | Perspective only |
 | `stretch` | Perspective only |
 
@@ -87,8 +92,10 @@ Polygon registration. Picks one source in descending precedence: `geometry`
 | `color` | Fill color for `geometry` |
 | `position` | `x,y,z` translation |
 | `scale` | `s` or `sx,sy,sz` |
-| `rotation` | `rx,ry,rz` XYZ Euler radians |
+| `rotation` | `rx,ry,rz` XYZ Euler degrees |
 | `normalize` | flag — auto-fit imported mesh to a unit bbox |
+| `cast-shadow` | flag — this mesh casts shadows onto `receive-shadow` surfaces |
+| `receive-shadow` | flag — this mesh displays shadows from `cast-shadow` meshes. Present on both = self-shadow |
 
 ### `<glyph-hotspot>`
 
@@ -140,7 +147,7 @@ sceneEl.addEventListener("glyph-scene-ready", (ev) => {
     </style>
   </head>
   <body>
-    <glyph-perspective-camera rot-x="1.13" rot-y="0.78" zoom="0.3" distance="3">
+    <glyph-perspective-camera rot-x="65" rot-y="45" zoom="50" distance="3">
       <glyph-scene
         mode="solid"
         cols="120"

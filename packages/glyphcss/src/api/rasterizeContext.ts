@@ -5,7 +5,7 @@ import type {
   Polygon,
 } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
-import type { GlyphDirectionalLight, GlyphAmbientLight } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
 
 export interface RasterizeContextOptions {
   camera: GlyphCamera;
@@ -38,6 +38,11 @@ export interface RasterizeContextOptions {
    * shading; `180` smooths every shared vertex. Default `60`.
    */
   creaseAngle?: number;
+  shadow?: GlyphShadowOptions;
+  /** Per-polygon cast flag (parallel to `polygons` array). True = this poly's mesh has castShadow. */
+  castShadowFlags?: boolean[];
+  /** Per-polygon receive flag (parallel to `polygons` array). True = this poly's mesh has receiveShadow. */
+  receiveShadowFlags?: boolean[];
 }
 
 export interface RasterizeContext {
@@ -53,9 +58,15 @@ export interface RasterizeContext {
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
+  shadow: GlyphShadowOptions | undefined;
+  castShadowFlags: boolean[];
+  receiveShadowFlags: boolean[];
 }
 
-const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+// Direction the light shines TOWARD (three.js / computeShapeLighting convention).
+// Negated from the old [0.5, 0.7, 0.5] "light travels from" default so visual
+// output is preserved after the Lambert sign fix in rasterize.ts.
+const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [-0.5, -0.7, -0.5], intensity: 1 };
 const DEFAULT_AMBIENT: GlyphAmbientLight = { intensity: 0.4 };
 
 function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {
@@ -99,5 +110,8 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
+    shadow: opts.shadow,
+    castShadowFlags: opts.castShadowFlags ?? [],
+    receiveShadowFlags: opts.receiveShadowFlags ?? [],
   };
 }

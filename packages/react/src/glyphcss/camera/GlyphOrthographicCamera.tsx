@@ -12,7 +12,7 @@ import { GlyphCameraContext } from "./context";
 export interface GlyphOrthographicCameraProps {
   rotX?: number;
   rotY?: number;
-  /** Orthographic zoom (fraction of min(cols, rows)). Default 0.4. */
+  /** Orthographic zoom — absolute px per world unit (zoom=1 → BASE_TILE=50). Default 0.65. */
   zoom?: number;
   /** Center of projection in normalized grid coords. Default [0.5, 0.5]. */
   center?: [number, number];

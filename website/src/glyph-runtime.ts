@@ -36,6 +36,8 @@ import {
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
   loadMesh,
+  bakeSolidTextureSamples,
+  planePolygons,
 } from 'glyphcss';
 import type {
   Vec3,
@@ -275,8 +277,25 @@ function fitTrianglesToUnitBbox(triangles: TextureTriangle[]): TextureTriangle[]
   }));
 }
 
-async function loadMeshAsGeometry(url: string, normalize = true): Promise<MeshGeometry> {
-  const result = await loadMesh(url);
+async function loadMeshAsGeometry(url: string, normalize = true, mtlUrl?: string): Promise<MeshGeometry> {
+  // Resolve the companion .mtl so materials + textures load (otherwise faces
+  // fall back to default colors — the "red/blue" bug). Explicit mtlUrl wins;
+  // otherwise probe the sibling <basename>.mtl. The in-OBJ `mtllib` name is
+  // unreliable (cottage.obj declares cottage_obj.mtl but the file is
+  // cottage.mtl; rock1.obj declares Rock1.mtl but the file is rock1.mtl), so
+  // we use the OBJ's own basename + .mtl, which the assets follow.
+  let resolvedMtl = mtlUrl;
+  if (!resolvedMtl && /\.obj(\?|#|$)/i.test(url)) {
+    const sibling = url.replace(/\.obj(\?|#|$)/i, '.mtl$1');
+    try { const probe = await fetch(sibling); if (probe.ok) resolvedMtl = sibling; } catch { /* no sibling .mtl */ }
+  }
+  let result = await loadMesh(url, resolvedMtl ? { mtlUrl: resolvedMtl } : undefined);
+  // ASCII can't render textures, so sample each textured face to its average
+  // texture color. A high colorTolerance forces baking even for detailed
+  // textures (rock, wood) — otherwise they'd stay texture-backed and fall back
+  // to the flat MTL Kd. This is the per-face tier; per-cell sampling (true
+  // texture mapping) would be the higher-fidelity follow-up.
+  result = await bakeSolidTextureSamples(result, { colorTolerance: 255 });
   const rawTris = fanTriangulate(result.polygons);
   const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
   const edges = trianglesToEdges(polys, 0);
@@ -358,6 +377,16 @@ function pickTriangle(
   return bestIdx;
 }
 
+interface ShadowState {
+  enabled: boolean;
+  opacity: number;
+  lift: number;
+  color: string;
+  castShadow: boolean;
+  receiveShadow: boolean;
+  floor: boolean;
+}
+
 interface Tunables {
   zoom: number;
   stretch: number;
@@ -403,6 +432,7 @@ interface ControlState {
   wheelEnabled: boolean;
   autoCenter: boolean;
   lastMeshUrl: string | null;
+  lastMtlUrl: string | null;
   rotYLocked: boolean;
   projection: 'perspective' | 'orthographic';
   dragMode: DragMode;
@@ -413,7 +443,7 @@ const DEFAULT_TUNABLES: Tunables = {
   zoom: 0.3,
   stretch: 1.0,
   distance: 8000,
-  rotX: 1.134,
+  rotX: 65,
   duration: 6,
   lineHeight: 1.0,
   geometry: 'cuboctahedron',
@@ -482,9 +512,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let userDefaults: Partial<Tunables> = {};
   try { userDefaults = JSON.parse(demoEl.getAttribute('data-defaults') || '{}'); } catch {}
 
+  // With absolute (px-per-world-unit) zoom, a fixed default no longer auto-fits
+  // the object to the viewport the way the old fraction-zoom did. So unless a
+  // demo PINS an explicit `zoom`, we fit-to-content after load/resize so the
+  // mesh fills its container. Demos that pin zoom (landing hero) opt out.
+  const hasExplicitZoom = Object.prototype.hasOwnProperty.call(userDefaults, 'zoom');
+
   const tunables: Tunables = { ...DEFAULT_TUNABLES, geometry: initialGeometry, ...userDefaults };
 
-  let controlList: string[] = ['zoom', 'stretch', 'distance', 'rotX', 'duration', 'geometry'];
+  let controlList: string[] = ['scale', 'stretch', 'distance', 'rotX', 'duration', 'geometry'];
   const controlsAttr = demoEl.getAttribute('data-controls');
   if (controlsAttr) { try { controlList = JSON.parse(controlsAttr); } catch {} }
 
@@ -492,6 +528,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // controls are built so the orbit handlers never attach in the first place.
   const interactiveAttr = demoEl.getAttribute('data-interactive');
   const allowInteract = interactiveAttr !== '0';
+
+  // `noZoom` disables wheel/pinch zoom while keeping drag-to-orbit — used by
+  // decorative demos (landing hero) that should spin but not scroll-zoom.
+  const noZoom = demoEl.getAttribute('data-no-zoom') === '1';
 
   // Globe-style "grab and spin east" drag direction. Opposite of the default
   // camera-orbits-target sign convention used by everything else.
@@ -501,9 +541,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const controlState: ControlState = {
     invertDrag: invertDragAttr,
     dragEnabled: allowInteract,
-    wheelEnabled: allowInteract,
+    wheelEnabled: allowInteract && !noZoom,
     autoCenter: true,
     lastMeshUrl: null,
+    lastMtlUrl: null,
     rotYLocked: false,
     projection: 'perspective',
     dragMode: 'orbit',
@@ -525,9 +566,22 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     },
   };
 
+  // Shadow state
+  const shadowState: ShadowState = {
+    enabled: demoEl.getAttribute('data-shadow') === '1',
+    opacity: parseFloat(demoEl.getAttribute('data-shadow-opacity') ?? '0.25') || 0.25,
+    lift: parseFloat(demoEl.getAttribute('data-shadow-lift') ?? '0.05') || 0.05,
+    color: demoEl.getAttribute('data-shadow-color') ?? '#000000',
+    castShadow: demoEl.getAttribute('data-cast-shadow') === '1',
+    receiveShadow: demoEl.getAttribute('data-receive-shadow') === '1',
+    floor: demoEl.getAttribute('data-shadow-floor') !== '0',
+  };
+
   // Lighting state
   const lightingState = {
-    direction: [0.454, 0.541, 0.707] as [number, number, number],
+    // "Shines TOWARD" convention (negated subsolar unit vector).
+    // Corresponds to azimuth=50°, elevation=45° in the old "FROM" convention.
+    direction: [-0.454, -0.541, -0.707] as [number, number, number],
     keyIntensity: 1,
     ambientIntensity: 0.4,
     keyColor: '#ffffff',
@@ -591,6 +645,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   const willLoadMesh = !!demoEl.getAttribute('data-mesh');
   const willLoadPrimitive = demoEl.getAttribute('data-primitive') === '1';
+  const willLoadPolygons = !!demoEl.getAttribute('data-polygons-url');
+  // Only demos whose geometry comes from the built-in dropdown regenerate it on
+  // a control change. Mesh / polygons-URL demos keep their loaded geometry so a
+  // zoom/tilt tweak doesn't replace the mesh with a primitive.
+  const usesBuiltInGeometry = !willLoadMesh && !willLoadPrimitive && !willLoadPolygons;
   let geometry: GeometryState = (willLoadMesh || willLoadPrimitive)
     ? { vertices: [[0, 0, 0]], edges: [], polygons: [], animations: [], sample: () => [] }
     : buildDemoGeometry(tunables.geometry);
@@ -658,6 +717,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         intensity: lightingState.ambientIntensity,
         color: lightingState.ambientColor,
       },
+      shadow: shadowState.enabled
+        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift }
+        : undefined,
     };
   }
 
@@ -680,7 +742,53 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   }
 
   // Mesh handle — single mesh slot; replaced on geometry change
-  let meshHandle = scene.add(geometry.polygons as Polygon[]);
+  let meshHandle = scene.add(geometry.polygons as Polygon[], {
+    castShadow: shadowState.castShadow,
+    receiveShadow: shadowState.receiveShadow,
+  });
+
+  // Floor handle — ground plane added when shadows + floor are both on.
+  // Separate from meshHandle so it never enters fitContentZoom or stats.
+  let floorHandle: ReturnType<typeof scene.add> | null = null;
+
+  // The floor color is intentionally dim/dark so it reads as a neutral ground
+  // rather than a prominent object. The model's shadow darkens it further.
+  const FLOOR_COLOR = '#2a2d33';
+
+  /**
+   * Compute the floor polygon from the current geometry's bounding box.
+   * +Z is world-up. The floor sits at the model's min-Z edge, sized 1.6× the
+   * model's XY footprint so the shadow spills visibly beyond the model silhouette.
+   * The model is always centered at XY=0 after fitPolygonsToUnitBbox/loadMesh
+   * auto-center, so offset=[0,0] places the floor quad at the XY origin.
+   */
+  function buildFloorPolygons(): Polygon[] {
+    const polys = geometry.polygons as Polygon[];
+    if (polys.length === 0) return [];
+    let minZ = Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of polys) {
+      for (const v of p.vertices) {
+        if (v[2] < minZ) minZ = v[2];
+        if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+        if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+      }
+    }
+    if (!isFinite(minZ)) return [];
+    const xySpan = Math.max(maxX - minX, maxY - minY, 0.1);
+    const halfSize = (xySpan / 2) * 1.6;
+    // axis=2 → XY plane (Z is up); along=minZ positions it at the model base.
+    // offset=[0,0] centers the quad at the XY origin.
+    return planePolygons({ axis: 2, size: halfSize, offset: [0, 0], along: minZ, color: FLOOR_COLOR });
+  }
+
+  function rebuildFloor(): void {
+    if (floorHandle) { floorHandle.dispose(); floorHandle = null; }
+    if (!shadowState.enabled || !shadowState.floor) return;
+    const floorPolys = buildFloorPolygons();
+    if (floorPolys.length === 0) return;
+    floorHandle = scene.add(floorPolys, { castShadow: false, receiveShadow: true });
+  }
 
   // Track last bake time for stats
   let lastBakeMs = 0;
@@ -690,6 +798,66 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     const t0 = performance.now();
     scene.rerender();
     lastBakeMs = Math.round(performance.now() - t0);
+  }
+
+  // ── Fit-to-content ───────────────────────────────────────────────────────
+  // Compute the absolute camera.zoom that makes the geometry's true projected
+  // silhouette fill ~`fill` of the viewport. We project the ACTUAL vertices
+  // (sampled for big meshes) — NOT the 8 AABB corners: for a round object the
+  // bounding-cube corners project ~√2 wider than the real silhouette, which
+  // under-fills (a sphere lands at ~58% when targeting 82%). Projection scales
+  // linearly with zoom, so we measure the cell extent at the current zoom and
+  // scale to hit the target. Skipped for FPV (eyeMode) / pinned-zoom demos.
+  function fitContentZoom(fill = 0.85): void {
+    if (hasExplicitZoom || camera.eyeMode) return;
+    const polys = geometry.polygons as Polygon[];
+    if (!polys || polys.length === 0) return;
+    const opts = scene.getOptions();
+    const cols = opts.cols ?? 80, rows = opts.rows ?? 24, ca = opts.cellAspect ?? 0.5;
+    let total = 0;
+    for (const p of polys) total += p.vertices.length;
+    const stride = total > 3000 ? Math.ceil(total / 3000) : 1;
+    let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity, i = 0;
+    for (const p of polys) for (const v of p.vertices) {
+      if (i++ % stride !== 0) continue;
+      const pr = camera.project(v, cols, rows, ca);
+      if (!isFinite(pr[0]) || !isFinite(pr[1])) continue;
+      if (pr[0] < minc) minc = pr[0]; if (pr[0] > maxc) maxc = pr[0];
+      if (pr[1] < minr) minr = pr[1]; if (pr[1] > maxr) maxr = pr[1];
+    }
+    const wExt = maxc - minc, hExt = maxr - minr;
+    if (!(wExt > 0) || !(hExt > 0)) return;
+    const factor = Math.min((fill * cols) / wExt, (fill * rows) / hExt);
+    if (!isFinite(factor) || factor <= 0) return;
+    const nz = Math.round((camera.zoom || 1) * factor * 10) / 10;
+    camera.zoom = nz;
+    tunables.zoom = nz;
+  }
+
+  // Auto-fit ONLY when the geometry itself changes (new shape/mesh) — NOT on
+  // camera-control tweaks (zoom/perspective/tilt/stretch all route through
+  // rebuildSceneFromGeometry, and refitting there would stomp the user's
+  // change so the controls appear dead). Resize refits separately below.
+  let lastFitSig: string | null = null;
+  function maybeFitContent(): void {
+    const sig = `${tunables.geometry}|${controlState.lastMeshUrl ?? ''}|${(geometry.polygons as Polygon[]).length}`;
+    if (sig === lastFitSig) return;
+    lastFitSig = sig;
+    fitContentZoom();
+  }
+
+  // Refit (grid + content) on container resize so the mesh keeps filling.
+  if (!hasExplicitZoom && typeof ResizeObserver !== 'undefined') {
+    let refitRaf = 0;
+    const refitObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(refitRaf);
+      refitRaf = requestAnimationFrame(() => {
+        scene.fit();
+        fitContentZoom();
+        doRerender();
+      });
+    });
+    refitObserver.observe(sceneHost);
   }
 
   // ── Hotspots ─────────────────────────────────────────────────────────────
@@ -808,7 +976,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       autoRotateLastTime = now;
       if (dt > 0 && !autoRotatePaused) {
         const speedDegPerS = AUTO_ROTATE_SPEED_DEG_PER_S * (tunables.duration > 0 ? 6 / tunables.duration : 1);
-        camera.rotY = camera.rotY + (speedDegPerS * Math.PI / 180) * dt;
+        camera.rotY = camera.rotY + speedDegPerS * dt;
         doRerender();
       }
     };
@@ -880,7 +1048,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       const sampledTriangles = geometry.sample(animState.clipIndex, animState.currentTime);
       // Update mesh handle with new frame polygons
       meshHandle.dispose();
-      meshHandle = scene.add(sampledTriangles as Polygon[]);
+      meshHandle = scene.add(sampledTriangles as Polygon[], {
+        castShadow: shadowState.castShadow,
+        receiveShadow: shadowState.receiveShadow,
+      });
       doRerender();
     };
 
@@ -919,7 +1090,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     }
 
     meshHandle.dispose();
-    meshHandle = scene.add(polys);
+    meshHandle = scene.add(polys, {
+      castShadow: shadowState.castShadow,
+      receiveShadow: shadowState.receiveShadow,
+    });
   }
 
   // ── Rebuild scene from current geometry + tunables ────────────────────────
@@ -950,6 +1124,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     buildControls();
 
     applyMesh();
+    rebuildFloor();
+    scene.fit();
+    maybeFitContent();
     doRerender();
     loadingEl.style.display = 'none';
     updateCode();
@@ -957,22 +1134,23 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   function rebuildAll(): void {
     stopAnimationLoop();
-    geometry = staticGeometry(buildGeometry(tunables.geometry));
+    if (usesBuiltInGeometry) geometry = buildDemoGeometry(tunables.geometry);
     selectedTriangleIndex = -1;
     onSelectionChange?.(-1, null);
     rebuildSceneFromGeometry();
   }
 
-  async function setMeshUrl(url: string): Promise<void> {
+  async function setMeshUrl(url: string, mtlUrl?: string): Promise<void> {
     loadingEl.style.display = 'grid';
     loadingEl.textContent = `Loading ${url.split('/').pop()}…`;
     try {
-      const loaded = await loadMeshAsGeometry(url, controlState.autoCenter);
+      const loaded = await loadMeshAsGeometry(url, controlState.autoCenter, mtlUrl);
       if (loaded.edges.length === 0) {
         loadingEl.textContent = 'Empty mesh (0 edges).';
         return;
       }
       controlState.lastMeshUrl = url;
+      controlState.lastMtlUrl = mtlUrl ?? null;
       geometry = loaded;
       selectedTriangleIndex = -1;
       onSelectionChange?.(-1, null);
@@ -1035,11 +1213,13 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const FPV_JUMP_KEYS = new Set(['Space']);
   const FPV_CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight']);
 
-  function fpvForwardDir(rotX: number, rotY: number): [number, number, number] {
+  function fpvForwardDir(rotXDeg: number, rotYDeg: number): [number, number, number] {
+    const rx = (rotXDeg * Math.PI) / 180;
+    const ry = (rotYDeg * Math.PI) / 180;
     return [
-      -Math.sin(rotX) * Math.cos(rotY),
-      -Math.sin(rotX) * Math.sin(rotY),
-      -Math.cos(rotX),
+      -Math.sin(rx) * Math.cos(ry),
+      -Math.sin(rx) * Math.sin(ry),
+      -Math.cos(rx),
     ];
   }
 
@@ -1056,8 +1236,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     const t = camera.target;
     fpvJumpOffset = 0;
     fpvVerticalVel = 0;
-    camera.rotX = Math.PI / 2;
-    tunables.rotX = Math.PI / 2;
+    camera.rotX = 90;
+    tunables.rotX = 90;
     const initBackOffset = 3;
     const f = fpvForwardDir(camera.rotX, camera.rotY);
     fpvOrigin = [
@@ -1081,13 +1261,13 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (dx === 0 && dy === 0) return;
     const sens = controlState.fpv.lookSensitivity;
     const dyDir = controlState.fpv.invertY ? -1 : 1;
-    const DEG_TO_RAD = Math.PI / 180;
-    camera.rotY = camera.rotY - dx * sens * DEG_TO_RAD;
-    let rotX = camera.rotX - dy * sens * DEG_TO_RAD * dyDir;
-    const minR = controlState.fpv.minPitch * DEG_TO_RAD;
-    const maxR = controlState.fpv.maxPitch * DEG_TO_RAD;
-    if (rotX < minR) rotX = minR;
-    else if (rotX > maxR) rotX = maxR;
+    // Camera is now in degrees; sensitivity is in degrees/pixel.
+    camera.rotY = camera.rotY - dx * sens;
+    let rotX = camera.rotX - dy * sens * dyDir;
+    const minDeg = controlState.fpv.minPitch;
+    const maxDeg = controlState.fpv.maxPitch;
+    if (rotX < minDeg) rotX = minDeg;
+    else if (rotX > maxDeg) rotX = maxDeg;
     camera.rotX = rotX;
     fpvSyncTarget();
     doRerender();
@@ -1142,7 +1322,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         else if (FPV_LEFT_KEYS.has(code)) mr -= 1;
       }
       if (mf !== 0 || mr !== 0) {
-        const r = camera.rotY;
+        const r = (camera.rotY * Math.PI) / 180;
         const fx = -Math.cos(r), fy = -Math.sin(r);
         const rx = -Math.sin(r), ry =  Math.cos(r);
         const len = Math.hypot(mf, mr) || 1;
@@ -1366,7 +1546,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       });
     }
     if ('autoCenter' in partial && partial.autoCenter !== prevAutoCenter && controlState.lastMeshUrl) {
-      void setMeshUrl(controlState.lastMeshUrl);
+      void setMeshUrl(controlState.lastMeshUrl, controlState.lastMtlUrl ?? undefined);
     }
   }
 
@@ -1376,10 +1556,14 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       const elRad = ((partial.elevation ?? sphericalEl) * Math.PI) / 180;
       if (partial.azimuth !== undefined) sphericalAz = partial.azimuth;
       if (partial.elevation !== undefined) sphericalEl = partial.elevation;
+      // `direction` = the direction light shines TOWARD (three.js / voxcss
+      // convention). A sun at elevation el, azimuth az sits in the +Z
+      // hemisphere; light travels FROM there TOWARD the scene, i.e. in the
+      // NEGATIVE of the subsolar unit vector.
       lightingState.direction = [
-        Math.cos(elRad) * Math.cos(azRad),
-        Math.cos(elRad) * Math.sin(azRad),
-        Math.sin(elRad),
+        -Math.cos(elRad) * Math.cos(azRad),
+        -Math.cos(elRad) * Math.sin(azRad),
+        -Math.sin(elRad),
       ];
     }
     if (partial.keyIntensity !== undefined) lightingState.keyIntensity = partial.keyIntensity;
@@ -1397,6 +1581,25 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         color: lightingState.ambientColor,
       },
     });
+    doRerender();
+  }
+
+  function setShadow(partial: Partial<ShadowState>): void {
+    Object.assign(shadowState, partial);
+    scene.setOptions({
+      shadow: shadowState.enabled
+        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift }
+        : undefined,
+    });
+    // When cast/receive flags change we must rebuild the mesh handle so the
+    // rasterizer picks up the updated per-mesh flags.
+    if ('castShadow' in partial || 'receiveShadow' in partial) {
+      applyMesh();
+    }
+    // Rebuild floor whenever enabled/floor toggle changes.
+    if ('enabled' in partial || 'floor' in partial) {
+      rebuildFloor();
+    }
     doRerender();
   }
 
@@ -1446,7 +1649,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     animState.clipIndex = 0;
     animState.currentTime = 0;
     meshHandle.dispose();
-    meshHandle = scene.add(geometry.polygons as Polygon[]);
+    meshHandle = scene.add(geometry.polygons as Polygon[], {
+      castShadow: shadowState.castShadow,
+      receiveShadow: shadowState.receiveShadow,
+    });
     doRerender();
   }
 
@@ -1467,7 +1673,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // Expose handle on the demoEl
   (demoEl as unknown as {
     glyphcssDemo: {
-      setMeshUrl: (u: string) => Promise<void>;
+      setMeshUrl: (u: string, mtl?: string) => Promise<void>;
       setPolygons: (polygons: Polygon[]) => void;
       setTunables: (p: Partial<Tunables>) => void;
       setControlState: (p: Partial<ControlState>) => void;
@@ -1487,6 +1693,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       setDragMode: (mode: DragMode) => void;
       setFpvOptions: (partial: Partial<FpvOptions>) => void;
       setLighting: (partial: { azimuth?: number; elevation?: number; keyIntensity?: number; ambientIntensity?: number; keyColor?: string; ambientColor?: string }) => void;
+      setShadow: (partial: Partial<ShadowState>) => void;
       getDragMode: () => DragMode;
     }
   }).glyphcssDemo = {
@@ -1510,16 +1717,17 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setDragMode,
     setFpvOptions,
     setLighting,
+    setShadow,
     getDragMode,
   };
 
   // ── lil-gui ───────────────────────────────────────────────────────────────
   const gui = controlsEl ? new GUI({ container: controlsEl, title: 'Tuning', width: 240 }) : null;
   const controlMakers: Record<string, () => void> = gui ? {
-    scale: () => { gui.add(tunables, 'zoom', 0.05, 2, 0.005).name('zoom').onChange(rebuildAll); },
+    scale: () => { gui.add(tunables, 'zoom', 0.5, 60, 0.5).name('zoom').listen().onChange(rebuildAll); },
     stretch: () => { gui.add(tunables, 'stretch', 0.5, 1.5, 0.01).onChange(rebuildAll); },
     distance: () => { gui.add(tunables, 'distance', 100, 100000, 100).name('perspective').onChange(rebuildAll); },
-    rotX: () => { gui.add(tunables, 'rotX', 0, 1.75, 0.01).name('tilt (rotX)').onChange(rebuildAll); },
+    rotX: () => { gui.add(tunables, 'rotX', 0, 180, 1).name('tilt (rotX)').onChange(rebuildAll); },
     duration: () => { gui.add(tunables, 'duration', 1, 12, 0.25).name('duration (s)').onChange(() => { /* no-op: JS autorotate uses tunables.duration directly */ }); },
     lineHeight: () => { gui.add(tunables, 'lineHeight', 0.5, 1.2, 0.01).name('line-height ×').onChange(rebuildAll); },
     geometry: () => { gui.add(tunables, 'geometry', ['cuboctahedron', 'icosahedron', 'cube']).onChange(rebuildAll); },
@@ -1615,6 +1823,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // priority over mesh-file URL takes priority over built-in geometry.
   const polygonsUrl = demoEl.getAttribute('data-polygons-url');
   const initialMeshUrl = demoEl.getAttribute('data-mesh');
+  const initialMtlUrl = demoEl.getAttribute('data-mtl') || undefined;
   if (polygonsUrl) {
     void (async () => {
       try {
@@ -1638,9 +1847,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       }
     })();
   } else if (initialMeshUrl) {
-    void setMeshUrl(initialMeshUrl);
+    void setMeshUrl(initialMeshUrl, initialMtlUrl);
   } else {
     applyMesh();
+    scene.fit();
+    maybeFitContent();
     doRerender();
     loadingEl.style.display = 'none';
     updateCode();

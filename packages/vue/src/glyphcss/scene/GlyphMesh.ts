@@ -1,6 +1,7 @@
 /**
  * GlyphMesh — Vue 3 component to register a polygon list with the parent
- * GlyphScene. Mirrors PolyMesh's prop surface for the ASCII backend.
+ * GlyphScene. Mirrors PolyMesh's prop surface (including castShadow /
+ * receiveShadow) for the ASCII backend.
  */
 import { defineComponent, h, inject, onBeforeUnmount, watch, shallowRef, computed, watchEffect } from "vue";
 import type { PropType } from "vue";
@@ -26,6 +27,17 @@ export interface GlyphMeshProps {
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
+  /**
+   * This mesh casts shadows onto `receiveShadow` surfaces.
+   * Default false — opt-in, matching PolyMesh behaviour.
+   */
+  castShadow?: boolean;
+  /**
+   * This mesh receives (displays) shadows from `castShadow` meshes.
+   * A mesh that is both `castShadow` and `receiveShadow` will self-shadow.
+   * Default false — opt-in, matching PolyMesh behaviour.
+   */
+  receiveShadow?: boolean;
   class?: string;
   // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
   // TODO(hit-layer): wire these to the hit layer raycasting once the
@@ -50,6 +62,8 @@ export const GlyphMesh = defineComponent({
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
+    castShadow: { type: Boolean, default: false },
+    receiveShadow: { type: Boolean, default: false },
     class: { type: String, default: undefined },
     // TODO(hit-layer): wire these to the hit layer raycasting once the
     // rasterizer hit-map is wired to the hit-layer dispatch.
@@ -84,6 +98,8 @@ export const GlyphMesh = defineComponent({
       if (props.position) t.position = props.position;
       if (props.scale !== undefined) t.scale = props.scale;
       if (props.rotation) t.rotation = props.rotation;
+      t.castShadow = props.castShadow;
+      t.receiveShadow = props.receiveShadow;
       return t;
     }
 
@@ -117,9 +133,9 @@ export const GlyphMesh = defineComponent({
       register();
     });
 
-    // Update transform on id/position/scale/rotation changes
+    // Update transform on id/position/scale/rotation/castShadow/receiveShadow changes
     watch(
-      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation }),
+      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow }),
       () => {
         const mesh = meshRef.value;
         if (!mesh) return;

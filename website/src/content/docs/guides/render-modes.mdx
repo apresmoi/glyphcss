@@ -36,7 +36,7 @@ const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc"
 
 export function WireframeDemo() {
   return (
-    <GlyphCamera rotX={0.4}>
+    <GlyphCamera rotX={25}>
       <GlyphScene mode="wireframe" cols={80} rows={24}>
         <GlyphOrbitControls />
         <GlyphMesh polygons={icosa} />
@@ -52,7 +52,7 @@ export function WireframeDemo() {
 ```ts
 import { createGlyphCamera, createGlyphScene } from "glyphcss";
 
-const camera = createGlyphCamera({ rotX: 0.4 });
+const camera = createGlyphCamera({ rotX: 25 });
 const scene = createGlyphScene(document.querySelector("#scene")!, {
   camera,
   mode: "wireframe",
@@ -101,7 +101,7 @@ const dodeca = dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#cc44f
 
 export function SolidDemo() {
   return (
-    <GlyphCamera rotX={0.4}>
+    <GlyphCamera rotX={25}>
       <GlyphScene
         mode="solid"
         cols={100}
@@ -124,7 +124,7 @@ export function SolidDemo() {
 import { createGlyphCamera, createGlyphScene } from "glyphcss";
 import { dodecahedronPolygons } from "@glyphcss/core";
 
-const camera = createGlyphCamera({ rotX: 0.4 });
+const camera = createGlyphCamera({ rotX: 25 });
 const scene = createGlyphScene(document.querySelector("#scene")!, {
   camera,
   mode: "solid",
@@ -157,7 +157,7 @@ import type { Polygon } from "@glyphcss/core";
 // Replace "/tree.vox" with your own MagicaVoxel file path.
 export function VoxelDemo({ polygons }: { polygons: Polygon[] }) {
   return (
-    <GlyphCamera rotX={0.4}>
+    <GlyphCamera rotX={25}>
       <GlyphScene mode="voxel" cols={80} rows={24}>
         <GlyphOrbitControls />
         <GlyphMesh polygons={polygons} />
@@ -178,7 +178,7 @@ import { parseVox } from "@glyphcss/core";
 const voxBuffer = await fetch("/tree.vox").then((r) => r.arrayBuffer());
 const { polygons } = parseVox(voxBuffer);
 
-const camera = createGlyphCamera({ rotX: 0.4 });
+const camera = createGlyphCamera({ rotX: 25 });
 const scene = createGlyphScene(document.querySelector("#scene")!, {
   camera,
   mode: "voxel",
@@ -195,6 +195,92 @@ Each face's color (from the VOX palette) maps to a glyph density — bright colo
 become `#` / `@`, dim colors become `.` / `:`. Back faces are culled.
 
 Best for: voxel art, chunky low-poly aesthetics.
+
+## Shadows
+
+Shadows use a shadow-map technique: the rasterizer renders a depth pass from the
+light's perspective, then compares each cell's depth against it. Set `shadow` on
+`<GlyphScene>` to enable, then opt individual meshes in with `castShadow` and
+`receiveShadow`. A mesh with both flags self-shadows. `<GlyphGround>` defaults to
+`receiveShadow=true`.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import {
+  GlyphPerspectiveCamera,
+  GlyphScene,
+  GlyphMesh,
+  GlyphGround,
+} from "@glyphcss/react";
+
+const shadow = { color: "#000000", opacity: 0.25, lift: 0.05 };
+const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
+const ambientLight = { intensity: 0.35 };
+
+export function ShadowDemo() {
+  return (
+    <GlyphPerspectiveCamera rotX={45} rotY={30} zoom={50} distance={5}>
+      <GlyphScene
+        mode="solid"
+        cols={100}
+        rows={30}
+        directionalLight={directionalLight}
+        ambientLight={ambientLight}
+        shadow={shadow}
+      >
+        <GlyphMesh geometry="dodecahedron" color="#4488ff"
+          castShadow
+          receiveShadow
+        />
+        <GlyphGround />
+      </GlyphScene>
+    </GlyphPerspectiveCamera>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphPerspectiveCamera, createGlyphScene } from "glyphcss";
+import { dodecahedronPolygons, planePolygons } from "@glyphcss/core";
+
+const camera = createGlyphPerspectiveCamera({ rotX: 45, rotY: 30, zoom: 50, distance: 5 });
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  cols: 100,
+  rows: 30,
+  directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1 },
+  ambientLight: { intensity: 0.35 },
+  shadow: { color: "#000000", opacity: 0.25, lift: 0.05 },
+});
+
+const caster = scene.add(
+  dodecahedronPolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }),
+  { castShadow: true, receiveShadow: true },
+);
+
+const ground = scene.add(
+  planePolygons({ axis: 1, size: 5, offset: 0, color: "#444444" }),
+  { position: [0, -0.5, 0], receiveShadow: true },
+);
+```
+
+  </TabItem>
+</Tabs>
+
+Shadow fields (`GlyphShadowOptions`):
+
+| Field | Default | Description |
+|---|---|---|
+| `color` | `"#000000"` | Shadow tint color |
+| `opacity` | `0.25` | Darkness 0..1 |
+| `lift` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces |
+| `maxExtend` | `2000` | Half-extent of the light-space projection volume |
 
 ## Built-in `geometry` attribute
 

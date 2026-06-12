@@ -17,10 +17,20 @@ export interface GlyphGroundProps {
   color?: string;
   /** World-space position. Default [0, -0.5, 0]. */
   position?: Vec3;
-  /** World-space rotation in radians (Euler XYZ). */
+  /** World-space rotation in degrees (Euler XYZ). */
   rotation?: Vec3;
   /** String id forwarded to the underlying mesh handle. */
   id?: string;
+  /**
+   * This ground plane casts shadows onto other `receiveShadow` surfaces.
+   * Default false — ground planes typically only receive shadows, matching PolyGround.
+   */
+  castShadow?: boolean;
+  /**
+   * This ground plane receives (displays) shadows from `castShadow` meshes.
+   * Default true — ground planes are the primary shadow receivers, matching PolyGround.
+   */
+  receiveShadow?: boolean;
   class?: string;
 }
 
@@ -32,6 +42,8 @@ export const GlyphGround = defineComponent({
     position: { type: Array as unknown as PropType<Vec3>, default: (): Vec3 => [0, -0.5, 0] },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
     id: { type: String, default: undefined },
+    castShadow: { type: Boolean, default: false },
+    receiveShadow: { type: Boolean, default: true },
     class: { type: String, default: undefined },
   },
   setup(props, { slots }) {
@@ -53,6 +65,8 @@ export const GlyphGround = defineComponent({
           polygons: polygons.value,
           position: props.position,
           rotation: props.rotation ?? undefined,
+          castShadow: props.castShadow,
+          receiveShadow: props.receiveShadow,
           class: props.class,
         },
         slots,

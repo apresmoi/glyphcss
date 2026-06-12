@@ -1,9 +1,14 @@
+// Vendored from voxcss packages/polycss/src/api/createPolyMapControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); no common.ts dependency (inline helpers); no addEventListener/removeEventListener (not yet in glyphcss API surface); zoom clamp widened to absolute scale [0.1,500].
 /**
  * createGlyphMapControls — map/pan-mode camera input for a GlyphScene.
  *
  * Left-drag pans the target (slippy-map semantics). Right-drag or
- * Shift+left-drag orbits. Wheel zooms. Mirrors glyphcss's createPolyMapControls
+ * Shift+left-drag orbits. Wheel zooms. Mirrors voxcss's createPolyMapControls
  * semantics, adapted for the ASCII rasterizer's GlyphCamera.
+ *
+ * rotX and rotY are in DEGREES (three.js / voxcss convention).
+ * Drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
+ * Animate speed: degrees per 60 Hz-equivalent frame.
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
@@ -41,7 +46,8 @@ export function createGlyphMapControls(
   let rightDown = false;
 
   const camera = scene.camera;
-  const RAD_PER_PX = (1 / 4) * Math.PI / 180;
+  // rotX/rotY are in degrees — drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
+  const DEG_PER_PX = 1 / 4;
   const PAN_SCALE = 0.02;
 
   function onPointerDown(e: PointerEvent): void {
@@ -69,9 +75,9 @@ export function createGlyphMapControls(
     const f = invertFactor;
 
     if (rightDown || e.shiftKey) {
-      // Orbit
-      camera.rotY = camera.rotY - dx * RAD_PER_PX * f;
-      camera.rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotX + dy * RAD_PER_PX * f));
+      // Orbit — rotX/rotY in degrees
+      camera.rotY = camera.rotY - dx * DEG_PER_PX * f;
+      camera.rotX = Math.max(-90, Math.min(90, camera.rotX + dy * DEG_PER_PX * f));
     } else {
       // Pan: translate target in camera-tangent plane
       const t = camera.target;
@@ -99,7 +105,9 @@ export function createGlyphMapControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    camera.zoom = Math.max(0.05, Math.min(10, camera.zoom * (1 - delta)));
+    // Absolute px-per-world-unit zoom: wide clamp so fitted framings (~10–40)
+    // and deep zoom both work. Was [0.05, 10] under the old fraction scale.
+    camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
     scene.rerender();
   }
 
@@ -109,7 +117,8 @@ export function createGlyphMapControls(
       const dt = lastTime !== null ? Math.min(time - lastTime, 50) : 16.67;
       const speed = (typeof animOpts === "object" && animOpts.speed) ? animOpts.speed : 0.3;
       const axis = (typeof animOpts === "object" && animOpts.axis) ? animOpts.axis : "y";
-      const dAngle = speed * (Math.PI / 180) * (dt / 16.67);
+      // speed is degrees per 60 Hz-equivalent frame; dt normalised to 16.67 ms reference.
+      const dAngle = speed * (dt / 16.67);
       if (axis === "y") camera.rotY = camera.rotY + dAngle;
       else camera.rotX = camera.rotX + dAngle;
       scene.rerender();

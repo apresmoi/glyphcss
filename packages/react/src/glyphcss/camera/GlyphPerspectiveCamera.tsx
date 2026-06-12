@@ -12,9 +12,9 @@ import { GlyphCameraContext } from "./context";
 export interface GlyphPerspectiveCameraProps {
   rotX?: number;
   rotY?: number;
-  /** Perspective distance. Default 3. */
+  /** Perspective distance (world units). Default 6. */
   distance?: number;
-  /** Camera zoom — mesh fraction of min(cols, rows). Default 0.4. */
+  /** Camera zoom — absolute px per world unit (zoom=1 → BASE_TILE=50). Default 0.65. */
   zoom?: number;
   /** Extra horizontal stretch on top of cellAspect. Default 1.0. */
   stretch?: number;

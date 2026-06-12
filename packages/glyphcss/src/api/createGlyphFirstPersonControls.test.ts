@@ -76,7 +76,7 @@ describe("createGlyphFirstPersonControls", () => {
     pm(scene.host, 200, 100); // dx = +100
     pu(scene.host);
 
-    // rotY = rotY - dx * lookSpeed * invertFactor → decreases when dx > 0
+    // rotY = rotY - dx * lookSpeed (deg/px) → decreases when dx > 0
     expect(scene.camera.rotY).toBeLessThan(initialRotY);
     controls.destroy();
   });
@@ -105,15 +105,41 @@ describe("createGlyphFirstPersonControls", () => {
     controls.destroy();
   });
 
-  it("rotX is clamped to [-π/2, π/2]", () => {
+  it("rotX is clamped to [-90, 90] degrees", () => {
     const controls = createGlyphFirstPersonControls(scene);
 
     pd(scene.host, 0, 0);
-    pm(scene.host, 0, 100000); // huge dy
+    pm(scene.host, 0, 100000); // huge dy → clamps at 90
     pu(scene.host);
 
-    expect(scene.camera.rotX).toBeLessThanOrEqual(Math.PI / 2);
-    expect(scene.camera.rotX).toBeGreaterThanOrEqual(-Math.PI / 2);
+    expect(scene.camera.rotX).toBeLessThanOrEqual(90);
+    expect(scene.camera.rotX).toBeGreaterThanOrEqual(-90);
+    controls.destroy();
+  });
+
+  it("rotX clamp stops exactly at 90 degrees when dragging down past limit", () => {
+    const controls = createGlyphFirstPersonControls(scene);
+    scene.camera.rotX = 0;
+
+    // lookSpeed=0.15 deg/px, drag 1000 px down → 150 deg, clamped to 90
+    pd(scene.host, 0, 0);
+    pm(scene.host, 0, 1000);
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBe(90);
+    controls.destroy();
+  });
+
+  it("drag of 100 px rotates by 15 degrees with default lookSpeed=0.15", () => {
+    const controls = createGlyphFirstPersonControls(scene);
+    scene.camera.rotY = 0;
+
+    pd(scene.host, 0, 0);
+    pm(scene.host, 100, 0); // dx = +100
+    pu(scene.host);
+
+    // rotY = 0 - 100 * 0.15 = -15 degrees
+    expect(scene.camera.rotY).toBeCloseTo(-15, 5);
     controls.destroy();
   });
 

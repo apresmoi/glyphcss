@@ -39,6 +39,17 @@ There are no per-polygon DOM elements. There is no CSS `matrix3d`. The `<pre>` i
 | `solid` | Filled cells; glyph picked from a `CharRamp` by Lambert-shaded intensity |
 | `voxel` | Cube-aligned geometry; face normals drive glyph selection |
 
+### Shadows
+
+Shadows are opt-in per mesh. To enable them, set `shadow: GlyphShadowOptions` on the scene (undefined by default = no shadows). Then flag individual meshes with `castShadow` (default false) and/or `receiveShadow` (default false). A mesh that is both cast and receive self-shadows — this is free because glyphcss uses a **shadow-map** technique (render depth from the light, compare per cell) rather than polycss's analytic SVG projection. `GlyphGround` defaults `receiveShadow=true`, `castShadow=false`.
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `shadow.color` | `string` | `"#000000"` | Shadow tint hex color |
+| `shadow.opacity` | `number` | `0.25` | Darkness 0..1 toward `color` |
+| `shadow.lift` | `number` | `0.05` | Depth bias — prevents self-shadow acne on flat lit surfaces |
+| `shadow.maxExtend` | `number` | `2000` | Half-extent of the light-space projection volume |
+
 ### Hotspots
 
 Hotspots are 3D anchors that produce positioned 2D hitboxes in the consumer's DOM. The rasteriser projects each `Hotspot.at` point through the camera and returns a `HotspotCell` (col, row, depth, visible). Consumers absolute-position a `<div>` at the cell — the rasteriser only computes the position; it does not emit the DOM node.
@@ -62,6 +73,14 @@ Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry 
 - **Vanilla factories:** `createGlyphScene`, `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`, `createGlyphOrbitControls`, `createGlyphMapControls`, `createGlyphFirstPersonControls`.
 - **HTML custom elements:** `glyph-` prefix + kebab-case. Existing tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-perspective-camera>`, `<glyph-orthographic-camera>`, `<glyph-camera>` (ortho alias), `<glyph-orbit-controls>`, `<glyph-map-controls>`. Any new element follows the same shape.
 - `GlyphCamera` is the ergonomic default alias — it resolves to `GlyphOrthographicCamera`. The voxel render mode and iso/diagrammatic scenes are glyphcss's differentiator; ortho is the more representative default.
+
+## Numeric conventions
+
+These conventions match voxcss and three.js exactly — same units, same frames.
+
+- **Rotation units: degrees.** `rotX`, `rotY` on cameras and the `rotation` prop on meshes are all in degrees (XYZ Euler). `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Do not use radians — the asciss-lineage radian convention has been replaced.
+- **Camera `zoom`: absolute, pixels per world unit.** `zoom=50` means one world unit maps to 50 px at `BASE_TILE`. This is three.js-style orthographic zoom, not a fraction of the viewport.
+- **Directional light `direction`: toward convention.** `GlyphDirectionalLight.direction` is the direction the light shines *toward*, matching three.js. A vector pointing down-right-forward lights the top-left-back faces.
 
 ## Cross-package discipline
 

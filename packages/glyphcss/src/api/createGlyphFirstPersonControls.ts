@@ -1,3 +1,4 @@
+// Vendored from voxcss packages/polycss/src/api/createPolyFirstPersonControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); simplified look model (pointer-drag instead of pointer-lock; no jump/crouch); keyTick trig converts deg→rad; no addEventListener/removeEventListener (not yet in glyphcss API surface).
 /**
  * createGlyphFirstPersonControls — first-person camera input for a GlyphScene.
  *
@@ -7,6 +8,10 @@
  * detach, restores `eyeMode = false`.
  *
  * Mouse-drag looks around (rotX/rotY). WASD or arrow keys move forward/backward/strafe.
+ *
+ * rotX and rotY are in DEGREES (three.js / voxcss convention).
+ * lookSpeed: degrees per pixel. Default: 0.15.
+ * moveSpeed: world units per frame.
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
@@ -16,6 +21,7 @@ export interface GlyphFirstPersonControlsOptions {
   drag?: boolean;
   keyboard?: boolean;
   moveSpeed?: number;
+  /** Mouselook sensitivity in degrees per pixel. Default: 0.15. */
   lookSpeed?: number;
   invert?: boolean | number;
 }
@@ -43,7 +49,8 @@ export function createGlyphFirstPersonControls(
   let drag = options.drag ?? true;
   let keyboard = options.keyboard ?? true;
   let moveSpeed = options.moveSpeed ?? 0.05;
-  let lookSpeed = options.lookSpeed ?? 0.004;
+  // lookSpeed is degrees per pixel (matches voxcss lookSensitivity default of 0.15 deg/px).
+  let lookSpeed = options.lookSpeed ?? 0.15;
   let invertFactor = resolveInvert(options.invert);
   let stopped = false;
   let activePointerId: number | null = null;
@@ -69,8 +76,9 @@ export function createGlyphFirstPersonControls(
     const dx = e.clientX - pointer.x;
     const dy = e.clientY - pointer.y;
     pointer = { x: e.clientX, y: e.clientY };
+    // lookSpeed is deg/px; rotY/rotX stored in degrees.
     camera.rotY = camera.rotY - dx * lookSpeed * invertFactor;
-    camera.rotX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotX + dy * lookSpeed * invertFactor));
+    camera.rotX = Math.max(-90, Math.min(90, camera.rotX + dy * lookSpeed * invertFactor));
     scene.rerender();
   }
 
@@ -86,7 +94,9 @@ export function createGlyphFirstPersonControls(
   function keyTick(): void {
     if (stopped || !keyboard || keys.size === 0) return;
     const t = camera.target;
-    const cosY = Math.cos(camera.rotY), sinY = Math.sin(camera.rotY);
+    // rotY is in degrees; convert to radians for trig.
+    const rotYRad = camera.rotY * Math.PI / 180;
+    const cosY = Math.cos(rotYRad), sinY = Math.sin(rotYRad);
     let moved = false;
     if (keys.has("w") || keys.has("arrowup")) {
       camera.target = [t[0] - sinY * moveSpeed, t[1] - cosY * moveSpeed, t[2]] as Vec3;

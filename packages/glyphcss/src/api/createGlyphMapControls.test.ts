@@ -139,18 +139,18 @@ describe("createGlyphMapControls", () => {
     controls.destroy();
   });
 
-  it("scale clamped between 0.05 and 10", () => {
+  it("zoom clamped between 0.1 and 500 (absolute px-per-world-unit scale)", () => {
     const controls = createGlyphMapControls(scene);
 
     for (let i = 0; i < 50; i++) {
       scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 10000, bubbles: true }));
     }
-    expect(scene.camera.zoom).toBeGreaterThanOrEqual(0.05);
+    expect(scene.camera.zoom).toBeGreaterThanOrEqual(0.1);
 
     for (let i = 0; i < 50; i++) {
       scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -10000, bubbles: true }));
     }
-    expect(scene.camera.zoom).toBeLessThanOrEqual(10);
+    expect(scene.camera.zoom).toBeLessThanOrEqual(500);
     controls.destroy();
   });
 
@@ -187,8 +187,8 @@ describe("createGlyphMapControls", () => {
     pm(scene.host, 200, 100); // dx = +100
     pu(scene.host);
 
-    // Without invert: rotY = rotY - dx * RAD_PER_PX (decreases).
-    // With invert=true (f=-1): rotY = rotY - dx * RAD_PER_PX * (-1) → increases.
+    // Without invert: rotY = rotY - dx * DEG_PER_PX (decreases).
+    // With invert=true (f=-1): rotY = rotY - dx * DEG_PER_PX * (-1) → increases.
     expect(scene.camera.rotY).toBeGreaterThan(initialRotY);
     controls.destroy();
   });
@@ -273,6 +273,32 @@ describe("createGlyphMapControls", () => {
     pm(scene.host, 300, 100);
 
     expect(scene.camera.target[0]).toBe(tx0);
+    controls.destroy();
+  });
+
+  it("shift+left-drag of 80 px changes rotY by 20 degrees (4 px per degree)", () => {
+    const controls = createGlyphMapControls(scene);
+    const initialRotY = scene.camera.rotY;
+
+    pd(scene.host, 100, 100, 0);
+    pm(scene.host, 180, 100, 1, true); // dx = +80, shiftKey → orbit
+    pu(scene.host);
+
+    // rotY = rotY - 80 * (1/4) = rotY - 20 degrees
+    expect(scene.camera.rotY).toBeCloseTo(initialRotY - 20, 5);
+    controls.destroy();
+  });
+
+  it("orbit rotX is clamped to [-90, 90] degrees", () => {
+    const controls = createGlyphMapControls(scene);
+
+    // Shift+drag down massively
+    pd(scene.host, 0, 0, 0);
+    pm(scene.host, 0, 100000, 1, true); // shiftKey → orbit, huge dy
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBeLessThanOrEqual(90);
+    expect(scene.camera.rotX).toBeGreaterThanOrEqual(-90);
     controls.destroy();
   });
 });

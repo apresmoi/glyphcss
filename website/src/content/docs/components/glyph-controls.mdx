@@ -40,7 +40,7 @@ const icosa = icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc"
 
 export function App() {
   return (
-    <GlyphCamera rotX={0.4}>
+    <GlyphCamera rotX={25}>
       <GlyphScene mode="solid">
         <GlyphOrbitControls drag wheel animate={{ axis: "y", speed: 0.5 }} />
         <GlyphMesh polygons={icosa} />
@@ -55,7 +55,7 @@ export function App() {
 
 ```vue
 <template>
-  <GlyphCamera :rot-x="0.4">
+  <GlyphCamera :rot-x="25">
     <GlyphScene mode="solid">
       <GlyphOrbitControls drag wheel :animate="{ axis: 'y', speed: 0.5 }" />
       <GlyphMesh :polygons="icosa" />
@@ -79,7 +79,7 @@ import { createGlyphCamera, createGlyphScene, createGlyphOrbitControls } from "g
 import { icosahedronPolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const camera = createGlyphCamera({ rotX: 0.4 });
+const camera = createGlyphCamera({ rotX: 25 });
 const scene = createGlyphScene(host, { camera, mode: "solid" });
 scene.add(icosahedronPolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
 
@@ -121,7 +121,7 @@ const cube = cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" });
 
 export function MapDemo() {
   return (
-    <GlyphCamera rotX={0.6}>
+    <GlyphCamera rotX={35}>
       <GlyphScene mode="solid" cols={120} rows={36}>
         <GlyphMapControls drag wheel />
         <GlyphMesh polygons={cube} />
@@ -136,7 +136,7 @@ export function MapDemo() {
 
 ```vue
 <template>
-  <GlyphCamera :rot-x="0.6">
+  <GlyphCamera :rot-x="35">
     <GlyphScene mode="solid" :cols="120" :rows="36">
       <GlyphMapControls drag wheel />
       <GlyphMesh :polygons="cube" />
@@ -160,7 +160,7 @@ import { createGlyphCamera, createGlyphScene, createGlyphMapControls } from "gly
 import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
-const camera = createGlyphCamera({ rotX: 0.6 });
+const camera = createGlyphCamera({ rotX: 35 });
 const scene = createGlyphScene(host, { camera, mode: "solid", cols: 120, rows: 36 });
 scene.add(cubePolygons({ center: [0, 0, 0], size: 1, color: "#4488ff" }));
 
@@ -186,7 +186,7 @@ to a scene with an orthographic camera. Use `<GlyphPerspectiveCamera>` explicitl
 | `drag` | `boolean` | `true` | Enable pointer-drag look |
 | `keyboard` | `boolean` | `true` | Enable WASD / arrow key movement |
 | `moveSpeed` | `number` | `0.05` | World units per keypress |
-| `lookSpeed` | `number` | `0.004` | Radians per pixel of drag |
+| `lookSpeed` | `number` | `0.15` | Degrees per pixel of drag |
 | `invert` | `boolean \| number` | `false` | Invert look direction |
 
 <Tabs syncKey="fw">

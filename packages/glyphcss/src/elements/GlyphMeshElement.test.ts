@@ -49,6 +49,11 @@ describe("GlyphMeshElement", () => {
     expect(GlyphMeshElement.observedAttributes).toContain("rotation");
   });
 
+  it("observes cast-shadow and receive-shadow attributes", () => {
+    expect(GlyphMeshElement.observedAttributes).toContain("cast-shadow");
+    expect(GlyphMeshElement.observedAttributes).toContain("receive-shadow");
+  });
+
   it("getMeshHandle() returns null before connect", () => {
     expect(mesh.getMeshHandle()).toBeNull();
   });
@@ -114,5 +119,54 @@ describe("GlyphMeshElement", () => {
     scene.appendChild(mesh);
     mesh.remove();
     expect(mesh.getMeshHandle()).toBeNull();
+  });
+
+  it("<glyph-mesh cast-shadow> sets castShadow=true on the mesh transform", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    mesh.setAttribute("cast-shadow", "");
+    scene.appendChild(mesh);
+
+    // Allow the microtask queue (async _maybeLoad via geometry path goes sync
+    // but is called via connectedCallback which may schedule).
+    await Promise.resolve();
+
+    expect(addSpy).toHaveBeenCalled();
+    const capturedTransform = addSpy.mock.calls[0]![1];
+    expect(capturedTransform).toMatchObject({ castShadow: true, receiveShadow: false });
+  });
+
+  it("<glyph-mesh receive-shadow> sets receiveShadow=true on the mesh transform", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    mesh.setAttribute("receive-shadow", "");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    expect(addSpy).toHaveBeenCalled();
+    const capturedTransform = addSpy.mock.calls[0]![1];
+    expect(capturedTransform).toMatchObject({ castShadow: false, receiveShadow: true });
+  });
+
+  it("absence of cast-shadow and receive-shadow leaves both false", async () => {
+    document.body.appendChild(camEl);
+    const sceneHandle = scene.getScene()!;
+    const addSpy = vi.spyOn(sceneHandle, "add");
+
+    mesh.setAttribute("geometry", "cube");
+    scene.appendChild(mesh);
+
+    await Promise.resolve();
+
+    expect(addSpy).toHaveBeenCalled();
+    const capturedTransform = addSpy.mock.calls[0]![1];
+    expect(capturedTransform).toMatchObject({ castShadow: false, receiveShadow: false });
   });
 });

@@ -169,14 +169,20 @@ const title = "glyphcss · ASCII Iso World Map";
       tileBoxes: Record<string, Box>;
     };
 
-    // camera.zoom thresholds → LOD. z0 = whole world (2 tiles), each higher
-    // level quarters tile coverage / doubles definition.
-    // Only z0–z3 tiles ship (the deeper levels were too heavy for git), so
-    // the LOD is capped at 3.
+    // camera.zoom thresholds → LOD. zoom is absolute px-per-world-unit
+    // (×BASE_TILE=50), same calibration as the globe example (unit object
+    // fills the viewport at zoom≈16; ×48.5 vs the old fraction-zoom values).
+    // z0 = whole world, each higher level quarters tile coverage / doubles
+    // definition. Only z0–z3 tiles ship, so the LOD is capped at 3.
     function targetLOD(zoom: number): number {
-      if (zoom < 0.4) return 0;
-      if (zoom < 0.85) return 1;
-      if (zoom < 1.7) return 2;
+      // The default zoom (78) shows the WHOLE world filling the viewport. At
+      // that view a ~150-col grid can't resolve LOD-2 detail, so LOD 1 (4
+      // tiles) looks identical to LOD 2 (16 tiles) while rasterising ~4× less
+      // terrain geometry every drag frame. LOD only escalates once you zoom IN
+      // past the whole-world view (where finer tiles actually become visible).
+      if (zoom < 19) return 0;
+      if (zoom < 120) return 1;
+      if (zoom < 240) return 2;
       return 3;
     }
 
@@ -194,13 +200,14 @@ const title = "glyphcss · ASCII Iso World Map";
       const manifestRes = await fetch("/data/flatmap/manifest.json");
       const manifest = (await manifestRes.json()) as Manifest;
 
-      // Iso camera: tilt down ~69° from horizontal (rotX≈1.2) so we look
-      // mostly from above while terrain relief still reads as vertical bumps.
+      // Iso camera: tilt 40° from horizontal so we look mostly from above
+      // while terrain relief still reads as vertical bumps.
       // rotY=0 keeps north up (worldX=lat axis → screen vertical, worldY=lon
       // axis → screen horizontal). No rotation interaction — pan/zoom only.
-      // Start zoomed in (0.8) so the map fills the viewport rather than
-      // floating in margins; tilt 40°.
-      const camera = createGlyphOrthographicCamera({ rotX: (40 * Math.PI) / 180, rotY: 0, zoom: 0.8 });
+      // zoom=39 (absolute px-per-world-unit × BASE_TILE=50) shows the default
+      // LOD-1 region filling the viewport — same calibration as the globe
+      // (unit object fills at zoom≈16; this view is intentionally zoomed in).
+      const camera = createGlyphOrthographicCamera({ rotX: 40, rotY: 0, zoom: 78 });
 
       const scene = createGlyphScene(host, {
         camera,
@@ -208,7 +215,7 @@ const title = "glyphcss · ASCII Iso World Map";
         mode: "solid",
         useColors: true,
         glyphPalette: "default",
-        directionalLight: { direction: [0.4, 0.5, 0.75], intensity: 1.15 },
+        directionalLight: { direction: [-0.4, -0.5, -0.75], intensity: 1.15 },
         ambientLight: { intensity: 0.4 },
       });
 
@@ -533,9 +540,9 @@ const title = "glyphcss · ASCII Iso World Map";
       host.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = e.deltaY * 0.001;
-        // Min 0.8 = the whole-world fill level; can't zoom out past it.
-        // Max 5 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
-        camera.zoom = Math.max(0.8, Math.min(5, camera.zoom * (1 - delta)));
+        // Min 39 = the default fill level; can't zoom out past it.
+        // Max 260 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
+        camera.zoom = Math.max(20, Math.min(400, camera.zoom * (1 - delta)));
         scene.rerender();
         updateZoomReadout();
         updateLabels();
@@ -570,7 +577,7 @@ const title = "glyphcss · ASCII Iso World Map";
         scene.fit();
         const after = mapPixelScale();
         if (before > 0 && after > 0) {
-          camera.zoom = Math.max(0.05, Math.min(20, camera.zoom * (before / after)));
+          camera.zoom = Math.max(2.6, Math.min(1300, camera.zoom * (before / after)));
         }
         scene.rerender();
         updateZoomReadout();
@@ -584,7 +591,7 @@ const title = "glyphcss · ASCII Iso World Map";
       tiltInput?.addEventListener("input", () => {
         const deg = parseFloat(tiltInput.value);
         if (tiltVal) tiltVal.textContent = String(deg);
-        camera.rotX = (deg * Math.PI) / 180;
+        camera.rotX = deg;
         scene.rerender();
         void updateActiveSet();
       });
@@ -594,7 +601,7 @@ const title = "glyphcss · ASCII Iso World Map";
       rotInput?.addEventListener("input", () => {
         const deg = parseFloat(rotInput.value);
         if (rotVal) rotVal.textContent = String(deg);
-        camera.rotY = (deg * Math.PI) / 180;
+        camera.rotY = deg;
         scene.rerender();
         void updateActiveSet();
       });
@@ -637,8 +644,10 @@ const title = "glyphcss · ASCII Iso World Map";
       let sunAz = 50, sunEl = 50, keyI = 1.15, ambI = 0.4;
       function applyLight() {
         const ar = (sunAz * Math.PI) / 180, er = (sunEl * Math.PI) / 180;
+        // `direction` = "shines TOWARD" (three.js convention): negate the
+        // subsolar unit vector so light travels FROM the sun TOWARD the scene.
         const dir: [number, number, number] = [
-          Math.cos(er) * Math.cos(ar), Math.cos(er) * Math.sin(ar), Math.sin(er),
+          -Math.cos(er) * Math.cos(ar), -Math.cos(er) * Math.sin(ar), -Math.sin(er),
         ];
         scene.setOptions({
           directionalLight: { direction: dir, intensity: keyI },
@@ -675,7 +684,9 @@ const title = "glyphcss · ASCII Iso World Map";
       // Runs after a render (hotspot left/top are then current). Caps total
       // shown by zoom so the world view stays sparse.
       function updateLabels(): void {
-        const maxShown = Math.max(10, Math.min(labelData.length, Math.round(camera.zoom * 14)));
+        // Scale label count with zoom: at zoom=39 (default view) show ~10;
+        // at zoom=260 (max) show ~40. Normalise by default zoom 39.
+        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / 39) * 14)));
         const hostRect = host.getBoundingClientRect();
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         let count = 0;

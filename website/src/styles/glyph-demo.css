@@ -242,15 +242,22 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px;
+  /* lil-gui (240px) carries its own chrome; keep padding small and size the
+     column to contain the panel without clipping (240 + 2×10 = 260). */
+  padding: 10px;
   background: #11141a;
   border-left: 1px solid rgba(255,255,255,0.06);
-  min-width: 200px;
-  max-width: 240px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 260px;
+  max-width: 260px;
   font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
   font-size: 13px;
   overflow-y: auto;
-  max-height: 400px;
+  max-height: 460px;
+}
+.glyph-demo__controls .lil-gui {
+  width: 100%;
 }
 .glyph-demo__controls label {
   display: flex;

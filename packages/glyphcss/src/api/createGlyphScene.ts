@@ -33,8 +33,8 @@ import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform } from "./types";
-export type { GlyphMeshTransform } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions } from "./types";
+export type { GlyphMeshTransform, GlyphShadowOptions } from "./types";
 
 export interface GlyphSceneOptions {
   /** Render mode: "wireframe" | "solid". Default "solid". */
@@ -79,6 +79,8 @@ export interface GlyphSceneOptions {
    * (default 80×24) is the predictable choice for tests and SSR.
    */
   autoSize?: boolean;
+  /** Shadow-map configuration. `undefined` (default) = no shadows. */
+  shadow?: GlyphShadowOptions;
 }
 
 export interface GlyphHotspotOptions {
@@ -137,8 +139,17 @@ interface MeshEntry {
   transform: GlyphMeshTransform;
 }
 
+type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow"> & { shadow: GlyphShadowOptions | undefined };
+
 let nextMeshId = 1;
 
+// Convention aligned to voxcss/three.js: rotation is XYZ Euler in DEGREES,
+// world frame. Matches voxcss core/src/math/rotation.ts `rotateVec3` (angles
+// in degrees, composition M = Rx·Ry·Rz, Rz acts first on the point).
+// glyphcss delta vs voxcss: output is baked world-space vertices (no CSS
+// wrapper), so the CSS-frame swap/negate from voxcss PolyMesh.tsx
+// `buildTransform` (rotateY(-rx)…) is NOT applied here — that is a
+// CSS-frame artifact only.
 function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Polygon[] {
   const { position, scale, rotation } = transform;
   if (!position && !scale && !rotation) return polygons;
@@ -149,7 +160,12 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
     if (typeof scale === "number") { sx = sy = sz = scale; }
     else { [sx, sy, sz] = scale; }
   }
-  const [rx, ry, rz] = rotation ?? [0, 0, 0];
+  // Degrees → radians. Rotation is [rxDeg, ryDeg, rzDeg] in world frame.
+  const DEG2RAD = Math.PI / 180;
+  const [rxDeg, ryDeg, rzDeg] = rotation ?? [0, 0, 0];
+  const rx = rxDeg * DEG2RAD;
+  const ry = ryDeg * DEG2RAD;
+  const rz = rzDeg * DEG2RAD;
 
   // Compose rotation matrices: R = Rx(rx) * Ry(ry) * Rz(rz)
   const cosX = Math.cos(rx), sinX = Math.sin(rx);
@@ -187,19 +203,20 @@ export function createGlyphScene(
 ): GlyphSceneHandle {
   injectGlyphBaseStyles(host.ownerDocument ?? undefined);
 
-  const options: Required<GlyphSceneOptions> = {
+  const options: InternalOptions = {
     mode: opts.mode ?? "solid",
     glyphPalette: opts.glyphPalette ?? "default",
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
     cellAspect: opts.cellAspect ?? 2.0,
-    directionalLight: opts.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
+    directionalLight: opts.directionalLight ?? { direction: [-0.5, -0.7, -0.5], intensity: 1 },
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
     autoSize: opts.autoSize ?? false,
+    shadow: opts.shadow,
   };
 
   // Build DOM
@@ -229,9 +246,17 @@ export function createGlyphScene(
   function doRender(): void {
     // Gather all polygons after transforms.
     const allPolygons: Polygon[] = [];
+    const castShadowFlags: boolean[] = [];
+    const receiveShadowFlags: boolean[] = [];
     for (const entry of meshes.values()) {
       const transformed = applyTransform(entry.polygons, entry.transform);
-      for (const p of transformed) allPolygons.push(p);
+      const cast = entry.transform.castShadow ?? false;
+      const receive = entry.transform.receiveShadow ?? false;
+      for (const p of transformed) {
+        allPolygons.push(p);
+        castShadowFlags.push(cast);
+        receiveShadowFlags.push(receive);
+      }
     }
 
     const ctx = buildRasterizeContext({
@@ -245,6 +270,9 @@ export function createGlyphScene(
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
+      shadow: options.shadow,
+      castShadowFlags,
+      receiveShadowFlags,
     });
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -375,6 +403,7 @@ export function createGlyphScene(
     if (partial.camera !== undefined) options.camera = partial.camera;
     if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
     if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
+    if ("shadow" in partial) options.shadow = partial.shadow;
     if (partial.autoSize !== undefined) {
       options.autoSize = partial.autoSize;
       if (options.autoSize && !resizeObserver && typeof ResizeObserver !== "undefined") {

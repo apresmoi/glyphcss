@@ -29,7 +29,11 @@ import type { Polygon, Vec3 } from "@glyphcss/core";
 const FIXTURE_DIR = resolve(__dirname, "fixtures");
 
 const GRID = { cols: 40, rows: 20, cellAspect: 2.0 };
-const DIR_LIGHT = { direction: [0.5, 0.7, 0.5] as Vec3, intensity: 1 };
+// Direction the light shines TOWARD (three.js / voxcss convention, mirrors
+// computeShapeLighting). Negated from the old [0.5, 0.7, 0.5] "light travels
+// from" direction so the fixtures encode identical visual output after the
+// Lambert sign fix.
+const DIR_LIGHT = { direction: [-0.5, -0.7, -0.5] as Vec3, intensity: 1 };
 const AMB_LIGHT = { intensity: 0.4 };
 
 function loadFixture(name: string): string {
@@ -75,9 +79,14 @@ function makeTetrahedronPolygons(): Polygon[] {
   ];
 }
 
-describe("parity: glyphcss rasterize vs asciss fixtures", () => {
-  it("unit cube (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphPerspectiveCamera({ rotX: 0.4, rotY: 0.5, zoom: 0.35, distance: 100 });
+// Camera parameters are now in DEGREES (voxcss / three.js convention).
+// Fixtures were generated with these exact parameters after the camera
+// convention alignment. Regenerate with the vitest update-snapshots workflow
+// described at the top of this file if the rasterizer changes intentionally.
+describe("parity: glyphcss rasterize vs fixtures", () => {
+  it("unit cube (solid, no colors) matches fixture byte-for-byte", () => {
+    // rotX=65°/rotY=45° = voxcss default view (isometric-ish); zoom=6 fills the grid
+    const camera = createGlyphPerspectiveCamera({ rotX: 65, rotY: 45, zoom: 6, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -93,8 +102,9 @@ describe("parity: glyphcss rasterize vs asciss fixtures", () => {
     expect(output).toBe(fixture);
   });
 
-  it("single triangle (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphPerspectiveCamera({ rotX: 0.2, rotY: 0.3, zoom: 0.5, distance: 100 });
+  it("single triangle (solid, no colors) matches fixture byte-for-byte", () => {
+    // rotX=30°/rotY=20° — oblique view that shows the triangle clearly; zoom=8 fills the grid
+    const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 8, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -110,8 +120,9 @@ describe("parity: glyphcss rasterize vs asciss fixtures", () => {
     expect(output).toBe(fixture);
   });
 
-  it("tetrahedron (solid, no colors) matches asciss output byte-for-byte", () => {
-    const camera = createGlyphPerspectiveCamera({ rotX: 0.3, rotY: 0.8, zoom: 0.4, distance: 100 });
+  it("tetrahedron (solid, no colors) matches fixture byte-for-byte", () => {
+    // rotX=20°/rotY=46° — slightly elevated view with a twist; zoom=7 fills the grid
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 46, zoom: 7, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,

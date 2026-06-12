@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 import { GlyphOrthographicCameraElement } from "./GlyphOrthographicCameraElement";
@@ -49,6 +49,11 @@ describe("GlyphSceneElement", () => {
     expect(GlyphSceneElement.observedAttributes).toContain("cell-aspect");
     expect(GlyphSceneElement.observedAttributes).toContain("directional-intensity");
     expect(GlyphSceneElement.observedAttributes).toContain("ambient-intensity");
+    expect(GlyphSceneElement.observedAttributes).toContain("shadow");
+    expect(GlyphSceneElement.observedAttributes).toContain("shadow-color");
+    expect(GlyphSceneElement.observedAttributes).toContain("shadow-opacity");
+    expect(GlyphSceneElement.observedAttributes).toContain("shadow-lift");
+    expect(GlyphSceneElement.observedAttributes).toContain("shadow-max-extend");
   });
 
   it("getScene() returns null before connect", () => {
@@ -159,5 +164,63 @@ describe("GlyphSceneElement", () => {
     expect(() => { document.body.appendChild(aliasCam); }).not.toThrow();
     expect(aliasHost.getScene()).not.toBeNull();
     aliasCam.remove();
+  });
+
+  it("shadow attribute enables shadows with default options", () => {
+    host.setAttribute("shadow", "");
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    document.body.appendChild(camEl);
+    const sceneHandle = host.getScene()!;
+    const opts = sceneHandle.getOptions();
+    expect(opts.shadow).toMatchObject({
+      color: "#000000",
+      opacity: 0.25,
+      lift: 0.05,
+      maxExtend: 2000,
+    });
+  });
+
+  it("shadow-opacity attribute overrides the default opacity", () => {
+    host.setAttribute("shadow", "");
+    host.setAttribute("shadow-opacity", "0.5");
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    document.body.appendChild(camEl);
+    const opts = host.getScene()!.getOptions();
+    expect(opts.shadow).toMatchObject({ opacity: 0.5 });
+  });
+
+  it("shadow-color, shadow-lift, shadow-max-extend attributes are forwarded", () => {
+    host.setAttribute("shadow", "");
+    host.setAttribute("shadow-color", "#ff0000");
+    host.setAttribute("shadow-lift", "0.1");
+    host.setAttribute("shadow-max-extend", "500");
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    document.body.appendChild(camEl);
+    const opts = host.getScene()!.getOptions();
+    expect(opts.shadow).toMatchObject({ color: "#ff0000", lift: 0.1, maxExtend: 500 });
+  });
+
+  it("absence of shadow attribute means no shadow options", () => {
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    document.body.appendChild(camEl);
+    const opts = host.getScene()!.getOptions();
+    expect(opts.shadow).toBeUndefined();
+  });
+
+  it("shadow attribute change after connect updates scene options", async () => {
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    document.body.appendChild(camEl);
+    expect(host.getScene()!.getOptions().shadow).toBeUndefined();
+
+    const setOptionsSpy = vi.spyOn(host.getScene()!, "setOptions");
+    host.setAttribute("shadow", "");
+    expect(setOptionsSpy).toHaveBeenCalled();
+    const lastCall = setOptionsSpy.mock.calls[setOptionsSpy.mock.calls.length - 1]![0];
+    expect(lastCall.shadow).toMatchObject({ opacity: 0.25 });
   });
 });

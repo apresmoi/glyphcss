@@ -16,6 +16,7 @@ import type {
   GlyphSceneOptions,
   GlyphDirectionalLight,
   GlyphAmbientLight,
+  GlyphShadowOptions,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
 import { useGlyphCameraContext } from "../camera/context";
@@ -42,6 +43,12 @@ export interface GlyphSceneProps {
   creaseAngle?: number;
   /** Observe host element and adapt cols/rows to fill it. Default false. */
   autoSize?: boolean;
+  /**
+   * Shadow-map configuration. `undefined` (default) means no shadows.
+   * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
+   * components to enable shadow casting.
+   */
+  shadow?: GlyphShadowOptions;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -59,6 +66,7 @@ function GlyphSceneInner({
   smoothShading,
   creaseAngle,
   autoSize,
+  shadow,
   className,
   style,
   children,
@@ -80,6 +88,7 @@ function GlyphSceneInner({
     smoothShading,
     creaseAngle,
     autoSize,
+    shadow,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -117,10 +126,13 @@ function GlyphSceneInner({
     if (smoothShading !== undefined) partial.smoothShading = smoothShading;
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
     if (autoSize !== undefined) partial.autoSize = autoSize;
+    // Always forward shadow (including undefined) so setOptions can clear it
+    // when the prop is removed. Uses the "in" check in vanilla setOptions.
+    partial.shadow = shadow;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize]);
+  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, shadow]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 
