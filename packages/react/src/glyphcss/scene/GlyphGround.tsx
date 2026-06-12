@@ -17,7 +17,7 @@ export interface GlyphGroundProps {
   color?: string;
   /** World-space position. Default [0, -0.5, 0]. */
   position?: Vec3;
-  /** World-space rotation in radians (Euler XYZ). */
+  /** World-space rotation in degrees (Euler XYZ). */
   rotation?: Vec3;
   /** String id forwarded to the underlying mesh handle. */
   id?: string;
