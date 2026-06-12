@@ -442,6 +442,17 @@ html {
   color: var(--gc-orange) !important;
 }
 
+/* Pull the code panel flush against the selector strip — Starlight gives the
+   tab panel a 16px top margin, which reads as a detached box. The landing's
+   tab shell has no gap and looks better, so drop the margin and merge the
+   selector strip's bottom edge into the code frame's top border (one unit). */
+starlight-tabs [role="tabpanel"] {
+  margin-top: 0 !important;
+}
+.tablist-wrapper {
+  border-bottom: 0 !important;
+}
+
 /* ── Right TOC sidebar ────────────────────────────────────────────────────── */
 .right-sidebar {
   font-family: var(--gc-mono) !important;

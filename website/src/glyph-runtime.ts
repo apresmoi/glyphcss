@@ -650,7 +650,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // a control change. Mesh / polygons-URL demos keep their loaded geometry so a
   // zoom/tilt tweak doesn't replace the mesh with a primitive.
   const usesBuiltInGeometry = !willLoadMesh && !willLoadPrimitive && !willLoadPolygons;
-  let geometry: GeometryState = (willLoadMesh || willLoadPrimitive)
+  // Mesh / primitive / polygons-URL demos start empty so nothing paints until
+  // the real geometry loads — otherwise the built-in default primitive flashes
+  // as a solid blob (the "square") while landing-earth.json is in flight.
+  let geometry: GeometryState = (willLoadMesh || willLoadPrimitive || willLoadPolygons)
     ? { vertices: [[0, 0, 0]], edges: [], polygons: [], animations: [], sample: () => [] }
     : buildDemoGeometry(tunables.geometry);
 
