@@ -6,7 +6,7 @@ ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace 
 
 Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files. Supports wireframe, solid, and voxel render modes with swappable glyph palettes.
 
-> Forked from [polycss](https://github.com/LayoutitStudio/polycss) — the mesh math, parsers (OBJ / glTF / GLB / VOX), scene composition tree, camera math, and input controls carried over intact. The paint backend is rewritten: instead of emitting one CSS-transformed DOM leaf per polygon, the rasteriser walks all polygons, fills a `cols × rows` character grid, and writes a single string to `<pre>.textContent` per frame.
+> Forked from [polycss](https://github.com/LayoutitStudio/polycss) — the mesh math, parsers (OBJ / glTF / GLB / VOX), scene composition tree, camera math, and input controls carried over intact. The paint backend is rewritten: instead of emitting one CSS-transformed DOM leaf per polygon, the rasteriser walks all polygons, fills a `cols × rows` character grid, and writes a single string to `<pre>.textContent` per render.
 
 ## Installation
 
@@ -293,16 +293,18 @@ Supported formats:
 
 ## Performance
 
-glyphcss renders through a single `<pre>` element. The performance envelope is shaped by two things: the number of polygons walked per frame and the size of the character grid written to the DOM.
+glyphcss renders through a single `<pre>` element. The performance envelope is shaped by two things: the number of polygons walked per render and the size of the character grid written to the DOM.
 
-On every camera or scene state change:
+Rendering is change-driven, not a fixed loop: a render is scheduled only when the camera or scene state actually changes, and multiple changes in the same tick are coalesced into a single pass. A static, un-interacted scene performs zero redraws. (Continuous animation — auto-rotate, inertia — does write every frame, but each frame is a genuinely different image.)
+
+On every render pass:
 
 1. All mounted meshes are walked in scene order.
 2. Polygon vertices are transformed through the camera matrix to 2D projected positions.
 3. A `cols × rows` character grid is filled: polygons are depth-tested, each cell picks a glyph from the active palette.
 4. All cells are joined and written to `<pre>.textContent` (or `.innerHTML` for color mode) **exactly once**.
 
-There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays update via a single `el.style.left/top` assignment per hotspot per frame — not a DOM rebuild.
+There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays update via a single `el.style.left/top` assignment per hotspot per render — not a DOM rebuild.
 
 `autoSize` uses a `ResizeObserver` to re-fit the grid whenever the host element resizes, keeping the character density constant regardless of viewport size.
 
