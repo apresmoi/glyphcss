@@ -100,90 +100,137 @@ function rasterizeSolid(
   const shadowColorHex = shadowOpts?.color ?? "#000000";
   const shadowColorRgb: [number, number, number] = shadowMap ? hexToRgb(shadowColorHex) : [0, 0, 0];
 
+  // Optional phase profiler: set globalThis.__glyphPerfDetail = {} to record
+  // loop (shade+scanfill) vs string-build time. Zero cost when unset. Removable.
+  const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[] } }).__glyphPerfDetail;
+  const __tLoop = __detail ? performance.now() : 0;
+
+  // Reused scratch for per-polygon projected vertices, so a fan re-uses each
+  // projection instead of re-projecting v0/v2 once per triangle (a quad fan
+  // would otherwise project 6 corners for 4 unique verts).
+  const projScratch: Vec3[] = [];
+  // Cross-frame shading cache (camera-invariant per-triangle intensities + lit
+  // color). `triT` is a positional triangle index — incremented for every fan
+  // triangle regardless of culling — so cache slots stay aligned frame to frame.
+  const shadeCache = scene.shadeCache ?? null;
+  let triT = -1;
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
+    // Project each unique vertex once.
+    for (let k = 0; k < verts.length; k++) {
+      projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect);
+    }
     // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
     // For N=3 this produces exactly one triangle.
     for (let fanIdx = 1; fanIdx < verts.length - 1; fanIdx++) {
+      triT++;
       const vi0 = 0, vi1 = fanIdx, vi2 = fanIdx + 1;
       const v0 = verts[vi0]! as Vec3;
       const v1 = verts[vi1]! as Vec3;
       const v2 = verts[vi2]! as Vec3;
 
-      const pa = camera.project(v0, cols, rows, cellAspect);
-      const pb = camera.project(v1, cols, rows, cellAspect);
-      const pc = camera.project(v2, cols, rows, cellAspect);
+      const pa = projScratch[vi0]!;
+      const pb = projScratch[vi1]!;
+      const pc = projScratch[vi2]!;
       // NaN-cull: any vertex behind the near plane → skip triangle.
       if (pa[0] !== pa[0] || pb[0] !== pb[0] || pc[0] !== pc[0]) continue;
 
-      // Face normal in world space (for flat shading or as a fallback when
-      // vertex normals aren't computed).
-      const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
-      const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
-      const fnx = uy * vvz - uz * vvy;
-      const fny = uz * vvx - ux * vvz;
-      const fnz = ux * vvy - uy * vvx;
-      const fnLen = Math.hypot(fnx, fny, fnz) || 1;
-      const fnxN = fnx / fnLen, fnyN = fny / fnLen, fnzN = fnz / fnLen;
+      // Hoisted backface cull. `scanFillTriangle` already drops `area2 > 0`
+      // (back faces) — but only after we've paid for the face normal, Lambert
+      // shading, lit-color lookup and shadow context below. Doing the same test
+      // here on the already-projected verts skips all of that for back faces
+      // (≈half a closed mesh). Bit-identical output: the same triangles cull.
+      const area2 = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
+      if (area2 > 0) continue;
 
-      // Pick per-vertex normals. Smooth-shaded → look up from precomputed
-      // table. Flat-shaded → all three vertices use the face normal.
-      let nAx: number, nAy: number, nAz: number;
-      let nBx: number, nBy: number, nBz: number;
-      let nCx: number, nCy: number, nCz: number;
-      if (vertexNormals) {
-        const polyNormals = vertexNormals[polyIdx]!;
-        const nA = polyNormals[vi0]!, nB = polyNormals[vi1]!, nC = polyNormals[vi2]!;
-        nAx = nA[0]; nAy = nA[1]; nAz = nA[2];
-        nBx = nB[0]; nBy = nB[1]; nBz = nB[2];
-        nCx = nC[0]; nCy = nC[1]; nCz = nC[2];
-      } else {
-        nAx = nBx = nCx = fnxN;
-        nAy = nBy = nCy = fnyN;
-        nAz = nBz = nCz = fnzN;
-      }
-
-      // Per-vertex Lambert intensity (ambient + clamped key).
-      // Convention (mirrors three.js / computeShapeLighting): `direction` is
-      // the direction the light shines TOWARD. A surface is lit when its
-      // outward normal points BACK toward the source, i.e. opposes `dir`.
-      // lambert = max(0, -dot(n, dir))  — note the negation.
-      const lambertA = Math.max(0, -(nAx * lx + nAy * ly + nAz * lz));
-      const lambertB = Math.max(0, -(nBx * lx + nBy * ly + nBz * lz));
-      const lambertC = Math.max(0, -(nCx * lx + nCy * ly + nCz * lz));
-      const iA = Math.min(1, ambIntensity + lambertA * keyIntensity);
-      const iB = Math.min(1, ambIntensity + lambertB * keyIntensity);
-      const iC = Math.min(1, ambIntensity + lambertC * keyIntensity);
-
-      // Triangle color: tint poly.color by the AVERAGE of the three vertex
-      // intensities. Keeping a single color per triangle preserves run-
-      // coalescing in `solidBufToString` — a per-cell color would force one
-      // <span> per cell and hurt innerHTML parse time. The intensity gradient
-      // already lives in the glyph selection per cell.
+      // Per-triangle shading — face normal → Lambert intensities → lit color —
+      // is camera-invariant, so reuse it across frames via the optional
+      // shadeCache (lazily filled by positional triangle index). On a camera-
+      // only change (orbit/zoom drag) every populated entry is a hit; the scene
+      // clears the cache when geometry, light, or shading options change.
+      let iA: number, iB: number, iC: number;
       let litColor: string | null = null;
-      if (useColors) {
-        const avgI = (iA + iB + iC) / 3;
-        const avgKey = Math.max(0, avgI - ambIntensity);
-        const baseColor = poly.color ?? "#ffffff";
-        // Cache key: base color + intensity quantized to 0..255. Two triangles
-        // with the same base and intensity-to-8-bits produce identical output.
-        const q = (avgKey * 255) | 0;
-        const cacheKey = `${baseColor}:${q}`;
-        let cached = litCache.get(cacheKey);
-        if (cached === undefined) {
-          const triRgb = hexToRgb(baseColor); // memoized internally
-          const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
-          const tintG = ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255;
-          const tintB = ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255;
-          const litR = Math.min(255, triRgb[0] * tintR);
-          const litG = Math.min(255, triRgb[1] * tintG);
-          const litB = Math.min(255, triRgb[2] * tintB);
-          cached = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
-          litCache.set(cacheKey, cached);
+      if (shadeCache !== null && shadeCache.iA[triT] !== undefined) {
+        iA = shadeCache.iA[triT]!;
+        iB = shadeCache.iB[triT]!;
+        iC = shadeCache.iC[triT]!;
+        litColor = shadeCache.lit[triT]!;
+      } else {
+        // Face normal in world space (for flat shading or as a fallback when
+        // vertex normals aren't computed).
+        const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
+        const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
+        const fnx = uy * vvz - uz * vvy;
+        const fny = uz * vvx - ux * vvz;
+        const fnz = ux * vvy - uy * vvx;
+        const fnLen = Math.hypot(fnx, fny, fnz) || 1;
+        const fnxN = fnx / fnLen, fnyN = fny / fnLen, fnzN = fnz / fnLen;
+
+        // Pick per-vertex normals. Smooth-shaded → look up from precomputed
+        // table. Flat-shaded → all three vertices use the face normal.
+        let nAx: number, nAy: number, nAz: number;
+        let nBx: number, nBy: number, nBz: number;
+        let nCx: number, nCy: number, nCz: number;
+        if (vertexNormals) {
+          const polyNormals = vertexNormals[polyIdx]!;
+          const nA = polyNormals[vi0]!, nB = polyNormals[vi1]!, nC = polyNormals[vi2]!;
+          nAx = nA[0]; nAy = nA[1]; nAz = nA[2];
+          nBx = nB[0]; nBy = nB[1]; nBz = nB[2];
+          nCx = nC[0]; nCy = nC[1]; nCz = nC[2];
+        } else {
+          nAx = nBx = nCx = fnxN;
+          nAy = nBy = nCy = fnyN;
+          nAz = nBz = nCz = fnzN;
         }
-        litColor = cached;
+
+        // Per-vertex Lambert intensity (ambient + clamped key).
+        // Convention (mirrors three.js / computeShapeLighting): `direction` is
+        // the direction the light shines TOWARD. A surface is lit when its
+        // outward normal points BACK toward the source, i.e. opposes `dir`.
+        // lambert = max(0, -dot(n, dir))  — note the negation.
+        const lambertA = Math.max(0, -(nAx * lx + nAy * ly + nAz * lz));
+        const lambertB = Math.max(0, -(nBx * lx + nBy * ly + nBz * lz));
+        const lambertC = Math.max(0, -(nCx * lx + nCy * ly + nCz * lz));
+        iA = Math.min(1, ambIntensity + lambertA * keyIntensity);
+        iB = Math.min(1, ambIntensity + lambertB * keyIntensity);
+        iC = Math.min(1, ambIntensity + lambertC * keyIntensity);
+
+        // Triangle color: tint poly.color by the AVERAGE of the three vertex
+        // intensities. Keeping a single color per triangle preserves run-
+        // coalescing in `solidBufToString` — a per-cell color would force one
+        // <span> per cell and hurt innerHTML parse time. The intensity gradient
+        // already lives in the glyph selection per cell.
+        if (useColors) {
+          const avgI = (iA + iB + iC) / 3;
+          const avgKey = Math.max(0, avgI - ambIntensity);
+          const baseColor = poly.color ?? "#ffffff";
+          // Cache key: base color + intensity quantized to 0..255. Two triangles
+          // with the same base and intensity-to-8-bits produce identical output.
+          const q = (avgKey * 255) | 0;
+          const cacheKey = `${baseColor}:${q}`;
+          let cached = litCache.get(cacheKey);
+          if (cached === undefined) {
+            const triRgb = hexToRgb(baseColor); // memoized internally
+            const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
+            const tintG = ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255;
+            const tintB = ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255;
+            const litR = Math.min(255, triRgb[0] * tintR);
+            const litG = Math.min(255, triRgb[1] * tintG);
+            const litB = Math.min(255, triRgb[2] * tintB);
+            cached = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
+            litCache.set(cacheKey, cached);
+          }
+          litColor = cached;
+        }
+
+        if (shadeCache !== null) {
+          shadeCache.iA[triT] = iA;
+          shadeCache.iB[triT] = iB;
+          shadeCache.iC[triT] = iC;
+          shadeCache.lit[triT] = litColor;
+        }
       }
 
       // Build shadow context for this triangle if it belongs to a receiver mesh
@@ -223,7 +270,11 @@ function rasterizeSolid(
     }
   }
 
-  return solidBufToString(glyphBuf, colorBuf, cols, rows);
+  if (__detail) { (__detail.loop ??= []).push(performance.now() - __tLoop); }
+  const __tStr = __detail ? performance.now() : 0;
+  const __out = solidBufToString(glyphBuf, colorBuf, cols, rows);
+  if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
+  return __out;
 }
 
 /**

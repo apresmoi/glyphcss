@@ -1,0 +1,9 @@
+# Companion material for sting.obj.
+# The OBJ's own mtllib points at a file that doesn't ship, so the runtime's
+# sibling-<basename>.mtl resolver looks for this file. Material name matches
+# the OBJ's `usemtl Sting`; map_Kd links the diffuse texture that ships beside it.
+newmtl Sting
+Ka 1.000000 1.000000 1.000000
+Kd 0.800000 0.800000 0.800000
+illum 1
+map_Kd sting-diffuse.png

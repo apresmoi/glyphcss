@@ -45,6 +45,21 @@ export interface RasterizeContextOptions {
   receiveShadowFlags?: boolean[];
 }
 
+/**
+ * Cross-frame per-triangle shading cache. The Lambert intensities and lit
+ * color depend only on world-space normals + light, never the camera — so
+ * during a camera-only change (orbit/zoom drag) they are identical frame to
+ * frame. Parallel arrays indexed by positional triangle order; lazily filled
+ * as triangles become visible. The scene clears it when geometry, light, or
+ * shading options change. Absent/null → always recompute (current behavior).
+ */
+export interface ShadeCache {
+  iA: number[];
+  iB: number[];
+  iC: number[];
+  lit: (string | null)[];
+}
+
 export interface RasterizeContext {
   camera: GlyphCamera;
   grid: GridSize;
@@ -61,6 +76,8 @@ export interface RasterizeContext {
   shadow: GlyphShadowOptions | undefined;
   castShadowFlags: boolean[];
   receiveShadowFlags: boolean[];
+  /** Optional cross-frame shading cache (see {@link ShadeCache}). */
+  shadeCache?: ShadeCache | null;
 }
 
 // Direction the light shines TOWARD (three.js / computeShapeLighting convention).

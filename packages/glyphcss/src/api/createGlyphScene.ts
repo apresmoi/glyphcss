@@ -30,6 +30,7 @@ import type {
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
+import type { ShadeCache } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
@@ -234,6 +235,19 @@ export function createGlyphScene(
   const hotspots: Array<{ hotspot: Hotspot; el: HTMLElement; onClick?: () => void }> = [];
   let pendingRender = false;
 
+  // Cross-frame shading cache: per-triangle Lambert intensities + lit color are
+  // camera-invariant, so they survive a camera-only re-render (orbit/zoom drag)
+  // and only need clearing when geometry, transforms, or lighting/shading
+  // options change. Shadow changes do NOT invalidate it — shadows are blended
+  // per cell at scan-fill, not baked into the cached lit color.
+  const shadeCache: ShadeCache = { iA: [], iB: [], iC: [], lit: [] };
+  function invalidateShading(): void {
+    shadeCache.iA.length = 0;
+    shadeCache.iB.length = 0;
+    shadeCache.iC.length = 0;
+    shadeCache.lit.length = 0;
+  }
+
   function scheduleRender(): void {
     if (pendingRender) return;
     pendingRender = true;
@@ -274,6 +288,7 @@ export function createGlyphScene(
       castShadowFlags,
       receiveShadowFlags,
     });
+    ctx.shadeCache = shadeCache;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
     // record per-render rasterize vs DOM-write timings into it. Zero cost when
@@ -339,6 +354,7 @@ export function createGlyphScene(
   function add(polygons: Polygon[], transform: GlyphMeshTransform = {}): GlyphMeshHandle {
     const id = nextMeshId++;
     meshes.set(id, { id, polygons, transform });
+    invalidateShading();
     scheduleRender();
 
     return {
@@ -347,10 +363,11 @@ export function createGlyphScene(
       get polygons() { return polygons; },
       setTransform(next: GlyphMeshTransform): void {
         const entry = meshes.get(id);
-        if (entry) { entry.transform = next; scheduleRender(); }
+        if (entry) { entry.transform = next; invalidateShading(); scheduleRender(); }
       },
       dispose(): void {
         meshes.delete(id);
+        invalidateShading();
         scheduleRender();
       },
     };
@@ -414,6 +431,17 @@ export function createGlyphScene(
         resizeObserver.disconnect();
         resizeObserver = null;
       }
+    }
+    // Invalidate the shading cache only when an option that changes per-triangle
+    // intensities or lit color is touched. Grid size, camera, autoSize and
+    // shadow leave the cached shading valid (shadows blend per cell at fill).
+    if (
+      partial.mode !== undefined || partial.useColors !== undefined ||
+      partial.directionalLight !== undefined || partial.ambientLight !== undefined ||
+      partial.smoothShading !== undefined || partial.creaseAngle !== undefined ||
+      partial.glyphPalette !== undefined
+    ) {
+      invalidateShading();
     }
     scheduleRender();
   }
