@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>glyphcss render bench</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05070c; color: #cbd5e1; overflow: hidden; }
+    #host {
+      position: absolute; inset: 0;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 10px;
+      /* line-height is set from the ?lineHeight= param at runtime */
+    }
+    #hud {
+      position: absolute; top: 8px; left: 8px; z-index: 10;
+      font: 11px/1.5 ui-monospace, monospace; color: #7dd3fc;
+      background: rgba(0,0,0,.5); padding: 6px 9px; border: 1px solid #1e293b; white-space: pre;
+      pointer-events: none;
+    }
+    /* The scene's <pre> inherits the host font; color spans override per-cell. */
+    #host .glyph-output { color: #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div id="host"></div>
+  <div id="hud">loading…</div>
+  <script type="module" src="./bench.bundle.js"></script>
+</body>
+</html>
