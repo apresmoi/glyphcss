@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/react",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "React components for the glyphcss ASCII polygon mesh rendering engine",
   "type": "module",
   "main": "./dist/index.cjs",
