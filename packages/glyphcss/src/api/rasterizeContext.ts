@@ -38,11 +38,45 @@ export interface RasterizeContextOptions {
    * shading; `180` smooths every shared vertex. Default `60`.
    */
   creaseAngle?: number;
+  /**
+   * Render both faces of every polygon (no backface culling). Default `false`
+   * (cull back faces — correct + faster for closed meshes). Set `true` for
+   * single-sided surfaces whose winding isn't guaranteed to face the camera —
+   * e.g. level geometry imported from a BSP — matching how a CSS/DOM renderer
+   * (polycss) shows both sides. Without it, "back-wound" faces vanish.
+   */
+  doubleSided?: boolean;
+  /**
+   * Supersampled anti-aliasing factor (solid mode). `1` (default) = off. `2`/`3`
+   * rasterize at N× the grid resolution and box-average down, removing the
+   * motion crawl where sub-cell-sized surfaces flip their per-cell winner
+   * frame-to-frame. Cost scales ~N². Use `2` for a big stability win at ~4× cost.
+   */
+  supersample?: number;
+  /**
+   * Temporal anti-aliasing: exponential blend of this frame with the previous
+   * one, weight in [0,1) (history weight). `0` (default) = off. Smooths the
+   * frame-to-frame crawl of edges that move faster than spatial supersampling
+   * can cover, at the cost of motion ghosting. Needs `temporalHistory` retained
+   * across renders (the scene does this).
+   */
+  temporalBlend?: number;
   shadow?: GlyphShadowOptions;
   /** Per-polygon cast flag (parallel to `polygons` array). True = this poly's mesh has castShadow. */
   castShadowFlags?: boolean[];
   /** Per-polygon receive flag (parallel to `polygons` array). True = this poly's mesh has receiveShadow. */
   receiveShadowFlags?: boolean[];
+  /** Per-polygon relative depth bias (parallel to `polygons`). `pixelDepth *= 1 + bias`. */
+  depthBiases?: number[];
+  /**
+   * Global depth-test deadband (0 = exact, the default). A polygon replaces the
+   * current cell only when nearer by more than this relative fraction, so
+   * near-coplanar surfaces (overlapping brushes, decals, a translucent plane
+   * over its backing face) keep a STABLE winner instead of z-fighting per-cell
+   * as the camera moves. A CSS/DOM renderer gets this for free from stacking
+   * order; a projection-painted depth buffer needs the deadband. Typical 0.002–0.01.
+   */
+  depthEpsilon?: number;
 }
 
 /**
@@ -60,6 +94,25 @@ export interface ShadeCache {
   lit: (string | null)[];
 }
 
+/**
+ * Retained previous-frame buffer for temporal anti-aliasing. Per output cell:
+ * blended ramp index + RGB. The scene keeps one and reuses it across renders;
+ * `rasterize` resets it when the grid size changes.
+ */
+export interface TemporalHistory {
+  idx: Float32Array;
+  r: Float32Array;
+  g: Float32Array;
+  b: Float32Array;
+  cols: number;
+  rows: number;
+  /** Snapshot of the camera that produced the stored frame (for reprojection). */
+  cam: {
+    rotX: number; rotY: number; target: [number, number, number];
+    zoom: number; perspective: number; distance: number; stretch: number;
+  } | null;
+}
+
 export interface RasterizeContext {
   camera: GlyphCamera;
   grid: GridSize;
@@ -73,11 +126,19 @@ export interface RasterizeContext {
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
+  doubleSided: boolean;
+  supersample: number;
+  temporalBlend: number;
   shadow: GlyphShadowOptions | undefined;
   castShadowFlags: boolean[];
   receiveShadowFlags: boolean[];
+  depthBiases?: number[];
+  /** Global depth-test deadband — see {@link RasterizeContextOptions.depthEpsilon}. */
+  depthEpsilon?: number;
   /** Optional cross-frame shading cache (see {@link ShadeCache}). */
   shadeCache?: ShadeCache | null;
+  /** Optional retained previous-frame buffer for temporal AA. */
+  temporalHistory?: TemporalHistory | null;
 }
 
 // Direction the light shines TOWARD (three.js / computeShapeLighting convention).
@@ -127,8 +188,13 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
+    doubleSided: opts.doubleSided ?? false,
+    supersample: opts.supersample ?? 1,
+    temporalBlend: opts.temporalBlend ?? 0,
     shadow: opts.shadow,
     castShadowFlags: opts.castShadowFlags ?? [],
     receiveShadowFlags: opts.receiveShadowFlags ?? [],
+    ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
+    ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
   };
 }

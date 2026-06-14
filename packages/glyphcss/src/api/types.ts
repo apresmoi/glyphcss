@@ -50,4 +50,13 @@ export interface GlyphMeshTransform {
   castShadow?: boolean;
   /** This mesh receives (displays) shadows from castShadow meshes. Default false. */
   receiveShadow?: boolean;
+  /**
+   * Relative depth bias (0 = off). Nudges this mesh toward (positive) or away
+   * from (negative) the camera in the depth test via `pixelDepth *= 1 + depthBias`
+   * — resolving z-fighting against coplanar/coincident geometry. A CSS/DOM
+   * renderer decides coincident surfaces by stacking order for free; a
+   * projection-painted depth buffer fights, so a tiny bias (e.g. 0.002) lets a
+   * dynamic surface (a door/platform flush into a wall/floor) win cleanly.
+   */
+  depthBias?: number;
 }

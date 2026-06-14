@@ -1,4 +1,5 @@
-import type { RasterizeContext } from "../api/rasterizeContext";
+import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
+import { createGlyphPerspectiveCamera } from "../api/createGlyphCamera";
 import type { Polygon, Vec3 } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
 
@@ -23,7 +24,8 @@ export function rasterize(scene: RasterizeContext): string {
   const { cols, rows, cellAspect } = grid;
 
   if (mode === "solid") {
-    return rasterizeSolid(scene, cols, rows, cellAspect);
+    const ss = scene.supersample && scene.supersample > 1 ? Math.floor(scene.supersample) : 1;
+    return rasterizeSolid(scene, cols, rows, cellAspect, ss);
   }
 
   // wireframe (and voxel falls through to wireframe for now)
@@ -47,11 +49,44 @@ export function rasterize(scene: RasterizeContext): string {
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
 function rasterizeSolid(
   scene: RasterizeContext,
-  cols: number,
-  rows: number,
+  outCols: number,
+  outRows: number,
   cellAspect: number,
+  supersample: number,
 ): string {
-  const { camera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, castShadowFlags, receiveShadowFlags } = scene;
+  // Supersampled anti-aliasing: rasterize the geometry at `supersample`× the
+  // output grid resolution, then box-average every S×S block of subcells down
+  // to one output cell (glyph density + colour). This removes the motion crawl
+  // where a sub-cell-sized surface's per-cell winner flips frame-to-frame — the
+  // averaged cell changes smoothly instead of snapping to whatever won.
+  const cols = outCols * supersample;
+  const rows = outRows * supersample;
+  const { camera: rawCamera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, doubleSided, castShadowFlags, receiveShadowFlags } = scene;
+  const depthBiases = scene.depthBiases;
+  const depthEpsilon = scene.depthEpsilon ?? 0;
+  // Rendering into an S× larger grid would shrink the image to 1/S of the grid,
+  // because the projection's screen offset is in absolute cells (independent of
+  // grid size). Wrap `project` to scale the offset by S around the grid centre
+  // so the framing is identical at higher resolution — leaving depth and the
+  // near-clip (which depend on the camera's zoom) completely untouched.
+  // (Assumes the camera's projection centre is the grid centre, i.e. the default
+  // center=[0.5,0.5]; cssQuake uses the default.)
+  const camera = supersample > 1
+    ? {
+        zoom: rawCamera.zoom,
+        eyeDepth: (v: Vec3) => rawCamera.eyeDepth(v),
+        project: (v: Vec3, c: number, r: number, ca: number): [number, number, number, number?] => {
+          const p = rawCamera.project(v, c, r, ca);
+          // Scale only the screen OFFSET (cols 0, rows 1); the linear depth (2)
+          // and the perspective-correct zbuf (3) are resolution-independent and
+          // must pass through untouched. Dropping p[3] here previously forced the
+          // scan-fill onto the non-perspective cssZ depth under supersampling,
+          // silently disabling perspective-correct ordering (z-fight resolution)
+          // whenever SS was on.
+          return [c * 0.5 + (p[0] - c * 0.5) * supersample, r * 0.5 + (p[1] - r * 0.5) * supersample, p[2], p[3]];
+        },
+      }
+    : rawCamera;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -65,6 +100,10 @@ function rasterizeSolid(
   // viewer in our camera convention, so newer triangles win when their
   // depth is GREATER than the existing buffer entry.
   const depthBuf = new Float64Array(cols * rows).fill(-Infinity);
+  // World-position buffer for reprojection TAA — only allocated when temporal
+  // blending is on. NaN marks "no surface here" (empty cell).
+  const reproject = scene.temporalBlend > 0 && !!scene.temporalHistory;
+  const worldPosBuf: Float32Array | null = reproject ? new Float32Array(cols * rows * 3).fill(NaN) : null;
 
   // Normalize the light direction once.
   const ld = directionalLight.direction;
@@ -108,12 +147,35 @@ function rasterizeSolid(
   // Reused scratch for per-polygon projected vertices, so a fan re-uses each
   // projection instead of re-projecting v0/v2 once per triangle (a quad fan
   // would otherwise project 6 corners for 4 unique verts).
-  const projScratch: Vec3[] = [];
+  const projScratch: [number, number, number, number?][] = [];
   // Cross-frame shading cache (camera-invariant per-triangle intensities + lit
   // color). `triT` is a positional triangle index — incremented for every fan
   // triangle regardless of culling — so cache slots stay aligned frame to frame.
   const shadeCache = scene.shadeCache ?? null;
   let triT = -1;
+
+  // Build a per-triangle shadow context from three world-space vertices. Used
+  // for both whole triangles and near-clipped sub-triangles (whose vertices are
+  // interpolated and so need fresh light-space UVs). Returns null when shadows
+  // are off or the triangle's mesh doesn't receive them.
+  const makeShadowCtx = (wa: Vec3, wb: Vec3, wc: Vec3, receive: boolean): ScanFillShadowCtx | null => {
+    if (shadowMap === null || !receive) return null;
+    const sm = shadowMap;
+    const uvA = toLightUV(wa, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+    const uvB = toLightUV(wb, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+    const uvC = toLightUV(wc, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
+    return {
+      map: sm,
+      luA: uvA[0], lvA: uvA[1], ldA: uvA[2],
+      luB: uvB[0], lvB: uvB[1], ldB: uvB[2],
+      luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
+      lift: shadowLift,
+      opacity: shadowOpacity,
+      shadowColorRgb,
+      shadowColorHex,
+      litCache,
+    };
+  };
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
@@ -134,16 +196,23 @@ function rasterizeSolid(
       const pa = projScratch[vi0]!;
       const pb = projScratch[vi1]!;
       const pc = projScratch[vi2]!;
-      // NaN-cull: any vertex behind the near plane → skip triangle.
-      if (pa[0] !== pa[0] || pb[0] !== pb[0] || pc[0] !== pc[0]) continue;
+      // A vertex behind the near plane projects to NaN. Count how many.
+      // 3 → wholly behind, skip. 0 → wholly visible, fast path. 1–2 → the
+      // triangle straddles the near plane and must be clipped (otherwise large
+      // surfaces like floors vanish the moment one corner passes the eye).
+      const nanCount =
+        (pa[0] !== pa[0] ? 1 : 0) + (pb[0] !== pb[0] ? 1 : 0) + (pc[0] !== pc[0] ? 1 : 0);
+      if (nanCount === 3) continue;
 
-      // Hoisted backface cull. `scanFillTriangle` already drops `area2 > 0`
-      // (back faces) — but only after we've paid for the face normal, Lambert
-      // shading, lit-color lookup and shadow context below. Doing the same test
-      // here on the already-projected verts skips all of that for back faces
-      // (≈half a closed mesh). Bit-identical output: the same triangles cull.
-      const area2 = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
-      if (area2 > 0) continue;
+      // Hoisted backface cull (fast path only — straddling triangles can't be
+      // culled on NaN-bearing projected verts; their sub-triangles are culled
+      // after clipping). `scanFillTriangle` also drops `area2 > 0`, but doing it
+      // here skips the face normal, Lambert shading and shadow context below for
+      // back faces (≈half a closed mesh).
+      if (nanCount === 0 && !doubleSided) {
+        const area2 = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]);
+        if (area2 > 0) continue;
+      }
 
       // Per-triangle shading — face normal → Lambert intensities → lit color —
       // is camera-invariant, so reuse it across frames via the optional
@@ -190,9 +259,18 @@ function rasterizeSolid(
         // the direction the light shines TOWARD. A surface is lit when its
         // outward normal points BACK toward the source, i.e. opposes `dir`.
         // lambert = max(0, -dot(n, dir))  — note the negation.
-        const lambertA = Math.max(0, -(nAx * lx + nAy * ly + nAz * lz));
-        const lambertB = Math.max(0, -(nBx * lx + nBy * ly + nBz * lz));
-        const lambertC = Math.max(0, -(nCx * lx + nCy * ly + nCz * lz));
+        //
+        // In double-sided mode use |dot| (two-sided lighting): a normal and its
+        // negation light identically, so both faces of a surface — and coplanar
+        // faces that z-fight at grazing angles — shade to the same colour, which
+        // makes the otherwise-flickering depth tie invisible. It stays camera-
+        // invariant, so the cross-frame shade cache is still valid.
+        const dotA = nAx * lx + nAy * ly + nAz * lz;
+        const dotB = nBx * lx + nBy * ly + nBz * lz;
+        const dotC = nCx * lx + nCy * ly + nCz * lz;
+        const lambertA = doubleSided ? Math.abs(dotA) : Math.max(0, -dotA);
+        const lambertB = doubleSided ? Math.abs(dotB) : Math.max(0, -dotB);
+        const lambertC = doubleSided ? Math.abs(dotC) : Math.max(0, -dotC);
         iA = Math.min(1, ambIntensity + lambertA * keyIntensity);
         iB = Math.min(1, ambIntensity + lambertB * keyIntensity);
         iC = Math.min(1, ambIntensity + lambertC * keyIntensity);
@@ -233,48 +311,245 @@ function rasterizeSolid(
         }
       }
 
-      // Build shadow context for this triangle if it belongs to a receiver mesh
-      // and the shadow map was successfully built.
       const receiveShadow = receiveShadowFlags[polyIdx] ?? false;
-      let sh: ScanFillShadowCtx | null = null;
-      if (shadowMap !== null && receiveShadow) {
-        const sm = shadowMap;
-        const uvA = toLightUV(v0, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
-        const uvB = toLightUV(v1, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
-        const uvC = toLightUV(v2, sm.right[0], sm.right[1], sm.right[2], sm.up[0], sm.up[1], sm.up[2], sm.dir[0], sm.dir[1], sm.dir[2], sm.uMin, sm.uMax, sm.vMin, sm.vMax);
-        sh = {
-          map: sm,
-          luA: uvA[0], lvA: uvA[1], ldA: uvA[2],
-          luB: uvB[0], lvB: uvB[1], ldB: uvB[2],
-          luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
-          lift: shadowLift,
-          opacity: shadowOpacity,
-          shadowColorRgb,
-          shadowColorHex,
-          litCache,
-        };
-      }
+      // Per-mesh depth bias (z-fight resolution): scale the screen-linear depth so
+      // a biased mesh wins coincident/coplanar cells. Larger zbuf = nearer.
+      const biasScale = 1 + (depthBiases?.[polyIdx] ?? 0);
 
-      // Scan-fill the projected triangle. Depth and intensity are both
-      // interpolated per cell via barycentric coordinates so adjacent
-      // triangles on a curved surface never disagree at their shared edge.
-      scanFillTriangle(
-        pa[0], pa[1], pa[2], iA,
-        pb[0], pb[1], pb[2], iB,
-        pc[0], pc[1], pc[2], iC,
-        ramp, rampMax, litColor,
-        glyphBuf, colorBuf, depthBuf,
-        cols, rows,
-        sh,
-      );
+      if (nanCount === 0) {
+        // Fully visible: scan-fill the projected triangle directly. Depth and
+        // intensity are interpolated per cell via barycentric coordinates so
+        // adjacent triangles on a curved surface never disagree at their edge.
+        // Use the screen-space-linear z-buffer depth (4th element) so overlapping
+        // triangles are ordered perspective-correctly; ortho omits it → fall back
+        // to the linear depth, which is already screen-linear there.
+        scanFillTriangle(
+          pa[0], pa[1], (pa[3] ?? pa[2]) * biasScale, iA,
+          pb[0], pb[1], (pb[3] ?? pb[2]) * biasScale, iB,
+          pc[0], pc[1], (pc[3] ?? pc[2]) * biasScale, iC,
+          ramp, rampMax, litColor,
+          glyphBuf, colorBuf, depthBuf,
+          cols, rows,
+          makeShadowCtx(v0, v1, v2, receiveShadow),
+          doubleSided,
+          v0, v1, v2, worldPosBuf,
+          depthEpsilon,
+        );
+      } else {
+        // Straddles the near plane: clip the triangle to the visible half-space
+        // (`eyeDepth > 0`) and scan-fill the resulting sub-triangles. The face
+        // normal, colour and shading are unchanged by clipping; only positions
+        // and per-vertex intensities are interpolated at the crossings.
+        const cw: Vec3[] = [];
+        const ci: number[] = [];
+        const tri: Vec3[] = [v0, v1, v2];
+        const triI = [iA, iB, iC];
+        const d0 = camera.eyeDepth(v0);
+        const d1 = camera.eyeDepth(v1);
+        const d2 = camera.eyeDepth(v2);
+        const triD = [d0, d1, d2];
+        for (let e = 0; e < 3; e++) {
+          const n = (e + 1) % 3;
+          const de = triD[e]!;
+          const dn = triD[n]!;
+          if (de > 0) { cw.push(tri[e]!); ci.push(triI[e]!); }
+          if ((de > 0) !== (dn > 0)) {
+            const t = de / (de - dn);
+            const ve = tri[e]!, vn = tri[n]!;
+            cw.push([
+              ve[0] + t * (vn[0] - ve[0]),
+              ve[1] + t * (vn[1] - ve[1]),
+              ve[2] + t * (vn[2] - ve[2]),
+            ] as Vec3);
+            ci.push(triI[e]! + t * (triI[n]! - triI[e]!));
+          }
+        }
+        if (cw.length >= 3) {
+          const cp = cw.map((w) => camera.project(w, cols, rows, cellAspect));
+          for (let f = 1; f < cw.length - 1; f++) {
+            const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
+            const area2c = (qb[0] - qa[0]) * (qc[1] - qa[1]) - (qb[1] - qa[1]) * (qc[0] - qa[0]);
+            if (!doubleSided && area2c > 0) continue;
+            scanFillTriangle(
+              qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, ci[0]!,
+              qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, ci[f]!,
+              qc[0], qc[1], (qc[3] ?? qc[2]) * biasScale, ci[f + 1]!,
+              ramp, rampMax, litColor,
+              glyphBuf, colorBuf, depthBuf,
+              cols, rows,
+              makeShadowCtx(cw[0]!, cw[f]!, cw[f + 1]!, receiveShadow),
+              doubleSided,
+              cw[0]!, cw[f]!, cw[f + 1]!, worldPosBuf,
+              depthEpsilon,
+            );
+          }
+        }
+      }
     }
   }
 
   if (__detail) { (__detail.loop ??= []).push(performance.now() - __tLoop); }
   const __tStr = __detail ? performance.now() : 0;
-  const __out = solidBufToString(glyphBuf, colorBuf, cols, rows);
+  // Final output buffers at the OUTPUT resolution (downsampled if supersampling).
+  let finalGlyph = glyphBuf;
+  let finalColor = colorBuf;
+  let finalWorldPos: Float32Array | null = worldPosBuf;
+  if (supersample > 1) {
+    const ds = downsampleSolid(glyphBuf, colorBuf, depthBuf, worldPosBuf, outCols, outRows, supersample, ramp);
+    finalGlyph = ds.glyphBuf;
+    finalColor = ds.colorBuf;
+    finalWorldPos = ds.worldPos;
+  }
+  if (reproject) {
+    applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
+  }
+  const out = solidBufToString(finalGlyph, finalColor, outCols, outRows);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
-  return __out;
+  return out;
+}
+
+/**
+ * Reprojection temporal AA. The plain blend ghosts during motion because it
+ * mixes cells at fixed screen positions while the world scrolled underneath.
+ * Here we blend each cell with where its WORLD point was in the previous frame:
+ * project the cell's world position with the previous camera, sample the history
+ * there, and exponentially blend. A static surface keeps a coherent colour as it
+ * scrolls across the grid → the per-frame colour crawl disappears, without
+ * smearing (the history follows the surface, not the screen).
+ */
+function applyReprojectionTAA(
+  glyphBuf: string[],
+  colorBuf: (string | null)[] | null,
+  worldPos: Float32Array,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  ramp: string[],
+  blend: number,
+  H: TemporalHistory,
+  curCam: { rotX: number; rotY: number; target: Vec3; zoom: number; perspective: number; distance: number; stretch: number },
+): void {
+  const n = cols * rows;
+  const rampMax = ramp.length - 1;
+  const rampIndex = new Map<string, number>();
+  for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
+
+  // (Re)allocate history on size change; no previous frame to reproject from yet.
+  let prevCam = H.cam;
+  if (H.cols !== cols || H.rows !== rows || H.idx.length !== n) {
+    H.cols = cols; H.rows = rows;
+    H.idx = new Float32Array(n); H.r = new Float32Array(n); H.g = new Float32Array(n); H.b = new Float32Array(n);
+    prevCam = null;
+  }
+
+  // Build a projector for the previous frame's camera to reproject world points.
+  let reproj: ((w: Vec3) => [number, number, number, number?]) | null = null;
+  if (prevCam) {
+    const pc = createGlyphPerspectiveCamera({
+      rotX: prevCam.rotX, rotY: prevCam.rotY, distance: prevCam.distance,
+      perspective: prevCam.perspective, zoom: prevCam.zoom, stretch: prevCam.stretch,
+    });
+    pc.target = prevCam.target;
+    reproj = (w: Vec3) => pc.project(w, cols, rows, cellAspect);
+  }
+
+  // Read current cell value, blend with the reprojected history, write back +
+  // store as new history. We write into temp arrays first so reprojection always
+  // samples the *previous* frame, never this frame's already-blended cells.
+  const nIdx = new Float32Array(n), nR = new Float32Array(n), nG = new Float32Array(n), nB = new Float32Array(n);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const i = row * cols + col;
+      const idxNow = rampIndex.get(glyphBuf[i]!) ?? 0;
+      let rNow = 0, gNow = 0, bNow = 0;
+      const c = colorBuf ? colorBuf[i] : null;
+      if (c) { const rgb = hexToRgb(c); rNow = rgb[0]; gNow = rgb[1]; bNow = rgb[2]; }
+
+      let b = 0; // effective history weight (0 when no valid reprojection)
+      let hIdx = 0, hR = 0, hG = 0, hB = 0;
+      const wx = worldPos[i * 3]!;
+      if (reproj && wx === wx) { // wx===wx → not NaN (cell has a surface)
+        const p = reproj([wx, worldPos[i * 3 + 1]!, worldPos[i * 3 + 2]!]);
+        const pcCol = Math.round(p[0]), pcRow = Math.round(p[1]);
+        if (p[0] === p[0] && pcCol >= 0 && pcCol < cols && pcRow >= 0 && pcRow < rows) {
+          const j = pcRow * cols + pcCol;
+          hIdx = H.idx[j]!; hR = H.r[j]!; hG = H.g[j]!; hB = H.b[j]!;
+          b = blend;
+        }
+      }
+      const cur = 1 - b;
+      const bi = cur * idxNow + b * hIdx;
+      const br = cur * rNow + b * hR;
+      const bg = cur * gNow + b * hG;
+      const bb = cur * bNow + b * hB;
+      nIdx[i] = bi; nR[i] = br; nG[i] = bg; nB[i] = bb;
+      let gi = Math.round(bi);
+      if (gi < 0) gi = 0; else if (gi > rampMax) gi = rampMax;
+      glyphBuf[i] = ramp[gi]!;
+      if (colorBuf) colorBuf[i] = gi === 0 ? null : `#${toHex2(br)}${toHex2(bg)}${toHex2(bb)}`;
+    }
+  }
+  H.idx = nIdx; H.r = nR; H.g = nG; H.b = nB;
+  H.cam = {
+    rotX: curCam.rotX, rotY: curCam.rotY,
+    target: [curCam.target[0]!, curCam.target[1]!, curCam.target[2]!],
+    zoom: curCam.zoom, perspective: curCam.perspective, distance: curCam.distance, stretch: curCam.stretch,
+  };
+}
+
+/**
+ * Box-downsample the S×-oversampled glyph + colour buffers to the output grid.
+ * For each output cell: average the ramp index over all S² subcells (empty
+ * subcells count as 0 → partial coverage dims the cell, anti-aliasing edges),
+ * and average the RGB of the covered subcells. The result is a single glyph +
+ * colour per output cell whose value moves continuously as geometry shifts,
+ * instead of snapping to a single sub-cell winner.
+ */
+function downsampleSolid(
+  glyphBuf: string[],
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  worldPosIn: Float32Array | null,
+  outCols: number,
+  outRows: number,
+  S: number,
+  ramp: string[],
+): { glyphBuf: string[]; colorBuf: (string | null)[] | null; worldPos: Float32Array | null } {
+  const rampIndex = new Map<string, number>();
+  for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
+  const rampMax = ramp.length - 1;
+  const inCols = outCols * S;
+  const og: string[] = new Array(outCols * outRows).fill(" ");
+  const oc: (string | null)[] | null = colorBuf ? new Array(outCols * outRows).fill(null) : null;
+  const ow: Float32Array | null = worldPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const inv = 1 / (S * S);
+  for (let oy = 0; oy < outRows; oy++) {
+    for (let ox = 0; ox < outCols; ox++) {
+      let idxSum = 0, cov = 0, r = 0, g = 0, b = 0, wx = 0, wy = 0, wz = 0;
+      for (let sy = 0; sy < S; sy++) {
+        const base = (oy * S + sy) * inCols + ox * S;
+        for (let sx = 0; sx < S; sx++) {
+          const si = base + sx;
+          // Coverage comes from the depth buffer, not the glyph: `ramp[0]` is a
+          // space, so a covered-but-dim subcell looks identical to an empty one
+          // in `glyphBuf`. Using depth keeps dim surfaces (and their colour).
+          if (depthBuf[si] === -Infinity) continue;
+          idxSum += rampIndex.get(glyphBuf[si]!) ?? 0;
+          cov++;
+          if (oc) { const c = colorBuf![si]; if (c) { const rgb = hexToRgb(c); r += rgb[0]; g += rgb[1]; b += rgb[2]; } }
+          if (ow) { wx += worldPosIn![si * 3]!; wy += worldPosIn![si * 3 + 1]!; wz += worldPosIn![si * 3 + 2]!; }
+        }
+      }
+      const oi = oy * outCols + ox;
+      if (cov === 0) continue; // stays space
+      let gi = Math.round(idxSum * inv); // coverage-weighted intensity (empty subcells = 0)
+      if (gi < 0) gi = 0; else if (gi > rampMax) gi = rampMax;
+      og[oi] = ramp[gi]!;
+      if (oc) oc[oi] = `#${toHex2(r / cov)}${toHex2(g / cov)}${toHex2(b / cov)}`;
+      if (ow) { ow[oi * 3] = wx / cov; ow[oi * 3 + 1] = wy / cov; ow[oi * 3 + 2] = wz / cov; }
+    }
+  }
+  return { glyphBuf: og, colorBuf: oc, worldPos: ow };
 }
 
 /**
@@ -484,6 +759,15 @@ function scanFillTriangle(
   cols: number,
   rows: number,
   sh: ScanFillShadowCtx | null,
+  doubleSided: boolean,
+  // World-space triangle verts + output buffer for per-cell world position
+  // (used by reprojection TAA). `worldPosBuf` is null when not needed.
+  wv0: Vec3, wv1: Vec3, wv2: Vec3,
+  worldPosBuf: Float32Array | null,
+  // Relative depth-test deadband (0 = exact). A new triangle replaces the
+  // current cell only when nearer by more than this fraction; near-coplanar
+  // surfaces keep a stable winner instead of z-fighting frame to frame.
+  depthEpsilon: number,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -494,7 +778,7 @@ function scanFillTriangle(
   // triangles produce `area2 < 0`. Drop back faces. The asciss-derived
   // rotateVec3 also swaps the X/Y input axes, which contributes to the
   // orientation flip.
-  if (area2 > 0) return;
+  if (!doubleSided && area2 > 0) return;
   const invArea2 = 1 / area2;
   const ccw = area2 > 0;
 
@@ -524,8 +808,24 @@ function scanFillTriangle(
       // Per-pixel depth via barycentric interpolation.
       const pixelDepth = (wA * az + wB * bz + wC * cz) * invArea2;
       const idx = row * cols + col;
-      if (pixelDepth > depthBuf[idx]!) {
+      const prevDepth = depthBuf[idx]!;
+      // Depth-test deadband, biased toward DRAW ORDER to mirror a CSS/DOM
+      // renderer. A later triangle wins even when slightly BEHIND the current
+      // one — within a relative epsilon — so near-coplanar surfaces (overlapping
+      // brushes, decals, a translucent plane over its backing face) resolve by
+      // paint order (last drawn on top), exactly as polycss does via DOM
+      // stacking, instead of z-fighting per-cell as the camera moves. Only the
+      // perspective zbuf (>0) gets the deadband; the empty cell (−Infinity) and
+      // ortho (≤0) fall through to the plain `>` test.
+      if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
+        if (worldPosBuf !== null) {
+          // Per-cell world position (barycentric) for reprojection TAA.
+          const o = idx * 3;
+          worldPosBuf[o] = (wA * wv0[0]! + wB * wv1[0]! + wC * wv2[0]!) * invArea2;
+          worldPosBuf[o + 1] = (wA * wv0[1]! + wB * wv1[1]! + wC * wv2[1]!) * invArea2;
+          worldPosBuf[o + 2] = (wA * wv0[2]! + wB * wv1[2]! + wC * wv2[2]!) * invArea2;
+        }
         // Per-pixel intensity → per-pixel glyph. Two things happen here:
         //   1. Smooth shading: adjacent triangles' shared edge has the same
         //      interpolated intensity on both sides, so the glyph transition
