@@ -9,6 +9,8 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
+  PolyTextureWrap,
+  PolyTextureWrapMode,
   GlyphDirectionalLight,
   GlyphAmbientLight,
   MeshResolution,
