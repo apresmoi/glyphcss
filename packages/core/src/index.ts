@@ -147,8 +147,11 @@ export type { GltfParseOptions } from "./parser/parseGltf";
 export {
   bakeSolidTextureSamples,
   bakeSolidTextureSampledPolygons,
+  buildTextureSamplers,
+  sampleTexel,
+  polygonTexture,
 } from "./parser/solidTextureSamples";
-export type { SolidTextureSampleOptions } from "./parser/solidTextureSamples";
+export type { SolidTextureSampleOptions, TextureSampler, SampledColor } from "./parser/solidTextureSamples";
 export { parseVox } from "./parser/parseVox";
 export type { VoxParseOptions } from "./parser/parseVox";
 export { loadMesh } from "./parser/loadMesh";

@@ -41,14 +41,14 @@ interface BrowserTextureSamplingEnv {
   createCanvas(): CanvasLike;
 }
 
-interface SampledColor {
+export interface SampledColor {
   r: number;
   g: number;
   b: number;
   a: number;
 }
 
-interface TextureSampler {
+export interface TextureSampler {
   width: number;
   height: number;
   data: ArrayLike<number>;
@@ -428,4 +428,37 @@ export async function bakeSolidTextureSamples(
         }
       : result.animation,
   };
+}
+
+/**
+ * Decode every distinct texture referenced by `polygons` into a pixel sampler,
+ * for renderers that sample textures at draw time (per-cell UV mapping) instead
+ * of baking each face to one flat color. Keyed by texture URL. Empty map when no
+ * browser image/canvas env is available (SSR / tests).
+ */
+export async function buildTextureSamplers(
+  polygons: Polygon[],
+  options: { maxTexturePixels?: number } = {},
+): Promise<Map<string, TextureSampler>> {
+  const out = new Map<string, TextureSampler>();
+  const env = getTextureSamplingEnv();
+  if (!env) return out;
+  const max = options.maxTexturePixels ?? DEFAULT_MAX_TEXTURE_PIXELS;
+  const urls = new Set<string>();
+  for (const p of polygons) { const t = textureForPolygon(p); if (t) urls.add(t); }
+  await Promise.all([...urls].map(async (url) => {
+    const sampler = await createSampler(url, env, max);
+    if (sampler) out.set(url, sampler);
+  }));
+  return out;
+}
+
+/** Sample a decoded texture at UV (0..1, OBJ convention with v=0 at bottom). */
+export function sampleTexel(sampler: TextureSampler, u: number, v: number): SampledColor | null {
+  return sampleUv(sampler, [u, v]);
+}
+
+/** The texture URL a polygon renders with (`material.texture` takes precedence). */
+export function polygonTexture(polygon: Polygon): string | undefined {
+  return textureForPolygon(polygon);
 }

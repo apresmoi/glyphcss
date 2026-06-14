@@ -33,6 +33,8 @@ export interface TextureTriangle {
   uvs: [Vec2, Vec2, Vec2];
   /** Hex color string (`#rrggbb`) propagated from source model material. */
   color?: string;
+  /** Texture URL carried for renderers that sample textures per cell (UV-mapped). */
+  texture?: string;
 }
 
 /**
