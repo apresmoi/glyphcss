@@ -30,7 +30,7 @@ import type {
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
-import type { ShadeCache } from "./rasterizeContext";
+import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
@@ -71,6 +71,32 @@ export interface GlyphSceneOptions {
    * Default `60`.
    */
   creaseAngle?: number;
+  /**
+   * Render both faces of every polygon (no backface culling). Default `false`.
+   * Set `true` for single-sided surfaces whose winding isn't guaranteed to face
+   * the camera — e.g. BSP level geometry — so "back-wound" faces don't vanish,
+   * matching how a CSS/DOM renderer shows both sides.
+   */
+  doubleSided?: boolean;
+  /**
+   * Supersampled anti-aliasing (solid mode). `1` (default) = off; `2`/`3`
+   * rasterize at N× resolution and average down, removing the motion crawl of
+   * sub-cell-sized surfaces. Cost ~N².
+   */
+  supersample?: number;
+  /**
+   * Global depth-test deadband (0 = exact, default). A polygon replaces a cell
+   * only when nearer by more than this relative fraction, so near-coplanar
+   * surfaces keep a stable winner instead of z-fighting per-cell as the camera
+   * moves (the tearing a CSS/DOM renderer avoids via stacking order). 0.002–0.01.
+   */
+  depthEpsilon?: number;
+  /**
+   * Temporal anti-aliasing — exponential blend with the previous frame, weight
+   * in [0,1). `0` (default) = off. Smooths fast frame-to-frame edge crawl that
+   * supersampling can't cover, at the cost of motion ghosting.
+   */
+  temporalBlend?: number;
   /**
    * Auto-size the character grid to fill the host element. When `true`, the
    * scene measures one monospace character's pixel size from the live `<pre>`
@@ -216,6 +242,10 @@ export function createGlyphScene(
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,
+    doubleSided: opts.doubleSided ?? false,
+    supersample: opts.supersample ?? 1,
+    depthEpsilon: opts.depthEpsilon ?? 0,
+    temporalBlend: opts.temporalBlend ?? 0,
     autoSize: opts.autoSize ?? false,
     shadow: opts.shadow,
   };
@@ -241,6 +271,10 @@ export function createGlyphScene(
   // options change. Shadow changes do NOT invalidate it — shadows are blended
   // per cell at scan-fill, not baked into the cached lit color.
   const shadeCache: ShadeCache = { iA: [], iB: [], iC: [], lit: [] };
+  // Retained previous-frame buffer for temporal AA; `rasterize` resizes/seeds it.
+  const temporalHistory: TemporalHistory = {
+    idx: new Float32Array(0), r: new Float32Array(0), g: new Float32Array(0), b: new Float32Array(0), cols: 0, rows: 0, cam: null,
+  };
   function invalidateShading(): void {
     shadeCache.iA.length = 0;
     shadeCache.iB.length = 0;
@@ -262,14 +296,19 @@ export function createGlyphScene(
     const allPolygons: Polygon[] = [];
     const castShadowFlags: boolean[] = [];
     const receiveShadowFlags: boolean[] = [];
+    const depthBiases: number[] = [];
+    let anyDepthBias = false;
     for (const entry of meshes.values()) {
       const transformed = applyTransform(entry.polygons, entry.transform);
       const cast = entry.transform.castShadow ?? false;
       const receive = entry.transform.receiveShadow ?? false;
+      const bias = entry.transform.depthBias ?? 0;
+      if (bias !== 0) anyDepthBias = true;
       for (const p of transformed) {
         allPolygons.push(p);
         castShadowFlags.push(cast);
         receiveShadowFlags.push(receive);
+        depthBiases.push(bias);
       }
     }
 
@@ -284,11 +323,17 @@ export function createGlyphScene(
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
+      doubleSided: options.doubleSided,
+      supersample: options.supersample,
+      depthEpsilon: options.depthEpsilon,
+      temporalBlend: options.temporalBlend,
       shadow: options.shadow,
       castShadowFlags,
       receiveShadowFlags,
+      depthBiases: anyDepthBias ? depthBiases : undefined,
     });
     ctx.shadeCache = shadeCache;
+    ctx.temporalHistory = temporalHistory;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
     // record per-render rasterize vs DOM-write timings into it. Zero cost when
