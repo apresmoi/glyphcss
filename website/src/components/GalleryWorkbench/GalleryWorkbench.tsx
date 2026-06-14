@@ -236,15 +236,15 @@ const DEFAULT_SCENE: SceneOptionsState = {
   fpvCrouchHeight: 0.1,
   fpvLookSensitivity: 0.15,
   fpvInvertY: false,
-  // Shadow — off by default; cast+receive both true so enabling immediately
-  // shows self-shadowing. Floor ON by default so a ground plane appears.
-  shadowEnabled: false,
+  // Shadow — ON by default with cast+receive so every model self-shadows out
+  // of the box. Floor OFF: self-shadowing only, no ground plane.
+  shadowEnabled: true,
   shadowOpacity: 0.25,
   shadowLift: 0.05,
   shadowColor: "#000000",
   shadowCast: true,
   shadowReceive: true,
-  shadowFloor: true,
+  shadowFloor: false,
 };
 
 const EMPTY_METRICS: GlyphMetrics = {
