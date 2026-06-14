@@ -1,6 +1,8 @@
-import type { GalleryPresetFile, ObjGalleryPresetFile } from "../types";
+import type { GalleryPresetFile, ObjGalleryPresetFile, StlGalleryPresetFile } from "../types";
 import {
   KHRONOS_FOX_ATTRIBUTION,
+  KHRONOS_AVOCADO_ATTRIBUTION,
+  GOOGLE_POLY_ASTRONAUT_ATTRIBUTION,
   MONOGON_ANCIENT_ENVIRONMENT_ATTRIBUTION,
   MINI_MIKES_METRO_MINIS_ATTRIBUTION,
   MONOGON_DESERT_TOWN_ATTRIBUTION,
@@ -11,13 +13,216 @@ import {
   MONOGON_VOXEL_MECHAS_ATTRIBUTION,
   MONOGON_VOXEL_SPACESHIPS_ATTRIBUTION,
   SONA_SAR_VOXEL_ANIMALS_ITEMS_ATTRIBUTION,
+  MAGICAVOXEL_TEST_MODELS_ATTRIBUTION,
+  OPENGAMEART_VOXEL_BUILDINGS_ATTRIBUTION,
+  OPENHV_VOXELS_ATTRIBUTION,
+  FLOOOH_VOXEL_DATA_ATTRIBUTION,
   QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION,
+  nasa3dAttribution,
   openGameArtAttribution,
+  polyPizzaAttribution,
   quaterniusAttribution,
+  smithsonianOpenAccessAttribution,
+  thingiverseAttribution,
 } from "./attributions";
+
+const NASA_GLB_PRESET_FILES: GalleryPresetFile[] = [
+  {
+    file: "nasa/opportunity.glb",
+    label: "Mars Rover Opportunity",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Ames Research Center",
+      "https://science.nasa.gov/3d-resources/mars-exploration-rover-opportunity-mer-b/",
+      3754,
+    ),
+  },
+  {
+    file: "nasa/cubesat-1u.glb",
+    label: "CubeSat 1U",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Christopher R. Meaney",
+      "https://science.nasa.gov/3d-resources/cubesat-1-ru-generic/",
+      6063,
+    ),
+  },
+  {
+    file: "nasa/tdrs-a.glb",
+    label: "Tracking and Data Relay Satellite",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Ames Research Center",
+      "https://science.nasa.gov/3d-resources/tracking-and-data-relay-satellites-tdrs-a/",
+      2936,
+    ),
+  },
+  {
+    file: "nasa/hubble-space-telescope.glb",
+    label: "Hubble Space Telescope",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "DigitalSpace Corporation",
+      "https://science.nasa.gov/3d-resources/hubble-space-telescope-a/",
+      7670,
+    ),
+  },
+  {
+    file: "nasa/international-space-station.glb",
+    label: "International Space Station",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Ames Research Center",
+      "https://science.nasa.gov/3d-resources/international-space-station-iss-a/",
+      6628,
+    ),
+  },
+  {
+    file: "nasa/space-shuttle.glb",
+    label: "Space Shuttle",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Johnson Space Center",
+      "https://science.nasa.gov/3d-resources/space-shuttle-b/",
+      2473,
+    ),
+  },
+  {
+    file: "nasa/kepler.glb",
+    label: "Kepler Space Telescope",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Ames Research Center",
+      "https://science.nasa.gov/3d-resources/kepler-b/",
+      372,
+    ),
+  },
+  {
+    file: "nasa/grace.glb",
+    label: "GRACE",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Brian E. Kumanchik; NASA/Christian A. Lopez",
+      "https://science.nasa.gov/3d-resources/gravity-recovery-and-climate-experiment-grace-a/",
+      3439,
+    ),
+  },
+  {
+    file: "nasa/icesat-a.glb",
+    label: "ICESat",
+    category: "Vehicles",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "NASA/Ames Research Center",
+      "https://science.nasa.gov/3d-resources/ice-clouds-and-land-elevation-satellite-icesat-a/",
+      976,
+    ),
+  },
+  {
+    file: "nasa/gamma-ray-observatory.glb",
+    label: "Gamma Ray Observatory",
+    category: "Vehicles",
+    attribution: nasa3dAttribution(
+      "NASA/Christopher R. Meaney",
+      "https://science.nasa.gov/3d-resources/gamma-ray-observatory/",
+      4244,
+    ),
+  },
+  {
+    file: "nasa/wide-field-planetary-camera.glb",
+    label: "Wide Field Planetary Camera",
+    category: "Objects",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "DigitalSpace Corporation",
+      "https://science.nasa.gov/3d-resources/wide-field-planetary-camera/",
+      224,
+    ),
+  },
+  {
+    file: "nasa/crew-lock-bag.glb",
+    label: "Crew Lock Bag",
+    category: "Objects",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "DigitalSpace Corporation",
+      "https://science.nasa.gov/3d-resources/crew-lock-bag/",
+      506,
+    ),
+  },
+  {
+    file: "nasa/flight-system-support.glb",
+    label: "Flight System Support",
+    category: "Objects",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "DigitalSpace Corporation",
+      "https://science.nasa.gov/3d-resources/flight-system-support/",
+      1292,
+    ),
+  },
+  {
+    file: "nasa/space-shuttle-eva-suit.glb",
+    label: "EVA Suit",
+    category: "Objects",
+    attribution: nasa3dAttribution(
+      "NASA/Johnson Space Center",
+      "https://science.nasa.gov/3d-resources/space-shuttle-parts/",
+      6430,
+    ),
+  },
+  {
+    file: "nasa/orbiter-docking-system.glb",
+    label: "Orbiter Docking System",
+    category: "Objects",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "NASA/Johnson Space Center",
+      "https://science.nasa.gov/3d-resources/space-shuttle-parts/",
+      5635,
+    ),
+  },
+  {
+    file: "nasa/space-shuttle-external-tank.glb",
+    label: "Space Shuttle External Tank",
+    category: "Vehicles",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "NASA/Johnson Space Center",
+      "https://science.nasa.gov/3d-resources/space-shuttle-parts/",
+      6326,
+    ),
+  },
+  {
+    file: "nasa/solid-rocket-booster.glb",
+    label: "Solid Rocket Booster",
+    category: "Vehicles",
+    galleryBucket: "Textured",
+    attribution: nasa3dAttribution(
+      "NASA/Johnson Space Center",
+      "https://science.nasa.gov/3d-resources/space-shuttle-parts/",
+      4136,
+    ),
+  },
+];
+
+const SMITHSONIAN_GLB_PRESET_FILES: GalleryPresetFile[] = [
+  {
+    file: "smithsonian/morse-telegraph-key.glb",
+    label: "Morse-Vail Telegraph Key",
+    category: "Objects",
+    galleryBucket: "Textured",
+    attribution: smithsonianOpenAccessAttribution(
+      "https://www.si.edu/object/morse-vail-telegraph-key%3Anmah_1096762",
+      3600,
+    ),
+  },
+];
 
 export const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "FishAnimated.glb", label: "Animated Fish", category: "Animated" },
+  { file: "ClownfishAnimated.glb", label: "Animated Clownfish", category: "Animated" },
+  { file: "AnimatedWizard.glb", label: "Animated Wizard", category: "Animated" },
   {
     file: "khronos/animated-fox.glb",
     label: "Animated Fox",
@@ -72,12 +277,28 @@ export const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "Policecar.glb", label: "Police Car", category: "Vehicles" },
   { file: "Taxi.glb", category: "Vehicles" },
   { file: "Truck.glb", category: "Vehicles" },
+  ...NASA_GLB_PRESET_FILES,
+  {
+    file: "model-viewer/astronaut.glb",
+    label: "Astronaut",
+    category: "Characters",
+    galleryBucket: "Textured",
+    attribution: GOOGLE_POLY_ASTRONAUT_ATTRIBUTION,
+  },
   { file: "Acousticguitar.glb", label: "Guitar (Acoustic)", category: "Instruments" },
   { file: "Electricguitar.glb", label: "Guitar (Electric)", category: "Instruments" },
   { file: "Saxophone.glb", category: "Instruments" },
   { file: "Trumpet.glb", category: "Instruments" },
   { file: "Violin.glb", category: "Instruments" },
+  ...SMITHSONIAN_GLB_PRESET_FILES,
   { file: "apple.glb", label: "Apple", category: "Food & Drink" },
+  {
+    file: "khronos/avocado.glb",
+    label: "Avocado",
+    category: "Food & Drink",
+    galleryBucket: "Textured",
+    attribution: KHRONOS_AVOCADO_ATTRIBUTION,
+  },
   { file: "BottleChampagne.glb", label: "Champagne Bottle", category: "Food & Drink" },
   { file: "Eggplant.glb", category: "Food & Drink" },
   { file: "Grapes.glb", category: "Food & Drink" },
@@ -87,7 +308,150 @@ export const GLB_PRESET_FILES: GalleryPresetFile[] = [
   { file: "Campfire.glb", category: "Environment" },
   { file: "Drill.glb", category: "Objects" },
   { file: "Globe.glb", category: "Objects" },
+
+  // Medieval Village Pack — compact standalone set.
+  { file: "medieval/Bags.glb", category: "Medieval Village" },
+  { file: "medieval/Barrel.glb", category: "Medieval Village" },
+  { file: "medieval/Bell.glb", category: "Medieval Village" },
+  { file: "medieval/Bonfire.glb", category: "Medieval Village" },
+  { file: "medieval/Cart.glb", category: "Medieval Village" },
+  { file: "medieval/Cauldron.glb", category: "Medieval Village" },
+  { file: "medieval/Crate.glb", label: "Medieval Crate", category: "Medieval Village" },
+  { file: "medieval/Package.glb", category: "Medieval Village" },
+  { file: "medieval/Package-kYvD6QCQRd.glb", label: "Package (Small)", category: "Medieval Village" },
+  { file: "medieval/Path Straight.glb", label: "Path Straight", category: "Medieval Village" },
+  { file: "medieval/Rocks.glb", category: "Medieval Village" },
+  { file: "medieval/Sawmill Saw.glb", label: "Sawmill Saw", category: "Medieval Village" },
+  { file: "medieval/Smoke.glb", category: "Medieval Village" },
+  { file: "medieval/Well.glb", category: "Medieval Village" },
+  { file: "medieval/Window.glb", category: "Medieval Village" },
+  { file: "medieval/Window-EY1zrFcme9.glb", label: "Window (Tall)", category: "Medieval Village" },
+
+  // City Kit — compact Solid building set.
+  { file: "city/Skyscraper.glb", category: "City Kit" },
+  { file: "city/Large Building.glb", label: "Large Building", category: "City Kit" },
+  { file: "city/Small Building.glb", label: "Small Building", category: "City Kit" },
+
+  // Urban Pack — cars + street furniture + a few characters.
+  { file: "urban/Road Bits.glb", label: "Road", category: "Urban Pack" },
+  { file: "urban/Manhole Cover.glb", label: "Manhole Cover", category: "Urban Pack" },
+  { file: "urban/Car.glb", category: "Urban Pack" },
+  { file: "urban/SUV.glb", category: "Urban Pack" },
+  { file: "urban/Van.glb", category: "Urban Pack" },
+  { file: "urban/Pickup Truck.glb", label: "Pickup Truck", category: "Urban Pack" },
+  { file: "urban/Bus.glb", label: "City Bus", category: "Urban Pack" },
+  { file: "urban/Sports Car.glb", label: "Sports Car", category: "Urban Pack" },
+  { file: "urban/Police Car.glb", label: "Police Cruiser", category: "Urban Pack" },
+  { file: "urban/Motorcycle.glb", category: "Urban Pack" },
+  { file: "urban/Stop sign.glb", label: "Stop Sign", category: "Urban Pack" },
+  { file: "urban/Billboard.glb", category: "Urban Pack", galleryBucket: "Textured" },
+  { file: "urban/Dumpster.glb", category: "Urban Pack" },
+  { file: "urban/Mailbox.glb", category: "Urban Pack" },
+  { file: "urban/Fire hydrant.glb", label: "Fire Hydrant", category: "Urban Pack" },
+  { file: "urban/Cone.glb", label: "Traffic Cone", category: "Urban Pack" },
+  { file: "urban/Box.glb", label: "Urban Box", category: "Urban Pack" },
+  { file: "urban/Power Box.glb", label: "Power Box", category: "Urban Pack" },
+  { file: "urban/Air conditioner.glb", label: "Air Conditioner", category: "Urban Pack" },
+  { file: "urban/ATM.glb", category: "Urban Pack" },
+  { file: "urban/Planter & Bushes.glb", label: "Planter & Bushes", category: "Urban Pack" },
+  { file: "urban/Man.glb", label: "Urban Man", category: "Urban Pack" },
+  { file: "urban/Animated Woman.glb", label: "Woman", category: "Urban Pack" },
 ];
+
+const CURATED_STL_PRESET_FILES: StlGalleryPresetFile[] = [
+  {
+    file: "castle-68679.stl",
+    label: "Castle",
+    category: "CAD",
+    attribution: thingiverseAttribution("mazels", 22323, 2064),
+  },
+  {
+    file: "chichen-itza-47076.stl",
+    label: "Chichen Itza",
+    category: "CAD",
+    attribution: thingiverseAttribution("ramenspork", 14328, 1532, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "low-poly-vase-100423.stl",
+    label: "Low Poly Vase",
+    category: "CAD",
+    attribution: thingiverseAttribution("kikko_fr", 34999, 276, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "low-poly-bunny-293137.stl",
+    label: "Low Poly Bunny",
+    category: "CAD",
+    attribution: thingiverseAttribution("johnny6", 151081, 292, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "heart-gear-39461.stl",
+    label: "Heart Gear",
+    category: "CAD",
+    attribution: thingiverseAttribution("emmett", 12208, 1934, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "gyroscopic-snowflake-105230.stl",
+    label: "Gyroscopic Snowflake",
+    category: "CAD",
+    attribution: thingiverseAttribution("roman_hegglin", 36922, 1036),
+  },
+  {
+    file: "skeletal-cubes-73453.stl",
+    label: "Skeletal Cubes",
+    category: "CAD",
+    attribution: thingiverseAttribution("AuntDaisy", 24274, 1550, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "hilbert-cube-53749.stl",
+    label: "Hilbert Cube",
+    category: "CAD",
+    attribution: thingiverseAttribution("tbuser", 16343, 492, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "cubist-torus-107100.stl",
+    label: "Cubist Torus",
+    category: "CAD",
+    attribution: thingiverseAttribution("hudson", 37634, 4560),
+  },
+  {
+    file: "six-cubes-compound-91658.stl",
+    label: "Six Cubes Compound",
+    category: "CAD",
+    attribution: thingiverseAttribution("pmoews", 31520, 504),
+  },
+  {
+    file: "johnson-ornament-j68-103287.stl",
+    label: "Johnson Ornament J68",
+    category: "CAD",
+    attribution: thingiverseAttribution("pmoews", 36119, 690),
+  },
+  {
+    file: "rhombic-chain-90794.stl",
+    label: "Rhombic Chain",
+    category: "CAD",
+    attribution: thingiverseAttribution("emmett", 31151, 1224, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "cube-in-sphere-49333.stl",
+    label: "Cube In Sphere",
+    category: "CAD",
+    attribution: thingiverseAttribution("clintkc", 14878, 2464, "Public Domain"),
+  },
+  {
+    file: "rocket-nose-cone-51316.stl",
+    label: "Rocket Nose Cone",
+    category: "CAD",
+    attribution: thingiverseAttribution("MakerBotWorkshop", 15582, 1860, "Creative Commons - Attribution - Share Alike"),
+  },
+  {
+    file: "venus-bust-73464.stl",
+    label: "Venus Bust",
+    category: "CAD",
+    attribution: thingiverseAttribution("richgain", 24188, 1000),
+  },
+];
+
+export const STL_PRESET_FILES: StlGalleryPresetFile[] = CURATED_STL_PRESET_FILES;
 
 export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
   {
@@ -460,6 +824,226 @@ export const POLY_PIZZA_PRESET_FILES: GalleryPresetFile[] = [
       tris: 141,
     },
   },
+  {
+    file: "poly-pizza/broccoli.glb",
+    label: "Broccoli",
+    category: "Food & Drink",
+    attribution: polyPizzaAttribution("jeremy", "e2Z3XDxtT41", "CC-BY 3.0", 900),
+  },
+  {
+    file: "poly-pizza/peanut.glb",
+    label: "Peanut",
+    category: "Food & Drink",
+    attribution: polyPizzaAttribution("jeremy", "f57FFcX01Tr", "CC-BY 3.0", 1820),
+  },
+  {
+    file: "poly-pizza/tomato.glb",
+    label: "Tomato",
+    category: "Food & Drink",
+    attribution: polyPizzaAttribution("jeremy", "dcvfRb1X5JE", "CC-BY 3.0", 144),
+  },
+  {
+    file: "poly-pizza/pear.glb",
+    label: "Pear",
+    category: "Food & Drink",
+    attribution: polyPizzaAttribution("jeremy", "3Mp-3PRh7Tb", "CC-BY 3.0", 152),
+  },
+  {
+    file: "poly-pizza/ice-cream.glb",
+    label: "Ice Cream",
+    category: "Food & Drink",
+    attribution: polyPizzaAttribution("jeremy", "27NZ4ejbkZl", "CC-BY 3.0", 408),
+  },
+  {
+    file: "poly-pizza/apple-tree.glb",
+    label: "Apple Tree",
+    category: "Environment",
+    attribution: polyPizzaAttribution("jeremy", "2BUc5iO4nUo", "CC-BY 3.0", 644),
+  },
+  {
+    file: "poly-pizza/triceratops.glb",
+    label: "Triceratops",
+    category: "Animals",
+    attribution: polyPizzaAttribution("jeremy", "7GKj5zdc1RZ", "CC-BY 3.0", 892),
+  },
+  {
+    file: "poly-pizza/tiger.glb",
+    label: "Tiger",
+    category: "Animals",
+    attribution: polyPizzaAttribution("jeremy", "54KLm0HdFWy", "CC-BY 3.0", 892),
+  },
+  {
+    file: "poly-pizza/monkey.glb",
+    label: "Monkey",
+    category: "Animals",
+    attribution: polyPizzaAttribution("jeremy", "2mYaCEbogPq", "CC-BY 3.0", 680),
+  },
+  {
+    file: "poly-pizza/crab.glb",
+    label: "Crab",
+    category: "Animals",
+    attribution: polyPizzaAttribution("jeremy", "bmZ6-LnPmp0", "CC-BY 3.0", 768),
+  },
+  {
+    file: "poly-pizza/turkey.glb",
+    label: "Turkey",
+    category: "Animals",
+    attribution: polyPizzaAttribution("jeremy", "b3E2cqagRPn", "CC-BY 3.0", 336),
+  },
+  {
+    file: "poly-pizza/mr-brush.glb",
+    label: "Mr. Brush",
+    category: "Objects",
+    attribution: polyPizzaAttribution("jeremy", "0jKuzkEIurU", "CC-BY 3.0", 4644),
+  },
+  {
+    file: "poly-pizza/animated-fox-quaternius.glb",
+    label: "Animated Fox",
+    category: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/Bc97C66HKi", 1848),
+  },
+  {
+    file: "poly-pizza/animated-husky.glb",
+    label: "Animated Husky",
+    category: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/wcWiuEqwzq", 1920),
+  },
+  {
+    file: "poly-pizza/animated-shiba-inu.glb",
+    label: "Animated Shiba Inu",
+    category: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/y4wdQpg767", 1950),
+  },
+  {
+    file: "poly-pizza/animated-whale.glb",
+    label: "Animated Whale",
+    category: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/JGFwp6xWgk", 444),
+  },
+  {
+    file: "poly-pizza/animated-shark.glb",
+    label: "Animated Shark",
+    category: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/sZR8AMLMz5", 1310),
+  },
+  {
+    file: "poly-pizza/animated-enemy-small.glb",
+    label: "Animated Enemy Small",
+    category: "Characters",
+    galleryBucket: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/4LjT020LQh", 1572),
+  },
+  {
+    file: "poly-pizza/animated-slime-enemy.glb",
+    label: "Animated Slime Enemy",
+    category: "Animated",
+    attribution: quaterniusAttribution("https://poly.pizza/m/eSLKTsbl7F", 1968),
+  },
+];
+
+function voxFiles(
+  files: string[],
+  attribution: GalleryPresetFile["attribution"],
+): GalleryPresetFile[] {
+  return files.map((file) => ({ file, category: "VOX", attribution }));
+}
+
+const MINI_MIKES_METRO_MINIS_VOX_FILES: string[] = [
+  "alien_bot1.vox",
+  "alien_engi1a.vox",
+  "alien_eye1a.vox",
+  "chr_chef.vox",
+  "chr_cop1.vox",
+  "chr_hazmat1.vox",
+  "chr_janitor.vox",
+  "chr_paramedic2.vox",
+  "chr_punk.vox",
+  "chr_riotcop.vox",
+  "chr_scientist.vox",
+  "chr_super1.vox",
+  "chr_thief.vox",
+  "chr_zombie4.vox",
+  "mob_cat1.vox",
+  "mob_penguin.vox",
+  "obj_arcade1.vox",
+  "obj_boxingring.vox",
+  "obj_busstop.vox",
+  "obj_candle.vox",
+  "obj_cart1a.vox",
+  "obj_container4.vox",
+  "obj_pumpkin.vox",
+  "piano.vox",
+  "scene_checkpoint.vox",
+  "scene_coffee.vox",
+  "scene_hazmat.vox",
+  "scene_protest.vox",
+  "scene_zombies.vox",
+  "veh_ambulance.vox",
+  "veh_cab1.vox",
+  "veh_car1.vox",
+  "veh_fire.vox",
+  "veh_lunch1.vox",
+  "veh_mini1.vox",
+  "veh_police1.vox",
+  "veh_suv1.vox",
+  "veh_train.vox",
+  "veh_truck1.vox",
+];
+
+const MAGICAVOXEL_TEST_MODEL_FILES: string[] = [
+  "chr_knight.vox",
+];
+
+const OPENGAMEART_BUILDING_VOX_FILES: GalleryPresetFile[] = [
+  {
+    file: "opengameart-buildings/building-01.vox",
+    label: "Building 01",
+    category: "VOX",
+    attribution: OPENGAMEART_VOXEL_BUILDINGS_ATTRIBUTION,
+  },
+  {
+    file: "opengameart-buildings/building-02.vox",
+    label: "Building 02",
+    category: "VOX",
+    attribution: OPENGAMEART_VOXEL_BUILDINGS_ATTRIBUTION,
+  },
+  {
+    file: "opengameart-buildings/tower-01.vox",
+    label: "Tower",
+    category: "VOX",
+    attribution: OPENGAMEART_VOXEL_BUILDINGS_ATTRIBUTION,
+  },
+  {
+    file: "opengameart-buildings/mini-building-01.vox",
+    label: "Small Building 01",
+    category: "VOX",
+    targetSize: 45,
+    zoom: 0.55,
+    attribution: OPENGAMEART_VOXEL_BUILDINGS_ATTRIBUTION,
+  },
+  {
+    file: "opengameart-buildings/mini-building-02.vox",
+    label: "Small Building 02",
+    category: "VOX",
+    targetSize: 45,
+    zoom: 0.55,
+    attribution: OPENGAMEART_VOXEL_BUILDINGS_ATTRIBUTION,
+  },
+];
+
+const OPENHV_VOX_FILES: GalleryPresetFile[] = [
+  { file: "openhv/battleship.vox", label: "Battleship", category: "VOX", attribution: OPENHV_VOXELS_ATTRIBUTION },
+  { file: "openhv/dropship.vox", label: "Dropship", category: "VOX", attribution: OPENHV_VOXELS_ATTRIBUTION },
+  { file: "openhv/firetruck.vox", label: "Fire Truck", category: "VOX", attribution: OPENHV_VOXELS_ATTRIBUTION },
+  { file: "openhv/saucer.vox", label: "Saucer", category: "VOX", attribution: OPENHV_VOXELS_ATTRIBUTION },
+  { file: "openhv/turtle.vox", label: "Turtle", category: "VOX", attribution: OPENHV_VOXELS_ATTRIBUTION },
+];
+
+const FLOOOH_VOX_FILES: GalleryPresetFile[] = [
+  { file: "floooh/cassette.vox", label: "Cassette", category: "VOX", targetSize: 35, zoom: 0.7, attribution: FLOOOH_VOXEL_DATA_ATTRIBUTION },
+  { file: "floooh/kc85-computer.vox", label: "KC85 Computer", category: "VOX", attribution: FLOOOH_VOXEL_DATA_ATTRIBUTION },
+  { file: "floooh/kc85-keyboard.vox", label: "KC85 Keyboard", category: "VOX", targetSize: 35, zoom: 0.6, attribution: FLOOOH_VOXEL_DATA_ATTRIBUTION },
+  { file: "floooh/lcr-c.vox", label: "LCR-C", category: "VOX", targetSize: 45, zoom: 0.5, attribution: FLOOOH_VOXEL_DATA_ATTRIBUTION },
 ];
 
 export const VOX_PRESET_FILES: GalleryPresetFile[] = [
@@ -492,6 +1076,16 @@ export const VOX_PRESET_FILES: GalleryPresetFile[] = [
   { file: "dual.vox", label: "Dual", category: "VOX", attribution: MONOGON_VOXEL_SPACESHIPS_ATTRIBUTION },
   { file: "Treasure.vox", category: "VOX", attribution: MONOGON_ANCIENT_ENVIRONMENT_ATTRIBUTION },
   { file: "tree.vox", label: "Tree", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  ...OPENGAMEART_BUILDING_VOX_FILES,
+  ...OPENHV_VOX_FILES,
+  ...FLOOOH_VOX_FILES,
+  { file: "chr_robot.vox", label: "Voxel Robot", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "horse.vox", label: "Voxel Horse", category: "VOX", attribution: MAGICAVOXEL_TEST_MODELS_ATTRIBUTION },
+  { file: "mob_bear.vox", label: "Voxel Bear", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "obj_campfire.vox", label: "Voxel Campfire", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  { file: "scene_train.vox", label: "Train Scene", category: "VOX", attribution: MINI_MIKES_METRO_MINIS_ATTRIBUTION },
+  ...voxFiles(MINI_MIKES_METRO_MINIS_VOX_FILES, MINI_MIKES_METRO_MINIS_ATTRIBUTION),
+  ...voxFiles(MAGICAVOXEL_TEST_MODEL_FILES, MAGICAVOXEL_TEST_MODELS_ATTRIBUTION),
 ];
 
 const ULTIMATE_SPACESHIPS_ROOT = "quaternius/ultimate-spaceships";

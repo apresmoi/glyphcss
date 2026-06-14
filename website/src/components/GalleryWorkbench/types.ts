@@ -4,8 +4,8 @@
 
 import type { Polygon } from "@glyphcss/core";
 
-export type ModelKind = "obj" | "glb" | "gltf" | "vox" | "primitive";
-export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel" | "Primitives";
+export type ModelKind = "obj" | "glb" | "gltf" | "vox" | "stl" | "primitive";
+export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel" | "Primitives" | "CAD";
 export type PerspectiveMode = "perspective" | "orthographic";
 export type DragMode = "orbit" | "pan" | "fpv";
 
@@ -65,6 +65,10 @@ export interface GalleryPresetFile {
 
 export interface ObjGalleryPresetFile extends GalleryPresetFile {
   mtlFile?: string | null;
+  defaultColor?: string;
+}
+
+export interface StlGalleryPresetFile extends GalleryPresetFile {
   defaultColor?: string;
 }
 
