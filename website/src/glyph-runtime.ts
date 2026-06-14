@@ -36,7 +36,6 @@ import {
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
   loadMesh,
-  bakeSolidTextureSamples,
   planePolygons,
 } from 'glyphcss';
 import type {
@@ -147,16 +146,21 @@ function fanTriangulate(polygons: Polygon[]): TextureTriangle[] {
     if (!poly.vertices || poly.vertices.length < 3) continue;
     const v = poly.vertices;
     const color = poly.color;
+    // Texture URL (carried through so the renderer can sample it per cell).
+    const texture = poly.material?.texture ?? poly.texture;
     if (poly.textureTriangles && poly.textureTriangles.length > 0) {
-      for (const t of poly.textureTriangles) triangles.push(t);
+      for (const t of poly.textureTriangles) triangles.push(texture ? { ...t, texture } : t);
       continue;
     }
+    const uvs = poly.uvs;
+    const hasUvs = !!uvs && uvs.length === v.length;
     for (let i = 1; i < v.length - 1; i++) {
       const tri: TextureTriangle = {
         vertices: [v[0]!, v[i]!, v[i + 1]!],
-        uvs: [[0, 0], [0, 0], [0, 0]],
+        uvs: hasUvs ? [uvs![0]!, uvs![i]!, uvs![i + 1]!] : [[0, 0], [0, 0], [0, 0]],
       };
       if (color) tri.color = color;
+      if (texture) tri.texture = texture;
       triangles.push(tri);
     }
   }
@@ -289,13 +293,11 @@ async function loadMeshAsGeometry(url: string, normalize = true, mtlUrl?: string
     const sibling = url.replace(/\.obj(\?|#|$)/i, '.mtl$1');
     try { const probe = await fetch(sibling); if (probe.ok) resolvedMtl = sibling; } catch { /* no sibling .mtl */ }
   }
-  let result = await loadMesh(url, resolvedMtl ? { mtlUrl: resolvedMtl } : undefined);
-  // ASCII can't render textures, so sample each textured face to its average
-  // texture color. A high colorTolerance forces baking even for detailed
-  // textures (rock, wood) — otherwise they'd stay texture-backed and fall back
-  // to the flat MTL Kd. This is the per-face tier; per-cell sampling (true
-  // texture mapping) would be the higher-fidelity follow-up.
-  result = await bakeSolidTextureSamples(result, { colorTolerance: 255 });
+  const result = await loadMesh(url, resolvedMtl ? { mtlUrl: resolvedMtl } : undefined);
+  // Textures are now sampled per cell by the renderer (UV-mapped, glyph-
+  // resolution) — carried through `fanTriangulate` as `texture` + real UVs.
+  // The old per-face `bakeSolidTextureSamples` flat-color pass is gone; faces
+  // without a decodable texture fall back to their MTL `Kd` color.
   const rawTris = fanTriangulate(result.polygons);
   const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
   const edges = trianglesToEdges(polys, 0);
