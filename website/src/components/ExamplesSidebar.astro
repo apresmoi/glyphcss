@@ -1,12 +1,13 @@
 ---
 interface Props {
-  active: "world" | "flatmap";
+  active: "world" | "flatmap" | "image";
 }
 const { active } = Astro.props;
 
 const items = [
   { id: "world", label: "World", href: "/examples/world/", desc: "Globe · ETOPO1" },
   { id: "flatmap", label: "Flat Map", href: "/examples/flatmap/", desc: "Iso · Web Mercator" },
+  { id: "image", label: "Image", href: "/examples/image/", desc: "Drop a photo · ASCII" },
 ] as const;
 ---
 
