@@ -1,6 +1,7 @@
 import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
 import { createGlyphPerspectiveCamera } from "../api/createGlyphCamera";
-import type { Polygon, Vec3 } from "@glyphcss/core";
+import type { Polygon, Vec3, TextureSampler } from "@glyphcss/core";
+import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
 
 /**
@@ -128,6 +129,11 @@ function rasterizeSolid(
   // output — and reuse the formatted string across all triangles that match.
   const litCache = new Map<string, string>();
 
+  // Per-cell texture sampling: when a polygon carries a texture + UVs and its
+  // sampler is available, the rasterizer samples the texture per cell (the
+  // image at glyph resolution) instead of the flat baked color. Null → all flat.
+  const textureSamplers = scene.textureSamplers ?? null;
+
   // Build shadow map (null when shadows are disabled or no casters).
   // Zero cost when scene.shadow is undefined.
   const shadowOpts = scene.shadow;
@@ -180,6 +186,14 @@ function rasterizeSolid(
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
+    // Texture for this polygon: sample per cell when a sampler + matching UVs
+    // exist; otherwise fall back to the flat per-face color.
+    const polyUvs = poly.uvs;
+    let polySampler: TextureSampler | null = null;
+    if (textureSamplers !== null && polyUvs && polyUvs.length >= verts.length) {
+      const texUrl = polygonTexture(poly);
+      if (texUrl) polySampler = textureSamplers.get(texUrl) ?? null;
+    }
     // Project each unique vertex once.
     for (let k = 0; k < verts.length; k++) {
       projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect);
@@ -316,6 +330,22 @@ function rasterizeSolid(
       // a biased mesh wins coincident/coplanar cells. Larger zbuf = nearer.
       const biasScale = 1 + (depthBiases?.[polyIdx] ?? 0);
 
+      // Per-cell texture context for this triangle (null when not textured). The
+      // tint is the same per-triangle light multiplier the flat path bakes into
+      // litColor — here it shades each sampled texel instead of one base color.
+      let texCtx: ScanFillTexCtx | null = null;
+      if (polySampler !== null && polyUvs) {
+        const uvA = polyUvs[vi0]!, uvB = polyUvs[vi1]!, uvC = polyUvs[vi2]!;
+        const avgKey = Math.max(0, (iA + iB + iC) / 3 - ambIntensity);
+        texCtx = {
+          sampler: polySampler,
+          ua: uvA[0], va: uvA[1], ub: uvB[0], vb: uvB[1], uc: uvC[0], vc: uvC[1],
+          tintR: ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255,
+          tintG: ambIntensity * ambRgb[1] / 255 + avgKey * keyRgb[1] / 255,
+          tintB: ambIntensity * ambRgb[2] / 255 + avgKey * keyRgb[2] / 255,
+        };
+      }
+
       if (nanCount === 0) {
         // Fully visible: scan-fill the projected triangle directly. Depth and
         // intensity are interpolated per cell via barycentric coordinates so
@@ -334,6 +364,7 @@ function rasterizeSolid(
           doubleSided,
           v0, v1, v2, worldPosBuf,
           depthEpsilon,
+          texCtx,
         );
       } else {
         // Straddles the near plane: clip the triangle to the visible half-space
@@ -381,6 +412,9 @@ function rasterizeSolid(
               doubleSided,
               cw[0]!, cw[f]!, cw[f + 1]!, worldPosBuf,
               depthEpsilon,
+              // Near-plane-clipped sub-triangles don't carry interpolated UVs;
+              // fall back to flat color (rare: textured face straddling the eye).
+              null,
             );
           }
         }
@@ -610,6 +644,14 @@ interface ScanFillShadowCtx {
   litCache: Map<string, string>;
 }
 
+/** Per-cell texture sampling context for one triangle (see {@link RasterizeContext.textureSamplers}). */
+interface ScanFillTexCtx {
+  sampler: TextureSampler;
+  ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
+  // Per-triangle light multiplier (ambient + key·lambert) applied to each texel.
+  tintR: number; tintG: number; tintB: number;
+}
+
 /**
  * Project a world vertex to light-space [texelU, texelV, lightDepth].
  * `lightDepth = -dot(v, dir)` — higher = closer to light.
@@ -768,6 +810,8 @@ function scanFillTriangle(
   // current cell only when nearer by more than this fraction; near-coplanar
   // surfaces keep a stable winner instead of z-fighting frame to frame.
   depthEpsilon: number,
+  // Per-cell texture sampling for this triangle (null → flat `color`).
+  tex: ScanFillTexCtx | null,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -836,7 +880,29 @@ function scanFillTriangle(
         //      producing a stippled gradient that reads as continuous from a
         //      distance and breaks up the visible contour bands between ramp
         //      steps.
-        const intensity = (wA * ia + wB * ib + wC * ic) * invArea2;
+        let intensity = (wA * ia + wB * ib + wC * ic) * invArea2;
+        let cellColor = color;
+
+        // Per-cell texture: barycentric-interpolate UV, sample the texel. Its
+        // color (× the triangle's light tint) becomes this cell's color, and its
+        // luminance folds into the glyph intensity — so the *character* reflects
+        // image brightness too: a flat textured quad reads as ASCII art, a lit
+        // textured mesh shows texture detail modulated by shading.
+        if (tex !== null) {
+          const u = (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
+          const v = (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
+          const texel = sampleTexel(tex.sampler, u, v);
+          if (texel !== null && texel.a > 8) {
+            let r = (texel.r * tex.tintR) | 0; if (r > 255) r = 255;
+            let g = (texel.g * tex.tintG) | 0; if (g > 255) g = 255;
+            let b = (texel.b * tex.tintB) | 0; if (b > 255) b = 255;
+            cellColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+            intensity *= (0.299 * texel.r + 0.587 * texel.g + 0.114 * texel.b) / 255;
+          }
+        }
+
+        // Per-cell intensity → glyph (Bayer-dithered between adjacent ramp steps
+        // for a stippled gradient that breaks up contour banding).
         const clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
         const rampPos = clamped * rampMax;
         const lower = rampPos | 0;
@@ -844,8 +910,6 @@ function scanFillTriangle(
         const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
         let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
         if (glyphIdx > rampMax) glyphIdx = rampMax;
-
-        let cellColor = color;
 
         // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
         // sample the shadow map, darken if occluded.
