@@ -1,0 +1,346 @@
+/* Matches the builder/gallery look: floating rounded cards over the stage. */
+.wa-root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #0a0b0d;
+  color: #e8edf2;
+  font-family: system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.wa-stage {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 38%, #14171d 0%, #0a0b0d 72%);
+}
+.wa-stage-foot {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #8b97a6;
+  pointer-events: none;
+  background: rgba(10, 11, 13, 0.6);
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+
+.wa-card {
+  position: absolute;
+  top: 16px;
+  z-index: 15;
+  background: #11141a;
+  border: 1px solid #252b36;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+}
+.wa-left { left: 16px; width: clamp(220px, 20vw, 300px); max-height: calc(100% - 32px); }
+
+.wa-card__body {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow-y: auto;
+}
+.wa-card__body::-webkit-scrollbar { width: 8px; }
+.wa-card__body::-webkit-scrollbar-thumb { background: #252b36; border-radius: 4px; }
+
+/* lil-gui folder title bar. */
+.wa-section {
+  margin: 7px -10px 4px;
+  padding: 6px 10px;
+  color: #e8edf2;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  background: #111827;
+  border-block: 1px solid #1c2330;
+}
+.wa-section::before { content: "\25be"; color: #8b97a6; margin-right: 7px; font-size: 11px; }
+
+/* Left: preset tile grid (like builder shapes). */
+.wa-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.wa-tile {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 54px auto;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 1px solid #202938;
+  border-radius: 8px;
+  background: #0b0f18;
+  color: #e2e8f0;
+  font: inherit;
+  cursor: pointer;
+}
+.wa-tile:hover { border-color: #2f3a4a; }
+.wa-tile.is-active { background: #142033; border-color: #22d3ee; }
+.wa-tile__thumb {
+  height: 54px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+}
+.wa-tile__label {
+  color: #dce4ed;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Right: controls. */
+.wa-field { display: grid; gap: 0.3rem; font-size: 13px; color: #9aa4b1; }
+.wa-field > span { font-weight: 500; color: #b6c0cb; }
+
+.wa-input, select.wa-input {
+  background: #0b0d10;
+  border: 1px solid #262c36;
+  color: #e8edf2;
+  border-radius: 6px;
+  padding: 0 0.5rem;
+  height: 26px;
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+textarea.wa-input { resize: vertical; line-height: 1.35; height: auto; padding: 0.4rem 0.5rem; }
+
+/* Right panel = real lil-gui, themed with the /gallery's exact variables. */
+.wa-gui {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 300px;
+  z-index: 15;
+}
+.wa-gui .lil-gui { font-family: inherit; font-size: 14px; }
+.wa-gui .lil-gui * { font-family: inherit; }
+.wa-gui .lil-gui .title,
+.wa-gui .lil-gui .folder > .title,
+.wa-gui .lil-gui .folder .title {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  min-height: 34px;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+}
+.wa-gui .lil-gui.root {
+  --background-color: #11141a;
+  --title-background-color: #111827;
+  --title-text-color: #e8edf2;
+  --text-color: #e8edf2;
+  --widget-color: #0b0d10;
+  --hover-color: #151b28;
+  --focus-color: #22374f;
+  --number-color: #22d3ee;
+  --string-color: #86efac;
+  --font-size: 13px;
+  --input-font-size: 13px;
+  --padding: 8px;
+  --spacing: 7px;
+  --widget-height: 26px;
+  --widget-border-radius: 6px;
+  --scrollbar-width: 6px;
+  --folder-indent: 10px;
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  padding: 6px;
+  max-height: calc(100vh - var(--sl-nav-height, 72px) - 32px);
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+.wa-gui .lil-gui.root::-webkit-scrollbar { width: 6px; }
+.wa-gui .lil-gui.root::-webkit-scrollbar-track { background: transparent; }
+.wa-gui .lil-gui.root::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
+.wa-gui .lil-gui.root::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+.wa-gui .lil-gui.root > .title { display: none !important; }
+.wa-gui .lil-gui.root > .children > .lil-gui > .title { border: 0 solid var(--widget-color); border-top-width: 1px; }
+.wa-gui .lil-gui.root > .children > .lil-gui:first-child > .title { border-top-width: 0; }
+
+/* Left lil-gui panel: blend into the .wa-left card (no nested card chrome). */
+.wa-gui--inline { position: static; width: auto; }
+.wa-gui--inline .lil-gui.root {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0 -10px;
+  background: transparent;
+  backdrop-filter: none;
+  max-height: none;
+  overflow: visible !important;
+}
+
+/* Segmented button group injected into a lil-gui row widget (Case / Align). */
+.wa-seg { display: flex; gap: 4px; width: 100%; }
+.wa-seg button {
+  flex: 1; height: 22px; min-width: 0; padding: 0;
+  background: #0b0d10; border: 1px solid #2a3340; color: #c2cad4;
+  border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.wa-seg button:hover { border-color: #3a4757; }
+.wa-seg button.is-on { background: #142033; border-color: #22d3ee; color: #e8f9ff; }
+
+/* Image-upload button injected into a lil-gui Fill row. */
+.wa-imgbtn {
+  width: 100%; height: 22px; padding: 0 8px;
+  background: #0b0d10; border: 1px solid #2a3340; color: #c2cad4;
+  border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600;
+}
+.wa-imgbtn:hover { border-color: #22d3ee; color: #e8f9ff; }
+
+/* Custom-profile cubic-bezier editor. */
+.wa-bezinput { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.wa-bezwrap { padding: 6px 0 2px; }
+.wa-bez { width: 100%; height: auto; touch-action: none; display: block; }
+.wa-bez__frame { fill: #0b0d10; stroke: #2a3340; stroke-width: 1; }
+.wa-bez__diag { stroke: #2a3340; stroke-width: 1; stroke-dasharray: 3 3; }
+.wa-bez__leg { stroke: #3a4757; stroke-width: 1.5; }
+.wa-bez__curve { fill: none; stroke: #22d3ee; stroke-width: 2.5; }
+.wa-bez__h { fill: #142033; stroke: #22d3ee; stroke-width: 2; cursor: grab; }
+.wa-bez__h:active { cursor: grabbing; fill: #22d3ee; }
+
+/* Bundled-texture swatch grid (front / sides / back face pickers). */
+.wa-texrow { padding: 4px 0 2px; }
+.wa-texrow__label { font-size: 12px; color: #9aa4b1; margin: 0 0 4px; }
+.wa-texgrid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+.wa-texgrid__sw {
+  aspect-ratio: 1; min-width: 0; padding: 0; border-radius: 4px;
+  border: 1px solid #2a3340; background: #0b0d10 center/cover no-repeat;
+  cursor: pointer; image-rendering: pixelated;
+}
+.wa-texgrid__sw:hover { border-color: #3a4757; }
+.wa-texgrid__sw.is-on { border-color: #22d3ee; box-shadow: 0 0 0 1px #22d3ee; }
+.wa-texgrid__sw--none { position: relative; background: #0b0d10; }
+.wa-texgrid__sw--none::after {
+  content: "∅"; position: absolute; inset: 0; display: grid; place-items: center;
+  color: #5b6675; font-size: 12px;
+}
+
+/* Searchable font dropdown. */
+.wa-fontpick { position: relative; }
+.wa-fontpick__list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
+  margin: 0; padding: 4px; list-style: none;
+  max-height: 300px; overflow-y: auto;
+  background: #0d1117; border: 1px solid #2a3340; border-radius: 8px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.55);
+}
+.wa-fontpick__list::-webkit-scrollbar { width: 8px; }
+.wa-fontpick__list::-webkit-scrollbar-thumb { background: #2a3340; border-radius: 4px; }
+.wa-fontpick__item {
+  padding: 6px 9px; border-radius: 5px; font-size: 13px; color: #d8dee6;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wa-fontpick__item:hover { background: #182230; }
+.wa-fontpick__item.is-active { background: #142033; color: #22d3ee; }
+
+/* Open-in-CodePen button (bottom-left, like /gallery). */
+.wa-codepen {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 16;
+  background: #11141a; border: 1px solid #2a3340; color: #e8edf2;
+  border-radius: 8px; padding: 8px 14px; font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.wa-codepen:hover { border-color: #3a86ff; }
+.wa-codepen:disabled { opacity: 0.6; cursor: progress; }
+
+/* Bottom tab bar — desktop keeps both panels floating, so it's hidden there. */
+.wa-mobile-tabs { display: none; }
+
+/* Mobile: like /gallery — the floating panels collapse into bottom sheets that
+   the tab bar toggles one at a time, over a full-bleed stage. */
+@media (max-width: 760px) {
+  .wa-root { --wa-tabs-h: 52px; }
+
+  .dn-stats-overlay { display: none !important; }
+
+  /* Only the two top-level floating panels collapse — not the left card's own
+     inline lil-gui (.wa-gui--inline), which stays inside the scrolling card. */
+  .wa-left,
+  .wa-gui:not(.wa-gui--inline) {
+    top: 8px;
+    right: 8px;
+    bottom: calc(8px + var(--wa-tabs-h) + 8px);
+    left: 8px;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    z-index: 25;
+    display: none;
+  }
+  .wa-left.is-mobile-open { display: flex; }
+  .wa-gui:not(.wa-gui--inline).is-mobile-open { display: flex; flex-direction: column; }
+  .wa-left .wa-card__body { flex: 1; max-height: none; }
+
+  /* The right panel's lil-gui fills the sheet and scrolls inside it. */
+  .wa-gui:not(.wa-gui--inline) .lil-gui.root {
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+
+  .wa-codepen,
+  .wa-stage-foot { bottom: calc(8px + var(--wa-tabs-h) + 8px); }
+
+  .wa-mobile-tabs {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .wa-mobile-tabs__button {
+    min-height: 44px;
+    border: 1px solid #2a3340;
+    border-radius: 8px;
+    background: rgba(17, 20, 26, 0.92);
+    color: #d8e2ec;
+    font: 700 13px/1 system-ui, sans-serif;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .wa-mobile-tabs__button.is-active {
+    border-color: #22d3ee;
+    background: #12313a;
+    color: #ecfeff;
+  }
+}
+
+/* glyphcss render chain must fill the stage so autoSize gets the full grid.
+   The camera (GlyphOrthographicCamera) + scene host are plain divs that
+   otherwise collapse to content height. */
+.wa-stage > div,
+.wa-stage .glyph-host,
+.wa-stage .glyph-scene {
+  width: 100%;
+  height: 100%;
+}
+.wa-stage .glyph-output {
+  margin: 0;
+}

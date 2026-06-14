@@ -1,0 +1,33 @@
+---
+import { WordArtWorkbench } from '../components/WordArtWorkbench';
+import DocsHeader from '../components/DocsHeader.astro';
+
+const title = 'WordArt — 3D ASCII text from any font | glyphcss';
+const description = 'Extrude any Google font into 3D text — gradients, block textures, bevels, warps — rasterised to ASCII in a single <pre>. Powered by glyphcss + @glyphcss/fonts.';
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  </head>
+  <body>
+    <div class="page">
+      <DocsHeader />
+      <div class="debug-page-shell">
+        <WordArtWorkbench client:only="react" />
+      </div>
+    </div>
+  </body>
+  <style>
+    :global(:root) { --sl-nav-height: 72px; }
+    :global(html, body) { margin: 0; background: #0a0b0d; color: #e8edf2; }
+    :global(body) { min-height: 100vh; overflow: hidden; font-family: system-ui, sans-serif; }
+    .page { min-height: 100vh; background: #0a0b0d; }
+    .debug-page-shell { position: fixed; inset: var(--sl-nav-height) 0 0; min-width: 0; min-height: 0; }
+    /* WordArt is a full-screen app, not a docs page — hide the site search. */
+    :global(.sidebar-search-dock) { display: none !important; }
+  </style>
+</html>
