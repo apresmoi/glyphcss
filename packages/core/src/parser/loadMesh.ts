@@ -8,21 +8,24 @@
  *   - `.glb`  → ArrayBuffer fetch + `parseGltf`
  *   - `.gltf` → ArrayBuffer fetch + `parseGltf` (caller may pass `baseUrl`)
  *   - `.vox`  → ArrayBuffer fetch + `parseVox`
+ *   - `.stl`  → ArrayBuffer fetch + `parseStl`
  *
  * `.mtl` is rejected — it's a material file, not a mesh. Use `parseMtl`
  * directly if you want to read materials.
  *
- * Other extensions throw. Future formats (STL, PLY) plug in here.
+ * Other extensions throw. Future formats (PLY, 3MF) plug in here.
  */
 import type { ParseResult } from "./types";
 import type { MeshResolution } from "../types";
 import type { ObjParseOptions } from "./parseObj";
 import type { GltfParseOptions } from "./parseGltf";
 import type { VoxParseOptions } from "./parseVox";
+import type { StlParseOptions } from "./parseStl";
 import { parseObj } from "./parseObj";
 import { parseGltf } from "./parseGltf";
 import { parseMtl } from "./parseMtl";
 import { parseVox } from "./parseVox";
+import { parseStl } from "./parseStl";
 import { bakeSolidTextureSamples, type SolidTextureSampleOptions } from "./solidTextureSamples";
 import { optimizeMeshPolygons } from "../merge/optimizePolygons";
 
@@ -47,6 +50,8 @@ export interface LoadMeshOptions {
   gltfOptions?: GltfParseOptions;
   /** Forwarded to `parseVox`. */
   voxOptions?: VoxParseOptions;
+  /** Forwarded to `parseStl`. */
+  stlOptions?: StlParseOptions;
   /**
    * Converts texture-backed faces whose UV samples are a uniform color into
    * solid-color polygons before culling/merging. This avoids atlas sprites for
@@ -169,5 +174,12 @@ export async function loadMesh(url: string, options?: LoadMeshOptions): Promise<
     return withMeshResolution(parseVox(buf, options?.voxOptions), options);
   }
 
-  throw new Error(`${FETCH_NAME}: unsupported extension ".${ext}" (supported: obj, glb, gltf, vox)`);
+  if (ext === "stl") {
+    const res = await fetchFn(url);
+    if (!res.ok) throw new Error(`${FETCH_NAME}: ${url} → ${res.status}`);
+    const buf = await res.arrayBuffer();
+    return withMeshResolution(parseStl(buf, options?.stlOptions), options);
+  }
+
+  throw new Error(`${FETCH_NAME}: unsupported extension ".${ext}" (supported: obj, glb, gltf, vox, stl)`);
 }
