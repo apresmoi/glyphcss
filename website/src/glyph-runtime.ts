@@ -1145,11 +1145,20 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     rebuildSceneFromGeometry();
   }
 
+  // Monotonic token guarding async mesh loads. Switching models fires a new
+  // setMeshUrl/setPolygons before a slow earlier fetch resolves; without this
+  // the stale load would overwrite the newer mesh (and re-toggle the loading
+  // overlay) — the "blink, then shows the old mesh" bug. Each call bumps the
+  // token; an awaited load whose token is no longer current bails.
+  let meshLoadToken = 0;
+
   async function setMeshUrl(url: string, mtlUrl?: string): Promise<void> {
+    const token = ++meshLoadToken;
     loadingEl.style.display = 'grid';
     loadingEl.textContent = `Loading ${url.split('/').pop()}…`;
     try {
       const loaded = await loadMeshAsGeometry(url, controlState.autoCenter, mtlUrl);
+      if (token !== meshLoadToken) return; // superseded by a newer selection
       if (loaded.edges.length === 0) {
         loadingEl.textContent = 'Empty mesh (0 edges).';
         return;
@@ -1161,12 +1170,16 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       onSelectionChange?.(-1, null);
       rebuildSceneFromGeometry();
     } catch (err) {
+      if (token !== meshLoadToken) return; // stale failure; a newer load owns the UI
       console.error('setMeshUrl failed', err);
       loadingEl.textContent = `Failed to load mesh: ${(err as Error).message}`;
     }
   }
 
   function setPolygons(polygons: Polygon[]): void {
+    // Invalidate any in-flight mesh fetch so a slow load can't overwrite this
+    // synchronously-applied geometry (e.g. switching to a primitive mid-load).
+    meshLoadToken += 1;
     // Preserve the ORIGINAL N-gon polygons (don't fan-triangulate up front).
     // Wireframe edge derivation downstream uses the actual polygon outlines —
     // a cube stays 6 quads (12 outline edges), a dodecahedron stays 12
@@ -1499,10 +1512,21 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
     // `lineHeight` isn't a scene option — it's a CSS multiplier we apply
     // directly to the rendered <pre>. Pre-line-height changes the character
-    // cell height, so we ask the scene to re-fit cols/rows for the new cell.
+    // cell height, so we re-fit cols/rows + cellAspect for the new cell, then
+    // compensate zoom so the object keeps the SAME on-screen size: the object's
+    // row-span is `worldHeight · zoom` (cell-independent), so a taller cell
+    // would otherwise scale it up. On-screen width and height both scale as
+    // `zoom · lineHeight`, so scaling zoom by the inverse line-height ratio
+    // holds both fixed — line-height then only changes vertical glyph density.
     if ('lineHeight' in partial && partial.lineHeight !== undefined) {
-      scene.output.style.lineHeight = String(partial.lineHeight);
+      const prevLineHeight = parseFloat(scene.output.style.lineHeight) || 1;
+      const nextLineHeight = partial.lineHeight;
+      scene.output.style.lineHeight = String(nextLineHeight);
       scene.fit();
+      if (prevLineHeight > 0 && nextLineHeight > 0 && camera.zoom > 0 && !camera.eyeMode) {
+        camera.zoom = Math.round(camera.zoom * (prevLineHeight / nextLineHeight) * 1000) / 1000;
+        tunables.zoom = camera.zoom;
+      }
     }
 
     // Geometry-affecting tunables — wireframe edge threshold changes the
