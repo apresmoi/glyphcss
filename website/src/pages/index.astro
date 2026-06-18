@@ -236,11 +236,11 @@ const ldJson = {
             </div>
             <p>
               <span class="term-prompt-inline">&gt;</span>
-              glyphcss loads OBJ, glTF, GLB, and VOX mesh files. Each scene becomes
-              a single <code>&lt;pre&gt;</code> containing N pre-baked rotation
-              frames stacked vertically, animated by CSS <code>steps(N)</code>.
-              JavaScript runs once at scene init and again only when the user
-              drags / zooms — never per frame.
+              glyphcss loads OBJ, glTF, GLB, STL, and VOX mesh files. Each scene
+              renders into a single <code>&lt;pre&gt;</code>: the rasteriser
+              projects every polygon, fills a <code>cols × rows</code> character
+              grid, and writes one string to <code>textContent</code> per render.
+              There are no per-polygon DOM nodes and no <code>matrix3d</code>.
             </p>
             <p>
               <span class="term-prompt-inline">&gt;</span>
@@ -469,8 +469,8 @@ const ldJson = {
   /* ── ASCII-art hero (meta: the visual IS a glyphcss scene) ──────── */
   /* Mobile-first: text stacked on top, scene below. Side-by-side kicks
      in at ≥768px (see media query below). The scene used to sit behind
-     the text via position: absolute; that read as "background image of
-     an apple" which isn't the framing we want. */
+     the text via position: absolute; that read as a background image
+     rather than a focal element, which isn't the framing we want. */
   .hero--ascii {
     display: grid;
     /* minmax(0, 1fr) — not bare 1fr — so the track shrinks below the demo's
@@ -497,10 +497,9 @@ const ldJson = {
   .hero--ascii .hero-scene {
     grid-area: scene;
     position: relative;
-    /* The apple's natural projection at zoom 0.25 is taller than it is wide,
-       so the frame needs more vertical room than horizontal on narrow
-       viewports. 1.2× the available width gives the apple breathing space
-       without making the hero dominate the viewport. */
+    /* The globe auto-fits the grid, so the frame just needs enough vertical
+       room on narrow viewports for it to read as a sphere without making the
+       hero dominate the viewport. */
     height: clamp(420px, 90vw, 560px);
     overflow: hidden;
     min-width: 0;

@@ -7,10 +7,10 @@
  *     controls='["scale","stretch","distance","rotX","duration","geometry"]'
  *     showStats />
  *
- * Renders a `<pre>` strip with N pre-baked rotation frames + a sparse hit
- * layer of <div> hotspots, animated entirely via CSS `steps(N)`. JavaScript
- * runs once at init and again only when the user drags / zooms / changes a
- * lil-gui control.
+ * Renders a single `<pre>` (the rasteriser writes one string to its
+ * textContent per render) + a sparse hit layer of <div> hotspots. JavaScript
+ * runs at init, on each auto-rotate frame, and when the user drags / zooms /
+ * changes a lil-gui control.
  *
  * The full runtime lives in `src/glyph-runtime.ts`. It's imported as a
  * client script so Astro's template parser never sees TS generics or block
