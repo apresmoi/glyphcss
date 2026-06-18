@@ -306,6 +306,8 @@ export default function GalleryWorkbench() {
   const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
   const [modelSearch, setModelSearch] = useState("");
   const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
+  // Mobile-only: which panel is open as a bottom drawer (null = canvas only).
+  const [mobilePanel, setMobilePanel] = useState<"models" | "controls" | null>(null);
   // Seed the loader ref to the initial preset when the URL already restored
   // scene options, so it skips applying preset rotX/rotY over the URL values.
   const autoZoomPresetRef = useRef<string | null>(initialRouteHasSceneOptions ? initialPreset.id : null);
@@ -491,15 +493,25 @@ export default function GalleryWorkbench() {
   // Inspector is read-only for first cut — no triangle mutations.
   const inspectorMeshes: InspectorMesh[] = [];
 
+  // Close the mobile drawer on Escape.
+  useEffect(() => {
+    if (!mobilePanel) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobilePanel(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobilePanel]);
+
   return (
     <div
-      className={`dn-root${dropped.dropActive ? " dn-root--drop-active" : ""}`}
+      className={`dn-root dn-root--gallery${dropped.dropActive ? " dn-root--drop-active" : ""}`}
       onDragEnter={dropped.handleDragEnter}
       onDragOver={dropped.handleDragOver}
       onDragLeave={dropped.handleDragLeave}
       onDrop={dropped.handleDrop}
     >
       <ModelsSidebar
+        id="gallery-models-panel"
+        className={mobilePanel === "models" ? "is-mobile-open" : ""}
         modelSearch={modelSearch}
         onModelSearchChange={setModelSearch}
         onImportClick={() => dropped.fileInputRef.current?.click()}
@@ -511,7 +523,7 @@ export default function GalleryWorkbench() {
         onToggleCategory={handleToggleCategory}
         modelTreeId={modelTreeId}
         presetId={presetId}
-        onPresetClick={(id) => resetToPreset(id, { updateRoute: true })}
+        onPresetClick={(id) => { resetToPreset(id, { updateRoute: true }); setMobilePanel(null); }}
         attribution={selectedPreset.attribution}
       />
 
@@ -544,7 +556,10 @@ export default function GalleryWorkbench() {
 
       <StatsOverlay />
 
-      <Dock>
+      <Dock
+        id="gallery-controls-panel"
+        className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+      >
         <DockModel metrics={metrics} />
         <DockRendering
           renderMode={sceneOptions.renderMode}
@@ -613,6 +628,34 @@ export default function GalleryWorkbench() {
         />
       </Dock>
 
+      <nav className="dn-mobile-tabs" aria-label="Gallery panels">
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "models" ? " is-active" : ""}`}
+          aria-controls="gallery-models-panel"
+          aria-expanded={mobilePanel === "models"}
+          onClick={() => setMobilePanel((current) => current === "models" ? null : "models")}
+        >
+          Models
+        </button>
+        <button
+          type="button"
+          className="dn-mobile-tabs__button dn-mobile-tabs__button--random"
+          aria-label="Load random model"
+          onClick={() => { handleRandomPreset(); setMobilePanel(null); }}
+        >
+          Random
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "controls" ? " is-active" : ""}`}
+          aria-controls="gallery-controls-panel"
+          aria-expanded={mobilePanel === "controls"}
+          onClick={() => setMobilePanel((current) => current === "controls" ? null : "controls")}
+        >
+          Controls
+        </button>
+      </nav>
     </div>
   );
 }
