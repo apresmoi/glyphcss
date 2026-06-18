@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BASE_TILE,
   GlyphMesh,
   GlyphOrthographicCamera,
   GlyphPerspectiveCamera,
@@ -132,29 +131,6 @@ function readable(hex: string): string {
   const n = parseInt(m[1], 16);
   const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
   return lum > 150 ? "#0b0f18" : "#ffffff";
-}
-
-function fitZoom(polygons: Polygon[], stageW: number, stageH: number, scaleX = 1, scaleY = 1): number {
-  if (!polygons.length) return 0.06;
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (const p of polygons) {
-    for (const v of p.vertices) {
-      if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
-      if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
-      if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
-    }
-  }
-  // Flat text: Y = width (screen-right), X = height (screen-down), Z = depth.
-  // As the mesh turntables, width swings into depth, so fit the larger of the
-  // two. Scale X/Y are applied as a CSS transform on the mesh (not baked), so
-  // multiply the base bounds by them here to frame the *scaled* word — the
-  // camera then compensates the wrapper scale, keeping the word framed and the
-  // texture ~base resolution.
-  const horizontal = Math.max((maxY - minY) * scaleX, maxZ - minZ);
-  const vertical = (maxX - minX) * scaleY;
-  const fitW = (stageW * 0.7) / (Math.max(horizontal, 1) * BASE_TILE);
-  const fitH = (stageH * 0.68) / (Math.max(vertical, 1) * BASE_TILE);
-  return Math.max(0.01, Math.min(0.2, Math.min(fitW, fitH)));
 }
 
 function codePenPayload(snapshotHtml: string, title: string): string {
@@ -368,8 +344,8 @@ export function WordArtWorkbench() {
       size: 100,
       depth: layered ? 0 : depth,        // "Flat layers" = no edges (depth 0)
       profile: profileObj,
-      // Scale X/Y are NOT baked here — they're a live CSS transform on the mesh
-      // wrapper (so they stretch the whole block uniformly and need no recompute).
+      // Scale X/Y are NOT baked here — they're applied as a per-axis mesh scale
+      // in Stage, so they stretch the whole block uniformly with no rebuild.
       letterSpacing,
       lineHeight,
       align,
@@ -382,12 +358,6 @@ export function WordArtWorkbench() {
       outline: outlineOn ? { color: outlineColor, width: outlineWidth } : undefined,
     });
   }, [font, text, textCase, depth, profile, roundConvex, bezier, letterSpacing, lineHeight, align, underline, strike, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, front, fillType, backFill, backTex, sideFill, sideTex, outlineOn, outlineColor, outlineWidth, layered]);
-
-  // Live "dynamic-mode" preview for the affine sliders (scale X/Y, depth): while
-  // dragging, we don't recompute geometry — we set a CSS scale3d on the mesh
-  // wrapper (one var per axis, like dynamic lighting) and bake the real geometry
-  // only on release. {1,1,1} = identity (nothing previewing).
-  const [preview, setPreview] = useState<{ sx: number; sy: number; sz: number }>({ sx: 1, sy: 1, sz: 1 });
 
   // Directional light direction from azimuth (left/right) + elevation (height),
   // always biased toward the front so the face stays lit.
@@ -513,7 +483,6 @@ export function WordArtWorkbench() {
       <StatsOverlay />
       <Stage
         polygons={polygons}
-        preview={preview}
         scaleXFrac={scaleX / 100}
         scaleYFrac={scaleY / 100}
         zoomScale={zoomScale}
@@ -568,7 +537,6 @@ export function WordArtWorkbench() {
         className={mobilePanel === "controls" ? "is-mobile-open" : ""}
         values={guiValues}
         set={guiSet}
-        onPreviewAxis={(axis, ratio) => setPreview((p) => ({ ...p, [axis]: ratio }))}
         bezier={bezier}
         onBezier={setBezier}
       />
@@ -618,7 +586,6 @@ function centerMesh(polygons: Polygon[]): Polygon[] {
 
 interface StageProps {
   polygons: Polygon[];
-  preview: { sx: number; sy: number; sz: number };
   scaleXFrac: number;
   scaleYFrac: number;
   zoomScale: number;
@@ -633,12 +600,13 @@ interface StageProps {
 }
 
 /**
- * Isolated render surface. Auto-spin / drag drive the CAMERA rotation — glyphcss
- * projects geometry to an ASCII <pre>, so there's no CSS-3D wrapper to spin like
- * polycss. Kept small so the per-frame spin re-render doesn't touch the parent's
- * controls + 2000-option font datalist.
+ * Isolated render surface. Auto-spin / drag drive the MESH rotation (turntable
+ * Rx + tilt Ry); the camera is pinned at rot 0. glyphcss projects geometry to an
+ * ASCII <pre>, so there's no CSS-3D wrapper to spin like polycss. Kept small so
+ * the per-frame spin re-render doesn't touch the parent's controls +
+ * 2000-option font datalist.
  */
-function Stage({ polygons, preview, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status }: StageProps) {
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const [turn, setTurn] = useState(0); // Rx — turntable around screen-vertical (text up = world X)
@@ -655,7 +623,7 @@ function Stage({ polygons, preview, scaleXFrac, scaleYFrac, zoomScale, setZoomSc
     return () => ro.disconnect();
   }, []);
 
-  // Auto-spin advances the camera's rotY each frame (paused while dragging).
+  // Auto-spin advances the mesh turntable (turn = Rx) each frame (paused while dragging).
   useEffect(() => {
     if (!spin) return;
     let raf = 0;
@@ -693,16 +661,11 @@ function Stage({ polygons, preview, scaleXFrac, scaleYFrac, zoomScale, setZoomSc
     setZoomScale((z) => Math.max(0.1, Math.min(6, z * factor)));
   };
 
-  // Camera `zoom` is px-per-world-unit (zoom=1 → BASE_TILE). `fitZoom` frames
-  // the word to the stage; `zoomScale` is the user multiplier.
   const centered = useMemo(() => centerMesh(polygons), [polygons]);
-  // Auto-fit: glyphcss's grid cell size (autoSize) is unknown up front, so fit
-  // empirically — after each render, read how much of the grid the word uses and
-  // nudge `fitPx` (px-per-world-unit) until it fills ~82%. Converges in 1-2 frames.
-  // Analytic auto-fit: px-per-world-unit derived from the grid size + the word's
-  // WORLD bounds — never from the rendered text extent. So it's independent of
-  // both zoomScale (the slider) and rotation; `zoomScale` then multiplies it
-  // cleanly, matching polycss (0.1 → tiny, 1 → ~82% fill).
+  // Analytic auto-fit: camera `zoom` is px-per-world-unit, derived from the grid
+  // size + the word's WORLD bounds — never from the rendered text extent. So it's
+  // independent of both zoomScale (the slider) and rotation; `zoomScale` then
+  // multiplies it cleanly, matching polycss (0.1 → tiny, 1 → ~82% fill).
   const [fitPx, setFitPx] = useState(0.4);
   useEffect(() => {
     const pre = stageRef.current?.querySelector("pre.glyph-output");
@@ -744,7 +707,11 @@ function Stage({ polygons, preview, scaleXFrac, scaleYFrac, zoomScale, setZoomSc
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
-          <GlyphMesh polygons={centered} rotation={[turn, tilt, 0]} scale={[scaleXFrac, scaleYFrac, preview.sz]} />
+          {/* Font mesh is X-up: local X = text height (screen-down), local Y =
+              text width (screen-right). The "Scale X" slider should stretch
+              horizontally, so it maps to local Y; "Scale Y" maps to local X.
+              Depth is baked into the geometry, so Z stays 1. */}
+          <GlyphMesh polygons={centered} rotation={[turn, tilt, 0]} scale={[scaleYFrac, scaleXFrac, 1]} />
         </GlyphScene>
       </Cam>
       <div className="wa-stage-foot">
@@ -853,18 +820,8 @@ function mountBezierEditor(parent: HTMLElement, getB: () => Bezier4, setB: (b: B
  * are identical, not a CSS approximation. lil-gui is imperative, so we mount it
  * once and bridge its onChange → React, and React state → updateDisplay().
  */
-function GuiPanel({ id, className = "", values, set, onPreviewAxis, bezier, onBezier }: { id?: string; className?: string; values: GuiValues; set: (k: keyof GuiValues, v: number | string | boolean) => void; onPreviewAxis: (axis: "sx" | "sy" | "sz", ratio: number) => void; bezier: Bezier4; onBezier: (b: Bezier4) => void }) {
+function GuiPanel({ id, className = "", values, set, bezier, onBezier }: { id?: string; className?: string; values: GuiValues; set: (k: keyof GuiValues, v: number | string | boolean) => void; bezier: Bezier4; onBezier: (b: Bezier4) => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
-  // Current committed values, read inside the (mount-once) GUI callbacks so the
-  // live-preview ratio is taken against the value at drag start.
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
-  const onPreviewAxisRef = useRef(onPreviewAxis);
-  onPreviewAxisRef.current = onPreviewAxis;
-  // True while an affine slider is mid-drag (preview mode). The values→GUI
-  // write-back below is skipped then, so it can't reset the control the user is
-  // dragging back to the (not-yet-committed) value.
-  const previewDragRef = useRef(false);
   const cfgRef = useRef<GuiValues>({ ...values });
   const ctrlRef = useRef<Record<string, ReturnType<GUI["add"]>>>({});
   const bezierRef = useRef(bezier);
@@ -876,21 +833,6 @@ function GuiPanel({ id, className = "", values, set, onPreviewAxis, bezier, onBe
     const c = ctrlRef.current;
     const gui = new GUI({ container: hostRef.current!, title: "Settings", width: 300 });
     const on = (k: keyof GuiValues) => (v: number | string | boolean) => set(k, v);
-
-    // Tier-1 "dynamic mode": while dragging an affine slider, only set a CSS
-    // scale3d ratio on the wrapper (no geometry recompute). On release we commit
-    // the real value but DON'T reset the preview here — the mesh holds the old
-    // frame until the new atlas is decoded (atomicAtlas) and fires onFrameReady,
-    // which resets the preview so the swap is seamless (no backward flash).
-    const previewAxis = (k: keyof GuiValues, axis: "sx" | "sy" | "sz") => (v: number | string | boolean) => {
-      previewDragRef.current = true;
-      const base = (valuesRef.current[k] as number) || 1;
-      onPreviewAxisRef.current(axis, ((v as number) / base) || 1);
-    };
-    const bake = (k: keyof GuiValues) => (v: number | string | boolean) => {
-      previewDragRef.current = false;
-      set(k, v);
-    };
 
     const shape = gui.addFolder("Shape");
     c.profileMode = shape.add(cfg, "profileMode", {
@@ -930,11 +872,12 @@ function GuiPanel({ id, className = "", values, set, onPreviewAxis, bezier, onBe
     c.bend = shape.add(cfg, "bend", 0, 1, 0.02).name("Bend").onFinishChange(on("bend"));
 
     const layout = gui.addFolder("Layout");
-    // Tier-1 (affine): live CSS scale preview while dragging, bake on release.
-    c.depth = layout.add(cfg, "depth", 2, 80, 1).name("Depth").onChange(previewAxis("depth", "sz")).onFinishChange(bake("depth"));
+    // glyphcss rebuilds geometry reactively on every change (no async atlas
+    // decode), so each control just bakes straight into state.
+    c.depth = layout.add(cfg, "depth", 2, 80, 1).name("Depth").onChange(on("depth"));
     c.letterSpacing = layout.add(cfg, "letterSpacing", -20, 60, 1).name("Letter spacing").onFinishChange(on("letterSpacing"));
     c.lineHeight = layout.add(cfg, "lineHeight", 0.8, 2.5, 0.05).name("Line height").onFinishChange(on("lineHeight"));
-    // Scale X/Y just update state → a live CSS wrapper transform (no recompute).
+    // Scale X = horizontal stretch, Scale Y = vertical (mapped to mesh axes in Stage).
     c.scaleX = layout.add(cfg, "scaleX", 40, 200, 1).name("Scale X").onChange(on("scaleX"));
     c.scaleY = layout.add(cfg, "scaleY", 40, 200, 1).name("Scale Y").onChange(on("scaleY"));
     c.curveSegments = layout.add(cfg, "curveSegments", 1, 12, 1).name("Curve segments").onFinishChange(on("curveSegments"));
@@ -961,11 +904,8 @@ function GuiPanel({ id, className = "", values, set, onPreviewAxis, bezier, onBe
 
   // Push React state back into the GUI display + toggle conditional controllers.
   useEffect(() => {
-    // Skip the write-back mid preview-drag so it can't reset the dragged control.
-    if (!previewDragRef.current) {
-      Object.assign(cfgRef.current, values);
-      for (const ctrl of Object.values(ctrlRef.current)) ctrl?.updateDisplay();
-    }
+    Object.assign(cfgRef.current, values);
+    for (const ctrl of Object.values(ctrlRef.current)) ctrl?.updateDisplay();
     bezierRef.current = bezier;
     onBezierRef.current = onBezier;
     const isCustom = values.profileMode.startsWith("custom");
