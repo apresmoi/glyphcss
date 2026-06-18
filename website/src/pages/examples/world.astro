@@ -1,5 +1,6 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
 const title = "glyphcss · ASCII Earth";
 const description = "ETOPO1 global topography rasterised into ASCII. Isometric, drag to orbit.";
 ---
@@ -12,8 +13,10 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
   <meta name="description" content={description} />
   <style>
     html, body { background: #03050a; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
-    body { display: flex; }
-    .ex-layout { flex: 1; display: flex; min-height: 100vh; min-width: 0; }
+    body { display: flex; overflow: hidden; }
+    /* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
     .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .map-shell { flex: 1; display: flex; flex-direction: column; }
     .map-head { padding: 24px 32px 12px; border-bottom: 1px solid rgba(255, 232, 184, 0.12); }
@@ -28,6 +31,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
   </style>
 </head>
 <body>
+  <DocsHeader />
   <div class="ex-layout">
     <ExamplesSidebar active="world" />
     <div class="ex-main">

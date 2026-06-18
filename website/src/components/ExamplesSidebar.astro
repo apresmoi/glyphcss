@@ -12,7 +12,6 @@ const items = [
 ---
 
 <aside class="ex-sidebar">
-  <a class="ex-brand" href="/">glyph<span>css</span></a>
   <div class="ex-sb-title">EXAMPLES</div>
   <nav class="ex-sb-nav">
     {items.map((it) => (
@@ -44,6 +43,10 @@ const items = [
 </script>
 
 <style>
+  /* The examples are full-screen apps under the fixed site header, which owns
+     the brand + section nav. Hide Starlight's floating search dock so it doesn't
+     overlap this sub-nav (mirrors the WordArt page). */
+  :global(.sidebar-search-dock) { display: none !important; }
   .ex-sidebar {
     width: 220px;
     flex-shrink: 0;
@@ -55,15 +58,6 @@ const items = [
     gap: 2px;
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
   }
-  .ex-brand {
-    padding: 0 20px 18px;
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: rgba(255, 232, 184, 0.95);
-    text-decoration: none;
-  }
-  .ex-brand span { color: #38bdf8; }
   .ex-sb-title {
     padding: 0 20px 8px;
     font-size: 10px;

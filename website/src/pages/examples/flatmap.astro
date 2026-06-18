@@ -1,5 +1,6 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
 const title = "glyphcss · ASCII Iso World Map";
 ---
 
@@ -10,8 +11,10 @@ const title = "glyphcss · ASCII Iso World Map";
   <title>{title}</title>
   <style>
     html, body { background: #04060b; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
-    body { display: flex; }
-    .ex-layout { flex: 1; display: flex; min-height: 100vh; min-width: 0; }
+    body { display: flex; overflow: hidden; }
+    /* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
     .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .map-head { padding: 20px 28px 10px; border-bottom: 1px solid rgba(255,232,184,0.12); }
     .map-head h1 { margin: 0; font-size: 20px; color: rgba(255,232,184,0.94); letter-spacing: 0.04em; }
@@ -80,6 +83,7 @@ const title = "glyphcss · ASCII Iso World Map";
   </style>
 </head>
 <body>
+  <DocsHeader />
   <div class="ex-layout">
     <ExamplesSidebar active="flatmap" />
     <div class="ex-main">
@@ -204,9 +208,8 @@ const title = "glyphcss · ASCII Iso World Map";
       // while terrain relief still reads as vertical bumps.
       // rotY=0 keeps north up (worldX=lat axis → screen vertical, worldY=lon
       // axis → screen horizontal). No rotation interaction — pan/zoom only.
-      // zoom=39 (absolute px-per-world-unit × BASE_TILE=50) shows the default
-      // LOD-1 region filling the viewport — same calibration as the globe
-      // (unit object fills at zoom≈16; this view is intentionally zoomed in).
+      // zoom=78 (absolute px-per-world-unit × BASE_TILE=50) shows the default
+      // LOD-1 region filling the viewport.
       const camera = createGlyphOrthographicCamera({ rotX: 40, rotY: 0, zoom: 78 });
 
       const scene = createGlyphScene(host, {
@@ -540,8 +543,8 @@ const title = "glyphcss · ASCII Iso World Map";
       host.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = e.deltaY * 0.001;
-        // Min 39 = the default fill level; can't zoom out past it.
-        // Max 260 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
+        // Min 20 = zoomed slightly out of the default fill level.
+        // Max 400 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
         camera.zoom = Math.max(20, Math.min(400, camera.zoom * (1 - delta)));
         scene.rerender();
         updateZoomReadout();
@@ -684,9 +687,9 @@ const title = "glyphcss · ASCII Iso World Map";
       // Runs after a render (hotspot left/top are then current). Caps total
       // shown by zoom so the world view stays sparse.
       function updateLabels(): void {
-        // Scale label count with zoom: at zoom=39 (default view) show ~10;
-        // at zoom=260 (max) show ~40. Normalise by default zoom 39.
-        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / 39) * 14)));
+        // Scale label count with zoom: at zoom=78 (default view) show ~14;
+        // more as you zoom in. Normalise by default zoom 78.
+        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / 78) * 14)));
         const hostRect = host.getBoundingClientRect();
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         let count = 0;
