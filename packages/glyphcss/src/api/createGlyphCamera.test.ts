@@ -112,6 +112,11 @@ describe("createGlyphPerspectiveCamera — defaults", () => {
     expect(cam.distance).toBe(6);
   });
 
+  it("defaults to perspective=32000 (voxcss CSS-perspective parity)", () => {
+    const cam = createGlyphPerspectiveCamera();
+    expect(cam.perspective).toBe(32000);
+  });
+
   it("kind is 'perspective'", () => {
     expect(createGlyphPerspectiveCamera().kind).toBe("perspective");
   });
@@ -293,7 +298,8 @@ describe("projection parity with voxcss convention", () => {
   });
 
   it("perspective camera: farther points appear closer to center (foreshortening)", () => {
-    const cam = createGlyphPerspectiveCamera({ rotX: 0, rotY: 0, zoom: 1, distance: 10 });
+    // Legacy orbit projection (perspective: 0) — pinhole at `distance` world units.
+    const cam = createGlyphPerspectiveCamera({ rotX: 0, rotY: 0, zoom: 1, distance: 10, perspective: 0 });
     const [col_near] = cam.project([0, 1, 0], COLS, ROWS, ASPECT);  // depth rz2 ≈ 0
     const [col_far]  = cam.project([0, 1, 5], COLS, ROWS, ASPECT);  // depth rz2 ≈ 5 → farther
     // Both project y=1 → same cssX before perspective. But the near-depth point
@@ -304,7 +310,8 @@ describe("projection parity with voxcss convention", () => {
   });
 
   it("perspective: point beyond distance (rz2 >= distance) is NaN-culled", () => {
-    const cam = createGlyphPerspectiveCamera({ rotX: 0, rotY: 0, zoom: 1, distance: 5 });
+    // Legacy orbit projection (perspective: 0) — pinhole at `distance` world units.
+    const cam = createGlyphPerspectiveCamera({ rotX: 0, rotY: 0, zoom: 1, distance: 5, perspective: 0 });
     // world [0,0,10] → after rotation with rotX=0,rotY=0: rz2 = world[2] - 0 ... wait
     // Actually with rotX=0, rotY=0: axis-swap gives cx=0,cy=0,cz=10; rotZ(0)=same;
     // rotX(0)=same; rz2=10 > distance=5 → denom=5-10=-5 < NEAR → NaN

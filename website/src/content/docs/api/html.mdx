@@ -69,14 +69,15 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 
 `<glyph-camera>` is the ergonomic default — an alias for
 `<glyph-orthographic-camera>`. All three accept the same orientation
-attributes; perspective additionally accepts `distance` and `stretch`.
+attributes; perspective additionally accepts `distance`, `perspective`, and `stretch`.
 
 | Attribute | Notes |
 |---|---|
 | `rot-x` | Pitch in degrees |
 | `rot-y` | Yaw in degrees |
 | `zoom` | Pixels per world unit |
-| `distance` | Perspective only |
+| `distance` | Perspective only — pull-back in world units |
+| `perspective` | Perspective only — CSS-perspective distance in px (default 32000; `0` = legacy orbit) |
 | `stretch` | Perspective only |
 
 ### `<glyph-mesh>`

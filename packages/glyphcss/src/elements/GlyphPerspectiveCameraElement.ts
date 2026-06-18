@@ -20,7 +20,7 @@ function parseNumber(value: string | null): number | undefined {
 
 export class GlyphPerspectiveCameraElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["rot-x", "rot-y", "distance", "zoom", "stretch"];
+    return ["rot-x", "rot-y", "distance", "perspective", "zoom", "stretch"];
   }
 
   private _camera: GlyphCamera | null = null;
@@ -34,6 +34,7 @@ export class GlyphPerspectiveCameraElement extends ELEMENT_BASE {
       rotX: parseNumber(this.getAttribute("rot-x")),
       rotY: parseNumber(this.getAttribute("rot-y")),
       distance: parseNumber(this.getAttribute("distance")),
+      perspective: parseNumber(this.getAttribute("perspective")),
       zoom: parseNumber(this.getAttribute("zoom")),
       stretch: parseNumber(this.getAttribute("stretch")),
     });
@@ -51,12 +52,14 @@ export class GlyphPerspectiveCameraElement extends ELEMENT_BASE {
     const rotX = parseNumber(this.getAttribute("rot-x"));
     const rotY = parseNumber(this.getAttribute("rot-y"));
     const distance = parseNumber(this.getAttribute("distance"));
+    const perspective = parseNumber(this.getAttribute("perspective"));
     const zoom = parseNumber(this.getAttribute("zoom"));
     const stretch = parseNumber(this.getAttribute("stretch"));
     let dirty = false;
     if (rotX !== undefined && camera.rotX !== rotX) { camera.rotX = rotX; dirty = true; }
     if (rotY !== undefined && camera.rotY !== rotY) { camera.rotY = rotY; dirty = true; }
     if (distance !== undefined && camera.distance !== distance) { camera.distance = distance; dirty = true; }
+    if (perspective !== undefined && camera.perspective !== perspective) { camera.perspective = perspective; dirty = true; }
     if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
     if (stretch !== undefined && camera.stretch !== stretch) { camera.stretch = stretch; dirty = true; }
     if (dirty) {

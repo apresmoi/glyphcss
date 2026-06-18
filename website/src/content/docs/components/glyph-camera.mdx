@@ -24,7 +24,8 @@ read from the same camera state — mutating `rotY` updates both simultaneously.
 | `rotX` | `number` (degrees) | `0` | Tilt around X axis |
 | `rotY` | `number` (degrees) | `0` | Spin around Y axis |
 | `zoom` | `number` | `50` | Camera zoom — pixels per world unit (`zoom=50` → 50 px per world unit at `BASE_TILE`) |
-| `distance` | `number` | `3` | Camera distance — smaller = more perspective foreshortening |
+| `distance` | `number` | `6` | Camera pull-back along the view axis (world units) |
+| `perspective` | `number` | `32000` | CSS-perspective distance in virtual pixels (matches voxcss). Larger = flatter foreshortening; set `0` for legacy orbit projection |
 | `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
 
 ## Full examples

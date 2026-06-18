@@ -24,6 +24,14 @@ const DEG = Math.PI / 180;
 const PERSPECTIVE_NEAR_FRACTION = 0.01;
 
 /**
+ * Default CSS-perspective distance in virtual pixels — mirrors voxcss/polycss
+ * `DEFAULT_PERSPECTIVE`. Large enough that perspective foreshortening is gentle
+ * (a normal scene only spans a few hundred px), so the on-screen result matches
+ * polycss out of the box.
+ */
+export const DEFAULT_PERSPECTIVE = 32000;
+
+/**
  * Near fraction used by `eyeDepth` for near-plane CLIPPING — deliberately a hair
  * larger than the projection's `PERSPECTIVE_NEAR_FRACTION`. The clip plane sits
  * at `eyeDepth = 0`, which puts the interpolated crossing vertices exactly there;
@@ -171,8 +179,9 @@ export interface GlyphPerspectiveCameraOptions {
    * with the same `P / (P − z)` pinhole math the browser applies for CSS
    * `perspective: Npx` — so identical camera params (rotX/rotY/target/zoom/
    * distance/perspective) produce the same on-screen projection as polycss, and
-   * a first-person view falls out naturally (no `eyeMode` needed). Default 0
-   * (disabled → legacy orbit/eyeMode projection).
+   * a first-person view falls out naturally (no `eyeMode` needed). Default
+   * {@link DEFAULT_PERSPECTIVE} (32000), matching voxcss. Set to 0 to disable
+   * (→ legacy orbit projection using `distance` in world units).
    */
   perspective?: number;
   /**
@@ -215,7 +224,7 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     rotX: opts.rotX ?? 65,
     rotY: opts.rotY ?? 45,
     distance: opts.distance ?? 6,
-    perspective: opts.perspective ?? 0,
+    perspective: opts.perspective ?? DEFAULT_PERSPECTIVE,
     zoom: opts.zoom ?? 0.65,
     stretch: opts.stretch ?? 1.0,
     fovScale: opts.fovScale ?? 1.0,
@@ -254,6 +263,13 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         state.rotX,
         state.rotY,
       );
+      // Clip a hair inside the projection near plane (0.001) for the same reason
+      // as the perspective branch — crossing vertices must reproject finitely.
+      const NEAR = 0.001 * 1.01;
+      // eyeMode (first-person) takes precedence over `perspective`: a camera can
+      // carry the default CSS-perspective value AND be flipped into eyeMode by
+      // the first-person controls, and the eye-at-origin projection must win.
+      if (state.eyeMode) return (-r[2]) - NEAR;
       if (state.perspective > 0) {
         const cssZ = r[2] * state.zoom * BASE_TILE - state.distance;
         // Near plane at 1% of the perspective distance, not ~on the eye: a
@@ -262,10 +278,6 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         // Bounding `near` to `P/100` caps that to ~100× and kills the jitter.
         return (state.perspective - cssZ) - state.perspective * PERSPECTIVE_CLIP_NEAR_FRACTION;
       }
-      // Clip a hair inside the projection near plane (0.001) for the same reason
-      // as the perspective branch — crossing vertices must reproject finitely.
-      const NEAR = 0.001 * 1.01;
-      if (state.eyeMode) return (-r[2]) - NEAR;
       return (state.distance - r[2]) - NEAR;
     },
     project(v, cols, rows, cellAspect) {
@@ -282,6 +294,28 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         v[2] - state.target[2],
       ];
       const r = rotateVec3Voxcss(shifted, state.rotX, state.rotY);
+
+      // eyeMode (first-person) takes precedence over `perspective`: the camera
+      // can carry the default CSS-perspective value and still be flipped into
+      // first-person by the controls, in which case the eye-at-origin
+      // projection must win.
+      if (state.eyeMode) {
+        // Eye-at-origin first-person projection.
+        // `target` is the eye position; rz2 < 0 means in front of the eye.
+        // Perspective scale: objects at depth -d project at scale focal/d.
+        const NEAR = 0.001;
+        if (r[2] >= -NEAR) return [NaN, NaN, r[2], NaN];
+        // Perspective scale in world units. state.focal is the reference depth
+        // (distance of the "screen plane" from the eye).
+        const perspScale = state.focal / -r[2];
+        // world→screen-px: multiply by zoom * BASE_TILE, then divide by cell size.
+        const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
+        const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
+        const col = cols * cxN + screenPxX / cellPxW * state.stretch;
+        const row = rows * cyN + screenPxY / cellPxH;
+        // zbuf = -1/r[2]: screen-space-linear (r[2] < 0 in front; nearer → larger).
+        return [col, row, r[2], -1 / r[2]];
+      }
 
       if (state.perspective > 0) {
         // voxcss / CSS-perspective parity projection.
@@ -313,24 +347,6 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         // is exact. Nearer (larger cssZ → smaller denom) → larger 1/denom, so
         // the renderer's `pixelDepth > depthBuf` keeps the nearer surface.
         return [col, row, cssZ, 1 / denom];
-      }
-
-      if (state.eyeMode) {
-        // Eye-at-origin first-person projection.
-        // `target` is the eye position; rz2 < 0 means in front of the eye.
-        // Perspective scale: objects at depth -d project at scale focal/d.
-        const NEAR = 0.001;
-        if (r[2] >= -NEAR) return [NaN, NaN, r[2], NaN];
-        // Perspective scale in world units. state.focal is the reference depth
-        // (distance of the "screen plane" from the eye).
-        const perspScale = state.focal / -r[2];
-        // world→screen-px: multiply by zoom * BASE_TILE, then divide by cell size.
-        const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
-        const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
-        const col = cols * cxN + screenPxX / cellPxW * state.stretch;
-        const row = rows * cyN + screenPxY / cellPxH;
-        // zbuf = -1/r[2]: screen-space-linear (r[2] < 0 in front; nearer → larger).
-        return [col, row, r[2], -1 / r[2]];
       }
 
       // Perspective projection (orthographic when distance is very large).

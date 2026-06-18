@@ -33,6 +33,7 @@ export {
   createGlyphCamera,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
+  DEFAULT_PERSPECTIVE,
 } from "./api/createGlyphCamera";
 export type {
   GlyphCamera,

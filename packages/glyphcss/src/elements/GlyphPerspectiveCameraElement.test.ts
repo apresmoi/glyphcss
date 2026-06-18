@@ -33,10 +33,11 @@ describe("GlyphPerspectiveCameraElement", () => {
     expect(camEl).toBeInstanceOf(GlyphPerspectiveCameraElement);
   });
 
-  it("observes rot-x, rot-y, distance, zoom, stretch attributes", () => {
+  it("observes rot-x, rot-y, distance, perspective, zoom, stretch attributes", () => {
     expect(GlyphPerspectiveCameraElement.observedAttributes).toContain("rot-x");
     expect(GlyphPerspectiveCameraElement.observedAttributes).toContain("rot-y");
     expect(GlyphPerspectiveCameraElement.observedAttributes).toContain("distance");
+    expect(GlyphPerspectiveCameraElement.observedAttributes).toContain("perspective");
     expect(GlyphPerspectiveCameraElement.observedAttributes).toContain("zoom");
     expect(GlyphPerspectiveCameraElement.observedAttributes).toContain("stretch");
   });
@@ -88,6 +89,17 @@ describe("GlyphPerspectiveCameraElement", () => {
     camEl.setAttribute("zoom", "0.6");
     document.body.appendChild(camEl);
     expect(camEl.getCamera()!.zoom).toBeCloseTo(0.6, 5);
+  });
+
+  it("defaults perspective to 32000 (voxcss CSS-perspective parity)", () => {
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()!.perspective).toBeCloseTo(32000, 5);
+  });
+
+  it("applies perspective attribute to camera", () => {
+    camEl.setAttribute("perspective", "3000");
+    document.body.appendChild(camEl);
+    expect(camEl.getCamera()!.perspective).toBeCloseTo(3000, 5);
   });
 
   it("changing rot-x attribute updates camera", () => {
