@@ -20,6 +20,10 @@ import '../styles/glyph-demo.css';
     :global(:root) {
       --sl-nav-height: 72px;
     }
+    /* Mobile header is two rows (brand + nav) → taller; keep the shell below it. */
+    @media (max-width: 38rem) {
+      :global(:root) { --sl-nav-height: 90px; }
+    }
 
     :global(html, body) {
       margin: 0;

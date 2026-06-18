@@ -235,6 +235,13 @@ const topLinks = [
     }
 
     @media (max-width: 38rem) {
+      /* Two-row header on mobile (brand on top, nav below), so the bar needs
+         more height than the single-row desktop layout to avoid clipping the
+         nav row. Matches voxcss. */
+      :global(:root) {
+        --sl-nav-height: 90px;
+      }
+
       .header {
         grid-template-areas:
           "brand spacer"
@@ -242,11 +249,16 @@ const topLinks = [
         grid-template-columns: minmax(0, 1fr) auto;
         row-gap: 10px;
         column-gap: 12px;
+        /* The nav row scrolls horizontally (overflow-x:auto). Because this header
+           is position:fixed, Chromium otherwise propagates that scroll container's
+           overflow to the viewport, giving the whole docs page a phantom sideways
+           scroll. Clipping the fixed ancestor severs that propagation. */
+        overflow-x: clip;
       }
 
       .title-wrapper {
         grid-area: brand;
-        padding-left: 0;
+        padding-left: 16px;
       }
 
       .header-spacer {
@@ -258,6 +270,11 @@ const topLinks = [
         grid-area: links;
         justify-self: start;
         width: 100%;
+        /* Grid items default to min-width:auto (= min-content), which lets the
+           nav grow to its links' width and overflow the viewport instead of
+           scrolling. min-width:0 lets it shrink so overflow-x:auto can clip. */
+        min-width: 0;
+        max-width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
