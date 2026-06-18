@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { Inspector, type InspectorMesh } from "../Inspector";
 import { GlyphScene } from "../GlyphScene";
 import { CodePanel } from "./CodePanel";
@@ -31,6 +31,10 @@ import {
   useGuiCameraSync,
   setRoutePresetId,
   routeInitialPresetId,
+  routeInitialSceneOptions,
+  routeHasSceneOptions,
+  setRouteSceneOptions,
+  clearRouteSceneOptions,
 } from "./hooks";
 import type { PresetModel } from "./types";
 
@@ -268,6 +272,11 @@ function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
   };
 }
 
+function sceneDefaultsForPresetId(id: string): SceneOptionsState {
+  const model = PRESETS.find((p) => p.id === id);
+  return model ? sceneDefaultsFor(model) : DEFAULT_SCENE;
+}
+
 function randomPreset(): PresetModel {
   return PRESETS[Math.floor(Math.random() * PRESETS.length)] ?? PRESETS[0];
 }
@@ -279,10 +288,17 @@ function resolveInitialPreset(): PresetModel {
 
 export default function GalleryWorkbench() {
   const [initialPreset] = useState<PresetModel>(resolveInitialPreset);
-  // Initialize from DEFAULT_SCENE so sliders always start at documented defaults.
-  // usePresetLoader fires on first render and applies per-preset overrides,
-  // so the preset's zoom/rotX/rotY still win — but only after the first tick.
-  const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(DEFAULT_SCENE);
+  // Sidebar options restored from the URL `scene` param (empty when absent).
+  const [initialRouteSceneOptions] = useState(routeInitialSceneOptions);
+  const [initialRouteHasSceneOptions] = useState(routeHasSceneOptions);
+  // Start from the preset's defaults, then layer any URL-restored overrides on
+  // top. When the route already carries scene options, usePresetLoader is told
+  // (via autoZoomPresetRef seeded below) not to re-stomp rotX/rotY with the
+  // preset defaults on first paint.
+  const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(() => ({
+    ...sceneDefaultsFor(initialPreset),
+    ...initialRouteSceneOptions,
+  }));
   const [presetId, setPresetId] = useState(initialPreset.id);
   const [meshUrl, setMeshUrl] = useState(initialPreset.kind !== "primitive" ? initialPreset.url : "");
   const [metrics, setMetrics] = useState<GlyphMetrics>(EMPTY_METRICS);
@@ -290,18 +306,40 @@ export default function GalleryWorkbench() {
   const [animationClips, setAnimationClips] = useState<Array<{ index: number; name: string; duration: number }>>([]);
   const [modelSearch, setModelSearch] = useState("");
   const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
-  const autoZoomPresetRef = useRef<string | null>(null);
+  // Seed the loader ref to the initial preset when the URL already restored
+  // scene options, so it skips applying preset rotX/rotY over the URL values.
+  const autoZoomPresetRef = useRef<string | null>(initialRouteHasSceneOptions ? initialPreset.id : null);
 
-  const updateScene = useCallback((partial: Partial<SceneOptionsState>) => {
-    setSceneOptions((current) => ({ ...current, ...partial }));
+  // The URL `scene` param is only written once the user actually touches a
+  // control (or orbits the camera) — never from initial auto-fit / preset load.
+  const sceneRouteTouchedRef = useRef(initialRouteHasSceneOptions);
+  const [sceneRouteRevision, setSceneRouteRevision] = useState(0);
+  const markSceneRouteDirty = useCallback(() => {
+    sceneRouteTouchedRef.current = true;
+    setSceneRouteRevision((revision) => revision + 1);
   }, []);
 
-  const { handleCameraChange } = useGuiCameraSync({ setSceneOptions });
+  const updateScene = useCallback((partial: Partial<SceneOptionsState>) => {
+    markSceneRouteDirty();
+    setSceneOptions((current) => ({ ...current, ...partial }));
+  }, [markSceneRouteDirty]);
+
+  const { handleCameraChange: handleCameraChangeRaw } = useGuiCameraSync({ setSceneOptions });
+  const handleCameraChange = useCallback(
+    (camera: Parameters<typeof handleCameraChangeRaw>[0]) => {
+      markSceneRouteDirty();
+      handleCameraChangeRaw(camera);
+    },
+    [handleCameraChangeRaw, markSceneRouteDirty],
+  );
 
   const dropped = useDroppedFiles({
     onDroppedSource: (source) => {
       autoZoomPresetRef.current = null;
       setRoutePresetId(null);
+      // A dropped local file can't be reconstructed from a URL, so don't keep
+      // a stale `scene` param pointing at the previous model.
+      clearRouteSceneOptions();
       setPresetId(source.id);
       setSelectedAnimation("");
       setSceneOptions((current) => ({
@@ -323,6 +361,7 @@ export default function GalleryWorkbench() {
   );
   const selectedPreset = availablePresets.find((preset) => preset.id === presetId) ?? PRESETS[0];
   const selectedDroppedSource = dropped.droppedSource?.id === selectedPreset.id ? dropped.droppedSource : null;
+  const selectedSceneDefaults = useMemo(() => sceneDefaultsFor(selectedPreset), [selectedPreset]);
   const selectedPresetPickerCategory =
     pickerItems.find((preset) => preset.id === selectedPreset.id)?.category ??
     galleryBucketForPreset(selectedPreset);
@@ -418,7 +457,25 @@ export default function GalleryWorkbench() {
     presetId,
     presetIds: ALL_PRESET_IDS,
     resetToPreset,
+    sceneDefaultsForPreset: sceneDefaultsForPresetId,
+    setSceneOptions,
   });
+
+  // Persist the sidebar options to the URL `scene` param (diffed against the
+  // active preset's defaults) once the user has touched a control. Dropped
+  // local models can't be shared by URL, so their scene param is cleared.
+  useEffect(() => {
+    if (!sceneRouteTouchedRef.current) return;
+    if (selectedDroppedSource) {
+      clearRouteSceneOptions();
+      return;
+    }
+    setRouteSceneOptions({
+      sceneOptions,
+      sceneDefaults: selectedSceneDefaults,
+      presetId: selectedPreset.id,
+    });
+  }, [sceneOptions, sceneRouteRevision, selectedDroppedSource, selectedPreset.id, selectedSceneDefaults]);
 
   const animationOptions = useMemo(() => {
     const options: Record<string, string> = { None: "" };
