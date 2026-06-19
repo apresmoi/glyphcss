@@ -100,10 +100,15 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
 
       // Classic iso: rotX ≈ 55°, rotY ≈ 45°. zoom=24 (px/world-unit) so the
       // unit-radius globe fills most of the viewport (still LOD 0, < 50).
+      // On a narrow phone the desktop zoom crops the sphere, so start smaller
+      // there — scaled to the viewport width so the whole globe is visible.
+      const initialZoom = window.innerWidth < 800
+        ? Math.max(9, Math.round(window.innerWidth / 30))
+        : 24;
       const camera = createGlyphOrthographicCamera({
         rotX: 55,
         rotY: 45,
-        zoom: 24,
+        zoom: initialZoom,
       });
 
       const scene = createGlyphScene(host, {

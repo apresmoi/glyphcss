@@ -87,6 +87,9 @@ const items = [
   @media (max-width: 50rem) {
     :global(.ex-layout) { flex-direction: column; }
     :global(.ex-main) { min-height: 0; }
+    /* Reclaim vertical space for the canvas — the title/description header is
+       redundant on a phone (the tab bar already names the example). */
+    :global(.map-head) { display: none; }
     .ex-sidebar {
       width: 100%;
       flex-direction: row;
