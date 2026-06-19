@@ -51,14 +51,28 @@ const title = "glyphcss · ASCII Iso World Map";
       font-size: 11px; color: rgba(255,232,184,0.7);
     }
     .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
-    /* Mobile: dock the controls to the bottom (full width, scrollable) so they
-       don't cover the map as a 220px top-right overlay would. */
+    /* Desktop: the toggle button is mobile-only chrome. */
+    .iso-ctl-toggle { display: none; }
+    /* Mobile: collapse the controls into a bottom drawer (collapsed by default),
+       opened via a [ Controls ] button — mirrors the gallery's mobile panels. */
     @media (max-width: 50rem) {
-      .iso-controls {
-        top: auto; right: 0; bottom: 0; left: 0;
-        width: auto; max-height: 40vh; overflow-y: auto;
+      .iso-ctl-toggle {
+        display: block;
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+        min-height: 44px; padding: 0 12px;
+        background: rgba(8,12,18,0.94); color: rgba(255,232,184,0.9);
         border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        font: 600 13px/1 ui-monospace, "JetBrains Mono", monospace;
+        letter-spacing: 0.04em; cursor: pointer;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       }
+      .iso-controls {
+        top: auto; right: 0; left: 0; bottom: 44px; z-index: 30;
+        width: auto; max-height: 55vh; overflow-y: auto;
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        display: none;
+      }
+      .iso-controls.is-open { display: block; }
     }
     .iso-ctl { margin-bottom: 11px; }
     .iso-ctl:last-child { margin-bottom: 0; }
@@ -104,7 +118,8 @@ const title = "glyphcss · ASCII Iso World Map";
     <div class="iso-host" id="iso-host">
       <div class="loading" id="loading">Loading terrain…</div>
     </div>
-    <div class="iso-controls">
+    <button class="iso-ctl-toggle" type="button" id="ctl-toggle" aria-expanded="false" aria-controls="iso-controls">[ Controls ]</button>
+    <div class="iso-controls" id="iso-controls">
       <h2>[ CONTROLS ]</h2>
       <div class="iso-ctl">
         <div class="iso-ctl-row"><span>relief ×</span><span class="val" id="exagg-val">0.2</span></div>
@@ -519,7 +534,10 @@ const title = "glyphcss · ASCII Iso World Map";
         if (activePtr !== null) return;
         activePtr = e.pointerId;
         lastX = e.clientX; lastY = e.clientY;
-        (e.target as Element).setPointerCapture(e.pointerId);
+        // Capture on the stable host, NOT e.target: each pointermove rerenders
+        // the <pre> (innerHTML replaced), destroying a captured child and
+        // dropping the gesture mid-drag — especially on touch.
+        host.setPointerCapture(e.pointerId);
       });
       host.addEventListener("pointermove", (e) => {
         if (activePtr !== e.pointerId) return;
@@ -543,7 +561,7 @@ const title = "glyphcss · ASCII Iso World Map";
       const release = (e: PointerEvent) => {
         if (activePtr !== e.pointerId) return;
         activePtr = null;
-        try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
+        try { host.releasePointerCapture(e.pointerId); } catch {}
         updateLabels();
         void updateActiveSet();
       };
@@ -563,6 +581,15 @@ const title = "glyphcss · ASCII Iso World Map";
 
       // ── Control dock wiring ───────────────────────────────────────────
       const $ = (id: string) => document.getElementById(id);
+
+      // Mobile: [ Controls ] button toggles the bottom drawer (collapsed by default).
+      const ctlToggle = $("ctl-toggle");
+      const ctlPanel = $("iso-controls");
+      ctlToggle?.addEventListener("click", () => {
+        const open = ctlPanel?.classList.toggle("is-open") ?? false;
+        ctlToggle.setAttribute("aria-expanded", String(open));
+        ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+      });
 
       // Relief exaggeration → restamp every active tile's Z-scale transform.
       const exaggInput = $("exagg") as HTMLInputElement | null;

@@ -365,7 +365,10 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         activePtr = e.pointerId;
         lastX = e.clientX;
         lastY = e.clientY;
-        (e.target as Element).setPointerCapture(e.pointerId);
+        // Capture on the stable host, NOT e.target: each pointermove rerenders
+        // the <pre> (innerHTML replaced), which would destroy a captured child
+        // and drop the gesture mid-drag — especially on touch.
+        host.setPointerCapture(e.pointerId);
       });
       host.addEventListener("pointermove", (e) => {
         if (activePtr !== e.pointerId) return;
@@ -386,7 +389,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       const release = (e: PointerEvent) => {
         if (activePtr !== e.pointerId) return;
         activePtr = null;
-        try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
+        try { host.releasePointerCapture(e.pointerId); } catch {}
         // Recompute visible tile set after a drag — newly-revealed tiles
         // get fetched (and cached for next time).
         if (viewDirty) {
