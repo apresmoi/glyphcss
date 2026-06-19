@@ -20,7 +20,11 @@ const title = "glyphcss · ASCII Iso World Map";
     .map-head h1 { margin: 0; font-size: 20px; color: rgba(255,232,184,0.94); letter-spacing: 0.04em; }
     .map-head p { margin: 6px 0 0; font-size: 12px; color: rgba(255,232,184,0.5); }
     .map-stage { flex: 1; min-height: 0; position: relative; }
-    .iso-host { position: absolute; inset: 0; overflow: hidden; }
+    /* touch-action:none on the HOST (a template element the scoped rule can
+       reach) — the .glyph-output <pre> is created by the runtime and lacks the
+       Astro scope class, so a rule on it never matches. As an ancestor this
+       makes the whole map drag-to-pan instead of scrolling the page on touch. */
+    .iso-host { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
     .iso-host .glyph-output { color: rgba(255,232,184,0.96); text-shadow: 0 0 5px rgba(255,200,130,0.3); cursor: grab; touch-action: none; }
     .iso-host .glyph-output:active { cursor: grabbing; }
     .map-foot { padding: 12px 28px; border-top: 1px solid rgba(255,232,184,0.12); font-size: 11px; color: rgba(255,232,184,0.45); display: flex; gap: 16px; flex-wrap: wrap; }

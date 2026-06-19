@@ -23,7 +23,11 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
     .map-head h1 { margin: 0; font-size: 22px; color: rgba(255, 232, 184, 0.94); font-weight: 600; letter-spacing: 0.04em; }
     .map-head p { margin: 6px 0 0; font-size: 13px; color: rgba(255, 232, 184, 0.55); }
     .map-stage { flex: 1; min-height: 0; position: relative; }
-    .globe-host { position: absolute; inset: 0; overflow: hidden; }
+    /* touch-action:none on the HOST (a template element the scoped rule can
+       reach) — the .glyph-output <pre> is created by the runtime and lacks the
+       Astro scope class, so a rule on it never matches. As an ancestor this
+       makes the whole map drag-to-orbit instead of scrolling the page on touch. */
+    .globe-host { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
     .globe-host .glyph-output { color: rgba(255, 232, 184, 0.96); text-shadow: 0 0 6px rgba(255, 200, 130, 0.35); cursor: grab; touch-action: none; }
     .globe-host .glyph-output:active { cursor: grabbing; }
     .map-foot { padding: 14px 32px; border-top: 1px solid rgba(255, 232, 184, 0.12); font-size: 11px; color: rgba(255, 232, 184, 0.45); display: flex; gap: 18px; flex-wrap: wrap; }
