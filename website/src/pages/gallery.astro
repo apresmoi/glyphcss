@@ -6,6 +6,7 @@ import '../styles/glyph-demo.css';
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gallery</title>
   </head>
   <body>
@@ -19,6 +20,10 @@ import '../styles/glyph-demo.css';
   <style>
     :global(:root) {
       --sl-nav-height: 72px;
+    }
+    /* Mobile header is two rows (brand + nav) → taller; keep the shell below it. */
+    @media (max-width: 38rem) {
+      :global(:root) { --sl-nav-height: 90px; }
     }
 
     :global(html, body) {

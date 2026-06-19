@@ -9,6 +9,8 @@ export type {
   Vec3,
   TextureTriangle,
   Polygon,
+  PolyTextureWrap,
+  PolyTextureWrapMode,
   GlyphDirectionalLight,
   GlyphAmbientLight,
   MeshResolution,
@@ -135,6 +137,9 @@ export type {
   ParseAnimationClip,
   ParseAnimationController,
   ParseResult,
+  ParseStlColor,
+  ParseStlSolid,
+  ParseStlTopology,
 } from "./parser/types";
 export { parseObj } from "./parser/parseObj";
 export type { ObjParseOptions } from "./parser/parseObj";
@@ -145,10 +150,15 @@ export type { GltfParseOptions } from "./parser/parseGltf";
 export {
   bakeSolidTextureSamples,
   bakeSolidTextureSampledPolygons,
+  buildTextureSamplers,
+  sampleTexel,
+  polygonTexture,
 } from "./parser/solidTextureSamples";
-export type { SolidTextureSampleOptions } from "./parser/solidTextureSamples";
+export type { SolidTextureSampleOptions, TextureSampler, SampledColor } from "./parser/solidTextureSamples";
 export { parseVox } from "./parser/parseVox";
 export type { VoxParseOptions } from "./parser/parseVox";
+export { parseStl } from "./parser/parseStl";
+export type { StlParseOptions } from "./parser/parseStl";
 export { loadMesh } from "./parser/loadMesh";
 export type { LoadMeshOptions } from "./parser/loadMesh";
 

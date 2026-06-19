@@ -36,6 +36,10 @@ const STATS_STYLE = `
     font-weight: 400 !important;
     letter-spacing: 0.06em !important;
   }
+  /* The bottom-right corner is taken over by the mobile gallery tab bar. */
+  @media (max-width: 760px) {
+    .glyph-stats-host { display: none !important; }
+  }
 `;
 
 export function StatsOverlay(): null {

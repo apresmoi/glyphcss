@@ -1,5 +1,6 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
 const title = "glyphcss · ASCII Earth";
 const description = "ETOPO1 global topography rasterised into ASCII. Isometric, drag to orbit.";
 ---
@@ -12,15 +13,21 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
   <meta name="description" content={description} />
   <style>
     html, body { background: #03050a; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
-    body { display: flex; }
-    .ex-layout { flex: 1; display: flex; min-height: 100vh; min-width: 0; }
+    body { display: flex; overflow: hidden; }
+    /* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
     .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .map-shell { flex: 1; display: flex; flex-direction: column; }
     .map-head { padding: 24px 32px 12px; border-bottom: 1px solid rgba(255, 232, 184, 0.12); }
     .map-head h1 { margin: 0; font-size: 22px; color: rgba(255, 232, 184, 0.94); font-weight: 600; letter-spacing: 0.04em; }
     .map-head p { margin: 6px 0 0; font-size: 13px; color: rgba(255, 232, 184, 0.55); }
     .map-stage { flex: 1; min-height: 0; position: relative; }
-    .globe-host { position: absolute; inset: 0; overflow: hidden; }
+    /* touch-action:none on the HOST (a template element the scoped rule can
+       reach) — the .glyph-output <pre> is created by the runtime and lacks the
+       Astro scope class, so a rule on it never matches. As an ancestor this
+       makes the whole map drag-to-orbit instead of scrolling the page on touch. */
+    .globe-host { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
     .globe-host .glyph-output { color: rgba(255, 232, 184, 0.96); text-shadow: 0 0 6px rgba(255, 200, 130, 0.35); cursor: grab; touch-action: none; }
     .globe-host .glyph-output:active { cursor: grabbing; }
     .map-foot { padding: 14px 32px; border-top: 1px solid rgba(255, 232, 184, 0.12); font-size: 11px; color: rgba(255, 232, 184, 0.45); display: flex; gap: 18px; flex-wrap: wrap; }
@@ -28,6 +35,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
   </style>
 </head>
 <body>
+  <DocsHeader />
   <div class="ex-layout">
     <ExamplesSidebar active="world" />
     <div class="ex-main">
@@ -92,10 +100,15 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
 
       // Classic iso: rotX ≈ 55°, rotY ≈ 45°. zoom=24 (px/world-unit) so the
       // unit-radius globe fills most of the viewport (still LOD 0, < 50).
+      // On a narrow phone the desktop zoom crops the sphere, so start smaller
+      // there — scaled to the viewport width so the whole globe is visible.
+      const initialZoom = window.innerWidth < 800
+        ? Math.max(9, Math.round(window.innerWidth / 30))
+        : 24;
       const camera = createGlyphOrthographicCamera({
         rotX: 55,
         rotY: 45,
-        zoom: 24,
+        zoom: initialZoom,
       });
 
       const scene = createGlyphScene(host, {
@@ -361,7 +374,10 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         activePtr = e.pointerId;
         lastX = e.clientX;
         lastY = e.clientY;
-        (e.target as Element).setPointerCapture(e.pointerId);
+        // Capture on the stable host, NOT e.target: each pointermove rerenders
+        // the <pre> (innerHTML replaced), which would destroy a captured child
+        // and drop the gesture mid-drag — especially on touch.
+        host.setPointerCapture(e.pointerId);
       });
       host.addEventListener("pointermove", (e) => {
         if (activePtr !== e.pointerId) return;
@@ -382,7 +398,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       const release = (e: PointerEvent) => {
         if (activePtr !== e.pointerId) return;
         activePtr = null;
-        try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
+        try { host.releasePointerCapture(e.pointerId); } catch {}
         // Recompute visible tile set after a drag — newly-revealed tiles
         // get fetched (and cached for next time).
         if (viewDirty) {

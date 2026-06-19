@@ -1,0 +1,13 @@
+# Synthetic MTL for castle.obj — the OBJ uses `usemtl <hex>` material names
+# (e.g. `usemtl 455A64`) instead of named materials with a real .mtl file.
+# Map each hex-name to its corresponding sRGB color so both PolyCSS's
+# parseObj and Three.js's MTLLoader paint the castle with the intended
+# palette instead of falling back to default white.
+newmtl 455A64
+Kd 0.270 0.353 0.392
+
+newmtl 78909C
+Kd 0.471 0.565 0.612
+
+newmtl 795548
+Kd 0.475 0.333 0.282

@@ -1,5 +1,6 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
 const title = "glyphcss · Image → Glyph";
 ---
 
@@ -10,23 +11,21 @@ const title = "glyphcss · Image → Glyph";
   <title>{title}</title>
   <style>
     html, body { background: #04060b; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
-    body { display: flex; }
-    .ex-layout { flex: 1; display: flex; min-height: 100vh; min-width: 0; }
+    body { display: flex; overflow: hidden; }
+    /* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
     .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .map-head { padding: 20px 28px 10px; border-bottom: 1px solid rgba(255,232,184,0.12); }
     .map-head h1 { margin: 0; font-size: 20px; color: rgba(255,232,184,0.94); letter-spacing: 0.04em; }
     .map-head p { margin: 6px 0 0; font-size: 12px; color: rgba(255,232,184,0.5); }
-    .map-stage { flex: 1; min-height: 0; position: relative; overflow: auto; }
+    .map-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 
-    .img-host { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; }
-    /* The rendered glyph image. white-space pre, per-cell color via spans. */
-    .img-out {
-      margin: 0; font-size: 8px; line-height: 0.6; white-space: pre;
-      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
-      color: rgba(255,232,184,0.96);
-      letter-spacing: 0; user-select: all;
-    }
-    /* Drop hint shown until an image is loaded */
+    /* The glyphcss scene host fills the stage; the renderer's <pre> sits inside. */
+    .img-host { position: absolute; inset: 0; font-size: 8px; line-height: 0.6; }
+    .img-host .glyph-scene { width: 100%; height: 100%; }
+    .img-host .glyph-output { color: rgba(255,232,184,0.96); margin: 0; }
+
     .drop-hint {
       position: absolute; inset: 24px; border: 1px dashed rgba(255,232,184,0.25);
       display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
@@ -37,7 +36,6 @@ const title = "glyphcss · Image → Glyph";
     .map-stage.dragover { background: rgba(56,189,248,0.06); }
     .map-stage.dragover .drop-hint { border-color: rgba(56,189,248,0.7); color: rgba(56,189,248,0.9); }
 
-    /* Control dock (mirrors flatmap) */
     .iso-controls {
       position: absolute; top: 14px; right: 14px; z-index: 10;
       width: 230px; padding: 12px 14px;
@@ -46,6 +44,29 @@ const title = "glyphcss · Image → Glyph";
       font-size: 11px; color: rgba(255,232,184,0.7);
     }
     .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
+    /* Desktop: the toggle button is mobile-only chrome. */
+    .iso-ctl-toggle { display: none; }
+    /* Mobile: collapse the controls into a bottom drawer (collapsed by default),
+       opened via a [ Controls ] button — mirrors the gallery's mobile panels. */
+    @media (max-width: 50rem) {
+      .iso-ctl-toggle {
+        display: block;
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+        min-height: 44px; padding: 0 12px;
+        background: rgba(8,12,18,0.94); color: rgba(255,232,184,0.9);
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        font: 600 13px/1 ui-monospace, "JetBrains Mono", monospace;
+        letter-spacing: 0.04em; cursor: pointer;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      }
+      .iso-controls {
+        top: auto; right: 0; left: 0; bottom: 44px; z-index: 30;
+        width: auto; max-height: 55vh; overflow-y: auto;
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        display: none;
+      }
+      .iso-controls.is-open { display: block; }
+    }
     .iso-ctl { margin-bottom: 11px; }
     .iso-ctl:last-child { margin-bottom: 0; }
     .iso-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
@@ -64,27 +85,27 @@ const title = "glyphcss · Image → Glyph";
   </style>
 </head>
 <body>
+  <DocsHeader />
   <div class="ex-layout">
     <ExamplesSidebar active="image" />
     <div class="ex-main">
       <header class="map-head">
         <h1>[ IMAGE → GLYPH ]</h1>
-        <p>Drop or paste any image — it's resampled into a glyph grid and painted into one &lt;pre&gt;. Tune resolution, glyph set, color fidelity, and line-height to match the source.</p>
+        <p>Drop or paste any image — it's mapped as a texture onto a single quad and rendered by glyphcss (per-cell texture sampling). Same pipeline as the 3D meshes; the picture is just a textured polygon.</p>
       </header>
       <div class="map-stage" id="stage">
-        <div class="img-host">
-          <pre class="img-out" id="out"></pre>
-        </div>
+        <div class="img-host" id="host"></div>
         <div class="drop-hint" id="hint">
           <b>Drop an image here</b>
           <span>or click to choose · or paste from clipboard</span>
         </div>
         <input type="file" id="file" accept="image/*" hidden />
-        <div class="iso-controls">
+        <button class="iso-ctl-toggle" type="button" id="ctl-toggle" aria-expanded="false" aria-controls="iso-controls">[ Controls ]</button>
+        <div class="iso-controls" id="iso-controls">
           <h2>[ CONTROLS ]</h2>
           <div class="iso-ctl">
-            <div class="iso-ctl-row"><span>resolution (cols)</span><span class="val" id="cols-val">160</span></div>
-            <input type="range" id="cols" min="40" max="360" step="4" value="160" />
+            <div class="iso-ctl-row"><span>detail (cell px)</span><span class="val" id="detail-val">8</span></div>
+            <input type="range" id="detail" min="3" max="16" step="1" value="8" />
           </div>
           <div class="iso-ctl">
             <div class="iso-ctl-row"><span>line-height</span><span class="val" id="lh-val">0.6</span></div>
@@ -98,34 +119,24 @@ const title = "glyphcss · Image → Glyph";
             <label class="iso-check"><input type="checkbox" id="color" checked /> color</label>
           </div>
           <div class="iso-ctl">
-            <div class="iso-ctl-row"><span>color fidelity</span><span class="val" id="levels-val">24</span></div>
-            <input type="range" id="levels" min="2" max="32" step="1" value="24" />
-          </div>
-          <div class="iso-ctl">
-            <div class="iso-ctl-row"><span>contrast</span><span class="val" id="contrast-val">1.0</span></div>
-            <input type="range" id="contrast" min="0.4" max="2.4" step="0.05" value="1.0" />
-          </div>
-          <div class="iso-ctl">
-            <label class="iso-check"><input type="checkbox" id="invert" /> invert brightness</label>
-          </div>
-          <div class="iso-ctl">
             <button type="button" class="iso-btn" id="copy" disabled>copy</button>
           </div>
           <div class="iso-hint" id="dims"></div>
         </div>
       </div>
       <footer class="map-foot">
-        <span>glyphcss palettes · resampled client-side</span>
+        <span>textured quad · glyphcss per-cell sampling</span>
         <span id="status">no image</span>
       </footer>
     </div>
   </div>
 
   <script>
-    import { WIREFRAME_PALETTES } from "glyphcss";
+    import { createGlyphScene, createGlyphOrthographicCamera, WIREFRAME_PALETTES } from "glyphcss";
+    import type { Polygon } from "glyphcss";
 
     const stage = document.getElementById("stage") as HTMLElement;
-    const out = document.getElementById("out") as HTMLPreElement;
+    const host = document.getElementById("host") as HTMLElement;
     const hint = document.getElementById("hint") as HTMLElement;
     const fileInput = document.getElementById("file") as HTMLInputElement;
     const paletteSel = document.getElementById("palette") as HTMLSelectElement;
@@ -133,7 +144,15 @@ const title = "glyphcss · Image → Glyph";
     const dims = document.getElementById("dims") as HTMLElement;
     const statusEl = document.getElementById("status") as HTMLElement;
 
-    // Populate the glyph-set dropdown from the library's named palettes.
+    // Mobile: [ Controls ] button toggles the bottom drawer (collapsed by default).
+    const ctlToggle = document.getElementById("ctl-toggle");
+    const ctlPanel = document.getElementById("iso-controls");
+    ctlToggle?.addEventListener("click", () => {
+      const open = ctlPanel?.classList.toggle("is-open") ?? false;
+      ctlToggle.setAttribute("aria-expanded", String(open));
+      ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+    });
+
     for (const name of Object.keys(WIREFRAME_PALETTES)) {
       const opt = document.createElement("option");
       opt.value = name; opt.textContent = name;
@@ -142,115 +161,84 @@ const title = "glyphcss · Image → Glyph";
     paletteSel.value = "default";
 
     const ctl = {
-      cols: document.getElementById("cols") as HTMLInputElement,
+      detail: document.getElementById("detail") as HTMLInputElement,
       lh: document.getElementById("lh") as HTMLInputElement,
       color: document.getElementById("color") as HTMLInputElement,
-      levels: document.getElementById("levels") as HTMLInputElement,
-      contrast: document.getElementById("contrast") as HTMLInputElement,
-      invert: document.getElementById("invert") as HTMLInputElement,
-    };
-    const valEls: Record<string, HTMLElement> = {
-      cols: document.getElementById("cols-val")!,
-      lh: document.getElementById("lh-val")!,
-      levels: document.getElementById("levels-val")!,
-      contrast: document.getElementById("contrast-val")!,
     };
 
-    let img: HTMLImageElement | null = null;
+    // Flat lighting (full ambient, no key) so each sampled texel passes through
+    // unshaded — the glyph reflects the texel's luminance, the span its color.
+    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
+    const scene = createGlyphScene(host, {
+      mode: "solid",
+      useColors: true,
+      autoSize: true,
+      doubleSided: true,
+      camera,
+      directionalLight: { direction: [0, 0, -1], intensity: 0 },
+      ambientLight: { intensity: 1 },
+    });
 
-    // Measure one monospace cell (width vs line-height-driven height) so rows are
-    // derived to keep the source aspect ratio regardless of font / line-height.
-    function cellAspect(): number {
-      const fs = parseFloat(getComputedStyle(out).fontSize) || 8;
-      const probe = document.createElement("span");
-      probe.style.cssText = `position:absolute;visibility:hidden;font:${getComputedStyle(out).font};white-space:pre`;
-      probe.textContent = "M".repeat(40);
-      document.body.appendChild(probe);
-      const charW = probe.getBoundingClientRect().width / 40;
-      probe.remove();
-      const charH = fs * parseFloat(ctl.lh.value);
-      return charH / (charW || fs * 0.6);
+    let meshHandle: ReturnType<typeof scene.add> | null = null;
+    let aspect = 1;
+
+    function fit(): void {
+      const o = scene.getOptions();
+      const cols = o.cols || 1, rows = o.rows || 1, cellAspect = o.cellAspect || 2;
+      // ortho: col-span = widthY·zoom·cellAspect, row-span = heightX·zoom (height = 1)
+      const zoom = Math.min((0.98 * cols) / (aspect * cellAspect), 0.98 * rows);
+      if (Number.isFinite(zoom) && zoom > 0) { camera.zoom = zoom; scene.rerender(); }
+      dims.textContent = `${cols} × ${rows} cells · ${paletteSel.value}`;
     }
 
-    const sampler = document.createElement("canvas");
-    const sctx = sampler.getContext("2d", { willReadFrequently: true })!;
-
-    function render(): void {
-      out.style.lineHeight = ctl.lh.value;
-      if (!img) return;
-      const cols = parseInt(ctl.cols.value, 10);
-      const aspect = cellAspect();
-      const rows = Math.max(1, Math.round((cols * img.naturalHeight) / (img.naturalWidth * aspect)));
-      sampler.width = cols; sampler.height = rows;
-      sctx.clearRect(0, 0, cols, rows);
-      sctx.drawImage(img, 0, 0, cols, rows);
-      const data = sctx.getImageData(0, 0, cols, rows).data;
-
-      const ramp = (WIREFRAME_PALETTES[paletteSel.value] ?? WIREFRAME_PALETTES.default!).solid;
-      const rampMax = ramp.length - 1;
-      const useColor = ctl.color.checked;
-      const levels = parseInt(ctl.levels.value, 10);
-      const contrast = parseFloat(ctl.contrast.value);
-      const invert = ctl.invert.checked;
-      const qstep = 255 / (levels - 1);
-
-      // Build HTML, coalescing consecutive same-color glyphs into one <span>.
-      const parts: string[] = [];
-      let runColor: string | null = null;
-      let runText = "";
-      const flush = () => {
-        if (!runText) return;
-        parts.push(runColor !== null ? `<span style="color:${runColor}">${runText}</span>` : runText);
-        runText = "";
+    function setMesh(url: string): void {
+      // Quad in the X-Y plane (world X = screen-down = height, Y = right = width).
+      // Height 1, width = image aspect; UVs map the image upright (sampleUv v-up).
+      const h = 1, w = aspect;
+      const quad: Polygon = {
+        vertices: [[-h / 2, -w / 2, 0], [-h / 2, w / 2, 0], [h / 2, w / 2, 0], [h / 2, -w / 2, 0]],
+        texture: url,
+        uvs: [[0, 1], [1, 1], [1, 0], [0, 0]],
       };
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const i = (y * cols + x) * 4;
-          const r = data[i]!, g = data[i + 1]!, bl = data[i + 2]!, a = data[i + 3]!;
-          // Luminance → contrast → ramp index.
-          let lum = (0.299 * r + 0.587 * g + 0.114 * bl) * (a / 255);
-          lum = (lum - 128) * contrast + 128;
-          let t = Math.min(1, Math.max(0, lum / 255));
-          if (invert) t = 1 - t;
-          const glyph = ramp[Math.min(rampMax, Math.max(0, Math.round(t * rampMax)))]!;
-          let color: string | null = null;
-          if (useColor && glyph !== " " && a > 8) {
-            const qr = Math.round(Math.round(r / qstep) * qstep);
-            const qg = Math.round(Math.round(g / qstep) * qstep);
-            const qb = Math.round(Math.round(bl / qstep) * qstep);
-            color = `#${((1 << 24) + (qr << 16) + (qg << 8) + qb).toString(16).slice(1)}`;
-          }
-          if (color !== runColor) { flush(); runColor = color; }
-          runText += glyph;
-        }
-        flush();
-        runColor = null;
-        if (y < rows - 1) parts.push("\n");
-      }
-      if (useColor) out.innerHTML = parts.join("");
-      else out.textContent = parts.join("");
-      dims.textContent = `${cols} × ${rows} cells · ${ramp.length}-step ${paletteSel.value}`;
-      copyBtn.disabled = false;
-      statusEl.textContent = `${cols}×${rows}`;
+      if (meshHandle) meshHandle.dispose();
+      meshHandle = scene.add([quad]);
+      requestAnimationFrame(fit);
     }
 
     function loadFile(file: File): void {
       if (!file || !file.type.startsWith("image/")) return;
       const url = URL.createObjectURL(file);
       const im = new Image();
-      im.onload = () => { img = im; hint.style.display = "none"; URL.revokeObjectURL(url); render(); };
+      im.onload = () => {
+        aspect = im.naturalWidth / im.naturalHeight || 1;
+        hint.style.display = "none";
+        setMesh(url);
+        copyBtn.disabled = false;
+        statusEl.textContent = `${im.naturalWidth}×${im.naturalHeight}`;
+      };
       im.src = url;
       statusEl.textContent = `loading ${file.name}…`;
     }
 
     // Controls
-    for (const el of Object.values(ctl)) el.addEventListener("input", render);
-    paletteSel.addEventListener("change", render);
-    for (const k of Object.keys(valEls)) ctl[k as keyof typeof ctl].addEventListener("input", () => { valEls[k]!.textContent = ctl[k as keyof typeof ctl].value; });
+    ctl.detail.addEventListener("input", () => {
+      document.getElementById("detail-val")!.textContent = ctl.detail.value;
+      host.style.fontSize = `${ctl.detail.value}px`;
+      scene.fit();
+      fit();
+    });
+    ctl.lh.addEventListener("input", () => {
+      document.getElementById("lh-val")!.textContent = ctl.lh.value;
+      host.style.lineHeight = ctl.lh.value;
+      scene.fit();
+      fit();
+    });
+    ctl.color.addEventListener("input", () => scene.setOptions({ useColors: ctl.color.checked }));
+    paletteSel.addEventListener("change", () => scene.setOptions({ glyphPalette: paletteSel.value }));
 
     // Drop / click / paste
     fileInput.addEventListener("change", () => { if (fileInput.files?.[0]) loadFile(fileInput.files[0]); });
-    hint.parentElement!.addEventListener("click", (e) => { if (!img && (e.target === hint || (e.target as Element).closest(".drop-hint"))) fileInput.click(); });
+    stage.addEventListener("click", (e) => { if (!meshHandle && (e.target === hint || (e.target as Element).closest(".drop-hint"))) fileInput.click(); });
     stage.addEventListener("dragover", (e) => { e.preventDefault(); stage.classList.add("dragover"); });
     stage.addEventListener("dragleave", () => stage.classList.remove("dragover"));
     stage.addEventListener("drop", (e) => {
@@ -263,16 +251,15 @@ const title = "glyphcss · Image → Glyph";
       const f = item?.getAsFile();
       if (f) loadFile(f);
     });
+    window.addEventListener("resize", () => { if (meshHandle) requestAnimationFrame(fit); });
 
-    // Copy both plain text and rich HTML so color survives a paste into rich
-    // editors (mirrors the gallery's Copy). The colored <span>s are kept inside
-    // a dark-background <pre> so the pasted result reads like the on-screen one.
+    // Copy both plain text and rich HTML (color survives a paste).
     copyBtn.addEventListener("click", async () => {
-      const text = out.textContent ?? "";
+      const pre = scene.output;
+      const text = pre.textContent ?? "";
       const html =
         `<pre style="font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace;` +
-        `white-space:pre;line-height:${ctl.lh.value};background:#04060b;` +
-        `color:rgba(255,232,184,0.96);margin:0;padding:10px">${out.innerHTML}</pre>`;
+        `white-space:pre;line-height:${ctl.lh.value};background:#04060b;color:#e8edf2;margin:0;padding:10px">${pre.innerHTML}</pre>`;
       const done = () => { copyBtn.textContent = "copied!"; setTimeout(() => (copyBtn.textContent = "copy"), 1200); };
       try {
         const CI = (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
@@ -281,13 +268,9 @@ const title = "glyphcss · Image → Glyph";
             "text/plain": new Blob([text], { type: "text/plain" }),
             "text/html": new Blob([html], { type: "text/html" }),
           })]);
-        } else {
-          await navigator.clipboard.writeText(text);
-        }
+        } else { await navigator.clipboard.writeText(text); }
         done();
-      } catch {
-        try { await navigator.clipboard.writeText(text); done(); } catch { /* clipboard blocked */ }
-      }
+      } catch { try { await navigator.clipboard.writeText(text); done(); } catch { /* blocked */ } }
     });
   </script>
 </body>

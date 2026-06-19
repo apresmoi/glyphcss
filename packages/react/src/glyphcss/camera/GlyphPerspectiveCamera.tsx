@@ -14,6 +14,9 @@ export interface GlyphPerspectiveCameraProps {
   rotY?: number;
   /** Perspective distance (world units). Default 6. */
   distance?: number;
+  /** CSS-perspective distance in virtual pixels (matches voxcss). Larger =
+   *  flatter. Default 32000. Set 0 to disable (legacy orbit projection). */
+  perspective?: number;
   /** Camera zoom — absolute px per world unit (zoom=1 → BASE_TILE=50). Default 0.65. */
   zoom?: number;
   /** Extra horizontal stretch on top of cellAspect. Default 1.0. */
@@ -29,6 +32,7 @@ function GlyphPerspectiveCameraInner({
   rotX,
   rotY,
   distance,
+  perspective,
   zoom,
   stretch,
   center,
@@ -44,6 +48,7 @@ function GlyphPerspectiveCameraInner({
     if (rotX !== undefined) opts.rotX = rotX;
     if (rotY !== undefined) opts.rotY = rotY;
     if (distance !== undefined) opts.distance = distance;
+    if (perspective !== undefined) opts.perspective = perspective;
     if (zoom !== undefined) opts.zoom = zoom;
     if (stretch !== undefined) opts.stretch = stretch;
     if (center !== undefined) opts.center = center;
@@ -58,6 +63,7 @@ function GlyphPerspectiveCameraInner({
     if (rotX !== undefined && camera.rotX !== rotX) { camera.rotX = rotX; dirty = true; }
     if (rotY !== undefined && camera.rotY !== rotY) { camera.rotY = rotY; dirty = true; }
     if (distance !== undefined && camera.distance !== distance) { camera.distance = distance; dirty = true; }
+    if (perspective !== undefined && camera.perspective !== perspective) { camera.perspective = perspective; dirty = true; }
     if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
     if (stretch !== undefined && camera.stretch !== stretch) { camera.stretch = stretch; dirty = true; }
     if (dirty) {

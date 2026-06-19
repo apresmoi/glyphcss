@@ -389,7 +389,7 @@ describe("loadMesh", () => {
   describe("unknown extension", () => {
     it("throws for unknown extension", async () => {
       vi.stubGlobal("fetch", makeMockFetch({}));
-      await expect(loadMesh("model.stl")).rejects.toThrow("unsupported extension");
+      await expect(loadMesh("model.ply")).rejects.toThrow("unsupported extension");
     });
 
     it("throws for extension-less URL", async () => {

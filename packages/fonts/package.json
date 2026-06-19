@@ -1,0 +1,50 @@
+{
+  "name": "@glyphcss/fonts",
+  "version": "0.0.1",
+  "description": "Turn fonts + text into extruded 3D polygon meshes for glyphcss. Framework-agnostic — returns Polygon[].",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": ["glyphcss", "ascii", "font", "text", "3d", "extrude", "mesh", "ttf", "opentype", "truetype"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
+    "directory": "packages/fonts"
+  },
+  "bugs": {
+    "url": "https://github.com/apresmoi/glyphcss/issues"
+  },
+  "homepage": "https://github.com/apresmoi/glyphcss#readme",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@glyphcss/core": "workspace:^",
+    "earcut": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/earcut": "^3.0.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1",
+    "@vitest/coverage-v8": "^3.1.1"
+  }
+}

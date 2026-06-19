@@ -1,7 +1,7 @@
-import type { GalleryPresetFile, ObjGalleryPresetFile, PresetModel } from "../types";
+import type { GalleryPresetFile, ObjGalleryPresetFile, PresetModel, StlGalleryPresetFile } from "../types";
 import { GLB_PRESET_ATTRIBUTIONS } from "./attributions";
 
-export function galleryFileUrl(folder: "glb" | "obj" | "vox", file: string): string {
+export function galleryFileUrl(folder: "glb" | "obj" | "vox" | "stl", file: string): string {
   return `/gallery/${folder}/${file.split("/").map(encodeURIComponent).join("/")}`;
 }
 
@@ -72,6 +72,21 @@ export function voxPreset(input: GalleryPresetFile): PresetModel {
     rotX: input.rotX ?? 65,
     rotY: input.rotY ?? 45,
     galleryBucket: input.galleryBucket,
+    attribution: input.attribution,
+  };
+}
+
+export function stlPreset(input: StlGalleryPresetFile): PresetModel {
+  return {
+    id: presetIdFromFile("stl", input.file),
+    label: input.label ?? labelFromFile(input.file),
+    category: input.category,
+    kind: "stl",
+    url: galleryFileUrl("stl", input.file),
+    zoom: input.zoom ?? 1.3,
+    rotX: input.rotX ?? 65,
+    rotY: input.rotY ?? 45,
+    galleryBucket: input.galleryBucket ?? "CAD",
     attribution: input.attribution,
   };
 }

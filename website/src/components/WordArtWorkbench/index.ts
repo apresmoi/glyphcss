@@ -1,0 +1,1 @@
+export { WordArtWorkbench } from "./WordArtWorkbench";

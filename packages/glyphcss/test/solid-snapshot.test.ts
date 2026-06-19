@@ -83,10 +83,12 @@ function makeTetrahedronPolygons(): Polygon[] {
 // Fixtures were generated with these exact parameters after the camera
 // convention alignment. Regenerate with the vitest update-snapshots workflow
 // described at the top of this file if the rasterizer changes intentionally.
+// `perspective: 0` pins these to the legacy distance-pinhole projection the
+// fixtures were generated with (the camera default is now 32000 = CSS perspective).
 describe("parity: glyphcss rasterize vs fixtures", () => {
   it("unit cube (solid, no colors) matches fixture byte-for-byte", () => {
     // rotX=65°/rotY=45° = voxcss default view (isometric-ish); zoom=6 fills the grid
-    const camera = createGlyphPerspectiveCamera({ rotX: 65, rotY: 45, zoom: 6, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 65, rotY: 45, zoom: 6, distance: 20, perspective: 0 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -104,7 +106,7 @@ describe("parity: glyphcss rasterize vs fixtures", () => {
 
   it("single triangle (solid, no colors) matches fixture byte-for-byte", () => {
     // rotX=30°/rotY=20° — oblique view that shows the triangle clearly; zoom=8 fills the grid
-    const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 8, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 8, distance: 20, perspective: 0 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,
@@ -122,7 +124,7 @@ describe("parity: glyphcss rasterize vs fixtures", () => {
 
   it("tetrahedron (solid, no colors) matches fixture byte-for-byte", () => {
     // rotX=20°/rotY=46° — slightly elevated view with a twist; zoom=7 fills the grid
-    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 46, zoom: 7, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 46, zoom: 7, distance: 20, perspective: 0 });
     const ctx = buildRasterizeContext({
       camera,
       grid: GRID,

@@ -4,7 +4,15 @@ export type { UseDroppedFilesOptions, UseDroppedFilesResult } from "./useDropped
 export { usePresetLoader } from "./usePresetLoader";
 export type { UsePresetLoaderOptions } from "./usePresetLoader";
 
-export { useRouteSync, setRoutePresetId, routeInitialPresetId } from "./useRouteSync";
+export {
+  useRouteSync,
+  setRoutePresetId,
+  routeInitialPresetId,
+  routeInitialSceneOptions,
+  routeHasSceneOptions,
+  setRouteSceneOptions,
+  clearRouteSceneOptions,
+} from "./useRouteSync";
 export type { UseRouteSyncOptions } from "./useRouteSync";
 
 export { useGuiCameraSync } from "./useGuiCameraSync";

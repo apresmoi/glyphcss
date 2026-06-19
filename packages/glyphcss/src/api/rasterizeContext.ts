@@ -3,6 +3,7 @@ import type {
   RenderMode,
   WireframeEdge,
   Polygon,
+  TextureSampler,
 } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
@@ -137,6 +138,13 @@ export interface RasterizeContext {
   depthEpsilon?: number;
   /** Optional cross-frame shading cache (see {@link ShadeCache}). */
   shadeCache?: ShadeCache | null;
+  /**
+   * Decoded texture pixel samplers keyed by texture URL. When a polygon has a
+   * texture + UVs and its sampler is present here, the solid rasterizer samples
+   * the texture per cell (full image, glyph-resolution) instead of using the
+   * flat baked `poly.color`. Built by the scene via `buildTextureSamplers`.
+   */
+  textureSamplers?: Map<string, TextureSampler> | null;
   /** Optional retained previous-frame buffer for temporal AA. */
   temporalHistory?: TemporalHistory | null;
 }

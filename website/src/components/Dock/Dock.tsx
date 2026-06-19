@@ -6,6 +6,9 @@ export interface DockProps {
   children?: ReactNode;
   loading?: boolean;
   loadError?: string | null;
+  /** Extra class on the panel root (e.g. `is-mobile-open` for the mobile drawer). */
+  className?: string;
+  id?: string;
 }
 
 /**
@@ -16,12 +19,12 @@ export interface DockProps {
  * `loading` and `loadError` render status notes below the GUI for model
  * loading feedback; this is Dock-level chrome rather than per-folder state.
  */
-export function Dock({ children, loading, loadError }: DockProps) {
+export function Dock({ children, loading, loadError, className, id }: DockProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const gui = useGui(hostRef, { closeFolders: true });
   return (
-    <div className="dn-floating-controls">
-      <div ref={hostRef} />
+    <div className={`dn-floating-controls${className ? ` ${className}` : ""}`} id={id}>
+      <div className="dn-lil-gui-host" ref={hostRef} />
       <DockGuiContext.Provider value={gui}>
         {children}
       </DockGuiContext.Provider>

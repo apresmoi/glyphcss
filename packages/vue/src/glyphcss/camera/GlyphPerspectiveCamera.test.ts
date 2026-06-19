@@ -7,6 +7,7 @@ type CameraProps = {
   rotX?: number;
   rotY?: number;
   distance?: number;
+  perspective?: number;
   zoom?: number;
   stretch?: number;
   center?: [number, number];
@@ -53,6 +54,14 @@ describe("GlyphPerspectiveCamera (Vue) — wraps scene", () => {
 
   it("accepts distance prop without throwing", () => {
     expect(() => renderScene({ distance: 10 })).not.toThrow();
+  });
+
+  it("accepts perspective prop without throwing", () => {
+    expect(() => renderScene({ perspective: 3000 })).not.toThrow();
+  });
+
+  it("accepts perspective={0} (legacy orbit projection) without throwing", () => {
+    expect(() => renderScene({ perspective: 0 })).not.toThrow();
   });
 
   it("accepts rotX and rotY props without throwing", () => {

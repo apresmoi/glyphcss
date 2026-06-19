@@ -1372,3 +1372,113 @@
 .dn-floating-controls .lil-gui.root::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 232, 184, 0.30) !important;
 }
+
+/* ── Mobile: floating panels become bottom drawers toggled by a tab bar ──
+   Mirrors voxcss's gallery: on narrow viewports the canvas stays full-screen
+   and a bottom tab bar (Models / Random / Controls) opens each panel as a
+   bottom drawer instead of overlaying the model. */
+.dn-mobile-tabs {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .dn-floating-controls {
+    width: fit-content;
+    max-width: min(390px, calc(100vw - 20px));
+  }
+  .models-sidebar {
+    width: min(320px, calc(100vw - 20px));
+    max-height: calc(100% - 20px);
+  }
+}
+
+@media (max-width: 760px) {
+  .dn-root--gallery {
+    --mobile-tabs-height: 52px;
+    --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
+  }
+
+  /* Both side panels collapse to bottom drawers, hidden until their tab opens. */
+  .dn-root--gallery .models-sidebar,
+  .dn-root--gallery .dn-floating-controls {
+    display: none;
+    top: auto;
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    left: var(--overlay-left);
+    width: auto;
+    max-width: none;
+    z-index: 25;
+  }
+
+  .dn-root--gallery .models-sidebar {
+    height: min(58vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+  }
+  .dn-root--gallery .models-sidebar.is-mobile-open { display: flex; }
+  .dn-root--gallery .models-sidebar__body { height: 100%; max-height: none; }
+  .dn-root--gallery .model-button-list { max-height: none; }
+
+  .dn-root--gallery .dn-floating-controls {
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+  }
+  .dn-root--gallery .dn-floating-controls.is-mobile-open { display: flex; }
+
+  /* lil-gui fills the drawer and scrolls internally. */
+  .dn-root--gallery .dn-floating-controls .dn-lil-gui-host,
+  .dn-root--gallery .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+    width: 100% !important;
+    max-width: 100%;
+  }
+  .dn-root--gallery .dn-floating-controls .dn-lil-gui-host {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .dn-root--gallery .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+    box-sizing: border-box;
+    height: 100% !important;
+    max-height: none !important;
+  }
+
+  /* The bottom strip belongs to the tab bar + drawer; hide the code/copy chrome. */
+  .dn-root--gallery .gw-code-panel,
+  .dn-root--gallery .dn-copy-scene {
+    display: none;
+  }
+
+  .dn-mobile-tabs {
+    position: absolute;
+    right: var(--overlay-right);
+    bottom: var(--overlay-bottom);
+    left: var(--overlay-left);
+    z-index: 30;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    pointer-events: auto;
+  }
+  .dn-mobile-tabs__button {
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 232, 184, 0.22);
+    border-radius: 0;
+    background: rgba(15, 17, 21, 0.92);
+    color: rgba(255, 232, 184, 0.9);
+    font: 600 13px/1 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .dn-mobile-tabs__button.is-active {
+    border-color: rgba(56, 189, 248, 0.6);
+    color: #ecfeff;
+  }
+  .dn-mobile-tabs__button--random {
+    border-color: rgba(74, 222, 128, 0.5);
+    color: #dcfce7;
+  }
+}

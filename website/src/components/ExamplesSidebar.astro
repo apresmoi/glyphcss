@@ -12,7 +12,6 @@ const items = [
 ---
 
 <aside class="ex-sidebar">
-  <a class="ex-brand" href="/">glyph<span>css</span></a>
   <div class="ex-sb-title">EXAMPLES</div>
   <nav class="ex-sb-nav">
     {items.map((it) => (
@@ -44,6 +43,10 @@ const items = [
 </script>
 
 <style>
+  /* The examples are full-screen apps under the fixed site header, which owns
+     the brand + section nav. Hide Starlight's floating search dock so it doesn't
+     overlap this sub-nav (mirrors the WordArt page). */
+  :global(.sidebar-search-dock) { display: none !important; }
   .ex-sidebar {
     width: 220px;
     flex-shrink: 0;
@@ -55,15 +58,6 @@ const items = [
     gap: 2px;
     font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
   }
-  .ex-brand {
-    padding: 0 20px 18px;
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: rgba(255, 232, 184, 0.95);
-    text-decoration: none;
-  }
-  .ex-brand span { color: #38bdf8; }
   .ex-sb-title {
     padding: 0 20px 8px;
     font-size: 10px;
@@ -87,4 +81,40 @@ const items = [
   .ex-sb-label { font-size: 13px; color: rgba(255, 232, 184, 0.9); }
   .ex-sb-link.is-active .ex-sb-label { color: #fff; }
   .ex-sb-desc { font-size: 10px; color: rgba(255, 232, 184, 0.4); margin-top: 1px; }
+
+  /* Mobile: stack the canvas below a horizontal tab bar instead of a 220px
+     side rail that would squash the render into a sliver. */
+  @media (max-width: 50rem) {
+    :global(.ex-layout) { flex-direction: column; }
+    :global(.ex-main) { min-height: 0; }
+    /* Reclaim vertical space for the canvas — the title/description header is
+       redundant on a phone (the tab bar already names the example). */
+    :global(.map-head) { display: none; }
+    .ex-sidebar {
+      width: 100%;
+      flex-direction: row;
+      align-items: stretch;
+      gap: 0;
+      padding: 0;
+      border-right: none;
+      border-bottom: 1px solid rgba(255, 232, 184, 0.12);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .ex-sidebar::-webkit-scrollbar { display: none; }
+    .ex-sb-title { display: none; }
+    .ex-sb-nav { flex-direction: row; flex: 1; }
+    .ex-sb-link {
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 10px 12px;
+      border-left: none;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+    }
+    .ex-sb-link.is-active { border-bottom-color: #38bdf8; }
+    .ex-sb-desc { display: none; }
+  }
 </style>

@@ -1,5 +1,6 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
 const title = "glyphcss · ASCII Iso World Map";
 ---
 
@@ -10,14 +11,20 @@ const title = "glyphcss · ASCII Iso World Map";
   <title>{title}</title>
   <style>
     html, body { background: #04060b; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
-    body { display: flex; }
-    .ex-layout { flex: 1; display: flex; min-height: 100vh; min-width: 0; }
+    body { display: flex; overflow: hidden; }
+    /* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
     .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
     .map-head { padding: 20px 28px 10px; border-bottom: 1px solid rgba(255,232,184,0.12); }
     .map-head h1 { margin: 0; font-size: 20px; color: rgba(255,232,184,0.94); letter-spacing: 0.04em; }
     .map-head p { margin: 6px 0 0; font-size: 12px; color: rgba(255,232,184,0.5); }
     .map-stage { flex: 1; min-height: 0; position: relative; }
-    .iso-host { position: absolute; inset: 0; overflow: hidden; }
+    /* touch-action:none on the HOST (a template element the scoped rule can
+       reach) — the .glyph-output <pre> is created by the runtime and lacks the
+       Astro scope class, so a rule on it never matches. As an ancestor this
+       makes the whole map drag-to-pan instead of scrolling the page on touch. */
+    .iso-host { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
     .iso-host .glyph-output { color: rgba(255,232,184,0.96); text-shadow: 0 0 5px rgba(255,200,130,0.3); cursor: grab; touch-action: none; }
     .iso-host .glyph-output:active { cursor: grabbing; }
     .map-foot { padding: 12px 28px; border-top: 1px solid rgba(255,232,184,0.12); font-size: 11px; color: rgba(255,232,184,0.45); display: flex; gap: 16px; flex-wrap: wrap; }
@@ -48,6 +55,29 @@ const title = "glyphcss · ASCII Iso World Map";
       font-size: 11px; color: rgba(255,232,184,0.7);
     }
     .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
+    /* Desktop: the toggle button is mobile-only chrome. */
+    .iso-ctl-toggle { display: none; }
+    /* Mobile: collapse the controls into a bottom drawer (collapsed by default),
+       opened via a [ Controls ] button — mirrors the gallery's mobile panels. */
+    @media (max-width: 50rem) {
+      .iso-ctl-toggle {
+        display: block;
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+        min-height: 44px; padding: 0 12px;
+        background: rgba(8,12,18,0.94); color: rgba(255,232,184,0.9);
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        font: 600 13px/1 ui-monospace, "JetBrains Mono", monospace;
+        letter-spacing: 0.04em; cursor: pointer;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      }
+      .iso-controls {
+        top: auto; right: 0; left: 0; bottom: 44px; z-index: 30;
+        width: auto; max-height: 55vh; overflow-y: auto;
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        display: none;
+      }
+      .iso-controls.is-open { display: block; }
+    }
     .iso-ctl { margin-bottom: 11px; }
     .iso-ctl:last-child { margin-bottom: 0; }
     .iso-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
@@ -80,6 +110,7 @@ const title = "glyphcss · ASCII Iso World Map";
   </style>
 </head>
 <body>
+  <DocsHeader />
   <div class="ex-layout">
     <ExamplesSidebar active="flatmap" />
     <div class="ex-main">
@@ -91,7 +122,8 @@ const title = "glyphcss · ASCII Iso World Map";
     <div class="iso-host" id="iso-host">
       <div class="loading" id="loading">Loading terrain…</div>
     </div>
-    <div class="iso-controls">
+    <button class="iso-ctl-toggle" type="button" id="ctl-toggle" aria-expanded="false" aria-controls="iso-controls">[ Controls ]</button>
+    <div class="iso-controls" id="iso-controls">
       <h2>[ CONTROLS ]</h2>
       <div class="iso-ctl">
         <div class="iso-ctl-row"><span>relief ×</span><span class="val" id="exagg-val">0.2</span></div>
@@ -204,9 +236,8 @@ const title = "glyphcss · ASCII Iso World Map";
       // while terrain relief still reads as vertical bumps.
       // rotY=0 keeps north up (worldX=lat axis → screen vertical, worldY=lon
       // axis → screen horizontal). No rotation interaction — pan/zoom only.
-      // zoom=39 (absolute px-per-world-unit × BASE_TILE=50) shows the default
-      // LOD-1 region filling the viewport — same calibration as the globe
-      // (unit object fills at zoom≈16; this view is intentionally zoomed in).
+      // zoom=78 (absolute px-per-world-unit × BASE_TILE=50) shows the default
+      // LOD-1 region filling the viewport.
       const camera = createGlyphOrthographicCamera({ rotX: 40, rotY: 0, zoom: 78 });
 
       const scene = createGlyphScene(host, {
@@ -507,7 +538,10 @@ const title = "glyphcss · ASCII Iso World Map";
         if (activePtr !== null) return;
         activePtr = e.pointerId;
         lastX = e.clientX; lastY = e.clientY;
-        (e.target as Element).setPointerCapture(e.pointerId);
+        // Capture on the stable host, NOT e.target: each pointermove rerenders
+        // the <pre> (innerHTML replaced), destroying a captured child and
+        // dropping the gesture mid-drag — especially on touch.
+        host.setPointerCapture(e.pointerId);
       });
       host.addEventListener("pointermove", (e) => {
         if (activePtr !== e.pointerId) return;
@@ -531,7 +565,7 @@ const title = "glyphcss · ASCII Iso World Map";
       const release = (e: PointerEvent) => {
         if (activePtr !== e.pointerId) return;
         activePtr = null;
-        try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
+        try { host.releasePointerCapture(e.pointerId); } catch {}
         updateLabels();
         void updateActiveSet();
       };
@@ -540,8 +574,8 @@ const title = "glyphcss · ASCII Iso World Map";
       host.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = e.deltaY * 0.001;
-        // Min 39 = the default fill level; can't zoom out past it.
-        // Max 260 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
+        // Min 20 = zoomed slightly out of the default fill level.
+        // Max 400 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
         camera.zoom = Math.max(20, Math.min(400, camera.zoom * (1 - delta)));
         scene.rerender();
         updateZoomReadout();
@@ -551,6 +585,15 @@ const title = "glyphcss · ASCII Iso World Map";
 
       // ── Control dock wiring ───────────────────────────────────────────
       const $ = (id: string) => document.getElementById(id);
+
+      // Mobile: [ Controls ] button toggles the bottom drawer (collapsed by default).
+      const ctlToggle = $("ctl-toggle");
+      const ctlPanel = $("iso-controls");
+      ctlToggle?.addEventListener("click", () => {
+        const open = ctlPanel?.classList.toggle("is-open") ?? false;
+        ctlToggle.setAttribute("aria-expanded", String(open));
+        ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+      });
 
       // Relief exaggeration → restamp every active tile's Z-scale transform.
       const exaggInput = $("exagg") as HTMLInputElement | null;
@@ -684,9 +727,9 @@ const title = "glyphcss · ASCII Iso World Map";
       // Runs after a render (hotspot left/top are then current). Caps total
       // shown by zoom so the world view stays sparse.
       function updateLabels(): void {
-        // Scale label count with zoom: at zoom=39 (default view) show ~10;
-        // at zoom=260 (max) show ~40. Normalise by default zoom 39.
-        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / 39) * 14)));
+        // Scale label count with zoom: at zoom=78 (default view) show ~14;
+        // more as you zoom in. Normalise by default zoom 78.
+        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / 78) * 14)));
         const hostRect = host.getBoundingClientRect();
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         let count = 0;

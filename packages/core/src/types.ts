@@ -33,6 +33,8 @@ export interface TextureTriangle {
   uvs: [Vec2, Vec2, Vec2];
   /** Hex color string (`#rrggbb`) propagated from source model material. */
   color?: string;
+  /** Texture URL carried for renderers that sample textures per cell (UV-mapped). */
+  texture?: string;
 }
 
 /**
@@ -86,6 +88,15 @@ export interface PolyMaterial {
   key?: string;
 }
 
+/** Texture sampler wrap mode for one axis (glTF sampler convention). */
+export type PolyTextureWrapMode = "repeat" | "clamp-to-edge" | "mirrored-repeat";
+
+/** Per-axis texture wrap modes (see {@link Polygon.textureWrap}). */
+export interface PolyTextureWrap {
+  s: PolyTextureWrapMode;
+  t: PolyTextureWrapMode;
+}
+
 /**
  * The single polygon type for glyphcss. N coplanar vertices in 3D space,
  * CCW winding from outside. No bbox field, no shape discriminator, no
@@ -113,6 +124,14 @@ export interface Polygon {
    * polygon canvas rasterization). Falls back to the atlas path otherwise.
    */
   material?: PolyMaterial;
+  /**
+   * Texture sampler wrap mode for UVs outside [0, 1]. glTF imports and the
+   * fonts extruder preserve sampler.wrapS / wrapT here so a renderer that
+   * tiles textures can repeat the UVs. The ASCII renderer bakes textures to a
+   * flat per-face color and ignores this; unset keeps single-image behavior.
+   * @internal
+   */
+  textureWrap?: PolyTextureWrap;
   /**
    * Per-vertex UV coords (0..1, OBJ convention with v=0 at bottom).
    * Length MUST equal vertices.length when set; mismatched UVs are

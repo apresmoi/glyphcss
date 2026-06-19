@@ -13,6 +13,9 @@ export interface GlyphPerspectiveCameraProps {
   rotX?: number;
   rotY?: number;
   distance?: number;
+  /** CSS-perspective distance in virtual pixels (matches voxcss). Larger =
+   *  flatter. Default 32000. Set 0 to disable (legacy orbit projection). */
+  perspective?: number;
   zoom?: number;
   stretch?: number;
   center?: [number, number];
@@ -26,6 +29,7 @@ export const GlyphPerspectiveCamera = defineComponent({
     rotX: { type: Number, default: undefined },
     rotY: { type: Number, default: undefined },
     distance: { type: Number, default: undefined },
+    perspective: { type: Number, default: undefined },
     zoom: { type: Number, default: undefined },
     stretch: { type: Number, default: undefined },
     center: { type: Array as unknown as PropType<[number, number]>, default: undefined },
@@ -37,6 +41,7 @@ export const GlyphPerspectiveCamera = defineComponent({
     if (props.rotX !== undefined) opts.rotX = props.rotX;
     if (props.rotY !== undefined) opts.rotY = props.rotY;
     if (props.distance !== undefined) opts.distance = props.distance;
+    if (props.perspective !== undefined) opts.perspective = props.perspective;
     if (props.zoom !== undefined) opts.zoom = props.zoom;
     if (props.stretch !== undefined) opts.stretch = props.stretch;
     if (props.center !== undefined) opts.center = props.center;
@@ -53,7 +58,7 @@ export const GlyphPerspectiveCamera = defineComponent({
 
     // Sync prop changes
     watch(
-      () => ({ rotX: props.rotX, rotY: props.rotY, distance: props.distance, zoom: props.zoom, stretch: props.stretch }),
+      () => ({ rotX: props.rotX, rotY: props.rotY, distance: props.distance, perspective: props.perspective, zoom: props.zoom, stretch: props.stretch }),
       (next) => {
         const camera = cameraRef.value;
         if (!camera) return;
@@ -61,6 +66,7 @@ export const GlyphPerspectiveCamera = defineComponent({
         if (next.rotX !== undefined && camera.rotX !== next.rotX) { camera.rotX = next.rotX; dirty = true; }
         if (next.rotY !== undefined && camera.rotY !== next.rotY) { camera.rotY = next.rotY; dirty = true; }
         if (next.distance !== undefined && camera.distance !== next.distance) { camera.distance = next.distance; dirty = true; }
+        if (next.perspective !== undefined && camera.perspective !== next.perspective) { camera.perspective = next.perspective; dirty = true; }
         if (next.zoom !== undefined && camera.zoom !== next.zoom) { camera.zoom = next.zoom; dirty = true; }
         if (next.stretch !== undefined && camera.stretch !== next.stretch) { camera.stretch = next.stretch; dirty = true; }
         if (dirty) sceneRerenderRef.value?.();

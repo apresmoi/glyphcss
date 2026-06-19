@@ -603,3 +603,30 @@ starlight-tabs [role="tabpanel"] {
 .sl-markdown-content tr:hover td {
   background: rgba(56, 189, 248, 0.04) !important;
 }
+
+/* ── Mobile docs tuning ─────────────────────────────────────────────────────
+ * Starlight's defaults render the page H1, code-block copy button, and
+ * prev/next pagination titles at desktop sizes — far too large on a phone.
+ * Scale them down on narrow viewports. */
+@media (max-width: 50rem) {
+  .content-panel h1 {
+    font-size: clamp(22px, 7vw, 28px) !important;
+    line-height: 1.15 !important;
+  }
+
+  /* Code-block copy button: shrink so it doesn't dominate / overflow the block. */
+  .expressive-code .copy button {
+    inline-size: 1.9rem !important;
+    block-size: 1.9rem !important;
+  }
+
+  /* Prev/next footer: the page-name title defaults to a huge heading size. */
+  .pagination-links a {
+    padding: 8px 12px !important;
+  }
+  .pagination-links .link-title {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+  }
+}

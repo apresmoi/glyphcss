@@ -26,7 +26,9 @@ import type {
   RenderMode,
   Hotspot,
   Polygon,
+  TextureSampler,
 } from "@glyphcss/core";
+import { buildTextureSamplers } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
@@ -282,6 +284,24 @@ export function createGlyphScene(
     shadeCache.lit.length = 0;
   }
 
+  // Decoded texture pixel samplers (for per-cell texture rendering). Built async
+  // from all mesh polygons that carry a texture; null until decoded / when none.
+  // Polygons without a texture+uvs simply render flat, so this is a no-op cost
+  // for untextured scenes.
+  let textureSamplers: Map<string, TextureSampler> | null = null;
+  let textureToken = 0;
+  function refreshTextureSamplers(): void {
+    const polys: Polygon[] = [];
+    for (const entry of meshes.values()) for (const p of entry.polygons) if (p.texture || p.material?.texture) polys.push(p);
+    if (polys.length === 0) { if (textureSamplers) { textureSamplers = null; scheduleRender(); } return; }
+    const token = ++textureToken;
+    void buildTextureSamplers(polys).then((map) => {
+      if (token !== textureToken) return; // superseded by a newer mesh change
+      textureSamplers = map.size > 0 ? map : null;
+      scheduleRender();
+    });
+  }
+
   function scheduleRender(): void {
     if (pendingRender) return;
     pendingRender = true;
@@ -333,6 +353,7 @@ export function createGlyphScene(
       depthBiases: anyDepthBias ? depthBiases : undefined,
     });
     ctx.shadeCache = shadeCache;
+    ctx.textureSamplers = textureSamplers;
     ctx.temporalHistory = temporalHistory;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -400,6 +421,7 @@ export function createGlyphScene(
     const id = nextMeshId++;
     meshes.set(id, { id, polygons, transform });
     invalidateShading();
+    refreshTextureSamplers();
     scheduleRender();
 
     return {
@@ -413,6 +435,7 @@ export function createGlyphScene(
       dispose(): void {
         meshes.delete(id);
         invalidateShading();
+        refreshTextureSamplers();
         scheduleRender();
       },
     };

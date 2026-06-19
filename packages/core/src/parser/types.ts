@@ -1,6 +1,6 @@
 /**
  * Unified parser return type. All polygon-emitting parsers (parseObj,
- * parseGltf, the loadMesh dispatcher) return this exact shape.
+ * parseGltf, parseVox, parseStl, the loadMesh dispatcher) return this exact shape.
  *
  * The asymmetric helper `parseMtl` returns its own `MtlParseResult` (it
  * emits materials, not polygons) — see parseMtl.ts for the rationale.
@@ -10,6 +10,29 @@
  * is empty (e.g. `parseObj`, where it's a no-op).
  */
 import type { Polygon } from "../types";
+
+export interface ParseStlTopology {
+  componentCount: number;
+  repairedTriangleCount: number;
+  outwardComponentCount: number;
+  suppliedNormalComponentCount: number;
+  inconsistentSharedEdgeCount: number;
+  nonManifoldSharedEdgeCount: number;
+}
+
+export interface ParseStlColor {
+  format: "magics";
+  defaultColor: string;
+  alpha: number;
+  coloredTriangleCount: number;
+  defaultColorTriangleCount: number;
+}
+
+export interface ParseStlSolid {
+  name: string;
+  start: number;
+  count: number;
+}
 
 export interface ParseAnimationClip {
   /** Stable numeric index in the source file's animation array. */
@@ -66,5 +89,15 @@ export interface ParseResult {
     animations?: ParseAnimationClip[];
     /** Source file size in bytes (for diagnostics). */
     sourceBytes?: number;
+    /** Voxel count for `.vox` sources. */
+    voxelCount?: number;
+    /** Printable binary STL header, trimmed. */
+    stlHeader?: string;
+    /** Binary STL color metadata when a supported color extension is present. */
+    stlColor?: ParseStlColor;
+    /** Consecutive ASCII `solid` groups after parse/filtering. */
+    stlSolids?: ParseStlSolid[];
+    /** STL winding/connectivity diagnostics. */
+    stlTopology?: ParseStlTopology;
   };
 }

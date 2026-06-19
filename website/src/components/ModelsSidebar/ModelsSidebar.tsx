@@ -34,6 +34,9 @@ export interface ModelsSidebarProps {
   presetId: string;
   onPresetClick: (id: string) => void;
   attribution?: ModelAttribution;
+  /** Extra class on the sidebar root (e.g. `is-mobile-open` for the mobile drawer). */
+  className?: string;
+  id?: string;
 }
 
 function AttributionCredit({ attribution }: { attribution?: ModelAttribution }) {
@@ -74,9 +77,11 @@ export function ModelsSidebar({
   presetId,
   onPresetClick,
   attribution,
+  className,
+  id,
 }: ModelsSidebarProps) {
   return (
-    <aside className="models-sidebar" aria-label="Models">
+    <aside className={`models-sidebar${className ? ` ${className}` : ""}`} id={id} aria-label="Models">
       <div className="models-sidebar__body dark-scrollbar">
         <div className="models-sidebar__header">
           <input
