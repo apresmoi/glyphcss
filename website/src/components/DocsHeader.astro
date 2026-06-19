@@ -18,13 +18,6 @@ const topLinks = [
     label: 'Usage',
     active: ['/quickstart', '/introduction', '/core-concepts'].some((path) => pathname === path),
   },
-  {
-    href: '/api/headless',
-    label: 'API Reference',
-    labelShort: 'API',
-    labelLong: ' Reference',
-    active: pathname.startsWith('/api'),
-  },
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
   { href: '/examples/world', label: 'Examples', active: pathname.startsWith('/examples') },
   { href: '/wordart', label: 'WordArt', active: pathname.startsWith('/wordart') },
@@ -32,11 +25,9 @@ const topLinks = [
 ---
 
 <div class="header">
-  {!isLanding && (
-    <div class="title-wrapper sl-flex">
-      <SiteTitle />
-    </div>
-  )}
+  <div class="title-wrapper sl-flex">
+    <SiteTitle />
+  </div>
   {!isLanding && !isGallery && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
@@ -105,7 +96,7 @@ const topLinks = [
       width: 100%;
       height: var(--sl-nav-height);
       z-index: 100;
-      background: #03050a;
+      background: #0f1115;
       border-bottom: 1px solid rgba(255, 232, 184, 0.18);
       box-sizing: border-box;
       font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
@@ -247,8 +238,11 @@ const topLinks = [
           "brand spacer"
           "links links";
         grid-template-columns: minmax(0, 1fr) auto;
-        row-gap: 10px;
+        row-gap: 8px;
         column-gap: 12px;
+        /* Center the two rows in the bar so the logo gets breathing room above
+           it instead of hugging the top border. */
+        align-content: center;
         /* The nav row scrolls horizontally (overflow-x:auto). Because this header
            is position:fixed, Chromium otherwise propagates that scroll container's
            overflow to the viewport, giving the whole docs page a phantom sideways
@@ -270,6 +264,11 @@ const topLinks = [
         grid-area: links;
         justify-self: start;
         width: 100%;
+        /* Align the first link's text with the logo above it (logo sits at 16px;
+           each link adds its own 0.25rem ≈ 4px inset, so the nav pads 12px).
+           Plain physical padding (not calc/logical) so it applies on first paint
+           — the calc form was being resolved a frame late, flickering the nav. */
+        padding-left: 12px;
         /* Grid items default to min-width:auto (= min-content), which lets the
            nav grow to its links' width and overflow the viewport instead of
            scrolling. min-width:0 lets it shrink so overflow-x:auto can clip. */
@@ -286,7 +285,13 @@ const topLinks = [
 
       .docs-top-nav a {
         font-size: 0.78rem;
-        padding-inline: 0.45rem;
+        padding-inline: 0.25rem;
+      }
+
+      /* Drop the "> " prefix on inactive links to claw back width so the 5 items
+         fit without a scrollbar. The active item keeps its "[ … ]" brackets. */
+      .docs-top-nav a::before {
+        content: "";
       }
 
       .docs-top-nav .nav-label__long {
