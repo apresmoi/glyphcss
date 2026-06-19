@@ -44,6 +44,14 @@ const title = "glyphcss · Image → Glyph";
       font-size: 11px; color: rgba(255,232,184,0.7);
     }
     .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
+    /* Mobile: dock the controls to the bottom so they don't cover the drop zone. */
+    @media (max-width: 50rem) {
+      .iso-controls {
+        top: auto; right: 0; bottom: 0; left: 0;
+        width: auto; max-height: 40vh; overflow-y: auto;
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+      }
+    }
     .iso-ctl { margin-bottom: 11px; }
     .iso-ctl:last-child { margin-bottom: 0; }
     .iso-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }

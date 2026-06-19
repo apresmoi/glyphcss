@@ -81,4 +81,37 @@ const items = [
   .ex-sb-label { font-size: 13px; color: rgba(255, 232, 184, 0.9); }
   .ex-sb-link.is-active .ex-sb-label { color: #fff; }
   .ex-sb-desc { font-size: 10px; color: rgba(255, 232, 184, 0.4); margin-top: 1px; }
+
+  /* Mobile: stack the canvas below a horizontal tab bar instead of a 220px
+     side rail that would squash the render into a sliver. */
+  @media (max-width: 50rem) {
+    :global(.ex-layout) { flex-direction: column; }
+    :global(.ex-main) { min-height: 0; }
+    .ex-sidebar {
+      width: 100%;
+      flex-direction: row;
+      align-items: stretch;
+      gap: 0;
+      padding: 0;
+      border-right: none;
+      border-bottom: 1px solid rgba(255, 232, 184, 0.12);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .ex-sidebar::-webkit-scrollbar { display: none; }
+    .ex-sb-title { display: none; }
+    .ex-sb-nav { flex-direction: row; flex: 1; }
+    .ex-sb-link {
+      flex: 1;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 10px 12px;
+      border-left: none;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+    }
+    .ex-sb-link.is-active { border-bottom-color: #38bdf8; }
+    .ex-sb-desc { display: none; }
+  }
 </style>
