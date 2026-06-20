@@ -115,8 +115,8 @@ export function App() {
     ${cameraOpenTag}
       <GlyphScene
         mode="${mode}"
-        cols={100}
-        rows={30}
+        autoSize
+        style={{ width: "100%", height: "100%", fontSize: 13 }}
         glyphPalette="${palette}"
         useColors={${useColors}}
         autoCenter={${autoCenter}}
@@ -146,8 +146,8 @@ export function App() {
   ${cameraOpenTagVue}
     <GlyphScene
       mode="${mode}"
-      :cols="100"
-      :rows="30"
+      auto-size
+      :style="{ width: '100%', height: '100%', fontSize: '13px' }"
       glyphPalette="${palette}"
       :use-colors="${useColors}"
       :auto-center="${autoCenter}"
@@ -199,14 +199,15 @@ scene.add(polygons);`;
 } from "glyphcss";${polygonsImportV}
 
 const host = document.querySelector<HTMLElement>("#scene")!;
+// Cell font-size sets the ASCII resolution; autoSize fills the host's box.
+host.style.fontSize = "13px";
 
 const camera = ${createCameraCall};${targetV}
 
 const scene = createGlyphScene(host, {
   camera,
   mode: "${mode}",
-  cols: 100,
-  rows: 30,
+  autoSize: true,
   glyphPalette: "${palette}",
   useColors: ${useColors},
   autoCenter: ${autoCenter},
@@ -238,13 +239,16 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 <html>
   <head>
     <script type="module" src="https://esm.sh/glyphcss/elements"></script>
+    <style>
+      /* Cell font-size sets the ASCII resolution; auto-size fills the box. */
+      glyph-scene { display: block; width: 100%; height: 100vh; font-size: 13px; }
+    </style>
   </head>
   <body>
     ${cameraOpenHtml}
       <glyph-scene
         mode="${mode}"
-        cols="100"
-        rows="30"
+        auto-size
         glyph-palette="${palette}"
         use-colors="${useColors}"
         auto-center="${autoCenter}"
