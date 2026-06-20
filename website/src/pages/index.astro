@@ -13,6 +13,7 @@ hljs.registerLanguage("vue", xml);
 import DocsHeader from "../components/DocsHeader.astro";
 import GlyphDemo from "../components/GlyphDemo.astro";
 import AsciiArt from "../components/AsciiArt.astro";
+import Analytics from "../components/Analytics.astro";
 
 function highlight(code: string, lang: string): string {
   return hljs.highlight(code, { language: lang }).value;
@@ -104,6 +105,7 @@ const ldJson = {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <Analytics />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title}</title>
   <meta name="description" content={description} />
