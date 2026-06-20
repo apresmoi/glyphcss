@@ -1234,6 +1234,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   // ── FPV state ─────────────────────────────────────────────────────────────
   let fpvOrigin: [number, number, number] = [0, 0, controlState.fpv.groundZ + controlState.fpv.eyeHeight];
+  // Scales FPV distances/speeds to the model. Meshes keep their authored scale
+  // (autoCenter is center-only), so a fixed back-off/eye-height/move-speed would
+  // break on non-unit models — spawning you inside a large one. `maxDim/2` is 1
+  // for the old 2-unit mesh (identical behavior) and grows with the model.
+  let fpvModelScale = 1;
   let fpvVerticalVel = 0;
   let fpvJumpOffset = 0;
   let fpvRafId: number | null = null;
@@ -1243,6 +1248,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let fpvSavedProjection: 'perspective' | 'orthographic' | null = null;
   let fpvSavedDistance: number | null = null;
   let fpvSavedRotX: number | null = null;
+  let fpvSavedZoom: number | null = null;
   const FPV_PERSPECTIVE_DISTANCE = 200;
 
   const FPV_FORWARD_KEYS = new Set(['KeyW', 'ArrowUp']);
@@ -1272,17 +1278,38 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   }
 
   function fpvInitOriginFromCamera(): void {
-    const t = camera.target;
+    // Derive a model-relative scale from the bbox so the spawn back-off + eye
+    // height fit the actual model (mirrors voxcss useFpvSpawn). maxDim/2 == 1
+    // for the old 2-unit mesh, so unit-scale models are unchanged.
+    const polys = geometry.polygons as Polygon[];
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const p of polys) for (const v of p.vertices) {
+      if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+      if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+      if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+    }
+    const hasBbox = isFinite(minX);
+    const cx = hasBbox ? (minX + maxX) / 2 : camera.target[0];
+    const cy = hasBbox ? (minY + maxY) / 2 : camera.target[1];
+    const maxDim = hasBbox ? Math.max(maxX - minX, maxY - minY, maxZ - minZ, 0.001) : 2;
+    fpvModelScale = maxDim / 2;
+    // eyeMode apparent size ∝ zoom (the scaled back-off cancels the model size,
+    // focal is constant). The orbit auto-fit zoom shrinks ∝ 1/scale for big
+    // models, so normalize it by the model scale → consistent FPV view at any
+    // size. (For the old 2-unit mesh fpvModelScale is 1, so this is a no-op.)
+    camera.zoom = (fpvSavedZoom ?? camera.zoom) * fpvModelScale;
+    tunables.zoom = camera.zoom;
     fpvJumpOffset = 0;
     fpvVerticalVel = 0;
     camera.rotX = 90;
     tunables.rotX = 90;
-    const initBackOffset = 3;
+    const back = 1.5 * fpvModelScale;
     const f = fpvForwardDir(camera.rotX, camera.rotY);
     fpvOrigin = [
-      t[0] - f[0] * initBackOffset,
-      t[1] - f[1] * initBackOffset,
-      controlState.fpv.groundZ + controlState.fpv.eyeHeight,
+      cx - f[0] * back,
+      cy - f[1] * back,
+      controlState.fpv.groundZ + controlState.fpv.eyeHeight * fpvModelScale,
     ];
     fpvSyncTarget();
   }
@@ -1324,7 +1351,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       if (!controlState.fpv.jump) return;
       e.preventDefault();
       if (!fpvKeysHeld.has(code) && fpvVerticalVel === 0 && fpvJumpOffset === 0) {
-        fpvVerticalVel = controlState.fpv.jumpVelocity;
+        fpvVerticalVel = controlState.fpv.jumpVelocity * fpvModelScale;
       }
       fpvKeysHeld.add(code);
       return;
@@ -1365,7 +1392,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         const fx = -Math.cos(r), fy = -Math.sin(r);
         const rx = -Math.sin(r), ry =  Math.cos(r);
         const len = Math.hypot(mf, mr) || 1;
-        const step = controlState.fpv.moveSpeed * dt;
+        const step = controlState.fpv.moveSpeed * fpvModelScale * dt;
         fpvOrigin[0] += ((fx * mf + rx * mr) / len) * step;
         fpvOrigin[1] += ((fy * mf + ry * mr) / len) * step;
         dirty = true;
@@ -1374,9 +1401,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
     const crouched = controlState.fpv.crouch &&
       (fpvKeysHeld.has('ControlLeft') || fpvKeysHeld.has('ControlRight'));
-    const baseHeight = crouched ? controlState.fpv.crouchHeight : controlState.fpv.eyeHeight;
+    const baseHeight = (crouched ? controlState.fpv.crouchHeight : controlState.fpv.eyeHeight) * fpvModelScale;
     if (controlState.fpv.jump && (fpvVerticalVel !== 0 || fpvJumpOffset > 0)) {
-      fpvVerticalVel -= controlState.fpv.gravity * dt;
+      fpvVerticalVel -= controlState.fpv.gravity * fpvModelScale * dt;
       fpvJumpOffset += fpvVerticalVel * dt;
       if (fpvJumpOffset <= 0) { fpvJumpOffset = 0; fpvVerticalVel = 0; }
     } else if (!controlState.fpv.jump) {
@@ -1397,6 +1424,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     fpvSavedProjection = controlState.projection;
     fpvSavedDistance = tunables.distance;
     fpvSavedRotX = tunables.rotX;
+    fpvSavedZoom = tunables.zoom;
     controlState.projection = 'perspective';
     tunables.distance = FPV_PERSPECTIVE_DISTANCE;
     fpvInitOriginFromCamera();
@@ -1429,9 +1457,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (fpvSavedProjection !== null) controlState.projection = fpvSavedProjection;
     if (fpvSavedDistance !== null) tunables.distance = fpvSavedDistance;
     if (fpvSavedRotX !== null) tunables.rotX = fpvSavedRotX;
+    if (fpvSavedZoom !== null) tunables.zoom = fpvSavedZoom;
     fpvSavedProjection = null;
     fpvSavedDistance = null;
     fpvSavedRotX = null;
+    fpvSavedZoom = null;
     camera.target = [fpvOrigin[0], fpvOrigin[1], controlState.fpv.groundZ];
     rebuildSceneFromGeometry();
   }
