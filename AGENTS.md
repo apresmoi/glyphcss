@@ -118,7 +118,8 @@ The rendering model, naming conventions, and cross-package contracts described i
 - **NO "🤖 Generated with Claude Code" footer in PR bodies, commit messages, issue comments, or anywhere else.**
 - Never amend commits. New follow-up commits only. (Pre-commit hook failures: fix and create a new commit, don't `--amend`.)
 - Don't auto-push subagent exploration branches — local commits only. The user pushes when ready.
-- `main` is protected. All work lands via PR.
+- `main` is **not** branch-protected (so the `Publish packages` workflow can push the release commit + tag directly, like voxcss). Still use PRs for feature work by convention — but it's not enforced, and direct pushes to `main` are allowed.
+- **Release = one click.** Run the `Publish packages` workflow (Actions tab → "Run workflow", choose `patch`/`minor`/`major`, or `gh workflow run publish-packages.yml -f bump=patch`). It bumps every package in lockstep, builds, publishes to npm, and commits + tags `v<X.Y.Z>` back to `main`.
 
 ## Tests & build
 
