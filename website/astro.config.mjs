@@ -44,6 +44,12 @@ export default defineConfig({
     starlight({
       title: 'glyphcss',
       description: 'An ASCII polygon mesh engine. DOM-native 3D rendering in a character grid.',
+      head: [
+        // Google Analytics (gtag.js) — covers all Starlight docs pages; custom
+        // pages render the same tag via src/components/Analytics.astro.
+        { tag: 'script', attrs: { async: true, src: 'https://www.googletagmanager.com/gtag/js?id=G-PHHY1R5B58' } },
+        { tag: 'script', content: "window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', 'G-PHHY1R5B58');" },
+      ],
       components: {
         Header: './src/components/DocsHeader.astro',
         ThemeSelect: './src/components/EmptyThemeSelect.astro',
