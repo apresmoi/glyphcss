@@ -1,20 +1,17 @@
 name: Publish packages
 
-# Manual-only. Bumps every package under `packages/*` in lockstep (using
-# scripts/bump-versions.mjs), builds them, publishes to npm, then commits
-# the version change and pushes a `v<X.Y.Z>` tag back to main.
+# Manual. Publishes whatever version is currently on `main` (already merged via a
+# normal version-bump PR) to npm, then pushes the matching `v<X.Y.Z>` git tag.
+#
+# It deliberately does NOT write to `main`: `main` is a protected branch and the
+# workflow's GITHUB_TOKEN can't satisfy the required PR + status-check gate.
+# Bump the versions first in a regular PR (run `node .github/scripts/bump-versions.mjs
+# <patch|minor|major>`, open a PR, let CI pass, merge), then run this workflow.
+#
+# Re-running is safe: `pnpm -r publish` skips any package whose version is already
+# on the registry, and the tag step is a no-op if the tag already exists.
 on:
-  workflow_dispatch:
-    inputs:
-      bump:
-        description: "Version bump"
-        required: true
-        default: "patch"
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -31,6 +28,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          ref: main
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -49,12 +47,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Read version
+        id: version
+        run: echo "version=$(node -p "require('./packages/glyphcss/package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Run tests
         run: pnpm test
-
-      - name: Bump versions
-        id: bump
-        run: node .github/scripts/bump-versions.mjs "${{ inputs.bump }}"
 
       - name: Build packages
         run: pnpm build:packages
@@ -64,14 +62,17 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Commit, tag, and push
+      - name: Tag the release
         env:
           ACTOR: ${{ github.actor }}
           ACTOR_ID: ${{ github.actor_id }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+            echo "Tag v${VERSION} already exists on origin — skipping."
+            exit 0
+          fi
           git config user.name "$ACTOR"
           git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
-          git add packages/*/package.json
-          git commit -m "chore(release): v${NEXT_VERSION}"
-          git tag "v${NEXT_VERSION}"
-          git push origin HEAD:main "v${NEXT_VERSION}"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
