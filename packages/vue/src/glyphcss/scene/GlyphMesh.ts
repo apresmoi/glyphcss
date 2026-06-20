@@ -5,7 +5,7 @@
  */
 import { defineComponent, h, inject, onBeforeUnmount, watch, shallowRef, computed, watchEffect } from "vue";
 import type { PropType } from "vue";
-import { resolveGeometry } from "@glyphcss/core";
+import { resolveGeometry, recenterPolygons, loadMesh } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { GlyphSceneContextKey } from "./context";
@@ -13,6 +13,8 @@ import { GlyphSceneContextKey } from "./context";
 export interface GlyphMeshProps {
   id?: string;
   polygons?: Polygon[];
+  /** URL of an OBJ / GLB / glTF / VOX / STL mesh, fetched + parsed via `loadMesh`. */
+  src?: string;
   /**
    * Built-in geometry name. Resolved via `resolveGeometry` when neither
    * `polygons` nor `src` is provided.
@@ -27,6 +29,11 @@ export interface GlyphMeshProps {
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
+  /**
+   * Recenter the mesh's bounding-box center to the origin so it pivots around
+   * its own center (center only, no scaling — matches voxcss). Default false.
+   */
+  autoCenter?: boolean;
   /**
    * This mesh casts shadows onto `receiveShadow` surfaces.
    * Default false — opt-in, matching PolyMesh behaviour.
@@ -56,12 +63,14 @@ export const GlyphMesh = defineComponent({
   props: {
     id: { type: String, default: undefined },
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
+    src: { type: String, default: undefined },
     geometry: { type: String as PropType<GlyphGeometryName>, default: undefined },
     size: { type: Number, default: 1 },
     color: { type: String, default: undefined },
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
+    autoCenter: { type: Boolean, default: false },
     castShadow: { type: Boolean, default: false },
     receiveShadow: { type: Boolean, default: false },
     class: { type: String, default: undefined },
@@ -83,13 +92,32 @@ export const GlyphMesh = defineComponent({
     const { sceneRef } = ctx;
     const meshRef = shallowRef<GlyphMeshHandle | null>(null);
 
-    // Precedence: explicit polygons > geometry shortcut
+    // Fetch + parse `src` (race-safe: late responses for a stale src are dropped).
+    const loadedPolygons = shallowRef<Polygon[] | null>(null);
+    watch(
+      () => props.src,
+      (src, _prev, onCleanup) => {
+        if (!src) { loadedPolygons.value = null; return; }
+        let cancelled = false;
+        onCleanup(() => { cancelled = true; });
+        loadMesh(src)
+          .then((result) => { if (!cancelled) loadedPolygons.value = result.polygons; })
+          .catch(() => { if (!cancelled) loadedPolygons.value = []; });
+      },
+      { immediate: true },
+    );
+
+    // Precedence: explicit polygons > src > geometry shortcut
     const resolvedPolygons = computed<Polygon[]>(() => {
-      if (props.polygons !== undefined) return props.polygons;
-      if (props.geometry !== undefined) {
-        return resolveGeometry(props.geometry, { size: props.size, color: props.color });
-      }
-      return [];
+      const base =
+        props.polygons !== undefined
+          ? props.polygons
+          : props.src !== undefined
+            ? (loadedPolygons.value ?? [])
+            : props.geometry !== undefined
+              ? resolveGeometry(props.geometry, { size: props.size, color: props.color })
+              : [];
+      return props.autoCenter ? recenterPolygons(base) : base;
     });
 
     function buildTransform(): GlyphMeshTransform {

@@ -167,8 +167,9 @@ function fanTriangulate(polygons: Polygon[]): TextureTriangle[] {
   return triangles;
 }
 
-/** Re-center + uniform-scale polygons of any vertex count into a 2-unit bbox. */
-function fitPolygonsToUnitBbox(polygons: Polygon[]): Polygon[] {
+/** Re-center polygons so their bbox center sits at the origin (center only, no
+ * scaling — matches voxcss `autoCenter`). The camera auto-fit handles size. */
+function recenterPolygons(polygons: Polygon[]): Polygon[] {
   if (polygons.length === 0) return polygons;
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -178,15 +179,9 @@ function fitPolygonsToUnitBbox(polygons: Polygon[]): Polygon[] {
     if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
   }
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
-  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
-  const k = 2 / size;
   return polygons.map((p) => ({
     ...p,
-    vertices: p.vertices.map((v) => [
-      (v[0] - cx) * k,
-      (v[1] - cy) * k,
-      (v[2] - cz) * k,
-    ]) as Polygon["vertices"],
+    vertices: p.vertices.map((v) => [v[0] - cx, v[1] - cy, v[2] - cz]) as Polygon["vertices"],
   }));
 }
 
@@ -258,8 +253,22 @@ function polygonsToWireframeEdges(polygons: Polygon[], featureAngleDeg = 0): Wir
   return out;
 }
 
-/** Recenter + scale triangles to fit a unit bbox. */
-function fitTrianglesToUnitBbox(triangles: TextureTriangle[]): TextureTriangle[] {
+/** Largest bounding-box dimension of a polygon set (0 if empty). Used to scale
+ * world-unit params (shadow lift) now that meshes keep their authored scale. */
+function bboxMaxDim(polygons: Polygon[]): number {
+  if (!polygons || polygons.length === 0) return 0;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const p of polygons) for (const v of p.vertices) {
+    if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+    if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+    if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+  }
+  return Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+}
+
+/** Recenter triangles so their bbox center sits at the origin (center only). */
+function recenterTriangles(triangles: TextureTriangle[]): TextureTriangle[] {
   if (triangles.length === 0) return triangles;
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -269,15 +278,9 @@ function fitTrianglesToUnitBbox(triangles: TextureTriangle[]): TextureTriangle[]
     if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
   }
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
-  const size = Math.max(maxX - minX, maxY - minY, maxZ - minZ) || 1;
-  const k = 2 / size;
   return triangles.map((t) => ({
     ...t,
-    vertices: t.vertices.map((v) => [
-      (v[0] - cx) * k,
-      (v[1] - cy) * k,
-      (v[2] - cz) * k,
-    ]) as TextureTriangle["vertices"],
+    vertices: t.vertices.map((v) => [v[0] - cx, v[1] - cy, v[2] - cz]) as TextureTriangle["vertices"],
   }));
 }
 
@@ -299,7 +302,7 @@ async function loadMeshAsGeometry(url: string, normalize = true, mtlUrl?: string
   // The old per-face `bakeSolidTextureSamples` flat-color pass is gone; faces
   // without a decodable texture fall back to their MTL `Kd` color.
   const rawTris = fanTriangulate(result.polygons);
-  const polys = normalize ? fitTrianglesToUnitBbox(rawTris) : rawTris;
+  const polys = normalize ? recenterTriangles(rawTris) : rawTris;
   const edges = trianglesToEdges(polys, 0);
   const vertSet = new Map<string, Vec3>();
   for (const e of edges) {
@@ -313,7 +316,7 @@ async function loadMeshAsGeometry(url: string, normalize = true, mtlUrl?: string
     sample = (clipIndex: number, time: number) => {
       const rawPolys = animation.sample(clipIndex, time);
       const raw = fanTriangulate(rawPolys);
-      return normalize ? fitTrianglesToUnitBbox(raw) : raw;
+      return normalize ? recenterTriangles(raw) : raw;
     };
   } else {
     sample = () => polys;
@@ -723,7 +726,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         color: lightingState.ambientColor,
       },
       shadow: shadowState.enabled
-        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift }
+        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift * Math.max(bboxMaxDim(geometry.polygons as Polygon[]) / 2, 0.001) }
         : undefined,
     };
   }
@@ -764,7 +767,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
    * Compute the floor polygon from the current geometry's bounding box.
    * +Z is world-up. The floor sits at the model's min-Z edge, sized 1.6× the
    * model's XY footprint so the shadow spills visibly beyond the model silhouette.
-   * The model is always centered at XY=0 after fitPolygonsToUnitBbox/loadMesh
+   * The model is always centered at XY=0 after recenterPolygons/loadMesh
    * auto-center, so offset=[0,0] places the floor quad at the XY origin.
    */
   function buildFloorPolygons(): Polygon[] {
@@ -1204,7 +1207,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     // pentagons (30 outline edges). Fan-triangulating first would feed
     // triangles into trianglesToEdges and reintroduce spurious diagonals.
     // The rasterizer handles N-gons internally (fan-triangulates per render).
-    const fitted = fitPolygonsToUnitBbox(polygons);
+    const fitted = recenterPolygons(polygons);
     // Triangles for downstream code paths that still expect TextureTriangle[]:
     // sampler, selection picking, stats. They only need geometry-equivalent
     // triangles for hit testing — the wireframe path uses `fitted` directly.
@@ -1635,7 +1638,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     Object.assign(shadowState, partial);
     scene.setOptions({
       shadow: shadowState.enabled
-        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift }
+        ? { color: shadowState.color, opacity: shadowState.opacity, lift: shadowState.lift * Math.max(bboxMaxDim(geometry.polygons as Polygon[]) / 2, 0.001) }
         : undefined,
     });
     // When cast/receive flags change we must rebuild the mesh handle so the

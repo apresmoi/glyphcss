@@ -78,6 +78,24 @@ export function computeSceneBbox(polygons: Polygon[]): SceneBbox {
   };
 }
 
+/**
+ * Recenter polygons so their bounding-box center sits at the origin — center
+ * only, no scaling (matches voxcss `recenterPolygons` / `autoCenter`). A loaded
+ * mesh then pivots around its own center; the camera's fit/zoom handles size.
+ */
+export function recenterPolygons(polygons: Polygon[]): Polygon[] {
+  if (!polygons || polygons.length === 0) return polygons;
+  const bbox = computeSceneBbox(polygons);
+  const cx = (bbox.min[0] + bbox.max[0]) / 2;
+  const cy = (bbox.min[1] + bbox.max[1]) / 2;
+  const cz = (bbox.min[2] + bbox.max[2]) / 2;
+  if (cx === 0 && cy === 0 && cz === 0) return polygons;
+  return polygons.map((p) => ({
+    ...p,
+    vertices: p.vertices.map((v): Vec3 => [v[0] - cx, v[1] - cy, v[2] - cz]),
+  }));
+}
+
 export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuildResult {
   const input = args.polygons ?? [];
   let polygons: Polygon[];

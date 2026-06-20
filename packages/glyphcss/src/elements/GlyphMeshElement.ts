@@ -7,8 +7,8 @@
  *
  * On disconnect: disposes the registered mesh handle.
  */
-import { loadMesh, resolveGeometry, computeSceneBbox } from "@glyphcss/core";
-import type { Vec3, GlyphGeometryName, Polygon } from "@glyphcss/core";
+import { loadMesh, resolveGeometry, recenterPolygons } from "@glyphcss/core";
+import type { Vec3, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphSceneHandle } from "../api/createGlyphScene";
 import type { GlyphMeshTransform } from "../api/types";
 import type { GlyphSceneElement } from "./GlyphSceneElement";
@@ -18,29 +18,8 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "normalize", "cast-shadow", "receive-shadow"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow"] as const;
 
-/** Center and scale polygons to fit a 2-unit bounding box at origin. */
-function fitToUnitBbox(polygons: Polygon[]): Polygon[] {
-  const bbox = computeSceneBbox(polygons);
-  const cx = (bbox.min[0] + bbox.max[0]) / 2;
-  const cy = (bbox.min[1] + bbox.max[1]) / 2;
-  const cz = (bbox.min[2] + bbox.max[2]) / 2;
-  const size = Math.max(
-    bbox.max[0] - bbox.min[0],
-    bbox.max[1] - bbox.min[1],
-    bbox.max[2] - bbox.min[2],
-  ) || 1;
-  const k = 2 / size;
-  return polygons.map((p) => ({
-    ...p,
-    vertices: p.vertices.map((v): Vec3 => [
-      (v[0] - cx) * k,
-      (v[1] - cy) * k,
-      (v[2] - cz) * k,
-    ]),
-  }));
-}
 
 function parseVec3(value: string | null): Vec3 | undefined {
   if (!value) return undefined;
@@ -157,8 +136,8 @@ export class GlyphMeshElement extends ELEMENT_BASE {
         return;
       }
 
-      const shouldNormalize = this.hasAttribute("normalize");
-      const polygons = shouldNormalize ? fitToUnitBbox(parsed.polygons) : parsed.polygons;
+      const shouldCenter = this.hasAttribute("auto-center");
+      const polygons = shouldCenter ? recenterPolygons(parsed.polygons) : parsed.polygons;
       this._handle = scene.add(polygons, this._readTransform());
       this.dispatchEvent(new CustomEvent("glyphcss:loaded", { detail: { polygons }, bubbles: true }));
       return;
