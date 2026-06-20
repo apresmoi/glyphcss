@@ -8,7 +8,7 @@
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { resolveGeometry, fitPolygonsToUnitBbox } from "@glyphcss/core";
+import { resolveGeometry, recenterPolygons } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { useGlyphSceneContext } from "./context";
@@ -33,10 +33,10 @@ export interface GlyphMeshProps {
   scale?: number | Vec3;
   rotation?: Vec3;
   /**
-   * Center + uniformly scale the mesh to a 2-unit bbox at the origin, so it
-   * pivots around its own center at a predictable size. Default false.
+   * Recenter the mesh's bounding-box center to the origin so it pivots around
+   * its own center (center only, no scaling — matches voxcss). Default false.
    */
-  normalize?: boolean;
+  autoCenter?: boolean;
   /**
    * This mesh casts shadows onto `receiveShadow` surfaces.
    * Default false — opt-in, matching PolyMesh behaviour.
@@ -72,7 +72,7 @@ function GlyphMeshInner({
   position,
   scale,
   rotation,
-  normalize = false,
+  autoCenter = false,
   castShadow = false,
   receiveShadow = false,
   className,
@@ -91,8 +91,8 @@ function GlyphMeshInner({
         : geometry !== undefined
           ? resolveGeometry(geometry, { size, color })
           : [];
-    return normalize ? fitPolygonsToUnitBbox(base) : base;
-  }, [polygonsProp, geometry, size, color, normalize]);
+    return autoCenter ? recenterPolygons(base) : base;
+  }, [polygonsProp, geometry, size, color, autoCenter]);
 
   const transform = useMemo<GlyphMeshTransform>(() => ({
     id,

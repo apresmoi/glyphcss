@@ -5,7 +5,7 @@
  */
 import { defineComponent, h, inject, onBeforeUnmount, watch, shallowRef, computed, watchEffect } from "vue";
 import type { PropType } from "vue";
-import { resolveGeometry, fitPolygonsToUnitBbox } from "@glyphcss/core";
+import { resolveGeometry, recenterPolygons } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { GlyphSceneContextKey } from "./context";
@@ -28,10 +28,10 @@ export interface GlyphMeshProps {
   scale?: number | Vec3;
   rotation?: Vec3;
   /**
-   * Center + uniformly scale the mesh to a 2-unit bbox at the origin, so it
-   * pivots around its own center at a predictable size. Default false.
+   * Recenter the mesh's bounding-box center to the origin so it pivots around
+   * its own center (center only, no scaling — matches voxcss). Default false.
    */
-  normalize?: boolean;
+  autoCenter?: boolean;
   /**
    * This mesh casts shadows onto `receiveShadow` surfaces.
    * Default false — opt-in, matching PolyMesh behaviour.
@@ -67,7 +67,7 @@ export const GlyphMesh = defineComponent({
     position: { type: Array as unknown as PropType<Vec3>, default: undefined },
     scale: { type: [Number, Array] as unknown as PropType<number | Vec3>, default: undefined },
     rotation: { type: Array as unknown as PropType<Vec3>, default: undefined },
-    normalize: { type: Boolean, default: false },
+    autoCenter: { type: Boolean, default: false },
     castShadow: { type: Boolean, default: false },
     receiveShadow: { type: Boolean, default: false },
     class: { type: String, default: undefined },
@@ -97,7 +97,7 @@ export const GlyphMesh = defineComponent({
           : props.geometry !== undefined
             ? resolveGeometry(props.geometry, { size: props.size, color: props.color })
             : [];
-      return props.normalize ? fitPolygonsToUnitBbox(base) : base;
+      return props.autoCenter ? recenterPolygons(base) : base;
     });
 
     function buildTransform(): GlyphMeshTransform {

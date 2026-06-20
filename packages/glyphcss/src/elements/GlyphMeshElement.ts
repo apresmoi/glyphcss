@@ -7,7 +7,7 @@
  *
  * On disconnect: disposes the registered mesh handle.
  */
-import { loadMesh, resolveGeometry, fitPolygonsToUnitBbox } from "@glyphcss/core";
+import { loadMesh, resolveGeometry, recenterPolygons } from "@glyphcss/core";
 import type { Vec3, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphSceneHandle } from "../api/createGlyphScene";
 import type { GlyphMeshTransform } from "../api/types";
@@ -18,7 +18,7 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "normalize", "cast-shadow", "receive-shadow"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow"] as const;
 
 
 function parseVec3(value: string | null): Vec3 | undefined {
@@ -136,8 +136,8 @@ export class GlyphMeshElement extends ELEMENT_BASE {
         return;
       }
 
-      const shouldNormalize = this.hasAttribute("normalize");
-      const polygons = shouldNormalize ? fitPolygonsToUnitBbox(parsed.polygons) : parsed.polygons;
+      const shouldCenter = this.hasAttribute("auto-center");
+      const polygons = shouldCenter ? recenterPolygons(parsed.polygons) : parsed.polygons;
       this._handle = scene.add(polygons, this._readTransform());
       this.dispatchEvent(new CustomEvent("glyphcss:loaded", { detail: { polygons }, bubbles: true }));
       return;

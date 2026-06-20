@@ -67,10 +67,12 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const palette = options.glyphPalette ?? "default";
   const useColors = options.useColors !== false;
   const autoCenter = options.autoCenter !== false;
-  // The gallery centers + unit-scales every mesh (its "autoCenter"). In the
-  // packages that's the `normalize` flag ON THE MESH, not a scene option — so
-  // the copied model pivots around its own center instead of world origin.
-  const normAttr = autoCenter ? " normalize" : "";
+  // The gallery recenters every mesh to its own center (voxcss `autoCenter`).
+  // In the packages that's `autoCenter` ON THE MESH, not a scene option — so the
+  // copied model pivots around its own center instead of world origin. (camelCase
+  // for React/JSX; kebab-case for the custom element + Vue template.)
+  const centerJsx = autoCenter ? " autoCenter" : "";
+  const centerKebab = autoCenter ? " auto-center" : "";
   const lineHeight = options.lineHeight ?? 1;
   const featureEdges = options.featureEdges ?? 0;
   const rotX = options.rotX ?? 0;
@@ -97,8 +99,8 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const featureEdgesProp = mode === "wireframe" ? ` featureEdges={${fmt(featureEdges)}}` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
   const meshTagReact = isPrimitive
-    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${normAttr} />`
-    : `<GlyphMesh src="${url}"${normAttr} />`;
+    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${centerJsx} />`
+    : `<GlyphMesh src="${url}"${centerJsx} />`;
 
   const react = `import {
   ${cameraComponentName},
@@ -142,8 +144,8 @@ export function App() {
   const featureEdgesVue = mode === "wireframe" ? `\n    :feature-edges="${fmt(featureEdges)}"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
   const meshTagVue = isPrimitive
-    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${normAttr} />`
-    : `<GlyphMesh src="${url}"${normAttr} />`;
+    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${centerKebab} />`
+    : `<GlyphMesh src="${url}"${centerKebab} />`;
 
   const vue = `<template>
   ${cameraOpenTagVue}
@@ -187,9 +189,9 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const featureEdgesV = mode === "wireframe" ? `\n  featureEdges: ${fmt(featureEdges)},` : "";
   const targetV = hasTarget ? `\ncamera.target = ${vec3(target)};` : "";
   const meshImportV = isPrimitive ? "" : "\n  loadMesh,";
-  const fitImportV = autoCenter ? "\n  fitPolygonsToUnitBbox," : "";
+  const fitImportV = autoCenter ? "\n  recenterPolygons," : "";
   const polygonsImportV = isPrimitive ? '\nimport { resolveGeometry } from "@glyphcss/core";' : "";
-  const addArgV = autoCenter ? "fitPolygonsToUnitBbox(polygons)" : "polygons";
+  const addArgV = autoCenter ? "recenterPolygons(polygons)" : "polygons";
   const meshLoadV = isPrimitive
     ? `const polygons = resolveGeometry("${geometryName}", { size: 1 });
 scene.add(${addArgV}${needsUpright ? `, { rotation: ${vec3(uprightRotation)} }` : ""});`
@@ -235,8 +237,8 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
   const cameraCloseHtml = `</${cameraHtmlTag}>`;
   const featureEdgesHtml = mode === "wireframe" ? ` feature-edges="${fmt(featureEdges)}"` : "";
   const meshTagHtml = isPrimitive
-    ? `<glyph-mesh geometry="${geometryName}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${normAttr}></glyph-mesh>`
-    : `<glyph-mesh src="${url}"${normAttr}></glyph-mesh>`;
+    ? `<glyph-mesh geometry="${geometryName}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${centerKebab}></glyph-mesh>`
+    : `<glyph-mesh src="${url}"${centerKebab}></glyph-mesh>`;
 
   const html = `<!DOCTYPE html>
 <html>
