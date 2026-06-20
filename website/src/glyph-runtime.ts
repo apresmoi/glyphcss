@@ -819,20 +819,38 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (!polys || polys.length === 0) return;
     const opts = scene.getOptions();
     const cols = opts.cols ?? 80, rows = opts.rows ?? 24, ca = opts.cellAspect ?? 0.5;
+    const [tx, ty, tz] = camera.target;
+    // Fit the bounding SPHERE around the pivot (camera target), not the
+    // silhouette at the current angle. The sphere radius is rotation-invariant,
+    // so the model fits at EVERY orbit angle — orbiting never grows it past the
+    // grid (the old per-angle fit overflowed when you spun to a wider profile,
+    // and the clipped overflow is what made the model look off-center).
     let total = 0;
     for (const p of polys) total += p.vertices.length;
     const stride = total > 3000 ? Math.ceil(total / 3000) : 1;
-    let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity, i = 0;
+    let r2max = 0, i = 0;
     for (const p of polys) for (const v of p.vertices) {
       if (i++ % stride !== 0) continue;
-      const pr = camera.project(v, cols, rows, ca);
-      if (!isFinite(pr[0]) || !isFinite(pr[1])) continue;
-      if (pr[0] < minc) minc = pr[0]; if (pr[0] > maxc) maxc = pr[0];
-      if (pr[1] < minr) minr = pr[1]; if (pr[1] > maxr) maxr = pr[1];
+      const dx = v[0] - tx, dy = v[1] - ty, dz = v[2] - tz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > r2max) r2max = d2;
     }
-    const wExt = maxc - minc, hExt = maxr - minr;
-    if (!(wExt > 0) || !(hExt > 0)) return;
-    const factor = Math.min((fill * cols) / wExt, (fill * rows) / hExt);
+    const R = Math.sqrt(r2max);
+    if (!(R > 0)) return;
+    // Per-world-unit projection scales (cols/rows) derived from camera.project,
+    // so we inherit the exact cellAspect/fovScale/zoom math instead of
+    // re-deriving it. Rotation is orthonormal, so projecting the three unit axes
+    // and combining in quadrature gives the rotation-invariant col/row scale.
+    const c0 = camera.project([tx, ty, tz], cols, rows, ca);
+    let sCol2 = 0, sRow2 = 0;
+    for (const e of [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]) {
+      const pe = camera.project([tx + e[0], ty + e[1], tz + e[2]], cols, rows, ca);
+      const dc = pe[0] - c0[0], dr = pe[1] - c0[1];
+      sCol2 += dc * dc; sRow2 += dr * dr;
+    }
+    const sCol = Math.sqrt(sCol2), sRow = Math.sqrt(sRow2);
+    if (!(sCol > 0) || !(sRow > 0)) return;
+    const factor = Math.min((fill * cols) / (2 * R * sCol), (fill * rows) / (2 * R * sRow));
     if (!isFinite(factor) || factor <= 0) return;
     const nz = Math.round((camera.zoom || 1) * factor * 10) / 10;
     camera.zoom = nz;
