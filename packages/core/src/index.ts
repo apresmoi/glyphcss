@@ -21,6 +21,7 @@ export { DEFAULT_PROJECTION } from "./types";
 export {
   buildSceneContext,
   computeSceneBbox,
+  fitPolygonsToUnitBbox,
   normalizePolygons,
 } from "./scene/context";
 export type {

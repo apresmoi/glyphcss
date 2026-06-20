@@ -78,6 +78,34 @@ export function computeSceneBbox(polygons: Polygon[]): SceneBbox {
   };
 }
 
+/**
+ * Center and uniformly scale polygons to fit a 2-unit bounding box at the
+ * origin (max dimension → 2, bbox center → [0,0,0]). Used by `normalize` on
+ * meshes so a loaded model pivots around its own center at a predictable size,
+ * regardless of the authored origin/units.
+ */
+export function fitPolygonsToUnitBbox(polygons: Polygon[]): Polygon[] {
+  if (!polygons || polygons.length === 0) return polygons;
+  const bbox = computeSceneBbox(polygons);
+  const cx = (bbox.min[0] + bbox.max[0]) / 2;
+  const cy = (bbox.min[1] + bbox.max[1]) / 2;
+  const cz = (bbox.min[2] + bbox.max[2]) / 2;
+  const size = Math.max(
+    bbox.max[0] - bbox.min[0],
+    bbox.max[1] - bbox.min[1],
+    bbox.max[2] - bbox.min[2],
+  ) || 1;
+  const k = 2 / size;
+  return polygons.map((p) => ({
+    ...p,
+    vertices: p.vertices.map((v): Vec3 => [
+      (v[0] - cx) * k,
+      (v[1] - cy) * k,
+      (v[2] - cz) * k,
+    ]),
+  }));
+}
+
 export function buildSceneContext(args: SceneContextBuildArgs): SceneContextBuildResult {
   const input = args.polygons ?? [];
   let polygons: Polygon[];

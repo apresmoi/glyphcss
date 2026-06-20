@@ -67,6 +67,10 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const palette = options.glyphPalette ?? "default";
   const useColors = options.useColors !== false;
   const autoCenter = options.autoCenter !== false;
+  // The gallery centers + unit-scales every mesh (its "autoCenter"). In the
+  // packages that's the `normalize` flag ON THE MESH, not a scene option — so
+  // the copied model pivots around its own center instead of world origin.
+  const normAttr = autoCenter ? " normalize" : "";
   const lineHeight = options.lineHeight ?? 1;
   const featureEdges = options.featureEdges ?? 0;
   const rotX = options.rotX ?? 0;
@@ -93,8 +97,8 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const featureEdgesProp = mode === "wireframe" ? ` featureEdges={${fmt(featureEdges)}}` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
   const meshTagReact = isPrimitive
-    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""} />`
-    : `<GlyphMesh src="${url}" />`;
+    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${normAttr} />`
+    : `<GlyphMesh src="${url}"${normAttr} />`;
 
   const react = `import {
   ${cameraComponentName},
@@ -119,7 +123,6 @@ export function App() {
         style={{ width: "100%", height: "100%", fontSize: 13 }}
         glyphPalette="${palette}"
         useColors={${useColors}}
-        autoCenter={${autoCenter}}
         lineHeight={${fmt(lineHeight)}}${featureEdgesProp}${targetReact}
         directionalLight={directionalLight}
         ambientLight={ambientLight}
@@ -139,8 +142,8 @@ export function App() {
   const featureEdgesVue = mode === "wireframe" ? `\n    :feature-edges="${fmt(featureEdges)}"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
   const meshTagVue = isPrimitive
-    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""} />`
-    : `<GlyphMesh src="${url}" />`;
+    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${normAttr} />`
+    : `<GlyphMesh src="${url}"${normAttr} />`;
 
   const vue = `<template>
   ${cameraOpenTagVue}
@@ -150,7 +153,6 @@ export function App() {
       :style="{ width: '100%', height: '100%', fontSize: '13px' }"
       glyphPalette="${palette}"
       :use-colors="${useColors}"
-      :auto-center="${autoCenter}"
       :line-height="${fmt(lineHeight)}"${featureEdgesVue}${targetVue}
       :directional-light="directionalLight"
       :ambient-light="ambientLight"
@@ -185,17 +187,19 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const featureEdgesV = mode === "wireframe" ? `\n  featureEdges: ${fmt(featureEdges)},` : "";
   const targetV = hasTarget ? `\ncamera.target = ${vec3(target)};` : "";
   const meshImportV = isPrimitive ? "" : "\n  loadMesh,";
+  const fitImportV = autoCenter ? "\n  fitPolygonsToUnitBbox," : "";
   const polygonsImportV = isPrimitive ? '\nimport { resolveGeometry } from "@glyphcss/core";' : "";
+  const addArgV = autoCenter ? "fitPolygonsToUnitBbox(polygons)" : "polygons";
   const meshLoadV = isPrimitive
     ? `const polygons = resolveGeometry("${geometryName}", { size: 1 });
-scene.add(polygons${needsUpright ? `, { rotation: ${vec3(uprightRotation)} }` : ""});`
+scene.add(${addArgV}${needsUpright ? `, { rotation: ${vec3(uprightRotation)} }` : ""});`
     : `const { polygons } = await loadMesh("${url}");
-scene.add(polygons);`;
+scene.add(${addArgV});`;
 
   const vanilla = `import {
   ${cameraImport},
   createGlyphScene,
-  createGlyphOrbitControls,${meshImportV}
+  createGlyphOrbitControls,${meshImportV}${fitImportV}
 } from "glyphcss";${polygonsImportV}
 
 const host = document.querySelector<HTMLElement>("#scene")!;
@@ -210,7 +214,6 @@ const scene = createGlyphScene(host, {
   autoSize: true,
   glyphPalette: "${palette}",
   useColors: ${useColors},
-  autoCenter: ${autoCenter},
   lineHeight: ${fmt(lineHeight)},${featureEdgesV}
   directionalLight: {
     direction: ${vec3(lightDir)},
@@ -232,8 +235,8 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
   const cameraCloseHtml = `</${cameraHtmlTag}>`;
   const featureEdgesHtml = mode === "wireframe" ? ` feature-edges="${fmt(featureEdges)}"` : "";
   const meshTagHtml = isPrimitive
-    ? `<glyph-mesh geometry="${geometryName}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}></glyph-mesh>`
-    : `<glyph-mesh src="${url}"></glyph-mesh>`;
+    ? `<glyph-mesh geometry="${geometryName}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${normAttr}></glyph-mesh>`
+    : `<glyph-mesh src="${url}"${normAttr}></glyph-mesh>`;
 
   const html = `<!DOCTYPE html>
 <html>
@@ -251,7 +254,6 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
         auto-size
         glyph-palette="${palette}"
         use-colors="${useColors}"
-        auto-center="${autoCenter}"
         line-height="${fmt(lineHeight)}"${featureEdgesHtml}
         light-direction="${fmt(lightDir[0])},${fmt(lightDir[1])},${fmt(lightDir[2])}"
         light-intensity="${fmt(lightIntensity)}"

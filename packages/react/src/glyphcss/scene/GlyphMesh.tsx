@@ -8,7 +8,7 @@
  */
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { resolveGeometry } from "@glyphcss/core";
+import { resolveGeometry, fitPolygonsToUnitBbox } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { useGlyphSceneContext } from "./context";
@@ -32,6 +32,11 @@ export interface GlyphMeshProps {
   position?: Vec3;
   scale?: number | Vec3;
   rotation?: Vec3;
+  /**
+   * Center + uniformly scale the mesh to a 2-unit bbox at the origin, so it
+   * pivots around its own center at a predictable size. Default false.
+   */
+  normalize?: boolean;
   /**
    * This mesh casts shadows onto `receiveShadow` surfaces.
    * Default false — opt-in, matching PolyMesh behaviour.
@@ -67,6 +72,7 @@ function GlyphMeshInner({
   position,
   scale,
   rotation,
+  normalize = false,
   castShadow = false,
   receiveShadow = false,
   className,
@@ -79,10 +85,14 @@ function GlyphMeshInner({
 
   // Precedence: explicit polygons > geometry shortcut
   const polygons = useMemo(() => {
-    if (polygonsProp !== undefined) return polygonsProp;
-    if (geometry !== undefined) return resolveGeometry(geometry, { size, color });
-    return [];
-  }, [polygonsProp, geometry, size, color]);
+    const base =
+      polygonsProp !== undefined
+        ? polygonsProp
+        : geometry !== undefined
+          ? resolveGeometry(geometry, { size, color })
+          : [];
+    return normalize ? fitPolygonsToUnitBbox(base) : base;
+  }, [polygonsProp, geometry, size, color, normalize]);
 
   const transform = useMemo<GlyphMeshTransform>(() => ({
     id,
