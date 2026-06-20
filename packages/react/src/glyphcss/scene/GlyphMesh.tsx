@@ -6,9 +6,9 @@
  * no atlas, no polygon leaves. Children are static React children mounted
  * inside the host's wrapper div (not rendered per-polygon).
  */
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { resolveGeometry, recenterPolygons } from "@glyphcss/core";
+import { resolveGeometry, recenterPolygons, loadMesh } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { useGlyphSceneContext } from "./context";
@@ -18,6 +18,8 @@ import type { GlyphMeshHandle } from "./context";
 export interface GlyphMeshProps {
   id?: string;
   polygons?: Polygon[];
+  /** URL of an OBJ / GLB / glTF / VOX / STL mesh, fetched + parsed via `loadMesh`. */
+  src?: string;
   /**
    * Built-in geometry name. Resolved via `resolveGeometry` when neither
    * `polygons` nor `src` is provided.
@@ -66,6 +68,7 @@ export interface GlyphMeshProps {
 function GlyphMeshInner({
   id,
   polygons: polygonsProp,
+  src,
   geometry,
   size = 1,
   color,
@@ -83,16 +86,32 @@ function GlyphMeshInner({
   const meshRef = useRef<GlyphMeshHandle | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  // Precedence: explicit polygons > geometry shortcut
+  // Fetch + parse `src` (race-safe: late responses for a stale src are dropped).
+  const [loadedPolygons, setLoadedPolygons] = useState<Polygon[] | null>(null);
+  useEffect(() => {
+    if (!src) {
+      setLoadedPolygons(null);
+      return;
+    }
+    let cancelled = false;
+    loadMesh(src)
+      .then((result) => { if (!cancelled) setLoadedPolygons(result.polygons); })
+      .catch(() => { if (!cancelled) setLoadedPolygons([]); });
+    return () => { cancelled = true; };
+  }, [src]);
+
+  // Precedence: explicit polygons > src > geometry shortcut
   const polygons = useMemo(() => {
     const base =
       polygonsProp !== undefined
         ? polygonsProp
-        : geometry !== undefined
-          ? resolveGeometry(geometry, { size, color })
-          : [];
+        : src !== undefined
+          ? (loadedPolygons ?? [])
+          : geometry !== undefined
+            ? resolveGeometry(geometry, { size, color })
+            : [];
     return autoCenter ? recenterPolygons(base) : base;
-  }, [polygonsProp, geometry, size, color, autoCenter]);
+  }, [polygonsProp, src, loadedPolygons, geometry, size, color, autoCenter]);
 
   const transform = useMemo<GlyphMeshTransform>(() => ({
     id,

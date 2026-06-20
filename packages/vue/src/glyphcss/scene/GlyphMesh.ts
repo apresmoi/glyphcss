@@ -5,7 +5,7 @@
  */
 import { defineComponent, h, inject, onBeforeUnmount, watch, shallowRef, computed, watchEffect } from "vue";
 import type { PropType } from "vue";
-import { resolveGeometry, recenterPolygons } from "@glyphcss/core";
+import { resolveGeometry, recenterPolygons, loadMesh } from "@glyphcss/core";
 import type { Vec3, Polygon, GlyphGeometryName } from "@glyphcss/core";
 import type { GlyphMeshHandle, GlyphMeshTransform, GlyphPointerEvent, GlyphMouseEvent, GlyphWheelEvent } from "glyphcss";
 import { GlyphSceneContextKey } from "./context";
@@ -13,6 +13,8 @@ import { GlyphSceneContextKey } from "./context";
 export interface GlyphMeshProps {
   id?: string;
   polygons?: Polygon[];
+  /** URL of an OBJ / GLB / glTF / VOX / STL mesh, fetched + parsed via `loadMesh`. */
+  src?: string;
   /**
    * Built-in geometry name. Resolved via `resolveGeometry` when neither
    * `polygons` nor `src` is provided.
@@ -61,6 +63,7 @@ export const GlyphMesh = defineComponent({
   props: {
     id: { type: String, default: undefined },
     polygons: { type: Array as PropType<Polygon[]>, default: undefined },
+    src: { type: String, default: undefined },
     geometry: { type: String as PropType<GlyphGeometryName>, default: undefined },
     size: { type: Number, default: 1 },
     color: { type: String, default: undefined },
@@ -89,14 +92,31 @@ export const GlyphMesh = defineComponent({
     const { sceneRef } = ctx;
     const meshRef = shallowRef<GlyphMeshHandle | null>(null);
 
-    // Precedence: explicit polygons > geometry shortcut
+    // Fetch + parse `src` (race-safe: late responses for a stale src are dropped).
+    const loadedPolygons = shallowRef<Polygon[] | null>(null);
+    watch(
+      () => props.src,
+      (src, _prev, onCleanup) => {
+        if (!src) { loadedPolygons.value = null; return; }
+        let cancelled = false;
+        onCleanup(() => { cancelled = true; });
+        loadMesh(src)
+          .then((result) => { if (!cancelled) loadedPolygons.value = result.polygons; })
+          .catch(() => { if (!cancelled) loadedPolygons.value = []; });
+      },
+      { immediate: true },
+    );
+
+    // Precedence: explicit polygons > src > geometry shortcut
     const resolvedPolygons = computed<Polygon[]>(() => {
       const base =
         props.polygons !== undefined
           ? props.polygons
-          : props.geometry !== undefined
-            ? resolveGeometry(props.geometry, { size: props.size, color: props.color })
-            : [];
+          : props.src !== undefined
+            ? (loadedPolygons.value ?? [])
+            : props.geometry !== undefined
+              ? resolveGeometry(props.geometry, { size: props.size, color: props.color })
+              : [];
       return props.autoCenter ? recenterPolygons(base) : base;
     });
 
