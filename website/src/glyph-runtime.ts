@@ -33,6 +33,7 @@ import {
   createGlyphScene,
   createGlyphOrbitControls,
   createGlyphMapControls,
+  createGlyphFirstPersonControls,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
   loadMesh,
@@ -46,7 +47,7 @@ import type {
   ParseAnimationClip,
   Polygon,
 } from 'glyphcss';
-import type { GlyphSceneHandle } from 'glyphcss';
+import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from 'glyphcss';
 import { resolveGeometry } from '@glyphcss/core';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
@@ -1232,207 +1233,98 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     rebuildSceneFromGeometry();
   }
 
-  // ── FPV state ─────────────────────────────────────────────────────────────
-  let fpvOrigin: [number, number, number] = [0, 0, controlState.fpv.groundZ + controlState.fpv.eyeHeight];
-  let fpvVerticalVel = 0;
-  let fpvJumpOffset = 0;
-  let fpvRafId: number | null = null;
-  let fpvLastTime = 0;
-  let fpvPointerLocked = false;
-  const fpvKeysHeld = new Set<string>();
+  // ── FPV (first-person) ─────────────────────────────────────────────────────
+  // Uses the library control (createGlyphFirstPersonControls). The gallery only
+  // supplies model-relative spawn + options — meshes keep their authored scale
+  // (autoCenter is center-only), so distances/speeds scale by the model size.
+  // Mirrors voxcss (control in the library, spawn config in the website).
+  let fpvControl: GlyphFirstPersonControlsHandle | null = null;
   let fpvSavedProjection: 'perspective' | 'orthographic' | null = null;
   let fpvSavedDistance: number | null = null;
   let fpvSavedRotX: number | null = null;
+  let fpvSavedZoom: number | null = null;
   const FPV_PERSPECTIVE_DISTANCE = 200;
 
-  const FPV_FORWARD_KEYS = new Set(['KeyW', 'ArrowUp']);
-  const FPV_BACK_KEYS = new Set(['KeyS', 'ArrowDown']);
-  const FPV_LEFT_KEYS = new Set(['KeyA', 'ArrowLeft']);
-  const FPV_RIGHT_KEYS = new Set(['KeyD', 'ArrowRight']);
-  const FPV_JUMP_KEYS = new Set(['Space']);
-  const FPV_CROUCH_KEYS = new Set(['ControlLeft', 'ControlRight']);
-
-  function fpvForwardDir(rotXDeg: number, rotYDeg: number): [number, number, number] {
-    const rx = (rotXDeg * Math.PI) / 180;
-    const ry = (rotYDeg * Math.PI) / 180;
-    return [
-      -Math.sin(rx) * Math.cos(ry),
-      -Math.sin(rx) * Math.sin(ry),
-      -Math.cos(rx),
-    ];
+  // Model bbox → scale (maxDim/2; 1 for a 2-unit mesh). Used to size eye height,
+  // speeds, spawn distance and the FPV zoom to the model's authored scale.
+  function fpvModelScale(): number {
+    const polys = geometry.polygons as Polygon[];
+    let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity, mnz = Infinity, mxz = -Infinity;
+    for (const p of polys) for (const v of p.vertices) {
+      if (v[0] < mnx) mnx = v[0]; if (v[0] > mxx) mxx = v[0];
+      if (v[1] < mny) mny = v[1]; if (v[1] > mxy) mxy = v[1];
+      if (v[2] < mnz) mnz = v[2]; if (v[2] > mxz) mxz = v[2];
+    }
+    if (!isFinite(mnx)) return 1;
+    return Math.max(mxx - mnx, mxy - mny, mxz - mnz, 0.001) / 2;
   }
 
-  function fpvSyncTarget(): void {
-    const f = fpvForwardDir(camera.rotX, camera.rotY);
-    camera.target = [
-      fpvOrigin[0] + f[0] * 0,
-      fpvOrigin[1] + f[1] * 0,
-      fpvOrigin[2] + f[2] * 0,
-    ];
+  function fpvScaledOptions(scale: number): GlyphFirstPersonControlsOptions {
+    const f = controlState.fpv;
+    return {
+      lookEnabled: f.look,
+      moveEnabled: f.move,
+      jumpEnabled: f.jump,
+      crouchEnabled: f.crouch,
+      lookSensitivity: f.lookSensitivity,
+      invertY: f.invertY,
+      moveSpeed: f.moveSpeed * scale,
+      jumpVelocity: f.jumpVelocity * scale,
+      gravity: f.gravity * scale,
+      eyeHeight: f.eyeHeight * scale,
+      crouchHeight: f.crouchHeight * scale,
+      groundZ: f.groundZ,
+      minPitch: f.minPitch,
+      maxPitch: f.maxPitch,
+    };
   }
-
-  function fpvInitOriginFromCamera(): void {
-    const t = camera.target;
-    fpvJumpOffset = 0;
-    fpvVerticalVel = 0;
-    camera.rotX = 90;
-    tunables.rotX = 90;
-    const initBackOffset = 3;
-    const f = fpvForwardDir(camera.rotX, camera.rotY);
-    fpvOrigin = [
-      t[0] - f[0] * initBackOffset,
-      t[1] - f[1] * initBackOffset,
-      controlState.fpv.groundZ + controlState.fpv.eyeHeight,
-    ];
-    fpvSyncTarget();
-  }
-
-  const fpvOnPointerLockChange = (): void => {
-    const locked = document.pointerLockElement === sceneHost;
-    fpvPointerLocked = locked;
-  };
-
-  const fpvOnMouseMove = (e: MouseEvent): void => {
-    if (!fpvPointerLocked || controlState.dragMode !== 'fpv') return;
-    if (!controlState.fpv.look) return;
-    const dx = e.movementX ?? 0;
-    const dy = e.movementY ?? 0;
-    if (dx === 0 && dy === 0) return;
-    const sens = controlState.fpv.lookSensitivity;
-    const dyDir = controlState.fpv.invertY ? -1 : 1;
-    // Camera is now in degrees; sensitivity is in degrees/pixel.
-    camera.rotY = camera.rotY - dx * sens;
-    let rotX = camera.rotX - dy * sens * dyDir;
-    const minDeg = controlState.fpv.minPitch;
-    const maxDeg = controlState.fpv.maxPitch;
-    if (rotX < minDeg) rotX = minDeg;
-    else if (rotX > maxDeg) rotX = maxDeg;
-    camera.rotX = rotX;
-    fpvSyncTarget();
-    doRerender();
-  };
-
-  const fpvOnKeyDown = (e: KeyboardEvent): void => {
-    if (controlState.dragMode !== 'fpv') return;
-    const code = e.code;
-    const isFpvKey = FPV_FORWARD_KEYS.has(code) || FPV_BACK_KEYS.has(code) ||
-      FPV_LEFT_KEYS.has(code) || FPV_RIGHT_KEYS.has(code) ||
-      FPV_JUMP_KEYS.has(code) || FPV_CROUCH_KEYS.has(code);
-    if (!isFpvKey) return;
-    if (!fpvPointerLocked && !controlState.fpv.move) return;
-    if (FPV_JUMP_KEYS.has(code)) {
-      if (!controlState.fpv.jump) return;
-      e.preventDefault();
-      if (!fpvKeysHeld.has(code) && fpvVerticalVel === 0 && fpvJumpOffset === 0) {
-        fpvVerticalVel = controlState.fpv.jumpVelocity;
-      }
-      fpvKeysHeld.add(code);
-      return;
-    }
-    if (FPV_CROUCH_KEYS.has(code) && !controlState.fpv.crouch) return;
-    if (!controlState.fpv.move && !FPV_CROUCH_KEYS.has(code)) return;
-    e.preventDefault();
-    fpvKeysHeld.add(code);
-  };
-
-  const fpvOnKeyUp = (e: KeyboardEvent): void => { fpvKeysHeld.delete(e.code); };
-  const fpvOnBlur = (): void => { fpvKeysHeld.clear(); };
-  const fpvOnClick = (): void => {
-    if (controlState.dragMode !== 'fpv' || fpvPointerLocked) return;
-    if (!controlState.fpv.look) return;
-    try { sceneHost.requestPointerLock(); } catch { /* ignore */ }
-  };
-
-  const FPV_DT_CLAMP = 0.05;
-
-  const fpvTick = (now: number): void => {
-    if (fpvRafId === null || controlState.dragMode !== 'fpv') return;
-    const dt = Math.min(FPV_DT_CLAMP, fpvLastTime ? (now - fpvLastTime) / 1000 : 0.0167);
-    fpvLastTime = now;
-
-    let dirty = false;
-
-    if (controlState.fpv.move) {
-      let mf = 0, mr = 0;
-      for (const code of fpvKeysHeld) {
-        if (FPV_FORWARD_KEYS.has(code)) mf += 1;
-        else if (FPV_BACK_KEYS.has(code)) mf -= 1;
-        else if (FPV_RIGHT_KEYS.has(code)) mr += 1;
-        else if (FPV_LEFT_KEYS.has(code)) mr -= 1;
-      }
-      if (mf !== 0 || mr !== 0) {
-        const r = (camera.rotY * Math.PI) / 180;
-        const fx = -Math.cos(r), fy = -Math.sin(r);
-        const rx = -Math.sin(r), ry =  Math.cos(r);
-        const len = Math.hypot(mf, mr) || 1;
-        const step = controlState.fpv.moveSpeed * dt;
-        fpvOrigin[0] += ((fx * mf + rx * mr) / len) * step;
-        fpvOrigin[1] += ((fy * mf + ry * mr) / len) * step;
-        dirty = true;
-      }
-    }
-
-    const crouched = controlState.fpv.crouch &&
-      (fpvKeysHeld.has('ControlLeft') || fpvKeysHeld.has('ControlRight'));
-    const baseHeight = crouched ? controlState.fpv.crouchHeight : controlState.fpv.eyeHeight;
-    if (controlState.fpv.jump && (fpvVerticalVel !== 0 || fpvJumpOffset > 0)) {
-      fpvVerticalVel -= controlState.fpv.gravity * dt;
-      fpvJumpOffset += fpvVerticalVel * dt;
-      if (fpvJumpOffset <= 0) { fpvJumpOffset = 0; fpvVerticalVel = 0; }
-    } else if (!controlState.fpv.jump) {
-      fpvJumpOffset = 0; fpvVerticalVel = 0;
-    }
-    const originZ = controlState.fpv.groundZ + baseHeight + fpvJumpOffset;
-    if (Math.abs(fpvOrigin[2] - originZ) > 1e-4) { fpvOrigin[2] = originZ; dirty = true; }
-
-    if (dirty) {
-      fpvSyncTarget();
-      doRerender();
-    }
-
-    fpvRafId = requestAnimationFrame(fpvTick);
-  };
 
   function startFpv(): void {
     fpvSavedProjection = controlState.projection;
     fpvSavedDistance = tunables.distance;
     fpvSavedRotX = tunables.rotX;
+    fpvSavedZoom = tunables.zoom;
+    const scale = fpvModelScale();
     controlState.projection = 'perspective';
     tunables.distance = FPV_PERSPECTIVE_DISTANCE;
-    fpvInitOriginFromCamera();
+    // eyeMode apparent size scales with zoom; the orbit auto-fit zoom shrinks
+    // ~1/scale for big models, so normalize it (consistent FPV view at any size).
+    tunables.zoom = (fpvSavedZoom ?? tunables.zoom) * scale;
+    tunables.rotX = 90;
     stopAutoRotate();
     controlState.rotYLocked = true;
-    document.addEventListener('pointerlockchange', fpvOnPointerLockChange);
-    document.addEventListener('mousemove', fpvOnMouseMove);
-    window.addEventListener('keydown', fpvOnKeyDown);
-    window.addEventListener('keyup', fpvOnKeyUp);
-    window.addEventListener('blur', fpvOnBlur);
-    sceneHost.addEventListener('click', fpvOnClick);
-    sceneHost.style.cursor = controlState.fpv.look ? 'crosshair' : '';
+    // Rebuild so the scene has a perspective (eyeMode) camera the control needs.
     rebuildSceneFromGeometry();
-    fpvLastTime = 0;
-    fpvRafId = requestAnimationFrame(fpvTick);
+    // Spawn one+ model-span behind the model center along the current look dir.
+    const polys = geometry.polygons as Polygon[];
+    let cx = camera.target[0], cy = camera.target[1];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of polys) for (const v of p.vertices) {
+      if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+      if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+    }
+    if (isFinite(minX)) { cx = (minX + maxX) / 2; cy = (minY + maxY) / 2; }
+    const back = 1.5 * scale;
+    const r = (camera.rotY * Math.PI) / 180;
+    // forward at rotX=90 is (-cos rotY, -sin rotY, 0); spawn the opposite way.
+    const spawnX = cx + Math.cos(r) * back;
+    const spawnY = cy + Math.sin(r) * back;
+    fpvControl = createGlyphFirstPersonControls(scene, fpvScaledOptions(scale));
+    fpvControl.setOrigin([spawnX, spawnY, controlState.fpv.groundZ + controlState.fpv.eyeHeight * scale]);
   }
 
   function stopFpv(): void {
-    if (fpvRafId !== null) { cancelAnimationFrame(fpvRafId); fpvRafId = null; }
-    if (fpvPointerLocked) { try { document.exitPointerLock(); } catch { /* ignore */ } }
-    fpvPointerLocked = false;
-    fpvKeysHeld.clear();
-    document.removeEventListener('pointerlockchange', fpvOnPointerLockChange);
-    document.removeEventListener('mousemove', fpvOnMouseMove);
-    window.removeEventListener('keydown', fpvOnKeyDown);
-    window.removeEventListener('keyup', fpvOnKeyUp);
-    window.removeEventListener('blur', fpvOnBlur);
-    sceneHost.removeEventListener('click', fpvOnClick);
-    sceneHost.style.cursor = '';
+    fpvControl?.destroy();
+    fpvControl = null;
+    controlState.rotYLocked = false;
     if (fpvSavedProjection !== null) controlState.projection = fpvSavedProjection;
     if (fpvSavedDistance !== null) tunables.distance = fpvSavedDistance;
     if (fpvSavedRotX !== null) tunables.rotX = fpvSavedRotX;
+    if (fpvSavedZoom !== null) tunables.zoom = fpvSavedZoom;
     fpvSavedProjection = null;
     fpvSavedDistance = null;
     fpvSavedRotX = null;
-    camera.target = [fpvOrigin[0], fpvOrigin[1], controlState.fpv.groundZ];
+    fpvSavedZoom = null;
     rebuildSceneFromGeometry();
   }
 
@@ -1450,16 +1342,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   function setFpvOptions(partial: Partial<FpvOptions>): void {
     Object.assign(controlState.fpv, partial);
-    if (controlState.dragMode === 'fpv') {
-      if ('eyeHeight' in partial || 'groundZ' in partial) {
-        fpvOrigin[2] = controlState.fpv.groundZ + controlState.fpv.eyeHeight;
-        fpvSyncTarget();
-      }
-      if ('look' in partial) {
-        sceneHost.style.cursor = controlState.fpv.look ? 'crosshair' : '';
-      }
+    if (controlState.dragMode === 'fpv' && fpvControl) {
+      fpvControl.update(fpvScaledOptions(fpvModelScale()));
     }
   }
+
 
   // ── Triangle click picking (non-FPV) ──────────────────────────────────────
   // Attach a click handler on the scene's output element

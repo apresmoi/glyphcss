@@ -42,24 +42,24 @@ describe("GlyphFirstPersonControls — mount inside scene", () => {
     expect(container.querySelector(".glyph-host")).toBeTruthy();
   });
 
-  it("accepts drag=false without throwing", () => {
-    expect(() => renderScene({ drag: false })).not.toThrow();
+  it("accepts lookEnabled=false without throwing", () => {
+    expect(() => renderScene({ lookEnabled: false })).not.toThrow();
   });
 
-  it("accepts keyboard=false without throwing", () => {
-    expect(() => renderScene({ keyboard: false })).not.toThrow();
+  it("accepts moveEnabled=false without throwing", () => {
+    expect(() => renderScene({ moveEnabled: false })).not.toThrow();
   });
 
-  it("accepts custom moveSpeed and lookSpeed", () => {
-    expect(() => renderScene({ moveSpeed: 0.1, lookSpeed: 0.01 })).not.toThrow();
+  it("accepts custom moveSpeed and lookSensitivity", () => {
+    expect(() => renderScene({ moveSpeed: 0.1, lookSensitivity: 0.01 })).not.toThrow();
   });
 
-  it("accepts invert=true", () => {
-    expect(() => renderScene({ invert: true })).not.toThrow();
+  it("accepts invertY=true", () => {
+    expect(() => renderScene({ invertY: true })).not.toThrow();
   });
 
   it("updates props without throwing", () => {
-    const { container, root } = renderScene({ drag: true, keyboard: true });
+    const { container, root } = renderScene({ lookEnabled: true, moveEnabled: true });
     act(() =>
       root.render(
         React.createElement(
@@ -68,7 +68,7 @@ describe("GlyphFirstPersonControls — mount inside scene", () => {
           React.createElement(
             GlyphScene,
             {},
-            React.createElement(GlyphFirstPersonControls, { drag: false, keyboard: false }),
+            React.createElement(GlyphFirstPersonControls, { lookEnabled: false, moveEnabled: false }),
           ),
         ),
       ),

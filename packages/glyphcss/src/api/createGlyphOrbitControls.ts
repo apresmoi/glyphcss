@@ -1,4 +1,4 @@
-// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); no common.ts dependency (inline helpers); no addEventListener/removeEventListener (not yet in glyphcss API surface); zoom clamp widened to absolute scale [0.1,500].
+// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to absolute scale [0.1,500].
 /**
  * createGlyphOrbitControls — orbit-mode camera input for a GlyphScene.
  *
@@ -12,6 +12,14 @@
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
+import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
+export type {
+  GlyphControlsCamera,
+  GlyphControlsChangeEvent,
+  GlyphControlsInteractionEvent,
+  GlyphControlsEvent,
+  GlyphControlsListener,
+} from "./controls/common";
 
 export interface GlyphOrbitControlsOptions {
   /** Pointer-drag. Default: true. */
@@ -30,7 +38,7 @@ export interface GlyphOrbitControlsOptions {
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
 }
 
-export interface GlyphOrbitControlsHandle {
+export interface GlyphOrbitControlsHandle extends GlyphControlsEventTarget {
   update(opts: GlyphOrbitControlsOptions): void;
   pause(): void;
   resume(): void;
@@ -56,6 +64,11 @@ export function createGlyphOrbitControls(
   let pointer = { x: 0, y: 0 };
 
   const camera = scene.camera;
+  const registry = makeListenerRegistry();
+  const snapshot = makeCameraSnapshot(scene);
+  const { emitChange, emitInteraction } = registry;
+  let wheelActive = false;
+  let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
   function onPointerDown(e: PointerEvent): void {
     if (!drag || stopped) return;
@@ -69,6 +82,7 @@ export function createGlyphOrbitControls(
     if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
       animPaused = true;
     }
+    emitInteraction("start", snapshot);
   }
 
   function onPointerMove(e: PointerEvent): void {
@@ -89,6 +103,7 @@ export function createGlyphOrbitControls(
     const nextRotX = camera.rotX - dy * DEG_PER_PX * f;
     camera.rotX = clampPitch ? Math.max(-90, Math.min(90, nextRotX)) : nextRotX;
     scene.rerender();
+    emitChange(snapshot);
   }
 
   function onPointerUp(e: PointerEvent): void {
@@ -97,6 +112,7 @@ export function createGlyphOrbitControls(
     host.style.cursor = drag && !stopped ? "grab" : "";
     try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     if (animOpts) animPaused = false;
+    emitInteraction("end", snapshot);
   }
 
   function onWheel(e: WheelEvent): void {
@@ -108,6 +124,14 @@ export function createGlyphOrbitControls(
     // div-by-zero, a high ceiling for deep zoom.
     camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
     scene.rerender();
+    if (!wheelActive) { wheelActive = true; emitInteraction("start", snapshot); }
+    emitChange(snapshot);
+    if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
+    wheelIdleTimer = setTimeout(() => {
+      wheelIdleTimer = null;
+      wheelActive = false;
+      emitInteraction("end", snapshot);
+    }, 150);
   }
 
   function animTick(time: number): void {
@@ -121,6 +145,7 @@ export function createGlyphOrbitControls(
       if (axis === "y") camera.rotY = camera.rotY + dAngle;
       else camera.rotX = camera.rotX + dAngle;
       scene.rerender();
+      emitChange(snapshot);
     }
     lastTime = time;
     rafId = requestAnimationFrame(animTick);
@@ -163,10 +188,16 @@ export function createGlyphOrbitControls(
     host.style.userSelect = "";
   }
 
+  function clearWheelIdle(): void {
+    if (wheelIdleTimer !== null) { clearTimeout(wheelIdleTimer); wheelIdleTimer = null; }
+    wheelActive = false;
+  }
+
   attach();
   startAnim();
 
   return {
+    ...makeEventMethods(registry),
     update(opts: GlyphOrbitControlsOptions): void {
       const wasAnimating = !!animOpts;
       drag = opts.drag ?? drag;
@@ -186,6 +217,7 @@ export function createGlyphOrbitControls(
       stopped = true;
       detach();
       stopAnim();
+      clearWheelIdle();
       activePointerId = null;
       animPaused = false;
     },
@@ -198,6 +230,7 @@ export function createGlyphOrbitControls(
     destroy(): void {
       if (!stopped) detach();
       stopAnim();
+      clearWheelIdle();
       stopped = true;
     },
   };

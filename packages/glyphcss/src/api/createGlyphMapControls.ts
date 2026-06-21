@@ -1,4 +1,4 @@
-// Vendored from voxcss packages/polycss/src/api/createPolyMapControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); no common.ts dependency (inline helpers); no addEventListener/removeEventListener (not yet in glyphcss API surface); zoom clamp widened to absolute scale [0.1,500].
+// Vendored from voxcss packages/polycss/src/api/createPolyMapControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to absolute scale [0.1,500].
 /**
  * createGlyphMapControls — map/pan-mode camera input for a GlyphScene.
  *
@@ -13,6 +13,14 @@
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
 import type { Vec3 } from "@glyphcss/core";
+import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
+export type {
+  GlyphControlsCamera,
+  GlyphControlsChangeEvent,
+  GlyphControlsInteractionEvent,
+  GlyphControlsEvent,
+  GlyphControlsListener,
+} from "./controls/common";
 
 export interface GlyphMapControlsOptions {
   drag?: boolean;
@@ -21,7 +29,7 @@ export interface GlyphMapControlsOptions {
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
 }
 
-export interface GlyphMapControlsHandle {
+export interface GlyphMapControlsHandle extends GlyphControlsEventTarget {
   update(opts: GlyphMapControlsOptions): void;
   pause(): void;
   resume(): void;
@@ -46,6 +54,11 @@ export function createGlyphMapControls(
   let rightDown = false;
 
   const camera = scene.camera;
+  const registry = makeListenerRegistry();
+  const snapshot = makeCameraSnapshot(scene);
+  const { emitChange, emitInteraction } = registry;
+  let wheelActive = false;
+  let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
   // rotX/rotY are in degrees — drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
   const DEG_PER_PX = 1 / 4;
   const PAN_SCALE = 0.02;
@@ -63,6 +76,7 @@ export function createGlyphMapControls(
     if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
       animPaused = true;
     }
+    emitInteraction("start", snapshot);
   }
 
   function onPointerMove(e: PointerEvent): void {
@@ -88,6 +102,7 @@ export function createGlyphMapControls(
       ] as Vec3;
     }
     scene.rerender();
+    emitChange(snapshot);
   }
 
   function onPointerUp(e: PointerEvent): void {
@@ -97,6 +112,7 @@ export function createGlyphMapControls(
     host.style.cursor = drag && !stopped ? "grab" : "";
     try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     if (animOpts) animPaused = false;
+    emitInteraction("end", snapshot);
   }
 
   function onContextMenu(e: Event): void { e.preventDefault(); }
@@ -109,6 +125,14 @@ export function createGlyphMapControls(
     // and deep zoom both work. Was [0.05, 10] under the old fraction scale.
     camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
     scene.rerender();
+    if (!wheelActive) { wheelActive = true; emitInteraction("start", snapshot); }
+    emitChange(snapshot);
+    if (wheelIdleTimer !== null) clearTimeout(wheelIdleTimer);
+    wheelIdleTimer = setTimeout(() => {
+      wheelIdleTimer = null;
+      wheelActive = false;
+      emitInteraction("end", snapshot);
+    }, 150);
   }
 
   function animTick(time: number): void {
@@ -122,6 +146,7 @@ export function createGlyphMapControls(
       if (axis === "y") camera.rotY = camera.rotY + dAngle;
       else camera.rotX = camera.rotX + dAngle;
       scene.rerender();
+      emitChange(snapshot);
     }
     lastTime = time;
     rafId = requestAnimationFrame(animTick);
@@ -163,10 +188,16 @@ export function createGlyphMapControls(
     host.style.userSelect = "";
   }
 
+  function clearWheelIdle(): void {
+    if (wheelIdleTimer !== null) { clearTimeout(wheelIdleTimer); wheelIdleTimer = null; }
+    wheelActive = false;
+  }
+
   attach();
   startAnim();
 
   return {
+    ...makeEventMethods(registry),
     update(opts: GlyphMapControlsOptions): void {
       const wasAnimating = !!animOpts;
       drag = opts.drag ?? drag;
@@ -178,9 +209,9 @@ export function createGlyphMapControls(
       if (wasAnimating && !isAnimating) stopAnim();
       else if (!wasAnimating && isAnimating) startAnim();
     },
-    pause(): void { if (stopped) return; stopped = true; detach(); stopAnim(); activePointerId = null; animPaused = false; },
+    pause(): void { if (stopped) return; stopped = true; detach(); stopAnim(); clearWheelIdle(); activePointerId = null; animPaused = false; },
     resume(): void { if (!stopped) return; stopped = false; attach(); startAnim(); },
-    destroy(): void { if (!stopped) detach(); stopAnim(); stopped = true; },
+    destroy(): void { if (!stopped) detach(); stopAnim(); clearWheelIdle(); stopped = true; },
   };
 }
 

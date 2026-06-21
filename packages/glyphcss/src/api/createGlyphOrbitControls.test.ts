@@ -293,3 +293,58 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 });
+
+describe("createGlyphOrbitControls — events", () => {
+  let scene: GlyphSceneHandle;
+  beforeEach(() => { scene = makeScene(); });
+  afterEach(() => { scene.destroy(); });
+
+  it("exposes addEventListener / removeEventListener / hasEventListener", () => {
+    const c = createGlyphOrbitControls(scene);
+    expect(typeof c.addEventListener).toBe("function");
+    expect(typeof c.removeEventListener).toBe("function");
+    expect(typeof c.hasEventListener).toBe("function");
+    c.destroy();
+  });
+
+  it("emits 'change' on drag with a camera snapshot", () => {
+    const c = createGlyphOrbitControls(scene);
+    const events: unknown[] = [];
+    const fn = (e: { type: string; camera: { rotY: number } }) => events.push(e);
+    c.addEventListener("change", fn);
+    expect(c.hasEventListener("change", fn)).toBe(true);
+    pd(scene.host, 100, 100);
+    pm(scene.host, 160, 100);
+    pu(scene.host);
+    expect(events.length).toBeGreaterThan(0);
+    expect((events[0] as { type: string }).type).toBe("change");
+    expect(typeof (events[0] as { camera: { rotY: number } }).camera.rotY).toBe("number");
+    c.removeEventListener("change", fn);
+    expect(c.hasEventListener("change", fn)).toBe(false);
+    c.destroy();
+  });
+
+  it("emits 'start' on pointerdown and 'end' on pointerup", () => {
+    const c = createGlyphOrbitControls(scene);
+    const types: string[] = [];
+    c.addEventListener("start", () => types.push("start"));
+    c.addEventListener("end", () => types.push("end"));
+    pd(scene.host, 100, 100);
+    pu(scene.host);
+    expect(types).toEqual(["start", "end"]);
+    c.destroy();
+  });
+
+  it("removeEventListener stops delivery", () => {
+    const c = createGlyphOrbitControls(scene);
+    let n = 0;
+    const fn = () => { n += 1; };
+    c.addEventListener("change", fn);
+    pd(scene.host, 100, 100); pm(scene.host, 150, 100);
+    const after = n;
+    c.removeEventListener("change", fn);
+    pm(scene.host, 200, 100); pu(scene.host);
+    expect(n).toBe(after);
+    c.destroy();
+  });
+});

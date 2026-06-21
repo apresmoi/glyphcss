@@ -1,5 +1,7 @@
 /**
  * GlyphFirstPersonControls — Vue 3 first-person controls for GlyphScene.
+ * Pointer-lock mouselook, WASD/arrow planar move, Space jump, Ctrl crouch.
+ * Mirrors voxcss PolyFirstPersonControls.
  */
 import { defineComponent, inject, onBeforeUnmount, watch, shallowRef, watchEffect } from "vue";
 import type { GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from "glyphcss";
@@ -7,21 +9,41 @@ import { createGlyphFirstPersonControls } from "glyphcss";
 import { GlyphSceneContextKey } from "../scene/context";
 
 export interface GlyphFirstPersonControlsProps {
-  drag?: boolean;
-  keyboard?: boolean;
+  enabled?: boolean;
+  lookEnabled?: boolean;
+  moveEnabled?: boolean;
+  jumpEnabled?: boolean;
+  crouchEnabled?: boolean;
+  lookSensitivity?: number;
+  invertY?: boolean;
   moveSpeed?: number;
-  lookSpeed?: number;
-  invert?: boolean | number;
+  jumpVelocity?: number;
+  gravity?: number;
+  eyeHeight?: number;
+  crouchHeight?: number;
+  groundZ?: number;
+  minPitch?: number;
+  maxPitch?: number;
 }
 
 export const GlyphFirstPersonControls = defineComponent({
   name: "GlyphFirstPersonControls",
   props: {
-    drag: { type: Boolean, default: true },
-    keyboard: { type: Boolean, default: true },
-    moveSpeed: { type: Number, default: 0.05 },
-    lookSpeed: { type: Number, default: 0.004 },
-    invert: { type: [Boolean, Number] as unknown as () => boolean | number, default: false },
+    enabled: { type: Boolean, default: undefined },
+    lookEnabled: { type: Boolean, default: undefined },
+    moveEnabled: { type: Boolean, default: undefined },
+    jumpEnabled: { type: Boolean, default: undefined },
+    crouchEnabled: { type: Boolean, default: undefined },
+    lookSensitivity: { type: Number, default: undefined },
+    invertY: { type: Boolean, default: undefined },
+    moveSpeed: { type: Number, default: undefined },
+    jumpVelocity: { type: Number, default: undefined },
+    gravity: { type: Number, default: undefined },
+    eyeHeight: { type: Number, default: undefined },
+    crouchHeight: { type: Number, default: undefined },
+    groundZ: { type: Number, default: undefined },
+    minPitch: { type: Number, default: undefined },
+    maxPitch: { type: Number, default: undefined },
   },
   setup(props) {
     const sceneCtx = inject(GlyphSceneContextKey);
@@ -31,19 +53,30 @@ export const GlyphFirstPersonControls = defineComponent({
     const { sceneRef } = sceneCtx;
     const controlsRef = shallowRef<GlyphFirstPersonControlsHandle | null>(null);
 
+    const optsFromProps = (): GlyphFirstPersonControlsOptions => ({
+      enabled: props.enabled,
+      lookEnabled: props.lookEnabled,
+      moveEnabled: props.moveEnabled,
+      jumpEnabled: props.jumpEnabled,
+      crouchEnabled: props.crouchEnabled,
+      lookSensitivity: props.lookSensitivity,
+      invertY: props.invertY,
+      moveSpeed: props.moveSpeed,
+      jumpVelocity: props.jumpVelocity,
+      gravity: props.gravity,
+      eyeHeight: props.eyeHeight,
+      crouchHeight: props.crouchHeight,
+      groundZ: props.groundZ,
+      minPitch: props.minPitch,
+      maxPitch: props.maxPitch,
+    });
+
     // In Vue 3, child onMounted hooks fire before parent onMounted, so
     // sceneRef.value is null when this runs. Watch for the scene to appear.
     const stopWatch = watchEffect(() => {
       const scene = sceneRef.value;
       if (!scene || controlsRef.value) return;
-      const opts: GlyphFirstPersonControlsOptions = {
-        drag: props.drag,
-        keyboard: props.keyboard,
-        moveSpeed: props.moveSpeed,
-        lookSpeed: props.lookSpeed,
-        invert: props.invert,
-      };
-      controlsRef.value = createGlyphFirstPersonControls(scene, opts);
+      controlsRef.value = createGlyphFirstPersonControls(scene, optsFromProps());
     });
 
     onBeforeUnmount(() => {
@@ -52,12 +85,9 @@ export const GlyphFirstPersonControls = defineComponent({
       controlsRef.value = null;
     });
 
-    watch(
-      () => ({ drag: props.drag, keyboard: props.keyboard, moveSpeed: props.moveSpeed, lookSpeed: props.lookSpeed, invert: props.invert }),
-      (next) => {
-        controlsRef.value?.update(next);
-      },
-    );
+    watch(optsFromProps, (next) => {
+      controlsRef.value?.update(next);
+    });
 
     return () => null;
   },
