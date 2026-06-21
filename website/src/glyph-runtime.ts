@@ -1149,6 +1149,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
     // Re-create controls with new camera/options
     buildControls();
+    // FPV uses the library control (not buildControls); it captured the prior
+    // camera, so rebind it to the freshly-built one or WASD/look go dead.
+    rebindFpvControl();
 
     applyMesh();
     rebuildFloor();
@@ -1277,6 +1280,16 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       minPitch: f.minPitch,
       maxPitch: f.maxPitch,
     };
+  }
+
+  // A scene rebuild replaces `camera`; the FPV control captured the old one,
+  // so re-create it against the new camera, preserving the eye position.
+  function rebindFpvControl(): void {
+    if (controlState.dragMode !== 'fpv' || !fpvControl) return;
+    const origin = fpvControl.getOrigin();
+    fpvControl.destroy();
+    fpvControl = createGlyphFirstPersonControls(scene, fpvScaledOptions(fpvModelScale()));
+    fpvControl.setOrigin(origin);
   }
 
   function startFpv(): void {
@@ -1431,9 +1444,18 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       const nextLineHeight = partial.lineHeight;
       scene.output.style.lineHeight = String(nextLineHeight);
       scene.fit();
-      if (prevLineHeight > 0 && nextLineHeight > 0 && camera.zoom > 0 && !camera.eyeMode) {
+      // The col/row projection scales as `zoom · cellAspect` / `zoom`, and
+      // cellAspect tracks line-height, so the inverse-ratio zoom compensation
+      // holds framing in BOTH ortho and eyeMode (FPV) — without it, FPV's
+      // horizontal scale distorts (width changes) when line-height changes.
+      if (prevLineHeight > 0 && nextLineHeight > 0 && camera.zoom > 0) {
         camera.zoom = Math.round(camera.zoom * (prevLineHeight / nextLineHeight) * 1000) / 1000;
         tunables.zoom = camera.zoom;
+        // In FPV, the saved orbit zoom (restored on exit) must track the same
+        // ratio so leaving FPV doesn't snap to a stale zoom.
+        if (fpvSavedZoom !== null) {
+          fpvSavedZoom = Math.round(fpvSavedZoom * (prevLineHeight / nextLineHeight) * 1000) / 1000;
+        }
       }
     }
 
