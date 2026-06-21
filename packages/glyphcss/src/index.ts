@@ -62,6 +62,17 @@ export type {
   GlyphFirstPersonControlsHandle,
 } from "./api/createGlyphFirstPersonControls";
 
+// Shared controls event surface (change / start / end), exposed on every
+// control handle's addEventListener — parity with voxcss PolyControls* events.
+export type {
+  GlyphControlsCamera,
+  GlyphControlsChangeEvent,
+  GlyphControlsInteractionEvent,
+  GlyphControlsEvent,
+  GlyphControlsListener,
+  GlyphControlsEventTarget,
+} from "./api/controls/common";
+
 // ── Mesh finders ──────────────────────────────────────────────────
 export { findGlyphMeshHandle, findMeshUnderPoint, pointInMeshElement } from "./api/meshFinders";
 

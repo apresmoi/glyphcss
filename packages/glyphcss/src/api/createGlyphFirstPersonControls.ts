@@ -20,6 +20,14 @@
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
 import type { Vec3 } from "@glyphcss/core";
+import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
+export type {
+  GlyphControlsCamera,
+  GlyphControlsChangeEvent,
+  GlyphControlsInteractionEvent,
+  GlyphControlsEvent,
+  GlyphControlsListener,
+} from "./controls/common";
 
 export interface GlyphFirstPersonControlsOptions {
   /** Master switch. When `false`, all sub-controls are inert. Default: `true`. */
@@ -110,7 +118,7 @@ function resolveOptions(base: ResolvedOptions, partial: GlyphFirstPersonControls
   };
 }
 
-export interface GlyphFirstPersonControlsHandle {
+export interface GlyphFirstPersonControlsHandle extends GlyphControlsEventTarget {
   update(partial: GlyphFirstPersonControlsOptions): void;
   resume(): void;
   pause(): void;
@@ -151,6 +159,10 @@ export function createGlyphFirstPersonControls(
   const doc = host.ownerDocument ?? document;
   const win = (doc.defaultView ?? globalThis) as typeof globalThis;
 
+  const registry = makeListenerRegistry();
+  const snapshot = makeCameraSnapshot(scene);
+  const { emitChange, emitInteraction } = registry;
+
   const keysHeld = new Set<string>();
   let pointerLocked = false;
   let stopped = false;
@@ -168,6 +180,7 @@ export function createGlyphFirstPersonControls(
   function syncTarget(): void {
     camera.target = [cameraOrigin[0], cameraOrigin[1], cameraOrigin[2]] as Vec3;
     scene.rerender();
+    emitChange(snapshot);
   }
 
   // On attach adopt the camera's current target (the orbit/pan visual center)
@@ -185,7 +198,10 @@ export function createGlyphFirstPersonControls(
   };
 
   const onPointerLockChange = (): void => {
-    pointerLocked = doc.pointerLockElement === host;
+    const locked = doc.pointerLockElement === host;
+    if (locked === pointerLocked) return;
+    pointerLocked = locked;
+    emitInteraction(locked ? "start" : "end", snapshot);
   };
 
   const onMouseMove = (e: MouseEvent): void => {
@@ -344,6 +360,7 @@ export function createGlyphFirstPersonControls(
   }
 
   return {
+    ...makeEventMethods(registry),
     update,
     resume(): void {
       if (!stopped) return;
