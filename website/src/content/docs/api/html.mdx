@@ -122,6 +122,20 @@ target plane.
 | `animate-speed` | Orbit-only: auto-rotation speed |
 | `animate-axis` | Orbit-only: `x` \| `y` \| `z` |
 
+### `<glyph-first-person-controls>`
+
+First-person camera (requires a `<glyph-perspective-camera>`). Pointer-lock
+mouselook, WASD/arrow move, Space jump, Ctrl crouch.
+
+| Attribute | Notes |
+|---|---|
+| `look-enabled` / `move-enabled` / `jump-enabled` / `crouch-enabled` | flags — toggle each axis |
+| `look-sensitivity` | degrees per pixel (default `0.15`) |
+| `invert-y` | flag — invert vertical look |
+| `move-speed` / `jump-velocity` / `gravity` | world-unit motion params |
+| `eye-height` / `crouch-height` / `ground-z` | world-unit placement |
+| `min-pitch` / `max-pitch` | pitch clamp (degrees) |
+
 ## Scene-ready handshake
 
 Custom elements register asynchronously. If you need to call imperative

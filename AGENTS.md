@@ -71,7 +71,7 @@ Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry 
 - **Types:** `GlyphDirectionalLight`, `GlyphAmbientLight`, `GlyphAnimationMixer`, `GlyphAnimationAction`, `GlyphAnimationClip`, `GlyphAnimationTarget`.
 - **Functions:** `createGlyphAnimationMixer`, `injectGlyphBaseStyles`.
 - **Vanilla factories:** `createGlyphScene`, `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`, `createGlyphOrbitControls`, `createGlyphMapControls`, `createGlyphFirstPersonControls`.
-- **HTML custom elements:** `glyph-` prefix + kebab-case. Existing tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-perspective-camera>`, `<glyph-orthographic-camera>`, `<glyph-camera>` (ortho alias), `<glyph-orbit-controls>`, `<glyph-map-controls>`. Any new element follows the same shape.
+- **HTML custom elements:** `glyph-` prefix + kebab-case. Existing tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-perspective-camera>`, `<glyph-orthographic-camera>`, `<glyph-camera>` (ortho alias), `<glyph-orbit-controls>`, `<glyph-map-controls>`, `<glyph-first-person-controls>`. Any new element follows the same shape.
 - `GlyphCamera` is the ergonomic default alias — it resolves to `GlyphOrthographicCamera`. The voxel render mode and iso/diagrammatic scenes are glyphcss's differentiator; ortho is the more representative default.
 
 ## Numeric conventions
