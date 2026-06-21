@@ -5,11 +5,11 @@ import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphFirstPersonControls } from "./GlyphFirstPersonControls";
 
 type FPControlsProps = {
-  drag?: boolean;
-  keyboard?: boolean;
+  lookEnabled?: boolean;
+  moveEnabled?: boolean;
   moveSpeed?: number;
-  lookSpeed?: number;
-  invert?: boolean | number;
+  lookSensitivity?: number;
+  invertY?: boolean;
 };
 
 function renderScene(
@@ -48,23 +48,23 @@ describe("GlyphFirstPersonControls (Vue) — mount inside scene", () => {
     expect(container.querySelector(".glyph-host")).toBeTruthy();
   });
 
-  it("accepts drag=false without throwing", () => {
-    expect(() => renderScene({ drag: false })).not.toThrow();
+  it("accepts lookEnabled=false without throwing", () => {
+    expect(() => renderScene({ lookEnabled: false })).not.toThrow();
   });
 
-  it("accepts keyboard=false without throwing", () => {
-    expect(() => renderScene({ keyboard: false })).not.toThrow();
+  it("accepts moveEnabled=false without throwing", () => {
+    expect(() => renderScene({ moveEnabled: false })).not.toThrow();
   });
 
-  it("accepts custom moveSpeed and lookSpeed", () => {
-    expect(() => renderScene({ moveSpeed: 0.1, lookSpeed: 0.01 })).not.toThrow();
+  it("accepts custom moveSpeed and lookSensitivity", () => {
+    expect(() => renderScene({ moveSpeed: 0.1, lookSensitivity: 0.01 })).not.toThrow();
   });
 
-  it("accepts invert=true", () => {
-    expect(() => renderScene({ invert: true })).not.toThrow();
+  it("accepts invertY=true", () => {
+    expect(() => renderScene({ invertY: true })).not.toThrow();
   });
 
-  it("reacts to drag prop change", async () => {
+  it("reacts to lookEnabled prop change", async () => {
     const drag = ref(true);
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -74,7 +74,7 @@ describe("GlyphFirstPersonControls (Vue) — mount inside scene", () => {
           h(GlyphPerspectiveCamera, {}, {
             default: () =>
               h(GlyphScene, {}, {
-                default: () => h(GlyphFirstPersonControls, { drag: drag.value }),
+                default: () => h(GlyphFirstPersonControls, { lookEnabled: drag.value }),
               }),
           });
       },

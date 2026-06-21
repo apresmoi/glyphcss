@@ -13,7 +13,7 @@ component wraps the scene.
 |---|---|---|
 | `GlyphOrbitControls` | Left-drag orbits; wheel zooms | General-purpose — object inspection |
 | `GlyphMapControls` | Left-drag pans; right-drag / Shift+left orbits; wheel zooms | Top-down maps, floor plans |
-| `GlyphFirstPersonControls` | Drag looks around; WASD / arrows move | Walk-through scenes |
+| `GlyphFirstPersonControls` | Pointer-lock look; WASD move, jump, crouch | Walk-through scenes |
 
 ## Orbit controls
 
@@ -172,22 +172,34 @@ const controls = createGlyphMapControls(scene, { drag: true, wheel: true });
 
 ## First-person controls
 
-Pointer-drag looks around; WASD / arrow keys move the camera. Good for walk-through
-environments and large scenes where the mesh fills the whole grid.
+Pointer-lock mouselook, WASD / arrow planar move, Space jump, Ctrl crouch — each
+axis independently toggleable. Good for walk-through environments and large scenes.
+Click the scene to capture the pointer; Esc releases it.
 
 **Requires a perspective camera.** `GlyphFirstPersonControls` throws if attached
 to a scene with an orthographic camera. Use `<GlyphPerspectiveCamera>` explicitly
 (not `<GlyphCamera>`, which aliases orthographic).
 
+Distances are in world units — size `moveSpeed` / `eyeHeight` to your mesh's scale
+(the gallery derives them from the model bbox).
+
 ### Props
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `drag` | `boolean` | `true` | Enable pointer-drag look |
-| `keyboard` | `boolean` | `true` | Enable WASD / arrow key movement |
-| `moveSpeed` | `number` | `0.05` | World units per keypress |
-| `lookSpeed` | `number` | `0.15` | Degrees per pixel of drag |
-| `invert` | `boolean \| number` | `false` | Invert look direction |
+| `lookEnabled` | `boolean` | `true` | Pointer-lock mouselook |
+| `moveEnabled` | `boolean` | `true` | WASD / arrow planar movement |
+| `jumpEnabled` | `boolean` | `true` | Space-bar jump arc |
+| `crouchEnabled` | `boolean` | `true` | Ctrl crouch |
+| `lookSensitivity` | `number` | `0.15` | Degrees per pixel of mouse |
+| `invertY` | `boolean` | `false` | Invert vertical look |
+| `moveSpeed` | `number` | `5` | World units per second |
+| `jumpVelocity` | `number` | `7` | Initial jump velocity (units/s) |
+| `gravity` | `number` | `18` | Gravity (units/s²) |
+| `eyeHeight` | `number` | `1.7` | Standing eye height above ground |
+| `crouchHeight` | `number` | `1` | Eye height while crouching |
+| `groundZ` | `number` | `0` | World Z of the ground plane |
+| `minPitch` / `maxPitch` | `number` | `5` / `175` | Pitch clamp (degrees) |
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -202,7 +214,7 @@ export function FPVDemo() {
   return (
     <GlyphPerspectiveCamera>
       <GlyphScene mode="solid" cols={140} rows={42}>
-        <GlyphFirstPersonControls drag keyboard moveSpeed={0.1} />
+        <GlyphFirstPersonControls moveSpeed={3} eyeHeight={1.2} />
         <GlyphMesh polygons={floor} />
       </GlyphScene>
     </GlyphPerspectiveCamera>
@@ -217,7 +229,7 @@ export function FPVDemo() {
 <template>
   <GlyphPerspectiveCamera>
     <GlyphScene mode="solid" :cols="140" :rows="42">
-      <GlyphFirstPersonControls drag keyboard :move-speed="0.1" />
+      <GlyphFirstPersonControls :move-speed="3" :eye-height="1.2" />
       <GlyphMesh :polygons="floor" />
     </GlyphScene>
   </GlyphPerspectiveCamera>
@@ -244,9 +256,8 @@ const scene = createGlyphScene(host, { camera, mode: "solid", cols: 140, rows: 4
 scene.add(cubePolygons({ center: [0, -0.6, 0], size: 4, color: "#334455" }));
 
 const controls = createGlyphFirstPersonControls(scene, {
-  drag: true,
-  keyboard: true,
-  moveSpeed: 0.1,
+  moveSpeed: 3,
+  eyeHeight: 1.2,
 });
 ```
 

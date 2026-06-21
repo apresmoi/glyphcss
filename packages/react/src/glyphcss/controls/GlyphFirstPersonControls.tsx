@@ -1,6 +1,7 @@
 /**
  * GlyphFirstPersonControls — first-person controls for an ASCII GlyphScene.
- * Pointer-drag looks around; WASD / arrow keys move.
+ * Pointer-lock mouselook, WASD/arrow planar move, Space jump, Ctrl crouch.
+ * Mirrors voxcss PolyFirstPersonControls.
  */
 import { useEffect, useRef } from "react";
 import type { GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from "glyphcss";
@@ -8,36 +9,33 @@ import { createGlyphFirstPersonControls } from "glyphcss";
 import { useGlyphSceneContext } from "../scene/context";
 
 export interface GlyphFirstPersonControlsProps {
-  drag?: boolean;
-  keyboard?: boolean;
+  enabled?: boolean;
+  lookEnabled?: boolean;
+  moveEnabled?: boolean;
+  jumpEnabled?: boolean;
+  crouchEnabled?: boolean;
+  lookSensitivity?: number;
+  invertY?: boolean;
   moveSpeed?: number;
-  lookSpeed?: number;
-  invert?: boolean | number;
+  jumpVelocity?: number;
+  gravity?: number;
+  eyeHeight?: number;
+  crouchHeight?: number;
+  groundZ?: number;
+  minPitch?: number;
+  maxPitch?: number;
 }
 
-export function GlyphFirstPersonControls({
-  drag = true,
-  keyboard = true,
-  moveSpeed = 0.05,
-  lookSpeed = 0.004,
-  invert = false,
-}: GlyphFirstPersonControlsProps): null {
+export function GlyphFirstPersonControls(props: GlyphFirstPersonControlsProps): null {
   const { sceneRef } = useGlyphSceneContext();
   const controlsRef = useRef<GlyphFirstPersonControlsHandle | null>(null);
-  const propsRef = useRef({ drag, keyboard, moveSpeed, lookSpeed, invert });
-  propsRef.current = { drag, keyboard, moveSpeed, lookSpeed, invert };
+  const propsRef = useRef(props);
+  propsRef.current = props;
 
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
-    const opts: GlyphFirstPersonControlsOptions = {
-      drag: propsRef.current.drag,
-      keyboard: propsRef.current.keyboard,
-      moveSpeed: propsRef.current.moveSpeed,
-      lookSpeed: propsRef.current.lookSpeed,
-      invert: propsRef.current.invert,
-    };
-    const controls = createGlyphFirstPersonControls(scene, opts);
+    const controls = createGlyphFirstPersonControls(scene, propsRef.current as GlyphFirstPersonControlsOptions);
     controlsRef.current = controls;
     return () => {
       controls.destroy();
@@ -46,9 +44,7 @@ export function GlyphFirstPersonControls({
   }, [sceneRef]);
 
   useEffect(() => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-    controls.update({ drag, keyboard, moveSpeed, lookSpeed, invert });
+    controlsRef.current?.update(props as GlyphFirstPersonControlsOptions);
   });
 
   return null;
