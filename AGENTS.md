@@ -16,6 +16,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/glyphcss` | `glyphcss` | Vanilla renderer + custom elements (`<glyph-scene>`, etc.). Owns the ASCII rasteriser, custom element definitions, and imperative API. |
 | `packages/react` | `@glyphcss/react` | React components + hooks. Thin wrapper over core + glyphcss. |
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
+| `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
 Public API is **mirrored** across React and Vue. Adding a hook on one side without adding the matching composable on the other is not acceptable (see "Cross-package discipline" below).

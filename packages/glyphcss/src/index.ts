@@ -25,6 +25,10 @@ export type {
   GlyphShadowOptions,
 } from "./api/createGlyphScene";
 
+// Static compile — render a scene to its `<pre>` without a DOM (build-time / SSR).
+export { compileScene } from "./api/compileScene";
+export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene";
+
 // Re-export glyph-specific types
 export type { GlyphDirectionalLight, GlyphAmbientLight } from "./api/types";
 
