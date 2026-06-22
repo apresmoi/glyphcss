@@ -60,11 +60,38 @@ const { html } = compileScene({ polygons, cols: 80, rows: 24 }); // pure, no DOM
 > not recentered or auto-fit unless you ask — pass `autoCenter` + a camera/zoom
 > to frame a model, the same as `<glyph-mesh>` in the runtime.
 
+## Interactive export
+
+Declare the interactions you want; only those ship. The manifest drives both the
+wired control (the snippet imports just that one) and the decimation budget
+(coarser for orbit, finer when `zoom`/`fpv` let the camera get close):
+
+```sh
+glyphcss-compile dog.glb --interactions orbit,zoom --auto-center --full -o dog.html
+```
+
+```ts
+import { compileInteractive, toCodepenPrefill } from "@glyphcss/compile";
+
+const r = await compileInteractive("dog.glb", { interactions: ["orbit", "zoom"], autoCenter: true });
+r.html;            // self-contained: <div> + <script type=module> (glyphcss from CDN, mesh inlined)
+r.polygonCount;    // triangles shipped after decimation (vs r.sourcePolygonCount)
+toCodepenPrefill(r); // → { action, data } to POST a new CodePen
+```
+
+The pure, browser-safe builder is `buildGlyphInteractiveExport(polygons, opts)` in
+`glyphcss` — the gallery's "CodePen" button calls it directly on the loaded mesh.
+
+| `interactions` | Ships |
+|---|---|
+| `[]` | static scene, no control |
+| `["orbit"]` | orbit control, coarse decimation |
+| `["orbit","zoom"]` | + wheel zoom, finer decimation |
+| `["pan","zoom"]` | map controls |
+| `["fpv"]` | first-person controls, finest decimation |
+
 ## Notes
 
 - **Textures**: per-cell texture sampling needs browser image decoding, so the
   static compile renders from material / vertex colors (the same fallback the
   runtime uses before its async samplers resolve).
-- **Interactivity**: this package compiles the *static* frame. Interactive
-  exports (decimated mesh + the minimal control runtime per declared
-  interaction) build on top of this.

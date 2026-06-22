@@ -11,12 +11,17 @@
  */
 import { writeFile } from "node:fs/promises";
 import { compileFile, type CompileFileOptions } from "./compileFile";
+import { compileInteractive, type GlyphInteraction } from "./compileInteractive";
 import type { RenderMode, MeshResolution } from "@glyphcss/core";
 
 interface Parsed {
   file?: string;
   out?: string;
   full: boolean;
+  interactive: boolean;
+  interactions?: GlyphInteraction[];
+  decimateGrid?: number;
+  cdnVersion?: string;
   opts: CompileFileOptions;
 }
 
@@ -25,6 +30,10 @@ function parseArgs(argv: string[]): Parsed {
   let file: string | undefined;
   let out: string | undefined;
   let full = false;
+  let interactive = false;
+  let interactions: GlyphInteraction[] | undefined;
+  let decimateGrid: number | undefined;
+  let cdnVersion: string | undefined;
   const num = (v: string | undefined): number | undefined => {
     const n = Number(v);
     return v !== undefined && Number.isFinite(n) ? n : undefined;
@@ -52,13 +61,20 @@ function parseArgs(argv: string[]): Parsed {
       case "--smooth": opts.smoothShading = true; break;
       case "--double-sided": opts.doubleSided = true; break;
       case "--full": full = true; break;
+      case "--interactive": interactive = true; break;
+      case "--interactions":
+        interactive = true;
+        interactions = (next() ?? "").split(",").map((s) => s.trim()).filter(Boolean) as GlyphInteraction[];
+        break;
+      case "--decimate-grid": decimateGrid = num(next()); break;
+      case "--cdn-version": cdnVersion = next(); break;
       case "-o": case "--out": out = next(); break;
-      case "-h": case "--help": file = undefined; return { file, out, full, opts };
+      case "-h": case "--help": file = undefined; return { file, out, full, interactive, interactions, decimateGrid, cdnVersion, opts };
       default:
         if (!a.startsWith("-") && !file) file = a;
     }
   }
-  return { file, out, full, opts };
+  return { file, out, full, interactive, interactions, decimateGrid, cdnVersion, opts };
 }
 
 const HELP = `glyphcss-compile <mesh-file> [options]
@@ -67,6 +83,7 @@ const HELP = `glyphcss-compile <mesh-file> [options]
   Grid     --cols N  --rows N  --cell-aspect N
   Render   --mode solid|wireframe|voxel  --palette NAME  --no-colors  --smooth  --double-sided
   Mesh     --auto-center  --mesh-resolution lossy|lossless  --crease-angle N  --supersample N
+  Interact --interactive  --interactions orbit,zoom,pan,fpv  --decimate-grid N  --cdn-version V
   Output   --full (full HTML doc)   -o, --out FILE   (default: stdout)
 `;
 
@@ -81,12 +98,25 @@ function wrapHtml(inner: string): string {
 }
 
 async function main(): Promise<void> {
-  const { file, out, full, opts } = parseArgs(process.argv.slice(2));
+  const { file, out, full, interactive, interactions, decimateGrid, cdnVersion, opts } = parseArgs(process.argv.slice(2));
   if (!file) {
     process.stderr.write(HELP);
-    process.exit(file === undefined && process.argv.length <= 2 ? 1 : 0);
+    process.exit(process.argv.length <= 2 ? 1 : 0);
     return;
   }
+
+  if (interactive) {
+    const r = await compileInteractive(file, { ...opts, interactions, decimateGrid, cdnVersion });
+    const output = full ? wrapHtml(r.html) : r.html;
+    if (out) {
+      await writeFile(out, output, "utf8");
+      process.stderr.write(`glyphcss-compile: wrote ${out} — interactive [${r.interactions.join(", ")}], ${r.polygonCount}/${r.sourcePolygonCount} tris\n`);
+    } else {
+      process.stdout.write(output + "\n");
+    }
+    return;
+  }
+
   const result = await compileFile(file, opts);
   const output = full ? wrapHtml(result.html) : result.html;
   if (out) {

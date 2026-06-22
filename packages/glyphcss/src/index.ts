@@ -29,6 +29,15 @@ export type {
 export { compileScene } from "./api/compileScene";
 export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene";
 
+// Interactive export — polygons + declared interactions → a portable, decimated,
+// self-contained glyphcss snippet (CDN + inlined mesh). Pure / browser-safe.
+export { buildGlyphInteractiveExport, glyphCodepenPrefill } from "./api/interactiveExport";
+export type {
+  GlyphInteraction,
+  GlyphInteractiveExportOptions,
+  GlyphInteractiveExportResult,
+} from "./api/interactiveExport";
+
 // Re-export glyph-specific types
 export type { GlyphDirectionalLight, GlyphAmbientLight } from "./api/types";
 

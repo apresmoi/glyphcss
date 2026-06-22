@@ -55,6 +55,15 @@ Shadows are opt-in per mesh. To enable them, set `shadow: GlyphShadowOptions` on
 
 Hotspots are 3D anchors that produce positioned 2D hitboxes in the consumer's DOM. The rasteriser projects each `Hotspot.at` point through the camera and returns a `HotspotCell` (col, row, depth, visible). Consumers absolute-position a `<div>` at the cell — the rasteriser only computes the position; it does not emit the DOM node.
 
+## Compilation (static & interactive)
+
+Because `rasterize` is pure (geometry + camera → string), a scene can be rendered **at build time / on the server**, not just in the browser. This is glyphcss's static story — the render *is text*, so it inlines into HTML with no runtime.
+
+- **`compileScene(opts)`** (in `glyphcss`, pure) — polygons + camera + options → the `<pre>` string. **Byte-identical to the runtime render** for the same inputs; same defaults as `createGlyphScene`. The foundation for every adapter.
+- **`@glyphcss/compile`** — Node adapters around `compileScene`: `loadMeshFromFile`, `compileFile`, a **Vite plugin** (`import x from "./m.glb?glyph&…"` → baked `<pre>`), a **CLI** (`glyphcss-compile`), and `compileInteractive`.
+- **`GlyphSceneStatic`** (React + Vue) — SSR/SSG component that renders the compiled `<pre>` with no client runtime (mirror of each other; static counterpart to `GlyphScene`).
+- **Interactive export** — `buildGlyphInteractiveExport(polygons, { interactions })` (pure, browser-safe, in `glyphcss`): the declared interactions (`orbit`/`zoom`/`pan`/`fpv`) drive **both** the wired control (only that one is imported → the snippet tree-shakes) **and** the decimation budget (`decimatePolygons` — coarser for orbit, finer when `zoom`/`fpv` let the camera approach). Output is a self-contained CDN+inlined-mesh snippet; `glyphCodepenPrefill` turns it into a CodePen POST (the gallery's "CodePen" button). Less declared interactivity = less mesh + less runtime shipped.
+
 ## No per-frame DOM mutation
 
 The invariant we hold: **each render cycle sets `<pre>.textContent` exactly once.** Multiple writes per cycle (e.g. cell-by-cell DOM patching) are not acceptable.
@@ -68,9 +77,9 @@ Controls (orbit, map, first-person) mutate a single camera state object; the ras
 Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types: `Vec2`, `Vec3`, `Polygon`, `TextureTriangle`.
 
 - **Hooks/composables:** `useGlyphCamera`, `useGlyphMesh`, `useGlyphSceneContext`, `useGlyphAnimation`.
-- **Components:** `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`.
+- **Components:** `GlyphScene`, `GlyphSceneStatic` (SSR/build-time `<pre>`, no runtime), `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`.
 - **Types:** `GlyphDirectionalLight`, `GlyphAmbientLight`, `GlyphAnimationMixer`, `GlyphAnimationAction`, `GlyphAnimationClip`, `GlyphAnimationTarget`.
-- **Functions:** `createGlyphAnimationMixer`, `injectGlyphBaseStyles`.
+- **Functions:** `createGlyphAnimationMixer`, `injectGlyphBaseStyles`, `compileScene` (pure, DOM-less render → `<pre>` string), `buildGlyphInteractiveExport` / `glyphCodepenPrefill` (polygons + declared interactions → portable self-contained snippet), `decimatePolygons` (core — resolution-target mesh simplification).
 - **Vanilla factories:** `createGlyphScene`, `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`, `createGlyphOrbitControls`, `createGlyphMapControls`, `createGlyphFirstPersonControls`.
 - **HTML custom elements:** `glyph-` prefix + kebab-case. Existing tags: `<glyph-scene>`, `<glyph-mesh>`, `<glyph-hotspot>`, `<glyph-perspective-camera>`, `<glyph-orthographic-camera>`, `<glyph-camera>` (ortho alias), `<glyph-orbit-controls>`, `<glyph-map-controls>`, `<glyph-first-person-controls>`. Any new element follows the same shape.
 - `GlyphCamera` is the ergonomic default alias — it resolves to `GlyphOrthographicCamera`. The voxel render mode and iso/diagrammatic scenes are glyphcss's differentiator; ortho is the more representative default.

@@ -1482,3 +1482,36 @@
     color: #dcfce7;
   }
 }
+
+/* CodePen export: interaction chips + button */
+.gw-code-panel__interactions {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-right: 6px;
+}
+.gw-code-panel__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  border-radius: 4px;
+  color: rgba(255, 232, 184, 0.55);
+  cursor: pointer;
+  user-select: none;
+}
+.gw-code-panel__chip.is-active {
+  color: rgba(255, 232, 184, 0.95);
+  border-color: rgba(255, 232, 184, 0.5);
+  background: rgba(255, 232, 184, 0.08);
+}
+.gw-code-panel__chip input { display: none; }
+.gw-code-panel__action--codepen {
+  color: #b7f7c0;
+  border-color: rgba(120, 220, 150, 0.4);
+}
+.gw-code-panel__action--codepen:disabled { opacity: 0.5; cursor: default; }

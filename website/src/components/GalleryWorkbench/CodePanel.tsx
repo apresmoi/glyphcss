@@ -1,7 +1,33 @@
 import { useCallback, useMemo, useState } from "react";
+import { loadMesh, resolveGeometry } from "@glyphcss/core";
+import { buildGlyphInteractiveExport, glyphCodepenPrefill } from "glyphcss";
+import type { GlyphInteraction } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
 
 type Tab = "html" | "vanilla" | "react" | "vue";
+
+const INTERACTION_LIST: { key: GlyphInteraction; label: string }[] = [
+  { key: "orbit", label: "Orbit" },
+  { key: "zoom", label: "Zoom" },
+  { key: "pan", label: "Pan" },
+  { key: "fpv", label: "FPV" },
+];
+
+/** POST a CodePen prefill payload (opens a new pen in a new tab). */
+function postToCodepen(prefill: { action: string; data: string }): void {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = prefill.action;
+  form.target = "_blank";
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "data";
+  input.value = prefill.data;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
 
 interface CodePanelProps {
   meshUrl: string;
@@ -295,6 +321,42 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
     }
   }, [snippets, tab]);
 
+  const [interactions, setInteractions] = useState<Set<GlyphInteraction>>(() => new Set(["orbit", "zoom"]));
+  const [exporting, setExporting] = useState(false);
+  const toggleInteraction = useCallback((k: GlyphInteraction) => {
+    setInteractions((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }, []);
+
+  // Compile the current model + chosen interactions into a self-contained,
+  // decimated glyphcss snippet and open it as a new CodePen. Polygons are loaded
+  // from the same source the gallery uses (URL mesh or built-in primitive).
+  const handleCodepen = useCallback(async () => {
+    setExporting(true);
+    try {
+      const polygons = meshUrl
+        ? (await loadMesh(meshUrl, { solidTextureSamples: false })).polygons
+        : resolveGeometry(primitiveGeometryName(selectedPreset.id) as Parameters<typeof resolveGeometry>[0]);
+      const result = buildGlyphInteractiveExport(polygons, {
+        interactions: [...interactions],
+        rotX: options.rotX,
+        rotY: options.rotY,
+        zoom: options.zoom,
+        autoCenter: true,
+        mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
+        useColors: options.useColors,
+      });
+      postToCodepen(glyphCodepenPrefill(result, (selectedPreset as { label?: string }).label ?? "glyphcss"));
+    } catch (err) {
+      console.error("glyphcss: CodePen export failed", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [meshUrl, selectedPreset, options, interactions]);
+
   return (
     <aside className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}`}>
       <header className="gw-code-panel__head">
@@ -312,6 +374,27 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
           ))}
         </div>
         <div className="gw-code-panel__actions">
+          <div className="gw-code-panel__interactions" title="Interactions to compile into the CodePen export">
+            {INTERACTION_LIST.map(({ key, label }) => (
+              <label key={key} className={`gw-code-panel__chip${interactions.has(key) ? " is-active" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={interactions.has(key)}
+                  onChange={() => toggleInteraction(key)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="gw-code-panel__action gw-code-panel__action--codepen"
+            onClick={handleCodepen}
+            disabled={exporting}
+            title="Compile this model + chosen interactions into a new CodePen"
+          >
+            {exporting ? "Exporting…" : "CodePen"}
+          </button>
           <button
             type="button"
             className="gw-code-panel__action"

@@ -153,6 +153,7 @@ export {
 // ── Glyphcss (ASCII paint backend) bindings ─────────────────────────────────
 export {
   GlyphScene,
+  GlyphSceneStatic,
   GlyphMesh,
   GlyphGround,
   GlyphHotspot,
@@ -177,6 +178,7 @@ export {
 } from "./glyphcss";
 export type {
   GlyphSceneProps,
+  GlyphSceneStaticProps,
   GlyphMeshProps,
   GlyphGroundProps,
   GlyphHotspotProps,
