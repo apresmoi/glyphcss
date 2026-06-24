@@ -1,8 +1,46 @@
 import { useCallback, useMemo, useState } from "react";
-import { loadMesh } from "@glyphcss/core";
+import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
+import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 import { buildGlyphInteractiveExport, glyphCodepenPrefill } from "glyphcss";
 import type { GlyphInteraction } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
+
+const midV = (a: Vec3, b: Vec3): Vec3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+const midU = (a: Vec2, b: Vec2): Vec2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+
+/**
+ * Subdivide each textured triangle (4-way, UV-interpolated) `levels` times so a
+ * standalone snippet — which can't ship the texture image — captures sub-face
+ * color when each piece is baked to its own average. Untextured faces pass through.
+ */
+function subdivideTexturedPolygons(polygons: Polygon[], levels: number): Polygon[] {
+  const out: Polygon[] = [];
+  for (const p of polygons) {
+    const tts = p.textureTriangles;
+    if (!tts || tts.length === 0) { out.push(p); continue; }
+    for (const tt of tts) {
+      let pieces: { v: [Vec3, Vec3, Vec3]; uv: [Vec2, Vec2, Vec2] }[] = [{ v: tt.vertices, uv: tt.uvs }];
+      for (let l = 0; l < levels; l++) {
+        const next: typeof pieces = [];
+        for (const { v, uv } of pieces) {
+          const m01 = midV(v[0], v[1]), m12 = midV(v[1], v[2]), m20 = midV(v[2], v[0]);
+          const u01 = midU(uv[0], uv[1]), u12 = midU(uv[1], uv[2]), u20 = midU(uv[2], uv[0]);
+          next.push(
+            { v: [v[0], m01, m20], uv: [uv[0], u01, u20] },
+            { v: [m01, v[1], m12], uv: [u01, uv[1], u12] },
+            { v: [m20, m12, v[2]], uv: [u20, u12, uv[2]] },
+            { v: [m01, m12, m20], uv: [u01, u12, u20] },
+          );
+        }
+        pieces = next;
+      }
+      for (const { v, uv } of pieces) {
+        out.push({ ...p, vertices: v, uvs: undefined, textureTriangles: [{ vertices: v, uvs: uv, texture: tt.texture ?? p.texture }] });
+      }
+    }
+  }
+  return out;
+}
 
 type Tab = "html" | "vanilla" | "react" | "vue";
 
@@ -340,15 +378,32 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
       // Use the SAME polygons the gallery renders: primitives carry the
       // `uprightAlongZ` rotation via their preset generator (so e.g. the cone
       // matches on-screen orientation); URL models load from their source.
-      // A self-contained snippet can't ship the texture image, so bake every
-      // textured face to its average color (colorTolerance: 255 forces averaging
-      // even on detailed faces) — otherwise textured meshes export as flat gray.
-      const polygons = selectedPreset.kind === "primitive"
-        ? selectedPreset.generatePolygons()
-        : (await loadMesh(selectedPreset.url, {
-            mtlUrl: selectedPreset.mtlUrl,
-            solidTextureSamples: { colorTolerance: 255 },
-          })).polygons;
+      // A self-contained snippet can't ship the texture image. For textured
+      // meshes, subdivide each face then bake each piece to its average color
+      // (colorTolerance: 255 forces averaging) so the export captures sub-face
+      // color detail — and skip decimation so that detail isn't re-merged away.
+      let polygons: Polygon[];
+      let decimateGrid: number | undefined;
+      if (selectedPreset.kind === "primitive") {
+        polygons = selectedPreset.generatePolygons();
+      } else {
+        const parsed = await loadMesh(selectedPreset.url, {
+          mtlUrl: selectedPreset.mtlUrl,
+          solidTextureSamples: false,
+        });
+        const texturedTris = parsed.polygons.reduce((n, p) => n + (p.textureTriangles?.length ?? 0), 0);
+        if (texturedTris > 0) {
+          // Adapt subdivision depth to keep the inlined payload reasonable
+          // (~6k triangles max): more levels for low-poly meshes, fewer for dense.
+          let levels = 2;
+          while (levels > 0 && texturedTris * 4 ** levels > 6000) levels--;
+          const sub = subdivideTexturedPolygons(parsed.polygons, levels);
+          polygons = await bakeSolidTextureSampledPolygons(sub, { colorTolerance: 255 });
+          decimateGrid = 100000; // preserve the per-region color detail
+        } else {
+          polygons = parsed.polygons;
+        }
+      }
       const result = buildGlyphInteractiveExport(polygons, {
         interactions: [...interactions],
         rotX: options.rotX,
@@ -357,6 +412,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         autoCenter: true,
         mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
         useColors: options.useColors,
+        decimateGrid,
       });
       postToCodepen(glyphCodepenPrefill(result, (selectedPreset as { label?: string }).label ?? "glyphcss"));
     } catch (err) {
