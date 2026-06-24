@@ -388,7 +388,7 @@
   position: absolute;
   left: var(--overlay-left);
   bottom: var(--overlay-bottom);
-  width: clamp(320px, 30vw, 460px);
+  width: clamp(320px, 36vw, 560px);
   max-height: min(42vh, calc(100% - var(--overlay-top) - var(--overlay-bottom) - 60vh));
   z-index: 14;
   display: flex;

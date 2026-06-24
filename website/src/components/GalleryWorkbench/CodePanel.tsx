@@ -340,9 +340,15 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
       // Use the SAME polygons the gallery renders: primitives carry the
       // `uprightAlongZ` rotation via their preset generator (so e.g. the cone
       // matches on-screen orientation); URL models load from their source.
+      // A self-contained snippet can't ship the texture image, so bake every
+      // textured face to its average color (colorTolerance: 255 forces averaging
+      // even on detailed faces) — otherwise textured meshes export as flat gray.
       const polygons = selectedPreset.kind === "primitive"
         ? selectedPreset.generatePolygons()
-        : (await loadMesh(selectedPreset.url, { mtlUrl: selectedPreset.mtlUrl, solidTextureSamples: false })).polygons;
+        : (await loadMesh(selectedPreset.url, {
+            mtlUrl: selectedPreset.mtlUrl,
+            solidTextureSamples: { colorTolerance: 255 },
+          })).polygons;
       const result = buildGlyphInteractiveExport(polygons, {
         interactions: [...interactions],
         rotX: options.rotX,
