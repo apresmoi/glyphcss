@@ -38,6 +38,7 @@ and hotspots are children of the scene.
 | Component | Role |
 |---|---|
 | [`<GlyphScene>`](/components/glyph-scene) | Root container — owns the `<pre>`, grid, glyph palette, lighting |
+| `<GlyphSceneStatic>` | SSR/SSG — renders the compiled `<pre>` with no runtime ([Compiling to Static](/guides/compile)) |
 | `<GlyphCamera>` | Default camera (alias for `<GlyphOrthographicCamera>`) |
 | `<GlyphPerspectiveCamera>` | Foreshortened projection — needs a `distance` |
 | `<GlyphOrthographicCamera>` | Parallel projection — best for iso / voxel scenes |

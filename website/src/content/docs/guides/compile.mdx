@@ -1,0 +1,154 @@
+---
+title: Compiling to Static
+description: Render meshes to static ASCII at build time — Vite plugin, CLI, Node API, and SSR components.
+---
+
+glyphcss's renderer is **pure**: `rasterize(scene) → string` takes geometry +
+camera + grid and returns the `<pre>` text — no DOM, no WebGL. So a scene can be
+rendered **at build time, on a server, or in a worker**, not just in the browser.
+Because the render *is text*, it inlines straight into HTML with **zero runtime**.
+
+There are two flavors:
+
+- **Static** — a frozen `<pre>` of ASCII. No JavaScript ships at all.
+- **Interactive** — a self-contained snippet that ships only the control you
+  declared (orbit / zoom / pan / fpv) plus a decimated mesh.
+
+## Static compile
+
+Everything is built on one pure function, `compileScene`, which reproduces
+`createGlyphScene`'s exact render (same defaults) without a DOM:
+
+```ts
+import { compileScene } from "glyphcss";
+
+const { html, inner, cols, rows } = compileScene({
+  polygons,            // a Polygon[]
+  cols: 80, rows: 24,  // library defaults
+  // camera, mode, glyphPalette, useColors, lights… (same options as createGlyphScene)
+});
+// html === '<pre class="glyph-output">…ascii…</pre>'
+```
+
+The output is **byte-identical to the runtime render** for the same inputs.
+
+### Vite plugin
+
+The `@glyphcss/compile` package ships a Vite plugin that compiles a mesh import
+to its baked `<pre>` **at build time**:
+
+```ts
+// vite.config.ts
+import { glyphcssCompile } from "@glyphcss/compile/vite";
+
+export default { plugins: [glyphcssCompile()] };
+```
+
+```ts
+import dog from "./dog.glb?glyph&autoCenter=1&rotX=60&rotY=45&cols=80&rows=30";
+
+document.querySelector("#app")!.innerHTML = dog; // the <pre> string — no runtime
+```
+
+Query params map to the [options](#options) below. Works in any Vite pipeline —
+Astro, vanilla Vite, or Vite-React (import the string and inject it).
+
+### CLI
+
+The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile):
+
+```sh
+glyphcss-compile dog.glb --auto-center --rot-x 60 --rot-y 45 > dog.html
+glyphcss-compile dog.glb --full -o dog.html   # full HTML document
+```
+
+### Node API
+
+```ts
+import { compileFile, loadMeshFromFile } from "@glyphcss/compile";
+
+const { html, cols, rows } = await compileFile("dog.glb", { autoCenter: true });
+```
+
+`compileFile` loads the mesh from disk (reusing the library's `loadMesh` — format
+dispatch, sibling `.mtl`, optimization) and hands it to `compileScene`.
+
+### SSR / SSG components
+
+React and Vue both export `GlyphSceneStatic` — it renders the compiled `<pre>`
+on the server with **no client runtime** (the "compile React/Vue to static" path):
+
+```tsx
+import { GlyphSceneStatic } from "@glyphcss/react"; // or @glyphcss/vue
+
+<GlyphSceneStatic polygons={polygons} cols={80} rows={24} autoCenter rotX={60} rotY={45} />
+```
+
+It renders the same string on server and client — no hydration, no WebGL. For an
+interactive scene, use [`GlyphScene`](/components/glyph-scene) instead.
+
+### Options
+
+Defaults are the **library** defaults (`createGlyphScene`). A loaded mesh is not
+recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame it.
+
+| Option | Query / CLI flag | Default |
+|---|---|---|
+| Camera angle | `rotX` `rotY` / `--rot-x` `--rot-y` | 65 / 45 |
+| Zoom | `zoom` / `--zoom` | 0.3 |
+| Projection | `projection=orthographic` / `--ortho` | perspective |
+| Grid | `cols` `rows` `cellAspect` / `--cols` … | 80 / 24 / 2.0 |
+| Render mode | `mode` / `--mode` | solid |
+| Palette | `palette` / `--palette` | default |
+| Colors | `colors=0` / `--no-colors` | on |
+| Recenter mesh | `autoCenter=1` / `--auto-center` | off |
+| Mesh optimize | `meshResolution` / `--mesh-resolution` | lossy |
+
+> **Textures:** per-cell texture sampling needs browser image decoding, so the
+> static compile renders from material / vertex colors.
+
+## Interactive export
+
+The static path produces a frozen frame. To ship interaction, declare which
+interactions you want and `buildGlyphInteractiveExport` (pure, browser-safe)
+produces a self-contained snippet — glyphcss from a CDN + the mesh inlined:
+
+```ts
+import { buildGlyphInteractiveExport, glyphCodepenPrefill } from "glyphcss";
+
+const { html, pen, polygonCount } = buildGlyphInteractiveExport(polygons, {
+  interactions: ["orbit", "zoom"],
+  autoCenter: true,
+});
+// pen → { html, css, js } ready for a CodePen prefill (glyphCodepenPrefill)
+```
+
+The **capability manifest** (`interactions`) drives two things:
+
+1. **Runtime** — only the declared control is imported, so the snippet
+   tree-shakes. An orbit-only export ships less than an fpv one.
+2. **Mesh** — [`decimatePolygons`](/api/headless) simplifies the geometry to a
+   budget tied to the interaction (coarse for orbit; finer when zoom / fpv let
+   the camera approach). The ASCII grid is coarse, so sub-cell geometry is
+   invisible anyway.
+
+| `interactions` | Ships |
+|---|---|
+| `[]` | static scene, no control |
+| `["orbit"]` | orbit control, coarse mesh |
+| `["orbit","zoom"]` | + wheel zoom, finer mesh |
+| `["pan","zoom"]` | map controls |
+| `["fpv"]` | first-person controls, finest mesh |
+
+The CLI exposes the same via `--interactions orbit,zoom`.
+
+### Static encoding
+
+When emitting a fully static `<pre>`, `encodeStaticGlyphHtml(inner, mode)` chooses
+how colors and whitespace are encoded — the best choice is model-dependent:
+
+| Mode | What it does |
+|---|---|
+| `classes` *(default)* | dedupes colors into `.cN{…}` rules + class spans, trims trailing spaces — smallest for typical dense, many-color renders |
+| `grid` | CSS-grid-places each run by column/row — no literal spaces in the markup; wins for sparse renders with big gaps |
+| `inline` | one `style="color:…"` per run — simplest |
