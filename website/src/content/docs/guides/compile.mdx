@@ -75,8 +75,8 @@ dispatch, sibling `.mtl`, optimization) and hands it to `compileScene`.
 
 ### SSR / SSG components
 
-React and Vue both export `GlyphSceneStatic` — it renders the compiled `<pre>`
-on the server with **no client runtime** (the "compile React/Vue to static" path):
+React and Vue both export `GlyphSceneStatic`, which calls `compileScene` at render
+time and outputs the `<pre>`:
 
 ```tsx
 import { GlyphSceneStatic } from "@glyphcss/react"; // or @glyphcss/vue
@@ -84,8 +84,24 @@ import { GlyphSceneStatic } from "@glyphcss/react"; // or @glyphcss/vue
 <GlyphSceneStatic polygons={polygons} cols={80} rows={24} autoCenter rotX={60} rotY={45} />
 ```
 
-It renders the same string on server and client — no hydration, no WebGL. For an
-interactive scene, use [`GlyphScene`](/components/glyph-scene) instead.
+**Where it renders decides whether it's static.** Because `compileScene` runs at
+render time, you only get a zero-runtime static `<pre>` when the component is
+rendered **at build or on the server**:
+
+- ✅ **SSG / SSR** — an Astro island *without* a `client:` directive, a Next.js
+  Server Component (or `getStaticProps` + `renderToString`), `vite-ssg`, Gatsby,
+  Remix, `renderToStaticMarkup`. The `<pre>` is baked into the HTML and, if not
+  hydrated, **no glyphcss JS ships.**
+- ❌ **Plain client-side React** (a default CRA / Vite `npm run build`) renders in
+  the browser — `compileScene` executes client-side and glyphcss is in the bundle.
+  You still get the `<pre>` with no interactive machinery, but it isn't
+  "compiled to static." For that, use the [Vite plugin](#vite-plugin) instead,
+  which bakes the string at build in *any* Vite app.
+
+Two caveats for true static output: the `polygons` must be available where it
+renders (load them at build with `loadMeshFromFile` and pass them in — loading via
+`loadMesh` in the browser reintroduces a runtime), and the island must not be
+hydrated. For an interactive scene, use [`GlyphScene`](/components/glyph-scene).
 
 ### Options
 
