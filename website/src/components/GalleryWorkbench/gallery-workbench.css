@@ -413,20 +413,24 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
   padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 232, 184, 0.12);
   background: rgba(3, 5, 10, 0.5);
 }
 .gw-code-panel__legend {
+  flex: 0 0 auto;
+  white-space: nowrap;
   color: rgba(56, 189, 248, 0.85);
   font-size: 11px;
   letter-spacing: 0.08em;
 }
 .gw-code-panel__tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 2px;
-  margin-left: 6px;
 }
 .gw-code-panel__tab {
   background: none;
@@ -435,6 +439,7 @@
   padding: 3px 10px;
   font: 11px/1 inherit;
   letter-spacing: 0.06em;
+  white-space: nowrap;
   cursor: pointer;
   transition: color 100ms, background 100ms, border-color 100ms;
 }
@@ -450,9 +455,11 @@
 .gw-code-panel__actions {
   margin-left: auto;
   display: flex;
+  flex: 0 0 auto;
   gap: 4px;
 }
 .gw-code-panel__action {
+  white-space: nowrap;
   background: none;
   border: 1px solid rgba(255, 232, 184, 0.15);
   color: rgba(255, 232, 184, 0.7);
