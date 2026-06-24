@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { loadMeshFromFile } from "./loadMeshFromFile";
 import { compileFile } from "./compileFile";
 import { glyphcssCompile } from "./vite";
 
-const DOG = fileURLToPath(new URL("../../../website/public/gallery/glb/Dog.glb", import.meta.url));
+// Resolve from cwd (the package dir under vitest) — env-agnostic, unlike
+// import.meta.url which happy-dom rewrites to a non-file:// URL.
+const DOG = resolve(process.cwd(), "../../website/public/gallery/glb/Dog.glb");
 
 describe("@glyphcss/compile", () => {
   it("loadMeshFromFile parses a .glb from disk", async () => {

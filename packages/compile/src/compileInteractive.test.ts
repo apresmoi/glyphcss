@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { compileInteractive, toCodepenPrefill } from "./compileInteractive";
 
-const DOG = fileURLToPath(new URL("../../../website/public/gallery/glb/Dog.glb", import.meta.url));
+// Resolve from cwd (the package dir under vitest) — env-agnostic, unlike
+// import.meta.url which happy-dom rewrites to a non-file:// URL.
+const DOG = resolve(process.cwd(), "../../website/public/gallery/glb/Dog.glb");
 
 describe("compileInteractive", () => {
   it("default (orbit) → self-contained snippet with the orbit control, decimated", async () => {
