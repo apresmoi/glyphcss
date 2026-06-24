@@ -1546,3 +1546,20 @@
   border-color: rgba(120, 220, 150, 0.4);
 }
 .gw-code-panel__action--codepen:disabled { opacity: 0.5; cursor: default; }
+
+/* CodePen export: static-mode chip + separator */
+.gw-code-panel__chip--static.is-active {
+  color: #b7f7c0;
+  border-color: rgba(120, 220, 150, 0.55);
+  background: rgba(120, 220, 150, 0.1);
+}
+.gw-code-panel__chip.is-disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.gw-code-panel__float-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 1px 3px;
+  background: rgba(255, 232, 184, 0.18);
+}

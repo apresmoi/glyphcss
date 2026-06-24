@@ -51,6 +51,20 @@ const INTERACTION_LIST: { key: GlyphInteraction; label: string }[] = [
   { key: "fpv", label: "FPV" },
 ];
 
+/**
+ * Build a fully-static CodePen from the LIVE rendered `<pre>` — the exact ASCII
+ * on screen (full per-cell color/texture detail), with ZERO runtime: no glyphcss,
+ * no JS, just the baked `<pre>` + its font CSS.
+ */
+function buildStaticPen(): { html: string; css: string; js: string } | null {
+  const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
+  if (!pre || !pre.innerHTML.trim()) return null;
+  const cs = getComputedStyle(pre);
+  const css = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
+pre.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
+  return { html: pre.outerHTML, css, js: "" };
+}
+
 /** POST a CodePen prefill payload (opens a new pen in a new tab). */
 function postToCodepen(prefill: { action: string; data: string }): void {
   const form = document.createElement("form");
@@ -360,8 +374,10 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
   }, [snippets, tab]);
 
   const [interactions, setInteractions] = useState<Set<GlyphInteraction>>(() => new Set(["orbit", "zoom"]));
+  const [staticMode, setStaticMode] = useState(false);
   const [exporting, setExporting] = useState(false);
   const toggleInteraction = useCallback((k: GlyphInteraction) => {
+    setStaticMode(false); // choosing an interaction means it's not a static export
     setInteractions((prev) => {
       const next = new Set(prev);
       if (next.has(k)) next.delete(k); else next.add(k);
@@ -375,6 +391,16 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
   const handleCodepen = useCallback(async () => {
     setExporting(true);
     try {
+      // Static mode: ship the live-rendered <pre> as-is — no glyphcss, no JS.
+      if (staticMode) {
+        const pen = buildStaticPen();
+        if (!pen) { console.warn("glyphcss: no rendered frame to export"); return; }
+        postToCodepen({
+          action: "https://codepen.io/pen/define",
+          data: JSON.stringify({ title: (selectedPreset as { label?: string }).label ?? "glyphcss", ...pen, editors: "100" }),
+        });
+        return;
+      }
       // Use the SAME polygons the gallery renders: primitives carry the
       // `uprightAlongZ` rotation via their preset generator (so e.g. the cone
       // matches on-screen orientation); URL models load from their source.
@@ -424,7 +450,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
     } finally {
       setExporting(false);
     }
-  }, [meshUrl, selectedPreset, options, interactions]);
+  }, [meshUrl, selectedPreset, options, interactions, staticMode]);
 
   return (
     <aside className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}`}>
@@ -473,13 +499,24 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
       </header>
       {!collapsed && (
         <div className="gw-code-panel__body">
-          <div className="gw-code-panel__float" title="Interactions to compile into the CodePen export">
-            <span className="gw-code-panel__float-label">interactions</span>
+          <div className="gw-code-panel__float" title="What to compile into the CodePen export">
+            <label
+              className={`gw-code-panel__chip gw-code-panel__chip--static${staticMode ? " is-active" : ""}`}
+              title="Export the rendered ASCII only — no glyphcss runtime, zero JS"
+            >
+              <input type="checkbox" checked={staticMode} onChange={() => setStaticMode((v) => !v)} />
+              Static
+            </label>
+            <span className="gw-code-panel__float-sep" />
             {INTERACTION_LIST.map(({ key, label }) => (
-              <label key={key} className={`gw-code-panel__chip${interactions.has(key) ? " is-active" : ""}`}>
+              <label
+                key={key}
+                className={`gw-code-panel__chip${!staticMode && interactions.has(key) ? " is-active" : ""}${staticMode ? " is-disabled" : ""}`}
+              >
                 <input
                   type="checkbox"
-                  checked={interactions.has(key)}
+                  disabled={staticMode}
+                  checked={!staticMode && interactions.has(key)}
                   onChange={() => toggleInteraction(key)}
                 />
                 {label}
