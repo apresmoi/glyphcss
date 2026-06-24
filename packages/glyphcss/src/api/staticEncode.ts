@@ -89,6 +89,20 @@ function cropLines(lines: Run[][]): Run[][] {
 }
 
 /**
+ * Crop a single rendered frame to its content bounding box, returning the inner
+ * string (colored spans or plain text) WITHOUT a `<pre>` wrapper. Handy for the
+ * terminal/auto path where the wrapper isn't wanted.
+ */
+export function cropGlyphInner(inner: string): string {
+  const lines = cropLines(inner.split("\n").map(tokenizeLine));
+  return lines.map((runs) => {
+    let out = "";
+    for (const r of runs) out += r.color !== null ? `<span style="color:${r.color}">${r.text}</span>` : r.text;
+    return out.replace(/[ ]+$/g, "");
+  }).join("\n");
+}
+
+/**
  * Crop a set of turntable frames to ONE common content box (across all frames)
  * so they stay equal-size and the model sits centered, with no empty margin.
  * Returns the cropped frame strings (inline-span format) + the new row count.

@@ -45,3 +45,25 @@ describe("@glyphcss/compile", () => {
     expect(out).toBeNull();
   });
 });
+
+describe("@glyphcss/compile — autoFit", () => {
+  it("sizes the grid to the content (cropped tight) without cols/rows", async () => {
+    const r = await compileFile(DOG, { autoFit: { target: 40, by: "cols" }, autoCenter: true, rotX: 72, rotY: 28 });
+    expect(r.cols).toBeGreaterThan(0);
+    expect(r.cols).toBeLessThanOrEqual(60);      // ~target, cropped (not the padded grid)
+    expect(r.rows).toBeGreaterThan(0);
+    // no leading empty column across the whole block (cropped left)
+    const lines = r.inner.split("\n");
+    const minLead = Math.min(...lines.filter((l) => l.replace(/<[^>]*>/g, "").trim()).map((l) => {
+      const t = l.replace(/<[^>]*>/g, ""); return t.length - t.replace(/^ +/, "").length;
+    }));
+    expect(minLead).toBe(0);
+  });
+
+  it("fits by rows — cols adapt to show the whole model", async () => {
+    const r = await compileFile(DOG, { autoFit: { target: 24, by: "rows" }, autoCenter: true, rotX: 72, rotY: 28 });
+    expect(r.rows).toBeGreaterThan(0);
+    expect(r.rows).toBeLessThanOrEqual(40);   // ~24 rows, cropped (not the padded grid)
+    expect(r.cols).toBeGreaterThan(0);        // width adapted to content
+  });
+});
