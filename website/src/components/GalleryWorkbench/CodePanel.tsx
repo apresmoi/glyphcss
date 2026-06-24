@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
-import { buildGlyphInteractiveExport, glyphCodepenPrefill } from "glyphcss";
-import type { GlyphInteraction } from "glyphcss";
+import { buildGlyphInteractiveExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
+import type { GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
 
 const midV = (a: Vec3, b: Vec3): Vec3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
@@ -56,13 +56,14 @@ const INTERACTION_LIST: { key: GlyphInteraction; label: string }[] = [
  * on screen (full per-cell color/texture detail), with ZERO runtime: no glyphcss,
  * no JS, just the baked `<pre>` + its font CSS.
  */
-function buildStaticPen(): { html: string; css: string; js: string } | null {
+function buildStaticPen(mode: GlyphStaticEncoding): { html: string; css: string; js: string } | null {
   const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
   if (!pre || !pre.innerHTML.trim()) return null;
   const cs = getComputedStyle(pre);
-  const css = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
-pre.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
-  return { html: pre.outerHTML, css, js: "" };
+  const fontCss = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
+.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
+  const enc = encodeStaticGlyphHtml(pre.innerHTML, mode);
+  return { html: enc.html, css: enc.css ? `${fontCss}\n${enc.css}` : fontCss, js: "" };
 }
 
 /** POST a CodePen prefill payload (opens a new pen in a new tab). */
@@ -375,6 +376,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
 
   const [interactions, setInteractions] = useState<Set<GlyphInteraction>>(() => new Set(["orbit", "zoom"]));
   const [staticMode, setStaticMode] = useState(false);
+  const [staticEncoding, setStaticEncoding] = useState<GlyphStaticEncoding>("classes");
   const [exporting, setExporting] = useState(false);
   const toggleInteraction = useCallback((k: GlyphInteraction) => {
     setStaticMode(false); // choosing an interaction means it's not a static export
@@ -393,7 +395,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
     try {
       // Static mode: ship the live-rendered <pre> as-is — no glyphcss, no JS.
       if (staticMode) {
-        const pen = buildStaticPen();
+        const pen = buildStaticPen(staticEncoding);
         if (!pen) { console.warn("glyphcss: no rendered frame to export"); return; }
         postToCodepen({
           action: "https://codepen.io/pen/define",
@@ -450,7 +452,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
     } finally {
       setExporting(false);
     }
-  }, [meshUrl, selectedPreset, options, interactions, staticMode]);
+  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding]);
 
   return (
     <aside className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}`}>
@@ -507,6 +509,18 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
               <input type="checkbox" checked={staticMode} onChange={() => setStaticMode((v) => !v)} />
               Static
             </label>
+            {staticMode && (
+              <select
+                className="gw-code-panel__enc"
+                value={staticEncoding}
+                onChange={(e) => setStaticEncoding(e.target.value as GlyphStaticEncoding)}
+                title="Static encoding: classes (smallest), grid (no literal spaces), inline (simplest)"
+              >
+                <option value="classes">classes</option>
+                <option value="grid">grid</option>
+                <option value="inline">inline</option>
+              </select>
+            )}
             <span className="gw-code-panel__float-sep" />
             {INTERACTION_LIST.map(({ key, label }) => (
               <label

@@ -29,6 +29,11 @@ export type {
 export { compileScene } from "./api/compileScene";
 export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene";
 
+// Static encoding — re-encode a rendered colored `<pre>` into a compacter static
+// form (color classes / CSS-grid placement) for zero-runtime artifacts.
+export { encodeStaticGlyphHtml } from "./api/staticEncode";
+export type { GlyphStaticEncoding, EncodeStaticResult } from "./api/staticEncode";
+
 // Interactive export — polygons + declared interactions → a portable, decimated,
 // self-contained glyphcss snippet (CDN + inlined mesh). Pure / browser-safe.
 export { buildGlyphInteractiveExport, glyphCodepenPrefill } from "./api/interactiveExport";

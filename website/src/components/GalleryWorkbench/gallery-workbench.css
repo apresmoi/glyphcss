@@ -1563,3 +1563,16 @@
   margin: 1px 3px;
   background: rgba(255, 232, 184, 0.18);
 }
+
+/* CodePen static-encoding select */
+.gw-code-panel__enc {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 4px;
+  background: #080a0e;
+  color: rgba(255, 232, 184, 0.8);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 4px;
+  cursor: pointer;
+}
