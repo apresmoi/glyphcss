@@ -409,6 +409,10 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         rotX: options.rotX,
         rotY: options.rotY,
         zoom: options.zoom,
+        // Match the gallery's projection (it defaults to orthographic) so the
+        // export frames identically and map-controls pan tracks correctly.
+        projection: options.perspective === false ? "orthographic" : "perspective",
+        perspectivePx: options.perspective === false ? undefined : options.perspective,
         autoCenter: true,
         mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
         useColors: options.useColors,

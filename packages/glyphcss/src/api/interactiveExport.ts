@@ -28,6 +28,10 @@ export interface GlyphInteractiveExportOptions {
   rotX?: number;
   rotY?: number;
   zoom?: number;
+  /** Camera projection (default "perspective"). FPV always uses perspective eyeMode. */
+  projection?: "perspective" | "orthographic";
+  /** CSS-perspective distance in virtual px (perspective only). */
+  perspectivePx?: number;
   cols?: number;
   rows?: number;
   cellAspect?: number;
@@ -76,6 +80,7 @@ function buildScript(opts: {
   polysJson: string;
   rotX?: number; rotY?: number; zoom?: number;
   cellAspect?: number; mode?: string; useColors?: boolean;
+  projection?: "perspective" | "orthographic"; perspectivePx?: number;
   interactions: GlyphInteraction[];
   scale: number;
 }): string {
@@ -84,7 +89,13 @@ function buildScript(opts: {
   const hasOrbit = opts.interactions.includes("orbit");
   const hasZoom = opts.interactions.includes("zoom");
 
-  const imports = ["createGlyphScene", "createGlyphPerspectiveCamera"];
+  // FPV needs a perspective eyeMode camera; otherwise honor the scene's
+  // projection (the gallery defaults to orthographic — using the wrong one
+  // mis-frames the model and breaks map-controls pan tracking).
+  const orthoMode = !hasFpv && opts.projection === "orthographic";
+  const cameraCtor = orthoMode ? "createGlyphOrthographicCamera" : "createGlyphPerspectiveCamera";
+
+  const imports = ["createGlyphScene", cameraCtor];
   if (hasFpv) imports.push("createGlyphFirstPersonControls");
   else if (hasPan) imports.push("createGlyphMapControls");
   else if (hasOrbit || hasZoom) imports.push("createGlyphOrbitControls");
@@ -125,6 +136,7 @@ fpv.setOrigin([${spawnX}, ${spawnY}, ${eyeZ}]);
   if (opts.rotX !== undefined) camParts.push(`rotX: ${round(opts.rotX)}`);
   if (opts.rotY !== undefined) camParts.push(`rotY: ${round(opts.rotY)}`);
   if (opts.zoom !== undefined) camParts.push(`zoom: ${round(opts.zoom)}`);
+  if (!orthoMode && opts.perspectivePx !== undefined) camParts.push(`perspective: ${round(opts.perspectivePx)}`);
 
   let controlLine = "";
   if (hasPan) {
@@ -134,7 +146,7 @@ fpv.setOrigin([${spawnX}, ${spawnY}, ${eyeZ}]);
   }
 
   return `${head}
-const camera = createGlyphPerspectiveCamera({ ${camParts.join(", ")} });
+const camera = ${cameraCtor}({ ${camParts.join(", ")} });
 const scene = createGlyphScene(${mount}, { camera, ${sceneOpts.join(", ")} });
 scene.add(polygons);
 ${controlLine}`;
@@ -166,6 +178,7 @@ export function buildGlyphInteractiveExport(
     cdn, mountId,
     polysJson: serializePolygons(decimated),
     rotX: options.rotX, rotY: options.rotY, zoom: options.zoom,
+    projection: options.projection, perspectivePx: options.perspectivePx,
     cellAspect: options.cellAspect, mode: options.mode, useColors: options.useColors,
     interactions,
     scale: modelScale(decimated),
