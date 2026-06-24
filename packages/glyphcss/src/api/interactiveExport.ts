@@ -77,6 +77,7 @@ function buildScript(opts: {
   rotX?: number; rotY?: number; zoom?: number;
   cellAspect?: number; mode?: string; useColors?: boolean;
   interactions: GlyphInteraction[];
+  scale: number;
 }): string {
   const hasFpv = opts.interactions.includes("fpv");
   const hasPan = opts.interactions.includes("pan");
@@ -93,26 +94,61 @@ function buildScript(opts: {
   if (opts.useColors === false) sceneOpts.push("useColors: false");
   if (opts.cellAspect !== undefined) sceneOpts.push(`cellAspect: ${opts.cellAspect}`);
 
+  const head = `import { ${imports.join(", ")} } from "${opts.cdn}";
+const polygons = ${opts.polysJson}.map((p) => ({ vertices: p[0], color: p[1] }));`;
+  const mount = `document.getElementById(${JSON.stringify(opts.mountId)})`;
+
+  // FPV mirrors the gallery: eyeMode perspective at rotX=90, zoom × model-scale,
+  // and move/jump/gravity/eyeHeight scaled by the model so it works at any size.
+  // Spawn one+ model-span back from the (auto-centered) origin along the look dir.
+  if (hasFpv) {
+    const s = opts.scale;
+    const rotY = opts.rotY ?? 0;
+    const r = (rotY * Math.PI) / 180;
+    const back = 1.5 * s;
+    const spawnX = round(Math.cos(r) * back);
+    const spawnY = round(Math.sin(r) * back);
+    const eyeZ = round(0.2 * s);
+    const fpvZoom = round((opts.zoom ?? 0.5) * s);
+    const fpvOpts = `{ moveSpeed: ${round(1 * s)}, jumpVelocity: ${round(0.7 * s)}, gravity: ${round(1.8 * s)}, eyeHeight: ${eyeZ}, crouchHeight: ${round(0.1 * s)}, groundZ: 0, lookSensitivity: 0.15, minPitch: 5, maxPitch: 175 }`;
+    return `${head}
+const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: ${round(rotY)}, zoom: ${fpvZoom}, distance: 200 });
+camera.eyeMode = true;
+const scene = createGlyphScene(${mount}, { camera, ${sceneOpts.join(", ")} });
+scene.add(polygons);
+const fpv = createGlyphFirstPersonControls(scene, ${fpvOpts});
+fpv.setOrigin([${spawnX}, ${spawnY}, ${eyeZ}]);
+// Click the scene to capture the mouse, then WASD to move, mouse to look.`;
+  }
+
   const camParts: string[] = [];
-  if (opts.rotX !== undefined) camParts.push(`rotX: ${opts.rotX}`);
-  if (opts.rotY !== undefined) camParts.push(`rotY: ${opts.rotY}`);
-  if (opts.zoom !== undefined) camParts.push(`zoom: ${opts.zoom}`);
+  if (opts.rotX !== undefined) camParts.push(`rotX: ${round(opts.rotX)}`);
+  if (opts.rotY !== undefined) camParts.push(`rotY: ${round(opts.rotY)}`);
+  if (opts.zoom !== undefined) camParts.push(`zoom: ${round(opts.zoom)}`);
 
   let controlLine = "";
-  if (hasFpv) {
-    controlLine = "createGlyphFirstPersonControls(scene, { enabled: true });";
-  } else if (hasPan) {
+  if (hasPan) {
     controlLine = `createGlyphMapControls(scene, { drag: true, wheel: ${hasZoom ? "true" : "false"} });`;
   } else if (hasOrbit || hasZoom) {
     controlLine = `createGlyphOrbitControls(scene, { drag: ${hasOrbit ? "true" : "false"}, wheel: ${hasZoom ? "true" : "false"} });`;
   }
 
-  return `import { ${imports.join(", ")} } from "${opts.cdn}";
-const polygons = ${opts.polysJson}.map((p) => ({ vertices: p[0], color: p[1] }));
+  return `${head}
 const camera = createGlyphPerspectiveCamera({ ${camParts.join(", ")} });
-const scene = createGlyphScene(document.getElementById(${JSON.stringify(opts.mountId)}), { camera, ${sceneOpts.join(", ")} });
+const scene = createGlyphScene(${mount}, { camera, ${sceneOpts.join(", ")} });
 scene.add(polygons);
 ${controlLine}`;
+}
+
+function modelScale(polygons: Polygon[]): number {
+  let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity, mnz = Infinity, mxz = -Infinity;
+  for (const p of polygons) for (const v of p.vertices) {
+    if (v[0] < mnx) mnx = v[0]; if (v[0] > mxx) mxx = v[0];
+    if (v[1] < mny) mny = v[1]; if (v[1] > mxy) mxy = v[1];
+    if (v[2] < mnz) mnz = v[2]; if (v[2] > mxz) mxz = v[2];
+  }
+  if (!isFinite(mnx)) return 1;
+  return Math.max(mxx - mnx, mxy - mny, mxz - mnz, 0.001) / 2;
 }
 
 export function buildGlyphInteractiveExport(
@@ -132,6 +168,7 @@ export function buildGlyphInteractiveExport(
     rotX: options.rotX, rotY: options.rotY, zoom: options.zoom,
     cellAspect: options.cellAspect, mode: options.mode, useColors: options.useColors,
     interactions,
+    scale: modelScale(decimated),
   });
 
   const css = BASE_CSS.replace(/MOUNT/g, mountId);
