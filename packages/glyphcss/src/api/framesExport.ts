@@ -14,7 +14,7 @@ import type { Polygon, RenderMode } from "@glyphcss/core";
 import { recenterPolygons } from "@glyphcss/core";
 import { compileScene } from "./compileScene";
 import { createGlyphPerspectiveCamera, createGlyphOrthographicCamera } from "./createGlyphCamera";
-import { encodeStaticGlyphHtml } from "./staticEncode";
+import { encodeStaticGlyphHtml, cropGlyphFrames } from "./staticEncode";
 
 export interface GlyphFramesExportOptions {
   /** Number of turntable frames over 360°. Default 36 (10° steps). */
@@ -72,10 +72,12 @@ export function buildGlyphFramesExport(
     frameInners.push(inner);
   }
 
-  // One <pre> with all frames stacked (each is exactly `rows` lines); color
-  // classes dedupe across every frame so the palette is written once.
-  const enc = encodeStaticGlyphHtml(frameInners.join("\n"), "classes");
-  const frameH = rows * lhPx;
+  // Crop all frames to one common content box so the model sits centered with no
+  // empty margin (and every frame stays the same size). Then stack into one
+  // <pre>; color classes dedupe across every frame so the palette is written once.
+  const cropped = cropGlyphFrames(frameInners);
+  const enc = encodeStaticGlyphHtml(cropped.frames.join("\n"), "classes");
+  const frameH = cropped.rows * lhPx;
   const totalShift = N * frameH;
   const css = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
 .glyph-roll{height:${frameH}px;overflow:hidden}

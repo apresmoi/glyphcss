@@ -63,17 +63,17 @@ function buildStaticPen(mode: GlyphStaticEncoding): { html: string; css: string;
   // Faithful to the library: font + per-cell colors only, no glow/tint effects.
   const fontCss = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
 .glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
-  // Grid mode needs explicit track sizes that match the rendered cell, or the
-  // line-height (row height) and column advance won't be respected.
-  let encOpts = {};
+  // crop: true drops the empty grid margin (leading spaces / blank rows) so the
+  // centered block hugs the actual glyphs. Grid mode also needs explicit track
+  // sizes that match the rendered cell, or line-height / column advance drift.
+  const encOpts: { crop: boolean; rowHeight?: string; colWidth?: string } = { crop: true };
   if (mode === "grid") {
-    const rowHeight = cs.lineHeight === "normal" ? `${parseFloat(cs.fontSize) * 1.2}px` : cs.lineHeight;
-    let colWidth = "1ch";
+    encOpts.rowHeight = cs.lineHeight === "normal" ? `${parseFloat(cs.fontSize) * 1.2}px` : cs.lineHeight;
+    encOpts.colWidth = "1ch";
     try {
       const ctx = document.createElement("canvas").getContext("2d");
-      if (ctx) { ctx.font = `${cs.fontSize} ${cs.fontFamily}`; const w = ctx.measureText("0").width; if (w > 0) colWidth = `${w}px`; }
+      if (ctx) { ctx.font = `${cs.fontSize} ${cs.fontFamily}`; const w = ctx.measureText("0").width; if (w > 0) encOpts.colWidth = `${w}px`; }
     } catch { /* fall back to 1ch */ }
-    encOpts = { rowHeight, colWidth };
   }
   const enc = encodeStaticGlyphHtml(pre.innerHTML, mode, encOpts);
   return { html: enc.html, css: enc.css ? `${fontCss}\n${enc.css}` : fontCss, js: "" };
@@ -554,7 +554,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
                 title="Bake a turntable of frames — pure-CSS rotation, still zero JS / no mesh"
               >
                 <input type="checkbox" checked={rotate} onChange={() => setRotate((v) => !v)} />
-                Rotate
+                Auto-rotate
               </label>
             )}
             {staticMode && !rotate && (

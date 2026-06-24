@@ -16,12 +16,13 @@ describe("buildGlyphFramesExport", () => {
     expect(r.html).not.toMatch(/esm\.sh|createGlyphScene|vertices/);
   });
 
-  it("stacks exactly frameCount × rows lines in one <pre>", () => {
-    const rows = 10;
-    const r = buildGlyphFramesExport(cube, { frameCount: 6, cols: 24, rows, autoCenter: true });
+  it("stacks frameCount equal-size frames in one <pre> (cropped to content)", () => {
+    const r = buildGlyphFramesExport(cube, { frameCount: 6, cols: 24, rows: 14, autoCenter: true });
     const inner = r.html.replace(/^[\s\S]*?<pre[^>]*>/, "").replace(/<\/pre>[\s\S]*$/, "");
     const lineCount = inner.split("\n").length;
-    expect(lineCount).toBe(6 * rows);
+    expect(lineCount % 6).toBe(0);          // equal-size frames
+    expect(lineCount).toBeLessThan(6 * 14); // cropped below the rendered grid
+    expect(lineCount).toBeGreaterThan(0);
   });
 
   it("dedupes colors across all frames (one class map)", () => {
@@ -31,8 +32,12 @@ describe("buildGlyphFramesExport", () => {
     expect(r.html).not.toContain('style="color:');
   });
 
-  it("frame height follows the supplied line-height", () => {
-    const r = buildGlyphFramesExport(cube, { frameCount: 4, cols: 20, rows: 10, lineHeightPx: 20, autoCenter: true });
-    expect(r.pen.css).toContain("height:200px"); // 10 rows × 20px
+  it("frame height = cropped rows × line-height", () => {
+    const r = buildGlyphFramesExport(cube, { frameCount: 4, cols: 20, rows: 14, lineHeightPx: 20, autoCenter: true });
+    const inner = r.html.replace(/^[\s\S]*?<pre[^>]*>/, "").replace(/<\/pre>[\s\S]*$/, "");
+    const rowsPerFrame = inner.split("\n").length / 4;
+    const m = r.pen.css.match(/\.glyph-roll\{height:(\d+)px/);
+    expect(m).not.toBeNull();
+    expect(Number(m![1])).toBe(rowsPerFrame * 20);
   });
 });

@@ -49,6 +49,87 @@ export interface EncodeStaticOptions {
   rowHeight?: string;
   /** Grid-mode column track width. Default "1ch" (monospace advance). */
   colWidth?: string;
+  /** Crop to the content bounding box (drop empty margin rows/columns) so the block centers tight. */
+  crop?: boolean;
+}
+
+/** Crop tokenized lines to the bounding box of their non-space glyphs. */
+function cropLines(lines: Run[][]): Run[][] {
+  let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;
+  lines.forEach((runs, row) => {
+    let col = 0;
+    let has = false;
+    for (const r of runs) {
+      for (let i = 0; i < r.text.length; i++) {
+        if (r.text[i] !== " ") {
+          const c = col + i;
+          if (c < minCol) minCol = c;
+          if (c > maxCol) maxCol = c;
+          has = true;
+        }
+      }
+      col += r.text.length;
+    }
+    if (has) { if (row < minRow) minRow = row; if (row > maxRow) maxRow = row; }
+  });
+  if (maxCol < 0) return lines; // nothing but whitespace
+  const out: Run[][] = [];
+  for (let row = minRow; row <= maxRow; row++) {
+    const cropped: Run[] = [];
+    let col = 0;
+    for (const r of lines[row]) {
+      const start = col, end = col + r.text.length;
+      col = end;
+      const s = Math.max(start, minCol), e = Math.min(end, maxCol + 1);
+      if (e > s) cropped.push({ color: r.color, text: r.text.slice(s - start, e - start) });
+    }
+    out.push(cropped);
+  }
+  return out;
+}
+
+/**
+ * Crop a set of turntable frames to ONE common content box (across all frames)
+ * so they stay equal-size and the model sits centered, with no empty margin.
+ * Returns the cropped frame strings (inline-span format) + the new row count.
+ */
+export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows: number } {
+  if (frameInners.length === 0) return { frames: frameInners, rows: 0 };
+  const tokenized = frameInners.map((f) => f.split("\n").map(tokenizeLine));
+  let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;
+  for (const frame of tokenized) {
+    frame.forEach((runs, row) => {
+      let col = 0;
+      let has = false;
+      for (const r of runs) {
+        for (let i = 0; i < r.text.length; i++) {
+          if (r.text[i] !== " ") { const c = col + i; if (c < minCol) minCol = c; if (c > maxCol) maxCol = c; has = true; }
+        }
+        col += r.text.length;
+      }
+      if (has) { if (row < minRow) minRow = row; if (row > maxRow) maxRow = row; }
+    });
+  }
+  if (maxCol < 0) return { frames: frameInners, rows: frameInners[0].split("\n").length };
+  const cropOne = (frame: Run[][]): string => {
+    const out: string[] = [];
+    for (let row = minRow; row <= maxRow; row++) {
+      const runs = frame[row] ?? [];
+      let col = 0, line = "";
+      for (const r of runs) {
+        const start = col, end = col + r.text.length;
+        col = end;
+        const s = Math.max(start, minCol), e = Math.min(end, maxCol + 1);
+        if (e > s) {
+          const t = r.text.slice(s - start, e - start);
+          line += r.color !== null ? `<span style="color:${r.color}">${t}</span>` : t;
+        }
+      }
+      out.push(line);
+    }
+    return out.join("\n");
+  };
+  return { frames: tokenized.map(cropOne), rows: maxRow - minRow + 1 };
 }
 
 export function encodeStaticGlyphHtml(
@@ -57,14 +138,18 @@ export function encodeStaticGlyphHtml(
   opts: EncodeStaticOptions = {},
 ): EncodeStaticResult {
   const preClass = opts.preClass ?? "glyph-output";
+  let lines = inner.split("\n").map(tokenizeLine);
+  if (opts.crop) lines = cropLines(lines);
+
   if (mode === "inline") {
-    // Trim trailing spaces per line (invisible, fragile, wasteful) but keep the
-    // rest verbatim.
-    const trimmed = inner.split("\n").map((l) => l.replace(/[ ]+$/g, "")).join("\n");
-    return { css: "", html: `<pre class="${preClass}">${trimmed}</pre>` };
+    const body = lines.map((runs) => {
+      let out = "";
+      for (const r of runs) out += r.color !== null ? `<span style="color:${r.color}">${r.text}</span>` : r.text;
+      return out.replace(/[ ]+$/g, "");
+    }).join("\n");
+    return { css: "", html: `<pre class="${preClass}">${body}</pre>` };
   }
 
-  const lines = inner.split("\n").map(tokenizeLine);
   const colorIndex = new Map<string, number>();
   const colorList: string[] = [];
   const idxOf = (c: string): number => {
