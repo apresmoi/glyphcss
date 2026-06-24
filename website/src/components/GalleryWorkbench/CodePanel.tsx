@@ -60,9 +60,24 @@ function buildStaticPen(mode: GlyphStaticEncoding): { html: string; css: string;
   const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
   if (!pre || !pre.innerHTML.trim()) return null;
   const cs = getComputedStyle(pre);
+  // Carry the gallery's glow (text-shadow) so the pen matches what's on screen —
+  // it's a website style, not a library default, so it isn't in the render itself.
+  const shadow = cs.textShadow && cs.textShadow !== "none" ? `text-shadow:${cs.textShadow};` : "";
   const fontCss = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
-.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
-  const enc = encodeStaticGlyphHtml(pre.innerHTML, mode);
+.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color};${shadow}}`;
+  // Grid mode needs explicit track sizes that match the rendered cell, or the
+  // line-height (row height) and column advance won't be respected.
+  let encOpts = {};
+  if (mode === "grid") {
+    const rowHeight = cs.lineHeight === "normal" ? `${parseFloat(cs.fontSize) * 1.2}px` : cs.lineHeight;
+    let colWidth = "1ch";
+    try {
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (ctx) { ctx.font = `${cs.fontSize} ${cs.fontFamily}`; const w = ctx.measureText("0").width; if (w > 0) colWidth = `${w}px`; }
+    } catch { /* fall back to 1ch */ }
+    encOpts = { rowHeight, colWidth };
+  }
+  const enc = encodeStaticGlyphHtml(pre.innerHTML, mode, encOpts);
   return { html: enc.html, css: enc.css ? `${fontCss}\n${enc.css}` : fontCss, js: "" };
 }
 
@@ -446,6 +461,11 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         useColors: options.useColors,
         decimateGrid,
       });
+      // Carry the gallery's glow into the interactive pen too (website style,
+      // not a library default) so it matches the on-screen look.
+      const livePre = document.querySelector("pre.glyph-output") as HTMLElement | null;
+      const ts = livePre ? getComputedStyle(livePre).textShadow : "none";
+      if (ts && ts !== "none") result.pen.css += `\n#glyph .glyph-output{text-shadow:${ts}}`;
       postToCodepen(glyphCodepenPrefill(result, (selectedPreset as { label?: string }).label ?? "glyphcss"));
     } catch (err) {
       console.error("glyphcss: CodePen export failed", err);

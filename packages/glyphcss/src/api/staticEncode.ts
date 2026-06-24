@@ -43,11 +43,20 @@ export interface EncodeStaticResult {
   html: string;
 }
 
+export interface EncodeStaticOptions {
+  preClass?: string;
+  /** Grid-mode row track height — must match the rendered line-height (e.g. "16px"). Default "1em". */
+  rowHeight?: string;
+  /** Grid-mode column track width. Default "1ch" (monospace advance). */
+  colWidth?: string;
+}
+
 export function encodeStaticGlyphHtml(
   inner: string,
   mode: GlyphStaticEncoding = "classes",
-  preClass = "glyph-output",
+  opts: EncodeStaticOptions = {},
 ): EncodeStaticResult {
+  const preClass = opts.preClass ?? "glyph-output";
   if (mode === "inline") {
     // Trim trailing spaces per line (invisible, fragile, wasteful) but keep the
     // rest verbatim.
@@ -79,7 +88,11 @@ export function encodeStaticGlyphHtml(
       if (col > cols) cols = col;
     });
     const colorCss = colorList.map((c, i) => `.${preClass} .c${i}{color:${c}}`).join("");
-    const css = `.${preClass}{display:inline-grid;grid-template-columns:repeat(${cols},1ch);grid-auto-rows:1em;white-space:pre}.${preClass} s{font-style:normal}${colorCss}`;
+    const colW = opts.colWidth ?? "1ch";
+    const rowH = opts.rowHeight ?? "1em";
+    // Reserve EVERY row (incl. blank leading/trailing) so the block height and
+    // line-height match the <pre> exactly — grid-auto-rows would drop empty tails.
+    const css = `.${preClass}{display:inline-grid;grid-template-columns:repeat(${cols},${colW});grid-template-rows:repeat(${lines.length},${rowH});white-space:pre}.${preClass} s{font-style:normal;line-height:${rowH}}${colorCss}`;
     return { css, html: `<div class="${preClass}">${cells.join("")}</div>` };
   }
 
