@@ -53,6 +53,46 @@ document.querySelector("#app")!.innerHTML = dog; // the <pre> string — no runt
 Query params map to the [options](#options) below. Works in any Vite pipeline —
 Astro, vanilla Vite, or Vite-React (import the string and inject it).
 
+### In Astro
+
+Astro is built on Vite, so the plugin works once you register it:
+
+```js
+// astro.config.mjs
+import { defineConfig } from "astro/config";
+import { glyphcssCompile } from "@glyphcss/compile/vite";
+
+export default defineConfig({ vite: { plugins: [glyphcssCompile()] } });
+```
+
+```astro
+---
+import dog from "../models/dog.glb?glyph&autoCenter=1&rotX=60";
+---
+<Fragment set:html={dog} />
+```
+
+But the most idiomatic Astro path needs **no plugin at all** — Astro frontmatter
+runs in Node at build, so `compileFile` works there directly:
+
+```astro
+---
+import { compileFile } from "@glyphcss/compile";
+import { fileURLToPath } from "node:url";
+
+const { html } = await compileFile(
+  fileURLToPath(new URL("../models/dog.glb", import.meta.url)),
+  { autoCenter: true, rotX: 60, rotY: 45 },
+);
+---
+<Fragment set:html={html} />
+```
+
+Both run at build and emit the `<pre>` into the page HTML with **zero JS** — the
+Astro equivalent of `GlyphSceneStatic`. A dedicated Astro integration isn't
+needed; it would only add sugar (auto-registering the plugin and a typed
+`<GlyphScene src="…" />` component).
+
 ### CLI
 
 The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile):
