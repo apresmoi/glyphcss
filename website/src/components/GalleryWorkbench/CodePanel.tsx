@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { loadMesh, resolveGeometry } from "@glyphcss/core";
+import { loadMesh } from "@glyphcss/core";
 import { buildGlyphInteractiveExport, glyphCodepenPrefill } from "glyphcss";
 import type { GlyphInteraction } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
@@ -337,9 +337,12 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
   const handleCodepen = useCallback(async () => {
     setExporting(true);
     try {
-      const polygons = meshUrl
-        ? (await loadMesh(meshUrl, { solidTextureSamples: false })).polygons
-        : resolveGeometry(primitiveGeometryName(selectedPreset.id) as Parameters<typeof resolveGeometry>[0]);
+      // Use the SAME polygons the gallery renders: primitives carry the
+      // `uprightAlongZ` rotation via their preset generator (so e.g. the cone
+      // matches on-screen orientation); URL models load from their source.
+      const polygons = selectedPreset.kind === "primitive"
+        ? selectedPreset.generatePolygons()
+        : (await loadMesh(selectedPreset.url, { mtlUrl: selectedPreset.mtlUrl, solidTextureSamples: false })).polygons;
       const result = buildGlyphInteractiveExport(polygons, {
         interactions: [...interactions],
         rotX: options.rotX,
@@ -374,18 +377,6 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
           ))}
         </div>
         <div className="gw-code-panel__actions">
-          <div className="gw-code-panel__interactions" title="Interactions to compile into the CodePen export">
-            {INTERACTION_LIST.map(({ key, label }) => (
-              <label key={key} className={`gw-code-panel__chip${interactions.has(key) ? " is-active" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={interactions.has(key)}
-                  onChange={() => toggleInteraction(key)}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
           <button
             type="button"
             className="gw-code-panel__action gw-code-panel__action--codepen"
@@ -415,7 +406,22 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         </div>
       </header>
       {!collapsed && (
-        <pre className="gw-code-panel__code"><code>{snippets[tab]}</code></pre>
+        <div className="gw-code-panel__body">
+          <div className="gw-code-panel__float" title="Interactions to compile into the CodePen export">
+            <span className="gw-code-panel__float-label">interactions</span>
+            {INTERACTION_LIST.map(({ key, label }) => (
+              <label key={key} className={`gw-code-panel__chip${interactions.has(key) ? " is-active" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={interactions.has(key)}
+                  onChange={() => toggleInteraction(key)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <pre className="gw-code-panel__code"><code>{snippets[tab]}</code></pre>
+        </div>
       )}
     </aside>
   );

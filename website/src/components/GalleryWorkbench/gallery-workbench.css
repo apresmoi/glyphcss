@@ -1483,12 +1483,36 @@
   }
 }
 
-/* CodePen export: interaction chips + button */
-.gw-code-panel__interactions {
+/* CodePen export: code body wrapper + floating interaction chips */
+.gw-code-panel__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.gw-code-panel__body .gw-code-panel__code {
+  flex: 1 1 auto;
+}
+.gw-code-panel__float {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 2;
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  margin-right: 6px;
+  padding: 4px 6px;
+  background: rgba(3, 5, 10, 0.85);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  border-radius: 6px;
+  backdrop-filter: blur(3px);
+}
+.gw-code-panel__float-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 232, 184, 0.45);
+  margin-right: 2px;
 }
 .gw-code-panel__chip {
   display: inline-flex;
