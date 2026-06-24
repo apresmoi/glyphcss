@@ -60,11 +60,9 @@ function buildStaticPen(mode: GlyphStaticEncoding): { html: string; css: string;
   const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
   if (!pre || !pre.innerHTML.trim()) return null;
   const cs = getComputedStyle(pre);
-  // Carry the gallery's glow (text-shadow) so the pen matches what's on screen —
-  // it's a website style, not a library default, so it isn't in the render itself.
-  const shadow = cs.textShadow && cs.textShadow !== "none" ? `text-shadow:${cs.textShadow};` : "";
+  // Faithful to the library: font + per-cell colors only, no glow/tint effects.
   const fontCss = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
-.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color};${shadow}}`;
+.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
   // Grid mode needs explicit track sizes that match the rendered cell, or the
   // line-height (row height) and column advance won't be respected.
   let encOpts = {};
@@ -461,11 +459,6 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         useColors: options.useColors,
         decimateGrid,
       });
-      // Carry the gallery's glow into the interactive pen too (website style,
-      // not a library default) so it matches the on-screen look.
-      const livePre = document.querySelector("pre.glyph-output") as HTMLElement | null;
-      const ts = livePre ? getComputedStyle(livePre).textShadow : "none";
-      if (ts && ts !== "none") result.pen.css += `\n#glyph .glyph-output{text-shadow:${ts}}`;
       postToCodepen(glyphCodepenPrefill(result, (selectedPreset as { label?: string }).label ?? "glyphcss"));
     } catch (err) {
       console.error("glyphcss: CodePen export failed", err);

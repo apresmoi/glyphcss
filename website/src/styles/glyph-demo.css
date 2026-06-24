@@ -63,7 +63,6 @@
 .glyph-demo__scene-host .glyph-output {
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   color: rgba(255, 232, 184, 0.94);
-  text-shadow: 0 0 5px rgba(255, 200, 130, 0.45);
   touch-action: none;
   overscroll-behavior: contain;
   cursor: grab;
@@ -113,7 +112,6 @@
   line-height: var(--cell-h, 12px);
   /* Amber fallback — overridden per-cell by <span style="color:#xyz"> for colored meshes. */
   color: rgba(255, 232, 184, 0.94);
-  text-shadow: 0 0 5px rgba(255, 200, 130, 0.45);
   white-space: pre;
   will-change: transform;
   animation: ad-rotate var(--dur, 6s) steps(60, end) infinite;

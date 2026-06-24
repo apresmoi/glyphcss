@@ -373,7 +373,6 @@
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-size: clamp(7px, 1vw, 11px);
   color: rgba(255, 232, 184, 0.94);
-  text-shadow: 0 0 5px rgba(255, 200, 130, 0.45);
   touch-action: none;
   overscroll-behavior: contain;
   cursor: grab;
