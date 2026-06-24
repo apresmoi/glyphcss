@@ -34,6 +34,11 @@ export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene
 export { encodeStaticGlyphHtml } from "./api/staticEncode";
 export type { GlyphStaticEncoding, EncodeStaticResult } from "./api/staticEncode";
 
+// Frames export — bake a turntable of ASCII frames + a pure-CSS steps() loop:
+// zero-runtime rotating ASCII, no mesh, no glyphcss shipped. Pure / browser-safe.
+export { buildGlyphFramesExport } from "./api/framesExport";
+export type { GlyphFramesExportOptions, GlyphFramesExportResult } from "./api/framesExport";
+
 // Interactive export — polygons + declared interactions → a portable, decimated,
 // self-contained glyphcss snippet (CDN + inlined mesh). Pure / browser-safe.
 export { buildGlyphInteractiveExport, glyphCodepenPrefill } from "./api/interactiveExport";

@@ -208,3 +208,28 @@ how colors and whitespace are encoded — the best choice is model-dependent:
 | `classes` *(default)* | dedupes colors into `.cN{…}` rules + class spans, trims trailing spaces — smallest for typical dense, many-color renders |
 | `grid` | CSS-grid-places each run by column/row — no literal spaces in the markup; wins for sparse renders with big gaps |
 | `inline` | one `style="color:…"` per run — simplest |
+
+## Baked frames (rotate, no mesh)
+
+For orbit-class motion you can do better than shipping a mesh + runtime: pre-bake
+a turntable of frames and cycle them with **pure CSS** — no mesh, no glyphcss, no
+JS at all.
+
+```ts
+import { buildGlyphFramesExport } from "glyphcss";
+
+const { html, pen } = buildGlyphFramesExport(polygons, {
+  frameCount: 36,       // 10° steps over 360°
+  autoCenter: true, rotX: 65,
+  cols: 120, rows: 48,  // fixed grid; frames stack into one <pre>
+});
+// pen.css holds a `@keyframes … steps(36)` loop; pen.js is empty
+```
+
+Each frame is a faithful `compileScene` render (colors baked per face for textured
+meshes). The gallery's CodePen export exposes this as **Static → Rotate**.
+
+Trade-offs: discrete angles (smoothness ∝ `frameCount`), fixed resolution, and
+payload = `frameCount × frame`. It only covers orbit (1 axis) — pan / fpv have too
+many camera states to bake, so those still use the [interactive](#interactive-export)
+mesh + runtime path.

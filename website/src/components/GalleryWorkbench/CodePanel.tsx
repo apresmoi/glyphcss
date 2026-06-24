@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
-import { buildGlyphInteractiveExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
+import { buildGlyphInteractiveExport, buildGlyphFramesExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
 import type { GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
 
@@ -77,6 +77,37 @@ function buildStaticPen(mode: GlyphStaticEncoding): { html: string; css: string;
   }
   const enc = encodeStaticGlyphHtml(pre.innerHTML, mode, encOpts);
   return { html: enc.html, css: enc.css ? `${fontCss}\n${enc.css}` : fontCss, js: "" };
+}
+
+/**
+ * Load the same polygons the gallery renders, ready for export. Primitives carry
+ * their `uprightAlongZ` orientation via the preset generator; URL models load
+ * from source. Textured meshes are subdivided + baked to per-face color (a
+ * snippet can't ship the image), capped to keep the count reasonable.
+ */
+async function loadExportPolygons(preset: PresetModel): Promise<{ polygons: Polygon[]; textured: boolean }> {
+  if (preset.kind === "primitive") return { polygons: preset.generatePolygons(), textured: false };
+  const parsed = await loadMesh(preset.url, { mtlUrl: preset.mtlUrl, solidTextureSamples: false });
+  const texturedTris = parsed.polygons.reduce((n, p) => n + (p.textureTriangles?.length ?? 0), 0);
+  if (texturedTris > 0) {
+    let levels = 2;
+    while (levels > 0 && texturedTris * 4 ** levels > 6000) levels--;
+    const sub = subdivideTexturedPolygons(parsed.polygons, levels);
+    return { polygons: await bakeSolidTextureSampledPolygons(sub, { colorTolerance: 255 }), textured: true };
+  }
+  return { polygons: parsed.polygons, textured: false };
+}
+
+/** Live-render grid + cell metrics, read off the on-screen `<pre>`. */
+function liveGridMetrics(): { cols: number; rows: number; lineHeightPx: number; fontSizePx: number } {
+  const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
+  const lines = (pre?.textContent ?? "").replace(/\s+$/, "").split("\n");
+  const rows = Math.max(1, lines.length);
+  const cols = lines.reduce((m, l) => Math.max(m, l.length), 1);
+  const cs = pre ? getComputedStyle(pre) : null;
+  const fontSizePx = cs ? parseFloat(cs.fontSize) || 13 : 13;
+  const lineHeightPx = cs ? (cs.lineHeight === "normal" ? fontSizePx * 1.2 : parseFloat(cs.lineHeight) || fontSizePx) : fontSizePx;
+  return { cols, rows, lineHeightPx, fontSizePx };
 }
 
 /** POST a CodePen prefill payload (opens a new pen in a new tab). */
@@ -390,6 +421,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
   const [interactions, setInteractions] = useState<Set<GlyphInteraction>>(() => new Set(["orbit", "zoom"]));
   const [staticMode, setStaticMode] = useState(false);
   const [staticEncoding, setStaticEncoding] = useState<GlyphStaticEncoding>("classes");
+  const [rotate, setRotate] = useState(false);
   const [exporting, setExporting] = useState(false);
   const toggleInteraction = useCallback((k: GlyphInteraction) => {
     setStaticMode(false); // choosing an interaction means it's not a static export
@@ -406,45 +438,39 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
   const handleCodepen = useCallback(async () => {
     setExporting(true);
     try {
-      // Static mode: ship the live-rendered <pre> as-is — no glyphcss, no JS.
+      const title = (selectedPreset as { label?: string }).label ?? "glyphcss";
+      const projection = options.perspective === false ? "orthographic" as const : "perspective" as const;
+      const perspectivePx = options.perspective === false ? undefined : options.perspective;
+
+      // Static mode.
       if (staticMode) {
+        // Static + rotate: bake a turntable of frames → pure-CSS steps() loop.
+        // No mesh, no glyphcss runtime — just pre-rendered text frames.
+        if (rotate) {
+          const { polygons } = await loadExportPolygons(selectedPreset);
+          const g = liveGridMetrics();
+          const frames = buildGlyphFramesExport(polygons, {
+            frameCount: 36,
+            rotX: options.rotX, rotY: options.rotY, zoom: options.zoom,
+            projection, perspectivePx,
+            // pad the grid so the silhouette doesn't clip as it turns
+            cols: Math.round(g.cols * 1.3), rows: Math.round(g.rows * 1.3),
+            lineHeightPx: g.lineHeightPx, fontSizePx: g.fontSizePx,
+            mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
+            useColors: options.useColors, autoCenter: true,
+          });
+          postToCodepen({ action: "https://codepen.io/pen/define", data: JSON.stringify({ title, ...frames.pen, editors: "110" }) });
+          return;
+        }
+        // Static (single frame): ship the live-rendered <pre> as-is.
         const pen = buildStaticPen(staticEncoding);
         if (!pen) { console.warn("glyphcss: no rendered frame to export"); return; }
-        postToCodepen({
-          action: "https://codepen.io/pen/define",
-          data: JSON.stringify({ title: (selectedPreset as { label?: string }).label ?? "glyphcss", ...pen, editors: "100" }),
-        });
+        postToCodepen({ action: "https://codepen.io/pen/define", data: JSON.stringify({ title, ...pen, editors: "100" }) });
         return;
       }
-      // Use the SAME polygons the gallery renders: primitives carry the
-      // `uprightAlongZ` rotation via their preset generator (so e.g. the cone
-      // matches on-screen orientation); URL models load from their source.
-      // A self-contained snippet can't ship the texture image. For textured
-      // meshes, subdivide each face then bake each piece to its average color
-      // (colorTolerance: 255 forces averaging) so the export captures sub-face
-      // color detail — and skip decimation so that detail isn't re-merged away.
-      let polygons: Polygon[];
-      let decimateGrid: number | undefined;
-      if (selectedPreset.kind === "primitive") {
-        polygons = selectedPreset.generatePolygons();
-      } else {
-        const parsed = await loadMesh(selectedPreset.url, {
-          mtlUrl: selectedPreset.mtlUrl,
-          solidTextureSamples: false,
-        });
-        const texturedTris = parsed.polygons.reduce((n, p) => n + (p.textureTriangles?.length ?? 0), 0);
-        if (texturedTris > 0) {
-          // Adapt subdivision depth to keep the inlined payload reasonable
-          // (~6k triangles max): more levels for low-poly meshes, fewer for dense.
-          let levels = 2;
-          while (levels > 0 && texturedTris * 4 ** levels > 6000) levels--;
-          const sub = subdivideTexturedPolygons(parsed.polygons, levels);
-          polygons = await bakeSolidTextureSampledPolygons(sub, { colorTolerance: 255 });
-          decimateGrid = 100000; // preserve the per-region color detail
-        } else {
-          polygons = parsed.polygons;
-        }
-      }
+
+      const { polygons, textured } = await loadExportPolygons(selectedPreset);
+      const decimateGrid = textured ? 100000 : undefined; // textured → keep baked color detail
       const result = buildGlyphInteractiveExport(polygons, {
         interactions: [...interactions],
         rotX: options.rotX,
@@ -452,20 +478,20 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         zoom: options.zoom,
         // Match the gallery's projection (it defaults to orthographic) so the
         // export frames identically and map-controls pan tracks correctly.
-        projection: options.perspective === false ? "orthographic" : "perspective",
-        perspectivePx: options.perspective === false ? undefined : options.perspective,
+        projection,
+        perspectivePx,
         autoCenter: true,
         mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
         useColors: options.useColors,
         decimateGrid,
       });
-      postToCodepen(glyphCodepenPrefill(result, (selectedPreset as { label?: string }).label ?? "glyphcss"));
+      postToCodepen(glyphCodepenPrefill(result, title));
     } catch (err) {
       console.error("glyphcss: CodePen export failed", err);
     } finally {
       setExporting(false);
     }
-  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding]);
+  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate]);
 
   return (
     <aside className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}`}>
@@ -523,6 +549,15 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
               Static
             </label>
             {staticMode && (
+              <label
+                className={`gw-code-panel__chip gw-code-panel__chip--static${rotate ? " is-active" : ""}`}
+                title="Bake a turntable of frames — pure-CSS rotation, still zero JS / no mesh"
+              >
+                <input type="checkbox" checked={rotate} onChange={() => setRotate((v) => !v)} />
+                Rotate
+              </label>
+            )}
+            {staticMode && !rotate && (
               <select
                 className="gw-code-panel__enc"
                 value={staticEncoding}
