@@ -46,6 +46,8 @@ export interface CompileFileOptions {
   autoFit?: { target: number; by: "cols" | "rows" };
   /** Mesh-optimization quality passed to `loadMesh`. Default: the loadMesh default ("lossy"). */
   meshResolution?: MeshResolution;
+  /** Explicit companion `.mtl` path for OBJ (overrides sibling auto-detection). */
+  mtlUrl?: string;
 }
 
 function worldMaxDim(polys: Polygon[]): number {
@@ -73,7 +75,7 @@ function measureContent(inner: string): { w: number; h: number } {
 }
 
 export async function compileFile(path: string, options: CompileFileOptions = {}): Promise<CompileSceneResult> {
-  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution });
+  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution, mtlUrl: options.mtlUrl });
 
   const buildCam = (zoom?: number): GlyphCamera =>
     options.projection === "orthographic"

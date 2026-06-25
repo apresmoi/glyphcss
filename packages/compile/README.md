@@ -30,6 +30,7 @@ glyphcss-compile dog.glb --auto-center            # ANSI color, right in the ter
 glyphcss-compile dog.glb -f text                  # plain ASCII
 glyphcss-compile dog.glb -f full -o dog.html      # full HTML document
 glyphcss-compile dog.glb --fit 60 -f text         # fit width to 60 columns
+glyphcss-compile model.obj --mtl other.mtl        # explicit OBJ material override
 ```
 
 Output **`-f, --format`**: `ansi` (truecolor terminal), `text` (plain), `html`

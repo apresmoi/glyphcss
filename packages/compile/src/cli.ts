@@ -62,6 +62,7 @@ function parseArgs(argv: string[]): Parsed {
       case "--mode": opts.mode = next() as RenderMode; break;
       case "--palette": opts.glyphPalette = next(); break;
       case "--mesh-resolution": opts.meshResolution = next() as MeshResolution; break;
+      case "--mtl": opts.mtlUrl = next(); break;
       case "--ortho": opts.projection = "orthographic"; break;
       case "--auto-center": opts.autoCenter = true; break;
       case "--smooth": opts.smoothShading = true; break;
@@ -95,7 +96,7 @@ const HELP = `glyphcss-compile <mesh-file> [options]
   Grid     --cols N  --rows N  --cell-aspect N   (omit cols/rows → auto-fit to content)
   Fit      --fit N   target width in columns for auto-fit (default: terminal width or 80)
   Render   --mode solid|wireframe|voxel  --palette NAME  --no-colors  --smooth  --double-sided
-  Mesh     --auto-center  --mesh-resolution lossy|lossless  --crease-angle N  --supersample N
+  Mesh     --auto-center  --mtl FILE (OBJ material override)  --mesh-resolution lossy|lossless  --crease-angle N  --supersample N
   Interact --interactive  --interactions orbit,zoom,pan,fpv  --decimate-grid N  --cdn-version V
   Output   -f, --format text|ansi|html|full     (default: terminal → ansi, file → html, pipe → text)
            -o, --out FILE

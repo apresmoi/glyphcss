@@ -24,6 +24,8 @@ export type CompileInteractiveResult = GlyphInteractiveExportResult;
 export interface CompileInteractiveOptions extends GlyphInteractiveExportOptions {
   /** Mesh-optimization quality passed to `loadMesh`. Default: the loadMesh default ("lossy"). */
   meshResolution?: MeshResolution;
+  /** Explicit companion `.mtl` path for OBJ (overrides sibling auto-detection). */
+  mtlUrl?: string;
 }
 
 /** Re-export for parity with the in-browser export button. */
@@ -33,6 +35,6 @@ export async function compileInteractive(
   path: string,
   options: CompileInteractiveOptions = {},
 ): Promise<CompileInteractiveResult> {
-  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution });
+  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution, mtlUrl: options.mtlUrl });
   return buildGlyphInteractiveExport(polygons, options);
 }
