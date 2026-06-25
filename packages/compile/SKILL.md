@@ -9,7 +9,7 @@ description: Render a 3D mesh, a primitive shape (cube, sphere, icosahedron, tor
 terminal it defaults to **truecolor ANSI**, so the output shows in color directly.
 
 Install once: `npm i -g @glyphcss/compile` (the command is `glyphcss`). Or run ad
-hoc with `npx @glyphcss/compile <args>`. In this repo, `node packages/compile/dist/cli.js <args>`.
+hoc with `npx @glyphcss/compile <args>`.
 
 ## Render a primitive shape
 
