@@ -26,17 +26,17 @@ and inject it). Query params map to the options below.
 ## CLI
 
 ```sh
-# Raw ASCII to the terminal — auto-fits the grid to the content (no cols/rows needed)
-glyphcss-compile dog.glb --auto-center --no-colors
-
-glyphcss-compile dog.glb --fit 60 --no-colors    # fit width to 60 columns
-glyphcss-compile dog.glb --pre > dog.html         # wrap in <pre>
-glyphcss-compile dog.glb --full -o dog.html       # full HTML document
+glyphcss-compile dog.glb --auto-center            # ANSI color, right in the terminal
+glyphcss-compile dog.glb -f text                  # plain ASCII
+glyphcss-compile dog.glb -f full -o dog.html      # full HTML document
+glyphcss-compile dog.glb --fit 60 -f text         # fit width to 60 columns
 ```
 
-Prints **raw text** by default (terminal-friendly, no `<pre>`); omit `--cols`/`--rows`
-and it auto-fits the grid + zoom to the model, cropped tight. The universal escape
-hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile).
+Output **`-f, --format`**: `ansi` (truecolor terminal), `text` (plain), `html`
+(a `<pre>`), or `full` (HTML doc). The default picks by destination — **terminal →
+ansi**, `-o` file → html, piped → text. Omit `--cols`/`--rows` and it auto-fits
+the grid + zoom to the model, cropped tight (give just one and the other adapts).
+The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile).
 
 ## Node API
 

@@ -98,16 +98,17 @@ needed; it would only add sugar (auto-registering the plugin and a typed
 The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile):
 
 ```sh
-# Raw ASCII to the terminal — auto-fits the grid to the model (no cols/rows needed)
-glyphcss-compile dog.glb --auto-center --no-colors
-
-glyphcss-compile dog.glb --fit 60 --no-colors   # fit width to 60 columns
-glyphcss-compile dog.glb --pre > dog.html        # wrap in <pre>
-glyphcss-compile dog.glb --full -o dog.html      # full HTML document
+glyphcss-compile dog.glb --auto-center           # ANSI color, right in the terminal
+glyphcss-compile dog.glb -f text                 # plain ASCII
+glyphcss-compile dog.glb -f full -o dog.html     # full HTML document
+glyphcss-compile dog.glb --fit 60 -f text        # fit width to 60 columns
 ```
 
-By default the CLI prints **raw text** (no `<pre>` — terminal-friendly), and with
-no `--cols`/`--rows` it **auto-fits** the grid + zoom to the content, cropped tight.
+Output **`-f, --format`** picks the encoding: `ansi` (truecolor terminal), `text`
+(plain), `html` (a `<pre>`), or `full` (HTML doc). The default depends on the
+destination — **terminal → ansi**, `-o` file → html, piped → text. With no
+`--cols`/`--rows` it **auto-fits** the grid + zoom to the content, cropped tight
+(give just one and the other adapts to show the whole model).
 
 ### Node API
 

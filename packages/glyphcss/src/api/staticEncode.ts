@@ -53,6 +53,34 @@ export interface EncodeStaticOptions {
   crop?: boolean;
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  let h = hex.replace("#", "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Encode a rendered colored frame as ANSI 24-bit-color text for a terminal —
+ * the console counterpart to the HTML span output. Each colored run becomes a
+ * truecolor SGR (`\x1b[38;2;r;g;bm`); plain cells reset to the default color.
+ */
+export function encodeGlyphAnsi(inner: string): string {
+  const RESET = "\x1b[0m";
+  return inner.split("\n").map((line) => {
+    let out = "";
+    for (const r of tokenizeLine(line)) {
+      if (r.color !== null) {
+        const [R, G, B] = hexToRgb(r.color);
+        out += `\x1b[38;2;${R};${G};${B}m${r.text}`;
+      } else {
+        out += RESET + r.text;
+      }
+    }
+    return out + RESET;
+  }).join("\n");
+}
+
 /** Crop tokenized lines to the bounding box of their non-space glyphs. */
 function cropLines(lines: Run[][]): Run[][] {
   let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;

@@ -2,24 +2,27 @@
 /**
  * glyphcss-compile — compile a 3D mesh file to static ASCII from any pipeline.
  *
- *   glyphcss-compile duck.glb --auto-center --rot-x 60 --rot-y 45   # raw ASCII
- *   glyphcss-compile duck.glb --full -o duck.html                  # HTML doc
+ *   glyphcss-compile duck.glb --auto-center           # ANSI color in the terminal
+ *   glyphcss-compile duck.glb -f text                 # plain ASCII
+ *   glyphcss-compile duck.glb -f full -o duck.html    # HTML document
  *
- * Prints RAW ASCII to stdout by default (terminal-friendly); `--pre` wraps it in
- * a `<pre>`, `--full` emits a full HTML document. With no `--cols`/`--rows` it
- * auto-fits the grid + zoom to the content (cropped tight). Defaults otherwise
- * match the glyphcss library.
+ * Output `--format`: `ansi` (truecolor terminal), `text` (plain), `html` (a
+ * `<pre>`), or `full` (HTML doc). Default picks by destination — terminal → ansi,
+ * `-o` file → html, piped → text. With no `--cols`/`--rows` it auto-fits the grid
+ * + zoom to the content (cropped tight). Other defaults match the library.
  */
 import { writeFile } from "node:fs/promises";
 import { compileFile, type CompileFileOptions } from "./compileFile";
 import { compileInteractive, type GlyphInteraction } from "./compileInteractive";
+import { encodeGlyphAnsi } from "glyphcss";
 import type { RenderMode, MeshResolution } from "@glyphcss/core";
+
+type OutputFormat = "text" | "ansi" | "html" | "full";
 
 interface Parsed {
   file?: string;
   out?: string;
-  full: boolean;
-  pre: boolean;
+  format?: OutputFormat;
   fit?: number;
   interactive: boolean;
   interactions?: GlyphInteraction[];
@@ -32,8 +35,7 @@ function parseArgs(argv: string[]): Parsed {
   const opts: CompileFileOptions = {};
   let file: string | undefined;
   let out: string | undefined;
-  let full = false;
-  let pre = false;
+  let format: OutputFormat | undefined;
   let fit: number | undefined;
   let interactive = false;
   let interactions: GlyphInteraction[] | undefined;
@@ -62,12 +64,15 @@ function parseArgs(argv: string[]): Parsed {
       case "--mesh-resolution": opts.meshResolution = next() as MeshResolution; break;
       case "--ortho": opts.projection = "orthographic"; break;
       case "--auto-center": opts.autoCenter = true; break;
-      case "--no-colors": opts.useColors = false; break;
       case "--smooth": opts.smoothShading = true; break;
       case "--double-sided": opts.doubleSided = true; break;
       case "--fit": fit = num(next()); break;
-      case "--pre": pre = true; break;
-      case "--full": full = true; break;
+      // Output format (+ back-compat aliases).
+      case "-f": case "--format": format = next() as OutputFormat; break;
+      case "--ansi": format = "ansi"; break;
+      case "--no-colors": case "--text": format = "text"; break;
+      case "--pre": case "--html": format = "html"; break;
+      case "--full": format = "full"; break;
       case "--interactive": interactive = true; break;
       case "--interactions":
         interactive = true;
@@ -76,12 +81,12 @@ function parseArgs(argv: string[]): Parsed {
       case "--decimate-grid": decimateGrid = num(next()); break;
       case "--cdn-version": cdnVersion = next(); break;
       case "-o": case "--out": out = next(); break;
-      case "-h": case "--help": file = undefined; return { file, out, full, pre, fit, interactive, interactions, decimateGrid, cdnVersion, opts };
+      case "-h": case "--help": file = undefined; return { file, out, format, fit, interactive, interactions, decimateGrid, cdnVersion, opts };
       default:
         if (!a.startsWith("-") && !file) file = a;
     }
   }
-  return { file, out, full, pre, fit, interactive, interactions, decimateGrid, cdnVersion, opts };
+  return { file, out, format, fit, interactive, interactions, decimateGrid, cdnVersion, opts };
 }
 
 const HELP = `glyphcss-compile <mesh-file> [options]
@@ -92,7 +97,8 @@ const HELP = `glyphcss-compile <mesh-file> [options]
   Render   --mode solid|wireframe|voxel  --palette NAME  --no-colors  --smooth  --double-sided
   Mesh     --auto-center  --mesh-resolution lossy|lossless  --crease-angle N  --supersample N
   Interact --interactive  --interactions orbit,zoom,pan,fpv  --decimate-grid N  --cdn-version V
-  Output   default: raw text   --pre (wrap in <pre>)   --full (HTML doc)   -o, --out FILE
+  Output   -f, --format text|ansi|html|full     (default: terminal → ansi, file → html, pipe → text)
+           -o, --out FILE
 `;
 
 function wrapHtml(inner: string): string {
@@ -106,29 +112,19 @@ function wrapHtml(inner: string): string {
 }
 
 async function main(): Promise<void> {
-  const { file, out, full, pre, fit, interactive, interactions, decimateGrid, cdnVersion, opts } = parseArgs(process.argv.slice(2));
+  const { file, out, format: fmtArg, fit, interactive, interactions, decimateGrid, cdnVersion, opts } = parseArgs(process.argv.slice(2));
   if (!file) {
     process.stderr.write(HELP);
     process.exit(process.argv.length <= 2 ? 1 : 0);
     return;
   }
 
-  // Auto-fit: with only one of --cols/--rows, fit that axis and let the other
-  // adapt to show the whole model; with neither, fit width to the terminal.
-  // Both given → fixed grid. --fit forces a width target.
-  if (!interactive) {
-    const hasCols = opts.cols !== undefined, hasRows = opts.rows !== undefined;
-    const termW = process.stdout.columns ? process.stdout.columns - 1 : 80;
-    if (fit !== undefined) opts.autoFit = { target: fit, by: "cols" };
-    else if (hasCols && !hasRows) opts.autoFit = { target: opts.cols!, by: "cols" };
-    else if (hasRows && !hasCols) opts.autoFit = { target: opts.rows!, by: "rows" };
-    else if (!hasCols && !hasRows) opts.autoFit = { target: termW, by: "cols" };
-    if (opts.autoFit) { opts.cols = undefined; opts.rows = undefined; }
-  }
+  // Output format: explicit wins; else file → html, terminal → ansi, pipe → text.
+  const format: OutputFormat = fmtArg ?? (out ? "html" : process.stdout.isTTY ? "ansi" : "text");
 
   if (interactive) {
     const r = await compileInteractive(file, { ...opts, interactions, decimateGrid, cdnVersion });
-    const output = full ? wrapHtml(r.html) : r.html;
+    const output = format === "full" ? wrapHtml(r.html) : r.html;
     if (out) {
       await writeFile(out, output, "utf8");
       process.stderr.write(`glyphcss-compile: wrote ${out} — interactive [${r.interactions.join(", ")}], ${r.polygonCount}/${r.sourcePolygonCount} tris\n`);
@@ -138,12 +134,29 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Colors are needed for every format except plain text.
+  opts.useColors = format !== "text";
+
+  // Auto-fit: with only one of --cols/--rows, fit that axis and let the other
+  // adapt to show the whole model; with neither, fit width to the terminal.
+  // Both given → fixed grid. --fit forces a width target.
+  const hasCols = opts.cols !== undefined, hasRows = opts.rows !== undefined;
+  const termW = process.stdout.columns ? process.stdout.columns - 1 : 80;
+  if (fit !== undefined) opts.autoFit = { target: fit, by: "cols" };
+  else if (hasCols && !hasRows) opts.autoFit = { target: opts.cols!, by: "cols" };
+  else if (hasRows && !hasCols) opts.autoFit = { target: opts.rows!, by: "rows" };
+  else if (!hasCols && !hasRows) opts.autoFit = { target: termW, by: "cols" };
+  if (opts.autoFit) { opts.cols = undefined; opts.rows = undefined; }
+
   const result = await compileFile(file, opts);
-  // Default to raw text (terminal-friendly); --pre wraps in <pre>, --full a doc.
-  const output = full ? wrapHtml(result.html) : pre ? result.html : result.inner;
+  const output =
+    format === "text" ? result.inner :
+    format === "ansi" ? encodeGlyphAnsi(result.inner) :
+    format === "full" ? wrapHtml(result.html) :
+    result.html;
   if (out) {
     await writeFile(out, output, "utf8");
-    process.stderr.write(`glyphcss-compile: wrote ${out} (${result.cols}×${result.rows})\n`);
+    process.stderr.write(`glyphcss-compile: wrote ${out} (${result.cols}×${result.rows}, ${format})\n`);
   } else {
     process.stdout.write(output + "\n");
   }
