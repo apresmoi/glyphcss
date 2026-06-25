@@ -78,7 +78,10 @@ export function createGlyphOrbitControls(
     activePointerId = e.pointerId;
     pointer = { x: e.clientX, y: e.clientY };
     host.style.cursor = "grabbing";
-    try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    // Capture on the stable host, NOT e.target: colored output rewrites the
+    // <pre>'s innerHTML each render, destroying the <span> under the finger —
+    // capturing it would fire pointercancel mid-drag and abort the gesture.
+    try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
       animPaused = true;
     }
@@ -110,7 +113,7 @@ export function createGlyphOrbitControls(
     if (activePointerId !== e.pointerId) return;
     activePointerId = null;
     host.style.cursor = drag && !stopped ? "grab" : "";
-    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     if (animOpts) animPaused = false;
     emitInteraction("end", snapshot);
   }

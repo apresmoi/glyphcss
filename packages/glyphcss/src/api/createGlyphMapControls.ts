@@ -72,7 +72,10 @@ export function createGlyphMapControls(
     pointer = { x: e.clientX, y: e.clientY };
     rightDown = e.button === 2;
     host.style.cursor = "grabbing";
-    try { (e.target as Element).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    // Capture on the stable host, NOT e.target — colored output rewrites the
+    // <pre> innerHTML each render, destroying the captured <span> → pointercancel
+    // would abort the drag mid-gesture.
+    try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
       animPaused = true;
     }
@@ -110,7 +113,7 @@ export function createGlyphMapControls(
     activePointerId = null;
     rightDown = false;
     host.style.cursor = drag && !stopped ? "grab" : "";
-    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     if (animOpts) animPaused = false;
     emitInteraction("end", snapshot);
   }
