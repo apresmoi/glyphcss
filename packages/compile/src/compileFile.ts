@@ -74,9 +74,12 @@ function measureContent(inner: string): { w: number; h: number } {
   return maxC < 0 ? { w: 0, h: 0 } : { w: maxC - minC + 1, h: maxR - minR + 1 };
 }
 
-export async function compileFile(path: string, options: CompileFileOptions = {}): Promise<CompileSceneResult> {
-  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution, mtlUrl: options.mtlUrl });
-
+/**
+ * compilePolygons — render polygons you already have (a primitive, custom JSON,
+ * etc.) to a `<pre>`, with the same camera / auto-fit logic as `compileFile`.
+ * Pure + synchronous (no file I/O).
+ */
+export function compilePolygons(polygons: Polygon[], options: CompileFileOptions = {}): CompileSceneResult {
   const buildCam = (zoom?: number): GlyphCamera =>
     options.projection === "orthographic"
       ? createGlyphOrthographicCamera({ rotX: options.rotX, rotY: options.rotY, zoom })
@@ -124,4 +127,9 @@ export async function compileFile(path: string, options: CompileFileOptions = {}
     rows: options.rows,
     ...shared,
   });
+}
+
+export async function compileFile(path: string, options: CompileFileOptions = {}): Promise<CompileSceneResult> {
+  const { polygons } = await loadMeshFromFile(path, { meshResolution: options.meshResolution, mtlUrl: options.mtlUrl });
+  return compilePolygons(polygons, options);
 }

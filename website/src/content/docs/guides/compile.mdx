@@ -97,18 +97,29 @@ needed; it would only add sugar (auto-registering the plugin and a typed
 
 The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile):
 
+Install it (`npm i -g @glyphcss/compile` → the `glyphcss` command, or `npx
+@glyphcss/compile …`), then:
+
 ```sh
-glyphcss-compile dog.glb --auto-center           # ANSI color, right in the terminal
-glyphcss-compile dog.glb -f text                 # plain ASCII
-glyphcss-compile dog.glb -f full -o dog.html     # full HTML document
-glyphcss-compile dog.glb --fit 60 -f text        # fit width to 60 columns
+glyphcss cube --auto-center              # a primitive shape → color ASCII
+glyphcss dog.glb --auto-center           # a mesh file → ANSI color in the terminal
+glyphcss --polygons-json '[{"vertices":[[0,0,0],[2,0,0],[1,2,0]],"color":"#f00"}]'
+glyphcss dog.glb -f full -o dog.html     # full HTML document
 ```
+
+**Input** is a mesh file (`.obj/.glb/.gltf/.vox/.stl`), a **primitive shape**
+name (`cube`, `sphere`, `icosahedron`, `torus`, `cone`, … — 44 shapes), or
+**custom polygons** (`--polygons FILE.json` / `--polygons-json '…'`).
 
 Output **`-f, --format`** picks the encoding: `ansi` (truecolor terminal), `text`
 (plain), `html` (a `<pre>`), or `full` (HTML doc). The default depends on the
 destination — **terminal → ansi**, `-o` file → html, piped → text. With no
 `--cols`/`--rows` it **auto-fits** the grid + zoom to the content, cropped tight
 (give just one and the other adapts to show the whole model).
+
+The package ships a **skill** (`SKILL.md`) so coding agents (Claude Code, etc.)
+know how to drive the CLI — e.g. "render a cube in the terminal" → `glyphcss cube
+--auto-center`.
 
 ### Node API
 

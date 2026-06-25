@@ -14,8 +14,25 @@ export interface WireframeGlyphTiers {
   solid: string[];
 }
 
+// High-detail solid ramp (dark → bright): the canonical 70-char luminance ramp
+// reversed, giving ~7× the intensity levels of the 10-char default for smooth
+// tonal gradation. Ramp length is free for colored output — `solidBufToString`
+// coalesces runs by COLOR, not glyph, so more distinct glyphs cost nothing.
+const QUAKE_DETAIL_SOLID: CharRamp =
+  "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. "
+    .split("")
+    .reverse();
+
 /** Named glyph palettes — each defines wireframe tiers AND a solid ramp. */
 export const WIREFRAME_PALETTES: Record<string, WireframeGlyphTiers> = {
+  // Dense ASCII intensity ramp for textured/photographic solid scenes that want
+  // maximum tonal detail per cell (e.g. cssQuake's ASCII world).
+  detail: {
+    thin: ".'".split(""),
+    normal: "+*x".split(""),
+    core: "#@".split(""),
+    solid: QUAKE_DETAIL_SOLID,
+  },
   default: {
     thin: "·⋅∙˙·⋅∙".split(""),
     normal: "╋╬┼╳◆◇◊▲△▼▽◈⬡⬢∴∵⊥⊕⊗⊙⊚⊛".split(""),

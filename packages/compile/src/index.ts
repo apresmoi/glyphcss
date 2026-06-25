@@ -12,7 +12,7 @@ export { compileScene } from "glyphcss";
 export type { CompileSceneOptions, CompileSceneResult } from "glyphcss";
 
 export { loadMeshFromFile } from "./loadMeshFromFile";
-export { compileFile } from "./compileFile";
+export { compileFile, compilePolygons } from "./compileFile";
 export type { CompileFileOptions } from "./compileFile";
 
 export { compileInteractive, toCodepenPrefill } from "./compileInteractive";

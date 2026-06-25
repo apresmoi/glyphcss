@@ -23,15 +23,35 @@ document.querySelector("#app").innerHTML = dog; // no runtime, no WebGL
 Works in any Vite pipeline — Astro, vanilla Vite, Vite-React (import the string
 and inject it). Query params map to the options below.
 
+## Install
+
+```sh
+npm i -g @glyphcss/compile     # global `glyphcss` command
+# or run ad hoc:
+npx @glyphcss/compile cube --auto-center
+# or as a build dep (Vite plugin / Node API):
+npm i -D @glyphcss/compile
+```
+
+It pulls in `glyphcss` + `@glyphcss/core` automatically. Ships a
+[**skill**](./SKILL.md) (`SKILL.md`) so coding agents know how to drive the CLI.
+
 ## CLI
 
 ```sh
-glyphcss-compile dog.glb --auto-center            # ANSI color, right in the terminal
-glyphcss-compile dog.glb -f text                  # plain ASCII
-glyphcss-compile dog.glb -f full -o dog.html      # full HTML document
-glyphcss-compile dog.glb --fit 60 -f text         # fit width to 60 columns
-glyphcss-compile model.obj --mtl other.mtl        # explicit OBJ material override
+glyphcss cube --auto-center               # a primitive shape → color ASCII
+glyphcss dog.glb --auto-center            # a mesh file → ANSI color in the terminal
+glyphcss --polygons-json '[{"vertices":[[0,0,0],[2,0,0],[1,2,0]],"color":"#f00"}]'
+glyphcss dog.glb -f text                  # plain ASCII
+glyphcss dog.glb -f full -o dog.html      # full HTML document
+glyphcss dog.glb --fit 60 -f text         # fit width to 60 columns
+glyphcss model.obj --mtl other.mtl        # explicit OBJ material override
 ```
+
+Input is a **mesh file** (`.obj/.glb/.gltf/.vox/.stl`), a **primitive shape** name
+(`cube`, `sphere`, `icosahedron`, `torus`, `cone`, … — 44 shapes), or **custom
+polygons** (`--polygons FILE.json` / `--polygons-json '…'`, an array of
+`{ vertices, color? }`).
 
 Output **`-f, --format`**: `ansi` (truecolor terminal), `text` (plain), `html`
 (a `<pre>`), or `full` (HTML doc). The default picks by destination — **terminal →
@@ -74,7 +94,7 @@ wired control (the snippet imports just that one) and the decimation budget
 (coarser for orbit, finer when `zoom`/`fpv` let the camera get close):
 
 ```sh
-glyphcss-compile dog.glb --interactions orbit,zoom --auto-center --full -o dog.html
+glyphcss dog.glb --interactions orbit,zoom --auto-center --full -o dog.html
 ```
 
 ```ts

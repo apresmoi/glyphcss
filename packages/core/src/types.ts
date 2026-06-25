@@ -151,6 +151,14 @@ export interface Polygon {
    * values are kept; other shapes are dropped by `normalizePolygons`.
    */
   data?: Record<string, string | number | boolean>;
+  /**
+   * Per-polygon visibility toggle for the solid ASCII rasterizer. When `true`
+   * the polygon is skipped entirely (not projected, shaded, or scan-filled) —
+   * a cheap way for a consumer to do its own per-frame culling (e.g. a BSP
+   * potentially-visible-set cull) by flipping this flag on the mesh's polygons
+   * between renders, without re-adding the mesh. Default `false`.
+   */
+  hidden?: boolean;
 }
 
 // ── Glyphcss-specific (ASCII rendering) ─────────────────────────

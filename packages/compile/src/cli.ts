@@ -1,21 +1,35 @@
 #!/usr/bin/env node
 /**
- * glyphcss-compile — compile a 3D mesh file to static ASCII from any pipeline.
+ * glyphcss — compile a 3D mesh file to static ASCII from any pipeline.
  *
- *   glyphcss-compile duck.glb --auto-center           # ANSI color in the terminal
- *   glyphcss-compile duck.glb -f text                 # plain ASCII
- *   glyphcss-compile duck.glb -f full -o duck.html    # HTML document
+ *   glyphcss duck.glb --auto-center           # ANSI color in the terminal
+ *   glyphcss duck.glb -f text                 # plain ASCII
+ *   glyphcss duck.glb -f full -o duck.html    # HTML document
  *
  * Output `--format`: `ansi` (truecolor terminal), `text` (plain), `html` (a
  * `<pre>`), or `full` (HTML doc). Default picks by destination — terminal → ansi,
  * `-o` file → html, piped → text. With no `--cols`/`--rows` it auto-fits the grid
  * + zoom to the content (cropped tight). Other defaults match the library.
  */
-import { writeFile } from "node:fs/promises";
-import { compileFile, type CompileFileOptions } from "./compileFile";
+import { writeFile, readFile } from "node:fs/promises";
+import { compileFile, compilePolygons, type CompileFileOptions } from "./compileFile";
 import { compileInteractive, type GlyphInteraction } from "./compileInteractive";
 import { encodeGlyphAnsi } from "glyphcss";
-import type { RenderMode, MeshResolution } from "@glyphcss/core";
+import { resolveGeometry } from "@glyphcss/core";
+import type { RenderMode, MeshResolution, Polygon, GlyphGeometryName, Vec3 } from "@glyphcss/core";
+
+const MESH_EXT = /\.(obj|glb|gltf|vox|stl)$/i;
+
+/** Normalize a polygons JSON payload (array or { polygons }) to Polygon[]. */
+function normalizePolygons(data: unknown): Polygon[] {
+  const arr = Array.isArray(data) ? data : (data as { polygons?: unknown })?.polygons;
+  if (!Array.isArray(arr)) throw new Error("polygons JSON must be an array or { polygons: [...] }");
+  return arr.map((p: { vertices?: Vec3[]; v?: Vec3[]; color?: string; c?: string }, i) => {
+    const vertices = p.vertices ?? p.v;
+    if (!Array.isArray(vertices) || vertices.length < 3) throw new Error(`polygon ${i}: needs vertices [[x,y,z], …] (>= 3)`);
+    return { vertices, color: p.color ?? p.c } as Polygon;
+  });
+}
 
 type OutputFormat = "text" | "ansi" | "html" | "full";
 
@@ -24,6 +38,9 @@ interface Parsed {
   out?: string;
   format?: OutputFormat;
   fit?: number;
+  shape?: string;
+  polygonsFile?: string;
+  polygonsJson?: string;
   interactive: boolean;
   interactions?: GlyphInteraction[];
   decimateGrid?: number;
@@ -37,6 +54,9 @@ function parseArgs(argv: string[]): Parsed {
   let out: string | undefined;
   let format: OutputFormat | undefined;
   let fit: number | undefined;
+  let shape: string | undefined;
+  let polygonsFile: string | undefined;
+  let polygonsJson: string | undefined;
   let interactive = false;
   let interactions: GlyphInteraction[] | undefined;
   let decimateGrid: number | undefined;
@@ -63,6 +83,10 @@ function parseArgs(argv: string[]): Parsed {
       case "--palette": opts.glyphPalette = next(); break;
       case "--mesh-resolution": opts.meshResolution = next() as MeshResolution; break;
       case "--mtl": opts.mtlUrl = next(); break;
+      // Geometry input (instead of a mesh file).
+      case "--shape": shape = next(); break;
+      case "--polygons": polygonsFile = next(); break;
+      case "--polygons-json": polygonsJson = next(); break;
       case "--ortho": opts.projection = "orthographic"; break;
       case "--auto-center": opts.autoCenter = true; break;
       case "--smooth": opts.smoothShading = true; break;
@@ -82,16 +106,19 @@ function parseArgs(argv: string[]): Parsed {
       case "--decimate-grid": decimateGrid = num(next()); break;
       case "--cdn-version": cdnVersion = next(); break;
       case "-o": case "--out": out = next(); break;
-      case "-h": case "--help": file = undefined; return { file, out, format, fit, interactive, interactions, decimateGrid, cdnVersion, opts };
+      case "-h": case "--help": file = undefined; return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, opts };
       default:
         if (!a.startsWith("-") && !file) file = a;
     }
   }
-  return { file, out, format, fit, interactive, interactions, decimateGrid, cdnVersion, opts };
+  return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, opts };
 }
 
-const HELP = `glyphcss-compile <mesh-file> [options]
+const HELP = `glyphcss <mesh-file | shape> [options]
 
+  Input    a mesh file (.obj/.glb/.gltf/.vox/.stl), a primitive shape name
+           (e.g. cube, sphere, icosahedron, torus, cone), or:
+           --shape NAME   --polygons FILE.json   --polygons-json '[{"vertices":[...],"color":"#f00"}]'
   Camera   --rot-x N  --rot-y N  --zoom N  --distance N  --perspective N  --ortho
   Grid     --cols N  --rows N  --cell-aspect N   (omit cols/rows → auto-fit to content)
   Fit      --fit N   target width in columns for auto-fit (default: terminal width or 80)
@@ -113,8 +140,12 @@ function wrapHtml(inner: string): string {
 }
 
 async function main(): Promise<void> {
-  const { file, out, format: fmtArg, fit, interactive, interactions, decimateGrid, cdnVersion, opts } = parseArgs(process.argv.slice(2));
-  if (!file) {
+  const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, opts } = parseArgs(process.argv.slice(2));
+  // A bare positional with no mesh extension is treated as a shape name.
+  const positionalShape = file && !MESH_EXT.test(file) ? file : undefined;
+  const meshFile = file && MESH_EXT.test(file) ? file : undefined;
+  const shapeName = shape ?? positionalShape;
+  if (!meshFile && !shapeName && !polygonsFile && !polygonsJson) {
     process.stderr.write(HELP);
     process.exit(process.argv.length <= 2 ? 1 : 0);
     return;
@@ -124,11 +155,12 @@ async function main(): Promise<void> {
   const format: OutputFormat = fmtArg ?? (out ? "html" : process.stdout.isTTY ? "ansi" : "text");
 
   if (interactive) {
-    const r = await compileInteractive(file, { ...opts, interactions, decimateGrid, cdnVersion });
+    if (!meshFile) throw new Error("--interactive needs a mesh file (shapes/polygons are static-only for now)");
+    const r = await compileInteractive(meshFile, { ...opts, interactions, decimateGrid, cdnVersion });
     const output = format === "full" ? wrapHtml(r.html) : r.html;
     if (out) {
       await writeFile(out, output, "utf8");
-      process.stderr.write(`glyphcss-compile: wrote ${out} — interactive [${r.interactions.join(", ")}], ${r.polygonCount}/${r.sourcePolygonCount} tris\n`);
+      process.stderr.write(`glyphcss: wrote ${out} — interactive [${r.interactions.join(", ")}], ${r.polygonCount}/${r.sourcePolygonCount} tris\n`);
     } else {
       process.stdout.write(output + "\n");
     }
@@ -149,7 +181,13 @@ async function main(): Promise<void> {
   else if (!hasCols && !hasRows) opts.autoFit = { target: termW, by: "cols" };
   if (opts.autoFit) { opts.cols = undefined; opts.rows = undefined; }
 
-  const result = await compileFile(file, opts);
+  // Resolve the geometry source: inline polygons, polygons file, primitive shape,
+  // or a mesh file.
+  let result;
+  if (polygonsJson) result = compilePolygons(normalizePolygons(JSON.parse(polygonsJson)), opts);
+  else if (polygonsFile) result = compilePolygons(normalizePolygons(JSON.parse(await readFile(polygonsFile, "utf8"))), opts);
+  else if (shapeName) result = compilePolygons(resolveGeometry(shapeName as GlyphGeometryName, { size: 1 }), { ...opts, autoCenter: true });
+  else result = await compileFile(meshFile!, opts);
   const output =
     format === "text" ? result.inner :
     format === "ansi" ? encodeGlyphAnsi(result.inner) :
@@ -157,13 +195,13 @@ async function main(): Promise<void> {
     result.html;
   if (out) {
     await writeFile(out, output, "utf8");
-    process.stderr.write(`glyphcss-compile: wrote ${out} (${result.cols}×${result.rows}, ${format})\n`);
+    process.stderr.write(`glyphcss: wrote ${out} (${result.cols}×${result.rows}, ${format})\n`);
   } else {
     process.stdout.write(output + "\n");
   }
 }
 
 main().catch((err) => {
-  process.stderr.write(`glyphcss-compile: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(`glyphcss: ${err instanceof Error ? err.message : String(err)}\n`);
   process.exit(1);
 });

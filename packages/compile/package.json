@@ -18,10 +18,11 @@
   },
   "homepage": "https://github.com/apresmoi/glyphcss#readme",
   "files": [
-    "dist"
+    "dist",
+    "SKILL.md"
   ],
   "bin": {
-    "glyphcss-compile": "dist/cli.js"
+    "glyphcss": "dist/cli.js"
   },
   "exports": {
     ".": {

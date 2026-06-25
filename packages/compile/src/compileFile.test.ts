@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
+import { resolveGeometry } from "@glyphcss/core";
+import type { Polygon } from "@glyphcss/core";
 import { loadMeshFromFile } from "./loadMeshFromFile";
-import { compileFile } from "./compileFile";
+import { compileFile, compilePolygons } from "./compileFile";
 import { glyphcssCompile } from "./vite";
 
 // Resolve from cwd (the package dir under vitest) — env-agnostic, unlike
@@ -78,5 +80,24 @@ describe("@glyphcss/compile — autoFit", () => {
     expect(r.rows).toBeGreaterThan(0);
     expect(r.rows).toBeLessThanOrEqual(40);   // ~24 rows, cropped (not the padded grid)
     expect(r.cols).toBeGreaterThan(0);        // width adapted to content
+  });
+});
+
+describe("@glyphcss/compile — geometry input", () => {
+  it("compilePolygons renders a primitive shape (cube)", () => {
+    const r = compilePolygons(resolveGeometry("cube", { size: 1 }), {
+      autoFit: { target: 30, by: "cols" }, autoCenter: true, rotX: 60, rotY: 35,
+    });
+    const glyphs = r.inner.replace(/<[^>]*>/g, "").replace(/\s/g, "").length;
+    expect(glyphs).toBeGreaterThan(20);
+    expect(r.cols).toBeGreaterThan(0);
+    expect(r.cols).toBeLessThanOrEqual(45);
+  });
+
+  it("compilePolygons renders custom polygons", () => {
+    const tri: Polygon[] = [{ vertices: [[0, 0, 0], [2, 0, 0], [1, 2, 0]], color: "#ff0000" }];
+    const r = compilePolygons(tri, { cols: 20, rows: 10, autoCenter: true });
+    expect(r.inner.replace(/<[^>]*>/g, "").replace(/\s/g, "").length).toBeGreaterThan(0);
+    expect(r.html).toContain("glyph-output");
   });
 });
