@@ -6,8 +6,8 @@
   "description": "Glyphcss documentation and landing page.",
   "license": "MIT",
   "scripts": {
-    "dev": "astro dev --port 4323",
-    "build": "astro build && node scripts/generate-llms-txt.mjs",
+    "dev": "node scripts/copy-skill.mjs && astro dev --port 4323",
+    "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs",
     "preview": "astro preview --port 4323"
   },
   "dependencies": {

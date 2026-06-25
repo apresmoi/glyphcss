@@ -117,9 +117,20 @@ destination — **terminal → ansi**, `-o` file → html, piped → text. With 
 `--cols`/`--rows` it **auto-fits** the grid + zoom to the content, cropped tight
 (give just one and the other adapts to show the whole model).
 
-The package ships a **skill** (`SKILL.md`) so coding agents (Claude Code, etc.)
-know how to drive the CLI — e.g. "render a cube in the terminal" → `glyphcss cube
---auto-center`.
+### Use it from a coding agent
+
+glyphcss ships a **skill** so Claude Code, Codex, Cursor, and other coding agents
+can drive the CLI — ask *"render a cube in the terminal"* and the agent runs
+`glyphcss cube --auto-center`.
+
+Point your agent at it, either way:
+
+- **From npm** — it's bundled at `node_modules/@glyphcss/compile/SKILL.md`.
+- **From the web** — copy [**glyphcss.com/skill.md**](/skill.md) into your agent's
+  skills folder (e.g. `.claude/skills/glyphcss/SKILL.md` for Claude Code).
+
+> Copy `glyphcss.com/skill.md` into your Claude Code / Codex / coding agent so it
+> knows how to render glyphcss shapes and meshes from the terminal.
 
 ### Node API
 
