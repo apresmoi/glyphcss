@@ -198,6 +198,8 @@ html {
   color: var(--gc-cream) !important;
   letter-spacing: 0.03em !important;
   font-weight: 700 !important;
+  /* Wrap into balanced lines so the "[ … ]" brackets don't orphan a word. */
+  text-wrap: balance;
 }
 
 .content-panel h1::before {
@@ -353,6 +355,8 @@ html {
   font-size: 10px !important;
   color: var(--gc-cream-dim) !important;
   letter-spacing: 0.06em !important;
+  /* Keep "[ file.ext ]" on one line — it's a tab label, not prose. */
+  white-space: nowrap !important;
 }
 
 .expressive-code .frame .header .title:not(:empty)::before {
@@ -399,7 +403,15 @@ html {
   border-radius: 0 !important;
   gap: 2px !important;
   padding: 4px 8px !important;
+  /* Many/long tabs (e.g. "Custom element") scroll horizontally instead of
+     wrapping their labels onto two cramped lines on narrow screens. */
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
+.tablist-wrapper [role="tablist"]::-webkit-scrollbar { height: 3px; }
+.tablist-wrapper [role="tablist"]::-webkit-scrollbar-thumb { background: var(--gc-border); }
 
 .tablist-wrapper [role="tab"] {
   font-family: var(--gc-mono) !important;
@@ -412,6 +424,8 @@ html {
   border-radius: 0 !important;
   padding: 3px 10px !important;
   text-decoration: none !important;
+  white-space: nowrap !important; /* keep "[ Custom element ]" on one line */
+  flex: 0 0 auto !important;
 }
 
 .tablist-wrapper [role="tab"]::before {
@@ -610,8 +624,11 @@ starlight-tabs [role="tabpanel"] {
  * Scale them down on narrow viewports. */
 @media (max-width: 50rem) {
   .content-panel h1 {
-    font-size: clamp(22px, 7vw, 28px) !important;
-    line-height: 1.15 !important;
+    /* Sized so the longest single-word title ("[ GlyphOrbitControls ]", which
+       can't wrap to balance) still fits one line down to ~320px — otherwise the
+       trailing "]" orphans onto its own line. */
+    font-size: clamp(18px, 5.6vw, 25px) !important;
+    line-height: 1.2 !important;
   }
 
   /* Code-block copy button: shrink so it doesn't dominate / overflow the block. */
