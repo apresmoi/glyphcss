@@ -307,7 +307,7 @@ export default function GalleryWorkbench() {
   const [modelSearch, setModelSearch] = useState("");
   const [openModelCategory, setOpenModelCategory] = useState<string | null>(null);
   // Mobile-only: which panel is open as a bottom drawer (null = canvas only).
-  const [mobilePanel, setMobilePanel] = useState<"models" | "controls" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"models" | "controls" | "code" | null>(null);
   // Seed the loader ref to the initial preset when the URL already restored
   // scene options, so it skips applying preset rotX/rotY over the URL values.
   const autoZoomPresetRef = useRef<string | null>(initialRouteHasSceneOptions ? initialPreset.id : null);
@@ -549,7 +549,13 @@ export default function GalleryWorkbench() {
             animationTimeScale={sceneOptions.animationTimeScale}
           />
           <CopySceneButton />
-          <CodePanel meshUrl={meshUrl} options={sceneOptions} selectedPreset={selectedPreset} />
+          <CodePanel
+            id="gallery-code-panel"
+            meshUrl={meshUrl}
+            options={sceneOptions}
+            selectedPreset={selectedPreset}
+            className={mobilePanel === "code" ? "is-mobile-open" : ""}
+          />
         </div>
         <DropOverlay active={dropped.dropActive} />
       </main>
@@ -654,6 +660,15 @@ export default function GalleryWorkbench() {
           onClick={() => setMobilePanel((current) => current === "controls" ? null : "controls")}
         >
           Controls
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "code" ? " is-active" : ""}`}
+          aria-controls="gallery-code-panel"
+          aria-expanded={mobilePanel === "code"}
+          onClick={() => setMobilePanel((current) => current === "code" ? null : "code")}
+        >
+          Code
         </button>
       </nav>
     </div>

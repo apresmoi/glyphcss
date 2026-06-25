@@ -1448,11 +1448,22 @@
     max-height: none !important;
   }
 
-  /* The bottom strip belongs to the tab bar + drawer; hide the code/copy chrome. */
-  .dn-root--gallery .gw-code-panel,
-  .dn-root--gallery .dn-copy-scene {
+  /* Copy-scene chrome stays hidden; the code panel becomes a bottom drawer
+     opened by the Code tab (so CodePen + the code are reachable on mobile). */
+  .dn-root--gallery .dn-copy-scene { display: none; }
+  .dn-root--gallery .gw-code-panel {
     display: none;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    width: auto;
+    max-width: none;
+    max-height: none;
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    z-index: 25;
   }
+  .dn-root--gallery .gw-code-panel.is-mobile-open { display: flex; }
 
   .dn-mobile-tabs {
     position: absolute;
@@ -1461,20 +1472,23 @@
     left: var(--overlay-left);
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
     pointer-events: auto;
   }
   .dn-mobile-tabs__button {
     min-width: 0;
     min-height: 44px;
-    padding: 0 10px;
+    padding: 0 6px;
     border: 1px solid rgba(255, 232, 184, 0.22);
     border-radius: 0;
     background: rgba(15, 17, 21, 0.92);
     color: rgba(255, 232, 184, 0.9);
-    font: 600 13px/1 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    letter-spacing: 0.02em;
+    font: 600 12px/1 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     cursor: pointer;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);

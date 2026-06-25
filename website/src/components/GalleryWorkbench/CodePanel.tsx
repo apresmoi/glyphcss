@@ -130,6 +130,9 @@ interface CodePanelProps {
   meshUrl: string;
   options: SceneOptionsState;
   selectedPreset: PresetModel;
+  /** Extra classes (e.g. `is-mobile-open` to show the panel as a mobile drawer). */
+  className?: string;
+  id?: string;
 }
 
 // Primitive presets that need a +90° X rotation so their natural Y-up axis maps
@@ -399,7 +402,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "React", vue: "Vue" };
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
-export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) {
+export function CodePanel({ meshUrl, options, selectedPreset, className, id }: CodePanelProps) {
   const [tab, setTab] = useState<Tab>("react");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -494,7 +497,7 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
   }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate]);
 
   return (
-    <aside className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}`}>
+    <aside id={id} className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}${className ? ` ${className}` : ""}`}>
       <header className="gw-code-panel__head">
         <span className="gw-code-panel__legend">[ CODE ]</span>
         <div className="gw-code-panel__tabs">
