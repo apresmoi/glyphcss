@@ -373,7 +373,6 @@
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-size: clamp(7px, 1vw, 11px);
   color: rgba(255, 232, 184, 0.94);
-  text-shadow: 0 0 5px rgba(255, 200, 130, 0.45);
   touch-action: none;
   overscroll-behavior: contain;
   cursor: grab;
@@ -388,7 +387,7 @@
   position: absolute;
   left: var(--overlay-left);
   bottom: var(--overlay-bottom);
-  width: clamp(320px, 30vw, 460px);
+  width: clamp(320px, 36vw, 560px);
   max-height: min(42vh, calc(100% - var(--overlay-top) - var(--overlay-bottom) - 60vh));
   z-index: 14;
   display: flex;
@@ -413,20 +412,24 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 6px;
   padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 232, 184, 0.12);
   background: rgba(3, 5, 10, 0.5);
 }
 .gw-code-panel__legend {
+  flex: 0 0 auto;
+  white-space: nowrap;
   color: rgba(56, 189, 248, 0.85);
   font-size: 11px;
   letter-spacing: 0.08em;
 }
 .gw-code-panel__tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 2px;
-  margin-left: 6px;
 }
 .gw-code-panel__tab {
   background: none;
@@ -435,6 +438,7 @@
   padding: 3px 10px;
   font: 11px/1 inherit;
   letter-spacing: 0.06em;
+  white-space: nowrap;
   cursor: pointer;
   transition: color 100ms, background 100ms, border-color 100ms;
 }
@@ -450,9 +454,11 @@
 .gw-code-panel__actions {
   margin-left: auto;
   display: flex;
+  flex: 0 0 auto;
   gap: 4px;
 }
 .gw-code-panel__action {
+  white-space: nowrap;
   background: none;
   border: 1px solid rgba(255, 232, 184, 0.15);
   color: rgba(255, 232, 184, 0.7);
@@ -1442,11 +1448,22 @@
     max-height: none !important;
   }
 
-  /* The bottom strip belongs to the tab bar + drawer; hide the code/copy chrome. */
-  .dn-root--gallery .gw-code-panel,
-  .dn-root--gallery .dn-copy-scene {
+  /* Copy-scene chrome stays hidden; the code panel becomes a bottom drawer
+     opened by the Code tab (so CodePen + the code are reachable on mobile). */
+  .dn-root--gallery .dn-copy-scene { display: none; }
+  .dn-root--gallery .gw-code-panel {
     display: none;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    width: auto;
+    max-width: none;
+    max-height: none;
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    z-index: 25;
   }
+  .dn-root--gallery .gw-code-panel.is-mobile-open { display: flex; }
 
   .dn-mobile-tabs {
     position: absolute;
@@ -1455,20 +1472,23 @@
     left: var(--overlay-left);
     z-index: 30;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
     pointer-events: auto;
   }
   .dn-mobile-tabs__button {
     min-width: 0;
     min-height: 44px;
-    padding: 0 10px;
+    padding: 0 6px;
     border: 1px solid rgba(255, 232, 184, 0.22);
     border-radius: 0;
     background: rgba(15, 17, 21, 0.92);
     color: rgba(255, 232, 184, 0.9);
-    font: 600 13px/1 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
-    letter-spacing: 0.02em;
+    font: 600 12px/1 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     cursor: pointer;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
@@ -1481,4 +1501,91 @@
     border-color: rgba(74, 222, 128, 0.5);
     color: #dcfce7;
   }
+}
+
+/* CodePen export: code body wrapper + floating interaction chips */
+.gw-code-panel__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.gw-code-panel__body .gw-code-panel__code {
+  flex: 1 1 auto;
+}
+.gw-code-panel__float {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 2;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 6px;
+  background: rgba(3, 5, 10, 0.85);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  border-radius: 6px;
+  backdrop-filter: blur(3px);
+}
+.gw-code-panel__float-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 232, 184, 0.45);
+  margin-right: 2px;
+}
+.gw-code-panel__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  border-radius: 4px;
+  color: rgba(255, 232, 184, 0.55);
+  cursor: pointer;
+  user-select: none;
+}
+.gw-code-panel__chip.is-active {
+  color: rgba(255, 232, 184, 0.95);
+  border-color: rgba(255, 232, 184, 0.5);
+  background: rgba(255, 232, 184, 0.08);
+}
+.gw-code-panel__chip input { display: none; }
+.gw-code-panel__action--codepen {
+  color: #b7f7c0;
+  border-color: rgba(120, 220, 150, 0.4);
+}
+.gw-code-panel__action--codepen:disabled { opacity: 0.5; cursor: default; }
+
+/* CodePen export: static-mode chip + separator */
+.gw-code-panel__chip--static.is-active {
+  color: #b7f7c0;
+  border-color: rgba(120, 220, 150, 0.55);
+  background: rgba(120, 220, 150, 0.1);
+}
+.gw-code-panel__chip.is-disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.gw-code-panel__float-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 1px 3px;
+  background: rgba(255, 232, 184, 0.18);
+}
+
+/* CodePen static-encoding select */
+.gw-code-panel__enc {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 4px;
+  background: #080a0e;
+  color: rgba(255, 232, 184, 0.8);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 4px;
+  cursor: pointer;
 }

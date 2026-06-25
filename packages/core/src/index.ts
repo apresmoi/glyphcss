@@ -87,6 +87,8 @@ export {
 export type { DedupeOverlappingPolygonsOptions } from "./merge/dedupeOverlappingPolygons";
 export { coverPlanarPolygons } from "./merge/coverPlanarPolygons";
 export type { CoverPlanarPolygonsOptions } from "./merge/coverPlanarPolygons";
+export { decimatePolygons } from "./merge/decimatePolygons";
+export type { DecimateOptions } from "./merge/decimatePolygons";
 export { optimizeMeshPolygons } from "./merge/optimizePolygons";
 export type {
   ApproximateMergeOptions,

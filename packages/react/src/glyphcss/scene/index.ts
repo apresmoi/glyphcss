@@ -1,5 +1,7 @@
 export { GlyphScene } from "./GlyphScene";
 export type { GlyphSceneProps } from "./GlyphScene";
+export { GlyphSceneStatic } from "./GlyphSceneStatic";
+export type { GlyphSceneStaticProps } from "./GlyphSceneStatic";
 export { GlyphMesh } from "./GlyphMesh";
 export type { GlyphMeshProps } from "./GlyphMesh";
 export { GlyphGround } from "./GlyphGround";

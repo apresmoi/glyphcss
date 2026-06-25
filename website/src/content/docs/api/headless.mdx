@@ -194,3 +194,24 @@ const cells = projectHotspots(
 );
 // cells is { id, col, row, depth, visible }[]
 ```
+
+## Static compile
+
+`compileScene` renders a scene to its `<pre>` string with **no DOM** — same
+defaults as `createGlyphScene`, byte-identical output. The foundation of the
+build-time toolchain (see [Compiling to Static](/guides/compile)).
+
+```ts
+import { compileScene } from "glyphcss";
+
+const { html, inner, cols, rows } = compileScene({ polygons, cols: 80, rows: 24 });
+```
+
+For interactive exports, `buildGlyphInteractiveExport(polygons, { interactions })`
+(pure, browser-safe) emits a self-contained snippet shipping only the declared
+control + a decimated mesh; `glyphCodepenPrefill` turns it into a CodePen POST.
+Mesh simplification is available standalone as `decimatePolygons(polygons, { grid })`
+from `@glyphcss/core`.
+
+The Node file pipeline (`loadMeshFromFile`, `compileFile`, the Vite plugin, the
+`glyphcss-compile` CLI) lives in `@glyphcss/compile`.

@@ -93,18 +93,40 @@ function rasterizeSolid(
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
   const rampMax = ramp.length - 1;
 
-  // Glyph buffer: one char per cell (space = empty).
-  const glyphBuf: string[] = new Array(cols * rows).fill(" ");
+  // Per-cell scratch buffers (glyph + colour + depth + optional worldPos). These
+  // are cols*rows (up to ~80k entries at a fine supersampled grid) and were
+  // allocated fresh every render — the dominant per-frame garbage, which shows up
+  // as periodic GC frame-hitches. Reuse them across renders, stashed on the
+  // persistent camera (one camera per scene in practice); re-`fill` each frame
+  // (cheap, cache-friendly) and only reallocate when the grid size changes.
+  const n = cols * rows;
   const useColors = scene.useColors;
-  const colorBuf: (string | null)[] | null = useColors ? new Array(cols * rows).fill(null) : null;
-  // Depth buffer: -Infinity = nothing drawn yet. Higher `r[2]` = closer to
-  // viewer in our camera convention, so newer triangles win when their
-  // depth is GREATER than the existing buffer entry.
-  const depthBuf = new Float64Array(cols * rows).fill(-Infinity);
-  // World-position buffer for reprojection TAA — only allocated when temporal
-  // blending is on. NaN marks "no surface here" (empty cell).
   const reproject = scene.temporalBlend > 0 && !!scene.temporalHistory;
-  const worldPosBuf: Float32Array | null = reproject ? new Float32Array(cols * rows * 3).fill(NaN) : null;
+  const camHost = rawCamera as unknown as {
+    __glyphScratch?: { n: number; glyph: string[]; color: (string | null)[]; depth: Float64Array; world: Float32Array | null };
+  };
+  let scratch = camHost.__glyphScratch;
+  if (!scratch || scratch.n !== n) {
+    scratch = { n, glyph: new Array(n), color: new Array(n), depth: new Float64Array(n), world: null };
+    camHost.__glyphScratch = scratch;
+  }
+  // Glyph buffer: one char per cell (space = empty).
+  const glyphBuf: string[] = scratch.glyph;
+  glyphBuf.fill(" ");
+  const colorBuf: (string | null)[] | null = useColors ? (scratch.color.fill(null), scratch.color) : null;
+  // Depth buffer: -Infinity = nothing drawn yet. Higher `r[2]` = closer to the
+  // viewer in our camera convention, so newer triangles win when their depth is
+  // GREATER than the existing buffer entry.
+  const depthBuf = scratch.depth;
+  depthBuf.fill(-Infinity);
+  // World-position buffer for reprojection TAA — only needed when temporal
+  // blending is on. NaN marks "no surface here" (empty cell).
+  let worldPosBuf: Float32Array | null = null;
+  if (reproject) {
+    if (!scratch.world || scratch.world.length !== n * 3) scratch.world = new Float32Array(n * 3);
+    worldPosBuf = scratch.world;
+    worldPosBuf.fill(NaN);
+  }
 
   // Normalize the light direction once.
   const ld = directionalLight.direction;
@@ -186,6 +208,11 @@ function rasterizeSolid(
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
+    // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
+    // projection/shading/scan-fill. `triT` must still advance by this polygon's
+    // triangle count so the positional cross-frame shadeCache stays aligned when
+    // the hidden set changes between frames.
+    if (poly.hidden) { triT += verts.length - 2; continue; }
     // Texture for this polygon: sample per cell when a sampler + matching UVs
     // exist; otherwise fall back to the flat per-face color.
     const polyUvs = poly.uvs;
@@ -217,6 +244,25 @@ function rasterizeSolid(
       const nanCount =
         (pa[0] !== pa[0] ? 1 : 0) + (pb[0] !== pb[0] ? 1 : 0) + (pc[0] !== pc[0] ? 1 : 0);
       if (nanCount === 3) continue;
+
+      // Off-grid cull (fast path): a fully-projected triangle whose screen-space
+      // bounding box lies entirely outside the cell grid covers zero cells, so
+      // its shading + scan-fill are pure waste. Skipping it is visually exact.
+      // `triT` has already advanced, so the cross-frame shadeCache stays
+      // positionally aligned. Straddling tris (nanCount 1–2) are clipped below
+      // and can re-enter the grid, so they're never culled here. With the whole
+      // BSP submitted every frame (no PVS), most of the level is off-screen at
+      // any interior view — this is the bulk of the saved rasterize time.
+      if (nanCount === 0) {
+        const minX = Math.min(pa[0], pb[0], pc[0]);
+        if (minX >= cols) continue;
+        const maxX = Math.max(pa[0], pb[0], pc[0]);
+        if (maxX < 0) continue;
+        const minY = Math.min(pa[1], pb[1], pc[1]);
+        if (minY >= rows) continue;
+        const maxY = Math.max(pa[1], pb[1], pc[1]);
+        if (maxY < 0) continue;
+      }
 
       // Hoisted backface cull (fast path only — straddling triangles can't be
       // culled on NaN-bearing projected verts; their sub-triangles are culled

@@ -84,6 +84,7 @@ export default defineConfig({
             { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
             { label: 'Performance', slug: 'guides/performance' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
+            { label: 'Compiling to Static', slug: 'guides/compile' },
           ],
         },
         {

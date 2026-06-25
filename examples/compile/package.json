@@ -1,0 +1,9 @@
+{
+  "name": "@glyphcss/examples-compile",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": { "dev": "vite --port 6177", "build": "vite build", "preview": "vite preview --port 6177" },
+  "dependencies": { "@glyphcss/compile": "workspace:*" },
+  "devDependencies": { "vite": "^6.0.0" }
+}

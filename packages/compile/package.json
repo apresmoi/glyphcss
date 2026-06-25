@@ -1,0 +1,63 @@
+{
+  "name": "@glyphcss/compile",
+  "version": "0.0.8",
+  "description": "Compile 3D meshes to static glyphcss ASCII at build time — a Vite plugin, a CLI, and a Node API. Zero-runtime <pre> output for any static pipeline.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": ["glyphcss", "ascii", "3d", "compile", "vite", "vite-plugin", "static", "ssg", "cli"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
+    "directory": "packages/compile"
+  },
+  "bugs": {
+    "url": "https://github.com/apresmoi/glyphcss/issues"
+  },
+  "homepage": "https://github.com/apresmoi/glyphcss#readme",
+  "files": [
+    "dist",
+    "SKILL.md"
+  ],
+  "bin": {
+    "glyphcss": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@glyphcss/core": "workspace:^",
+    "glyphcss": "workspace:^",
+    "pngjs": "^7.0.0",
+    "jpeg-js": "^0.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/pngjs": "^6.0.5",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1",
+    "@vitest/coverage-v8": "^3.1.1"
+  }
+}

@@ -1629,6 +1629,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   function getDragMode(): DragMode { return controlState.dragMode; }
 
+  // Current (centered) polygons — used by the "export to CodePen" button.
+  function getPolygons(): Polygon[] { return geometry.polygons as Polygon[]; }
+
   // Expose handle on the demoEl
   (demoEl as unknown as {
     glyphcssDemo: {
@@ -1654,6 +1657,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       setLighting: (partial: { azimuth?: number; elevation?: number; keyIntensity?: number; ambientIntensity?: number; keyColor?: string; ambientColor?: string }) => void;
       setShadow: (partial: Partial<ShadowState>) => void;
       getDragMode: () => DragMode;
+      getPolygons: () => Polygon[];
     }
   }).glyphcssDemo = {
     setMeshUrl,
@@ -1678,6 +1682,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setLighting,
     setShadow,
     getDragMode,
+    getPolygons,
   };
 
   // ── lil-gui ───────────────────────────────────────────────────────────────

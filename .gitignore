@@ -24,3 +24,6 @@ gadm_410.gdb/
 
 # Legacy single-tile globe (superseded by the LOD tiles). Regenerable.
 website/public/data/earth.json
+
+# Generated from packages/compile/SKILL.md by website build (scripts/copy-skill.mjs)
+website/public/skill.md

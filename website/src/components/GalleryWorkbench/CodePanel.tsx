@@ -1,12 +1,138 @@
 import { useCallback, useMemo, useState } from "react";
+import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
+import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
+import { buildGlyphInteractiveExport, buildGlyphFramesExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
+import type { GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
 
+const midV = (a: Vec3, b: Vec3): Vec3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+const midU = (a: Vec2, b: Vec2): Vec2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+
+/**
+ * Subdivide each textured triangle (4-way, UV-interpolated) `levels` times so a
+ * standalone snippet — which can't ship the texture image — captures sub-face
+ * color when each piece is baked to its own average. Untextured faces pass through.
+ */
+function subdivideTexturedPolygons(polygons: Polygon[], levels: number): Polygon[] {
+  const out: Polygon[] = [];
+  for (const p of polygons) {
+    const tts = p.textureTriangles;
+    if (!tts || tts.length === 0) { out.push(p); continue; }
+    for (const tt of tts) {
+      let pieces: { v: [Vec3, Vec3, Vec3]; uv: [Vec2, Vec2, Vec2] }[] = [{ v: tt.vertices, uv: tt.uvs }];
+      for (let l = 0; l < levels; l++) {
+        const next: typeof pieces = [];
+        for (const { v, uv } of pieces) {
+          const m01 = midV(v[0], v[1]), m12 = midV(v[1], v[2]), m20 = midV(v[2], v[0]);
+          const u01 = midU(uv[0], uv[1]), u12 = midU(uv[1], uv[2]), u20 = midU(uv[2], uv[0]);
+          next.push(
+            { v: [v[0], m01, m20], uv: [uv[0], u01, u20] },
+            { v: [m01, v[1], m12], uv: [u01, uv[1], u12] },
+            { v: [m20, m12, v[2]], uv: [u20, u12, uv[2]] },
+            { v: [m01, m12, m20], uv: [u01, u12, u20] },
+          );
+        }
+        pieces = next;
+      }
+      for (const { v, uv } of pieces) {
+        out.push({ ...p, vertices: v, uvs: undefined, textureTriangles: [{ vertices: v, uvs: uv, texture: tt.texture ?? p.texture }] });
+      }
+    }
+  }
+  return out;
+}
+
 type Tab = "html" | "vanilla" | "react" | "vue";
+
+const INTERACTION_LIST: { key: GlyphInteraction; label: string }[] = [
+  { key: "orbit", label: "Orbit" },
+  { key: "zoom", label: "Zoom" },
+  { key: "pan", label: "Pan" },
+  { key: "fpv", label: "FPV" },
+];
+
+/**
+ * Build a fully-static CodePen from the LIVE rendered `<pre>` — the exact ASCII
+ * on screen (full per-cell color/texture detail), with ZERO runtime: no glyphcss,
+ * no JS, just the baked `<pre>` + its font CSS.
+ */
+function buildStaticPen(mode: GlyphStaticEncoding): { html: string; css: string; js: string } | null {
+  const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
+  if (!pre || !pre.innerHTML.trim()) return null;
+  const cs = getComputedStyle(pre);
+  // Faithful to the library: font + per-cell colors only, no glow/tint effects.
+  const fontCss = `html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}
+.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
+  // crop: true drops the empty grid margin (leading spaces / blank rows) so the
+  // centered block hugs the actual glyphs. Grid mode also needs explicit track
+  // sizes that match the rendered cell, or line-height / column advance drift.
+  const encOpts: { crop: boolean; rowHeight?: string; colWidth?: string } = { crop: true };
+  if (mode === "grid") {
+    encOpts.rowHeight = cs.lineHeight === "normal" ? `${parseFloat(cs.fontSize) * 1.2}px` : cs.lineHeight;
+    encOpts.colWidth = "1ch";
+    try {
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (ctx) { ctx.font = `${cs.fontSize} ${cs.fontFamily}`; const w = ctx.measureText("0").width; if (w > 0) encOpts.colWidth = `${w}px`; }
+    } catch { /* fall back to 1ch */ }
+  }
+  const enc = encodeStaticGlyphHtml(pre.innerHTML, mode, encOpts);
+  return { html: enc.html, css: enc.css ? `${fontCss}\n${enc.css}` : fontCss, js: "" };
+}
+
+/**
+ * Load the same polygons the gallery renders, ready for export. Primitives carry
+ * their `uprightAlongZ` orientation via the preset generator; URL models load
+ * from source. Textured meshes are subdivided + baked to per-face color (a
+ * snippet can't ship the image), capped to keep the count reasonable.
+ */
+async function loadExportPolygons(preset: PresetModel): Promise<{ polygons: Polygon[]; textured: boolean }> {
+  if (preset.kind === "primitive") return { polygons: preset.generatePolygons(), textured: false };
+  const parsed = await loadMesh(preset.url, { mtlUrl: preset.mtlUrl, solidTextureSamples: false });
+  const texturedTris = parsed.polygons.reduce((n, p) => n + (p.textureTriangles?.length ?? 0), 0);
+  if (texturedTris > 0) {
+    let levels = 2;
+    while (levels > 0 && texturedTris * 4 ** levels > 6000) levels--;
+    const sub = subdivideTexturedPolygons(parsed.polygons, levels);
+    return { polygons: await bakeSolidTextureSampledPolygons(sub, { colorTolerance: 255 }), textured: true };
+  }
+  return { polygons: parsed.polygons, textured: false };
+}
+
+/** Live-render grid + cell metrics, read off the on-screen `<pre>`. */
+function liveGridMetrics(): { cols: number; rows: number; lineHeightPx: number; fontSizePx: number } {
+  const pre = document.querySelector("pre.glyph-output") as HTMLElement | null;
+  const lines = (pre?.textContent ?? "").replace(/\s+$/, "").split("\n");
+  const rows = Math.max(1, lines.length);
+  const cols = lines.reduce((m, l) => Math.max(m, l.length), 1);
+  const cs = pre ? getComputedStyle(pre) : null;
+  const fontSizePx = cs ? parseFloat(cs.fontSize) || 13 : 13;
+  const lineHeightPx = cs ? (cs.lineHeight === "normal" ? fontSizePx * 1.2 : parseFloat(cs.lineHeight) || fontSizePx) : fontSizePx;
+  return { cols, rows, lineHeightPx, fontSizePx };
+}
+
+/** POST a CodePen prefill payload (opens a new pen in a new tab). */
+function postToCodepen(prefill: { action: string; data: string }): void {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = prefill.action;
+  form.target = "_blank";
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "data";
+  input.value = prefill.data;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
 
 interface CodePanelProps {
   meshUrl: string;
   options: SceneOptionsState;
   selectedPreset: PresetModel;
+  /** Extra classes (e.g. `is-mobile-open` to show the panel as a mobile drawer). */
+  className?: string;
+  id?: string;
 }
 
 // Primitive presets that need a +90° X rotation so their natural Y-up axis maps
@@ -276,7 +402,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "React", vue: "Vue" };
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
-export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) {
+export function CodePanel({ meshUrl, options, selectedPreset, className, id }: CodePanelProps) {
   const [tab, setTab] = useState<Tab>("react");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -295,8 +421,83 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
     }
   }, [snippets, tab]);
 
+  const [interactions, setInteractions] = useState<Set<GlyphInteraction>>(() => new Set(["orbit", "zoom"]));
+  const [staticMode, setStaticMode] = useState(false);
+  const [staticEncoding, setStaticEncoding] = useState<GlyphStaticEncoding>("classes");
+  const [rotate, setRotate] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const toggleInteraction = useCallback((k: GlyphInteraction) => {
+    setStaticMode(false); // choosing an interaction means it's not a static export
+    setInteractions((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }, []);
+
+  // Compile the current model + chosen interactions into a self-contained,
+  // decimated glyphcss snippet and open it as a new CodePen. Polygons are loaded
+  // from the same source the gallery uses (URL mesh or built-in primitive).
+  const handleCodepen = useCallback(async () => {
+    setExporting(true);
+    try {
+      const title = (selectedPreset as { label?: string }).label ?? "glyphcss";
+      const projection = options.perspective === false ? "orthographic" as const : "perspective" as const;
+      const perspectivePx = options.perspective === false ? undefined : options.perspective;
+
+      // Static mode.
+      if (staticMode) {
+        // Static + rotate: bake a turntable of frames → pure-CSS steps() loop.
+        // No mesh, no glyphcss runtime — just pre-rendered text frames.
+        if (rotate) {
+          const { polygons } = await loadExportPolygons(selectedPreset);
+          const g = liveGridMetrics();
+          const frames = buildGlyphFramesExport(polygons, {
+            frameCount: 36,
+            rotX: options.rotX, rotY: options.rotY, zoom: options.zoom,
+            projection, perspectivePx,
+            // pad the grid so the silhouette doesn't clip as it turns
+            cols: Math.round(g.cols * 1.3), rows: Math.round(g.rows * 1.3),
+            lineHeightPx: g.lineHeightPx, fontSizePx: g.fontSizePx,
+            mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
+            useColors: options.useColors, autoCenter: true,
+          });
+          postToCodepen({ action: "https://codepen.io/pen/define", data: JSON.stringify({ title, ...frames.pen, editors: "110" }) });
+          return;
+        }
+        // Static (single frame): ship the live-rendered <pre> as-is.
+        const pen = buildStaticPen(staticEncoding);
+        if (!pen) { console.warn("glyphcss: no rendered frame to export"); return; }
+        postToCodepen({ action: "https://codepen.io/pen/define", data: JSON.stringify({ title, ...pen, editors: "100" }) });
+        return;
+      }
+
+      const { polygons, textured } = await loadExportPolygons(selectedPreset);
+      const decimateGrid = textured ? 100000 : undefined; // textured → keep baked color detail
+      const result = buildGlyphInteractiveExport(polygons, {
+        interactions: [...interactions],
+        rotX: options.rotX,
+        rotY: options.rotY,
+        zoom: options.zoom,
+        // Match the gallery's projection (it defaults to orthographic) so the
+        // export frames identically and map-controls pan tracks correctly.
+        projection,
+        perspectivePx,
+        autoCenter: true,
+        mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
+        useColors: options.useColors,
+        decimateGrid,
+      });
+      postToCodepen(glyphCodepenPrefill(result, title));
+    } catch (err) {
+      console.error("glyphcss: CodePen export failed", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate]);
+
   return (
-    <aside className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}`}>
+    <aside id={id} className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}${className ? ` ${className}` : ""}`}>
       <header className="gw-code-panel__head">
         <span className="gw-code-panel__legend">[ CODE ]</span>
         <div className="gw-code-panel__tabs">
@@ -312,6 +513,15 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
           ))}
         </div>
         <div className="gw-code-panel__actions">
+          <button
+            type="button"
+            className="gw-code-panel__action gw-code-panel__action--codepen"
+            onClick={handleCodepen}
+            disabled={exporting}
+            title="Compile this model + chosen interactions into a new CodePen"
+          >
+            {exporting ? "Exporting…" : "CodePen"}
+          </button>
           <button
             type="button"
             className="gw-code-panel__action"
@@ -332,7 +542,54 @@ export function CodePanel({ meshUrl, options, selectedPreset }: CodePanelProps) 
         </div>
       </header>
       {!collapsed && (
-        <pre className="gw-code-panel__code"><code>{snippets[tab]}</code></pre>
+        <div className="gw-code-panel__body">
+          <div className="gw-code-panel__float" title="What to compile into the CodePen export">
+            <label
+              className={`gw-code-panel__chip gw-code-panel__chip--static${staticMode ? " is-active" : ""}`}
+              title="Export the rendered ASCII only — no glyphcss runtime, zero JS"
+            >
+              <input type="checkbox" checked={staticMode} onChange={() => setStaticMode((v) => !v)} />
+              Static
+            </label>
+            {staticMode && (
+              <label
+                className={`gw-code-panel__chip gw-code-panel__chip--static${rotate ? " is-active" : ""}`}
+                title="Bake a turntable of frames — pure-CSS rotation, still zero JS / no mesh"
+              >
+                <input type="checkbox" checked={rotate} onChange={() => setRotate((v) => !v)} />
+                Auto-rotate
+              </label>
+            )}
+            {staticMode && !rotate && (
+              <select
+                className="gw-code-panel__enc"
+                value={staticEncoding}
+                onChange={(e) => setStaticEncoding(e.target.value as GlyphStaticEncoding)}
+                title="Static encoding: classes (smallest), grid (no literal spaces), inline (simplest)"
+              >
+                <option value="classes">classes</option>
+                <option value="grid">grid</option>
+                <option value="inline">inline</option>
+              </select>
+            )}
+            <span className="gw-code-panel__float-sep" />
+            {INTERACTION_LIST.map(({ key, label }) => (
+              <label
+                key={key}
+                className={`gw-code-panel__chip${!staticMode && interactions.has(key) ? " is-active" : ""}${staticMode ? " is-disabled" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  disabled={staticMode}
+                  checked={!staticMode && interactions.has(key)}
+                  onChange={() => toggleInteraction(key)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <pre className="gw-code-panel__code"><code>{snippets[tab]}</code></pre>
+        </div>
       )}
     </aside>
   );
