@@ -98,6 +98,7 @@ The pure, browser-safe builder is `buildGlyphInteractiveExport(polygons, opts)` 
 
 ## Notes
 
-- **Textures**: per-cell texture sampling needs browser image decoding, so the
-  static compile renders from material / vertex colors (the same fallback the
-  runtime uses before its async samplers resolve).
+- **Textures**: the CLI / Node API decode PNG/JPG and bake each face to its
+  sampled color, so external (OBJ + `.mtl`) textures render in **true color** in
+  the terminal. GLB-embedded textures fall back to material/vertex colors. The
+  pure `compileScene` stays DOM-free — decoding lives in `loadMeshFromFile`.

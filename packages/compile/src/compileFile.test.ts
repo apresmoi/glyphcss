@@ -60,6 +60,19 @@ describe("@glyphcss/compile — autoFit", () => {
     expect(minLead).toBe(0);
   });
 
+  it("loads OBJ material + bakes texture colors (no palette-blue fallback)", async () => {
+    const EXT = resolve(process.cwd(), "../../website/public/gallery/obj/opengameart/fire-extinguisher/extinguisher.obj");
+    const r = await loadMeshFromFile(EXT);
+    const colors = new Set(r.polygons.map((p) => p.color).filter(Boolean) as string[]);
+    expect(colors.size).toBeGreaterThan(10);     // sampled from the texture → many colors
+    expect(colors.has("#3b82f6")).toBe(false);   // not parseObj's palette fallback
+    const reddish = [...colors].some((c) => {
+      const rr = parseInt(c.slice(1, 3), 16), bb = parseInt(c.slice(5, 7), 16);
+      return rr > 120 && rr > bb + 40;            // extinguisher body red
+    });
+    expect(reddish).toBe(true);
+  });
+
   it("fits by rows — cols adapt to show the whole model", async () => {
     const r = await compileFile(DOG, { autoFit: { target: 24, by: "rows" }, autoCenter: true, rotX: 72, rotY: 28 });
     expect(r.rows).toBeGreaterThan(0);
