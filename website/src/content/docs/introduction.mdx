@@ -1,14 +1,20 @@
 ---
 title: Introduction
-description: What glyphcss is and the problem it solves.
+description: glyphcss renders 3D models as ASCII art — in the browser, React/Vue, or your terminal. The successor to polycss, with a three.js-style API and no WebGL.
 ---
 
 import GlyphDemo from "../../components/GlyphDemo.astro";
 
-**glyphcss** is an ASCII polygon-mesh rendering engine for the DOM. It paints 3D meshes
-(OBJ / glTF / GLB / VOX) into a character grid, then animates rotation via CSS
-`steps(N)` keyframes. JavaScript runs once at scene init and again only when the user
-drags or zooms — never per frame.
+**glyphcss** turns **3D models into ASCII art**. It rasterizes meshes (OBJ, glTF, GLB,
+STL, MagicaVoxel `.vox`) into a character grid rendered as plain text in a single
+`<pre>` — no WebGL, no canvas, no per-polygon DOM nodes. Use it in the browser
+(vanilla, React, or Vue), or render straight to your terminal with the CLI.
+JavaScript runs once at scene init and again only when the user drags or zooms —
+never per frame.
+
+It's the successor to **[polycss](https://github.com/apresmoi/polycss)**, the
+CSS-transform polygon paint engine — same scene/camera API, but the paint backend
+emits ASCII text instead of a DOM node per polygon.
 
 <GlyphDemo id="intro-demo" mesh="/gallery/glb/apple.glb" defaults='{"renderMode":"solid"}' />
 
