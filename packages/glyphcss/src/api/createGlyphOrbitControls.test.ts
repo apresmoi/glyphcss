@@ -51,6 +51,26 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 
+  it("two-finger pinch zooms the camera (spread = zoom in, pinch = zoom out)", () => {
+    const controls = createGlyphOrbitControls(scene, { wheel: true });
+    const dispatch = (type: string, x: number, y: number, pointerId: number, isPrimary: boolean) =>
+      scene.host.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId, isPrimary, bubbles: true }));
+    const initialZoom = scene.camera.zoom;
+    // two fingers 50px apart
+    dispatch("pointerdown", 100, 100, 1, true);
+    dispatch("pointerdown", 150, 100, 2, false);
+    // spread to 150px apart → ~3× zoom in
+    dispatch("pointermove", 250, 100, 2, false);
+    expect(scene.camera.zoom).toBeGreaterThan(initialZoom);
+    const zoomedIn = scene.camera.zoom;
+    // bring together to 20px → zoom out
+    dispatch("pointermove", 120, 100, 2, false);
+    expect(scene.camera.zoom).toBeLessThan(zoomedIn);
+    pu(scene.host, 1);
+    pu(scene.host, 2);
+    controls.destroy();
+  });
+
   it("dragging right decreases rotY (camera spins left)", () => {
     const controls = createGlyphOrbitControls(scene);
     const initialRotY = scene.camera.rotY;

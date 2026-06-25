@@ -49,9 +49,14 @@ export function createGlyphMapControls(
   let animPaused = false;
   let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
   let lastTime: number | null = null;
+  // Multi-touch: track every active pointer so two fingers can pinch-zoom while
+  // one finger pans. `activePointerId` is the single pointer driving the pan.
+  const pointers = new Map<number, { x: number; y: number }>();
   let activePointerId: number | null = null;
   let pointer = { x: 0, y: 0 };
   let rightDown = false;
+  let pinchDist = 0; // finger distance when the pinch began
+  let pinchZoom = 0; // camera.zoom when the pinch began
 
   const camera = scene.camera;
   const registry = makeListenerRegistry();
@@ -63,28 +68,58 @@ export function createGlyphMapControls(
   const DEG_PER_PX = 1 / 4;
   const PAN_SCALE = 0.02;
 
+  function twoFingerDist(): number {
+    const p = [...pointers.values()];
+    return p.length >= 2 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0;
+  }
+
   function onPointerDown(e: PointerEvent): void {
     if (!drag || stopped) return;
-    if (activePointerId !== null) return;
-    if (e.isPrimary === false) return;
+    // The first pointer must be primary (ignore stray secondary buttons); later
+    // pointers join regardless so a second finger can pinch-zoom.
+    if (pointers.size === 0 && e.isPrimary === false) return;
     e.preventDefault();
-    activePointerId = e.pointerId;
-    pointer = { x: e.clientX, y: e.clientY };
-    rightDown = e.button === 2;
-    host.style.cursor = "grabbing";
+    if (pointers.size === 0) emitInteraction("start", snapshot);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     // Capture on the stable host, NOT e.target — colored output rewrites the
     // <pre> innerHTML each render, destroying the captured <span> → pointercancel
     // would abort the drag mid-gesture.
     try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-    if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
-      animPaused = true;
+    if (pointers.size >= 2) {
+      // Two fingers → pinch-zoom; suspend pan.
+      activePointerId = null;
+      pinchDist = twoFingerDist();
+      pinchZoom = camera.zoom;
+      host.style.cursor = "";
+    } else {
+      activePointerId = e.pointerId;
+      pointer = { x: e.clientX, y: e.clientY };
+      rightDown = e.button === 2;
+      host.style.cursor = "grabbing";
+      if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
+        animPaused = true;
+      }
     }
-    emitInteraction("start", snapshot);
   }
 
   function onPointerMove(e: PointerEvent): void {
-    if (activePointerId === null || e.pointerId !== activePointerId) return;
-    if (!drag || stopped) return;
+    if (stopped || !pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size >= 2) {
+      // Pinch-zoom (only when zoom/wheel is enabled).
+      if (!wheel) return;
+      e.preventDefault();
+      const d = twoFingerDist();
+      if (pinchDist > 0 && d > 0) {
+        camera.zoom = Math.max(0.1, Math.min(500, pinchZoom * (d / pinchDist)));
+        scene.rerender();
+        emitChange(snapshot);
+      }
+      return;
+    }
+
+    if (!drag || e.pointerId !== activePointerId) return;
     e.preventDefault();
     const dx = e.clientX - pointer.x;
     const dy = e.clientY - pointer.y;
@@ -109,13 +144,24 @@ export function createGlyphMapControls(
   }
 
   function onPointerUp(e: PointerEvent): void {
-    if (activePointerId !== e.pointerId) return;
-    activePointerId = null;
-    rightDown = false;
-    host.style.cursor = drag && !stopped ? "grab" : "";
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
     try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-    if (animOpts) animPaused = false;
-    emitInteraction("end", snapshot);
+    if (e.pointerId === activePointerId) activePointerId = null;
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) {
+      // One finger left after a pinch → resume pan from it (no jump).
+      const [id, pos] = [...pointers.entries()][0];
+      activePointerId = id;
+      pointer = { x: pos.x, y: pos.y };
+      rightDown = false;
+      host.style.cursor = drag && !stopped ? "grabbing" : "";
+    } else if (pointers.size === 0) {
+      rightDown = false;
+      host.style.cursor = drag && !stopped ? "grab" : "";
+      if (animOpts) animPaused = false;
+      emitInteraction("end", snapshot);
+    }
   }
 
   function onContextMenu(e: Event): void { e.preventDefault(); }
