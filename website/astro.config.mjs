@@ -89,6 +89,7 @@ export default defineConfig({
             { label: 'Performance', slug: 'guides/performance' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
+            { label: 'Coding agents', slug: 'guides/coding-agents' },
           ],
         },
         {

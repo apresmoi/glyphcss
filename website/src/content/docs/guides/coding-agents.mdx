@@ -1,0 +1,64 @@
+---
+title: Coding agents
+description: Give Claude Code, Cursor, Codex, and other AI coding agents the glyphcss skill so they can render 3D models and shapes as ASCII art directly in the terminal.
+---
+
+glyphcss ships a **skill** so AI coding agents — Claude Code, Cursor, Codex, and
+anything that reads a `SKILL.md` — know how to render 3D models and primitive
+shapes as **ASCII art** straight in the terminal. Ask *"render a cube in the
+terminal"* and the agent runs `glyphcss cube --auto-center` and shows you the
+colored output inline.
+
+## Install the CLI
+
+The skill drives the [`@glyphcss/compile`](/guides/compile/) CLI. Install it once:
+
+```sh
+npm i -g @glyphcss/compile   # the command is `glyphcss`
+# or, no install:
+npx @glyphcss/compile cube --auto-center
+```
+
+## Add the skill
+
+Point your agent at the skill, either way:
+
+- **From npm** — it's bundled with the package at
+  `node_modules/@glyphcss/compile/SKILL.md`.
+- **From the web** — fetch [**glyphcss.com/skill.md**](/skill.md) and drop it into
+  your agent's skills folder. For **Claude Code** that's
+  `.claude/skills/glyphcss/SKILL.md`:
+
+  ```sh
+  mkdir -p .claude/skills/glyphcss
+  curl -sS https://glyphcss.com/skill.md -o .claude/skills/glyphcss/SKILL.md
+  ```
+
+Cursor, Codex, and other agents that support skill/rule files can use the same
+`SKILL.md` — it's plain Markdown describing the CLI.
+
+## What the agent can do
+
+Once the skill is in place, natural-language requests map to CLI runs:
+
+| You ask | The agent runs |
+|---|---|
+| "render a cube in the terminal" | `glyphcss cube --auto-center` |
+| "show me this model as ASCII" | `glyphcss model.glb --auto-center` |
+| "render a torus, rotated" | `glyphcss torus --rot-x 60 --rot-y 30 --auto-center` |
+| "ascii-art these polygons" | `glyphcss --polygons-json '[…]'` |
+| "save it as an HTML page" | `glyphcss model.obj -f full -o out.html` |
+
+Input can be a **mesh file** (`.obj/.glb/.gltf/.vox/.stl`), a **primitive shape**
+(`cube`, `sphere`, `icosahedron`, `torus`, `cone`, … — 44 shapes), or **custom
+polygons** as JSON. In a terminal the output defaults to truecolor ANSI, so it
+shows in color right in the agent's console.
+
+## Example prompts
+
+- *"Use glyphcss to render a dodecahedron and show it to me."*
+- *"Render `./assets/ship.glb` as ASCII at 60 columns."*
+- *"Generate ASCII art of a red triangle with glyphcss."*
+
+See the [Compiling to Static](/guides/compile/) guide for the full CLI reference,
+the Vite plugin, and the Node API.
