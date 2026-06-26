@@ -52,7 +52,7 @@ const CORE_BASE_STYLES = `
 /* Text isn't selectable by default — dragging orbits the camera instead of
    highlighting glyphs. Unscoped so it also covers compiled / static output
    (a bare .glyph-output with no .glyph-scene ancestor). Re-enable per scene
-   with the `glyph-selectable` class (or your own `user-select` override). */
+   with the glyph-selectable class (or your own user-select override). */
 .glyph-output {
   user-select: none;
   -webkit-user-select: none;
