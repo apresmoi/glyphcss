@@ -47,8 +47,19 @@ const CORE_BASE_STYLES = `
   line-height: 1;
   white-space: pre;
   overflow: hidden;
+}
+
+/* Text isn't selectable by default — dragging orbits the camera instead of
+   highlighting glyphs. Unscoped so it also covers compiled / static output
+   (a bare .glyph-output with no .glyph-scene ancestor). Re-enable per scene
+   with the `glyph-selectable` class (or your own `user-select` override). */
+.glyph-output {
   user-select: none;
   -webkit-user-select: none;
+}
+.glyph-output.glyph-selectable {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* ── Hotspot overlay ─────────────────────────────────────────────────── */
