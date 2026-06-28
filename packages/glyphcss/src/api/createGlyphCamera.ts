@@ -92,10 +92,52 @@ function rotateVec3Voxcss(v: Vec3, rotXDeg: number, rotYDeg: number): Vec3 {
   return [rx, ry2, rz2];
 }
 
+/**
+ * Apply a pre-built 9-element row-major 3×3 rotation matrix to a world-space
+ * vector.  Mirrors `project_ortho` in glyphcss.c: the SAME axis-swap
+ * (vx = v[1], vy = v[0], vz = v[2]) is baked in so the output is numerically
+ * identical to the C reference for the same `mat` array.
+ *
+ * Used by the `useMat=true` camera path (quaternion trackball).
+ *
+ * Layout: row-major 3×3, same convention as `gc_opts.mat`:
+ *   rx  = mat[0]·vx + mat[1]·vy + mat[2]·vz
+ *   ry2 = mat[3]·vx + mat[4]·vy + mat[5]·vz
+ *   rz2 = mat[6]·vx + mat[7]·vy + mat[8]·vz
+ */
+function rotateVec3WithMat(v: Vec3, mat: number[]): Vec3 {
+  // Axis-swap identical to glyphcss.c project_ortho line 99.
+  const vx = v[1];
+  const vy = v[0];
+  const vz = v[2];
+  return [
+    mat[0] * vx + mat[1] * vy + mat[2] * vz,
+    mat[3] * vx + mat[4] * vy + mat[5] * vz,
+    mat[6] * vx + mat[7] * vy + mat[8] * vz,
+  ];
+}
+
 export interface GlyphCamera {
   readonly kind: "perspective" | "orthographic";
   rotX: number;
   rotY: number;
+  /** Projection center in normalized grid coords (default `[0.5, 0.5]`). Mutable — detail layers offset it to render a bbox sub-window. */
+  center: [number, number];
+  /**
+   * 9-element row-major 3×3 rotation matrix, same layout as `gc_opts.mat` in
+   * glyphcss.c.  Set this together with `useMat=true` to switch the camera to
+   * the quaternion/matrix path and achieve device-parity for any orientation,
+   * including poles where the 2-Euler path has gimbal lock.
+   * `null` = no matrix override (Euler path is used regardless of `useMat`).
+   */
+  mat: number[] | null;
+  /**
+   * When `true` and `mat` is set, the camera projects using `mat` instead of
+   * the Euler `rotX`/`rotY` angles.  Default `false` (Euler path, backward
+   * compatible).  Setting `useMat=true` with `mat=null` is a no-op (falls back
+   * to Euler).
+   */
+  useMat: boolean;
   /** Distance from target along the view axis. For perspective cameras: world units. Default 0. */
   distance: number;
   /**
@@ -198,6 +240,16 @@ export interface GlyphPerspectiveCameraOptions {
   fovScale?: number;
   /** Center of projection in normalized grid coords. Default `[0.5, 0.5]`. */
   center?: [number, number];
+  /**
+   * 9-element row-major 3×3 rotation matrix (same layout as `gc_opts.mat`).
+   * Provide together with `useMat=true` to use the matrix path instead of Euler.
+   */
+  mat?: number[];
+  /**
+   * When `true` and `mat` is set, use `mat` for projection instead of Euler
+   * `rotX`/`rotY`.  Default `false` (Euler, backward compatible).
+   */
+  useMat?: boolean;
 }
 
 export interface GlyphOrthographicCameraOptions {
@@ -212,6 +264,16 @@ export interface GlyphOrthographicCameraOptions {
   zoom?: number;
   /** Center of projection in normalized grid coords. Default `[0.5, 0.5]`. */
   center?: [number, number];
+  /**
+   * 9-element row-major 3×3 rotation matrix (same layout as `gc_opts.mat`).
+   * Provide together with `useMat=true` to use the matrix path instead of Euler.
+   */
+  mat?: number[];
+  /**
+   * When `true` and `mat` is set, use `mat` for projection instead of Euler
+   * `rotX`/`rotY`.  Default `false` (Euler, backward compatible).
+   */
+  useMat?: boolean;
 }
 
 /** Handle alias — same surface as `GlyphCamera`, names matched to glyphcss. */
@@ -234,11 +296,15 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     // first-person field of view feels — 1 world unit behind the eye plane
     // projects at unit scale.
     focal: 1.0,
+    mat: opts.mat ?? null as number[] | null,
+    useMat: opts.useMat ?? false,
+    center: (opts.center ?? [0.5, 0.5]) as [number, number],
   };
-  const [cxN, cyN] = opts.center ?? [0.5, 0.5];
 
   return {
     kind: "perspective",
+    get center(): [number, number] { return state.center; },
+    set center(v: [number, number]) { state.center = v; },
     get rotX(): number { return state.rotX; },
     set rotX(v: number) { state.rotX = v; },
     get rotY(): number { return state.rotY; },
@@ -257,12 +323,15 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     set target(v: Vec3) { state.target = v; },
     get eyeMode(): boolean { return state.eyeMode; },
     set eyeMode(v: boolean) { state.eyeMode = v; },
+    get mat(): number[] | null { return state.mat; },
+    set mat(v: number[] | null) { state.mat = v; },
+    get useMat(): boolean { return state.useMat; },
+    set useMat(v: boolean) { state.useMat = v; },
     eyeDepth(v) {
-      const r = rotateVec3Voxcss(
-        [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]],
-        state.rotX,
-        state.rotY,
-      );
+      const shifted: Vec3 = [v[0] - state.target[0], v[1] - state.target[1], v[2] - state.target[2]];
+      const r = (state.useMat && state.mat)
+        ? rotateVec3WithMat(shifted, state.mat)
+        : rotateVec3Voxcss(shifted, state.rotX, state.rotY);
       // Clip a hair inside the projection near plane (0.001) for the same reason
       // as the perspective branch — crossing vertices must reproject finitely.
       const NEAR = 0.001 * 1.01;
@@ -287,13 +356,16 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       // cellPxW = BASE_TILE / cellAspect.
       const cellPxH = BASE_TILE;
       const cellPxW = BASE_TILE / cellAspect;
+      const cxN = state.center[0], cyN = state.center[1];
 
       const shifted: Vec3 = [
         v[0] - state.target[0],
         v[1] - state.target[1],
         v[2] - state.target[2],
       ];
-      const r = rotateVec3Voxcss(shifted, state.rotX, state.rotY);
+      const r = (state.useMat && state.mat)
+        ? rotateVec3WithMat(shifted, state.mat)
+        : rotateVec3Voxcss(shifted, state.rotX, state.rotY);
 
       // eyeMode (first-person) takes precedence over `perspective`: the camera
       // can carry the default CSS-perspective value and still be flipped into
@@ -378,11 +450,15 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     stretch: 1.0,
     fovScale: 1.0,
     target: [0, 0, 0] as Vec3,
+    mat: opts.mat ?? null as number[] | null,
+    useMat: opts.useMat ?? false,
+    center: (opts.center ?? [0.5, 0.5]) as [number, number],
   };
-  const [cxN, cyN] = opts.center ?? [0.5, 0.5];
 
   return {
     kind: "orthographic",
+    get center(): [number, number] { return state.center; },
+    set center(v: [number, number]) { state.center = v; },
     get rotX(): number { return state.rotX; },
     set rotX(v: number) { state.rotX = v; },
     get rotY(): number { return state.rotY; },
@@ -404,6 +480,10 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     // so the field satisfies the GlyphCamera interface.
     get eyeMode(): boolean { return false; },
     set eyeMode(_v: boolean) { /* no-op — orthographic projection has no eye mode */ },
+    get mat(): number[] | null { return state.mat; },
+    set mat(v: number[] | null) { state.mat = v; },
+    get useMat(): boolean { return state.useMat; },
+    set useMat(v: boolean) { state.useMat = v; },
     // Orthographic projection has no eye, so nothing is ever near-clipped.
     eyeDepth(_v) { return Number.POSITIVE_INFINITY; },
     project(v, cols, rows, cellAspect) {
@@ -416,9 +496,14 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
         v[1] - state.target[1],
         v[2] - state.target[2],
       ];
-      const r = rotateVec3Voxcss(shifted, state.rotX, state.rotY);
+      // Branch: use the matrix path (quaternion trackball, no pole singularity)
+      // or the Euler path (backward-compatible default).
+      const r = (state.useMat && state.mat)
+        ? rotateVec3WithMat(shifted, state.mat)
+        : rotateVec3Voxcss(shifted, state.rotX, state.rotY);
 
       // Orthographic: no perspective divide.
+      const cxN = state.center[0], cyN = state.center[1];
       const screenPxX = r[0] * state.zoom * BASE_TILE;
       const screenPxY = r[1] * state.zoom * BASE_TILE;
       const col = cols * cxN + screenPxX / cellPxW * state.fovScale;

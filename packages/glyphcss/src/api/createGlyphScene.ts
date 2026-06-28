@@ -467,6 +467,7 @@ export function createGlyphScene(
 
     const camera = options.camera;
     const baseZoom = camera.zoom;
+    const baseCenter: [number, number] = [camera.center[0], camera.center[1]];
     const colsB = options.cols, rowsB = options.rows, caB = options.cellAspect;
     const baseCell = baseCellMetrics();
     const cwB = baseCell.w, chB = baseCell.h;
@@ -515,58 +516,53 @@ export function createGlyphScene(
         const cwD = layer.cw, chD = layer.ch;
         if (!(cwD > 0) || !(chD > 0)) continue;
         const caD = chD / cwD;
-        const zoomD = baseZoom * (chB / chD);
 
-        // Transform to world, then recenter on the mesh bbox so it sits at the
-        // detail grid's center (the camera centers projection at [0.5,0.5]).
+        // Render the mesh IN PLACE (no centering) into a bbox-fitted sub-window.
+        // Works for ANY camera (ortho / perspective / FPV): real world positions
+        // are kept so foreshortening stays correct; zoom is scaled by the detail
+        // resolution; the projection CENTER is offset so the mesh's screen bbox
+        // maps onto the small grid. (The old centre-then-CSS-translate trick was
+        // orthographic-only — under perspective, apparent size depends on world
+        // position, so re-centering to the origin distorts the mesh.)
         const tp = applyTransform(entry.polygons, entry.transform);
-        let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+
+        // Mesh screen bbox in BASE cells (base zoom + base center).
+        camera.zoom = baseZoom; camera.center = baseCenter;
+        let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
         for (const p of tp) for (const v of p.vertices) {
-          if (v[0] < mnx) mnx = v[0]; if (v[1] < mny) mny = v[1]; if (v[2] < mnz) mnz = v[2];
-          if (v[0] > mxx) mxx = v[0]; if (v[1] > mxy) mxy = v[1]; if (v[2] > mxz) mxz = v[2];
-        }
-        const ctr: Vec3 = [(mnx + mxx) / 2, (mny + mxy) / 2, (mnz + mxz) / 2];
-        const centered: Polygon[] = tp.map((p) => ({
-          ...p, vertices: p.vertices.map((v) => [v[0] - ctr[0], v[1] - ctr[1], v[2] - ctr[2]] as Vec3),
-        }));
-
-        // Size the detail grid to the mesh's screen extent at the scaled zoom.
-        camera.zoom = zoomD;
-        const REF = 4000;
-        let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
-        for (const p of centered) for (const v of p.vertices) {
-          const pr = camera.project(v, REF, REF, caD);
+          const pr = camera.project(v, colsB, rowsB, caB);
           if (!isFinite(pr[0]) || !isFinite(pr[1])) continue;
-          if (pr[0] < minc) minc = pr[0]; if (pr[0] > maxc) maxc = pr[0];
-          if (pr[1] < minr) minr = pr[1]; if (pr[1] > maxr) maxr = pr[1];
+          if (pr[0] < minC) minC = pr[0]; if (pr[0] > maxC) maxC = pr[0];
+          if (pr[1] < minR) minR = pr[1]; if (pr[1] > maxR) maxR = pr[1];
         }
-        const PAD = 2;
-        const colsD = Math.max(2, Math.ceil(maxc - minc) + PAD * 2);
-        const rowsD = Math.max(2, Math.ceil(maxr - minr) + PAD * 2);
+        if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // off-screen / clipped
 
-        // On-screen placement: project the centroid with the SHARED camera (base
-        // zoom). Computed BEFORE rasterize because the occlusion map needs the
-        // translate to map this layer's cells into the shared depth grid.
-        camera.zoom = baseZoom;
-        const cp = camera.project(ctr, colsB, rowsB, caB);
-        const tx = cp[0] * cwB - (colsD * cwD) / 2;
-        const ty = cp[1] * chB - (rowsD * chD) / 2;
+        const PADB = 1; // base-cell margin around the silhouette
+        minC -= PADB; maxC += PADB; minR -= PADB; maxR += PADB;
+        const kx = cwB / cwD, ky = chB / chD; // detail cells per base cell
+        const colsD = Math.max(2, Math.ceil((maxC - minC) * kx));
+        const rowsD = Math.max(2, Math.ceil((maxR - minR) * ky));
+        const zoomD = baseZoom * ky;
+        // Offset the projection center so detail cell 0 ↔ base cell minC/minR.
+        const cxNd = (kx * (colsB * baseCenter[0] - minC)) / colsD;
+        const cyNd = (ky * (rowsB * baseCenter[1] - minR)) / rowsD;
 
         // Opaque detail layers occlude against the shared id-map (owner === this
-        // mesh's id → keep, so it never occludes itself); transparent ones don't.
+        // mesh's id → keep, so it never self-occludes); transparent ones don't.
+        // Detail cell c maps to base ref cell minC + (c+0.5)/kx.
         const occ = (occShared && entry.transform.transparent !== true)
           ? {
               idMap: occShared.idMap, layerId: entry.id, cols: occShared.cols, rows: occShared.rows,
-              colScale: cwD / cwB, colOffset: (tx + 0.5 * cwD) / cwB,
-              rowScale: chD / chB, rowOffset: (ty + 0.5 * chD) / chB,
+              colScale: 1 / kx, colOffset: minC + 0.5 / kx,
+              rowScale: 1 / ky, rowOffset: minR + 0.5 / ky,
             }
           : null;
 
-        camera.zoom = zoomD;
+        camera.zoom = zoomD; camera.center = [cxNd, cyNd];
         const ctx = buildRasterizeContext({
           camera,
           grid: { cols: colsD, rows: rowsD, cellAspect: caD },
-          polygons: centered,
+          polygons: tp,
           mode: options.mode,
           directionalLight: options.directionalLight,
           ambientLight: options.ambientLight,
@@ -584,10 +580,12 @@ export function createGlyphScene(
         ctx.occlusion = occ;
         const out = rasterize(ctx);
         if (options.useColors) dpre.innerHTML = out; else dpre.textContent = out;
-        dpre.style.transform = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px)`;
+        // Detail cell (0,0) maps to base cell (minC,minR) → place the <pre> there.
+        dpre.style.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
       }
     } finally {
       camera.zoom = baseZoom;
+      camera.center = baseCenter;
     }
   }
 

@@ -25,6 +25,9 @@ const title = "glyphcss · per-mesh detail + occlusion (library API)";
 <body>
   <div class="bench">
     <div class="bar">
+      <label>camera
+        <select id="cam"><option value="ortho">orthographic</option><option value="persp">perspective</option></select>
+      </label>
       <label>hero font-size <input type="range" id="fs" min="2" max="12" step="1" value="4" /><span id="fs-v">4</span>px</label>
       <label><input type="checkbox" id="transparent" /> hero transparent (don't occlude)</label>
       <label><input type="checkbox" id="colors" checked /> colors</label>
@@ -38,14 +41,21 @@ const title = "glyphcss · per-mesh detail + occlusion (library API)";
   </div>
 
   <script>
-    import { createGlyphScene, createGlyphOrthographicCamera, createGlyphOrbitControls, resolveGeometry } from "glyphcss";
+    import { createGlyphScene, createGlyphOrthographicCamera, createGlyphPerspectiveCamera, createGlyphOrbitControls, resolveGeometry } from "glyphcss";
     import type { Polygon, Vec3, GlyphGeometryName } from "glyphcss";
 
     const host = document.getElementById("host") as HTMLElement;
     const hud = document.getElementById("hud") as HTMLElement;
     const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 
-    const camera = createGlyphOrthographicCamera({ rotX: 18, rotY: 0, zoom: 13 });
+    const useP = new URLSearchParams(location.search).get("cam") === "persp";
+    const camera = useP
+      ? createGlyphPerspectiveCamera({ rotX: 18, rotY: 0, zoom: 13, distance: 60 })
+      : createGlyphOrthographicCamera({ rotX: 18, rotY: 0, zoom: 13 });
+    if (useP) ($("cam") as HTMLSelectElement).value = "persp";
+    $("cam").addEventListener("change", () => {
+      const u = new URL(location.href); u.searchParams.set("cam", ($("cam") as HTMLSelectElement).value === "persp" ? "persp" : "ortho"); location.href = u.toString();
+    });
     const scene = createGlyphScene(host, {
       camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default",
       directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 }, ambientLight: { intensity: 0.5 },

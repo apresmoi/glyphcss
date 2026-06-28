@@ -206,9 +206,10 @@ Precedence: explicit `fontSize`/`lineHeight` → `density` → shared grid.
 
 - **Browser-only.** Detail layers measure the live cell size, so they need
   layout — they don't apply during SSR / static rendering.
-- **Orthographic cameras.** The detail-layer placement is exact for ortho (the
-  representative glyphcss camera). Perspective scenes aren't fully supported for
-  per-mesh detail.
+- **Any camera.** Detail meshes are rendered *in place* at higher resolution
+  (real world positions, scaled zoom, offset projection center), so orthographic,
+  perspective, and first-person (FPV) cameras all work — foreshortening and
+  cross-layer occlusion stay correct.
 - **Cost is where you'd expect.** Each detail mesh is one extra `<pre>` render
   per frame; the cross-layer occlusion pass only runs when an opaque detail mesh
   is present. Meshes left in the shared grid are unchanged. Use detail
