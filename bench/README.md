@@ -25,6 +25,17 @@ The rasterizer records timings into two optional globals (zero cost when unset):
 `__glyphPerf` (`raster` / `dom`-write ms) and `__glyphPerfDetail`
 (`loop` = shade+scan-fill, `string` = `solidBufToString`).
 
+## Pages
+
+`build.mjs` bundles one entry per page (each imports library source):
+
+| Page | What |
+|---|---|
+| `index.html` | render-perf harness — one heavy mesh under pointer-drag (this README's findings). |
+| `lod.html` | per-mesh **density** perf: full-screen layers vs fitted+translated vs occlusion, scaling object count. Knobs in the top bar. |
+| `lod-lib.html` | per-mesh detail + occlusion demo (library API). `?cam=ortho\|persp`; drag to orbit. |
+| `lod-fpv.html` | walkable **FPV** (eyeMode) detail + occlusion — click to mouse-look, WASD to move. |
+
 ## Findings — making the drag loop faster, losslessly
 
 Profiling `army.vox` (7k polys, line-height 0.5) showed the per-render loop is

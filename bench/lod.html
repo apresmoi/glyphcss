@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>glyphcss bench · per-mesh density (full-screen vs fitted vs occlusion)</title>
+  <style>
+    html, body { margin: 0; background: #04060b; color: rgba(255,232,184,0.92);
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+    body { overflow: hidden; }
+    .bench { position: fixed; inset: 0; display: flex; flex-direction: column; }
+    .bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,232,184,0.14);
+      background: #06080d; font-size: 12px;
+    }
+    .bar label { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,232,184,0.6); }
+    .bar input[type=range] { width: 90px; }
+    .bar .val { color: rgba(56,189,248,0.95); min-width: 16px; }
+    select { background: #0d1118; color: rgba(255,232,184,0.92);
+      border: 1px solid rgba(255,232,184,0.25); border-radius: 0; padding: 3px 6px; font: inherit; }
+    .stage { flex: 1; position: relative; min-height: 0; }
+    /* Layers are created in JS — layout set inline; this rule covers the JS-created <pre>. */
+    .layer .glyph-output { margin: 0; color: rgba(255,232,184,0.95); }
+    .hud {
+      position: absolute; top: 12px; left: 12px; z-index: 60;
+      background: rgba(6,8,13,0.86); border: 1px solid rgba(255,232,184,0.18);
+      padding: 10px 12px; font-size: 11px; line-height: 1.6; min-width: 250px;
+      backdrop-filter: blur(4px); pointer-events: none; white-space: pre;
+    }
+    .hud b { color: rgba(56,189,248,0.95); font-weight: 600; }
+    .hud .hl { color: #f97316; }
+    .loading { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,232,184,0.5); z-index: 70; }
+  </style>
+</head>
+<body>
+  <div class="bench">
+    <div class="bar">
+      <label>container
+        <select id="mode">
+          <option value="fullscreen">full-screen layers</option>
+          <option value="fitted">fitted + translated</option>
+        </select>
+      </label>
+      <label>objects
+        <select id="count"><option>3</option><option selected>12</option><option>27</option><option>48</option></select>
+      </label>
+      <label>max density <input type="range" id="maxd" min="1" max="6" step="1" value="4" /><span class="val" id="maxd-v">4</span></label>
+      <label>spacing <input type="range" id="space" min="0.6" max="3" step="0.1" value="2.4" /><span class="val" id="space-v">2.4</span></label>
+      <label>base cell <input type="range" id="cell" min="8" max="20" step="1" value="13" /><span class="val" id="cell-v">13</span></label>
+      <label>rotX <input type="range" id="rotx" min="0" max="180" step="1" value="62" /><span class="val" id="rotx-v">62</span></label>
+      <label>rotY <input type="range" id="roty" min="0" max="360" step="1" value="30" /><span class="val" id="roty-v">30</span></label>
+      <label><input type="checkbox" id="spin" /> spin</label>
+      <label><input type="checkbox" id="occ" /> occlusion</label>
+    </div>
+    <div class="stage" id="stage">
+      <div class="hud" id="hud"></div>
+      <div class="loading" id="loading">Loading…</div>
+    </div>
+  </div>
+  <script type="module" src="./lod.bundle.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>glyphcss bench · FPV per-mesh detail + occlusion</title>
+  <style>
+    html, body { margin: 0; background: #04060b; color: rgba(255,232,184,0.92);
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+    body { overflow: hidden; }
+    .stage { position: fixed; inset: 0; }
+    .host { position: absolute; inset: 0; cursor: crosshair; }
+    .host .glyph-output { margin: 0; }
+    .hud { position: absolute; top: 12px; left: 12px; z-index: 60; background: rgba(6,8,13,0.86);
+      border: 1px solid rgba(255,232,184,0.18); padding: 10px 12px; font-size: 11px; line-height: 1.6;
+      min-width: 240px; backdrop-filter: blur(4px); pointer-events: none; white-space: pre; }
+    .hud b { color: rgba(56,189,248,0.95); }
+    .bar { position: absolute; top: 12px; right: 12px; z-index: 60; display: flex; gap: 12px; align-items: center;
+      background: #06080d; border: 1px solid rgba(255,232,184,0.14); padding: 8px 12px; font-size: 12px; }
+    .bar label { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,232,184,0.6); }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="host" id="host"></div>
+    <div class="bar">
+      <label><input type="checkbox" id="occ" checked /> occlusion meshes opaque</label>
+    </div>
+    <div class="hud" id="hud"></div>
+  </div>
+  <script type="module" src="./lod-fpv.bundle.js"></script>
+</body>
+</html>
