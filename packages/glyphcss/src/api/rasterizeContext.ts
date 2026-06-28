@@ -8,6 +8,26 @@ import type {
 import type { GlyphCamera } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
 
+/**
+ * Cross-layer occlusion input. A shared buffer storing, per reference cell, the
+ * id of the LAYER whose surface is nearest there (`-1` = empty). The rasterizer
+ * blanks an output cell when the owner at its reference cell is a DIFFERENT layer
+ * (`owner !== layerId`) — so a layer never occludes itself (its own self-depth is
+ * already resolved inside its own rasterize), only other layers in front do.
+ * `(colScale, colOffset)` / `(rowScale, rowOffset)` map this layer's OUTPUT cell
+ * to a reference cell: `refCol = floor(colScale * outCol + colOffset)`.
+ */
+export interface OcclusionMap {
+  idMap: Int32Array;
+  layerId: number;
+  cols: number;
+  rows: number;
+  colScale: number;
+  colOffset: number;
+  rowScale: number;
+  rowOffset: number;
+}
+
 export interface RasterizeContextOptions {
   camera: GlyphCamera;
   grid: GridSize;
@@ -78,6 +98,8 @@ export interface RasterizeContextOptions {
    * order; a projection-painted depth buffer needs the deadband. Typical 0.002–0.01.
    */
   depthEpsilon?: number;
+  /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
+  occlusion?: OcclusionMap | null;
 }
 
 /**
@@ -147,6 +169,8 @@ export interface RasterizeContext {
   textureSamplers?: Map<string, TextureSampler> | null;
   /** Optional retained previous-frame buffer for temporal AA. */
   temporalHistory?: TemporalHistory | null;
+  /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
+  occlusion?: OcclusionMap | null;
 }
 
 // Direction the light shines TOWARD (three.js / computeShapeLighting convention).
@@ -204,5 +228,6 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     receiveShadowFlags: opts.receiveShadowFlags ?? [],
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
+    ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
   };
 }

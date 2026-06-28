@@ -365,6 +365,14 @@ export function GlyphScene({
     handle.setTunables({ lineHeight: options.lineHeight });
   }, [options.lineHeight]);
 
+  // React to density — scene-wide glyph resolution, driven via the render
+  // font-size (base 13px ÷ density). Larger density = smaller cells = more glyphs.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ fontSize: 13 / (options.density || 1) });
+  }, [options.density]);
+
   // React to renderMode changes.
   useEffect(() => {
     const handle = getHandle();

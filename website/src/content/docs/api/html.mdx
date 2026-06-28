@@ -97,6 +97,10 @@ Polygon registration. Picks one source in descending precedence: `geometry`
 | `auto-center` | flag — recenter the mesh's bbox center to the origin so it pivots around its own center (center only) |
 | `cast-shadow` | flag — this mesh casts shadows onto `receive-shadow` surfaces |
 | `receive-shadow` | flag — this mesh displays shadows from `cast-shadow` meshes. Present on both = self-shadow |
+| `density` | number — render this mesh at `density`× the scene resolution, in its own `<pre>` (see the [Density & Detail guide](/guides/density/)) |
+| `font-size` | explicit cell size (px or CSS length); overrides `density` |
+| `line-height` | explicit cell line-height; overrides `density` |
+| `transparent` | flag — see-through: doesn't occlude / isn't occluded |
 
 ### `<glyph-hotspot>`
 

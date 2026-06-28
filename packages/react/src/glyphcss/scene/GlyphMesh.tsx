@@ -50,6 +50,23 @@ export interface GlyphMeshProps {
    * Default false — opt-in, matching PolyMesh behaviour.
    */
   receiveShadow?: boolean;
+  /**
+   * Per-mesh detail multiplier — renders this mesh in its own finer `<pre>` at
+   * `density`× the scene's glyph resolution (cell = base ÷ density). `1`/omitted
+   * keeps it in the shared `<pre>`. The ergonomic detail knob; `fontSize` /
+   * `lineHeight` below are the low-level override.
+   */
+  density?: number;
+  /** Low-level per-mesh cell size (px or CSS length); overrides `density`. Pops the mesh into its own `<pre>`. */
+  fontSize?: string | number;
+  /** Low-level per-mesh line-height; overrides `density`. */
+  lineHeight?: number;
+  /**
+   * When `true`, this mesh is see-through: it doesn't occlude others and isn't
+   * occluded (x-ray). Default `false` (opaque). Setting it pops the mesh into
+   * its own `<pre>` (a shared-`<pre>` mesh always occludes).
+   */
+  transparent?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -78,6 +95,10 @@ function GlyphMeshInner({
   autoCenter = false,
   castShadow = false,
   receiveShadow = false,
+  density,
+  fontSize,
+  lineHeight,
+  transparent,
   className,
   style,
   children,
@@ -120,7 +141,11 @@ function GlyphMeshInner({
     rotation,
     castShadow,
     receiveShadow,
-  }), [id, position, scale, rotation, castShadow, receiveShadow]);
+    density,
+    fontSize,
+    lineHeight,
+    transparent,
+  }), [id, position, scale, rotation, castShadow, receiveShadow, density, fontSize, lineHeight, transparent]);
 
   // Register the mesh handle with the parent scene
   useEffect(() => {

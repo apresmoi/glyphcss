@@ -18,7 +18,7 @@ const ELEMENT_BASE: typeof HTMLElement =
     ? HTMLElement
     : (class {} as unknown as typeof HTMLElement);
 
-const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow"] as const;
+const OBSERVED_ATTRS = ["src", "geometry", "size", "color", "position", "scale", "rotation", "auto-center", "cast-shadow", "receive-shadow", "density", "font-size", "line-height", "transparent"] as const;
 
 
 function parseVec3(value: string | null): Vec3 | undefined {
@@ -35,6 +35,12 @@ function parseScale(value: string | null): number | Vec3 | undefined {
     return Number.isFinite(n) ? n : undefined;
   }
   return parseVec3(value);
+}
+
+function parsePosFloat(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 function findScene(el: HTMLElement): GlyphSceneElement | null {
@@ -85,6 +91,10 @@ export class GlyphMeshElement extends ELEMENT_BASE {
       rotation: parseVec3(this.getAttribute("rotation")),
       castShadow: this.hasAttribute("cast-shadow"),
       receiveShadow: this.hasAttribute("receive-shadow"),
+      density: parsePosFloat(this.getAttribute("density")),
+      fontSize: this.getAttribute("font-size") ?? undefined,
+      lineHeight: parsePosFloat(this.getAttribute("line-height")),
+      transparent: this.hasAttribute("transparent"),
     };
   }
 

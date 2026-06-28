@@ -200,6 +200,10 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const centerJsx = autoCenter ? " autoCenter" : "";
   const centerKebab = autoCenter ? " auto-center" : "";
   const lineHeight = options.lineHeight ?? 1;
+  // Density drives the render font-size (base 13px ÷ density). Emit the resulting
+  // font-size so the copied snippet matches the gallery's on-screen resolution.
+  const density = options.density ?? 1;
+  const fontSizePx = Math.round((13 / density) * 100) / 100;
   const featureEdges = options.featureEdges ?? 0;
   const rotX = options.rotX ?? 0;
   const rotY = options.rotY ?? 0;
@@ -248,7 +252,7 @@ export function App() {
       <GlyphScene
         mode="${mode}"
         autoSize
-        style={{ width: "100%", height: "100%", fontSize: 13 }}
+        style={{ width: "100%", height: "100%", fontSize: ${fontSizePx} }}
         glyphPalette="${palette}"
         useColors={${useColors}}
         lineHeight={${fmt(lineHeight)}}${featureEdgesProp}${targetReact}
@@ -278,7 +282,7 @@ export function App() {
     <GlyphScene
       mode="${mode}"
       auto-size
-      :style="{ width: '100%', height: '100%', fontSize: '13px' }"
+      :style="{ width: '100%', height: '100%', fontSize: '${fontSizePx}px' }"
       glyphPalette="${palette}"
       :use-colors="${useColors}"
       :line-height="${fmt(lineHeight)}"${featureEdgesVue}${targetVue}
@@ -332,7 +336,7 @@ scene.add(${addArgV});`;
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 // Cell font-size sets the ASCII resolution; autoSize fills the host's box.
-host.style.fontSize = "13px";
+host.style.fontSize = "${fontSizePx}px";
 
 const camera = ${createCameraCall};${targetV}
 
@@ -372,7 +376,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
     <script type="module" src="https://esm.sh/glyphcss/elements"></script>
     <style>
       /* Cell font-size sets the ASCII resolution; auto-size fills the box. */
-      glyph-scene { display: block; width: 100%; height: 100vh; font-size: 13px; }
+      glyph-scene { display: block; width: 100%; height: 100vh; font-size: ${fontSizePx}px; }
     </style>
   </head>
   <body>

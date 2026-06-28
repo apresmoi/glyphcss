@@ -224,7 +224,8 @@ const DEFAULT_SCENE: SceneOptionsState = {
   renderMode: "solid",
   featureEdges: 30,
   glyphPalette: "default",
-  lineHeight: 0.6,
+  lineHeight: 1.0,
+  density: 1.0,
   useColors: true,
   smoothShading: false,
   creaseAngle: 60,
@@ -571,7 +572,7 @@ export default function GalleryWorkbench() {
           renderMode={sceneOptions.renderMode}
           featureEdges={sceneOptions.featureEdges}
           glyphPalette={sceneOptions.glyphPalette}
-          lineHeight={sceneOptions.lineHeight}
+          density={sceneOptions.density}
           useColors={sceneOptions.useColors}
           smoothShading={sceneOptions.smoothShading}
           creaseAngle={sceneOptions.creaseAngle}

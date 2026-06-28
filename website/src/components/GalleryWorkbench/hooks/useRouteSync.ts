@@ -30,6 +30,7 @@ interface SerializedGallerySceneOptions {
   fe?: number;    // featureEdges
   gp?: SceneOptionsState["glyphPalette"];
   lh?: number;    // lineHeight
+  dn?: number;    // density
   uc?: boolean;   // useColors
   ss?: boolean;   // smoothShading
   ca?: number;    // creaseAngle
@@ -64,7 +65,7 @@ const COMPACT_NUMBER_SCALE = 10000;
 const COMPACT_KEY_BY_OPTION: Record<SerializedGallerySceneOptionKey, string> = {
   ap: "P", ats: "A", c: "c", ar: "n", i: "i", rx: "X", ry: "Y",
   p: "p", az: "a", el: "e", key: "k", kc: "K", amb: "m", amc: "M", t: "t",
-  rm: "R", fe: "F", gp: "G", lh: "H", uc: "U", ss: "W", ca: "N", drag: "d",
+  rm: "R", fe: "F", gp: "G", lh: "H", dn: "D", uc: "U", ss: "W", ca: "N", drag: "d",
   fl: "L", fm: "V", fj: "J", fcr: "C", fms: "1", fjv: "2", fg: "3", feh: "4",
   fch: "5", fls: "6", fiy: "7", sh: "S", so: "O", sli: "8", sc: "Q",
   sca: "9", sre: "B", sfl: "D",
@@ -262,6 +263,7 @@ function sceneOptionsPayload(
   addNumber(out, "fe", options.featureEdges, defaults.featureEdges);
   addString(out, "gp", options.glyphPalette, defaults.glyphPalette);
   addNumber(out, "lh", options.lineHeight, defaults.lineHeight);
+  addNumber(out, "dn", options.density, defaults.density);
   addBoolean(out, "uc", options.useColors, defaults.useColors);
   addBoolean(out, "ss", options.smoothShading, defaults.smoothShading);
   addNumber(out, "ca", options.creaseAngle, defaults.creaseAngle);
@@ -362,6 +364,7 @@ function sceneOptionsFromPayload(o: SerializedGallerySceneOptions): Partial<Scen
     ...(isFiniteNumber(o.fe) ? { featureEdges: o.fe } : null),
     ...(isGlyphPalette(o.gp) ? { glyphPalette: o.gp } : null),
     ...(isFiniteNumber(o.lh) ? { lineHeight: o.lh } : null),
+    ...(isFiniteNumber(o.dn) ? { density: o.dn } : null),
     ...(isBoolean(o.uc) ? { useColors: o.uc } : null),
     ...(isBoolean(o.ss) ? { smoothShading: o.ss } : null),
     ...(isFiniteNumber(o.ca) ? { creaseAngle: o.ca } : null),

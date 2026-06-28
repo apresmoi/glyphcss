@@ -20,6 +20,73 @@ import { getWireframeGlyphs } from "./ramps";
  * This is a direct generalization of RadiantHero's `frameForRotation`:
  * same stamp, same weight scheme, same projection.
  */
+/** Minimal camera shape needed to project for the occlusion depth pass. */
+interface ProjectCamera {
+  project(v: Vec3, cols: number, rows: number, cellAspect: number): [number, number, number, number?];
+}
+
+/**
+ * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
+ * into a `cols × rows` buffer and record, per cell, the id of the layer whose
+ * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
+ * so far cheaper than a full rasterize. Returned to `rasterize` via
+ * {@link OcclusionMap} so layers blank where a DIFFERENT layer is nearest.
+ */
+export function computeOcclusionIds(
+  groups: { polygons: Polygon[]; id: number }[],
+  camera: ProjectCamera,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+): Int32Array {
+  const depth = new Float64Array(cols * rows).fill(-Infinity);
+  const idMap = new Int32Array(cols * rows).fill(-1);
+  for (const g of groups) {
+    for (const poly of g.polygons) {
+      const vs = poly.vertices;
+      if (vs.length < 3) continue;
+      const p0 = camera.project(vs[0]!, cols, rows, cellAspect);
+      let prev = camera.project(vs[1]!, cols, rows, cellAspect);
+      for (let k = 2; k < vs.length; k++) {
+        const cur = camera.project(vs[k]!, cols, rows, cellAspect);
+        fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows);
+        prev = cur;
+      }
+    }
+  }
+  return idMap;
+}
+
+function fillDepthTri(
+  a: [number, number, number, number?],
+  b: [number, number, number, number?],
+  c: [number, number, number, number?],
+  depth: Float64Array, idMap: Int32Array, id: number, W: number, H: number,
+): void {
+  const x0 = a[0], y0 = a[1], z0 = a[2], x1 = b[0], y1 = b[1], z1 = b[2], x2 = c[0], y2 = c[1], z2 = c[2];
+  if (!(Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2))) return;
+  const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+  const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+  const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+  const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+  if (minX > maxX || minY > maxY) return;
+  const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+  if (Math.abs(area) < 1e-9) return;
+  const inv = 1 / area;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const px = x + 0.5, py = y + 0.5;
+      const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
+      const w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+      const w2 = 1 - w0 - w1;
+      if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+      const z = w0 * z0 + w1 * z1 + w2 * z2;
+      const idx = y * W + x;
+      if (z > depth[idx]!) { depth[idx] = z; idMap[idx] = id; }
+    }
+  }
+}
+
 export function rasterize(scene: RasterizeContext): string {
   const { camera, grid, wireframe, mode } = scene;
   const { cols, rows, cellAspect } = grid;
@@ -463,6 +530,36 @@ function rasterizeSolid(
               null,
             );
           }
+        }
+      }
+    }
+  }
+
+  // Cross-layer occlusion: blank any cell whose own surface is behind the shared
+  // nearest-depth (another layer occludes it). Done on the cell buffers (pre-string)
+  // so it works for plain text AND colored spans; clearing depth lets the
+  // supersample downsample skip the blanked subcells.
+  const occ = scene.occlusion;
+  if (occ) {
+    const idm = occ.idMap, ocols = occ.cols, orows = occ.rows, myId = occ.layerId;
+    const invSS = supersample > 1 ? 1 / supersample : 1;
+    for (let r = 0; r < rows; r++) {
+      const refRow = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
+      if (refRow < 0 || refRow >= orows) continue;
+      const refRowBase = refRow * ocols;
+      const rowBase = r * cols;
+      for (let c = 0; c < cols; c++) {
+        const idx = rowBase + c;
+        if (depthBuf[idx] === -Infinity) continue;
+        const refCol = Math.floor(occ.colScale * (c * invSS) + occ.colOffset);
+        if (refCol < 0 || refCol >= ocols) continue;
+        const owner = idm[refRowBase + refCol]!;
+        // A different layer is nearest here → this cell is occluded. Owner === myId
+        // (or empty) → keep; a layer never occludes itself.
+        if (owner !== -1 && owner !== myId) {
+          glyphBuf[idx] = " ";
+          depthBuf[idx] = -Infinity;
+          if (colorBuf) colorBuf[idx] = null;
         }
       }
     }

@@ -103,6 +103,8 @@ export interface SceneOptionsState {
   featureEdges: number;
   glyphPalette: "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
   lineHeight: number;
+  /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
+  density: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;

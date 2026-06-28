@@ -33,7 +33,7 @@ import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
-import { rasterize } from "../render/rasterize";
+import { rasterize, computeOcclusionIds } from "../render/rasterize";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions } from "./types";
@@ -318,7 +318,10 @@ export function createGlyphScene(
     const receiveShadowFlags: boolean[] = [];
     const depthBiases: number[] = [];
     let anyDepthBias = false;
+    const detailEntries: MeshEntry[] = [];
     for (const entry of meshes.values()) {
+      // Meshes with their own cell metrics render in a separate, finer <pre>.
+      if (isDetailMesh(entry.transform)) { detailEntries.push(entry); continue; }
       const transformed = applyTransform(entry.polygons, entry.transform);
       const cast = entry.transform.castShadow ?? false;
       const receive = entry.transform.receiveShadow ?? false;
@@ -329,6 +332,24 @@ export function createGlyphScene(
         castShadowFlags.push(cast);
         receiveShadowFlags.push(receive);
         depthBiases.push(bias);
+      }
+    }
+
+    // Cross-layer occlusion: if any OPAQUE detail mesh exists, build ONE shared
+    // camera-depth buffer (base meshes + opaque detail meshes) at the base grid.
+    // Each opaque layer then blanks cells where another layer is nearer. Transparent
+    // detail meshes don't participate (they neither occlude nor are occluded).
+    // Layer ids: base meshes share id 0; each opaque detail mesh uses its own id.
+    const BASE_LAYER = 0;
+    let occShared: { idMap: Int32Array; cols: number; rows: number; cwB: number; chB: number } | null = null;
+    const opaqueDetails = detailEntries.filter((e) => e.transform.transparent !== true);
+    if (opaqueDetails.length > 0) {
+      const bc = baseCellMetrics();
+      if (bc.w > 0 && bc.h > 0) {
+        const groups: { polygons: Polygon[]; id: number }[] = [{ polygons: allPolygons, id: BASE_LAYER }];
+        for (const e of opaqueDetails) groups.push({ polygons: applyTransform(e.polygons, e.transform), id: e.id });
+        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect);
+        occShared = { idMap, cols: options.cols, rows: options.rows, cwB: bc.w, chB: bc.h };
       }
     }
 
@@ -355,6 +376,10 @@ export function createGlyphScene(
     ctx.shadeCache = shadeCache;
     ctx.textureSamplers = textureSamplers;
     ctx.temporalHistory = temporalHistory;
+    // Base layer occludes 1:1 against the shared id-map (its grid IS the ref grid).
+    ctx.occlusion = occShared
+      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: 1, colOffset: 0.5, rowScale: 1, rowOffset: 0.5 }
+      : null;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
     // record per-render rasterize vs DOM-write timings into it. Zero cost when
@@ -379,8 +404,191 @@ export function createGlyphScene(
       (perf.polys ??= []).push(allPolygons.length);
     }
 
+    // Detail meshes — each in its own finer, translated <pre> overlay.
+    renderDetailLayers(detailEntries, occShared);
+
     // Update hotspot positions.
     updateHotspots();
+  }
+
+  // A mesh "pops out" into its own <pre> when it declares its own cell metrics OR
+  // asks to be transparent (a shared-pre mesh always occludes — one depth buffer —
+  // so non-occlusion requires its own layer).
+  function isDetailMesh(t: GlyphMeshTransform): boolean {
+    return t.density != null || t.fontSize != null || t.lineHeight != null || t.transparent === true;
+  }
+
+  // Measure one monospace cell (px) from a live <pre>, honoring its inherited /
+  // overridden font-size + line-height. Multi-line probe so sub-1 line-heights
+  // measure the true per-line advance (see measureCell for the rationale).
+  function measureCellOf(el: HTMLElement): { w: number; h: number } {
+    const LINES = 20;
+    const probe = host.ownerDocument!.createElement("span");
+    probe.textContent = Array(LINES).fill("M").join("\n");
+    probe.style.cssText =
+      "position:absolute;visibility:hidden;font-family:inherit;font-size:inherit;line-height:inherit;white-space:pre;padding:0;margin:0";
+    el.appendChild(probe);
+    const r = probe.getBoundingClientRect();
+    probe.remove();
+    return { w: r.width || 8, h: r.height ? r.height / LINES : 16 };
+  }
+
+  // Cell-size measurements force a synchronous layout flush, so they're cached and
+  // only refreshed when the cell metrics actually change — NOT per camera frame.
+  // Base cache invalidated by fit()/setOptions; per-detail cache keyed on its
+  // font-size+line-height.
+  let baseCellCache: { w: number; h: number } | null = null;
+  function baseCellMetrics(): { w: number; h: number } {
+    return (baseCellCache ??= measureCellOf(pre));
+  }
+  let baseFontPxCache: number | null = null;
+  function baseFontPx(): number {
+    return (baseFontPxCache ??= parseFloat((host.ownerDocument!.defaultView ?? globalThis).getComputedStyle(pre).fontSize) || 13);
+  }
+  const detailLayers = new Map<number, { pre: HTMLPreElement; key: string; cw: number; ch: number }>();
+
+  /**
+   * Render each detail mesh into its own absolutely-positioned <pre>, sized to
+   * the mesh silhouette and translated to its on-screen position. The mesh is
+   * rendered centered with the camera zoom scaled by the base/detail cell-height
+   * ratio (so it occupies the same screen footprint as in the shared grid, just
+   * with finer glyphs), then translated so its centroid lands where the shared
+   * camera projects it. Exact for orthographic cameras.
+   */
+  function renderDetailLayers(
+    entries: MeshEntry[],
+    occShared: { idMap: Int32Array; cols: number; rows: number; cwB: number; chB: number } | null,
+  ): void {
+    // Drop <pre>s for meshes that are gone or no longer detail.
+    for (const [id, layer] of detailLayers) {
+      if (!entries.some((e) => e.id === id)) { layer.pre.remove(); detailLayers.delete(id); }
+    }
+    if (entries.length === 0) return;
+
+    const camera = options.camera;
+    const baseZoom = camera.zoom;
+    const colsB = options.cols, rowsB = options.rows, caB = options.cellAspect;
+    const baseCell = baseCellMetrics();
+    const cwB = baseCell.w, chB = baseCell.h;
+    if (!(cwB > 0) || !(chB > 0)) return; // not laid out yet (SSR / detached)
+
+    try {
+      for (const entry of entries) {
+        let layer = detailLayers.get(entry.id);
+        if (!layer) {
+          const el = host.ownerDocument!.createElement("pre") as HTMLPreElement;
+          el.className = "glyph-output glyph-output--detail";
+          el.style.cssText =
+            "position:absolute;top:0;left:0;margin:0;transform-origin:top left;pointer-events:none";
+          sceneEl.insertBefore(el, hotspotLayer);
+          layer = { pre: el, key: "", cw: 0, ch: 0 };
+          detailLayers.set(entry.id, layer);
+        }
+        const dpre = layer.pre;
+        const density = entry.transform.density;
+        // Explicit fontSize/lineHeight OVERRIDE density (the low-level escape hatch
+        // wins); density is the default convenience knob.
+        const hasExplicit = entry.transform.fontSize != null || entry.transform.lineHeight != null;
+        if (!hasExplicit && density != null && density > 0) {
+          // density path: cell = base cell ÷ density, derived exactly from the base
+          // font (no per-frame layout measurement). fontSize scales linearly, so
+          // setting the <pre> font to base/density yields exactly base cell/density.
+          const key = `d:${density}`;
+          if (layer.key !== key) {
+            dpre.style.fontSize = `${baseFontPx() / density}px`;
+            dpre.style.lineHeight = "";
+            layer.key = key; layer.cw = cwB / density; layer.ch = chB / density;
+          }
+        } else {
+          // legacy escape hatch: explicit fontSize / lineHeight (CSS-measured).
+          const fs = entry.transform.fontSize;
+          const fsStr = fs == null ? "" : typeof fs === "number" ? `${fs}px` : fs;
+          const lhStr = entry.transform.lineHeight == null ? "" : String(entry.transform.lineHeight);
+          const key = `${fsStr}|${lhStr}`;
+          if (layer.key !== key) {
+            dpre.style.fontSize = fsStr;
+            dpre.style.lineHeight = lhStr;
+            const m = measureCellOf(dpre);
+            layer.key = key; layer.cw = m.w; layer.ch = m.h;
+          }
+        }
+        const cwD = layer.cw, chD = layer.ch;
+        if (!(cwD > 0) || !(chD > 0)) continue;
+        const caD = chD / cwD;
+        const zoomD = baseZoom * (chB / chD);
+
+        // Transform to world, then recenter on the mesh bbox so it sits at the
+        // detail grid's center (the camera centers projection at [0.5,0.5]).
+        const tp = applyTransform(entry.polygons, entry.transform);
+        let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+        for (const p of tp) for (const v of p.vertices) {
+          if (v[0] < mnx) mnx = v[0]; if (v[1] < mny) mny = v[1]; if (v[2] < mnz) mnz = v[2];
+          if (v[0] > mxx) mxx = v[0]; if (v[1] > mxy) mxy = v[1]; if (v[2] > mxz) mxz = v[2];
+        }
+        const ctr: Vec3 = [(mnx + mxx) / 2, (mny + mxy) / 2, (mnz + mxz) / 2];
+        const centered: Polygon[] = tp.map((p) => ({
+          ...p, vertices: p.vertices.map((v) => [v[0] - ctr[0], v[1] - ctr[1], v[2] - ctr[2]] as Vec3),
+        }));
+
+        // Size the detail grid to the mesh's screen extent at the scaled zoom.
+        camera.zoom = zoomD;
+        const REF = 4000;
+        let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
+        for (const p of centered) for (const v of p.vertices) {
+          const pr = camera.project(v, REF, REF, caD);
+          if (!isFinite(pr[0]) || !isFinite(pr[1])) continue;
+          if (pr[0] < minc) minc = pr[0]; if (pr[0] > maxc) maxc = pr[0];
+          if (pr[1] < minr) minr = pr[1]; if (pr[1] > maxr) maxr = pr[1];
+        }
+        const PAD = 2;
+        const colsD = Math.max(2, Math.ceil(maxc - minc) + PAD * 2);
+        const rowsD = Math.max(2, Math.ceil(maxr - minr) + PAD * 2);
+
+        // On-screen placement: project the centroid with the SHARED camera (base
+        // zoom). Computed BEFORE rasterize because the occlusion map needs the
+        // translate to map this layer's cells into the shared depth grid.
+        camera.zoom = baseZoom;
+        const cp = camera.project(ctr, colsB, rowsB, caB);
+        const tx = cp[0] * cwB - (colsD * cwD) / 2;
+        const ty = cp[1] * chB - (rowsD * chD) / 2;
+
+        // Opaque detail layers occlude against the shared id-map (owner === this
+        // mesh's id → keep, so it never occludes itself); transparent ones don't.
+        const occ = (occShared && entry.transform.transparent !== true)
+          ? {
+              idMap: occShared.idMap, layerId: entry.id, cols: occShared.cols, rows: occShared.rows,
+              colScale: cwD / cwB, colOffset: (tx + 0.5 * cwD) / cwB,
+              rowScale: chD / chB, rowOffset: (ty + 0.5 * chD) / chB,
+            }
+          : null;
+
+        camera.zoom = zoomD;
+        const ctx = buildRasterizeContext({
+          camera,
+          grid: { cols: colsD, rows: rowsD, cellAspect: caD },
+          polygons: centered,
+          mode: options.mode,
+          directionalLight: options.directionalLight,
+          ambientLight: options.ambientLight,
+          glyphPalette: options.glyphPalette,
+          useColors: options.useColors,
+          smoothShading: options.smoothShading,
+          creaseAngle: options.creaseAngle,
+          doubleSided: options.doubleSided,
+          supersample: options.supersample,
+          depthEpsilon: options.depthEpsilon,
+          temporalBlend: 0,
+          shadow: undefined,
+        });
+        ctx.textureSamplers = textureSamplers;
+        ctx.occlusion = occ;
+        const out = rasterize(ctx);
+        if (options.useColors) dpre.innerHTML = out; else dpre.textContent = out;
+        dpre.style.transform = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px)`;
+      }
+    } finally {
+      camera.zoom = baseZoom;
+    }
   }
 
   function updateHotspots(): void {
@@ -549,6 +757,7 @@ export function createGlyphScene(
   }
 
   function fitToHost(): void {
+    baseCellCache = null; baseFontPxCache = null; // host/cell size may have changed
     const w = host.clientWidth;
     const h = host.clientHeight;
     if (!w || !h) return;

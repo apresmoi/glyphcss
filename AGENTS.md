@@ -30,7 +30,17 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 3. Fills a `cols × rows` character grid: depth-tests overlapping polygons, picks a glyph per cell based on the render mode.
 4. Joins all cells into a single string and writes it to `<pre>.textContent` exactly once.
 
-There are no per-polygon DOM elements. There is no CSS `matrix3d`. The `<pre>` is the entire render surface.
+There are no per-polygon DOM elements. There is no CSS `matrix3d`. The base `<pre>` is the render surface for all shared-resolution meshes.
+
+### Per-mesh detail layers
+
+By default every mesh renders into that one shared base `<pre>`. A mesh can opt into **its own resolution** — set `density` (a multiplier: `density: 3` → 3× the scene's glyph resolution, cell = base ÷ density, isotropic, same on-screen size) or the low-level `fontSize` / `lineHeight` (which override `density`). Such a mesh "pops out" into its **own silhouette-fitted, CSS-translated `<pre>`** rendered at that cell size — so a hero mesh carries far more detail while the rest of the scene stays cheap in the shared grid. Browser-only (needs layout to measure cells); exact for orthographic cameras. This is **not** a group/tree concept — it's a per-mesh property on the flat mesh list.
+
+`transparent: true` (default `false` = opaque) makes a mesh see-through (x-ray): it neither occludes nor is occluded. Because a mesh in the shared `<pre>` always occludes (one depth buffer), declaring `transparent` also pops the mesh into its own `<pre>` — separation happens for custom cell metrics **or** transparency.
+
+**Cross-layer occlusion.** Opaque meshes occlude each other across `<pre>` layers via a shared camera-depth pass: `computeOcclusionIds` rasterises all opaque geometry into one id-map (nearest layer per cell), and each layer's `rasterize` blanks cells a *different* layer owns (a layer never occludes itself). Integrated into `rasterize` (an `occlusion` `OcclusionMap` input) so it works for plain text **and** colored spans, and self-disables (zero cost) when no opaque detail mesh exists. Within the shared `<pre>`, meshes occlude each other for free via the normal per-cell depth buffer.
+
+These options mirror across React/Vue `<GlyphMesh>` and the `<glyph-mesh>` custom element (`density`, `font-size`, `line-height`, `transparent`). **Static compile (`compileScene`, `GlyphSceneStatic`, the CLI/Vite plugin) and the interactive/CodePen export take a flat polygon list — they cannot represent per-mesh detail layers**, so per-mesh density/transparent is a runtime-only feature there (the gallery's scene-wide "Density" slider drives the render font-size instead, which *does* export).
 
 ### Render modes
 
@@ -66,7 +76,7 @@ Because `rasterize` is pure (geometry + camera → string), a scene can be rende
 
 ## No per-frame DOM mutation
 
-The invariant we hold: **each render cycle sets `<pre>.textContent` exactly once.** Multiple writes per cycle (e.g. cell-by-cell DOM patching) are not acceptable.
+The invariant we hold: **each render cycle writes each `<pre>` exactly once** — the base `<pre>` plus one write per per-mesh detail layer (and one `transform` per detail layer for positioning). Cell-by-cell DOM patching, or multiple writes to the same `<pre>` per cycle, are not acceptable.
 
 Hotspot positions update via a single inline-style assignment per hotspot element, not via DOM rebuild.
 

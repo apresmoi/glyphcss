@@ -404,6 +404,7 @@ interface Tunables {
   targetZ?: number;
   duration: number;
   lineHeight: number;
+  fontSize?: number;
   geometry: GeometryName;
   renderMode?: 'wireframe' | 'solid';
   featureEdges?: number;
@@ -1455,6 +1456,25 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         // ratio so leaving FPV doesn't snap to a stale zoom.
         if (fpvSavedZoom !== null) {
           fpvSavedZoom = Math.round(fpvSavedZoom * (prevLineHeight / nextLineHeight) * 1000) / 1000;
+        }
+      }
+    }
+
+    // `fontSize` (px) — scene-wide glyph DENSITY. A smaller cell means more
+    // cols+rows over the same host (denser, both axes), so we re-fit and then
+    // compensate zoom by the inverse font ratio to keep the object the SAME
+    // on-screen size (on-screen extent scales as `zoom · fontSize`). Mirror of
+    // the lineHeight handling, but isotropic.
+    if ('fontSize' in partial && partial.fontSize !== undefined) {
+      const prevFont = parseFloat(scene.output.style.fontSize) || parseFloat(getComputedStyle(scene.output).fontSize) || 13;
+      const nextFont = partial.fontSize;
+      scene.output.style.fontSize = `${nextFont}px`;
+      scene.fit();
+      if (prevFont > 0 && nextFont > 0 && camera.zoom > 0) {
+        camera.zoom = Math.round(camera.zoom * (prevFont / nextFont) * 1000) / 1000;
+        tunables.zoom = camera.zoom;
+        if (fpvSavedZoom !== null) {
+          fpvSavedZoom = Math.round(fpvSavedZoom * (prevFont / nextFont) * 1000) / 1000;
         }
       }
     }
