@@ -537,8 +537,14 @@ export function createGlyphScene(
         }
         if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // off-screen / clipped
 
+        // Clamp the bbox to the visible grid (+margin), THEN size the detail grid.
+        // A mesh near or enclosing the camera projects some verts to huge coords
+        // (perspective near-plane blowup); without this the detail grid would
+        // explode to millions of cells. Only the on-screen slice is rendered.
         const PADB = 1; // base-cell margin around the silhouette
-        minC -= PADB; maxC += PADB; minR -= PADB; maxR += PADB;
+        minC = Math.max(-PADB, minC - PADB); maxC = Math.min(colsB + PADB, maxC + PADB);
+        minR = Math.max(-PADB, minR - PADB); maxR = Math.min(rowsB + PADB, maxR + PADB);
+        if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // fully off-screen
         const kx = cwB / cwD, ky = chB / chD; // detail cells per base cell
         const colsD = Math.max(2, Math.ceil((maxC - minC) * kx));
         const rowsD = Math.max(2, Math.ceil((maxR - minR) * ky));

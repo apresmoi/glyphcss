@@ -79,6 +79,7 @@ const title = "glyphcss · FPV per-mesh detail + occlusion";
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(() => requestAnimationFrame(() => { scene.fit(); scene.rerender(); frame(); }));
+    (window as unknown as Record<string, unknown>).__glyph = { scene, camera, fpv };
   </script>
 </body>
 </html>
