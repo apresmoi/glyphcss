@@ -38,7 +38,9 @@ function unit(name: string, span: number, offset: Vec3, color: string): Polygon[
 }
 
 // A coarse RED base cube and a fine BLUE hero icosahedron interpenetrate along Z.
-scene.add(unit("cube", 2.6, [0, 0, -0.9], "#ff5a5a"));
+// ?solo=1 renders only the hero (used for pixel-alignment checks).
+const solo = new URLSearchParams(location.search).get("solo") === "1";
+if (!solo) scene.add(unit("cube", 2.6, [0, 0, -0.9], "#ff5a5a"));
 const hero = scene.add(unit("icosahedron", 2.4, [0, 0, 0.9], "#5aa9ff"), { fontSize: 4 });
 
 let fps = 0;

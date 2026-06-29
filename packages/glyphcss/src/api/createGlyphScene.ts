@@ -415,7 +415,7 @@ export function createGlyphScene(
   // asks to be transparent (a shared-pre mesh always occludes — one depth buffer —
   // so non-occlusion requires its own layer).
   function isDetailMesh(t: GlyphMeshTransform): boolean {
-    return t.density != null || t.fontSize != null || t.lineHeight != null || t.transparent === true;
+    return (t.density != null && t.density !== 1) || t.fontSize != null || t.lineHeight != null || t.transparent === true;
   }
 
   // Measure one monospace cell (px) from a live <pre>, honoring its inherited /
@@ -467,6 +467,7 @@ export function createGlyphScene(
 
     const camera = options.camera;
     const baseZoom = camera.zoom;
+    const baseFovScale = camera.fovScale;
     const baseCenter: [number, number] = [camera.center[0], camera.center[1]];
     const colsB = options.cols, rowsB = options.rows, caB = options.cellAspect;
     const baseCell = baseCellMetrics();
@@ -519,15 +520,16 @@ export function createGlyphScene(
 
         // Render the mesh IN PLACE (no centering) into a bbox-fitted sub-window.
         // Works for ANY camera (ortho / perspective / FPV): real world positions
-        // are kept so foreshortening stays correct; zoom is scaled by the detail
-        // resolution; the projection CENTER is offset so the mesh's screen bbox
-        // maps onto the small grid. (The old centre-then-CSS-translate trick was
-        // orthographic-only — under perspective, apparent size depends on world
-        // position, so re-centering to the origin distorts the mesh.)
+        // are kept so foreshortening stays correct; the finer resolution comes from
+        // scaling FOVSCALE (NOT zoom — zoom feeds the perspective divide cssZ, so
+        // scaling it would shift P/(P−cssZ) and displace the layer depth-dependently
+        // under a perspective camera; fovScale only scales the post-divide offset);
+        // the projection CENTER is offset so the mesh's screen bbox maps onto the
+        // small grid. (The old centre-then-CSS-translate trick was ortho-only.)
         const tp = applyTransform(entry.polygons, entry.transform);
 
-        // Mesh screen bbox in BASE cells (base zoom + base center).
-        camera.zoom = baseZoom; camera.center = baseCenter;
+        // Mesh screen bbox in BASE cells (base zoom + center + fovScale).
+        camera.zoom = baseZoom; camera.center = baseCenter; camera.fovScale = baseFovScale;
         let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
         for (const p of tp) for (const v of p.vertices) {
           const pr = camera.project(v, colsB, rowsB, caB);
@@ -545,10 +547,9 @@ export function createGlyphScene(
         minC = Math.max(-PADB, minC - PADB); maxC = Math.min(colsB + PADB, maxC + PADB);
         minR = Math.max(-PADB, minR - PADB); maxR = Math.min(rowsB + PADB, maxR + PADB);
         if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // fully off-screen
-        const kx = cwB / cwD, ky = chB / chD; // detail cells per base cell
+        const kx = cwB / cwD, ky = chB / chD; // detail cells per base cell (= density)
         const colsD = Math.max(2, Math.ceil((maxC - minC) * kx));
         const rowsD = Math.max(2, Math.ceil((maxR - minR) * ky));
-        const zoomD = baseZoom * ky;
         // Offset the projection center so detail cell 0 ↔ base cell minC/minR.
         const cxNd = (kx * (colsB * baseCenter[0] - minC)) / colsD;
         const cyNd = (ky * (rowsB * baseCenter[1] - minR)) / rowsD;
@@ -564,7 +565,9 @@ export function createGlyphScene(
             }
           : null;
 
-        camera.zoom = zoomD; camera.center = [cxNd, cyNd];
+        // Finer grid via fovScale (zoom unchanged → perspective divide identical to
+        // the base layer, so the detail mesh lands on the exact base pixels × ky).
+        camera.zoom = baseZoom; camera.fovScale = baseFovScale * ky; camera.center = [cxNd, cyNd];
         const ctx = buildRasterizeContext({
           camera,
           grid: { cols: colsD, rows: rowsD, cellAspect: caD },
@@ -592,6 +595,7 @@ export function createGlyphScene(
     } finally {
       camera.zoom = baseZoom;
       camera.center = baseCenter;
+      camera.fovScale = baseFovScale;
     }
   }
 

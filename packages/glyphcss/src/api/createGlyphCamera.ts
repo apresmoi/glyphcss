@@ -383,8 +383,8 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         // world→screen-px: multiply by zoom * BASE_TILE, then divide by cell size.
         const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
         const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
-        const col = cols * cxN + screenPxX / cellPxW * state.stretch;
-        const row = rows * cyN + screenPxY / cellPxH;
+        const col = cols * cxN + screenPxX / cellPxW * state.stretch * state.fovScale;
+        const row = rows * cyN + screenPxY / cellPxH * state.fovScale;
         // zbuf = -1/r[2]: screen-space-linear (r[2] < 0 in front; nearer → larger).
         return [col, row, r[2], -1 / r[2]];
       }
