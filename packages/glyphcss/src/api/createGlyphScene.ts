@@ -514,9 +514,8 @@ export function createGlyphScene(
             layer.key = key; layer.cw = m.w; layer.ch = m.h;
           }
         }
-        const cwD = layer.cw, chD = layer.ch;
+        let cwD = layer.cw, chD = layer.ch;
         if (!(cwD > 0) || !(chD > 0)) continue;
-        const caD = chD / cwD;
 
         // Render the mesh IN PLACE (no centering) into a bbox-fitted sub-window.
         // Works for ANY camera (ortho / perspective / FPV): real world positions
@@ -547,7 +546,20 @@ export function createGlyphScene(
         minC = Math.max(-PADB, minC - PADB); maxC = Math.min(colsB + PADB, maxC + PADB);
         minR = Math.max(-PADB, minR - PADB); maxR = Math.min(rowsB + PADB, maxR + PADB);
         if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // fully off-screen
-        const kx = cwB / cwD, ky = chB / chD; // detail cells per base cell (= density)
+        let kx = cwB / cwD, ky = chB / chD; // detail cells per base cell (= density)
+        // Cap the detail grid: the viewport clamp bounds the bbox in BASE cells, but the
+        // grid is bbox×density, so an absurd density (or tiny fontSize) still explodes it.
+        // Coarsen the detail cell to fit MAX_DIM — graceful: beyond this, density just
+        // stops getting finer. Reset the <pre> font to match the capped cell.
+        const MAX_DIM = 1024;
+        const need = Math.max((maxC - minC) * kx, (maxR - minR) * ky);
+        if (need > MAX_DIM) {
+          const f = MAX_DIM / need; // < 1: scale resolution down to fit
+          cwD /= f; chD /= f; kx = cwB / cwD; ky = chB / chD;
+          dpre.style.fontSize = `${baseFontPx() * (cwD / cwB)}px`;
+          dpre.style.lineHeight = ""; layer.key = ""; // capped cell ≠ cached key
+        }
+        const caD = chD / cwD;
         const colsD = Math.max(2, Math.ceil((maxC - minC) * kx));
         const rowsD = Math.max(2, Math.ceil((maxR - minR) * ky));
         // Offset the projection center so detail cell 0 ↔ base cell minC/minR.
