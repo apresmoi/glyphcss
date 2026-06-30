@@ -21,8 +21,9 @@ if (useP) ($("cam") as HTMLSelectElement).value = "persp";
 $("cam").addEventListener("change", () => {
   const u = new URL(location.href); u.searchParams.set("cam", ($("cam") as HTMLSelectElement).value === "persp" ? "persp" : "ortho"); location.href = u.toString();
 });
+const ssaa = Math.max(1, parseInt(new URLSearchParams(location.search).get("ssaa") ?? "1", 10) || 1);
 const scene = createGlyphScene(host, {
-  camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default",
+  camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", supersample: ssaa,
   directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 }, ambientLight: { intensity: 0.5 },
 });
 host.style.fontSize = "13px";

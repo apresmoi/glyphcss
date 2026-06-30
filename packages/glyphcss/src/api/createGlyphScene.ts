@@ -580,7 +580,13 @@ export function createGlyphScene(
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
           doubleSided: options.doubleSided,
-          supersample: options.supersample,
+          // Detail layers render at SS=1 even when the scene supersamples: they're
+          // already high-res (their whole point), so coverage AA buys little — and a
+          // supersampled detail layer's downsampled silhouette would desync from the
+          // output-resolution occlusion id-map (which is NOT supersampled), holing the
+          // world at full-cell granularity while the detail only faded-fills it. The
+          // base/shared layer keeps the scene's supersample.
+          supersample: 1,
           depthEpsilon: options.depthEpsilon,
           temporalBlend: 0,
           shadow: undefined,
