@@ -25,6 +25,12 @@ export interface GlyphSceneProps {
   ambientLight?: GlyphAmbientLight;
   autoSize?: boolean;
   /**
+   * Interactive level-of-detail: while a control is dragging, render at
+   * `1/interactiveDownscale` resolution (coarser, same on-screen size) and
+   * restore full detail on release. `2` → ¼ cells while dragging. Default `1` (off).
+   */
+  interactiveDownscale?: number;
+  /**
    * Shadow-map configuration. `undefined` (default) means no shadows.
    * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
    * components to enable shadow casting.
@@ -46,6 +52,7 @@ export const GlyphScene = defineComponent({
     directionalLight: { type: Object as PropType<GlyphDirectionalLight>, default: undefined },
     ambientLight: { type: Object as PropType<GlyphAmbientLight>, default: undefined },
     autoSize: { type: Boolean, default: undefined },
+    interactiveDownscale: { type: Number, default: undefined },
     shadow: { type: Object as PropType<GlyphShadowOptions>, default: undefined },
     class: { type: String, default: undefined },
   },
@@ -71,6 +78,7 @@ export const GlyphScene = defineComponent({
       if (props.directionalLight !== undefined) opts.directionalLight = props.directionalLight;
       if (props.ambientLight !== undefined) opts.ambientLight = props.ambientLight;
       if (props.autoSize !== undefined) opts.autoSize = props.autoSize;
+      if (props.interactiveDownscale !== undefined) opts.interactiveDownscale = props.interactiveDownscale;
       if (props.shadow !== undefined) opts.shadow = props.shadow;
       if (cameraRef.value !== null) opts.camera = cameraRef.value;
       sceneRef.value = createGlyphScene(el, opts);
@@ -97,6 +105,7 @@ export const GlyphScene = defineComponent({
         directionalLight: props.directionalLight,
         ambientLight: props.ambientLight,
         autoSize: props.autoSize,
+        interactiveDownscale: props.interactiveDownscale,
         shadow: props.shadow,
       }),
       (next) => {
@@ -112,6 +121,7 @@ export const GlyphScene = defineComponent({
         if (next.directionalLight !== undefined) partial.directionalLight = next.directionalLight;
         if (next.ambientLight !== undefined) partial.ambientLight = next.ambientLight;
         if (next.autoSize !== undefined) partial.autoSize = next.autoSize;
+        if (next.interactiveDownscale !== undefined) partial.interactiveDownscale = next.interactiveDownscale;
         // Always forward shadow (including undefined) so setOptions can clear it
         // when the prop is removed. Uses the "in" check in vanilla setOptions.
         partial.shadow = next.shadow;

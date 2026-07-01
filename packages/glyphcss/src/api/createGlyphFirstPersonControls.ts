@@ -159,7 +159,7 @@ export function createGlyphFirstPersonControls(
   const doc = host.ownerDocument ?? document;
   const win = (doc.defaultView ?? globalThis) as typeof globalThis;
 
-  const registry = makeListenerRegistry();
+  const registry = makeListenerRegistry(scene);
   const snapshot = makeCameraSnapshot(scene);
   const { emitChange, emitInteraction } = registry;
 

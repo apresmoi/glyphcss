@@ -53,7 +53,7 @@ export interface ListenerRegistry {
   emitInteraction: (type: "start" | "end", snapshot: () => GlyphControlsCamera) => void;
 }
 
-export function makeListenerRegistry(): ListenerRegistry {
+export function makeListenerRegistry(scene?: GlyphSceneHandle): ListenerRegistry {
   const changeListeners: GlyphControlsListener<GlyphControlsChangeEvent>[] = [];
   const startListeners: GlyphControlsListener<GlyphControlsInteractionEvent>[] = [];
   const endListeners: GlyphControlsListener<GlyphControlsInteractionEvent>[] = [];
@@ -73,6 +73,9 @@ export function makeListenerRegistry(): ListenerRegistry {
   }
 
   function emitInteraction(type: "start" | "end", snapshot: () => GlyphControlsCamera): void {
+    // Drive the scene's interactive level-of-detail (coarser while dragging).
+    // Runs regardless of user listeners; no-op unless interactiveDownscale > 1.
+    scene?.setInteracting?.(type === "start");
     const list = type === "start" ? startListeners : endListeners;
     if (list.length === 0) return;
     const event: GlyphControlsInteractionEvent = { type, camera: snapshot() };

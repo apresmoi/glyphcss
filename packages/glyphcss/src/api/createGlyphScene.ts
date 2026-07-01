@@ -108,6 +108,14 @@ export interface GlyphSceneOptions {
    * (default 80×24) is the predictable choice for tests and SSR.
    */
   autoSize?: boolean;
+  /**
+   * Interactive level-of-detail. While a control is actively dragging (orbit /
+   * pan / first-person), render the scene at `1/interactiveDownscale` resolution
+   * (coarser glyphs, same on-screen size), snapping back to full detail on
+   * release. `2` → ¼ the cells while dragging. `1` (default) disables it. Keeps
+   * heavy high-resolution scenes smooth to drag without a permanent quality hit.
+   */
+  interactiveDownscale?: number;
   /** Shadow-map configuration. `undefined` (default) = no shadows. */
   shadow?: GlyphShadowOptions;
 }
@@ -159,6 +167,13 @@ export interface GlyphSceneHandle {
    * `ResizeObserver` already handles host-size changes automatically.
    */
   fit(): void;
+  /**
+   * Signal that an interaction (drag) is starting/ending. When
+   * `interactiveDownscale > 1`, the scene renders coarser while active and
+   * restores full detail on release. Controls call this automatically; only
+   * needed manually for custom interaction sources.
+   */
+  setInteracting(active: boolean): void;
   destroy(): void;
 }
 
@@ -246,6 +261,7 @@ export function createGlyphScene(
     creaseAngle: opts.creaseAngle ?? 60,
     doubleSided: opts.doubleSided ?? false,
     supersample: opts.supersample ?? 1,
+    interactiveDownscale: opts.interactiveDownscale ?? 1,
     depthEpsilon: opts.depthEpsilon ?? 0,
     temporalBlend: opts.temporalBlend ?? 0,
     autoSize: opts.autoSize ?? false,
@@ -717,6 +733,41 @@ export function createGlyphScene(
     doRender();
   }
 
+  // Interactive level-of-detail: while dragging, render coarser (bigger cell →
+  // fewer cells at the SAME on-screen size, since camera.zoom is unchanged), then
+  // restore full detail on release. Only the font/cols swap happens per gesture
+  // (twice), not per frame — every drag frame in between is cheap.
+  let interacting = false;
+  let savedInteractFont: string | null = null;
+  let savedInteractCols = 0, savedInteractRows = 0;
+  function setInteracting(active: boolean): void {
+    const ds = options.interactiveDownscale ?? 1;
+    if (ds <= 1 || active === interacting) return;
+    interacting = active;
+    if (active) {
+      savedInteractFont = pre.style.fontSize;
+      pre.style.fontSize = `${baseFontPx() * ds}px`;
+      if (options.autoSize) {
+        fitToHost(); // re-measures the coarser cell → cols/rows ÷ ds
+      } else {
+        savedInteractCols = options.cols; savedInteractRows = options.rows;
+        options.cols = Math.max(2, Math.round(options.cols / ds));
+        options.rows = Math.max(2, Math.round(options.rows / ds));
+        baseCellCache = null; baseFontPxCache = null;
+      }
+    } else {
+      pre.style.fontSize = savedInteractFont ?? "";
+      if (options.autoSize) {
+        fitToHost();
+      } else {
+        options.cols = savedInteractCols; options.rows = savedInteractRows;
+        baseCellCache = null; baseFontPxCache = null;
+      }
+      savedInteractFont = null;
+    }
+    rerender();
+  }
+
   function setOptions(partial: Partial<GlyphSceneOptions>): void {
     if (partial.mode !== undefined) options.mode = partial.mode;
     if (partial.glyphPalette !== undefined) options.glyphPalette = partial.glyphPalette;
@@ -729,6 +780,7 @@ export function createGlyphScene(
     if (partial.camera !== undefined) options.camera = partial.camera;
     if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
     if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
+    if (partial.interactiveDownscale !== undefined) options.interactiveDownscale = partial.interactiveDownscale;
     if ("shadow" in partial) options.shadow = partial.shadow;
     if (partial.autoSize !== undefined) {
       options.autoSize = partial.autoSize;
@@ -831,6 +883,7 @@ export function createGlyphScene(
     setOptions,
     getOptions,
     fit: fitToHost,
+    setInteracting,
     destroy,
   };
 }

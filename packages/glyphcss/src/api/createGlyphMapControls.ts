@@ -59,7 +59,7 @@ export function createGlyphMapControls(
   let pinchZoom = 0; // camera.zoom when the pinch began
 
   const camera = scene.camera;
-  const registry = makeListenerRegistry();
+  const registry = makeListenerRegistry(scene);
   const snapshot = makeCameraSnapshot(scene);
   const { emitChange, emitInteraction } = registry;
   let wheelActive = false;

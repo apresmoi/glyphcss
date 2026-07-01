@@ -44,6 +44,12 @@ export interface GlyphSceneProps {
   /** Observe host element and adapt cols/rows to fill it. Default false. */
   autoSize?: boolean;
   /**
+   * Interactive level-of-detail: while a control is dragging, render at
+   * `1/interactiveDownscale` resolution (coarser, same on-screen size) and
+   * restore full detail on release. `2` → ¼ cells while dragging. Default `1` (off).
+   */
+  interactiveDownscale?: number;
+  /**
    * Shadow-map configuration. `undefined` (default) means no shadows.
    * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
    * components to enable shadow casting.
@@ -66,6 +72,7 @@ function GlyphSceneInner({
   smoothShading,
   creaseAngle,
   autoSize,
+  interactiveDownscale,
   shadow,
   className,
   style,
@@ -88,6 +95,7 @@ function GlyphSceneInner({
     smoothShading,
     creaseAngle,
     autoSize,
+    interactiveDownscale,
     shadow,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -126,13 +134,14 @@ function GlyphSceneInner({
     if (smoothShading !== undefined) partial.smoothShading = smoothShading;
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
     if (autoSize !== undefined) partial.autoSize = autoSize;
+    if (interactiveDownscale !== undefined) partial.interactiveDownscale = interactiveDownscale;
     // Always forward shadow (including undefined) so setOptions can clear it
     // when the prop is removed. Uses the "in" check in vanilla setOptions.
     partial.shadow = shadow;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, shadow]);
+  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

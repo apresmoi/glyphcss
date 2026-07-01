@@ -739,6 +739,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const scene: GlyphSceneHandle = createGlyphScene(sceneHost, {
     camera,
     autoSize: true,
+    // Interactive LOD: render ½-resolution (¼ cells) while dragging, full detail
+    // on release — keeps high-density scenes smooth to orbit/pan.
+    interactiveDownscale: 2,
     ...buildSceneOptions(),
   });
 

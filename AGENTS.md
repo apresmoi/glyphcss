@@ -82,6 +82,8 @@ Hotspot positions update via a single inline-style assignment per hotspot elemen
 
 Controls (orbit, map, first-person) mutate a single camera state object; the rasteriser reads that object when it renders. The JS ↔ DOM boundary is: camera event → update camera state object → rasterise → write one string.
 
+**Interactive LOD.** Cost scales ~quadratically with scene-wide density (font ÷ d → cells × d²), so a tiny cell (high density / small font) can blow the frame budget while dragging (Script + browser Layout/Paint of a huge `<pre>`; colored output's `innerHTML` spans add ParseHTML/Style/Paint on top). The `interactiveDownscale` scene option (default `1` = off) renders at `1/n` resolution *while a control is actively dragging* and restores full detail on release — same on-screen size (camera `zoom` unchanged; bigger cell → fewer cells), just coarser mid-gesture. All three controls signal this automatically via the shared listener registry (`emitInteraction` → `scene.setInteracting`); consumers can call `scene.setInteracting(active)` for custom interaction sources. Mirrored across React/Vue `<GlyphScene interactiveDownscale>` and `<glyph-scene interactive-downscale>`.
+
 ## Naming
 
 Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types: `Vec2`, `Vec3`, `Polygon`, `TextureTriangle`.
