@@ -34,11 +34,26 @@ interface ProjectCamera {
  */
 export function computeOcclusionIds(
   groups: { polygons: Polygon[]; id: number }[],
-  camera: ProjectCamera,
-  cols: number,
-  rows: number,
+  rawCamera: ProjectCamera,
+  outCols: number,
+  outRows: number,
   cellAspect: number,
+  supersample = 1,
 ): Int32Array {
+  // Build the id-map at the WORLD layer's INTERNAL (supersampled) resolution using
+  // the same offset-scaling wrapper rasterizeSolid uses, so the world's supersampled
+  // silhouette and its id-map hole coincide subcell-for-subcell (no 1-cell seam at
+  // the world/entity boundary). No-op when supersample===1 (id-map = output res).
+  const ss = supersample > 1 ? Math.floor(supersample) : 1;
+  const cols = outCols * ss, rows = outRows * ss;
+  const camera: ProjectCamera = ss > 1
+    ? {
+        project: (v, c, r, ca) => {
+          const p = rawCamera.project(v, c, r, ca);
+          return [c * 0.5 + (p[0] - c * 0.5) * ss, r * 0.5 + (p[1] - r * 0.5) * ss, p[2], p[3]];
+        },
+      }
+    : rawCamera;
   const depth = new Float64Array(cols * rows).fill(-Infinity);
   const idMap = new Int32Array(cols * rows).fill(-1);
   for (const g of groups) {

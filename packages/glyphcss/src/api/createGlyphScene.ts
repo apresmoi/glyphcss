@@ -341,15 +341,18 @@ export function createGlyphScene(
     // detail meshes don't participate (they neither occlude nor are occluded).
     // Layer ids: base meshes share id 0; each opaque detail mesh uses its own id.
     const BASE_LAYER = 0;
-    let occShared: { idMap: Int32Array; cols: number; rows: number; cwB: number; chB: number } | null = null;
+    let occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number } | null = null;
     const opaqueDetails = detailEntries.filter((e) => e.transform.transparent !== true);
     if (opaqueDetails.length > 0) {
       const bc = baseCellMetrics();
       if (bc.w > 0 && bc.h > 0) {
+        // Build the id-map at the scene's supersample so the world's supersampled
+        // silhouette and its id-map hole coincide (no world/entity boundary seam).
+        const ss = options.supersample && options.supersample > 1 ? Math.floor(options.supersample) : 1;
         const groups: { polygons: Polygon[]; id: number }[] = [{ polygons: allPolygons, id: BASE_LAYER }];
         for (const e of opaqueDetails) groups.push({ polygons: applyTransform(e.polygons, e.transform), id: e.id });
-        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect);
-        occShared = { idMap, cols: options.cols, rows: options.rows, cwB: bc.w, chB: bc.h };
+        const idMap = computeOcclusionIds(groups, options.camera, options.cols, options.rows, options.cellAspect, ss);
+        occShared = { idMap, cols: options.cols * ss, rows: options.rows * ss, ss, cwB: bc.w, chB: bc.h };
       }
     }
 
@@ -376,9 +379,10 @@ export function createGlyphScene(
     ctx.shadeCache = shadeCache;
     ctx.textureSamplers = textureSamplers;
     ctx.temporalHistory = temporalHistory;
-    // Base layer occludes 1:1 against the shared id-map (its grid IS the ref grid).
+    // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
+    // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
-      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: 1, colOffset: 0.5, rowScale: 1, rowOffset: 0.5 }
+      ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5 }
       : null;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
@@ -457,7 +461,7 @@ export function createGlyphScene(
    */
   function renderDetailLayers(
     entries: MeshEntry[],
-    occShared: { idMap: Int32Array; cols: number; rows: number; cwB: number; chB: number } | null,
+    occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number } | null,
   ): void {
     // Drop <pre>s for meshes that are gone or no longer detail.
     for (const [id, layer] of detailLayers) {
@@ -569,11 +573,14 @@ export function createGlyphScene(
         // Opaque detail layers occlude against the shared id-map (owner === this
         // mesh's id → keep, so it never self-occludes); transparent ones don't.
         // Detail cell c maps to base ref cell minC + (c+0.5)/kx.
+        // Detail cell c center → base-output ref (minC + (c+0.5)/kx), then × ss to
+        // index the supersampled id-map (detail layers render at ss=1, so invSS=1).
+        const oss = occShared ? occShared.ss : 1;
         const occ = (occShared && entry.transform.transparent !== true)
           ? {
               idMap: occShared.idMap, layerId: entry.id, cols: occShared.cols, rows: occShared.rows,
-              colScale: 1 / kx, colOffset: minC + 0.5 / kx,
-              rowScale: 1 / ky, rowOffset: minR + 0.5 / ky,
+              colScale: oss / kx, colOffset: oss * (minC + 0.5 / kx),
+              rowScale: oss / ky, rowOffset: oss * (minR + 0.5 / ky),
             }
           : null;
 
