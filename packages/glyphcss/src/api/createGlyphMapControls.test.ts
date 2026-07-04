@@ -6,7 +6,18 @@ import type { GlyphSceneHandle } from "./createGlyphScene";
 function makeScene(): GlyphSceneHandle {
   const host = document.createElement("div");
   document.body.appendChild(host);
-  return createGlyphScene(host, { cols: 20, rows: 10 });
+  host.getBoundingClientRect = () => ({
+    x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 500,
+    width: 1000, height: 500,
+    toJSON: () => ({}),
+  }) as DOMRect;
+  const scene = createGlyphScene(host, { cols: 20, rows: 10 });
+  scene.output.getBoundingClientRect = () => ({
+    x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 500,
+    width: 1000, height: 500,
+    toJSON: () => ({}),
+  }) as DOMRect;
+  return scene;
 }
 
 function pd(host: Element, x: number, y: number, button = 0, pointerId = 1): void {
@@ -86,25 +97,35 @@ describe("createGlyphMapControls", () => {
 
   it("left-drag right → target.x decreases (map moves left)", () => {
     const controls = createGlyphMapControls(scene);
+    scene.camera.rotX = 0;
+    scene.camera.rotY = 0;
+    scene.camera.zoom = 50;
     const initialX = scene.camera.target[0];
+    const initialY = scene.camera.target[1];
 
     pd(scene.host, 100, 100, 0);
     pm(scene.host, 200, 100); // dx = +100
     pu(scene.host);
 
-    expect(scene.camera.target[0]).toBeLessThan(initialX);
+    expect(scene.camera.target[0]).toBeCloseTo(initialX, 5);
+    expect(scene.camera.target[1]).toBeCloseTo(initialY - 2, 5);
     controls.destroy();
   });
 
-  it("left-drag down → target.y decreases", () => {
+  it("left-drag down → target.x decreases", () => {
     const controls = createGlyphMapControls(scene);
+    scene.camera.rotX = 0;
+    scene.camera.rotY = 0;
+    scene.camera.zoom = 50;
+    const initialX = scene.camera.target[0];
     const initialY = scene.camera.target[1];
 
     pd(scene.host, 100, 100, 0);
     pm(scene.host, 100, 200); // dy = +100
     pu(scene.host);
 
-    expect(scene.camera.target[1]).toBeLessThan(initialY);
+    expect(scene.camera.target[0]).toBeCloseTo(initialX - 2, 5);
+    expect(scene.camera.target[1]).toBeCloseTo(initialY, 5);
     controls.destroy();
   });
 
@@ -156,7 +177,7 @@ describe("createGlyphMapControls", () => {
     controls.destroy();
   });
 
-  it("zoom clamped between 0.1 and 500 (absolute px-per-world-unit scale)", () => {
+  it("zoom clamped between 0.1 and 500 (CSS px per world unit)", () => {
     const controls = createGlyphMapControls(scene);
 
     for (let i = 0; i < 50; i++) {
@@ -210,14 +231,18 @@ describe("createGlyphMapControls", () => {
     controls.destroy();
   });
 
-  it("pan magnitude is proportional to PAN_SCALE / scale", () => {
-    // Use a higher scale so pan distance is smaller
+  it("pan magnitude is proportional to screen pixels / zoom", () => {
+    // Use a higher zoom so the same screen-pixel drag covers less world space.
     const sceneHighZoom = makeScene();
-    sceneHighZoom.camera.zoom = 2;
+    sceneHighZoom.camera.rotX = 0;
+    sceneHighZoom.camera.rotY = 0;
+    sceneHighZoom.camera.zoom = 100;
     const controlsHigh = createGlyphMapControls(sceneHighZoom);
 
     const sceneLowZoom = makeScene();
-    sceneLowZoom.camera.zoom = 1;
+    sceneLowZoom.camera.rotX = 0;
+    sceneLowZoom.camera.rotY = 0;
+    sceneLowZoom.camera.zoom = 50;
     const controlsLow = createGlyphMapControls(sceneLowZoom);
 
     const dx = 100;
@@ -230,10 +255,10 @@ describe("createGlyphMapControls", () => {
     drag(sceneHighZoom);
     drag(sceneLowZoom);
 
-    const deltaHigh = Math.abs(sceneHighZoom.camera.target[0]);
-    const deltaLow = Math.abs(sceneLowZoom.camera.target[0]);
+    const deltaHigh = Math.abs(sceneHighZoom.camera.target[1]);
+    const deltaLow = Math.abs(sceneLowZoom.camera.target[1]);
 
-    // High zoom (scale=2) → smaller pan distance than low zoom (scale=1)
+    // High zoom → smaller world-space pan distance than low zoom.
     expect(deltaHigh).toBeLessThan(deltaLow);
 
     controlsHigh.destroy();

@@ -8,7 +8,7 @@ const DOG = resolve(process.cwd(), "../../website/public/gallery/glb/Dog.glb");
 
 describe("compileInteractive", () => {
   it("default (orbit) → self-contained snippet with the orbit control, decimated", async () => {
-    const r = await compileInteractive(DOG, { autoCenter: true, rotX: 60, rotY: 45, zoom: 0.5 });
+    const r = await compileInteractive(DOG, { autoCenter: true, rotX: 60, rotY: 45, zoom: 25 });
     expect(r.interactions).toEqual(["orbit"]);
     expect(r.html).toContain('<div id="glyph">');
     expect(r.html).toContain('<script type="module">');

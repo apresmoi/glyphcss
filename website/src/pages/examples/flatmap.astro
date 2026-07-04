@@ -118,7 +118,7 @@ const title = "glyphcss · ASCII Iso World Map";
     <div class="ex-main">
   <header class="map-head">
     <h1>[ ISO WORLD MAP ]</h1>
-    <p>ETOPO1 global terrain on a flat iso plane. Drag to pan, scroll to zoom — only tiles in view are fetched. Tune relief / line-height / camera from the dock.</p>
+    <p>ETOPO1 global terrain on a flat iso plane. Drag to pan, scroll to zoom — only tiles in view are fetched. Tune relief / density / camera from the dock.</p>
   </header>
   <div class="map-stage">
     <div class="iso-host" id="iso-host">
@@ -132,8 +132,8 @@ const title = "glyphcss · ASCII Iso World Map";
         <input type="range" id="exagg" min="0.1" max="5" step="0.1" value="0.2" />
       </div>
       <div class="iso-ctl">
-        <div class="iso-ctl-row"><span>line-height</span><span class="val" id="lh-val">0.55</span></div>
-        <input type="range" id="lh" min="0.2" max="1.1" step="0.05" value="0.55" />
+        <div class="iso-ctl-row"><span>density</span><span class="val" id="density-val">2</span></div>
+        <input type="range" id="density" min="0.75" max="4" step="0.05" value="2" />
       </div>
       <div class="iso-ctl">
         <div class="iso-ctl-row"><span>tilt °</span><span class="val" id="tilt-val">40</span></div>
@@ -203,20 +203,21 @@ const title = "glyphcss · ASCII Iso World Map";
       tileBoxes: Record<string, Box>;
     };
 
-    // camera.zoom thresholds → LOD. zoom is absolute px-per-world-unit
-    // (×BASE_TILE=50), same calibration as the globe example (unit object
-    // fills the viewport at zoom≈16; ×48.5 vs the old fraction-zoom values).
+    const INITIAL_ZOOM = 550;
+    const BASE_FONT_SIZE = 13;
+
+    // camera.zoom thresholds → LOD. zoom is absolute CSS px per world unit.
     // z0 = whole world, each higher level quarters tile coverage / doubles
     // definition. Only z0–z3 tiles ship, so the LOD is capped at 3.
     function targetLOD(zoom: number): number {
-      // The default zoom (78) shows the WHOLE world filling the viewport. At
+      // The default zoom shows the WHOLE world filling the viewport. At
       // that view a ~150-col grid can't resolve LOD-2 detail, so LOD 1 (4
       // tiles) looks identical to LOD 2 (16 tiles) while rasterising ~4× less
       // terrain geometry every drag frame. LOD only escalates once you zoom IN
       // past the whole-world view (where finer tiles actually become visible).
-      if (zoom < 19) return 0;
-      if (zoom < 120) return 1;
-      if (zoom < 240) return 2;
+      if (zoom < 140) return 0;
+      if (zoom < 800) return 1;
+      if (zoom < 1600) return 2;
       return 3;
     }
 
@@ -238,9 +239,8 @@ const title = "glyphcss · ASCII Iso World Map";
       // while terrain relief still reads as vertical bumps.
       // rotY=0 keeps north up (worldX=lat axis → screen vertical, worldY=lon
       // axis → screen horizontal). No rotation interaction — pan/zoom only.
-      // zoom=78 (absolute px-per-world-unit × BASE_TILE=50) shows the default
-      // LOD-1 region filling the viewport.
-      const camera = createGlyphOrthographicCamera({ rotX: 40, rotY: 0, zoom: 78 });
+      // INITIAL_ZOOM shows the default LOD-1 region filling the viewport.
+      const camera = createGlyphOrthographicCamera({ rotX: 40, rotY: 0, zoom: INITIAL_ZOOM });
 
       const scene = createGlyphScene(host, {
         camera,
@@ -251,6 +251,13 @@ const title = "glyphcss · ASCII Iso World Map";
         directionalLight: { direction: [-0.4, -0.5, -0.75], intensity: 1.15 },
         ambientLight: { intensity: 0.4 },
       });
+
+      function setDensity(density: number): void {
+        const next = Math.max(0.1, density);
+        scene.output.style.fontSize = `${BASE_FONT_SIZE / next}px`;
+        scene.fit();
+      }
+      setDensity(2);
 
       // Palettes: band 0 (water) … band 8 (summit). Swappable live.
       const PALETTES: Record<string, string[]> = {
@@ -334,24 +341,36 @@ const title = "glyphcss · ASCII Iso World Map";
       // MUST project with the real cols/rows/cellAspect — projecting against a
       // hardcoded square grid mis-places everything (wrongly-culled edge tiles
       // → black wedges; mis-scaled pan).
+      type ProjectionGrid = {
+        cols: number;
+        rows: number;
+        cellAspect: number;
+        cellWidth: number;
+        cellHeight: number;
+        centerCol: number;
+        centerRow: number;
+      };
       function grid(): { cols: number; rows: number; cellAspect: number } {
         const o = scene.getOptions();
         return { cols: o.cols ?? 80, rows: o.rows ?? 24, cellAspect: o.cellAspect ?? 2 };
       }
-
-      // On-screen pixels per world-unit (along worldY). Used to keep the map's
-      // apparent size stable when line-height changes: the projection radius
-      // depends on min(cols,rows), which flips as line-height reshapes the
-      // grid, so we compensate camera.zoom to hold this constant.
-      function mapPixelScale(): number {
-        const { cols, rows, cellAspect } = grid();
-        const rect = host.getBoundingClientRect();
-        if (!cols || !rows || !rect.width) return 0;
-        const o = camera.project([0, 0, 0], cols, rows, cellAspect);
-        const p = camera.project([0, 1, 0], cols, rows, cellAspect);
-        const dCol = (p[0] - o[0]) * (rect.width / cols);
-        const dRow = (p[1] - o[1]) * (rect.height / rows);
-        return Math.hypot(dCol, dRow);
+      function projectionGrid(): ProjectionGrid {
+        const g = grid();
+        const hostRect = host.getBoundingClientRect();
+        const preRect = scene.output.getBoundingClientRect();
+        const cellWidth = preRect.width > 0 ? preRect.width / g.cols
+          : hostRect.width > 0 ? hostRect.width / g.cols
+          : 50 / g.cellAspect;
+        const cellHeight = preRect.height > 0 ? preRect.height / g.rows
+          : hostRect.height > 0 ? hostRect.height / g.rows
+          : 50;
+        return {
+          ...g,
+          cellWidth,
+          cellHeight,
+          centerCol: g.cols * camera.center[0] + (hostRect.width > 0 ? (hostRect.width - g.cols * cellWidth) / (2 * cellWidth) : 0),
+          centerRow: g.rows * camera.center[1] + (hostRect.height > 0 ? (hostRect.height - g.rows * cellHeight) / (2 * cellHeight) : 0),
+        };
       }
 
       // The plane-space AABB currently visible on screen: unproject the four
@@ -359,10 +378,10 @@ const title = "glyphcss · ASCII Iso World Map";
       // tilt, rotation, and zoom — and to tiles larger than the viewport
       // (which corner-sampling would wrongly cull, leaving black gaps).
       function visiblePlaneAABB(): Box {
-        const { cols, rows, cellAspect } = grid();
-        const o = camera.project([0, 0, 0], cols, rows, cellAspect);
-        const ux = camera.project([1, 0, 0], cols, rows, cellAspect);
-        const uy = camera.project([0, 1, 0], cols, rows, cellAspect);
+        const pg = projectionGrid();
+        const o = camera.project([0, 0, 0], pg.cols, pg.rows, pg.cellAspect, pg);
+        const ux = camera.project([1, 0, 0], pg.cols, pg.rows, pg.cellAspect, pg);
+        const uy = camera.project([0, 1, 0], pg.cols, pg.rows, pg.cellAspect, pg);
         // Jacobian plane→grid: [ax bx; ay by].
         const ax = ux[0] - o[0], ay = ux[1] - o[1];
         const bx = uy[0] - o[0], by = uy[1] - o[1];
@@ -372,7 +391,7 @@ const title = "glyphcss · ASCII Iso World Map";
           const dc = col - o[0], dr = row - o[1];
           return [(by * dc - bx * dr) / det, (-ay * dc + ax * dr) / det];
         };
-        const cs = [unproj(0, 0), unproj(cols, 0), unproj(0, rows), unproj(cols, rows)];
+        const cs = [unproj(0, 0), unproj(pg.cols, 0), unproj(0, pg.rows), unproj(pg.cols, pg.rows)];
         const xs = cs.map((c) => c[0]), ys = cs.map((c) => c[1]);
         // Pad by 8% of span so tiles straddling the edge load before they pop in.
         const padX = (Math.max(...xs) - Math.min(...xs)) * 0.08;
@@ -445,19 +464,18 @@ const title = "glyphcss · ASCII Iso World Map";
       // depends on the iso tilt; we derive it empirically by projecting two
       // unit plane axes and inverting the 2×2 screen jacobian so a pixel drag
       // translates to the right plane delta regardless of camera angle/zoom.
-      function screenToPlaneDelta(dxPx: number, dyPx: number, hostW: number, hostH: number): [number, number] {
+      function screenToPlaneDelta(dxPx: number, dyPx: number): [number, number] {
         // Project plane origin + unit X + unit Y through the camera at the
         // REAL grid dims/aspect, then convert grid units → pixels. Using the
         // live grid is what makes the pan distance track the cursor exactly
         // at any zoom (a hardcoded grid mis-scales it).
-        const { cols, rows, cellAspect } = grid();
-        const o = camera.project([0, 0, 0], cols, rows, cellAspect);
-        const px = camera.project([1, 0, 0], cols, rows, cellAspect);
-        const py = camera.project([0, 1, 0], cols, rows, cellAspect);
-        const sx = hostW / cols, sy = hostH / rows;
+        const pg = projectionGrid();
+        const o = camera.project([0, 0, 0], pg.cols, pg.rows, pg.cellAspect, pg);
+        const px = camera.project([1, 0, 0], pg.cols, pg.rows, pg.cellAspect, pg);
+        const py = camera.project([0, 1, 0], pg.cols, pg.rows, pg.cellAspect, pg);
         // Jacobian columns: how 1 plane-unit moves in pixels.
-        const ax = (px[0] - o[0]) * sx, ay = (px[1] - o[1]) * sy;
-        const bx = (py[0] - o[0]) * sx, by = (py[1] - o[1]) * sy;
+        const ax = (px[0] - o[0]) * pg.cellWidth, ay = (px[1] - o[1]) * pg.cellHeight;
+        const bx = (py[0] - o[0]) * pg.cellWidth, by = (py[1] - o[1]) * pg.cellHeight;
         const det = ax * by - ay * bx;
         if (Math.abs(det) < 1e-6) return [0, 0];
         // Solve [ax bx; ay by] · [du dv] = [dxPx dyPx].
@@ -553,8 +571,7 @@ const title = "glyphcss · ASCII Iso World Map";
         const dxPx = last.clientX - lastX;
         const dyPx = last.clientY - lastY;
         lastX = last.clientX; lastY = last.clientY;
-        const rect = host.getBoundingClientRect();
-        const [du, dv] = screenToPlaneDelta(dxPx, dyPx, rect.width, rect.height);
+        const [du, dv] = screenToPlaneDelta(dxPx, dyPx);
         // Drag the map WITH the pointer: target moves opposite to the drag,
         // clamped to the plane extent so you can't pan into the void.
         const t = camera.target;
@@ -576,9 +593,8 @@ const title = "glyphcss · ASCII Iso World Map";
       host.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = e.deltaY * 0.001;
-        // Min 20 = zoomed slightly out of the default fill level.
-        // Max 400 — only z0–z3 tiles ship, so deeper zoom is just enlarged z3.
-        camera.zoom = Math.max(20, Math.min(400, camera.zoom * (1 - delta)));
+        // Only z0–z3 tiles ship, so deeper zoom just enlarges z3.
+        camera.zoom = Math.max(360, Math.min(2000, camera.zoom * (1 - delta)));
         scene.rerender();
         updateZoomReadout();
         updateLabels();
@@ -608,22 +624,12 @@ const title = "glyphcss · ASCII Iso World Map";
         scene.rerender();
       });
 
-      // Line-height → CSS multiplier on the <pre>; refit cols/rows for the
-      // new cell height.
-      const lhInput = $("lh") as HTMLInputElement | null;
-      const lhVal = $("lh-val");
-      lhInput?.addEventListener("input", () => {
-        const lh = parseFloat(lhInput.value);
-        if (lhVal) lhVal.textContent = lh.toFixed(2);
-        // Preserve on-screen map scale across the line-height change: measure
-        // pixels-per-world-unit before and after re-fitting, then rescale zoom.
-        const before = mapPixelScale();
-        scene.output.style.lineHeight = String(lh);
-        scene.fit();
-        const after = mapPixelScale();
-        if (before > 0 && after > 0) {
-          camera.zoom = Math.max(2.6, Math.min(1300, camera.zoom * (before / after)));
-        }
+      const densityInput = $("density") as HTMLInputElement | null;
+      const densityVal = $("density-val");
+      densityInput?.addEventListener("input", () => {
+        const density = parseFloat(densityInput.value) || 1;
+        if (densityVal) densityVal.textContent = density.toFixed(2).replace(/\.?0+$/, "");
+        setDensity(density);
         scene.rerender();
         updateZoomReadout();
         void updateActiveSet();
@@ -729,9 +735,7 @@ const title = "glyphcss · ASCII Iso World Map";
       // Runs after a render (hotspot left/top are then current). Caps total
       // shown by zoom so the world view stays sparse.
       function updateLabels(): void {
-        // Scale label count with zoom: at zoom=78 (default view) show ~14;
-        // more as you zoom in. Normalise by default zoom 78.
-        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / 78) * 14)));
+        const maxShown = Math.max(10, Math.min(labelData.length, Math.round((camera.zoom / INITIAL_ZOOM) * 14)));
         const hostRect = host.getBoundingClientRect();
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         let count = 0;
@@ -784,9 +788,6 @@ const title = "glyphcss · ASCII Iso World Map";
         }
       })();
 
-      // Initialise line-height to the slider's default.
-      scene.output.style.lineHeight = lhInput?.value ?? "0.55";
-      scene.fit();
       scene.rerender();
 
       // Debug hook for precise camera positioning during iteration.

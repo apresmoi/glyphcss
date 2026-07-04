@@ -168,7 +168,7 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 
-  it("zoom is clamped between 0.1 and 500 (absolute px-per-world-unit scale)", () => {
+  it("zoom is clamped between 0.1 and 500 (CSS px per world unit)", () => {
     const controls = createGlyphOrbitControls(scene);
 
     // Zoom out aggressively

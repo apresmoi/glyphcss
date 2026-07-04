@@ -14,7 +14,7 @@ import type { Polygon, Vec3 } from "@glyphcss/core";
 
 // Camera looking slightly down so both cube top and ground plane are visible.
 // rotX=55 gives a nice oblique view; zoom+distance chosen so cube and ground fill the grid.
-const CAMERA = createGlyphPerspectiveCamera({ rotX: 55, rotY: 30, zoom: 5, distance: 20 });
+const CAMERA = createGlyphPerspectiveCamera({ rotX: 55, rotY: 30, zoom: 250, distance: 20 });
 const GRID = { cols: 60, rows: 30, cellAspect: 2.0 };
 const DIR_LIGHT_DOWN = { direction: [0, 0, -1] as Vec3, intensity: 1 };
 const AMB_LIGHT = { intensity: 0.3 };

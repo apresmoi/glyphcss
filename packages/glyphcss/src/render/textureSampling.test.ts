@@ -24,7 +24,7 @@ const quad = {
 };
 
 function renderColors(withSamplers: boolean): string[] {
-  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
+  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 400 });
   const ctx = buildRasterizeContext({
     camera,
     grid: { cols: 40, rows: 40, cellAspect: 2 },

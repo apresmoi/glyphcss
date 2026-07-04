@@ -24,7 +24,7 @@ import {
 
 export function App() {
   return (
-    <GlyphCamera rotX={0.4} zoom={0.32}>
+    <GlyphCamera>
       <GlyphScene cols={80} rows={40}>
         <GlyphOrbitControls />
         <GlyphMesh src="/cottage.glb" />
@@ -43,9 +43,9 @@ Orthographic camera. `GlyphCamera` is the ergonomic default alias. Wraps
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `rotX` | `number` | `0` | Tilt in radians |
-| `rotY` | `number` | `0` | Azimuth in radians |
-| `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+| `rotX` | `number` | `65` | Tilt in degrees |
+| `rotY` | `number` | `45` | Azimuth in degrees |
+| `zoom` | `number` | `0.65` | CSS pixels per world unit |
 
 ### `<GlyphPerspectiveCamera>`
 
@@ -53,10 +53,10 @@ Perspective (foreshortened) camera. Required for `<GlyphFirstPersonControls>`.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `rotX` | `number` | `0` | Tilt in radians |
-| `rotY` | `number` | `0` | Azimuth in radians |
-| `distance` | `number` | `3` | Perspective distance in world units |
-| `zoom` | `number` | `0.4` | Mesh fraction of min(cols, rows) |
+| `rotX` | `number` | `65` | Tilt in degrees |
+| `rotY` | `number` | `45` | Azimuth in degrees |
+| `distance` | `number` | `0` | Perspective pull-back; CSS pixels with CSS perspective, world units only in legacy `perspective={0}` mode |
+| `zoom` | `number` | `0.65` | CSS pixels per world unit |
 
 ### `<GlyphScene>`
 

@@ -24,7 +24,7 @@ const title = "glyphcss · Image → Glyph";
     .map-stage { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 
     /* The glyphcss scene host fills the stage; the renderer's <pre> sits inside. */
-    .img-host { position: absolute; inset: 0; font-size: 8px; line-height: 0.6; }
+    .img-host { position: absolute; inset: 0; font-size: 8.125px; }
     .img-host .glyph-scene { width: 100%; height: 100%; }
     .img-host .glyph-output { color: rgba(255,232,184,0.96); margin: 0; }
 
@@ -106,12 +106,8 @@ const title = "glyphcss · Image → Glyph";
         <div class="iso-controls" id="iso-controls">
           <h2>[ CONTROLS ]</h2>
           <div class="iso-ctl">
-            <div class="iso-ctl-row"><span>detail (cell px)</span><span class="val" id="detail-val">8</span></div>
-            <input type="range" id="detail" min="3" max="16" step="1" value="8" />
-          </div>
-          <div class="iso-ctl">
-            <div class="iso-ctl-row"><span>line-height</span><span class="val" id="lh-val">0.6</span></div>
-            <input type="range" id="lh" min="0.4" max="1.2" step="0.05" value="0.6" />
+            <div class="iso-ctl-row"><span>density</span><span class="val" id="density-val">1.6</span></div>
+            <input type="range" id="density" min="0.75" max="4" step="0.05" value="1.6" />
           </div>
           <div class="iso-ctl">
             <div class="iso-ctl-row"><span>glyph set</span></div>
@@ -163,10 +159,18 @@ const title = "glyphcss · Image → Glyph";
     paletteSel.value = "default";
 
     const ctl = {
-      detail: document.getElementById("detail") as HTMLInputElement,
-      lh: document.getElementById("lh") as HTMLInputElement,
+      density: document.getElementById("density") as HTMLInputElement,
       color: document.getElementById("color") as HTMLInputElement,
     };
+    const BASE_FONT_SIZE = 13;
+
+    function applyDensity(): void {
+      const density = Math.max(0.1, parseFloat(ctl.density.value) || 1);
+      document.getElementById("density-val")!.textContent = density.toFixed(2).replace(/\.?0+$/, "");
+      host.style.fontSize = `${BASE_FONT_SIZE / density}px`;
+    }
+
+    applyDensity();
 
     // Flat lighting (full ambient, no key) so each sampled texel passes through
     // unshaded — the glyph reflects the texel's luminance, the span its color.
@@ -186,9 +190,9 @@ const title = "glyphcss · Image → Glyph";
 
     function fit(): void {
       const o = scene.getOptions();
-      const cols = o.cols || 1, rows = o.rows || 1, cellAspect = o.cellAspect || 2;
-      // ortho: col-span = widthY·zoom·cellAspect, row-span = heightX·zoom (height = 1)
-      const zoom = Math.min((0.98 * cols) / (aspect * cellAspect), 0.98 * rows);
+      const cols = o.cols || 1, rows = o.rows || 1;
+      const rect = host.getBoundingClientRect();
+      const zoom = Math.min((0.98 * rect.width) / aspect, 0.98 * rect.height);
       if (Number.isFinite(zoom) && zoom > 0) { camera.zoom = zoom; scene.rerender(); }
       dims.textContent = `${cols} × ${rows} cells · ${paletteSel.value}`;
     }
@@ -223,15 +227,8 @@ const title = "glyphcss · Image → Glyph";
     }
 
     // Controls
-    ctl.detail.addEventListener("input", () => {
-      document.getElementById("detail-val")!.textContent = ctl.detail.value;
-      host.style.fontSize = `${ctl.detail.value}px`;
-      scene.fit();
-      fit();
-    });
-    ctl.lh.addEventListener("input", () => {
-      document.getElementById("lh-val")!.textContent = ctl.lh.value;
-      host.style.lineHeight = ctl.lh.value;
+    ctl.density.addEventListener("input", () => {
+      applyDensity();
       scene.fit();
       fit();
     });
@@ -259,9 +256,10 @@ const title = "glyphcss · Image → Glyph";
     copyBtn.addEventListener("click", async () => {
       const pre = scene.output;
       const text = pre.textContent ?? "";
+      const cs = getComputedStyle(pre);
       const html =
         `<pre style="font-family:ui-monospace,'JetBrains Mono','SF Mono',Menlo,monospace;` +
-        `white-space:pre;line-height:${ctl.lh.value};background:#04060b;color:#e8edf2;margin:0;padding:10px">${pre.innerHTML}</pre>`;
+        `white-space:pre;font-size:${cs.fontSize};line-height:${cs.lineHeight};background:#04060b;color:#e8edf2;margin:0;padding:10px">${pre.innerHTML}</pre>`;
       const done = () => { copyBtn.textContent = "copied!"; setTimeout(() => (copyBtn.textContent = "copy"), 1200); };
       try {
         const CI = (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;

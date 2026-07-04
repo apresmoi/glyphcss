@@ -13,18 +13,18 @@ read from the same camera state — mutating `rotY` updates both simultaneously.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `rotX` | `number` (degrees) | `0` | Tilt around X axis |
-| `rotY` | `number` (degrees) | `0` | Spin around Y axis |
-| `zoom` | `number` | `50` | Camera zoom — pixels per world unit (`zoom=50` → 50 px per world unit at `BASE_TILE`) |
+| `rotX` | `number` (degrees) | `65` | Tilt around X axis |
+| `rotY` | `number` (degrees) | `45` | Spin around Y axis |
+| `zoom` | `number` | `0.65` | CSS pixels per world unit |
 
 ## Props — perspective (`GlyphPerspectiveCamera`)
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `rotX` | `number` (degrees) | `0` | Tilt around X axis |
-| `rotY` | `number` (degrees) | `0` | Spin around Y axis |
-| `zoom` | `number` | `50` | Camera zoom — pixels per world unit (`zoom=50` → 50 px per world unit at `BASE_TILE`) |
-| `distance` | `number` | `6` | Camera pull-back along the view axis (world units) |
+| `rotX` | `number` (degrees) | `65` | Tilt around X axis |
+| `rotY` | `number` (degrees) | `45` | Spin around Y axis |
+| `zoom` | `number` | `0.65` | CSS pixels per world unit |
+| `distance` | `number` | `0` | Camera pull-back. CSS pixels with CSS perspective; world units only in legacy `perspective={0}` mode |
 | `perspective` | `number` | `32000` | CSS-perspective distance in virtual pixels (matches voxcss). Larger = flatter foreshortening; set `0` for legacy orbit projection |
 | `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
 
@@ -143,7 +143,7 @@ scene.rerender();
 
 ## Notes
 
-- Distance ranges that work well: `1.6` (strong perspective) → `5.0` (nearly flat).
+- The default perspective camera matches polycss/voxcss: `distance: 0`, `perspective: 32000`, `zoom: 0.65`.
 - `rotX: 0` looks straight down the Z axis. Try `22` (degrees) for a slight downward
   tilt that gives the mesh visual weight.
 - `stretch: 0.95` counteracts over-stretching from `cellAspect ≈ 2` on typical
@@ -153,5 +153,4 @@ scene.rerender();
   for iso/diagrammatic scenes; use `GlyphPerspectiveCamera` explicitly for
   character or walkthrough scenes.
 - Rotation units are **degrees**, matching voxcss/three.js. `rotX=65, rotY=45` is the
-  classic isometric-ish viewpoint. `zoom` is **pixels per world unit** — `zoom=50`
-  means one world unit maps to 50 px.
+  classic isometric-ish viewpoint. `zoom` is **CSS pixels per world unit**.

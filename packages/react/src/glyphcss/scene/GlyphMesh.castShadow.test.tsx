@@ -57,7 +57,7 @@ const GROUND_POLYGONS: Polygon[] = [
 const SHADOW_OPTS: GlyphShadowOptions = { opacity: 0.6, lift: 0.05 };
 
 // Camera looking slightly down so cube and ground are both visible.
-const CAMERA_PROPS = { rotX: 55, rotY: 30, zoom: 5, distance: 20 };
+const CAMERA_PROPS = { rotX: 55, rotY: 30, zoom: 250, distance: 20 };
 
 // --- Render helpers ---------------------------------------------------------
 

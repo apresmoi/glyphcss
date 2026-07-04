@@ -199,7 +199,7 @@ So detail + cross-layer occlusion stay correct under **every** camera:
 
 - **Orthographic** — the representative glyphcss camera (iso / diagrammatic scenes).
 - **Perspective** — foreshortening of detail meshes is correct as you orbit or zoom.
-- **First-person (FPV / `eyeMode`)** — you can **walk through a scene** (`createGlyphFirstPersonControls` / `<GlyphFirstPersonControls>`) and hero meshes stay sharp and correctly occlude as you move. Walking *into* a mesh is safe — the detail grid is clamped to the viewport, so getting close never blows up the render.
+- **First-person (FPV)** — you can **walk through a scene** (`createGlyphFirstPersonControls` / `<GlyphFirstPersonControls>`) and hero meshes stay sharp and correctly occlude as you move. Walking *into* a mesh is safe — the detail grid is clamped to the viewport, so getting close never blows up the render.
 
 No flags or special handling — set `density` (and optionally `transparent`) on a
 mesh and it behaves the same whether the scene is orbited, flown, or walked.

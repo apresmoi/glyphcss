@@ -63,6 +63,16 @@ export const WIREFRAME_PALETTES: Record<string, WireframeGlyphTiers> = {
     core: "█".split(""),
     solid: " ░▒▓▌▐█▀▄■".split(""),
   },
+  // Plain solid fill: EVERY covered cell is a full block, so surfaces read as
+  // flat filled color (shading comes from the per-cell colour, which is already
+  // baked-lit) — no dithered shade glyphs or black gaps within a surface. Empty
+  // (uncovered) cells stay blank as usual. Use for a clean, low-contrast look.
+  solid: {
+    thin: "█".split(""),
+    normal: "█".split(""),
+    core: "█".split(""),
+    solid: "██".split(""),
+  },
   stars: {
     thin: "·⋆".split(""),
     normal: "✦✧✩✪".split(""),

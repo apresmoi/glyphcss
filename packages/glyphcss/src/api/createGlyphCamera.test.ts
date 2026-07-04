@@ -1,7 +1,7 @@
 // Vendored from voxcss packages/core/src/camera/camera.test.ts@cac9da3.
 // glyphcss deltas: expected outputs are [col,row,depth] char-grid values (not
-//   CSS matrix3d); Poly→Glyph rename; zoom uses same CSS-scale-multiplier
-//   semantic as voxcss; parity tests validate voxcss matrix convention.
+//   CSS matrix3d); Poly→Glyph rename; zoom uses the same px/world semantic as
+//   polycss/voxcss; parity tests validate voxcss matrix convention.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -13,15 +13,15 @@ import {
 // ─── Helper: reproduce voxcss's forward projection in pure math ──────────────
 // Used in parity tests to assert that createGlyphCamera uses the SAME matrix
 // as voxcss camera.ts + unproject.ts.  Inputs are world coords + camera state;
-// output is the CSS-frame xy (virtual pixels, pre-zoom) that matches what
+// output is the CSS-frame xy (CSS pixels after zoom) that matches what
 // voxcss would compute for `getStyle()`.
 //
 // voxcss getStyle():
 //   translate3d(-cssX, -cssY, -cssZ) → rotate(rotYdeg) → rotateX(rotXdeg)
-//   → scale(zoom)
+//   → scale(zoom / BASE_TILE)
 // Forward projection (left-to-right):
 //   1. subtract target  2. axis-swap (world→CSS)  3. rotateZ(rotY)
-//   4. rotateX(rotX)    5. scale by zoom * BASE_TILE
+//   4. rotateX(rotX)    5. scale to final CSS px by zoom
 const BASE_TILE = 50; // must match camera impl
 const DEG = Math.PI / 180;
 
@@ -55,10 +55,10 @@ function voxcssCssXY(
   const ry2 = ry * cosX - rz * sinX;
   const rz2 = ry * sinX + rz * cosX;
 
-  // Step 5: scale by zoom * BASE_TILE → virtual px
+  // Step 5: scale by zoom (px/world) → CSS px
   return {
-    cssX: rx  * zoom * BASE_TILE,
-    cssY: ry2 * zoom * BASE_TILE,
+    cssX: rx  * zoom,
+    cssY: ry2 * zoom,
     cssZ: rz2,  // depth stays in world units (no extra scale for depth comparison)
   };
 }
@@ -107,9 +107,9 @@ describe("createGlyphPerspectiveCamera — defaults", () => {
     expect(cam.zoom).toBe(0.65);
   });
 
-  it("defaults to distance=6", () => {
+  it("defaults to distance=0 (voxcss DEFAULT_CAMERA_STATE)", () => {
     const cam = createGlyphPerspectiveCamera();
-    expect(cam.distance).toBe(6);
+    expect(cam.distance).toBe(0);
   });
 
   it("defaults to perspective=32000 (voxcss CSS-perspective parity)", () => {
@@ -220,6 +220,20 @@ describe("projection parity with voxcss convention", () => {
     expect(col).toBeCloseTo(expectedCol, 8);
     expect(row).toBeCloseTo(expectedRow, 8);
     expect(depth).toBeCloseTo(ref.cssZ, 8);
+  });
+
+  it("ortho uses measured cell metrics exactly when the browser provides them", () => {
+    const rotX = 65, rotY = 45, zoom = 0.65;
+    const world: [number,number,number] = [1, 2, 3];
+    const target: [number,number,number] = [0, 0, 0];
+    const metrics = { cellWidth: 8, cellHeight: 5, centerCol: 51.25, centerRow: 46 };
+
+    const cam = createGlyphOrthographicCamera({ rotX, rotY, zoom });
+    const [col, row] = cam.project(world, COLS, ROWS, ASPECT, metrics);
+
+    const ref = voxcssCssXY(world, target, rotX, rotY, zoom);
+    expect(col).toBeCloseTo(metrics.centerCol + ref.cssX / metrics.cellWidth, 8);
+    expect(row).toBeCloseTo(metrics.centerRow + ref.cssY / metrics.cellHeight, 8);
   });
 
   it("ortho col/row match voxcss CSS-frame xy ÷ cellPx (rotX=30, rotY=90, zoom=0.5)", () => {
@@ -350,11 +364,11 @@ describe("projection parity with voxcss convention", () => {
     // world [0,1,0] → cx=1,cy=0,cz=0; rotZ(90°): rx=0*1-0*1=0, ry...
     // wait: rotZ(90): rx = cx*cos90 - cy*sin90 = 1*0 - 0*1 = 0, ry = cx*sin90 + cy*cos90 = 1*1+0*0=1
     // rotX(0): ry2=ry=1, rz2=rz=0
-    // col = COLS/2 + 1*1*50/25 = COLS/2 + 2; row = ROWS/2 + 1*1*50/50 = ROWS/2 + 1
+    // col = COLS/2 + 0/cellPxW; row = ROWS/2 + zoom/cellPxH
     const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 90, zoom: 1 });
     const [col, row] = cam.project([0, 1, 0], COLS, ROWS, ASPECT);
     expect(col).toBeCloseTo(COLS/2 + 0 / cellPxW, 5);  // rx=0 → no col displacement
-    expect(row).toBeCloseTo(ROWS/2 + 1 * 50 / cellPxH, 5);  // ry2=1 → row offset
+    expect(row).toBeCloseTo(ROWS/2 + 1 / cellPxH, 5);  // ry2=1 → row offset
   });
 
   it("known world point matches voxcss reference exactly (rotX=65, rotY=45)", () => {
@@ -370,12 +384,12 @@ describe("projection parity with voxcss convention", () => {
     // cx = world[1] = 1, cy = world[0] = 0, cz = 0
     // rotZ(45°): cos=sin=0.70711. rx = 0.70711, ry = 0.70711, rz = 0
     // rotX(65°): ry2 = 0.70711*cos65 - 0*sin65 = 0.70711*0.42262 = 0.29890, rz2 = 0.70711*sin65 = 0.70711*0.90631 = 0.64086
-    // cssX = rx*zoom*BASE_TILE = 0.70711*50 = 35.355
-    // cssY = ry2*zoom*BASE_TILE = 0.29890*50 = 14.945
-    // col = 40 + 35.355/25 = 40 + 1.414 = 41.414
-    // row = 12 + 14.945/50 = 12 + 0.299 = 12.299
-    expect(col).toBeCloseTo(COLS/2 + 35.355 / cellPxW, 2);
-    expect(row).toBeCloseTo(ROWS/2 + 14.945 / cellPxH, 2);
+    // cssX = rx*zoom = 0.70711
+    // cssY = ry2*zoom = 0.29890
+    // col = 40 + 0.70711/25 = 40.028
+    // row = 12 + 0.29890/50 = 12.006
+    expect(col).toBeCloseTo(COLS/2 + 0.70711 / cellPxW, 2);
+    expect(row).toBeCloseTo(ROWS/2 + 0.29890 / cellPxH, 2);
     // depth = rz2 ≈ 0.641 (world units)
     expect(depth).toBeCloseTo(0.641, 2);
   });

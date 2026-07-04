@@ -7,8 +7,9 @@ import type { Vec3 } from "@glyphcss/core";
 // what the browser does for polycss/voxcss:
 //
 //   perspective: P   (CSS `P/(P − z)` divide)
-//   transform: scale(zoom) rotateX(rotX) rotate(rotY) translate3d(-target)
+//   transform: scale(zoom / BASE_TILE) rotateX(rotX) rotate(rotY) translate3d(-target * BASE_TILE)
 //   world→CSS axis map: world[1]→CSS X, world[0]→CSS Y, world[2]→CSS Z
+//   CSS scale() is 2D: X/Y scale by zoom / BASE_TILE; Z stays in BASE_TILE px.
 //
 // This test re-derives that pipeline INDEPENDENTLY as canonical 4×4 homogeneous
 // matrices (compose → multiply → perspective w-divide), structurally different
@@ -34,7 +35,7 @@ function apply(m: M4, v: [number, number, number, number]): [number, number, num
   for (let r = 0; r < 4; r++) o[r] = m[r * 4] * v[0] + m[r * 4 + 1] * v[1] + m[r * 4 + 2] * v[2] + m[r * 4 + 3] * v[3];
   return o;
 }
-const scaleM = (k: number): M4 => [k,0,0,0, 0,k,0,0, 0,0,k,0, 0,0,0,1];
+const scale2dM = (k: number): M4 => [k,0,0,0, 0,k,0,0, 0,0,1,0, 0,0,0,1];
 const transZ = (t: number): M4 => [1,0,0,0, 0,1,0,0, 0,0,1,t, 0,0,0,1];
 const rotZ = (deg: number): M4 => { const c = Math.cos(deg*DEG), s = Math.sin(deg*DEG); return [c,-s,0,0, s,c,0,0, 0,0,1,0, 0,0,0,1]; };
 const rotX = (deg: number): M4 => { const c = Math.cos(deg*DEG), s = Math.sin(deg*DEG); return [1,0,0,0, 0,c,-s,0, 0,s,c,0, 0,0,0,1]; };
@@ -43,10 +44,17 @@ interface Params { rotX: number; rotY: number; zoom: number; perspective: number
 
 // Independent reference projection → [col, row] (or null if near/behind clip).
 function refProject(p: Params, v: Vec3, cols: number, rows: number, cellAspect: number): [number, number] | null {
-  // axis-swap baked into the input point: world[1]→x, world[0]→y, world[2]→z.
-  const shifted: [number, number, number, number] = [v[1] - p.target[1], v[0] - p.target[0], v[2] - p.target[2], 1];
-  // compose TransZ(-distance) · Scale(zoom·TILE) · RotX(rotX) · RotZ(rotY), applied to the swapped point.
-  const M = mul(transZ(-p.distance), mul(scaleM(p.zoom * BASE_TILE), mul(rotX(p.rotX), rotZ(p.rotY))));
+  // axis-swap baked into the input point: world[1]→x, world[0]→y, world[2]→z,
+  // then authored into polycss's CSS-pixel tile space.
+  const shifted: [number, number, number, number] = [
+    (v[1] - p.target[1]) * BASE_TILE,
+    (v[0] - p.target[0]) * BASE_TILE,
+    (v[2] - p.target[2]) * BASE_TILE,
+    1,
+  ];
+  // compose TransZ(-distance) · Scale2D(zoom / BASE_TILE) · RotX(rotX) · RotZ(rotY).
+  // CSS `scale()` does not scale Z, which is load-bearing for perspective parity.
+  const M = mul(transZ(-p.distance), mul(scale2dM(p.zoom / BASE_TILE), mul(rotX(p.rotX), rotZ(p.rotY))));
   const [X, Y, cssZ] = apply(M, shifted);
   const denom = p.perspective - cssZ;
   if (denom < p.perspective * 0.0101) return null; // matches PERSPECTIVE_NEAR clip

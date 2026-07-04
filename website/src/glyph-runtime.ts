@@ -46,6 +46,7 @@ import type {
   GlyphCamera,
   ParseAnimationClip,
   Polygon,
+  LoadMeshOptions,
 } from 'glyphcss';
 import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from 'glyphcss';
 import { resolveGeometry } from '@glyphcss/core';
@@ -285,7 +286,12 @@ function recenterTriangles(triangles: TextureTriangle[]): TextureTriangle[] {
   }));
 }
 
-async function loadMeshAsGeometry(url: string, normalize = true, mtlUrl?: string): Promise<MeshGeometry> {
+async function loadMeshAsGeometry(
+  url: string,
+  normalize = true,
+  mtlUrl?: string,
+  options?: LoadMeshOptions,
+): Promise<MeshGeometry> {
   // Resolve the companion .mtl so materials + textures load (otherwise faces
   // fall back to default colors — the "red/blue" bug). Explicit mtlUrl wins;
   // otherwise probe the sibling <basename>.mtl. The in-OBJ `mtllib` name is
@@ -297,7 +303,11 @@ async function loadMeshAsGeometry(url: string, normalize = true, mtlUrl?: string
     const sibling = url.replace(/\.obj(\?|#|$)/i, '.mtl$1');
     try { const probe = await fetch(sibling); if (probe.ok) resolvedMtl = sibling; } catch { /* no sibling .mtl */ }
   }
-  const result = await loadMesh(url, resolvedMtl ? { mtlUrl: resolvedMtl } : undefined);
+  const result = await loadMesh(url, {
+    ...(options ?? {}),
+    baseUrl: options?.baseUrl ?? url,
+    ...(resolvedMtl ? { mtlUrl: resolvedMtl } : {}),
+  });
   // Textures are now sampled per cell by the renderer (UV-mapped, glyph-
   // resolution) — carried through `fanTriangulate` as `texture` + real UVs.
   // The old per-face `bakeSolidTextureSamples` flat-color pass is gone; faces
@@ -397,12 +407,14 @@ interface Tunables {
   zoom: number;
   stretch: number;
   distance: number;
+  perspective: number;
   rotX: number;
   rotY?: number;
   targetX?: number;
   targetY?: number;
   targetZ?: number;
   duration: number;
+  density: number;
   lineHeight: number;
   fontSize?: number;
   geometry: GeometryName;
@@ -440,6 +452,7 @@ interface ControlState {
   autoCenter: boolean;
   lastMeshUrl: string | null;
   lastMtlUrl: string | null;
+  lastLoadOptions: LoadMeshOptions | null;
   rotYLocked: boolean;
   projection: 'perspective' | 'orthographic';
   dragMode: DragMode;
@@ -449,12 +462,17 @@ interface ControlState {
 const DEFAULT_TUNABLES: Tunables = {
   zoom: 0.3,
   stretch: 1.0,
-  distance: 8000,
+  distance: 0,
+  perspective: 32000,
   rotX: 65,
   duration: 6,
+  density: 1.0,
   lineHeight: 1.0,
   geometry: 'cuboctahedron',
 };
+
+const DEMO_BASE_FONT_SIZE = 10;
+const DEMO_GEOMETRY_SIZE = 100;
 
 // ── Geometry state ───────────────────────────────────────────────────────
 
@@ -479,7 +497,7 @@ type GeometryState = {
  * fan-triangulated `polygons` array for selection/sampling/stats.
  */
 function buildDemoGeometry(name: GeometryName): GeometryState {
-  const polygons = resolveGeometry(name, { size: 1 });
+  const polygons = resolveGeometry(name, { size: DEMO_GEOMETRY_SIZE });
   const polyTris = fanTriangulate(polygons);
   const edges = polygonsToWireframeEdges(polygons, 0);
   const vertSet = new Map<string, Vec3>();
@@ -539,6 +557,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // `noZoom` disables wheel/pinch zoom while keeping drag-to-orbit — used by
   // decorative demos (landing hero) that should spin but not scroll-zoom.
   const noZoom = demoEl.getAttribute('data-no-zoom') === '1';
+  const showHotspots = demoEl.getAttribute('data-no-hotspots') !== '1';
+  function parseInteractiveDownscale(value: string | null): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+  }
+  const interactiveDownscale = parseInteractiveDownscale(demoEl.getAttribute('data-interactive-downscale'));
 
   // Globe-style "grab and spin east" drag direction. Opposite of the default
   // camera-orbits-target sign convention used by everything else.
@@ -552,6 +576,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     autoCenter: true,
     lastMeshUrl: null,
     lastMtlUrl: null,
+    lastLoadOptions: null,
     rotYLocked: false,
     projection: 'perspective',
     dragMode: 'orbit',
@@ -665,15 +690,21 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     : buildDemoGeometry(tunables.geometry);
 
   // ── Create the managed scene ─────────────────────────────────────────────
+  if (tunables.fontSize === undefined && tunables.density !== 1) {
+    tunables.fontSize = DEMO_BASE_FONT_SIZE / Math.max(0.1, tunables.density);
+  }
+  if (tunables.fontSize !== undefined) {
+    sceneHost.style.fontSize = `${tunables.fontSize}px`;
+  }
+
   // Build initial camera from tunables
   function buildCamera(): GlyphCamera {
     if (controlState.dragMode === 'fpv') {
-      const cam = createGlyphPerspectiveCamera({
+      return createGlyphPerspectiveCamera({
         rotX: tunables.rotX, rotY: tunables.rotY ?? 0,
+        perspective: tunables.perspective,
         zoom: tunables.zoom,
       });
-      cam.eyeMode = true;
-      return cam;
     } else if (controlState.projection === 'orthographic') {
       return createGlyphOrthographicCamera({
         rotX: tunables.rotX, rotY: tunables.rotY ?? 0,
@@ -683,6 +714,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       return createGlyphPerspectiveCamera({
         rotX: tunables.rotX, rotY: tunables.rotY ?? 0,
         distance: tunables.distance,
+        perspective: tunables.perspective,
         zoom: tunables.zoom,
         stretch: tunables.stretch,
       });
@@ -741,7 +773,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     autoSize: true,
     // Interactive LOD: render ½-resolution (¼ cells) while dragging, full detail
     // on release — keeps high-density scenes smooth to orbit/pan.
-    interactiveDownscale: 2,
+    interactiveDownscale,
     ...buildSceneOptions(),
   });
 
@@ -813,6 +845,36 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     lastBakeMs = Math.round(performance.now() - t0);
   }
 
+  function projectionGrid(): {
+    cols: number;
+    rows: number;
+    cellAspect: number;
+    cellWidth: number;
+    cellHeight: number;
+    centerCol: number;
+    centerRow: number;
+  } {
+    const opts = scene.getOptions();
+    const cols = opts.cols ?? 80;
+    const rows = opts.rows ?? 24;
+    const cellAspect = opts.cellAspect ?? 2;
+    const hostRect = scene.host.getBoundingClientRect();
+    const outputRect = scene.output.getBoundingClientRect();
+    const fallbackCellHeight = 50;
+    const fallbackCellWidth = fallbackCellHeight / cellAspect;
+    const cellWidth = outputRect.width > 0 ? outputRect.width / cols
+      : hostRect.width > 0 ? hostRect.width / cols
+      : fallbackCellWidth;
+    const cellHeight = outputRect.height > 0 ? outputRect.height / rows
+      : hostRect.height > 0 ? hostRect.height / rows
+      : fallbackCellHeight;
+    const centerCol = cols * camera.center[0] +
+      (opts.autoSize && hostRect.width > 0 && cellWidth > 0 ? (hostRect.width - cols * cellWidth) / (2 * cellWidth) : 0);
+    const centerRow = rows * camera.center[1] +
+      (opts.autoSize && hostRect.height > 0 && cellHeight > 0 ? (hostRect.height - rows * cellHeight) / (2 * cellHeight) : 0);
+    return { cols, rows, cellAspect, cellWidth, cellHeight, centerCol, centerRow };
+  }
+
   // ── Fit-to-content ───────────────────────────────────────────────────────
   // Compute the absolute camera.zoom that makes the geometry's true projected
   // silhouette fill ~`fill` of the viewport. We project the ACTUAL vertices
@@ -820,13 +882,13 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // bounding-cube corners project ~√2 wider than the real silhouette, which
   // under-fills (a sphere lands at ~58% when targeting 82%). Projection scales
   // linearly with zoom, so we measure the cell extent at the current zoom and
-  // scale to hit the target. Skipped for FPV (eyeMode) / pinned-zoom demos.
+  // scale to hit the target. Skipped for FPV / pinned-zoom demos.
   function fitContentZoom(fill = 0.85): void {
-    if (hasExplicitZoom || camera.eyeMode) return;
+    if (hasExplicitZoom || controlState.dragMode === 'fpv') return;
     const polys = geometry.polygons as Polygon[];
     if (!polys || polys.length === 0) return;
-    const opts = scene.getOptions();
-    const cols = opts.cols ?? 80, rows = opts.rows ?? 24, ca = opts.cellAspect ?? 0.5;
+    const grid = projectionGrid();
+    const { cols, rows, cellAspect } = grid;
     const [tx, ty, tz] = camera.target;
     // Fit the bounding SPHERE around the pivot (camera target), not the
     // silhouette at the current angle. The sphere radius is rotation-invariant,
@@ -849,10 +911,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     // so we inherit the exact cellAspect/fovScale/zoom math instead of
     // re-deriving it. Rotation is orthonormal, so projecting the three unit axes
     // and combining in quadrature gives the rotation-invariant col/row scale.
-    const c0 = camera.project([tx, ty, tz], cols, rows, ca);
+    const c0 = camera.project([tx, ty, tz], cols, rows, cellAspect, grid);
     let sCol2 = 0, sRow2 = 0;
     for (const e of [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]) {
-      const pe = camera.project([tx + e[0], ty + e[1], tz + e[2]], cols, rows, ca);
+      const pe = camera.project([tx + e[0], ty + e[1], tz + e[2]], cols, rows, cellAspect, grid);
       const dc = pe[0] - c0[0], dr = pe[1] - c0[1];
       sCol2 += dc * dc; sRow2 += dr * dr;
     }
@@ -901,6 +963,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     for (const { handle } of hotspotHandles) handle.remove();
     hotspotHandles = [];
 
+    if (!showHotspots) return;
     if (geometry.vertices.length === 0) return;
 
     const topHandle = scene.addHotspot(
@@ -1077,13 +1140,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       }
 
       const sampledTriangles = geometry.sample(animState.clipIndex, animState.currentTime);
-      // Update mesh handle with new frame polygons
-      meshHandle.dispose();
-      meshHandle = scene.add(sampledTriangles as Polygon[], {
-        castShadow: shadowState.castShadow,
-        receiveShadow: shadowState.receiveShadow,
-      });
-      doRerender();
+      meshHandle.setPolygons(sampledTriangles as Polygon[]);
     };
 
     animState.rafHandle = requestAnimationFrame(tick);
@@ -1120,11 +1177,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       polys = basePolys;
     }
 
-    meshHandle.dispose();
-    meshHandle = scene.add(polys, {
+    meshHandle.setTransform({
       castShadow: shadowState.castShadow,
       receiveShadow: shadowState.receiveShadow,
     });
+    meshHandle.setPolygons(polys);
   }
 
   // ── Rebuild scene from current geometry + tunables ────────────────────────
@@ -1181,12 +1238,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // token; an awaited load whose token is no longer current bails.
   let meshLoadToken = 0;
 
-  async function setMeshUrl(url: string, mtlUrl?: string): Promise<void> {
+  async function setMeshUrl(url: string, mtlUrl?: string, options?: LoadMeshOptions): Promise<void> {
     const token = ++meshLoadToken;
     loadingEl.style.display = 'grid';
     loadingEl.textContent = `Loading ${url.split('/').pop()}…`;
     try {
-      const loaded = await loadMeshAsGeometry(url, controlState.autoCenter, mtlUrl);
+      const loaded = await loadMeshAsGeometry(url, controlState.autoCenter, mtlUrl, options);
       if (token !== meshLoadToken) return; // superseded by a newer selection
       if (loaded.edges.length === 0) {
         loadingEl.textContent = 'Empty mesh (0 edges).';
@@ -1194,6 +1251,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       }
       controlState.lastMeshUrl = url;
       controlState.lastMtlUrl = mtlUrl ?? null;
+      controlState.lastLoadOptions = options ?? null;
       geometry = loaded;
       selectedTriangleIndex = -1;
       onSelectionChange?.(-1, null);
@@ -1248,9 +1306,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let fpvControl: GlyphFirstPersonControlsHandle | null = null;
   let fpvSavedProjection: 'perspective' | 'orthographic' | null = null;
   let fpvSavedDistance: number | null = null;
+  let fpvSavedPerspective: number | null = null;
   let fpvSavedRotX: number | null = null;
   let fpvSavedZoom: number | null = null;
-  const FPV_PERSPECTIVE_DISTANCE = 200;
+  const FPV_PERSPECTIVE_PER_SCALE = 200;
 
   // Model bbox → scale (maxDim/2; 1 for a 2-unit mesh). Used to size eye height,
   // speeds, spawn distance and the FPV zoom to the model's authored scale.
@@ -1299,18 +1358,20 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   function startFpv(): void {
     fpvSavedProjection = controlState.projection;
     fpvSavedDistance = tunables.distance;
+    fpvSavedPerspective = tunables.perspective;
     fpvSavedRotX = tunables.rotX;
     fpvSavedZoom = tunables.zoom;
     const scale = fpvModelScale();
     controlState.projection = 'perspective';
-    tunables.distance = FPV_PERSPECTIVE_DISTANCE;
-    // eyeMode apparent size scales with zoom; the orbit auto-fit zoom shrinks
-    // ~1/scale for big models, so normalize it (consistent FPV view at any size).
+    tunables.distance = 0;
+    tunables.perspective = FPV_PERSPECTIVE_PER_SCALE * scale;
+    // The orbit auto-fit zoom shrinks ~1/scale for big models, so normalize it
+    // for a consistent FPV view at any size.
     tunables.zoom = (fpvSavedZoom ?? tunables.zoom) * scale;
     tunables.rotX = 90;
     stopAutoRotate();
     controlState.rotYLocked = true;
-    // Rebuild so the scene has a perspective (eyeMode) camera the control needs.
+    // Rebuild so the scene has a perspective camera the control needs.
     rebuildSceneFromGeometry();
     // Spawn one+ model-span behind the model center along the current look dir.
     const polys = geometry.polygons as Polygon[];
@@ -1336,10 +1397,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     controlState.rotYLocked = false;
     if (fpvSavedProjection !== null) controlState.projection = fpvSavedProjection;
     if (fpvSavedDistance !== null) tunables.distance = fpvSavedDistance;
+    if (fpvSavedPerspective !== null) tunables.perspective = fpvSavedPerspective;
     if (fpvSavedRotX !== null) tunables.rotX = fpvSavedRotX;
     if (fpvSavedZoom !== null) tunables.zoom = fpvSavedZoom;
     fpvSavedProjection = null;
     fpvSavedDistance = null;
+    fpvSavedPerspective = null;
     fpvSavedRotX = null;
     fpvSavedZoom = null;
     rebuildSceneFromGeometry();
@@ -1419,6 +1482,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('rotX' in partial && partial.rotX !== undefined) camera.rotX = partial.rotX;
     if ('zoom' in partial && partial.zoom !== undefined) camera.zoom = partial.zoom;
     if ('distance' in partial && partial.distance !== undefined) camera.distance = partial.distance;
+    if ('perspective' in partial && partial.perspective !== undefined) camera.perspective = partial.perspective;
     if ('targetX' in partial || 'targetY' in partial || 'targetZ' in partial) {
       const tx = tunables.targetX ?? camera.target[0];
       const ty = tunables.targetY ?? camera.target[1];
@@ -1435,51 +1499,28 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
     if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
 
-    // `lineHeight` isn't a scene option — it's a CSS multiplier we apply
-    // directly to the rendered <pre>. Pre-line-height changes the character
-    // cell height, so we re-fit cols/rows + cellAspect for the new cell, then
-    // compensate zoom so the object keeps the SAME on-screen size: the object's
-    // row-span is `worldHeight · zoom` (cell-independent), so a taller cell
-    // would otherwise scale it up. On-screen width and height both scale as
-    // `zoom · lineHeight`, so scaling zoom by the inverse line-height ratio
-    // holds both fixed — line-height then only changes vertical glyph density.
+    // `lineHeight` changes the measured cell size. createGlyphScene projects in
+    // CSS pixels and converts through those live cell metrics, so refitting the
+    // grid is enough: apparent size stays fixed while glyph density changes.
     if ('lineHeight' in partial && partial.lineHeight !== undefined) {
-      const prevLineHeight = parseFloat(scene.output.style.lineHeight) || 1;
       const nextLineHeight = partial.lineHeight;
       scene.output.style.lineHeight = String(nextLineHeight);
       scene.fit();
-      // The col/row projection scales as `zoom · cellAspect` / `zoom`, and
-      // cellAspect tracks line-height, so the inverse-ratio zoom compensation
-      // holds framing in BOTH ortho and eyeMode (FPV) — without it, FPV's
-      // horizontal scale distorts (width changes) when line-height changes.
-      if (prevLineHeight > 0 && nextLineHeight > 0 && camera.zoom > 0) {
-        camera.zoom = Math.round(camera.zoom * (prevLineHeight / nextLineHeight) * 1000) / 1000;
-        tunables.zoom = camera.zoom;
-        // In FPV, the saved orbit zoom (restored on exit) must track the same
-        // ratio so leaving FPV doesn't snap to a stale zoom.
-        if (fpvSavedZoom !== null) {
-          fpvSavedZoom = Math.round(fpvSavedZoom * (prevLineHeight / nextLineHeight) * 1000) / 1000;
-        }
-      }
     }
 
-    // `fontSize` (px) — scene-wide glyph DENSITY. A smaller cell means more
-    // cols+rows over the same host (denser, both axes), so we re-fit and then
-    // compensate zoom by the inverse font ratio to keep the object the SAME
-    // on-screen size (on-screen extent scales as `zoom · fontSize`). Mirror of
-    // the lineHeight handling, but isotropic.
+    if ('density' in partial && partial.density !== undefined) {
+      const nextDensity = Math.max(0.1, partial.density);
+      tunables.fontSize = DEMO_BASE_FONT_SIZE / nextDensity;
+      scene.output.style.fontSize = `${tunables.fontSize}px`;
+      scene.fit();
+    }
+
+    // `fontSize` (px) — scene-wide glyph density. Smaller cells create more
+    // cols+rows over the same host; camera zoom must not change.
     if ('fontSize' in partial && partial.fontSize !== undefined) {
-      const prevFont = parseFloat(scene.output.style.fontSize) || parseFloat(getComputedStyle(scene.output).fontSize) || 13;
       const nextFont = partial.fontSize;
       scene.output.style.fontSize = `${nextFont}px`;
       scene.fit();
-      if (prevFont > 0 && nextFont > 0 && camera.zoom > 0) {
-        camera.zoom = Math.round(camera.zoom * (prevFont / nextFont) * 1000) / 1000;
-        tunables.zoom = camera.zoom;
-        if (fpvSavedZoom !== null) {
-          fpvSavedZoom = Math.round(fpvSavedZoom * (prevFont / nextFont) * 1000) / 1000;
-        }
-      }
     }
 
     // Geometry-affecting tunables — wireframe edge threshold changes the
@@ -1491,6 +1532,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     } else {
       scene.rerender();
     }
+  }
+
+  function setInteractiveDownscale(value: number): void {
+    scene.setOptions({ interactiveDownscale: Number.isFinite(value) && value > 0 ? value : 1 });
   }
 
   function resumeAutoRotate(): void {
@@ -1528,7 +1573,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       });
     }
     if ('autoCenter' in partial && partial.autoCenter !== prevAutoCenter && controlState.lastMeshUrl) {
-      void setMeshUrl(controlState.lastMeshUrl, controlState.lastMtlUrl ?? undefined);
+      void setMeshUrl(
+        controlState.lastMeshUrl,
+        controlState.lastMtlUrl ?? undefined,
+        controlState.lastLoadOptions ?? undefined,
+      );
     }
   }
 
@@ -1594,14 +1643,31 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     };
   }
 
-  function getStats(): { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number } {
+  function getStats(): {
+    cols: number;
+    rows: number;
+    glyphs: number;
+    textChars: number;
+    colorSpans: number;
+    domNodes: number;
+    layers: number;
+    bakeMs: number;
+  } {
     const opts = scene.getOptions();
+    const layers = Array.from(scene.host.querySelectorAll<HTMLPreElement>("pre.glyph-output"));
+    let textChars = 0;
+    for (const layer of layers) {
+      textChars += layer.textContent?.length ?? 0;
+    }
+    const colorSpans = scene.host.querySelectorAll("pre.glyph-output span").length;
     return {
       cols: opts.cols,
       rows: opts.rows,
-      edges: geometry.edges.length,
-      verts: geometry.vertices.length,
-      triangles: geometry.polygons.length,
+      glyphs: opts.cols * opts.rows,
+      textChars,
+      colorSpans,
+      domNodes: layers.length + colorSpans,
+      layers: layers.length,
       bakeMs: lastBakeMs,
     };
   }
@@ -1630,12 +1696,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     stopAnimationLoop();
     animState.clipIndex = 0;
     animState.currentTime = 0;
-    meshHandle.dispose();
-    meshHandle = scene.add(geometry.polygons as Polygon[], {
-      castShadow: shadowState.castShadow,
-      receiveShadow: shadowState.receiveShadow,
-    });
-    doRerender();
+    meshHandle.setPolygons(geometry.polygons as Polygon[]);
   }
 
   function setAnimationPaused(paused: boolean): void { animState.paused = paused; }
@@ -1658,12 +1719,22 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // Expose handle on the demoEl
   (demoEl as unknown as {
     glyphcssDemo: {
-      setMeshUrl: (u: string, mtl?: string) => Promise<void>;
+      setMeshUrl: (u: string, mtl?: string, options?: LoadMeshOptions) => Promise<void>;
       setPolygons: (polygons: Polygon[]) => void;
       setTunables: (p: Partial<Tunables>) => void;
+      setInteractiveDownscale: (value: number) => void;
       setControlState: (p: Partial<ControlState>) => void;
       getCameraState: () => { rotX: number; rotY: number; scale: number; target: [number, number, number] };
-      getStats: () => { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number };
+      getStats: () => {
+        cols: number;
+        rows: number;
+        glyphs: number;
+        textChars: number;
+        colorSpans: number;
+        domNodes: number;
+        layers: number;
+        bakeMs: number;
+      };
       getSelection: () => { index: number; triangle: TextureTriangle | null };
       clearSelection: () => void;
       setSelectionChangeHandler: (fn: (idx: number, tri: TextureTriangle | null) => void) => void;
@@ -1686,6 +1757,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setMeshUrl,
     setPolygons,
     setTunables,
+    setInteractiveDownscale,
     setControlState,
     getCameraState,
     getStats,
@@ -1716,6 +1788,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     distance: () => { gui.add(tunables, 'distance', 100, 100000, 100).name('perspective').onChange(rebuildAll); },
     rotX: () => { gui.add(tunables, 'rotX', 0, 180, 1).name('tilt (rotX)').onChange(rebuildAll); },
     duration: () => { gui.add(tunables, 'duration', 1, 12, 0.25).name('duration (s)').onChange(() => { /* no-op: JS autorotate uses tunables.duration directly */ }); },
+    density: () => { gui.add(tunables, 'density', 0.5, 4, 0.1).name('density').onChange((v: number) => setTunables({ density: v })); },
     lineHeight: () => { gui.add(tunables, 'lineHeight', 0.5, 1.2, 0.01).name('line-height ×').onChange(rebuildAll); },
     geometry: () => { gui.add(tunables, 'geometry', ['cuboctahedron', 'icosahedron', 'cube']).onChange(rebuildAll); },
   } : {};
@@ -1724,19 +1797,23 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // ── Code panel sync ───────────────────────────────────────────────────────
   function updateCode(): void {
     const t = tunables;
+    const mode = t.renderMode ?? 'wireframe';
+    const rotY = t.rotY ?? camera.rotY;
     if (codeEls.vanilla) {
       codeEls.vanilla.textContent = [
-        'import { createGlyphScene } from "glyphcss";',
+        'import { createGlyphCamera, createGlyphScene, createGlyphOrbitControls } from "glyphcss";',
+        'import { resolveGeometry } from "@glyphcss/core";',
         '',
-        'const host = document.getElementById("scene");',
-        'createGlyphScene(host, {',
-        `  rotX: ${t.rotX.toFixed(2)},`,
-        `  scale: ${t.zoom.toFixed(3)},`,
-        `  stretch: ${t.stretch.toFixed(2)},`,
-        `  distance: ${t.distance.toFixed(2)},`,
-        `  geometry: "${t.geometry}",`,
-        `  animate: { axis: "y", durationMs: ${t.duration * 1000} },`,
+        'const host = document.getElementById("scene")!;',
+        `const camera = createGlyphCamera({ rotX: ${t.rotX.toFixed(2)}, rotY: ${rotY.toFixed(2)}, zoom: ${t.zoom.toFixed(2)} });`,
+        'const scene = createGlyphScene(host, {',
+        '  camera,',
+        '  autoSize: true,',
+        `  mode: "${mode}",`,
         '});',
+        '',
+        `scene.add(resolveGeometry("${t.geometry}", { size: ${DEMO_GEOMETRY_SIZE} }));`,
+        'createGlyphOrbitControls(scene, { drag: true, wheel: true });',
       ].join('\n');
     }
     if (codeEls.react) {
@@ -1745,10 +1822,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
         '',
         'export function App() {',
         '  return (',
-        `    <GlyphCamera rotX={${t.rotX.toFixed(2)}} scale={${t.zoom.toFixed(3)}} distance={${t.distance.toFixed(2)}}>`,
-        '      <GlyphScene>',
+        `    <GlyphCamera rotX={${t.rotX.toFixed(2)}} rotY={${rotY.toFixed(2)}} zoom={${t.zoom.toFixed(2)}}>`,
+        `      <GlyphScene mode="${mode}" autoSize style={{ width: "100%", height: "100%" }}>`,
         '        <GlyphOrbitControls drag wheel />',
-        `        <GlyphMesh geometry="${t.geometry}" />`,
+        `        <GlyphMesh geometry="${t.geometry}" size={${DEMO_GEOMETRY_SIZE}} />`,
         '      </GlyphScene>',
         '    </GlyphCamera>',
         '  );',
@@ -1758,10 +1835,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (codeEls.vue) {
       codeEls.vue.textContent = [
         '<template>',
-        `  <GlyphCamera :rot-x="${t.rotX.toFixed(2)}" :scale="${t.zoom.toFixed(3)}" :distance="${t.distance.toFixed(2)}">`,
-        '    <GlyphScene>',
+        `  <GlyphCamera :rot-x="${t.rotX.toFixed(2)}" :rot-y="${rotY.toFixed(2)}" :zoom="${t.zoom.toFixed(2)}">`,
+        `    <GlyphScene mode="${mode}" auto-size :style="{ width: '100%', height: '100%' }">`,
         '      <GlyphOrbitControls drag wheel />',
-        `      <GlyphMesh geometry="${t.geometry}" />`,
+        `      <GlyphMesh geometry="${t.geometry}" :size="${DEMO_GEOMETRY_SIZE}" />`,
         '    </GlyphScene>',
         '  </GlyphCamera>',
         '</template>',
@@ -1811,6 +1888,15 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   const polygonsUrl = demoEl.getAttribute('data-polygons-url');
   const initialMeshUrl = demoEl.getAttribute('data-mesh');
   const initialMtlUrl = demoEl.getAttribute('data-mtl') || undefined;
+  let initialLoadOptions: LoadMeshOptions | undefined;
+  const initialLoadOptionsJson = demoEl.getAttribute('data-load-options');
+  if (initialLoadOptionsJson) {
+    try {
+      initialLoadOptions = JSON.parse(initialLoadOptionsJson) as LoadMeshOptions;
+    } catch (err) {
+      console.warn('[glyphcss] invalid data-load-options:', err);
+    }
+  }
   if (polygonsUrl) {
     void (async () => {
       try {
@@ -1834,7 +1920,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       }
     })();
   } else if (initialMeshUrl) {
-    void setMeshUrl(initialMeshUrl, initialMtlUrl);
+    void setMeshUrl(initialMeshUrl, initialMtlUrl, initialLoadOptions);
   } else {
     applyMesh();
     scene.fit();

@@ -11,10 +11,11 @@ export interface RenderingFolderInputs {
   featureEdges: number;
   glyphPalette: SceneOptionsState["glyphPalette"];
   density: number;
+  dragDensity: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "density" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
 
 
@@ -36,7 +37,7 @@ const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
 };
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): void {
-  const { renderMode, featureEdges, glyphPalette, density, useColors, smoothShading, creaseAngle, onUpdateScene } = inputs;
+  const { renderMode, featureEdges, glyphPalette, density, dragDensity, useColors, smoothShading, creaseAngle, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   useOption<"wireframe" | "solid">(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, (value) =>
@@ -59,5 +60,8 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   );
   useSlider(folder, "Density ×", { min: 0.5, max: 4, step: 0.1 }, density, (value) =>
     onUpdateScene({ density: value }),
+  );
+  useSlider(folder, "Drag density ×", { min: 0.5, max: 1, step: 0.05 }, dragDensity, (value) =>
+    onUpdateScene({ dragDensity: value }),
   );
 }

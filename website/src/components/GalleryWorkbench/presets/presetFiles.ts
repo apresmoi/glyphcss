@@ -1093,6 +1093,7 @@ const ULTIMATE_SPACESHIPS_ROOT = "quaternius/ultimate-spaceships";
 export function ultimateSpaceshipPreset(
   slug: string,
   name: string,
+  textureFile: string,
   tris: number,
 ): ObjGalleryPresetFile {
   return {
@@ -1100,6 +1101,11 @@ export function ultimateSpaceshipPreset(
     label: `Ship - ${name}`,
     category: "Vehicles",
     galleryBucket: "Textured",
+    options: {
+      materialTextures: {
+        Texture: `/gallery/obj/${ULTIMATE_SPACESHIPS_ROOT}/${slug}/${textureFile}`,
+      },
+    },
     zoom: 0.24,
     attribution: { ...QUATERNIUS_ULTIMATE_SPACESHIPS_ATTRIBUTION, tris },
   };
@@ -1226,12 +1232,12 @@ export const OBJ_PRESET_FILES: ObjGalleryPresetFile[] = [
     zoom: 0.25,
     attribution: openGameArtAttribution("mfep", "low-poly-biplane", 668),
   },
-  ultimateSpaceshipPreset("challenger", "Challenger", 1748),
-  ultimateSpaceshipPreset("executioner", "Executioner", 3388),
-  ultimateSpaceshipPreset("omen", "Omen", 1426),
-  ultimateSpaceshipPreset("pancake", "Pancake", 2688),
-  ultimateSpaceshipPreset("spitfire", "Spitfire", 3512),
-  ultimateSpaceshipPreset("zenith", "Zenith", 2152),
+  ultimateSpaceshipPreset("challenger", "Challenger", "Challenger_Green.png", 1748),
+  ultimateSpaceshipPreset("executioner", "Executioner", "Executioner_Blue.png", 3388),
+  ultimateSpaceshipPreset("omen", "Omen", "Omen_Orange.png", 1426),
+  ultimateSpaceshipPreset("pancake", "Pancake", "Pancake_Orange.png", 2688),
+  ultimateSpaceshipPreset("spitfire", "Spitfire", "Spitfire_Red.png", 3512),
+  ultimateSpaceshipPreset("zenith", "Zenith", "Zenith_Red.png", 2152),
   {
     file: "quaternius/nature/Lilypad.obj",
     label: "Lilypad",

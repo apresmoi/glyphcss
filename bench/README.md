@@ -34,7 +34,8 @@ The rasterizer records timings into two optional globals (zero cost when unset):
 | `index.html` | render-perf harness — one heavy mesh under pointer-drag (this README's findings). |
 | `lod.html` | per-mesh **density** perf: full-screen layers vs fitted+translated vs occlusion, scaling object count. Knobs in the top bar. |
 | `lod-lib.html` | per-mesh detail + occlusion demo (library API). `?cam=ortho\|persp`; drag to orbit. |
-| `lod-fpv.html` | walkable **FPV** (eyeMode) detail + occlusion — click to mouse-look, WASD to move. |
+| `lod-fpv.html` | walkable **FPV** detail + occlusion — click to mouse-look, WASD to move. |
+| `parity.html` | glyphcss vs local polycss footprint parity using real gallery meshes by default. Shared camera state drives both renderers, including FPV; side-by-side plus overlay. |
 
 ## Findings — making the drag loop faster, losslessly
 

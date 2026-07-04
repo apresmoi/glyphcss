@@ -138,14 +138,16 @@ const ldJson = {
           <div class="hero-scene" aria-hidden="true">
             <GlyphDemo id="hero-demo"
               polygonsUrl="/data/landing-earth.json"
-              defaults={JSON.stringify({ rotX: 103, rotY: 45, duration: 12, renderMode: 'solid', lineHeight: 0.4 })}
+              defaults={JSON.stringify({ rotX: 103, rotY: 45, duration: 12, renderMode: 'solid', density: 2.2 })}
               noCode
               noControls
               autoRotate
               invertDrag
               noClampPitch
               noZoom
-              light={JSON.stringify({ direction: [-0.5, -0.7, -0.5], intensity: 1.1, ambient: 0.45 })}
+              interactiveDownscale={1}
+              realSunLight
+              light={JSON.stringify({ intensity: 1.1, ambient: 0.45 })}
             />
           </div>
           <div class="hero-overlay">
@@ -177,7 +179,7 @@ const ldJson = {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                [ View on GitHub ★ <span id="star-count-hero">…</span> ]
+                [ View on GitHub <span id="star-count-hero">★ …</span> ]
               </a>
               <a class="hero-btn ghost" href="/gallery">[ Browse gallery ]</a>
             </div>
@@ -323,7 +325,7 @@ const ldJson = {
   <script>
     async function fetchStars() {
       try {
-        const res = await fetch("https://api.github.com/repos/glyphcss/glyphcss");
+        const res = await fetch("https://api.github.com/repos/apresmoi/glyphcss");
         if (!res.ok) return;
         const json = await res.json();
         if (typeof json?.stargazers_count === "number") {
@@ -541,8 +543,8 @@ const ldJson = {
       min-height: clamp(420px, 56vh, 560px);
     }
     .hero--ascii .hero-scene {
-      height: 100%;
-      min-height: clamp(420px, 56vh, 560px);
+      height: clamp(420px, 56vh, 560px);
+      min-height: 0;
     }
   }
 

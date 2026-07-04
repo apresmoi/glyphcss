@@ -28,7 +28,7 @@ export interface GlyphInteractiveExportOptions {
   rotX?: number;
   rotY?: number;
   zoom?: number;
-  /** Camera projection (default "perspective"). FPV always uses perspective eyeMode. */
+  /** Camera projection (default "perspective"). FPV always uses a perspective camera. */
   projection?: "perspective" | "orthographic";
   /** CSS-perspective distance in virtual px (perspective only). */
   perspectivePx?: number;
@@ -89,7 +89,7 @@ function buildScript(opts: {
   const hasOrbit = opts.interactions.includes("orbit");
   const hasZoom = opts.interactions.includes("zoom");
 
-  // FPV needs a perspective eyeMode camera; otherwise honor the scene's
+  // FPV needs a perspective camera; otherwise honor the scene's
   // projection (the gallery defaults to orthographic — using the wrong one
   // mis-frames the model and breaks map-controls pan tracking).
   const orthoMode = !hasFpv && opts.projection === "orthographic";
@@ -109,7 +109,7 @@ function buildScript(opts: {
 const polygons = ${opts.polysJson}.map((p) => ({ vertices: p[0], color: p[1] }));`;
   const mount = `document.getElementById(${JSON.stringify(opts.mountId)})`;
 
-  // FPV mirrors the gallery: eyeMode perspective at rotX=90, zoom × model-scale,
+  // FPV mirrors the gallery: perspective at rotX=90, zoom × model-scale,
   // and move/jump/gravity/eyeHeight scaled by the model so it works at any size.
   // Spawn one+ model-span back from the (auto-centered) origin along the look dir.
   if (hasFpv) {
@@ -121,10 +121,10 @@ const polygons = ${opts.polysJson}.map((p) => ({ vertices: p[0], color: p[1] }))
     const spawnY = round(Math.sin(r) * back);
     const eyeZ = round(0.2 * s);
     const fpvZoom = round((opts.zoom ?? 0.5) * s);
+    const fpvPerspective = round(200 * s);
     const fpvOpts = `{ moveSpeed: ${round(1 * s)}, jumpVelocity: ${round(0.7 * s)}, gravity: ${round(1.8 * s)}, eyeHeight: ${eyeZ}, crouchHeight: ${round(0.1 * s)}, groundZ: 0, lookSensitivity: 0.15, minPitch: 5, maxPitch: 175 }`;
     return `${head}
-const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: ${round(rotY)}, zoom: ${fpvZoom}, distance: 200 });
-camera.eyeMode = true;
+const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: ${round(rotY)}, zoom: ${fpvZoom}, perspective: ${fpvPerspective} });
 const scene = createGlyphScene(${mount}, { camera, ${sceneOpts.join(", ")} });
 scene.add(polygons);
 const fpv = createGlyphFirstPersonControls(scene, ${fpvOpts});

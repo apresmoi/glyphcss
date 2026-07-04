@@ -16,7 +16,7 @@ export default { plugins: [glyphcssCompile()] };
 
 ```ts
 // import a mesh with `?glyph` → the build-time-rendered <pre> string
-import dog from "./dog.glb?glyph&autoCenter=1&rotX=60&rotY=45&zoom=0.5&cols=80&rows=30";
+import dog from "./dog.glb?glyph&autoCenter=1&rotX=60&rotY=45&zoom=25&cols=80&rows=30";
 document.querySelector("#app").innerHTML = dog; // no runtime, no WebGL
 ```
 

@@ -1,4 +1,4 @@
-// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to absolute scale [0.1,500].
+// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to scale range [0.1,500].
 /**
  * createGlyphOrbitControls — orbit-mode camera input for a GlyphScene.
  *
@@ -167,9 +167,8 @@ export function createGlyphOrbitControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    // Absolute px-per-world-unit zoom (BASE_TILE convention): fitted framings
-    // land ~10–40, so the clamp spans a wide range — a low floor to avoid
-    // div-by-zero, a high ceiling for deep zoom.
+    // Absolute CSS px/world-unit zoom. Keep a wide clamp: a low
+    // floor avoids div-by-zero, a high ceiling allows deep zoom.
     camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
     scene.rerender();
     if (!wheelActive) { wheelActive = true; emitInteraction("start", snapshot); }

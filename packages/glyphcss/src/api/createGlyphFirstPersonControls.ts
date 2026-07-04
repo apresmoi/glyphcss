@@ -1,11 +1,7 @@
 // Vendored from voxcss packages/polycss/src/api/createPolyFirstPersonControls.ts@cac9da3.
-// glyphcss deltas: Poly→Glyph rename; the camera sync uses eyeMode (target IS the
-// eye, projected along rotX/rotY) instead of polycss's CSS-perspective + derived
-// look-ahead target — so there's no cameraEl/perspective-host plumbing and no
-// lookOffset. Otherwise the input model (pointer-lock mouselook, WASD planar
-// move, Space jump, Ctrl crouch, gravity) and the option/handle surface match
-// voxcss 1:1. Like voxcss, model-relative sizing (eye height / spawn / speed) is
-// the caller's job — pass proportional options (see the gallery's FPV spawn).
+// glyphcss deltas: Poly→Glyph rename. The camera sync mirrors polycss's
+// CSS-perspective first-person convention: target is a look-ahead point at
+// perspective / BASE_TILE world units from the eye.
 /**
  * createGlyphFirstPersonControls — first-person camera input for a GlyphScene.
  *
@@ -13,13 +9,13 @@
  * plane, Space jump (parametric arc, no collision), Ctrl crouch. Each input
  * axis is independently toggleable.
  *
- * Requires a perspective camera; sets `camera.eyeMode = true` on attach (the
- * camera projects from `target` along rotX/rotY) and restores it on detach.
+ * Requires a perspective camera. Like polycss, the camera stays in CSS-
+ * perspective mode and `target` is derived from the eye + look direction.
  * rotX/rotY are in DEGREES (three.js / voxcss convention).
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
-import type { Vec3 } from "@glyphcss/core";
+import { BASE_TILE, type Vec3 } from "@glyphcss/core";
 import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
 export type {
   GlyphControlsCamera,
@@ -166,25 +162,52 @@ export function createGlyphFirstPersonControls(
   const keysHeld = new Set<string>();
   let pointerLocked = false;
   let stopped = false;
+  const previousEyeMode = camera.eyeMode;
 
   // Vertical state, separate from origin.z so crouch + jump stack.
   let verticalVel = 0;
   let jumpOffset = 0;
 
-  // In eyeMode the camera projects FROM `target`, so the eye IS `target`. We
-  // keep an authoritative `cameraOrigin` and write it straight to `target`;
-  // mouselook only changes rotX/rotY (origin fixed → in-place look), WASD moves
-  // the origin.
+  // Polycss first-person controls keep a separate camera origin and derive the
+  // scene camera target one CSS-perspective focal length ahead. Mirroring that
+  // makes glyphcss and polycss render the same camera footprint for the same
+  // perspective/zoom/rotX/rotY/origin inputs.
   let cameraOrigin: [number, number, number] = [0, 0, opts.groundZ + opts.eyeHeight];
 
+  function forwardDir(rotX: number, rotY: number): [number, number, number] {
+    const rx = (rotX * Math.PI) / 180;
+    const ry = (rotY * Math.PI) / 180;
+    return [
+      -Math.sin(rx) * Math.cos(ry),
+      -Math.sin(rx) * Math.sin(ry),
+      -Math.cos(rx),
+    ];
+  }
+
+  function lookOffset(): number {
+    return (Number.isFinite(camera.perspective) && camera.perspective > 0
+      ? camera.perspective
+      : 32000) / BASE_TILE;
+  }
+
+  function deriveTarget(): Vec3 {
+    const f = forwardDir(camera.rotX, camera.rotY);
+    const d = lookOffset();
+    return [
+      cameraOrigin[0] + f[0] * d,
+      cameraOrigin[1] + f[1] * d,
+      cameraOrigin[2] + f[2] * d,
+    ];
+  }
+
   function syncTarget(): void {
-    camera.target = [cameraOrigin[0], cameraOrigin[1], cameraOrigin[2]] as Vec3;
+    camera.target = deriveTarget();
     scene.rerender();
     emitChange(snapshot);
   }
 
-  // On attach adopt the camera's current target (the orbit/pan visual center)
-  // as the eye position, snapped to eye height. After this FPV owns `target`.
+  // On attach adopt the current target as the spawn reference, snapped to eye
+  // height. After this FPV owns `target` as a derived look-ahead point.
   function initializeOriginFromTarget(): void {
     const t = camera.target ?? [0, 0, 0];
     cameraOrigin = [t[0], t[1], opts.groundZ + opts.eyeHeight];
@@ -319,7 +342,7 @@ export function createGlyphFirstPersonControls(
   }
 
   function attach(): void {
-    camera.eyeMode = true;
+    camera.eyeMode = false;
     host.addEventListener("click", onHostClick);
     doc.addEventListener("pointerlockchange", onPointerLockChange);
     doc.addEventListener("mousemove", onMouseMove);
@@ -341,7 +364,7 @@ export function createGlyphFirstPersonControls(
     host.style.touchAction = "";
     keysHeld.clear();
     if (pointerLocked) { try { doc.exitPointerLock(); } catch { /* ignore */ } }
-    camera.eyeMode = false;
+    camera.eyeMode = previousEyeMode;
   }
 
   initializeOriginFromTarget();

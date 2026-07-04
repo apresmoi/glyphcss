@@ -4,6 +4,7 @@ import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 import { buildGlyphInteractiveExport, buildGlyphFramesExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
 import type { GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
 import type { PresetModel, SceneOptionsState } from "./types";
+import { primitiveGeometrySize } from "./presets/presetList";
 
 const midV = (a: Vec3, b: Vec3): Vec3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
 const midU = (a: Vec2, b: Vec2): Vec2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
@@ -50,6 +51,11 @@ const INTERACTION_LIST: { key: GlyphInteraction; label: string }[] = [
   { key: "pan", label: "Pan" },
   { key: "fpv", label: "FPV" },
 ];
+const GALLERY_ZOOM_COMPAT = 50;
+
+function toRuntimeZoom(galleryZoom: number): number {
+  return galleryZoom * GALLERY_ZOOM_COMPAT;
+}
 
 /**
  * Build a fully-static CodePen from the LIVE rendered `<pre>` — the exact ASCII
@@ -186,6 +192,7 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const url = absoluteMeshUrl(meshUrl);
   const isPrimitive = selectedPreset.kind === "primitive";
   const geometryName = isPrimitive ? primitiveGeometryName(selectedPreset.id) : "";
+  const primitiveSize = isPrimitive ? primitiveGeometrySize(geometryName) : 1;
   const needsUpright = isPrimitive && UPRIGHT_PRIMITIVES.has(selectedPreset.id);
   // 90° — uprightAlongZ maps Y-up geometry to Z-up screen convention.
   const uprightRotation: [number, number, number] = [90, 0, 0];
@@ -207,7 +214,7 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const featureEdges = options.featureEdges ?? 0;
   const rotX = options.rotX ?? 0;
   const rotY = options.rotY ?? 0;
-  const zoom = options.zoom ?? 1.3;
+  const zoom = toRuntimeZoom(options.zoom ?? 0.35);
   const perspective = options.perspective;
   const isOrtho = perspective === false;
   const distance = typeof perspective === "number" ? perspective : 3;
@@ -229,7 +236,7 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const featureEdgesProp = mode === "wireframe" ? ` featureEdges={${fmt(featureEdges)}}` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
   const meshTagReact = isPrimitive
-    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${centerJsx} />`
+    ? `<GlyphMesh geometry="${geometryName}" size={${fmt(primitiveSize)}}${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${centerJsx} />`
     : `<GlyphMesh src="${url}"${centerJsx} />`;
 
   const react = `import {
@@ -274,7 +281,7 @@ export function App() {
   const featureEdgesVue = mode === "wireframe" ? `\n    :feature-edges="${fmt(featureEdges)}"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
   const meshTagVue = isPrimitive
-    ? `<GlyphMesh geometry="${geometryName}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${centerKebab} />`
+    ? `<GlyphMesh geometry="${geometryName}" :size="${fmt(primitiveSize)}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${centerKebab} />`
     : `<GlyphMesh src="${url}"${centerKebab} />`;
 
   const vue = `<template>
@@ -323,7 +330,7 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const polygonsImportV = isPrimitive ? '\nimport { resolveGeometry } from "@glyphcss/core";' : "";
   const addArgV = autoCenter ? "recenterPolygons(polygons)" : "polygons";
   const meshLoadV = isPrimitive
-    ? `const polygons = resolveGeometry("${geometryName}", { size: 1 });
+    ? `const polygons = resolveGeometry("${geometryName}", { size: ${fmt(primitiveSize)} });
 scene.add(${addArgV}${needsUpright ? `, { rotation: ${vec3(uprightRotation)} }` : ""});`
     : `const { polygons } = await loadMesh("${url}");
 scene.add(${addArgV});`;
@@ -367,7 +374,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
   const cameraCloseHtml = `</${cameraHtmlTag}>`;
   const featureEdgesHtml = mode === "wireframe" ? ` feature-edges="${fmt(featureEdges)}"` : "";
   const meshTagHtml = isPrimitive
-    ? `<glyph-mesh geometry="${geometryName}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${centerKebab}></glyph-mesh>`
+    ? `<glyph-mesh geometry="${geometryName}" size="${fmt(primitiveSize)}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${centerKebab}></glyph-mesh>`
     : `<glyph-mesh src="${url}"${centerKebab}></glyph-mesh>`;
 
   const html = `<!DOCTYPE html>
@@ -458,7 +465,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, className, id }: C
           const g = liveGridMetrics();
           const frames = buildGlyphFramesExport(polygons, {
             frameCount: 36,
-            rotX: options.rotX, rotY: options.rotY, zoom: options.zoom,
+            rotX: options.rotX, rotY: options.rotY, zoom: toRuntimeZoom(options.zoom ?? 0.35),
             projection, perspectivePx,
             // pad the grid so the silhouette doesn't clip as it turns
             cols: Math.round(g.cols * 1.3), rows: Math.round(g.rows * 1.3),
@@ -482,7 +489,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, className, id }: C
         interactions: [...interactions],
         rotX: options.rotX,
         rotY: options.rotY,
-        zoom: options.zoom,
+        zoom: toRuntimeZoom(options.zoom ?? 0.35),
         // Match the gallery's projection (it defaults to orthographic) so the
         // export frames identically and map-controls pan tracks correctly.
         projection,

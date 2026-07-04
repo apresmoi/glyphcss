@@ -62,7 +62,7 @@ const SCENE_BASE = {
   ambientLight: { intensity: 0.3 },
 };
 
-const CAMERA_PROPS = { rotX: 55, rotY: 30, zoom: 5, distance: 20 };
+const CAMERA_PROPS = { rotX: 55, rotY: 30, zoom: 250, distance: 20 };
 
 // --- Render helpers ---------------------------------------------------------
 

@@ -2,9 +2,9 @@
 import type { Vec3 } from "../types";
 
 /**
- * Base tile size in CSS pixels. One glyphcss world unit = BASE_TILE CSS
- * pixels (pre-scale). Used to convert world-coordinate target values to
- * CSS translations in the transform string.
+ * Base tile size in virtual CSS pixels. The CSS transform helper authors one
+ * world unit as BASE_TILE px, then applies scale(zoom / BASE_TILE), so public
+ * zoom stays CSS px per world unit.
  */
 export const BASE_TILE = 50;
 
@@ -126,11 +126,12 @@ export function createIsometricCamera(initial: Partial<CameraState> = {}): Camer
     // scene appear smaller as distance grows). Applied as an outer translateZ so
     // it acts in camera space rather than world space.
     const distancePart = state.distance !== 0 ? ` translateZ(${-state.distance}px)` : "";
+    const scale = state.zoom / tileSize;
 
     return {
       // translate3d is innermost (applied first) → happens in pre-rotation
       // scene-local frame → world-space pan regardless of tilt/orbit.
-      transform: `${distancePart}scale(${state.zoom}) rotateX(${state.rotX}deg) rotate(${state.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`,
+      transform: `${distancePart}scale(${scale}) rotateX(${state.rotX}deg) rotate(${state.rotY}deg) translate3d(${-cssX}px, ${-cssY}px, ${-cssZ}px)`,
       width: `${width}px`,
       height: `${height}px`
     };

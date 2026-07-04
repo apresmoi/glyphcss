@@ -12,10 +12,12 @@ import { GlyphCameraContextKey } from "./context";
 export interface GlyphPerspectiveCameraProps {
   rotX?: number;
   rotY?: number;
+  /** Perspective pull-back. Default 0; CSS pixels with CSS-perspective, world units in legacy perspective=0 mode. */
   distance?: number;
   /** CSS-perspective distance in virtual pixels (matches voxcss). Larger =
    *  flatter. Default 32000. Set 0 to disable (legacy orbit projection). */
   perspective?: number;
+  /** Camera zoom in CSS pixels per world unit. Default 0.65. */
   zoom?: number;
   stretch?: number;
   center?: [number, number];

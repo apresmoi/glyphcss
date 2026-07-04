@@ -12,6 +12,7 @@ const ENTRIES = [
   { in: "lod.ts", out: "lod.bundle.js" },         // per-mesh density: full-screen vs fitted vs occlusion
   { in: "lod-lib.ts", out: "lod-lib.bundle.js" }, // density + transparent demo (library API)
   { in: "lod-fpv.ts", out: "lod-fpv.bundle.js" }, // walkable FPV detail + occlusion demo
+  { in: "parity.ts", out: "parity.bundle.js" },   // glyphcss/polycss synchronized footprint parity
 ];
 
 const opts = (e) => ({

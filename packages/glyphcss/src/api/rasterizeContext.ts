@@ -5,7 +5,8 @@ import type {
   Polygon,
   TextureSampler,
 } from "@glyphcss/core";
-import type { GlyphCamera } from "./createGlyphCamera";
+import type { TransformCells } from "../render/cells";
+import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
 
 /**
@@ -100,6 +101,14 @@ export interface RasterizeContextOptions {
   depthEpsilon?: number;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
   occlusion?: OcclusionMap | null;
+  /**
+   * Optional post-rasterize cell hook (M4 composition effects). When supplied,
+   * the rasterizer builds a {@link CellGrid} from its final per-cell buffers,
+   * runs the hook, then stringifies the (possibly mutated) grid — all BEFORE the
+   * single `<pre>` write. When absent (default), no grid is built and output is
+   * byte-identical to the pre-hook renderer. See {@link TransformCells}.
+   */
+  transformCells?: TransformCells;
 }
 
 /**
@@ -131,8 +140,11 @@ export interface TemporalHistory {
   rows: number;
   /** Snapshot of the camera that produced the stored frame (for reprojection). */
   cam: {
+    kind: "perspective" | "orthographic";
     rotX: number; rotY: number; target: [number, number, number];
-    zoom: number; perspective: number; distance: number; stretch: number;
+    zoom: number; perspective: number; distance: number; stretch: number; fovScale: number;
+    center: [number, number];
+    metrics?: GlyphProjectionMetrics;
   } | null;
 }
 
@@ -171,6 +183,8 @@ export interface RasterizeContext {
   temporalHistory?: TemporalHistory | null;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
   occlusion?: OcclusionMap | null;
+  /** Optional post-rasterize cell hook — see {@link RasterizeContextOptions.transformCells}. */
+  transformCells?: TransformCells;
 }
 
 // Direction the light shines TOWARD (three.js / computeShapeLighting convention).
@@ -229,5 +243,6 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
+    ...(opts.transformCells ? { transformCells: opts.transformCells } : {}),
   };
 }

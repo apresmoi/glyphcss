@@ -36,8 +36,8 @@ function makeCubePolygons(): Polygon[] {
 
 describe("rasterize", () => {
   it("renders a solid cube to non-empty text", () => {
-    // rotX/rotY in degrees; zoom=6 with distance=20 produces a clearly visible cube
-    const camera = createGlyphPerspectiveCamera({ rotX: 25, rotY: 30, zoom: 6, distance: 20 });
+    // rotX/rotY in degrees; zoom=300 with distance=20 produces a clearly visible cube
+    const camera = createGlyphPerspectiveCamera({ rotX: 25, rotY: 30, zoom: 300, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 40, rows: 20, cellAspect: 2.0 },
@@ -54,7 +54,7 @@ describe("rasterize", () => {
   });
 
   it("renders wireframe mode to non-empty text", () => {
-    const camera = createGlyphPerspectiveCamera({ zoom: 5, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ zoom: 250, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 30, rows: 15, cellAspect: 2.0 },
@@ -67,7 +67,7 @@ describe("rasterize", () => {
   });
 
   it("renders with colors producing html spans", () => {
-    const camera = createGlyphPerspectiveCamera({ zoom: 6, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ zoom: 300, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 40, rows: 20, cellAspect: 2.0 },
@@ -82,7 +82,7 @@ describe("rasterize", () => {
 
   it("produces exactly (rows - 1) newlines for a non-empty render", () => {
     const rows = 10;
-    const camera = createGlyphPerspectiveCamera({ zoom: 5, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ zoom: 250, distance: 20 });
     const ctx = buildRasterizeContext({
       camera,
       grid: { cols: 20, rows, cellAspect: 2.0 },
@@ -148,7 +148,7 @@ describe("rasterize", () => {
     // Now verify the rasterizer matches: render each face in isolation and
     // compare non-space character counts (brighter glyph → more visible).
     // rotX=90 looks straight down (camera aligned with -Z world axis).
-    const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 8, distance: 20 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 400, distance: 20 });
     const lightToward = { direction: [0, 0, -1] as [number, number, number], color: "#ffffff", intensity: 1 };
     const noAmbient = { color: "#ffffff", intensity: 0 };
 

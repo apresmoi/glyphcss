@@ -1,14 +1,15 @@
 // Vendored from voxcss packages/core/src/camera/camera.ts@cac9da3.
 // glyphcss deltas: output target [col,row,depth] char-grid instead of CSS matrix3d;
-//   Poly→Glyph rename; BASE_TILE retained; perspective + eyeMode projection added;
-//   zoom semantic = CSS scale multiplier (same as voxcss); DEG conversion inline.
+//   Poly→Glyph rename; BASE_TILE retained for fallback cell metrics;
+//   perspective + eyeMode projection added; DEG conversion inline.
 
 import type { Vec3 } from "@glyphcss/core";
 
 /**
- * Base tile size in virtual pixels. One glyphcss world unit = BASE_TILE virtual
- * pixels (pre-zoom). Matches voxcss exactly so world-coordinate values are
- * numerically compatible across both renderers.
+ * Base tile size in virtual pixels. Polycss authors geometry at BASE_TILE px per
+ * world unit and applies `scale(zoom / BASE_TILE)`, so the final CSS displacement
+ * is `world * zoom`. glyphcss keeps BASE_TILE only for headless/fallback glyph
+ * cell metrics where no browser cell measurement exists.
  */
 const BASE_TILE = 50;
 
@@ -31,6 +32,32 @@ const PERSPECTIVE_NEAR_FRACTION = 0.01;
  */
 export const DEFAULT_PERSPECTIVE = 32000;
 
+export interface GlyphProjectionMetrics {
+  /** Character cell width in CSS pixels. Defaults to BASE_TILE / cellAspect. */
+  cellWidth?: number;
+  /** Character cell height in CSS pixels. Defaults to BASE_TILE. */
+  cellHeight?: number;
+  /** Projection center in output cells. Defaults to cols * camera.center[0]. */
+  centerCol?: number;
+  /** Projection center in output cells. Defaults to rows * camera.center[1]. */
+  centerRow?: number;
+}
+
+function resolveProjectionMetrics(
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  center: [number, number],
+  metrics?: GlyphProjectionMetrics,
+): { cellPxW: number; cellPxH: number; centerCol: number; centerRow: number } {
+  return {
+    cellPxW: metrics?.cellWidth && metrics.cellWidth > 0 ? metrics.cellWidth : BASE_TILE / cellAspect,
+    cellPxH: metrics?.cellHeight && metrics.cellHeight > 0 ? metrics.cellHeight : BASE_TILE,
+    centerCol: metrics?.centerCol ?? cols * center[0],
+    centerRow: metrics?.centerRow ?? rows * center[1],
+  };
+}
+
 /**
  * Near fraction used by `eyeDepth` for near-plane CLIPPING — deliberately a hair
  * larger than the projection's `PERSPECTIVE_NEAR_FRACTION`. The clip plane sits
@@ -51,7 +78,7 @@ const PERSPECTIVE_CLIP_NEAR_FRACTION = PERSPECTIVE_NEAR_FRACTION * 1.01;
  *   translate3d(-cssX, -cssY, -cssZ)
  *   → rotate(rotY deg)      [CSS rotate = rotateZ in 3D]
  *   → rotateX(rotX deg)
- *   → scale(zoom)
+ *   → scale(zoom / BASE_TILE)
  *
  * world→CSS axis map (same as voxcss camera.ts `getStyle` comments):
  *   world[0] → CSS Y   (cssY = world[0] * tile)
@@ -63,8 +90,8 @@ const PERSPECTIVE_CLIP_NEAR_FRACTION = PERSPECTIVE_NEAR_FRACTION * 1.01;
  *   2. rotateZ(rotY): CSS `rotate()` — rotation in the XY plane
  *   3. rotateX(rotX)
  *
- * Returns the rotated [x, y, z] in CSS-frame virtual-pixel units
- * (caller still needs to multiply by zoom * BASE_TILE to get screen pixels).
+ * Returns the rotated [x, y, z] in world units in CSS-frame axes
+ * (caller still needs to multiply by `zoom` to get final CSS pixels).
  */
 function rotateVec3Voxcss(v: Vec3, rotXDeg: number, rotYDeg: number): Vec3 {
   // Axis-swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
@@ -138,17 +165,21 @@ export interface GlyphCamera {
    * to Euler).
    */
   useMat: boolean;
-  /** Distance from target along the view axis. For perspective cameras: world units. Default 0. */
+  /**
+   * Camera pull-back from target. Default 0, matching polycss. With the default
+   * CSS-perspective projection this is CSS pixels; in legacy `perspective: 0`
+   * mode it keeps the old world-unit pinhole semantics.
+   */
   distance: number;
   /**
    * CSS-perspective distance in virtual pixels (voxcss parity). When > 0, the
    * camera projects with the browser's `P / (P − z)` CSS-perspective math.
-   * Default 0 (disabled).
+   * Default 32000, matching polycss.
    */
   perspective: number;
   /**
-   * Camera zoom — CSS scale multiplier (same semantic as voxcss).
-   * `zoom = 1` → one world unit = BASE_TILE (50) virtual pixels.
+   * Camera zoom — CSS pixels per world unit, matching polycss/voxcss.
+   * `zoom = 50` → one world unit = 50 CSS pixels after projection.
    * Larger values zoom in; smaller zoom out. NOT a fraction of viewport.
    */
   zoom: number;
@@ -170,10 +201,10 @@ export interface GlyphCamera {
    */
   target: Vec3;
   /**
-   * Eye-at-origin projection mode. When true, the perspective camera uses a
-   * first-person formulation: `target` is treated as the eye position and
-   * vertices behind the eye (`rz2 >= 0`) are NaN-culled. Toggled by
-   * `createGlyphFirstPersonControls` at attach / detach time.
+   * Legacy/manual eye-at-origin projection mode. When true, the perspective
+   * camera treats `target` as the eye position and culls vertices behind it.
+   * `createGlyphFirstPersonControls` keeps this false so FPV matches polycss's
+   * CSS-perspective target convention.
    */
   eyeMode: boolean;
   /**
@@ -186,7 +217,7 @@ export interface GlyphCamera {
    * shows the wrong (farther) surface in some cells and flickers under motion.
    * Orthographic cameras omit it (their linear `depth` is already screen-linear).
    */
-  project(v: Vec3, cols: number, rows: number, cellAspect: number): [number, number, number, number?];
+  project(v: Vec3, cols: number, rows: number, cellAspect: number, metrics?: GlyphProjectionMetrics): [number, number, number, number?];
   /**
    * Signed distance of a world vertex past the near plane: `> 0` is visible
    * (in front of the near plane), `<= 0` is culled (at/behind the eye). The
@@ -211,8 +242,7 @@ export interface GlyphPerspectiveCameraOptions {
    */
   rotY?: number;
   /**
-   * Perspective distance in world units. Larger = flatter (less foreshortening);
-   * smaller = more dramatic. Default 6.
+   * Camera pull-back in CSS pixels, matching polycss. Default 0.
    */
   distance?: number;
   /**
@@ -227,8 +257,7 @@ export interface GlyphPerspectiveCameraOptions {
    */
   perspective?: number;
   /**
-   * Camera zoom — CSS scale multiplier. Default 0.3.
-   * `zoom = 1` → BASE_TILE (50) virtual px per world unit.
+   * Camera zoom — CSS pixels per world unit. Default 0.65.
    */
   zoom?: number;
   /**
@@ -258,8 +287,7 @@ export interface GlyphOrthographicCameraOptions {
   /** Y rotation in **degrees** (spin). Default 45. */
   rotY?: number;
   /**
-   * Camera zoom — CSS scale multiplier. Default 0.3.
-   * `zoom = 1` → BASE_TILE (50) virtual px per world unit.
+   * Camera zoom — CSS pixels per world unit. Default 0.65.
    */
   zoom?: number;
   /** Center of projection in normalized grid coords. Default `[0.5, 0.5]`. */
@@ -285,7 +313,7 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
   const state = {
     rotX: opts.rotX ?? 65,
     rotY: opts.rotY ?? 45,
-    distance: opts.distance ?? 6,
+    distance: opts.distance ?? 0,
     perspective: opts.perspective ?? DEFAULT_PERSPECTIVE,
     zoom: opts.zoom ?? 0.65,
     stretch: opts.stretch ?? 1.0,
@@ -335,12 +363,10 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       // Clip a hair inside the projection near plane (0.001) for the same reason
       // as the perspective branch — crossing vertices must reproject finitely.
       const NEAR = 0.001 * 1.01;
-      // eyeMode (first-person) takes precedence over `perspective`: a camera can
-      // carry the default CSS-perspective value AND be flipped into eyeMode by
-      // the first-person controls, and the eye-at-origin projection must win.
+      // Legacy eyeMode takes precedence over `perspective`.
       if (state.eyeMode) return (-r[2]) - NEAR;
       if (state.perspective > 0) {
-        const cssZ = r[2] * state.zoom * BASE_TILE - state.distance;
+        const cssZ = r[2] * BASE_TILE - state.distance;
         // Near plane at 1% of the perspective distance, not ~on the eye: a
         // vertex right on the eye projects with `perspScale = P/near = ∞`,
         // which makes near-clipped triangles jitter wildly as the camera moves.
@@ -349,14 +375,9 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       }
       return (state.distance - r[2]) - NEAR;
     },
-    project(v, cols, rows, cellAspect) {
-      // Virtual char-cell pixel sizes (world-unit-to-cell conversion).
-      // cellAspect = cellPxH / cellPxW; we define BASE_TILE as cellPxH so that
-      // vertical and horizontal scales stay consistent with voxcss's BASE_TILE.
-      // cellPxW = BASE_TILE / cellAspect.
-      const cellPxH = BASE_TILE;
-      const cellPxW = BASE_TILE / cellAspect;
-      const cxN = state.center[0], cyN = state.center[1];
+    project(v, cols, rows, cellAspect, metrics) {
+      const { cellPxW, cellPxH, centerCol, centerRow } =
+        resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
 
       const shifted: Vec3 = [
         v[0] - state.target[0],
@@ -367,10 +388,7 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         ? rotateVec3WithMat(shifted, state.mat)
         : rotateVec3Voxcss(shifted, state.rotX, state.rotY);
 
-      // eyeMode (first-person) takes precedence over `perspective`: the camera
-      // can carry the default CSS-perspective value and still be flipped into
-      // first-person by the controls, in which case the eye-at-origin
-      // projection must win.
+      // Legacy eyeMode takes precedence over `perspective`.
       if (state.eyeMode) {
         // Eye-at-origin first-person projection.
         // `target` is the eye position; rz2 < 0 means in front of the eye.
@@ -380,11 +398,11 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         // Perspective scale in world units. state.focal is the reference depth
         // (distance of the "screen plane" from the eye).
         const perspScale = state.focal / -r[2];
-        // world→screen-px: multiply by zoom * BASE_TILE, then divide by cell size.
-        const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
-        const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
-        const col = cols * cxN + screenPxX / cellPxW * state.stretch * state.fovScale;
-        const row = rows * cyN + screenPxY / cellPxH * state.fovScale;
+        // world→screen-px: multiply by zoom (px/world), then divide by cell size.
+        const screenPxX = r[0] * perspScale * state.zoom;
+        const screenPxY = r[1] * perspScale * state.zoom;
+        const col = centerCol + screenPxX / cellPxW * state.stretch * state.fovScale;
+        const row = centerRow + screenPxY / cellPxH * state.fovScale;
         // zbuf = -1/r[2]: screen-space-linear (r[2] < 0 in front; nearer → larger).
         return [col, row, r[2], -1 / r[2]];
       }
@@ -393,19 +411,18 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         // voxcss / CSS-perspective parity projection.
         //
         // Reproduces exactly what the browser does for polycss: the camera
-        // transform `translateZ(-distance) scale(zoom) rotateX rotate
+        // transform `translateZ(-distance) scale(zoom / BASE_TILE) rotateX rotate
         // translate3d(-target)` followed by the container's CSS
         // `perspective: P` (which applies `P / (P − z)` about the centre).
         //
-        // r is the rotated vector in world units; convert to CSS px the same
-        // way voxcss does (× zoom × BASE_TILE), pull back by `distance` px,
-        // then apply the perspective divide. `target` is the world point at the
-        // screen centre, so placing it ahead of the player makes the eye land
-        // on the player → first-person, no eyeMode flag required.
+        // CSS `scale()` is a 2D scale: it scales screen X/Y, but not Z. Polycss
+        // authors geometry at BASE_TILE px/world-unit, then applies
+        // `scale(zoom / BASE_TILE)`, so X/Y become world*zoom while Z remains
+        // world*BASE_TILE for the perspective denominator.
         const P = state.perspective;
-        const cssX = r[0] * state.zoom * BASE_TILE;
-        const cssY = r[1] * state.zoom * BASE_TILE;
-        const cssZ = r[2] * state.zoom * BASE_TILE - state.distance;
+        const cssX = r[0] * state.zoom;
+        const cssY = r[1] * state.zoom;
+        const cssZ = r[2] * BASE_TILE - state.distance;
         const denom = P - cssZ;
         // Near plane at `P/100` (not ~0): keeps `perspScale = P/denom` bounded so
         // near-clipped triangles don't jitter. Geometry nearer than this is
@@ -413,8 +430,8 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
         const NEAR = P * PERSPECTIVE_NEAR_FRACTION;
         if (denom < NEAR) return [NaN, NaN, cssZ, NaN];
         const perspScale = P / denom;
-        const col = cols * cxN + (cssX * perspScale) / cellPxW * state.stretch * state.fovScale;
-        const row = rows * cyN + (cssY * perspScale) / cellPxH * state.fovScale;
+        const col = centerCol + (cssX * perspScale) / cellPxW * state.stretch * state.fovScale;
+        const row = centerRow + (cssY * perspScale) / cellPxH * state.fovScale;
         // zbuf = 1/denom: affine in screen space, so barycentric interpolation
         // is exact. Nearer (larger cssZ → smaller denom) → larger 1/denom, so
         // the renderer's `pixelDepth > depthBuf` keeps the nearer surface.
@@ -431,10 +448,10 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       const perspScale = state.distance / denom;
 
       // world→screen-px→char-cell
-      const screenPxX = r[0] * perspScale * state.zoom * BASE_TILE;
-      const screenPxY = r[1] * perspScale * state.zoom * BASE_TILE;
-      const col = cols * cxN + screenPxX / cellPxW * state.stretch * state.fovScale;
-      const row = rows * cyN + screenPxY / cellPxH * state.fovScale;
+      const screenPxX = r[0] * perspScale * state.zoom;
+      const screenPxY = r[1] * perspScale * state.zoom;
+      const col = centerCol + screenPxX / cellPxW * state.stretch * state.fovScale;
+      const row = centerRow + screenPxY / cellPxH * state.fovScale;
       // zbuf = 1/denom: screen-space-linear (nearer → smaller denom → larger).
       return [col, row, r[2], 1 / denom];
     },
@@ -486,10 +503,9 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     set useMat(v: boolean) { state.useMat = v; },
     // Orthographic projection has no eye, so nothing is ever near-clipped.
     eyeDepth(_v) { return Number.POSITIVE_INFINITY; },
-    project(v, cols, rows, cellAspect) {
-      // Virtual char-cell pixel sizes (see perspective camera for derivation).
-      const cellPxH = BASE_TILE;
-      const cellPxW = BASE_TILE / cellAspect;
+    project(v, cols, rows, cellAspect, metrics) {
+      const { cellPxW, cellPxH, centerCol, centerRow } =
+        resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
 
       const shifted: Vec3 = [
         v[0] - state.target[0],
@@ -503,11 +519,10 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
         : rotateVec3Voxcss(shifted, state.rotX, state.rotY);
 
       // Orthographic: no perspective divide.
-      const cxN = state.center[0], cyN = state.center[1];
-      const screenPxX = r[0] * state.zoom * BASE_TILE;
-      const screenPxY = r[1] * state.zoom * BASE_TILE;
-      const col = cols * cxN + screenPxX / cellPxW * state.fovScale;
-      const row = rows * cyN + screenPxY / cellPxH * state.fovScale;
+      const screenPxX = r[0] * state.zoom;
+      const screenPxY = r[1] * state.zoom;
+      const col = centerCol + screenPxX / cellPxW * state.fovScale;
+      const row = centerRow + screenPxY / cellPxH * state.fovScale;
       return [col, row, r[2]];
     },
   };

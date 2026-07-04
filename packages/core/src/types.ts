@@ -195,6 +195,23 @@ export interface GridSize {
   rows: number;
   /** Character cell aspect ratio (height / width). Typically ~2.0 for monospace. */
   cellAspect: number;
+  /**
+   * Measured character cell width in CSS pixels. Browser runtimes set this from
+   * the live `<pre>` so camera projection can map polycss-compatible CSS pixels
+   * to glyph cells exactly. Static/headless renders may omit it and use the
+   * virtual BASE_TILE fallback.
+   */
+  cellWidth?: number;
+  /** Measured character cell height in CSS pixels. See {@link cellWidth}. */
+  cellHeight?: number;
+  /**
+   * Projection center in output cells. Defaults to `cols * camera.center[0]`.
+   * Browser auto-size scenes use this to account for sub-cell leftover space in
+   * the host so the glyph projection center matches the host center.
+   */
+  centerCol?: number;
+  /** Projection center in output cells. Defaults to `rows * camera.center[1]`. */
+  centerRow?: number;
 }
 
 /**

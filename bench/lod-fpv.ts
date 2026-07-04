@@ -1,4 +1,4 @@
-// Walkable FPV (first-person eyeMode) demo of per-mesh detail + occlusion,
+// Walkable FPV demo of per-mesh detail + occlusion,
 // through the LOCAL library source. Served at /bench/lod-fpv.html.
 import {
   createGlyphScene,

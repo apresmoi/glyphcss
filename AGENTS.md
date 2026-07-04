@@ -101,7 +101,8 @@ Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry 
 These conventions match voxcss and three.js exactly — same units, same frames.
 
 - **Rotation units: degrees.** `rotX`, `rotY` on cameras and the `rotation` prop on meshes are all in degrees (XYZ Euler). `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Do not use radians — the asciss-lineage radian convention has been replaced.
-- **Camera `zoom`: absolute, pixels per world unit.** `zoom=50` means one world unit maps to 50 px at `BASE_TILE`. This is three.js-style orthographic zoom, not a fraction of the viewport.
+- **Camera `zoom`: absolute, CSS pixels per world unit.** `zoom=50` means one world unit maps to 50 CSS px. This matches voxcss/polycss's public camera API; internally those engines author geometry at `BASE_TILE=50` and apply `scale(zoom / BASE_TILE)`. This is not a fraction of the viewport.
+- **Perspective `distance`: default `0`.** With the default CSS-perspective projection, `distance` is a CSS-pixel pull-back matching voxcss/polycss. In legacy `perspective: 0` mode only, it keeps the old world-unit pinhole semantics.
 - **Directional light `direction`: toward convention.** `GlyphDirectionalLight.direction` is the direction the light shines *toward*, matching three.js. A vector pointing down-right-forward lights the top-left-back faces.
 
 ## Cross-package discipline

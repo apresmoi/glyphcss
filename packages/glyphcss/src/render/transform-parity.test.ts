@@ -33,7 +33,7 @@ import {
 import type { Vec3, Polygon } from "@glyphcss/core";
 
 // ─── Constants (must match camera impl exactly) ───────────────────────────────
-const BASE_TILE = 50;   // one world unit = 50 virtual px (same as voxcss)
+const BASE_TILE = 50;   // fallback virtual cell height; polycss geometry tile size
 const DEG = Math.PI / 180;
 
 // ─── Oracle: voxcss rotation convention (vendored from voxcss rotation.ts) ───
@@ -63,9 +63,9 @@ function oracleRotateVec3(v: Vec3, rxDeg: number, ryDeg: number, rzDeg: number):
 }
 
 /**
- * voxcss forward projection: world-coord → [cssX_vpx, cssY_vpx, cssZ_wu].
+ * voxcss forward projection: world-coord → [cssX_px, cssY_px, cssZ_wu].
  * Derived from voxcss camera.ts `getStyle()` (axis-swap → rotateZ(rotY) →
- * rotateX(rotX) → scale zoom·BASE_TILE).
+ * rotateX(rotX) → final CSS px via zoom).
  * Used as oracle for camera projection parity tests.
  */
 function oracleVoxcssCssXY(
@@ -94,8 +94,8 @@ function oracleVoxcssCssXY(
   const ry2 = ry * cosX - rz * sinX;
   const rz2 = ry * sinX + rz * cosX;
   return {
-    cssX: rx  * zoom * BASE_TILE,
-    cssY: ry2 * zoom * BASE_TILE,
+    cssX: rx  * zoom,
+    cssY: ry2 * zoom,
     cssZ: rz2,
   };
 }
@@ -256,7 +256,7 @@ describe("1. SAME-SIZE-UNDER-SAME-TRANSFORM", () => {
    * regardless of which geometry carries those vertices.
    */
   it("1c. cross-object AABB invariant: identical world vertices project to identical [col,row] regardless of mesh", () => {
-    const cam = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 0.5 });
+    const cam = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 50 });
     const transform = { position: [1, -0.5, 0.3] as Vec3, scale: 1.5, rotation: [20, 30, 45] as Vec3 };
 
     // Six test points spanning different spatial positions.
@@ -343,7 +343,7 @@ describe("1. SAME-SIZE-UNDER-SAME-TRANSFORM", () => {
    * (Projecting area → cell count scales as scale².)
    */
   it("1d. rasterized filled cells scale with scale² (ortho solid, scale=1 vs scale=2)", () => {
-    const cam = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 0.5 });
+    const cam = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 50 });
     const grid = { cols: COLS, rows: ROWS, cellAspect: ASPECT };
 
     const cube1 = transformPolygons(makeUnitCube(), { scale: 1 });
@@ -488,7 +488,7 @@ describe("2. ROTATION: degrees, XYZ Euler world frame", () => {
    * completely different result than 90 degrees.
    */
   it("2g. camera is in DEGREES (not radians): rotY=90 matches oracle, not 90-rad result", () => {
-    const rotX = 0, rotY = 90, zoom = 1;
+    const rotX = 0, rotY = 90, zoom = 50;
     const world: Vec3 = [0, 1, 0];
     const target: Vec3 = [0, 0, 0];
 
@@ -581,7 +581,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
       color: "#ffffff",
     };
 
-    const cam = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 5, distance: 20 });
+    const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 50 });
     const grid = { cols: 40, rows: 20, cellAspect: ASPECT };
     const lightDir = { direction: [0, 0, -1] as Vec3, color: "#ffffff", intensity: 1 };
     const noAmb = { color: "#ffffff", intensity: 0 };
@@ -616,7 +616,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
    * different output cell counts, and the ordering matches computeShapeLighting.
    */
   it("3c. intensity ordering: brighter face (higher lambert) produces denser glyph output than darker face", () => {
-    const cam = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 5, distance: 20 });
+    const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 50 });
     const grid = { cols: 40, rows: 20, cellAspect: ASPECT };
     const lightDir = { direction: [0, 0, -1] as Vec3, color: "#ffffff", intensity: 1 };
     const baseAmb = { color: "#ffffff", intensity: 0.1 };
@@ -643,11 +643,11 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
     expect(brightLambert).toBe("rgb(255, 255, 255)");
 
     const ctxBright = buildRasterizeContext({
-      camera: cam, grid, polygons: [brightFace], mode: "solid", useColors: false,
+      camera: cam, grid, polygons: [brightFace], mode: "solid", useColors: false, doubleSided: true,
       directionalLight: lightDir, ambientLight: baseAmb,
     });
     const ctxDim = buildRasterizeContext({
-      camera: cam, grid, polygons: [dimFace], mode: "solid", useColors: false,
+      camera: cam, grid, polygons: [dimFace], mode: "solid", useColors: false, doubleSided: true,
       directionalLight: lightDir, ambientLight: baseAmb,
     });
 
@@ -710,7 +710,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
       color: "#ffaa44",
     };
 
-    const cam = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 4, distance: 20 });
+    const cam = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 50, distance: 20 });
     const grid = { cols: 40, rows: 20, cellAspect: ASPECT };
     const light = { direction: [-0.5, -0.7, -0.5] as Vec3, intensity: 1 };
     const amb = { intensity: 0.4 };
@@ -729,9 +729,9 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. ZOOM: linear scaling — zoom=2 renders at 2× cells of zoom=1
+// 4. ZOOM: linear scaling — zoom=2 renders at 2× the CSS px/world of zoom=1
 // ─────────────────────────────────────────────────────────────────────────────
-describe("4. ZOOM: linear scaling (zoom=Z renders at Z×BASE_TILE px/world-unit)", () => {
+describe("4. ZOOM: linear scaling (zoom=Z renders at Z CSS px/world-unit)", () => {
   /**
    * 4a. Pre-quantization: projected [col, row] displacement from center scales
    * exactly linearly with zoom (orthographic projection — no perspective divide).
@@ -748,31 +748,30 @@ describe("4. ZOOM: linear scaling (zoom=Z renders at Z×BASE_TILE px/world-unit)
   });
 
   /**
-   * 4b. Zoom scales with BASE_TILE = 50: zoom=1 produces exactly BASE_TILE
-   * virtual px of displacement per world unit (orthographic camera, simple point
+   * 4b. Zoom is CSS px/world: zoom=1 produces exactly 1 CSS px of displacement
+   * per world unit (orthographic camera, simple point
    * along one axis for clean algebra).
    *
    * At rotX=0, rotY=0, world[0]=1 (along X):
    * axis-swap → cy=1. rotZ(0) → ry=1. rotX(0) → ry2=1.
-   * cssY = ry2 * zoom * BASE_TILE = 1 * zoom * 50.
-   * row displacement = cssY / cellPxH = (zoom * 50) / 50 = zoom rows.
+   * cssY = ry2 * zoom = 1px.
+   * row displacement = cssY / cellPxH = zoom / 50 rows.
    */
-  it("4b. zoom=1: world +X=1 unit → exactly 1 row displacement from center (BASE_TILE/cellPxH = 1)", () => {
+  it("4b. zoom=1: world +X=1 unit → exactly 1px / cellPxH row displacement", () => {
     const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
     const [, row] = cam.project([1, 0, 0], COLS, ROWS, ASPECT);
-    // displacement = row - ROWS/2 = 1.0 exactly
-    expect(row - ROWS / 2).toBeCloseTo(1.0, 8);
+    expect(row - ROWS / 2).toBeCloseTo(1 / cellPxH, 8);
   });
 
   /**
    * 4c. zoom=1: world +Y=1 unit → cellPxW-dependent column displacement.
-   * cssX = cx * zoom * BASE_TILE (cx=world[1]=1). col displacement = cssX / cellPxW.
-   * With ASPECT=2: cellPxW = 50/2 = 25, displacement = 1*1*50/25 = 2 cols.
+   * cssX = cx * zoom (cx=world[1]=1). col displacement = cssX / cellPxW.
+   * With ASPECT=2: cellPxW = 50/2 = 25, displacement = 1/25 = 0.04 cols.
    */
-  it("4c. zoom=1 ASPECT=2: world +Y=1 unit → exactly 2 col displacement from center", () => {
+  it("4c. zoom=1 ASPECT=2: world +Y=1 unit → exactly 1px / cellPxW col displacement", () => {
     const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
     const [col] = cam.project([0, 1, 0], COLS, ROWS, ASPECT);
-    expect(col - COLS / 2).toBeCloseTo(2.0, 8);
+    expect(col - COLS / 2).toBeCloseTo(1 / cellPxW, 8);
   });
 
   /**
@@ -797,8 +796,8 @@ describe("4. ZOOM: linear scaling (zoom=Z renders at Z×BASE_TILE px/world-unit)
     const cube = makeUnitCube();
     const grid = { cols: COLS, rows: ROWS, cellAspect: ASPECT };
     // Use clearly visible zoom levels so both renders produce non-trivial cell counts.
-    const cam1 = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 0.5 });
-    const cam2 = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 2.0 });
+    const cam1 = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 25 });
+    const cam2 = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 100 });
     const ctx1 = buildRasterizeContext({ camera: cam1, grid, polygons: cube, mode: "solid", useColors: false });
     const ctx2 = buildRasterizeContext({ camera: cam2, grid, polygons: cube, mode: "solid", useColors: false });
     const cells1 = filledCells(rasterize(ctx1));
@@ -877,17 +876,16 @@ describe("5. React/Vue API surface mirror check", () => {
     expect(persp.rotY).toBe(45);
   });
 
-  it("5d. zoom=1 baseline: one world unit = BASE_TILE (50) virtual px, matching voxcss", () => {
+  it("5d. zoom=1 baseline: one world unit = 1 CSS px, matching polycss", () => {
     // Verify that the zoom semantic is compatible with voxcss:
-    // zoom=1 → 1 world unit = BASE_TILE virtual pixels.
+    // zoom=1 → 1 world unit = 1 CSS px.
     // At rotX=0, rotY=0, world [0,1,0] (1 unit along Y):
-    // cssX = world[1] * zoom * BASE_TILE = 1 * 1 * 50 = 50 virtual px.
-    // col displacement = 50 / cellPxW = 50 / (50/ASPECT) = ASPECT = 2 cells.
+    // cssX = world[1] * zoom = 1 CSS px.
+    // col displacement = 1 / cellPxW = 1 / (50/ASPECT) = 0.04 cells.
     const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
     const [col] = cam.project([0, 1, 0], 80, 24, 2.0);
     const displacement = col - 40;  // 80/2
-    // cssX = 1*50 = 50 vp, cellPxW = 50/2 = 25, displacement = 2 cols
-    expect(displacement).toBeCloseTo(2.0, 8);
+    expect(displacement).toBeCloseTo(1 / (50 / 2), 8);
   });
 
   /**
@@ -903,7 +901,7 @@ describe("5. React/Vue API surface mirror check", () => {
    * we can verify this by checking that importing both bindings exposes the
    * same named props (rotX, rotY, zoom, rotation, position, scale).
    *
-   * Camera zoom is absolute px-per-world-unit across vanilla + React + Vue,
+   * Camera zoom is the same CSS px/world value across vanilla + React + Vue,
    * defaulting to 0.65 (matching voxcss DEFAULT_CAMERA_STATE).
    */
   it("5e. rotateVec3 (core export) is byte-identical to oracle oracleRotateVec3", () => {

@@ -17,7 +17,7 @@ describe("@glyphcss/compile", () => {
   });
 
   it("compileFile produces a non-empty <pre> with content", async () => {
-    const r = await compileFile(DOG, { autoCenter: true, rotX: 60, rotY: 45, zoom: 0.5, cols: 80, rows: 30 });
+    const r = await compileFile(DOG, { autoCenter: true, rotX: 60, rotY: 45, zoom: 25, cols: 80, rows: 30 });
     expect(r.html.startsWith('<pre class="glyph-output">')).toBe(true);
     expect(r.html.endsWith("</pre>")).toBe(true);
     expect(r.cols).toBe(80);
@@ -33,7 +33,7 @@ describe("@glyphcss/compile", () => {
 
   it("vite plugin compiles a mesh import with ?glyph", async () => {
     const plugin = glyphcssCompile();
-    const id = `${DOG}?glyph&autoCenter=1&rotX=60&rotY=45&zoom=0.5&cols=60&rows=24`;
+    const id = `${DOG}?glyph&autoCenter=1&rotX=60&rotY=45&zoom=25&cols=60&rows=24`;
     const code = await (plugin.load as (id: string) => Promise<string | null>)(id);
     expect(code).toBeTruthy();
     expect(code).toContain("export default");

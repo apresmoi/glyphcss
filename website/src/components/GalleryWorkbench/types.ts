@@ -2,7 +2,7 @@
 // type declarations that flow between subfolders (presets/, helpers/, the
 // component itself) live here. Component-internal types stay local.
 
-import type { Polygon } from "@glyphcss/core";
+import type { GltfParseOptions, ObjParseOptions, Polygon, StlParseOptions, VoxParseOptions } from "@glyphcss/core";
 
 export type ModelKind = "obj" | "glb" | "gltf" | "vox" | "stl" | "primitive";
 export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel" | "Primitives" | "CAD";
@@ -23,6 +23,7 @@ interface BasePreset {
   zoom?: number;
   rotX?: number;
   rotY?: number;
+  options?: ObjParseOptions | GltfParseOptions | VoxParseOptions | StlParseOptions;
   galleryBucket?: GalleryBucket;
   attribution?: ModelAttribution;
 }
@@ -56,6 +57,7 @@ export interface GalleryPresetFile {
   label?: string;
   category: string;
   targetSize?: number;
+  defaultColor?: string;
   zoom?: number;
   rotX?: number;
   rotY?: number;
@@ -65,20 +67,22 @@ export interface GalleryPresetFile {
 
 export interface ObjGalleryPresetFile extends GalleryPresetFile {
   mtlFile?: string | null;
-  defaultColor?: string;
+  options?: ObjParseOptions;
 }
 
 export interface StlGalleryPresetFile extends GalleryPresetFile {
-  defaultColor?: string;
+  options?: StlParseOptions;
 }
 
 export interface GlyphMetrics {
   measuredAt: number;
-  cells: number;
-  edges: number;
-  triangles: number;
-  vertices: number;
-  frames: number;
+  cols: number;
+  rows: number;
+  glyphs: number;
+  textChars: number;
+  colorSpans: number;
+  domNodes: number;
+  layers: number;
   bakeMs: number;
 }
 
@@ -105,6 +109,8 @@ export interface SceneOptionsState {
   lineHeight: number;
   /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
   density: number;
+  /** Linear glyph-density ratio used only while dragging (1 = full density). */
+  dragDensity: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>glyphcss / polycss parity bench</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05070c;
+      --panel: #0b1018;
+      --line: #223044;
+      --text: #d6e0ee;
+      --muted: #8da0b8;
+      --glyph: #48d5ff;
+      --poly: #ff5fb7;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+    body { font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: auto auto auto auto auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      background: #07101b;
+      border-bottom: 1px solid var(--line);
+    }
+    label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+    select, input, button {
+      color: var(--text);
+      background: #101827;
+      border: 1px solid #2b3b52;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: inherit;
+    }
+    input[type="range"] { width: 130px; padding: 0; }
+    button { cursor: pointer; }
+    button[data-active="true"] { border-color: #60a5fa; background: #112642; color: #e6f3ff; }
+    .readout {
+      color: var(--muted);
+      font: 12px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: minmax(0, 1fr) minmax(260px, 38vh);
+      gap: 10px;
+      padding: 10px;
+      min-height: 0;
+    }
+    .panel {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .panel h2 {
+      position: absolute;
+      z-index: 20;
+      left: 10px;
+      top: 8px;
+      margin: 0;
+      color: #dce8f8;
+      font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace;
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .panel .host {
+      position: absolute;
+      inset: 0;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 8px;
+      line-height: 1;
+      outline: none;
+    }
+    .panel .glyph-output { color: #dce8f8; }
+    #glyphHost .glyph-output { color: var(--glyph); }
+    #overlayGlyph .glyph-output { color: var(--glyph); text-shadow: 0 0 4px rgba(72,213,255,.45); }
+    #overlayPoly { opacity: .5; mix-blend-mode: screen; }
+    #overlayGlyph { opacity: .9; mix-blend-mode: screen; }
+    .overlay { grid-column: 1 / span 2; cursor: grab; }
+    .overlay:active { cursor: grabbing; }
+    .overlay .host { pointer-events: none; }
+    #polyHost, #overlayPoly { transform: translateZ(0); }
+    .legend {
+      position: absolute;
+      right: 10px;
+      bottom: 8px;
+      z-index: 30;
+      padding: 5px 7px;
+      border: 1px solid rgba(148,163,184,.35);
+      border-radius: 6px;
+      background: rgba(0,0,0,.48);
+      color: var(--muted);
+      font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+      pointer-events: none;
+      white-space: pre;
+    }
+    .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .glyph-s { background: var(--glyph); }
+    .poly-s { background: var(--poly); }
+    @media (max-width: 900px) {
+      .toolbar { grid-template-columns: 1fr 1fr; }
+      .readout { grid-column: 1 / span 2; white-space: normal; }
+      .grid { grid-template-columns: 1fr; grid-template-rows: repeat(3, minmax(0, 1fr)); }
+      .overlay { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <label>model <select id="model"></select></label>
+      <label>camera <select id="camera"></select></label>
+      <label>zoom <input id="zoom" type="range" min="8" max="180" step="1" /></label>
+      <label>density <input id="density" type="range" min="0.65" max="2.2" step="0.05" /></label>
+      <button id="reset" type="button">reset camera</button>
+      <div id="readout" class="readout">loading...</div>
+      <div class="readout">drag overlay: orbit/look; wheel: zoom; FPV: WASD</div>
+    </div>
+    <div class="grid">
+      <section class="panel">
+        <h2>glyphcss</h2>
+        <div id="glyphHost" class="host"></div>
+      </section>
+      <section class="panel">
+        <h2>polycss</h2>
+        <div id="polyHost" class="host"></div>
+      </section>
+      <section id="stage" class="panel overlay" tabindex="0">
+        <h2>overlay</h2>
+        <div id="overlayPoly" class="host"></div>
+        <div id="overlayGlyph" class="host"></div>
+        <div id="legend" class="legend"><span class="swatch glyph-s"></span>glyphcss
+<span class="swatch poly-s"></span>polycss</div>
+      </section>
+    </div>
+  </div>
+  <script type="module" src="./parity.bundle.js"></script>
+</body>
+</html>

@@ -171,10 +171,10 @@ export const GlyphMesh = defineComponent({
       unregister();
     });
 
-    // Re-register when resolved polygons change (covers polygons, geometry, size, color)
+    // Update polygons in place when resolved polygons change (covers polygons, geometry, size, color)
     watch(resolvedPolygons, () => {
-      unregister();
-      register();
+      if (meshRef.value) meshRef.value.setPolygons(resolvedPolygons.value);
+      else register();
     });
 
     // Update transform on id/position/scale/rotation/castShadow/receiveShadow changes

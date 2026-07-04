@@ -158,7 +158,11 @@ function GlyphMeshInner({
       meshRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneRef, polygons]);
+  }, [sceneRef]);
+
+  useEffect(() => {
+    meshRef.current?.setPolygons(polygons);
+  }, [polygons]);
 
   // Update transform when id/position/scale/rotation/castShadow/receiveShadow change
   useEffect(() => {

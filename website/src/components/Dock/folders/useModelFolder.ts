@@ -1,11 +1,11 @@
 /**
- * Model folder — live ASCII render metrics: grid dimensions, edge/triangle/
- * vertex counts, frame count, and last bake time. All values are read-only
+ * Model folder — live ASCII render output metrics: grid dimensions, rendered
+ * character count, colored spans, layer count, and last bake time. All values are read-only
  * displays; no user input originates here.
  */
 import type { GUI } from "lil-gui";
 import type { GlyphMetrics } from "../../GalleryWorkbench/types";
-import { useFolder, useReadonlyNumber } from "../primitives";
+import { useFolder, useReadonlyNumber, useReadonlyText } from "../primitives";
 
 export interface ModelFolderInputs {
   metrics: GlyphMetrics;
@@ -13,12 +13,13 @@ export interface ModelFolderInputs {
 
 export function useModelFolder(parent: GUI | null, inputs: ModelFolderInputs): void {
   const { metrics } = inputs;
-  const folder = useFolder(parent, "Model", { open: true });
+  const folder = useFolder(parent, "Output", { open: true });
 
-  useReadonlyNumber(folder, "Cells", metrics.cells);
-  useReadonlyNumber(folder, "Edges", metrics.edges);
-  useReadonlyNumber(folder, "Triangles", metrics.triangles);
-  useReadonlyNumber(folder, "Vertices", metrics.vertices);
-  useReadonlyNumber(folder, "Frames", metrics.frames);
-  useReadonlyNumber(folder, "Bake ms", metrics.bakeMs);
+  useReadonlyText(folder, "Grid", `${metrics.cols} x ${metrics.rows}`);
+  useReadonlyNumber(folder, "Glyphs", metrics.glyphs);
+  useReadonlyNumber(folder, "Text chars", metrics.textChars);
+  useReadonlyNumber(folder, "Color spans", metrics.colorSpans);
+  useReadonlyNumber(folder, "DOM nodes", metrics.domNodes);
+  useReadonlyNumber(folder, "Layers", metrics.layers);
+  useReadonlyNumber(folder, "Render ms", metrics.bakeMs);
 }

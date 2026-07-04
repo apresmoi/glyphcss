@@ -72,20 +72,34 @@ describe("createGlyphFirstPersonControls", () => {
     ortho.destroy();
   });
 
-  it("enables eyeMode on attach and restores it on destroy", () => {
+  function expectedFpvTarget(origin: [number, number, number], rotX: number, rotY: number, perspective = 32000): [number, number, number] {
+    const rx = (rotX * Math.PI) / 180;
+    const ry = (rotY * Math.PI) / 180;
+    const d = perspective / 50;
+    return [
+      origin[0] - Math.sin(rx) * Math.cos(ry) * d,
+      origin[1] - Math.sin(rx) * Math.sin(ry) * d,
+      origin[2] - Math.cos(rx) * d,
+    ];
+  }
+
+  it("keeps CSS-perspective mode active instead of enabling eyeMode", () => {
     const c = createGlyphFirstPersonControls(scene);
-    expect(scene.camera.eyeMode).toBe(true);
+    expect(scene.camera.eyeMode).toBe(false);
     c.destroy();
     expect(scene.camera.eyeMode).toBe(false);
   });
 
-  it("seeds the eye from target + eyeHeight; setOrigin/getOrigin round-trip", () => {
+  it("uses polycss FPV target = origin + lookDir * (perspective / BASE_TILE)", () => {
+    scene.camera.perspective = 2000;
     const c = createGlyphFirstPersonControls(scene, { eyeHeight: 1.7, groundZ: 0 });
     expect(c.getOrigin()[2]).toBeCloseTo(1.7, 5);
     c.setOrigin([5, 6, 2]);
     expect(c.getOrigin()).toEqual([5, 6, 2]);
-    // In eyeMode the target IS the eye.
-    expect(scene.camera.target).toEqual([5, 6, 2]);
+    const expected = expectedFpvTarget([5, 6, 2], scene.camera.rotX, scene.camera.rotY, 2000);
+    expect(scene.camera.target[0]).toBeCloseTo(expected[0], 5);
+    expect(scene.camera.target[1]).toBeCloseTo(expected[1], 5);
+    expect(scene.camera.target[2]).toBeCloseTo(expected[2], 5);
     c.destroy();
   });
 

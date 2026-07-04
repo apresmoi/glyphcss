@@ -133,6 +133,23 @@ function readable(hex: string): string {
   return lum > 150 ? "#0b0f18" : "#ffffff";
 }
 
+function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, scaleX = 1, scaleY = 1): number {
+  if (!polygons.length) return 3;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of polygons) {
+    for (const v of p.vertices) {
+      if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+      if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+      if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+    }
+  }
+  const horizontal = Math.max((maxY - minY) * scaleX, maxZ - minZ);
+  const vertical = (maxX - minX) * scaleY;
+  const fitW = (stageW * 0.7) / Math.max(horizontal, 1);
+  const fitH = (stageH * 0.68) / Math.max(vertical, 1);
+  return Math.max(0.5, Math.min(10, Math.min(fitW, fitH)));
+}
+
 function codePenPayload(snapshotHtml: string, title: string): string {
   const parsed = new DOMParser().parseFromString(snapshotHtml, "text/html");
   const css = Array.from(parsed.querySelectorAll("style")).map((s) => s.textContent ?? "").filter(Boolean).join("\n\n");
@@ -198,7 +215,7 @@ export function WordArtWorkbench() {
   const [outlineWidth, setOutlineWidth] = useState(() => qn("olw", 3));
   const [layered, setLayered] = useState(() => qb("layer", false));
   // Camera + lighting (gallery-style)
-  const [perspective, setPerspective] = useState(() => qb("persp", false));
+  const [perspective, setPerspective] = useState(() => qb("persp", true));
   const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
   const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
   const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
@@ -662,31 +679,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, pers
   };
 
   const centered = useMemo(() => centerMesh(polygons), [polygons]);
-  // Analytic auto-fit: camera `zoom` is px-per-world-unit, derived from the grid
-  // size + the word's WORLD bounds — never from the rendered text extent. So it's
-  // independent of both zoomScale (the slider) and rotation; `zoomScale` then
-  // multiplies it cleanly, matching polycss (0.1 → tiny, 1 → ~82% fill).
-  const [fitPx, setFitPx] = useState(0.4);
-  useEffect(() => {
-    const pre = stageRef.current?.querySelector("pre.glyph-output");
-    if (!pre || centered.length === 0) return;
-    const lines = (pre.textContent || "").split("\n");
-    const rows = lines.length;
-    const cols = lines.reduce((m, l) => Math.max(m, l.length), 0);
-    if (!rows || !cols) return;
-    let exX = 0, exY = 0; // half-extents (mesh centered on origin)
-    for (const p of centered) for (const v of p.vertices) {
-      const ax = Math.abs(v[0]); if (ax > exX) exX = ax;
-      const ay = Math.abs(v[1]); if (ay > exY) exY = ay;
-    }
-    const widthY = 2 * exY || 1, heightX = 2 * exX || 1;
-    const cellAspect = (stage.h * cols) / (stage.w * rows) || 2;
-    // ortho projection: col-span = Yextent·zoom·cellAspect, row-span = Xextent·zoom
-    const fit = Math.min((0.82 * cols) / (widthY * cellAspect), (0.82 * rows) / heightX);
-    if (Number.isFinite(fit) && fit > 0) setFitPx(fit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centered, stage.w, stage.h]);
-  const zoom = fitPx * zoomScale;
+  const zoom = fitWordArtZoom(centered, stage.w, stage.h, scaleXFrac, scaleYFrac) * zoomScale;
   const Cam = perspective ? GlyphPerspectiveCamera : GlyphOrthographicCamera;
 
   return (

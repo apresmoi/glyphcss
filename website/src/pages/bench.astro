@@ -1,0 +1,339 @@
+---
+const title = "glyphcss · render bench";
+---
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  <style>
+    :global(html, body) { margin: 0; background: #04060b; color: rgba(255,232,184,0.92);
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+    :global(body) { overflow: hidden; }
+    .bench { position: fixed; inset: 0; display: flex; flex-direction: column; }
+    .bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 14px;
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,232,184,0.14);
+      background: #06080d; font-size: 12px;
+    }
+    .bar label { display: inline-flex; align-items: center; gap: 6px; color: rgba(255,232,184,0.6); }
+    .bar input[type=range] { width: 110px; }
+    .bar .val { color: rgba(56,189,248,0.95); min-width: 34px; }
+    select, .bar input[type=number] {
+      background: #0d1118; color: rgba(255,232,184,0.92);
+      border: 1px solid rgba(255,232,184,0.25); border-radius: 0; padding: 3px 6px;
+      font: inherit;
+    }
+    .stage { flex: 1; position: relative; min-height: 0; }
+    .host { position: absolute; inset: 0; overflow: hidden; touch-action: none; }
+    .host .glyph-output { color: rgba(255,232,184,0.95); text-shadow: 0 0 4px rgba(255,200,130,0.3); margin: 0; }
+    .hud {
+      position: absolute; top: 12px; left: 12px; z-index: 5;
+      background: rgba(6,8,13,0.86); border: 1px solid rgba(255,232,184,0.18);
+      padding: 10px 12px; font-size: 11px; line-height: 1.55; min-width: 200px;
+      backdrop-filter: blur(4px); pointer-events: none; white-space: pre;
+    }
+    .hud b { color: rgba(56,189,248,0.95); font-weight: 600; }
+    .hud .hl { color: #f97316; }
+    .loading { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,232,184,0.5); }
+    /* Generated-code panel (mirrors the gallery's). */
+    .code {
+      position: absolute; right: 12px; bottom: 12px; z-index: 6;
+      width: min(440px, calc(100% - 24px)); max-height: 60%;
+      display: flex; flex-direction: column;
+      background: rgba(6,8,13,0.92); border: 1px solid rgba(255,232,184,0.18);
+      backdrop-filter: blur(4px); font-size: 11px;
+    }
+    .code__head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-bottom: 1px solid rgba(255,232,184,0.14);
+    }
+    .code__legend { color: rgba(56,189,248,0.95); letter-spacing: 0.06em; }
+    .code__head button {
+      margin-left: auto; background: rgba(255,232,184,0.06); color: rgba(255,232,184,0.85);
+      border: 1px solid rgba(255,232,184,0.22); border-radius: 0; padding: 2px 8px;
+      font: inherit; cursor: pointer;
+    }
+    .code__head button + button { margin-left: 6px; }
+    .code__head button:hover { border-color: rgba(56,189,248,0.5); color: #e2e8f0; }
+    .code__body {
+      margin: 0; padding: 10px 12px; overflow: auto; white-space: pre;
+      color: rgba(255,232,184,0.9); line-height: 1.45; tab-size: 2;
+    }
+    .code.is-collapsed .code__body { display: none; }
+  </style>
+</head>
+<body>
+  <div class="bench">
+    <div class="bar">
+      <label>mesh
+        <select id="mesh">
+          <optgroup label="primitives">
+            <option value="geom:icosahedron">icosahedron</option>
+            <option value="geom:cuboctahedron">cuboctahedron</option>
+            <option value="geom:truncatedIcosahedron">truncatedIcosahedron</option>
+            <option value="geom:dodecahedron">dodecahedron</option>
+            <option value="geom:octahedron">octahedron</option>
+            <option value="geom:cube">cube</option>
+          </optgroup>
+          <optgroup label="models">
+            <option value="/gallery/vox/army.vox">army.vox</option>
+            <option value="/gallery/glb/apocalypse/car.glb">car.glb</option>
+          </optgroup>
+        </select>
+      </label>
+      <label>cell px <input type="range" id="cell" min="5" max="18" step="1" value="9" /><span class="val" id="cell-v">9</span></label>
+      <label>line-height <input type="range" id="lh" min="0.4" max="1.6" step="0.05" value="1" /><span class="val" id="lh-v">1.00</span></label>
+      <label>fill <input type="range" id="fill" min="0.5" max="0.98" step="0.02" value="0.9" /><span class="val" id="fill-v">0.90</span></label>
+      <label>rotX <input type="range" id="rotx" min="0" max="180" step="1" value="65" /><span class="val" id="rotx-v">65</span></label>
+      <label>rotY <input type="range" id="roty" min="0" max="360" step="1" value="45" /><span class="val" id="roty-v">45</span></label>
+      <label><input type="checkbox" id="spin" /> spin</label>
+      <label><input type="checkbox" id="colors" checked /> colors</label>
+    </div>
+    <div class="stage">
+      <div class="host" id="host"><div class="loading" id="loading">Loading…</div></div>
+      <div class="hud" id="hud"></div>
+      <aside class="code" id="code">
+        <header class="code__head">
+          <span class="code__legend">[ CODE ]</span>
+          <button type="button" id="code-copy">copy</button>
+          <button type="button" id="code-toggle" aria-label="collapse">▾</button>
+        </header>
+        <pre class="code__body" id="code-body"></pre>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    import {
+      createGlyphScene,
+      createGlyphOrthographicCamera,
+      loadMesh,
+      resolveGeometry,
+    } from "glyphcss";
+    import type { Polygon, Vec3, GlyphGeometryName } from "glyphcss";
+
+    const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
+    const host = document.getElementById("host") as HTMLElement;
+    const hud = document.getElementById("hud") as HTMLElement;
+    const loadingEl = document.getElementById("loading") as HTMLElement;
+
+    const camera = createGlyphOrthographicCamera({ rotX: 65, rotY: 45, zoom: 1 });
+    const scene = createGlyphScene(host, {
+      camera,
+      autoSize: true,
+      mode: "solid",
+      useColors: true,
+      glyphPalette: "default",
+      directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 },
+      ambientLight: { intensity: 0.45 },
+    });
+
+    // Center + scale to a unit, origin-centered bbox so the fit math is stable
+    // regardless of the model's authored units.
+    function normalizeUnit(polys: Polygon[]): Polygon[] {
+      let mn: Vec3 = [Infinity, Infinity, Infinity], mx: Vec3 = [-Infinity, -Infinity, -Infinity];
+      for (const p of polys) for (const v of p.vertices) for (let i = 0; i < 3; i++) {
+        if (v[i] < mn[i]) mn[i] = v[i]; if (v[i] > mx[i]) mx[i] = v[i];
+      }
+      const cx = (mn[0]+mx[0])/2, cy = (mn[1]+mx[1])/2, cz = (mn[2]+mx[2])/2;
+      const span = Math.max(mx[0]-mn[0], mx[1]-mn[1], mx[2]-mn[2]) || 1;
+      const s = 2 / span;
+      return polys.map((p) => ({ ...p, vertices: p.vertices.map(([x,y,z]) => [ (x-cx)*s, (y-cy)*s, (z-cz)*s ] as Vec3) }));
+    }
+
+    function buildPrimitive(name: string): Polygon[] {
+      return resolveGeometry(name as GlyphGeometryName, { size: 1 });
+    }
+
+    let polygons: Polygon[] = [];
+    let meshHandle: { dispose(): void } | null = null;
+
+    // Auto-fit: project the actual vertices, measure the col/row silhouette, and
+    // scale zoom so it spans `fill` of the grid. Mirrors the gallery's fit.
+    function fitZoom(fill: number): void {
+      const o = scene.getOptions();
+      const cols = o.cols ?? 80, rows = o.rows ?? 24, ca = o.cellAspect ?? 2;
+      let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
+      for (const p of polygons) for (const v of p.vertices) {
+        const pr = camera.project(v, cols, rows, ca);
+        if (!isFinite(pr[0]) || !isFinite(pr[1])) continue;
+        if (pr[0] < minc) minc = pr[0]; if (pr[0] > maxc) maxc = pr[0];
+        if (pr[1] < minr) minr = pr[1]; if (pr[1] > maxr) maxr = pr[1];
+      }
+      const w = maxc - minc, h = maxr - minr;
+      if (!(w > 0) || !(h > 0)) return;
+      const factor = Math.min((fill * cols) / w, (fill * rows) / h);
+      if (isFinite(factor) && factor > 0) camera.zoom = (camera.zoom || 1) * factor;
+    }
+
+    // Measure how many cells the object actually spans — the real "definition".
+    function measureCoverage(): { objCols: number; objRows: number; cols: number; rows: number } {
+      const pre = host.querySelector("pre.glyph-output");
+      const lines = (pre?.textContent ?? "").split("\n");
+      const rows = lines.length, cols = lines.reduce((m, l) => Math.max(m, l.length), 0);
+      let minC = Infinity, maxC = -1, minR = Infinity, maxR = -1;
+      lines.forEach((l, r) => { for (let c = 0; c < l.length; c++) if (l[c] !== " ") {
+        if (c < minC) minC = c; if (c > maxC) maxC = c; if (r < minR) minR = r; if (r > maxR) maxR = r;
+      }});
+      return { objCols: maxC - minC + 1, objRows: maxR - minR + 1, cols, rows };
+    }
+
+    function refresh(refit = true): void {
+      host.style.fontSize = `${$("cell").value}px`;
+      host.style.lineHeight = $("lh").value;
+      camera.rotX = parseFloat($("rotx").value);
+      camera.rotY = parseFloat($("roty").value);
+      scene.setOptions({ useColors: $("colors").checked });
+      scene.fit();                         // re-measure cols/rows/cellAspect for the cell size
+      if (refit) fitZoom(parseFloat($("fill").value));
+      scene.rerender();
+      updateHud();
+      updateCode();
+    }
+
+    let lastRaster = 0;
+    // The rasterizer pushes per-render ms into these arrays when present.
+    (globalThis as Record<string, unknown>).__glyphPerf = { raster: [] as number[], dom: [] as number[] };
+
+    function updateHud(): void {
+      const o = scene.getOptions();
+      const cov = measureCoverage();
+      const tris = polygons.reduce((n, p) => n + Math.max(0, p.vertices.length - 2), 0);
+      const perf = (globalThis as Record<string, { raster?: number[] }>).__glyphPerf;
+      const arr = perf?.raster;
+      if (Array.isArray(arr) && arr.length) {
+        lastRaster = arr[arr.length - 1];
+        if (arr.length > 120) arr.splice(0, arr.length - 30); // keep it bounded
+      }
+      const pct = (a: number, b: number) => b ? Math.round((a / b) * 100) : 0;
+      hud.innerHTML =
+        `<b>mesh</b>      ${$("mesh").selectedOptions[0].text}\n` +
+        `polygons   ${polygons.length}   tris ${tris}\n` +
+        `<b>grid</b>      ${o.cols} × ${o.rows} cells\n` +
+        `cellAspect ${(o.cellAspect ?? 0).toFixed(2)}   cell ${$("cell").value}px\n` +
+        `line-h     ${(+$("lh").value).toFixed(2)}\n` +
+        `<b>zoom</b>      ${(camera.zoom).toFixed(2)} px/unit  (fill ${(+$("fill").value).toFixed(2)})\n` +
+        `<b class="hl">object</b>    ${cov.objCols} × ${cov.objRows} cells\n` +
+        `coverage   ${pct(cov.objCols, cov.cols)}% × ${pct(cov.objRows, cov.rows)}%\n` +
+        `raster     ${lastRaster.toFixed(2)} ms`;
+    }
+
+    // Vanilla glyphcss code to reproduce the current render (mirrors the gallery).
+    function generateCode(): string {
+      const sel = $("mesh").value;
+      const isPrim = sel.startsWith("geom:");
+      const geom = isPrim ? sel.slice(5) : "";
+      const rotX = Math.round(+$("rotx").value);
+      const rotY = Math.round(+$("roty").value);
+      const zoom = Number(camera.zoom.toFixed(2));
+      const lh = (+$("lh").value).toFixed(2);
+      const cell = $("cell").value;
+      const colors = $("colors").checked;
+      const meshImport = isPrim ? "\n  resolveGeometry," : "\n  loadMesh,";
+      const meshLine = isPrim
+        ? `const polygons = resolveGeometry("${geom}", { size: 1 });`
+        : `const { polygons } = await loadMesh("${sel}");`;
+      return `import {
+  createGlyphScene,
+  createGlyphOrthographicCamera,
+  createGlyphOrbitControls,${meshImport}
+} from "glyphcss";
+
+const host = document.querySelector("#scene");
+host.style.fontSize = "${cell}px";   // cell size -> render resolution
+host.style.lineHeight = "${lh}";
+
+const camera = createGlyphOrthographicCamera({ rotX: ${rotX}, rotY: ${rotY}, zoom: ${zoom} });
+
+const scene = createGlyphScene(host, {
+  camera,
+  autoSize: true,
+  mode: "solid",
+  useColors: ${colors},
+  glyphPalette: "default",
+  autoCenter: true,
+  directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 },
+  ambientLight: { intensity: 0.45 },
+});
+
+${meshLine}
+scene.add(polygons);
+
+createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
+    }
+
+    function updateCode(): void {
+      const el = document.getElementById("code-body");
+      if (el) el.textContent = generateCode();
+    }
+
+    async function load(value: string): Promise<void> {
+      loadingEl.style.display = "grid";
+      try {
+        if (value.startsWith("geom:")) {
+          polygons = normalizeUnit(buildPrimitive(value.slice(5)));
+        } else {
+          const res = await loadMesh(value);
+          polygons = normalizeUnit(res.polygons);
+        }
+        if (meshHandle) { meshHandle.dispose(); meshHandle = null; }
+        meshHandle = scene.add(polygons);
+        loadingEl.style.display = "none";
+        refresh(true);
+      } catch (err) {
+        loadingEl.textContent = `Failed: ${(err as Error).message}`;
+      }
+    }
+
+    // Live controls
+    for (const id of ["cell", "lh", "fill", "rotx", "roty"]) {
+      $(id).addEventListener("input", () => {
+        const v = $(id).value;
+        const out = document.getElementById(`${id}-v`);
+        if (out) out.textContent = (id === "lh" || id === "fill") ? (+v).toFixed(2) : v;
+        // rot tweaks shouldn't refit (so you can inspect framing); size/fill do.
+        refresh(id !== "rotx" && id !== "roty");
+      });
+    }
+    $("colors").addEventListener("change", () => refresh(false));
+    $("mesh").addEventListener("change", () => load($("mesh").value));
+
+    // Code panel: copy + collapse.
+    document.getElementById("code-copy")?.addEventListener("click", async () => {
+      const btn = document.getElementById("code-copy") as HTMLButtonElement;
+      try { await navigator.clipboard.writeText(generateCode()); btn.textContent = "copied"; setTimeout(() => { btn.textContent = "copy"; }, 1200); }
+      catch { btn.textContent = "err"; }
+    });
+    document.getElementById("code-toggle")?.addEventListener("click", () => {
+      const panel = document.getElementById("code");
+      const collapsed = panel?.classList.toggle("is-collapsed") ?? false;
+      const t = document.getElementById("code-toggle");
+      if (t) t.textContent = collapsed ? "▸" : "▾";
+    });
+
+    // Optional auto-spin
+    let spinning = false;
+    $("spin").addEventListener("change", () => {
+      spinning = $("spin").checked;
+      if (spinning) tick();
+    });
+    function tick(): void {
+      if (!spinning) return;
+      camera.rotY = (camera.rotY + 0.6) % 360;
+      $("roty").value = String(Math.round(camera.rotY));
+      scene.rerender();
+      updateHud();
+      requestAnimationFrame(tick);
+    }
+
+    // Refit on resize (the grid changes with the viewport).
+    if (typeof ResizeObserver !== "undefined") {
+      let raf = 0;
+      new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => refresh(true)); }).observe(host);
+    }
+
+    void load($("mesh").value);
+  </script>
+</body>
+</html>
