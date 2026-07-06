@@ -1000,7 +1000,7 @@ const frame = compileScene({
   cellAspect: ${fmt(grid.cellAspect)},
   mode: "solid",
   useColors: true,
-  directionalLight: { direction: [-0.424, -0.566, -0.707], color: "#ffffff", intensity: 1.05 },
+  directionalLight: { direction: [0.424, 0.566, 0.707], color: "#ffffff", intensity: 1.05 },
   ambientLight: { color: "#ffffff", intensity: 0.42 },
 });
 

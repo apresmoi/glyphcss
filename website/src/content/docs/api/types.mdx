@@ -64,7 +64,7 @@ type EdgeWeight = 1 | 2 | 3;
 
 ```ts
 interface GlyphDirectionalLight {
-  direction: Vec3;
+  direction: Vec3;     // source vector from surface toward the distant light
   intensity?: number;  // default 1
   color?: string;      // hex, default white
 }

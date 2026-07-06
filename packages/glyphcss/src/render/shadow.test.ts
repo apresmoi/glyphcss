@@ -16,7 +16,7 @@ import type { Polygon, Vec3 } from "@glyphcss/core";
 // rotX=55 gives a nice oblique view; zoom+distance chosen so cube and ground fill the grid.
 const CAMERA = createGlyphPerspectiveCamera({ rotX: 55, rotY: 30, zoom: 250, distance: 20 });
 const GRID = { cols: 60, rows: 30, cellAspect: 2.0 };
-const DIR_LIGHT_DOWN = { direction: [0, 0, -1] as Vec3, intensity: 1 };
+const DIR_LIGHT_DOWN = { direction: [0, 0, 1] as Vec3, intensity: 1 };
 const AMB_LIGHT = { intensity: 0.3 };
 
 /** Unit cube centered at (0, 0, 1) — hovering 0.5 units above the ground plane. */
@@ -116,6 +116,40 @@ describe("shadow map", () => {
     expect(rasterize(ctxBaseline)).toBe(rasterize(ctxNocast));
   });
 
+  it("shadows do not darken ambient-only light", () => {
+    const cubePolys = makeCubePolygons();
+    const groundPolys = makeGroundPolygons();
+    const allPolys = [...cubePolys, ...groundPolys];
+    const n = allPolys.length;
+    const nc = cubePolys.length;
+    const ambientOnlyDirectional = { direction: [0, 0, 1] as Vec3, intensity: 0 };
+    const ambient = { color: "#ffffff", intensity: 0.75 };
+
+    const ctxBaseline = buildRasterizeContext({
+      camera: CAMERA, grid: GRID,
+      polygons: allPolys, mode: "solid",
+      directionalLight: ambientOnlyDirectional, ambientLight: ambient,
+      useColors: true,
+    });
+
+    const castFlags = new Array(n).fill(false);
+    const receiveFlags = new Array(n).fill(false);
+    for (let i = 0; i < nc; i++) castFlags[i] = true;
+    for (let i = nc; i < n; i++) receiveFlags[i] = true;
+
+    const ctxShadow = buildRasterizeContext({
+      camera: CAMERA, grid: GRID,
+      polygons: allPolys, mode: "solid",
+      directionalLight: ambientOnlyDirectional, ambientLight: ambient,
+      useColors: true,
+      shadow: { opacity: 0.9, lift: 0.05 },
+      castShadowFlags: castFlags,
+      receiveShadowFlags: receiveFlags,
+    });
+
+    expect(rasterize(ctxShadow)).toBe(rasterize(ctxBaseline));
+  });
+
   it("castShadow=true + receiveShadow=true → ground under cube is darker than without shadow", () => {
     const cubePolys = makeCubePolygons();
     const groundPolys = makeGroundPolygons();
@@ -166,22 +200,24 @@ describe("shadow map", () => {
     expect(shadowNonSpace).toBeLessThanOrEqual(baseNonSpace);
   });
 
-  it("self-shadow: cube with castShadow+receiveShadow differs from cube with neither", () => {
+  it("self-shadow: one cast+receive mesh can shadow its own lit receiver faces", () => {
     const cubePolys = makeCubePolygons();
-    const nc = cubePolys.length;
-    const castFlags = new Array(nc).fill(true);
-    const receiveFlags = new Array(nc).fill(true);
+    const groundPolys = makeGroundPolygons();
+    const allPolys = [...cubePolys, ...groundPolys];
+    const n = allPolys.length;
+    const castFlags = new Array(n).fill(true);
+    const receiveFlags = new Array(n).fill(true);
 
     const ctxBaseline = buildRasterizeContext({
       camera: CAMERA, grid: GRID,
-      polygons: cubePolys, mode: "solid",
+      polygons: allPolys, mode: "solid",
       directionalLight: DIR_LIGHT_DOWN, ambientLight: AMB_LIGHT,
       useColors: false,
     });
 
     const ctxSelf = buildRasterizeContext({
       camera: CAMERA, grid: GRID,
-      polygons: cubePolys, mode: "solid",
+      polygons: allPolys, mode: "solid",
       directionalLight: DIR_LIGHT_DOWN, ambientLight: AMB_LIGHT,
       useColors: false,
       shadow: { opacity: 0.5, lift: 0.05 },
@@ -189,9 +225,6 @@ describe("shadow map", () => {
       receiveShadowFlags: receiveFlags,
     });
 
-    // Self-shadow (if any crevice/underside is occluded) should produce different output.
-    // For a top-lit cube, the bottom face is already black; shadow mainly hits side faces.
-    // We just assert the outputs differ when self-shadow is enabled.
     expect(rasterize(ctxSelf)).not.toBe(rasterize(ctxBaseline));
   });
 });

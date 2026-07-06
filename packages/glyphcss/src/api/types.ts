@@ -2,6 +2,7 @@ import type { Vec3, Polygon } from "@glyphcss/core";
 
 /** Directional light — single distant source for the ASCII rasterizer. */
 export interface GlyphDirectionalLight {
+  /** Unit source vector from the surface toward the distant light. */
   direction: Vec3;
   intensity?: number;
   /** Hex color (#rrggbb). Tints the lit-side per-cell output. Default white. */

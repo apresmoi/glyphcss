@@ -57,7 +57,9 @@ For app code, use `glyphcss`, `@glyphcss/react`, or `@glyphcss/vue`. When portin
 a Three.js scene or generating Three-shaped code, prefer the parity subpaths:
 `glyphcss/three`, `@glyphcss/react/three`, or `@glyphcss/vue/three`. They provide
 Three-like `PerspectiveCamera`, `OrthographicCamera`, `Object3D`, `Vector3`,
-`lookAt`, radians, and Y-up authoring while still rendering through glyphcss.
+`lookAt`, radians, Y-up authoring, and Three-like light color/intensity/direction
+conversion. Directional lights convert to glyphcss's native source vector from
+the shaded surface toward the light. Everything still renders through glyphcss.
 Full docs: https://glyphcss.com/docs/api/three-parity.md
 
 ## Recipe: show a shape in the console

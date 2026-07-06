@@ -66,6 +66,8 @@ export interface RasterizeContextOptions {
    * single-sided surfaces whose winding isn't guaranteed to face the camera —
    * e.g. level geometry imported from a BSP — matching how a CSS/DOM renderer
    * (polycss) shows both sides. Without it, "back-wound" faces vanish.
+   * Lighting remains one-sided: the authored polygon normal is still used for
+   * Lambert shading, so a backface does not get direct light via `abs(dot)`.
    */
   doubleSided?: boolean;
   /**
@@ -187,10 +189,8 @@ export interface RasterizeContext {
   transformCells?: TransformCells;
 }
 
-// Direction the light shines TOWARD (three.js / computeShapeLighting convention).
-// Negated from the old [0.5, 0.7, 0.5] "light travels from" default so visual
-// output is preserved after the Lambert sign fix in rasterize.ts.
-const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [-0.5, -0.7, -0.5], intensity: 1 };
+// Source vector from the surface toward the distant light.
+const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
 const DEFAULT_AMBIENT: GlyphAmbientLight = { intensity: 0.4 };
 
 function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {

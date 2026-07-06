@@ -37,6 +37,7 @@ export interface CompileSceneOptions {
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
+  /** Render both sides, but keep Lambert lighting on the authored normal. */
   doubleSided?: boolean;
   supersample?: number;
   directionalLight?: GlyphDirectionalLight;
@@ -74,7 +75,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     grid: { cols, rows, cellAspect },
     polygons,
     mode,
-    directionalLight: opts.directionalLight ?? { direction: [-0.5, -0.7, -0.5], intensity: 1 },
+    directionalLight: opts.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
     glyphPalette: opts.glyphPalette ?? "default",
     useColors,

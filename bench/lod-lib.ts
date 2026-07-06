@@ -26,7 +26,7 @@ const lod = Math.max(1, parseFloat(new URLSearchParams(location.search).get("lod
 const scene = createGlyphScene(host, {
   camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", supersample: ssaa,
   interactiveDownscale: lod,
-  directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 }, ambientLight: { intensity: 0.5 },
+  directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 }, ambientLight: { intensity: 0.5 },
 });
 host.style.fontSize = "13px";
 createGlyphOrbitControls(scene, { drag: true, wheel: true });

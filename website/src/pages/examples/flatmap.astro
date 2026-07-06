@@ -248,7 +248,7 @@ const title = "glyphcss · ASCII Iso World Map";
         mode: "solid",
         useColors: true,
         glyphPalette: "default",
-        directionalLight: { direction: [-0.4, -0.5, -0.75], intensity: 1.15 },
+        directionalLight: { direction: [0.4, 0.5, 0.75], intensity: 1.15 },
         ambientLight: { intensity: 0.4 },
       });
 
@@ -695,10 +695,9 @@ const title = "glyphcss · ASCII Iso World Map";
       let sunAz = 50, sunEl = 50, keyI = 1.15, ambI = 0.4;
       function applyLight() {
         const ar = (sunAz * Math.PI) / 180, er = (sunEl * Math.PI) / 180;
-        // `direction` = "shines TOWARD" (three.js convention): negate the
-        // subsolar unit vector so light travels FROM the sun TOWARD the scene.
+        // `direction` is the source vector from the surface toward the sun.
         const dir: [number, number, number] = [
-          -Math.cos(er) * Math.cos(ar), -Math.cos(er) * Math.sin(ar), -Math.sin(er),
+          Math.cos(er) * Math.cos(ar), Math.cos(er) * Math.sin(ar), Math.sin(er),
         ];
         scene.setOptions({
           directionalLight: { direction: dir, intensity: keyI },

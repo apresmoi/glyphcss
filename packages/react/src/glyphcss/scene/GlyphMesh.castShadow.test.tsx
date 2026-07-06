@@ -75,7 +75,7 @@ function renderScene(
   act(() =>
     root.render(
       <GlyphPerspectiveCamera {...CAMERA_PROPS}>
-        <GlyphScene cols={60} rows={30} useColors={false} directionalLight={{ direction: [0, 0, -1], intensity: 1 }} ambientLight={{ intensity: 0.3 }} {...sceneProps}>
+        <GlyphScene cols={60} rows={30} useColors={false} directionalLight={{ direction: [0, 0, 1], intensity: 1 }} ambientLight={{ intensity: 0.3 }} {...sceneProps}>
           {children}
         </GlyphScene>
       </GlyphPerspectiveCamera>,
@@ -92,7 +92,7 @@ function rerender(
   act(() =>
     root.render(
       <GlyphPerspectiveCamera {...CAMERA_PROPS}>
-        <GlyphScene cols={60} rows={30} useColors={false} directionalLight={{ direction: [0, 0, -1], intensity: 1 }} ambientLight={{ intensity: 0.3 }} {...sceneProps}>
+        <GlyphScene cols={60} rows={30} useColors={false} directionalLight={{ direction: [0, 0, 1], intensity: 1 }} ambientLight={{ intensity: 0.3 }} {...sceneProps}>
           {children}
         </GlyphScene>
       </GlyphPerspectiveCamera>,
@@ -300,12 +300,13 @@ describe("GlyphGround (React) — shadow prop defaults", () => {
   });
 
   it("GlyphGround with default receiveShadow=true receives shadows from castShadow mesh", async () => {
+    const groundLight = { direction: [0, 1, 0] as [number, number, number], intensity: 1 };
     // Baseline: GlyphGround without shadow config
     const { container: containerBase } = renderScene(
-      {},
+      { directionalLight: groundLight },
       <>
         <GlyphMesh polygons={CUBE_POLYGONS} />
-        <GlyphGround />
+        <GlyphGround position={[0, -3, 0]} />
       </>,
     );
     await flushMicrotasks();
@@ -313,10 +314,10 @@ describe("GlyphGround (React) — shadow prop defaults", () => {
 
     // With shadow: cube casts, GlyphGround receives (default receiveShadow=true)
     const { container: containerShadow } = renderScene(
-      { shadow: SHADOW_OPTS },
+      { shadow: SHADOW_OPTS, directionalLight: groundLight },
       <>
         <GlyphMesh polygons={CUBE_POLYGONS} castShadow />
-        <GlyphGround />
+        <GlyphGround position={[0, -3, 0]} />
       </>,
     );
     await flushMicrotasks();

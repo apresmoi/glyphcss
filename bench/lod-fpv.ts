@@ -14,7 +14,7 @@ const hud = document.getElementById("hud") as HTMLElement;
 const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: 270, zoom: 34, distance: 0 });
 const scene = createGlyphScene(host, {
   camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default",
-  directionalLight: { direction: [-0.4, -0.6, -0.5], intensity: 1.1 }, ambientLight: { intensity: 0.5 },
+  directionalLight: { direction: [0.4, 0.6, 0.5], intensity: 1.1 }, ambientLight: { intensity: 0.5 },
 });
 host.style.fontSize = "12px";
 

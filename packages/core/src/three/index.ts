@@ -294,7 +294,7 @@ export class DirectionalLight extends Object3D {
   }
 
   toGlyphDirectionalLight(): GlyphDirectionalLight {
-    const direction = this.target.position.clone().sub(this.position).normalize();
+    const direction = this.position.clone().sub(this.target.position).normalize();
     return {
       direction: threeToGlyphDirection(direction),
       color: this.color,

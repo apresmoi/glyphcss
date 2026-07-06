@@ -175,13 +175,11 @@ function fmt(n: number): string {
   return String(Number(n.toFixed(2)));
 }
 
-/** Spherical (azimuth/elevation in degrees) → cartesian direction Vec3.
- * Returns the "shines TOWARD" vector (three.js convention): the direction
- * the light travels, i.e. the negated subsolar unit vector. */
+/** Spherical (azimuth/elevation in degrees) → source vector toward the light. */
 function dirFromSpherical(azimuthDeg: number, elevationDeg: number): [number, number, number] {
   const az = (azimuthDeg * Math.PI) / 180;
   const el = (elevationDeg * Math.PI) / 180;
-  return [-Math.cos(el) * Math.cos(az), -Math.cos(el) * Math.sin(az), -Math.sin(el)];
+  return [Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el)];
 }
 
 function vec3(v: [number, number, number]): string {

@@ -29,11 +29,10 @@ import type { Polygon, Vec3 } from "@glyphcss/core";
 const FIXTURE_DIR = resolve(__dirname, "fixtures");
 
 const GRID = { cols: 40, rows: 20, cellAspect: 2.0 };
-// Direction the light shines TOWARD (three.js / voxcss convention, mirrors
-// computeShapeLighting). Negated from the old [0.5, 0.7, 0.5] "light travels
-// from" direction so the fixtures encode identical visual output after the
-// Lambert sign fix.
-const DIR_LIGHT = { direction: [-0.5, -0.7, -0.5] as Vec3, intensity: 1 };
+// Source vector from the surface toward the light. Paired with the source-vector
+// Lambert convention, this preserves the fixture lighting from the old travel-
+// vector renderer.
+const DIR_LIGHT = { direction: [0.5, 0.7, 0.5] as Vec3, intensity: 1 };
 const AMB_LIGHT = { intensity: 0.4 };
 
 function loadFixture(name: string): string {

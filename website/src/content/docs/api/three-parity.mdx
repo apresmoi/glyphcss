@@ -12,7 +12,7 @@ This is still glyphcss: it rasterises polygons into a character grid. It does
 not run Three.js at runtime, and it does not use WebGL. The parity API only
 matches Three's parameter surface closely enough that the same scene math frames
 the same object with the same projection, orientation, depth ordering, and light
-direction.
+direction/color/intensity.
 
 ## Imports
 
@@ -36,11 +36,19 @@ The `*/three` subpaths intentionally use Three-style conventions:
 | Mesh rotations | Radians, XYZ Euler |
 | Cameras | Three-like `PerspectiveCamera(fov, aspect, near, far)` and `OrthographicCamera(left, right, top, bottom, near, far)` |
 | Camera targeting | `camera.position.set(...)` + `camera.lookAt(...)` |
-| Directional lights | `light.position` toward `light.target.position` |
+| Directional lights | Source vector from `light.target.position` toward `light.position`; color and intensity are preserved |
+| Ambient lights | Color and intensity are preserved |
 
 Internally, geometry is converted into glyphcss space with
 `transformPolygonsToGlyph`. The axis conversion is right-handed, so polygon
 winding and Lambert lighting stay correct.
+
+GlyphCSS native directional lights store the source vector from the shaded
+surface toward the distant light. `DirectionalLight.toGlyphDirectionalLight()`
+converts the Three.js source/target pair into that native convention and
+preserves the light color and intensity unchanged.
+`AmbientLight.toGlyphAmbientLight()` also preserves color and intensity
+unchanged.
 
 Polygon arrays passed to `transformPolygonsToGlyph` or `<GlyphThreeMesh>` are
 interpreted as Three/Y-up coordinates. If you already have native glyphcss

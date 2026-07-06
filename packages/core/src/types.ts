@@ -41,10 +41,10 @@ export interface TextureTriangle {
  * Directional light — simulates a single distant source (sun, key light).
  * Contributes Lambert shading scaled by `intensity`. `direction` is in
  * scene-local coords and does not need to be pre-normalized.
- * Mirrors three.js's `DirectionalLight`.
+ * Mirrors three.js's vector from the shaded surface toward the light source.
  */
 export interface GlyphDirectionalLight {
-  /** Direction the light shines TOWARD (typical convention). */
+  /** Unit source vector from the surface toward the distant light. */
   direction: Vec3;
   /** Light tint, hex string. White by default. */
   color?: string;

@@ -376,12 +376,12 @@ export function WordArtWorkbench() {
     });
   }, [font, text, textCase, depth, profile, roundConvex, bezier, letterSpacing, lineHeight, align, underline, strike, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, front, fillType, backFill, backTex, sideFill, sideTex, outlineOn, outlineColor, outlineWidth, layered]);
 
-  // Directional light direction from azimuth (left/right) + elevation (height),
-  // always biased toward the front so the face stays lit.
+  // Source vector from azimuth (left/right) + elevation (height), biased toward
+  // the front so the face stays lit.
   const lightDir = useMemo<Vec3>(() => {
     const a = (lightAz * Math.PI) / 180;
     const e = (lightEl * Math.PI) / 180;
-    return [Math.sin(e), Math.sin(a) * Math.cos(e), -Math.max(0.25, Math.cos(e))];
+    return [-Math.sin(e), -Math.sin(a) * Math.cos(e), Math.max(0.25, Math.cos(e))];
   }, [lightAz, lightEl]);
 
   function pickFamily(value: string) {

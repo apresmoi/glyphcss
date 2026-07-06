@@ -320,6 +320,7 @@ function rasterizeSolid(
       luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
       lift: shadowLift,
       opacity: shadowOpacity,
+      ambientIntensity: ambIntensity,
       shadowColorRgb,
       shadowColorHex,
       litCache,
@@ -436,22 +437,19 @@ function rasterizeSolid(
         }
 
         // Per-vertex Lambert intensity (ambient + clamped key).
-        // Convention (mirrors three.js / computeShapeLighting): `direction` is
-        // the direction the light shines TOWARD. A surface is lit when its
-        // outward normal points BACK toward the source, i.e. opposes `dir`.
-        // lambert = max(0, -dot(n, dir))  — note the negation.
+        // Convention (mirrors polycss / computeShapeLighting): `direction` is
+        // the source vector from the surface toward the distant light.
+        // lambert = max(0, dot(n, dir)).
         //
-        // In double-sided mode use |dot| (two-sided lighting): a normal and its
-        // negation light identically, so both faces of a surface — and coplanar
-        // faces that z-fight at grazing angles — shade to the same colour, which
-        // makes the otherwise-flickering depth tie invisible. It stays camera-
-        // invariant, so the cross-frame shade cache is still valid.
+        // `doubleSided` controls visibility only. Lighting still uses the
+        // polygon's authored normal; otherwise a wall's back side gets lit by
+        // `abs(dot)` as if the surface were translucent.
         const dotA = nAx * lx + nAy * ly + nAz * lz;
         const dotB = nBx * lx + nBy * ly + nBz * lz;
         const dotC = nCx * lx + nCy * ly + nCz * lz;
-        const lambertA = doubleSided ? Math.abs(dotA) : Math.max(0, -dotA);
-        const lambertB = doubleSided ? Math.abs(dotB) : Math.max(0, -dotB);
-        const lambertC = doubleSided ? Math.abs(dotC) : Math.max(0, -dotC);
+        const lambertA = Math.max(0, dotA);
+        const lambertB = Math.max(0, dotB);
+        const lambertC = Math.max(0, dotC);
         iA = Math.min(1, ambIntensity + lambertA * keyIntensity);
         iB = Math.min(1, ambIntensity + lambertB * keyIntensity);
         iC = Math.min(1, ambIntensity + lambertC * keyIntensity);
@@ -852,7 +850,7 @@ interface ShadowMapData {
   buf: Float64Array;              // SHADOW_MAP_SIZE × SHADOW_MAP_SIZE, lightDepth (higher = closer to light)
   right: [number, number, number];
   up: [number, number, number];
-  dir: [number, number, number];  // normalized light direction (toward)
+  dir: [number, number, number];  // normalized source vector toward the light
   uMin: number; uMax: number;
   vMin: number; vMax: number;
 }
@@ -865,6 +863,7 @@ interface ScanFillShadowCtx {
   luC: number; lvC: number; ldC: number;
   lift: number;
   opacity: number;
+  ambientIntensity: number;
   shadowColorRgb: [number, number, number];
   shadowColorHex: string;
   litCache: Map<string, string>;
@@ -880,7 +879,7 @@ interface ScanFillTexCtx {
 
 /**
  * Project a world vertex to light-space [texelU, texelV, lightDepth].
- * `lightDepth = -dot(v, dir)` — higher = closer to light.
+ * `lightDepth = dot(v, dir)` — higher = closer to light.
  */
 function toLightUV(
   v: Vec3,
@@ -891,8 +890,7 @@ function toLightUV(
 ): [number, number, number] {
   const u = rx * v[0] + ry * v[1] + rz * v[2];
   const vv = ux * v[0] + uy * v[1] + uz * v[2];
-  // lightDepth = -dot(v, dir): higher = closer to light source
-  const depth = -(lx * v[0] + ly * v[1] + lz * v[2]);
+  const depth = lx * v[0] + ly * v[1] + lz * v[2];
   const tu = ((u - uMin) / (uMax - uMin)) * (SHADOW_MAP_SIZE - 1);
   const tv = ((vv - vMin) / (vMax - vMin)) * (SHADOW_MAP_SIZE - 1);
   return [tu, tv, depth];
@@ -947,14 +945,14 @@ function scanFillShadowTriangle(
  * Returns null when there are no casters (shadow pass is skipped entirely).
  *
  * The shadow map is an ortho depth buffer in light-space, aligned to the bounding
- * box of all caster vertices. `lightDepth = -dot(vertex, lightDir)` — higher = closer
+ * box of all caster vertices. `lightDepth = dot(vertex, lightDir)` — higher = closer
  * to light. During the main pass, a receiver cell is in shadow when its interpolated
  * lightDepth (+ bias lift) is less than the stored maximum caster depth at that texel.
  */
 function buildShadowMap(
   polygons: Polygon[],
   castFlags: boolean[],
-  lx: number, ly: number, lz: number,  // normalized light direction (toward)
+  lx: number, ly: number, lz: number,  // normalized source vector toward light
 ): ShadowMapData | null {
   // Build an orthonormal basis for the light view.
   // Choose 'right' perpendicular to dir.
@@ -1127,15 +1125,9 @@ function scanFillTriangle(
           }
         }
 
-        // Per-cell intensity → glyph (Bayer-dithered between adjacent ramp steps
-        // for a stippled gradient that breaks up contour banding).
-        const clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
-        const rampPos = clamped * rampMax;
-        const lower = rampPos | 0;
-        const frac = rampPos - lower;
-        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
-        let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
-        if (glyphIdx > rampMax) glyphIdx = rampMax;
+        // Per-cell intensity. Glyph choice happens after shadowing so shadows
+        // can attenuate only the direct/key-light part of the signal.
+        let clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
 
         // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
         // sample the shadow map, darken if occluded.
@@ -1153,27 +1145,40 @@ function scanFillTriangle(
             // The lift nudges the surface slightly toward the light to prevent
             // self-acne on flat lit surfaces.
             if (mapDepth > -Infinity && ld + sh.lift < mapDepth) {
-              // Darken: reduce glyph intensity toward min.
-              glyphIdx = Math.max(0, glyphIdx - Math.round(sh.opacity * rampMax));
-              if (cellColor !== null) {
-                // Blend cell color toward shadow color. Cache to avoid re-computing
-                // for the same (base color, shadow intensity) combination.
-                const shadowKey = `shadow:${cellColor}:${glyphIdx}`;
-                let shadowedColor = sh.litCache.get(shadowKey);
-                if (shadowedColor === undefined) {
-                  const orig = hexToRgb(cellColor);
-                  const sc = sh.shadowColorRgb;
-                  const r = Math.round(orig[0] * (1 - sh.opacity) + sc[0] * sh.opacity);
-                  const g = Math.round(orig[1] * (1 - sh.opacity) + sc[1] * sh.opacity);
-                  const b = Math.round(orig[2] * (1 - sh.opacity) + sc[2] * sh.opacity);
-                  shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-                  sh.litCache.set(shadowKey, shadowedColor);
+              // Shadows attenuate only direct/key light. Ambient is independent
+              // scene fill, so with key intensity 0 the shadow map must be a no-op.
+              const ambientPart = Math.min(clamped, Math.max(0, sh.ambientIntensity));
+              const directPart = Math.max(0, clamped - ambientPart);
+              if (directPart > 0) {
+                const effectiveOpacity = sh.opacity * (directPart / Math.max(clamped, 1e-6));
+                clamped = ambientPart + directPart * (1 - sh.opacity);
+                if (cellColor !== null && effectiveOpacity > 0) {
+                  // Color shadowing follows the same rule: only the direct
+                  // contribution is blended toward the shadow color.
+                  const shadowKey = `shadow:${cellColor}:${Math.round(effectiveOpacity * 255)}`;
+                  let shadowedColor = sh.litCache.get(shadowKey);
+                  if (shadowedColor === undefined) {
+                    const orig = hexToRgb(cellColor);
+                    const sc = sh.shadowColorRgb;
+                    const r = Math.round(orig[0] * (1 - effectiveOpacity) + sc[0] * effectiveOpacity);
+                    const g = Math.round(orig[1] * (1 - effectiveOpacity) + sc[1] * effectiveOpacity);
+                    const b = Math.round(orig[2] * (1 - effectiveOpacity) + sc[2] * effectiveOpacity);
+                    shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+                    sh.litCache.set(shadowKey, shadowedColor);
+                  }
+                  cellColor = shadowedColor;
                 }
-                cellColor = shadowedColor;
               }
             }
           }
         }
+
+        const rampPos = clamped * rampMax;
+        const lower = rampPos | 0;
+        const frac = rampPos - lower;
+        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
+        let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+        if (glyphIdx > rampMax) glyphIdx = rampMax;
 
         glyphBuf[idx] = ramp[glyphIdx]!;
         if (colorBuf) colorBuf[idx] = cellColor;

@@ -80,6 +80,8 @@ export interface GlyphSceneOptions {
    * Set `true` for single-sided surfaces whose winding isn't guaranteed to face
    * the camera — e.g. BSP level geometry — so "back-wound" faces don't vanish,
    * matching how a CSS/DOM renderer shows both sides.
+   * Lighting remains one-sided: the authored polygon normal is still used for
+   * Lambert shading, so a backface does not get direct light via `abs(dot)`.
    */
   doubleSided?: boolean;
   /**
@@ -264,7 +266,7 @@ export function createGlyphScene(
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
     cellAspect: opts.cellAspect ?? 2.0,
-    directionalLight: opts.directionalLight ?? { direction: [-0.5, -0.7, -0.5], intensity: 1 },
+    directionalLight: opts.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
     camera: opts.camera ?? createGlyphPerspectiveCamera(),
     smoothShading: opts.smoothShading ?? false,

@@ -10,7 +10,7 @@ const loadingEl = document.getElementById("loading") as HTMLElement;
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 
 const lighting = {
-  directionalLight: { direction: [-0.5, -0.7, -0.5] as Vec3, intensity: 1.1 },
+  directionalLight: { direction: [0.5, 0.7, 0.5] as Vec3, intensity: 1.1 },
   ambientLight: { intensity: 0.45 },
 };
 const PRIMS = ["icosahedron", "dodecahedron", "octahedron", "cuboctahedron", "cube", "truncatedIcosahedron"];

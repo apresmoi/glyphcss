@@ -29,7 +29,7 @@ The native glyphcss API keeps glyphcss/voxcss conventions. For agent-friendly Th
 - `glyphcss/three` — the core Three-like surface plus `compileScene` and geometry helpers for vanilla/static usage.
 - `@glyphcss/react/three` and `@glyphcss/vue/three` — mirrored framework components: `GlyphThreePerspectiveCamera`, `GlyphThreeOrthographicCamera`, and `GlyphThreeMesh`.
 
-These subpaths intentionally use Three-compatible public names and units: `Vector3`, `Euler`, `Object3D`, `PerspectiveCamera`, `OrthographicCamera`, `DirectionalLight`, radians for object rotations, Y-up authoring coordinates, and Three camera frustum semantics. They are adapters over glyphcss, not a Three.js runtime dependency. Geometry authored in that surface is converted to native glyphcss coordinates with `transformPolygonsToGlyph`; the Y-up → Z-up axis map is `[x, -z, y]` so winding and Lambert lighting stay right-handed.
+These subpaths intentionally use Three-compatible public names and units: `Vector3`, `Euler`, `Object3D`, `PerspectiveCamera`, `OrthographicCamera`, `DirectionalLight`, `AmbientLight`, radians for object rotations, Y-up authoring coordinates, and Three camera frustum semantics. They are adapters over glyphcss, not a Three.js runtime dependency. Geometry authored in that surface is converted to native glyphcss coordinates with `transformPolygonsToGlyph`; the Y-up → Z-up axis map is `[x, -z, y]` so winding and Lambert lighting stay right-handed. Three-like lights preserve color and intensity; `DirectionalLight.toGlyphDirectionalLight()` converts Three's `target → position` source vector into glyphcss's native directional-light convention.
 
 ## Rendering model
 
@@ -113,7 +113,7 @@ These conventions are the native glyphcss/voxcss surface. The `*/three` subpaths
 - **Rotation units: degrees.** `rotX`, `rotY` on cameras and the `rotation` prop on meshes are all in degrees (XYZ Euler). `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Do not use radians — the asciss-lineage radian convention has been replaced.
 - **Camera `zoom`: absolute, CSS pixels per world unit.** `zoom=50` means one world unit maps to 50 CSS px. This matches voxcss/polycss's public camera API; internally those engines author geometry at `BASE_TILE=50` and apply `scale(zoom / BASE_TILE)`. This is not a fraction of the viewport.
 - **Perspective `distance`: default `0`.** With the default CSS-perspective projection, `distance` is a CSS-pixel pull-back matching voxcss/polycss. In legacy `perspective: 0` mode only, it keeps the old world-unit pinhole semantics.
-- **Directional light `direction`: toward convention.** `GlyphDirectionalLight.direction` is the direction the light shines *toward*, matching three.js. A vector pointing down-right-forward lights the top-left-back faces.
+- **Directional light `direction`: source-vector convention.** `GlyphDirectionalLight.direction` is the unit vector from the shaded surface toward the distant light source, matching polycss/voxcss. A vector pointing up-right-forward lights faces whose outward normals point up-right-forward.
 
 ## Cross-package discipline
 

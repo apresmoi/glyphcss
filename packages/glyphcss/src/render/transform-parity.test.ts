@@ -8,7 +8,7 @@
  * Reference files consulted:
  *   - packages/core/src/camera/camera.ts  (getStyle, BASE_TILE, axis-swap)
  *   - packages/core/src/math/rotation.ts  (rotateVec3 — degrees XYZ-Euler)
- *   - packages/core/src/color/lighting.ts (computeShapeLighting — "shines TOWARD")
+ *   - packages/core/src/color/lighting.ts (computeShapeLighting — source vector)
  *
  * Test categories:
  *   1. SAME-SIZE-UNDER-SAME-TRANSFORM — scaling invariance + cross-object AABB
@@ -535,28 +535,28 @@ describe("2. ROTATION: degrees, XYZ Euler world frame", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. LIGHTING: Lambert convention = "shines TOWARD", direction is the light's
-//    travel direction. Normal opposing direction = lit.
+// 3. LIGHTING: Lambert convention = source vector. Normal aligned with
+//    direction = lit.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
   /**
    * 3a. computeShapeLighting (core oracle): face with normal [0,0,1] (pointing
-   * up) under light direction [0,0,-1] (pointing down toward Z=−∞) is lit.
+   * up) under light source vector [0,0,1] is lit.
    * Face with normal [0,0,-1] under same light is dark.
    *
-   * This is the "shines TOWARD" convention from voxcss lighting.ts:
-   * lambert = max(0, -dot(n, dir))
+   * This is the source-vector convention from voxcss lighting.ts:
+   * lambert = max(0, dot(n, dir))
    */
-  it("3a. computeShapeLighting oracle: +Z normal is bright, -Z normal is dark (direction=[0,0,-1])", () => {
-    const dir = { direction: [0, 0, -1] as Vec3, color: "#ffffff", intensity: 1 };
+  it("3a. computeShapeLighting oracle: +Z normal is bright, -Z normal is dark (direction=[0,0,1])", () => {
+    const dir = { direction: [0, 0, 1] as Vec3, color: "#ffffff", intensity: 1 };
     const noAmb = { color: "#ffffff", intensity: 0 };
 
     const topLit = computeShapeLighting([0, 0, 1], "#ffffff", dir, noAmb);
     const botLit = computeShapeLighting([0, 0, -1], "#ffffff", dir, noAmb);
 
-    // Top face (normal opposes direction) → lambert=1 → white
+    // Top face (normal aligns with direction) → lambert=1 → white
     expect(topLit).toBe("rgb(255, 255, 255)");
-    // Bottom face (normal aligns with direction) → lambert=0 → black (amb=0)
+    // Bottom face (normal opposes direction) → lambert=0 → black (amb=0)
     expect(botLit).toBe("rgb(0, 0, 0)");
   });
 
@@ -565,11 +565,9 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
    * render bright, a face pointing away should render dark (or empty with ambient=0).
    *
    * Uses rotX=90 (top-down view) with a large single triangle facing +Z and
-   * light direction [0,0,-1] (shining toward −Z, i.e. from +Z toward the viewer).
-   * "Shining toward [0,0,-1]" means the source is at +Z side — a +Z-facing
-   * surface is lit.
+   * light source vector [0,0,1], so a +Z-facing surface is lit.
    */
-  it("3b. rasterizer: light direction=[0,0,-1] renders +Z-normal face bright, -Z dark", () => {
+  it("3b. rasterizer: light direction=[0,0,1] renders +Z-normal face bright, -Z dark", () => {
     // Large horizontal triangle facing +Z (normal [0,0,1]) — CCW from above.
     const topFace: Polygon = {
       vertices: [[-5, -5, 0], [5, -5, 0], [0, 5, 0]],
@@ -583,7 +581,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
 
     const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 50 });
     const grid = { cols: 40, rows: 20, cellAspect: ASPECT };
-    const lightDir = { direction: [0, 0, -1] as Vec3, color: "#ffffff", intensity: 1 };
+    const lightDir = { direction: [0, 0, 1] as Vec3, color: "#ffffff", intensity: 1 };
     const noAmb = { color: "#ffffff", intensity: 0 };
 
     const ctxTop = buildRasterizeContext({
@@ -618,10 +616,10 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
   it("3c. intensity ordering: brighter face (higher lambert) produces denser glyph output than darker face", () => {
     const cam = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 50 });
     const grid = { cols: 40, rows: 20, cellAspect: ASPECT };
-    const lightDir = { direction: [0, 0, -1] as Vec3, color: "#ffffff", intensity: 1 };
+    const lightDir = { direction: [0, 0, 1] as Vec3, color: "#ffffff", intensity: 1 };
     const baseAmb = { color: "#ffffff", intensity: 0.1 };
 
-    // A face facing toward the light (normal roughly −lightDir = [0,0,+1])
+    // A face facing toward the light (normal roughly lightDir = [0,0,+1])
     // vs a face at 45° to the light (normal roughly [0, sin45, cos45])
     const brightFace: Polygon = {
       vertices: [[-5, -5, 0], [5, -5, 0], [0, 5, 0]], // normal ≈ [0,0,1]
@@ -636,7 +634,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
     // Check oracle ordering first
     const brightLambert = computeShapeLighting(
       [0, 0, 1], "#ffffff",
-      { direction: [0, 0, -1], intensity: 1 },
+      { direction: [0, 0, 1], intensity: 1 },
       { intensity: 0.1 },
     );
     // Lambert=1 for bright face, expect max intensity
@@ -671,7 +669,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
   it("3d. cross-object: same normal + same light → same computeShapeLighting intensity", () => {
     const normal: Vec3 = [0, 0, 1];
     // Use white lights so all channels respond identically and comparison is unambiguous.
-    const light = { direction: [0, 0, -1] as Vec3, color: "#ffffff", intensity: 0.8 };
+    const light = { direction: [0, 0, 1] as Vec3, color: "#ffffff", intensity: 0.8 };
     const amb = { color: "#ffffff", intensity: 0.1 };
 
     // Two calls with same inputs — lighting is a pure function of (normal, light, color).
@@ -712,7 +710,7 @@ describe("3. LIGHTING: Lambert sign + cross-object consistency", () => {
 
     const cam = createGlyphPerspectiveCamera({ rotX: 90, rotY: 0, zoom: 50, distance: 20 });
     const grid = { cols: 40, rows: 20, cellAspect: ASPECT };
-    const light = { direction: [-0.5, -0.7, -0.5] as Vec3, intensity: 1 };
+    const light = { direction: [0.5, 0.7, 0.5] as Vec3, intensity: 1 };
     const amb = { intensity: 0.4 };
 
     const ctx1 = buildRasterizeContext({
@@ -854,13 +852,13 @@ describe("5. React/Vue API surface mirror check", () => {
     expect(t.scale).toBe(2);
   });
 
-  it("5b. GlyphDirectionalLight uses 'direction' (toward) and 'intensity' props", () => {
+  it("5b. GlyphDirectionalLight uses source-vector 'direction' and 'intensity' props", () => {
     const light: import("../api/types").GlyphDirectionalLight = {
-      direction: [-0.5, -0.7, -0.5],
+      direction: [0.5, 0.7, 0.5],
       intensity: 1,
       color: "#ffffff",
     };
-    expect(light.direction).toEqual([-0.5, -0.7, -0.5]);
+    expect(light.direction).toEqual([0.5, 0.7, 0.5]);
     expect(light.intensity).toBe(1);
   });
 

@@ -85,7 +85,7 @@ const overlayPolyHost = document.getElementById("overlayPoly") as HTMLElement;
 const renderHosts = [glyphHost, polyHost, overlayGlyphHost, overlayPolyHost];
 
 const LIGHT = {
-  directionalLight: { direction: [-0.45, -0.6, -0.65] as Vec3, intensity: 1.1, color: "#ffffff" },
+  directionalLight: { direction: [0.45, 0.6, 0.65] as Vec3, intensity: 1.1, color: "#ffffff" },
   ambientLight: { intensity: 0.42, color: "#ffffff" },
 };
 
@@ -216,9 +216,9 @@ const MODELS: ModelCase[] = [
     id: "boxes",
     label: "sanity / offset boxes",
     load: () => [
-      ...transformPolygons(cubePolygons({ size: 1, color: "#f97373" }), 1, [-0.75, 0, 0]),
-      ...transformPolygons(cubePolygons({ size: 0.75, color: "#48d5ff" }), 1, [0.65, 0.35, 0.25]),
-      ...transformPolygons(cubePolygons({ size: 0.45, color: "#facc15" }), 1, [0.1, -0.85, 0.55]),
+      ...transformPolygons(cubePolygons({ center: [0, 0, 0], size: 1, color: "#f97373" }), 1, [-0.75, 0, 0]),
+      ...transformPolygons(cubePolygons({ center: [0, 0, 0], size: 0.75, color: "#48d5ff" }), 1, [0.65, 0.35, 0.25]),
+      ...transformPolygons(cubePolygons({ center: [0, 0, 0], size: 0.45, color: "#facc15" }), 1, [0.1, -0.85, 0.55]),
     ],
   },
   {

@@ -33,7 +33,7 @@ function renderColors(withSamplers: boolean): string[] {
     useColors: true,
     doubleSided: true,
     // Full ambient, no directional → the texel passes through unshaded.
-    directionalLight: { direction: [0, 0, -1], intensity: 0 },
+    directionalLight: { direction: [0, 0, 1], intensity: 0 },
     ambientLight: { intensity: 1 },
   });
   if (withSamplers) ctx.textureSamplers = new Map([["tex", sampler]]);

@@ -87,7 +87,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     const cellAspect = parseNumber(this.getAttribute("cell-aspect"));
     if (cellAspect !== undefined) opts.cellAspect = cellAspect;
     const dirIntensity = parseNumber(this.getAttribute("directional-intensity"));
-    if (dirIntensity !== undefined) opts.directionalLight = { direction: [-0.5, -0.7, -0.5], intensity: dirIntensity };
+    if (dirIntensity !== undefined) opts.directionalLight = { direction: [0.5, 0.7, 0.5], intensity: dirIntensity };
     const ambIntensity = parseNumber(this.getAttribute("ambient-intensity"));
     if (ambIntensity !== undefined) opts.ambientLight = { intensity: ambIntensity };
     if (this.hasAttribute("auto-size")) opts.autoSize = true;

@@ -612,8 +612,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // Lighting state
   const lightingState = {
     // "Shines TOWARD" convention (negated subsolar unit vector).
-    // Corresponds to azimuth=50°, elevation=45° in the old "FROM" convention.
-    direction: [-0.454, -0.541, -0.707] as [number, number, number],
+    // Corresponds to azimuth=50°, elevation=45° in the source-vector convention.
+    direction: [0.454, 0.541, 0.707] as [number, number, number],
     keyIntensity: 1,
     ambientIntensity: 0.4,
     keyColor: '#ffffff',
@@ -639,13 +639,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   // time + day-of-year (Earth's tilt makes the declination wobble between
   // ±23.45° over the year).
   //
-  // Returned vector points FROM the subsolar surface point AWAY from the
-  // sun, i.e. the direction the light TRAVELS. Glyphcss's rasterizer uses
-  // `direction` in the Lambert dot product against face normals, and the
-  // landing-earth bake reverses quad winding to keep backface culling
-  // happy, which flips the effective face-normal sign. The net effect is
-  // that pointing `direction` away from the sun illuminates the correct
-  // hemisphere.
+  // Returned vector points from the shaded surface toward the sun.
   function realSunDirection(): [number, number, number] {
     const now = new Date();
     const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
@@ -659,8 +653,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     const lat = (declDeg * Math.PI) / 180;
     const lon = (lonDeg * Math.PI) / 180;
     const cosLat = Math.cos(lat);
-    // Negated relative to the subsolar surface point — see header comment.
-    return [-cosLat * Math.cos(lon), cosLat * Math.sin(lon), -Math.sin(lat)];
+    return [cosLat * Math.cos(lon), -cosLat * Math.sin(lon), Math.sin(lat)];
   }
 
   if (demoEl.getAttribute('data-real-sun-light') === '1') {
@@ -1587,14 +1580,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       const elRad = ((partial.elevation ?? sphericalEl) * Math.PI) / 180;
       if (partial.azimuth !== undefined) sphericalAz = partial.azimuth;
       if (partial.elevation !== undefined) sphericalEl = partial.elevation;
-      // `direction` = the direction light shines TOWARD (three.js / voxcss
-      // convention). A sun at elevation el, azimuth az sits in the +Z
-      // hemisphere; light travels FROM there TOWARD the scene, i.e. in the
-      // NEGATIVE of the subsolar unit vector.
+      // `direction` is the source vector from the shaded surface toward the sun.
       lightingState.direction = [
-        -Math.cos(elRad) * Math.cos(azRad),
-        -Math.cos(elRad) * Math.sin(azRad),
-        -Math.sin(elRad),
+        Math.cos(elRad) * Math.cos(azRad),
+        Math.cos(elRad) * Math.sin(azRad),
+        Math.sin(elRad),
       ];
     }
     if (partial.keyIntensity !== undefined) lightingState.keyIntensity = partial.keyIntensity;

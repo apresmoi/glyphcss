@@ -71,13 +71,13 @@ describe("shadeColor", () => {
 
 describe("computeShapeLighting", () => {
   it("face pointing toward light is fully lit (lambert = 1)", () => {
-    // Light shines toward [0,0,-1] (down). A face whose normal is [0,0,1] (up)
+    // Light source vector points up. A face whose normal is [0,0,1] (up)
     // catches the light fully. With ambient intensity 0, only the
     // directional contribution applies.
     const result = computeShapeLighting(
       [0, 0, 1],
       "#808080",
-      { direction: [0, 0, -1], color: "#ffffff", intensity: 1 },
+      { direction: [0, 0, 1], color: "#ffffff", intensity: 1 },
       { color: "#ffffff", intensity: 0 },
     );
     expect(result).toBe("rgb(128, 128, 128)");
@@ -87,7 +87,7 @@ describe("computeShapeLighting", () => {
     const result = computeShapeLighting(
       [0, 0, -1],
       "#808080",
-      { direction: [0, 0, -1], color: "#ffffff", intensity: 1 },
+      { direction: [0, 0, 1], color: "#ffffff", intensity: 1 },
       { color: "#ffffff", intensity: 0.5 },
     );
     // ambient * base = 0.5 * 128 = 64
@@ -98,7 +98,7 @@ describe("computeShapeLighting", () => {
     const result = computeShapeLighting(
       [1, 0, 0],
       "#808080",
-      { direction: [0, 0, -1], color: "#ffffff", intensity: 1 },
+      { direction: [0, 0, 1], color: "#ffffff", intensity: 1 },
       { color: "#ffffff", intensity: 0.4 },
     );
     // perpendicular: lambert = 0; only ambient applies → 0.4 * 128 = 51
@@ -117,11 +117,22 @@ describe("computeShapeLighting", () => {
     const half = computeShapeLighting(
       [0, 0, 1],
       "#808080",
-      { direction: [0, 0, -1], color: "#ffffff", intensity: 0.5 },
+      { direction: [0, 0, 1], color: "#ffffff", intensity: 0.5 },
       { color: "#ffffff", intensity: 0 },
     );
     // tint = 0 + 0.5*1 = 0.5 → 128 * 0.5 = 64
     expect(half).toBe("rgb(64, 64, 64)");
+  });
+
+  it("applies directional and ambient light colors per channel", () => {
+    const result = computeShapeLighting(
+      [0, 0, 1],
+      "#808080",
+      { direction: [0, 0, 1], color: "#ff0000", intensity: 0.5 },
+      { color: "#0000ff", intensity: 0.25 },
+    );
+
+    expect(result).toBe("rgb(64, 0, 32)");
   });
 
   it("returns shaded color string", () => {
