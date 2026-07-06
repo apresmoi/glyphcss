@@ -203,6 +203,10 @@ export type { GlyphMeshHandle } from "glyphcss";
 // ── Shadow options ────────────────────────────────────────────────────────────
 export type { GlyphShadowOptions } from "glyphcss";
 
+// ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ────────
+export { rasterizeToCells, buildCellGrid, applyCellHook } from "glyphcss";
+export type { CellGrid, TransformCells } from "glyphcss";
+
 // ── Event types ───────────────────────────────────────────────────────────────
 export type {
   GlyphPointerEvent,

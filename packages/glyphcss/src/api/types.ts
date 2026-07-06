@@ -2,6 +2,7 @@ import type { Vec3, Polygon } from "@glyphcss/core";
 
 /** Directional light — single distant source for the ASCII rasterizer. */
 export interface GlyphDirectionalLight {
+  /** Unit source vector from the surface toward the distant light. */
   direction: Vec3;
   intensity?: number;
   /** Hex color (#rrggbb). Tints the lit-side per-cell output. Default white. */
@@ -59,4 +60,36 @@ export interface GlyphMeshTransform {
    * dynamic surface (a door/platform flush into a wall/floor) win cleanly.
    */
   depthBias?: number;
+  /**
+   * Per-mesh character cell size. Setting `fontSize` and/or `lineHeight` pops
+   * this mesh OUT of the scene's shared `<pre>` into its own silhouette-fitted,
+   * translated `<pre>` rendered at that cell size — so a "hero" mesh can carry
+   * far more glyph detail than the rest of the scene, which stays in the shared
+   * low-res grid. Omit both (the default) and the mesh renders in the shared
+   * `<pre>` like every other mesh. A smaller cell = finer detail. `fontSize`
+   * accepts a number (px) or any CSS length string. Orthographic cameras only;
+   * requires the scene to be laid out (browser, not SSR).
+   */
+  /**
+   * Per-mesh detail multiplier — the ergonomic way to pop a mesh into its own,
+   * finer `<pre>`. `density: 3` renders this mesh at 3× the scene's glyph
+   * resolution (cell = base cell ÷ density), isotropically, at the same on-screen
+   * size. `1`/omitted = the shared base `<pre>`. This is the recommended knob;
+   * `fontSize`/`lineHeight` below are the low-level escape hatch for anisotropic
+   * cells and OVERRIDE `density` when present.
+   */
+  density?: number;
+  fontSize?: string | number;
+  /** See `fontSize` — line-height for this mesh's own cell (smaller = denser rows). */
+  lineHeight?: number;
+  /**
+   * Whether this mesh blocks what's behind it. Default `false` (opaque — it
+   * occludes, the realistic look). Set `true` to make it see-through: it doesn't
+   * hide other meshes and isn't hidden by them (x-ray / blueprint layering).
+   *
+   * A mesh in the shared `<pre>` always occludes (one depth buffer), so declaring
+   * `transparent: true` also pops the mesh OUT into its own `<pre>` — separation
+   * happens for custom cell metrics OR transparency.
+   */
+  transparent?: boolean;
 }

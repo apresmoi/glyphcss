@@ -64,7 +64,7 @@ type EdgeWeight = 1 | 2 | 3;
 
 ```ts
 interface GlyphDirectionalLight {
-  direction: Vec3;
+  direction: Vec3;     // source vector from surface toward the distant light
   intensity?: number;  // default 1
   color?: string;      // hex, default white
 }
@@ -98,6 +98,17 @@ Shadow flags on meshes (`GlyphMeshTransform`, `<GlyphMesh>`, `<glyph-mesh>`):
 | `receiveShadow` / `receive-shadow` | `false` | This mesh receives shadows. Both flags on the same mesh = self-shadow |
 
 `GlyphGround` sets `receiveShadow=true` and `castShadow=false` by default.
+
+Detail / density on meshes (`GlyphMeshTransform`, `<GlyphMesh>`, `<glyph-mesh>`) — see the [Density & Detail guide](/guides/density/):
+
+| Field / prop / attribute | Type | Default | Description |
+|---|---|---|---|
+| `density` | `number` | `1` (shared grid) | Render this mesh at `density`× the scene resolution, in its own `<pre>` |
+| `fontSize` / `font-size` | `number \| string` | — | Explicit cell size (px or CSS length). Overrides `density` |
+| `lineHeight` / `line-height` | `number` | — | Explicit cell line-height. Overrides `density` |
+| `transparent` | `boolean` | `false` | See-through: doesn't occlude / isn't occluded (pops into its own `<pre>`) |
+
+Browser-only (detail layers measure the live cell size); works with any camera (orthographic, perspective, FPV).
 
 ## Grid and scene
 

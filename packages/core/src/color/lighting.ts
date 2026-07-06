@@ -55,7 +55,7 @@ export function shadeColor(base: string, delta: number): string {
 }
 
 const DEFAULT_DIRECTIONAL: Required<GlyphDirectionalLight> = {
-  direction: [0, 0, -1],
+  direction: [0, 0, 1],
   color: "#ffffff",
   intensity: 1,
 };
@@ -81,9 +81,9 @@ function tintChannel(base: number, tintHex: string, channel: 0 | 1 | 2): number 
  * Per-polygon Lambert shading. Given a polygon's outward normal and the
  * scene's lights, returns the shaded color as a CSS rgb string.
  *
- * Math (decoupled, three.js convention):
+ * Math (decoupled, source-vector convention):
  *   tint = ambient.color · ambient.intensity
- *        + directional.color · directional.intensity · max(0, n · (−L))
+ *        + directional.color · directional.intensity · max(0, n · L)
  *   final = baseColor × tint
  *
  * Pass `directional` and/or `ambient` undefined to fall back to defaults
@@ -104,9 +104,8 @@ export function computeShapeLighting(
   const ambientIntensity = Math.max(0, ambient?.intensity ?? DEFAULT_AMBIENT.intensity);
 
   const n = normalizeVec3(normal);
-  // Light shines TOWARD `dir`; surface receives light when its outward
-  // normal points back toward the source (-dir).
-  const lambert = Math.max(0, -(n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]));
+  // `dir` is the source vector from the surface toward the light.
+  const lambert = Math.max(0, n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]);
   const directionalScale = lightIntensity * lambert;
 
   const out: [number, number, number] = [0, 0, 0];

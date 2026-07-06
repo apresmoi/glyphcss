@@ -24,7 +24,7 @@ const quad = {
 };
 
 function renderColors(withSamplers: boolean): string[] {
-  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
+  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 400 });
   const ctx = buildRasterizeContext({
     camera,
     grid: { cols: 40, rows: 40, cellAspect: 2 },
@@ -33,7 +33,7 @@ function renderColors(withSamplers: boolean): string[] {
     useColors: true,
     doubleSided: true,
     // Full ambient, no directional → the texel passes through unshaded.
-    directionalLight: { direction: [0, 0, -1], intensity: 0 },
+    directionalLight: { direction: [0, 0, 1], intensity: 0 },
     ambientLight: { intensity: 1 },
   });
   if (withSamplers) ctx.textureSamplers = new Map([["tex", sampler]]);

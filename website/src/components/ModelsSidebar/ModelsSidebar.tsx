@@ -44,9 +44,6 @@ function AttributionCredit({ attribution }: { attribution?: ModelAttribution }) 
     return <p className="model-credit">Source: Unknown</p>;
   }
 
-  const trisText =
-    typeof attribution.tris === "number" ? ` · ${attribution.tris.toLocaleString()} tris` : "";
-
   return (
     <p className="model-credit">
       Source:{" "}
@@ -58,7 +55,6 @@ function AttributionCredit({ attribution }: { attribution?: ModelAttribution }) 
         attribution.creator
       )}
       {attribution.license ? ` · ${attribution.license}` : ""}
-      {trisText}
     </p>
   );
 }

@@ -1,8 +1,10 @@
 import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
-import { createGlyphPerspectiveCamera } from "../api/createGlyphCamera";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
 import type { Polygon, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
+import { applyCellHook, buildCellGrid } from "./cells";
+import type { CellGrid } from "./cells";
 
 /**
  * Render the scene to a string.
@@ -20,13 +22,120 @@ import { getWireframeGlyphs } from "./ramps";
  * This is a direct generalization of RadiantHero's `frameForRotation`:
  * same stamp, same weight scheme, same projection.
  */
+/** Minimal camera shape needed to project for the occlusion depth pass. */
+interface ProjectCamera {
+  project(v: Vec3, cols: number, rows: number, cellAspect: number, metrics?: GlyphProjectionMetrics): [number, number, number, number?];
+}
+
+function projectionMetricsForGrid(
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  grid: {
+    cellWidth?: number;
+    cellHeight?: number;
+    centerCol?: number;
+    centerRow?: number;
+  },
+  scale = 1,
+): GlyphProjectionMetrics {
+  const fallbackCellW = 50 / cellAspect;
+  const fallbackCellH = 50;
+  return {
+    cellWidth: (grid.cellWidth ?? fallbackCellW) / scale,
+    cellHeight: (grid.cellHeight ?? fallbackCellH) / scale,
+    centerCol: grid.centerCol !== undefined ? grid.centerCol * scale : undefined,
+    centerRow: grid.centerRow !== undefined ? grid.centerRow * scale : undefined,
+  };
+}
+
+/**
+ * Build a shared occlusion id-map: depth-rasterize each layer group's polygons
+ * into a `cols × rows` buffer and record, per cell, the id of the layer whose
+ * surface is nearest (`-1` = empty). Depth-only (no shading/glyph/color/shadow),
+ * so far cheaper than a full rasterize. Returned to `rasterize` via
+ * {@link OcclusionMap} so layers blank where a DIFFERENT layer is nearest.
+ */
+export function computeOcclusionIds(
+  groups: { polygons: Polygon[]; id: number }[],
+  rawCamera: ProjectCamera,
+  outCols: number,
+  outRows: number,
+  cellAspect: number,
+  supersample = 1,
+  metrics: GlyphProjectionMetrics = projectionMetricsForGrid(outCols, outRows, cellAspect, {}),
+): Int32Array {
+  // Build the id-map at the WORLD layer's INTERNAL (supersampled) resolution using
+  // the same offset-scaling wrapper rasterizeSolid uses, so the world's supersampled
+  // silhouette and its id-map hole coincide subcell-for-subcell (no 1-cell seam at
+  // the world/entity boundary). No-op when supersample===1 (id-map = output res).
+  const ss = supersample > 1 ? Math.floor(supersample) : 1;
+  const cols = outCols * ss, rows = outRows * ss;
+  const scaledMetrics = ss > 1
+    ? {
+        ...metrics,
+        cellWidth: metrics.cellWidth !== undefined ? metrics.cellWidth / ss : undefined,
+        cellHeight: metrics.cellHeight !== undefined ? metrics.cellHeight / ss : undefined,
+        centerCol: metrics.centerCol !== undefined ? metrics.centerCol * ss : undefined,
+        centerRow: metrics.centerRow !== undefined ? metrics.centerRow * ss : undefined,
+      }
+    : metrics;
+  const depth = new Float64Array(cols * rows).fill(-Infinity);
+  const idMap = new Int32Array(cols * rows).fill(-1);
+  for (const g of groups) {
+    for (const poly of g.polygons) {
+      const vs = poly.vertices;
+      if (vs.length < 3) continue;
+      const p0 = rawCamera.project(vs[0]!, cols, rows, cellAspect, scaledMetrics);
+      let prev = rawCamera.project(vs[1]!, cols, rows, cellAspect, scaledMetrics);
+      for (let k = 2; k < vs.length; k++) {
+        const cur = rawCamera.project(vs[k]!, cols, rows, cellAspect, scaledMetrics);
+        fillDepthTri(p0, prev, cur, depth, idMap, g.id, cols, rows);
+        prev = cur;
+      }
+    }
+  }
+  return idMap;
+}
+
+function fillDepthTri(
+  a: [number, number, number, number?],
+  b: [number, number, number, number?],
+  c: [number, number, number, number?],
+  depth: Float64Array, idMap: Int32Array, id: number, W: number, H: number,
+): void {
+  const x0 = a[0], y0 = a[1], z0 = a[2], x1 = b[0], y1 = b[1], z1 = b[2], x2 = c[0], y2 = c[1], z2 = c[2];
+  if (!(Number.isFinite(x0) && Number.isFinite(y0) && Number.isFinite(x1) && Number.isFinite(y1) && Number.isFinite(x2) && Number.isFinite(y2))) return;
+  const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+  const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+  const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+  const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+  if (minX > maxX || minY > maxY) return;
+  const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+  if (Math.abs(area) < 1e-9) return;
+  const inv = 1 / area;
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const px = x + 0.5, py = y + 0.5;
+      const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
+      const w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
+      const w2 = 1 - w0 - w1;
+      if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+      const z = w0 * z0 + w1 * z1 + w2 * z2;
+      const idx = y * W + x;
+      if (z > depth[idx]!) { depth[idx] = z; idMap[idx] = id; }
+    }
+  }
+}
+
 export function rasterize(scene: RasterizeContext): string {
   const { camera, grid, wireframe, mode } = scene;
   const { cols, rows, cellAspect } = grid;
+  const metrics = projectionMetricsForGrid(cols, rows, cellAspect, grid);
 
   if (mode === "solid") {
     const ss = scene.supersample && scene.supersample > 1 ? Math.floor(scene.supersample) : 1;
-    return rasterizeSolid(scene, cols, rows, cellAspect, ss);
+    return rasterizeSolid(scene, cols, rows, cellAspect, ss, metrics);
   }
 
   // wireframe (and voxel falls through to wireframe for now)
@@ -37,11 +146,35 @@ export function rasterize(scene: RasterizeContext): string {
   const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
 
   for (const e of wireframe) {
-    const a = camera.project(e.from, cols, rows, cellAspect);
-    const b = camera.project(e.to, cols, rows, cellAspect);
+    const a = camera.project(e.from, cols, rows, cellAspect, metrics);
+    const b = camera.project(e.to, cols, rows, cellAspect, metrics);
     // Near-plane culled vertices come back as NaN — skip the line entirely.
     if (a[0] !== a[0] || b[0] !== b[0]) continue;
     drawLineToStamp(stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, e.weight ?? 2, e.color ?? null, cols, rows);
+  }
+
+  // Post-rasterize cell hook (wireframe). No-op path below is the untouched
+  // original stampToGlyphs → byte-identical when no hook is supplied.
+  if (scene.transformCells) {
+    const n = cols * rows;
+    const cChar: string[] = new Array(n);
+    const cColor: (string | null)[] | null = colorBuf ? new Array(n) : null;
+    for (let i = 0; i < n; i++) {
+      const v = stamp[i];
+      if (v === 0) {
+        cChar[i] = " ";
+        if (cColor) cColor[i] = null;
+      } else {
+        cChar[i] = v === 1
+          ? glyphs.thin[(Math.random() * glyphs.thin.length) | 0]!
+          : v === 2
+            ? glyphs.normal[(Math.random() * glyphs.normal.length) | 0]!
+            : glyphs.core[(Math.random() * glyphs.core.length) | 0]!;
+        if (cColor) cColor[i] = colorBuf ? (colorBuf[i] ?? null) : null;
+      }
+    }
+    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
+    return solidBufToString(applied.char, applied.color, cols, rows);
   }
 
   return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs);
@@ -54,6 +187,7 @@ function rasterizeSolid(
   outRows: number,
   cellAspect: number,
   supersample: number,
+  metrics: GlyphProjectionMetrics,
 ): string {
   // Supersampled anti-aliasing: rasterize the geometry at `supersample`× the
   // output grid resolution, then box-average every S×S block of subcells down
@@ -65,29 +199,16 @@ function rasterizeSolid(
   const { camera: rawCamera, polygons, directionalLight, ambientLight, smoothShading, creaseAngle, doubleSided, castShadowFlags, receiveShadowFlags } = scene;
   const depthBiases = scene.depthBiases;
   const depthEpsilon = scene.depthEpsilon ?? 0;
-  // Rendering into an S× larger grid would shrink the image to 1/S of the grid,
-  // because the projection's screen offset is in absolute cells (independent of
-  // grid size). Wrap `project` to scale the offset by S around the grid centre
-  // so the framing is identical at higher resolution — leaving depth and the
-  // near-clip (which depend on the camera's zoom) completely untouched.
-  // (Assumes the camera's projection centre is the grid centre, i.e. the default
-  // center=[0.5,0.5]; cssQuake uses the default.)
-  const camera = supersample > 1
+  const scaledMetrics: GlyphProjectionMetrics = supersample > 1
     ? {
-        zoom: rawCamera.zoom,
-        eyeDepth: (v: Vec3) => rawCamera.eyeDepth(v),
-        project: (v: Vec3, c: number, r: number, ca: number): [number, number, number, number?] => {
-          const p = rawCamera.project(v, c, r, ca);
-          // Scale only the screen OFFSET (cols 0, rows 1); the linear depth (2)
-          // and the perspective-correct zbuf (3) are resolution-independent and
-          // must pass through untouched. Dropping p[3] here previously forced the
-          // scan-fill onto the non-perspective cssZ depth under supersampling,
-          // silently disabling perspective-correct ordering (z-fight resolution)
-          // whenever SS was on.
-          return [c * 0.5 + (p[0] - c * 0.5) * supersample, r * 0.5 + (p[1] - r * 0.5) * supersample, p[2], p[3]];
-        },
+        ...metrics,
+        cellWidth: metrics.cellWidth !== undefined ? metrics.cellWidth / supersample : undefined,
+        cellHeight: metrics.cellHeight !== undefined ? metrics.cellHeight / supersample : undefined,
+        centerCol: metrics.centerCol !== undefined ? metrics.centerCol * supersample : undefined,
+        centerRow: metrics.centerRow !== undefined ? metrics.centerRow * supersample : undefined,
       }
-    : rawCamera;
+    : metrics;
+  const camera = rawCamera;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
@@ -199,6 +320,7 @@ function rasterizeSolid(
       luC: uvC[0], lvC: uvC[1], ldC: uvC[2],
       lift: shadowLift,
       opacity: shadowOpacity,
+      ambientIntensity: ambIntensity,
       shadowColorRgb,
       shadowColorHex,
       litCache,
@@ -223,7 +345,7 @@ function rasterizeSolid(
     }
     // Project each unique vertex once.
     for (let k = 0; k < verts.length; k++) {
-      projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect);
+      projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
     }
     // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
     // For N=3 this produces exactly one triangle.
@@ -315,22 +437,19 @@ function rasterizeSolid(
         }
 
         // Per-vertex Lambert intensity (ambient + clamped key).
-        // Convention (mirrors three.js / computeShapeLighting): `direction` is
-        // the direction the light shines TOWARD. A surface is lit when its
-        // outward normal points BACK toward the source, i.e. opposes `dir`.
-        // lambert = max(0, -dot(n, dir))  — note the negation.
+        // Convention (mirrors polycss / computeShapeLighting): `direction` is
+        // the source vector from the surface toward the distant light.
+        // lambert = max(0, dot(n, dir)).
         //
-        // In double-sided mode use |dot| (two-sided lighting): a normal and its
-        // negation light identically, so both faces of a surface — and coplanar
-        // faces that z-fight at grazing angles — shade to the same colour, which
-        // makes the otherwise-flickering depth tie invisible. It stays camera-
-        // invariant, so the cross-frame shade cache is still valid.
+        // `doubleSided` controls visibility only. Lighting still uses the
+        // polygon's authored normal; otherwise a wall's back side gets lit by
+        // `abs(dot)` as if the surface were translucent.
         const dotA = nAx * lx + nAy * ly + nAz * lz;
         const dotB = nBx * lx + nBy * ly + nBz * lz;
         const dotC = nCx * lx + nCy * ly + nCz * lz;
-        const lambertA = doubleSided ? Math.abs(dotA) : Math.max(0, -dotA);
-        const lambertB = doubleSided ? Math.abs(dotB) : Math.max(0, -dotB);
-        const lambertC = doubleSided ? Math.abs(dotC) : Math.max(0, -dotC);
+        const lambertA = Math.max(0, dotA);
+        const lambertB = Math.max(0, dotB);
+        const lambertC = Math.max(0, dotC);
         iA = Math.min(1, ambIntensity + lambertA * keyIntensity);
         iB = Math.min(1, ambIntensity + lambertB * keyIntensity);
         iC = Math.min(1, ambIntensity + lambertC * keyIntensity);
@@ -442,7 +561,7 @@ function rasterizeSolid(
           }
         }
         if (cw.length >= 3) {
-          const cp = cw.map((w) => camera.project(w, cols, rows, cellAspect));
+          const cp = cw.map((w) => camera.project(w, cols, rows, cellAspect, scaledMetrics));
           for (let f = 1; f < cw.length - 1; f++) {
             const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
             const area2c = (qb[0] - qa[0]) * (qc[1] - qa[1]) - (qb[1] - qa[1]) * (qc[0] - qa[0]);
@@ -468,6 +587,36 @@ function rasterizeSolid(
     }
   }
 
+  // Cross-layer occlusion: blank any cell whose own surface is behind the shared
+  // nearest-depth (another layer occludes it). Done on the cell buffers (pre-string)
+  // so it works for plain text AND colored spans; clearing depth lets the
+  // supersample downsample skip the blanked subcells.
+  const occ = scene.occlusion;
+  if (occ) {
+    const idm = occ.idMap, ocols = occ.cols, orows = occ.rows, myId = occ.layerId;
+    const invSS = supersample > 1 ? 1 / supersample : 1;
+    for (let r = 0; r < rows; r++) {
+      const refRow = Math.floor(occ.rowScale * (r * invSS) + occ.rowOffset);
+      if (refRow < 0 || refRow >= orows) continue;
+      const refRowBase = refRow * ocols;
+      const rowBase = r * cols;
+      for (let c = 0; c < cols; c++) {
+        const idx = rowBase + c;
+        if (depthBuf[idx] === -Infinity) continue;
+        const refCol = Math.floor(occ.colScale * (c * invSS) + occ.colOffset);
+        if (refCol < 0 || refCol >= ocols) continue;
+        const owner = idm[refRowBase + refCol]!;
+        // A different layer is nearest here → this cell is occluded. Owner === myId
+        // (or empty) → keep; a layer never occludes itself.
+        if (owner !== -1 && owner !== myId) {
+          glyphBuf[idx] = " ";
+          depthBuf[idx] = -Infinity;
+          if (colorBuf) colorBuf[idx] = null;
+        }
+      }
+    }
+  }
+
   if (__detail) { (__detail.loop ??= []).push(performance.now() - __tLoop); }
   const __tStr = __detail ? performance.now() : 0;
   // Final output buffers at the OUTPUT resolution (downsampled if supersampling).
@@ -481,7 +630,19 @@ function rasterizeSolid(
     finalWorldPos = ds.worldPos;
   }
   if (reproject) {
-    applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
+    applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
+  }
+  // Post-rasterize cell hook (M4 composition effects). No-op + byte-identical
+  // when scene.transformCells is absent (block skipped entirely). Output-res
+  // depth is available only at supersample===1; else buildCellGrid derives a
+  // coverage proxy. Runs BEFORE the single string is built (<pre>-write-once).
+  if (scene.transformCells) {
+    const applied = applyCellHook(
+      scene.transformCells, finalGlyph, finalColor,
+      supersample > 1 ? null : depthBuf, outCols, outRows,
+    );
+    finalGlyph = applied.char;
+    finalColor = applied.color;
   }
   const out = solidBufToString(finalGlyph, finalColor, outCols, outRows);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
@@ -504,10 +665,16 @@ function applyReprojectionTAA(
   cols: number,
   rows: number,
   cellAspect: number,
+  metrics: GlyphProjectionMetrics,
   ramp: string[],
   blend: number,
   H: TemporalHistory,
-  curCam: { rotX: number; rotY: number; target: Vec3; zoom: number; perspective: number; distance: number; stretch: number },
+  curCam: {
+    kind: "perspective" | "orthographic";
+    rotX: number; rotY: number; target: Vec3; zoom: number;
+    perspective: number; distance: number; stretch: number; fovScale: number;
+    center: [number, number];
+  },
 ): void {
   const n = cols * rows;
   const rampMax = ramp.length - 1;
@@ -525,12 +692,19 @@ function applyReprojectionTAA(
   // Build a projector for the previous frame's camera to reproject world points.
   let reproj: ((w: Vec3) => [number, number, number, number?]) | null = null;
   if (prevCam) {
-    const pc = createGlyphPerspectiveCamera({
-      rotX: prevCam.rotX, rotY: prevCam.rotY, distance: prevCam.distance,
-      perspective: prevCam.perspective, zoom: prevCam.zoom, stretch: prevCam.stretch,
-    });
+    const pc = prevCam.kind === "orthographic"
+      ? createGlyphOrthographicCamera({
+          rotX: prevCam.rotX, rotY: prevCam.rotY, zoom: prevCam.zoom,
+          center: prevCam.center,
+        })
+      : createGlyphPerspectiveCamera({
+          rotX: prevCam.rotX, rotY: prevCam.rotY, distance: prevCam.distance,
+          perspective: prevCam.perspective, zoom: prevCam.zoom, stretch: prevCam.stretch,
+          fovScale: prevCam.fovScale, center: prevCam.center,
+        });
     pc.target = prevCam.target;
-    reproj = (w: Vec3) => pc.project(w, cols, rows, cellAspect);
+    pc.fovScale = prevCam.fovScale;
+    reproj = (w: Vec3) => pc.project(w, cols, rows, cellAspect, prevCam.metrics);
   }
 
   // Read current cell value, blend with the reprojected history, write back +
@@ -571,9 +745,13 @@ function applyReprojectionTAA(
   }
   H.idx = nIdx; H.r = nR; H.g = nG; H.b = nB;
   H.cam = {
+    kind: curCam.kind,
     rotX: curCam.rotX, rotY: curCam.rotY,
     target: [curCam.target[0]!, curCam.target[1]!, curCam.target[2]!],
-    zoom: curCam.zoom, perspective: curCam.perspective, distance: curCam.distance, stretch: curCam.stretch,
+    zoom: curCam.zoom, perspective: curCam.perspective, distance: curCam.distance,
+    stretch: curCam.stretch, fovScale: curCam.fovScale,
+    center: [curCam.center[0], curCam.center[1]],
+    metrics: { ...metrics },
   };
 }
 
@@ -672,7 +850,7 @@ interface ShadowMapData {
   buf: Float64Array;              // SHADOW_MAP_SIZE × SHADOW_MAP_SIZE, lightDepth (higher = closer to light)
   right: [number, number, number];
   up: [number, number, number];
-  dir: [number, number, number];  // normalized light direction (toward)
+  dir: [number, number, number];  // normalized source vector toward the light
   uMin: number; uMax: number;
   vMin: number; vMax: number;
 }
@@ -685,6 +863,7 @@ interface ScanFillShadowCtx {
   luC: number; lvC: number; ldC: number;
   lift: number;
   opacity: number;
+  ambientIntensity: number;
   shadowColorRgb: [number, number, number];
   shadowColorHex: string;
   litCache: Map<string, string>;
@@ -700,7 +879,7 @@ interface ScanFillTexCtx {
 
 /**
  * Project a world vertex to light-space [texelU, texelV, lightDepth].
- * `lightDepth = -dot(v, dir)` — higher = closer to light.
+ * `lightDepth = dot(v, dir)` — higher = closer to light.
  */
 function toLightUV(
   v: Vec3,
@@ -711,8 +890,7 @@ function toLightUV(
 ): [number, number, number] {
   const u = rx * v[0] + ry * v[1] + rz * v[2];
   const vv = ux * v[0] + uy * v[1] + uz * v[2];
-  // lightDepth = -dot(v, dir): higher = closer to light source
-  const depth = -(lx * v[0] + ly * v[1] + lz * v[2]);
+  const depth = lx * v[0] + ly * v[1] + lz * v[2];
   const tu = ((u - uMin) / (uMax - uMin)) * (SHADOW_MAP_SIZE - 1);
   const tv = ((vv - vMin) / (vMax - vMin)) * (SHADOW_MAP_SIZE - 1);
   return [tu, tv, depth];
@@ -767,14 +945,14 @@ function scanFillShadowTriangle(
  * Returns null when there are no casters (shadow pass is skipped entirely).
  *
  * The shadow map is an ortho depth buffer in light-space, aligned to the bounding
- * box of all caster vertices. `lightDepth = -dot(vertex, lightDir)` — higher = closer
+ * box of all caster vertices. `lightDepth = dot(vertex, lightDir)` — higher = closer
  * to light. During the main pass, a receiver cell is in shadow when its interpolated
  * lightDepth (+ bias lift) is less than the stored maximum caster depth at that texel.
  */
 function buildShadowMap(
   polygons: Polygon[],
   castFlags: boolean[],
-  lx: number, ly: number, lz: number,  // normalized light direction (toward)
+  lx: number, ly: number, lz: number,  // normalized source vector toward light
 ): ShadowMapData | null {
   // Build an orthonormal basis for the light view.
   // Choose 'right' perpendicular to dir.
@@ -947,15 +1125,9 @@ function scanFillTriangle(
           }
         }
 
-        // Per-cell intensity → glyph (Bayer-dithered between adjacent ramp steps
-        // for a stippled gradient that breaks up contour banding).
-        const clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
-        const rampPos = clamped * rampMax;
-        const lower = rampPos | 0;
-        const frac = rampPos - lower;
-        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
-        let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
-        if (glyphIdx > rampMax) glyphIdx = rampMax;
+        // Per-cell intensity. Glyph choice happens after shadowing so shadows
+        // can attenuate only the direct/key-light part of the signal.
+        let clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
 
         // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
         // sample the shadow map, darken if occluded.
@@ -973,27 +1145,40 @@ function scanFillTriangle(
             // The lift nudges the surface slightly toward the light to prevent
             // self-acne on flat lit surfaces.
             if (mapDepth > -Infinity && ld + sh.lift < mapDepth) {
-              // Darken: reduce glyph intensity toward min.
-              glyphIdx = Math.max(0, glyphIdx - Math.round(sh.opacity * rampMax));
-              if (cellColor !== null) {
-                // Blend cell color toward shadow color. Cache to avoid re-computing
-                // for the same (base color, shadow intensity) combination.
-                const shadowKey = `shadow:${cellColor}:${glyphIdx}`;
-                let shadowedColor = sh.litCache.get(shadowKey);
-                if (shadowedColor === undefined) {
-                  const orig = hexToRgb(cellColor);
-                  const sc = sh.shadowColorRgb;
-                  const r = Math.round(orig[0] * (1 - sh.opacity) + sc[0] * sh.opacity);
-                  const g = Math.round(orig[1] * (1 - sh.opacity) + sc[1] * sh.opacity);
-                  const b = Math.round(orig[2] * (1 - sh.opacity) + sc[2] * sh.opacity);
-                  shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-                  sh.litCache.set(shadowKey, shadowedColor);
+              // Shadows attenuate only direct/key light. Ambient is independent
+              // scene fill, so with key intensity 0 the shadow map must be a no-op.
+              const ambientPart = Math.min(clamped, Math.max(0, sh.ambientIntensity));
+              const directPart = Math.max(0, clamped - ambientPart);
+              if (directPart > 0) {
+                const effectiveOpacity = sh.opacity * (directPart / Math.max(clamped, 1e-6));
+                clamped = ambientPart + directPart * (1 - sh.opacity);
+                if (cellColor !== null && effectiveOpacity > 0) {
+                  // Color shadowing follows the same rule: only the direct
+                  // contribution is blended toward the shadow color.
+                  const shadowKey = `shadow:${cellColor}:${Math.round(effectiveOpacity * 255)}`;
+                  let shadowedColor = sh.litCache.get(shadowKey);
+                  if (shadowedColor === undefined) {
+                    const orig = hexToRgb(cellColor);
+                    const sc = sh.shadowColorRgb;
+                    const r = Math.round(orig[0] * (1 - effectiveOpacity) + sc[0] * effectiveOpacity);
+                    const g = Math.round(orig[1] * (1 - effectiveOpacity) + sc[1] * effectiveOpacity);
+                    const b = Math.round(orig[2] * (1 - effectiveOpacity) + sc[2] * effectiveOpacity);
+                    shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+                    sh.litCache.set(shadowKey, shadowedColor);
+                  }
+                  cellColor = shadowedColor;
                 }
-                cellColor = shadowedColor;
               }
             }
           }
         }
+
+        const rampPos = clamped * rampMax;
+        const lower = rampPos | 0;
+        const frac = rampPos - lower;
+        const threshold = BAYER_4X4[(row & 3) * 4 + (col & 3)]!;
+        let glyphIdx = frac > threshold && lower < rampMax ? lower + 1 : lower;
+        if (glyphIdx > rampMax) glyphIdx = rampMax;
 
         glyphBuf[idx] = ramp[glyphIdx]!;
         if (colorBuf) colorBuf[idx] = cellColor;
@@ -1114,6 +1299,28 @@ function solidBufToString(glyphBuf: string[], colorBuf: (string | null)[] | null
  * Each returned frame may contain `<span style="color:…">` elements; consumers
  * must set `innerHTML` (not `textContent`) to preserve colors.
  */
+/**
+ * Rasterize the scene and return the final {@link CellGrid} instead of a string.
+ *
+ * The SAME cell contract the post-rasterize `transformCells` hook receives and
+ * the web effect layer / future C device evaluator (M5) consume. Implemented by
+ * driving the normal {@link rasterize} path with a capturing hook, so the grid
+ * is exactly what the string would have been built from (no duplicated raster
+ * logic, always in sync). Does not affect the string path in any way.
+ */
+export function rasterizeToCells(scene: RasterizeContext): CellGrid {
+  let captured: CellGrid | null = null;
+  const capture = (g: CellGrid): void => {
+    // Clone so the grid outlives the rasterizer's scratch buffers.
+    captured = buildCellGrid(g.char, g.color, g.depth, g.cols, g.rows);
+  };
+  rasterize({ ...scene, transformCells: capture });
+  if (captured) return captured;
+  // Nothing drawn / mode built no grid — return an empty grid at grid size.
+  const { cols, rows } = scene.grid;
+  return buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+}
+
 export function bakeFrames(scene: RasterizeContext, frameCount: number, axis: "x" | "y" = "y"): string[] {
   const { camera } = scene;
   const original = axis === "y" ? camera.rotY : camera.rotX;

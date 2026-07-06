@@ -549,7 +549,9 @@
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
-  padding-right: 6px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 2px 8px 2px 0;
   isolation: isolate;
 }
 
@@ -592,7 +594,8 @@
 
 .tree-heading {
   margin: 0;
-  padding: 4px 0 3px;
+  min-height: 28px;
+  padding: 5px 2px 4px 0;
   border: 0;
   background: transparent;
   color: rgba(255, 232, 184, 0.75);
@@ -601,7 +604,7 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   cursor: pointer;
@@ -618,7 +621,7 @@
 .tree-label {
   font-weight: inherit;
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
 }
 
@@ -643,9 +646,9 @@
   margin-top: 4px;
   display: grid;
   gap: 2px;
-  max-height: min(320px, 45vh);
-  overflow: auto;
-  padding-right: 6px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
   isolation: isolate;
 }
 
@@ -657,10 +660,11 @@
 
 .sidebar-item {
   width: 100%;
+  min-height: 24px;
   border: 0;
   background: transparent;
   color: rgba(255, 232, 184, 0.72);
-  padding: 3px 6px;
+  padding: 4px 7px;
   border-radius: 0;
   cursor: pointer;
   text-align: left;

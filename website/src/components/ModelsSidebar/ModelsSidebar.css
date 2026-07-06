@@ -33,6 +33,31 @@
   background: transparent;
   padding: 14px 10px 10px;
   gap: 6px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.models-sidebar__header {
+  flex: 0 0 auto;
+}
+
+.models-sidebar .model-tree {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 2px 8px 2px 0;
+}
+
+.models-sidebar .model-button-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 /* ── Search input ─────────────────────────────────────────────────────── */
@@ -113,7 +138,8 @@
   text-transform: uppercase;
   color: rgba(255, 232, 184, 0.55);
   background: transparent;
-  padding: 5px 0 3px;
+  min-height: 28px;
+  padding: 5px 2px 4px 0;
   border: 0;
   display: flex;
   align-items: center;
@@ -172,7 +198,8 @@
   color: rgba(255, 232, 184, 0.75);
   border: 0;
   border-radius: 0;
-  padding: 3px 6px;
+  min-height: 24px;
+  padding: 4px 7px;
   cursor: pointer;
   text-align: left;
   width: 100%;
@@ -234,7 +261,8 @@
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-size: 10px;
   color: rgba(255, 232, 184, 0.35);
-  margin-top: 6px;
+  flex: 0 0 auto;
+  margin-top: 8px;
   padding: 0 2px 0;
   border-top: 1px solid rgba(255, 232, 184, 0.1);
   padding-top: 6px;

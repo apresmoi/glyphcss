@@ -154,8 +154,8 @@ describe("createIsometricCamera", () => {
       expect(style.transform).toContain("translate3d(");
     });
 
-    it("includes zoom value in scale transform", () => {
-      const camera = createIsometricCamera({ zoom: 1.5 });
+    it("uses zoom divided by BASE_TILE in scale transform", () => {
+      const camera = createIsometricCamera({ zoom: 75 });
       const style = camera.getStyle();
       expect(style.transform).toContain("scale(1.5)");
     });

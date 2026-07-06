@@ -1,5 +1,5 @@
 import type { Hotspot, HotspotCell } from "@glyphcss/core";
-import type { GlyphCamera } from "./createGlyphCamera";
+import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
 
 /**
  * Project a list of 3D hotspot anchors through the camera. Returns the
@@ -15,9 +15,10 @@ export function projectHotspots(
   cols: number,
   rows: number,
   cellAspect: number,
+  metrics?: GlyphProjectionMetrics,
 ): HotspotCell[] {
   return hotspots.map((h) => {
-    const [col, row, depth] = camera.project(h.at, cols, rows, cellAspect);
+    const [col, row, depth] = camera.project(h.at, cols, rows, cellAspect, metrics);
     const visible =
       depth > -3 &&
       col >= 0 && col < cols &&

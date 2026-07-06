@@ -82,7 +82,7 @@ const scene = createGlyphScene(host, {
   cols, rows,
   cellAspect: 2.0,
   camera,
-  directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 },
+  directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 },
   ambientLight: { intensity: 0.45 },
 });
 

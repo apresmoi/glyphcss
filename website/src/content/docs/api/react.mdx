@@ -86,6 +86,15 @@ Shadow props on `<GlyphMesh>`:
 | `castShadow` | `boolean` | `false` | This mesh casts shadows onto `receiveShadow` surfaces |
 | `receiveShadow` | `boolean` | `false` | This mesh displays shadows from `castShadow` meshes. A mesh that is both casts and receives self-shadows |
 
+Detail / density props on `<GlyphMesh>` (see the [Density & Detail guide](/guides/density/)):
+
+| Prop | Type | Default | Description |
+|---|---|---|---|
+| `density` | `number` | `1` | Render this mesh at `density`× the scene resolution, in its own `<pre>` |
+| `fontSize` | `number \| string` | — | Explicit cell size (px or CSS length). Overrides `density` |
+| `lineHeight` | `number` | — | Explicit cell line-height. Overrides `density` |
+| `transparent` | `boolean` | `false` | See-through: doesn't occlude / isn't occluded |
+
 Shadow prop on `<GlyphScene>`:
 
 | Prop | Type | Default | Description |

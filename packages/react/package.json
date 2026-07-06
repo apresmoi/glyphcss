@@ -25,6 +25,16 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./three": {
+      "types": "./dist/three.d.ts",
+      "import": "./dist/three.js",
+      "require": "./dist/three.cjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "three": ["dist/three.d.ts"]
     }
   },
   "scripts": {

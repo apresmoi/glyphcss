@@ -74,14 +74,16 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       earthRadiusM: number;
     };
 
-    // Camera.zoom thresholds for LOD selection. zoom is now px/world-unit
-    // (BASE_TILE=50). At default zoom≈16 the whole globe is visible at low
-    // detail (z0). Switch to z1 when the user has zoomed in enough that z0
-    // tiles look coarse (~3 globe-radii worth of zoom = zoom > 50).
+    const INITIAL_ZOOM = 300;
+
+    // Camera.zoom thresholds for LOD selection. zoom is absolute CSS px per
+    // world unit. At the default zoom the whole unit-radius globe is visible at
+    // low detail (z0). Switch to z1 once the user has zoomed in enough that z0
+    // tiles look coarse.
     // Globe ships only z0/z1 tiles (decorative orbit view — deep zoom isn't
     // worth the data weight), so the LOD never exceeds 1.
     function targetLOD(zoom: number): number {
-      if (zoom < 50) return 0;
+      if (zoom < 600) return 0;
       return 1;
     }
 
@@ -100,13 +102,13 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       const loading = document.getElementById("loading");
       if (!host) return;
 
-      // Classic iso: rotX ≈ 55°, rotY ≈ 45°. zoom=24 (px/world-unit) so the
-      // unit-radius globe fills most of the viewport (still LOD 0, < 50).
+      // Classic iso: rotX ≈ 55°, rotY ≈ 45°. INITIAL_ZOOM fills most of the
+      // viewport while staying in LOD 0.
       // On a narrow phone the desktop zoom crops the sphere, so start smaller
       // there — scaled to the viewport width so the whole globe is visible.
       const initialZoom = window.innerWidth < 800
-        ? Math.max(9, Math.round(window.innerWidth / 30))
-        : 24;
+        ? Math.max(120, Math.round(window.innerWidth / 2.6))
+        : INITIAL_ZOOM;
       const camera = createGlyphOrthographicCamera({
         rotX: 55,
         rotY: 45,
@@ -119,7 +121,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         mode: "solid",
         useColors: true,
         glyphPalette: "default",
-        directionalLight: { direction: [-0.5, -0.7, -0.5], intensity: 1.1 },
+        directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 1.1 },
         ambientLight: { intensity: 0.45 },
       });
 
@@ -296,27 +298,51 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       const labelEls: HTMLElement[] = [];
       let labelData: LabelRec[] = [];
       const LABEL_R = 1.06; // sphere radius for labels (above peak relief ~1.04)
+      type ProjectionGrid = {
+        cols: number;
+        rows: number;
+        cellAspect: number;
+        cellWidth: number;
+        cellHeight: number;
+        centerCol: number;
+        centerRow: number;
+      };
       function gridDims() {
         const o = scene.getOptions();
         return { cols: o.cols ?? 80, rows: o.rows ?? 24, cellAspect: o.cellAspect ?? 2 };
       }
-      function updateGlobeLabels(): void {
-        const { cols, rows, cellAspect } = gridDims();
+      function projectionGrid(): ProjectionGrid {
+        const g = gridDims();
         const hostRect = host.getBoundingClientRect();
-        const cellW = hostRect.width / cols, cellH = hostRect.height / rows;
-        // Scale label count with zoom: at zoom=16 (globe view) show ~8;
-        // at zoom=150 (max) show ~30. (zoom / 16) normalises to the default view.
-        const maxShown = Math.max(8, Math.min(labelData.length, Math.round((camera.zoom / 16) * 9)));
+        const preRect = scene.output.getBoundingClientRect();
+        const cellWidth = preRect.width > 0 ? preRect.width / g.cols
+          : hostRect.width > 0 ? hostRect.width / g.cols
+          : 50 / g.cellAspect;
+        const cellHeight = preRect.height > 0 ? preRect.height / g.rows
+          : hostRect.height > 0 ? hostRect.height / g.rows
+          : 50;
+        return {
+          ...g,
+          cellWidth,
+          cellHeight,
+          centerCol: g.cols * camera.center[0] + (hostRect.width > 0 ? (hostRect.width - g.cols * cellWidth) / (2 * cellWidth) : 0),
+          centerRow: g.rows * camera.center[1] + (hostRect.height > 0 ? (hostRect.height - g.rows * cellHeight) / (2 * cellHeight) : 0),
+        };
+      }
+      function updateGlobeLabels(): void {
+        const pg = projectionGrid();
+        const hostRect = host.getBoundingClientRect();
+        const maxShown = Math.max(8, Math.min(labelData.length, Math.round((camera.zoom / INITIAL_ZOOM) * 9)));
         const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
         let count = 0;
         for (let i = 0; i < labelEls.length; i++) {
           const rec = labelData[i];
           const u = latLonToXYZ(rec.lat, rec.lon);
-          const [col, row, depth] = camera.project([u[0] * LABEL_R, u[1] * LABEL_R, u[2] * LABEL_R], cols, rows, cellAspect);
+          const [col, row, depth] = camera.project([u[0] * LABEL_R, u[1] * LABEL_R, u[2] * LABEL_R], pg.cols, pg.rows, pg.cellAspect, pg);
           let show = false;
           // depth < 0 = front hemisphere (facing camera). Back-side labels hide.
           if (count < maxShown && depth < 0 && Number.isFinite(col)) {
-            const px = col * cellW, py = row * cellH;
+            const px = col * pg.cellWidth, py = row * pg.cellHeight;
             if (px >= 0 && px <= hostRect.width && py >= 0 && py <= hostRect.height) {
               const w = rec.name.length * 6 + 6, h = 13;
               const r = { x: px - w / 2, y: py - h / 2, w, h };
@@ -334,7 +360,6 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         try {
           const res = await fetch("/data/flatmap/labels.json");
           labelData = await res.json();
-          const layer = host.querySelector(".glyph-scene") ?? host;
           for (const rec of labelData) {
             const el = document.createElement("div");
             el.textContent = rec.name;
@@ -343,7 +368,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
               "letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,245,224,0.96);" +
               "text-shadow:0 0 3px #000,0 0 6px #000;opacity:0;transition:opacity 140ms ease;" +
               "pointer-events:none;z-index:5;";
-            layer.appendChild(el);
+            host.appendChild(el);
             labelEls.push(el);
           }
           updateGlobeLabels();
@@ -359,13 +384,11 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       // ≈ dθ · R_screen pixels for a rotation dθ, and the sphere radius is 1
       // world unit, so dθ = dx_px / pixelsPerWorldUnit.
       function pixelsPerUnit(): number {
-        const o = scene.getOptions();
-        const cols = o.cols ?? 80, rows = o.rows ?? 24, ca = o.cellAspect ?? 2;
-        const rect = host.getBoundingClientRect();
-        const a = camera.project([0, 0, 0], cols, rows, ca);
-        const b = camera.project([0, 0, 1], cols, rows, ca); // +Z unit (screen-up axis)
-        const dCol = (b[0] - a[0]) * (rect.width / cols);
-        const dRow = (b[1] - a[1]) * (rect.height / rows);
+        const pg = projectionGrid();
+        const a = camera.project([0, 0, 0], pg.cols, pg.rows, pg.cellAspect, pg);
+        const b = camera.project([0, 0, 1], pg.cols, pg.rows, pg.cellAspect, pg); // +Z unit (screen-up axis)
+        const dCol = (b[0] - a[0]) * pg.cellWidth;
+        const dRow = (b[1] - a[1]) * pg.cellHeight;
         return Math.hypot(dCol, dRow) || 1;
       }
       let activePtr: number | null = null;
@@ -413,9 +436,9 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       host.addEventListener("wheel", (e) => {
         e.preventDefault();
         const delta = e.deltaY * 0.001;
-        // Zoom range: 4 (globe tiny) – 150 (z1 tiles fill viewport).
+        // Zoom range: 80 (globe small) – 1800 (z1 tiles fill viewport).
         // Only z0/z1 tiles ship so deeper zoom just enlarges coarse tiles.
-        camera.zoom = Math.max(4, Math.min(150, camera.zoom * (1 - delta)));
+        camera.zoom = Math.max(80, Math.min(1800, camera.zoom * (1 - delta)));
         scene.rerender();
         updateGlobeLabels();
         // Always schedule — the debounce coalesces rapid wheel events into

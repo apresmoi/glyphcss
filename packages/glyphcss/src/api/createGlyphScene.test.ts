@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { createGlyphScene } from "./createGlyphScene";
 import type { Polygon, Vec3 } from "@glyphcss/core";
 
@@ -102,7 +103,24 @@ describe("createGlyphScene", () => {
     const scene = createGlyphScene(host, { cols: 20, rows: 10 });
     const handle = scene.add(makeSinglePolygon());
     expect(typeof handle.dispose).toBe("function");
+    expect(typeof handle.setPolygons).toBe("function");
     expect(typeof handle.setTransform).toBe("function");
+    handle.dispose();
+    scene.destroy();
+  });
+
+  it("updates mesh polygons in place", async () => {
+    const scene = createGlyphScene(host, { cols: 40, rows: 20, useColors: false });
+    const handle = scene.add(makeSinglePolygon());
+    await Promise.resolve();
+    const before = scene.output.textContent ?? "";
+    const cube = makeCubePolygons();
+
+    handle.setPolygons(cube);
+    await Promise.resolve();
+
+    expect(handle.polygons).toBe(cube);
+    expect(scene.output.textContent ?? "").not.toBe(before);
     handle.dispose();
     scene.destroy();
   });
@@ -139,6 +157,25 @@ describe("createGlyphScene", () => {
     await Promise.resolve();
     // Both modes produce non-empty output
     expect(scene.output.textContent!.replace(/\s/g, "").length).toBeGreaterThan(0);
+    scene.destroy();
+  });
+
+  it("renders an opaque density mesh through a separate detail layer with occlusion enabled", async () => {
+    const scene = createGlyphScene(host, {
+      cols: 40,
+      rows: 20,
+      mode: "solid",
+      useColors: false,
+      supersample: 2,
+      camera: createGlyphOrthographicCamera({ zoom: 50 }),
+    });
+    scene.add(makeCubePolygons(), { position: [0, 0, -0.6] });
+    scene.add(makeCubePolygons(), { density: 2, position: [0, 0, 0.6] });
+    await Promise.resolve();
+
+    const detail = host.querySelector("pre.glyph-output--detail");
+    expect(detail).toBeTruthy();
+    expect(detail!.textContent!.replace(/\s/g, "").length).toBeGreaterThan(0);
     scene.destroy();
   });
 

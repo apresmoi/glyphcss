@@ -317,9 +317,9 @@ function makeGrid(): Polygon[] {
 const host = document.querySelector<HTMLElement>("#scene")!;
 const camera = createGlyphCamera({ rotX: 25 });
 const scene = createGlyphScene(host, { camera, mode: "solid", cols: 100, rows: 30 });
-scene.add(makeGrid());
+const handle = scene.add(makeGrid());
 ```
 
 Each cell produces two triangular polygons sharing the quad diagonal `v00→v11`.
-To animate the wave, call `handle.dispose()` and `scene.add(makeGrid(newTime))`
-after each camera-end event — do not call it every frame.
+To animate the wave, call `handle.setPolygons(makeGrid(newTime))` after each
+camera-end event — do not call it every frame.

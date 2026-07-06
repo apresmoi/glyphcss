@@ -1,5 +1,5 @@
 # build + capture artifacts (reproducible via build.mjs / run.mjs)
-bench.bundle.js
-bench.bundle.js.map
+*.bundle.js
+*.bundle.js.map
 results/
 .smoke.*

@@ -21,6 +21,16 @@ Monorepo layout (pnpm workspaces):
 
 Public API is **mirrored** across React and Vue. Adding a hook on one side without adding the matching composable on the other is not acceptable (see "Cross-package discipline" below).
 
+### Three-like parity surface
+
+The native glyphcss API keeps glyphcss/voxcss conventions. For agent-friendly Three.js ports, the monorepo also exposes explicit `*/three` subpaths:
+
+- `@glyphcss/core/three` — pure Three-like math wrappers and transforms.
+- `glyphcss/three` — the core Three-like surface plus `compileScene` and geometry helpers for vanilla/static usage.
+- `@glyphcss/react/three` and `@glyphcss/vue/three` — mirrored framework components: `GlyphThreePerspectiveCamera`, `GlyphThreeOrthographicCamera`, and `GlyphThreeMesh`.
+
+These subpaths intentionally use Three-compatible public names and units: `Vector3`, `Euler`, `Object3D`, `PerspectiveCamera`, `OrthographicCamera`, `DirectionalLight`, `AmbientLight`, radians for object rotations, Y-up authoring coordinates, and Three camera frustum semantics. They are adapters over glyphcss, not a Three.js runtime dependency. Geometry authored in that surface is converted to native glyphcss coordinates with `transformPolygonsToGlyph`; the Y-up → Z-up axis map is `[x, -z, y]` so winding and Lambert lighting stay right-handed. Three-like lights preserve color and intensity; `DirectionalLight.toGlyphDirectionalLight()` converts Three's `target → position` source vector into glyphcss's native directional-light convention.
+
 ## Rendering model
 
 **One render pass → one `<pre>.textContent` assignment.** On every camera or scene state change, the rasteriser:
@@ -30,7 +40,17 @@ Public API is **mirrored** across React and Vue. Adding a hook on one side witho
 3. Fills a `cols × rows` character grid: depth-tests overlapping polygons, picks a glyph per cell based on the render mode.
 4. Joins all cells into a single string and writes it to `<pre>.textContent` exactly once.
 
-There are no per-polygon DOM elements. There is no CSS `matrix3d`. The `<pre>` is the entire render surface.
+There are no per-polygon DOM elements. There is no CSS `matrix3d`. The base `<pre>` is the render surface for all shared-resolution meshes.
+
+### Per-mesh detail layers
+
+By default every mesh renders into that one shared base `<pre>`. A mesh can opt into **its own resolution** — set `density` (a multiplier: `density: 3` → 3× the scene's glyph resolution, cell = base ÷ density, isotropic, same on-screen size) or the low-level `fontSize` / `lineHeight` (which override `density`). Such a mesh "pops out" into its **own silhouette-fitted, CSS-translated `<pre>`** rendered at that cell size — so a hero mesh carries far more detail while the rest of the scene stays cheap in the shared grid. Browser-only (needs layout to measure cells); works with any camera (ortho / perspective / FPV) — detail meshes render **in place** (real world positions, scaled zoom, offset projection center), and the detail grid is clamped to the viewport so a camera near/inside a mesh can't blow up the render. This is **not** a group/tree concept — it's a per-mesh property on the flat mesh list.
+
+`transparent: true` (default `false` = opaque) makes a mesh see-through (x-ray): it neither occludes nor is occluded. Because a mesh in the shared `<pre>` always occludes (one depth buffer), declaring `transparent` also pops the mesh into its own `<pre>` — separation happens for custom cell metrics **or** transparency.
+
+**Cross-layer occlusion.** Opaque meshes occlude each other across `<pre>` layers via a shared camera-depth pass: `computeOcclusionIds` rasterises all opaque geometry into one id-map (nearest layer per cell), and each layer's `rasterize` blanks cells a *different* layer owns (a layer never occludes itself). Integrated into `rasterize` (an `occlusion` `OcclusionMap` input) so it works for plain text **and** colored spans, and self-disables (zero cost) when no opaque detail mesh exists. Within the shared `<pre>`, meshes occlude each other for free via the normal per-cell depth buffer. The occlusion id-map is built at the **scene's supersample** resolution (same offset-scaling wrapper `rasterizeSolid` uses), so the world's supersampled silhouette and its id-map hole coincide subcell-for-subcell — no 1-cell seam at the world/entity boundary. **Detail layers still render at `supersample: 1`** (already high-res; coverage AA buys little and costs a full extra pass) and sample the supersampled id-map via an `×ss` cell affine. Both world-hole and detail-fill clip to the same id-map footprint, so they coincide (no black-hole, no seam). No-op when `supersample: 1` (id-map = output resolution, byte-identical to the non-supersampled path).
+
+These options mirror across React/Vue `<GlyphMesh>` and the `<glyph-mesh>` custom element (`density`, `font-size`, `line-height`, `transparent`). **Static compile (`compileScene`, `GlyphSceneStatic`, the CLI/Vite plugin) and the interactive/CodePen export take a flat polygon list — they cannot represent per-mesh detail layers**, so per-mesh density/transparent is a runtime-only feature there (the gallery's scene-wide "Density" slider drives the render font-size instead, which *does* export).
 
 ### Render modes
 
@@ -66,18 +86,20 @@ Because `rasterize` is pure (geometry + camera → string), a scene can be rende
 
 ## No per-frame DOM mutation
 
-The invariant we hold: **each render cycle sets `<pre>.textContent` exactly once.** Multiple writes per cycle (e.g. cell-by-cell DOM patching) are not acceptable.
+The invariant we hold: **each render cycle writes each `<pre>` exactly once** — the base `<pre>` plus one write per per-mesh detail layer (and one `transform` per detail layer for positioning). Cell-by-cell DOM patching, or multiple writes to the same `<pre>` per cycle, are not acceptable.
 
 Hotspot positions update via a single inline-style assignment per hotspot element, not via DOM rebuild.
 
 Controls (orbit, map, first-person) mutate a single camera state object; the rasteriser reads that object when it renders. The JS ↔ DOM boundary is: camera event → update camera state object → rasterise → write one string.
 
+**Interactive LOD.** Cost scales ~quadratically with scene-wide density (font ÷ d → cells × d²), so a tiny cell (high density / small font) can blow the frame budget while dragging (Script + browser Layout/Paint of a huge `<pre>`; colored output's `innerHTML` spans add ParseHTML/Style/Paint on top). The `interactiveDownscale` scene option (default `1` = off) renders at `1/n` resolution *while a control is actively dragging* and restores full detail on release — same on-screen size (camera `zoom` unchanged; bigger cell → fewer cells), just coarser mid-gesture. All three controls signal this automatically via the shared listener registry (`emitInteraction` → `scene.setInteracting`); consumers can call `scene.setInteracting(active)` for custom interaction sources. Mirrored across React/Vue `<GlyphScene interactiveDownscale>` and `<glyph-scene interactive-downscale>`.
+
 ## Naming
 
-Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types: `Vec2`, `Vec3`, `Polygon`, `TextureTriangle`.
+Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types (`Vec2`, `Vec3`, `Polygon`, `TextureTriangle`) and the explicit `*/three` compatibility subpaths, where Three-compatible names are the point of the API. React/Vue components in those subpaths still use the `GlyphThree` prefix.
 
 - **Hooks/composables:** `useGlyphCamera`, `useGlyphMesh`, `useGlyphSceneContext`, `useGlyphAnimation`.
-- **Components:** `GlyphScene`, `GlyphSceneStatic` (SSR/build-time `<pre>`, no runtime), `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`.
+- **Components:** `GlyphScene`, `GlyphSceneStatic` (SSR/build-time `<pre>`, no runtime), `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`, `GlyphThreePerspectiveCamera`, `GlyphThreeOrthographicCamera`, `GlyphThreeMesh`.
 - **Types:** `GlyphDirectionalLight`, `GlyphAmbientLight`, `GlyphAnimationMixer`, `GlyphAnimationAction`, `GlyphAnimationClip`, `GlyphAnimationTarget`.
 - **Functions:** `createGlyphAnimationMixer`, `injectGlyphBaseStyles`, `compileScene` (pure, DOM-less render → `<pre>` string), `buildGlyphInteractiveExport` / `glyphCodepenPrefill` (polygons + declared interactions → portable self-contained snippet), `decimatePolygons` (core — resolution-target mesh simplification).
 - **Vanilla factories:** `createGlyphScene`, `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`, `createGlyphOrbitControls`, `createGlyphMapControls`, `createGlyphFirstPersonControls`.
@@ -86,11 +108,12 @@ Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry 
 
 ## Numeric conventions
 
-These conventions match voxcss and three.js exactly — same units, same frames.
+These conventions are the native glyphcss/voxcss surface. The `*/three` subpaths are the exception: they use Three.js units and frames, then convert internally.
 
 - **Rotation units: degrees.** `rotX`, `rotY` on cameras and the `rotation` prop on meshes are all in degrees (XYZ Euler). `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Do not use radians — the asciss-lineage radian convention has been replaced.
-- **Camera `zoom`: absolute, pixels per world unit.** `zoom=50` means one world unit maps to 50 px at `BASE_TILE`. This is three.js-style orthographic zoom, not a fraction of the viewport.
-- **Directional light `direction`: toward convention.** `GlyphDirectionalLight.direction` is the direction the light shines *toward*, matching three.js. A vector pointing down-right-forward lights the top-left-back faces.
+- **Camera `zoom`: absolute, CSS pixels per world unit.** `zoom=50` means one world unit maps to 50 CSS px. This matches voxcss/polycss's public camera API; internally those engines author geometry at `BASE_TILE=50` and apply `scale(zoom / BASE_TILE)`. This is not a fraction of the viewport.
+- **Perspective `distance`: default `0`.** With the default CSS-perspective projection, `distance` is a CSS-pixel pull-back matching voxcss/polycss. In legacy `perspective: 0` mode only, it keeps the old world-unit pinhole semantics.
+- **Directional light `direction`: source-vector convention.** `GlyphDirectionalLight.direction` is the unit vector from the shaded surface toward the distant light source, matching polycss/voxcss. A vector pointing up-right-forward lights faces whose outward normals point up-right-forward.
 
 ## Cross-package discipline
 

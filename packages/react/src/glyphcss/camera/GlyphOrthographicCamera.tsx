@@ -12,10 +12,21 @@ import { GlyphCameraContext } from "./context";
 export interface GlyphOrthographicCameraProps {
   rotX?: number;
   rotY?: number;
-  /** Orthographic zoom — absolute px per world unit (zoom=1 → BASE_TILE=50). Default 0.65. */
+  /** Orthographic zoom in CSS pixels per world unit. Default 0.65. */
   zoom?: number;
   /** Center of projection in normalized grid coords. Default [0.5, 0.5]. */
   center?: [number, number];
+  /**
+   * 9-element row-major 3×3 rotation matrix (same layout as `gc_opts.mat`).
+   * Set together with `useMat=true` to use the quaternion/matrix camera path
+   * instead of the 2-Euler turntable, eliminating pole singularity.
+   */
+  mat?: number[];
+  /**
+   * When `true` and `mat` is provided, use `mat` for projection instead of
+   * Euler `rotX`/`rotY`.  Default `false` (Euler, backward compatible).
+   */
+  useMat?: boolean;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -26,6 +37,8 @@ function GlyphOrthographicCameraInner({
   rotY,
   zoom,
   center,
+  mat,
+  useMat,
   className,
   style,
   children,
@@ -50,6 +63,10 @@ function GlyphOrthographicCameraInner({
     if (rotX !== undefined && camera.rotX !== rotX) { camera.rotX = rotX; dirty = true; }
     if (rotY !== undefined && camera.rotY !== rotY) { camera.rotY = rotY; dirty = true; }
     if (zoom !== undefined && camera.zoom !== zoom) { camera.zoom = zoom; dirty = true; }
+    // Matrix / quaternion path sync.
+    if (mat !== undefined && camera.mat !== mat) { camera.mat = mat; dirty = true; }
+    const nextUseMat = useMat ?? false;
+    if (camera.useMat !== nextUseMat) { camera.useMat = nextUseMat; dirty = true; }
     if (dirty) {
       sceneRerenderRef.current?.();
     }

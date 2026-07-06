@@ -58,11 +58,11 @@ const SCENE_BASE = {
   cols: 60,
   rows: 30,
   useColors: false,
-  directionalLight: { direction: [0, 0, -1] as [number, number, number], intensity: 1 },
+  directionalLight: { direction: [0, 0, 1] as [number, number, number], intensity: 1 },
   ambientLight: { intensity: 0.3 },
 };
 
-const CAMERA_PROPS = { rotX: 55, rotY: 30, zoom: 5, distance: 20 };
+const CAMERA_PROPS = { rotX: 55, rotY: 30, zoom: 250, distance: 20 };
 
 // --- Render helpers ---------------------------------------------------------
 
@@ -282,12 +282,13 @@ describe("GlyphGround (Vue) — shadow prop defaults", () => {
   });
 
   it("GlyphGround with default receiveShadow=true receives shadows from castShadow mesh", async () => {
+    const groundLight = { direction: [0, 1, 0] as [number, number, number], intensity: 1 };
     // Baseline: no shadow config
     const { container: containerBase } = renderScene(
-      {},
+      { directionalLight: groundLight },
       () => [
         h(GlyphMesh, { polygons: CUBE_POLYGONS }),
-        h(GlyphGround),
+        h(GlyphGround, { position: [0, -3, 0] }),
       ],
     );
     await nextTick();
@@ -295,10 +296,10 @@ describe("GlyphGround (Vue) — shadow prop defaults", () => {
 
     // With shadow: cube casts, GlyphGround receives (default receiveShadow=true)
     const { container: containerShadow } = renderScene(
-      { shadow: SHADOW_OPTS },
+      { shadow: SHADOW_OPTS, directionalLight: groundLight },
       () => [
         h(GlyphMesh, { polygons: CUBE_POLYGONS, castShadow: true }),
-        h(GlyphGround),
+        h(GlyphGround, { position: [0, -3, 0] }),
       ],
     );
     await nextTick();

@@ -52,6 +52,9 @@ const meshHandle = scene.add(
 meshHandle.setTransform({ position: [2, 0, 0] });
 scene.rerender();
 
+// Replace the mesh geometry in place:
+meshHandle.setPolygons(nextPolygons);
+
 // Remove the mesh:
 meshHandle.dispose();
 ```

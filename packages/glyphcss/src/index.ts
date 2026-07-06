@@ -111,7 +111,10 @@ export type {
 export { projectHotspots } from "./api/projectHotspots";
 
 // ── Rasterizer ────────────────────────────────────────────────────
-export { rasterize, bakeFrames } from "./render/rasterize";
+export { rasterize, bakeFrames, rasterizeToCells } from "./render/rasterize";
+// ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ──
+export { buildCellGrid, applyCellHook } from "./render/cells";
+export type { CellGrid, TransformCells } from "./render/cells";
 export {
   DEFAULT_RAMP,
   SOLID_RAMP,

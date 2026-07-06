@@ -12,6 +12,7 @@ import { GlyphCameraContextKey } from "./context";
 export interface GlyphOrthographicCameraProps {
   rotX?: number;
   rotY?: number;
+  /** Orthographic zoom in CSS pixels per world unit. Default 0.65. */
   zoom?: number;
   center?: [number, number];
   class?: string;

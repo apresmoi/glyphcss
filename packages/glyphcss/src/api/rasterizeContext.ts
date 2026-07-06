@@ -5,8 +5,29 @@ import type {
   Polygon,
   TextureSampler,
 } from "@glyphcss/core";
-import type { GlyphCamera } from "./createGlyphCamera";
+import type { TransformCells } from "../render/cells";
+import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
+
+/**
+ * Cross-layer occlusion input. A shared buffer storing, per reference cell, the
+ * id of the LAYER whose surface is nearest there (`-1` = empty). The rasterizer
+ * blanks an output cell when the owner at its reference cell is a DIFFERENT layer
+ * (`owner !== layerId`) — so a layer never occludes itself (its own self-depth is
+ * already resolved inside its own rasterize), only other layers in front do.
+ * `(colScale, colOffset)` / `(rowScale, rowOffset)` map this layer's OUTPUT cell
+ * to a reference cell: `refCol = floor(colScale * outCol + colOffset)`.
+ */
+export interface OcclusionMap {
+  idMap: Int32Array;
+  layerId: number;
+  cols: number;
+  rows: number;
+  colScale: number;
+  colOffset: number;
+  rowScale: number;
+  rowOffset: number;
+}
 
 export interface RasterizeContextOptions {
   camera: GlyphCamera;
@@ -45,6 +66,8 @@ export interface RasterizeContextOptions {
    * single-sided surfaces whose winding isn't guaranteed to face the camera —
    * e.g. level geometry imported from a BSP — matching how a CSS/DOM renderer
    * (polycss) shows both sides. Without it, "back-wound" faces vanish.
+   * Lighting remains one-sided: the authored polygon normal is still used for
+   * Lambert shading, so a backface does not get direct light via `abs(dot)`.
    */
   doubleSided?: boolean;
   /**
@@ -78,6 +101,16 @@ export interface RasterizeContextOptions {
    * order; a projection-painted depth buffer needs the deadband. Typical 0.002–0.01.
    */
   depthEpsilon?: number;
+  /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
+  occlusion?: OcclusionMap | null;
+  /**
+   * Optional post-rasterize cell hook (M4 composition effects). When supplied,
+   * the rasterizer builds a {@link CellGrid} from its final per-cell buffers,
+   * runs the hook, then stringifies the (possibly mutated) grid — all BEFORE the
+   * single `<pre>` write. When absent (default), no grid is built and output is
+   * byte-identical to the pre-hook renderer. See {@link TransformCells}.
+   */
+  transformCells?: TransformCells;
 }
 
 /**
@@ -109,8 +142,11 @@ export interface TemporalHistory {
   rows: number;
   /** Snapshot of the camera that produced the stored frame (for reprojection). */
   cam: {
+    kind: "perspective" | "orthographic";
     rotX: number; rotY: number; target: [number, number, number];
-    zoom: number; perspective: number; distance: number; stretch: number;
+    zoom: number; perspective: number; distance: number; stretch: number; fovScale: number;
+    center: [number, number];
+    metrics?: GlyphProjectionMetrics;
   } | null;
 }
 
@@ -147,12 +183,14 @@ export interface RasterizeContext {
   textureSamplers?: Map<string, TextureSampler> | null;
   /** Optional retained previous-frame buffer for temporal AA. */
   temporalHistory?: TemporalHistory | null;
+  /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
+  occlusion?: OcclusionMap | null;
+  /** Optional post-rasterize cell hook — see {@link RasterizeContextOptions.transformCells}. */
+  transformCells?: TransformCells;
 }
 
-// Direction the light shines TOWARD (three.js / computeShapeLighting convention).
-// Negated from the old [0.5, 0.7, 0.5] "light travels from" default so visual
-// output is preserved after the Lambert sign fix in rasterize.ts.
-const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [-0.5, -0.7, -0.5], intensity: 1 };
+// Source vector from the surface toward the distant light.
+const DEFAULT_DIRECTIONAL: GlyphDirectionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
 const DEFAULT_AMBIENT: GlyphAmbientLight = { intensity: 0.4 };
 
 function polygonsToWireframeEdges(polygons: Polygon[]): WireframeEdge[] {
@@ -204,5 +242,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     receiveShadowFlags: opts.receiveShadowFlags ?? [],
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
+    ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
+    ...(opts.transformCells ? { transformCells: opts.transformCells } : {}),
   };
 }

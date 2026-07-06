@@ -45,6 +45,14 @@ export interface GlyphMeshProps {
    * Default false — opt-in, matching PolyMesh behaviour.
    */
   receiveShadow?: boolean;
+  /** Per-mesh detail multiplier — own finer `<pre>` at `density`× resolution. `fontSize`/`lineHeight` override it. */
+  density?: number;
+  /** Low-level per-mesh cell size (px or CSS length); overrides `density`. */
+  fontSize?: string | number;
+  /** Low-level per-mesh line-height; overrides `density`. */
+  lineHeight?: number;
+  /** See-through (doesn't occlude / isn't occluded). Default false. Pops the mesh into its own `<pre>`. */
+  transparent?: boolean;
   class?: string;
   // Pointer/mouse interaction — type surface matches voxcss PolyMesh.
   // TODO(hit-layer): wire these to the hit layer raycasting once the
@@ -73,6 +81,10 @@ export const GlyphMesh = defineComponent({
     autoCenter: { type: Boolean, default: false },
     castShadow: { type: Boolean, default: false },
     receiveShadow: { type: Boolean, default: false },
+    density: { type: Number, default: undefined },
+    fontSize: { type: [String, Number] as unknown as PropType<string | number>, default: undefined },
+    lineHeight: { type: Number, default: undefined },
+    transparent: { type: Boolean, default: undefined },
     class: { type: String, default: undefined },
     // TODO(hit-layer): wire these to the hit layer raycasting once the
     // rasterizer hit-map is wired to the hit-layer dispatch.
@@ -128,6 +140,10 @@ export const GlyphMesh = defineComponent({
       if (props.rotation) t.rotation = props.rotation;
       t.castShadow = props.castShadow;
       t.receiveShadow = props.receiveShadow;
+      if (props.density !== undefined) t.density = props.density;
+      if (props.fontSize !== undefined) t.fontSize = props.fontSize;
+      if (props.lineHeight !== undefined) t.lineHeight = props.lineHeight;
+      if (props.transparent !== undefined) t.transparent = props.transparent;
       return t;
     }
 
@@ -155,15 +171,15 @@ export const GlyphMesh = defineComponent({
       unregister();
     });
 
-    // Re-register when resolved polygons change (covers polygons, geometry, size, color)
+    // Update polygons in place when resolved polygons change (covers polygons, geometry, size, color)
     watch(resolvedPolygons, () => {
-      unregister();
-      register();
+      if (meshRef.value) meshRef.value.setPolygons(resolvedPolygons.value);
+      else register();
     });
 
     // Update transform on id/position/scale/rotation/castShadow/receiveShadow changes
     watch(
-      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow }),
+      () => ({ id: props.id, position: props.position, scale: props.scale, rotation: props.rotation, castShadow: props.castShadow, receiveShadow: props.receiveShadow, density: props.density, fontSize: props.fontSize, lineHeight: props.lineHeight, transparent: props.transparent }),
       () => {
         const mesh = meshRef.value;
         if (!mesh) return;

@@ -1,4 +1,4 @@
-// Vendored from voxcss packages/polycss/src/api/createPolyMapControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to absolute scale [0.1,500].
+// Vendored from voxcss packages/polycss/src/api/createPolyMapControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to scale range [0.1,500].
 /**
  * createGlyphMapControls — map/pan-mode camera input for a GlyphScene.
  *
@@ -12,6 +12,7 @@
  */
 
 import type { GlyphSceneHandle } from "./createGlyphScene";
+import type { GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { Vec3 } from "@glyphcss/core";
 import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
 export type {
@@ -59,14 +60,54 @@ export function createGlyphMapControls(
   let pinchZoom = 0; // camera.zoom when the pinch began
 
   const camera = scene.camera;
-  const registry = makeListenerRegistry();
+  const registry = makeListenerRegistry(scene);
   const snapshot = makeCameraSnapshot(scene);
   const { emitChange, emitInteraction } = registry;
   let wheelActive = false;
   let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
   // rotX/rotY are in degrees — drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
   const DEG_PER_PX = 1 / 4;
-  const PAN_SCALE = 0.02;
+
+  function projectionMetrics(): GlyphProjectionMetrics & { cols: number; rows: number; cellAspect: number; cellWidth: number; cellHeight: number } {
+    const opts = scene.getOptions();
+    const cols = opts.cols ?? 80;
+    const rows = opts.rows ?? 24;
+    const cellAspect = opts.cellAspect ?? 2;
+    const hostRect = host.getBoundingClientRect();
+    const outputRect = scene.output.getBoundingClientRect();
+    const fallbackCellHeight = 50;
+    const fallbackCellWidth = fallbackCellHeight / cellAspect;
+    const cellWidth = outputRect.width > 0 ? outputRect.width / cols
+      : hostRect.width > 0 ? hostRect.width / cols
+      : fallbackCellWidth;
+    const cellHeight = outputRect.height > 0 ? outputRect.height / rows
+      : hostRect.height > 0 ? hostRect.height / rows
+      : fallbackCellHeight;
+    const centerCol = cols * camera.center[0] +
+      (opts.autoSize && hostRect.width > 0 && cellWidth > 0 ? (hostRect.width - cols * cellWidth) / (2 * cellWidth) : 0);
+    const centerRow = rows * camera.center[1] +
+      (opts.autoSize && hostRect.height > 0 && cellHeight > 0 ? (hostRect.height - rows * cellHeight) / (2 * cellHeight) : 0);
+    return { cols, rows, cellAspect, cellWidth, cellHeight, centerCol, centerRow };
+  }
+
+  function screenToTargetDelta(dx: number, dy: number): Vec3 | null {
+    const grid = projectionMetrics();
+    const t = camera.target;
+    const o = camera.project(t, grid.cols, grid.rows, grid.cellAspect, grid);
+    const x = camera.project([t[0] + 1, t[1], t[2]], grid.cols, grid.rows, grid.cellAspect, grid);
+    const y = camera.project([t[0], t[1] + 1, t[2]], grid.cols, grid.rows, grid.cellAspect, grid);
+    const ax = (x[0] - o[0]) * grid.cellWidth;
+    const ay = (x[1] - o[1]) * grid.cellHeight;
+    const bx = (y[0] - o[0]) * grid.cellWidth;
+    const by = (y[1] - o[1]) * grid.cellHeight;
+    const det = ax * by - ay * bx;
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-6) return null;
+    return [
+      (dx * by - dy * bx) / det,
+      (ax * dy - ay * dx) / det,
+      0,
+    ];
+  }
 
   function twoFingerDist(): number {
     const p = [...pointers.values()];
@@ -131,13 +172,15 @@ export function createGlyphMapControls(
       camera.rotY = camera.rotY - dx * DEG_PER_PX * f;
       camera.rotX = Math.max(-90, Math.min(90, camera.rotX + dy * DEG_PER_PX * f));
     } else {
-      // Pan: translate target in camera-tangent plane
-      const t = camera.target;
-      camera.target = [
-        t[0] - dx * PAN_SCALE / camera.zoom,
-        t[1] - dy * PAN_SCALE / camera.zoom,
-        t[2],
-      ] as Vec3;
+      const delta = screenToTargetDelta(dx, dy);
+      if (delta) {
+        const t = camera.target;
+        camera.target = [
+          t[0] - delta[0],
+          t[1] - delta[1],
+          t[2],
+        ] as Vec3;
+      }
     }
     scene.rerender();
     emitChange(snapshot);
@@ -170,8 +213,8 @@ export function createGlyphMapControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    // Absolute px-per-world-unit zoom: wide clamp so fitted framings (~10–40)
-    // and deep zoom both work. Was [0.05, 10] under the old fraction scale.
+    // Absolute CSS px/world-unit zoom: wide clamp so normal framing and deep zoom both
+    // work. Was [0.05, 10] under the old fraction scale.
     camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
     scene.rerender();
     if (!wheelActive) { wheelActive = true; emitInteraction("start", snapshot); }

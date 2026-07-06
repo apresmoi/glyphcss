@@ -1,0 +1,238 @@
+---
+title: Density & Detail
+description: Render some meshes at higher glyph resolution than the rest of the scene, and control which meshes occlude.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+By default every mesh in a scene shares **one** character grid — the same glyph
+resolution everywhere. That keeps the whole scene a single `<pre>` write per
+frame. But sometimes you want a *hero* mesh to carry far more detail than the
+backdrop. glyphcss lets you bump the **density** of individual meshes, and choose
+whether a mesh occludes the rest.
+
+## How density is defined
+
+The render is a `cols × rows` grid; **density is how many of those cells land on
+your model** — more cells = finer detail. Cell size comes from the font:
+
+```
+cell width  ≈ font-size × monospace-advance    (≈ 0.6)
+cell height =  font-size × line-height
+```
+
+So a smaller cell ⇒ more cells ⇒ more glyphs on the model. `density` is just the
+ergonomic form of that: **`density: 3` makes a mesh's cell `1/3` the scene's, so
+it renders at 3× the resolution** — isotropically, at the same on-screen size.
+
+## Per-mesh `density`
+
+Set `density` on a mesh and it **pops out into its own silhouette-fitted,
+translated `<pre>`** rendered at that resolution. Everything without `density`
+stays in the shared base grid. Omitted (or `1`) = shared grid.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
+
+export function Demo() {
+  return (
+    <GlyphCamera rotX={62} rotY={30}>
+      <GlyphScene mode="solid" autoSize>
+        <GlyphOrbitControls />
+        <GlyphMesh geometry="cube" position={[-3, 0, 0]} />        {/* shared grid */}
+        <GlyphMesh geometry="icosahedron" density={4} />          {/* 4× detail */}
+      </GlyphScene>
+    </GlyphCamera>
+  );
+}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphCamera :rot-x="62" :rot-y="30">
+    <GlyphScene mode="solid" auto-size>
+      <GlyphOrbitControls />
+      <GlyphMesh geometry="cube" :position="[-3, 0, 0]" />
+      <GlyphMesh geometry="icosahedron" :density="4" />
+    </GlyphScene>
+  </GlyphCamera>
+</template>
+
+<script setup lang="ts">
+import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/vue";
+</script>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphCamera, createGlyphScene, resolveGeometry } from "glyphcss";
+
+const camera = createGlyphCamera({ rotX: 62, rotY: 30 });
+const scene = createGlyphScene(document.querySelector("#scene")!, { camera, mode: "solid", autoSize: true });
+
+scene.add(resolveGeometry("cube", { size: 1 }), { position: [-3, 0, 0] }); // shared grid
+scene.add(resolveGeometry("icosahedron", { size: 1 }), { density: 4 });    // 4× detail
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-camera rot-x="62" rot-y="30">
+  <glyph-scene mode="solid" auto-size>
+    <glyph-orbit-controls></glyph-orbit-controls>
+    <glyph-mesh geometry="cube" position="-3,0,0"></glyph-mesh>
+    <glyph-mesh geometry="icosahedron" density="4"></glyph-mesh>
+  </glyph-scene>
+</glyph-camera>
+```
+
+  </TabItem>
+</Tabs>
+
+## Overriding with `fontSize` / `lineHeight`
+
+`density` is the recommended knob, but you can drop to the raw cell metrics when
+you want **anisotropic** cells (e.g. denser rows than columns). `fontSize` and
+`lineHeight` set the mesh's `<pre>` cell directly and **override `density`** when
+both are present.
+
+- `fontSize` — overall cell scale (a number is px, or any CSS length string). Both axes.
+- `lineHeight` — cell *height* only → vertical density and cell aspect ratio.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+{/* density wins normally; fontSize/lineHeight override it */}
+<GlyphMesh geometry="icosahedron" fontSize={4} />              {/* 4px cell */}
+<GlyphMesh geometry="icosahedron" fontSize="5px" lineHeight={0.6} /> {/* taller-res, anisotropic */}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<GlyphMesh geometry="icosahedron" :font-size="4" />
+<GlyphMesh geometry="icosahedron" font-size="5px" :line-height="0.6" />
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+scene.add(polys, { fontSize: 4 });
+scene.add(polys, { fontSize: "5px", lineHeight: 0.6 });
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-mesh geometry="icosahedron" font-size="4"></glyph-mesh>
+<glyph-mesh geometry="icosahedron" font-size="5px" line-height="0.6"></glyph-mesh>
+```
+
+  </TabItem>
+</Tabs>
+
+## Transparency & occlusion
+
+A mesh in the shared grid always occludes (one depth buffer). Once meshes live in
+their **own** `<pre>` layers, glyphcss resolves which one wins per cell with a
+shared camera-depth pass — opaque meshes correctly occlude each other across
+layers (works with colored output, and costs nothing when no detail mesh exists).
+
+Set **`transparent: true`** to make a mesh see-through — it neither occludes
+others nor is occluded (an x-ray / blueprint look). Because that requires its own
+layer, `transparent` also pops the mesh out of the shared grid. Default is
+`false` (opaque, occludes).
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphMesh geometry="dodecahedron" density={3} />                 {/* opaque: occludes */}
+<GlyphMesh geometry="icosahedron" density={3} transparent />      {/* x-ray: shows through */}
+```
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<GlyphMesh geometry="dodecahedron" :density="3" />
+<GlyphMesh geometry="icosahedron" :density="3" transparent />
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+scene.add(dodeca, { density: 3 });                 // opaque
+scene.add(icosa,  { density: 3, transparent: true }); // x-ray
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-mesh geometry="dodecahedron" density="3"></glyph-mesh>
+<glyph-mesh geometry="icosahedron" density="3" transparent></glyph-mesh>
+```
+
+  </TabItem>
+</Tabs>
+
+## Works in any camera — including first-person
+
+Detail meshes are rendered **in place** at higher resolution (real world
+positions, scaled zoom, an offset projection center), not faked with a transform.
+So detail + cross-layer occlusion stay correct under **every** camera:
+
+- **Orthographic** — the representative glyphcss camera (iso / diagrammatic scenes).
+- **Perspective** — foreshortening of detail meshes is correct as you orbit or zoom.
+- **First-person (FPV)** — you can **walk through a scene** (`createGlyphFirstPersonControls` / `<GlyphFirstPersonControls>`) and hero meshes stay sharp and correctly occlude as you move. Walking *into* a mesh is safe — the detail grid is clamped to the viewport, so getting close never blows up the render.
+
+No flags or special handling — set `density` (and optionally `transparent`) on a
+mesh and it behaves the same whether the scene is orbited, flown, or walked.
+
+## Reference
+
+| Option | Type | Default | Effect |
+|---|---|---|---|
+| `density` | `number` | `1` (shared grid) | Render this mesh at `density`× the scene resolution, in its own `<pre>`. |
+| `fontSize` | `number \| string` | — | Explicit cell size (px or CSS length). **Overrides `density`.** |
+| `lineHeight` | `number` | — | Explicit cell line-height (vertical density / aspect). **Overrides `density`.** |
+| `transparent` | `boolean` | `false` | See-through — doesn't occlude / isn't occluded. Pops the mesh into its own `<pre>`. |
+
+Precedence: explicit `fontSize`/`lineHeight` → `density` → shared grid.
+
+## Notes & limits
+
+- **Browser-only.** Detail layers measure the live cell size, so they need
+  layout — they don't apply during SSR / static rendering.
+- **Any camera** (ortho / perspective / FPV) — see the section above.
+- **Cost is where you'd expect.** Each detail mesh is one extra `<pre>` render
+  per frame; the cross-layer occlusion pass only runs when an opaque detail mesh
+  is present. Meshes left in the shared grid are unchanged. Use detail
+  sparingly — a few hero meshes over a low-res backdrop, not everything.
+- **Smooth dragging at high resolution.** A very small cell (high scene-wide
+  density / tiny font) means a lot of glyphs to shade, stringify, and repaint
+  every frame — dragging can stutter. Set **`interactiveDownscale`** on the
+  scene (e.g. `2`) to render at ¼ the cells *while a control is dragging* and
+  snap back to full detail on release — same on-screen size, just coarser
+  mid-gesture. Cost scales ~quadratically with density (font ÷ d → cells × d²),
+  so keep the render font ≥ ~6px, or lean on `interactiveDownscale`, for fluid
+  interaction.
+- **Static compile / export.** `compileScene`, `GlyphSceneStatic`, the CLI/Vite
+  plugin, and the interactive/CodePen export work from a flat polygon list, so
+  per-mesh detail layers aren't represented there. For a static whole-scene
+  resolution, scale the render font-size instead.

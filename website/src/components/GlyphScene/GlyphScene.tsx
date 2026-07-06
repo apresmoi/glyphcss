@@ -1,20 +1,30 @@
 import { useEffect, useRef } from "react";
 import type { GlyphMetrics, PresetModel, SceneOptionsState } from "../GalleryWorkbench/types";
-import type { ParseAnimationClip, Polygon } from "@glyphcss/core";
+import type { LoadMeshOptions, ParseAnimationClip, Polygon } from "@glyphcss/core";
 
 // Mirror of the handle shape exposed by glyph-runtime on demoEl.glyphcssDemo.
 interface DemoHandle {
-  setMeshUrl: (url: string, mtlUrl?: string) => Promise<void>;
+  setMeshUrl: (url: string, mtlUrl?: string, options?: LoadMeshOptions) => Promise<void>;
   setPolygons: (polygons: Polygon[]) => void;
   setAutoRotate: (enabled: boolean) => void;
   setTunables: (partial: Record<string, number | string | boolean>) => void;
+  setInteractiveDownscale: (value: number) => void;
   setControlState: (partial: {
     autoCenter?: boolean;
     dragEnabled?: boolean;
     wheelEnabled?: boolean;
   }) => void;
   getCameraState: () => { rotX: number; rotY: number; scale: number; target: [number, number, number] };
-  getStats: () => { cols: number; rows: number; edges: number; verts: number; triangles: number; bakeMs: number };
+  getStats: () => {
+    cols: number;
+    rows: number;
+    glyphs: number;
+    textChars: number;
+    colorSpans: number;
+    domNodes: number;
+    layers: number;
+    bakeMs: number;
+  };
   setAnimation: (clipIndex: number) => void;
   clearAnimation: () => void;
   setAnimationPaused: (paused: boolean) => void;
@@ -61,7 +71,7 @@ export interface GlyphSceneProps {
   selectedPreset?: PresetModel;
   options: SceneOptionsState;
   onBuild: (ms: number) => void;
-  onCameraChange?: (cam: { rotX: number; rotY: number; zoom: number; target?: [number, number, number] }) => void;
+  onCameraChange?: (cam: { rotX: number; rotY: number; zoom?: number; target?: [number, number, number] }) => void;
   onStatsChange: (stats: GlyphMetrics) => void;
   onAnimationInfoChange: (info: { clips: Array<{ index: number; name: string; duration: number }> }) => void;
   selectedAnimation: string;
@@ -69,8 +79,39 @@ export interface GlyphSceneProps {
   animationTimeScale: number;
 }
 
-const FRAMES = 60;
 const POLL_INTERVAL_MS = 500;
+const GALLERY_ZOOM_COMPAT = 50;
+
+function toRuntimeZoom(galleryZoom: number): number {
+  return galleryZoom * GALLERY_ZOOM_COMPAT;
+}
+
+function fromRuntimeZoom(runtimeZoom: number): number {
+  return runtimeZoom / GALLERY_ZOOM_COMPAT;
+}
+
+function dragDensityToDownscale(dragDensity: number): number {
+  if (!Number.isFinite(dragDensity)) return 2;
+  return 1 / Math.min(Math.max(dragDensity, 0.1), 1);
+}
+
+function loadOptionsForPreset(preset: PresetModel | undefined): LoadMeshOptions | undefined {
+  if (!preset || preset.kind === "primitive" || !preset.options) return undefined;
+  if (preset.kind === "obj") return { objOptions: preset.options as LoadMeshOptions["objOptions"] };
+  if (preset.kind === "glb" || preset.kind === "gltf") return { gltfOptions: preset.options as LoadMeshOptions["gltfOptions"] };
+  if (preset.kind === "vox") return { voxOptions: preset.options as LoadMeshOptions["voxOptions"] };
+  if (preset.kind === "stl") return { stlOptions: preset.options as LoadMeshOptions["stlOptions"] };
+  return undefined;
+}
+
+function htmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 export function GlyphScene({
   meshUrl,
@@ -94,6 +135,8 @@ export function GlyphScene({
   // (which closes over mount-time values) can access the current preset.
   const selectedPresetRef = useRef(selectedPreset);
   selectedPresetRef.current = selectedPreset;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   // Last camera state applied via setTunables — guards against echo: when the
   // sidebar sets a value and the poll reads it back, we must not re-fire onCameraChange.
   const lastAppliedCameraRef = useRef<{ rotX: number; rotY: number; zoom: number; target: [number, number, number] } | null>(null);
@@ -114,8 +157,9 @@ export function GlyphScene({
     mountedRef.current = true;
 
     const defaults = JSON.stringify({
-      // Omit scale when 0 (auto-fit sentinel) so the runtime fits on first paint.
-      ...(options.zoom > 0 ? { scale: options.zoom } : {}),
+      // The gallery UI/presets mirror voxcss's legacy unitless zoom. The glyph
+      // runtime and public API use absolute px-per-world-unit zoom.
+      ...(options.zoom > 0 ? { zoom: toRuntimeZoom(options.zoom) } : {}),
       rotX: options.rotX,
       rotY: options.rotY,
     });
@@ -123,11 +167,17 @@ export function GlyphScene({
     const demoId = demoIdRef.current;
     const isPrimitive = selectedPresetRef.current?.kind === "primitive";
     const initialMtl = selectedPresetRef.current?.mtlUrl;
+    const initialLoadOptions = loadOptionsForPreset(selectedPresetRef.current);
+    const parserOptionsAttr = initialLoadOptions
+      ? ` data-load-options="${htmlAttr(JSON.stringify(initialLoadOptions))}"`
+      : "";
     host.innerHTML = `
       <div class="glyph-demo no-autorotate" id="${demoId}"
         data-geometry="cuboctahedron"
-        ${isPrimitive ? `data-primitive="1"` : `data-mesh="${meshUrl}"${initialMtl ? ` data-mtl="${initialMtl}"` : ""}`}
+        ${isPrimitive ? `data-primitive="1"` : `data-mesh="${htmlAttr(meshUrl)}"${initialMtl ? ` data-mtl="${htmlAttr(initialMtl)}"` : ""}${parserOptionsAttr}`}
         data-defaults='${defaults.replace(/'/g, "&apos;")}'
+        data-interactive-downscale="${htmlAttr(String(dragDensityToDownscale(options.dragDensity)))}"
+        data-no-hotspots="1"
         data-no-controls="1">
         <div class="glyph-demo__viewer not-content" data-layout="canvas-only">
           <div class="glyph-demo__canvas">
@@ -151,51 +201,64 @@ export function GlyphScene({
           if (attempts++ < 40) setTimeout(waitForHandle, 200);
           return;
         }
+        const currentOptions = optionsRef.current;
+        handle.setTunables(
+          currentOptions.zoom > 0
+            ? { zoom: toRuntimeZoom(currentOptions.zoom), rotX: currentOptions.rotX, rotY: currentOptions.rotY }
+            : { rotX: currentOptions.rotX, rotY: currentOptions.rotY },
+        );
+        lastAppliedCameraRef.current = {
+          rotX: currentOptions.rotX,
+          rotY: currentOptions.rotY,
+          zoom: currentOptions.zoom,
+          target: currentOptions.target,
+        };
         // Apply all option-driven state once now that the handle exists.
         // The dep-array useEffects below fired once at initial mount with a
         // null handle and won't re-fire because the options haven't changed.
-        handle.setProjection(options.perspective === false ? "orthographic" : "perspective");
-        if (options.perspective !== false) {
-          handle.setTunables({ distance: options.perspective });
+        handle.setProjection(currentOptions.perspective === false ? "orthographic" : "perspective");
+        if (currentOptions.perspective !== false) {
+          handle.setTunables({ perspective: currentOptions.perspective });
         }
         handle.setTunables({
-          renderMode: options.renderMode,
-          featureEdges: options.featureEdges,
-          glyphPalette: options.glyphPalette,
-          useColors: options.useColors,
-          smoothShading: options.smoothShading,
-          creaseAngle: options.creaseAngle,
+          renderMode: currentOptions.renderMode,
+          featureEdges: currentOptions.featureEdges,
+          glyphPalette: currentOptions.glyphPalette,
+          useColors: currentOptions.useColors,
+          smoothShading: currentOptions.smoothShading,
+          creaseAngle: currentOptions.creaseAngle,
         });
-        handle.setDragMode(options.dragMode);
+        handle.setInteractiveDownscale(dragDensityToDownscale(currentOptions.dragDensity));
+        handle.setDragMode(currentOptions.dragMode);
         handle.setFpvOptions({
-          look: options.fpvLook,
-          move: options.fpvMove,
-          jump: options.fpvJump,
-          crouch: options.fpvCrouch,
-          moveSpeed: options.fpvMoveSpeed,
-          jumpVelocity: options.fpvJumpVelocity,
-          gravity: options.fpvGravity,
-          eyeHeight: options.fpvEyeHeight,
-          crouchHeight: options.fpvCrouchHeight,
-          lookSensitivity: options.fpvLookSensitivity,
-          invertY: options.fpvInvertY,
+          look: currentOptions.fpvLook,
+          move: currentOptions.fpvMove,
+          jump: currentOptions.fpvJump,
+          crouch: currentOptions.fpvCrouch,
+          moveSpeed: currentOptions.fpvMoveSpeed,
+          jumpVelocity: currentOptions.fpvJumpVelocity,
+          gravity: currentOptions.fpvGravity,
+          eyeHeight: currentOptions.fpvEyeHeight,
+          crouchHeight: currentOptions.fpvCrouchHeight,
+          lookSensitivity: currentOptions.fpvLookSensitivity,
+          invertY: currentOptions.fpvInvertY,
         });
         handle.setLighting({
-          azimuth: options.lightAzimuth,
-          elevation: options.lightElevation,
-          keyIntensity: options.lightIntensity,
-          ambientIntensity: options.ambientIntensity,
-          keyColor: options.lightColor,
-          ambientColor: options.ambientColor,
+          azimuth: currentOptions.lightAzimuth,
+          elevation: currentOptions.lightElevation,
+          keyIntensity: currentOptions.lightIntensity,
+          ambientIntensity: currentOptions.ambientIntensity,
+          keyColor: currentOptions.lightColor,
+          ambientColor: currentOptions.ambientColor,
         });
         handle.setShadow({
-          enabled: options.shadowEnabled,
-          opacity: options.shadowOpacity,
-          lift: options.shadowLift,
-          color: options.shadowColor,
-          castShadow: options.shadowCast,
-          receiveShadow: options.shadowReceive,
-          floor: options.shadowFloor,
+          enabled: currentOptions.shadowEnabled,
+          opacity: currentOptions.shadowOpacity,
+          lift: currentOptions.shadowLift,
+          color: currentOptions.shadowColor,
+          castShadow: currentOptions.shadowCast,
+          receiveShadow: currentOptions.shadowReceive,
+          floor: currentOptions.shadowFloor,
         });
         // If the initial preset is a primitive, load its polygons now. The
         // runtime had no data-mesh attribute so it rendered the placeholder
@@ -226,11 +289,13 @@ export function GlyphScene({
 
       const metrics: GlyphMetrics = {
         measuredAt: Date.now(),
-        cells: stats.cols * stats.rows,
-        edges: stats.edges,
-        triangles: stats.triangles,
-        vertices: stats.verts,
-        frames: FRAMES,
+        cols: stats.cols,
+        rows: stats.rows,
+        glyphs: stats.glyphs,
+        textChars: stats.textChars,
+        colorSpans: stats.colorSpans,
+        domNodes: stats.domNodes,
+        layers: stats.layers,
         bakeMs: stats.bakeMs,
       };
 
@@ -261,22 +326,27 @@ export function GlyphScene({
         const cam = handle.getCameraState();
         const rotXDeg = cam.rotX;
         const rotYDeg = ((cam.rotY % 360) + 360) % 360;
+        const zoom = fromRuntimeZoom(cam.scale);
         const last = lastAppliedCameraRef.current;
         const TOL = 0.01;
         const isAutoRotating = autoRotateRef.current;
-        // Only fire if the runtime camera meaningfully diverges from the last value
-        // the sidebar sent, preventing the setTunables → getCameraState echo loop.
-        if (
-          !last ||
-          (!isAutoRotating && Math.abs(rotYDeg - last.rotY) > TOL) ||
-          Math.abs(rotXDeg - last.rotX) > TOL ||
-          Math.abs(cam.scale - last.zoom) > TOL ||
+        const rotYChanged = !isAutoRotating && (!last || Math.abs(rotYDeg - last.rotY) > TOL);
+        const rotXChanged = !last || Math.abs(rotXDeg - last.rotX) > TOL;
+        const zoomChanged = !last || Math.abs(zoom - last.zoom) > TOL;
+        const targetChanged = !last ||
           Math.abs(cam.target[0] - last.target[0]) > TOL ||
           Math.abs(cam.target[1] - last.target[1]) > TOL ||
-          Math.abs(cam.target[2] - last.target[2]) > TOL
-        ) {
-          lastAppliedCameraRef.current = { rotX: rotXDeg, rotY: rotYDeg, zoom: cam.scale, target: cam.target };
-          onCameraChange({ rotX: rotXDeg, rotY: rotYDeg, zoom: cam.scale, target: cam.target });
+          Math.abs(cam.target[2] - last.target[2]) > TOL;
+        // Only fire if the runtime camera meaningfully diverges from the last value
+        // the sidebar sent, preventing the setTunables → getCameraState echo loop.
+        if (rotYChanged || rotXChanged || zoomChanged || targetChanged) {
+          lastAppliedCameraRef.current = { rotX: rotXDeg, rotY: rotYDeg, zoom, target: cam.target };
+          onCameraChange({
+            rotX: rotXDeg,
+            rotY: rotYDeg,
+            ...(zoomChanged ? { zoom } : {}),
+            target: cam.target,
+          });
         }
       }
     }, POLL_INTERVAL_MS);
@@ -291,7 +361,7 @@ export function GlyphScene({
     if (selectedPreset?.kind === "primitive") {
       handle.setPolygons(selectedPreset.generatePolygons());
     } else {
-      void handle.setMeshUrl(meshUrl, selectedPreset?.mtlUrl);
+      void handle.setMeshUrl(meshUrl, selectedPreset?.mtlUrl, loadOptionsForPreset(selectedPreset));
     }
     // Reset clip tracking so the Dock updates on next poll.
     prevClipCountRef.current = -1;
@@ -301,11 +371,11 @@ export function GlyphScene({
   useEffect(() => {
     const handle = getHandle();
     if (!handle) return;
-    // zoom === 0 is the "auto-fit" sentinel — let the runtime's fit-to-content
-    // own the zoom (don't push a scale that would override it).
+    // zoom === 0 remains an old-route auto-fit sentinel. Normal gallery state
+    // uses preset/UI zoom converted to glyphcss's absolute camera zoom.
     handle.setTunables(
       options.zoom > 0
-        ? { scale: options.zoom, rotX: options.rotX, rotY: options.rotY }
+        ? { zoom: toRuntimeZoom(options.zoom), rotX: options.rotX, rotY: options.rotY }
         : { rotX: options.rotX, rotY: options.rotY },
     );
     // Record what the sidebar applied so the poll does not echo it back.
@@ -324,7 +394,7 @@ export function GlyphScene({
     if (!handle) return;
     handle.setProjection(options.perspective === false ? "orthographic" : "perspective");
     if (options.perspective !== false) {
-      handle.setTunables({ distance: options.perspective });
+      handle.setTunables({ perspective: options.perspective });
     }
   }, [options.perspective]);
 
@@ -364,6 +434,22 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ lineHeight: options.lineHeight });
   }, [options.lineHeight]);
+
+  // React to density — scene-wide glyph resolution, driven via the render
+  // font-size (base 13px ÷ density). Larger density = smaller cells = more glyphs.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ fontSize: 13 / (options.density || 1) });
+  }, [options.density]);
+
+  // React to drag density — the temporary render density used while pointer
+  // controls are active. User-facing value is a ratio; runtime option is a divisor.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setInteractiveDownscale(dragDensityToDownscale(options.dragDensity));
+  }, [options.dragDensity]);
 
   // React to renderMode changes.
   useEffect(() => {

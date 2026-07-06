@@ -275,3 +275,28 @@ export function useReadonlyNumber(
 
   return ctrl;
 }
+
+/** Always-disabled text display with the same visual treatment as readonly numbers. */
+export function useReadonlyText(parent: GUI | null, label: string, value: string): DockController<string> | null {
+  const [ctrl, setCtrl] = useState<DockController<string> | null>(null);
+
+  useEffect(() => {
+    if (!parent) return;
+    const proxy = { value };
+    const raw = parent.add(proxy, "value").name(label);
+    const wrapper = makeDockController<string>(raw, proxy);
+    wrapper.setEnabled(false, { dim: false });
+    setCtrl(wrapper);
+    return () => {
+      raw.destroy();
+      setCtrl(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parent, label]);
+
+  useEffect(() => {
+    if (ctrl) ctrl.setValue(value);
+  }, [ctrl, value]);
+
+  return ctrl;
+}

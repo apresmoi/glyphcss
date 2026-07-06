@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type RefObject } from "react";
 import { Inspector, type InspectorMesh } from "../Inspector";
 import { GlyphScene } from "../GlyphScene";
 import { CodePanel } from "./CodePanel";
@@ -37,6 +37,7 @@ import {
   clearRouteSceneOptions,
 } from "./hooks";
 import type { PresetModel } from "./types";
+import { defaultZoomForModel } from "./helpers/smartDefaults";
 
 type AsciiCell = { ch: string; color?: string };
 type TrimmedStrip = { rows: AsciiCell[][]; left: number; right: number; top: number; bottom: number };
@@ -208,12 +209,10 @@ const DEFAULT_SCENE: SceneOptionsState = {
   autoCenter: true,
   autoRotate: false,
   interactive: true,
-  // 0 = auto-fit the model to the viewport (the runtime computes the absolute
-  // px-per-world-unit zoom). The fitted value is read back via camera-sync.
-  zoom: 0,
-  rotX: 65,
-  rotY: 45,
-  perspective: false,
+  zoom: PRESETS[0].zoom ?? 0.35,
+  rotX: PRESETS[0].rotX ?? 65,
+  rotY: PRESETS[0].rotY ?? 45,
+  perspective: 32000,
   lightAzimuth: 50,
   lightElevation: 7,
   lightIntensity: 0.95,
@@ -224,7 +223,9 @@ const DEFAULT_SCENE: SceneOptionsState = {
   renderMode: "solid",
   featureEdges: 30,
   glyphPalette: "default",
-  lineHeight: 0.6,
+  lineHeight: 1.0,
+  density: 1.0,
+  dragDensity: 1,
   useColors: true,
   smoothShading: false,
   creaseAngle: 60,
@@ -251,22 +252,90 @@ const DEFAULT_SCENE: SceneOptionsState = {
   shadowFloor: false,
 };
 
+const RESPONSIVE_ZOOM_BREAKPOINT = 900;
+const RESPONSIVE_ZOOM_BOTTOM_RESERVE = 72;
+const RESPONSIVE_ZOOM_MIN_SCALE = 0.42;
+
+function clamp(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+function responsiveZoomScaleForViewport(width: number, height: number): number {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return 1;
+  }
+  const effectiveHeight = Math.max(1, height - RESPONSIVE_ZOOM_BOTTOM_RESERVE);
+  const widthScale = width < RESPONSIVE_ZOOM_BREAKPOINT
+    ? width / RESPONSIVE_ZOOM_BREAKPOINT
+    : 1;
+  const heightScale = effectiveHeight < RESPONSIVE_ZOOM_BREAKPOINT
+    ? effectiveHeight / RESPONSIVE_ZOOM_BREAKPOINT
+    : 1;
+  return clamp(Math.min(widthScale, heightScale), RESPONSIVE_ZOOM_MIN_SCALE, 1);
+}
+
+function initialResponsiveZoomScale(): number {
+  if (typeof window === "undefined") return 1;
+  return responsiveZoomScaleForViewport(window.innerWidth, window.innerHeight);
+}
+
+function useResponsiveViewportZoomScale(
+  viewportRef: RefObject<HTMLDivElement | null>,
+): number {
+  const [scale, setScale] = useState(initialResponsiveZoomScale);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+
+    const updateScale = (width: number, height: number): void => {
+      const next = responsiveZoomScaleForViewport(width, height);
+      setScale((current) => Math.abs(current - next) < 0.005 ? current : next);
+    };
+    const readScale = (): void => {
+      const rect = viewport.getBoundingClientRect();
+      updateScale(rect.width, rect.height);
+    };
+
+    readScale();
+    window.addEventListener("resize", readScale);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver((entries) => {
+        const rect = entries[0]?.contentRect;
+        if (rect) updateScale(rect.width, rect.height);
+        else readScale();
+      });
+      observer.observe(viewport);
+    }
+
+    return () => {
+      window.removeEventListener("resize", readScale);
+      observer?.disconnect();
+    };
+  }, [viewportRef]);
+
+  return scale;
+}
+
 const EMPTY_METRICS: GlyphMetrics = {
   measuredAt: 0,
-  cells: 0,
-  edges: 0,
-  triangles: 0,
-  vertices: 0,
-  frames: 60,
+  cols: 0,
+  rows: 0,
+  glyphs: 0,
+  textChars: 0,
+  colorSpans: 0,
+  domNodes: 0,
+  layers: 0,
   bakeMs: 0,
 };
 
 function sceneDefaultsFor(model: PresetModel): SceneOptionsState {
   return {
     ...DEFAULT_SCENE,
-    // 0 = auto-fit; the runtime sizes each model to the viewport. The stale
-    // per-preset fraction-scale `model.zoom` values are intentionally ignored.
-    zoom: 0,
+    zoom: defaultZoomForModel(model),
     rotX: model.rotX ?? DEFAULT_SCENE.rotX,
     rotY: model.rotY ?? DEFAULT_SCENE.rotY,
   };
@@ -287,13 +356,15 @@ function resolveInitialPreset(): PresetModel {
 }
 
 export default function GalleryWorkbench() {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const responsiveZoomScale = useResponsiveViewportZoomScale(viewportRef);
   const [initialPreset] = useState<PresetModel>(resolveInitialPreset);
   // Sidebar options restored from the URL `scene` param (empty when absent).
   const [initialRouteSceneOptions] = useState(routeInitialSceneOptions);
   const [initialRouteHasSceneOptions] = useState(routeHasSceneOptions);
   // Start from the preset's defaults, then layer any URL-restored overrides on
   // top. When the route already carries scene options, usePresetLoader is told
-  // (via autoZoomPresetRef seeded below) not to re-stomp rotX/rotY with the
+  // (via autoZoomPresetRef seeded below) not to re-stomp camera defaults with the
   // preset defaults on first paint.
   const [sceneOptions, setSceneOptions] = useState<SceneOptionsState>(() => ({
     ...sceneDefaultsFor(initialPreset),
@@ -327,12 +398,25 @@ export default function GalleryWorkbench() {
   }, [markSceneRouteDirty]);
 
   const { handleCameraChange: handleCameraChangeRaw } = useGuiCameraSync({ setSceneOptions });
+  const renderSceneOptions = useMemo<SceneOptionsState>(() => {
+    if (responsiveZoomScale === 1) return sceneOptions;
+    return {
+      ...sceneOptions,
+      zoom: sceneOptions.zoom * responsiveZoomScale,
+    };
+  }, [sceneOptions, responsiveZoomScale]);
+
   const handleCameraChange = useCallback(
     (camera: Parameters<typeof handleCameraChangeRaw>[0]) => {
       markSceneRouteDirty();
-      handleCameraChangeRaw(camera);
+      handleCameraChangeRaw({
+        ...camera,
+        ...(camera.zoom !== undefined
+          ? { zoom: camera.zoom / Math.max(responsiveZoomScale, 0.001) }
+          : {}),
+      });
     },
-    [handleCameraChangeRaw, markSceneRouteDirty],
+    [handleCameraChangeRaw, markSceneRouteDirty, responsiveZoomScale],
   );
 
   const dropped = useDroppedFiles({
@@ -346,6 +430,7 @@ export default function GalleryWorkbench() {
       setSelectedAnimation("");
       setSceneOptions((current) => ({
         ...current,
+        zoom: defaultZoomForModel(source.preset),
         rotX: source.preset.rotX ?? current.rotX,
         rotY: source.preset.rotY ?? current.rotY,
       }));
@@ -421,11 +506,10 @@ export default function GalleryWorkbench() {
     selectedPreset,
     selectedDroppedSource,
     onMeshUrl: setMeshUrl,
-    onSceneDefaults: (_zoom, rotX, rotY) => {
+    onSceneDefaults: (zoom, rotX, rotY) => {
       setSceneOptions((current) => ({
         ...current,
-        // Re-fit on every model load; ignore the preset's stale zoom.
-        zoom: 0,
+        zoom: zoom ?? current.zoom,
         rotX: rotX ?? current.rotX,
         rotY: rotY ?? current.rotY,
       }));
@@ -445,6 +529,7 @@ export default function GalleryWorkbench() {
     }
     setSceneOptions((current) => ({
       ...current,
+      zoom: defaultZoomForModel(next),
       rotX: next.rotX ?? current.rotX,
       rotY: next.rotY ?? current.rotY,
     }));
@@ -488,7 +573,7 @@ export default function GalleryWorkbench() {
   }, [animationClips]);
 
   const perspectiveMode = sceneOptions.perspective === false ? "orthographic" : "perspective";
-  const perspectivePx = sceneOptions.perspective === false ? 8000 : sceneOptions.perspective;
+  const perspectivePx = sceneOptions.perspective === false ? 32000 : sceneOptions.perspective;
 
   // Inspector is read-only for first cut — no triangle mutations.
   const inspectorMeshes: InspectorMesh[] = [];
@@ -533,11 +618,11 @@ export default function GalleryWorkbench() {
       />
 
       <main className="dn-main">
-        <div className="dn-viewport">
+        <div className="dn-viewport" ref={viewportRef}>
           <GlyphScene
             meshUrl={meshUrl}
             selectedPreset={selectedPreset}
-            options={sceneOptions}
+            options={renderSceneOptions}
             onBuild={(ms) => setMetrics((m) => ({ ...m, bakeMs: ms }))}
             onCameraChange={handleCameraChange}
             onStatsChange={setMetrics}
@@ -552,7 +637,7 @@ export default function GalleryWorkbench() {
           <CodePanel
             id="gallery-code-panel"
             meshUrl={meshUrl}
-            options={sceneOptions}
+            options={renderSceneOptions}
             selectedPreset={selectedPreset}
             className={mobilePanel === "code" ? "is-mobile-open" : ""}
           />
@@ -571,7 +656,8 @@ export default function GalleryWorkbench() {
           renderMode={sceneOptions.renderMode}
           featureEdges={sceneOptions.featureEdges}
           glyphPalette={sceneOptions.glyphPalette}
-          lineHeight={sceneOptions.lineHeight}
+          density={sceneOptions.density}
+          dragDensity={sceneOptions.dragDensity}
           useColors={sceneOptions.useColors}
           smoothShading={sceneOptions.smoothShading}
           creaseAngle={sceneOptions.creaseAngle}

@@ -217,9 +217,18 @@ function bakeTile(sampler, opts) {
       const c = vertGrid[j + 1][i + 1];
       const d = vertGrid[j + 1][i];
       const elevCenter = (a.elev + b.elev + c.elev + d.elev) / 4;
-      // Reversed winding (a, d, c, b) because latLonToXYZ negates Y.
+      // Winding [a,b,c,d] = top-left, top-right, bottom-right, bottom-left.
+      // latLonToXYZ negates Y (a reflection), which was previously "compensated"
+      // by reversing to [a,d,c,b].  But two negations cancel: the net winding was
+      // inward-facing (area2>0 when near → cull kept back hemisphere → inverted
+      // rotation).  The fix is to use the natural grid order [a,b,c,d], which
+      // under the Y-negated coordinate system produces area2<0 when near →
+      // outward-facing → correct.  scene.mjs buildCoarseEarth reconstructs the
+      // vertex grid from this layout and emits [a,b,c,d] coarse quads.
+      // NOTE: if you re-bake earth.json, also update export_coast.mjs to unpack
+      // quads as [a,b,c,d] instead of [a,d,c,b].
       polygons.push({
-        vertices: [a.xyz, d.xyz, c.xyz, b.xyz],
+        vertices: [a.xyz, b.xyz, c.xyz, d.xyz],
         color: elevToColor(elevCenter),
       });
     }

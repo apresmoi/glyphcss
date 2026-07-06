@@ -17,6 +17,7 @@ import type {
   GlyphDirectionalLight,
   GlyphAmbientLight,
   GlyphShadowOptions,
+  TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
 import { useGlyphCameraContext } from "../camera/context";
@@ -44,11 +45,24 @@ export interface GlyphSceneProps {
   /** Observe host element and adapt cols/rows to fill it. Default false. */
   autoSize?: boolean;
   /**
+   * Interactive level-of-detail: while a control is dragging, render at
+   * `1/interactiveDownscale` resolution (coarser, same on-screen size) and
+   * restore full detail on release. `2` → ¼ cells while dragging. Default `1` (off).
+   */
+  interactiveDownscale?: number;
+  /**
    * Shadow-map configuration. `undefined` (default) means no shadows.
    * Set this together with `castShadow`/`receiveShadow` on child `GlyphMesh`
    * components to enable shadow casting.
    */
   shadow?: GlyphShadowOptions;
+  /**
+   * Optional post-rasterize cell hook (M4 composition effects). Runs on the
+   * final glyph grid before the single `<pre>` write. `undefined` (default) →
+   * byte-identical render. Consumers (e.g. Molty's DancePreview) derive it from
+   * the active cell effect + progress each frame.
+   */
+  transformCells?: TransformCells;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -66,7 +80,9 @@ function GlyphSceneInner({
   smoothShading,
   creaseAngle,
   autoSize,
+  interactiveDownscale,
   shadow,
+  transformCells,
   className,
   style,
   children,
@@ -88,7 +104,9 @@ function GlyphSceneInner({
     smoothShading,
     creaseAngle,
     autoSize,
+    interactiveDownscale,
     shadow,
+    transformCells,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -126,13 +144,18 @@ function GlyphSceneInner({
     if (smoothShading !== undefined) partial.smoothShading = smoothShading;
     if (creaseAngle !== undefined) partial.creaseAngle = creaseAngle;
     if (autoSize !== undefined) partial.autoSize = autoSize;
+    if (interactiveDownscale !== undefined) partial.interactiveDownscale = interactiveDownscale;
     // Always forward shadow (including undefined) so setOptions can clear it
     // when the prop is removed. Uses the "in" check in vanilla setOptions.
     partial.shadow = shadow;
+    // Always forward the cell hook (including undefined) so removing the effect
+    // restores the byte-identical no-hook path. New fn each frame is expected
+    // (DancePreview rebuilds it per progress); setOptions just re-renders.
+    partial.transformCells = transformCells;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, shadow]);
+  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

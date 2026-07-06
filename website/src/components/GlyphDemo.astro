@@ -35,6 +35,8 @@ interface Props {
   interactive?: boolean;
   /** Disable wheel/pinch zoom while keeping drag-to-orbit. */
   noZoom?: boolean;
+  /** Runtime downscale while dragging. Set to 1 to keep full detail during drag. */
+  interactiveDownscale?: number;
   /**
    * Pre-baked indexed polygon data (URL). Takes priority over `mesh` /
    * `geometry`. Format: `{ vertices: [[x,y,z],...], colors: [hex,...],
@@ -61,7 +63,7 @@ interface Props {
 
 import '../styles/glyph-demo.css';
 
-const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, autoRotate, interactive, noZoom, polygonsUrl, invertDrag, noClampPitch, realSunLight, light } = Astro.props;
+const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, autoRotate, interactive, noZoom, interactiveDownscale, polygonsUrl, invertDrag, noClampPitch, realSunLight, light } = Astro.props;
 ---
 
 <div class="glyph-demo" id={id}
@@ -75,6 +77,7 @@ const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, a
   data-auto-rotate={autoRotate ? "1" : undefined}
   data-interactive={interactive === false ? "0" : undefined}
   data-no-zoom={noZoom ? "1" : undefined}
+  data-interactive-downscale={interactiveDownscale !== undefined ? String(interactiveDownscale) : undefined}
   data-invert-drag={invertDrag ? "1" : undefined}
   data-no-clamp-pitch={noClampPitch ? "1" : undefined}
   data-real-sun-light={realSunLight ? "1" : undefined}
