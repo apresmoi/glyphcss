@@ -13,6 +13,7 @@ const ENTRIES = [
   { in: "lod-lib.ts", out: "lod-lib.bundle.js" }, // density + transparent demo (library API)
   { in: "lod-fpv.ts", out: "lod-fpv.bundle.js" }, // walkable FPV detail + occlusion demo
   { in: "parity.ts", out: "parity.bundle.js" },   // glyphcss/polycss synchronized footprint parity
+  { in: "three-parity.ts", out: "three-parity.bundle.js" }, // three.js ↔ glyphcss adapter ↔ native conversion
 ];
 
 const opts = (e) => ({
@@ -23,6 +24,13 @@ const opts = (e) => ({
   target: "es2022",
   sourcemap: true,
   logLevel: "info",
+  alias: {
+    "glyphcss": resolve(here, "../packages/glyphcss/src/index.ts"),
+    "glyphcss/three": resolve(here, "../packages/glyphcss/src/three.ts"),
+    "@glyphcss/core": resolve(here, "../packages/core/src/index.ts"),
+    "@glyphcss/core/three": resolve(here, "../packages/core/src/three/index.ts"),
+    "three": resolve(here, "../node_modules/three/build/three.module.js"),
+  },
 });
 
 if (process.argv.includes("--watch")) {

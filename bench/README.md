@@ -36,6 +36,7 @@ The rasterizer records timings into two optional globals (zero cost when unset):
 | `lod-lib.html` | per-mesh detail + occlusion demo (library API). `?cam=ortho\|persp`; drag to orbit. |
 | `lod-fpv.html` | walkable **FPV** detail + occlusion — click to mouse-look, WASD to move. |
 | `parity.html` | glyphcss vs local polycss footprint parity using real gallery meshes by default. Shared camera state drives both renderers, including FPV; side-by-side plus overlay. |
+| `three-parity.html` | three.js reference vs production `glyphcss/three` parity surface vs native glyphcss conversion. Gallery objects, layouts, perspective/orthographic/FPV controls, and bbox/text parity readouts. |
 
 ## Findings — making the drag loop faster, losslessly
 

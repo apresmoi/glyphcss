@@ -21,6 +21,16 @@ Monorepo layout (pnpm workspaces):
 
 Public API is **mirrored** across React and Vue. Adding a hook on one side without adding the matching composable on the other is not acceptable (see "Cross-package discipline" below).
 
+### Three-like parity surface
+
+The native glyphcss API keeps glyphcss/voxcss conventions. For agent-friendly Three.js ports, the monorepo also exposes explicit `*/three` subpaths:
+
+- `@glyphcss/core/three` — pure Three-like math wrappers and transforms.
+- `glyphcss/three` — the core Three-like surface plus `compileScene` and geometry helpers for vanilla/static usage.
+- `@glyphcss/react/three` and `@glyphcss/vue/three` — mirrored framework components: `GlyphThreePerspectiveCamera`, `GlyphThreeOrthographicCamera`, and `GlyphThreeMesh`.
+
+These subpaths intentionally use Three-compatible public names and units: `Vector3`, `Euler`, `Object3D`, `PerspectiveCamera`, `OrthographicCamera`, `DirectionalLight`, radians for object rotations, Y-up authoring coordinates, and Three camera frustum semantics. They are adapters over glyphcss, not a Three.js runtime dependency. Geometry authored in that surface is converted to native glyphcss coordinates with `transformPolygonsToGlyph`; the Y-up → Z-up axis map is `[x, -z, y]` so winding and Lambert lighting stay right-handed.
+
 ## Rendering model
 
 **One render pass → one `<pre>.textContent` assignment.** On every camera or scene state change, the rasteriser:
@@ -86,10 +96,10 @@ Controls (orbit, map, first-person) mutate a single camera state object; the ras
 
 ## Naming
 
-Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types: `Vec2`, `Vec3`, `Polygon`, `TextureTriangle`.
+Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry types (`Vec2`, `Vec3`, `Polygon`, `TextureTriangle`) and the explicit `*/three` compatibility subpaths, where Three-compatible names are the point of the API. React/Vue components in those subpaths still use the `GlyphThree` prefix.
 
 - **Hooks/composables:** `useGlyphCamera`, `useGlyphMesh`, `useGlyphSceneContext`, `useGlyphAnimation`.
-- **Components:** `GlyphScene`, `GlyphSceneStatic` (SSR/build-time `<pre>`, no runtime), `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`.
+- **Components:** `GlyphScene`, `GlyphSceneStatic` (SSR/build-time `<pre>`, no runtime), `GlyphPerspectiveCamera`, `GlyphOrthographicCamera`, `GlyphOrbitControls`, `GlyphMapControls`, `GlyphFirstPersonControls`, `GlyphAxesHelper`, `GlyphDirectionalLightHelper`, `GlyphThreePerspectiveCamera`, `GlyphThreeOrthographicCamera`, `GlyphThreeMesh`.
 - **Types:** `GlyphDirectionalLight`, `GlyphAmbientLight`, `GlyphAnimationMixer`, `GlyphAnimationAction`, `GlyphAnimationClip`, `GlyphAnimationTarget`.
 - **Functions:** `createGlyphAnimationMixer`, `injectGlyphBaseStyles`, `compileScene` (pure, DOM-less render → `<pre>` string), `buildGlyphInteractiveExport` / `glyphCodepenPrefill` (polygons + declared interactions → portable self-contained snippet), `decimatePolygons` (core — resolution-target mesh simplification).
 - **Vanilla factories:** `createGlyphScene`, `createGlyphCamera` (ortho alias), `createGlyphPerspectiveCamera`, `createGlyphOrthographicCamera`, `createGlyphOrbitControls`, `createGlyphMapControls`, `createGlyphFirstPersonControls`.
@@ -98,7 +108,7 @@ Every public export gets a `Glyph` prefix. Exceptions are generic math/geometry 
 
 ## Numeric conventions
 
-These conventions match voxcss and three.js exactly — same units, same frames.
+These conventions are the native glyphcss/voxcss surface. The `*/three` subpaths are the exception: they use Three.js units and frames, then convert internally.
 
 - **Rotation units: degrees.** `rotX`, `rotY` on cameras and the `rotation` prop on meshes are all in degrees (XYZ Euler). `rotX=65, rotY=45` is the classic isometric-ish viewpoint. Do not use radians — the asciss-lineage radian convention has been replaced.
 - **Camera `zoom`: absolute, CSS pixels per world unit.** `zoom=50` means one world unit maps to 50 CSS px. This matches voxcss/polycss's public camera API; internally those engines author geometry at `BASE_TILE=50` and apply `scale(zoom / BASE_TILE)`. This is not a fraction of the viewport.

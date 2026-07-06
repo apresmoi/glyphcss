@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     elements: "src/elements.ts",
+    three: "src/three.ts",
   },
   format: ["esm", "cjs"],
   dts: true,

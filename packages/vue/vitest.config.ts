@@ -24,9 +24,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@glyphcss/core/three": path.resolve(__dirname, "../core/src/three/index.ts"),
       "@glyphcss/core": path.resolve(__dirname, "../core/src/index.ts"),
       // Point at source so tests work without a prior `pnpm build:packages`
       // (CI installs from frozen lockfile then runs tests; dist/ would be empty).
+      "glyphcss/three": path.resolve(__dirname, "../glyphcss/src/three.ts"),
       "glyphcss": path.resolve(__dirname, "../glyphcss/src/index.ts"),
     },
   },
