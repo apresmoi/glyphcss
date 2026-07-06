@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>three.js / glyphcss / polycss parity dashboard</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #05070c;
+      --panel: #0b1018;
+      --panel2: #0f1622;
+      --line: #243245;
+      --text: #d9e4f2;
+      --muted: #8fa3bc;
+      --accent: #57c7ff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; }
+    body { font: 12px/1.35 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .app { display: grid; grid-template-rows: auto 1fr; height: 100vh; min-width: 980px; }
+    .toolbar {
+      display: grid;
+      grid-template-columns: repeat(8, auto) minmax(220px, 1fr);
+      gap: 9px 12px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #07101b;
+    }
+    label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+    select, input, button {
+      color: var(--text);
+      background: #101827;
+      border: 1px solid #2c3c52;
+      border-radius: 6px;
+      padding: 5px 7px;
+      font: inherit;
+    }
+    input[type="range"] { width: 96px; padding: 0; }
+    button { cursor: pointer; }
+    .readout {
+      color: var(--muted);
+      font: 11px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: minmax(0, 1fr) minmax(220px, 34vh);
+      gap: 10px;
+      padding: 10px;
+      min-height: 0;
+    }
+    .panel {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .panel h2 {
+      position: absolute;
+      z-index: 20;
+      left: 10px;
+      top: 8px;
+      margin: 0;
+      color: #e6effb;
+      font: 600 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .surface {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .surface canvas, .surface pre, .poly-frame {
+      display: block;
+      margin: 0;
+    }
+    .surface pre {
+      color: #dce8f8;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 8px;
+      line-height: 1;
+      white-space: pre;
+      text-align: left;
+      text-shadow: 0 0 4px rgba(87, 199, 255, 0.16);
+    }
+    .surface pre span { line-height: inherit; }
+    .poly-frame {
+      position: relative;
+      overflow: hidden;
+      background: #0b1018;
+    }
+    .poly-frame .polycss-camera {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+    .pill {
+      position: absolute;
+      z-index: 25;
+      right: 10px;
+      bottom: 8px;
+      padding: 5px 7px;
+      border: 1px solid rgba(148,163,184,.3);
+      border-radius: 6px;
+      background: rgba(0,0,0,.46);
+      color: var(--muted);
+      font: 10px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+      pointer-events: none;
+    }
+    .metrics {
+      position: relative;
+      z-index: 40;
+      grid-column: 1 / span 3;
+      display: grid;
+      grid-template-columns: 1.08fr 1fr;
+      gap: 10px;
+    }
+    .metrics pre,
+    .code-panel {
+      margin: 0;
+      height: 100%;
+      overflow: auto;
+      background: var(--panel2);
+      color: var(--muted);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .metrics pre {
+      padding: 14px;
+      font: 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+      white-space: pre-wrap;
+    }
+    .code-panel {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+    .code-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(5, 7, 12, 0.35);
+    }
+    .code-tabs button {
+      padding: 4px 7px;
+      border-radius: 5px;
+      color: var(--muted);
+      background: #0b1220;
+    }
+    .code-tabs button[data-active="true"] {
+      color: #e6f3ff;
+      border-color: #58c7ff;
+      background: #12304a;
+    }
+    .code-panel pre {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      padding: 12px 14px;
+      white-space: pre;
+    }
+    .drag-catcher {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      cursor: grab;
+      background: transparent;
+    }
+    .drag-catcher:active { cursor: grabbing; }
+    @media (max-width: 1120px) {
+      .toolbar { grid-template-columns: repeat(4, auto) minmax(180px, 1fr); }
+      .grid { grid-template-columns: 1fr; grid-template-rows: repeat(3, minmax(0, 1fr)) minmax(260px, 35vh); }
+      .metrics { grid-column: auto; grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <label>object <select id="object"></select></label>
+      <label>scene <select id="layout"></select></label>
+      <label>camera <select id="camera"></select></label>
+      <label>view <select id="view"></select></label>
+      <label>fov <input id="fov" type="range" min="20" max="85" step="1" /></label>
+      <label>size <input id="size" type="range" min="2" max="8" step="0.1" /></label>
+      <label>density <input id="density" type="range" min="0.7" max="1.8" step="0.05" /></label>
+      <label><input id="spin" type="checkbox" /> spin</label>
+      <button id="reset" type="button">reset</button>
+      <div id="readout" class="readout">loading...</div>
+    </div>
+    <div id="stage" class="grid" tabindex="0">
+      <section class="panel">
+        <h2>three.js reference</h2>
+        <div id="threeSurface" class="surface"></div>
+        <div id="threePill" class="pill">WebGL / same polygons</div>
+      </section>
+      <section class="panel">
+        <h2>glyphcss/three</h2>
+        <div id="glyphSurface" class="surface"><pre id="glyphPre"></pre></div>
+        <div class="pill">ASCII renderer / parity API</div>
+      </section>
+      <section class="panel">
+        <h2>polycss/three</h2>
+        <div id="polySurface" class="surface"><div id="polyFrame" class="poly-frame"></div></div>
+        <div class="pill">DOM renderer / parity API</div>
+      </section>
+      <section class="metrics">
+        <pre id="metrics">metrics...</pre>
+        <section class="code-panel">
+          <div class="code-tabs">
+            <button type="button" data-kind="three" data-active="true">three.js</button>
+            <button type="button" data-kind="glyph">glyphcss/three</button>
+            <button type="button" data-kind="poly">polycss/three</button>
+          </div>
+          <pre id="codeOutput"></pre>
+        </section>
+      </section>
+      <div id="dragCatcher" class="drag-catcher"></div>
+    </div>
+  </div>
+  <script type="module" src="./three-poly-glyph-parity.bundle.js"></script>
+</body>
+</html>
