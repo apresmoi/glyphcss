@@ -14,7 +14,6 @@ const ENTRIES = [
   { in: "lod-fpv.ts", out: "lod-fpv.bundle.js" }, // walkable FPV detail + occlusion demo
   { in: "parity.ts", out: "parity.bundle.js" },   // glyphcss/polycss synchronized footprint parity
   { in: "three-parity.ts", out: "three-parity.bundle.js" }, // three.js ↔ glyphcss adapter ↔ native conversion
-  { in: "three-poly-glyph-parity.ts", out: "three-poly-glyph-parity.bundle.js" }, // three.js ↔ glyphcss/three ↔ polycss/three
 ];
 
 const opts = (e) => ({
@@ -31,9 +30,7 @@ const opts = (e) => ({
     "@glyphcss/core": resolve(here, "../packages/core/src/index.ts"),
     "@glyphcss/core/three": resolve(here, "../packages/core/src/three/index.ts"),
     "@layoutit/polycss": resolve(here, "../../Documents/voxcss/packages/polycss/src/index.ts"),
-    "@layoutit/polycss/three": resolve(here, "../../Documents/voxcss/packages/polycss/src/three.ts"),
     "@layoutit/polycss-core": resolve(here, "../../Documents/voxcss/packages/core/src/index.ts"),
-    "@layoutit/polycss-core/three": resolve(here, "../../Documents/voxcss/packages/core/src/three/index.ts"),
     "three": resolve(here, "../node_modules/three/build/three.module.js"),
   },
 });
