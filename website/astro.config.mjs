@@ -95,6 +95,7 @@ export default defineConfig({
             { label: 'Vue API', slug: 'api/vue' },
             { label: 'HTML API', slug: 'api/html' },
             { label: 'Headless API', slug: 'api/headless' },
+            { label: 'Three.js Parity API', slug: 'api/three-parity' },
             { label: 'Core Types', slug: 'api/types' },
           ],
         },

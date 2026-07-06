@@ -1,0 +1,219 @@
+---
+title: Three.js Parity API
+description: Three-like cameras, transforms, and framework components for porting Three.js scenes to glyphcss.
+---
+
+The `*/three` subpaths expose a Three-like authoring surface on top of glyphcss.
+Use them when you are porting a Three.js scene, writing docs for coding agents,
+or want familiar `PerspectiveCamera`, `Object3D`, `Vector3`, `lookAt`, and
+radian-based mesh transforms.
+
+This is still glyphcss: it rasterises polygons into a character grid. It does
+not run Three.js at runtime, and it does not use WebGL. The parity API only
+matches Three's parameter surface closely enough that the same scene math frames
+the same object with the same projection, orientation, depth ordering, and light
+direction.
+
+## Imports
+
+| Package | Import | Use |
+|---|---|---|
+| Core math | `@glyphcss/core/three` | Three-like classes and coordinate transforms |
+| Vanilla / static | `glyphcss/three` | Core parity surface plus `compileScene`, `loadMesh`, and geometry helpers |
+| React | `@glyphcss/react/three` | React components and parity classes |
+| Vue | `@glyphcss/vue/three` | Vue components and parity classes |
+
+## Conventions
+
+The native glyphcss API uses glyphcss/voxcss conventions: Z-up scene math, camera
+rotations in degrees, and `zoom` as CSS pixels per world unit.
+
+The `*/three` subpaths intentionally use Three-style conventions:
+
+| Value | `*/three` convention |
+|---|---|
+| Coordinates | Y-up authoring space |
+| Mesh rotations | Radians, XYZ Euler |
+| Cameras | Three-like `PerspectiveCamera(fov, aspect, near, far)` and `OrthographicCamera(left, right, top, bottom, near, far)` |
+| Camera targeting | `camera.position.set(...)` + `camera.lookAt(...)` |
+| Directional lights | `light.position` toward `light.target.position` |
+
+Internally, geometry is converted into glyphcss space with
+`transformPolygonsToGlyph`. The axis conversion is right-handed, so polygon
+winding and Lambert lighting stay correct.
+
+Polygon arrays passed to `transformPolygonsToGlyph` or `<GlyphThreeMesh>` are
+interpreted as Three/Y-up coordinates. If you already have native glyphcss
+polygons with their own native transform, render them with the native API instead
+of converting them again.
+
+## Static / vanilla example
+
+`glyphcss/three` is the smallest path for build-time output, tests, CLIs, and
+agent-generated snippets. The scene below is authored with Three-like camera and
+transform objects, then rendered by `compileScene`.
+
+```ts
+import {
+  AmbientLight,
+  DirectionalLight,
+  Object3D,
+  PerspectiveCamera,
+  Vector3,
+  compileScene,
+  cubePolygons,
+  transformPolygonsToGlyph,
+} from "glyphcss/three";
+
+const camera = new PerspectiveCamera(50, 16 / 9, 0.1, 100);
+camera.position.set(3, 2, 5);
+camera.lookAt(0, 0, 0);
+
+const object = new Object3D();
+object.position.set(0, 0.5, 0);
+object.rotation.set(0, Math.PI / 4, 0);
+object.scale.set(1, 1, 1);
+
+const light = new DirectionalLight("#ffffff", 1);
+light.position.set(3, 5, 4);
+light.target.position.set(0, 0, 0);
+
+const polygons = transformPolygonsToGlyph(
+  cubePolygons({ center: [0, 0, 0], size: 1, color: "#66aaff" }),
+  object,
+);
+
+const { html } = compileScene({
+  polygons,
+  camera,
+  cols: 96,
+  rows: 36,
+  cellAspect: 2,
+  mode: "solid",
+  useColors: true,
+  ambientLight: new AmbientLight("#ffffff", 0.35).toGlyphAmbientLight(),
+  directionalLight: light.toGlyphDirectionalLight(),
+});
+```
+
+## React example
+
+The React parity components wrap the normal `<GlyphScene>`. Keep the scene and
+controls from `@glyphcss/react`, and import the Three-like cameras / meshes from
+`@glyphcss/react/three`.
+
+```tsx
+import { GlyphOrbitControls, GlyphScene } from "@glyphcss/react";
+import {
+  DirectionalLight,
+  GlyphThreeMesh,
+  GlyphThreePerspectiveCamera,
+} from "@glyphcss/react/three";
+
+const sun = new DirectionalLight("#ffffff", 1);
+sun.position.set(3, 5, 4);
+sun.target.position.set(0, 0, 0);
+
+export function App() {
+  return (
+    <GlyphThreePerspectiveCamera
+      fov={50}
+      aspect={16 / 9}
+      position={[3, 2, 5]}
+      lookAt={[0, 0, 0]}
+    >
+      <GlyphScene
+        mode="solid"
+        cols={96}
+        rows={36}
+        useColors
+        ambientLight={{ intensity: 0.35 }}
+        directionalLight={sun.toGlyphDirectionalLight()}
+      >
+        <GlyphOrbitControls drag wheel />
+        <GlyphThreeMesh
+          geometry="cube"
+          color="#66aaff"
+          position={[0, 0.5, 0]}
+          rotation={[0, Math.PI / 4, 0]}
+        />
+      </GlyphScene>
+    </GlyphThreePerspectiveCamera>
+  );
+}
+```
+
+`<GlyphThreeMesh>` accepts the same mesh source shortcuts as native
+`<GlyphMesh>`: `polygons`, `src`, or `geometry`. It also supports
+`castShadow`, `receiveShadow`, `density`, `fontSize`, `lineHeight`, and
+`transparent`.
+
+## Vue example
+
+Vue mirrors the React parity surface.
+
+```vue
+<script setup lang="ts">
+import { GlyphOrbitControls, GlyphScene } from "@glyphcss/vue";
+import {
+  DirectionalLight,
+  GlyphThreeMesh,
+  GlyphThreePerspectiveCamera,
+} from "@glyphcss/vue/three";
+
+const sun = new DirectionalLight("#ffffff", 1);
+sun.position.set(3, 5, 4);
+sun.target.position.set(0, 0, 0);
+</script>
+
+<template>
+  <GlyphThreePerspectiveCamera
+    :fov="50"
+    :aspect="16 / 9"
+    :position="[3, 2, 5]"
+    :look-at="[0, 0, 0]"
+  >
+    <GlyphScene
+      mode="solid"
+      :cols="96"
+      :rows="36"
+      use-colors
+      :ambient-light="{ intensity: 0.35 }"
+      :directional-light="sun.toGlyphDirectionalLight()"
+    >
+      <GlyphOrbitControls drag wheel />
+      <GlyphThreeMesh
+        geometry="cube"
+        color="#66aaff"
+        :position="[0, 0.5, 0]"
+        :rotation="[0, Math.PI / 4, 0]"
+      />
+    </GlyphScene>
+  </GlyphThreePerspectiveCamera>
+</template>
+```
+
+## Core exports
+
+All `*/three` subpaths share these core exports:
+
+| Export | Purpose |
+|---|---|
+| `Vector3` | Minimal Three-like vector class used by cameras, objects, and lights |
+| `Euler` | XYZ Euler rotation in radians |
+| `Object3D` | `position`, `rotation`, `scale`, `up`, `lookAt`, and `localToWorld` |
+| `PerspectiveCamera` | Three-like perspective camera that glyphcss can render with |
+| `OrthographicCamera` | Three-like orthographic camera that glyphcss can render with |
+| `DirectionalLight` | Three-like positioned light with `target`, convertible to glyphcss light options |
+| `AmbientLight` | Ambient light helper, convertible to glyphcss light options |
+| `threeToGlyphPoint` / `glyphToThreePoint` | Convert individual points between coordinate spaces |
+| `threeToGlyphDirection` / `glyphToThreeDirection` | Convert direction vectors between coordinate spaces |
+| `transformPointToGlyph` | Apply an `Object3D` transform to one point and convert it |
+| `transformPolygonsToGlyph` | Apply an `Object3D` transform to a `Polygon[]` and convert it |
+
+## When not to use it
+
+Use the native API when you are building glyphcss-first scenes, voxel/diagram
+views, or examples where degree-based `rotX` / `rotY` camera controls are more
+direct. The parity API is for Three-shaped scene authoring and ports; it is not a
+replacement for native glyphcss controls or custom elements.
