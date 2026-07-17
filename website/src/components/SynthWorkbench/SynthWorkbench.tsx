@@ -30,6 +30,22 @@ const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedro
 const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
 
+// ASCII icons for the field/wave multi-toggles (segmented control, like text-align).
+const FIELD_ICONS: Record<string, string> = { radial: "◎", linearX: "→", linearY: "↓", diagonal: "↘", angular: "↻", spiral: "@", noise: "▚" };
+const WAVE_ICONS: Record<string, string> = { sin: "∿", triangle: "∧", saw: "╱", square: "⊓" };
+const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], title: v }));
+const WAVE_TOGGLE = WAVES.map((v) => ({ value: v as string, icon: WAVE_ICONS[v], title: v }));
+
+function IconToggle({ options, value, onChange }: { options: { value: string; icon: string; title: string }[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="gx-toggle" role="group">
+      {options.map((o) => (
+        <button key={o.value} type="button" className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`} title={o.title} onClick={() => onChange(o.value)}>{o.icon}</button>
+      ))}
+    </div>
+  );
+}
+
 const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };
 const AMBIENT = { intensity: 0.6 };
 
@@ -120,13 +136,11 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
           <span className="voice-title">Voice {index + 1}</span>
           <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
         </div>
-        <div className="voice-row">
-          <span className="gx-select"><select value={f("field")} onChange={(e) => onParam(`field${slot}`, e.target.value)}>{FIELDS.map((o) => <option key={o} value={o}>{o}</option>)}</select></span>
-          <span className="gx-select"><select value={f("wave")} onChange={(e) => onParam(`wave${slot}`, e.target.value)}>{WAVES.map((o) => <option key={o} value={o}>{o}</option>)}</select></span>
-        </div>
+        <IconToggle options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
+        <IconToggle options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
         <label className="voice-slider"><span>freq</span><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /><b>{num("freq").toFixed(1)}</b></label>
         <label className="voice-slider"><span>speed</span><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /><b>{num("speed").toFixed(2)}</b></label>
-        <label className="voice-slider"><span>amp</span><input type="range" min={0} max={2} step={0.05} value={num("amp")} style={fill(num("amp"), 0, 2)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
+        <label className="voice-slider"><span>mix</span><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
       </div>
     </div>
   );

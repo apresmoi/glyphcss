@@ -960,32 +960,32 @@ const fieldSynthSchema = {
   wave1: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 1 wave" },
   freq1: { kind: "number", default: 3, min: 0, max: 24, step: 0.1, label: "Osc 1 freq" },
   speed1: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 1 speed" },
-  amp1: { kind: "number", default: 1, min: 0, max: 2, step: 0.05, label: "Osc 1 amp" },
+  amp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Osc 1 amp" },
   field2: { kind: "string", default: "angular", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 2 field" },
   wave2: { kind: "string", default: "saw", values: SYNTH_WAVES, animation: "discrete", label: "Osc 2 wave" },
   freq2: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 2 freq" },
   speed2: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 2 speed" },
-  amp2: { kind: "number", default: 1, min: 0, max: 2, step: 0.05, label: "Osc 2 amp" },
+  amp2: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Osc 2 amp" },
   field3: { kind: "string", default: "linearX", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 3 field" },
   wave3: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 3 wave" },
   freq3: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 3 freq" },
   speed3: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 3 speed" },
-  amp3: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 3 amp" },
+  amp3: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 3 amp" },
   field4: { kind: "string", default: "linearY", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 4 field" },
   wave4: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 4 wave" },
   freq4: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 4 freq" },
   speed4: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 4 speed" },
-  amp4: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 4 amp" },
+  amp4: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 4 amp" },
   field5: { kind: "string", default: "diagonal", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 5 field" },
   wave5: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 5 wave" },
   freq5: { kind: "number", default: 6, min: 0, max: 24, step: 0.1, label: "Osc 5 freq" },
   speed5: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 5 speed" },
-  amp5: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 5 amp" },
+  amp5: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 5 amp" },
   field6: { kind: "string", default: "noise", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 6 field" },
   wave6: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 6 wave" },
   freq6: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 6 freq" },
   speed6: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 6 speed" },
-  amp6: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 6 amp" },
+  amp6: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 6 amp" },
   combine: { kind: "string", default: "multiply", values: SYNTH_COMBINES, animation: "discrete", label: "Combine" },
   gain: { kind: "number", default: 1, min: 0, max: 4, step: 0.05, label: "Contrast" },
   bias: { kind: "number", default: 0.5, min: -1, max: 2, step: 0.05, label: "Brightness" },
@@ -1058,15 +1058,19 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // Normalize the domain to ~0..1 (so `freq`/`scale` are surface-relative), then scale.
         const x = (coord[0] / sceneCols) * scale;
         const y = (coord[1] / sceneRows) * scale;
-        // Combine only ACTIVE oscillators (amp > 0). A disabled osc must not fold
-        // into the result — for `multiply` a zero would blank the whole field.
+        // Combine active oscillators (amp > 0). `amp` is a MIX WEIGHT, not a signal
+        // gain: the first voice enters at its weight; each later voice blends the
+        // result toward `combine(result, voice)` by its amp. So amp 0 = no effect
+        // (leaves the others clean), amp 1 = full combine, and low amp gently mixes
+        // — for every combine op, instead of `multiply` crushing the field to zero.
         let combined = 0;
         let active = 0;
         for (let k = 1; k <= SYNTH_VOICES; k++) {
           const amp = P[`amp${k}`] as number;
           if (!(amp > 0)) continue;
-          const o = synthOsc(P[`field${k}`] as string, P[`wave${k}`] as string, P[`freq${k}`] as number, P[`speed${k}`] as number, amp, x, y, cx, cy, time);
-          combined = active === 0 ? o : combineSynth(params.combine, combined, o);
+          const o = synthOsc(P[`field${k}`] as string, P[`wave${k}`] as string, P[`freq${k}`] as number, P[`speed${k}`] as number, 1, x, y, cx, cy, time);
+          if (active === 0) combined = amp * o;
+          else combined += amp * (combineSynth(params.combine, combined, o) - combined);
           active++;
         }
         if (active === 0) continue;

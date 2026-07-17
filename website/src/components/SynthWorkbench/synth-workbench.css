@@ -75,6 +75,17 @@
 .voice-remove:hover { background: rgba(255, 90, 90, 0.16); border-color: rgba(255, 120, 120, 0.5); }
 .voice-row { display: flex; gap: 6px; }
 
+/* Segmented icon multi-toggle (field / wave) */
+.gx-toggle { display: flex; }
+.gx-toggle-btn {
+  flex: 1; min-width: 0; font: inherit; font-size: 13px; line-height: 1; padding: 4px 0;
+  background: #0d1118; color: rgba(255, 232, 184, 0.55);
+  border: 1px solid rgba(255, 232, 184, 0.18); border-left-width: 0; cursor: pointer;
+}
+.gx-toggle-btn:first-child { border-left-width: 1px; }
+.gx-toggle-btn:hover:not(.is-active) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
+.gx-toggle-btn.is-active { background: rgba(56, 189, 248, 0.2); color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.55); }
+
 /* glyphcss select — square, dark, custom caret (like the Dock) */
 .gx-select { position: relative; flex: 1; min-width: 0; }
 .gx-select::after {
