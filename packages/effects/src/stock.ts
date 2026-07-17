@@ -9,12 +9,19 @@ import {
   type GlyphEffectParamValues,
 } from "glyphcss";
 
+export interface GlyphEffectPreset<Schema extends GlyphEffectParamSchema> {
+  readonly name: string;
+  readonly params: Partial<GlyphEffectParamValues<Schema>>;
+}
+
 export interface GlyphStockEffectDefinition<
   Schema extends GlyphEffectParamSchema = GlyphEffectParamSchema,
 > extends GlyphEffectDefinition<Schema> {
   readonly label: string;
   readonly description: string;
   readonly defaultBlend: GlyphEffectBlend;
+  /** Curated named parameter sets — quick nice-looking starting points. */
+  readonly presets?: readonly GlyphEffectPreset<Schema>[];
 }
 
 type AnyParams = Record<string, number | string | boolean>;
@@ -982,6 +989,17 @@ function combineSynth(mode: string, a: number, b: number): number {
   }
 }
 
+const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
+  { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
+  { name: "Interference", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
+  { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
+  { name: "Sonar ping", params: { field1: "radial", wave1: "sin", freq1: 10, speed1: 1.6, amp1: 1, amp2: 0, amp3: 0, combine: "add", scale: 2, gain: 1.6, bias: 0.2, glyphs: "  ·:+#", color: "#2effb0", gradient: 0 } },
+  { name: "Lattice", params: { field1: "linearX", wave1: "sin", freq1: 6, speed1: 0.3, amp1: 1, field2: "linearY", wave2: "sin", freq2: 6, speed2: 0.4, amp2: 1, field3: "diagonal", wave3: "sin", freq3: 6, speed3: 0.2, amp3: 1, combine: "add", scale: 2, glyphs: " .-+*#", color: "#c78bff", colorB: "#00e5ff", gradient: 0.8 } },
+  { name: "Vortex", params: { field1: "spiral", wave1: "saw", freq1: 5, speed1: 0.8, amp1: 1, field2: "angular", wave2: "sin", freq2: 3, speed2: -0.5, amp2: 0.7, amp3: 0, combine: "add", scale: 2, glyphs: " .:/\\|=+*", color: "#ff7a45", colorB: "#ffd24a", gradient: 0.7 } },
+  { name: "Lava", params: { field1: "noise", wave1: "sin", freq1: 3, speed1: 0.5, amp1: 1, field2: "radial", wave2: "sin", freq2: 2, speed2: 0.3, amp2: 0.6, amp3: 0, combine: "add", scale: 2.5, gain: 1.3, glyphs: " .:-=+*#%@", color: "#ff3b1f", colorB: "#ffd24a", gradient: 1 } },
+  { name: "Static rain", params: { field1: "noise", wave1: "sin", freq1: 8, speed1: 3, amp1: 1, field2: "linearY", wave2: "saw", freq2: 12, speed2: 2, amp2: 0.5, amp3: 0, combine: "multiply", scale: 3, glyphs: " .:i|1oX#", color: "#5affa0", gradient: 0 } },
+];
+
 export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   id: "field-synth",
   version: 1,
@@ -989,6 +1007,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   description: "Composable oscillators (field × waveform) combined into an animated glyph pattern over a surface.",
   defaultBlend: "replace",
   parameterSchema: fieldSynthSchema,
+  presets: fieldSynthPresets,
   program: {
     optionalRequirements: ["normal", "worldPosition", "uv0"],
     validateParams: validateGlyphs,
