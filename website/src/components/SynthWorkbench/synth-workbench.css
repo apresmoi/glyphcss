@@ -9,7 +9,7 @@
 
 /* ── Left rail: voices ─────────────────────────────────────────────────── */
 .synth-voices {
-  flex: 0 0 264px;
+  flex: 0 0 340px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(255, 232, 184, 0.14);
@@ -20,55 +20,87 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border-bottom: 1px solid rgba(255, 232, 184, 0.12);
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(56, 189, 248, 0.95);
 }
 .voice-add {
-  font: inherit;
-  font-size: 11px;
-  padding: 3px 9px;
-  border: 1px solid rgba(56, 189, 248, 0.6);
-  background: rgba(56, 189, 248, 0.12);
+  font: inherit; font-size: 11px; letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  background: rgba(56, 189, 248, 0.1);
   color: rgba(56, 189, 248, 0.95);
-  border-radius: 4px;
+  border-radius: 0;
   cursor: pointer;
+  transition: background 0.12s ease;
 }
-.voice-add:disabled { opacity: 0.4; cursor: not-allowed; }
-.synth-voices-list { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.voice-add:hover:not(:disabled) { background: rgba(56, 189, 248, 0.2); }
+.voice-add:disabled { opacity: 0.35; cursor: not-allowed; }
+.synth-voices-list { flex: 1; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 9px; }
 .synth-empty { color: rgba(255, 232, 184, 0.4); font-size: 12px; text-align: center; margin-top: 24px; }
 
+/* Horizontal card: [ cube render ] [ controls column ] */
 .voice-card {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 10px;
   border: 1px solid rgba(255, 232, 184, 0.16);
-  border-radius: 6px;
   background: #04060b;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  padding: 9px;
 }
-.voice-head { display: flex; align-items: center; justify-content: space-between; }
-.voice-title { font-size: 12px; color: rgba(255, 232, 184, 0.85); }
-.voice-remove {
-  font: inherit; line-height: 1; font-size: 15px; width: 20px; height: 20px;
-  border: 1px solid rgba(255, 120, 120, 0.4); background: transparent;
-  color: rgba(255, 140, 140, 0.9); border-radius: 4px; cursor: pointer;
+.voice-preview {
+  display: block; width: 92px; height: 92px; align-self: center;
+  overflow: hidden; background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
-.voice-remove:hover { background: rgba(255, 90, 90, 0.15); }
-.voice-preview { display: block; width: 100%; height: 76px; overflow: hidden; background: #02040a; border-radius: 4px; }
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }
-.voice-row { display: flex; gap: 6px; }
-.voice-row select {
-  flex: 1; min-width: 0; font: inherit; font-size: 11px; padding: 3px 4px;
-  background: #0d1118; color: rgba(255, 232, 184, 0.9);
-  border: 1px solid rgba(255, 232, 184, 0.22); border-radius: 4px;
+.voice-controls { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.voice-head { display: flex; align-items: center; justify-content: space-between; }
+.voice-title { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 232, 184, 0.7); }
+.voice-remove {
+  font: inherit; line-height: 1; font-size: 14px; width: 18px; height: 18px;
+  border: 1px solid rgba(255, 232, 184, 0.2); background: transparent;
+  color: rgba(255, 160, 160, 0.85); border-radius: 0; cursor: pointer; padding: 0;
 }
-.voice-slider { display: grid; grid-template-columns: 40px 1fr 42px; align-items: center; gap: 6px; font-size: 11px; color: rgba(255, 232, 184, 0.6); }
-.voice-slider input[type="range"] { width: 100%; accent-color: #38bdf8; }
-.voice-slider b { color: rgba(56, 189, 248, 0.95); font-weight: 500; text-align: right; }
+.voice-remove:hover { background: rgba(255, 90, 90, 0.16); border-color: rgba(255, 120, 120, 0.5); }
+.voice-row { display: flex; gap: 6px; }
+
+/* glyphcss select — square, dark, custom caret (like the Dock) */
+.gx-select { position: relative; flex: 1; min-width: 0; }
+.gx-select::after {
+  content: "▾"; position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 9px; color: rgba(56, 189, 248, 0.8); pointer-events: none;
+}
+.gx-select select {
+  width: 100%; font: inherit; font-size: 11px; padding: 3px 18px 3px 6px;
+  appearance: none; -webkit-appearance: none;
+  background: #0d1118; color: rgba(255, 232, 184, 0.92);
+  border: 1px solid rgba(255, 232, 184, 0.22); border-radius: 0; cursor: pointer;
+}
+.gx-select select:focus { outline: none; border-color: rgba(56, 189, 248, 0.7); }
+
+/* glyphcss slider — filled track + square thumb (matches the Dock look) */
+.voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 10px; color: rgba(255, 232, 184, 0.55); }
+.voice-slider b { color: rgba(56, 189, 248, 0.95); font-weight: 500; text-align: right; font-size: 10px; }
+.voice-slider input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 14px; margin: 0; background: transparent; cursor: pointer;
+}
+.voice-slider input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 0;
+  background: linear-gradient(90deg, #38bdf8 var(--fill, 0%), rgba(255, 232, 184, 0.14) var(--fill, 0%));
+}
+.voice-slider input[type="range"]::-moz-range-track {
+  height: 4px; background: linear-gradient(90deg, #38bdf8 var(--fill, 0%), rgba(255, 232, 184, 0.14) var(--fill, 0%));
+}
+.voice-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 4px; height: 14px; margin-top: -5px;
+  background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
+}
+.voice-slider input[type="range"]::-moz-range-thumb {
+  width: 4px; height: 14px; background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
+}
 
 /* Dock floats top-right of the shell (its --overlay vars aren't set on this page). */
 #synth-controls-panel.dn-floating-controls {
@@ -98,6 +130,6 @@
 .synth-tile-scene .glyph-output { color: rgba(255, 232, 184, 0.92); }
 .synth-tile-label { padding: 4px 8px 6px; font-size: 11px; text-align: left; letter-spacing: 0.02em; }
 
-@media (max-width: 60rem) {
-  .synth-voices { flex-basis: 200px; }
+@media (max-width: 62rem) {
+  .synth-voices { flex-basis: 300px; }
 }

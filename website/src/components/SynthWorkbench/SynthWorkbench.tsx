@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   createGlyphScene,
   createGlyphOrthographicCamera,
@@ -39,7 +39,7 @@ function synthDefaults(): Params {
 function shapePolys(name: GlyphGeometryName) {
   return resolveGeometry(name, { size: 3 });
 }
-function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number) => number[] }, polys: ReturnType<typeof shapePolys>): void {
+function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number) => number[] }, polys: ReturnType<typeof shapePolys>, fill = 0.72): void {
   const o = scene.getOptions();
   camera.zoom = 1;
   let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
@@ -50,7 +50,7 @@ function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (
     if (pr[1]! < minr) minr = pr[1]!; if (pr[1]! > maxr) maxr = pr[1]!;
   }
   const w = maxc - minc, h = maxr - minr;
-  if (w > 0 && h > 0) camera.zoom = Math.min((0.72 * o.cols) / w, (0.72 * o.rows) / h);
+  if (w > 0 && h > 0) camera.zoom = Math.min((fill * o.cols) / w, (fill * o.rows) / h);
 }
 
 // Isolate one voice into osc-1 (amp 1) so a card can preview its solo contribution.
@@ -74,7 +74,7 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, shap
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
     const polys = shapePolys(shape);
-    scene.add(polys); scene.fit(); frameObject(scene, camera, polys);
+    scene.add(polys); scene.fit(); frameObject(scene, camera, polys, 0.56);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: "replace" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
@@ -89,29 +89,32 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, shap
 }
 
 // ── Voice card (left rail) ────────────────────────────────────────────────────
-function VoiceCard({ slot, index, params, shape, onParam, onRemove }: {
-  slot: number; index: number; shape: GlyphGeometryName; params: Params;
+function VoiceCard({ slot, index, params, onParam, onRemove }: {
+  slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
-  const solo = useMemo(() => soloParams(params, slot), [params, slot]);
-  useSynthPreview(host, () => soloParams(params, slot), shape, [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host]);
+  // Voice previews are always a cube — three faces show how the field wraps a solid.
+  useSynthPreview(host, () => soloParams(params, slot), "cube", [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host]);
   const f = (k: string) => String(params[`${k}${slot}`]);
   const num = (k: string) => Number(params[`${k}${slot}`]);
+  const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
     <div className="voice-card">
-      <div className="voice-head">
-        <span className="voice-title">Voice {index + 1}</span>
-        <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
-      </div>
       <span className="voice-preview" ref={setHost} />
-      <div className="voice-row">
-        <select value={f("field")} onChange={(e) => onParam(`field${slot}`, e.target.value)}>{FIELDS.map((o) => <option key={o} value={o}>{o}</option>)}</select>
-        <select value={f("wave")} onChange={(e) => onParam(`wave${slot}`, e.target.value)}>{WAVES.map((o) => <option key={o} value={o}>{o}</option>)}</select>
+      <div className="voice-controls">
+        <div className="voice-head">
+          <span className="voice-title">Voice {index + 1}</span>
+          <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
+        </div>
+        <div className="voice-row">
+          <span className="gx-select"><select value={f("field")} onChange={(e) => onParam(`field${slot}`, e.target.value)}>{FIELDS.map((o) => <option key={o} value={o}>{o}</option>)}</select></span>
+          <span className="gx-select"><select value={f("wave")} onChange={(e) => onParam(`wave${slot}`, e.target.value)}>{WAVES.map((o) => <option key={o} value={o}>{o}</option>)}</select></span>
+        </div>
+        <label className="voice-slider"><span>freq</span><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /><b>{num("freq").toFixed(1)}</b></label>
+        <label className="voice-slider"><span>speed</span><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /><b>{num("speed").toFixed(2)}</b></label>
+        <label className="voice-slider"><span>amp</span><input type="range" min={0.05} max={2} step={0.05} value={num("amp")} style={fill(num("amp"), 0.05, 2)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
       </div>
-      <label className="voice-slider"><span>freq</span><input type="range" min={0} max={24} step={0.1} value={num("freq")} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /><b>{num("freq").toFixed(1)}</b></label>
-      <label className="voice-slider"><span>speed</span><input type="range" min={-8} max={8} step={0.05} value={num("speed")} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /><b>{num("speed").toFixed(2)}</b></label>
-      <label className="voice-slider"><span>amp</span><input type="range" min={0.05} max={2} step={0.05} value={num("amp")} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
     </div>
   );
 }
@@ -253,7 +256,7 @@ export default function SynthWorkbench() {
         </div>
         <div className="synth-voices-list">
           {activeVoices.map((slot, i) => (
-            <VoiceCard key={slot} slot={slot} index={i} shape={shape} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
+            <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
           ))}
           {activeVoices.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
         </div>

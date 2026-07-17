@@ -10,6 +10,7 @@ const shouldRenderSearch =
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
+const isSynth = pathname.startsWith('/synth');
 
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
@@ -29,7 +30,7 @@ const topLinks = [
   <div class="title-wrapper sl-flex">
     <SiteTitle />
   </div>
-  {!isLanding && !isGallery && (
+  {!isLanding && !isGallery && !isSynth && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>
