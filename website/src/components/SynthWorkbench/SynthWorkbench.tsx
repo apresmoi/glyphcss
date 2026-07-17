@@ -25,9 +25,7 @@ const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral",
 const WAVES = ["sin", "triangle", "saw", "square"] as const;
 const COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 const SPACES = ["auto", "surface", "scene"] as const;
-// 3D shapes have a surface-mapping bug (the effect fills the viewport instead of
-// the shape) — restricted to the plane until that's resolved.
-const SHAPES: string[] = ["plane"];
+const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
 
 const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
@@ -70,12 +68,22 @@ function shapePolys(name: string): Polys {
 }
 const isFlat = (name: string) => name === "plane";
 
-function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number) => number[] }, polys: Polys, fill = 0.72): void {
+// Frame the object by setting the camera zoom so its projected bbox fills ~`fill`
+// of the grid. MUST project with the same MEASURED cell metrics the renderer uses
+// (`metrics`), else the default cell (BASE_TILE/cellAspect) is ~4× off and the zoom
+// massively overshoots. Call after a render so the <pre> reflects the real cell.
+function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number, m?: unknown) => number[] }, polys: Polys, fill = 0.72): void {
   const o = scene.getOptions();
+  const pre = scene.host.querySelector("pre.glyph-output") as HTMLElement | null;
+  let metrics: { cellWidth: number; cellHeight: number } | undefined;
+  if (pre) {
+    const r = pre.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) metrics = { cellWidth: r.width / o.cols, cellHeight: r.height / o.rows };
+  }
   camera.zoom = 1;
   let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
   for (const p of polys) for (const v of p.vertices) {
-    const pr = camera.project(v as [number, number, number], o.cols, o.rows, o.cellAspect);
+    const pr = camera.project(v as [number, number, number], o.cols, o.rows, o.cellAspect, metrics);
     if (!isFinite(pr[0]!) || !isFinite(pr[1]!)) continue;
     if (pr[0]! < minc) minc = pr[0]!; if (pr[0]! > maxc) maxc = pr[0]!;
     if (pr[1]! < minr) minr = pr[1]!; if (pr[1]! > maxr) maxr = pr[1]!;
@@ -106,7 +114,8 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: true, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
     const polys = flatQuad(3);
-    scene.add(polys); scene.fit(); frameObject(scene, camera, polys, 0.98);
+    scene.add(polys); scene.fit(); scene.rerender();
+    frameObject(scene, camera, polys, 0.98);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: "replace", target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
@@ -244,7 +253,9 @@ export default function SynthWorkbench() {
     createGlyphOrbitControls(scene, { drag: true, wheel: true });
     const polys = shapePolys(shape);
     meshRef.current = scene.add(polys) as { dispose: () => void };
-    scene.fit(); frameObject(scene, camera, polys, flat ? 0.98 : 0.72);
+    scene.fit();
+    scene.rerender(); // render once so the <pre> reflects the real cell size
+    frameObject(scene, camera, polys, flat ? 0.98 : 0.72);
     scene.rerender();
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: "replace", target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
