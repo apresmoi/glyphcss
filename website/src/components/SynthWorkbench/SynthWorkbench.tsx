@@ -332,16 +332,14 @@ export default function SynthWorkbench() {
     scene.rerender();
   }, [lighting]);
 
-  // Density → render font-size, WITHOUT rescaling the view: compensate zoom for the
-  // font change (like the gallery) so the object keeps its size/framing, just finer.
+  // Density → render font-size only. The renderer projects with the MEASURED cell,
+  // so on-screen size is ≈ worldSpan × zoom (font-independent): changing the font
+  // keeps the object the same size, just finer glyphs. No zoom compensation.
   useEffect(() => {
-    const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
-    if (!scene || !camera || !host) return;
-    const prevFont = parseFloat(host.style.fontSize) || 13;
-    const nextFont = 13 / density;
-    host.style.fontSize = `${nextFont}px`;
+    const scene = sceneRef.current, host = hostRef.current;
+    if (!scene || !host) return;
+    host.style.fontSize = `${13 / density}px`;
     scene.fit();
-    camera.zoom *= prevFont / nextFont;
     scene.rerender();
   }, [density]);
 
