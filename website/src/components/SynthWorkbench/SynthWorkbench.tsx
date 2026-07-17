@@ -25,7 +25,9 @@ const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral",
 const WAVES = ["sin", "triangle", "saw", "square"] as const;
 const COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 const SPACES = ["auto", "surface", "scene"] as const;
-const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
+// 3D shapes have a surface-mapping bug (the effect fills the viewport instead of
+// the shape) — restricted to the plane until that's resolved.
+const SHAPES: string[] = ["plane"];
 
 const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
@@ -105,7 +107,7 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps
     host.style.fontSize = "8px";
     const polys = flatQuad(3);
     scene.add(polys); scene.fit(); frameObject(scene, camera, polys, 0.98);
-    const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: "replace" });
+    const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: "replace", target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
     let last = performance.now(), t = 0, raf = 0;
@@ -192,43 +194,61 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   return null;
 }
 
+// ── URL persistence (everything the synth is configured to, in ?s=) ───────────
+function encodeSynthState(state: unknown): string {
+  try { return btoa(unescape(encodeURIComponent(JSON.stringify(state)))).replace(/=+$/, ""); } catch { return ""; }
+}
+function decodeSynthState(s: string): Record<string, unknown> | null {
+  try { return JSON.parse(decodeURIComponent(escape(atob(s)))) as Record<string, unknown>; } catch { return null; }
+}
+function readSynthUrl(): Record<string, unknown> | null {
+  if (typeof window === "undefined") return null;
+  const s = new URLSearchParams(window.location.search).get("s");
+  return s ? decodeSynthState(s) : null;
+}
+function slotsFromParams(p: Params): number[] {
+  return Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(p[`amp${k}`]) > 0);
+}
+
 // ── Workbench ────────────────────────────────────────────────────────────────
 export default function SynthWorkbench() {
+  const initial = useMemo(() => readSynthUrl(), []);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<GlyphSceneHandle | null>(null);
   const cameraRef = useRef<ReturnType<typeof createGlyphOrthographicCamera> | null>(null);
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   const meshRef = useRef<{ dispose: () => void } | null>(null);
 
-  const [shape, setShape] = useState<string>("plane");
-  const [params, setParams] = useState<Params>(synthDefaults);
-  const [timeScale, setTimeScale] = useState(1.4);
+  const [shape, setShape] = useState<string>((initial?.sh as string) ?? "plane");
+  const [params, setParams] = useState<Params>(() => ({ ...synthDefaults(), ...((initial?.p as Params) ?? {}) }));
+  const [timeScale, setTimeScale] = useState((initial?.ts as number) ?? 1.4);
   const [paused, setPaused] = useState(false);
-  const [density, setDensity] = useState(1);
+  const [density, setDensity] = useState((initial?.d as number) ?? 1);
 
   const paramsRef = useRef(params); paramsRef.current = params;
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
   const pausedRef = useRef(paused); pausedRef.current = paused;
+  const densityRef = useRef(density); densityRef.current = density;
 
-  const orientFor = (name: string, camera: { rotX: number; rotY: number }) => {
-    if (isFlat(name)) { camera.rotX = 0; camera.rotY = 0; } else { camera.rotX = 58; camera.rotY = 32; }
-  };
-
+  // Build (or rebuild) the whole scene for the current shape. A fresh scene is the
+  // reliable way to give the effect layer the new geometry's retained coverage —
+  // swapping the mesh under a mounted layer leaves it with the old surface's fill.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
-    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 46 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: true, interactiveDownscale: 1, directionalLight: LIGHT, ambientLight: AMBIENT });
-    host.style.fontSize = "13px";
+    const flat = isFlat(shape);
+    const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : 58, rotY: flat ? 0 : 32, zoom: 46 });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, directionalLight: LIGHT, ambientLight: AMBIENT });
+    host.style.fontSize = `${13 / densityRef.current}px`;
     createGlyphOrbitControls(scene, { drag: true, wheel: true });
-    const polys = shapePolys("plane");
+    const polys = shapePolys(shape);
     meshRef.current = scene.add(polys) as { dispose: () => void };
-    scene.fit(); orientFor("plane", camera); frameObject(scene, camera, polys, 0.98);
-    const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: "replace" });
+    scene.fit(); frameObject(scene, camera, polys, flat ? 0.98 : 0.72);
+    scene.rerender();
+    const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: "replace", target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     sceneRef.current = scene; cameraRef.current = camera;
-    scene.rerender();
     let last = performance.now(), t = 0, raf = 0;
     const tick = (now: number): void => {
       raf = requestAnimationFrame(tick);
@@ -238,21 +258,11 @@ export default function SynthWorkbench() {
       layerRef.current?.setParams({ time: t });
     };
     raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; };
-  }, []);
+    return () => { cancelAnimationFrame(raf); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape]);
 
   useEffect(() => { layerRef.current?.setParams(params); }, [params]);
-
-  useEffect(() => {
-    const scene = sceneRef.current, camera = cameraRef.current;
-    if (!scene || !camera) return;
-    meshRef.current?.dispose();
-    const polys = shapePolys(shape);
-    meshRef.current = scene.add(polys) as { dispose: () => void };
-    orientFor(shape, camera);
-    frameObject(scene, camera, polys, isFlat(shape) ? 0.98 : 0.72);
-    scene.rerender();
-  }, [shape]);
 
   // Density → render font-size, WITHOUT rescaling the view: compensate zoom for the
   // font change (like the gallery) so the object keeps its size/framing, just finer.
@@ -269,11 +279,17 @@ export default function SynthWorkbench() {
 
   // Which oscillator slots have a CARD (exist), independent of their amp. Muting a
   // voice (amp 0) keeps its card; only Remove (×) deletes it.
-  const [voiceSlots, setVoiceSlots] = useState<number[]>(() => {
-    const d = synthDefaults();
-    return Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(d[`amp${k}`]) > 0);
-  });
+  const [voiceSlots, setVoiceSlots] = useState<number[]>(() => (initial?.v as number[]) ?? slotsFromParams(params));
   const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
+
+  // Persist everything to the URL (?s=…) so a reload/share restores the patch.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const s = encodeSynthState({ p: params, sh: shape, ts: timeScale, d: density, v: voiceSlots });
+    const url = new URL(window.location.href);
+    url.searchParams.set("s", s);
+    window.history.replaceState(null, "", url.toString());
+  }, [params, shape, timeScale, density, voiceSlots]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
   const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => {
