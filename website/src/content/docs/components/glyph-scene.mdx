@@ -28,9 +28,61 @@ keyframes consume.
 | `directionalLight` | `GlyphDirectionalLight` | — | Directional light for solid mode |
 | `ambientLight` | `GlyphAmbientLight` | — | Ambient fill for solid mode |
 | `shadow` | `GlyphShadowOptions` | `undefined` | Shadow-map config. `undefined` = off. Set alongside `castShadow`/`receiveShadow` on meshes |
+| `transformCells` | `TransformCells` | `undefined` | Transform the completed cell grid before its single `<pre>` write |
 | `className` | `string` | — | CSS class on the outer host |
 | `style` | `CSSProperties` | — | Inline styles on the outer host |
 | `children` | `ReactNode` | — | `<GlyphMesh>`, controls, hotspots |
+
+## Cell transforms and surface UVs
+
+`transformCells` runs after rasterization, shading, and depth testing, immediately
+before glyphcss stringifies the grid. The hook may mutate `grid.char` and
+`grid.color`; glyphcss still performs one write to the scene's `<pre>` for the
+completed frame.
+
+In solid mode, polygons with authored `uvs` also expose `grid.surfaceUv`. This is
+an optional interleaved `Float32Array` containing the perspective-correct UV from
+the depth-winning surface for each cell:
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import type { TransformCells } from "glyphcss";
+
+const word = Array.from("HOLA");
+
+const mapWordToSurface: TransformCells = (grid) => {
+  const uv = grid.surfaceUv;
+  if (!uv) return;
+
+  for (let i = 0; i < grid.char.length; i++) {
+    const u = uv[i * 2];
+    const v = uv[i * 2 + 1];
+    if (!Number.isFinite(u) || !Number.isFinite(v)) continue;
+
+    grid.char[i] = word[((Math.floor(u * 12) % word.length) + word.length) % word.length];
+  }
+};
+
+const scene = createGlyphScene(host, {
+  camera,
+  mode: "solid",
+  transformCells: mapWordToSurface,
+});
+```
+
+`surfaceUv` uses `[u0, v0, u1, v1, ...]`. Empty cells and cells whose winning
+polygon has no UVs contain `NaN`/non-finite coordinates, so effects must check
+both components. Values remain in the polygon's authored coordinate space;
+they are not clamped to `0..1`, and may tile beyond that range. Because the
+mapping follows the polygon UVs rather than screen rows and columns, patterns
+rotate and foreshorten with the surface. Treat the grid buffers as
+callback-scoped; use `rasterizeToCells` when they must outlive the synchronous
+`transformCells` call.
+
+For reusable or animated appearance, prefer a mounted
+[`GlyphEffectLayer`](/guides/effects). Generic layers retain the geometry raster
+and avoid re-projecting the mesh on parameter-only ticks; `transformCells`
+remains the final application-specific escape hatch and runs after those layers.
 
 ## Full examples
 

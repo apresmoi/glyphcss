@@ -132,6 +132,12 @@ const title = "glyphcss · Image → Glyph";
   <script>
     import { createGlyphScene, createGlyphOrthographicCamera, WIREFRAME_PALETTES } from "glyphcss";
     import type { Polygon } from "glyphcss";
+    import {
+      createExampleQuerySync,
+      readQueryBoolean,
+      readQueryNumber,
+      readQueryString,
+    } from "../../lib/example-query-state";
 
     const stage = document.getElementById("stage") as HTMLElement;
     const host = document.getElementById("host") as HTMLElement;
@@ -151,18 +157,31 @@ const title = "glyphcss · Image → Glyph";
       ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
     });
 
-    for (const name of Object.keys(WIREFRAME_PALETTES)) {
+    const paletteNames = Object.keys(WIREFRAME_PALETTES);
+    for (const name of paletteNames) {
       const opt = document.createElement("option");
       opt.value = name; opt.textContent = name;
       paletteSel.appendChild(opt);
     }
-    paletteSel.value = "default";
 
     const ctl = {
       density: document.getElementById("density") as HTMLInputElement,
       color: document.getElementById("color") as HTMLInputElement,
     };
     const BASE_FONT_SIZE = 13;
+    const query = new URLSearchParams(window.location.search);
+    ctl.density.value = String(readQueryNumber(query, "density", 1.6, {
+      min: 0.75,
+      max: 4,
+      step: 0.05,
+    }));
+    paletteSel.value = readQueryString(
+      query,
+      "palette",
+      "default",
+      (value) => paletteNames.includes(value),
+    );
+    ctl.color.checked = readQueryBoolean(query, "color", true);
 
     function applyDensity(): void {
       const density = Math.max(0.1, parseFloat(ctl.density.value) || 1);
@@ -177,13 +196,20 @@ const title = "glyphcss · Image → Glyph";
     const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 8 });
     const scene = createGlyphScene(host, {
       mode: "solid",
-      useColors: true,
+      useColors: ctl.color.checked,
+      glyphPalette: paletteSel.value,
       autoSize: true,
       doubleSided: true,
       camera,
       directionalLight: { direction: [0, 0, 1], intensity: 0 },
       ambientLight: { intensity: 1 },
     });
+    const querySync = createExampleQuerySync(() => ({
+      density: Number(ctl.density.value),
+      palette: paletteSel.value,
+      color: ctl.color.checked,
+    }));
+    querySync.write();
 
     let meshHandle: ReturnType<typeof scene.add> | null = null;
     let aspect = 1;
@@ -231,9 +257,16 @@ const title = "glyphcss · Image → Glyph";
       applyDensity();
       scene.fit();
       fit();
+      querySync.schedule();
     });
-    ctl.color.addEventListener("input", () => scene.setOptions({ useColors: ctl.color.checked }));
-    paletteSel.addEventListener("change", () => scene.setOptions({ glyphPalette: paletteSel.value }));
+    ctl.color.addEventListener("input", () => {
+      scene.setOptions({ useColors: ctl.color.checked });
+      querySync.schedule();
+    });
+    paletteSel.addEventListener("change", () => {
+      scene.setOptions({ glyphPalette: paletteSel.value });
+      querySync.schedule();
+    });
 
     // Drop / click / paste
     fileInput.addEventListener("change", () => { if (fileInput.files?.[0]) loadFile(fileInput.files[0]); });

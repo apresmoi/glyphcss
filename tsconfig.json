@@ -17,6 +17,7 @@
     { "path": "packages/core" },
     { "path": "packages/glyphcss" },
     { "path": "packages/react" },
-    { "path": "packages/vue" }
+    { "path": "packages/vue" },
+    { "path": "packages/effects" }
   ]
 }

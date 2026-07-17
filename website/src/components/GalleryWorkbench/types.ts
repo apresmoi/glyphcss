@@ -3,6 +3,7 @@
 // component itself) live here. Component-internal types stay local.
 
 import type { GltfParseOptions, ObjParseOptions, Polygon, StlParseOptions, VoxParseOptions } from "@glyphcss/core";
+import type { GlyphEffectId } from "@glyphcss/effects";
 
 export type ModelKind = "obj" | "glb" | "gltf" | "vox" | "stl" | "primitive";
 export type GalleryBucket = "Solid" | "Textured" | "Animated" | "Voxel" | "Primitives" | "CAD";
@@ -84,6 +85,23 @@ export interface GlyphMetrics {
   domNodes: number;
   layers: number;
   bakeMs: number;
+}
+
+export type GalleryEffectParamValue = string | number | boolean;
+export type GalleryEffectBlend = "replace" | "over";
+
+/**
+ * Shareable gallery state for one stock glyph effect. Procedural `time` is
+ * deliberately absent: the runtime owns that high-frequency value while this
+ * object carries only authoring and playback configuration.
+ */
+export interface GalleryEffectState {
+  effectId: GlyphEffectId | null;
+  effectVersion: number;
+  blend: GalleryEffectBlend;
+  paused: boolean;
+  timeScale: number;
+  params: Record<string, GalleryEffectParamValue>;
 }
 
 export interface SceneOptionsState {

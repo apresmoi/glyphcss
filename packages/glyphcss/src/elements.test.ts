@@ -36,6 +36,10 @@ describe("elements auto-registration", () => {
     expect(customElements.get("glyph-map-controls")).toBeDefined();
   });
 
+  it("registers glyph-effect-layer", () => {
+    expect(customElements.get("glyph-effect-layer")).toBeDefined();
+  });
+
   it("is idempotent — re-importing does not throw", () => {
     // The module guard prevents double-define. Since vitest caches modules,
     // a second import is already a no-op. We verify the tags are still defined.

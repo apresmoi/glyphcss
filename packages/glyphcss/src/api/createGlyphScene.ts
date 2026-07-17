@@ -35,7 +35,25 @@ import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
 import type { ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, computeOcclusionIds } from "../render/rasterize";
-import type { TransformCells } from "../render/cells";
+import { encodeCellGrid, type CellGrid, type TransformCells } from "../render/cells";
+import type {
+  GlyphEffectDefinitionLayerOptions,
+  GlyphEffectLayerHandle,
+  GlyphEffectParamSchema,
+  GlyphEffectParamShape,
+  GlyphEffectParamValues,
+  GlyphEffectProgramLayerOptions,
+} from "./effects";
+import {
+  composeRetainedGlyphEffectOutput,
+  createRuntimeGlyphEffectLayer,
+  prepareRuntimeGlyphEffectLayers,
+  retainGlyphEffectOutput,
+  type GlyphEffectOutputMetadata,
+  type PreparedGlyphEffectLayer,
+  type RetainedGlyphEffectOutput,
+  type RuntimeGlyphEffectLayer,
+} from "../render/effectCompositor";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions } from "./types";
@@ -166,6 +184,12 @@ export interface GlyphSceneHandle {
    * Returns a handle to update or dispose the mesh.
    */
   add(polygons: Polygon[], transform?: GlyphMeshTransform): GlyphMeshHandle;
+  addEffectLayer<Schema extends GlyphEffectParamSchema, State = undefined>(
+    options: GlyphEffectDefinitionLayerOptions<Schema, State>,
+  ): GlyphEffectLayerHandle<GlyphEffectParamValues<Schema>>;
+  addEffectLayer<P extends GlyphEffectParamShape<P>, State = undefined>(
+    options: GlyphEffectProgramLayerOptions<P, State>,
+  ): GlyphEffectLayerHandle<P>;
   addHotspot(opts: GlyphHotspotOptions, onClick?: () => void): GlyphHotspotHandle;
   /** Force an immediate re-rasterize. Normally called automatically on add/remove/setOptions. */
   rerender(): void;
@@ -295,6 +319,96 @@ export function createGlyphScene(
   const meshes = new Map<number, MeshEntry>();
   const hotspots: Array<{ hotspot: Hotspot; el: HTMLElement; onClick?: () => void }> = [];
   let pendingRender = false;
+  let pendingEffectRender = false;
+  let effectDirty = false;
+  let destroyed = false;
+  let nextEffectDeclarationOrder = 0;
+  const effectLayers: RuntimeGlyphEffectLayer[] = [];
+  let retainedEffectOutputs = new Map<string, RetainedGlyphEffectOutput>();
+  let activePreparedEffects: readonly PreparedGlyphEffectLayer[] | null = null;
+  let collectingEffectOutputs: Map<string, RetainedGlyphEffectOutput> | null = null;
+  let currentEffectOutputMetadata: GlyphEffectOutputMetadata | null = null;
+  let stagedFullEffectWrites: Array<{ pre: HTMLPreElement; encoded: string }> | null = null;
+
+  function hasEffectLayers(): boolean {
+    return effectLayers.length > 0;
+  }
+
+  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition"): boolean {
+    return effectLayers.some((layer) => (
+      !layer.disposed && (
+        layer.program.requirements?.includes(requirement) === true
+        || layer.program.optionalRequirements?.includes(requirement) === true
+      )
+    ));
+  }
+
+  function assertEffectMode(mode: RenderMode, layers = effectLayers): void {
+    if (mode === "solid") return;
+    for (const layer of layers) {
+      const requirement = layer.program.requirements?.find((entry) => entry !== "baseColor");
+      if (requirement) {
+        throw new Error(`glyphcss: effect requirement "${requirement}" is only available in solid mode.`);
+      }
+    }
+  }
+
+  function runLegacyCellHook(grid: CellGrid): CellGrid {
+    return options.transformCells?.(grid) ?? grid;
+  }
+
+  const transformEffectCells: TransformCells = (grid) => {
+    if (!activePreparedEffects || !collectingEffectOutputs || !currentEffectOutputMetadata) {
+      throw new Error("glyphcss: effect compositor ran outside an active render transaction.");
+    }
+    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata);
+    collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
+    return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects));
+  };
+
+  function writeEffectOutput(output: RetainedGlyphEffectOutput, encoded: string): void {
+    if (options.useColors) output.metadata.pre.innerHTML = encoded;
+    else output.metadata.pre.textContent = encoded;
+  }
+
+  function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string): void {
+    if (stagedFullEffectWrites) {
+      stagedFullEffectWrites.push({ pre: outputPre, encoded });
+    } else if (options.useColors) {
+      outputPre.innerHTML = encoded;
+    } else {
+      outputPre.textContent = encoded;
+    }
+  }
+
+  function renderRetainedEffects(): void {
+    if (destroyed || !effectDirty) return;
+    if (retainedEffectOutputs.size === 0) {
+      scheduleRender();
+      return;
+    }
+    assertEffectMode(options.mode);
+    const prepared = prepareRuntimeGlyphEffectLayers(effectLayers, [options.cols, options.rows]);
+    const staged: Array<{ output: RetainedGlyphEffectOutput; encoded: string }> = [];
+    for (const output of retainedEffectOutputs.values()) {
+      const grid = runLegacyCellHook(composeRetainedGlyphEffectOutput(output, prepared));
+      staged.push({ output, encoded: encodeCellGrid(grid, options.useColors) });
+    }
+    for (const entry of staged) writeEffectOutput(entry.output, entry.encoded);
+    effectDirty = false;
+    if (!hasEffectLayers()) retainedEffectOutputs.clear();
+  }
+
+  function scheduleEffectRender(): void {
+    effectDirty = true;
+    if (destroyed || pendingEffectRender) return;
+    pendingEffectRender = true;
+    Promise.resolve().then(() => {
+      pendingEffectRender = false;
+      if (destroyed || pendingRender || !effectDirty) return;
+      renderRetainedEffects();
+    });
+  }
 
   // Cross-frame shading cache: per-triangle Lambert intensities + lit color are
   // camera-invariant, so they survive a camera-only re-render (orbit/zoom drag)
@@ -352,15 +466,17 @@ export function createGlyphScene(
   }
 
   function scheduleRender(): void {
-    if (pendingRender) return;
+    if (destroyed || pendingRender) return;
     pendingRender = true;
     Promise.resolve().then(() => {
       pendingRender = false;
+      if (destroyed) return;
       doRender();
     });
   }
 
   function doRender(): void {
+    if (destroyed) return;
     // Gather all polygons after transforms.
     const allPolygons: Polygon[] = [];
     const castShadowFlags: boolean[] = [];
@@ -407,6 +523,39 @@ export function createGlyphScene(
       }
     }
 
+    assertEffectMode(options.mode);
+    const effectsActive = hasEffectLayers();
+    const retainBaseShade = effectsActive && effectRequests("baseShade");
+    const retainWorldPosition = effectsActive && effectRequests("worldPosition");
+    const retainNormal = effectsActive && effectRequests("normal");
+    let worldToSceneScale: number | undefined;
+    if (retainWorldPosition) {
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      const include = (polygons: readonly Polygon[]) => {
+        for (const polygon of polygons) for (const vertex of polygon.vertices) {
+          if (vertex[0] < minX) minX = vertex[0];
+          if (vertex[1] < minY) minY = vertex[1];
+          if (vertex[2] < minZ) minZ = vertex[2];
+          if (vertex[0] > maxX) maxX = vertex[0];
+          if (vertex[1] > maxY) maxY = vertex[1];
+          if (vertex[2] > maxZ) maxZ = vertex[2];
+        }
+      };
+      include(allPolygons);
+      for (const entry of detailEntries) include(applyTransform(entry.polygons, entry.transform));
+      const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+      worldToSceneScale = Number.isFinite(span) && span > 1e-9
+        ? Math.min(options.cols, options.rows) / span
+        : 1;
+    }
+    activePreparedEffects = effectsActive
+      ? prepareRuntimeGlyphEffectLayers(effectLayers, [options.cols, options.rows])
+      : null;
+    collectingEffectOutputs = effectsActive ? new Map() : null;
+    stagedFullEffectWrites = effectsActive ? [] : null;
+
+    try {
     const ctx = buildRasterizeContext({
       camera: options.camera,
       grid: baseGrid,
@@ -426,6 +575,9 @@ export function createGlyphScene(
       castShadowFlags,
       receiveShadowFlags,
       depthBiases: anyDepthBias ? depthBiases : undefined,
+      retainShade: retainBaseShade,
+      retainWorldPosition,
+      retainNormal,
     });
     ctx.shadeCache = shadeCache;
     ctx.textureSamplers = textureSamplers;
@@ -435,8 +587,17 @@ export function createGlyphScene(
     ctx.occlusion = occShared
       ? { idMap: occShared.idMap, layerId: BASE_LAYER, cols: occShared.cols, rows: occShared.rows, colScale: occShared.ss, colOffset: 0.5, rowScale: occShared.ss, rowOffset: 0.5 }
       : null;
-    // Optional post-rasterize cell hook (M4). Undefined → byte-identical output.
-    ctx.transformCells = options.transformCells;
+    currentEffectOutputMetadata = effectsActive ? {
+      id: "base",
+      pre,
+      isBase: true,
+      cellToSceneGrid: [1, 0, 0, 1, 0, 0],
+      sceneGridSize: [options.cols, options.rows],
+      localCellFootprint: [1, 1],
+      ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
+    } : null;
+    // With no effect layer, preserve the direct legacy/no-hook byte path.
+    ctx.transformCells = effectsActive ? transformEffectCells : options.transformCells;
 
     // Optional perf instrumentation: set `globalThis.__glyphPerf = {}` to
     // record per-render rasterize vs DOM-write timings into it. Zero cost when
@@ -448,11 +609,7 @@ export function createGlyphScene(
     const output = rasterize(ctx);
     const tRaster = perf ? performance.now() : 0;
 
-    if (options.useColors) {
-      pre.innerHTML = output;
-    } else {
-      pre.textContent = output;
-    }
+    writeOrStageFullOutput(pre, output);
 
     if (perf) {
       const tDom = performance.now();
@@ -462,10 +619,35 @@ export function createGlyphScene(
     }
 
     // Detail meshes — each in its own finer, translated <pre> overlay.
-    renderDetailLayers(detailEntries, occShared, baseGrid);
+    renderDetailLayers(
+      detailEntries,
+      occShared,
+      baseGrid,
+      retainBaseShade,
+      retainWorldPosition,
+      retainNormal,
+      worldToSceneScale,
+    );
+
+    if (stagedFullEffectWrites) {
+      for (const entry of stagedFullEffectWrites) {
+        if (options.useColors) entry.pre.innerHTML = entry.encoded;
+        else entry.pre.textContent = entry.encoded;
+      }
+    }
+
+    if (collectingEffectOutputs) retainedEffectOutputs = collectingEffectOutputs;
+    else retainedEffectOutputs.clear();
+    effectDirty = false;
 
     // Update hotspot positions.
     updateHotspots();
+    } finally {
+      currentEffectOutputMetadata = null;
+      collectingEffectOutputs = null;
+      activePreparedEffects = null;
+      stagedFullEffectWrites = null;
+    }
   }
 
   // A mesh "pops out" into its own <pre> when it declares its own cell metrics OR
@@ -538,7 +720,12 @@ export function createGlyphScene(
     entries: MeshEntry[],
     occShared: { idMap: Int32Array; cols: number; rows: number; ss: number; cwB: number; chB: number } | null,
     baseGrid: GridSize,
+    retainBaseShade: boolean,
+    retainWorldPosition: boolean,
+    retainNormal: boolean,
+    worldToSceneScale: number | undefined,
   ): void {
+    const effectsActive = activePreparedEffects !== null;
     // Drop <pre>s for meshes that are gone or no longer detail.
     for (const [id, layer] of detailLayers) {
       if (!entries.some((e) => e.id === id)) { layer.pre.remove(); detailLayers.delete(id); }
@@ -615,7 +802,7 @@ export function createGlyphScene(
           if (pr[0] < minC) minC = pr[0]; if (pr[0] > maxC) maxC = pr[0];
           if (pr[1] < minR) minR = pr[1]; if (pr[1] > maxR) maxR = pr[1];
         }
-        if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // off-screen / clipped
+        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); continue; } // off-screen / clipped
 
         // Clamp the bbox to the visible grid (+margin), THEN size the detail grid.
         // A mesh near or enclosing the camera projects some verts to huge coords
@@ -624,7 +811,7 @@ export function createGlyphScene(
         const PADB = 1; // base-cell margin around the silhouette
         minC = Math.max(-PADB, minC - PADB); maxC = Math.min(colsB + PADB, maxC + PADB);
         minR = Math.max(-PADB, minR - PADB); maxR = Math.min(rowsB + PADB, maxR + PADB);
-        if (!(maxC > minC) || !(maxR > minR)) { dpre.textContent = ""; continue; } // fully off-screen
+        if (!(maxC > minC) || !(maxR > minR)) { writeOrStageFullOutput(dpre, ""); continue; } // fully off-screen
         let kx = cwB / cwD, ky = chB / chD; // detail cells per base cell (= density)
         // Cap the detail grid: the viewport clamp bounds the bbox in BASE cells, but the
         // grid is bbox×density, so an absurd density (or tiny fontSize) still explodes it.
@@ -694,11 +881,24 @@ export function createGlyphScene(
           depthEpsilon: options.depthEpsilon,
           temporalBlend: 0,
           shadow: undefined,
+          retainShade: retainBaseShade,
+          retainWorldPosition,
+          retainNormal,
         });
         ctx.textureSamplers = textureSamplers;
         ctx.occlusion = occ;
+        currentEffectOutputMetadata = effectsActive ? {
+          id: `detail:${entry.id}`,
+          pre: dpre,
+          isBase: false,
+          cellToSceneGrid: [1 / kx, 0, 0, 1 / ky, minC, minR],
+          sceneGridSize: [options.cols, options.rows],
+          localCellFootprint: [1 / kx, 1 / ky],
+          ...(worldToSceneScale !== undefined ? { worldToSceneScale } : {}),
+        } : null;
+        ctx.transformCells = effectsActive ? transformEffectCells : options.transformCells;
         const out = rasterize(ctx);
-        if (options.useColors) dpre.innerHTML = out; else dpre.textContent = out;
+        writeOrStageFullOutput(dpre, out);
         // Detail cell (0,0) maps to base cell (minC,minR) → place the <pre> there.
         dpre.style.transform = `translate(${(minC * cwB).toFixed(2)}px, ${(minR * chB).toFixed(2)}px)`;
       }
@@ -776,6 +976,43 @@ export function createGlyphScene(
     };
   }
 
+  function addEffectLayer<Schema extends GlyphEffectParamSchema, State = undefined>(
+    effectOptions: GlyphEffectDefinitionLayerOptions<Schema, State>,
+  ): GlyphEffectLayerHandle<GlyphEffectParamValues<Schema>>;
+  function addEffectLayer<P extends GlyphEffectParamShape<P>, State = undefined>(
+    effectOptions: GlyphEffectProgramLayerOptions<P, State>,
+  ): GlyphEffectLayerHandle<P>;
+  function addEffectLayer(
+    effectOptions: GlyphEffectDefinitionLayerOptions<any, any> | GlyphEffectProgramLayerOptions<any, any>,
+  ): GlyphEffectLayerHandle<any> {
+    if (destroyed) throw new Error("glyphcss: cannot add an effect layer to a destroyed scene.");
+    const layer = createRuntimeGlyphEffectLayer(
+      effectOptions,
+      nextEffectDeclarationOrder++,
+      scheduleEffectRender,
+      (disposedLayer) => {
+        const index = effectLayers.indexOf(disposedLayer);
+        if (index >= 0) effectLayers.splice(index, 1);
+        scheduleEffectRender();
+      },
+    );
+    assertEffectMode(options.mode, [layer]);
+    effectLayers.push(layer);
+    const requested = new Set([
+      ...(layer.program.requirements ?? []),
+      ...(layer.program.optionalRequirements ?? []),
+    ]);
+    const needsInputRaster = Array.from(retainedEffectOutputs.values()).some((output) => (
+      (requested.has("baseShade") && !output.base.shade)
+      || (requested.has("worldPosition") && !output.base.worldPosition)
+      || (requested.has("normal") && !output.base.normal)
+    ));
+    if (needsInputRaster) scheduleRender();
+    else if (retainedEffectOutputs.size > 0) scheduleEffectRender();
+    else scheduleRender();
+    return layer.handle;
+  }
+
   function addHotspot(hotspotOpts: GlyphHotspotOptions, onClick?: () => void): GlyphHotspotHandle {
     const el = host.ownerDocument!.createElement("div");
     el.className = "glyph-hotspot";
@@ -847,6 +1084,7 @@ export function createGlyphScene(
   }
 
   function setOptions(partial: Partial<GlyphSceneOptions>): void {
+    if (partial.mode !== undefined) assertEffectMode(partial.mode);
     if (partial.mode !== undefined) options.mode = partial.mode;
     if (partial.glyphPalette !== undefined) options.glyphPalette = partial.glyphPalette;
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
@@ -858,6 +1096,10 @@ export function createGlyphScene(
     if (partial.camera !== undefined) options.camera = partial.camera;
     if (partial.smoothShading !== undefined) options.smoothShading = partial.smoothShading;
     if (partial.creaseAngle !== undefined) options.creaseAngle = partial.creaseAngle;
+    if (partial.doubleSided !== undefined) options.doubleSided = partial.doubleSided;
+    if (partial.supersample !== undefined) options.supersample = partial.supersample;
+    if (partial.depthEpsilon !== undefined) options.depthEpsilon = partial.depthEpsilon;
+    if (partial.temporalBlend !== undefined) options.temporalBlend = partial.temporalBlend;
     if (partial.interactiveDownscale !== undefined) options.interactiveDownscale = partial.interactiveDownscale;
     if ("shadow" in partial) options.shadow = partial.shadow;
     // Forward on presence (including explicit undefined) so removing the prop
@@ -947,7 +1189,12 @@ export function createGlyphScene(
   }
 
   function destroy(): void {
+    if (destroyed) return;
+    destroyed = true;
     if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+    for (const layer of effectLayers) layer.disposed = true;
+    effectLayers.length = 0;
+    retainedEffectOutputs.clear();
     meshes.clear();
     if (host.contains(sceneEl)) host.removeChild(sceneEl);
   }
@@ -959,6 +1206,7 @@ export function createGlyphScene(
     get output() { return pre; },
     get camera() { return options.camera; },
     add,
+    addEffectLayer,
     addHotspot,
     rerender,
     setOptions,

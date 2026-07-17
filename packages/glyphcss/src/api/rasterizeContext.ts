@@ -103,6 +103,12 @@ export interface RasterizeContextOptions {
   depthEpsilon?: number;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
   occlusion?: OcclusionMap | null;
+  /** Retain the final solid-mode per-cell shading scalar for an effect input. */
+  retainShade?: boolean;
+  /** Retain depth-winning world positions for an effect input. */
+  retainWorldPosition?: boolean;
+  /** Retain depth-winning geometric face normals for an effect input. */
+  retainNormal?: boolean;
   /**
    * Optional post-rasterize cell hook (M4 composition effects). When supplied,
    * the rasterizer builds a {@link CellGrid} from its final per-cell buffers,
@@ -185,6 +191,12 @@ export interface RasterizeContext {
   temporalHistory?: TemporalHistory | null;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
   occlusion?: OcclusionMap | null;
+  /** Retain the final solid-mode per-cell shading scalar for an effect input. */
+  retainShade?: boolean;
+  /** Retain depth-winning world positions for an effect input. */
+  retainWorldPosition?: boolean;
+  /** Retain depth-winning geometric face normals for an effect input. */
+  retainNormal?: boolean;
   /** Optional post-rasterize cell hook — see {@link RasterizeContextOptions.transformCells}. */
   transformCells?: TransformCells;
 }
@@ -240,6 +252,9 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     shadow: opts.shadow,
     castShadowFlags: opts.castShadowFlags ?? [],
     receiveShadowFlags: opts.receiveShadowFlags ?? [],
+    retainShade: opts.retainShade ?? false,
+    retainWorldPosition: opts.retainWorldPosition ?? false,
+    retainNormal: opts.retainNormal ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),
     ...(opts.depthEpsilon ? { depthEpsilon: opts.depthEpsilon } : {}),
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),

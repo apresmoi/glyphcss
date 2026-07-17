@@ -155,6 +155,7 @@ export {
   GlyphScene,
   GlyphSceneStatic,
   GlyphMesh,
+  GlyphEffectLayer,
   GlyphGround,
   GlyphHotspot,
   GlyphSceneContext,
@@ -180,6 +181,8 @@ export type {
   GlyphSceneProps,
   GlyphSceneStaticProps,
   GlyphMeshProps,
+  GlyphEffectLayerComponent,
+  GlyphEffectLayerProps,
   GlyphGroundProps,
   GlyphHotspotProps,
   GlyphSceneContextValue,
@@ -199,6 +202,13 @@ export type {
 
 // ── Mesh handle type ──────────────────────────────────────────────────────────
 export type { GlyphMeshHandle } from "glyphcss";
+
+// ── Cell-effect layer types ──────────────────────────────────────────────────
+export type {
+  GlyphEffectLayerHandle,
+  GlyphEffectTarget,
+  GlyphEffectBlend,
+} from "glyphcss";
 
 // ── Shadow options ────────────────────────────────────────────────────────────
 export type { GlyphShadowOptions } from "glyphcss";

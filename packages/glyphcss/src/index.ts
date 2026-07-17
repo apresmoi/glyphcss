@@ -25,6 +25,9 @@ export type {
   GlyphShadowOptions,
 } from "./api/createGlyphScene";
 
+// Effect-program protocol + scene-root compositor layers.
+export * from "./api/effects";
+
 // Static compile — render a scene to its `<pre>` without a DOM (build-time / SSR).
 export { compileScene } from "./api/compileScene";
 export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene";
@@ -113,7 +116,13 @@ export { projectHotspots } from "./api/projectHotspots";
 // ── Rasterizer ────────────────────────────────────────────────────
 export { rasterize, bakeFrames, rasterizeToCells } from "./render/rasterize";
 // ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ──
-export { buildCellGrid, applyCellHook } from "./render/cells";
+export {
+  buildCellGrid,
+  cloneCellGrid,
+  encodeGlyphBuffers,
+  encodeCellGrid,
+  applyCellHook,
+} from "./render/cells";
 export type { CellGrid, TransformCells } from "./render/cells";
 export {
   DEFAULT_RAMP,
@@ -142,6 +151,8 @@ export { GlyphPerspectiveCameraElement } from "./elements/GlyphPerspectiveCamera
 export { GlyphOrthographicCameraElement } from "./elements/GlyphOrthographicCameraElement";
 export { GlyphOrbitControlsElement } from "./elements/GlyphOrbitControlsElement";
 export { GlyphMapControlsElement } from "./elements/GlyphMapControlsElement";
+export { GlyphEffectLayerElement } from "./elements/GlyphEffectLayerElement";
+export type { GlyphEffectLayerElementConfig } from "./elements/GlyphEffectLayerElement";
 
 // ── Re-exports from @glyphcss/core ───────────────────────────────
 export * from "@glyphcss/core";

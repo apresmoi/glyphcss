@@ -27,3 +27,6 @@ website/public/data/earth.json
 
 # Generated from packages/compile/SKILL.md by website build (scripts/copy-skill.mjs)
 website/public/skill.md
+
+# Local planning doc — kept out of git per project decision
+ANIMATIONS.md

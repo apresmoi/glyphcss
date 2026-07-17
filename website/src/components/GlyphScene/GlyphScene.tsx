@@ -1,6 +1,15 @@
 import { useEffect, useRef } from "react";
 import type { GlyphMetrics, PresetModel, SceneOptionsState } from "../GalleryWorkbench/types";
 import type { LoadMeshOptions, ParseAnimationClip, Polygon } from "@glyphcss/core";
+import type { GalleryEffectBlend, GalleryEffectParamValue } from "../GalleryWorkbench/types";
+
+export interface GlyphSceneEffectConfig {
+  effect: unknown;
+  params: Record<string, GalleryEffectParamValue>;
+  blend: GalleryEffectBlend;
+  paused: boolean;
+  timeScale: number;
+}
 
 // Mirror of the handle shape exposed by glyph-runtime on demoEl.glyphcssDemo.
 interface DemoHandle {
@@ -64,6 +73,7 @@ interface DemoHandle {
     receiveShadow?: boolean;
     floor?: boolean;
   }) => void;
+  configureEffect: (config: GlyphSceneEffectConfig | null) => void;
 }
 
 export interface GlyphSceneProps {
@@ -77,6 +87,7 @@ export interface GlyphSceneProps {
   selectedAnimation: string;
   animationPaused: boolean;
   animationTimeScale: number;
+  effect: GlyphSceneEffectConfig | null;
 }
 
 const POLL_INTERVAL_MS = 500;
@@ -124,6 +135,7 @@ export function GlyphScene({
   selectedAnimation,
   animationPaused,
   animationTimeScale,
+  effect,
 }: GlyphSceneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(false);
@@ -137,6 +149,8 @@ export function GlyphScene({
   selectedPresetRef.current = selectedPreset;
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const effectRef = useRef(effect);
+  effectRef.current = effect;
   // Last camera state applied via setTunables — guards against echo: when the
   // sidebar sets a value and the poll reads it back, we must not re-fire onCameraChange.
   const lastAppliedCameraRef = useRef<{ rotX: number; rotY: number; zoom: number; target: [number, number, number] } | null>(null);
@@ -155,6 +169,7 @@ export function GlyphScene({
     const host = hostRef.current;
     if (!host || mountedRef.current) return;
     mountedRef.current = true;
+    let cancelled = false;
 
     const defaults = JSON.stringify({
       // The gallery UI/presets mirror voxcss's legacy unitless zoom. The glyph
@@ -190,12 +205,14 @@ export function GlyphScene({
       </div>`;
 
     import("../../glyph-runtime").then(({ initAllGlyphDemos }) => {
+      if (cancelled) return;
       initAllGlyphDemos();
 
       // Start polling for stats and animation info once the demo initializes.
       // The handle appears asynchronously (after the initial mesh load).
       let attempts = 0;
       const waitForHandle = (): void => {
+        if (cancelled) return;
         const handle = getHandle();
         if (!handle) {
           if (attempts++ < 40) setTimeout(waitForHandle, 200);
@@ -260,6 +277,7 @@ export function GlyphScene({
           receiveShadow: currentOptions.shadowReceive,
           floor: currentOptions.shadowFloor,
         });
+        handle.configureEffect(effectRef.current);
         // If the initial preset is a primitive, load its polygons now. The
         // runtime had no data-mesh attribute so it rendered the placeholder
         // cuboctahedron; replace it with the actual primitive geometry.
@@ -273,6 +291,8 @@ export function GlyphScene({
     });
 
     return () => {
+      cancelled = true;
+      getHandle()?.configureEffect(null);
       if (pollIntervalRef.current !== null) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -603,6 +623,10 @@ export function GlyphScene({
     options.shadowReceive,
     options.shadowFloor,
   ]);
+
+  useEffect(() => {
+    getHandle()?.configureEffect(effect);
+  }, [effect]);
 
   return (
     <div

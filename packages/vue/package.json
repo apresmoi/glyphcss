@@ -39,7 +39,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run && pnpm test:types",
+    "test:types": "tsc -p tsconfig.typecheck.json",
     "test:coverage": "vitest run --coverage",
     "prepublishOnly": "npm run build"
   },

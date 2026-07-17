@@ -1,11 +1,12 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { createApp, h, nextTick } from "vue";
+import { createApp, h, nextTick, ref } from "vue";
 import type { VNode } from "vue";
 import { GlyphScene } from "./GlyphScene";
 import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import { GlyphOrbitControls } from "../controls/GlyphOrbitControls";
 import type { Polygon } from "@glyphcss/core";
+import type { TransformCells } from "glyphcss";
 
 const POLYGON: Polygon = {
   vertices: [
@@ -98,6 +99,55 @@ describe("GlyphScene (Vue) — options forwarding", () => {
 
   it("renders with useColors=false without errors", () => {
     expect(() => renderScene({ useColors: false })).not.toThrow();
+  });
+
+  it("applies transformCells before writing the glyph output", async () => {
+    const transformCells: TransformCells = (grid) => {
+      grid.char.fill("X");
+    };
+    const { container } = renderScene({
+      cols: 8,
+      rows: 4,
+      useColors: false,
+      transformCells,
+    });
+    await nextTick();
+    await Promise.resolve();
+
+    expect(container.querySelector(".glyph-output")?.textContent).toBe(
+      "XXXXXXXX\nXXXXXXXX\nXXXXXXXX\nXXXXXXXX",
+    );
+  });
+
+  it("reactively clears transformCells when the prop is removed", async () => {
+    const transformCells = ref<TransformCells | undefined>((grid) => {
+      grid.char.fill("X");
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const app = createApp({
+      setup() {
+        return () =>
+          h(GlyphPerspectiveCamera, {}, {
+            default: () => h(GlyphScene, {
+              cols: 8,
+              rows: 4,
+              useColors: false,
+              transformCells: transformCells.value,
+            }),
+          });
+      },
+    });
+    app.mount(container);
+    await nextTick();
+    await Promise.resolve();
+    expect(container.querySelector(".glyph-output")?.textContent).toContain("X");
+
+    transformCells.value = undefined;
+    await nextTick();
+    await Promise.resolve();
+
+    expect(container.querySelector(".glyph-output")?.textContent).not.toContain("X");
   });
 });
 

@@ -1,0 +1,2291 @@
+---
+import Analytics from "../../components/Analytics.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
+import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import { StatsOverlay } from "../../components/StatsOverlay";
+
+const title = "glyphcss · Endless ASCII City";
+const description = "A procedural endless city rendered as colored ASCII with a performance-first glyphcss animation loop.";
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <Analytics />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content={description} />
+  <title>{title}</title>
+  <style>
+    html, body {
+      min-height: 100vh;
+      margin: 0;
+      background: #03050a;
+      color: #e2e8f0;
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace;
+    }
+    body { display: flex; overflow: hidden; }
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
+    .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .map-head { padding: 20px 28px 10px; border-bottom: 1px solid rgba(255, 232, 184, 0.12); }
+    .map-head h1 { margin: 0; font-size: 20px; color: rgba(255, 232, 184, 0.94); letter-spacing: 0.04em; }
+    .map-head p { margin: 6px 0 0; max-width: 1040px; font-size: 12px; color: rgba(255, 232, 184, 0.5); }
+    .map-stage { flex: 1; min-height: 0; position: relative; }
+    .city-host {
+      position: absolute;
+      inset: 0;
+      right: 268px;
+      overflow: hidden;
+      touch-action: none;
+      contain: layout paint style;
+      background:
+        radial-gradient(circle at 52% 42%, rgba(76, 66, 125, 0.1), transparent 46%),
+        #03050a;
+    }
+    .city-host .glyph-output {
+      color: rgba(255, 232, 184, 0.96);
+      cursor: grab;
+      touch-action: none;
+    }
+    .city-host .glyph-output:active { cursor: grabbing; }
+    .loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255, 232, 184, 0.4);
+      font-size: 13px;
+      pointer-events: none;
+    }
+    .map-foot {
+      padding: 12px 28px;
+      border-top: 1px solid rgba(255, 232, 184, 0.12);
+      font-size: 11px;
+      color: rgba(255, 232, 184, 0.45);
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .map-foot strong { color: rgba(255, 232, 184, 0.82); font-weight: 500; }
+    .city-controls {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      z-index: 10;
+      width: 224px;
+      max-height: calc(100% - 28px);
+      padding: 12px 14px;
+      box-sizing: border-box;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      background: rgba(8, 12, 18, 0.94);
+      border: 1px solid rgba(255, 232, 184, 0.18);
+      font-size: 11px;
+      color: rgba(255, 232, 184, 0.7);
+    }
+    .city-controls h2 {
+      margin: 0 0 10px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: rgba(56, 189, 248, 0.9);
+      font-weight: 600;
+    }
+    .city-section { border-top: 1px solid rgba(255, 232, 184, 0.12); }
+    .city-section:last-child { border-bottom: 1px solid rgba(255, 232, 184, 0.12); }
+    .city-section summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 0;
+      color: rgba(56, 189, 248, 0.9);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+    .city-section summary::-webkit-details-marker { display: none; }
+    .city-section summary::after {
+      content: "[ + ]";
+      color: rgba(255, 232, 184, 0.35);
+      letter-spacing: 0;
+    }
+    .city-section[open] summary::after { content: "[ − ]"; }
+    .city-section-body { padding: 2px 0 5px; }
+    .city-section-body .city-ctl { margin-bottom: 9px; }
+    .city-ctl { margin-bottom: 11px; }
+    .city-ctl:last-child { margin-bottom: 0; }
+    .city-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+    .city-ctl-row .val { color: rgba(255, 232, 184, 0.95); }
+    .city-ctl input[type="range"] {
+      width: 100%;
+      height: 3px;
+      appearance: none;
+      background: rgba(255, 232, 184, 0.2);
+      outline: none;
+      cursor: pointer;
+    }
+    .city-ctl input[type="range"]::-webkit-slider-thumb {
+      width: 12px;
+      height: 12px;
+      appearance: none;
+      background: #38bdf8;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      cursor: pointer;
+    }
+    .city-ctl input[type="range"]::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 0;
+      background: #38bdf8;
+      cursor: pointer;
+    }
+    .city-text {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 7px;
+      border: 1px solid rgba(255, 232, 184, 0.2);
+      border-radius: 0;
+      outline: none;
+      background: rgba(3, 5, 10, 0.76);
+      color: rgba(255, 232, 184, 0.95);
+      font: 600 11px/1 ui-monospace, "JetBrains Mono", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .city-text:focus { border-color: rgba(56, 189, 248, 0.65); }
+    .city-color {
+      display: block;
+      width: 100%;
+      height: 28px;
+      box-sizing: border-box;
+      padding: 2px;
+      border: 1px solid rgba(255, 232, 184, 0.2);
+      border-radius: 0;
+      background: rgba(3, 5, 10, 0.76);
+      cursor: pointer;
+    }
+    .city-color::-webkit-color-swatch-wrapper { padding: 0; }
+    .city-color::-webkit-color-swatch { border: 0; }
+    .city-color::-moz-color-swatch { border: 0; }
+    .city-seg { display: flex; gap: 4px; }
+    .city-seg button {
+      flex: 1;
+      padding: 5px 0;
+      border: 1px solid rgba(255, 232, 184, 0.2);
+      background: transparent;
+      color: rgba(255, 232, 184, 0.55);
+      font: inherit;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .city-seg button.active {
+      color: rgba(255, 232, 184, 0.98);
+      border-color: rgba(56, 189, 248, 0.6);
+      background: rgba(56, 189, 248, 0.08);
+    }
+    .city-seg button:disabled {
+      color: rgba(255, 232, 184, 0.2);
+      border-color: rgba(255, 232, 184, 0.1);
+      cursor: default;
+    }
+    .city-seg--four button { min-width: 0; }
+    .city-play {
+      width: 100%;
+      padding: 7px 8px;
+      border: 1px solid rgba(56, 189, 248, 0.65);
+      background: rgba(56, 189, 248, 0.1);
+      color: rgba(255, 232, 184, 0.94);
+      font: 600 11px/1 ui-monospace, "JetBrains Mono", monospace;
+      cursor: pointer;
+    }
+    .city-play:disabled {
+      border-color: rgba(255, 232, 184, 0.16);
+      background: transparent;
+      color: rgba(255, 232, 184, 0.3);
+      cursor: default;
+    }
+    .city-sequence {
+      margin-top: 6px;
+      color: rgba(255, 232, 184, 0.48);
+      font-size: 10px;
+      letter-spacing: 0.02em;
+      text-align: center;
+    }
+    .city-ctl-toggle { display: none; }
+    @media (max-width: 50rem) {
+      .city-host { right: 0; }
+      .city-ctl-toggle {
+        display: block;
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 31;
+        min-height: 44px;
+        padding: 0 12px;
+        border: none;
+        border-top: 1px solid rgba(255, 232, 184, 0.18);
+        background: rgba(8, 12, 18, 0.96);
+        color: rgba(255, 232, 184, 0.9);
+        font: 600 13px/1 ui-monospace, "JetBrains Mono", monospace;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .city-controls {
+        top: auto;
+        right: 0;
+        left: 0;
+        bottom: 44px;
+        z-index: 30;
+        display: none;
+        width: auto;
+        max-height: 58vh;
+        overflow-y: auto;
+        border: none;
+        border-top: 1px solid rgba(255, 232, 184, 0.18);
+      }
+      .city-controls.is-open { display: block; }
+      .map-foot { padding: 10px 12px 54px; gap: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <DocsHeader />
+  <div class="ex-layout">
+    <ExamplesSidebar active="city-lab" />
+    <main class="ex-main">
+      <header class="map-head">
+        <h1>[ ENDLESS ASCII CITY ]</h1>
+        <p>A procedural city moving through one shared glyph grid. Drag to orbit, scroll to zoom, or use Glyph Flow to animate a repeating word or Matrix-style droplets across the rendered surfaces.</p>
+      </header>
+      <div class="map-stage">
+        <div class="city-host" id="city-host">
+          <div class="loading" id="loading">Building city…</div>
+        </div>
+        <button class="city-ctl-toggle" type="button" id="ctl-toggle" aria-expanded="false" aria-controls="city-controls">[ Controls ]</button>
+        <div class="city-controls" id="city-controls">
+          <h2>[ CITY CONTROLS ]</h2>
+          <details class="city-section" data-control-section="motion" open>
+            <summary>[ MOTION ]</summary>
+            <div class="city-section-body">
+              <div class="city-ctl">
+                <button class="city-play" type="button" id="play">[ Pause motion ]</button>
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>speed</span><span class="val" id="speed-val">1.00×</span></div>
+                <input type="range" id="speed" min="0" max="2.5" step="0.05" value="1" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>rotation axis</span></div>
+                <div class="city-seg" id="rotation-axis">
+                  <button type="button" class="active" data-rotation-axis="x">X</button>
+                  <button type="button" data-rotation-axis="y">Y</button>
+                </div>
+              </div>
+              <div class="city-ctl">
+                <button class="city-play" type="button" id="tilt-play" aria-pressed="false" aria-describedby="tilt-sequence-values">[ Play rotation sequence ]</button>
+                <div class="city-sequence" id="tilt-sequence-values">60° → 70° → 30° → 60°</div>
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>rotation speed</span><span class="val" id="tilt-speed-val">10°/s</span></div>
+                <input type="range" id="tilt-speed" min="1" max="40" step="1" value="10" />
+              </div>
+            </div>
+          </details>
+
+          <details class="city-section" data-control-section="camera-render">
+            <summary>[ CAMERA / RENDER ]</summary>
+            <div class="city-section-body">
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>density</span><span class="val" id="density-val">1.40</span></div>
+                <input type="range" id="density" min="0.75" max="5" step="0.05" value="1.4" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>motion LOD</span><span class="val" id="lod-val">1.00×</span></div>
+                <input type="range" id="lod" min="1" max="3" step="0.25" value="1" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>tilt X°</span><span class="val" id="tilt-val">60</span></div>
+                <input type="range" id="tilt" min="25" max="82" step="1" value="60" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>orbit Y°</span><span class="val" id="orbit-val">90</span></div>
+                <input type="range" id="orbit" min="0" max="360" step="1" value="90" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>zoom</span><span class="val" id="zoom-val">2.10×</span></div>
+                <input type="range" id="zoom" min="0.7" max="4" step="0.05" value="2.1" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>output</span></div>
+                <div class="city-seg" id="color-mode">
+                  <button type="button" class="active" data-color="true">color</button>
+                  <button type="button" data-color="false">mono</button>
+                </div>
+              </div>
+              <div class="city-ctl" id="mono-color-control" hidden>
+                <div class="city-ctl-row"><span>mono color</span><span class="val" id="mono-color-val">#FFE8B8</span></div>
+                <input class="city-color" type="color" id="mono-color" value="#ffe8b8" aria-label="Monochrome output color" />
+              </div>
+            </div>
+          </details>
+
+          <details class="city-section" data-control-section="city-grid">
+            <summary>[ CITY GRID ]</summary>
+            <div class="city-section-body">
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>depth blocks</span><span class="val" id="depth-blocks-val">5</span></div>
+                <input type="range" id="depth-blocks" min="2" max="7" step="1" value="5" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>run blocks</span><span class="val" id="run-blocks-val">8</span></div>
+                <input type="range" id="run-blocks" min="4" max="10" step="1" value="8" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>block depth</span><span class="val" id="block-depth-val">188</span></div>
+                <input type="range" id="block-depth" min="144" max="224" step="4" value="188" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>block width</span><span class="val" id="block-width-val">184</span></div>
+                <input type="range" id="block-width" min="144" max="224" step="4" value="184" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>street width</span><span class="val" id="street-val">41</span></div>
+                <input type="range" id="street" min="28" max="60" step="1" value="41" />
+              </div>
+            </div>
+          </details>
+
+          <details class="city-section" data-control-section="buildings">
+            <summary>[ BUILDINGS ]</summary>
+            <div class="city-section-body">
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>building size</span><span class="val" id="building-size-val">40</span></div>
+                <input type="range" id="building-size" min="36" max="64" step="2" value="40" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>building gap</span><span class="val" id="building-gap-val">21</span></div>
+                <input type="range" id="building-gap" min="16" max="32" step="1" value="21" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>block merge</span><span class="val" id="merge-val">34%</span></div>
+                <input type="range" id="merge" min="0" max="0.7" step="0.01" value="0.34" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>min height</span><span class="val" id="min-height-val">34</span></div>
+                <input type="range" id="min-height" min="20" max="100" step="2" value="34" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>max height</span><span class="val" id="max-height-val">200</span></div>
+                <input type="range" id="max-height" min="80" max="320" step="5" value="200" />
+              </div>
+            </div>
+          </details>
+
+          <details class="city-section" data-control-section="glyph-flow">
+            <summary>[ GLYPH FLOW ]</summary>
+            <div class="city-section-body">
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>glyph pattern</span></div>
+                <input class="city-text" type="text" id="glyph-pattern" value="HOLA" maxlength="32" autocomplete="off" spellcheck="false" aria-label="Glyph pattern" />
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>mapping</span></div>
+                <div class="city-seg" id="glyph-mode">
+                  <button type="button" class="active" data-glyph-mode="shaded">shaded</button>
+                  <button type="button" data-glyph-mode="repeat">repeat</button>
+                  <button type="button" data-glyph-mode="rain">rain</button>
+                </div>
+              </div>
+              <div class="city-ctl">
+                <div class="city-ctl-row"><span>direction</span></div>
+                <div class="city-seg city-seg--four" id="glyph-direction">
+                  <button type="button" class="active" data-glyph-direction="left" aria-label="Flow left">←</button>
+                  <button type="button" data-glyph-direction="right" aria-label="Flow right">→</button>
+                  <button type="button" data-glyph-direction="up" aria-label="Flow up">↑</button>
+                  <button type="button" data-glyph-direction="down" aria-label="Flow down">↓</button>
+                </div>
+              </div>
+              <div class="city-ctl" id="glyph-speed-control">
+                <div class="city-ctl-row"><span>glyph speed</span><span class="val" id="glyph-speed-val">8 cells/s</span></div>
+                <input type="range" id="glyph-speed" min="1" max="24" step="1" value="8" />
+              </div>
+              <div class="city-ctl" id="rain-speed-min-control" hidden>
+                <div class="city-ctl-row"><span>trail speed min</span><span class="val" id="rain-speed-min-val">5 cells/s</span></div>
+                <input type="range" id="rain-speed-min" min="1" max="24" step="1" value="5" />
+              </div>
+              <div class="city-ctl" id="rain-speed-max-control" hidden>
+                <div class="city-ctl-row"><span>trail speed max</span><span class="val" id="rain-speed-max-val">12 cells/s</span></div>
+                <input type="range" id="rain-speed-max" min="1" max="24" step="1" value="12" />
+              </div>
+              <div class="city-ctl" id="rain-trail-control" hidden>
+                <div class="city-ctl-row"><span>rain trail</span><span class="val" id="rain-trail-val">14 cells</span></div>
+                <input type="range" id="rain-trail" min="4" max="28" step="1" value="14" />
+              </div>
+              <div class="city-ctl" id="rain-composition-control" hidden>
+                <div class="city-ctl-row"><span>composition</span></div>
+                <div class="city-seg" id="rain-composition">
+                  <button type="button" class="active" data-rain-composition="mask">rain only</button>
+                  <button type="button" data-rain-composition="overlay">overlay</button>
+                </div>
+              </div>
+              <div class="city-ctl" id="rain-stream-control" hidden>
+                <div class="city-ctl-row"><span>rain streams</span><span class="val" id="rain-stream-val">55%</span></div>
+                <input type="range" id="rain-stream" min="20" max="100" step="5" value="55" />
+              </div>
+              <div class="city-ctl">
+                <button class="city-play" type="button" id="glyph-play" aria-pressed="false" disabled>[ Play glyph flow ]</button>
+              </div>
+            </div>
+          </details>
+        </div>
+      </div>
+      <footer class="map-foot">
+        <span>buildings: <strong id="building-count">—</strong></span>
+        <span>polys: <strong id="poly-count">—</strong></span>
+        <span>FPS: <strong id="fps">—</strong></span>
+        <span>raster: <strong id="raster-ms">—</strong></span>
+        <span>DOM: <strong id="dom-ms">—</strong></span>
+        <span>cells: <strong id="cell-count">—</strong></span>
+      </footer>
+    </main>
+  </div>
+  <StatsOverlay client:only="react" />
+
+  <script>
+    import {
+      clampChannel,
+      createGlyphOrthographicCamera,
+      createGlyphScene,
+      parseColor,
+    } from "glyphcss";
+    import type { Polygon, TransformCells, Vec2, Vec3 } from "glyphcss";
+    import {
+      createExampleQuerySync,
+      readQueryBoolean,
+      readQueryEnum,
+      readQueryNumber,
+      readQueryString,
+    } from "../../lib/example-query-state";
+
+    type BuildingSpec = {
+      x: number;
+      y: number;
+      width: number;
+      depth: number;
+      height: number;
+      color: string;
+      upperColor: string;
+      tiered: boolean;
+      tierRatio: number;
+      upperScale: number;
+    };
+
+    type RowChunk = {
+      start: number;
+      end: number;
+      centerY: number;
+      x0: number;
+      x1: number;
+      y0: number;
+      y1: number;
+      z1: number;
+      visible: boolean;
+    };
+
+    type GlyphPerf = { raster?: number[]; dom?: number[]; polys?: number[] };
+    type GlyphFlowMode = "shaded" | "repeat" | "rain";
+    type GlyphFlowDirection = "left" | "right" | "up" | "down";
+    type RainComposition = "mask" | "overlay";
+    type RotationAxis = "x" | "y";
+    type CityConfig = {
+      depthBlocks: number;
+      runBlocks: number;
+      blockDepth: number;
+      blockWidth: number;
+      buildingSize: number;
+      gap: number;
+      street: number;
+      merge: number;
+      maxHeight: number;
+      minHeight: number;
+    };
+    type RoadMetrics = {
+      crosswalkStripeWidth: number;
+      crosswalkStripeGap: number;
+      crosswalkStride: number;
+      crosswalkLength: number;
+      crosswalkOffset: number;
+      crosswalkReach: number;
+      laneDividerReach: number;
+      laneWidth: number;
+    };
+    type CityGeometry = {
+      polygons: Polygon[];
+      chunks: RowChunk[];
+      buildingCount: number;
+      spanX: number;
+      spanY: number;
+      roads: RoadMetrics;
+    };
+    type CityState = CityGeometry & {
+      rowForPolygon: Int32Array;
+      backfaceHidden: Uint8Array;
+    };
+
+    const host = document.getElementById("city-host") as HTMLDivElement | null;
+    if (!host) throw new Error("City host missing");
+
+    const CITY = {
+      rotX: 60,
+      rotY: 90,
+      iso: 52,
+      zoom: 2.1,
+      centerX: 0.5,
+      centerY: 0.64,
+      density: 1.4,
+      lightX: 0.25,
+      lightY: -0.1,
+      lightZ: 0.25,
+      lightIntensity: 1.25,
+      ambientIntensity: 0.65,
+      depthBlocks: 5,
+      runBlocks: 8,
+      blockDepth: 188,
+      blockWidth: 184,
+      buildingSize: 40,
+      gap: 21,
+      street: 41,
+      merge: 0.34,
+      maxHeight: 200,
+      minHeight: 34,
+      loopSeconds: 19,
+      speed: 1,
+    } as const;
+    const TILT_DEFAULT_DEGREES_PER_SECOND = 10;
+    const query = new URLSearchParams(window.location.search);
+    const normalizeDegrees = (value: number) => ((value % 360) + 360) % 360;
+    const initialMinHeight = readQueryNumber(query, "minH", CITY.minHeight, { min: 20, max: 100, step: 2 });
+    const requestedMaxHeight = readQueryNumber(query, "maxH", CITY.maxHeight, { min: 80, max: 320, step: 5 });
+    const initialMaxHeight = requestedMaxHeight < initialMinHeight + 20
+      ? Math.ceil((initialMinHeight + 20) / 5) * 5
+      : requestedMaxHeight;
+    const initialRainMin = readQueryNumber(query, "rainMin", 5, { min: 1, max: 24, step: 1 });
+    const initialRainMax = Math.max(
+      initialRainMin,
+      readQueryNumber(query, "rainMax", 12, { min: 1, max: 24, step: 1 }),
+    );
+    const initialGlyphMode = readQueryEnum<GlyphFlowMode>(
+      query,
+      "glyphMode",
+      "shaded",
+      ["shaded", "repeat", "rain"],
+    );
+    const requestedGlyphDirection = readQueryEnum<GlyphFlowDirection>(
+      query,
+      "glyphDir",
+      "left",
+      ["left", "right", "up", "down"],
+    );
+    const initialGlyphDirection = initialGlyphMode === "rain"
+      && (requestedGlyphDirection === "left" || requestedGlyphDirection === "right")
+      ? "down"
+      : requestedGlyphDirection;
+    const initialGlyphText = readQueryString(
+      query,
+      "glyph",
+      "HOLA",
+      (value) => value.length <= 32 && parseGlyphPattern(value).length > 0,
+    );
+    const initialMonoHex = readQueryString(
+      query,
+      "mono",
+      "ffe8b8",
+      (value) => /^#?[\da-f]{6}$/i.test(value),
+    ).replace(/^#/, "").toLowerCase();
+    const initialState = {
+      rotX: readQueryNumber(query, "rotX", CITY.rotX, { min: 25, max: 82 }),
+      rotY: normalizeDegrees(readQueryNumber(query, "rotY", CITY.rotY)),
+      zoom: readQueryNumber(query, "zoom", CITY.zoom, { min: 0.7, max: 4 }),
+      density: readQueryNumber(query, "density", CITY.density, { min: 0.75, max: 5, step: 0.05 }),
+      lod: readQueryNumber(query, "lod", 1, { min: 1, max: 3, step: 0.25 }),
+      useColors: readQueryBoolean(query, "colors", true),
+      monoColor: `#${initialMonoHex}`,
+      speed: readQueryNumber(query, "speed", CITY.speed, { min: 0, max: 2.5, step: 0.05 }),
+      playing: readQueryBoolean(query, "play", true),
+      rotationAxis: readQueryEnum<RotationAxis>(query, "axis", "x", ["x", "y"]),
+      rotationPlaying: readQueryBoolean(query, "rotate", false),
+      rotationSpeed: readQueryNumber(query, "rotSpeed", TILT_DEFAULT_DEGREES_PER_SECOND, { min: 1, max: 40, step: 1 }),
+      glyphPattern: parseGlyphPattern(initialGlyphText),
+      glyphMode: initialGlyphMode,
+      glyphDirection: initialGlyphDirection,
+      glyphSpeed: readQueryNumber(query, "glyphSpeed", 8, { min: 1, max: 24, step: 1 }),
+      glyphPlaying: initialGlyphMode !== "shaded" && readQueryBoolean(query, "glyphPlay", false),
+      rainMin: initialRainMin,
+      rainMax: initialRainMax,
+      rainTrail: readQueryNumber(query, "rainTrail", 14, { min: 4, max: 28, step: 1 }),
+      rainComposition: readQueryEnum<RainComposition>(query, "rainComp", "mask", ["mask", "overlay"]),
+      rainStreams: readQueryNumber(query, "rainStreams", 55, { min: 20, max: 100, step: 5 }) / 100,
+    };
+    const cityConfig: CityConfig = {
+      depthBlocks: readQueryNumber(query, "depth", CITY.depthBlocks, { min: 2, max: 7, step: 1 }),
+      runBlocks: readQueryNumber(query, "run", CITY.runBlocks, { min: 4, max: 10, step: 1 }),
+      blockDepth: readQueryNumber(query, "blockD", CITY.blockDepth, { min: 144, max: 224, step: 4 }),
+      blockWidth: readQueryNumber(query, "blockW", CITY.blockWidth, { min: 144, max: 224, step: 4 }),
+      buildingSize: readQueryNumber(query, "bsize", CITY.buildingSize, { min: 36, max: 64, step: 2 }),
+      gap: readQueryNumber(query, "gap", CITY.gap, { min: 16, max: 32, step: 1 }),
+      street: readQueryNumber(query, "street", CITY.street, { min: 28, max: 60, step: 1 }),
+      merge: readQueryNumber(query, "merge", CITY.merge, { min: 0, max: 0.7, step: 0.01 }),
+      maxHeight: initialMaxHeight,
+      minHeight: initialMinHeight,
+    };
+    const ISO_DEG = CITY.iso;
+    const ISO = (ISO_DEG * Math.PI) / 180;
+    const ISO_COS = Math.cos(ISO);
+    const ISO_SIN = Math.sin(ISO);
+    const BASE_FONT_SIZE = 13;
+    const SURFACE_GLYPH_PITCH = 4;
+    const FLOOR = "#14141e";
+    const ROAD = "#2e2c42";
+    const LANE = "#968460";
+    const CROSSWALK = "#e7e2d5";
+    const ROOF = "#b096f0";
+    const BUILDING_COLORS = ["#403c60", "#4b456d", "#585078", "#625789", "#6c60a8", "#968a6e", "#966c34"];
+    const ROTATION_KEYFRAME_OFFSETS = [0, 10, -30, 0] as const;
+    const FULL_ROTATION_DEGREES = 360;
+    const RAIN_FADE_LEVELS = 4;
+    const RAIN_MAX_TRAIL_CELLS = 28;
+    const RAIN_ACCENT = [56, 189, 248] as const;
+    const RAIN_HEAD = [240, 253, 255] as const;
+    const CROSSWALK_STRIPES = 4;
+
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+    const rng = (seed: number) => {
+      const x = Math.sin(seed * 12.9898 + 7.13) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    const toWorld = (x: number, y: number, z: number): Vec3 => [
+      x * ISO_COS - y * ISO_SIN,
+      x * ISO_SIN + y * ISO_COS,
+      z,
+    ];
+
+    function deriveRoadMetrics(street: number): RoadMetrics {
+      const scale = street / CITY.street;
+      const crosswalkStripeWidth = 2.4 * scale;
+      const crosswalkStripeGap = 2.2 * scale;
+      const crosswalkLength = street * 0.36;
+      const crosswalkEdgeGap = street * 0.072;
+      const crosswalkDividerGap = street * 0.072;
+      const crosswalkOffset = street / 2 + crosswalkEdgeGap + crosswalkLength / 2;
+      const crosswalkReach = crosswalkOffset + crosswalkLength / 2;
+      return {
+        crosswalkStripeWidth,
+        crosswalkStripeGap,
+        crosswalkStride: crosswalkStripeWidth + crosswalkStripeGap,
+        crosswalkLength,
+        crosswalkOffset,
+        crosswalkReach,
+        laneDividerReach: crosswalkReach + crosswalkDividerGap,
+        laneWidth: 5 * scale,
+      };
+    }
+
+    type HorizontalFlow = { axis: "x" | "y"; sign: 1 | -1 };
+    type SurfaceFlow = { horizontal?: HorizontalFlow; offset?: Vec2 };
+
+    function appendQuad(
+      polygons: Polygon[],
+      color: string,
+      points: [number, number, number][],
+      surfaceFlow?: SurfaceFlow,
+    ): void {
+      const xs = points.map((point) => point[0]);
+      const ys = points.map((point) => point[1]);
+      const zs = points.map((point) => point[2]);
+      const xSpan = Math.max(...xs) - Math.min(...xs);
+      const ySpan = Math.max(...ys) - Math.min(...ys);
+      const zSpan = Math.max(...zs) - Math.min(...zs);
+      const horizontalFlow = surfaceFlow?.horizontal ?? {
+        axis: xSpan >= ySpan ? "x" : "y",
+        sign: 1,
+      };
+      const [uOffset, vOffset] = surfaceFlow?.offset ?? [0, 0];
+      const uvs: Vec2[] = points.map(([x, y, z]) => {
+        let uv: Vec2;
+        if (zSpan <= 1e-6) {
+          uv = horizontalFlow.axis === "x"
+            ? [y / SURFACE_GLYPH_PITCH, horizontalFlow.sign * x / SURFACE_GLYPH_PITCH]
+            : [x / SURFACE_GLYPH_PITCH, horizontalFlow.sign * y / SURFACE_GLYPH_PITCH];
+        } else if (xSpan <= 1e-6) {
+          uv = [y / SURFACE_GLYPH_PITCH, z / SURFACE_GLYPH_PITCH];
+        } else {
+          uv = [x / SURFACE_GLYPH_PITCH, z / SURFACE_GLYPH_PITCH];
+        }
+        return [uv[0] + uOffset, uv[1] + vOffset];
+      });
+      polygons.push({
+        vertices: points.map(([x, y, z]) => toWorld(x, y, z)),
+        uvs,
+        color,
+      });
+    }
+
+    function appendFlat(
+      polygons: Polygon[],
+      color: string,
+      cx: number,
+      cy: number,
+      width: number,
+      depth: number,
+      z: number,
+    ): void {
+      const x0 = cx - width / 2, x1 = cx + width / 2;
+      const y0 = cy - depth / 2, y1 = cy + depth / 2;
+      appendQuad(polygons, color, [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]]);
+    }
+
+    function appendCrosswalk(
+      polygons: Polygon[],
+      cx: number,
+      cy: number,
+      roadAxis: "x" | "y",
+      roads: RoadMetrics,
+    ): void {
+      for (let i = 0; i < CROSSWALK_STRIPES; i++) {
+        const stripeOffset = (i - (CROSSWALK_STRIPES - 1) / 2) * roads.crosswalkStride;
+        appendFlat(
+          polygons,
+          CROSSWALK,
+          cx + (roadAxis === "y" ? stripeOffset : 0),
+          cy + (roadAxis === "x" ? stripeOffset : 0),
+          roadAxis === "x" ? roads.crosswalkLength : roads.crosswalkStripeWidth,
+          roadAxis === "y" ? roads.crosswalkLength : roads.crosswalkStripeWidth,
+          0.14,
+        );
+      }
+    }
+
+    function appendIntersectionCrosswalks(
+      polygons: Polygon[],
+      cx: number,
+      cy: number,
+      roads: RoadMetrics,
+    ): void {
+      appendCrosswalk(polygons, cx, cy - roads.crosswalkOffset, "y", roads);
+      appendCrosswalk(polygons, cx, cy + roads.crosswalkOffset, "y", roads);
+      appendCrosswalk(polygons, cx - roads.crosswalkOffset, cy, "x", roads);
+      appendCrosswalk(polygons, cx + roads.crosswalkOffset, cy, "x", roads);
+    }
+
+    function appendLaneSegment(
+      polygons: Polygon[],
+      axis: "x" | "y",
+      start: number,
+      end: number,
+      fixed: number,
+      laneWidth: number,
+    ): void {
+      const length = end - start;
+      if (length <= 0) return;
+      appendFlat(
+        polygons,
+        LANE,
+        axis === "x" ? (start + end) / 2 : fixed,
+        axis === "y" ? (start + end) / 2 : fixed,
+        axis === "x" ? length : laneWidth,
+        axis === "y" ? length : laneWidth,
+        0.09,
+      );
+    }
+
+    function appendBox(
+      polygons: Polygon[],
+      sideColor: string,
+      topColor: string,
+      cx: number,
+      cy: number,
+      z0: number,
+      width: number,
+      depth: number,
+      height: number,
+    ): void {
+      const x0 = cx - width / 2, x1 = cx + width / 2;
+      const y0 = cy - depth / 2, y1 = cy + depth / 2;
+      const z1 = z0 + height;
+      const roofAxisRoll = rng(cx * 0.031 + cy * 0.017 + 811);
+      const roofSignRoll = rng(cx * 0.023 + cy * 0.037 + 977);
+      const roofFlow: HorizontalFlow = {
+        axis: roofAxisRoll < 0.5 ? "x" : "y",
+        sign: roofSignRoll < 0.5 ? -1 : 1,
+      };
+      const surfaceOffset: Vec2 = [
+        Math.floor(rng(cx * 0.041 + cy * 0.013 + 1091) * 251),
+        Math.floor(rng(cx * 0.019 + cy * 0.043 + 1217) * 251),
+      ];
+      appendQuad(
+        polygons,
+        topColor,
+        [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+        { horizontal: roofFlow, offset: surfaceOffset },
+      );
+      const wallFlow: SurfaceFlow = { offset: surfaceOffset };
+      appendQuad(polygons, sideColor, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]], wallFlow);
+      appendQuad(polygons, sideColor, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], wallFlow);
+      appendQuad(polygons, sideColor, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], wallFlow);
+      appendQuad(polygons, sideColor, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]], wallFlow);
+    }
+
+    function buildCity(config: CityConfig): CityGeometry {
+      const {
+        depthBlocks,
+        runBlocks,
+        blockDepth,
+        blockWidth,
+        buildingSize,
+        gap,
+        street,
+        minHeight,
+        maxHeight,
+        merge,
+      } = config;
+      const roads = deriveRoadMetrics(street);
+      const pitchX = blockDepth + street;
+      const pitchY = blockWidth + street;
+      const spanX = depthBlocks * pitchX;
+      const spanY = runBlocks * pitchY;
+      const step = buildingSize + gap;
+      const polygons: Polygon[] = [];
+      const chunks: RowChunk[] = [];
+      const buildingRows = new Map<string, { centerY: number; buildings: BuildingSpec[] }>();
+      const verticalRoadCenters: number[] = [];
+      let buildingCount = 0;
+
+      appendFlat(polygons, FLOOR, 0, 0, spanX * 3, 2_000_000, -0.25);
+      for (let i = 1; i <= depthBlocks; i++) {
+        const x = -spanX / 2 + i * pitchX - street / 2;
+        verticalRoadCenters.push(x);
+        appendFlat(polygons, ROAD, x, 0, street, 2_000_000, 0);
+      }
+
+      const fillPlot = (x0: number, plotDepth: number, y0: number, plotWidth: number, blockSeed: number) => {
+        const nx = Math.max(1, Math.floor((plotDepth + gap) / step));
+        const ny = Math.max(1, Math.floor((plotWidth + gap) / step));
+        const usedX = nx * buildingSize + (nx - 1) * gap;
+        const usedY = ny * buildingSize + (ny - 1) * gap;
+        const blockX = x0 + (plotDepth - usedX) / 2;
+        const blockY = y0 + (plotWidth - usedY) / 2;
+        for (let a = 0; a < nx; a++) {
+          for (let b = 0; b < ny; b++) {
+            const seed = blockSeed * 131 + a * 17 + b * 7;
+            if (rng(seed + 500) < 0.05) continue;
+            const x = blockX + a * step + buildingSize / 2;
+            const y = blockY + b * step + buildingSize / 2;
+            const heightRoll = rng(seed + 7);
+            const height = minHeight + Math.pow(heightRoll, 2.4) * (maxHeight - minHeight) * (rng(seed + 42) > 0.85 ? 1 : 0.4);
+            const paletteRoll = rng(seed + 90);
+            const paletteIndex = paletteRoll > 0.9
+              ? 6
+              : paletteRoll > 0.76
+                ? 5
+                : Math.min(4, Math.floor(rng(seed + 3) * 5));
+            const upperIndex = Math.min(4, paletteIndex + 1);
+            const key = y.toFixed(4);
+            let row = buildingRows.get(key);
+            if (!row) {
+              row = { centerY: y, buildings: [] };
+              buildingRows.set(key, row);
+            }
+            row.buildings.push({
+              x,
+              y,
+              width: buildingSize * 0.94,
+              depth: buildingSize * 0.94,
+              height,
+              color: BUILDING_COLORS[paletteIndex]!,
+              upperColor: BUILDING_COLORS[upperIndex]!,
+              tiered: height > minHeight * 1.7 && rng(seed + 60) > 0.5,
+              tierRatio: 0.5 + rng(seed + 61) * 0.2,
+              upperScale: 0.6 + rng(seed + 62) * 0.2,
+            });
+            buildingCount++;
+          }
+        }
+      };
+
+      const usedBlocks = Array.from({ length: depthBlocks }, () => new Array(runBlocks).fill(false));
+      for (let i = 0; i < depthBlocks; i++) {
+        for (let j = 0; j < runBlocks; j++) {
+          if (usedBlocks[i]![j]) continue;
+          const blockSeed = i * runBlocks + j;
+          if (rng(blockSeed + 900) < 0.05) {
+            usedBlocks[i]![j] = true;
+            continue;
+          }
+          let spanI = 1;
+          let spanJ = 1;
+          const roll = rng(blockSeed + 300);
+          if (roll < merge / 2 && j + 1 < runBlocks && !usedBlocks[i]![j + 1]) spanJ = 2;
+          else if (roll < merge && i + 1 < depthBlocks && !usedBlocks[i + 1]![j]) spanI = 2;
+          for (let di = 0; di < spanI; di++) {
+            for (let dj = 0; dj < spanJ; dj++) usedBlocks[i + di]![j + dj] = true;
+          }
+          const x0 = -spanX / 2 + i * pitchX;
+          const y0 = -spanY / 2 + j * pitchY;
+          const plotDepth = blockDepth * spanI + (spanI - 1) * street;
+          const plotWidth = blockWidth * spanJ + (spanJ - 1) * street;
+          fillPlot(x0, plotDepth, y0, plotWidth, blockSeed);
+        }
+      }
+
+      const horizontalRoadCenters = Array.from(
+        { length: runBlocks },
+        (_, index) => -spanY / 2 + (index + 1) * pitchY - street / 2,
+      );
+      for (const centerY of horizontalRoadCenters) {
+        const start = polygons.length;
+        appendFlat(polygons, ROAD, 0, centerY, spanX, street, 0.01);
+        for (let roadIndex = 0; roadIndex < verticalRoadCenters.length - 1; roadIndex++) {
+          appendLaneSegment(
+            polygons,
+            "x",
+            verticalRoadCenters[roadIndex]! + roads.laneDividerReach,
+            verticalRoadCenters[roadIndex + 1]! - roads.laneDividerReach,
+            centerY,
+            roads.laneWidth,
+          );
+        }
+        for (const roadX of verticalRoadCenters) {
+          appendIntersectionCrosswalks(polygons, roadX, centerY, roads);
+        }
+        chunks.push({
+          start,
+          end: polygons.length,
+          centerY,
+          x0: Math.min(-spanX / 2, verticalRoadCenters[0]! - roads.crosswalkReach),
+          x1: Math.max(spanX / 2, verticalRoadCenters[verticalRoadCenters.length - 1]! + roads.crosswalkReach),
+          y0: centerY - roads.crosswalkReach,
+          y1: centerY + roads.crosswalkReach,
+          z1: 0.14,
+          visible: true,
+        });
+      }
+
+      for (let roadIndex = 0; roadIndex < horizontalRoadCenters.length; roadIndex++) {
+        const nextCenter = horizontalRoadCenters[roadIndex]!;
+        const previousCenter = roadIndex === 0
+          ? horizontalRoadCenters[horizontalRoadCenters.length - 1]! - spanY
+          : horizontalRoadCenters[roadIndex - 1]!;
+        const y0 = previousCenter + roads.laneDividerReach;
+        const y1 = nextCenter - roads.laneDividerReach;
+        const start = polygons.length;
+        for (const roadX of verticalRoadCenters) {
+          appendLaneSegment(polygons, "y", y0, y1, roadX, roads.laneWidth);
+        }
+        chunks.push({
+          start,
+          end: polygons.length,
+          centerY: (previousCenter + nextCenter) / 2,
+          x0: verticalRoadCenters[0]! - roads.laneWidth / 2,
+          x1: verticalRoadCenters[verticalRoadCenters.length - 1]! + roads.laneWidth / 2,
+          y0,
+          y1,
+          z1: 0.09,
+          visible: true,
+        });
+      }
+
+      const sortedRows = [...buildingRows.values()].sort((a, b) => a.centerY - b.centerY);
+      for (const row of sortedRows) {
+        const xBuckets = new Map<number, BuildingSpec[]>();
+        for (const building of row.buildings) {
+          const bucket = clamp(Math.floor((building.x + spanX / 2) / pitchX), 0, depthBlocks - 1);
+          const entries = xBuckets.get(bucket) ?? [];
+          entries.push(building);
+          xBuckets.set(bucket, entries);
+        }
+        for (const buildings of [...xBuckets.values()]) {
+          const start = polygons.length;
+          let x0 = Infinity, x1 = -Infinity, z1 = 0;
+          for (const building of buildings) {
+            x0 = Math.min(x0, building.x - building.width / 2);
+            x1 = Math.max(x1, building.x + building.width / 2);
+            z1 = Math.max(z1, building.height + 0.3);
+            if (building.tiered) {
+              const lowerHeight = building.height * building.tierRatio;
+              appendBox(
+                polygons,
+                building.color,
+                building.upperColor,
+                building.x,
+                building.y,
+                0.2,
+                building.width,
+                building.depth,
+                lowerHeight,
+              );
+              appendBox(
+                polygons,
+                building.upperColor,
+                ROOF,
+                building.x,
+                building.y,
+                0.2 + lowerHeight,
+                building.width * building.upperScale,
+                building.depth * building.upperScale,
+                building.height - lowerHeight,
+              );
+            } else {
+              appendBox(
+                polygons,
+                building.color,
+                ROOF,
+                building.x,
+                building.y,
+                0.2,
+                building.width,
+                building.depth,
+                building.height,
+              );
+            }
+          }
+          chunks.push({
+            start,
+            end: polygons.length,
+            centerY: row.centerY,
+            x0,
+            x1,
+            y0: row.centerY - buildingSize / 2,
+            y1: row.centerY + buildingSize / 2,
+            z1,
+            visible: true,
+          });
+        }
+      }
+
+      return { polygons, chunks, buildingCount, spanX, spanY, roads };
+    }
+
+    function createCityState(geometry: CityGeometry): CityState {
+      const rowForPolygon = new Int32Array(geometry.polygons.length);
+      rowForPolygon.fill(-1);
+      for (let rowIndex = 0; rowIndex < geometry.chunks.length; rowIndex++) {
+        const row = geometry.chunks[rowIndex]!;
+        for (let i = row.start; i < row.end; i++) rowForPolygon[i] = rowIndex;
+      }
+      return {
+        ...geometry,
+        rowForPolygon,
+        backfaceHidden: new Uint8Array(geometry.polygons.length),
+      };
+    }
+
+    let city = createCityState(buildCity(cityConfig));
+    const camera = createGlyphOrthographicCamera({
+      rotX: initialState.rotX,
+      rotY: initialState.rotY,
+      zoom: initialState.zoom,
+      center: [CITY.centerX, CITY.centerY],
+    });
+    const perf: GlyphPerf = {};
+    (globalThis as typeof globalThis & { __glyphPerf?: GlyphPerf }).__glyphPerf = perf;
+
+    let motionLod = initialState.lod;
+    let density = initialState.density;
+    let useColors = initialState.useColors;
+    let monoColor = initialState.monoColor;
+    const scene = createGlyphScene(host, {
+      camera,
+      autoSize: true,
+      mode: "solid",
+      useColors,
+      supersample: 1,
+      smoothShading: false,
+      doubleSided: false,
+      depthEpsilon: 0.002,
+      interactiveDownscale: motionLod,
+      directionalLight: {
+        direction: [CITY.lightX, CITY.lightY, CITY.lightZ],
+        intensity: CITY.lightIntensity,
+        color: "#ffffff",
+      },
+      ambientLight: { intensity: CITY.ambientIntensity, color: "#7a6fc0" },
+    });
+    scene.output.style.fontSize = `${BASE_FONT_SIZE / density}px`;
+    scene.output.style.lineHeight = "1";
+    if (!useColors) scene.output.style.color = monoColor;
+    scene.fit();
+
+    let faceOptimization = true;
+
+    function applyAllVisibility(state: CityState = city): void {
+      for (let i = 0; i < state.polygons.length; i++) {
+        const rowIndex = state.rowForPolygon[i]!;
+        state.polygons[i]!.hidden = (faceOptimization && state.backfaceHidden[i] === 1)
+          || (rowIndex >= 0 && !state.chunks[rowIndex]!.visible);
+      }
+    }
+
+    function computeBackfaces(state: CityState): void {
+      const opts = scene.getOptions();
+      const cols = opts.cols ?? 80;
+      const rows = opts.rows ?? 24;
+      const cellAspect = opts.cellAspect ?? 2;
+      for (let i = 0; i < state.polygons.length; i++) {
+        const vertices = state.polygons[i]!.vertices;
+        const a = camera.project(vertices[0]!, cols, rows, cellAspect);
+        const b = camera.project(vertices[1]!, cols, rows, cellAspect);
+        const c = camera.project(vertices[2]!, cols, rows, cellAspect);
+        const area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        state.backfaceHidden[i] = Number.isFinite(area) && area > 0 ? 1 : 0;
+      }
+    }
+
+    function recomputeBackfaces(): void {
+      computeBackfaces(city);
+      faceOptimization = true;
+      applyAllVisibility();
+    }
+
+    function rowIsVisible(row: RowChunk): boolean {
+      const opts = scene.getOptions();
+      const cols = opts.cols ?? 80;
+      const rows = opts.rows ?? 24;
+      const cellAspect = opts.cellAspect ?? 2;
+      let minCol = Infinity, maxCol = -Infinity;
+      let minRow = Infinity, maxRow = -Infinity;
+      for (const x of [row.x0, row.x1]) {
+        for (const y of [row.y0, row.y1]) {
+          for (const z of [0, row.z1]) {
+            const projected = camera.project(toWorld(x, y, z), cols, rows, cellAspect);
+            if (!Number.isFinite(projected[0]) || !Number.isFinite(projected[1])) continue;
+            minCol = Math.min(minCol, projected[0]);
+            maxCol = Math.max(maxCol, projected[0]);
+            minRow = Math.min(minRow, projected[1]);
+            maxRow = Math.max(maxRow, projected[1]);
+          }
+        }
+      }
+      const margin = 6;
+      return maxCol >= -margin && minCol <= cols + margin && maxRow >= -margin && minRow <= rows + margin;
+    }
+
+    function refreshRowVisibility(force = false, state: CityState = city): void {
+      for (const row of state.chunks) {
+        const visible = rowIsVisible(row);
+        if (!force && visible === row.visible) continue;
+        row.visible = visible;
+        for (let i = row.start; i < row.end; i++) {
+          state.polygons[i]!.hidden = !visible || (faceOptimization && state.backfaceHidden[i] === 1);
+        }
+      }
+    }
+
+    function shiftRow(row: RowChunk, deltaY: number, state: CityState = city): void {
+      const dx = -deltaY * ISO_SIN;
+      const dy = deltaY * ISO_COS;
+      for (let i = row.start; i < row.end; i++) {
+        for (const vertex of state.polygons[i]!.vertices) {
+          vertex[0] += dx;
+          vertex[1] += dy;
+        }
+      }
+      row.centerY += deltaY;
+      row.y0 += deltaY;
+      row.y1 += deltaY;
+    }
+
+    let cameraY = 0;
+    function recycleRows(state: CityState = city): boolean {
+      const halfPeriod = state.spanY / 2;
+      let changed = false;
+      for (const row of state.chunks) {
+        while (row.centerY < cameraY - halfPeriod) {
+          shiftRow(row, state.spanY, state);
+          changed = true;
+        }
+        while (row.centerY > cameraY + halfPeriod) {
+          shiftRow(row, -state.spanY, state);
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    recomputeBackfaces();
+    refreshRowVisibility(true);
+    const cityMesh = scene.add(city.polygons);
+
+    const $ = (id: string) => document.getElementById(id);
+    const playButton = $("play") as HTMLButtonElement | null;
+    const tiltPlayButton = $("tilt-play") as HTMLButtonElement | null;
+    const tiltSpeedInput = $("tilt-speed") as HTMLInputElement | null;
+    const glyphPatternInput = $("glyph-pattern") as HTMLInputElement | null;
+    const glyphSpeedControl = $("glyph-speed-control") as HTMLDivElement | null;
+    const glyphSpeedInput = $("glyph-speed") as HTMLInputElement | null;
+    const glyphPlayButton = $("glyph-play") as HTMLButtonElement | null;
+    const rainSpeedMinControl = $("rain-speed-min-control") as HTMLDivElement | null;
+    const rainSpeedMinInput = $("rain-speed-min") as HTMLInputElement | null;
+    const rainSpeedMaxControl = $("rain-speed-max-control") as HTMLDivElement | null;
+    const rainSpeedMaxInput = $("rain-speed-max") as HTMLInputElement | null;
+    const rainTrailControl = $("rain-trail-control") as HTMLDivElement | null;
+    const rainTrailInput = $("rain-trail") as HTMLInputElement | null;
+    const rainCompositionControl = $("rain-composition-control") as HTMLDivElement | null;
+    const rainStreamControl = $("rain-stream-control") as HTMLDivElement | null;
+    const rainStreamInput = $("rain-stream") as HTMLInputElement | null;
+    const speedInput = $("speed") as HTMLInputElement | null;
+    const densityInput = $("density") as HTMLInputElement | null;
+    const lodInput = $("lod") as HTMLInputElement | null;
+    const tiltInput = $("tilt") as HTMLInputElement | null;
+    const orbitInput = $("orbit") as HTMLInputElement | null;
+    const zoomInput = $("zoom") as HTMLInputElement | null;
+    const monoColorControl = $("mono-color-control") as HTMLDivElement | null;
+    const monoColorInput = $("mono-color") as HTMLInputElement | null;
+    const depthBlocksInput = $("depth-blocks") as HTMLInputElement | null;
+    const runBlocksInput = $("run-blocks") as HTMLInputElement | null;
+    const blockDepthInput = $("block-depth") as HTMLInputElement | null;
+    const blockWidthInput = $("block-width") as HTMLInputElement | null;
+    const streetInput = $("street") as HTMLInputElement | null;
+    const buildingSizeInput = $("building-size") as HTMLInputElement | null;
+    const buildingGapInput = $("building-gap") as HTMLInputElement | null;
+    const mergeInput = $("merge") as HTMLInputElement | null;
+    const minHeightInput = $("min-height") as HTMLInputElement | null;
+    const maxHeightInput = $("max-height") as HTMLInputElement | null;
+    const speedValue = $("speed-val");
+    const densityValue = $("density-val");
+    const lodValue = $("lod-val");
+    const tiltValue = $("tilt-val");
+    const tiltSpeedValue = $("tilt-speed-val");
+    const glyphSpeedValue = $("glyph-speed-val");
+    const rainSpeedMinValue = $("rain-speed-min-val");
+    const rainSpeedMaxValue = $("rain-speed-max-val");
+    const rainTrailValue = $("rain-trail-val");
+    const rainStreamValue = $("rain-stream-val");
+    const orbitValue = $("orbit-val");
+    const zoomValue = $("zoom-val");
+    const monoColorValue = $("mono-color-val");
+    const tiltSequenceValue = $("tilt-sequence-values");
+    const depthBlocksValue = $("depth-blocks-val");
+    const runBlocksValue = $("run-blocks-val");
+    const blockDepthValue = $("block-depth-val");
+    const blockWidthValue = $("block-width-val");
+    const streetValue = $("street-val");
+    const buildingSizeValue = $("building-size-val");
+    const buildingGapValue = $("building-gap-val");
+    const mergeValue = $("merge-val");
+    const minHeightValue = $("min-height-val");
+    const maxHeightValue = $("max-height-val");
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    let playing = initialState.playing && !prefersReducedMotion.matches;
+    let tiltPlaying = initialState.rotationPlaying && !prefersReducedMotion.matches;
+    let rotationAxis: RotationAxis = initialState.rotationAxis;
+    let rotationOrigin = camera.rotX;
+    let rotationKeyframes: number[] = [];
+    let rotationSegments: { from: number; to: number; distance: number }[] = [];
+    let rotationLoopDegrees = 0;
+    let tiltTravelDegrees = 0;
+    let tiltDegreesPerSecond = initialState.rotationSpeed;
+    let glyphMode: GlyphFlowMode = initialState.glyphMode;
+    let glyphDirection: GlyphFlowDirection = initialState.glyphDirection;
+    let glyphPattern = initialState.glyphPattern;
+    let glyphPlaying = initialState.glyphPlaying && !prefersReducedMotion.matches;
+    let glyphTravelCells = 0;
+    let rainElapsedSeconds = 0;
+    let glyphCellsPerSecond = initialState.glyphSpeed;
+    let rainMinCellsPerSecond = initialState.rainMin;
+    let rainMaxCellsPerSecond = initialState.rainMax;
+    let rainTrailCells = initialState.rainTrail;
+    let rainComposition: RainComposition = initialState.rainComposition;
+    let rainStreamDensity = initialState.rainStreams;
+    let speed = initialState.speed;
+    let dragging = false;
+    let wheelActive = false;
+    let wheelTimer: ReturnType<typeof setTimeout> | null = null;
+    let lodActive = false;
+    let dirty = true;
+    let forceCull = true;
+    let resetAnimationClock = true;
+    let lastTiltReadoutAt = -Infinity;
+    let cityRebuildTimer: ReturnType<typeof setTimeout> | null = null;
+    let rebuildRevision = 0;
+    const cityQuerySync = createExampleQuerySync(() => ({
+      rotX: tiltPlaying && rotationAxis === "x" ? rotationOrigin : camera.rotX,
+      rotY: normalizeDegrees(tiltPlaying && rotationAxis === "y" ? rotationOrigin : camera.rotY),
+      zoom: camera.zoom,
+      density,
+      lod: motionLod,
+      colors: useColors,
+      mono: monoColor.slice(1).toLowerCase(),
+      depth: cityConfig.depthBlocks,
+      run: cityConfig.runBlocks,
+      blockD: cityConfig.blockDepth,
+      blockW: cityConfig.blockWidth,
+      bsize: cityConfig.buildingSize,
+      gap: cityConfig.gap,
+      street: cityConfig.street,
+      merge: cityConfig.merge,
+      minH: cityConfig.minHeight,
+      maxH: cityConfig.maxHeight,
+      speed,
+      play: playing,
+      axis: rotationAxis,
+      rotate: tiltPlaying,
+      rotSpeed: tiltDegreesPerSecond,
+      glyph: glyphPattern.join(""),
+      glyphMode,
+      glyphDir: glyphDirection,
+      glyphSpeed: glyphCellsPerSecond,
+      glyphPlay: glyphPlaying,
+      rainMin: rainMinCellsPerSecond,
+      rainMax: rainMaxCellsPerSecond,
+      rainTrail: rainTrailCells,
+      rainComp: rainComposition,
+      rainStreams: rainStreamDensity * 100,
+    }));
+
+    function moving(): boolean {
+      return playing && speed > 0;
+    }
+
+    function glyphMoving(): boolean {
+      return glyphPlaying && (
+        glyphMode === "rain"
+        || (glyphMode === "repeat" && glyphPattern.length > 1)
+      );
+    }
+
+    function animating(): boolean {
+      return moving() || tiltPlaying || glyphMoving();
+    }
+
+    function updatePlayLabel(): void {
+      if (playButton) playButton.textContent = playing ? "[ Pause motion ]" : "[ Play motion ]";
+    }
+
+    function updateTiltPlayLabel(): void {
+      if (!tiltPlayButton) return;
+      const animation = rotationAxis === "x" ? "rotation sequence" : "continuous rotation";
+      tiltPlayButton.textContent = tiltPlaying ? `[ Pause ${animation} ]` : `[ Play ${animation} ]`;
+      tiltPlayButton.setAttribute("aria-pressed", String(tiltPlaying));
+    }
+
+    function updateGlyphPlayLabel(): void {
+      if (!glyphPlayButton) return;
+      glyphPlayButton.disabled = glyphMode === "shaded";
+      glyphPlayButton.textContent = glyphPlaying ? "[ Pause glyph flow ]" : "[ Play glyph flow ]";
+      glyphPlayButton.setAttribute("aria-pressed", String(glyphPlaying));
+    }
+
+    function updateInteractionState(): boolean {
+      const active = animating() || dragging || wheelActive;
+      if (active === lodActive) return false;
+      scene.setInteracting(active);
+      lodActive = active;
+      forceCull = true;
+      return true;
+    }
+
+    function markCameraDirty(): void {
+      dirty = true;
+      forceCull = true;
+    }
+
+    function setFaceOptimization(enabled: boolean): void {
+      if (enabled) recomputeBackfaces();
+      else {
+        faceOptimization = false;
+        applyAllVisibility();
+      }
+      markCameraDirty();
+    }
+
+    function parseGlyphPattern(value: string): string[] {
+      const safe = Array.from(value.toUpperCase()).filter((character) => {
+        const code = character.charCodeAt(0);
+        return character.length === 1
+          && code >= 33
+          && code <= 126
+          && character !== "<"
+          && character !== ">"
+          && character !== "&";
+      });
+      return safe;
+    }
+
+    function resetGlyphTravel(): void {
+      glyphTravelCells = 0;
+      rainElapsedSeconds = 0;
+      rainMotionByLane.clear();
+    }
+
+    function positiveMod(value: number, modulus: number): number {
+      return ((value % modulus) + modulus) % modulus;
+    }
+
+    function glyphHash(a: number, b: number): number {
+      let hash = Math.imul(a + 1, -1640531527) ^ Math.imul(b + 1, -2048144789);
+      hash ^= hash >>> 16;
+      return hash >>> 0;
+    }
+
+    const rainLevelByDistance = new Uint8Array(RAIN_MAX_TRAIL_CELLS);
+    const rainSeedByLane = new Map<number, number>();
+    const rainStepByLane = new Map<number, number>();
+    const rainMotionByLane = new Map<number, { position: number; lastTime: number }>();
+    const rainColorCache = new Map<string, string[]>();
+    function rainColor(base: string | null, level: number, head: boolean): string | null {
+      if (base === null) return null;
+      const cached = rainColorCache.get(base);
+      const slot = head ? RAIN_FADE_LEVELS + 1 : level;
+      if (cached) return cached[slot]!;
+      const parsed = parseColor(base);
+      if (!parsed) return base;
+      const byte = (channel: number) => clampChannel(channel).toString(16).padStart(2, "0");
+      const colors = new Array<string>(RAIN_FADE_LEVELS + 2);
+      for (let current = 1; current <= RAIN_FADE_LEVELS + 1; current++) {
+        const isHead = current === RAIN_FADE_LEVELS + 1;
+        const target = isHead ? RAIN_HEAD : RAIN_ACCENT;
+        const normalizedLevel = current / RAIN_FADE_LEVELS;
+        const strength = isHead ? 0.92 : 0.68 * normalizedLevel * normalizedLevel;
+        const screen = (channel: number, tint: number) => (
+          255 - (255 - channel) * (1 - (tint / 255) * strength)
+        );
+        colors[current] = `#${byte(screen(parsed.rgb[0], target[0]))}${byte(screen(parsed.rgb[1], target[1]))}${byte(screen(parsed.rgb[2], target[2]))}`;
+      }
+      rainColorCache.set(base, colors);
+      return colors[slot]!;
+    }
+
+    function updateCityReadouts(): void {
+      const activePolygons = city.polygons.reduce((count, polygon) => count + (polygon.hidden ? 0 : 1), 0);
+      const buildingCount = $("building-count");
+      const polygonCount = $("poly-count");
+      if (buildingCount) buildingCount.textContent = city.buildingCount.toLocaleString();
+      if (polygonCount) polygonCount.textContent = `${activePolygons.toLocaleString()} / ${city.polygons.length.toLocaleString()}`;
+    }
+
+    function rebuildCity(): void {
+      if (cityRebuildTimer) {
+        clearTimeout(cityRebuildTimer);
+        cityRebuildTimer = null;
+      }
+      const phase = city.spanY > 0 ? positiveMod(-cameraY, city.spanY) / city.spanY : 0;
+      const next = createCityState(buildCity(cityConfig));
+      cameraY = -phase * next.spanY;
+      camera.target = toWorld(0, cameraY, 0);
+      recycleRows(next);
+      computeBackfaces(next);
+      refreshRowVisibility(true, next);
+      city = next;
+      cityMesh.setPolygons(city.polygons);
+      rainSeedByLane.clear();
+      rainStepByLane.clear();
+      resetGlyphTravel();
+      updateCityReadouts();
+      resetAnimationClock = true;
+      forceCull = false;
+      dirty = false;
+      rebuildRevision++;
+    }
+
+    function scheduleCityRebuild(delay = 110): void {
+      if (cityRebuildTimer) clearTimeout(cityRebuildTimer);
+      cityRebuildTimer = setTimeout(rebuildCity, delay);
+    }
+
+    function bindCityRange(
+      input: HTMLInputElement | null,
+      readout: HTMLElement | null,
+      update: (value: number) => string,
+    ): void {
+      if (!input) return;
+      input.addEventListener("input", () => {
+        const display = update(Number(input.value));
+        if (readout) readout.textContent = display;
+        scheduleCityRebuild();
+      });
+      input.addEventListener("change", () => scheduleCityRebuild(0));
+    }
+
+    bindCityRange(depthBlocksInput, depthBlocksValue, (value) => {
+      cityConfig.depthBlocks = Math.round(value);
+      return cityConfig.depthBlocks.toFixed(0);
+    });
+    bindCityRange(runBlocksInput, runBlocksValue, (value) => {
+      cityConfig.runBlocks = Math.round(value);
+      return cityConfig.runBlocks.toFixed(0);
+    });
+    bindCityRange(blockDepthInput, blockDepthValue, (value) => {
+      cityConfig.blockDepth = value;
+      return value.toFixed(0);
+    });
+    bindCityRange(blockWidthInput, blockWidthValue, (value) => {
+      cityConfig.blockWidth = value;
+      return value.toFixed(0);
+    });
+    bindCityRange(streetInput, streetValue, (value) => {
+      cityConfig.street = value;
+      return value.toFixed(0);
+    });
+    bindCityRange(buildingSizeInput, buildingSizeValue, (value) => {
+      cityConfig.buildingSize = value;
+      return value.toFixed(0);
+    });
+    bindCityRange(buildingGapInput, buildingGapValue, (value) => {
+      cityConfig.gap = value;
+      return value.toFixed(0);
+    });
+    bindCityRange(mergeInput, mergeValue, (value) => {
+      cityConfig.merge = value;
+      return `${Math.round(value * 100)}%`;
+    });
+    bindCityRange(minHeightInput, minHeightValue, (value) => {
+      cityConfig.minHeight = Math.round(value / 2) * 2;
+      if (cityConfig.maxHeight < cityConfig.minHeight + 20) {
+        cityConfig.maxHeight = Math.ceil((cityConfig.minHeight + 20) / 5) * 5;
+        if (maxHeightInput) maxHeightInput.value = String(cityConfig.maxHeight);
+        if (maxHeightValue) maxHeightValue.textContent = cityConfig.maxHeight.toFixed(0);
+      }
+      return cityConfig.minHeight.toFixed(0);
+    });
+    bindCityRange(maxHeightInput, maxHeightValue, (value) => {
+      cityConfig.maxHeight = Math.round(value / 5) * 5;
+      if (cityConfig.minHeight > cityConfig.maxHeight - 20) {
+        cityConfig.minHeight = Math.floor((cityConfig.maxHeight - 20) / 2) * 2;
+        if (minHeightInput) minHeightInput.value = String(cityConfig.minHeight);
+        if (minHeightValue) minHeightValue.textContent = cityConfig.minHeight.toFixed(0);
+      }
+      return cityConfig.maxHeight.toFixed(0);
+    });
+
+    const transformGlyphFlow: TransformCells = (grid) => {
+      const count = glyphPattern.length;
+      const surfaceUv = grid.surfaceUv;
+      if (count === 0 || !surfaceUv) return;
+      const step = Math.floor(glyphTravelCells);
+      const vertical = glyphMode === "rain" || glyphDirection === "up" || glyphDirection === "down";
+      const alongOffset = vertical ? 1 : 0;
+      const acrossOffset = vertical ? 0 : 1;
+      const alongSign = glyphDirection === "right" || glyphDirection === "up" ? 1 : -1;
+
+      if (glyphMode === "rain") {
+        rainStepByLane.clear();
+        if (rainComposition === "overlay") {
+          for (let behind = 0; behind < rainTrailCells; behind++) {
+            const strength = Math.pow(1 - behind / rainTrailCells, 1.4);
+            rainLevelByDistance[behind] = Math.max(1, Math.ceil(strength * RAIN_FADE_LEVELS));
+          }
+        }
+      }
+
+      for (let i = 0; i < grid.char.length; i++) {
+        const uvOffset = i * 2;
+        const along = surfaceUv[uvOffset + alongOffset]!;
+        const across = surfaceUv[uvOffset + acrossOffset]!;
+        if (!Number.isFinite(along) || !Number.isFinite(across)) {
+          if (glyphMode === "rain" && rainComposition === "mask") {
+            grid.char[i] = " ";
+            grid.color[i] = null;
+          }
+          continue;
+        }
+        const axisCell = Math.floor(along * alongSign);
+        if (glyphMode === "repeat") {
+          grid.char[i] = glyphPattern[positiveMod(axisCell - step, count)]!;
+          continue;
+        }
+        const lane = Math.floor(across);
+        let seed = rainSeedByLane.get(lane);
+        if (seed === undefined) {
+          seed = glyphHash(lane, 0x4ca1);
+          rainSeedByLane.set(lane, seed);
+        }
+        const period = rainTrailCells * 3;
+        let streamStep = rainStepByLane.get(lane);
+        if (streamStep === undefined) {
+          const speedUnit = ((seed >>> 16) & 0xffff) / 0xffff;
+          const laneSpeed = rainMinCellsPerSecond
+            + speedUnit * (rainMaxCellsPerSecond - rainMinCellsPerSecond);
+          let motion = rainMotionByLane.get(lane);
+          if (motion === undefined) {
+            motion = { position: seed % period, lastTime: rainElapsedSeconds };
+            rainMotionByLane.set(lane, motion);
+          } else {
+            motion.position += Math.max(0, rainElapsedSeconds - motion.lastTime) * laneSpeed;
+            motion.lastTime = rainElapsedSeconds;
+          }
+          streamStep = Math.floor(motion.position);
+          rainStepByLane.set(lane, streamStep);
+        }
+        const chainGlyph = glyphPattern[positiveMod(axisCell - streamStep + ((seed >>> 8) % count), count)]!;
+        const baseGlyph = grid.char[i]!;
+        const activeLane = (seed & 0xffff) / 0x1_0000 < rainStreamDensity;
+        const behind = positiveMod(streamStep - axisCell, period);
+        const inTrail = activeLane && behind < rainTrailCells;
+
+        if (rainComposition === "mask") {
+          if (!inTrail || baseGlyph === " ") {
+            grid.char[i] = " ";
+            grid.color[i] = null;
+            continue;
+          }
+          grid.char[i] = chainGlyph;
+          continue;
+        }
+
+        grid.char[i] = chainGlyph;
+        if (!inTrail) continue;
+        const level = rainLevelByDistance[behind]!;
+        grid.color[i] = rainColor(grid.color[i] ?? null, level, behind === 0);
+      }
+    };
+
+    function rotationAngle(axis: RotationAxis = rotationAxis): number {
+      return axis === "x" ? camera.rotX : camera.rotY;
+    }
+
+    function setRotationAngle(value: number): void {
+      if (rotationAxis === "x") camera.rotX = value;
+      else camera.rotY = positiveMod(value, FULL_ROTATION_DEGREES);
+    }
+
+    function formatAngle(value: number): string {
+      return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+    }
+
+    function captureRotationSequence(): void {
+      rotationOrigin = rotationAngle();
+      tiltTravelDegrees = 0;
+      if (rotationAxis === "y") {
+        rotationOrigin = positiveMod(rotationOrigin, FULL_ROTATION_DEGREES);
+        rotationKeyframes = [0, FULL_ROTATION_DEGREES];
+        rotationSegments = [];
+        rotationLoopDegrees = FULL_ROTATION_DEGREES;
+        if (tiltSequenceValue) tiltSequenceValue.textContent = "0° → 360° → …";
+        return;
+      }
+      rotationKeyframes = ROTATION_KEYFRAME_OFFSETS.map((offset) => rotationOrigin + offset);
+      rotationSegments = rotationKeyframes.slice(0, -1).map((from, index) => {
+        const to = rotationKeyframes[index + 1]!;
+        return { from, to, distance: Math.abs(to - from) };
+      }).filter((segment) => segment.distance > 0);
+      rotationLoopDegrees = rotationSegments.reduce((total, segment) => total + segment.distance, 0);
+      if (tiltSequenceValue) {
+        tiltSequenceValue.textContent = rotationKeyframes.map((value) => `${formatAngle(value)}°`).join(" → ");
+      }
+    }
+
+    function syncRotationAxisButtons(): void {
+      $("rotation-axis")?.querySelectorAll<HTMLButtonElement>("[data-rotation-axis]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.rotationAxis === rotationAxis);
+      });
+    }
+
+    function syncTiltReadout(now: number, force = false): void {
+      if (!force && now - lastTiltReadoutAt < 100) return;
+      lastTiltReadoutAt = now;
+      if (rotationAxis === "x") {
+        if (tiltInput) tiltInput.value = camera.rotX.toFixed(2);
+        if (tiltValue) tiltValue.textContent = camera.rotX.toFixed(1);
+      } else {
+        if (orbitInput) orbitInput.value = camera.rotY.toFixed(2);
+        if (orbitValue) orbitValue.textContent = camera.rotY.toFixed(1);
+      }
+    }
+
+    function applyTiltSequence(now: number, forceReadout = false): void {
+      if (rotationLoopDegrees <= 0) return;
+      const travel = positiveMod(tiltTravelDegrees, rotationLoopDegrees);
+      if (rotationAxis === "y") {
+        setRotationAngle(rotationOrigin + travel);
+        syncTiltReadout(now, forceReadout);
+        return;
+      }
+      let segmentStart = 0;
+      const segment = rotationSegments.find((candidate) => {
+        if (travel < segmentStart + candidate.distance) return true;
+        segmentStart += candidate.distance;
+        return false;
+      }) ?? rotationSegments[rotationSegments.length - 1]!;
+      const progress = (travel - segmentStart) / segment.distance;
+      setRotationAngle(segment.from + (segment.to - segment.from) * progress);
+      syncTiltReadout(now, forceReadout);
+    }
+
+    function hydrateControlValues(): void {
+      if (speedInput) speedInput.value = String(speed);
+      if (speedValue) speedValue.textContent = `${speed.toFixed(2)}×`;
+      if (densityInput) densityInput.value = String(density);
+      if (densityValue) densityValue.textContent = density.toFixed(2);
+      if (lodInput) lodInput.value = String(motionLod);
+      if (lodValue) lodValue.textContent = `${motionLod.toFixed(2)}×`;
+      if (tiltInput) tiltInput.value = String(camera.rotX);
+      if (tiltValue) tiltValue.textContent = formatAngle(camera.rotX);
+      if (orbitInput) orbitInput.value = String(camera.rotY);
+      if (orbitValue) orbitValue.textContent = formatAngle(camera.rotY);
+      if (zoomInput) zoomInput.value = String(camera.zoom);
+      if (zoomValue) zoomValue.textContent = `${camera.zoom.toFixed(2)}×`;
+      if (tiltSpeedInput) tiltSpeedInput.value = String(tiltDegreesPerSecond);
+      if (tiltSpeedValue) tiltSpeedValue.textContent = `${tiltDegreesPerSecond.toFixed(0)}°/s`;
+
+      const setCityValue = (
+        input: HTMLInputElement | null,
+        readout: HTMLElement | null,
+        value: number,
+        display = String(value),
+      ) => {
+        if (input) input.value = String(value);
+        if (readout) readout.textContent = display;
+      };
+      setCityValue(depthBlocksInput, depthBlocksValue, cityConfig.depthBlocks);
+      setCityValue(runBlocksInput, runBlocksValue, cityConfig.runBlocks);
+      setCityValue(blockDepthInput, blockDepthValue, cityConfig.blockDepth);
+      setCityValue(blockWidthInput, blockWidthValue, cityConfig.blockWidth);
+      setCityValue(streetInput, streetValue, cityConfig.street);
+      setCityValue(buildingSizeInput, buildingSizeValue, cityConfig.buildingSize);
+      setCityValue(buildingGapInput, buildingGapValue, cityConfig.gap);
+      setCityValue(mergeInput, mergeValue, cityConfig.merge, `${Math.round(cityConfig.merge * 100)}%`);
+      setCityValue(minHeightInput, minHeightValue, cityConfig.minHeight);
+      setCityValue(maxHeightInput, maxHeightValue, cityConfig.maxHeight);
+
+      if (glyphPatternInput) glyphPatternInput.value = glyphPattern.join("");
+      if (glyphSpeedInput) glyphSpeedInput.value = String(glyphCellsPerSecond);
+      if (glyphSpeedValue) glyphSpeedValue.textContent = `${glyphCellsPerSecond.toFixed(0)} cells/s`;
+      if (rainSpeedMinInput) rainSpeedMinInput.value = String(rainMinCellsPerSecond);
+      if (rainSpeedMinValue) rainSpeedMinValue.textContent = `${rainMinCellsPerSecond.toFixed(0)} cells/s`;
+      if (rainSpeedMaxInput) rainSpeedMaxInput.value = String(rainMaxCellsPerSecond);
+      if (rainSpeedMaxValue) rainSpeedMaxValue.textContent = `${rainMaxCellsPerSecond.toFixed(0)} cells/s`;
+      if (rainTrailInput) rainTrailInput.value = String(rainTrailCells);
+      if (rainTrailValue) rainTrailValue.textContent = `${rainTrailCells.toFixed(0)} cells`;
+      if (rainStreamInput) rainStreamInput.value = String(rainStreamDensity * 100);
+      if (rainStreamValue) rainStreamValue.textContent = `${(rainStreamDensity * 100).toFixed(0)}%`;
+      if (monoColorInput) monoColorInput.value = monoColor;
+      if (monoColorValue) monoColorValue.textContent = monoColor.toUpperCase();
+
+      $("color-mode")?.querySelectorAll<HTMLButtonElement>("[data-color]").forEach((button) => {
+        button.classList.toggle("active", (button.dataset.color === "true") === useColors);
+      });
+      $("glyph-mode")?.querySelectorAll<HTMLButtonElement>("[data-glyph-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.glyphMode === glyphMode);
+      });
+      $("rain-composition")?.querySelectorAll<HTMLButtonElement>("[data-rain-composition]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.rainComposition === rainComposition);
+      });
+      if (monoColorControl) monoColorControl.hidden = useColors;
+      if (glyphSpeedControl) glyphSpeedControl.hidden = glyphMode === "rain";
+      if (rainSpeedMinControl) rainSpeedMinControl.hidden = glyphMode !== "rain";
+      if (rainSpeedMaxControl) rainSpeedMaxControl.hidden = glyphMode !== "rain";
+      if (rainTrailControl) rainTrailControl.hidden = glyphMode !== "rain";
+      if (rainCompositionControl) rainCompositionControl.hidden = glyphMode !== "rain";
+      if (rainStreamControl) rainStreamControl.hidden = glyphMode !== "rain";
+    }
+
+    hydrateControlValues();
+    captureRotationSequence();
+    syncRotationAxisButtons();
+    syncGlyphDirectionButtons();
+    updatePlayLabel();
+    updateTiltPlayLabel();
+    updateGlyphPlayLabel();
+    if (glyphMode !== "shaded") scene.setOptions({ transformCells: transformGlyphFlow });
+    if (tiltPlaying) setFaceOptimization(false);
+    cityQuerySync.write();
+    playButton?.addEventListener("click", () => {
+      playing = !playing;
+      updatePlayLabel();
+      const rendered = updateInteractionState();
+      if (!rendered) dirty = true;
+    });
+
+    tiltPlayButton?.addEventListener("click", () => {
+      tiltPlaying = !tiltPlaying;
+      updateTiltPlayLabel();
+      if (tiltPlaying) {
+        resetAnimationClock = true;
+        applyTiltSequence(performance.now(), true);
+        setFaceOptimization(false);
+      } else {
+        syncTiltReadout(performance.now(), true);
+        recomputeBackfaces();
+        markCameraDirty();
+      }
+      updateInteractionState();
+    });
+
+    $("rotation-axis")?.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-rotation-axis]");
+      if (!button) return;
+      const nextAxis = button.dataset.rotationAxis as RotationAxis;
+      if (nextAxis === rotationAxis) return;
+      if (tiltPlaying) {
+        tiltPlaying = false;
+        updateTiltPlayLabel();
+        recomputeBackfaces();
+      }
+      rotationAxis = nextAxis;
+      captureRotationSequence();
+      syncRotationAxisButtons();
+      updateTiltPlayLabel();
+      updateInteractionState();
+      markCameraDirty();
+    });
+
+    tiltSpeedInput?.addEventListener("input", () => {
+      tiltDegreesPerSecond = Number(tiltSpeedInput.value);
+      if (tiltSpeedValue) tiltSpeedValue.textContent = `${tiltDegreesPerSecond.toFixed(0)}°/s`;
+    });
+
+    function syncGlyphDirectionButtons(): void {
+      $("glyph-direction")?.querySelectorAll<HTMLButtonElement>("[data-glyph-direction]").forEach((button) => {
+        const direction = button.dataset.glyphDirection as GlyphFlowDirection;
+        button.disabled = glyphMode === "rain" && (direction === "left" || direction === "right");
+        button.classList.toggle("active", direction === glyphDirection);
+      });
+    }
+
+    glyphPatternInput?.addEventListener("input", () => {
+      const next = parseGlyphPattern(glyphPatternInput.value);
+      const sanitized = next.join("");
+      if (glyphPatternInput.value !== sanitized) glyphPatternInput.value = sanitized;
+      if (next.length === 0) return;
+      glyphPattern = next;
+      resetGlyphTravel();
+      if (glyphMode !== "shaded") dirty = true;
+    });
+    glyphPatternInput?.addEventListener("blur", () => {
+      if (parseGlyphPattern(glyphPatternInput.value).length === 0) {
+        glyphPatternInput.value = glyphPattern.join("");
+      }
+    });
+
+    $("glyph-mode")?.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-glyph-mode]");
+      if (!button) return;
+      const nextMode = button.dataset.glyphMode as GlyphFlowMode;
+      if (nextMode === glyphMode) return;
+      glyphMode = nextMode;
+      resetGlyphTravel();
+      button.parentElement?.querySelectorAll("button").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      if (glyphMode === "rain" && (glyphDirection === "left" || glyphDirection === "right")) {
+        glyphDirection = "down";
+      }
+      syncGlyphDirectionButtons();
+      if (glyphMode === "shaded") glyphPlaying = false;
+      if (glyphSpeedControl) glyphSpeedControl.hidden = glyphMode === "rain";
+      if (rainSpeedMinControl) rainSpeedMinControl.hidden = glyphMode !== "rain";
+      if (rainSpeedMaxControl) rainSpeedMaxControl.hidden = glyphMode !== "rain";
+      if (rainTrailControl) rainTrailControl.hidden = glyphMode !== "rain";
+      if (rainCompositionControl) rainCompositionControl.hidden = glyphMode !== "rain";
+      if (rainStreamControl) rainStreamControl.hidden = glyphMode !== "rain";
+      updateGlyphPlayLabel();
+      scene.setOptions({ transformCells: glyphMode === "shaded" ? undefined : transformGlyphFlow });
+      updateInteractionState();
+    });
+
+    $("glyph-direction")?.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-glyph-direction]");
+      if (!button || button.disabled) return;
+      glyphDirection = button.dataset.glyphDirection as GlyphFlowDirection;
+      resetGlyphTravel();
+      syncGlyphDirectionButtons();
+      if (glyphMode !== "shaded") dirty = true;
+    });
+
+    glyphSpeedInput?.addEventListener("input", () => {
+      glyphCellsPerSecond = Number(glyphSpeedInput.value);
+      if (glyphSpeedValue) glyphSpeedValue.textContent = `${glyphCellsPerSecond.toFixed(0)} cells/s`;
+    });
+
+    rainSpeedMinInput?.addEventListener("input", () => {
+      rainMinCellsPerSecond = Number(rainSpeedMinInput.value);
+      if (rainMinCellsPerSecond > rainMaxCellsPerSecond) {
+        rainMaxCellsPerSecond = rainMinCellsPerSecond;
+        if (rainSpeedMaxInput) rainSpeedMaxInput.value = String(rainMaxCellsPerSecond);
+      }
+      if (rainSpeedMinValue) rainSpeedMinValue.textContent = `${rainMinCellsPerSecond.toFixed(0)} cells/s`;
+      if (rainSpeedMaxValue) rainSpeedMaxValue.textContent = `${rainMaxCellsPerSecond.toFixed(0)} cells/s`;
+      if (glyphMode === "rain") dirty = true;
+    });
+
+    rainSpeedMaxInput?.addEventListener("input", () => {
+      rainMaxCellsPerSecond = Number(rainSpeedMaxInput.value);
+      if (rainMaxCellsPerSecond < rainMinCellsPerSecond) {
+        rainMinCellsPerSecond = rainMaxCellsPerSecond;
+        if (rainSpeedMinInput) rainSpeedMinInput.value = String(rainMinCellsPerSecond);
+      }
+      if (rainSpeedMinValue) rainSpeedMinValue.textContent = `${rainMinCellsPerSecond.toFixed(0)} cells/s`;
+      if (rainSpeedMaxValue) rainSpeedMaxValue.textContent = `${rainMaxCellsPerSecond.toFixed(0)} cells/s`;
+      if (glyphMode === "rain") dirty = true;
+    });
+
+    rainTrailInput?.addEventListener("input", () => {
+      rainTrailCells = Number(rainTrailInput.value);
+      if (rainTrailValue) rainTrailValue.textContent = `${rainTrailCells.toFixed(0)} cells`;
+      if (glyphMode === "rain") dirty = true;
+    });
+
+    $("rain-composition")?.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-rain-composition]");
+      if (!button) return;
+      rainComposition = button.dataset.rainComposition as RainComposition;
+      button.parentElement?.querySelectorAll("button").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      if (glyphMode === "rain") dirty = true;
+    });
+
+    rainStreamInput?.addEventListener("input", () => {
+      rainStreamDensity = Number(rainStreamInput.value) / 100;
+      if (rainStreamValue) rainStreamValue.textContent = `${(rainStreamDensity * 100).toFixed(0)}%`;
+      if (glyphMode === "rain") dirty = true;
+    });
+
+    glyphPlayButton?.addEventListener("click", () => {
+      if (glyphMode === "shaded") return;
+      glyphPlaying = !glyphPlaying;
+      if (glyphPlaying) resetAnimationClock = true;
+      updateGlyphPlayLabel();
+      const rendered = updateInteractionState();
+      if (!rendered) dirty = true;
+    });
+
+    speedInput?.addEventListener("input", () => {
+      speed = Number(speedInput.value);
+      if (speedValue) speedValue.textContent = `${speed.toFixed(2)}×`;
+      const rendered = updateInteractionState();
+      if (!rendered) dirty = true;
+    });
+
+    densityInput?.addEventListener("input", () => {
+      density = Number(densityInput.value);
+      if (densityValue) densityValue.textContent = density.toFixed(2);
+      const restoreLod = lodActive;
+      if (restoreLod) {
+        scene.setInteracting(false);
+        lodActive = false;
+      }
+      scene.output.style.fontSize = `${BASE_FONT_SIZE / density}px`;
+      scene.fit();
+      queueMicrotask(() => {
+        if (restoreLod && (animating() || dragging || wheelActive)) {
+          scene.setInteracting(true);
+          lodActive = true;
+        }
+        markCameraDirty();
+      });
+    });
+
+    lodInput?.addEventListener("input", () => {
+      motionLod = Number(lodInput.value);
+      if (lodValue) lodValue.textContent = `${motionLod.toFixed(2)}×`;
+      const restoreLod = lodActive;
+      if (restoreLod) {
+        scene.setInteracting(false);
+        lodActive = false;
+      }
+      scene.setOptions({ interactiveDownscale: motionLod });
+      queueMicrotask(() => {
+        if (restoreLod && (animating() || dragging || wheelActive)) {
+          scene.setInteracting(true);
+          lodActive = true;
+        }
+        markCameraDirty();
+      });
+    });
+
+    function syncCameraControls(): void {
+      if (tiltInput) tiltInput.value = String(Math.round(camera.rotX));
+      const displayRotY = Math.round(positiveMod(camera.rotY, FULL_ROTATION_DEGREES)) % FULL_ROTATION_DEGREES;
+      if (orbitInput) orbitInput.value = String(displayRotY);
+      if (zoomInput) zoomInput.value = camera.zoom.toFixed(2);
+      if (tiltValue) tiltValue.textContent = String(Math.round(camera.rotX));
+      if (orbitValue) orbitValue.textContent = String(displayRotY);
+      if (zoomValue) zoomValue.textContent = `${camera.zoom.toFixed(2)}×`;
+    }
+
+    function finishManualRotation(axis: RotationAxis): void {
+      if (axis === rotationAxis) {
+        if (tiltPlaying) {
+          tiltPlaying = false;
+          updateTiltPlayLabel();
+          updateInteractionState();
+        }
+        captureRotationSequence();
+      }
+      recomputeBackfaces();
+      markCameraDirty();
+    }
+
+    tiltInput?.addEventListener("input", () => {
+      camera.rotX = Number(tiltInput.value);
+      if (tiltValue) tiltValue.textContent = String(Math.round(camera.rotX));
+      finishManualRotation("x");
+    });
+
+    orbitInput?.addEventListener("input", () => {
+      camera.rotY = positiveMod(Number(orbitInput.value), FULL_ROTATION_DEGREES);
+      if (orbitValue) orbitValue.textContent = String(Math.round(camera.rotY));
+      finishManualRotation("y");
+    });
+
+    zoomInput?.addEventListener("input", () => {
+      camera.zoom = Number(zoomInput.value);
+      if (zoomValue) zoomValue.textContent = `${camera.zoom.toFixed(2)}×`;
+      markCameraDirty();
+    });
+
+    monoColorInput?.addEventListener("input", () => {
+      monoColor = monoColorInput.value;
+      scene.output.style.color = monoColor;
+      if (monoColorValue) monoColorValue.textContent = monoColor.toUpperCase();
+    });
+
+    $("color-mode")?.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-color]");
+      if (!button) return;
+      useColors = button.dataset.color === "true";
+      button.parentElement?.querySelectorAll("button").forEach((item) => {
+        item.classList.toggle("active", item === button);
+      });
+      if (monoColorControl) monoColorControl.hidden = useColors;
+      if (useColors) scene.output.style.removeProperty("color");
+      else scene.output.style.color = monoColor;
+      scene.setOptions({ useColors });
+    });
+
+    const syncControlQuery = () => cityQuerySync.schedule();
+    $("city-controls")?.addEventListener("input", syncControlQuery);
+    $("city-controls")?.addEventListener("change", syncControlQuery);
+    $("city-controls")?.addEventListener("click", syncControlQuery);
+
+    const controlToggle = $("ctl-toggle");
+    const controlPanel = $("city-controls");
+    controlToggle?.addEventListener("click", () => {
+      const open = controlPanel?.classList.toggle("is-open") ?? false;
+      controlToggle.setAttribute("aria-expanded", String(open));
+      controlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+    });
+
+    let activePointer: number | null = null;
+    let lastX = 0;
+    let lastY = 0;
+    host.addEventListener("pointerdown", (event) => {
+      if (activePointer !== null || event.button !== 0) return;
+      activePointer = event.pointerId;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      dragging = true;
+      if (tiltPlaying) {
+        tiltPlaying = false;
+        updateTiltPlayLabel();
+        syncTiltReadout(performance.now(), true);
+      }
+      setFaceOptimization(false);
+      updateInteractionState();
+      host.setPointerCapture(event.pointerId);
+    });
+    host.addEventListener("pointermove", (event) => {
+      if (activePointer !== event.pointerId) return;
+      const events = event.getCoalescedEvents?.() ?? [event];
+      const latest = events[events.length - 1]!;
+      const dx = latest.clientX - lastX;
+      const dy = latest.clientY - lastY;
+      lastX = latest.clientX;
+      lastY = latest.clientY;
+      camera.rotY = positiveMod(camera.rotY - dx * 0.18, FULL_ROTATION_DEGREES);
+      camera.rotX = clamp(camera.rotX - dy * 0.18, 25, 82);
+      syncCameraControls();
+      markCameraDirty();
+    });
+    const releasePointer = (event: PointerEvent) => {
+      if (activePointer !== event.pointerId) return;
+      activePointer = null;
+      dragging = false;
+      try { host.releasePointerCapture(event.pointerId); } catch {}
+      captureRotationSequence();
+      setFaceOptimization(true);
+      updateInteractionState();
+      cityQuerySync.schedule();
+    };
+    host.addEventListener("pointerup", releasePointer);
+    host.addEventListener("pointercancel", releasePointer);
+    host.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      camera.zoom = clamp(camera.zoom * Math.exp(-event.deltaY * 0.001), 0.7, 4);
+      wheelActive = true;
+      syncCameraControls();
+      updateInteractionState();
+      markCameraDirty();
+      if (wheelTimer) clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => {
+        wheelTimer = null;
+        wheelActive = false;
+        updateInteractionState();
+        markCameraDirty();
+        cityQuerySync.schedule();
+      }, 140);
+    }, { passive: false });
+
+    let stageVisible = true;
+    const stageObserver = typeof IntersectionObserver === "undefined"
+      ? null
+      : new IntersectionObserver(([entry]) => {
+          const visible = entry?.isIntersecting ?? true;
+          if (visible !== stageVisible) resetAnimationClock = true;
+          stageVisible = visible;
+          markCameraDirty();
+        }, { threshold: 0.01 });
+    stageObserver?.observe(host);
+    document.addEventListener("visibilitychange", () => {
+      resetAnimationClock = true;
+      markCameraDirty();
+    });
+    prefersReducedMotion.addEventListener("change", (event) => {
+      if (!event.matches || (!playing && !tiltPlaying && !glyphPlaying)) return;
+      playing = false;
+      tiltPlaying = false;
+      glyphPlaying = false;
+      updatePlayLabel();
+      updateTiltPlayLabel();
+      updateGlyphPlayLabel();
+      syncTiltReadout(performance.now(), true);
+      recomputeBackfaces();
+      updateInteractionState();
+      dirty = true;
+      cityQuerySync.schedule();
+    });
+
+    const polyCount = $("poly-count");
+    const fpsValue = $("fps");
+    const rasterValue = $("raster-ms");
+    const domValue = $("dom-ms");
+    const cellCount = $("cell-count");
+    updateCityReadouts();
+
+    let renderedFrames = 0;
+    let sampleStarted = performance.now();
+    function average(values: number[]): number {
+      if (values.length === 0) return 0;
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
+    }
+    function updateStats(now: number): void {
+      const elapsed = now - sampleStarted;
+      if (elapsed < 650) return;
+      const rasterSamples = perf.raster?.splice(0) ?? [];
+      const domSamples = perf.dom?.splice(0) ?? [];
+      perf.polys?.splice(0);
+      const options = scene.getOptions();
+      const activePolys = city.polygons.reduce((count, polygon) => count + (polygon.hidden ? 0 : 1), 0);
+      if (fpsValue) fpsValue.textContent = animating() && stageVisible && !document.hidden
+        ? ((renderedFrames * 1000) / elapsed).toFixed(0)
+        : "paused";
+      if (rasterValue) rasterValue.textContent = rasterSamples.length ? `${average(rasterSamples).toFixed(1)} ms` : "—";
+      if (domValue) domValue.textContent = domSamples.length ? `${average(domSamples).toFixed(1)} ms` : "—";
+      if (polyCount) polyCount.textContent = `${activePolys.toLocaleString()} / ${city.polygons.length.toLocaleString()}`;
+      if (cellCount) cellCount.textContent = `${options.cols ?? 0}×${options.rows ?? 0}`;
+      renderedFrames = 0;
+      sampleStarted = now;
+    }
+
+    let lastFrame = performance.now();
+    let cullFrame = 0;
+    function frame(now: number): void {
+      requestAnimationFrame(frame);
+      const canAnimate = animating() && stageVisible && !document.hidden;
+      const elapsedMs = resetAnimationClock ? 0 : Math.max(0, now - lastFrame);
+      const dt = canAnimate ? Math.min(elapsedMs / 1000, 0.05) : 0;
+      resetAnimationClock = false;
+      lastFrame = now;
+
+      if (canAnimate && moving()) {
+        cameraY -= dt * (city.spanY / CITY.loopSeconds) * speed;
+        camera.target = toWorld(0, cameraY, 0);
+        if (recycleRows()) forceCull = true;
+        dirty = true;
+      }
+
+      if (canAnimate && tiltPlaying) {
+        tiltTravelDegrees = positiveMod(
+          tiltTravelDegrees + (elapsedMs / 1000) * tiltDegreesPerSecond,
+          rotationLoopDegrees,
+        );
+        applyTiltSequence(now);
+        dirty = true;
+      }
+
+      if (canAnimate && glyphMoving()) {
+        if (glyphMode === "rain") {
+          const cadence = rainMaxCellsPerSecond * 1.25;
+          const previousStep = Math.floor(rainElapsedSeconds * cadence);
+          rainElapsedSeconds += elapsedMs / 1000;
+          if (Math.floor(rainElapsedSeconds * cadence) !== previousStep) dirty = true;
+        } else {
+          const previousStep = Math.floor(glyphTravelCells);
+          glyphTravelCells += (elapsedMs / 1000) * glyphCellsPerSecond;
+          if (Math.floor(glyphTravelCells) !== previousStep) dirty = true;
+        }
+      }
+
+      if (dirty) {
+        cullFrame++;
+        if (forceCull || cullFrame % 4 === 0) {
+          refreshRowVisibility(forceCull);
+          forceCull = false;
+        }
+        scene.rerender();
+        renderedFrames++;
+        dirty = false;
+      }
+      updateStats(now);
+    }
+
+    queueMicrotask(() => {
+      requestAnimationFrame((now) => {
+        $("loading")?.remove();
+        updateInteractionState();
+        lastFrame = now;
+        requestAnimationFrame(frame);
+      });
+    });
+
+    (window as typeof window & { __cityLab?: unknown }).__cityLab = {
+      camera,
+      scene,
+      mesh: cityMesh,
+      perf,
+      get city() { return city; },
+      get config() { return { ...cityConfig }; },
+      get cameraY() { return cameraY; },
+      get rebuildRevision() { return rebuildRevision; },
+      get rotationAnimation() {
+        return {
+          axis: rotationAxis,
+          origin: rotationOrigin,
+          keyframes: [...rotationKeyframes],
+          travelDegrees: tiltTravelDegrees,
+          loopDegrees: rotationLoopDegrees,
+          playing: tiltPlaying,
+        };
+      },
+      diagnostics() {
+        return {
+          polygonCount: city.polygons.length,
+          meshPolygonCount: cityMesh.polygons.length,
+          chunkCount: city.chunks.length,
+          visibleChunkCount: city.chunks.filter((chunk) => chunk.visible).length,
+          rowMapLength: city.rowForPolygon.length,
+          backfaceLength: city.backfaceHidden.length,
+          invalidChunkRanges: city.chunks.filter((chunk) => (
+            chunk.start < 0 || chunk.start > chunk.end || chunk.end > city.polygons.length
+          )).length,
+        };
+      },
+    };
+  </script>
+</body>
+</html>

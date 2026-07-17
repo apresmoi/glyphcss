@@ -6,6 +6,7 @@ import {
   Dock,
   DockModel,
   DockRendering,
+  DockEffects,
   DockAnimation,
   DockCamera,
   DockLighting,
@@ -14,7 +15,12 @@ import {
 import { ModelsSidebar } from "../ModelsSidebar";
 import { DropOverlay } from "../DropOverlay";
 import { StatsOverlay } from "../StatsOverlay";
-import type { GlyphMetrics, SceneOptionsState } from "./types";
+import type {
+  GalleryEffectParamValue,
+  GalleryEffectState,
+  GlyphMetrics,
+  SceneOptionsState,
+} from "./types";
 import "./gallery-workbench.css";
 import {
   PRESETS,
@@ -35,9 +41,22 @@ import {
   routeHasSceneOptions,
   setRouteSceneOptions,
   clearRouteSceneOptions,
+  clearRouteEffectState,
+  routeHasEffectState,
+  routeInitialEffectState,
+  setRouteEffectState,
+  useEffectRouteSync,
 } from "./hooks";
 import type { PresetModel } from "./types";
 import { defaultZoomForModel } from "./helpers/smartDefaults";
+import {
+  createGalleryEffectState,
+  DEFAULT_GALLERY_EFFECT_STATE,
+  GALLERY_EFFECT_OPTIONS,
+  galleryEffectDefinition,
+  sanitizeGalleryEffectParams,
+} from "./effects";
+import type { GlyphEffectId } from "@glyphcss/effects";
 
 type AsciiCell = { ch: string; color?: string };
 type TrimmedStrip = { rows: AsciiCell[][]; left: number; right: number; top: number; bottom: number };
@@ -362,6 +381,8 @@ export default function GalleryWorkbench() {
   // Sidebar options restored from the URL `scene` param (empty when absent).
   const [initialRouteSceneOptions] = useState(routeInitialSceneOptions);
   const [initialRouteHasSceneOptions] = useState(routeHasSceneOptions);
+  const [initialRouteEffectState] = useState(routeInitialEffectState);
+  const [initialRouteHasEffectState] = useState(routeHasEffectState);
   // Start from the preset's defaults, then layer any URL-restored overrides on
   // top. When the route already carries scene options, usePresetLoader is told
   // (via autoZoomPresetRef seeded below) not to re-stomp camera defaults with the
@@ -370,6 +391,7 @@ export default function GalleryWorkbench() {
     ...sceneDefaultsFor(initialPreset),
     ...initialRouteSceneOptions,
   }));
+  const [effectState, setEffectState] = useState<GalleryEffectState>(initialRouteEffectState);
   const [presetId, setPresetId] = useState(initialPreset.id);
   const [meshUrl, setMeshUrl] = useState(initialPreset.kind !== "primitive" ? initialPreset.url : "");
   const [metrics, setMetrics] = useState<GlyphMetrics>(EMPTY_METRICS);
@@ -396,6 +418,47 @@ export default function GalleryWorkbench() {
     markSceneRouteDirty();
     setSceneOptions((current) => ({ ...current, ...partial }));
   }, [markSceneRouteDirty]);
+
+  const effectRouteTouchedRef = useRef(initialRouteHasEffectState);
+  const [effectRouteRevision, setEffectRouteRevision] = useState(0);
+  const markEffectRouteDirty = useCallback(() => {
+    effectRouteTouchedRef.current = true;
+    setEffectRouteRevision((revision) => revision + 1);
+  }, []);
+
+  const handleEffectChange = useCallback((effectId: GlyphEffectId | null) => {
+    markEffectRouteDirty();
+    setEffectState((current) => {
+      if (!effectId) return DEFAULT_GALLERY_EFFECT_STATE;
+      return createGalleryEffectState(effectId, {
+        paused: current.paused,
+        timeScale: current.timeScale,
+      }) ?? DEFAULT_GALLERY_EFFECT_STATE;
+    });
+  }, [markEffectRouteDirty]);
+
+  const updateEffectSettings = useCallback((partial: Partial<Pick<GalleryEffectState, "blend" | "paused" | "timeScale">>) => {
+    markEffectRouteDirty();
+    setEffectState((current) => ({ ...current, ...partial }));
+  }, [markEffectRouteDirty]);
+
+  const updateEffectParams = useCallback((partial: Record<string, GalleryEffectParamValue>) => {
+    markEffectRouteDirty();
+    setEffectState((current) => {
+      const params = { ...current.params, ...partial };
+      const speedMin = params.speedMin;
+      const speedMax = params.speedMax;
+      if (typeof speedMin === "number" && typeof speedMax === "number" && speedMin > speedMax) {
+        if ("speedMin" in partial) params.speedMax = speedMin;
+        else params.speedMin = speedMax;
+      }
+      const definition = galleryEffectDefinition(current.effectId);
+      return {
+        ...current,
+        params: definition ? sanitizeGalleryEffectParams(definition, params) : params,
+      };
+    });
+  }, [markEffectRouteDirty]);
 
   const { handleCameraChange: handleCameraChangeRaw } = useGuiCameraSync({ setSceneOptions });
   const renderSceneOptions = useMemo<SceneOptionsState>(() => {
@@ -426,6 +489,7 @@ export default function GalleryWorkbench() {
       // A dropped local file can't be reconstructed from a URL, so don't keep
       // a stale `scene` param pointing at the previous model.
       clearRouteSceneOptions();
+      clearRouteEffectState();
       setPresetId(source.id);
       setSelectedAnimation("");
       setSceneOptions((current) => ({
@@ -547,6 +611,7 @@ export default function GalleryWorkbench() {
     sceneDefaultsForPreset: sceneDefaultsForPresetId,
     setSceneOptions,
   });
+  useEffectRouteSync(setEffectState);
 
   // Persist the sidebar options to the URL `scene` param (diffed against the
   // active preset's defaults) once the user has touched a control. Dropped
@@ -563,6 +628,27 @@ export default function GalleryWorkbench() {
       presetId: selectedPreset.id,
     });
   }, [sceneOptions, sceneRouteRevision, selectedDroppedSource, selectedPreset.id, selectedSceneDefaults]);
+
+  useEffect(() => {
+    if (!effectRouteTouchedRef.current) return;
+    if (selectedDroppedSource) {
+      clearRouteEffectState();
+      return;
+    }
+    setRouteEffectState(effectState);
+  }, [effectState, effectRouteRevision, selectedDroppedSource]);
+
+  const selectedEffectDefinition = useMemo(
+    () => galleryEffectDefinition(effectState.effectId),
+    [effectState.effectId],
+  );
+  const runtimeEffect = useMemo(() => selectedEffectDefinition ? {
+    effect: selectedEffectDefinition,
+    params: effectState.params,
+    blend: effectState.blend,
+    paused: effectState.paused,
+    timeScale: effectState.timeScale,
+  } : null, [selectedEffectDefinition, effectState]);
 
   const animationOptions = useMemo(() => {
     const options: Record<string, string> = { None: "" };
@@ -632,6 +718,7 @@ export default function GalleryWorkbench() {
             selectedAnimation={selectedAnimation}
             animationPaused={sceneOptions.animationPaused}
             animationTimeScale={sceneOptions.animationTimeScale}
+            effect={runtimeEffect}
           />
           <CopySceneButton />
           <CodePanel
@@ -640,6 +727,8 @@ export default function GalleryWorkbench() {
             options={renderSceneOptions}
             selectedPreset={selectedPreset}
             className={mobilePanel === "code" ? "is-mobile-open" : ""}
+            effectState={effectState}
+            effectDefinition={selectedEffectDefinition}
           />
         </div>
         <DropOverlay active={dropped.dropActive} />
@@ -662,6 +751,14 @@ export default function GalleryWorkbench() {
           smoothShading={sceneOptions.smoothShading}
           creaseAngle={sceneOptions.creaseAngle}
           onUpdateScene={updateScene}
+        />
+        <DockEffects
+          effectState={effectState}
+          definition={selectedEffectDefinition}
+          effectOptions={GALLERY_EFFECT_OPTIONS}
+          onEffectChange={handleEffectChange}
+          onUpdateSettings={updateEffectSettings}
+          onUpdateParams={updateEffectParams}
         />
         <DockAnimation
           selectedAnimation={selectedAnimation}

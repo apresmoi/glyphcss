@@ -47,11 +47,25 @@ import type {
   ParseAnimationClip,
   Polygon,
   LoadMeshOptions,
+  GlyphEffectDefinition,
+  GlyphEffectLayerHandle,
+  GlyphEffectParamSchema,
 } from 'glyphcss';
 import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from 'glyphcss';
 import { resolveGeometry } from '@glyphcss/core';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
+
+type RuntimeEffectParam = string | number | boolean;
+type RuntimeEffectConfig = {
+  effect: unknown;
+  params: Record<string, RuntimeEffectParam>;
+  blend: 'replace' | 'over';
+  paused: boolean;
+  timeScale: number;
+};
+
+type RuntimeEffectLayer = GlyphEffectLayerHandle<Record<string, RuntimeEffectParam>>;
 
 /** Compute the face normal (unnormalized) of a triangle. */
 function faceNormal(t: TextureTriangle): [number, number, number] {
@@ -784,6 +798,90 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     castShadow: shadowState.castShadow,
     receiveShadow: shadowState.receiveShadow,
   });
+
+  let effectLayer: RuntimeEffectLayer | null = null;
+  let effectDefinition: unknown = null;
+  let effectPaused = false;
+  let effectTimeScale = 1;
+  let effectTime = 0;
+  let effectHasTime = false;
+  let effectRafId: number | null = null;
+  let effectLastFrame: number | null = null;
+
+  function stopEffectLoop(): void {
+    if (effectRafId !== null) cancelAnimationFrame(effectRafId);
+    effectRafId = null;
+    effectLastFrame = null;
+  }
+
+  function effectDefinitionHasTime(effect: unknown): boolean {
+    if (!effect || typeof effect !== 'object') return false;
+    const schema = (effect as { parameterSchema?: unknown }).parameterSchema;
+    return !!schema && typeof schema === 'object' && 'time' in schema;
+  }
+
+  function startEffectLoop(): void {
+    if (effectRafId !== null || !effectLayer || !effectHasTime || effectPaused || effectTimeScale === 0) return;
+    const tick = (now: number): void => {
+      effectRafId = requestAnimationFrame(tick);
+      if (!effectLayer || effectPaused) return;
+      const elapsed = effectLastFrame === null ? 0 : Math.min(Math.max(now - effectLastFrame, 0) / 1000, 0.1);
+      effectLastFrame = now;
+      if (elapsed > 0) {
+        effectTime += elapsed * effectTimeScale;
+        effectLayer.setParams({ time: effectTime });
+      }
+    };
+    effectRafId = requestAnimationFrame(tick);
+  }
+
+  function configureEffect(config: RuntimeEffectConfig | null): void {
+    if (!config) {
+      stopEffectLoop();
+      effectLayer?.dispose();
+      effectLayer = null;
+      effectDefinition = null;
+      effectTime = 0;
+      effectHasTime = false;
+      return;
+    }
+
+    const params = Object.fromEntries(
+      Object.entries(config.params).filter(([name]) => name !== 'time'),
+    ) as Record<string, RuntimeEffectParam>;
+    try {
+      if (!effectLayer || effectDefinition !== config.effect) {
+        stopEffectLoop();
+        effectLayer?.dispose();
+        effectLayer = null;
+        effectDefinition = config.effect;
+        effectHasTime = effectDefinitionHasTime(config.effect);
+        effectLayer = scene.addEffectLayer({
+          effect: config.effect as GlyphEffectDefinition<GlyphEffectParamSchema>,
+          params,
+          target: 'surfaces',
+          blend: config.blend,
+        }) as RuntimeEffectLayer;
+        const initialTime = effectLayer.params.time;
+        effectTime = typeof initialTime === 'number' && Number.isFinite(initialTime) ? initialTime : 0;
+      } else {
+        effectLayer.setParams(params);
+        effectLayer.setOptions({ blend: config.blend });
+      }
+    } catch (error) {
+      if (!effectLayer) {
+        effectDefinition = null;
+        effectHasTime = false;
+      }
+      console.warn('[glyphcss gallery] Unable to configure effect:', error);
+      return;
+    }
+
+    effectPaused = config.paused;
+    effectTimeScale = Number.isFinite(config.timeScale) ? Math.max(0, config.timeScale) : 1;
+    if (effectPaused || effectTimeScale === 0) stopEffectLoop();
+    else startEffectLoop();
+  }
 
   // Floor handle — ground plane added when shadows + floor are both on.
   // Separate from meshHandle so it never enters fitContentZoom or stats.
@@ -1740,6 +1838,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       setFpvOptions: (partial: Partial<FpvOptions>) => void;
       setLighting: (partial: { azimuth?: number; elevation?: number; keyIntensity?: number; ambientIntensity?: number; keyColor?: string; ambientColor?: string }) => void;
       setShadow: (partial: Partial<ShadowState>) => void;
+      configureEffect: (config: RuntimeEffectConfig | null) => void;
       getDragMode: () => DragMode;
       getPolygons: () => Polygon[];
     }
@@ -1766,6 +1865,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setFpvOptions,
     setLighting,
     setShadow,
+    configureEffect,
     getDragMode,
     getPolygons,
   };

@@ -1,0 +1,222 @@
+---
+title: Glyph Effects
+description: Apply reusable Matrix rain, flowing text, scan, wipe, glitch, dissolve, and ripple programs to retained glyph surfaces.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Glyph Effects change the **raster appearance** of a scene after geometry has
+been projected and depth-tested. A parameter-only update reuses the retained
+glyph frame, so it does not transform or rasterise every polygon again. Effects
+remain inside the normal render transaction: they add no DOM nodes and every
+affected `<pre>` is assigned at most once.
+
+Install the optional catalog alongside the binding you use:
+
+```bash
+pnpm add @glyphcss/effects glyphcss
+```
+
+The initial catalog contains `matrixRain`, `flowText`, `scan`, `wipe`,
+`scramble`, `glitch`, `noiseDissolve`, and `ripple`.
+
+## Mount an effect
+
+<Tabs syncKey="fw">
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import { GlyphEffects } from "@glyphcss/effects";
+
+const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+const rain = scene.addEffectLayer({
+  effect: GlyphEffects.matrixRain,
+  blend: "replace",
+  params: {
+    glyphs: "HOLA",
+    speedMin: 5,
+    speedMax: 12,
+    trail: 14,
+    density: 0.55,
+  },
+});
+
+function frame(now: number) {
+  rain.params.time = now / 1000;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+  </TabItem>
+  <TabItem label="React">
+
+```tsx
+import { useEffect, useRef } from "react";
+import { GlyphEffectLayer, type GlyphEffectLayerHandle } from "@glyphcss/react";
+import { GlyphEffects } from "@glyphcss/effects";
+import type { GlyphEffectParamsOf } from "glyphcss";
+
+function Rain() {
+  const ref = useRef<GlyphEffectLayerHandle<GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>>>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const frame = (now: number) => {
+      if (ref.current) ref.current.params.time = now / 1000;
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <GlyphEffectLayer
+      ref={ref}
+      effect={GlyphEffects.matrixRain}
+      blend="replace"
+      params={{ glyphs: "HOLA", speedMin: 5, speedMax: 12 }}
+    />
+  );
+}
+```
+
+Place `<Rain />` inside the surrounding `<GlyphScene>`.
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphEffectLayer
+    ref="rain"
+    :effect="GlyphEffects.matrixRain"
+    blend="replace"
+    :params="{ glyphs: 'HOLA', speedMin: 5, speedMax: 12 }"
+  />
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { GlyphEffectLayer, type GlyphEffectLayerExposed } from "@glyphcss/vue";
+import { GlyphEffects } from "@glyphcss/effects";
+import type { GlyphEffectParamsOf } from "glyphcss";
+
+const rain = ref<GlyphEffectLayerExposed<
+  GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>
+> | null>(null);
+let raf = 0;
+onMounted(() => {
+  const frame = (now: number) => {
+    if (rain.value) rain.value.params.time = now / 1000;
+    raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+});
+onBeforeUnmount(() => cancelAnimationFrame(raf));
+</script>
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-effect-layer id="rain" blend="replace"></glyph-effect-layer>
+
+<script type="module">
+  import "glyphcss/elements";
+  import { GlyphEffects } from "@glyphcss/effects";
+
+  const element = document.querySelector("glyph-effect-layer");
+  if (!element) throw new Error("Missing glyph effect layer");
+  element.configure({
+    effect: GlyphEffects.matrixRain,
+    params: { glyphs: "HOLA", speedMin: 5, speedMax: 12 },
+  });
+  const layer = await element.whenReady();
+  const frame = (now) => {
+    layer.params.time = now / 1000;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+</script>
+```
+
+`<glyph-effect-layer>` must be a child of `<glyph-scene>`. Definitions are
+JavaScript values, so configuration is property-based rather than executable
+JSON in attributes.
+
+  </TabItem>
+</Tabs>
+
+## Composition and mapping
+
+- `blend: "replace"` makes the effect the texture: zero emitted coverage hides
+  that part of the surface. Matrix rain therefore describes the model with the
+  falling strands alone.
+- `blend: "over"` preserves the shaded glyph texture and paints only active
+  effect cells over it.
+- `target: "surfaces"` limits writes to visible rendered geometry.
+- `target: "viewport"` can also author the base output's background.
+
+Surface-aware catalog effects default to `space: "auto"`: authored,
+perspective-correct UVs win when available, followed by retained world positions
+and geometric face normals. Choose `"surface"` to force the generated geometry
+mapping even when UVs exist. For generated `down`, world `-Z` is projected into
+each face's tangent plane: slopes follow their downhill gradient, coplanar
+triangles agree, and differently oriented faces derive different directions.
+When a face normal is parallel to world `-Z`, the projection has zero length, so
+that plane receives a deterministic pseudo-random in-plane direction. `up`
+reverses the generated flow; `left` and `right` use its perpendicular lane axis.
+If surface fields are unavailable, the effect falls back to canonical projected
+scene coordinates. Choose `"scene"` to force projected mapping.
+The `scale` parameter controls pattern frequency without changing scene glyph
+density. Text effects accept printable, single-cell sets such as `HOLA`,
+`⣿⠿⠷`, `ᚠᚢᚦ`, or `←↑→↓`; combining marks, emoji, and double-width glyphs are
+rejected because they would break the fixed cell grid.
+
+Generated Matrix rain fits each quantized coplanar surface basis to projected
+glyph-cell space, then evaluates its sparse mask and glyph lookup in the same
+orthogonal face-local field. Glyph phase is periodic distance behind the same
+moving head that defines the trail, so the word reads and travels at the strand's
+direction and speed on walls, slopes, and foreshortened roofs.
+Every active trail cell emits full coverage; `Streams` and `Trail` create the
+sparse shape without coverage dithering breaking a word into isolated glyphs.
+
+Matrix rain's `Color mode` can preserve the model's original colors or use a
+single `Monochrome color`. Monochrome strands multiply that hue by the retained
+surface shade, so lighting, shadows, texture luminance, and the 3D silhouette
+remain visible.
+
+## Use Anime.js directly
+
+The layer handle deliberately exposes a stable flat parameter object. Anime.js
+can target it without a GlyphCSS adapter:
+
+```ts
+import { animate } from "animejs";
+
+animate(layer.params, {
+  time: 60,
+  duration: 60_000,
+  loop: true,
+  ease: "linear",
+});
+```
+
+Anime owns time, easing, timelines, springs, and playback. GlyphCSS owns the
+spatial program, retained frames, composition, and final write.
+
+## Current boundary
+
+The implemented runtime accepts `baseColor`, `baseShade`, `depth`, `normal`,
+`worldPosition`, and `uv0` program inputs, plus the invariant base/input glyph
+and coverage buffers. Hard surface requirements require solid mode;
+`optionalRequirements` let a program request those retained fields while still
+providing a wireframe/voxel fallback. It supports ordered `over`/`replace`
+layers and scene-root `surfaces`/`viewport` targets. Mesh-handle targeting,
+scene-image sampling/displacement, shader-like scratch graphs, surface-key and
+UV-footprint fields, and static compile/export of effects still reject
+explicitly. See the repository's `ANIMATIONS.md` for the approved graph and
+sampling architecture beyond this slice.

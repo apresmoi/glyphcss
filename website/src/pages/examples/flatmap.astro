@@ -191,6 +191,11 @@ const title = "glyphcss · ASCII Iso World Map";
 
   <script>
     import { createGlyphScene, createGlyphOrthographicCamera } from "glyphcss";
+    import {
+      createExampleQuerySync,
+      readQueryEnum,
+      readQueryNumber,
+    } from "../../lib/example-query-state";
 
     type Polygon = { vertices: [number, number, number][]; color?: string };
     type MeshHandle = { dispose(): void; setTransform(t: unknown): void };
@@ -205,6 +210,16 @@ const title = "glyphcss · ASCII Iso World Map";
 
     const INITIAL_ZOOM = 550;
     const BASE_FONT_SIZE = 13;
+    const RENDER_MODES = ["solid", "coast", "wire"] as const;
+    const PALETTE_NAMES = ["terrain", "viridis", "heat", "ocean", "grayscale", "mono"] as const;
+    type RenderMode = typeof RENDER_MODES[number];
+    type PaletteName = typeof PALETTE_NAMES[number];
+
+    function sunDirection(azimuth: number, elevation: number): [number, number, number] {
+      const ar = (azimuth * Math.PI) / 180;
+      const er = (elevation * Math.PI) / 180;
+      return [Math.cos(er) * Math.cos(ar), Math.cos(er) * Math.sin(ar), Math.sin(er)];
+    }
 
     // camera.zoom thresholds → LOD. zoom is absolute CSS px per world unit.
     // z0 = whole world, each higher level quarters tile coverage / doubles
@@ -222,6 +237,7 @@ const title = "glyphcss · ASCII Iso World Map";
     }
 
     async function mount() {
+      const $ = (id: string) => document.getElementById(id);
       const host = document.getElementById("iso-host") as HTMLDivElement;
       const loading = document.getElementById("loading");
       const tileCountEl = document.getElementById("tile-count");
@@ -234,22 +250,43 @@ const title = "glyphcss · ASCII Iso World Map";
 
       const manifestRes = await fetch("/data/flatmap/manifest.json");
       const manifest = (await manifestRes.json()) as Manifest;
+      const params = new URLSearchParams(window.location.search);
+      let heightScale = readQueryNumber(params, "relief", 0.2, { min: 0.1, max: 5, step: 0.1 });
+      let density = readQueryNumber(params, "density", 2, { min: 0.75, max: 4, step: 0.05 });
+      let renderMode = readQueryEnum(params, "mode", "solid", RENDER_MODES);
+      let palette = readQueryEnum(params, "palette", "terrain", PALETTE_NAMES);
+      let sunAz = readQueryNumber(params, "lightAz", 50, { min: 0, max: 360, step: 1 });
+      let sunEl = readQueryNumber(params, "lightEl", 50, { min: 5, max: 90, step: 1 });
+      let keyI = readQueryNumber(params, "lightI", 1.15, { min: 0, max: 2, step: 0.05 });
+      let ambI = readQueryNumber(params, "ambI", 0.4, { min: 0, max: 1.5, step: 0.05 });
+      const initialRotX = readQueryNumber(params, "rotX", 40, { min: 20, max: 89, step: 1 });
+      const initialRotY = readQueryNumber(params, "rotY", 0, { min: -180, max: 180, step: 1 });
+      const initialZoom = readQueryNumber(params, "zoom", INITIAL_ZOOM, { min: 360, max: 2000 });
+      const initialTargetX = readQueryNumber(params, "targetX", 0, {
+        min: -manifest.plane.halfX,
+        max: manifest.plane.halfX,
+      });
+      const initialTargetY = readQueryNumber(params, "targetY", 0, {
+        min: -manifest.plane.halfY,
+        max: manifest.plane.halfY,
+      });
 
       // Iso camera: tilt 40° from horizontal so we look mostly from above
       // while terrain relief still reads as vertical bumps.
       // rotY=0 keeps north up (worldX=lat axis → screen vertical, worldY=lon
       // axis → screen horizontal). No rotation interaction — pan/zoom only.
       // INITIAL_ZOOM shows the default LOD-1 region filling the viewport.
-      const camera = createGlyphOrthographicCamera({ rotX: 40, rotY: 0, zoom: INITIAL_ZOOM });
+      const camera = createGlyphOrthographicCamera({ rotX: initialRotX, rotY: initialRotY, zoom: initialZoom });
+      camera.target = [initialTargetX, initialTargetY, 0];
 
       const scene = createGlyphScene(host, {
         camera,
         autoSize: true,
-        mode: "solid",
+        mode: renderMode === "solid" ? "solid" : "wireframe",
         useColors: true,
         glyphPalette: "default",
-        directionalLight: { direction: [0.4, 0.5, 0.75], intensity: 1.15 },
-        ambientLight: { intensity: 0.4 },
+        directionalLight: { direction: sunDirection(sunAz, sunEl), intensity: keyI },
+        ambientLight: { intensity: ambI },
       });
 
       function setDensity(density: number): void {
@@ -257,10 +294,10 @@ const title = "glyphcss · ASCII Iso World Map";
         scene.output.style.fontSize = `${BASE_FONT_SIZE / next}px`;
         scene.fit();
       }
-      setDensity(2);
+      setDensity(density);
 
       // Palettes: band 0 (water) … band 8 (summit). Swappable live.
-      const PALETTES: Record<string, string[]> = {
+      const PALETTES: Record<PaletteName, string[]> = {
         terrain:   ["#2a55a8","#2f5a36","#3f6b32","#5f7536","#86713f","#9c7b50","#b09471","#cdb49a","#f0f0f0"],
         viridis:   ["#21295c","#443983","#31688e","#21918c","#35b779","#90d743","#cae11f","#e8e419","#fde725"],
         heat:      ["#0a1430","#3b0f2e","#6b1f2e","#9c3a1f","#c8651a","#e89a1c","#f4c83a","#f8e98a","#ffffff"],
@@ -268,8 +305,6 @@ const title = "glyphcss · ASCII Iso World Map";
         grayscale: ["#10243a","#3a3a3a","#4d4d4d","#616161","#767676","#8c8c8c","#a3a3a3","#cccccc","#ffffff"],
         mono:      Array(9).fill("#ffe8b8"),
       };
-      let palette = "terrain";
-
       type TileRaw = {
         vertices: [number, number, number][];
         faces: { v: number[]; b: number }[];
@@ -283,9 +318,43 @@ const title = "glyphcss · ASCII Iso World Map";
       let updateInFlight = false;
       // "solid" → colored relief; "coast" → sea-level outline; "wire" →
       // decimated heightmap surface lattice.
-      let renderMode: "solid" | "coast" | "wire" = "solid";
-      let heightScale = 0.2; // relief multiplier (per-tile Z-scale transform)
       const tileTransform = () => ({ scale: [1, 1, heightScale] as [number, number, number] });
+      const querySync = createExampleQuerySync(() => ({
+        relief: heightScale,
+        density,
+        rotX: camera.rotX,
+        rotY: camera.rotY,
+        mode: renderMode,
+        palette,
+        lightAz: sunAz,
+        lightEl: sunEl,
+        lightI: keyI,
+        ambI,
+        zoom: camera.zoom,
+        targetX: camera.target[0],
+        targetY: camera.target[1],
+      }));
+      const compactNumber = (value: number) => value.toFixed(2).replace(/\.?0+$/, "");
+      const hydrateRange = (id: string, valueId: string, value: number, format = compactNumber) => {
+        const input = $(id) as HTMLInputElement | null;
+        const valueEl = $(valueId);
+        if (input) input.value = String(value);
+        if (valueEl) valueEl.textContent = format(value);
+      };
+      hydrateRange("exagg", "exagg-val", heightScale, (value) => value.toFixed(1));
+      hydrateRange("density", "density-val", density);
+      hydrateRange("tilt", "tilt-val", camera.rotX, String);
+      hydrateRange("rot", "rot-val", camera.rotY, String);
+      hydrateRange("az", "az-val", sunAz, (value) => String(Math.round(value)));
+      hydrateRange("el", "el-val", sunEl, (value) => String(Math.round(value)));
+      hydrateRange("key", "key-val", keyI, (value) => value.toFixed(2));
+      hydrateRange("amb", "amb-val", ambI, (value) => value.toFixed(2));
+      const initialPaletteSelect = $("palette") as HTMLSelectElement | null;
+      if (initialPaletteSelect) initialPaletteSelect.value = palette;
+      $("mode-seg")?.querySelectorAll("button").forEach((button) => {
+        button.classList.toggle("active", (button as HTMLElement).dataset.mode === renderMode);
+      });
+      querySync.write();
 
       async function loadTile(z: number, x: number, y: number): Promise<TileData> {
         const key = `${z}/${x}_${y}`;
@@ -527,7 +596,11 @@ const title = "glyphcss · ASCII Iso World Map";
           updateZoomReadout();
           updateLabels();
           if (u < 1) gotoRaf = requestAnimationFrame(tick);
-          else { gotoRaf = null; void updateActiveSet(); }
+          else {
+            gotoRaf = null;
+            querySync.write();
+            void updateActiveSet();
+          }
         };
         gotoRaf = requestAnimationFrame(tick);
       }
@@ -554,6 +627,14 @@ const title = "glyphcss · ASCII Iso World Map";
 
       let activePtr: number | null = null;
       let lastX = 0, lastY = 0;
+      let wheelQueryTimer: ReturnType<typeof setTimeout> | null = null;
+      const scheduleWheelQuerySync = () => {
+        if (wheelQueryTimer !== null) clearTimeout(wheelQueryTimer);
+        wheelQueryTimer = setTimeout(() => {
+          wheelQueryTimer = null;
+          querySync.write();
+        }, 160);
+      };
       host.addEventListener("pointerdown", (e) => {
         if (activePtr !== null) return;
         activePtr = e.pointerId;
@@ -586,6 +667,7 @@ const title = "glyphcss · ASCII Iso World Map";
         activePtr = null;
         try { host.releasePointerCapture(e.pointerId); } catch {}
         updateLabels();
+        querySync.write();
         void updateActiveSet();
       };
       host.addEventListener("pointerup", release);
@@ -598,12 +680,11 @@ const title = "glyphcss · ASCII Iso World Map";
         scene.rerender();
         updateZoomReadout();
         updateLabels();
+        scheduleWheelQuerySync();
         void updateActiveSet();
       }, { passive: false });
 
       // ── Control dock wiring ───────────────────────────────────────────
-      const $ = (id: string) => document.getElementById(id);
-
       // Mobile: [ Controls ] button toggles the bottom drawer (collapsed by default).
       const ctlToggle = $("ctl-toggle");
       const ctlPanel = $("iso-controls");
@@ -622,16 +703,18 @@ const title = "glyphcss · ASCII Iso World Map";
         const t = tileTransform();
         for (const h of activeHandles.values()) h.setTransform(t);
         scene.rerender();
+        querySync.schedule();
       });
 
       const densityInput = $("density") as HTMLInputElement | null;
       const densityVal = $("density-val");
       densityInput?.addEventListener("input", () => {
-        const density = parseFloat(densityInput.value) || 1;
+        density = parseFloat(densityInput.value) || 1;
         if (densityVal) densityVal.textContent = density.toFixed(2).replace(/\.?0+$/, "");
         setDensity(density);
         scene.rerender();
         updateZoomReadout();
+        querySync.schedule();
         void updateActiveSet();
       });
 
@@ -644,6 +727,7 @@ const title = "glyphcss · ASCII Iso World Map";
         if (tiltVal) tiltVal.textContent = String(deg);
         camera.rotX = deg;
         scene.rerender();
+        querySync.schedule();
         void updateActiveSet();
       });
 
@@ -654,6 +738,7 @@ const title = "glyphcss · ASCII Iso World Map";
         if (rotVal) rotVal.textContent = String(deg);
         camera.rotY = deg;
         scene.rerender();
+        querySync.schedule();
         void updateActiveSet();
       });
 
@@ -672,35 +757,31 @@ const title = "glyphcss · ASCII Iso World Map";
       modeSeg?.addEventListener("click", (e) => {
         const btn = (e.target as HTMLElement).closest("[data-mode]") as HTMLElement | null;
         if (!btn) return;
-        const mode = btn.dataset.mode as "solid" | "coast" | "wire";
+        const mode = btn.dataset.mode as RenderMode;
         if (mode === renderMode) return;
         renderMode = mode;
         modeSeg.querySelectorAll("button").forEach((b) =>
           b.classList.toggle("active", (b as HTMLElement).dataset.mode === mode));
         scene.setOptions({ mode: sceneModeFor() });
         remountActive();
+        querySync.schedule();
       });
 
       // Palette — recolor the terrain. Only affects solid mode (coast/wire
       // use fixed line colors), so just remount when in solid.
       const paletteSel = $("palette") as HTMLSelectElement | null;
       paletteSel?.addEventListener("change", () => {
-        palette = paletteSel.value;
+        palette = paletteSel.value as PaletteName;
         // coast uses a fixed line color; solid + wire follow the palette.
         if (renderMode !== "coast") remountActive();
+        querySync.schedule();
       });
 
       // Lighting — directional "sun" (azimuth/elevation → world direction) +
       // key/ambient intensities. Applied via setOptions (no remount needed).
-      let sunAz = 50, sunEl = 50, keyI = 1.15, ambI = 0.4;
       function applyLight() {
-        const ar = (sunAz * Math.PI) / 180, er = (sunEl * Math.PI) / 180;
-        // `direction` is the source vector from the surface toward the sun.
-        const dir: [number, number, number] = [
-          Math.cos(er) * Math.cos(ar), Math.cos(er) * Math.sin(ar), Math.sin(er),
-        ];
         scene.setOptions({
-          directionalLight: { direction: dir, intensity: keyI },
+          directionalLight: { direction: sunDirection(sunAz, sunEl), intensity: keyI },
           ambientLight: { intensity: ambI },
         });
         scene.rerender();
@@ -713,6 +794,7 @@ const title = "glyphcss · ASCII Iso World Map";
           set(v);
           if (valEl) valEl.textContent = fmt(v);
           applyLight();
+          querySync.schedule();
         });
       };
       bindLight("az", "az-val", (v) => (sunAz = v), (v) => String(Math.round(v)));
@@ -794,10 +876,17 @@ const title = "glyphcss · ASCII Iso World Map";
         camera, scene,
         setView(target: [number, number, number], zoom: number) {
           camera.target = target; camera.zoom = zoom;
+          querySync.write();
           scene.rerender(); updateZoomReadout(); void updateActiveSet();
         },
-        setMode(m: "solid" | "coast" | "wire") {
-          renderMode = m; scene.setOptions({ mode: sceneModeFor() }); remountActive();
+        setMode(m: RenderMode) {
+          renderMode = m;
+          modeSeg?.querySelectorAll("button").forEach((button) => {
+            button.classList.toggle("active", (button as HTMLElement).dataset.mode === renderMode);
+          });
+          scene.setOptions({ mode: sceneModeFor() });
+          remountActive();
+          querySync.write();
         },
         goto,
       };
