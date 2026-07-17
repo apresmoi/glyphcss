@@ -129,6 +129,27 @@ function glyphPattern(value: string): string[] {
   return glyphs.length > 0 ? glyphs : ["?"];
 }
 
+const glyphRampCache = new Map<string, string[]>();
+
+// Ramp consumers index by intensity, so a space is a meaningful "blank" band —
+// unlike parseGlyphPattern's random glyph SET, it must not be stripped here.
+function parseGlyphRamp(value: string): string[] {
+  const cached = glyphRampCache.get(value);
+  if (cached) return cached;
+  const glyphs = Array.from(value).filter((glyph) => {
+    if (glyph.length !== 1 || NON_CELL_CODE_POINT.test(glyph)) return false;
+    return !isWideBmpCodePoint(glyph.charCodeAt(0));
+  });
+  if (glyphRampCache.size >= 64) glyphRampCache.clear();
+  glyphRampCache.set(value, glyphs);
+  return glyphs;
+}
+
+function glyphRamp(value: string): string[] {
+  const glyphs = parseGlyphRamp(value);
+  return glyphs.length > 0 ? glyphs : ["?"];
+}
+
 function findUvBounds<P extends AnyParams>(context: AnyContext<P>): UvBounds | null {
   const uv = context.base.uv0;
   if (!uv) return null;
@@ -497,6 +518,12 @@ function validateGlyphs(params: Readonly<{ glyphs: string }>): void {
   }
 }
 
+function validateGlyphRamp(params: Readonly<{ glyphs: string }>): void {
+  if (parseGlyphRamp(params.glyphs).length === 0) {
+    throw new TypeError("glyphcss effect glyphs must contain at least one printable single-cell character");
+  }
+}
+
 function validatePositiveScale(params: Readonly<{ scale: number }>): void {
   if (!(params.scale > 0)) throw new RangeError("glyphcss effect scale must be greater than zero");
 }
@@ -613,13 +640,17 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
           glyphs.length,
         );
         setGlyph(context, i, glyphs[glyphIndex]!);
-        context.output.coverage[i] = 1;
         if (monochrome) {
           const shade = context.base.shade?.[i];
           const intensity = shade !== undefined && Number.isFinite(shade) ? shade : 1;
           setColor(context, i, scalePackedColor(parsedColor.packed, intensity));
-        } else if (behind < 1 / glyphsPerPatternCell && parsedHead.opacity > 0) {
-          setColor(context, i, parsedHead.packed);
+          context.output.coverage[i] = parsedColor.opacity;
+        } else {
+          context.output.coverage[i] = 1;
+          if (behind < 1 / glyphsPerPatternCell && parsedHead.opacity > 0) {
+            setColor(context, i, parsedHead.packed);
+            context.output.coverage[i] = parsedHead.opacity;
+          }
         }
       }
     },
@@ -891,10 +922,11 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 };
 
 // ── Field synth ────────────────────────────────────────────────────────────
-// A small modular synth: up to three oscillators, each a spatial FIELD sampled
-// through a WAVEFORM, combined into one scalar field that maps to a glyph ramp +
-// color. Composing/interfering the oscillators is where emergent patterns
-// (moiré, plaid, sonar, lattices) come from. Runs over surfaces via `space`.
+// A small modular synth: up to SYNTH_VOICES oscillators, each a spatial FIELD
+// sampled through a WAVEFORM, combined into one scalar field that maps to a
+// glyph ramp + color. Composing/interfering the oscillators is where emergent
+// patterns (moiré, plaid, sonar, lattices) come from. Runs over surfaces via
+// `space`.
 
 const SYNTH_VOICES = 6;
 const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
@@ -941,12 +973,6 @@ function synthOsc(field: string, wave: string, freq: number, speed: number, amp:
   return amp * synthWave(wave, raw * freq - time * speed);
 }
 
-function scalePacked(packed: number, f: number): number {
-  const r = Math.max(0, Math.min(255, Math.round(((packed >> 16) & 0xff) * f)));
-  const g = Math.max(0, Math.min(255, Math.round(((packed >> 8) & 0xff) * f)));
-  const bl = Math.max(0, Math.min(255, Math.round((packed & 0xff) * f)));
-  return (r << 16) | (g << 8) | bl;
-}
 function lerpPacked(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
   const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
@@ -1012,6 +1038,53 @@ const fieldSynthSchema = {
   color6: { kind: "color", default: "#ff7a45", label: "Voice 6 color" },
 } as const satisfies GlyphEffectParamSchema;
 
+// Guards the per-voice literal accessors in fieldSynth's evaluate() below: if
+// SYNTH_VOICES ever changes without the schema following, this fails loudly at
+// module load instead of silently reading `undefined` through a stale cast.
+for (let voice = 1; voice <= SYNTH_VOICES; voice++) {
+  for (const prefix of ["field", "wave", "freq", "speed", "amp"] as const) {
+    if (!(`${prefix}${voice}` in fieldSynthSchema)) {
+      throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${SYNTH_VOICES} voices.`);
+    }
+  }
+}
+
+interface SynthVoice {
+  readonly field: string;
+  readonly wave: string;
+  readonly freq: number;
+  readonly speed: number;
+  readonly amp: number;
+  readonly color: string;
+}
+
+// Generated world-surface coordinates (space "surface", or "auto" without a
+// usable UV) are already isotropic metric units on the face plane — dividing
+// them by sceneCols/sceneRows would make the pattern viewport-size-dependent
+// and shear radial/spiral/angular fields into ellipses whenever cols≠rows. UV
+// and scene-grid domains stay normalized by grid size, as before.
+function fieldSynthCoordinate<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  space: EffectSpace,
+  uvBounds: UvBounds | null,
+  scale: number,
+  sceneCols: number,
+  sceneRows: number,
+): readonly [number, number] | null {
+  if (space !== "scene") {
+    if (space === "auto" && uvBounds && context.base.uv0) {
+      const u = context.base.uv0[index * 2]!;
+      const v = context.base.uv0[index * 2 + 1]!;
+      if (Number.isFinite(u) && Number.isFinite(v)) return [u * scale, v * scale];
+    }
+    const generated = generatedSurfaceSample(context, index);
+    if (generated) return [generated[0] * scale, generated[1] * scale];
+  }
+  const [x, y] = sceneCoordinate(context, index);
+  return [(x / sceneCols) * scale, (y / sceneRows) * scale];
+}
+
 function combineSynth(mode: string, a: number, b: number): number {
   switch (mode) {
     case "add": return a + b;
@@ -1054,12 +1127,14 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   presets: fieldSynthPresets,
   program: {
     optionalRequirements: ["normal", "worldPosition", "uv0", "baseShade"],
-    validateParams: validateGlyphs,
+    validateParams(params) {
+      validateGlyphRamp(params);
+      validatePositiveScale(params);
+    },
     evaluate(context) {
       const { params } = context;
-      const P = params as unknown as Record<string, number | string>;
       const shade = context.base.shade;
-      const glyphs = glyphPattern(params.glyphs);
+      const glyphs = glyphRamp(params.glyphs);
       const uvBounds = findUvBounds(context);
       const [sceneCols, sceneRows] = context.coordinates.sceneGridSize;
       const scale = params.scale;
@@ -1068,17 +1143,22 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cA = parseGlyphEffectColor(params.color);
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
-      const voiceColorPacked = new Array<number>(SYNTH_VOICES + 1);
-      if (useVoiceColors) for (let k = 1; k <= SYNTH_VOICES; k++) voiceColorPacked[k] = parseGlyphEffectColor(P[`color${k}`] as string).packed;
+      const voices: readonly SynthVoice[] = [
+        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1 },
+        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2 },
+        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3 },
+        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4 },
+        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5 },
+        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6 },
+      ];
+      const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
       const time = params.time;
       const rampMax = glyphs.length - 1;
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
-        const coord = domainCoordinate(context, i, params.space as EffectSpace, uvBounds, 1);
+        const coord = fieldSynthCoordinate(context, i, params.space as EffectSpace, uvBounds, scale, sceneCols, sceneRows);
         if (!coord) continue;
-        // Normalize the domain to ~0..1 (so `freq`/`scale` are surface-relative), then scale.
-        const x = (coord[0] / sceneCols) * scale;
-        const y = (coord[1] / sceneRows) * scale;
+        const [x, y] = coord;
         // Combine active oscillators (amp > 0). `amp` is a MIX WEIGHT, not a signal
         // gain: the first voice enters at its weight; each later voice blends the
         // result toward `combine(result, voice)` by its amp. So amp 0 = no effect
@@ -1086,31 +1166,45 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // — for every combine op, instead of `multiply` crushing the field to zero.
         let combined = 0;
         let active = 0;
-        let cr = 0, cg = 0, cbv = 0, cw = 0; // contribution-weighted voice color
-        for (let k = 1; k <= SYNTH_VOICES; k++) {
-          const amp = P[`amp${k}`] as number;
-          if (!(amp > 0)) continue;
-          const o = synthOsc(P[`field${k}`] as string, P[`wave${k}`] as string, P[`freq${k}`] as number, P[`speed${k}`] as number, 1, x, y, cx, cy, time);
-          if (active === 0) combined = amp * o;
-          else combined += amp * (combineSynth(params.combine, combined, o) - combined);
+        let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0; // contribution-weighted voice color + opacity
+        for (let k = 0; k < SYNTH_VOICES; k++) {
+          const voice = voices[k]!;
+          if (!(voice.amp > 0)) continue;
+          const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, cx, cy, time);
+          if (active === 0) combined = voice.amp * o;
+          else combined += voice.amp * (combineSynth(params.combine, combined, o) - combined);
           active++;
-          if (useVoiceColors) { const w = amp * Math.abs(o); const c = voiceColorPacked[k]!; cr += ((c >> 16) & 0xff) * w; cg += ((c >> 8) & 0xff) * w; cbv += (c & 0xff) * w; cw += w; }
+          if (parsedVoiceColors) {
+            const w = voice.amp * Math.abs(o);
+            const c = parsedVoiceColors[k]!;
+            cr += ((c.packed >> 16) & 0xff) * w;
+            cg += ((c.packed >> 8) & 0xff) * w;
+            cbv += (c.packed & 0xff) * w;
+            co += c.opacity * w;
+            cw += w;
+          }
         }
         if (active === 0) continue;
         const value = clamp01(params.bias + params.gain * combined * 0.5);
         if (value <= 0) continue;
         setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
-        let packed = useVoiceColors && cw > 0
-          ? ((Math.round(cr / cw) << 16) | (Math.round(cg / cw) << 8) | Math.round(cbv / cw))
-          : (params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed);
+        let packed: number;
+        let resolvedOpacity: number;
+        if (parsedVoiceColors && cw > 0) {
+          packed = (Math.round(cr / cw) << 16) | (Math.round(cg / cw) << 8) | Math.round(cbv / cw);
+          resolvedOpacity = co / cw;
+        } else {
+          packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed;
+          resolvedOpacity = cA.opacity;
+        }
         // Modulate by the surface's Lambert shade so lighting reads through the
         // texture (lit=1 → full shading, lit=0 → flat/unlit).
         if (params.lit > 0 && shade) {
           const sh = shade[i]!;
-          if (Number.isFinite(sh)) packed = scalePacked(packed, 1 - params.lit * (1 - clamp01(sh)));
+          if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
         }
         setColor(context, i, packed);
-        context.output.coverage[i] = value * cA.opacity;
+        context.output.coverage[i] = value * resolvedOpacity;
       }
     },
   },
