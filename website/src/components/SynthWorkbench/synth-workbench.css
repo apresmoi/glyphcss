@@ -153,7 +153,8 @@
   transition: border-color 0.12s ease, transform 0.12s ease;
 }
 .synth-tile:hover { border-color: rgba(56, 189, 248, 0.9); transform: translateY(-2px); }
-.synth-tile-scene { display: block; width: 100%; aspect-ratio: 1; overflow: hidden; background: #02040a; }
+/* The preview is decorative — let every click (glyph or gap) fall through to the tile button. */
+.synth-tile-scene { display: block; width: 100%; aspect-ratio: 1; overflow: hidden; background: #02040a; pointer-events: none; }
 .synth-tile-scene .glyph-output { color: rgba(255, 232, 184, 0.92); }
 .synth-tile-label { padding: 3px 6px 5px; font-size: 10px; text-align: center; letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
