@@ -2,6 +2,7 @@ export {
   GlyphEffectCatalog,
   GlyphEffectNoColor,
   GlyphEffects,
+  GlyphRamps,
   defaultGlyphEffectParams,
   getGlyphEffect,
   glyphEffectHasColor,

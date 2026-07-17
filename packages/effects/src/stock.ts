@@ -1000,6 +1000,16 @@ const fieldSynthSchema = {
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
   lit: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Lighting" },
+  // Per-voice colors: when on, each cell's color is the contribution-weighted blend
+  // of the active voices' colors (composes colors through the mix). Off keeps the
+  // single color/colorB gradient (so existing presets are unchanged).
+  voiceColors: { kind: "boolean", default: false, animation: "discrete", label: "Per-voice colors" },
+  color1: { kind: "color", default: "#7df9ff", label: "Voice 1 color" },
+  color2: { kind: "color", default: "#ff4fa3", label: "Voice 2 color" },
+  color3: { kind: "color", default: "#8affc1", label: "Voice 3 color" },
+  color4: { kind: "color", default: "#ffcf5a", label: "Voice 4 color" },
+  color5: { kind: "color", default: "#c78bff", label: "Voice 5 color" },
+  color6: { kind: "color", default: "#ff7a45", label: "Voice 6 color" },
 } as const satisfies GlyphEffectParamSchema;
 
 function combineSynth(mode: string, a: number, b: number): number {
@@ -1057,6 +1067,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cy = params.originV * scale;
       const cA = parseGlyphEffectColor(params.color);
       const cB = parseGlyphEffectColor(params.colorB);
+      const useVoiceColors = params.voiceColors;
+      const voiceColorPacked = new Array<number>(SYNTH_VOICES + 1);
+      if (useVoiceColors) for (let k = 1; k <= SYNTH_VOICES; k++) voiceColorPacked[k] = parseGlyphEffectColor(P[`color${k}`] as string).packed;
       const time = params.time;
       const rampMax = glyphs.length - 1;
       for (let i = 0; i < context.base.length; i++) {
@@ -1073,6 +1086,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // — for every combine op, instead of `multiply` crushing the field to zero.
         let combined = 0;
         let active = 0;
+        let cr = 0, cg = 0, cbv = 0, cw = 0; // contribution-weighted voice color
         for (let k = 1; k <= SYNTH_VOICES; k++) {
           const amp = P[`amp${k}`] as number;
           if (!(amp > 0)) continue;
@@ -1080,12 +1094,15 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (active === 0) combined = amp * o;
           else combined += amp * (combineSynth(params.combine, combined, o) - combined);
           active++;
+          if (useVoiceColors) { const w = amp * Math.abs(o); const c = voiceColorPacked[k]!; cr += ((c >> 16) & 0xff) * w; cg += ((c >> 8) & 0xff) * w; cbv += (c & 0xff) * w; cw += w; }
         }
         if (active === 0) continue;
         const value = clamp01(params.bias + params.gain * combined * 0.5);
         if (value <= 0) continue;
         setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
-        let packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed;
+        let packed = useVoiceColors && cw > 0
+          ? ((Math.round(cr / cw) << 16) | (Math.round(cg / cw) << 8) | Math.round(cbv / cw))
+          : (params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed);
         // Modulate by the surface's Lambert shade so lighting reads through the
         // texture (lit=1 → full shading, lit=0 → flat/unlit).
         if (params.lit > 0 && shade) {
@@ -1097,6 +1114,19 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       }
     },
   },
+};
+
+// Named glyph ramps (dark → dense) for effects that map a scalar to a character.
+export const GlyphRamps: Record<string, string> = {
+  Fade: " .:-=+*#%@",
+  Blocks: " ░▒▓█",
+  Shades: " .·:;+=xX#",
+  Dots: " .·•●",
+  Binary: " 01",
+  ASCII: " .,:;i1tfLCG08@",
+  Hatch: " .-+=#",
+  Stars: " .+*✦★",
+  Digital: " .:i|1oX#",
 };
 
 export const GlyphEffects = {

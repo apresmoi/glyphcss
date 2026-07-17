@@ -8,7 +8,7 @@ import {
   type GlyphGeometryName,
   type GlyphSceneHandle,
 } from "glyphcss";
-import { GlyphFieldSynthEffect as fieldSynth, defaultGlyphEffectParams } from "@glyphcss/effects";
+import { GlyphFieldSynthEffect as fieldSynth, defaultGlyphEffectParams, GlyphRamps } from "@glyphcss/effects";
 import type { GlyphEffectPreset } from "@glyphcss/effects";
 import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
@@ -29,6 +29,8 @@ const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedro
 
 const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
+const RAMP_OPTS: Record<string, string> = { ...Object.fromEntries(Object.keys(GlyphRamps).map((k) => [k, k])), Custom: "Custom" };
+const matchRamp = (glyphs: string): string => Object.entries(GlyphRamps).find(([, v]) => v === glyphs)?.[0] ?? "Custom";
 
 // ASCII icons for the field/wave multi-toggles (segmented control, like text-align).
 const FIELD_ICONS: Record<string, string> = { radial: "◎", linearX: "→", linearY: "↓", diagonal: "↘", angular: "↻", spiral: "@", noise: "▚" };
@@ -177,7 +179,10 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
       <div className="voice-controls">
         <div className="voice-head">
           <span className="voice-title">Voice {index + 1}</span>
-          <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
+          <span className="voice-head-right">
+            <input type="color" className="voice-color" value={f("color")} onChange={(e) => onParam(`color${slot}`, e.target.value)} title="Voice color" />
+            <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
+          </span>
         </div>
         <IconToggle options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
         <IconToggle options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
@@ -229,7 +234,9 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useSlider(mix, "Brightness", { min: -1, max: 2, step: 0.05 }, n("bias"), (v) => onParam("bias", v));
 
   const out = useFolder(gui, "Output", { open: true });
-  useText(out, "Ramp", s("glyphs"), (v) => onParam("glyphs", v));
+  useOption(out, "Ramp", RAMP_OPTS, matchRamp(s("glyphs")), (name) => { if (name !== "Custom" && GlyphRamps[name]) onParam("glyphs", GlyphRamps[name]); });
+  useText(out, "Chars", s("glyphs"), (v) => onParam("glyphs", v));
+  useToggle(out, "Per-voice colors", params.voiceColors === true, (v) => onParam("voiceColors", v));
   useColor(out, "Color", s("color"), (v) => onParam("color", v));
   useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
   useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
@@ -270,7 +277,7 @@ export default function SynthWorkbench() {
   const meshRef = useRef<{ dispose: () => void } | null>(null);
 
   const [shape, setShape] = useState<string>((initial?.sh as string) ?? "plane");
-  const [params, setParams] = useState<Params>(() => ({ ...synthDefaults(), ...((initial?.p as Params) ?? {}) }));
+  const [params, setParams] = useState<Params>(() => ({ ...synthDefaults(), voiceColors: true, ...((initial?.p as Params) ?? {}) }));
   const [timeScale, setTimeScale] = useState((initial?.ts as number) ?? 1.4);
   const [paused, setPaused] = useState(false);
   const [density, setDensity] = useState((initial?.d as number) ?? 1);

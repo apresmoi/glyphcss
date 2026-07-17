@@ -70,7 +70,14 @@
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }
 .voice-controls { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .voice-head { display: flex; align-items: center; justify-content: space-between; }
+.voice-head-right { display: flex; align-items: center; gap: 6px; }
 .voice-title { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255, 232, 184, 0.7); }
+.voice-color {
+  width: 18px; height: 18px; padding: 0; border: 1px solid rgba(255, 232, 184, 0.25);
+  background: none; cursor: pointer; border-radius: 0;
+}
+.voice-color::-webkit-color-swatch-wrapper { padding: 0; }
+.voice-color::-webkit-color-swatch { border: none; }
 .voice-remove {
   font: inherit; line-height: 1; font-size: 14px; width: 18px; height: 18px;
   border: 1px solid rgba(255, 232, 184, 0.2); background: transparent;
