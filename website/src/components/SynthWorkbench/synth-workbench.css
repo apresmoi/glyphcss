@@ -6,6 +6,10 @@
   overflow: hidden;
   background: #07090d;
   color: rgba(255, 232, 184, 0.92);
+  /* The Dock positions itself and sizes its scroll area from these (unset on this page). */
+  --overlay-top: 12px;
+  --overlay-right: 12px;
+  --overlay-bottom: 12px;
 }
 /* Top region: voices rail + viewport (+ floating Dock). The footer sits below. */
 .synth-body {
@@ -121,13 +125,6 @@
   width: 4px; height: 14px; background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
 }
 
-/* Dock floats top-right of the shell (its --overlay vars aren't set on this page). */
-#synth-controls-panel.dn-floating-controls {
-  top: 12px;
-  right: 12px;
-  max-height: calc(100% - 24px);
-  overflow-y: auto;
-}
 
 /* ── Center: viewport ──────────────────────────────────────────────────── */
 .synth-main { flex: 1; position: relative; min-width: 0; }

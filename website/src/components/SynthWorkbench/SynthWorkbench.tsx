@@ -49,6 +49,16 @@ function IconToggle({ options, value, onChange }: { options: { value: string; ic
 const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };
 const AMBIENT = { intensity: 0.6 };
 
+interface Lighting { azimuth: number; elevation: number; keyIntensity: number; keyColor: string; ambient: number; }
+const DEFAULT_LIGHTING: Lighting = { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 };
+function buildLighting(l: Lighting): { directionalLight: { direction: [number, number, number]; intensity: number; color: string }; ambientLight: { intensity: number } } {
+  const a = (l.azimuth * Math.PI) / 180, e = (l.elevation * Math.PI) / 180;
+  return {
+    directionalLight: { direction: [Math.cos(e) * Math.cos(a), Math.cos(e) * Math.sin(a), Math.sin(e)], intensity: l.keyIntensity, color: l.keyColor },
+    ambientLight: { intensity: l.ambient },
+  };
+}
+
 function synthDefaults(): Params {
   const { time: _time, ...rest } = defaultGlyphEffectParams(fieldSynth) as Params;
   return rest;
@@ -192,10 +202,11 @@ function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onA
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, params, onParam }: {
+function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   density: number; onDensity: (n: number) => void;
+  lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
 }): null {
   const gui = useDockGui();
@@ -222,6 +233,14 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useColor(out, "Color", s("color"), (v) => onParam("color", v));
   useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
   useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
+
+  const light = useFolder(gui, "Lighting", { open: false });
+  useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));
+  useSlider(light, "Azimuth", { min: 0, max: 360, step: 1 }, lighting.azimuth, (v) => onLight({ azimuth: v }));
+  useSlider(light, "Elevation", { min: 0, max: 90, step: 1 }, lighting.elevation, (v) => onLight({ elevation: v }));
+  useSlider(light, "Key", { min: 0, max: 2, step: 0.05 }, lighting.keyIntensity, (v) => onLight({ keyIntensity: v }));
+  useColor(light, "Key color", lighting.keyColor, (v) => onLight({ keyColor: v }));
+  useSlider(light, "Ambient", { min: 0, max: 1, step: 0.05 }, lighting.ambient, (v) => onLight({ ambient: v }));
   return null;
 }
 
@@ -255,6 +274,8 @@ export default function SynthWorkbench() {
   const [timeScale, setTimeScale] = useState((initial?.ts as number) ?? 1.4);
   const [paused, setPaused] = useState(false);
   const [density, setDensity] = useState((initial?.d as number) ?? 1);
+  const [lighting, setLighting] = useState<Lighting>(() => ({ ...DEFAULT_LIGHTING, ...((initial?.l as Partial<Lighting>) ?? {}) }));
+  const lightingRef = useRef(lighting); lightingRef.current = lighting;
 
   const paramsRef = useRef(params); paramsRef.current = params;
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
@@ -270,7 +291,7 @@ export default function SynthWorkbench() {
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const flat = isFlat(shape);
     const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : 58, rotY: flat ? 0 : 32, zoom: 46 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, directionalLight: LIGHT, ambientLight: AMBIENT });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
     createGlyphOrbitControls(scene, { drag: true, wheel: true });
     const polys = shapePolys(shape);
@@ -297,6 +318,13 @@ export default function SynthWorkbench() {
 
   useEffect(() => { layerRef.current?.setParams(params); }, [params]);
 
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.setOptions(buildLighting(lighting));
+    scene.rerender();
+  }, [lighting]);
+
   // Density → render font-size, WITHOUT rescaling the view: compensate zoom for the
   // font change (like the gallery) so the object keeps its size/framing, just finer.
   useEffect(() => {
@@ -318,11 +346,11 @@ export default function SynthWorkbench() {
   // Persist everything to the URL (?s=…) so a reload/share restores the patch.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const s = encodeSynthState({ p: params, sh: shape, ts: timeScale, d: density, v: voiceSlots });
+    const s = encodeSynthState({ p: params, sh: shape, ts: timeScale, d: density, v: voiceSlots, l: lighting });
     const url = new URL(window.location.href);
     url.searchParams.set("s", s);
     window.history.replaceState(null, "", url.toString());
-  }, [params, shape, timeScale, density, voiceSlots]);
+  }, [params, shape, timeScale, density, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
   const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => {
@@ -347,7 +375,7 @@ export default function SynthWorkbench() {
   const presets = useMemo(() => (fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[], []);
 
   return (
-    <div className="synth-shell">
+    <div className="synth-shell dn-root">
       <div className="synth-body">
         <aside className="synth-voices">
           <div className="synth-voices-head">
@@ -365,7 +393,7 @@ export default function SynthWorkbench() {
           <div className="synth-viewport" ref={hostRef} />
         </main>
         <Dock id="synth-controls-panel">
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} params={params} onParam={onParam} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} />
         </Dock>
       </div>
       <div className="synth-presets" role="list" aria-label="Pattern presets">

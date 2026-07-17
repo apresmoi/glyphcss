@@ -941,6 +941,12 @@ function synthOsc(field: string, wave: string, freq: number, speed: number, amp:
   return amp * synthWave(wave, raw * freq - time * speed);
 }
 
+function scalePacked(packed: number, f: number): number {
+  const r = Math.max(0, Math.min(255, Math.round(((packed >> 16) & 0xff) * f)));
+  const g = Math.max(0, Math.min(255, Math.round(((packed >> 8) & 0xff) * f)));
+  const bl = Math.max(0, Math.min(255, Math.round((packed & 0xff) * f)));
+  return (r << 16) | (g << 8) | bl;
+}
 function lerpPacked(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
   const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
@@ -993,6 +999,7 @@ const fieldSynthSchema = {
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
+  lit: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Lighting" },
 } as const satisfies GlyphEffectParamSchema;
 
 function combineSynth(mode: string, a: number, b: number): number {
@@ -1036,11 +1043,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   parameterSchema: fieldSynthSchema,
   presets: fieldSynthPresets,
   program: {
-    optionalRequirements: ["normal", "worldPosition", "uv0"],
+    optionalRequirements: ["normal", "worldPosition", "uv0", "baseShade"],
     validateParams: validateGlyphs,
     evaluate(context) {
       const { params } = context;
       const P = params as unknown as Record<string, number | string>;
+      const shade = context.base.shade;
       const glyphs = glyphPattern(params.glyphs);
       const uvBounds = findUvBounds(context);
       const [sceneCols, sceneRows] = context.coordinates.sceneGridSize;
@@ -1077,7 +1085,13 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         const value = clamp01(params.bias + params.gain * combined * 0.5);
         if (value <= 0) continue;
         setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
-        const packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed;
+        let packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed;
+        // Modulate by the surface's Lambert shade so lighting reads through the
+        // texture (lit=1 → full shading, lit=0 → flat/unlit).
+        if (params.lit > 0 && shade) {
+          const sh = shade[i]!;
+          if (Number.isFinite(sh)) packed = scalePacked(packed, 1 - params.lit * (1 - clamp01(sh)));
+        }
         setColor(context, i, packed);
         context.output.coverage[i] = value * cA.opacity;
       }
