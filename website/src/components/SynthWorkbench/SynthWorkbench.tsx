@@ -126,7 +126,7 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
         </div>
         <label className="voice-slider"><span>freq</span><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /><b>{num("freq").toFixed(1)}</b></label>
         <label className="voice-slider"><span>speed</span><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /><b>{num("speed").toFixed(2)}</b></label>
-        <label className="voice-slider"><span>amp</span><input type="range" min={0.05} max={2} step={0.05} value={num("amp")} style={fill(num("amp"), 0.05, 2)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
+        <label className="voice-slider"><span>amp</span><input type="range" min={0} max={2} step={0.05} value={num("amp")} style={fill(num("amp"), 0, 2)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
       </div>
     </div>
   );
@@ -253,15 +253,33 @@ export default function SynthWorkbench() {
     scene.rerender();
   }, [density]);
 
-  const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
-  const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => setParams({ ...synthDefaults(), ...(preset.params as Params) }), []);
+  // Which oscillator slots have a CARD (exist), independent of their amp. Muting a
+  // voice (amp 0) keeps its card; only Remove (×) deletes it.
+  const [voiceSlots, setVoiceSlots] = useState<number[]>(() => {
+    const d = synthDefaults();
+    return Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(d[`amp${k}`]) > 0);
+  });
+  const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
 
-  const activeVoices = useMemo(() => Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(params[`amp${k}`]) > 0), [params]);
-  const addVoice = useCallback(() => setParams((p) => {
-    for (let k = 1; k <= MAX_VOICES; k++) if (!(Number(p[`amp${k}`]) > 0)) return { ...p, [`amp${k}`]: 1 };
-    return p;
-  }), []);
-  const removeVoice = useCallback((slot: number) => setParams((p) => ({ ...p, [`amp${slot}`]: 0 })), []);
+  const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
+  const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => {
+    const next = { ...synthDefaults(), ...(preset.params as Params) };
+    setParams(next);
+    setVoiceSlots(Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(next[`amp${k}`]) > 0));
+  }, []);
+
+  const addVoice = useCallback(() => {
+    const slots = voiceSlotsRef.current;
+    let slot = 0;
+    for (let k = 1; k <= MAX_VOICES; k++) if (!slots.includes(k)) { slot = k; break; }
+    if (!slot) return;
+    setVoiceSlots([...slots, slot].sort((a, b) => a - b));
+    setParams((p) => ({ ...p, [`amp${slot}`]: 1 }));
+  }, []);
+  const removeVoice = useCallback((slot: number) => {
+    setVoiceSlots((slots) => slots.filter((s) => s !== slot));
+    setParams((p) => ({ ...p, [`amp${slot}`]: 0 }));
+  }, []);
 
   const presets = useMemo(() => (fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[], []);
 
@@ -271,13 +289,13 @@ export default function SynthWorkbench() {
         <aside className="synth-voices">
           <div className="synth-voices-head">
             <span>Voices</span>
-            <button className="voice-add" onClick={addVoice} disabled={activeVoices.length >= MAX_VOICES}>+ Add</button>
+            <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
           </div>
           <div className="synth-voices-list">
-            {activeVoices.map((slot, i) => (
+            {voiceSlots.map((slot, i) => (
               <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
             ))}
-            {activeVoices.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
+            {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
           </div>
         </aside>
         <main className="synth-main">
