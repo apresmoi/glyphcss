@@ -896,6 +896,7 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 // color. Composing/interfering the oscillators is where emergent patterns
 // (moiré, plaid, sonar, lattices) come from. Runs over surfaces via `space`.
 
+const SYNTH_VOICES = 6;
 const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
 const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
 const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
@@ -970,6 +971,21 @@ const fieldSynthSchema = {
   freq3: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 3 freq" },
   speed3: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 3 speed" },
   amp3: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 3 amp" },
+  field4: { kind: "string", default: "linearY", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 4 field" },
+  wave4: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 4 wave" },
+  freq4: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 4 freq" },
+  speed4: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 4 speed" },
+  amp4: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 4 amp" },
+  field5: { kind: "string", default: "diagonal", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 5 field" },
+  wave5: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 5 wave" },
+  freq5: { kind: "number", default: 6, min: 0, max: 24, step: 0.1, label: "Osc 5 freq" },
+  speed5: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 5 speed" },
+  amp5: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 5 amp" },
+  field6: { kind: "string", default: "noise", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 6 field" },
+  wave6: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 6 wave" },
+  freq6: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 6 freq" },
+  speed6: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 6 speed" },
+  amp6: { kind: "number", default: 0, min: 0, max: 2, step: 0.05, label: "Osc 6 amp" },
   combine: { kind: "string", default: "multiply", values: SYNTH_COMBINES, animation: "discrete", label: "Combine" },
   gain: { kind: "number", default: 1, min: 0, max: 4, step: 0.05, label: "Contrast" },
   bias: { kind: "number", default: 0.5, min: -1, max: 2, step: 0.05, label: "Brightness" },
@@ -1013,6 +1029,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
     validateParams: validateGlyphs,
     evaluate(context) {
       const { params } = context;
+      const P = params as unknown as Record<string, number | string>;
       const glyphs = glyphPattern(params.glyphs);
       const uvBounds = findUvBounds(context);
       const [sceneCols, sceneRows] = context.coordinates.sceneGridSize;
@@ -1034,9 +1051,13 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // into the result — for `multiply` a zero would blank the whole field.
         let combined = 0;
         let active = 0;
-        if (params.amp1 > 0) { const o = synthOsc(params.field1, params.wave1, params.freq1, params.speed1, params.amp1, x, y, cx, cy, time); combined = active === 0 ? o : combineSynth(params.combine, combined, o); active++; }
-        if (params.amp2 > 0) { const o = synthOsc(params.field2, params.wave2, params.freq2, params.speed2, params.amp2, x, y, cx, cy, time); combined = active === 0 ? o : combineSynth(params.combine, combined, o); active++; }
-        if (params.amp3 > 0) { const o = synthOsc(params.field3, params.wave3, params.freq3, params.speed3, params.amp3, x, y, cx, cy, time); combined = active === 0 ? o : combineSynth(params.combine, combined, o); active++; }
+        for (let k = 1; k <= SYNTH_VOICES; k++) {
+          const amp = P[`amp${k}`] as number;
+          if (!(amp > 0)) continue;
+          const o = synthOsc(P[`field${k}`] as string, P[`wave${k}`] as string, P[`freq${k}`] as number, P[`speed${k}`] as number, amp, x, y, cx, cy, time);
+          combined = active === 0 ? o : combineSynth(params.combine, combined, o);
+          active++;
+        }
         if (active === 0) continue;
         const value = clamp01(params.bias + params.gain * combined * 0.5);
         if (value <= 0) continue;
