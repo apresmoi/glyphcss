@@ -1,6 +1,9 @@
 .synth-shell {
   position: fixed;
   inset: var(--sl-nav-height, 72px) 0 0 0;
+  /* Override .dn-root's height:100% — with position:fixed + top:72px it would make
+     the shell 100vh tall starting below the nav, pushing the footer off-screen. */
+  height: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
