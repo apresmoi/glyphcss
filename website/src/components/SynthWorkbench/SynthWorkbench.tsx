@@ -18,28 +18,41 @@ import "./synth-workbench.css";
 
 type ParamValue = number | string | boolean;
 type Params = Record<string, ParamValue>;
+type Polys = ReturnType<typeof resolveGeometry>;
 
 const MAX_VOICES = 6;
 const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
 const WAVES = ["sin", "triangle", "saw", "square"] as const;
 const COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 const SPACES = ["auto", "surface", "scene"] as const;
-const SHAPES: GlyphGeometryName[] = ["cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
+const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
 
-const opts = <T extends string>(list: readonly T[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v]));
+const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
 
 const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };
-const AMBIENT = { intensity: 0.55 };
+const AMBIENT = { intensity: 0.6 };
 
 function synthDefaults(): Params {
   const { time: _time, ...rest } = defaultGlyphEffectParams(fieldSynth) as Params;
   return rest;
 }
-function shapePolys(name: GlyphGeometryName) {
-  return resolveGeometry(name, { size: 3 });
+
+// A flat square in the world XY plane with 0..1 UVs — a clean 2D surface for
+// previews and the scene-filling "plane" shape.
+function flatQuad(size: number): Polys {
+  const p = {
+    vertices: [[-size, -size, 0], [size, -size, 0], [size, size, 0], [-size, size, 0]],
+    uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+  };
+  return [p] as unknown as Polys;
 }
-function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number) => number[] }, polys: ReturnType<typeof shapePolys>, fill = 0.72): void {
+function shapePolys(name: string): Polys {
+  return name === "plane" ? flatQuad(3) : resolveGeometry(name as GlyphGeometryName, { size: 3 });
+}
+const isFlat = (name: string) => name === "plane";
+
+function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number) => number[] }, polys: Polys, fill = 0.72): void {
   const o = scene.getOptions();
   camera.zoom = 1;
   let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
@@ -65,16 +78,17 @@ function soloParams(params: Params, slot: number): Params {
   return base;
 }
 
-function useSynthPreview(host: HTMLElement | null, getParams: () => Params, shape: GlyphGeometryName, deps: unknown[]): void {
+// Small live preview on a FLAT square, viewed head-on (a plain 2D read of the field).
+function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[]): void {
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   useEffect(() => {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
-    const camera = createGlyphOrthographicCamera({ rotX: 58, rotY: 32, zoom: 20 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", directionalLight: LIGHT, ambientLight: AMBIENT });
+    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 20 });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: true, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "8px";
-    const polys = shapePolys(shape);
-    scene.add(polys); scene.fit(); frameObject(scene, camera, polys, 0.56);
+    const polys = flatQuad(3);
+    scene.add(polys); scene.fit(); frameObject(scene, camera, polys, 0.98);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: "replace" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
@@ -83,7 +97,7 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, shap
     raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); layer.dispose(); scene.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host, shape]);
+  }, [host]);
   useEffect(() => { layerRef.current?.setParams(getParams()); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
@@ -94,8 +108,7 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
-  // Voice previews are always a cube — three faces show how the field wraps a solid.
-  useSynthPreview(host, () => soloParams(params, slot), "cube", [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host]);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host]);
   const f = (k: string) => String(params[`${k}${slot}`]);
   const num = (k: string) => Number(params[`${k}${slot}`]);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
@@ -119,10 +132,10 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
   );
 }
 
-// ── Live preset tile ─────────────────────────────────────────────────────────
+// ── Live preset tile (flat square) ────────────────────────────────────────────
 function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onApply: () => void }) {
   const [host, setHost] = useState<HTMLElement | null>(null);
-  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), "cube", [host]);
+  useSynthPreview(host, () => ({ ...synthDefaults(), ...(preset.params as Params) }), [host]);
   return (
     <button className="synth-tile" onClick={onApply} title={`Apply “${preset.name}”`}>
       <span className="synth-tile-scene" ref={setHost} />
@@ -133,7 +146,7 @@ function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onA
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
 function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, params, onParam }: {
-  shape: GlyphGeometryName; onShape: (s: GlyphGeometryName) => void;
+  shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   density: number; onDensity: (n: number) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
@@ -143,7 +156,7 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   const n = (k: string) => Number(params[k] ?? 0);
 
   const stage = useFolder(gui, "Stage", { open: true });
-  useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v as GlyphGeometryName));
+  useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v));
   useOption(stage, "Mapping", SPACE_OPTS, s("space"), (v) => onParam("space", v));
   useSlider(stage, "Density", { min: 0.5, max: 4, step: 0.1 }, density, onDensity);
   useSlider(stage, "Speed", { min: 0.05, max: 8, step: 0.05 }, timeScale, onTimeScale);
@@ -173,7 +186,7 @@ export default function SynthWorkbench() {
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   const meshRef = useRef<{ dispose: () => void } | null>(null);
 
-  const [shape, setShape] = useState<GlyphGeometryName>("cube");
+  const [shape, setShape] = useState<string>("plane");
   const [params, setParams] = useState<Params>(synthDefaults);
   const [timeScale, setTimeScale] = useState(1.4);
   const [paused, setPaused] = useState(false);
@@ -183,18 +196,21 @@ export default function SynthWorkbench() {
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
   const pausedRef = useRef(paused); pausedRef.current = paused;
 
-  // Mount scene + effect + clock once. Drag density = render density (no LOD downscale).
+  const orientFor = (name: string, camera: { rotX: number; rotY: number }) => {
+    if (isFlat(name)) { camera.rotX = 0; camera.rotY = 0; } else { camera.rotX = 58; camera.rotY = 32; }
+  };
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
-    const camera = createGlyphOrthographicCamera({ rotX: 58, rotY: 32, zoom: 46 });
-    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", interactiveDownscale: 1, directionalLight: LIGHT, ambientLight: AMBIENT });
+    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 46 });
+    const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: true, interactiveDownscale: 1, directionalLight: LIGHT, ambientLight: AMBIENT });
     host.style.fontSize = "13px";
     createGlyphOrbitControls(scene, { drag: true, wheel: true });
-    const polys = shapePolys("cube");
+    const polys = shapePolys("plane");
     meshRef.current = scene.add(polys) as { dispose: () => void };
-    scene.fit(); frameObject(scene, camera, polys);
+    scene.fit(); orientFor("plane", camera); frameObject(scene, camera, polys, 0.98);
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: "replace" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     sceneRef.current = scene; cameraRef.current = camera;
@@ -219,59 +235,61 @@ export default function SynthWorkbench() {
     meshRef.current?.dispose();
     const polys = shapePolys(shape);
     meshRef.current = scene.add(polys) as { dispose: () => void };
-    frameObject(scene, camera, polys); scene.rerender();
+    orientFor(shape, camera);
+    frameObject(scene, camera, polys, isFlat(shape) ? 0.98 : 0.72);
+    scene.rerender();
   }, [shape]);
 
-  // Density → render font-size (drag density stays equal: interactiveDownscale is 1).
+  // Density → render font-size, WITHOUT rescaling the view: compensate zoom for the
+  // font change (like the gallery) so the object keeps its size/framing, just finer.
   useEffect(() => {
     const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
     if (!scene || !camera || !host) return;
-    host.style.fontSize = `${13 / density}px`;
+    const prevFont = parseFloat(host.style.fontSize) || 13;
+    const nextFont = 13 / density;
+    host.style.fontSize = `${nextFont}px`;
     scene.fit();
-    frameObject(scene, camera, shapePolys(shape));
+    camera.zoom *= prevFont / nextFont;
     scene.rerender();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [density]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
   const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => setParams({ ...synthDefaults(), ...(preset.params as Params) }), []);
 
   const activeVoices = useMemo(() => Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(params[`amp${k}`]) > 0), [params]);
-  const addVoice = useCallback(() => {
-    setParams((p) => {
-      for (let k = 1; k <= MAX_VOICES; k++) if (!(Number(p[`amp${k}`]) > 0)) return { ...p, [`amp${k}`]: 1 };
-      return p;
-    });
-  }, []);
+  const addVoice = useCallback(() => setParams((p) => {
+    for (let k = 1; k <= MAX_VOICES; k++) if (!(Number(p[`amp${k}`]) > 0)) return { ...p, [`amp${k}`]: 1 };
+    return p;
+  }), []);
   const removeVoice = useCallback((slot: number) => setParams((p) => ({ ...p, [`amp${slot}`]: 0 })), []);
 
   const presets = useMemo(() => (fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[], []);
 
   return (
     <div className="synth-shell">
-      <aside className="synth-voices">
-        <div className="synth-voices-head">
-          <span>Voices</span>
-          <button className="voice-add" onClick={addVoice} disabled={activeVoices.length >= MAX_VOICES}>+ Add</button>
-        </div>
-        <div className="synth-voices-list">
-          {activeVoices.map((slot, i) => (
-            <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
-          ))}
-          {activeVoices.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
-        </div>
-      </aside>
-
-      <main className="synth-main">
-        <div className="synth-viewport" ref={hostRef} />
-        <div className="synth-presets" role="list" aria-label="Pattern presets">
-          {presets.map((p) => <PresetTile key={p.name} preset={p} onApply={() => applyPreset(p)} />)}
-        </div>
-      </main>
-
-      <Dock id="synth-controls-panel">
-        <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} params={params} onParam={onParam} />
-      </Dock>
+      <div className="synth-body">
+        <aside className="synth-voices">
+          <div className="synth-voices-head">
+            <span>Voices</span>
+            <button className="voice-add" onClick={addVoice} disabled={activeVoices.length >= MAX_VOICES}>+ Add</button>
+          </div>
+          <div className="synth-voices-list">
+            {activeVoices.map((slot, i) => (
+              <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
+            ))}
+            {activeVoices.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
+          </div>
+        </aside>
+        <main className="synth-main">
+          <div className="synth-viewport" ref={hostRef} />
+        </main>
+        <Dock id="synth-controls-panel">
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} params={params} onParam={onParam} />
+        </Dock>
+      </div>
+      <div className="synth-presets" role="list" aria-label="Pattern presets">
+        {presets.map((p) => <PresetTile key={p.name} preset={p} onApply={() => applyPreset(p)} />)}
+      </div>
     </div>
   );
 }
