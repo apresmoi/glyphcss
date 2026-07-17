@@ -63,8 +63,30 @@ function flatQuad(size: number): Polys {
   };
   return [p] as unknown as Polys;
 }
+// Give each face its own local 0..1 UV (project onto the face plane, normalize to
+// the face's bbox) so surface effects map PER-FACE — each face reads like its own
+// plane, patterns centre on it — instead of a world-continuous wrap.
+type V3 = [number, number, number];
+const vsub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const vcross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const vdot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const vnorm = (a: V3): V3 => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+function withFaceUvs(polys: Polys): Polys {
+  return (polys as unknown as { vertices: V3[] }[]).map((p) => {
+    const vs = p.vertices;
+    if (vs.length < 3) return p;
+    const n = vnorm(vcross(vsub(vs[1], vs[0]), vsub(vs[2], vs[0])));
+    const u = vnorm(vsub(vs[1], vs[0]));
+    const v = vcross(n, u);
+    const proj = vs.map((w) => { const d = vsub(w, vs[0]); return [vdot(d, u), vdot(d, v)] as [number, number]; });
+    let mnu = Infinity, mxu = -Infinity, mnv = Infinity, mxv = -Infinity;
+    for (const [pu, pv] of proj) { if (pu < mnu) mnu = pu; if (pu > mxu) mxu = pu; if (pv < mnv) mnv = pv; if (pv > mxv) mxv = pv; }
+    const su = (mxu - mnu) || 1, sv = (mxv - mnv) || 1;
+    return { ...p, uvs: proj.map(([pu, pv]) => [(pu - mnu) / su, (pv - mnv) / sv]) };
+  }) as unknown as Polys;
+}
 function shapePolys(name: string): Polys {
-  return name === "plane" ? flatQuad(3) : resolveGeometry(name as GlyphGeometryName, { size: 3 });
+  return name === "plane" ? flatQuad(3) : withFaceUvs(resolveGeometry(name as GlyphGeometryName, { size: 3 }));
 }
 const isFlat = (name: string) => name === "plane";
 
