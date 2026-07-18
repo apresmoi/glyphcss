@@ -12,11 +12,9 @@ import type { Vec3 } from "@glyphcss/react";
 import type { Polygon } from "@glyphcss/react";
 import type { GlyphEffectLayerHandle } from "@glyphcss/react";
 import {
-  buildGlyphInteractiveExport,
   compileScene,
   createGlyphOrthographicCamera,
   encodeStaticGlyphHtml,
-  glyphCodepenPrefill,
   injectGlyphBaseStyles,
 } from "glyphcss";
 import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema } from "glyphcss";
@@ -55,7 +53,14 @@ import {
 } from "../GalleryWorkbench/effects";
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
-import type { WordArtSnippetInput } from "./wordartSnippets";
+import { buildWordArtCodepenPen } from "./wordartSnippets";
+import type {
+  WordArtComposeInput,
+  WordArtFaceSpec,
+  WordArtFontSpec,
+  WordArtProfileSpec,
+  WordArtSnippetInput,
+} from "./wordartSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./wordart.css";
 
@@ -306,8 +311,9 @@ export function WordArtWorkbench() {
   // Bottom-left, always-visible "Open in CodePen" (static, zero-runtime bake
   // of the live rendered `<pre>`) + an "Export" toggle that mounts a
   // gallery-look code window (`WordArtCodePanel`) with framework tabs of
-  // lib-based code (mesh + camera + lighting + effect, via
-  // `buildGlyphInteractiveExport`). Mirrors `SynthWorkbench`'s own
+  // lib-based code that REGENERATES the mesh via `@glyphcss/fonts`'
+  // `composeText` (camera + lighting + effect reconstruction mirrors the
+  // gallery/synth). Mirrors `SynthWorkbench`'s own
   // `codeOpen`/`exporting`/`cameraSnapshot` trio.
   const [codeOpen, setCodeOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -549,12 +555,66 @@ export function WordArtWorkbench() {
     setMobilePanel((m) => (m === "export" ? null : m));
   }, []);
 
+  // Everything `composeText` needs to REGENERATE the mesh at export time
+  // (rather than inlining the already-composed `polygons`) — mirrors the
+  // `polygons` useMemo's own `front`/`sides`/`back`/`profileObj` construction
+  // above, but as a serializable spec (`WordArtFaceSpec`/`WordArtProfileSpec`/
+  // `WordArtFontSpec`) the exported snippet reconstructs via `resolveFace`/
+  // `loadFont`/`loadGoogleFont` instead of a resolved `Face`/`ParsedFont`.
+  // Texture URLs and the bundled default font are relative site assets, so
+  // they're baked to an ABSOLUTE URL off this page's own origin here — a
+  // relative path wouldn't resolve from a CodePen or a copy-pasted snippet.
+  const composeInput = useMemo<WordArtComposeInput>(() => {
+    const absUrl = (path: string) => (typeof window !== "undefined" ? `${window.location.origin}${path}` : path);
+    const frontSpec: WordArtFaceSpec =
+      fillType === "gradient" ? { kind: "gradient", color, from: gradA, to: gradB, angle: gradAngle }
+      : fillType === "rainbow" ? { kind: "rainbow", color, angle: gradAngle }
+      : fillType === "texture" ? { kind: "texture", color, url: absUrl(texUrl(faceTex)), tile: TILE }
+      : fillType === "image" ? { kind: "image", color, src: fillImage }
+      : { kind: "solid", color };
+    const sidesSpec: WordArtFaceSpec | null =
+      sideFill === "texture" ? { kind: "texture", color: sideColor, url: absUrl(texUrl(sideTex)), tile: TILE }
+      : sideFill === "solid" ? { kind: "solid", color: sideColor }
+      : null;
+    const backSpec: (WordArtFaceSpec & { offset?: [number, number] }) | null =
+      backFill === "texture" ? { kind: "texture", color: backColor, url: absUrl(texUrl(backTex)), tile: TILE }
+      : backFill === "solid" ? { kind: "solid", color: backColor }
+      : null;
+    if (backSpec && layered) backSpec.offset = [offset || 12, -(offset || 12)];
+    const profileSpec: WordArtProfileSpec =
+      profile === "flat" ? { kind: "flat" }
+      : profile === "custom" ? { kind: "curve", curve: bezier, segments: profileSegments }
+      : { kind: "edge", edge: profile, raised: roundConvex, segments: profileSegments };
+    const fontSpec: WordArtFontSpec = entry
+      ? { kind: "google", entry, weight, style: italic ? "italic" : "normal" }
+      : { kind: "default", url: absUrl("/fonts/default.ttf") };
+    return {
+      text: applyCase(text, textCase),
+      font: fontSpec,
+      depth: layered ? 0 : depth,
+      profile: profileSpec,
+      letterSpacing,
+      lineHeight,
+      align,
+      underline,
+      strike,
+      curveSteps: curveSegments,
+      simplify,
+      warpShape,
+      warpAmount,
+      front: frontSpec,
+      sides: sidesSpec,
+      back: backSpec,
+      outline: outlineOn ? { color: outlineColor, width: outlineWidth } : null,
+    };
+  }, [entry, weight, italic, text, textCase, depth, profile, roundConvex, bezier, profileSegments, letterSpacing, lineHeight, align, underline, strike, curveSegments, simplify, warpShape, warpAmount, fillType, color, gradA, gradB, gradAngle, faceTex, fillImage, sideFill, sideColor, sideTex, backFill, backColor, backTex, offset, layered, outlineOn, outlineColor, outlineWidth]);
+
   const codeInput = useMemo<WordArtSnippetInput>(() => {
     const hasEffect = !!effectState.effectId && !!effectDefinition;
     const exportName = hasEffect ? galleryEffectExportName(effectDefinition) : null;
     const hasClock = hasEffect && effectDefinition ? "time" in effectDefinition.parameterSchema : false;
     return {
-      polygons: centerMesh(polygons),
+      compose: composeInput,
       scaleX: scaleX / 100,
       scaleY: scaleY / 100,
       rotation: stageSnapshot.rotation,
@@ -577,7 +637,7 @@ export function WordArtWorkbench() {
           }
         : null,
     };
-  }, [polygons, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, effectState, effectDefinition]);
+  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, effectState, effectDefinition]);
 
   /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
   function postCodepenForm(action: string, data: string): void {
@@ -624,45 +684,25 @@ export function WordArtWorkbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
-  // "Export" code window's own CodePen action: compiles the current mesh +
-  // camera + effect into a self-contained, lib-based (glyphcss +
-  // @glyphcss/effects from the CDN) CodePen — mirrors the gallery/synth's
-  // `handleCodepen`/`handleExportCodepenDynamic`. `buildGlyphInteractiveExport`
-  // has no per-mesh scale/rotation of its own (`scene.add(polygons)` takes no
-  // transform), so the live Stage's stretch + turntable snapshot is baked
-  // into plain vertices first via `bakeMeshTransform`. Like every
-  // `buildGlyphInteractiveExport` caller on this site, the CDN payload has no
-  // lighting option — it renders under the library's own scene defaults, the
-  // same gap the gallery/synth CodePen exports already accept.
+  // "Export" code window's own CodePen action: a self-contained, lib-based
+  // (glyphcss + @glyphcss/fonts + @glyphcss/effects from the CDN) pen that
+  // REGENERATES the mesh via `composeText` at runtime (same `codeInput` the
+  // code panel's tabs render from) instead of shipping a baked polygon
+  // literal — mirrors the gallery/synth's `handleCodepen`/
+  // `handleExportCodepenDynamic`, except orientation comes from the camera
+  // (pinned rotX/rotY=0) + `<GlyphMesh rotation/scale>` exactly like the
+  // live Stage, so no vertex-baking (`bakeMeshTransform`) is needed for this
+  // path anymore.
   const handleExportCodepenDynamic = useCallback(() => {
     setExporting(true);
     try {
-      const baked = bakeMeshTransform(centerMesh(polygons), [scaleY / 100, scaleX / 100, 1], stageSnapshot.rotation);
-      const result = buildGlyphInteractiveExport(baked, {
-        interactions: ["orbit", "zoom"],
-        rotX: 0,
-        rotY: 0,
-        zoom: stageSnapshot.zoom,
-        projection: perspective ? "perspective" : "orthographic",
-        autoCenter: false,
-        mode: "solid",
-        useColors: true,
-        effect: effectState.effectId
-          ? {
-              id: effectState.effectId,
-              params: effectState.params,
-              blend: effectState.blend,
-              timeScale: effectState.paused ? 0 : effectState.timeScale,
-            }
-          : undefined,
-      });
-      const prefill = glyphCodepenPrefill(result, exportTitle());
+      const prefill = buildWordArtCodepenPen(codeInput, exportTitle());
       postCodepenForm(prefill.action, prefill.data);
     } finally {
       setExporting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [polygons, scaleX, scaleY, stageSnapshot, perspective, effectState, text]);
+  }, [codeInput, text]);
 
   function pickFamily(value: string) {
     setFamilyInput(value);
@@ -993,20 +1033,6 @@ function rotateMeshVerticesDeg(polygons: Polygon[], [rxDeg, ryDeg, rzDeg]: Vec3)
     return [nx, ny, nz];
   }
   return polygons.map((p) => ({ ...p, vertices: p.vertices.map(rotate) }));
-}
-
-/** Scale then rotate — the same order `createGlyphScene`'s internal
- *  `applyTransform` applies for a mesh's `scale`/`rotation` props (translate
- *  omitted here since the mesh is already bbox-centered). Used to bake the
- *  live Stage's `<GlyphMesh scale rotation>` into plain vertices for
- *  `buildGlyphInteractiveExport`, whose CDN script has no per-mesh transform
- *  of its own (`scene.add(polygons)` with no second argument). */
-function bakeMeshTransform(polygons: Polygon[], scale: Vec3, rotationDeg: Vec3): Polygon[] {
-  const scaled = polygons.map((p) => ({
-    ...p,
-    vertices: p.vertices.map(([x, y, z]) => [x * scale[0], y * scale[1], z * scale[2]] as Vec3),
-  }));
-  return rotateMeshVerticesDeg(scaled, rotationDeg);
 }
 
 interface StageProps {

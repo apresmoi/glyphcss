@@ -44,11 +44,11 @@
   /* Flex items default to `min-width: auto` — the browser's automatic
      minimum-size algorithm lets a non-shrinking item (flex-shrink: 0) grow
      PAST its own flex-basis when a descendant's min-content width exceeds
-     it, silently widening this rail well beyond 190px. Every control here
-     already reflows/wraps cleanly at 190px (`.wa-input`/select are
+     it, silently widening this rail well beyond 340px. Every control here
+     already reflows/wraps cleanly at 340px (`.wa-input`/select are
      `width:100%; box-sizing:border-box`, the Dock is forced to
      `width:100%` below) — `min-width: 0` is the standard flexbox override
-     that makes the 190px basis authoritative instead of content-sized. */
+     that makes the 340px basis authoritative instead of content-sized. */
   min-width: 0;
   display: flex;
   flex-direction: column;
