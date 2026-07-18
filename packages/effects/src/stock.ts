@@ -995,7 +995,10 @@ export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angula
 export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
 export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 
-function synthWave(kind: string, t: number): number {
+// Exported so consumers (e.g. the website's `/synth` waveform trendlines) can
+// plot the exact same shape+phase math the engine evaluates, instead of a
+// second copy that could drift.
+export function synthWave(kind: string, t: number): number {
   const p = t - Math.floor(t); // 0..1
   switch (kind) {
     case "triangle": return 4 * Math.abs(p - 0.5) - 1;
@@ -1185,7 +1188,9 @@ export function fieldSynthCoordinate<P extends AnyParams>(
   return [(x / sceneCols) * scale, (y / sceneRows) * scale, originU * scale, originV * scale];
 }
 
-function combineSynth(mode: string, a: number, b: number): number {
+// Exported for the same reason as `synthWave` above — reuse the exact
+// per-voice mix-weight fold instead of re-deriving it.
+export function combineSynth(mode: string, a: number, b: number): number {
   switch (mode) {
     case "add": return a + b;
     case "max": return Math.max(a, b);

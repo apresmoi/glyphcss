@@ -12,8 +12,10 @@ import {
 import {
   GlyphFieldSynthEffect as fieldSynth,
   buildGlyphFieldSynthStaticExport,
+  combineSynth,
   defaultGlyphEffectParams,
   GlyphRamps,
+  synthWave,
 } from "@glyphcss/effects";
 import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyphcss/effects";
 import { Dock } from "../Dock";
@@ -161,8 +163,13 @@ function soloParams(params: Params, slot: number): Params {
 }
 
 // Small live preview on a FLAT square, viewed head-on (a plain 2D read of the field).
-function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[]): void {
+// `onTick` (if given) fires every frame alongside the layer's own time update, with
+// the SAME `t` — so a waveform trendline drawn from it stays exactly in sync with
+// what the adjacent preview square renders, using this loop instead of a second one.
+function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps: unknown[], onTick?: (t: number) => void): void {
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
+  const onTickRef = useRef(onTick);
+  onTickRef.current = onTick;
   useEffect(() => {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
@@ -176,7 +183,7 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
     let last = performance.now(), t = 0, raf = 0;
-    const tick = (now: number): void => { raf = requestAnimationFrame(tick); const dt = Math.min((now - last) / 1000, 0.1); last = now; t += dt * 0.8; layerRef.current?.setParams({ time: t }); };
+    const tick = (now: number): void => { raf = requestAnimationFrame(tick); const dt = Math.min((now - last) / 1000, 0.1); last = now; t += dt * 0.8; layerRef.current?.setParams({ time: t }); onTickRef.current?.(t); };
     raf = requestAnimationFrame(tick);
     return () => { cancelAnimationFrame(raf); layer.dispose(); scene.destroy(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -185,18 +192,136 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps
   }, deps);
 }
 
+// ── Waveform trendlines (per-voice + combined) ────────────────────────────────
+// Read the voice params as a literal 1D read of the same shape+phase math the
+// field synth evaluates spatially: `raw*freq - time*speed` fed through
+// `synthWave`, with `raw` swept 0..1 across the plot (a "linearX"-style read —
+// `field` itself only has meaning in 2D, so it isn't part of this projection).
+const WAVE_SAMPLES = 72;
+
+function buildWavePathD(wave: string, freq: number, speed: number, amp: number, time: number, width: number, height: number): string {
+  const midY = height / 2;
+  const halfH = midY - 2;
+  let d = "";
+  for (let i = 0; i < WAVE_SAMPLES; i++) {
+    const raw = i / (WAVE_SAMPLES - 1);
+    const value = amp * synthWave(wave, raw * freq - time * speed);
+    const x = raw * width;
+    const y = midY - value * halfH;
+    d += `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)} `;
+  }
+  return d;
+}
+
+interface CombinedVoice { readonly wave: string; readonly freq: number; readonly speed: number; readonly amp: number; }
+
+// Folds active voices exactly like `fieldSynth`'s evaluate loop: each oscillator
+// samples at amp=1 (`synthOsc`'s own amp is fixed to 1 there), the first active
+// voice enters at its mix weight, and every later voice blends the running result
+// toward `combineSynth(mode, result, voice)` by its weight — so two close
+// frequencies visibly beat instead of just averaging out.
+function buildCombinedPathD(voices: readonly CombinedVoice[], combineMode: string, time: number, width: number, height: number): string {
+  const midY = height / 2;
+  const halfH = midY - 3;
+  const range = 1.5; // headroom past ±1 for `add`/`difference` without clipping the common multiply/max/min case
+  let d = "";
+  for (let i = 0; i < WAVE_SAMPLES; i++) {
+    const raw = i / (WAVE_SAMPLES - 1);
+    let combined = 0;
+    let active = 0;
+    for (const voice of voices) {
+      const o = synthWave(voice.wave, raw * voice.freq - time * voice.speed);
+      if (active === 0) combined = voice.amp * o;
+      else combined += voice.amp * (combineSynth(combineMode, combined, o) - combined);
+      active++;
+    }
+    const clamped = Math.max(-range, Math.min(range, combined));
+    const x = raw * width;
+    const y = midY - (clamped / range) * halfH;
+    d += `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)} `;
+  }
+  return d;
+}
+
+// Prominent overlay near the voices: each active voice's raw wave faint in its own
+// color, the real mixed result bold on top — the fastest way to SEE interference
+// (two close frequencies drifting in and out of phase = a visible beating envelope).
+// One shared rAF loop for the whole strip (not one per voice), driven by the SAME
+// paused/time-scale refs that drive the actual mounted scene, so it tracks what's
+// on screen rather than free-running on its own clock.
+function CombinedWaveform({ paramsRef, tsRef, pausedRef }: {
+  paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
+}) {
+  const voicePathRefs = useRef<(SVGPathElement | null)[]>([null, null, null, null, null, null]);
+  const mixPathRef = useRef<SVGPathElement | null>(null);
+  const width = 200, height = 56;
+  useEffect(() => {
+    let raf = 0, last = performance.now(), t = 0;
+    const tick = (now: number): void => {
+      raf = requestAnimationFrame(tick);
+      if (!pausedRef.current) t += Math.min((now - last) / 1000, 0.1) * tsRef.current;
+      last = now;
+      const p = paramsRef.current;
+      const combineMode = String(p.combine ?? "multiply");
+      const active: CombinedVoice[] = [];
+      for (let k = 0; k < MAX_VOICES; k++) {
+        const slot = k + 1;
+        const amp = Number(p[`amp${slot}`] ?? 0);
+        const path = voicePathRefs.current[k];
+        if (!(amp > 0)) { path?.setAttribute("d", ""); continue; }
+        const voice: CombinedVoice = { wave: String(p[`wave${slot}`]), freq: Number(p[`freq${slot}`]), speed: Number(p[`speed${slot}`]), amp };
+        active.push(voice);
+        if (path) {
+          path.setAttribute("d", buildWavePathD(voice.wave, voice.freq, voice.speed, voice.amp, t, width, height));
+          path.style.stroke = String(p[`color${slot}`] ?? "#7df9ff");
+        }
+      }
+      mixPathRef.current?.setAttribute("d", active.length > 0 ? buildCombinedPathD(active, combineMode, t, width, height) : "");
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [paramsRef, tsRef, pausedRef]);
+  return (
+    <div className="synth-combined">
+      <span className="synth-combined-label">Combined</span>
+      <svg className="synth-combined-plot" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+        <line x1={0} y1={height / 2} x2={width} y2={height / 2} className="synth-combined-mid" />
+        {[0, 1, 2, 3, 4, 5].map((k) => (
+          <path key={k} ref={(el) => { voicePathRefs.current[k] = el; }} className="synth-combined-voice" vectorEffect="non-scaling-stroke" fill="none" />
+        ))}
+        <path ref={mixPathRef} className="synth-combined-mix" vectorEffect="non-scaling-stroke" fill="none" />
+      </svg>
+    </div>
+  );
+}
+
 // ── Voice card (left rail) ────────────────────────────────────────────────────
 function VoiceCard({ slot, index, params, onParam, onRemove }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host]);
   const f = (k: string) => String(params[`${k}${slot}`]);
   const num = (k: string) => Number(params[`${k}${slot}`]);
+  // Always-fresh ref (not a dep) — the trendline reads it from inside the
+  // preview's own rAF tick, which must stay mounted across param changes.
+  const trendRef = useRef({ wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp") });
+  trendRef.current = { wave: f("wave"), freq: num("freq"), speed: num("speed"), amp: num("amp") };
+  const pathRef = useRef<SVGPathElement | null>(null);
+  const onTick = useCallback((t: number) => {
+    const path = pathRef.current;
+    if (!path) return;
+    const v = trendRef.current;
+    path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30));
+  }, []);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
     <div className="voice-card">
+      <svg className="voice-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+        <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
+        <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
+      </svg>
       <span className="voice-preview" ref={setHost} />
       <div className="voice-controls">
         <div className="voice-head">
@@ -527,6 +652,7 @@ export default function SynthWorkbench() {
             <span>Voices</span>
             <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
           </div>
+          <CombinedWaveform paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
           <div className="synth-voices-list">
             {voiceSlots.map((slot, i) => (
               <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />

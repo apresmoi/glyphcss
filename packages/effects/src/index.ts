@@ -3,9 +3,11 @@ export {
   GlyphEffectNoColor,
   GlyphEffects,
   GlyphRamps,
+  combineSynth,
   defaultGlyphEffectParams,
   getGlyphEffect,
   glyphEffectHasColor,
+  synthWave,
 } from "./stock";
 
 export {
