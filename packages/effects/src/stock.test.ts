@@ -3,21 +3,49 @@ import {
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
+  type GlyphEffectParamSchema,
 } from "glyphcss";
 import {
   GlyphEffectCatalog,
   defaultGlyphEffectParams,
+  fieldSynth,
   flowText,
   getGlyphEffect,
+  glitch,
   matrixRain,
+  noiseDissolve,
+  ripple,
   scan,
+  scramble,
+  wipe,
+  type GlyphStockEffect,
 } from "./stock";
 
-type EffectUnderTest = typeof matrixRain | typeof flowText | typeof scan;
+// A plain union (not a generic parameter) so a narrower union — e.g. the
+// three-effect "cases" arrays below — assigns in directly without invoking
+// generic inference over a union argument.
+type EffectUnderTest = GlyphStockEffect;
 type GridAffine = readonly [number, number, number, number, number, number];
+
+// `defaultGlyphEffectParams` is itself generic over one concrete Schema, so
+// calling it with a definition typed as a *union* of schemas fails to type-check
+// (the union's `program.evaluate` sits in contravariant position). Reading
+// `parameterSchema` off the union is fine — it's a covariant field — so derive
+// defaults from that directly instead of routing through the generic helper.
+function defaultParamsForSchema(schema: GlyphEffectParamSchema): Record<string, number | string | boolean> {
+  const params: Record<string, number | string | boolean> = {};
+  for (const [key, spec] of Object.entries(schema)) params[key] = spec.default;
+  return params;
+}
 
 function positiveMod(value: number, modulus: number): number {
   return ((value % modulus) + modulus) % modulus;
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  if (edge0 === edge1) return value >= edge1 ? 1 : 0;
+  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 interface EvaluateOptions {
@@ -37,7 +65,7 @@ function evaluate(
   const cols = 12;
   const rows = 6;
   const length = cols * rows;
-  const params = { ...defaultGlyphEffectParams(definition), ...overrides };
+  const params = { ...defaultParamsForSchema(definition.parameterSchema), ...overrides };
   const glyph = new Array<string>(length).fill("#");
   const coverage = new Float32Array(length).fill(1);
   const color = new Uint32Array(length).fill(GlyphEffectNoColor);
@@ -585,5 +613,517 @@ describe("stock effects", () => {
 
     expect(withUv.glyph).toEqual(withoutUv.glyph);
     expect(automatic.glyph).not.toEqual(withoutUv.glyph);
+  });
+});
+
+describe("wipe", () => {
+  it("flips the covered region across progress with invert", () => {
+    const revealed = evaluate(wipe, { progress: 1, softness: 0, invert: false });
+    const hidden = evaluate(wipe, { progress: 0, softness: 0, invert: false });
+    expect(Array.from(revealed.coverage).every((value) => value === 1)).toBe(true);
+    expect(Array.from(hidden.coverage).every((value) => value === 0)).toBe(true);
+
+    const invertedRevealed = evaluate(wipe, { progress: 1, softness: 0, invert: true });
+    const invertedHidden = evaluate(wipe, { progress: 0, softness: 0, invert: true });
+    expect(Array.from(invertedRevealed.coverage).every((value) => value === 0)).toBe(true);
+    expect(Array.from(invertedHidden.coverage).every((value) => value === 1)).toBe(true);
+  });
+
+  it("keeps a monotone front along the wipe direction", () => {
+    const output = evaluate(wipe, { progress: 0.5, softness: 0.1, direction: "right", invert: false });
+    for (let row = 0; row < 6; row++) {
+      for (let col = 0; col < 11; col++) {
+        const current = output.coverage[row * 12 + col]!;
+        const next = output.coverage[row * 12 + col + 1]!;
+        expect(next).toBeLessThanOrEqual(current + 1e-9);
+      }
+    }
+  });
+
+  it("widens the transition band with softness", () => {
+    const partialCount = (output: ReturnType<typeof evaluate>) =>
+      Array.from(output.coverage).filter((value) => value > 0 && value < 1).length;
+    const narrow = evaluate(wipe, { progress: 0.5, softness: 0.01, direction: "right" });
+    const wide = evaluate(wipe, { progress: 0.5, softness: 0.3, direction: "right" });
+    expect(partialCount(wide)).toBeGreaterThan(partialCount(narrow));
+  });
+});
+
+describe("scramble", () => {
+  it("scrambles roughly the requested fraction of cells", () => {
+    const output = evaluate(scramble, { amount: 0.35, rate: 10, time: 1, seed: 3 });
+    const scrambled = Array.from(output.coverage).filter((value) => value === 1).length;
+    const fraction = scrambled / output.coverage.length;
+    expect(Math.abs(fraction - 0.35)).toBeLessThan(0.15);
+  });
+
+  it("is frame-quantized: any time within the same frame gives the same result", () => {
+    const a = evaluate(scramble, { rate: 10, time: 1.01, seed: 3 });
+    const b = evaluate(scramble, { rate: 10, time: 1.09, seed: 3 });
+    expect(a.glyph).toEqual(b.glyph);
+    expect(a.coverage).toEqual(b.coverage);
+  });
+
+  it("changes with a different frame", () => {
+    const a = evaluate(scramble, { rate: 10, time: 1, seed: 3 });
+    const b = evaluate(scramble, { rate: 10, time: 2, seed: 3 });
+    expect(a.glyph).not.toEqual(b.glyph);
+  });
+});
+
+describe("glitch", () => {
+  it("marks cells as binary active/inactive", () => {
+    const output = evaluate(glitch, { amount: 0.28, rate: 12, time: 1, seed: 5, color: "#ff4fd8" });
+    const distinctCoverage = new Set(Array.from(output.coverage));
+    for (const value of distinctCoverage) expect(value === 0 || value === 1).toBe(true);
+  });
+
+  it("is deterministic at a fixed time", () => {
+    const params = { amount: 0.28, rate: 12, time: 1.25, seed: 5, bandSize: 4 };
+    const a = evaluate(glitch, params);
+    const b = evaluate(glitch, params);
+    expect(a.glyph).toEqual(b.glyph);
+    expect(a.coverage).toEqual(b.coverage);
+    expect(a.color).toEqual(b.color);
+  });
+});
+
+describe("noiseDissolve", () => {
+  it("keeps a dissolved cell dissolved as progress increases (monotone per cell)", () => {
+    const progresses = [0, 0.2, 0.4, 0.6, 0.8, 1];
+    const outputs = progresses.map((progress) =>
+      evaluate(noiseDissolve, { progress, softness: 0.08, scale: 0.22, seed: 1 }),
+    );
+    for (let i = 0; i < outputs[0]!.coverage.length; i++) {
+      for (let step = 1; step < outputs.length; step++) {
+        expect(outputs[step]!.coverage[i]!).toBeLessThanOrEqual(outputs[step - 1]!.coverage[i]! + 1e-6);
+      }
+    }
+  });
+
+  it("is deterministic and varies across cells for a fixed progress", () => {
+    const params = { progress: 0.5, softness: 0.08, scale: 0.22, seed: 1 };
+    const first = evaluate(noiseDissolve, params);
+    const second = evaluate(noiseDissolve, params);
+    expect(first.coverage).toEqual(second.coverage);
+    expect(new Set(Array.from(first.coverage)).size).toBeGreaterThan(1);
+  });
+});
+
+describe("ripple", () => {
+  it("moves the radial band with time", () => {
+    const params = { time: 0, speed: 6, frequency: 0.5, width: 0.18, amount: 0.85, color: "#72d9ff" };
+    const cols = 12;
+    const rows = 6;
+    const cx = cols * 0.5;
+    const cy = rows * 0.5;
+    for (const time of [0, 1.3]) {
+      const output = evaluate(ripple, { ...params, time });
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const index = row * cols + col;
+          const x = col + 0.5;
+          const y = row + 0.5;
+          const phase = Math.hypot(x - cx, y - cy) * params.frequency - time * params.speed;
+          const distance = Math.abs(Math.sin(phase));
+          const strength = (1 - smoothstep(0, params.width, distance)) * params.amount;
+          expect(output.coverage[index]!).toBeCloseTo(strength, 5);
+        }
+      }
+    }
+  });
+
+  it("scales coverage by the color's alpha channel", () => {
+    const shared = { time: 0, speed: 0, frequency: 0.5, width: 0.5, amount: 1 };
+    const opaque = evaluate(ripple, { ...shared, color: "#72d9ffff" });
+    const halfAlpha = evaluate(ripple, { ...shared, color: "#72d9ff80" });
+    const expectedAlpha = parseGlyphEffectColor("#72d9ff80").opacity;
+    let sawNonZero = false;
+    for (let i = 0; i < opaque.coverage.length; i++) {
+      if (opaque.coverage[i]! <= 0) continue;
+      sawNonZero = true;
+      expect(halfAlpha.coverage[i]!).toBeCloseTo(opaque.coverage[i]! * expectedAlpha, 4);
+    }
+    expect(sawNonZero).toBe(true);
+  });
+});
+
+describe("fieldSynth", () => {
+  const COLS = 12;
+  const ROWS = 6;
+
+  function scenePoint(col: number, row: number, scale: number): [number, number] {
+    return [((col + 0.5) / COLS) * scale, ((row + 0.5) / ROWS) * scale];
+  }
+
+  function expectedWave(kind: string, t: number): number {
+    const p = t - Math.floor(t);
+    if (kind === "triangle") return 4 * Math.abs(p - 0.5) - 1;
+    if (kind === "saw") return 2 * p - 1;
+    if (kind === "square") return p < 0.5 ? 1 : -1;
+    return Math.sin(t * Math.PI * 2);
+  }
+
+  function expectedRaw(field: string, x: number, y: number, cx: number, cy: number): number {
+    switch (field) {
+      case "linearX": return x;
+      case "linearY": return y;
+      case "diagonal": return (x + y) * Math.SQRT1_2;
+      case "angular": return Math.atan2(y - cy, x - cx) / (Math.PI * 2);
+      case "spiral": return Math.hypot(x - cx, y - cy) + Math.atan2(y - cy, x - cx) / (Math.PI * 2);
+      default: return Math.hypot(x - cx, y - cy); // radial
+    }
+  }
+
+  function singleVoiceValue(
+    field: string,
+    wave: string,
+    freq: number,
+    x: number,
+    y: number,
+    cx: number,
+    cy: number,
+    bias = 0.5,
+    gain = 1,
+  ): number {
+    const raw = expectedRaw(field, x, y, cx, cy);
+    const combined = expectedWave(wave, raw * freq);
+    return Math.min(1, Math.max(0, bias + gain * combined * 0.5));
+  }
+
+  it("matches the documented sin/triangle/saw/square waveform shapes at known phases", () => {
+    const waves = ["sin", "triangle", "saw", "square"] as const;
+    for (const wave of waves) {
+      for (const t of [0, 0.25, 0.5, 0.75]) {
+        // freq1: 0 makes the oscillator spatially uniform; speed1: -1 turns the
+        // fixed `time` value directly into the wave's phase, isolating the
+        // waveform shape from the spatial field math tested separately below.
+        const output = evaluate(fieldSynth, {
+          space: "scene",
+          field1: "linearX",
+          wave1: wave,
+          freq1: 0,
+          speed1: -1,
+          amp1: 1,
+          amp2: 0,
+          amp3: 0,
+          amp4: 0,
+          amp5: 0,
+          amp6: 0,
+          combine: "add",
+          gain: 1,
+          bias: 0.5,
+          time: t,
+          color: "#7df9ff",
+        });
+        const expected = Math.min(1, Math.max(0, 0.5 + expectedWave(wave, t) * 0.5));
+        expect(output.coverage[0]!).toBeCloseTo(expected, 5);
+        expect(new Set(Array.from(output.coverage)).size).toBe(1);
+      }
+    }
+  });
+
+  it("keeps the radial field symmetric about the origin", () => {
+    const output = evaluate(fieldSynth, {
+      space: "scene",
+      field1: "radial",
+      wave1: "sin",
+      freq1: 3,
+      speed1: 0,
+      time: 0,
+      amp1: 1,
+      amp2: 0,
+      amp3: 0,
+      amp4: 0,
+      amp5: 0,
+      amp6: 0,
+      originU: 0.5,
+      originV: 0.5,
+      scale: 2,
+      combine: "add",
+    });
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const mirroredCol = COLS - 1 - col;
+        expect(output.coverage[row * COLS + mirroredCol]!).toBeCloseTo(output.coverage[row * COLS + col]!, 5);
+      }
+    }
+    for (let col = 0; col < COLS; col++) {
+      for (let row = 0; row < ROWS; row++) {
+        const mirroredRow = ROWS - 1 - row;
+        expect(output.coverage[mirroredRow * COLS + col]!).toBeCloseTo(output.coverage[row * COLS + col]!, 5);
+      }
+    }
+  });
+
+  it("varies the linearX field with column but not row, and linearY with row but not column", () => {
+    const base = {
+      space: "scene", freq1: 4, speed1: 0, time: 0, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, scale: 2, combine: "add", wave1: "saw",
+    } as const;
+    const linearX = evaluate(fieldSynth, { ...base, field1: "linearX" });
+    const linearY = evaluate(fieldSynth, { ...base, field1: "linearY" });
+
+    for (let col = 0; col < COLS; col++) {
+      const first = linearX.coverage[col]!;
+      for (let row = 1; row < ROWS; row++) expect(linearX.coverage[row * COLS + col]!).toBeCloseTo(first, 5);
+    }
+    expect(new Set(Array.from({ length: COLS }, (_, col) => linearX.coverage[col])).size).toBeGreaterThan(1);
+
+    for (let row = 0; row < ROWS; row++) {
+      const first = linearY.coverage[row * COLS]!;
+      for (let col = 1; col < COLS; col++) expect(linearY.coverage[row * COLS + col]!).toBeCloseTo(first, 5);
+    }
+    expect(new Set(Array.from({ length: ROWS }, (_, row) => linearY.coverage[row * COLS])).size).toBeGreaterThan(1);
+  });
+
+  it("produces the documented value for diagonal/angular/spiral fields at known coordinates", () => {
+    const scale = 2;
+    const cx = 0.5 * scale;
+    const cy = 0.5 * scale;
+    const cases = [
+      { field: "diagonal", wave: "sin", freq: 5 },
+      { field: "angular", wave: "triangle", freq: 3 },
+      { field: "spiral", wave: "saw", freq: 2 },
+    ] as const;
+    const cells = [[2, 1], [9, 4], [6, 3]] as const;
+
+    for (const { field, wave, freq } of cases) {
+      const output = evaluate(fieldSynth, {
+        space: "scene", field1: field, wave1: wave, freq1: freq, speed1: 0, time: 0,
+        amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, scale, combine: "add",
+      });
+      for (const [col, row] of cells) {
+        const [x, y] = scenePoint(col, row, scale);
+        const expected = singleVoiceValue(field, wave, freq, x, y, cx, cy);
+        expect(output.coverage[row * COLS + col]!).toBeCloseTo(expected, 5);
+      }
+    }
+  });
+
+  it("keeps the noise field deterministic, bounded, spatially varying, and time-dependent", () => {
+    const params = {
+      space: "scene", field1: "noise", wave1: "sin", freq1: 3, speed1: 0.5, time: 1.2,
+      amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, scale: 2, gain: 1, bias: 0.5, combine: "add",
+    } as const;
+    const first = evaluate(fieldSynth, params);
+    const second = evaluate(fieldSynth, params);
+    expect(first.coverage).toEqual(second.coverage);
+    expect(Array.from(first.coverage).every((value) => value >= 0 && value <= 1)).toBe(true);
+    expect(new Set(Array.from(first.coverage)).size).toBeGreaterThan(1);
+
+    const laterTime = evaluate(fieldSynth, { ...params, time: params.time + 5 });
+    expect(laterTime.coverage).not.toEqual(first.coverage);
+  });
+
+  it("treats amp 0 as fully excluding a voice regardless of its other params", () => {
+    const base = {
+      space: "scene", field1: "radial", wave1: "sin", freq1: 4, speed1: 0.3, time: 0.7, amp1: 1,
+      amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "multiply", scale: 2,
+    } as const;
+    const withGarbageVoice2 = evaluate(fieldSynth, {
+      ...base, amp2: 0, field2: "noise", wave2: "square", freq2: 99, speed2: 123,
+    });
+    const withDefaultVoice2 = evaluate(fieldSynth, { ...base, amp2: 0 });
+    expect(withGarbageVoice2.coverage).toEqual(withDefaultVoice2.coverage);
+    expect(withGarbageVoice2.glyph).toEqual(withDefaultVoice2.glyph);
+  });
+
+  it("blends a low-amp voice as a mix weight instead of crushing the result via multiply", () => {
+    const output = evaluate(fieldSynth, {
+      space: "scene",
+      field1: "linearX", wave1: "square", freq1: 0, speed1: 0, amp1: 1,
+      field2: "linearX", wave2: "square", freq2: 0, speed2: -0.5, amp2: 0.05,
+      amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+      combine: "multiply",
+      gain: 1, bias: 0.5,
+      time: 1,
+      color: "#7df9ff",
+    });
+    // voice1: phase = -1*0 = 0 -> square(0) = +1 -> combined after voice1 = 1*1 = 1
+    // voice2: phase = -1*(-0.5) = 0.5 -> square(0.5) = -1
+    // mix-weight fold: combined = 1 + 0.05 * (multiply(1, -1) - 1) = 1 - 0.1 = 0.9
+    // value = clamp01(0.5 + 0.9*0.5) = 0.95 -- close to voice1 alone (1.0),
+    // not the near-zero crush a naive `combine(combined, amp*o)` multiply would give.
+    expect(output.coverage[0]!).toBeCloseTo(0.95, 5);
+    expect(output.coverage[0]!).toBeGreaterThan(0.8);
+    expect(new Set(Array.from(output.coverage)).size).toBe(1);
+  });
+
+  it("folds every combine mode through the documented amp mix-weight formula", () => {
+    const combineFn: Record<string, (a: number, b: number) => number> = {
+      add: (a, b) => a + b,
+      multiply: (a, b) => a * b,
+      max: (a, b) => Math.max(a, b),
+      min: (a, b) => Math.min(a, b),
+      difference: (a, b) => Math.abs(a - b),
+    };
+    const o1 = 1; // square(0) with freq1: 0, speed1: 0, time: 1
+    const o2 = -1; // square(0.5) with freq2: 0, speed2: -0.5, time: 1
+    const amp1 = 0.6;
+    const amp2 = 0.4;
+
+    for (const combine of ["add", "multiply", "max", "min", "difference"] as const) {
+      const combinedAfterFirst = amp1 * o1;
+      const combinedAfterSecond = combinedAfterFirst + amp2 * (combineFn[combine]!(combinedAfterFirst, o2) - combinedAfterFirst);
+      const expected = Math.min(1, Math.max(0, 0.5 + combinedAfterSecond * 0.5));
+
+      const output = evaluate(fieldSynth, {
+        space: "scene",
+        field1: "linearX", wave1: "square", freq1: 0, speed1: 0, amp1,
+        field2: "linearX", wave2: "square", freq2: 0, speed2: -0.5, amp2,
+        amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+        combine, gain: 1, bias: 0.5, time: 1, color: "#7df9ff",
+      });
+      expect(output.coverage[0]!).toBeCloseTo(expected, 5);
+    }
+  });
+
+  it("blends active voices' colors by contribution when voiceColors is enabled", () => {
+    const equalWeight = {
+      space: "scene",
+      field1: "linearX", wave1: "square", freq1: 0, speed1: 0, amp1: 1, color1: "#ff0000",
+      field2: "linearX", wave2: "square", freq2: 0, speed2: 0, amp2: 1, color2: "#0000ff",
+      amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+      combine: "add", gain: 1, bias: 0.5, time: 1,
+      voiceColors: true,
+      color: "#111111", colorB: "#eeeeee", gradient: 1,
+    } as const;
+    const withVoiceColors = evaluate(fieldSynth, equalWeight);
+    const withoutVoiceColors = evaluate(fieldSynth, { ...equalWeight, voiceColors: false });
+
+    // Both voices share the same phase (freq: 0, speed: 0 => phase 0 => square = +1),
+    // so amp 1 vs amp 1 is an exact 50/50 blend of #ff0000 and #0000ff.
+    expect(withVoiceColors.color[0]).toBe((128 << 16) | (0 << 8) | 128);
+    expect(withVoiceColors.color[0]).not.toBe(parseGlyphEffectColor("#ff0000").packed);
+    expect(withVoiceColors.color[0]).not.toBe(parseGlyphEffectColor("#0000ff").packed);
+    expect(withVoiceColors.color[0]).not.toBe(withoutVoiceColors.color[0]);
+
+    const unequalWeight = evaluate(fieldSynth, { ...equalWeight, amp2: 0.5 });
+    const red = (unequalWeight.color[0]! >> 16) & 0xff;
+    const blue = unequalWeight.color[0]! & 0xff;
+    expect(red).toBeGreaterThan(blue); // voice1 (red) has more weight than voice2 (blue)
+  });
+
+  it("modulates output color by surface shade only when lit > 0", () => {
+    const shade = new Float32Array(COLS * ROWS).fill(0.25);
+    const params = {
+      space: "scene", field1: "linearX", wave1: "square", freq1: 0, speed1: 0, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", gain: 1, bias: 0.5, time: 1,
+      color: "#7df9ff", gradient: 0,
+    } as const;
+    const litOff = evaluate(fieldSynth, { ...params, lit: 0 }, { shade });
+    const litOn = evaluate(fieldSynth, { ...params, lit: 1 }, { shade });
+
+    const raw = parseGlyphEffectColor("#7df9ff").packed;
+    const scaleChannel = (channel: number, factor: number) => Math.round(channel * factor);
+    const expectedLit =
+      (scaleChannel((raw >> 16) & 0xff, 0.25) << 16) |
+      (scaleChannel((raw >> 8) & 0xff, 0.25) << 8) |
+      scaleChannel(raw & 0xff, 0.25);
+
+    expect(litOff.color[0]).toBe(raw);
+    expect(litOn.color[0]).toBe(expectedLit);
+    expect(litOn.color[0]).not.toBe(litOff.color[0]);
+  });
+
+  it("is deterministic for identical params and time on a generated surface", () => {
+    const params = {
+      space: "surface", field1: "spiral", wave1: "triangle", freq1: 3.5, speed1: 0.4, amp1: 1,
+      field2: "noise", wave2: "sin", freq2: 2, speed2: 0.2, amp2: 0.6,
+      amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", time: 4.25, scale: 2,
+    } as const;
+    const surface = cubeSurface("wall");
+    const first = evaluate(fieldSynth, params, surface);
+    const second = evaluate(fieldSynth, params, surface);
+    expect(first.glyph).toEqual(second.glyph);
+    expect(first.coverage).toEqual(second.coverage);
+    expect(first.color).toEqual(second.color);
+  });
+});
+
+describe("regression: blank-ramp glyphs are not stripped", () => {
+  it("renders a genuine blank ( ) cell for the darkest band of a leading-space ramp", () => {
+    // bias: 0.53 (not the schema default 0.5) so the darkest band lands just
+    // above zero (value 0.03) instead of exactly 0 — evaluate() skips writing
+    // a cell outright when value <= 0, so landing exactly on 0 would make this
+    // assertion pass vacuously (default-filled " ") instead of exercising the
+    // ramp-indexing write path.
+    const output = evaluate(fieldSynth, {
+      space: "scene", field1: "linearX", wave1: "square", freq1: 0, speed1: -0.5, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", gain: 1, bias: 0.53,
+      time: 1, glyphs: " .:-=+*#%@",
+    });
+    expect(output.channels[0]! & GlyphEffectOutputChannel.Glyph).toBeTruthy();
+    expect(output.glyph[0]).toBe(" ");
+  });
+
+  it("also renders blank for a Checkerboard-style two-glyph leading-space ramp", () => {
+    const output = evaluate(fieldSynth, {
+      space: "scene", field1: "linearX", wave1: "square", freq1: 0, speed1: -0.5, amp1: 1,
+      amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", gain: 1, bias: 0.53,
+      time: 1, glyphs: " █",
+    });
+    expect(output.channels[0]! & GlyphEffectOutputChannel.Glyph).toBeTruthy();
+    expect(output.glyph[0]).toBe(" ");
+  });
+
+  it("contrasts with a SET consumer (matrixRain) that still strips spaces from its glyph pattern", () => {
+    const output = evaluate(matrixRain, {
+      space: "scene", direction: "right", glyphs: " HOLA",
+      speedMin: 0, speedMax: 0, density: 1, trail: 14, seed: 2, time: 0,
+    });
+    const active = output.glyph.filter((_, index) => output.coverage[index]! > 0);
+    expect(active.length).toBeGreaterThan(0);
+    expect(active.every((glyph) => glyph !== " ")).toBe(true);
+  });
+});
+
+describe("regression: field-synth generated-surface isotropy", () => {
+  it("keeps a radial pattern isotropic on a generated surface even though cols (12) != rows (6)", () => {
+    // Two cells whose (Δu, Δv) offsets from the origin are transposes of each
+    // other on the generated wall surface: (col=6,row=0) -> (Δu,Δv)=(1.0,-0.5),
+    // (col=4,row=2) -> (Δu,Δv)=(0.5,-1.0). hypot(1.0,0.5) === hypot(0.5,1.0), so
+    // an isotropic radial field must read the same value at both cells. If the
+    // generated-surface coordinate were ever normalized per-axis by sceneCols
+    // (12) vs sceneRows (6) again, this symmetry would break, because a col
+    // step and a row step would pick up different scale factors.
+    const scale = 1;
+    const cx = 0.5 * scale;
+    const cy = 0.5 * scale;
+    const output = evaluate(fieldSynth, {
+      space: "surface", field1: "radial", wave1: "sin", freq1: 2.5, speed1: 0, time: 0,
+      amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add",
+      originU: 0.5, originV: 0.5, scale,
+    }, cubeSurface("wall"));
+
+    const cellA = 0 * 12 + 6; // col=6, row=0
+    const cellB = 2 * 12 + 4; // col=4, row=2
+    expect(output.coverage[cellA]!).toBeCloseTo(output.coverage[cellB]!, 5);
+  });
+});
+
+describe("effect presets", () => {
+  it("validates every catalog effect's shipped presets against its own schema and evaluates cleanly", () => {
+    for (const effect of GlyphEffectCatalog) {
+      const presets = effect.presets ?? [];
+      for (const preset of presets) {
+        for (const key of Object.keys(preset.params)) {
+          expect(key in effect.parameterSchema).toBe(true);
+        }
+        const overrides = preset.params as Record<string, number | string | boolean>;
+        let output: ReturnType<typeof evaluate> | undefined;
+        expect(() => {
+          output = evaluate(effect, overrides);
+        }).not.toThrow();
+        const wroteChannel = Array.from(output!.channels).some((channel) => channel !== 0);
+        const wroteCoverage = Array.from(output!.coverage).some((coverage) => coverage > 0);
+        expect(wroteChannel || wroteCoverage).toBe(true);
+      }
+    }
+  });
+
+  it("ships the field-synth preset gallery documented in AGENTS.md (~18 curated presets)", () => {
+    expect(fieldSynth.presets?.length).toBeGreaterThanOrEqual(18);
   });
 });
