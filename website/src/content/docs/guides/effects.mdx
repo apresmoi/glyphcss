@@ -1,6 +1,6 @@
 ---
 title: Glyph Effects
-description: Apply reusable Matrix rain, flowing text, scan, wipe, glitch, dissolve, and ripple programs to retained glyph surfaces.
+description: Apply reusable Matrix rain, flowing text, scan, wipe, glitch, dissolve, ripple, and field synth programs to retained glyph surfaces.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
@@ -17,8 +17,8 @@ Install the optional catalog alongside the binding you use:
 pnpm add @glyphcss/effects glyphcss
 ```
 
-The initial catalog contains `matrixRain`, `flowText`, `scan`, `wipe`,
-`scramble`, `glitch`, `noiseDissolve`, and `ripple`.
+The catalog contains `matrixRain`, `flowText`, `scan`, `wipe`, `scramble`,
+`glitch`, `noiseDissolve`, `ripple`, and `fieldSynth`.
 
 ## Mount an effect
 
@@ -189,6 +189,143 @@ single `Monochrome color`. Monochrome strands multiply that hue by the retained
 surface shade, so lighting, shadows, texture luminance, and the 3D silhouette
 remain visible.
 
+## Field synth
+
+`fieldSynth` is a small composable synth: up to six oscillators, each a
+spatial **field** (`radial`, `linearX`, `linearY`, `diagonal`, `angular`,
+`spiral`, `noise`) sampled through a **waveform** (`sin`, `triangle`, `saw`,
+`square`), combined into one scalar and mapped to a glyph ramp and color. It
+is the glyph-grid analogue of a fragment shader running over projected
+surfaces — composing and interfering a handful of oscillators is where the
+emergent moiré, plaid, sonar, and lattice patterns come from.
+
+### Voices
+
+Each of the six voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
+`field6`/`wave6`/`freq6`/`speed6`/`amp6`) is independent:
+
+- `fieldN` — the spatial field the oscillator samples. `radial` measures
+  distance from the origin, `angular` measures the angle around it, `spiral`
+  combines both, `linearX`/`linearY`/`diagonal` are axis-aligned ramps, and
+  `noise` is a 3D value-noise field that evolves in place over `time` (rather
+  than sliding across the surface the way the other fields do at nonzero
+  `speedN`).
+- `waveN` — the waveform applied to the sampled field value.
+- `freqN` — spatial frequency, in cycles per unit.
+- `speedN` — animation rate, in cycles per second (`time` drives phase).
+- `ampN` — a **mix weight**, not a signal gain. The first active voice enters
+  the combine chain at its weight; every later active voice then blends the
+  running result toward `combine(result, voice)` by its own `ampN`. `ampN: 0`
+  skips that voice entirely rather than forcing the combined result toward
+  zero the way a `multiply` gain of `0` would, and a low `ampN` gently mixes
+  a voice in instead of crushing the field.
+
+### Combine, gain, bias
+
+`combine` (`add` / `multiply` / `max` / `min` / `difference`) is the binary
+operator active voices are folded through, pairwise, in voice order. `gain`
+(contrast) and `bias` (brightness) then map the combined scalar to `0..1` for
+output: `value = clamp01(bias + gain * combined * 0.5)`.
+
+### Placement: scale and origin
+
+`scale` sets pattern frequency without changing scene glyph density.
+`originU`/`originV` place the center that `radial`, `angular`, and `spiral`
+measure from. On generated surface coordinates (no usable authored UV),
+origin resolves **per face**: `originU: 0.5, originV: 0.5` centers the
+pattern on each visible face's own covered UV bounds rather than on one fixed
+point in world space, so radial/spiral patterns stay centered as the camera
+moves between faces.
+
+### Output: ramp, color, lighting
+
+- `glyphs` is a **ramp** indexed by the mapped `0..1` value (dark → dense),
+  not a random-pick character set — see [`GlyphRamps`](#glyphramps) below, or
+  author a string such as `" .:-=+*#%@"`. A leading space renders a
+  genuinely blank cell, giving the ramp a true dark step.
+- `color` / `colorB` / `gradient` blend a single two-color gradient across
+  the mapped value (`gradient: 0` is solid `color`, `1` is a full blend to
+  `colorB`).
+- `voiceColors` (boolean, default `false`) replaces that single gradient
+  with a **per-voice** blend instead: each active voice's own `colorN` is
+  mixed into the cell color weighted by that voice's contribution, so the
+  output color composes through the mix rather than following one static
+  gradient.
+- `lit` (`0..1`, default `1`) modulates the resolved color by the surface's
+  Lambert shade, so scene lighting reads through the texture; `lit: 0` is
+  flat/unlit.
+
+`fieldSynth` shares the same `space: "auto" | "surface" | "scene"` mapping
+described [above](#composition-and-mapping).
+
+### Example
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import { GlyphEffects } from "@glyphcss/effects";
+
+const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+const synth = scene.addEffectLayer({
+  effect: GlyphEffects.fieldSynth,
+  blend: "replace",
+  params: {
+    field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1,
+    field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1,
+    combine: "multiply",
+    glyphs: " .:-=+*#%@",
+    color: "#ffcf5a",
+    colorB: "#ff4fa3",
+    gradient: 0.6,
+  },
+});
+
+function frame(now: number) {
+  synth.params.time = now / 1000;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+`fieldSynth` also ships curated named presets (`Sunburst`, `Ring pulse`,
+`Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
+`Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
+`Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`) as `{ name,
+params }` pairs — a quick starting point for `params`.
+
+### `GlyphRamps`
+
+Named character ramps (dark → dense) for `glyphs`-style params:
+
+```ts
+import { GlyphRamps } from "@glyphcss/effects";
+
+scene.addEffectLayer({
+  effect: GlyphEffects.fieldSynth,
+  params: { glyphs: GlyphRamps.Blocks },
+});
+```
+
+| Name | Ramp |
+|---|---|
+| `Fade` | `" .:-=+*#%@"` |
+| `Blocks` | `" ░▒▓█"` |
+| `Shades` | `" .·:;+=xX#"` |
+| `Dots` | `" .·•●"` |
+| `Binary` | `" 01"` |
+| `ASCII` | `" .,:;i1tfLCG08@"` |
+| `Hatch` | `" .-+=#"` |
+| `Stars` | `" .+*✦★"` |
+| `Digital` | `" .:i\|1oX#"` |
+
+### Design it live
+
+The [`/synth`](/synth) page is a dual-sidebar modular synth built on
+`fieldSynth`: add and remove voice cards (each with a live preview and a
+color swatch), toggle field/wave per voice with icon controls, tune per-voice
+mix, and adjust Stage, Mix, Output, and Lighting docks, with a live preset
+gallery to browse. The full patch is persisted to the URL, so a design can be
+shared or copied straight into `params`.
+
 ## Use Anime.js directly
 
 The layer handle deliberately exposes a stable flat parameter object. Anime.js
@@ -218,5 +355,5 @@ providing a wireframe/voxel fallback. It supports ordered `over`/`replace`
 layers and scene-root `surfaces`/`viewport` targets. Mesh-handle targeting,
 scene-image sampling/displacement, shader-like scratch graphs, surface-key and
 UV-footprint fields, and static compile/export of effects still reject
-explicitly. See the repository's `ANIMATIONS.md` for the approved graph and
-sampling architecture beyond this slice.
+explicitly. That broader graph and sampling architecture is planned future
+work beyond this slice.
