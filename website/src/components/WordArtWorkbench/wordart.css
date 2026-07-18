@@ -40,7 +40,7 @@
    default, so it fits a narrower column just fine — same row layout as the
    right Dock, just less horizontal padding around it. */
 .wa-rail {
-  flex: 0 0 190px;
+  flex: 0 0 340px;
   /* Flex items default to `min-width: auto` — the browser's automatic
      minimum-size algorithm lets a non-shrinking item (flex-shrink: 0) grow
      PAST its own flex-basis when a descendant's min-content width exceeds
@@ -401,7 +401,7 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
 }
 
 @media (max-width: 62rem) {
-  .wa-rail { flex-basis: 168px; }
+  .wa-rail { flex-basis: 300px; }
 }
 
 /* ── Mobile: viewport-primary + bottom drawers ─────────────────────────────
