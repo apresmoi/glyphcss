@@ -210,12 +210,20 @@ function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (
 }
 
 // Isolate one voice into osc-1 (amp 1) so a card can preview its solo contribution.
+// Colored through the SAME path the real render uses: when per-voice colors is
+// ON, osc-1 carries the voice's own `color{slot}` and `voiceColors: true`, so
+// `fieldSynth`'s evaluate() resolves the preview's color from that single active
+// voice (matching the trendline, which already reads `color{slot}`) — no CSS
+// override needed. When OFF, it falls back to the main `color`/`colorB`/`gradient`,
+// same as the rest of the scene.
 function soloParams(params: Params, slot: number): Params {
   const base = synthDefaults();
   for (let k = 1; k <= MAX_VOICES; k++) base[`amp${k}`] = 0;
   base.field1 = params[`field${slot}`]; base.wave1 = params[`wave${slot}`];
   base.freq1 = params[`freq${slot}`]; base.speed1 = params[`speed${slot}`]; base.amp1 = 1;
   base.space = params.space; base.scale = params.scale; base.glyphs = params.glyphs;
+  base.voiceColors = params.voiceColors === true;
+  base.color1 = params[`color${slot}`];
   base.color = params.color; base.colorB = params.colorB; base.gradient = params.gradient;
   base.gain = 1; base.bias = 0.5;
   return base;
@@ -375,7 +383,7 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
     const v = trendRef.current;
     path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30));
   }, []);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
     <div className="voice-card">
@@ -450,10 +458,20 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   const out = useFolder(gui, "Output", { open: true });
   useOption(out, "Ramp", RAMP_OPTS, matchRamp(s("glyphs")), (name) => { if (name !== "Custom" && GlyphRamps[name]) onParam("glyphs", GlyphRamps[name]); });
   useText(out, "Chars", s("glyphs"), (v) => onParam("glyphs", v));
-  useToggle(out, "Per-voice colors", params.voiceColors === true, (v) => onParam("voiceColors", v));
-  useColor(out, "Color", s("color"), (v) => onParam("color", v));
-  useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
-  useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
+  const voiceColorsOn = params.voiceColors === true;
+  useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
+  const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));
+  const colorBCtrl = useColor(out, "Color B", s("colorB"), (v) => onParam("colorB", v));
+  const gradientCtrl = useSlider(out, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
+  // Color/Color B/Gradient only drive output when per-voice colors is OFF — each
+  // voice's own color wins over them once it's on (see `fieldSynth`'s evaluate()).
+  // Grey them out via the same `DockController.setEnabled` every Dock primitive
+  // already exposes, rather than adding a bespoke disabled prop.
+  useEffect(() => {
+    colorCtrl?.setEnabled(!voiceColorsOn);
+    colorBCtrl?.setEnabled(!voiceColorsOn);
+    gradientCtrl?.setEnabled(!voiceColorsOn);
+  }, [colorCtrl, colorBCtrl, gradientCtrl, voiceColorsOn]);
 
   const light = useFolder(gui, "Lighting", { open: false });
   useSlider(light, "Amount", { min: 0, max: 1, step: 0.05 }, n("lit"), (v) => onParam("lit", v));
@@ -473,12 +491,20 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
 // action classes for visual consistency; the export logic itself lives in
 // `SynthWorkbench` (`handleExportCodepen` / `handleExportCopyHtml`) — this
 // component only renders the trigger + the two buttons + status readout.
-function SynthExportPanel({ onExportCodepen, onExportCopyHtml, exportStatus }: {
-  onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
+// On mobile this same panel doubles as the drawer opened by the `.dn-mobile-tabs`
+// Export tab (`open` → `is-mobile-open`, same mechanism as the gallery's Code
+// tab / `.gw-code-panel`) — desktop behavior (floating, collapsed by default,
+// toggled by its own header) is untouched.
+function SynthExportPanel({ id, open, onExportCodepen, onExportCopyHtml, exportStatus }: {
+  id?: string; open?: boolean; onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
 }): ReactNode {
   const [collapsed, setCollapsed] = useState(true);
+  // Opening via the mobile Export tab reveals the actions in one tap — like the
+  // gallery's Code tab — instead of requiring a second tap on the header once
+  // the drawer is already open.
+  useEffect(() => { if (open) setCollapsed(false); }, [open]);
   return (
-    <div className={`synth-export${collapsed ? " synth-export--collapsed" : ""}`}>
+    <div id={id} className={`synth-export${collapsed ? " synth-export--collapsed" : ""}${open ? " is-mobile-open" : ""}`}>
       <header className="gw-code-panel__head synth-export__head">
         <span className="gw-code-panel__legend">[ EXPORT ]</span>
         <div className="gw-code-panel__actions">
@@ -555,7 +581,7 @@ export default function SynthWorkbench() {
   // Mobile-only: which panel is open as a bottom drawer (null = viewport only).
   // Mirrors the gallery's `mobilePanel` pattern (same tab-bar/drawer mechanism,
   // same 760px breakpoint) so the two pages feel consistent on small screens.
-  const [mobilePanel, setMobilePanel] = useState<"voices" | "controls" | "presets" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"voices" | "controls" | "presets" | "export" | null>(null);
   useEffect(() => {
     if (!mobilePanel) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobilePanel(null); };
@@ -771,7 +797,7 @@ export default function SynthWorkbench() {
         </aside>
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
-          <SynthExportPanel onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
+          <SynthExportPanel id="synth-export-panel" open={mobilePanel === "export"} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
         </main>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
@@ -807,6 +833,15 @@ export default function SynthWorkbench() {
           onClick={() => setMobilePanel((current) => current === "presets" ? null : "presets")}
         >
           Presets
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "export" ? " is-active" : ""}`}
+          aria-controls="synth-export-panel"
+          aria-expanded={mobilePanel === "export"}
+          onClick={() => setMobilePanel((current) => current === "export" ? null : "export")}
+        >
+          Export
         </button>
       </nav>
     </div>

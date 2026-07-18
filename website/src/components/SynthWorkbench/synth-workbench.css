@@ -257,13 +257,21 @@
 }
 
 @media (max-width: 760px) {
-  /* Sits just above the mobile tab bar (same `--mobile-panel-bottom` offset
-     the drawers use) instead of the desktop `--overlay-bottom`, so it never
-     sits underneath/behind the fixed tab bar. */
+  /* Export becomes a bottom-drawer reachable only via the Export tab, mirroring
+     the gallery's `.gw-code-panel` mobile pattern (hidden until `.is-mobile-open`,
+     same `--mobile-panel-bottom` offset, same drawer z-index) instead of staying
+     always-visible and merely repositioning. Desktop's floating panel is untouched. */
   .dn-root--synth .synth-export {
+    display: none;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
     bottom: var(--mobile-panel-bottom);
-    max-width: calc(100% - var(--overlay-left) - var(--overlay-right));
+    width: auto;
+    max-width: none;
+    z-index: 25;
   }
+  .dn-root--synth .synth-export.is-mobile-open { display: flex; }
 }
 
 /* Combined-waveform scope, portaled into the right Dock's MIX folder above
@@ -320,9 +328,10 @@
    page): same 760px breakpoint, same `is-mobile-open` toggle driven by a
    bottom tab bar, viewport stays full-bleed and primary. The Voices rail,
    the Dock, and the preset footer all collapse into drawers instead of
-   fighting the render for space. `.dn-mobile-tabs`'s own chrome (buttons,
-   position) is already styled generically there; only the 3-tab grid and
-   the drawer positioning/toggle are synth-specific here. */
+   fighting the render for space. Export (the floating panel below) joins the
+   same tab bar as a 4th tab. `.dn-mobile-tabs`'s own chrome (buttons, position)
+   is already styled generically there; only the 4-tab grid and the drawer
+   positioning/toggle are synth-specific here. */
 @media (max-width: 760px) {
   .dn-root--synth {
     --mobile-tabs-height: 52px;
@@ -330,7 +339,7 @@
   }
 
   .dn-root--synth .dn-mobile-tabs {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   /* Voices rail: out of the flex flow so `.synth-main` fills the full width,
