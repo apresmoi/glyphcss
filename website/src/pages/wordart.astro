@@ -27,9 +27,14 @@ const description = 'Extrude any Google font into 3D text — gradients, block t
     :global(:root) { --sl-nav-height: 72px; }
     /* Mobile header is two rows (brand + nav) → taller; keep the shell below it. */
     @media (max-width: 38rem) { :global(:root) { --sl-nav-height: 90px; } }
-    :global(html, body) { margin: 0; background: #0a0b0d; color: #e8edf2; }
-    :global(body) { min-height: 100vh; overflow: hidden; font-family: system-ui, sans-serif; }
-    .page { min-height: 100vh; background: #0a0b0d; }
+    :global(html, body) {
+      margin: 0;
+      background: #07090d;
+      color: rgba(255, 232, 184, 0.94);
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+    }
+    :global(body) { min-height: 100vh; overflow: hidden; }
+    .page { min-height: 100vh; background: #07090d; }
     .debug-page-shell { position: fixed; inset: var(--sl-nav-height) 0 0; min-width: 0; min-height: 0; }
     /* WordArt is a full-screen app, not a docs page — hide the site search. */
     :global(.sidebar-search-dock) { display: none !important; }
