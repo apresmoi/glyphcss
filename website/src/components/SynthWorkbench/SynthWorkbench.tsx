@@ -208,9 +208,9 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
         </div>
         <IconToggle options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
         <IconToggle options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
-        <label className="voice-slider"><span>freq</span><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /><b>{num("freq").toFixed(1)}</b></label>
-        <label className="voice-slider"><span>speed</span><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /><b>{num("speed").toFixed(2)}</b></label>
-        <label className="voice-slider"><span>mix</span><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /><b>{num("amp").toFixed(2)}</b></label>
+        <label className="voice-slider"><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /></span><b>{num("freq").toFixed(1)}</b></label>
+        <label className="voice-slider"><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
+        <label className="voice-slider"><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
       </div>
     </div>
   );
@@ -316,6 +316,17 @@ export default function SynthWorkbench() {
   const [density, setDensity] = useState((initial?.d as number) ?? 1);
   const [lighting, setLighting] = useState<Lighting>(() => ({ ...DEFAULT_LIGHTING, ...((initial?.l as Partial<Lighting>) ?? {}) }));
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
+
+  // Mobile-only: which panel is open as a bottom drawer (null = viewport only).
+  // Mirrors the gallery's `mobilePanel` pattern (same tab-bar/drawer mechanism,
+  // same 760px breakpoint) so the two pages feel consistent on small screens.
+  const [mobilePanel, setMobilePanel] = useState<"voices" | "controls" | "presets" | null>(null);
+  useEffect(() => {
+    if (!mobilePanel) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobilePanel(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobilePanel]);
 
   const paramsRef = useRef(params); paramsRef.current = params;
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
@@ -509,9 +520,9 @@ export default function SynthWorkbench() {
   }, [buildSynthExport]);
 
   return (
-    <div className="synth-shell dn-root">
+    <div className="synth-shell dn-root dn-root--synth">
       <div className="synth-body">
-        <aside className="synth-voices">
+        <aside id="synth-voices-panel" className={`synth-voices${mobilePanel === "voices" ? " is-mobile-open" : ""}`}>
           <div className="synth-voices-head">
             <span>Voices</span>
             <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
@@ -526,13 +537,42 @@ export default function SynthWorkbench() {
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
         </main>
-        <Dock id="synth-controls-panel">
+        <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
         </Dock>
       </div>
-      <div className="synth-presets" role="list" aria-label="Pattern presets">
+      <div id="synth-presets-panel" className={`synth-presets${mobilePanel === "presets" ? " is-mobile-open" : ""}`} role="list" aria-label="Pattern presets">
         {presets.map((p) => <PresetTile key={p.name} preset={p} onApply={() => applyPreset(p)} />)}
       </div>
+      <nav className="dn-mobile-tabs" aria-label="Synth panels">
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "voices" ? " is-active" : ""}`}
+          aria-controls="synth-voices-panel"
+          aria-expanded={mobilePanel === "voices"}
+          onClick={() => setMobilePanel((current) => current === "voices" ? null : "voices")}
+        >
+          Voices
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "controls" ? " is-active" : ""}`}
+          aria-controls="synth-controls-panel"
+          aria-expanded={mobilePanel === "controls"}
+          onClick={() => setMobilePanel((current) => current === "controls" ? null : "controls")}
+        >
+          Controls
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "presets" ? " is-active" : ""}`}
+          aria-controls="synth-presets-panel"
+          aria-expanded={mobilePanel === "presets"}
+          onClick={() => setMobilePanel((current) => current === "presets" ? null : "presets")}
+        >
+          Presets
+        </button>
+      </nav>
     </div>
   );
 }

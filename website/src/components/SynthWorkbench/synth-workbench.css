@@ -21,6 +21,7 @@
   --overlay-top: 12px;
   --overlay-right: 12px;
   --overlay-bottom: 12px;
+  --overlay-left: 12px;
 }
 /* Top region: voices rail + viewport (+ floating Dock). The footer sits below. */
 .synth-body {
@@ -122,25 +123,61 @@
 }
 .gx-select select:focus { outline: none; border-color: rgba(56, 189, 248, 0.7); }
 
-/* glyphcss slider — filled track + square thumb (matches the Dock look) */
-.voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 10px; color: rgba(255, 232, 184, 0.55); }
-.voice-slider b { color: rgba(56, 189, 248, 0.95); font-weight: 500; text-align: right; font-size: 10px; }
+/* glyphcss slider — pixel-matches the right Dock's lil-gui `.controller.number
+   .slider`/`.fill` look: a 10px bracketed `[ ─█──── ]` bar, cyan gradient fill
+   with a bright hard-edged cap, and a cyan bracket-underlined number readout.
+   See `.dn-floating-controls .lil-gui .controller.number .slider` in
+   gallery-workbench.css (the Dock's shared stylesheet, imported by this page)
+   for the source of truth these values are copied from. */
+.voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 11px; }
+.voice-slider span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
+.voice-slider b {
+  color: #38bdf8; font-weight: 400; text-align: right; font-size: 11px;
+  font-family: inherit; padding: 1px 0; margin-left: -7px;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18);
+}
+/* Wrapper reserves the 8px on each side the `[ … ]` bracket pseudos sit in —
+   mirrors the Dock's `.controller.number .widget { padding-inline: 8px }`. */
+.voice-slider-track { position: relative; padding-inline: 8px; }
+.voice-slider-track::before,
+.voice-slider-track::after {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.55); pointer-events: none;
+}
+.voice-slider-track::before { content: "["; left: 0; }
+.voice-slider-track::after { content: "]"; right: 0; }
 .voice-slider input[type="range"] {
-  -webkit-appearance: none; appearance: none; width: 100%; height: 14px; margin: 0; background: transparent; cursor: pointer;
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 10px; margin: 0;
+  background: transparent; cursor: ew-resize;
 }
 .voice-slider input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 0;
-  background: linear-gradient(90deg, #38bdf8 var(--fill, 0%), rgba(255, 232, 184, 0.14) var(--fill, 0%));
+  height: 10px; border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.55) 0%,
+    #38bdf8 var(--fill, 0%),
+    rgba(255, 232, 184, 0.04) var(--fill, 0%)
+  );
 }
 .voice-slider input[type="range"]::-moz-range-track {
-  height: 4px; background: linear-gradient(90deg, #38bdf8 var(--fill, 0%), rgba(255, 232, 184, 0.14) var(--fill, 0%));
+  height: 10px; border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  background: rgba(255, 232, 184, 0.04);
+}
+.voice-slider input[type="range"]::-moz-range-progress {
+  height: 10px; border-radius: 0;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.55), #38bdf8);
 }
 .voice-slider input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; width: 4px; height: 14px; margin-top: -5px;
-  background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
+  -webkit-appearance: none; appearance: none; width: 2px; height: 10px; margin-top: 0;
+  background: #38bdf8; border: none; border-radius: 0;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
 }
 .voice-slider input[type="range"]::-moz-range-thumb {
-  width: 4px; height: 14px; background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
+  width: 2px; height: 10px; background: #38bdf8; border: none; border-radius: 0;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
 }
 
 
@@ -168,4 +205,114 @@
 
 @media (max-width: 62rem) {
   .synth-voices { flex-basis: 300px; }
+}
+
+/* ── Mobile: viewport-primary + bottom drawers ─────────────────────────────
+   Mirrors the gallery's mobile pattern (`.dn-root--gallery` rules + the
+   `.dn-mobile-tabs` bar, both in gallery-workbench.css, imported by this
+   page): same 760px breakpoint, same `is-mobile-open` toggle driven by a
+   bottom tab bar, viewport stays full-bleed and primary. The Voices rail,
+   the Dock, and the preset footer all collapse into drawers instead of
+   fighting the render for space. `.dn-mobile-tabs`'s own chrome (buttons,
+   position) is already styled generically there; only the 3-tab grid and
+   the drawer positioning/toggle are synth-specific here. */
+@media (max-width: 760px) {
+  .dn-root--synth {
+    --mobile-tabs-height: 52px;
+    --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
+  }
+
+  .dn-root--synth .dn-mobile-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* Voices rail: out of the flex flow so `.synth-main` fills the full width,
+     shown as a bottom drawer like the gallery's `.models-sidebar`. */
+  .dn-root--synth .synth-voices {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    flex-basis: auto;
+    width: auto;
+    height: min(60vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+    z-index: 25;
+    border: 1px solid rgba(255, 232, 184, 0.22);
+  }
+  .dn-root--synth .synth-voices.is-mobile-open { display: flex; }
+
+  /* Dock: same bottom-drawer treatment as `.dn-root--gallery .dn-floating-controls`,
+     but the drawer itself owns the scroll (`overflow-y: auto`) instead of nesting
+     a second scroll region inside `.lil-gui.root` — with Stage/Mix/Output open by
+     default (unlike the gallery dock, which starts fully collapsed), the content
+     reliably exceeds the drawer height and the Export folder must stay reachable
+     by scrolling, so the scroll container needs to actually work. Chaining
+     `overflow-y: auto` through a `height: 100%` flex descendant into `.lil-gui.root`'s
+     own `overflow-y: auto` (its normal desktop behavior) measured a stale 0-scroll
+     `scrollHeight === clientHeight` here even after the folder-open transition
+     settled, so `.lil-gui.root` is unclamped instead and left to size to its
+     natural content height. */
+  .dn-root--synth .dn-floating-controls {
+    display: none;
+    top: auto;
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    left: var(--overlay-left);
+    width: auto;
+    max-width: none;
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+    padding-top: 14px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 25;
+  }
+  .dn-root--synth .dn-floating-controls.is-mobile-open { display: flex; }
+  /* The desktop legend straddles the panel's top border via `top: 0; transform:
+     translateY(-50%)`, poking half its height above the box — clipped now that
+     this element itself scrolls. Pull it fully inside the padding reserved above. */
+  .dn-root--synth .dn-floating-controls::before {
+    top: 7px;
+    transform: none;
+  }
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host,
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+    width: 100% !important;
+    max-width: 100%;
+  }
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+    box-sizing: border-box;
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  /* Presets: out of the footer flow (so `.synth-body` fills the freed height)
+     until opened, then a wrapping-grid bottom drawer — more browsable than
+     the desktop's single scrolling strip once it has real vertical room. */
+  .dn-root--synth .synth-presets {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    width: auto;
+    height: min(50vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 25;
+    border: 1px solid rgba(255, 232, 184, 0.22);
+    border-radius: 0;
+  }
+  .dn-root--synth .synth-presets.is-mobile-open { display: flex; }
 }
