@@ -30,3 +30,7 @@ website/public/skill.md
 
 # Local planning doc — kept out of git per project decision
 ANIMATIONS.md
+
+# Generated static-effect-export bench artifacts
+bench/static-effect-export/out/
+bench/static-effect-export/shots/
