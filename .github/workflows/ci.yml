@@ -41,5 +41,8 @@ jobs:
       - name: Build packages (DTS + JS)
         run: pnpm build:packages
 
+      - name: Type-check against built declarations
+        run: pnpm -r --if-present run test:types
+
       - name: Build website
         run: pnpm build:website
