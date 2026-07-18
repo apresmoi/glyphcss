@@ -24,6 +24,10 @@ export default defineConfig({
           replacement: repoPath('../packages/react/src/index.ts'),
         },
         {
+          find: /^@glyphcss\/effects$/,
+          replacement: repoPath('../packages/effects/src/index.ts'),
+        },
+        {
           find: /^@glyphcss\/vue$/,
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
@@ -89,6 +93,7 @@ export default defineConfig({
             { label: 'Performance', slug: 'guides/performance' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
             { label: 'Density & Detail', slug: 'guides/density' },
+            { label: 'Glyph Effects', slug: 'guides/effects' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
             { label: 'Coding agents', slug: 'guides/coding-agents' },
           ],

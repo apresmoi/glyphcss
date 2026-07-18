@@ -223,6 +223,30 @@ export function useColor(
   );
 }
 
+export function useText(
+  parent: GUI | null,
+  label: string,
+  value: string,
+  onChange: (next: string) => void,
+  isValid?: (next: string) => boolean,
+): DockController<string> | null {
+  const valueRef = useRef(value);
+  const isValidRef = useRef(isValid);
+  valueRef.current = value;
+  isValidRef.current = isValid;
+  return useControllerLifecycle(parent, label, value, onChange, (folder, proxy, cb) => {
+    const controller = folder.add(proxy, "value");
+    return controller.onChange((next: string) => {
+      if (isValidRef.current && !isValidRef.current(next)) {
+        proxy.value = valueRef.current;
+        controller.updateDisplay();
+        return;
+      }
+      cb(next);
+    });
+  });
+}
+
 export function useButton(
   parent: GUI | null,
   label: string,

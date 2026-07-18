@@ -150,6 +150,7 @@ export {
   GlyphScene,
   GlyphSceneStatic,
   GlyphMesh,
+  GlyphEffectLayer,
   GlyphGround,
   GlyphHotspot,
   GlyphSceneContextKey,
@@ -174,6 +175,9 @@ export type {
   GlyphSceneProps,
   GlyphSceneStaticProps,
   GlyphMeshProps,
+  GlyphEffectLayerComponent,
+  GlyphEffectLayerExposed,
+  GlyphEffectLayerProps,
   GlyphGroundProps,
   GlyphHotspotProps,
   GlyphSceneContextValue,
@@ -192,8 +196,19 @@ export type {
 // ── Mesh handle type ──────────────────────────────────────────────────────────
 export type { GlyphMeshHandle } from "glyphcss";
 
+// ── Cell-effect layer types ──────────────────────────────────────────────────
+export type {
+  GlyphEffectLayerHandle,
+  GlyphEffectTarget,
+  GlyphEffectBlend,
+} from "glyphcss";
+
 // ── Shadow options ────────────────────────────────────────────────────────────
 export type { GlyphShadowOptions } from "glyphcss";
+
+// ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ───────
+export { rasterizeToCells, buildCellGrid, applyCellHook } from "glyphcss";
+export type { CellGrid, TransformCells } from "glyphcss";
 
 // ── Event types ───────────────────────────────────────────────────────────────
 export type {

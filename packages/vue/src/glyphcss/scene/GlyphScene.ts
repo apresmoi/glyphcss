@@ -9,7 +9,13 @@
 import { defineComponent, h, provide, shallowRef, onMounted, onBeforeUnmount, watch } from "vue";
 import type { PropType } from "vue";
 import type { RenderMode } from "@glyphcss/core";
-import type { GlyphSceneOptions, GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "glyphcss";
+import type {
+  GlyphSceneOptions,
+  GlyphDirectionalLight,
+  GlyphAmbientLight,
+  GlyphShadowOptions,
+  TransformCells,
+} from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
 import { useGlyphCameraContext } from "../camera/context";
 import { GlyphSceneContextKey } from "./context";
@@ -36,6 +42,11 @@ export interface GlyphSceneProps {
    * components to enable shadow casting.
    */
   shadow?: GlyphShadowOptions;
+  /**
+   * Optional post-rasterize cell hook. Runs on the final glyph grid before the
+   * single `<pre>` write. Removing the prop restores the untransformed output.
+   */
+  transformCells?: TransformCells;
   class?: string;
 }
 
@@ -54,6 +65,7 @@ export const GlyphScene = defineComponent({
     autoSize: { type: Boolean, default: undefined },
     interactiveDownscale: { type: Number, default: undefined },
     shadow: { type: Object as PropType<GlyphShadowOptions>, default: undefined },
+    transformCells: { type: Function as PropType<TransformCells>, default: undefined },
     class: { type: String, default: undefined },
   },
   setup(props, { slots, attrs }) {
@@ -80,6 +92,7 @@ export const GlyphScene = defineComponent({
       if (props.autoSize !== undefined) opts.autoSize = props.autoSize;
       if (props.interactiveDownscale !== undefined) opts.interactiveDownscale = props.interactiveDownscale;
       if (props.shadow !== undefined) opts.shadow = props.shadow;
+      if (props.transformCells !== undefined) opts.transformCells = props.transformCells;
       if (cameraRef.value !== null) opts.camera = cameraRef.value;
       sceneRef.value = createGlyphScene(el, opts);
       // Register the rerender callback with the camera context so prop changes
@@ -107,6 +120,7 @@ export const GlyphScene = defineComponent({
         autoSize: props.autoSize,
         interactiveDownscale: props.interactiveDownscale,
         shadow: props.shadow,
+        transformCells: props.transformCells,
       }),
       (next) => {
         const scene = sceneRef.value;
@@ -125,6 +139,8 @@ export const GlyphScene = defineComponent({
         // Always forward shadow (including undefined) so setOptions can clear it
         // when the prop is removed. Uses the "in" check in vanilla setOptions.
         partial.shadow = next.shadow;
+        // Always forward the hook so removing the prop clears it in vanilla.
+        partial.transformCells = next.transformCells;
         if (Object.keys(partial).length > 0) scene.setOptions(partial);
       },
       { deep: false },

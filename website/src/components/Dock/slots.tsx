@@ -12,6 +12,11 @@ import { useAnimationFolder, type AnimationFolderInputs } from "./folders/useAni
 import { useCameraFolder, type CameraFolderInputs } from "./folders/useCameraFolder";
 import { useLightingFolder, type LightingFolderInputs } from "./folders/useLightingFolder";
 import { useShadowFolder, type ShadowFolderInputs } from "./folders/useShadowFolder";
+import {
+  EffectParameterControls,
+  useEffectsFolder,
+  type EffectsFolderInputs,
+} from "./folders/useEffectsFolder";
 
 export const DockGuiContext = createContext<GUI | null>(null);
 
@@ -32,6 +37,11 @@ export function DockRendering(inputs: RenderingFolderInputs): null {
 export function DockAnimation(inputs: AnimationFolderInputs): null {
   useAnimationFolder(useDockGui(), inputs);
   return null;
+}
+
+export function DockEffects(inputs: EffectsFolderInputs) {
+  const folder = useEffectsFolder(useDockGui(), inputs);
+  return <EffectParameterControls folder={folder} inputs={inputs} />;
 }
 
 export function DockCamera(inputs: CameraFolderInputs): null {

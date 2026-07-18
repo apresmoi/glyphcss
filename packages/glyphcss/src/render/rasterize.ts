@@ -1,9 +1,9 @@
 import type { RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
 import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
-import type { Polygon, Vec3, TextureSampler } from "@glyphcss/core";
+import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
-import { applyCellHook, buildCellGrid } from "./cells";
+import { applyCellHook, buildCellGrid, encodeGlyphBuffers } from "./cells";
 import type { CellGrid } from "./cells";
 
 /**
@@ -174,7 +174,7 @@ export function rasterize(scene: RasterizeContext): string {
       }
     }
     const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows);
+    return solidBufToString(applied.char, applied.color, cols, rows, true);
   }
 
   return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs);
@@ -214,7 +214,7 @@ function rasterizeSolid(
   const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
   const rampMax = ramp.length - 1;
 
-  // Per-cell scratch buffers (glyph + colour + depth + optional worldPos). These
+  // Per-cell scratch buffers (glyph + colour + depth + optional surface fields). These
   // are cols*rows (up to ~80k entries at a fine supersampled grid) and were
   // allocated fresh every render — the dominant per-frame garbage, which shows up
   // as periodic GC frame-hitches. Reuse them across renders, stashed on the
@@ -223,12 +223,33 @@ function rasterizeSolid(
   const n = cols * rows;
   const useColors = scene.useColors;
   const reproject = scene.temporalBlend > 0 && !!scene.temporalHistory;
+  const needSurfaceUv = !!scene.transformCells && polygons.some((polygon) => (
+    polygon.uvs !== undefined && polygon.uvs.length >= polygon.vertices.length
+  ));
   const camHost = rawCamera as unknown as {
-    __glyphScratch?: { n: number; glyph: string[]; color: (string | null)[]; depth: Float64Array; world: Float32Array | null };
+    __glyphScratch?: {
+      n: number;
+      glyph: string[];
+      color: (string | null)[];
+      depth: Float64Array;
+      shade: Float32Array | null;
+      world: Float32Array | null;
+      normal: Float32Array | null;
+      surfaceUv: Float32Array | null;
+    };
   };
   let scratch = camHost.__glyphScratch;
   if (!scratch || scratch.n !== n) {
-    scratch = { n, glyph: new Array(n), color: new Array(n), depth: new Float64Array(n), world: null };
+    scratch = {
+      n,
+      glyph: new Array(n),
+      color: new Array(n),
+      depth: new Float64Array(n),
+      shade: null,
+      world: null,
+      normal: null,
+      surfaceUv: null,
+    };
     camHost.__glyphScratch = scratch;
   }
   // Glyph buffer: one char per cell (space = empty).
@@ -240,13 +261,33 @@ function rasterizeSolid(
   // GREATER than the existing buffer entry.
   const depthBuf = scratch.depth;
   depthBuf.fill(-Infinity);
-  // World-position buffer for reprojection TAA — only needed when temporal
-  // blending is on. NaN marks "no surface here" (empty cell).
+  let shadeBuf: Float32Array | null = null;
+  if (scene.retainShade) {
+    if (!scratch.shade || scratch.shade.length !== n) scratch.shade = new Float32Array(n);
+    shadeBuf = scratch.shade;
+    shadeBuf.fill(NaN);
+  }
+  // World position is shared by reprojection TAA and surface-space effects.
+  // NaN marks "no surface here" (empty cell).
   let worldPosBuf: Float32Array | null = null;
-  if (reproject) {
+  if (reproject || scene.retainWorldPosition) {
     if (!scratch.world || scratch.world.length !== n * 3) scratch.world = new Float32Array(n * 3);
     worldPosBuf = scratch.world;
     worldPosBuf.fill(NaN);
+  }
+  let normalBuf: Float32Array | null = null;
+  if (scene.retainNormal) {
+    if (!scratch.normal || scratch.normal.length !== n * 3) scratch.normal = new Float32Array(n * 3);
+    normalBuf = scratch.normal;
+    normalBuf.fill(NaN);
+  }
+  let surfaceUvBuf: Float32Array | null = null;
+  if (needSurfaceUv) {
+    if (!scratch.surfaceUv || scratch.surfaceUv.length !== n * 2) {
+      scratch.surfaceUv = new Float32Array(n * 2);
+    }
+    surfaceUvBuf = scratch.surfaceUv;
+    surfaceUvBuf.fill(NaN);
   }
 
   // Normalize the light direction once.
@@ -337,9 +378,9 @@ function rasterizeSolid(
     if (poly.hidden) { triT += verts.length - 2; continue; }
     // Texture for this polygon: sample per cell when a sampler + matching UVs
     // exist; otherwise fall back to the flat per-face color.
-    const polyUvs = poly.uvs;
+    const polyUvs = poly.uvs && poly.uvs.length >= verts.length ? poly.uvs : null;
     let polySampler: TextureSampler | null = null;
-    if (textureSamplers !== null && polyUvs && polyUvs.length >= verts.length) {
+    if (textureSamplers !== null && polyUvs) {
       const texUrl = polygonTexture(poly);
       if (texUrl) polySampler = textureSamplers.get(texUrl) ?? null;
     }
@@ -401,24 +442,27 @@ function rasterizeSolid(
       // shadeCache (lazily filled by positional triangle index). On a camera-
       // only change (orbit/zoom drag) every populated entry is a hit; the scene
       // clears the cache when geometry, light, or shading options change.
-      let iA: number, iB: number, iC: number;
-      let litColor: string | null = null;
-      if (shadeCache !== null && shadeCache.iA[triT] !== undefined) {
-        iA = shadeCache.iA[triT]!;
-        iB = shadeCache.iB[triT]!;
-        iC = shadeCache.iC[triT]!;
-        litColor = shadeCache.lit[triT]!;
-      } else {
-        // Face normal in world space (for flat shading or as a fallback when
-        // vertex normals aren't computed).
+      const shadeCacheHit = shadeCache !== null && shadeCache.iA[triT] !== undefined;
+      let fnxN = 0, fnyN = 0, fnzN = 0;
+      if (normalBuf !== null || !shadeCacheHit) {
         const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
         const vvx = v2[0] - v0[0], vvy = v2[1] - v0[1], vvz = v2[2] - v0[2];
         const fnx = uy * vvz - uz * vvy;
         const fny = uz * vvx - ux * vvz;
         const fnz = ux * vvy - uy * vvx;
         const fnLen = Math.hypot(fnx, fny, fnz) || 1;
-        const fnxN = fnx / fnLen, fnyN = fny / fnLen, fnzN = fnz / fnLen;
-
+        fnxN = fnx / fnLen;
+        fnyN = fny / fnLen;
+        fnzN = fnz / fnLen;
+      }
+      let iA: number, iB: number, iC: number;
+      let litColor: string | null = null;
+      if (shadeCacheHit && shadeCache !== null) {
+        iA = shadeCache.iA[triT]!;
+        iB = shadeCache.iB[triT]!;
+        iC = shadeCache.iC[triT]!;
+        litColor = shadeCache.lit[triT]!;
+      } else {
         // Pick per-vertex normals. Smooth-shaded → look up from precomputed
         // table. Flat-shaded → all three vertices use the face normal.
         let nAx: number, nAy: number, nAz: number;
@@ -498,6 +542,13 @@ function rasterizeSolid(
       // Per-cell texture context for this triangle (null when not textured). The
       // tint is the same per-triangle light multiplier the flat path bakes into
       // litColor — here it shades each sampled texel instead of one base color.
+      let surfaceUvCtx: ScanFillSurfaceUvCtx | null = null;
+      if (surfaceUvBuf !== null && polyUvs) {
+        const uvA = polyUvs[vi0]!, uvB = polyUvs[vi1]!, uvC = polyUvs[vi2]!;
+        surfaceUvCtx = {
+          ua: uvA[0], va: uvA[1], ub: uvB[0], vb: uvB[1], uc: uvC[0], vc: uvC[1],
+        };
+      }
       let texCtx: ScanFillTexCtx | null = null;
       if (polySampler !== null && polyUvs) {
         const uvA = polyUvs[vi0]!, uvB = polyUvs[vi1]!, uvC = polyUvs[vi2]!;
@@ -519,15 +570,17 @@ function rasterizeSolid(
         // triangles are ordered perspective-correctly; ortho omits it → fall back
         // to the linear depth, which is already screen-linear there.
         scanFillTriangle(
-          pa[0], pa[1], (pa[3] ?? pa[2]) * biasScale, iA,
-          pb[0], pb[1], (pb[3] ?? pb[2]) * biasScale, iB,
-          pc[0], pc[1], (pc[3] ?? pc[2]) * biasScale, iC,
+          pa[0], pa[1], (pa[3] ?? pa[2]) * biasScale, pa[3] ?? 1, iA,
+          pb[0], pb[1], (pb[3] ?? pb[2]) * biasScale, pb[3] ?? 1, iB,
+          pc[0], pc[1], (pc[3] ?? pc[2]) * biasScale, pc[3] ?? 1, iC,
           ramp, rampMax, litColor,
-          glyphBuf, colorBuf, depthBuf,
+          glyphBuf, colorBuf, depthBuf, shadeBuf,
           cols, rows,
           makeShadowCtx(v0, v1, v2, receiveShadow),
           doubleSided,
           v0, v1, v2, worldPosBuf,
+          fnxN, fnyN, fnzN, normalBuf,
+          surfaceUvCtx, surfaceUvBuf,
           depthEpsilon,
           texCtx,
         );
@@ -538,8 +591,12 @@ function rasterizeSolid(
         // and per-vertex intensities are interpolated at the crossings.
         const cw: Vec3[] = [];
         const ci: number[] = [];
+        const cuv: Vec2[] | null = polyUvs ? [] : null;
         const tri: Vec3[] = [v0, v1, v2];
         const triI = [iA, iB, iC];
+        const triUv: [Vec2, Vec2, Vec2] | null = polyUvs
+          ? [polyUvs[vi0]!, polyUvs[vi1]!, polyUvs[vi2]!]
+          : null;
         const d0 = camera.eyeDepth(v0);
         const d1 = camera.eyeDepth(v1);
         const d2 = camera.eyeDepth(v2);
@@ -548,7 +605,11 @@ function rasterizeSolid(
           const n = (e + 1) % 3;
           const de = triD[e]!;
           const dn = triD[n]!;
-          if (de > 0) { cw.push(tri[e]!); ci.push(triI[e]!); }
+          if (de > 0) {
+            cw.push(tri[e]!);
+            ci.push(triI[e]!);
+            if (cuv && triUv) cuv.push(triUv[e]!);
+          }
           if ((de > 0) !== (dn > 0)) {
             const t = de / (de - dn);
             const ve = tri[e]!, vn = tri[n]!;
@@ -558,6 +619,13 @@ function rasterizeSolid(
               ve[2] + t * (vn[2] - ve[2]),
             ] as Vec3);
             ci.push(triI[e]! + t * (triI[n]! - triI[e]!));
+            if (cuv && triUv) {
+              const ue = triUv[e]!, un = triUv[n]!;
+              cuv.push([
+                ue[0] + t * (un[0] - ue[0]),
+                ue[1] + t * (un[1] - ue[1]),
+              ]);
+            }
           }
         }
         if (cw.length >= 3) {
@@ -566,19 +634,29 @@ function rasterizeSolid(
             const qa = cp[0]!, qb = cp[f]!, qc = cp[f + 1]!;
             const area2c = (qb[0] - qa[0]) * (qc[1] - qa[1]) - (qb[1] - qa[1]) * (qc[0] - qa[0]);
             if (!doubleSided && area2c > 0) continue;
+            const clippedUvCtx: ScanFillSurfaceUvCtx | null = surfaceUvBuf !== null && cuv
+              ? {
+                  ua: cuv[0]![0], va: cuv[0]![1],
+                  ub: cuv[f]![0], vb: cuv[f]![1],
+                  uc: cuv[f + 1]![0], vc: cuv[f + 1]![1],
+                }
+              : null;
             scanFillTriangle(
-              qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, ci[0]!,
-              qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, ci[f]!,
-              qc[0], qc[1], (qc[3] ?? qc[2]) * biasScale, ci[f + 1]!,
+              qa[0], qa[1], (qa[3] ?? qa[2]) * biasScale, qa[3] ?? 1, ci[0]!,
+              qb[0], qb[1], (qb[3] ?? qb[2]) * biasScale, qb[3] ?? 1, ci[f]!,
+              qc[0], qc[1], (qc[3] ?? qc[2]) * biasScale, qc[3] ?? 1, ci[f + 1]!,
               ramp, rampMax, litColor,
-              glyphBuf, colorBuf, depthBuf,
+              glyphBuf, colorBuf, depthBuf, shadeBuf,
               cols, rows,
               makeShadowCtx(cw[0]!, cw[f]!, cw[f + 1]!, receiveShadow),
               doubleSided,
               cw[0]!, cw[f]!, cw[f + 1]!, worldPosBuf,
+              fnxN, fnyN, fnzN, normalBuf,
+              clippedUvCtx, surfaceUvBuf,
               depthEpsilon,
-              // Near-plane-clipped sub-triangles don't carry interpolated UVs;
-              // fall back to flat color (rare: textured face straddling the eye).
+              // Near-plane-clipped sub-triangles do not yet rebuild the bitmap
+              // texture sampling context; fall back to flat color for that rare
+              // eye-straddling case. Surface-effect UVs remain available above.
               null,
             );
           }
@@ -611,7 +689,22 @@ function rasterizeSolid(
         if (owner !== -1 && owner !== myId) {
           glyphBuf[idx] = " ";
           depthBuf[idx] = -Infinity;
+          if (shadeBuf) shadeBuf[idx] = NaN;
           if (colorBuf) colorBuf[idx] = null;
+          if (worldPosBuf) {
+            worldPosBuf[idx * 3] = NaN;
+            worldPosBuf[idx * 3 + 1] = NaN;
+            worldPosBuf[idx * 3 + 2] = NaN;
+          }
+          if (normalBuf) {
+            normalBuf[idx * 3] = NaN;
+            normalBuf[idx * 3 + 1] = NaN;
+            normalBuf[idx * 3 + 2] = NaN;
+          }
+          if (surfaceUvBuf) {
+            surfaceUvBuf[idx * 2] = NaN;
+            surfaceUvBuf[idx * 2 + 1] = NaN;
+          }
         }
       }
     }
@@ -622,29 +715,50 @@ function rasterizeSolid(
   // Final output buffers at the OUTPUT resolution (downsampled if supersampling).
   let finalGlyph = glyphBuf;
   let finalColor = colorBuf;
+  let finalDepth = depthBuf;
+  let finalShade: Float32Array | null = shadeBuf;
   let finalWorldPos: Float32Array | null = worldPosBuf;
+  let finalNormal: Float32Array | null = normalBuf;
+  let finalSurfaceUv: Float32Array | null = surfaceUvBuf;
   if (supersample > 1) {
-    const ds = downsampleSolid(glyphBuf, colorBuf, depthBuf, worldPosBuf, outCols, outRows, supersample, ramp);
+    const ds = downsampleSolid(
+      glyphBuf,
+      colorBuf,
+      depthBuf,
+      shadeBuf,
+      worldPosBuf,
+      normalBuf,
+      surfaceUvBuf,
+      outCols,
+      outRows,
+      supersample,
+      ramp,
+    );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
+    finalDepth = ds.depth;
+    finalShade = ds.shade;
     finalWorldPos = ds.worldPos;
+    finalNormal = ds.normal;
+    finalSurfaceUv = ds.surfaceUv;
   }
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
   }
   // Post-rasterize cell hook (M4 composition effects). No-op + byte-identical
   // when scene.transformCells is absent (block skipped entirely). Output-res
-  // depth is available only at supersample===1; else buildCellGrid derives a
-  // coverage proxy. Runs BEFORE the single string is built (<pre>-write-once).
+  // depth/surface fields share one representative winner after downsampling.
+  // Runs BEFORE the single string is built (<pre>-write-once).
   if (scene.transformCells) {
     const applied = applyCellHook(
       scene.transformCells, finalGlyph, finalColor,
-      supersample > 1 ? null : depthBuf, outCols, outRows,
+      finalDepth, outCols, outRows, finalSurfaceUv, finalShade,
+      finalWorldPos, finalNormal,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
   }
-  const out = solidBufToString(finalGlyph, finalColor, outCols, outRows);
+  const out = solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
   return out;
 }
@@ -767,23 +881,41 @@ function downsampleSolid(
   glyphBuf: string[],
   colorBuf: (string | null)[] | null,
   depthBuf: Float64Array,
+  shadeBuf: Float32Array | null,
   worldPosIn: Float32Array | null,
+  normalIn: Float32Array | null,
+  surfaceUvIn: Float32Array | null,
   outCols: number,
   outRows: number,
   S: number,
   ramp: string[],
-): { glyphBuf: string[]; colorBuf: (string | null)[] | null; worldPos: Float32Array | null } {
+): {
+  glyphBuf: string[];
+  colorBuf: (string | null)[] | null;
+  depth: Float64Array;
+  shade: Float32Array | null;
+  worldPos: Float32Array | null;
+  normal: Float32Array | null;
+  surfaceUv: Float32Array | null;
+} {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
   const rampMax = ramp.length - 1;
   const inCols = outCols * S;
   const og: string[] = new Array(outCols * outRows).fill(" ");
   const oc: (string | null)[] | null = colorBuf ? new Array(outCols * outRows).fill(null) : null;
+  const od = new Float64Array(outCols * outRows);
+  od.fill(-Infinity);
+  const os: Float32Array | null = shadeBuf ? new Float32Array(outCols * outRows).fill(NaN) : null;
   const ow: Float32Array | null = worldPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const on: Float32Array | null = normalIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const ouv: Float32Array | null = surfaceUvIn ? new Float32Array(outCols * outRows * 2).fill(NaN) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
     for (let ox = 0; ox < outCols; ox++) {
-      let idxSum = 0, cov = 0, r = 0, g = 0, b = 0, wx = 0, wy = 0, wz = 0;
+      let idxSum = 0, shadeSum = 0, cov = 0, r = 0, g = 0, b = 0;
+      let representativeDistance = Infinity;
+      let representative = -1;
       for (let sy = 0; sy < S; sy++) {
         const base = (oy * S + sy) * inCols + ox * S;
         for (let sx = 0; sx < S; sx++) {
@@ -793,9 +925,16 @@ function downsampleSolid(
           // in `glyphBuf`. Using depth keeps dim surfaces (and their colour).
           if (depthBuf[si] === -Infinity) continue;
           idxSum += rampIndex.get(glyphBuf[si]!) ?? 0;
+          if (os) shadeSum += shadeBuf![si]!;
           cov++;
           if (oc) { const c = colorBuf![si]; if (c) { const rgb = hexToRgb(c); r += rgb[0]; g += rgb[1]; b += rgb[2]; } }
-          if (ow) { wx += worldPosIn![si * 3]!; wy += worldPosIn![si * 3 + 1]!; wz += worldPosIn![si * 3 + 2]!; }
+          const dx = sx - (S - 1) / 2;
+          const dy = sy - (S - 1) / 2;
+          const distance = dx * dx + dy * dy;
+          if (distance < representativeDistance) {
+            representativeDistance = distance;
+            representative = si;
+          }
         }
       }
       const oi = oy * outCols + ox;
@@ -803,11 +942,26 @@ function downsampleSolid(
       let gi = Math.round(idxSum * inv); // coverage-weighted intensity (empty subcells = 0)
       if (gi < 0) gi = 0; else if (gi > rampMax) gi = rampMax;
       og[oi] = ramp[gi]!;
+      od[oi] = depthBuf[representative]!;
+      if (os) os[oi] = shadeSum * inv;
       if (oc) oc[oi] = `#${toHex2(r / cov)}${toHex2(g / cov)}${toHex2(b / cov)}`;
-      if (ow) { ow[oi * 3] = wx / cov; ow[oi * 3 + 1] = wy / cov; ow[oi * 3 + 2] = wz / cov; }
+      if (ow && representative >= 0) {
+        ow[oi * 3] = worldPosIn![representative * 3]!;
+        ow[oi * 3 + 1] = worldPosIn![representative * 3 + 1]!;
+        ow[oi * 3 + 2] = worldPosIn![representative * 3 + 2]!;
+      }
+      if (on && representative >= 0) {
+        on[oi * 3] = normalIn![representative * 3]!;
+        on[oi * 3 + 1] = normalIn![representative * 3 + 1]!;
+        on[oi * 3 + 2] = normalIn![representative * 3 + 2]!;
+      }
+      if (ouv && representative >= 0) {
+        ouv[oi * 2] = surfaceUvIn![representative * 2]!;
+        ouv[oi * 2 + 1] = surfaceUvIn![representative * 2 + 1]!;
+      }
     }
   }
-  return { glyphBuf: og, colorBuf: oc, worldPos: ow };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv };
 }
 
 /**
@@ -875,6 +1029,11 @@ interface ScanFillTexCtx {
   ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
   // Per-triangle light multiplier (ambient + key·lambert) applied to each texel.
   tintR: number; tintG: number; tintB: number;
+}
+
+/** Authored face UVs retained for a post-rasterize surface-space cell effect. */
+interface ScanFillSurfaceUvCtx {
+  ua: number; va: number; ub: number; vb: number; uc: number; vc: number;
 }
 
 /**
@@ -1013,15 +1172,16 @@ function buildShadowMap(
 }
 
 function scanFillTriangle(
-  ax: number, ay: number, az: number, ia: number,
-  bx: number, by: number, bz: number, ib: number,
-  cx: number, cy: number, cz: number, ic: number,
+  ax: number, ay: number, az: number, aq: number, ia: number,
+  bx: number, by: number, bz: number, bq: number, ib: number,
+  cx: number, cy: number, cz: number, cq: number, ic: number,
   ramp: string[],
   rampMax: number,
   color: string | null,
   glyphBuf: string[],
   colorBuf: (string | null)[] | null,
   depthBuf: Float64Array,
+  shadeBuf: Float32Array | null,
   cols: number,
   rows: number,
   sh: ScanFillShadowCtx | null,
@@ -1030,6 +1190,10 @@ function scanFillTriangle(
   // (used by reprojection TAA). `worldPosBuf` is null when not needed.
   wv0: Vec3, wv1: Vec3, wv2: Vec3,
   worldPosBuf: Float32Array | null,
+  normalX: number, normalY: number, normalZ: number,
+  normalBuf: Float32Array | null,
+  surfaceUv: ScanFillSurfaceUvCtx | null,
+  surfaceUvBuf: Float32Array | null,
   // Relative depth-test deadband (0 = exact). A new triangle replaces the
   // current cell only when nearer by more than this fraction; near-coplanar
   // surfaces keep a stable winner instead of z-fighting frame to frame.
@@ -1049,6 +1213,9 @@ function scanFillTriangle(
   if (!doubleSided && area2 > 0) return;
   const invArea2 = 1 / area2;
   const ccw = area2 > 0;
+  const perspectiveAttributes = aq !== 1 || bq !== 1 || cq !== 1;
+  const interpolatePerspective = perspectiveAttributes
+    && (worldPosBuf !== null || surfaceUvBuf !== null || tex !== null);
 
   // Bounding box clamped to grid.
   let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
@@ -1087,12 +1254,51 @@ function scanFillTriangle(
       // ortho (≤0) fall through to the plain `>` test.
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
+        const invQ = interpolatePerspective
+          ? 1 / (wA * aq + wB * bq + wC * cq)
+          : invArea2;
         if (worldPosBuf !== null) {
-          // Per-cell world position (barycentric) for reprojection TAA.
+          // Perspective-correct world position for reprojection TAA. Ortho
+          // supplies q=1, reducing exactly to affine barycentrics.
           const o = idx * 3;
-          worldPosBuf[o] = (wA * wv0[0]! + wB * wv1[0]! + wC * wv2[0]!) * invArea2;
-          worldPosBuf[o + 1] = (wA * wv0[1]! + wB * wv1[1]! + wC * wv2[1]!) * invArea2;
-          worldPosBuf[o + 2] = (wA * wv0[2]! + wB * wv1[2]! + wC * wv2[2]!) * invArea2;
+          if (perspectiveAttributes) {
+            worldPosBuf[o] = (wA * aq * wv0[0]! + wB * bq * wv1[0]! + wC * cq * wv2[0]!) * invQ;
+            worldPosBuf[o + 1] = (wA * aq * wv0[1]! + wB * bq * wv1[1]! + wC * cq * wv2[1]!) * invQ;
+            worldPosBuf[o + 2] = (wA * aq * wv0[2]! + wB * bq * wv1[2]! + wC * cq * wv2[2]!) * invQ;
+          } else {
+            worldPosBuf[o] = (wA * wv0[0]! + wB * wv1[0]! + wC * wv2[0]!) * invArea2;
+            worldPosBuf[o + 1] = (wA * wv0[1]! + wB * wv1[1]! + wC * wv2[1]!) * invArea2;
+            worldPosBuf[o + 2] = (wA * wv0[2]! + wB * wv1[2]! + wC * wv2[2]!) * invArea2;
+          }
+        }
+        if (normalBuf !== null) {
+          const o = idx * 3;
+          normalBuf[o] = normalX;
+          normalBuf[o + 1] = normalY;
+          normalBuf[o + 2] = normalZ;
+        }
+        if (surfaceUvBuf !== null) {
+          const o = idx * 2;
+          if (surfaceUv !== null) {
+            if (perspectiveAttributes) {
+              surfaceUvBuf[o] = (
+                wA * aq * surfaceUv.ua + wB * bq * surfaceUv.ub + wC * cq * surfaceUv.uc
+              ) * invQ;
+              surfaceUvBuf[o + 1] = (
+                wA * aq * surfaceUv.va + wB * bq * surfaceUv.vb + wC * cq * surfaceUv.vc
+              ) * invQ;
+            } else {
+              surfaceUvBuf[o] = (
+                wA * surfaceUv.ua + wB * surfaceUv.ub + wC * surfaceUv.uc
+              ) * invArea2;
+              surfaceUvBuf[o + 1] = (
+                wA * surfaceUv.va + wB * surfaceUv.vb + wC * surfaceUv.vc
+              ) * invArea2;
+            }
+          } else {
+            surfaceUvBuf[o] = NaN;
+            surfaceUvBuf[o + 1] = NaN;
+          }
         }
         // Per-pixel intensity → per-pixel glyph. Two things happen here:
         //   1. Smooth shading: adjacent triangles' shared edge has the same
@@ -1113,8 +1319,12 @@ function scanFillTriangle(
         // image brightness too: a flat textured quad reads as ASCII art, a lit
         // textured mesh shows texture detail modulated by shading.
         if (tex !== null) {
-          const u = (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
-          const v = (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
+          const u = perspectiveAttributes
+            ? (wA * aq * tex.ua + wB * bq * tex.ub + wC * cq * tex.uc) * invQ
+            : (wA * tex.ua + wB * tex.ub + wC * tex.uc) * invArea2;
+          const v = perspectiveAttributes
+            ? (wA * aq * tex.va + wB * bq * tex.vb + wC * cq * tex.vc) * invQ
+            : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
           const texel = sampleTexel(tex.sampler, u, v);
           if (texel !== null && texel.a > 8) {
             let r = (texel.r * tex.tintR) | 0; if (r > 255) r = 255;
@@ -1173,6 +1383,7 @@ function scanFillTriangle(
           }
         }
 
+        if (shadeBuf) shadeBuf[idx] = clamped;
         const rampPos = clamped * rampMax;
         const lower = rampPos | 0;
         const frac = rampPos - lower;
@@ -1256,7 +1467,16 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
   return out;
 }
 
-function solidBufToString(glyphBuf: string[], colorBuf: (string | null)[] | null, cols: number, rows: number): string {
+function solidBufToString(
+  glyphBuf: string[],
+  colorBuf: (string | null)[] | null,
+  cols: number,
+  rows: number,
+  safe = false,
+): string {
+  if (safe) {
+    return encodeGlyphBuffers(glyphBuf, colorBuf ?? new Array<string | null>(cols * rows).fill(null), cols, rows, colorBuf !== null);
+  }
   // Coalesce runs of same-color consecutive cells into one <span> per run.
   // For ~5k colored cells with average run length 5, this drops total <span>
   // count by ~5x — innerHTML parsing scales linearly with DOM-node count, so
@@ -1312,9 +1532,25 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
   let captured: CellGrid | null = null;
   const capture = (g: CellGrid): void => {
     // Clone so the grid outlives the rasterizer's scratch buffers.
-    captured = buildCellGrid(g.char, g.color, g.depth, g.cols, g.rows);
+    captured = buildCellGrid(
+      g.char,
+      g.color,
+      g.depth,
+      g.cols,
+      g.rows,
+      g.surfaceUv ?? null,
+      g.shade ?? null,
+      g.worldPosition ?? null,
+      g.normal ?? null,
+    );
   };
-  rasterize({ ...scene, transformCells: capture });
+  rasterize({
+    ...scene,
+    retainShade: scene.mode === "solid",
+    retainWorldPosition: scene.mode === "solid",
+    retainNormal: scene.mode === "solid",
+    transformCells: capture,
+  });
   if (captured) return captured;
   // Nothing drawn / mode built no grid — return an empty grid at grid size.
   const { cols, rows } = scene.grid;

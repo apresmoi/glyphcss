@@ -1,0 +1,359 @@
+---
+title: Glyph Effects
+description: Apply reusable Matrix rain, flowing text, scan, wipe, glitch, dissolve, ripple, and field synth programs to retained glyph surfaces.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Glyph Effects change the **raster appearance** of a scene after geometry has
+been projected and depth-tested. A parameter-only update reuses the retained
+glyph frame, so it does not transform or rasterise every polygon again. Effects
+remain inside the normal render transaction: they add no DOM nodes and every
+affected `<pre>` is assigned at most once.
+
+Install the optional catalog alongside the binding you use:
+
+```bash
+pnpm add @glyphcss/effects glyphcss
+```
+
+The catalog contains `matrixRain`, `flowText`, `scan`, `wipe`, `scramble`,
+`glitch`, `noiseDissolve`, `ripple`, and `fieldSynth`.
+
+## Mount an effect
+
+<Tabs syncKey="fw">
+  <TabItem label="Vanilla JS">
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import { GlyphEffects } from "@glyphcss/effects";
+
+const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+const rain = scene.addEffectLayer({
+  effect: GlyphEffects.matrixRain,
+  blend: "replace",
+  params: {
+    glyphs: "HOLA",
+    speedMin: 5,
+    speedMax: 12,
+    trail: 14,
+    density: 0.55,
+  },
+});
+
+function frame(now: number) {
+  rain.params.time = now / 1000;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+  </TabItem>
+  <TabItem label="React">
+
+```tsx
+import { useEffect, useRef } from "react";
+import { GlyphEffectLayer, type GlyphEffectLayerHandle } from "@glyphcss/react";
+import { GlyphEffects } from "@glyphcss/effects";
+import type { GlyphEffectParamsOf } from "glyphcss";
+
+function Rain() {
+  const ref = useRef<GlyphEffectLayerHandle<GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>>>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const frame = (now: number) => {
+      if (ref.current) ref.current.params.time = now / 1000;
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <GlyphEffectLayer
+      ref={ref}
+      effect={GlyphEffects.matrixRain}
+      blend="replace"
+      params={{ glyphs: "HOLA", speedMin: 5, speedMax: 12 }}
+    />
+  );
+}
+```
+
+Place `<Rain />` inside the surrounding `<GlyphScene>`.
+
+  </TabItem>
+  <TabItem label="Vue">
+
+```vue
+<template>
+  <GlyphEffectLayer
+    ref="rain"
+    :effect="GlyphEffects.matrixRain"
+    blend="replace"
+    :params="{ glyphs: 'HOLA', speedMin: 5, speedMax: 12 }"
+  />
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from "vue";
+import { GlyphEffectLayer, type GlyphEffectLayerExposed } from "@glyphcss/vue";
+import { GlyphEffects } from "@glyphcss/effects";
+import type { GlyphEffectParamsOf } from "glyphcss";
+
+const rain = ref<GlyphEffectLayerExposed<
+  GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>
+> | null>(null);
+let raf = 0;
+onMounted(() => {
+  const frame = (now: number) => {
+    if (rain.value) rain.value.params.time = now / 1000;
+    raf = requestAnimationFrame(frame);
+  };
+  raf = requestAnimationFrame(frame);
+});
+onBeforeUnmount(() => cancelAnimationFrame(raf));
+</script>
+```
+
+  </TabItem>
+  <TabItem label="HTML">
+
+```html
+<glyph-effect-layer id="rain" blend="replace"></glyph-effect-layer>
+
+<script type="module">
+  import "glyphcss/elements";
+  import { GlyphEffects } from "@glyphcss/effects";
+
+  const element = document.querySelector("glyph-effect-layer");
+  if (!element) throw new Error("Missing glyph effect layer");
+  element.configure({
+    effect: GlyphEffects.matrixRain,
+    params: { glyphs: "HOLA", speedMin: 5, speedMax: 12 },
+  });
+  const layer = await element.whenReady();
+  const frame = (now) => {
+    layer.params.time = now / 1000;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+</script>
+```
+
+`<glyph-effect-layer>` must be a child of `<glyph-scene>`. Definitions are
+JavaScript values, so configuration is property-based rather than executable
+JSON in attributes.
+
+  </TabItem>
+</Tabs>
+
+## Composition and mapping
+
+- `blend: "replace"` makes the effect the texture: zero emitted coverage hides
+  that part of the surface. Matrix rain therefore describes the model with the
+  falling strands alone.
+- `blend: "over"` preserves the shaded glyph texture and paints only active
+  effect cells over it.
+- `target: "surfaces"` limits writes to visible rendered geometry.
+- `target: "viewport"` can also author the base output's background.
+
+Surface-aware catalog effects default to `space: "auto"`: authored,
+perspective-correct UVs win when available, followed by retained world positions
+and geometric face normals. Choose `"surface"` to force the generated geometry
+mapping even when UVs exist. For generated `down`, world `-Z` is projected into
+each face's tangent plane: slopes follow their downhill gradient, coplanar
+triangles agree, and differently oriented faces derive different directions.
+When a face normal is parallel to world `-Z`, the projection has zero length, so
+that plane receives a deterministic pseudo-random in-plane direction. `up`
+reverses the generated flow; `left` and `right` use its perpendicular lane axis.
+If surface fields are unavailable, the effect falls back to canonical projected
+scene coordinates. Choose `"scene"` to force projected mapping.
+The `scale` parameter controls pattern frequency without changing scene glyph
+density. Text effects accept printable, single-cell sets such as `HOLA`,
+`⣿⠿⠷`, `ᚠᚢᚦ`, or `←↑→↓`; combining marks, emoji, and double-width glyphs are
+rejected because they would break the fixed cell grid.
+
+Generated Matrix rain fits each quantized coplanar surface basis to projected
+glyph-cell space, then evaluates its sparse mask and glyph lookup in the same
+orthogonal face-local field. Glyph phase is periodic distance behind the same
+moving head that defines the trail, so the word reads and travels at the strand's
+direction and speed on walls, slopes, and foreshortened roofs.
+Every active trail cell emits full coverage; `Streams` and `Trail` create the
+sparse shape without coverage dithering breaking a word into isolated glyphs.
+
+Matrix rain's `Color mode` can preserve the model's original colors or use a
+single `Monochrome color`. Monochrome strands multiply that hue by the retained
+surface shade, so lighting, shadows, texture luminance, and the 3D silhouette
+remain visible.
+
+## Field synth
+
+`fieldSynth` is a small composable synth: up to six oscillators, each a
+spatial **field** (`radial`, `linearX`, `linearY`, `diagonal`, `angular`,
+`spiral`, `noise`) sampled through a **waveform** (`sin`, `triangle`, `saw`,
+`square`), combined into one scalar and mapped to a glyph ramp and color. It
+is the glyph-grid analogue of a fragment shader running over projected
+surfaces — composing and interfering a handful of oscillators is where the
+emergent moiré, plaid, sonar, and lattice patterns come from.
+
+### Voices
+
+Each of the six voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
+`field6`/`wave6`/`freq6`/`speed6`/`amp6`) is independent:
+
+- `fieldN` — the spatial field the oscillator samples. `radial` measures
+  distance from the origin, `angular` measures the angle around it, `spiral`
+  combines both, `linearX`/`linearY`/`diagonal` are axis-aligned ramps, and
+  `noise` is a 3D value-noise field that evolves in place over `time` (rather
+  than sliding across the surface the way the other fields do at nonzero
+  `speedN`).
+- `waveN` — the waveform applied to the sampled field value.
+- `freqN` — spatial frequency, in cycles per unit.
+- `speedN` — animation rate, in cycles per second (`time` drives phase).
+- `ampN` — a **mix weight**, not a signal gain. The first active voice enters
+  the combine chain at its weight; every later active voice then blends the
+  running result toward `combine(result, voice)` by its own `ampN`. `ampN: 0`
+  skips that voice entirely rather than forcing the combined result toward
+  zero the way a `multiply` gain of `0` would, and a low `ampN` gently mixes
+  a voice in instead of crushing the field.
+
+### Combine, gain, bias
+
+`combine` (`add` / `multiply` / `max` / `min` / `difference`) is the binary
+operator active voices are folded through, pairwise, in voice order. `gain`
+(contrast) and `bias` (brightness) then map the combined scalar to `0..1` for
+output: `value = clamp01(bias + gain * combined * 0.5)`.
+
+### Placement: scale and origin
+
+`scale` sets pattern frequency without changing scene glyph density.
+`originU`/`originV` place the center that `radial`, `angular`, and `spiral`
+measure from. On generated surface coordinates (no usable authored UV),
+origin resolves **per face**: `originU: 0.5, originV: 0.5` centers the
+pattern on each visible face's own covered UV bounds rather than on one fixed
+point in world space, so radial/spiral patterns stay centered as the camera
+moves between faces.
+
+### Output: ramp, color, lighting
+
+- `glyphs` is a **ramp** indexed by the mapped `0..1` value (dark → dense),
+  not a random-pick character set — see [`GlyphRamps`](#glyphramps) below, or
+  author a string such as `" .:-=+*#%@"`. A leading space renders a
+  genuinely blank cell, giving the ramp a true dark step.
+- `color` / `colorB` / `gradient` blend a single two-color gradient across
+  the mapped value (`gradient: 0` is solid `color`, `1` is a full blend to
+  `colorB`).
+- `voiceColors` (boolean, default `false`) replaces that single gradient
+  with a **per-voice** blend instead: each active voice's own `colorN` is
+  mixed into the cell color weighted by that voice's contribution, so the
+  output color composes through the mix rather than following one static
+  gradient.
+- `lit` (`0..1`, default `1`) modulates the resolved color by the surface's
+  Lambert shade, so scene lighting reads through the texture; `lit: 0` is
+  flat/unlit.
+
+`fieldSynth` shares the same `space: "auto" | "surface" | "scene"` mapping
+described [above](#composition-and-mapping).
+
+### Example
+
+```ts
+import { createGlyphScene } from "glyphcss";
+import { GlyphEffects } from "@glyphcss/effects";
+
+const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+const synth = scene.addEffectLayer({
+  effect: GlyphEffects.fieldSynth,
+  blend: "replace",
+  params: {
+    field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1,
+    field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1,
+    combine: "multiply",
+    glyphs: " .:-=+*#%@",
+    color: "#ffcf5a",
+    colorB: "#ff4fa3",
+    gradient: 0.6,
+  },
+});
+
+function frame(now: number) {
+  synth.params.time = now / 1000;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+`fieldSynth` also ships curated named presets (`Sunburst`, `Ring pulse`,
+`Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
+`Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
+`Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`) as `{ name,
+params }` pairs — a quick starting point for `params`.
+
+### `GlyphRamps`
+
+Named character ramps (dark → dense) for `glyphs`-style params:
+
+```ts
+import { GlyphRamps } from "@glyphcss/effects";
+
+scene.addEffectLayer({
+  effect: GlyphEffects.fieldSynth,
+  params: { glyphs: GlyphRamps.Blocks },
+});
+```
+
+| Name | Ramp |
+|---|---|
+| `Fade` | `" .:-=+*#%@"` |
+| `Blocks` | `" ░▒▓█"` |
+| `Shades` | `" .·:;+=xX#"` |
+| `Dots` | `" .·•●"` |
+| `Binary` | `" 01"` |
+| `ASCII` | `" .,:;i1tfLCG08@"` |
+| `Hatch` | `" .-+=#"` |
+| `Stars` | `" .+*✦★"` |
+| `Digital` | `" .:i\|1oX#"` |
+
+### Design it live
+
+The [`/synth`](/synth) page is a dual-sidebar modular synth built on
+`fieldSynth`: add and remove voice cards (each with a live preview and a
+color swatch), toggle field/wave per voice with icon controls, tune per-voice
+mix, and adjust Stage, Mix, Output, and Lighting docks, with a live preset
+gallery to browse. The full patch is persisted to the URL, so a design can be
+shared or copied straight into `params`.
+
+## Use Anime.js directly
+
+The layer handle deliberately exposes a stable flat parameter object. Anime.js
+can target it without a GlyphCSS adapter:
+
+```ts
+import { animate } from "animejs";
+
+animate(layer.params, {
+  time: 60,
+  duration: 60_000,
+  loop: true,
+  ease: "linear",
+});
+```
+
+Anime owns time, easing, timelines, springs, and playback. GlyphCSS owns the
+spatial program, retained frames, composition, and final write.
+
+## Current boundary
+
+The implemented runtime accepts `baseColor`, `baseShade`, `depth`, `normal`,
+`worldPosition`, and `uv0` program inputs, plus the invariant base/input glyph
+and coverage buffers. Hard surface requirements require solid mode;
+`optionalRequirements` let a program request those retained fields while still
+providing a wireframe/voxel fallback. It supports ordered `over`/`replace`
+layers and scene-root `surfaces`/`viewport` targets. Mesh-handle targeting,
+scene-image sampling/displacement, shader-like scratch graphs, surface-key and
+UV-footprint fields, and static compile/export of effects still reject
+explicitly. That broader graph and sampling architecture is planned future
+work beyond this slice.

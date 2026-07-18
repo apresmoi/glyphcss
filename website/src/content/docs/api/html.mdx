@@ -114,6 +114,30 @@ cell every render.
 | `at` | `x,y,z` anchor in world space |
 | `size` | `w,h` in cells |
 
+### `<glyph-effect-layer>`
+
+Mounts a retained appearance program inside `<glyph-scene>`. The executable
+definition is a JavaScript value, so use the atomic property API rather than a
+JSON attribute:
+
+```ts
+import { GlyphEffects } from "@glyphcss/effects";
+
+const effect = document.querySelector("glyph-effect-layer")!;
+effect.configure({
+  effect: GlyphEffects.matrixRain,
+  params: { glyphs: "HOLA", speedMin: 5, speedMax: 12 },
+});
+const handle = await effect.whenReady();
+handle.params.time = performance.now() / 1000;
+```
+
+Attributes `target="surfaces|viewport"`, `blend="over|replace"`, `opacity`,
+`order`, and `enabled="false"` override the matching configured option. The
+element emits `glyphcss:effect-ready` and exposes `getEffectHandle()`. See
+[Glyph Effects](/guides/effects) for the catalog, clocks, and current runtime
+boundary.
+
 ### `<glyph-orbit-controls>` / `<glyph-map-controls>`
 
 Camera controls. Orbit rotates around the target; map pans across the

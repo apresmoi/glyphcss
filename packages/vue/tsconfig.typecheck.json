@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true
+  },
+  "include": [
+    "src/glyphcss/scene/GlyphEffectLayer.ts",
+    "src/glyphcss/scene/GlyphEffectLayer.test-d.ts"
+  ]
+}

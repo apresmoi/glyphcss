@@ -4,6 +4,7 @@
     "baseUrl": "..",
     "paths": {
       "@glyphcss/core": ["packages/core/src/index.ts"],
+      "@glyphcss/effects": ["packages/effects/src/index.ts"],
       "@glyphcss/react": ["packages/react/src/index.ts"],
       "@glyphcss/vue": ["packages/vue/src/index.ts"]
     }

@@ -3,7 +3,11 @@ import { loadMesh, bakeSolidTextureSampledPolygons } from "@glyphcss/core";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 import { buildGlyphInteractiveExport, buildGlyphFramesExport, glyphCodepenPrefill, encodeStaticGlyphHtml } from "glyphcss";
 import type { GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
-import type { PresetModel, SceneOptionsState } from "./types";
+import type { GalleryEffectState, PresetModel, SceneOptionsState } from "./types";
+import {
+  galleryEffectExportName,
+  type GalleryEffectDefinition,
+} from "./effects";
 import { primitiveGeometrySize } from "./presets/presetList";
 
 const midV = (a: Vec3, b: Vec3): Vec3 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
@@ -136,6 +140,8 @@ interface CodePanelProps {
   meshUrl: string;
   options: SceneOptionsState;
   selectedPreset: PresetModel;
+  effectState: GalleryEffectState;
+  effectDefinition: GalleryEffectDefinition | null;
   /** Extra classes (e.g. `is-mobile-open` to show the panel as a mobile drawer). */
   className?: string;
   id?: string;
@@ -175,6 +181,17 @@ function fmt(n: number): string {
   return String(Number(n.toFixed(2)));
 }
 
+function jsonForScript(value: unknown): string {
+  const json = JSON.stringify(value);
+  if (json === undefined) throw new TypeError("Gallery snippet values must be JSON-serializable.");
+  return json
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
 /** Spherical (azimuth/elevation in degrees) → source vector toward the light. */
 function dirFromSpherical(azimuthDeg: number, elevationDeg: number): [number, number, number] {
   const az = (azimuthDeg * Math.PI) / 180;
@@ -186,7 +203,13 @@ function vec3(v: [number, number, number]): string {
   return `[${fmt(v[0])}, ${fmt(v[1])}, ${fmt(v[2])}]`;
 }
 
-function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps): Record<Tab, string> {
+function generateSnippets({
+  meshUrl,
+  options,
+  selectedPreset,
+  effectState,
+  effectDefinition,
+}: CodePanelProps): Record<Tab, string> {
   const url = absoluteMeshUrl(meshUrl);
   const isPrimitive = selectedPreset.kind === "primitive";
   const geometryName = isPrimitive ? primitiveGeometryName(selectedPreset.id) : "";
@@ -218,6 +241,16 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const distance = typeof perspective === "number" ? perspective : 3;
   const target = options.target ?? [0, 0, 0];
   const hasTarget = target[0] !== 0 || target[1] !== 0 || target[2] !== 0;
+  const effectName = galleryEffectExportName(effectDefinition);
+  const hasEffect = effectName !== null && effectState.effectId !== null;
+  const hasEffectClock = hasEffect
+    && !!effectDefinition
+    && "time" in effectDefinition.parameterSchema
+    && effectDefinition.parameterSchema.time.kind === "number"
+    && !effectState.paused
+    && effectState.timeScale > 0;
+  const effectParams = jsonForScript(effectState.params);
+  const effectImport = hasEffect ? `\nimport { GlyphEffects } from "@glyphcss/effects";` : "";
 
   const lightDir = dirFromSpherical(options.lightAzimuth ?? 50, options.lightElevation ?? 45);
   const lightIntensity = options.lightIntensity ?? 1;
@@ -236,13 +269,33 @@ function generateSnippets({ meshUrl, options, selectedPreset }: CodePanelProps):
   const meshTagReact = isPrimitive
     ? `<GlyphMesh geometry="${geometryName}" size={${fmt(primitiveSize)}}${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${centerJsx} />`
     : `<GlyphMesh src="${url}"${centerJsx} />`;
+  const effectTagReact = hasEffect
+    ? `\n        <GlyphEffectLayer${hasEffectClock ? " ref={effectLayer}" : ""} effect={GlyphEffects.${effectName}} params={${effectParams}} blend="${effectState.blend}" />`
+    : "";
+  const reactEffectClock = hasEffectClock ? `
+  const effectLayer = useRef<GlyphEffectLayerHandle<any>>(null);
+  useEffect(() => {
+    let raf = 0;
+    let time = 0;
+    let previous = performance.now();
+    const frame = (now: number) => {
+      time += Math.min((now - previous) / 1000, 0.1) * ${fmt(effectState.timeScale)};
+      previous = now;
+      if (effectLayer.current) effectLayer.current.params.time = time;
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+` : "";
 
-  const react = `import {
+  const react = `${hasEffectClock ? `import { useEffect, useRef } from "react";\n` : ""}import {
   ${cameraComponentName},
   GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
-} from "@glyphcss/react";
+${hasEffect ? "  GlyphEffectLayer,\n" : ""}${hasEffectClock ? "  type GlyphEffectLayerHandle,\n" : ""}} from "@glyphcss/react";
+${effectImport}
 
 const directionalLight = {
   direction: ${vec3(lightDir)},
@@ -252,6 +305,7 @@ const directionalLight = {
 const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientColor}" };
 
 export function App() {
+${reactEffectClock}
   return (
     ${cameraOpenTag}
       <GlyphScene
@@ -265,7 +319,7 @@ export function App() {
         ambientLight={ambientLight}
       >
         <GlyphOrbitControls drag wheel />
-        ${meshTagReact}
+        ${meshTagReact}${effectTagReact}
       </GlyphScene>
     ${cameraCloseTag}
   );
@@ -281,6 +335,25 @@ export function App() {
   const meshTagVue = isPrimitive
     ? `<GlyphMesh geometry="${geometryName}" :size="${fmt(primitiveSize)}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${centerKebab} />`
     : `<GlyphMesh src="${url}"${centerKebab} />`;
+  const effectTagVue = hasEffect
+    ? `\n      <GlyphEffectLayer${hasEffectClock ? ` ref="effectLayer"` : ""} :effect="GlyphEffects.${effectName}" :params="effectParams" blend="${effectState.blend}" />`
+    : "";
+  const vueEffectClock = hasEffectClock ? `
+const effectLayer = ref<any>(null);
+let effectRaf = 0;
+onMounted(() => {
+  let time = 0;
+  let previous = performance.now();
+  const frame = (now: number) => {
+    time += Math.min((now - previous) / 1000, 0.1) * ${fmt(effectState.timeScale)};
+    previous = now;
+    if (effectLayer.value) effectLayer.value.params.time = time;
+    effectRaf = requestAnimationFrame(frame);
+  };
+  effectRaf = requestAnimationFrame(frame);
+});
+onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
+` : "";
 
   const vue = `<template>
   ${cameraOpenTagVue}
@@ -295,18 +368,21 @@ export function App() {
       :ambient-light="ambientLight"
     >
       <GlyphOrbitControls drag wheel />
-      ${meshTagVue}
+      ${meshTagVue}${effectTagVue}
     </GlyphScene>
   ${cameraCloseTagVue}
 </template>
 
 <script setup lang="ts">
-import {
+${hasEffectClock ? `import { onBeforeUnmount, onMounted, ref } from "vue";\n` : ""}import {
   ${cameraComponentName},
   GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
-} from "@glyphcss/vue";
+${hasEffect ? "  GlyphEffectLayer,\n" : ""}} from "@glyphcss/vue";
+${effectImport}
+${hasEffect ? `\nconst effectParams = ${effectParams};` : ""}
+${vueEffectClock}
 
 const directionalLight = {
   direction: ${vec3(lightDir)},
@@ -332,12 +408,26 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
 scene.add(${addArgV}${needsUpright ? `, { rotation: ${vec3(uprightRotation)} }` : ""});`
     : `const { polygons } = await loadMesh("${url}");
 scene.add(${addArgV});`;
+  const effectVanilla = hasEffect
+    ? `\n\nconst effectLayer = scene.addEffectLayer({\n  effect: GlyphEffects.${effectName},\n  params: ${effectParams},\n  target: "surfaces",\n  blend: "${effectState.blend}",\n});${hasEffectClock ? `
+
+let effectTime = 0;
+let effectPrevious = performance.now();
+function animateEffect(now: number) {
+  effectTime += Math.min((now - effectPrevious) / 1000, 0.1) * ${fmt(effectState.timeScale)};
+  effectPrevious = now;
+  effectLayer.params.time = effectTime;
+  requestAnimationFrame(animateEffect);
+}
+requestAnimationFrame(animateEffect);` : ""}`
+    : "";
 
   const vanilla = `import {
   ${cameraImport},
   createGlyphScene,
   createGlyphOrbitControls,${meshImportV}${fitImportV}
 } from "glyphcss";${polygonsImportV}
+${effectImport}
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 // Cell font-size sets the ASCII resolution; autoSize fills the host's box.
@@ -360,7 +450,7 @@ const scene = createGlyphScene(host, {
   ambientLight: { intensity: ${fmt(ambientIntensity)}, color: "${ambientColor}" },
 });
 
-${meshLoadV}
+${meshLoadV}${effectVanilla}
 
 createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 
@@ -374,6 +464,9 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
   const meshTagHtml = isPrimitive
     ? `<glyph-mesh geometry="${geometryName}" size="${fmt(primitiveSize)}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${centerKebab}></glyph-mesh>`
     : `<glyph-mesh src="${url}"${centerKebab}></glyph-mesh>`;
+  const effectScriptHtml = hasEffect
+    ? `\n    <script type="module">\n      import { GlyphEffects } from "https://esm.sh/@glyphcss/effects";\n\n      const sceneElement = document.querySelector("glyph-scene");\n      const addEffect = () => {\n        const effectLayer = sceneElement.getScene().addEffectLayer({\n          effect: GlyphEffects.${effectName},\n          params: ${effectParams},\n          target: "surfaces",\n          blend: "${effectState.blend}",\n        });${hasEffectClock ? `\n\n        let effectTime = 0;\n        let effectPrevious = performance.now();\n        const animateEffect = (now) => {\n          effectTime += Math.min((now - effectPrevious) / 1000, 0.1) * ${fmt(effectState.timeScale)};\n          effectPrevious = now;\n          effectLayer.params.time = effectTime;\n          requestAnimationFrame(animateEffect);\n        };\n        requestAnimationFrame(animateEffect);` : ""}\n      };\n      if (sceneElement.getScene()) addEffect();\n      else sceneElement.addEventListener("glyphcss:scene-ready", addEffect, { once: true });\n    </script>`
+    : "";
 
   const html = `<!DOCTYPE html>
 <html>
@@ -401,7 +494,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
         <glyph-orbit-controls drag wheel></glyph-orbit-controls>
         ${meshTagHtml}
       </glyph-scene>
-    ${cameraCloseHtml}
+    ${cameraCloseHtml}${effectScriptHtml}
   </body>
 </html>`;
 
@@ -411,13 +504,13 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
 const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "React", vue: "Vue" };
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
-export function CodePanel({ meshUrl, options, selectedPreset, className, id }: CodePanelProps) {
+export function CodePanel({ meshUrl, options, selectedPreset, effectState, effectDefinition, className, id }: CodePanelProps) {
   const [tab, setTab] = useState<Tab>("react");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const snippets = useMemo(
-    () => generateSnippets({ meshUrl, options, selectedPreset }),
-    [meshUrl, options, selectedPreset],
+    () => generateSnippets({ meshUrl, options, selectedPreset, effectState, effectDefinition }),
+    [meshUrl, options, selectedPreset, effectState, effectDefinition],
   );
 
   const handleCopy = useCallback(async () => {

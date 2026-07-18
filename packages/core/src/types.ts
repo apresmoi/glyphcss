@@ -133,9 +133,9 @@ export interface Polygon {
    */
   textureWrap?: PolyTextureWrap;
   /**
-   * Per-vertex UV coords (0..1, OBJ convention with v=0 at bottom).
-   * Length MUST equal vertices.length when set; mismatched UVs are
-   * stripped by `normalizePolygons`.
+   * Per-vertex UV coords (commonly 0..1, OBJ convention with v=0 at bottom).
+   * Values outside 0..1 are valid for tiled/wrapped mappings. Length MUST equal
+   * vertices.length when set; mismatched UVs are stripped by `normalizePolygons`.
    */
   uvs?: Vec2[];
   /**

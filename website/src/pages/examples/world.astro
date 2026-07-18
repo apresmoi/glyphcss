@@ -65,6 +65,10 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       createGlyphScene,
       createGlyphOrthographicCamera,
     } from "glyphcss";
+    import {
+      createExampleQuerySync,
+      readQueryNumber,
+    } from "../../lib/example-query-state";
 
     type Polygon = { vertices: [number, number, number][]; color?: string };
     type MeshHandle = { dispose(): void; setTransform(t: unknown): void };
@@ -75,6 +79,11 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
     };
 
     const INITIAL_ZOOM = 300;
+
+    function compactRotation(degrees: number): number {
+      const normalized = ((degrees + 180) % 360 + 360) % 360 - 180;
+      return Object.is(normalized, -0) ? 0 : normalized;
+    }
 
     // Camera.zoom thresholds for LOD selection. zoom is absolute CSS px per
     // world unit. At the default zoom the whole unit-radius globe is visible at
@@ -106,14 +115,25 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       // viewport while staying in LOD 0.
       // On a narrow phone the desktop zoom crops the sphere, so start smaller
       // there — scaled to the viewport width so the whole globe is visible.
-      const initialZoom = window.innerWidth < 800
+      const responsiveZoom = window.innerWidth < 800
         ? Math.max(120, Math.round(window.innerWidth / 2.6))
         : INITIAL_ZOOM;
+      const queryParams = new URLSearchParams(window.location.search);
+      const initialRotX = compactRotation(readQueryNumber(queryParams, "rotX", 55));
+      const initialRotY = compactRotation(readQueryNumber(queryParams, "rotY", 45));
+      const initialZoom = readQueryNumber(queryParams, "zoom", responsiveZoom, { min: 80, max: 1800 });
       const camera = createGlyphOrthographicCamera({
-        rotX: 55,
-        rotY: 45,
+        rotX: initialRotX,
+        rotY: initialRotY,
         zoom: initialZoom,
       });
+
+      const querySync = createExampleQuerySync(() => ({
+        rotX: compactRotation(camera.rotX),
+        rotY: compactRotation(camera.rotY),
+        zoom: Math.max(80, Math.min(1800, camera.zoom)),
+      }));
+      querySync.write();
 
       const scene = createGlyphScene(host, {
         camera,
@@ -279,11 +299,12 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
       // every LOD threshold in one burst. Debounce so we only fetch the
       // tier the user settles on, not every intermediate one.
       let updateTimer: ReturnType<typeof setTimeout> | null = null;
-      function scheduleUpdate(): void {
+      function scheduleUpdate(onSettled?: () => void): void {
         if (updateTimer) clearTimeout(updateTimer);
         updateTimer = setTimeout(() => {
           updateTimer = null;
           void updateActiveSet();
+          onSettled?.();
         }, 180);
       }
 
@@ -428,6 +449,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         // get fetched (and cached for next time).
         if (viewDirty) {
           viewDirty = false;
+          querySync.write();
           scheduleUpdate();
         }
       };
@@ -443,7 +465,7 @@ const description = "ETOPO1 global topography rasterised into ASCII. Isometric, 
         updateGlobeLabels();
         // Always schedule — the debounce coalesces rapid wheel events into
         // a single fetch for whichever LOD the user lands on.
-        scheduleUpdate();
+        scheduleUpdate(querySync.write);
       }, { passive: false });
     }
 

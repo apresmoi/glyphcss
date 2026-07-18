@@ -19,6 +19,9 @@ npm install @glyphcss/react
 
 # Vue 3
 npm install @glyphcss/vue
+
+# Reusable surface/scene effects (optional)
+npm install @glyphcss/effects
 ```
 
 You can also load glyphcss directly from a CDN. Here is a minimal custom-element scene:
@@ -161,6 +164,59 @@ Must be placed inside a camera component.
 | `receiveShadow` | `boolean` | `false` | This mesh receives (displays) shadows |
 
 A mesh that is both `castShadow` and `receiveShadow` self-shadows.
+
+### GlyphEffectLayer
+
+Effects are ordered appearance programs mounted over the retained glyph frame.
+Parameter-only animation does not re-project the mesh, and the stable `params`
+object can be targeted directly by Anime.js or updated by a custom clock.
+
+```tsx
+import { GlyphEffectLayer } from "@glyphcss/react";
+import { GlyphEffects } from "@glyphcss/effects";
+
+<GlyphEffectLayer
+  effect={GlyphEffects.matrixRain}
+  blend="replace"
+  params={{ glyphs: "HOLA", speedMin: 5, speedMax: 12 }}
+/>
+```
+
+Vanilla scenes use the same definition and handle:
+
+```ts
+const rain = scene.addEffectLayer({
+  effect: GlyphEffects.matrixRain,
+  blend: "replace",
+});
+
+function tick(now: number) {
+  rain.params.time = now / 1000;
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+```
+
+The initial catalog also includes flow text, scan, wipe, scramble, glitch,
+noise dissolve, and ripple. Matrix rain, flow text, and scan use authored UVs
+when available in `auto` mapping; `surface` forces world-position and
+face-normal mapping on solid models:
+world `-Z` is projected into each face so sloped polygons flow downhill and
+differently oriented faces derive different directions. A horizontal face has
+no downhill tangent, so it receives a stable pseudo-random in-plane direction.
+Generated Matrix rain fits each visible coplanar face's world-derived surface
+basis to projected glyph-cell space and evaluates both the sparse trail mask and
+the word in that same orthogonal face-local field. The glyph phase comes from
+distance behind the moving head, so `HOLA…` travels in the strand's direction and
+at its speed despite face shear or foreshortening, without skipping, repeating in
+blocks, or changing phase when a periodic strand wraps.
+Every active trail glyph has full coverage; lane density and trail length create
+the gaps without coverage dithering severing the words.
+Projected scene coordinates remain the fallback outside solid mode. Matrix rain
+can preserve original surface colors or tint every strand with one configurable
+color while retaining the model's lighting and shape. See
+[`ANIMATIONS.md`](./ANIMATIONS.md) for the implemented boundary and the richer
+graph/sampling design.
 
 ### GlyphGround
 
@@ -316,6 +372,9 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
 | `glyphcss` | `glyphcss` | ASCII rasteriser + vanilla custom elements + imperative `createGlyphScene` API. |
 | `@glyphcss/react` | `@glyphcss/react` | React components, hooks, and controls. |
 | `@glyphcss/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
+| `@glyphcss/effects` | `@glyphcss/effects` | Reusable spatial effect definitions; framework-agnostic and clock-free. |
+| `@glyphcss/fonts` | `@glyphcss/fonts` | Font/text to extruded polygon-mesh generation. |
+| `@glyphcss/compile` | `@glyphcss/compile` | Static compiler, CLI, Vite plugin, and Node API. |
 
 ## License
 

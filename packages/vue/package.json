@@ -40,6 +40,7 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
+    "test:types": "tsc -p tsconfig.typecheck.json",
     "test:coverage": "vitest run --coverage",
     "prepublishOnly": "npm run build"
   },

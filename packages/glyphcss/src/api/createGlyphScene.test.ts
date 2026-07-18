@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { createGlyphScene } from "./createGlyphScene";
-import type { Polygon, Vec3 } from "@glyphcss/core";
+import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 
 // ---------------------------------------------------------------------------
 // applyTransform — degrees convention unit tests
@@ -160,6 +160,24 @@ describe("createGlyphScene", () => {
     scene.destroy();
   });
 
+  it("setOptions updates every runtime raster option", () => {
+    const scene = createGlyphScene(host);
+    scene.setOptions({
+      doubleSided: true,
+      supersample: 3,
+      depthEpsilon: 0.005,
+      temporalBlend: 0.4,
+    });
+
+    expect(scene.getOptions()).toMatchObject({
+      doubleSided: true,
+      supersample: 3,
+      depthEpsilon: 0.005,
+      temporalBlend: 0.4,
+    });
+    scene.destroy();
+  });
+
   it("renders an opaque density mesh through a separate detail layer with occlusion enabled", async () => {
     const scene = createGlyphScene(host, {
       cols: 40,
@@ -176,6 +194,39 @@ describe("createGlyphScene", () => {
     const detail = host.querySelector("pre.glyph-output--detail");
     expect(detail).toBeTruthy();
     expect(detail!.textContent!.replace(/\s/g, "").length).toBeGreaterThan(0);
+    scene.destroy();
+  });
+
+  it("applies transformCells with surface UVs to density detail layers", async () => {
+    let sawSurfaceUv = false;
+    const scene = createGlyphScene(host, {
+      cols: 40,
+      rows: 20,
+      mode: "solid",
+      useColors: false,
+      camera: createGlyphOrthographicCamera({ zoom: 50 }),
+      transformCells(grid) {
+        const uv = grid.surfaceUv;
+        if (!uv) return;
+        for (let i = 0; i < grid.char.length; i++) {
+          if (!Number.isFinite(uv[i * 2]) || !Number.isFinite(uv[i * 2 + 1])) continue;
+          sawSurfaceUv = true;
+          grid.char[i] = "U";
+        }
+      },
+    });
+    const polygons = makeCubePolygons().map((polygon) => ({
+      ...polygon,
+      uvs: [[0, 0], [1, 0], [1, 1]] as Vec2[],
+    }));
+    scene.add(polygons, { density: 2 });
+    await Promise.resolve();
+
+    const detail = host.querySelector("pre.glyph-output--detail");
+    const rendered = detail?.textContent?.replace(/\s/g, "") ?? "";
+    expect(sawSurfaceUv).toBe(true);
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(new Set(rendered)).toEqual(new Set(["U"]));
     scene.destroy();
   });
 
