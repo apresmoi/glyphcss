@@ -375,7 +375,7 @@ function jsonForScript(value: unknown): string {
 // since it has to run with zero glyphcss/effects code alongside it.
 const RUNTIME_JS = `
 "use strict";
-var D=DATA,C=CFG,N=D.c.length,ramp=C.ramp,rmax=ramp.length-1,V=C.voices;
+var D=typeof DATA<"u"?DATA:0,C=CFG,N=C.full?C.cols*C.rows:D.c.length,ramp=C.ramp,rmax=ramp.length-1,V=C.voices;
 var BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];
 function pmod(a,m){return((a%m)+m)%m}
 function clamp01(v){return v<0?0:v>1?1:v}
@@ -405,9 +405,11 @@ var rowBuf=new Array(C.rows);
 function frame(now){var t=(now/1000)%C.loop;
 for(var i=0;i<C.rows;i++)rowBuf[i]=[];
 for(var k=0;k<N;k++){
-var x=C.aff?C.aff[0]*D.c[k]+C.aff[1]*D.r[k]+C.aff[2]:D.x[k];
-var y=C.aff?C.aff[3]*D.c[k]+C.aff[4]*D.r[k]+C.aff[5]:D.y[k];
+var col0=C.full?k%C.cols:D.c[k],row0=C.full?(k/C.cols)|0:D.r[k];
+var x=C.aff?C.aff[0]*col0+C.aff[1]*row0+C.aff[2]:D.x[k];
+var y=C.aff?C.aff[3]*col0+C.aff[4]*row0+C.aff[5]:D.y[k];
 var cx=C.cxFixed?C.cx:D.cx[k],cy=C.cyFixed?C.cy:D.cy[k];
+var sh=C.shFixed?C.sh:D.sh[k];
 var combined=0,active=0,cr=0,cg=0,cbv=0,cw=0,co=0,car=0,cag=0,cabv=0,caw=0,cao=0;
 for(var j=0;j<V.length;j++){var o=osc(V[j],x,y,cx,cy,t);
 if(active===0)combined=V[j].amp*o;else combined+=V[j].amp*(combine(combined,o)-combined);
@@ -420,13 +422,13 @@ if(value>0){
 if(C.voiceColors&&cw>0){packed=(Math.round(cr/cw)<<16)|(Math.round(cg/cw)<<8)|Math.round(cbv/cw);resolvedOpacity=co/cw}
 else if(C.voiceColors&&caw>0){packed=(Math.round(car/caw)<<16)|(Math.round(cag/caw)<<8)|Math.round(cabv/caw);resolvedOpacity=cao/caw}
 else{packed=C.gradient>0?lerp(C.cA.p,C.cB.p,clamp01(value*C.gradient)):C.cA.p;resolvedOpacity=C.cA.o}
-if(C.lit>0)packed=shadeColor(packed,1-C.lit*(1-clamp01(D.sh[k])))}
+if(C.lit>0)packed=shadeColor(packed,1-C.lit*(1-clamp01(sh)))}
 var emittedCoverage=value>0?clamp01(value*resolvedOpacity):0;
 var inputCoverage=C.skipBase?1:D.bg[k]!==" "?1:0;
 var emittedWeight=emittedCoverage*C.opacity;
 var inputWeight=C.blend==="over"?inputCoverage*(1-emittedWeight):inputCoverage*(1-C.opacity);
 var nextCoverage=clamp01(emittedWeight+inputWeight);
-var col=D.c[k],rw=D.r[k];
+var col=col0,rw=row0;
 var visible=nextCoverage>=1||(nextCoverage>0&&nextCoverage>thr(col,rw));
 if(!visible)continue;
 var chooseEmitted=emittedWeight>=inputWeight;
@@ -469,19 +471,26 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   const affine = detectAffineCoords(
     baked.cells.map((c) => ({ col: c.col - minCol, row: c.row - minRow, x: c.x, y: c.y })),
   );
-  // Plane-fill case: every raster cell in the grid got baked (no silhouette
-  // gaps — the surface fills the whole viewport) AND the effect fully
-  // overwrites the pixel (`replace` at opacity 1 means the base contributes
-  // EXACTLY zero weight to every composited cell: see `inputWeight` in
-  // RUNTIME_JS's `frame()` — `inputCoverage*(1-C.opacity)` is 0 whenever
-  // opacity is 1). The baked base glyph/color grid is then provably never
-  // read, so it's dropped entirely and the runtime hardcodes "no base"
-  // instead. Partial coverage, `over`, or opacity < 1 all mean the base
-  // genuinely still shows through — keep baking it.
-  const skipBase =
-    baked.cells.length === options.cols * options.rows
-    && options.blend === "replace"
-    && clamp01(options.opacity ?? 1) === 1;
+  // Plane-fill: every raster cell in `cols×rows` got baked — no silhouette
+  // gaps, the surface fills the whole viewport. `bake()` walks the grid in
+  // increasing row-major index order (`i = 0..cols*rows-1`, `col=i%cols,
+  // row=(i/cols)|0`) and only skips uncovered cells, so a full bake is
+  // guaranteed to still be in that exact row-major order — every (col,row)
+  // pair appears exactly once, in scan order. That means the per-cell `c`/`r`
+  // index arrays carry zero information beyond the loop counter: the runtime
+  // can derive them from `k` and `CFG.cols` instead of reading a table.
+  // Sparse bakes (silhouette gaps — e.g. a cube or sphere) keep the table;
+  // there's no formula for "which cells are covered".
+  const full = baked.cells.length === options.cols * options.rows;
+  // Plane-fill case, further restricted: the effect also fully overwrites
+  // the pixel (`replace` at opacity 1 means the base contributes EXACTLY
+  // zero weight to every composited cell: see `inputWeight` in RUNTIME_JS's
+  // `frame()` — `inputCoverage*(1-C.opacity)` is 0 whenever opacity is 1).
+  // The baked base glyph/color grid is then provably never read, so it's
+  // dropped entirely and the runtime hardcodes "no base" instead. Partial
+  // coverage, `over`, or opacity < 1 all mean the base genuinely still shows
+  // through — keep baking it.
+  const skipBase = full && options.blend === "replace" && clamp01(options.opacity ?? 1) === 1;
 
   const col: number[] = [], row: number[] = [], X: number[] = [], Y: number[] = [];
   const CXa: number[] = [], CYa: number[] = [], SH: number[] = [], BG: string[] = [], BC: number[] = [];
@@ -491,26 +500,35 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   // arrays don't repeat it. Multi-facet meshes (several differently-oriented
   // coplanar groups) keep the per-cell arrays; deduping those too by group id
   // is a further, not-yet-implemented win (see module doc / AGENTS.md).
-  let cxFixed = true, cyFixed = true;
+  //
+  // Shade gets the same treatment: a single flat, evenly-lit facet (a
+  // directional light has no position, so Lambert shade only depends on the
+  // facet's normal) produces the exact same shade for every cell — hoist it
+  // to a scalar too instead of repeating it once per cell.
+  let cxFixed = true, cyFixed = true, shFixed = true;
   const cx0 = baked.cells[0]?.cx ?? 0, cy0 = baked.cells[0]?.cy ?? 0;
+  const sh0 = Math.round((baked.cells[0]?.shade ?? 1) * 100) / 100;
   for (const c of baked.cells) {
     if (Math.abs(c.cx - cx0) > 1e-6) cxFixed = false;
     if (Math.abs(c.cy - cy0) > 1e-6) cyFixed = false;
+    if (Math.round(c.shade * 100) / 100 !== sh0) shFixed = false;
   }
   for (const c of baked.cells) {
-    col.push(c.col - minCol);
-    row.push(c.row - minRow);
+    if (!full) { col.push(c.col - minCol); row.push(c.row - minRow); }
     if (!affine) { X.push(q(c.x)); Y.push(q(c.y)); }
     if (!cxFixed) CXa.push(q(c.cx));
     if (!cyFixed) CYa.push(q(c.cy));
-    SH.push(Math.round(c.shade * 100) / 100);
+    if (!shFixed) SH.push(Math.round(c.shade * 100) / 100);
     if (!skipBase) { BG.push(c.glyph); BC.push(c.color); }
   }
-  const data: Record<string, unknown> = { c: col, r: row, sh: SH };
+  const data: Record<string, unknown> = {};
+  if (!full) { data.c = col; data.r = row; }
   if (!affine) { data.x = X; data.y = Y; }
   if (!skipBase) { data.bg = BG; data.bc = BC; }
   if (!cxFixed) data.cx = CXa;
   if (!cyFixed) data.cy = CYa;
+  if (!shFixed) data.sh = SH;
+  const hasData = Object.keys(data).length > 0;
 
   const voices: { field: string; wave: string; freq: number; speed: number; amp: number; color: { p: number; o: number } }[] = [];
   for (let k = 1; k <= SYNTH_VOICES; k++) {
@@ -549,6 +567,8 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     cyFixed,
     cx: cxFixed ? q(cx0) : 0,
     cy: cyFixed ? q(cy0) : 0,
+    shFixed,
+    sh: shFixed ? sh0 : 0,
     // Full precision here, NOT `q()`: these 6 scalars are multiplied by
     // (col,row) — up to a few hundred — at runtime, so 3-decimal rounding
     // (fine for a per-cell coordinate, where the error stays put) would get
@@ -557,9 +577,22 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     // bytes; that's irrelevant next to the table this replaces.
     aff: affine ? [affine.ax, affine.bx, affine.ecx, affine.ay, affine.by, affine.ecy] : null,
     skipBase,
+    full,
+    // Only needed to derive (col,row) from the loop index `k` when `full`
+    // drops the `c`/`r` tables — omitted otherwise so a sparse bake doesn't
+    // pay for a field it never reads.
+    ...(full ? { cols: gridCols } : {}),
   };
 
-  const js = `var DATA=${jsonForScript(data)};var CFG=${jsonForScript(cfg)};${RUNTIME_JS}`;
+  // `hasData`: the affine + skipBase + fixed-cx/cy + fixed-shade + full-grid
+  // combo (a flat, head-on, fully-covered plane) leaves nothing for `DATA` to
+  // carry — every per-cell field has been hoisted to a `CFG` scalar or is
+  // derivable from the loop index. `var DATA=...;` is then omitted entirely
+  // rather than emitted as an empty object; RUNTIME_JS's `typeof DATA<"u"`
+  // guard handles the identifier not existing (every subsequent `D.foo[k]`
+  // read is itself gated by the same `CFG` flag that made `DATA` droppable,
+  // so `D` is never dereferenced when it's `0`).
+  const js = `${hasData ? `var DATA=${jsonForScript(data)};` : ""}var CFG=${jsonForScript(cfg)};${RUNTIME_JS}`;
   return { js, gridCols, gridRows };
 }
 
