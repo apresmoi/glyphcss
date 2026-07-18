@@ -687,7 +687,11 @@ export function WordArtWorkbench() {
           return (
             <button key={p.label} type="button" className={`wa-tile ${activePreset === p.label ? "is-active" : ""}`} onClick={() => applyPreset(p)} title={`Apply “${p.label}”`}>
               <span className="wa-tile__thumb">
-                {tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.inner }} />}
+                {/* `tile.html` (not `.inner`) — the `<pre class="glyph-output">` wrapper
+                    carries the base stylesheet's `white-space: pre` + monospace
+                    font, which the raw newline-joined grid string needs to lay out
+                    as rows instead of collapsing/wrapping like normal text. */}
+                {tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.html }} />}
               </span>
               <span className="wa-tile__label">{p.label}</span>
             </button>
@@ -974,22 +978,31 @@ interface LeftValues {
 }
 
 // ── Preset tile static render ──────────────────────────────────────────────
-// Deliberately a SMALL grid rendered at a comfortably legible font-size
-// (`.wa-tile__glyph` in wordart.css), not a big grid shrunk down — a browser
-// can't render monospace glyphs crisply much below ~6-7px, so a denser grid
-// forced into the same ~100px box just reads as blurred noise even though
-// the underlying character data is a perfectly clean "A" (verified by
-// dumping the plain-text `compileScene` output directly). `cellAspect` is
-// picked so a roughly square "A" bbox (~cap-height square, see
-// `composeText`'s size:100) fills both cols and rows at close to the same
-// fraction — `createGlyphOrthographicCamera`'s col axis divides by
+// A SMALL grid of FEW, LARGE cells rendered at a comfortably legible
+// font-size (`.wa-tile__glyph` in wordart.css) — not a big grid shrunk down.
+// A browser can't render monospace glyphs crisply much below ~7px, so a
+// denser grid forced into a small box just reads as blurred noise even
+// though the underlying character data is a perfectly clean letterform
+// (verified by dumping the plain-text `compileScene` output directly).
+// Lowercase needs a bit more resolution than uppercase did: the "a" glyph's
+// bowl/counter is a small interior hole (vs. the big triangular gap inside
+// an "A"), and at the yaw this tile now uses to show the extrusion's side
+// wall, a too-small grid or too-large a yaw flattens that hole into a solid
+// blob — 16×11 at the rotation below is the smallest grid that keeps the
+// bowl legible while still reading as a clean, un-noisy glyph.
+// `cellAspect` is picked so a roughly square glyph bbox (~cap-height square,
+// see `composeText`'s size:100) fills both cols and rows at close to the
+// same fraction — `createGlyphOrthographicCamera`'s col axis divides by
 // `BASE_TILE/cellAspect` while the row axis divides by `BASE_TILE` (see
 // `project()`), so col demand scales with `cellAspect`; the library's own
 // monospace-matching default (~2) is col-constrained for a square shape and
 // wastes rows as blank margin.
-const TILE_COLS = 19;
-const TILE_ROWS = 13;
+const TILE_COLS = 16;
+const TILE_ROWS = 11;
 const TILE_CELL_ASPECT = 1.45;
+// A little breathing room around the letter inside the grid (vs. the
+// library's own 0.95 default), so the "a" doesn't touch the tile's edges.
+const TILE_FRAME_FILL = 0.92;
 const TILE_TEXTURE_SIZE = 20;
 // Stage's own default light (lightAz -25 / lightEl 45), computed the same
 // way — see the `lightDir` useMemo below — so the tile preview is lit
@@ -1053,7 +1066,7 @@ function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult 
     : preset.profile === "custom" ? { curve: [0.3, 0.9, 0.7, 0.1], segments: 3 }
     : { edge: preset.profile, raised: false, segments: 3 };
 
-  const polygons = composeText(font, "A", {
+  const polygons = composeText(font, "a", {
     size: 100,
     depth: preset.layered ? 0 : preset.depth,
     profile: profileObj,
@@ -1068,16 +1081,21 @@ function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult 
   });
   if (polygons.length === 0) return null;
 
-  // Tilt the MESH (not the camera) for the icon's 3/4 angle — same convention
-  // `createGlyphScene`'s internal `applyTransform` uses for a mesh's `rotation`
-  // prop (world-frame XYZ Euler, R = Rx·Ry·Rz), and the same one the live
-  // Stage's `<GlyphMesh rotation={[turn, tilt, 0]}>` drives. The camera's own
+  // Turn + tilt the MESH (not the camera) for a 3/4 icon angle that shows a
+  // strip of the extrusion's side wall (its own `sideColor`/`sideTex`, not
+  // just the front face) — same convention `createGlyphScene`'s internal
+  // `applyTransform` uses for a mesh's `rotation` prop (world-frame XYZ
+  // Euler, R = Rx·Ry·Rz), and the same one the live Stage's
+  // `<GlyphMesh rotation={[turn, tilt, 0]}>` drives. The camera's own
   // `rotX`/`rotY` is a DIFFERENT convention (orbits per voxcss's
   // `rotateVec3Voxcss`) — mixing the two produced a squashed, illegible glyph.
-  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [0, 14, 0]);
+  // The yaw (Rx, turntable around the glyph's vertical) is kept modest: past
+  // ~24° it closes up the "a" bowl's small counter into a solid blob at this
+  // grid size (an "A"'s big triangular gap tolerated much more yaw).
+  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [18, 10, 0]);
   const centered = centerMesh(tilted);
   const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
-  camera.zoom = frameZoomForGrid(camera, centered, TILE_COLS, TILE_ROWS, TILE_CELL_ASPECT);
+  camera.zoom = frameZoomForGrid(camera, centered, TILE_COLS, TILE_ROWS, TILE_CELL_ASPECT, TILE_FRAME_FILL);
   return compileScene({
     polygons: centered,
     camera,

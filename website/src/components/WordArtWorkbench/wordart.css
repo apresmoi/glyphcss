@@ -290,7 +290,7 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
 }
 .wa-tile {
   flex: 0 0 auto;
-  width: 104px;
+  width: 140px;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -318,7 +318,10 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
   overflow: hidden;
   background: #02040a;
 }
-.wa-tile__glyph { font-size: 8px; line-height: 1; }
+/* Fewer, bigger cells (see TILE_COLS/TILE_ROWS in WordArtWorkbench.tsx) at a
+   font-size comfortably above the ~7px crispness floor for monospace glyphs,
+   so the "a" reads clearly instead of blurring into noise. */
+.wa-tile__glyph { font-size: 12px; line-height: 1; }
 .wa-tile__glyph .glyph-output { color: rgba(255, 232, 184, 0.92); }
 .wa-tile__label {
   padding: 3px 6px 5px;
