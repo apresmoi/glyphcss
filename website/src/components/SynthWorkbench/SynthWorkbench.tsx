@@ -5,16 +5,30 @@ import {
   createGlyphOrbitControls,
   injectGlyphBaseStyles,
   resolveGeometry,
+  type GlyphEffectBlend,
   type GlyphGeometryName,
   type GlyphSceneHandle,
 } from "glyphcss";
-import { GlyphFieldSynthEffect as fieldSynth, defaultGlyphEffectParams, GlyphRamps } from "@glyphcss/effects";
-import type { GlyphEffectPreset } from "@glyphcss/effects";
+import {
+  GlyphFieldSynthEffect as fieldSynth,
+  buildGlyphFieldSynthStaticExport,
+  defaultGlyphEffectParams,
+  GlyphRamps,
+} from "@glyphcss/effects";
+import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyphcss/effects";
 import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
-import { useColor, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
+import { useButton, useColor, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./synth-workbench.css";
+
+// The ONE blend both `scene.addEffectLayer()` calls below mount the layer
+// with. The static export must read the layer's REAL blend rather than the
+// effect definition's own `defaultBlend` metadata (see
+// `GlyphFieldSynthStaticExportOptions.blend` doc) — sharing this constant
+// keeps the exported pen from silently drifting off whatever the live scene
+// actually renders with.
+const SYNTH_EFFECT_BLEND: GlyphEffectBlend = "replace";
 
 type ParamValue = number | string | boolean;
 type Params = Record<string, ParamValue>;
@@ -158,7 +172,7 @@ function useSynthPreview(host: HTMLElement | null, getParams: () => Params, deps
     const polys = flatQuad(3);
     scene.add(polys); scene.fit(); scene.rerender();
     frameObject(scene, camera, polys, 0.98);
-    const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: "replace", target: "surfaces" });
+    const layer = scene.addEffectLayer({ effect: fieldSynth, params: getParams(), blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     scene.rerender();
     let last = performance.now(), t = 0, raf = 0;
@@ -215,12 +229,13 @@ function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onA
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam }: {
+function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, onExportCodepen, onExportCopyHtml, exportStatus }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   density: number; onDensity: (n: number) => void;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
+  onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
 }): null {
   const gui = useDockGui();
   const s = (k: string) => String(params[k] ?? "");
@@ -256,6 +271,16 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useSlider(light, "Key", { min: 0, max: 2, step: 0.05 }, lighting.keyIntensity, (v) => onLight({ keyIntensity: v }));
   useColor(light, "Key color", lighting.keyColor, (v) => onLight({ keyColor: v }));
   useSlider(light, "Ambient", { min: 0, max: 1, step: 0.05 }, lighting.ambient, (v) => onLight({ ambient: v }));
+
+  // Static export — bakes the current patch into a self-contained pen (inlined
+  // vanilla-JS field-synth evaluator, zero glyphcss at runtime). Both actions
+  // build the SAME export; one opens it in CodePen, the other copies the full
+  // standalone HTML document so it can be tested locally (drop into a file and
+  // open it — no server, no build step).
+  const exportFolder = useFolder(gui, "Export", { open: false });
+  useButton(exportFolder, "Open in CodePen", onExportCodepen);
+  useButton(exportFolder, "Copy standalone HTML", onExportCopyHtml);
+  useReadonlyText(exportFolder, "Status", exportStatus);
   return null;
 }
 
@@ -319,7 +344,7 @@ export default function SynthWorkbench() {
     // non-square viewport instead of "contain"-fitting with letterbox margins.
     frameObject(scene, camera, polys, flat ? 1.02 : 0.72, flat);
     scene.rerender();
-    const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: "replace", target: "surfaces" });
+    const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: SYNTH_EFFECT_BLEND, target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
     sceneRef.current = scene; cameraRef.current = camera;
     let last = performance.now(), t = 0, raf = 0;
@@ -405,6 +430,84 @@ export default function SynthWorkbench() {
 
   const presets = useMemo(() => (fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[], []);
 
+  // ── Static export (effect-only, static-camera self-contained pen) ──────────
+  const [exportStatus, setExportStatus] = useState("");
+
+  // Builds the SAME export `buildGlyphFieldSynthStaticExport` bakes for both
+  // "open in CodePen" and "copy standalone HTML" — reads the mesh, the current
+  // patch, the camera, the density-driven grid, and the blend the layer is
+  // ACTUALLY mounted with (SYNTH_EFFECT_BLEND), so the pen matches what's on
+  // screen. `loopSeconds` scales inversely with the live time-scale so a
+  // faster-animating patch doesn't wrap after an unreasonably long wall-clock
+  // wait, and vice-versa; the exported clock is otherwise independent — it
+  // starts fresh from `time=0` on load, not from wherever the live preview is.
+  const buildSynthExport = useCallback((): GlyphFieldSynthStaticExportResult | null => {
+    const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
+    if (!scene || !camera || !host) return null;
+    const pre = host.querySelector("pre.glyph-output") as HTMLElement | null;
+    if (!pre) return null;
+    const rect = pre.getBoundingClientRect();
+    const lines = (pre.textContent ?? "").replace(/\s+$/, "").split("\n");
+    const rows = Math.max(1, lines.length);
+    const cols = Math.max(1, lines.reduce((m, l) => Math.max(m, l.length), 1));
+    const cs = getComputedStyle(pre);
+    const fontSizePx = parseFloat(cs.fontSize) || 13;
+    const lineHeightPx = cs.lineHeight === "normal" ? fontSizePx * 1.2 : (parseFloat(cs.lineHeight) || fontSizePx);
+    const { cellAspect } = scene.getOptions();
+    const loopSeconds = Math.max(4, 40 / Math.max(0.05, timeScale));
+    return buildGlyphFieldSynthStaticExport(shapePolys(shape), {
+      params,
+      blend: SYNTH_EFFECT_BLEND,
+      loopSeconds,
+      cols,
+      rows,
+      cellAspect,
+      mode: "solid",
+      useColors: true,
+      rotX: camera.rotX,
+      rotY: camera.rotY,
+      zoom: camera.zoom,
+      projection: "orthographic",
+      fontSizePx,
+      lineHeightPx: rect.height > 0 && rows > 0 ? rect.height / rows : lineHeightPx,
+      directionalLight: buildLighting(lighting).directionalLight,
+      ambientLight: buildLighting(lighting).ambientLight,
+      title: `glyphcss field synth — ${shape}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shape, params, lighting, timeScale]);
+
+  /** POST a CodePen prefill payload (opens a new pen in a new tab) — mirrors the gallery's CodePanel. */
+  function postToCodepen(title: string, pen: { html: string; css: string; js: string }): void {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "https://codepen.io/pen/define";
+    form.target = "_blank";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "data";
+    input.value = JSON.stringify({ title, ...pen, editors: "110" });
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
+  const handleExportCodepen = useCallback(() => {
+    const result = buildSynthExport();
+    if (!result) { setExportStatus("Nothing rendered yet"); return; }
+    postToCodepen(`glyphcss field synth — ${shape}`, result.pen);
+    setExportStatus("Opened in CodePen");
+  }, [buildSynthExport, shape]);
+
+  const handleExportCopyHtml = useCallback(() => {
+    const result = buildSynthExport();
+    if (!result) { setExportStatus("Nothing rendered yet"); return; }
+    navigator.clipboard.writeText(result.html)
+      .then(() => setExportStatus("Copied standalone HTML"))
+      .catch(() => setExportStatus("Copy failed — clipboard permission?"));
+  }, [buildSynthExport]);
+
   return (
     <div className="synth-shell dn-root">
       <div className="synth-body">
@@ -424,7 +527,7 @@ export default function SynthWorkbench() {
           <div className="synth-viewport" ref={hostRef} />
         </main>
         <Dock id="synth-controls-panel">
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
         </Dock>
       </div>
       <div className="synth-presets" role="list" aria-label="Pattern presets">

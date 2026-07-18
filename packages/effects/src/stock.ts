@@ -24,13 +24,16 @@ export interface GlyphStockEffectDefinition<
   readonly presets?: readonly GlyphEffectPreset<Schema>[];
 }
 
-type AnyParams = Record<string, number | string | boolean>;
-type AnyContext<P extends AnyParams> = GlyphEffectEvaluateContext<P, undefined>;
+// Exported (alongside a handful of coordinate-resolution internals below) so
+// `staticExport.ts`'s build-time baker can construct the same evaluate()
+// context shape and reuse the real surface-basis math instead of copying it.
+export type AnyParams = Record<string, number | string | boolean>;
+export type AnyContext<P extends AnyParams> = GlyphEffectEvaluateContext<P, undefined>;
 
 const GLYPH = GlyphEffectOutputChannel.Glyph;
 const COLOR = GlyphEffectOutputChannel.Color;
 
-interface SurfaceMetricAccumulator {
+export interface SurfaceMetricAccumulator {
   count: number;
   sumX: number;
   sumY: number;
@@ -58,7 +61,7 @@ interface SurfaceMetricAccumulator {
   maxV: number;
 }
 
-interface GeneratedSurfaceField {
+export interface GeneratedSurfaceField {
   readonly normal: object;
   readonly cols: number;
   readonly rows: number;
@@ -68,7 +71,10 @@ interface GeneratedSurfaceField {
   readonly groups: readonly SurfaceMetricAccumulator[];
 }
 
-type EffectSpace = "auto" | "surface" | "scene";
+// Exported so a build-time exporter (see `staticExport.ts`) can resolve the
+// SAME domain coordinate a mounted effect layer's `evaluate()` reads, instead
+// of re-deriving the surface-basis / coplanar-group math by hand.
+export type EffectSpace = "auto" | "surface" | "scene";
 type EffectDirection = "down" | "up" | "right" | "left";
 const GENERATED_SURFACE_PITCH = 4;
 const generatedSurfaceFieldCache = new WeakMap<object, GeneratedSurfaceField>();
@@ -155,7 +161,7 @@ function glyphRamp(value: string): string[] {
 // Callers only truth-test the result as an "authored UVs are usable" gate —
 // no caller reads bound values, so this returns the gate directly instead of
 // a bounds struct.
-function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boolean {
+export function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boolean {
   const uv = context.base.uv0;
   if (!uv) return false;
   let minU = Infinity;
@@ -385,7 +391,7 @@ function solveSurfaceMetric(group: SurfaceMetricAccumulator): void {
   group.dyDv = dyDv * vScale;
 }
 
-function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P>): GeneratedSurfaceField | null {
+export function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P>): GeneratedSurfaceField | null {
   const position = context.base.worldPosition;
   const normal = context.base.normal;
   if (!position || !normal || typeof position !== "object" || typeof normal !== "object") return null;
@@ -981,10 +987,13 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 // patterns (moiré, plaid, sonar, lattices) come from. Runs over surfaces via
 // `space`.
 
-const SYNTH_VOICES = 6;
-const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
-const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
-const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
+// Exported so `staticExport.ts` can enumerate voices / validate field-wave-
+// combine names against the same lists the schema uses, instead of a second
+// hardcoded copy that could drift.
+export const SYNTH_VOICES = 6;
+export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
+export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
+export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 
 function synthWave(kind: string, t: number): number {
   const p = t - Math.floor(t); // 0..1
@@ -1138,7 +1147,7 @@ interface SynthVoice {
 // matrixRain reads, just with min/max also tracked), returning a per-cell
 // (cx, cy) alongside (x, y). UV and scene branches keep the original
 // origin*scale center untouched.
-function fieldSynthCoordinate<P extends AnyParams>(
+export function fieldSynthCoordinate<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
   space: EffectSpace,
