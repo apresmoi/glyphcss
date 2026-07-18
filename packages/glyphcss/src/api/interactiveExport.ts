@@ -37,6 +37,22 @@ export interface GlyphInteractiveExportOptions {
   cellAspect?: number;
   mode?: RenderMode;
   useColors?: boolean;
+  /**
+   * Mount a live stock `@glyphcss/effects` layer, resolved by id from the CDN
+   * at runtime. The exporter never imports `@glyphcss/effects` itself (that
+   * package depends on glyphcss, never the reverse) — `id` stays an opaque
+   * string until the snippet runs in the browser.
+   */
+  effect?: {
+    /** Stock effect id, e.g. "field-synth" / "matrix-rain". */
+    id: string;
+    /** Flat ABI params. Any `time` key is stripped — the emitted clock owns it. */
+    params: Record<string, number | string | boolean>;
+    /** Default: "over" (glyphcss's own `addEffectLayer` default). */
+    blend?: "over" | "replace";
+    /** Clock speed. >0 emits an rAF loop driving `params.time`; 0/undefined = static. */
+    timeScale?: number;
+  };
 }
 
 export interface GlyphInteractiveExportResult {
@@ -74,8 +90,31 @@ const BASE_CSS = `html,body{margin:0;height:100%;background:#0b0d10;color:#e2e8f
 #MOUNT{width:100vw;height:100vh}
 #MOUNT pre.glyph-output{margin:0;font:13px/1 ui-monospace,Menlo,monospace;white-space:pre}`;
 
+// The clock owns `time` — strip any authored value so the rAF loop (or the
+// static single assignment) is the sole writer.
+function serializeEffectParams(params: Record<string, number | string | boolean>): string {
+  const { time: _time, ...rest } = params;
+  return JSON.stringify(rest);
+}
+
+// Shared by the FPV and normal branches of buildScript so the effect-mount +
+// clock snippet isn't duplicated. `effect` here is the resolved, non-optional
+// export option — callers gate on `opts.effect` before calling this.
+function buildEffectBlock(effect: NonNullable<GlyphInteractiveExportOptions["effect"]>): string {
+  const blend = effect.blend ?? "over";
+  const layerLine = `const glyphEffect = scene.addEffectLayer({ effect: getGlyphEffect(${JSON.stringify(effect.id)}), blend: ${JSON.stringify(blend)}, params: ${serializeEffectParams(effect.params)} });`;
+  if (!effect.timeScale) return layerLine;
+  return `${layerLine}
+const _t0 = performance.now();
+(function _tick(now) {
+  glyphEffect.params.time = ((now - _t0) / 1000) * ${round(effect.timeScale)};
+  requestAnimationFrame(_tick);
+})(performance.now());`;
+}
+
 function buildScript(opts: {
   cdn: string;
+  effectsCdn?: string;
   mountId: string;
   polysJson: string;
   rotX?: number; rotY?: number; zoom?: number;
@@ -83,6 +122,7 @@ function buildScript(opts: {
   projection?: "perspective" | "orthographic"; perspectivePx?: number;
   interactions: GlyphInteraction[];
   scale: number;
+  effect?: GlyphInteractiveExportOptions["effect"];
 }): string {
   const hasFpv = opts.interactions.includes("fpv");
   const hasPan = opts.interactions.includes("pan");
@@ -105,9 +145,12 @@ function buildScript(opts: {
   if (opts.useColors === false) sceneOpts.push("useColors: false");
   if (opts.cellAspect !== undefined) sceneOpts.push(`cellAspect: ${opts.cellAspect}`);
 
-  const head = `import { ${imports.join(", ")} } from "${opts.cdn}";
+  const importLines = [`import { ${imports.join(", ")} } from "${opts.cdn}";`];
+  if (opts.effect) importLines.push(`import { getGlyphEffect } from "${opts.effectsCdn}";`);
+  const head = `${importLines.join("\n")}
 const polygons = ${opts.polysJson}.map((p) => ({ vertices: p[0], color: p[1] }));`;
   const mount = `document.getElementById(${JSON.stringify(opts.mountId)})`;
+  const effectBlock = opts.effect ? buildEffectBlock(opts.effect) : undefined;
 
   // FPV mirrors the gallery: perspective at rotX=90, zoom × model-scale,
   // and move/jump/gravity/eyeHeight scaled by the model so it works at any size.
@@ -123,13 +166,16 @@ const polygons = ${opts.polysJson}.map((p) => ({ vertices: p[0], color: p[1] }))
     const fpvZoom = round((opts.zoom ?? 0.5) * s);
     const fpvPerspective = round(200 * s);
     const fpvOpts = `{ moveSpeed: ${round(1 * s)}, jumpVelocity: ${round(0.7 * s)}, gravity: ${round(1.8 * s)}, eyeHeight: ${eyeZ}, crouchHeight: ${round(0.1 * s)}, groundZ: 0, lookSensitivity: 0.15, minPitch: 5, maxPitch: 175 }`;
-    return `${head}
-const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: ${round(rotY)}, zoom: ${fpvZoom}, perspective: ${fpvPerspective} });
+    return [
+      head,
+      `const camera = createGlyphPerspectiveCamera({ rotX: 90, rotY: ${round(rotY)}, zoom: ${fpvZoom}, perspective: ${fpvPerspective} });
 const scene = createGlyphScene(${mount}, { camera, ${sceneOpts.join(", ")} });
 scene.add(polygons);
 const fpv = createGlyphFirstPersonControls(scene, ${fpvOpts});
 fpv.setOrigin([${spawnX}, ${spawnY}, ${eyeZ}]);
-// Click the scene to capture the mouse, then WASD to move, mouse to look.`;
+// Click the scene to capture the mouse, then WASD to move, mouse to look.`,
+      effectBlock,
+    ].filter(Boolean).join("\n");
   }
 
   const camParts: string[] = [];
@@ -145,11 +191,14 @@ fpv.setOrigin([${spawnX}, ${spawnY}, ${eyeZ}]);
     controlLine = `createGlyphOrbitControls(scene, { drag: ${hasOrbit ? "true" : "false"}, wheel: ${hasZoom ? "true" : "false"} });`;
   }
 
-  return `${head}
-const camera = ${cameraCtor}({ ${camParts.join(", ")} });
+  return [
+    head,
+    `const camera = ${cameraCtor}({ ${camParts.join(", ")} });
 const scene = createGlyphScene(${mount}, { camera, ${sceneOpts.join(", ")} });
 scene.add(polygons);
-${controlLine}`;
+${controlLine}`,
+    effectBlock,
+  ].filter(Boolean).join("\n");
 }
 
 function modelScale(polygons: Polygon[]): number {
@@ -173,15 +222,23 @@ export function buildGlyphInteractiveExport(
   const decimated = decimatePolygons(centered, { grid });
 
   const mountId = options.mountId ?? "glyph";
-  const cdn = `https://esm.sh/glyphcss${options.cdnVersion ? `@${options.cdnVersion}` : ""}`;
+  const versionSuffix = options.cdnVersion ? `@${options.cdnVersion}` : "";
+  const cdn = `https://esm.sh/glyphcss${versionSuffix}`;
+  // `?deps=glyphcss<ver>` pins esm.sh to the same glyphcss instance the main
+  // import resolves, so the effect layer's runtime type checks (which compare
+  // against glyphcss's exported classes/symbols) see one module graph.
+  const effectsCdn = options.effect
+    ? `https://esm.sh/@glyphcss/effects${versionSuffix}?deps=glyphcss${versionSuffix}`
+    : undefined;
   const script = buildScript({
-    cdn, mountId,
+    cdn, effectsCdn, mountId,
     polysJson: serializePolygons(decimated),
     rotX: options.rotX, rotY: options.rotY, zoom: options.zoom,
     projection: options.projection, perspectivePx: options.perspectivePx,
     cellAspect: options.cellAspect, mode: options.mode, useColors: options.useColors,
     interactions,
     scale: modelScale(decimated),
+    effect: options.effect,
   });
 
   const css = BASE_CSS.replace(/MOUNT/g, mountId);
