@@ -52,7 +52,7 @@ definitions work with vanilla glyphcss and its React and Vue layer wrappers.
   `difference`) into one scalar mapped to a glyph ramp and color over a `space`. `amp`
   is a per-voice mix weight rather than a gain, `lit` modulates the output color by
   surface shading, and `voiceColors` blends each active voice's own color instead of a
-  single value gradient. Ships with a curated set of presets (Sunburst, Interference,
+  single value gradient. Ships with a curated set of presets (Sunburst, Ring pulse,
   Plaid weave, and more).
 
 `GlyphRamps` exports named glyph-ramp strings for the `glyphs` parameter — `Fade`,

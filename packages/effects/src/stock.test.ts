@@ -968,6 +968,46 @@ describe("fieldSynth", () => {
     expect(laterTime.coverage).not.toEqual(first.coverage);
   });
 
+  it("evolves the noise field in place instead of translating it sideways with time", () => {
+    const params = {
+      space: "scene", field1: "noise", wave1: "sin", freq1: 3, speed1: 0.7, time: 1.4,
+      amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, scale: 2, gain: 1, bias: 0.5, combine: "add",
+    } as const;
+
+    // Reference for the pre-fix behavior: `time` translated the sampled x
+    // coordinate through a static 2D lattice, so the whole field scrolled
+    // sideways rather than morphing. If the fix regresses to a translation,
+    // this reference and the real output converge back to equal.
+    function oldSynthHash(x: number, y: number): number {
+      const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+      return h - Math.floor(h);
+    }
+    function oldSynthNoise(x: number, y: number): number {
+      const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = oldSynthHash(xi, yi), b = oldSynthHash(xi + 1, yi);
+      const c = oldSynthHash(xi, yi + 1), d = oldSynthHash(xi + 1, yi + 1);
+      return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+    }
+    function oldScrollingCoverage(col: number, row: number): number {
+      const [x, y] = scenePoint(col, row, params.scale);
+      const raw = 2 * oldSynthNoise(x * params.freq1 + params.time * params.speed1, y * params.freq1) - 1;
+      return Math.min(1, Math.max(0, params.bias + params.gain * raw * 0.5));
+    }
+
+    const output = evaluate(fieldSynth, params);
+    let differsSomewhere = false;
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        if (Math.abs(output.coverage[row * COLS + col]! - oldScrollingCoverage(col, row)) > 1e-4) {
+          differsSomewhere = true;
+          break;
+        }
+      }
+    }
+    expect(differsSomewhere).toBe(true);
+  });
+
   it("treats amp 0 as fully excluding a voice regardless of its other params", () => {
     const base = {
       space: "scene", field1: "radial", wave1: "sin", freq1: 4, speed1: 0.3, time: 0.7, amp1: 1,

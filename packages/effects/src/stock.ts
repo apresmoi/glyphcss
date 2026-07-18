@@ -996,23 +996,32 @@ function synthWave(kind: string, t: number): number {
   }
 }
 
-function synthHash(x: number, y: number): number {
-  const h = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+function synthHash3(x: number, y: number, z: number): number {
+  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
   return h - Math.floor(h);
 }
-function synthNoise(x: number, y: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
-  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
-  const a = synthHash(xi, yi), b = synthHash(xi + 1, yi);
-  const c = synthHash(xi, yi + 1), d = synthHash(xi + 1, yi + 1);
-  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v; // 0..1
+
+// Time is a third lattice axis (not an x-translation), so the pattern morphs
+// in place — trilinear interpolation between the z and z+1 lattice frames —
+// instead of sliding sideways as `time` advances.
+function synthNoise3(x: number, y: number, z: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = x - xi, yf = y - yi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf), w = zf * zf * (3 - 2 * zf);
+  const a000 = synthHash3(xi, yi, zi), a100 = synthHash3(xi + 1, yi, zi);
+  const a010 = synthHash3(xi, yi + 1, zi), a110 = synthHash3(xi + 1, yi + 1, zi);
+  const a001 = synthHash3(xi, yi, zi + 1), a101 = synthHash3(xi + 1, yi, zi + 1);
+  const a011 = synthHash3(xi, yi + 1, zi + 1), a111 = synthHash3(xi + 1, yi + 1, zi + 1);
+  const frame0 = (a000 * (1 - u) + a100 * u) * (1 - v) + (a010 * (1 - u) + a110 * u) * v;
+  const frame1 = (a001 * (1 - u) + a101 * u) * (1 - v) + (a011 * (1 - u) + a111 * u) * v;
+  return frame0 * (1 - w) + frame1 * w; // 0..1
 }
 
 // One oscillator → value in ~[-amp, amp].
 function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number): number {
   if (amp === 0) return 0;
   if (field === "noise") {
-    return amp * (2 * synthNoise(x * freq + time * speed, y * freq) - 1);
+    return amp * (2 * synthNoise3(x * freq, y * freq, time * speed) - 1);
   }
   let raw: number;
   switch (field) {
@@ -1179,7 +1188,7 @@ function combineSynth(mode: string, a: number, b: number): number {
 
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
   { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
-  { name: "Interference", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
+  { name: "Ring pulse", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
   { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
   { name: "Sonar ping", params: { field1: "radial", wave1: "sin", freq1: 10, speed1: 1.6, amp1: 1, amp2: 0, amp3: 0, combine: "add", scale: 2, gain: 1.6, bias: 0.2, glyphs: "  ·:+#", color: "#2effb0", gradient: 0 } },
   { name: "Lattice", params: { field1: "linearX", wave1: "sin", freq1: 6, speed1: 0.3, amp1: 1, field2: "linearY", wave2: "sin", freq2: 6, speed2: 0.4, amp2: 1, field3: "diagonal", wave3: "sin", freq3: 6, speed3: 0.2, amp3: 1, combine: "add", scale: 2, glyphs: " .-+*#", color: "#c78bff", colorB: "#00e5ff", gradient: 0.8 } },
@@ -1260,7 +1269,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // — for every combine op, instead of `multiply` crushing the field to zero.
         let combined = 0;
         let active = 0;
-        let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0; // contribution-weighted voice color + opacity
+        // Two weight sums, both accumulated every pass: `cw` (amp * |osc|) is
+        // the true per-cell contribution and drives the normal blend; `caw`
+        // (amp alone) is always > 0 for an active voice and only feeds the
+        // fallback below, for cells where every voice sits on a zero-crossing.
+        let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0;
+        let car = 0, cag = 0, cabv = 0, caw = 0, cao = 0;
         for (let k = 0; k < SYNTH_VOICES; k++) {
           const voice = voices[k]!;
           if (!(voice.amp > 0)) continue;
@@ -1271,11 +1285,17 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (parsedVoiceColors) {
             const w = voice.amp * Math.abs(o);
             const c = parsedVoiceColors[k]!;
-            cr += ((c.packed >> 16) & 0xff) * w;
-            cg += ((c.packed >> 8) & 0xff) * w;
-            cbv += (c.packed & 0xff) * w;
+            const r = (c.packed >> 16) & 0xff, g = (c.packed >> 8) & 0xff, b = c.packed & 0xff;
+            cr += r * w;
+            cg += g * w;
+            cbv += b * w;
             co += c.opacity * w;
             cw += w;
+            car += r * voice.amp;
+            cag += g * voice.amp;
+            cabv += b * voice.amp;
+            cao += c.opacity * voice.amp;
+            caw += voice.amp;
           }
         }
         if (active === 0) continue;
@@ -1287,6 +1307,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         if (parsedVoiceColors && cw > 0) {
           packed = (Math.round(cr / cw) << 16) | (Math.round(cg / cw) << 8) | Math.round(cbv / cw);
           resolvedOpacity = co / cw;
+        } else if (parsedVoiceColors && caw > 0) {
+          packed = (Math.round(car / caw) << 16) | (Math.round(cag / caw) << 8) | Math.round(cabv / caw);
+          resolvedOpacity = cao / caw;
         } else {
           packed = params.gradient > 0 ? lerpPacked(cA.packed, cB.packed, clamp01(value * params.gradient)) : cA.packed;
           resolvedOpacity = cA.opacity;
