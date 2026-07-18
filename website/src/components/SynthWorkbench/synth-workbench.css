@@ -147,6 +147,23 @@
 /* ── Center: viewport ──────────────────────────────────────────────────── */
 .synth-main { flex: 1; position: relative; min-width: 0; }
 .synth-viewport { position: absolute; inset: 0; overflow: hidden; }
+.synth-codepen-btn {
+  /* Bottom-left, not top-right — the floating Dock GUI anchors top-right of
+     `.synth-body` (the nearest `position: relative` ancestor) and would
+     otherwise sit on top of this button and eat its clicks. */
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  padding: 5px 12px;
+  border-radius: 0;
+  cursor: pointer;
+  background: rgba(7, 9, 13, 0.7);
+  backdrop-filter: blur(2px);
+}
 .synth-viewport .glyph-output { color: rgba(255, 232, 184, 0.92); }
 
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */

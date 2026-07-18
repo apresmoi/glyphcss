@@ -5,6 +5,8 @@ import {
   createGlyphOrbitControls,
   injectGlyphBaseStyles,
   resolveGeometry,
+  buildGlyphInteractiveExport,
+  glyphCodepenPrefill,
   type GlyphGeometryName,
   type GlyphSceneHandle,
 } from "glyphcss";
@@ -15,6 +17,23 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./synth-workbench.css";
+
+/** POST a CodePen prefill payload (opens a new pen in a new tab). Mirrors
+ *  `CodePanel.tsx`'s `postToCodepen` — small enough to duplicate rather than share. */
+function postToCodepen(prefill: { action: string; data: string }): void {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = prefill.action;
+  form.target = "_blank";
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "data";
+  input.value = prefill.data;
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
 
 type ParamValue = number | string | boolean;
 type Params = Record<string, ParamValue>;
@@ -379,6 +398,36 @@ export default function SynthWorkbench() {
 
   const presets = useMemo(() => (fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[], []);
 
+  // Export the current patch (shape + field-synth params + camera framing) as a
+  // live, interactive CodePen — same geometry, same mount call the page itself
+  // uses (`blend: "replace"`, matching the `addEffectLayer` call above).
+  const [exporting, setExporting] = useState(false);
+  const handleCodepen = useCallback(async () => {
+    setExporting(true);
+    try {
+      const polys = shapePolys(shape);
+      const camera = cameraRef.current;
+      const result = buildGlyphInteractiveExport(polys, {
+        interactions: ["orbit", "zoom"],
+        rotX: camera?.rotX ?? (isFlat(shape) ? 0 : 58),
+        rotY: camera?.rotY ?? (isFlat(shape) ? 0 : 32),
+        zoom: camera?.zoom ?? 46,
+        projection: "orthographic",
+        mode: "solid",
+        useColors: true,
+        effect: {
+          id: fieldSynth.id,
+          params: paramsRef.current,
+          blend: "replace",
+          timeScale: pausedRef.current ? 0 : tsRef.current,
+        },
+      });
+      postToCodepen(glyphCodepenPrefill(result, "glyphcss field synth"));
+    } finally {
+      setExporting(false);
+    }
+  }, [shape]);
+
   return (
     <div className="synth-shell dn-root">
       <div className="synth-body">
@@ -396,6 +445,15 @@ export default function SynthWorkbench() {
         </aside>
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
+          <button
+            type="button"
+            className="synth-codepen-btn gw-code-panel__action gw-code-panel__action--codepen"
+            onClick={handleCodepen}
+            disabled={exporting}
+            title="Export the current patch as a live, interactive CodePen"
+          >
+            {exporting ? "Exporting…" : "CodePen"}
+          </button>
         </main>
         <Dock id="synth-controls-panel">
           <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} />
