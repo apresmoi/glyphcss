@@ -6,6 +6,8 @@ import {
   createGlyphOrbitControls,
   injectGlyphBaseStyles,
   resolveGeometry,
+  buildGlyphInteractiveExport,
+  glyphCodepenPrefill,
   type GlyphEffectBlend,
   type GlyphGeometryName,
   type GlyphSceneHandle,
@@ -22,6 +24,8 @@ import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyp
 import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
+import { SynthCodePanel } from "./SynthCodePanel";
+import type { SynthSnippetInput } from "./synthSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./synth-workbench.css";
 
@@ -484,67 +488,6 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   return scopeHost ? createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost) : null;
 }
 
-// ── Floating export control (bottom-left of the viewport) ─────────────────────
-// Mirrors the gallery's `.gw-code-panel` collapse pattern (CodePanel.tsx +
-// gallery-workbench.css): a small header trigger, collapsed by default, that
-// expands to reveal actions. Reuses the shared `.gw-code-panel__*` header/
-// action classes for visual consistency; the export logic itself lives in
-// `SynthWorkbench` (`handleExportCodepen` / `handleExportCopyHtml`) — this
-// component only renders the trigger + the two buttons + status readout.
-// On mobile this same panel doubles as the drawer opened by the `.dn-mobile-tabs`
-// Export tab (`open` → `is-mobile-open`, same mechanism as the gallery's Code
-// tab / `.gw-code-panel`) — desktop behavior (floating, collapsed by default,
-// toggled by its own header) is untouched.
-function SynthExportPanel({ id, open, onExportCodepen, onExportCopyHtml, exportStatus }: {
-  id?: string; open?: boolean; onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
-}): ReactNode {
-  const [collapsed, setCollapsed] = useState(true);
-  // Opening via the mobile Export tab reveals the actions in one tap — like the
-  // gallery's Code tab — instead of requiring a second tap on the header once
-  // the drawer is already open.
-  useEffect(() => { if (open) setCollapsed(false); }, [open]);
-  return (
-    <div id={id} className={`synth-export${collapsed ? " synth-export--collapsed" : ""}${open ? " is-mobile-open" : ""}`}>
-      <header className="gw-code-panel__head synth-export__head">
-        <span className="gw-code-panel__legend">[ EXPORT ]</span>
-        <div className="gw-code-panel__actions">
-          <button
-            type="button"
-            className="gw-code-panel__action"
-            onClick={() => setCollapsed((v) => !v)}
-            title={collapsed ? "Expand export panel" : "Collapse export panel"}
-            aria-label={collapsed ? "Expand export panel" : "Collapse export panel"}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? "▾" : "▴"}
-          </button>
-        </div>
-      </header>
-      {!collapsed && (
-        <div className="synth-export__body">
-          <button
-            type="button"
-            className="gw-code-panel__action gw-code-panel__action--codepen"
-            onClick={onExportCodepen}
-            title="Compile the current patch into a self-contained CodePen"
-          >
-            Open in CodePen
-          </button>
-          <button
-            type="button"
-            className="gw-code-panel__action"
-            onClick={onExportCopyHtml}
-            title="Copy a standalone HTML document (no glyphcss runtime)"
-          >
-            Copy standalone HTML
-          </button>
-          {exportStatus && <span className="synth-export__status">{exportStatus}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
 function encodeSynthState(state: unknown): string {
   try { return btoa(unescape(encodeURIComponent(JSON.stringify(state)))).replace(/=+$/, ""); } catch { return ""; }
@@ -702,17 +645,75 @@ export default function SynthWorkbench() {
 
   const presets = useMemo(() => (fieldSynth.presets ?? []) as readonly GlyphEffectPreset<never>[], []);
 
-  // ── Static export (effect-only, static-camera self-contained pen) ──────────
-  const [exportStatus, setExportStatus] = useState("");
+  // ── Export ───────────────────────────────────────────────────────────────
+  // A standard, always-visible "Open in CodePen" button (static, zero-lib —
+  // ships the currently-rendered ASCII as-is, no glyphcss/effects runtime)
+  // plus an "Export" toggle that mounts a gallery-look code window
+  // (`SynthCodePanel`, mirroring `GalleryWorkbench`'s `CodePanel`): framework
+  // tabs of lib-based code (imports glyphcss + @glyphcss/effects from a CDN,
+  // mounts the field-synth layer + a time clock) with its OWN CodePen action
+  // that ships that dynamic version. The `codeOpen` desktop toggle and the
+  // mobile `mobilePanel === "export"` tab share one code window;
+  // `cameraSnapshot` captures the live (imperative, non-React-state) camera
+  // orientation at the moment the window opens, since orbiting doesn't trigger
+  // a re-render otherwise.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [cameraSnapshot, setCameraSnapshot] = useState({ rotX: 0, rotY: 0, zoom: 46 });
 
-  // Builds the SAME export `buildGlyphFieldSynthStaticExport` bakes for both
-  // "open in CodePen" and "copy standalone HTML" — reads the mesh, the current
-  // patch, the camera, the density-driven grid, and the blend the layer is
-  // ACTUALLY mounted with (SYNTH_EFFECT_BLEND), so the pen matches what's on
-  // screen. `loopSeconds` scales inversely with the live time-scale so a
-  // faster-animating patch doesn't wrap after an unreasonably long wall-clock
-  // wait, and vice-versa; the exported clock is otherwise independent — it
-  // starts fresh from `time=0` on load, not from wherever the live preview is.
+  const snapshotCamera = useCallback(() => {
+    const camera = cameraRef.current;
+    if (camera) setCameraSnapshot({ rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom });
+  }, []);
+  const toggleCodeOpen = useCallback(() => {
+    setCodeOpen((open) => { if (!open) snapshotCamera(); return !open; });
+  }, [snapshotCamera]);
+  const handleMobileExportTab = useCallback(() => {
+    setMobilePanel((current) => {
+      if (current === "export") return null;
+      snapshotCamera();
+      return "export";
+    });
+  }, [snapshotCamera]);
+  const closeCodePanel = useCallback(() => {
+    setCodeOpen(false);
+    setMobilePanel((m) => (m === "export" ? null : m));
+  }, []);
+
+  const codeInput = useMemo<SynthSnippetInput>(() => ({
+    shape,
+    params: params as Record<string, number | string | boolean>,
+    timeScale,
+    paused,
+    density,
+    lighting,
+    camera: cameraSnapshot,
+  }), [shape, params, timeScale, paused, density, lighting, cameraSnapshot]);
+
+  /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
+  function postCodepenForm(action: string, data: string): void {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = action;
+    form.target = "_blank";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "data";
+    input.value = data;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
+  // Builds the SAME static (zero-lib) export `buildGlyphFieldSynthStaticExport`
+  // bakes for the standalone "Open in CodePen" button — reads the mesh, the
+  // current patch, the camera, the density-driven grid, and the blend the
+  // layer is ACTUALLY mounted with (SYNTH_EFFECT_BLEND), so the pen matches
+  // what's on screen. `loopSeconds` scales inversely with the live time-scale
+  // so a faster-animating patch doesn't wrap after an unreasonably long
+  // wall-clock wait, and vice-versa; the exported clock is otherwise
+  // independent — it starts fresh from `time=0` on load.
   const buildSynthExport = useCallback((): GlyphFieldSynthStaticExportResult | null => {
     const scene = sceneRef.current, camera = cameraRef.current, host = hostRef.current;
     if (!scene || !camera || !host) return null;
@@ -749,36 +750,51 @@ export default function SynthWorkbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape, params, lighting, timeScale]);
 
-  /** POST a CodePen prefill payload (opens a new pen in a new tab) — mirrors the gallery's CodePanel. */
-  function postToCodepen(title: string, pen: { html: string; css: string; js: string }): void {
-    const form = document.createElement("form");
-    form.method = "POST";
-    form.action = "https://codepen.io/pen/define";
-    form.target = "_blank";
-    const input = document.createElement("input");
-    input.type = "hidden";
-    input.name = "data";
-    input.value = JSON.stringify({ title, ...pen, editors: "110" });
-    form.appendChild(input);
-    document.body.appendChild(form);
-    form.submit();
-    form.remove();
-  }
-
-  const handleExportCodepen = useCallback(() => {
+  // Standalone, always-visible "Open in CodePen" button (bottom-left): ships
+  // the static, zero-lib baked pen (the ASCII the page currently renders +
+  // a pure-CSS loop) — no glyphcss/effects runtime.
+  const handleExportCodepenStatic = useCallback(() => {
     const result = buildSynthExport();
-    if (!result) { setExportStatus("Nothing rendered yet"); return; }
-    postToCodepen(`glyphcss field synth — ${shape}`, result.pen);
-    setExportStatus("Opened in CodePen");
+    if (!result) return;
+    setExporting(true);
+    try {
+      postCodepenForm("https://codepen.io/pen/define", JSON.stringify({ title: `glyphcss field synth — ${shape}`, ...result.pen, editors: "110" }));
+    } finally {
+      setExporting(false);
+    }
   }, [buildSynthExport, shape]);
 
-  const handleExportCopyHtml = useCallback(() => {
-    const result = buildSynthExport();
-    if (!result) { setExportStatus("Nothing rendered yet"); return; }
-    navigator.clipboard.writeText(result.html)
-      .then(() => setExportStatus("Copied standalone HTML"))
-      .catch(() => setExportStatus("Copy failed — clipboard permission?"));
-  }, [buildSynthExport]);
+  // "Export" code window's own CodePen action (and each framework tab):
+  // compiles the current shape + camera + field-synth patch into a
+  // self-contained, lib-based (glyphcss + @glyphcss/effects from the CDN)
+  // CodePen — mirrors the gallery's `handleCodepen`.
+  const handleExportCodepenDynamic = useCallback(() => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+    setExporting(true);
+    try {
+      const flat = isFlat(shape);
+      const result = buildGlyphInteractiveExport(shapePolys(shape), {
+        interactions: flat ? [] : ["orbit"],
+        rotX: camera.rotX,
+        rotY: camera.rotY,
+        zoom: camera.zoom,
+        projection: "orthographic",
+        mode: "solid",
+        useColors: true,
+        effect: {
+          id: fieldSynth.id,
+          params: params as Record<string, number | string | boolean>,
+          blend: SYNTH_EFFECT_BLEND,
+          timeScale: paused ? 0 : timeScale,
+        },
+      });
+      const prefill = glyphCodepenPrefill(result, `glyphcss field synth — ${shape}`);
+      postCodepenForm(prefill.action, prefill.data);
+    } finally {
+      setExporting(false);
+    }
+  }, [shape, params, paused, timeScale]);
 
   return (
     <div className="synth-shell dn-root dn-root--synth">
@@ -797,7 +813,35 @@ export default function SynthWorkbench() {
         </aside>
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
-          <SynthExportPanel id="synth-export-panel" open={mobilePanel === "export"} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
+          <div className="synth-export-bar">
+            <button
+              type="button"
+              className="gw-code-panel__action gw-code-panel__action--codepen"
+              onClick={handleExportCodepenStatic}
+              disabled={exporting}
+              title="Open the current rendered patch as a static, zero-runtime CodePen"
+            >
+              {exporting ? "Exporting…" : "Open in CodePen"}
+            </button>
+            <button
+              type="button"
+              className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
+              onClick={toggleCodeOpen}
+              aria-expanded={codeOpen}
+              title={codeOpen ? "Close export code window" : "Open export code window"}
+            >
+              Export
+            </button>
+          </div>
+          {(codeOpen || mobilePanel === "export") && (
+            <SynthCodePanel
+              id="synth-export-panel"
+              input={codeInput}
+              onCodepen={handleExportCodepenDynamic}
+              exporting={exporting}
+              onClose={closeCodePanel}
+            />
+          )}
         </main>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
@@ -839,7 +883,7 @@ export default function SynthWorkbench() {
           className={`dn-mobile-tabs__button${mobilePanel === "export" ? " is-active" : ""}`}
           aria-controls="synth-export-panel"
           aria-expanded={mobilePanel === "export"}
-          onClick={() => setMobilePanel((current) => current === "export" ? null : "export")}
+          onClick={handleMobileExportTab}
         >
           Export
         </button>
