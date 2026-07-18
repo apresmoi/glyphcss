@@ -1401,6 +1401,12 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let fpvSavedRotX: number | null = null;
   let fpvSavedZoom: number | null = null;
   const FPV_PERSPECTIVE_PER_SCALE = 200;
+  // Spawn the eye this many bounding-sphere radii back from the model center.
+  // >1 guarantees the eye is OUTSIDE the model; ~2.5 gives a gentle perspective
+  // that reads as "standing in front of it" without near-plane distortion.
+  const FPV_PULLBACK_RADII = 2.5;
+  // Fraction of the viewport the model's silhouette fills on FPV spawn.
+  const FPV_SPAWN_FILL = 0.62;
 
   // Model bbox → scale (maxDim/2; 1 for a 2-unit mesh). Used to size eye height,
   // speeds, spawn distance and the FPV zoom to the model's authored scale.
@@ -1446,6 +1452,56 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     fpvControl.setOrigin(origin);
   }
 
+  // Model center + rotation-invariant bounding-sphere radius (same measure the
+  // orbit auto-fit uses). Drives the FPV spawn pull-back so the eye lands
+  // outside the model regardless of shape or size.
+  function fpvModelBounds(): { center: [number, number, number]; radius: number } {
+    const polys = geometry.polygons as Polygon[];
+    let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity, mnz = Infinity, mxz = -Infinity;
+    for (const p of polys) for (const v of p.vertices) {
+      if (v[0] < mnx) mnx = v[0]; if (v[0] > mxx) mxx = v[0];
+      if (v[1] < mny) mny = v[1]; if (v[1] > mxy) mxy = v[1];
+      if (v[2] < mnz) mnz = v[2]; if (v[2] > mxz) mxz = v[2];
+    }
+    if (!isFinite(mnx)) return { center: [0, 0, 0], radius: 1 };
+    const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2, cz = (mnz + mxz) / 2;
+    let total = 0;
+    for (const p of polys) total += p.vertices.length;
+    const stride = total > 3000 ? Math.ceil(total / 3000) : 1;
+    let r2max = 0, i = 0;
+    for (const p of polys) for (const v of p.vertices) {
+      if (i++ % stride !== 0) continue;
+      const dx = v[0] - cx, dy = v[1] - cy, dz = v[2] - cz;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > r2max) r2max = d2;
+    }
+    return { center: [cx, cy, cz], radius: Math.max(Math.sqrt(r2max), 0.001) };
+  }
+
+  // Perspective fit: solve the zoom that makes a sphere of `radius` around
+  // `center` fill `fill` of the viewport under the CURRENT (perspective) camera.
+  // Same projection-measurement trick as fitContentZoom, but the sphere is
+  // centered on the MODEL (not camera.target, which FPV parks far ahead of the
+  // eye) — so framing is decoupled from whatever zoom orbit was left at.
+  function fpvFitZoom(center: [number, number, number], radius: number, fill: number): void {
+    const grid = projectionGrid();
+    const { cols, rows, cellAspect } = grid;
+    const c0 = camera.project(center, cols, rows, cellAspect, grid);
+    let sCol2 = 0, sRow2 = 0;
+    for (const e of [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Vec3[]) {
+      const pe = camera.project([center[0] + e[0], center[1] + e[1], center[2] + e[2]], cols, rows, cellAspect, grid);
+      const dc = pe[0] - c0[0], dr = pe[1] - c0[1];
+      sCol2 += dc * dc; sRow2 += dr * dr;
+    }
+    const sCol = Math.sqrt(sCol2), sRow = Math.sqrt(sRow2);
+    if (!(sCol > 0) || !(sRow > 0)) return;
+    const factor = Math.min((fill * cols) / (2 * radius * sCol), (fill * rows) / (2 * radius * sRow));
+    if (!isFinite(factor) || factor <= 0) return;
+    const nz = Math.round((camera.zoom || 1) * factor * 1000) / 1000;
+    camera.zoom = nz;
+    tunables.zoom = nz;
+  }
+
   function startFpv(): void {
     fpvSavedProjection = controlState.projection;
     fpvSavedDistance = tunables.distance;
@@ -1453,33 +1509,31 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     fpvSavedRotX = tunables.rotX;
     fpvSavedZoom = tunables.zoom;
     const scale = fpvModelScale();
+    const { center, radius } = fpvModelBounds();
     controlState.projection = 'perspective';
     tunables.distance = 0;
     tunables.perspective = FPV_PERSPECTIVE_PER_SCALE * scale;
-    // The orbit auto-fit zoom shrinks ~1/scale for big models, so normalize it
-    // for a consistent FPV view at any size.
-    tunables.zoom = (fpvSavedZoom ?? tunables.zoom) * scale;
     tunables.rotX = 90;
     stopAutoRotate();
     controlState.rotYLocked = true;
     // Rebuild so the scene has a perspective camera the control needs.
     rebuildSceneFromGeometry();
-    // Spawn one+ model-span behind the model center along the current look dir.
-    const polys = geometry.polygons as Polygon[];
-    let cx = camera.target[0], cy = camera.target[1];
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of polys) for (const v of p.vertices) {
-      if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
-      if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
-    }
-    if (isFinite(minX)) { cx = (minX + maxX) / 2; cy = (minY + maxY) / 2; }
-    const back = 1.5 * scale;
+    // Spawn the eye pulled back from the model center along the current
+    // (horizontal) look direction. Distance is a multiple of the bounding
+    // radius, so the eye lands OUTSIDE the model at any zoom the user left
+    // orbit at — the old fixed `1.5 * scale` sat inside the bounding sphere of
+    // anything wider than a slab, which is why FPV spawned "inside" the model.
+    const back = FPV_PULLBACK_RADII * radius;
     const r = (camera.rotY * Math.PI) / 180;
     // forward at rotX=90 is (-cos rotY, -sin rotY, 0); spawn the opposite way.
-    const spawnX = cx + Math.cos(r) * back;
-    const spawnY = cy + Math.sin(r) * back;
+    const spawnX = center[0] + Math.cos(r) * back;
+    const spawnY = center[1] + Math.sin(r) * back;
     fpvControl = createGlyphFirstPersonControls(scene, fpvScaledOptions(scale));
     fpvControl.setOrigin([spawnX, spawnY, controlState.fpv.groundZ + controlState.fpv.eyeHeight * scale]);
+    // Frame the model from outside. Computed fresh from the bounding sphere, so
+    // the prior orbit zoom (however far in the user had zoomed) never leaks in.
+    fpvFitZoom(center, radius, FPV_SPAWN_FILL);
+    doRerender();
   }
 
   function stopFpv(): void {
