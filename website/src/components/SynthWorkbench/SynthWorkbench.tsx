@@ -106,7 +106,12 @@ const isFlat = (name: string) => name === "plane";
 // of the grid. MUST project with the same MEASURED cell metrics the renderer uses
 // (`metrics`), else the default cell (BASE_TILE/cellAspect) is ~4× off and the zoom
 // massively overshoots. Call after a render so the <pre> reflects the real cell.
-function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number, m?: unknown) => number[] }, polys: Polys, fill = 0.72): void {
+// `cover`: fit the SMALLER axis exactly at `fill` and overscan the larger one
+// (like CSS `background-size: cover`) instead of the default `contain` behaviour
+// (fit the LARGER axis, margin on the smaller one). Used for the fullscreen plane
+// so its texture reaches every edge of a non-square viewport instead of framing
+// with letterbox bars.
+function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (v: [number, number, number], c: number, r: number, a: number, m?: unknown) => number[] }, polys: Polys, fill = 0.72, cover = false): void {
   const o = scene.getOptions();
   const pre = scene.host.querySelector("pre.glyph-output") as HTMLElement | null;
   let metrics: { cellWidth: number; cellHeight: number } | undefined;
@@ -123,7 +128,10 @@ function frameObject(scene: GlyphSceneHandle, camera: { zoom: number; project: (
     if (pr[1]! < minr) minr = pr[1]!; if (pr[1]! > maxr) maxr = pr[1]!;
   }
   const w = maxc - minc, h = maxr - minr;
-  if (w > 0 && h > 0) camera.zoom = Math.min((fill * o.cols) / w, (fill * o.rows) / h);
+  if (w > 0 && h > 0) {
+    const zc = (fill * o.cols) / w, zr = (fill * o.rows) / h;
+    camera.zoom = cover ? Math.max(zc, zr) : Math.min(zc, zr);
+  }
 }
 
 // Isolate one voice into osc-1 (amp 1) so a card can preview its solo contribution.
@@ -300,12 +308,16 @@ export default function SynthWorkbench() {
     const camera = createGlyphOrthographicCamera({ rotX: flat ? 0 : 58, rotY: flat ? 0 : 32, zoom: 46 });
     const scene = createGlyphScene(host, { camera, autoSize: true, mode: "solid", useColors: true, glyphPalette: "default", doubleSided: flat, interactiveDownscale: 1, ...buildLighting(lightingRef.current) });
     host.style.fontSize = `${13 / densityRef.current}px`;
-    createGlyphOrbitControls(scene, { drag: true, wheel: true });
+    // The plane is a fullscreen-shader-style backdrop: camera stays locked head-on,
+    // so no orbit controls for it. Every other shape keeps orbit exactly as before.
+    if (!flat) createGlyphOrbitControls(scene, { drag: true, wheel: true });
     const polys = shapePolys(shape);
     meshRef.current = scene.add(polys) as { dispose: () => void };
     scene.fit();
     scene.rerender(); // render once so the <pre> reflects the real cell size
-    frameObject(scene, camera, polys, flat ? 0.98 : 0.72);
+    // `cover` + slight overscan (fill > 1) so the plane reaches every edge of a
+    // non-square viewport instead of "contain"-fitting with letterbox margins.
+    frameObject(scene, camera, polys, flat ? 1.02 : 0.72, flat);
     scene.rerender();
     const layer = scene.addEffectLayer({ effect: fieldSynth, params: paramsRef.current, blend: "replace", target: "surfaces" });
     layerRef.current = layer as unknown as { setParams: (p: Params) => void; dispose: () => void };
@@ -319,7 +331,21 @@ export default function SynthWorkbench() {
       layerRef.current?.setParams({ time: t });
     };
     raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
+    // Camera.zoom is CSS px per world unit, independent of host size — resizing
+    // the viewport doesn't grow the plane's on-screen footprint on its own. Only
+    // the fullscreen plane needs to re-cover on resize; framed 3D shapes keep
+    // their fixed on-screen size exactly as before (untouched by this observer).
+    let resizeObserver: ResizeObserver | null = null;
+    if (flat && typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(() => {
+        scene.fit();
+        scene.rerender();
+        frameObject(scene, camera, polys, 1.02, true);
+        scene.rerender();
+      });
+      resizeObserver.observe(host);
+    }
+    return () => { cancelAnimationFrame(raf); resizeObserver?.disconnect(); layerRef.current?.dispose(); scene.destroy(); sceneRef.current = null; layerRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shape]);
 
