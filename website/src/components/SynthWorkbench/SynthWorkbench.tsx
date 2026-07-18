@@ -336,8 +336,8 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
             <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
           </span>
         </div>
-        <IconToggle options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
         <IconToggle options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
+        <IconToggle options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
         <label className="voice-slider"><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /></span><b>{num("freq").toFixed(1)}</b></label>
         <label className="voice-slider"><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider"><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
