@@ -1092,6 +1092,69 @@ describe("fieldSynth", () => {
     expect(first.coverage).toEqual(second.coverage);
     expect(first.color).toEqual(second.color);
   });
+
+  // offsetWallSurface pushes the generated wall surface's world position far
+  // from the world origin (mirrors any real mesh not sitting at (0,0,0)).
+  // Before the fix, a generated-surface cell's origin was cx = originU*scale,
+  // cy = originV*scale — a fixed point in *unbounded world-plane units* near
+  // (0, 0). Once the mesh sits thousands of units away, that fixed point is
+  // nowhere near the face, so nothing in origin's 0..1 range meaningfully
+  // moves the pattern, and origin (0.5, 0.5) does not land on the face at
+  // all. The fix maps origin into the current coplanar group's own covered
+  // u/v bounds, so both properties below hold regardless of the mesh's
+  // absolute world position.
+  function offsetWallSurface(offsetCol: number) {
+    const surface = cubeSurface("wall");
+    for (let i = 0; i < surface.worldPosition.length; i += 3) surface.worldPosition[i] += offsetCol;
+    return surface;
+  }
+
+  it("centers a radial pattern on the visible face when origin is (0.5, 0.5), even far from the world origin", () => {
+    const output = evaluate(fieldSynth, {
+      space: "surface", field1: "radial", wave1: "sin", freq1: 2.5, speed1: 0, time: 0,
+      amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add",
+      originU: 0.5, originV: 0.5, scale: 1,
+    }, offsetWallSurface(2000));
+
+    // Full mirror symmetry about the grid's exact center (col 5.5, row 2.5)
+    // is only possible if origin (0.5, 0.5) landed exactly on that center —
+    // this wall surface's single coplanar group spans the entire covered
+    // grid, so its u/v bounds midpoint IS the grid center. The old fixed
+    // cx=cy=0.5 center would not produce this symmetry once the mesh is
+    // offset far from the world origin.
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const mirrored = output.coverage[(ROWS - 1 - row) * COLS + (COLS - 1 - col)]!;
+        expect(output.coverage[row * COLS + col]!).toBeCloseTo(mirrored, 5);
+      }
+    }
+  });
+
+  it("moves the pattern center on the face when originU sweeps from 0.2 to 0.8", () => {
+    const base = {
+      space: "surface", field1: "radial", wave1: "sin", freq1: 2.5, speed1: 0, time: 0,
+      amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add", scale: 1, originV: 0.5,
+    } as const;
+    const surface = offsetWallSurface(2000);
+    const low = evaluate(fieldSynth, { ...base, originU: 0.2 }, surface);
+    const high = evaluate(fieldSynth, { ...base, originU: 0.8 }, surface);
+
+    // The group's u bounds are [2000*0.25, 2011*0.25] = [500, 502.75] (width
+    // 2.75, unaffected by the offset). At col=6, row=2 -> u=501.5, v=-0.5:
+    // originU 0.2 -> cx=500.55, Δu=0.95; originU 0.8 -> cx=502.2, Δu=-0.7.
+    // With cy=-0.625 fixed (originV 0.5), Δv=0.125 both times.
+    const cell = 2 * COLS + 6;
+    const expectedLow = singleVoiceValue("radial", "sin", 2.5, 501.5, -0.5, 500.55, -0.625);
+    const expectedHigh = singleVoiceValue("radial", "sin", 2.5, 501.5, -0.5, 502.2, -0.625);
+    expect(low.coverage[cell]!).toBeCloseTo(expectedLow, 4);
+    expect(high.coverage[cell]!).toBeCloseTo(expectedHigh, 4);
+    expect(low.coverage[cell]!).not.toBeCloseTo(high.coverage[cell]!, 2);
+
+    // Sanity: before the fix, cx/cy stayed near 0.2..0.8 regardless of the
+    // mesh's ~500-unit offset, so this specific cell's reading barely moved
+    // across the same sweep — the opposite of the large swing asserted above.
+    expect(Math.abs(expectedLow - expectedHigh)).toBeGreaterThan(0.5);
+  });
 });
 
 describe("regression: blank-ramp glyphs are not stripped", () => {
@@ -1133,24 +1196,28 @@ describe("regression: blank-ramp glyphs are not stripped", () => {
 
 describe("regression: field-synth generated-surface isotropy", () => {
   it("keeps a radial pattern isotropic on a generated surface even though cols (12) != rows (6)", () => {
-    // Two cells whose (Δu, Δv) offsets from the origin are transposes of each
-    // other on the generated wall surface: (col=6,row=0) -> (Δu,Δv)=(1.0,-0.5),
-    // (col=4,row=2) -> (Δu,Δv)=(0.5,-1.0). hypot(1.0,0.5) === hypot(0.5,1.0), so
-    // an isotropic radial field must read the same value at both cells. If the
+    // The generated wall surface has u = col * 0.25, v = -row * 0.25 (12 cols,
+    // 6 rows), a fact about surfaceBasisSample's world-plane metric, independent
+    // of where origin maps to. With originU/originV at 0.5, origin is placed at
+    // this single coplanar group's covered-bounds midpoint: cx = 0.5*2.75 =
+    // 1.375 (u spans [0, 2.75]), cy = -1.25 + 0.5*1.25 = -0.625 (v spans
+    // [-1.25, 0]) — the grid's exact center, (col, row) = (5.5, 2.5).
+    //
+    // Two cells whose (Δu, Δv) offsets from that center are transposes of each
+    // other: (col=8,row=2) -> (Δu,Δv)=(0.625,0.125), (col=6,row=0) ->
+    // (Δu,Δv)=(0.125,0.625). hypot(0.625,0.125) === hypot(0.125,0.625), so an
+    // isotropic radial field must read the same value at both cells. If the
     // generated-surface coordinate were ever normalized per-axis by sceneCols
-    // (12) vs sceneRows (6) again, this symmetry would break, because a col
-    // step and a row step would pick up different scale factors.
-    const scale = 1;
-    const cx = 0.5 * scale;
-    const cy = 0.5 * scale;
+    // (12) vs sceneRows (6), or the per-face origin mapping weighted U and V
+    // bounds unevenly, this symmetry would break.
     const output = evaluate(fieldSynth, {
       space: "surface", field1: "radial", wave1: "sin", freq1: 2.5, speed1: 0, time: 0,
       amp1: 1, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0, combine: "add",
-      originU: 0.5, originV: 0.5, scale,
+      originU: 0.5, originV: 0.5, scale: 1,
     }, cubeSurface("wall"));
 
-    const cellA = 0 * 12 + 6; // col=6, row=0
-    const cellB = 2 * 12 + 4; // col=4, row=2
+    const cellA = 2 * 12 + 8; // col=8, row=2
+    const cellB = 0 * 12 + 6; // col=6, row=0
     expect(output.coverage[cellA]!).toBeCloseTo(output.coverage[cellB]!, 5);
   });
 });

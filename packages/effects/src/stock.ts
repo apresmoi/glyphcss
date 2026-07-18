@@ -47,6 +47,15 @@ interface SurfaceMetricAccumulator {
   dyDu: number;
   dxDv: number;
   dyDv: number;
+  // Covered-cell bounds in the group's own (unfitted) u/v — fieldSynth maps
+  // originU/originV into these so origin lands on the visible face instead of
+  // an arbitrary world-plane offset. Independent of the fitted dxDu/dyDu
+  // metric above (which matrixRain uses for flow direction); adding these
+  // does not change any value matrixRain reads.
+  minU: number;
+  maxU: number;
+  minV: number;
+  maxV: number;
 }
 
 interface GeneratedSurfaceField {
@@ -333,6 +342,10 @@ function createSurfaceMetricAccumulator(): SurfaceMetricAccumulator {
     dyDu: 0,
     dxDv: 0,
     dyDv: 1,
+    minU: Infinity,
+    maxU: -Infinity,
+    minV: Infinity,
+    maxV: -Infinity,
   };
 }
 
@@ -425,6 +438,10 @@ function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P>): Gen
     group.sumYU += y * u;
     group.sumXV += x * v;
     group.sumYV += y * v;
+    if (u < group.minU) group.minU = u;
+    if (u > group.maxU) group.maxU = u;
+    if (v < group.minV) group.minV = v;
+    if (v > group.maxV) group.maxV = v;
   }
 
   for (const group of groups) solveSurfaceMetric(group);
@@ -1103,26 +1120,51 @@ interface SynthVoice {
 // them by sceneCols/sceneRows would make the pattern viewport-size-dependent
 // and shear radial/spiral/angular fields into ellipses whenever cols≠rows. UV
 // and scene-grid domains stay normalized by grid size, as before.
+//
+// On the generated-surface branch, origin/scale are unrelated to the UV and
+// scene branches: `originU*scale` is a fixed point in unbounded world-plane
+// units, which usually falls off whatever face is on screen. So this branch
+// maps origin into the current cell's group's own covered u/v bounds instead
+// (via the retained generatedSurfaceField grouping — same coordinate values
+// matrixRain reads, just with min/max also tracked), returning a per-cell
+// (cx, cy) alongside (x, y). UV and scene branches keep the original
+// origin*scale center untouched.
 function fieldSynthCoordinate<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
   space: EffectSpace,
   uvBounds: boolean,
   scale: number,
+  originU: number,
+  originV: number,
   sceneCols: number,
   sceneRows: number,
-): readonly [number, number] | null {
+  generatedSurface: GeneratedSurfaceField | null | undefined,
+): readonly [number, number, number, number] | null {
   if (space !== "scene") {
     if (space === "auto" && uvBounds && context.base.uv0) {
       const u = context.base.uv0[index * 2]!;
       const v = context.base.uv0[index * 2 + 1]!;
-      if (Number.isFinite(u) && Number.isFinite(v)) return [u * scale, v * scale];
+      if (Number.isFinite(u) && Number.isFinite(v)) {
+        return [u * scale, v * scale, originU * scale, originV * scale];
+      }
     }
-    const generated = generatedSurfaceSample(context, index);
-    if (generated) return [generated[0] * scale, generated[1] * scale];
+    if (generatedSurface) {
+      const u = generatedSurface.coordinate[index * 2]!;
+      const v = generatedSurface.coordinate[index * 2 + 1]!;
+      const group = generatedSurface.groups[generatedSurface.groupIndex[index]!];
+      if (Number.isFinite(u) && Number.isFinite(v) && group) {
+        const cx = (group.minU + originU * (group.maxU - group.minU)) * scale;
+        const cy = (group.minV + originV * (group.maxV - group.minV)) * scale;
+        return [u * scale, v * scale, cx, cy];
+      }
+    } else if (generatedSurface === undefined) {
+      const generated = generatedSurfaceSample(context, index);
+      if (generated) return [generated[0] * scale, generated[1] * scale, originU * scale, originV * scale];
+    }
   }
   const [x, y] = sceneCoordinate(context, index);
-  return [(x / sceneCols) * scale, (y / sceneRows) * scale];
+  return [(x / sceneCols) * scale, (y / sceneRows) * scale, originU * scale, originV * scale];
 }
 
 function combineSynth(mode: string, a: number, b: number): number {
@@ -1178,8 +1220,9 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const uvBounds = findUvBounds(context);
       const [sceneCols, sceneRows] = context.coordinates.sceneGridSize;
       const scale = params.scale;
-      const cx = params.originU * scale;
-      const cy = params.originV * scale;
+      const generatedSurface = params.space !== "scene" && !(params.space === "auto" && uvBounds)
+        ? generatedSurfaceField(context)
+        : undefined;
       const cA = parseGlyphEffectColor(params.color);
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
@@ -1196,9 +1239,20 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const rampMax = glyphs.length - 1;
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
-        const coord = fieldSynthCoordinate(context, i, params.space as EffectSpace, uvBounds, scale, sceneCols, sceneRows);
+        const coord = fieldSynthCoordinate(
+          context,
+          i,
+          params.space as EffectSpace,
+          uvBounds,
+          scale,
+          params.originU,
+          params.originV,
+          sceneCols,
+          sceneRows,
+          generatedSurface,
+        );
         if (!coord) continue;
-        const [x, y] = coord;
+        const [x, y, cx, cy] = coord;
         // Combine active oscillators (amp > 0). `amp` is a MIX WEIGHT, not a signal
         // gain: the first voice enters at its weight; each later voice blends the
         // result toward `combine(result, voice)` by its amp. So amp 0 = no effect
