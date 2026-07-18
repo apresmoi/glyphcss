@@ -300,6 +300,44 @@ export function useReadonlyNumber(
   return ctrl;
 }
 
+/**
+ * Insert a plain DOM node into a folder's children container for mounting
+ * arbitrary content (e.g. a React portal) alongside its lil-gui controllers.
+ * `parent.$children` is the documented DOM element lil-gui appends controller
+ * rows into (see the `lil-gui` type declarations), so this stays inside the
+ * public contract rather than reaching into private internals.
+ *
+ * Controllers only ever `appendChild` themselves, so a `"top"` slot must be
+ * requested before any sibling `use*` calls in the same folder to land above
+ * them; a `"bottom"` slot can be requested at any point.
+ */
+export function useDockSlot(
+  parent: GUI | null,
+  options?: { position?: "top" | "bottom"; className?: string },
+): HTMLDivElement | null {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const optsRef = useRef(options);
+  optsRef.current = options;
+
+  useEffect(() => {
+    if (!parent) return;
+    const el = document.createElement("div");
+    el.className = "dock-slot";
+    if (optsRef.current?.className) el.classList.add(optsRef.current.className);
+    const container = parent.$children;
+    if (optsRef.current?.position === "bottom") container.appendChild(el);
+    else container.insertBefore(el, container.firstChild);
+    setHost(el);
+    return () => {
+      container.removeChild(el);
+      setHost(null);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parent]);
+
+  return host;
+}
+
 /** Always-disabled text display with the same visual treatment as readonly numbers. */
 export function useReadonlyText(parent: GUI | null, label: string, value: string): DockController<string> | null {
   const [ctrl, setCtrl] = useState<DockController<string> | null>(null);

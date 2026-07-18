@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { createPortal } from "react-dom";
 import {
   createGlyphScene,
   createGlyphOrthographicCamera,
@@ -20,7 +21,7 @@ import {
 import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyphcss/effects";
 import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
-import { useButton, useColor, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
+import { useButton, useColor, useDockSlot, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./synth-workbench.css";
 
@@ -301,15 +302,14 @@ function buildCombinedPathD(voices: readonly CombinedVoice[], combineMode: strin
   return d;
 }
 
-// Floating oscilloscope overlay docked in a corner of the render viewport (NOT
-// the voices rail — see `.synth-scope` in the CSS): each active voice's raw wave
-// faint in its own color, the real mixed result bold on top — the fastest way to
-// SEE interference (two close frequencies drifting in and out of phase = a visible
-// beating envelope). One shared rAF loop for the whole strip (not one per voice),
-// driven by the SAME paused/time-scale refs that drive the actual mounted scene,
-// so it tracks what's on screen rather than free-running on its own clock. Purely
-// a readout over the mesh, so it must never intercept pointer events meant for
-// orbit/drag on the viewport underneath (`pointer-events: none`, see CSS).
+// Combined-waveform oscilloscope, portaled into the right Dock's MIX folder
+// (above Combine — see `useDockSlot(mix, { position: "top" })` in `SynthDock`):
+// each active voice's raw wave faint in its own color, the real mixed result
+// bold on top — the fastest way to SEE interference (two close frequencies
+// drifting in and out of phase = a visible beating envelope). One shared rAF
+// loop for the whole strip (not one per voice), driven by the SAME
+// paused/time-scale refs that drive the actual mounted scene, so it tracks
+// what's on screen rather than free-running on its own clock.
 function SynthScope({ paramsRef, tsRef, pausedRef }: {
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
 }) {
@@ -343,14 +343,14 @@ function SynthScope({ paramsRef, tsRef, pausedRef }: {
     return () => cancelAnimationFrame(raf);
   }, [paramsRef, tsRef, pausedRef]);
   return (
-    <div className="synth-scope" aria-hidden="true">
-      <span className="synth-scope-label">Scope</span>
-      <svg className="synth-scope-plot" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-        <line x1={0} y1={height / 2} x2={width} y2={height / 2} className="synth-scope-mid" />
+    <div className="dock-scope" aria-hidden="true">
+      <span className="dock-scope-label">Scope</span>
+      <svg className="dock-scope-plot" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <line x1={0} y1={height / 2} x2={width} y2={height / 2} className="dock-scope-mid" />
         {[0, 1, 2, 3, 4, 5].map((k) => (
-          <path key={k} ref={(el) => { voicePathRefs.current[k] = el; }} className="synth-scope-voice" vectorEffect="non-scaling-stroke" fill="none" />
+          <path key={k} ref={(el) => { voicePathRefs.current[k] = el; }} className="dock-scope-voice" vectorEffect="non-scaling-stroke" fill="none" />
         ))}
-        <path ref={mixPathRef} className="synth-scope-mix" vectorEffect="non-scaling-stroke" fill="none" />
+        <path ref={mixPathRef} className="dock-scope-mix" vectorEffect="non-scaling-stroke" fill="none" />
       </svg>
     </div>
   );
@@ -417,14 +417,15 @@ function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onA
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, onExportCodepen, onExportCopyHtml, exportStatus }: {
+function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, onExportCodepen, onExportCopyHtml, exportStatus, paramsRef, tsRef, pausedRef }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   density: number; onDensity: (n: number) => void;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
   onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
-}): null {
+  paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
+}): ReactNode {
   const gui = useDockGui();
   const s = (k: string) => String(params[k] ?? "");
   const n = (k: string) => Number(params[k] ?? 0);
@@ -437,6 +438,9 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useToggle(stage, "Paused", paused, onPaused);
 
   const mix = useFolder(gui, "Mix", { open: true });
+  // Scope goes first so `useDockSlot`'s insertBefore(…, firstChild) lands it
+  // above every controller subsequently added to this folder (Combine, Scale, …).
+  const scopeHost = useDockSlot(mix, { position: "top", className: "dock-scope-slot" });
   useOption(mix, "Combine", COMBINE_OPTS, s("combine"), (v) => onParam("combine", v));
   useSlider(mix, "Scale", { min: 0.1, max: 12, step: 0.1 }, n("scale"), (v) => onParam("scale", v));
   useSlider(mix, "Origin U", { min: 0, max: 1, step: 0.01 }, n("originU"), (v) => onParam("originU", v));
@@ -469,7 +473,7 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useButton(exportFolder, "Open in CodePen", onExportCodepen);
   useButton(exportFolder, "Copy standalone HTML", onExportCopyHtml);
   useReadonlyText(exportFolder, "Status", exportStatus);
-  return null;
+  return scopeHost ? createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost) : null;
 }
 
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
@@ -724,10 +728,9 @@ export default function SynthWorkbench() {
         </aside>
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
-          <SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
         </main>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
         </Dock>
       </div>
       <div id="synth-presets-panel" className={`synth-presets${mobilePanel === "presets" ? " is-mobile-open" : ""}`} role="list" aria-label="Pattern presets">

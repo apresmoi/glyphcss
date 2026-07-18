@@ -235,37 +235,32 @@
 }
 .synth-viewport .glyph-output { color: rgba(255, 232, 184, 0.92); }
 
-/* Floating scope: a small oscilloscope HUD docked in the viewport's bottom-left
-   corner (moved off the voices rail so it doesn't cost sidebar height) — every
-   active voice's raw wave faint in its own color, the real mixed result
+/* Combined-waveform scope, portaled into the right Dock's MIX folder above
+   Combine (`useDockSlot(mix, { position: "top" })` in SynthWorkbench.tsx) —
+   every active voice's raw wave faint in its own color, the real mixed result
    (combineSynth, mix-weighted) bold on top, so close frequencies visibly beat
-   instead of just reading as two numbers. Read-only overlay: `pointer-events:
-   none` so it never steals drag/orbit input from the render underneath, and it
-   stays small + semi-transparent so it doesn't obscure the pattern. */
-.synth-scope {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  z-index: 4;
-  width: 176px;
-  padding: 7px 8px 8px;
-  background: rgba(4, 6, 11, 0.72);
-  border: 1px solid rgba(255, 232, 184, 0.16);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  pointer-events: none;
+   instead of just reading as two numbers. `.dock-scope-slot` is the plain DOM
+   node `useDockSlot` inserts as a folder row; it isn't a `.controller`, so it
+   gets its own padding here matching lil-gui's `--padding`/`--spacing` rather
+   than inheriting the controller layout. The plot is fully responsive (no
+   fixed width) so it fills whatever width the Dock panel happens to have. */
+.dn-floating-controls .lil-gui .dock-scope-slot {
+  padding: var(--spacing, 5px) var(--padding, 6px) 0;
 }
-.synth-scope-label {
+.dock-scope {
+  width: 100%;
+}
+.dock-scope-label {
   display: block; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
   color: rgba(255, 232, 184, 0.5); margin-bottom: 4px;
 }
-.synth-scope-plot {
-  display: block; width: 100%; height: 44px;
+.dock-scope-plot {
+  display: block; width: 100%; height: 52px;
   background: rgba(2, 4, 10, 0.85); border: 1px solid rgba(255, 232, 184, 0.16);
 }
-.synth-scope-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
-.synth-scope-voice { stroke-width: 1; opacity: 0.4; }
-.synth-scope-mix { stroke: #f4f0e6; stroke-width: 1.6; opacity: 0.95; }
+.dock-scope-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
+.dock-scope-voice { stroke-width: 1; opacity: 0.4; }
+.dock-scope-mix { stroke: #f4f0e6; stroke-width: 1.6; opacity: 0.95; }
 
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */
 .synth-presets {
@@ -305,15 +300,6 @@
 
   .dn-root--synth .dn-mobile-tabs {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  /* The scope floats inside `.synth-main`, which spans the full viewport height
-     on mobile (the voices rail is out of flow), so its default bottom-left
-     corner would sit directly under the always-visible tab bar. Reuse the same
-     `--mobile-panel-bottom` offset the drawers use to clear it. */
-  .dn-root--synth .synth-scope {
-    bottom: var(--mobile-panel-bottom);
-    width: 148px;
   }
 
   /* Voices rail: out of the flex flow so `.synth-main` fills the full width,
