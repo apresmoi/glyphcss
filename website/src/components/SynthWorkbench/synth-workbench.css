@@ -66,23 +66,7 @@
 .synth-voices-list { flex: 1; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 9px; }
 .synth-empty { color: rgba(255, 232, 184, 0.4); font-size: 12px; text-align: center; margin-top: 24px; }
 
-/* Combined waveform: every active voice's raw wave faint in its own color, the
-   real mixed result (combineSynth, mix-weighted) bold on top — close frequencies
-   visibly beat instead of just reading as two numbers. */
-.synth-combined { flex: 0 0 auto; padding: 9px 9px 0; }
-.synth-combined-label {
-  display: block; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-  color: rgba(255, 232, 184, 0.5); margin-bottom: 5px;
-}
-.synth-combined-plot {
-  display: block; width: 100%; height: 54px;
-  background: #02040a; border: 1px solid rgba(255, 232, 184, 0.16);
-}
-.synth-combined-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
-.synth-combined-voice { stroke-width: 1; opacity: 0.4; }
-.synth-combined-mix { stroke: #f4f0e6; stroke-width: 1.6; opacity: 0.95; }
-
-/* Horizontal card: [ trendline, spanning both columns ] / [ cube render ] [ controls column ] */
+/* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
 .voice-card {
   display: grid;
   grid-template-columns: 92px 1fr;
@@ -91,17 +75,27 @@
   background: #04060b;
   padding: 9px;
 }
+/* Left column: a fixed-92px flex stack so the square preview below stays exactly
+   square regardless of the grid track's stretch behavior — both children pin
+   their own width/height instead of inheriting it from the grid item. */
+.voice-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
 /* The voice's own waveform: freq = cycles across the width, mix = vertical
-   amplitude, wave toggle = shape — a direct visual read of the sliders below it. */
+   amplitude, wave toggle = shape — a direct visual read of the sliders below it.
+   Confined to the 92px left column now (was full-card-width) and roughly
+   aligns with the "Voice N" title row on the right. */
 .voice-trend {
-  grid-column: 1 / -1;
-  display: block; width: 100%; height: 28px;
+  display: block; width: 92px; height: 24px; flex: 0 0 24px;
   background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-trend-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
 .voice-trend-line { stroke-width: 1.4; opacity: 0.95; }
 .voice-preview {
-  display: block; width: 92px; height: 92px; align-self: center;
+  display: block; width: 92px; height: 92px; flex: 0 0 92px;
   overflow: hidden; background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }
@@ -228,6 +222,38 @@
 }
 .synth-viewport .glyph-output { color: rgba(255, 232, 184, 0.92); }
 
+/* Floating scope: a small oscilloscope HUD docked in the viewport's bottom-left
+   corner (moved off the voices rail so it doesn't cost sidebar height) — every
+   active voice's raw wave faint in its own color, the real mixed result
+   (combineSynth, mix-weighted) bold on top, so close frequencies visibly beat
+   instead of just reading as two numbers. Read-only overlay: `pointer-events:
+   none` so it never steals drag/orbit input from the render underneath, and it
+   stays small + semi-transparent so it doesn't obscure the pattern. */
+.synth-scope {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 4;
+  width: 176px;
+  padding: 7px 8px 8px;
+  background: rgba(4, 6, 11, 0.72);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.synth-scope-label {
+  display: block; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.5); margin-bottom: 4px;
+}
+.synth-scope-plot {
+  display: block; width: 100%; height: 44px;
+  background: rgba(2, 4, 10, 0.85); border: 1px solid rgba(255, 232, 184, 0.16);
+}
+.synth-scope-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
+.synth-scope-voice { stroke-width: 1; opacity: 0.4; }
+.synth-scope-mix { stroke: #f4f0e6; stroke-width: 1.6; opacity: 0.95; }
+
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */
 .synth-presets {
   flex: 0 0 auto; width: 100%; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto;
@@ -266,6 +292,15 @@
 
   .dn-root--synth .dn-mobile-tabs {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* The scope floats inside `.synth-main`, which spans the full viewport height
+     on mobile (the voices rail is out of flow), so its default bottom-left
+     corner would sit directly under the always-visible tab bar. Reuse the same
+     `--mobile-panel-bottom` offset the drawers use to clear it. */
+  .dn-root--synth .synth-scope {
+    bottom: var(--mobile-panel-bottom);
+    width: 148px;
   }
 
   /* Voices rail: out of the flex flow so `.synth-main` fills the full width,

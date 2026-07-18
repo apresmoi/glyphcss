@@ -243,13 +243,16 @@ function buildCombinedPathD(voices: readonly CombinedVoice[], combineMode: strin
   return d;
 }
 
-// Prominent overlay near the voices: each active voice's raw wave faint in its own
-// color, the real mixed result bold on top — the fastest way to SEE interference
-// (two close frequencies drifting in and out of phase = a visible beating envelope).
-// One shared rAF loop for the whole strip (not one per voice), driven by the SAME
-// paused/time-scale refs that drive the actual mounted scene, so it tracks what's
-// on screen rather than free-running on its own clock.
-function CombinedWaveform({ paramsRef, tsRef, pausedRef }: {
+// Floating oscilloscope overlay docked in a corner of the render viewport (NOT
+// the voices rail — see `.synth-scope` in the CSS): each active voice's raw wave
+// faint in its own color, the real mixed result bold on top — the fastest way to
+// SEE interference (two close frequencies drifting in and out of phase = a visible
+// beating envelope). One shared rAF loop for the whole strip (not one per voice),
+// driven by the SAME paused/time-scale refs that drive the actual mounted scene,
+// so it tracks what's on screen rather than free-running on its own clock. Purely
+// a readout over the mesh, so it must never intercept pointer events meant for
+// orbit/drag on the viewport underneath (`pointer-events: none`, see CSS).
+function SynthScope({ paramsRef, tsRef, pausedRef }: {
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
 }) {
   const voicePathRefs = useRef<(SVGPathElement | null)[]>([null, null, null, null, null, null]);
@@ -282,14 +285,14 @@ function CombinedWaveform({ paramsRef, tsRef, pausedRef }: {
     return () => cancelAnimationFrame(raf);
   }, [paramsRef, tsRef, pausedRef]);
   return (
-    <div className="synth-combined">
-      <span className="synth-combined-label">Combined</span>
-      <svg className="synth-combined-plot" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-        <line x1={0} y1={height / 2} x2={width} y2={height / 2} className="synth-combined-mid" />
+    <div className="synth-scope" aria-hidden="true">
+      <span className="synth-scope-label">Scope</span>
+      <svg className="synth-scope-plot" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <line x1={0} y1={height / 2} x2={width} y2={height / 2} className="synth-scope-mid" />
         {[0, 1, 2, 3, 4, 5].map((k) => (
-          <path key={k} ref={(el) => { voicePathRefs.current[k] = el; }} className="synth-combined-voice" vectorEffect="non-scaling-stroke" fill="none" />
+          <path key={k} ref={(el) => { voicePathRefs.current[k] = el; }} className="synth-scope-voice" vectorEffect="non-scaling-stroke" fill="none" />
         ))}
-        <path ref={mixPathRef} className="synth-combined-mix" vectorEffect="non-scaling-stroke" fill="none" />
+        <path ref={mixPathRef} className="synth-scope-mix" vectorEffect="non-scaling-stroke" fill="none" />
       </svg>
     </div>
   );
@@ -318,11 +321,13 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
     <div className="voice-card">
-      <svg className="voice-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
-        <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
-        <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
-      </svg>
-      <span className="voice-preview" ref={setHost} />
+      <div className="voice-left">
+        <svg className="voice-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+          <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
+          <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
+        </svg>
+        <span className="voice-preview" ref={setHost} />
+      </div>
       <div className="voice-controls">
         <div className="voice-head">
           <span className="voice-title">Voice {index + 1}</span>
@@ -652,7 +657,6 @@ export default function SynthWorkbench() {
             <span>Voices</span>
             <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
           </div>
-          <CombinedWaveform paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
           <div className="synth-voices-list">
             {voiceSlots.map((slot, i) => (
               <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
@@ -662,6 +666,7 @@ export default function SynthWorkbench() {
         </aside>
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
+          <SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
         </main>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
           <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
