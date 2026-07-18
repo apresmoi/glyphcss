@@ -184,10 +184,31 @@ function sceneCoordinate<P extends AnyParams>(context: AnyContext<P>, index: num
   return [a * x + c * y + e, b * x + d * y + f];
 }
 
-function generatedSurfaceSample<P extends AnyParams>(
+interface SurfaceBasisSample {
+  readonly u: number;
+  readonly v: number;
+  readonly nx: number;
+  readonly ny: number;
+  readonly nz: number;
+  readonly horizontalX: number;
+  readonly horizontalY: number;
+  readonly horizontalZ: number;
+  readonly verticalX: number;
+  readonly verticalY: number;
+  readonly verticalZ: number;
+  readonly planeOffset: number;
+  readonly worldToSceneScale: number;
+}
+
+// Split from the group-key string so the domainCoordinate fallback (flowText,
+// scan, fieldSynth) — which only ever reads u/v — doesn't pay for a
+// per-cell, per-frame template-string allocation it immediately discards.
+// generatedSurfaceField still needs the key to group cells into coplanar
+// surfaces, so it calls surfaceGroupKey directly on the basis it already has.
+function surfaceBasisSample<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
-): readonly [number, number, string] | null {
+): SurfaceBasisSample | null {
   const position = context.base.worldPosition;
   const normal = context.base.normal;
   if (!position || !normal) return null;
@@ -272,12 +293,33 @@ function generatedSurfaceSample<P extends AnyParams>(
   const horizontalY = verticalZ * nx - verticalX * nz;
   const horizontalZ = verticalX * ny - verticalY * nx;
   const planeOffset = px * nx + py * ny + pz * nz;
-  const groupKey = `${Math.round(nx * 4096)},${Math.round(ny * 4096)},${Math.round(nz * 4096)},${Math.round(planeOffset * worldToSceneScale * 1024)},${Math.round(horizontalX * 4096)},${Math.round(horizontalY * 4096)},${Math.round(horizontalZ * 4096)},${Math.round(verticalX * 4096)},${Math.round(verticalY * 4096)},${Math.round(verticalZ * 4096)}`;
-  return [
-    (px * horizontalX + py * horizontalY + pz * horizontalZ) * worldToSceneScale,
-    verticalCoordinate * worldToSceneScale,
-    groupKey,
-  ];
+  return {
+    u: (px * horizontalX + py * horizontalY + pz * horizontalZ) * worldToSceneScale,
+    v: verticalCoordinate * worldToSceneScale,
+    nx,
+    ny,
+    nz,
+    horizontalX,
+    horizontalY,
+    horizontalZ,
+    verticalX,
+    verticalY,
+    verticalZ,
+    planeOffset,
+    worldToSceneScale,
+  };
+}
+
+function surfaceGroupKey(basis: SurfaceBasisSample): string {
+  return `${Math.round(basis.nx * 4096)},${Math.round(basis.ny * 4096)},${Math.round(basis.nz * 4096)},${Math.round(basis.planeOffset * basis.worldToSceneScale * 1024)},${Math.round(basis.horizontalX * 4096)},${Math.round(basis.horizontalY * 4096)},${Math.round(basis.horizontalZ * 4096)},${Math.round(basis.verticalX * 4096)},${Math.round(basis.verticalY * 4096)},${Math.round(basis.verticalZ * 4096)}`;
+}
+
+function generatedSurfaceSample<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+): readonly [number, number] | null {
+  const basis = surfaceBasisSample(context, index);
+  return basis ? [basis.u, basis.v] : null;
 }
 
 function createSurfaceMetricAccumulator(): SurfaceMetricAccumulator {
@@ -362,11 +404,12 @@ function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P>): Gen
   const groupByKey = new Map<string, number>();
 
   for (let i = 0; i < context.base.length; i++) {
-    const sample = generatedSurfaceSample(context, i);
-    if (!sample) continue;
-    const [u, v, key] = sample;
+    const basis = surfaceBasisSample(context, i);
+    if (!basis) continue;
+    const { u, v } = basis;
     coordinate[i * 2] = u;
     coordinate[i * 2 + 1] = v;
+    const key = surfaceGroupKey(basis);
     let index = groupByKey.get(key);
     if (index === undefined) {
       index = groups.length;
