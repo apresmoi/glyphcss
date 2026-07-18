@@ -114,6 +114,40 @@ describe("retained effect compositor", () => {
     expect(composed.char).toEqual([" "]);
   });
 
+  it("carries a blank ' ' output glyph through assertSingleGlyph and encode without throwing, rendering it as an empty cell", () => {
+    // " " is a valid isSingleCellGlyph (ASCII 0x20), so an effect emitting it
+    // as a real glyph output (not just an omitted channel) must survive
+    // assertSingleGlyph and reach the final grid as a genuine blank cell —
+    // this is the compositor-level half of the blank-ramp glyph fix.
+    const blankAndVisible = defineGlyphEffect<{ phase: number }>({
+      evaluate({ target, output }) {
+        for (let i = 0; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          output.glyph[i] = i % 2 === 0 ? " " : "X";
+          output.coverage[i] = 1;
+          output.channels[i] = GlyphEffectOutputChannel.Glyph;
+        }
+      },
+    });
+    const layer = createRuntimeGlyphEffectLayer(
+      { effect: blankAndVisible, params: { phase: 0 }, blend: "replace" },
+      0,
+      () => {},
+      () => {},
+    );
+    const retained = retainGlyphEffectOutput(
+      coveredGrid(["A", "B", "C", "D"], [null, null, null, null]),
+      metadata(4, 1),
+    );
+
+    let composed: ReturnType<typeof composeRetainedGlyphEffectOutput> | undefined;
+    expect(() => {
+      composed = composeRetainedGlyphEffectOutput(retained, prepare([layer], 4));
+    }).not.toThrow();
+
+    expect(composed!.char).toEqual([" ", "X", " ", "X"]);
+  });
+
   it("reuses base color strings and caches each changed packed color once per composition", () => {
     const retained = retainGlyphEffectOutput(
       coveredGrid(["A", "B", "C"], ["#010203", "#010203", "#010203"]),

@@ -604,9 +604,7 @@ export function composeRetainedGlyphEffectOutput(
       const inputCellCoverage = inputCoverage[i]!;
       const targetCellCoverage = clamp01(targetCoverage[i]!);
       const opacity = layer.opacity;
-      const emittedWeight = layer.blend === "over"
-        ? emittedCoverage * opacity * targetCellCoverage
-        : emittedCoverage * opacity * targetCellCoverage;
+      const emittedWeight = emittedCoverage * opacity * targetCellCoverage;
       const inputWeight = layer.blend === "over"
         ? inputCellCoverage * (1 - emittedWeight)
         : inputCellCoverage * (1 - opacity * targetCellCoverage);

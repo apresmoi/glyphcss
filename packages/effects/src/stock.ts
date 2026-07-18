@@ -30,13 +30,6 @@ type AnyContext<P extends AnyParams> = GlyphEffectEvaluateContext<P, undefined>;
 const GLYPH = GlyphEffectOutputChannel.Glyph;
 const COLOR = GlyphEffectOutputChannel.Color;
 
-interface UvBounds {
-  minU: number;
-  minV: number;
-  spanU: number;
-  spanV: number;
-}
-
 interface SurfaceMetricAccumulator {
   count: number;
   sumX: number;
@@ -150,9 +143,12 @@ function glyphRamp(value: string): string[] {
   return glyphs.length > 0 ? glyphs : ["?"];
 }
 
-function findUvBounds<P extends AnyParams>(context: AnyContext<P>): UvBounds | null {
+// Callers only truth-test the result as an "authored UVs are usable" gate —
+// no caller reads bound values, so this returns the gate directly instead of
+// a bounds struct.
+function findUvBounds<P extends AnyParams>(context: AnyContext<P>): boolean {
   const uv = context.base.uv0;
-  if (!uv) return null;
+  if (!uv) return false;
   let minU = Infinity;
   let minV = Infinity;
   let maxU = -Infinity;
@@ -169,10 +165,7 @@ function findUvBounds<P extends AnyParams>(context: AnyContext<P>): UvBounds | n
   }
   const spanU = maxU - minU;
   const spanV = maxV - minV;
-  if (!Number.isFinite(spanU) || !Number.isFinite(spanV) || Math.max(spanU, spanV) < 1e-6) {
-    return null;
-  }
-  return { minU, minV, spanU: Math.max(spanU, 1e-6), spanV: Math.max(spanV, 1e-6) };
+  return Number.isFinite(spanU) && Number.isFinite(spanV) && Math.max(spanU, spanV) >= 1e-6;
 }
 
 function sceneCoordinate<P extends AnyParams>(context: AnyContext<P>, index: number): [number, number] {
@@ -453,7 +446,7 @@ function domainCoordinate<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
   space: EffectSpace,
-  uvBounds: UvBounds | null,
+  uvBounds: boolean,
   scale: number,
   generatedSurface?: GeneratedSurfaceField | null,
 ): readonly [number, number, number, number, number, number] | null {
@@ -1009,6 +1002,10 @@ function synthOsc(field: string, wave: string, freq: number, speed: number, amp:
     case "linearX": raw = x; break;
     case "linearY": raw = y; break;
     case "diagonal": raw = (x + y) * 0.70710678; break;
+    // atan2/(2π) jumps by 1 crossing the -x ray; a wave sampled at raw*freq
+    // is seamless there only when freq lands on an integer number of cycles
+    // per revolution. Non-integer freq leaves a visible seam along that ray —
+    // topological to the angular coordinate, not fixable by clamping freq.
     case "angular": raw = Math.atan2(y - cy, x - cx) / (Math.PI * 2); break;
     case "spiral": raw = Math.hypot(x - cx, y - cy) + Math.atan2(y - cy, x - cx) / (Math.PI * 2); break;
     default: raw = Math.hypot(x - cx, y - cy); // radial
@@ -1085,7 +1082,7 @@ const fieldSynthSchema = {
 // SYNTH_VOICES ever changes without the schema following, this fails loudly at
 // module load instead of silently reading `undefined` through a stale cast.
 for (let voice = 1; voice <= SYNTH_VOICES; voice++) {
-  for (const prefix of ["field", "wave", "freq", "speed", "amp"] as const) {
+  for (const prefix of ["field", "wave", "freq", "speed", "amp", "color"] as const) {
     if (!(`${prefix}${voice}` in fieldSynthSchema)) {
       throw new Error(`glyphcss: field-synth schema is missing "${prefix}${voice}" for ${SYNTH_VOICES} voices.`);
     }
@@ -1110,7 +1107,7 @@ function fieldSynthCoordinate<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
   space: EffectSpace,
-  uvBounds: UvBounds | null,
+  uvBounds: boolean,
   scale: number,
   sceneCols: number,
   sceneRows: number,

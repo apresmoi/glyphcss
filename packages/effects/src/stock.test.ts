@@ -451,6 +451,28 @@ describe("stock effects", () => {
     expect(new Set(activeColors)).toEqual(new Set([selected]));
   });
 
+  it("scales monochrome coverage by the color's alpha channel", () => {
+    const shared = {
+      colorMode: "monochrome",
+      space: "scene",
+      time: 1.25,
+      speedMin: 5,
+      speedMax: 5,
+      density: 1,
+      trail: 4,
+    };
+    const opaque = evaluate(matrixRain, { ...shared, color: "#37c96fff" });
+    const halfAlpha = evaluate(matrixRain, { ...shared, color: "#37c96f80" });
+    const expectedAlpha = parseGlyphEffectColor("#37c96f80").opacity;
+    let sawNonZero = false;
+    for (let i = 0; i < opaque.coverage.length; i++) {
+      if (opaque.coverage[i]! <= 0) continue;
+      sawNonZero = true;
+      expect(halfAlpha.coverage[i]!).toBeCloseTo(opaque.coverage[i]! * expectedAlpha, 4);
+    }
+    expect(sawNonZero).toBe(true);
+  });
+
   it("is deterministic for the same absolute time and parameter snapshot", () => {
     const params = { time: 9.75, density: 0.7, seed: 42, space: "surface" };
     const first = evaluate(matrixRain, params, { withUv: true });
@@ -616,6 +638,22 @@ describe("stock effects", () => {
   });
 });
 
+describe("scan", () => {
+  it("scales coverage by the color's alpha channel", () => {
+    const shared = { time: 0, speed: 0, direction: "right", width: 3, spacing: 28 };
+    const opaque = evaluate(scan, { ...shared, color: "#ffffffff" });
+    const halfAlpha = evaluate(scan, { ...shared, color: "#ffffff80" });
+    const expectedAlpha = parseGlyphEffectColor("#ffffff80").opacity;
+    let sawNonZero = false;
+    for (let i = 0; i < opaque.coverage.length; i++) {
+      if (opaque.coverage[i]! <= 0) continue;
+      sawNonZero = true;
+      expect(halfAlpha.coverage[i]!).toBeCloseTo(opaque.coverage[i]! * expectedAlpha, 4);
+    }
+    expect(sawNonZero).toBe(true);
+  });
+});
+
 describe("wipe", () => {
   it("flips the covered region across progress with invert", () => {
     const revealed = evaluate(wipe, { progress: 1, softness: 0, invert: false });
@@ -685,6 +723,20 @@ describe("glitch", () => {
     expect(a.glyph).toEqual(b.glyph);
     expect(a.coverage).toEqual(b.coverage);
     expect(a.color).toEqual(b.color);
+  });
+
+  it("scales coverage by the color's alpha channel", () => {
+    const shared = { amount: 0.5, rate: 12, time: 1, seed: 5, bandSize: 4 };
+    const opaque = evaluate(glitch, { ...shared, color: "#ff4fd8ff" });
+    const halfAlpha = evaluate(glitch, { ...shared, color: "#ff4fd880" });
+    const expectedAlpha = parseGlyphEffectColor("#ff4fd880").opacity;
+    let sawNonZero = false;
+    for (let i = 0; i < opaque.coverage.length; i++) {
+      if (opaque.coverage[i]! <= 0) continue;
+      sawNonZero = true;
+      expect(halfAlpha.coverage[i]!).toBeCloseTo(opaque.coverage[i]! * expectedAlpha, 4);
+    }
+    expect(sawNonZero).toBe(true);
   });
 });
 
