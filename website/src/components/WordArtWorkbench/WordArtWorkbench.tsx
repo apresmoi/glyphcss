@@ -6,11 +6,19 @@ import {
   GlyphOrthographicCamera,
   GlyphPerspectiveCamera,
   GlyphScene,
+  useGlyphSceneContext,
 } from "@glyphcss/react";
 import type { Vec3 } from "@glyphcss/react";
 import type { Polygon } from "@glyphcss/react";
 import type { GlyphEffectLayerHandle } from "@glyphcss/react";
-import { compileScene, createGlyphOrthographicCamera, injectGlyphBaseStyles } from "glyphcss";
+import {
+  buildGlyphInteractiveExport,
+  compileScene,
+  createGlyphOrthographicCamera,
+  encodeStaticGlyphHtml,
+  glyphCodepenPrefill,
+  injectGlyphBaseStyles,
+} from "glyphcss";
 import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema } from "glyphcss";
 import type { GlyphEffectId } from "@glyphcss/effects";
 import type { GUI } from "lil-gui";
@@ -41,10 +49,13 @@ import {
   createGalleryEffectState,
   galleryEffectDefaultParams,
   galleryEffectDefinition,
+  galleryEffectExportName,
   sanitizeGalleryEffectParams,
   type GalleryEffectDefinition,
 } from "../GalleryWorkbench/effects";
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
+import { WordArtCodePanel } from "./WordArtCodePanel";
+import type { WordArtSnippetInput } from "./wordartSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./wordart.css";
 
@@ -156,6 +167,13 @@ function applyCase(text: string, mode: "as-typed" | "upper" | "lower" | "title")
   return text;
 }
 
+// The Density slider's baseline cell size (px) at density=1 — the same value
+// the stage otherwise inherits by default from the page's base font-size, so
+// density=1 reproduces the pre-Density-slider look. `<pre class="glyph-output">`
+// has no font-size of its own (see the base stylesheet `injectGlyphBaseStyles`
+// ships), so it cascades from whatever this Stage host sets explicitly.
+const BASE_FONT_PX = 16;
+
 function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, scaleX = 1, scaleY = 1): number {
   if (!polygons.length) return 3;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -262,6 +280,14 @@ export function WordArtWorkbench() {
   // Camera + lighting (gallery-style)
   const [perspective, setPerspective] = useState(() => qb("persp", true));
   const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
+  // Scene-wide ASCII resolution (mirrors /synth's Density): drives the
+  // GlyphScene host's font-size (BASE_FONT_PX ÷ density) — smaller cell = more
+  // columns/rows in the same on-screen box (zoom is CSS px/world-unit,
+  // independent of font size — see `fitWordArtZoom`). Same technique
+  // `SynthWorkbench`'s `host.style.fontSize` uses, just via the React
+  // `<GlyphScene style>` prop instead of an imperative host ref (glyphcss/react
+  // has no scene-wide `fontSize` option — only the per-mesh detail-layer one).
+  const [density, setDensity] = useState(() => qn("density", 1));
   const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
   const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
   const [lightColor, setLightColor] = useState(() => qs("lc", "#ffffff"));
@@ -274,7 +300,19 @@ export function WordArtWorkbench() {
   const [activePreset, setActivePreset] = useState<string | null>(null);
   // Mobile: only one floating panel is open at a time, toggled by the bottom tabs
   // (mirrors /synth's voices/controls/presets drawer pattern).
-  const [mobilePanel, setMobilePanel] = useState<"compose" | "controls" | "presets" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"compose" | "controls" | "presets" | "export" | null>(null);
+
+  // ── Export (gallery/synth-style) ─────────────────────────────────────────
+  // Bottom-left, always-visible "Open in CodePen" (static, zero-runtime bake
+  // of the live rendered `<pre>`) + an "Export" toggle that mounts a
+  // gallery-look code window (`WordArtCodePanel`) with framework tabs of
+  // lib-based code (mesh + camera + lighting + effect, via
+  // `buildGlyphInteractiveExport`). Mirrors `SynthWorkbench`'s own
+  // `codeOpen`/`exporting`/`cameraSnapshot` trio.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const stageSnapshotRef = useRef<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
+  const [stageSnapshot, setStageSnapshot] = useState<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -338,6 +376,7 @@ export function WordArtWorkbench() {
     if (!spin) p.set("spin", "0");
     if (!perspective) p.set("persp", "0");
     sn("zoom", zoomScale, 1);
+    sn("density", density, 1);
     sn("li", lightIntensity, 0.95);
     sn("amb", ambient, 0.5);
     ss("lc", lightColor, "#ffffff");
@@ -377,7 +416,7 @@ export function WordArtWorkbench() {
     }
     const search = p.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font whenever family / weight / style changes.
   useEffect(() => {
@@ -488,6 +527,143 @@ export function WordArtWorkbench() {
     });
   }, []);
 
+  // ── Export (gallery/synth-style) ─────────────────────────────────────────
+  const snapshotStage = useCallback(() => {
+    setStageSnapshot({ ...stageSnapshotRef.current });
+  }, []);
+  const toggleCodeOpen = useCallback(() => {
+    setCodeOpen((open) => {
+      if (!open) snapshotStage();
+      return !open;
+    });
+  }, [snapshotStage]);
+  const handleMobileExportTab = useCallback(() => {
+    setMobilePanel((current) => {
+      if (current === "export") return null;
+      snapshotStage();
+      return "export";
+    });
+  }, [snapshotStage]);
+  const closeCodePanel = useCallback(() => {
+    setCodeOpen(false);
+    setMobilePanel((m) => (m === "export" ? null : m));
+  }, []);
+
+  const codeInput = useMemo<WordArtSnippetInput>(() => {
+    const hasEffect = !!effectState.effectId && !!effectDefinition;
+    const exportName = hasEffect ? galleryEffectExportName(effectDefinition) : null;
+    const hasClock = hasEffect && effectDefinition ? "time" in effectDefinition.parameterSchema : false;
+    return {
+      polygons: centerMesh(polygons),
+      scaleX: scaleX / 100,
+      scaleY: scaleY / 100,
+      rotation: stageSnapshot.rotation,
+      perspective,
+      zoom: stageSnapshot.zoom,
+      lightDir,
+      lightIntensity,
+      lightColor,
+      ambient,
+      density,
+      effect: hasEffect && exportName
+        ? {
+            id: effectState.effectId as string,
+            exportName,
+            params: effectState.params,
+            blend: effectState.blend,
+            paused: effectState.paused,
+            timeScale: effectState.timeScale,
+            hasClock,
+          }
+        : null,
+    };
+  }, [polygons, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, effectState, effectDefinition]);
+
+  /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
+  function postCodepenForm(action: string, data: string): void {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = action;
+    form.target = "_blank";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "data";
+    input.value = data;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
+  const exportTitle = () => `glyphcss word art — ${text.replace(/\s+/g, " ").trim().slice(0, 40) || "untitled"}`;
+
+  // Standalone, always-visible "Open in CodePen" button (bottom-left): ships
+  // the static, zero-runtime bake of whatever's currently on screen — the
+  // exact rendered `<pre>` re-encoded via `encodeStaticGlyphHtml`, no
+  // glyphcss import — mirrors the gallery's own static-pen builder
+  // (`CodePanel.tsx`'s `buildStaticPen`) and /synth's standalone button.
+  const handleExportCodepenStatic = useCallback(() => {
+    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
+    if (!pre || !pre.innerHTML.trim()) return;
+    setExporting(true);
+    try {
+      const cs = getComputedStyle(pre);
+      const fontCss = `html,body{margin:0;height:100%;background:#07090d;display:grid;place-items:center}
+.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
+      const enc = encodeStaticGlyphHtml(pre.innerHTML, "classes", { crop: true });
+      postCodepenForm("https://codepen.io/pen/define", JSON.stringify({
+        title: exportTitle(),
+        html: enc.html,
+        css: enc.css ? `${fontCss}\n${enc.css}` : fontCss,
+        js: "",
+        editors: "100",
+      }));
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  // "Export" code window's own CodePen action: compiles the current mesh +
+  // camera + effect into a self-contained, lib-based (glyphcss +
+  // @glyphcss/effects from the CDN) CodePen — mirrors the gallery/synth's
+  // `handleCodepen`/`handleExportCodepenDynamic`. `buildGlyphInteractiveExport`
+  // has no per-mesh scale/rotation of its own (`scene.add(polygons)` takes no
+  // transform), so the live Stage's stretch + turntable snapshot is baked
+  // into plain vertices first via `bakeMeshTransform`. Like every
+  // `buildGlyphInteractiveExport` caller on this site, the CDN payload has no
+  // lighting option — it renders under the library's own scene defaults, the
+  // same gap the gallery/synth CodePen exports already accept.
+  const handleExportCodepenDynamic = useCallback(() => {
+    setExporting(true);
+    try {
+      const baked = bakeMeshTransform(centerMesh(polygons), [scaleY / 100, scaleX / 100, 1], stageSnapshot.rotation);
+      const result = buildGlyphInteractiveExport(baked, {
+        interactions: ["orbit", "zoom"],
+        rotX: 0,
+        rotY: 0,
+        zoom: stageSnapshot.zoom,
+        projection: perspective ? "perspective" : "orthographic",
+        autoCenter: false,
+        mode: "solid",
+        useColors: true,
+        effect: effectState.effectId
+          ? {
+              id: effectState.effectId,
+              params: effectState.params,
+              blend: effectState.blend,
+              timeScale: effectState.paused ? 0 : effectState.timeScale,
+            }
+          : undefined,
+      });
+      const prefill = glyphCodepenPrefill(result, exportTitle());
+      postCodepenForm(prefill.action, prefill.data);
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polygons, scaleX, scaleY, stageSnapshot, perspective, effectState, text]);
+
   function pickFamily(value: string) {
     setFamilyInput(value);
     const f = catalog.find((e) => e.family.toLowerCase() === value.trim().toLowerCase());
@@ -532,6 +708,7 @@ export function WordArtWorkbench() {
     profileMode, warp: warpShape, bend: warpAmount,
     depth, scaleX, scaleY,
     curveSegments, simplify, profileSegments, offset,
+    density,
     perspective, zoom: zoomScale, spin,
     light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
   };
@@ -553,6 +730,7 @@ export function WordArtWorkbench() {
       case "simplify": setSimplify(v as number); break;
       case "profileSegments": setProfileSegments(v as number); break;
       case "offset": setOffset(v as number); break;
+      case "density": setDensity(v as number); break;
       case "perspective": setPerspective(v as boolean); break;
       case "zoom": setZoomScale(v as number); break;
       case "spin": setSpin(v as boolean); break;
@@ -651,6 +829,7 @@ export function WordArtWorkbench() {
             scaleYFrac={scaleY / 100}
             zoomScale={zoomScale}
             setZoomScale={setZoomScale}
+            density={density}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -663,7 +842,37 @@ export function WordArtWorkbench() {
             effectBlend={effectState.blend}
             effectPaused={effectState.paused}
             effectTimeScale={effectState.timeScale}
+            snapshotRef={stageSnapshotRef}
           />
+          <div className="wa-export-bar">
+            <button
+              type="button"
+              className="gw-code-panel__action gw-code-panel__action--codepen"
+              onClick={handleExportCodepenStatic}
+              disabled={exporting}
+              title="Open the current rendered word art as a static, zero-runtime CodePen"
+            >
+              {exporting ? "Exporting…" : "Open in CodePen"}
+            </button>
+            <button
+              type="button"
+              className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
+              onClick={toggleCodeOpen}
+              aria-expanded={codeOpen}
+              title={codeOpen ? "Close export code window" : "Open export code window"}
+            >
+              Export
+            </button>
+          </div>
+          {(codeOpen || mobilePanel === "export") && (
+            <WordArtCodePanel
+              id="wa-export-panel"
+              input={codeInput}
+              onCodepen={handleExportCodepenDynamic}
+              exporting={exporting}
+              onClose={closeCodePanel}
+            />
+          )}
         </main>
 
         <Dock id="wa-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
@@ -727,6 +936,15 @@ export function WordArtWorkbench() {
         >
           Presets
         </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "export" ? " is-active" : ""}`}
+          aria-controls="wa-export-panel"
+          aria-expanded={mobilePanel === "export"}
+          onClick={handleMobileExportTab}
+        >
+          Export
+        </button>
       </nav>
     </div>
   );
@@ -777,12 +995,27 @@ function rotateMeshVerticesDeg(polygons: Polygon[], [rxDeg, ryDeg, rzDeg]: Vec3)
   return polygons.map((p) => ({ ...p, vertices: p.vertices.map(rotate) }));
 }
 
+/** Scale then rotate — the same order `createGlyphScene`'s internal
+ *  `applyTransform` applies for a mesh's `scale`/`rotation` props (translate
+ *  omitted here since the mesh is already bbox-centered). Used to bake the
+ *  live Stage's `<GlyphMesh scale rotation>` into plain vertices for
+ *  `buildGlyphInteractiveExport`, whose CDN script has no per-mesh transform
+ *  of its own (`scene.add(polygons)` with no second argument). */
+function bakeMeshTransform(polygons: Polygon[], scale: Vec3, rotationDeg: Vec3): Polygon[] {
+  const scaled = polygons.map((p) => ({
+    ...p,
+    vertices: p.vertices.map(([x, y, z]) => [x * scale[0], y * scale[1], z * scale[2]] as Vec3),
+  }));
+  return rotateMeshVerticesDeg(scaled, rotationDeg);
+}
+
 interface StageProps {
   polygons: Polygon[];
   scaleXFrac: number;
   scaleYFrac: number;
   zoomScale: number;
   setZoomScale: (updater: (prev: number) => number) => void;
+  density: number;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -795,6 +1028,13 @@ interface StageProps {
   effectBlend: GalleryEffectBlend;
   effectPaused: boolean;
   effectTimeScale: number;
+  /** Always-fresh mesh-rotation + effective-zoom snapshot, read (not
+   *  subscribed to) by the Export panel's "CodePen" action when it fires —
+   *  mirrors `SynthWorkbench`'s `cameraRef`/`snapshotCamera()`, except here
+   *  it's the MESH that turntables (the camera is pinned at rot 0), so what's
+   *  snapshotted is `<GlyphMesh rotation>` + the fitted `zoom`, not a camera
+   *  orientation. */
+  snapshotRef: React.MutableRefObject<{ rotation: Vec3; zoom: number }>;
 }
 
 /**
@@ -804,7 +1044,29 @@ interface StageProps {
  * the per-frame spin re-render doesn't touch the parent's controls +
  * 2000-option font datalist.
  */
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale }: StageProps) {
+/**
+ * `<GlyphScene autoSize>` only re-measures cols/rows via a `ResizeObserver`
+ * on the HOST BOX size (`createGlyphScene`'s `fitToHost`) — changing the
+ * Density slider's font-size alone doesn't resize that box, so the grid
+ * would stay stale until something else (e.g. a window resize) happened to
+ * trigger a refit. Mounted as a scene child (same `useGlyphSceneContext`
+ * seam `GlyphMesh` itself uses) so it can call the imperative `scene.fit()`
+ * + `rerender()` explicitly whenever `density` changes — mirrors
+ * `SynthWorkbench`'s own density effect (`host.style.fontSize = …; scene.fit();
+ * scene.rerender();`), just declared as a child instead of an imperative ref.
+ */
+function DensityFit({ density }: { density: number }) {
+  const { sceneRef } = useGlyphSceneContext();
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.fit();
+    scene.rerender();
+  }, [density, sceneRef]);
+  return null;
+}
+
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, density, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const [turn, setTurn] = useState(0); // Rx — turntable around screen-vertical (text up = world X)
@@ -862,6 +1124,10 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, pers
   const centered = useMemo(() => centerMesh(polygons), [polygons]);
   const zoom = fitWordArtZoom(centered, stage.w, stage.h, scaleXFrac, scaleYFrac) * zoomScale;
   const Cam = perspective ? GlyphPerspectiveCamera : GlyphOrthographicCamera;
+  // Always-fresh — read only when the Export panel/CodePen action fires (see
+  // `StageProps.snapshotRef`), never subscribed to, so this plain assignment
+  // (not a `useEffect`) is fine even though `turn` changes every spin frame.
+  snapshotRef.current = { rotation: [turn, tilt, 0], zoom };
 
   return (
     <div
@@ -877,10 +1143,11 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, pers
       <Cam rotX={0} rotY={0} zoom={zoom}>
         <GlyphScene
           autoSize
-          style={{ width: "100%", height: "100%" }}
+          style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
+          <DensityFit density={density} />
           {/* Font mesh is X-up: local X = text height (screen-down), local Y =
               text width (screen-right). The "Scale X" slider should stretch
               horizontally, so it maps to local Y; "Scale Y" maps to local X.
@@ -964,6 +1231,7 @@ interface GuiValues {
   profileMode: string; warp: string; bend: number;
   depth: number; scaleX: number; scaleY: number;
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
+  density: number;
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
 }
@@ -1466,6 +1734,13 @@ function WordArtDock({
   const profileSegCtrl = useSlider(layoutFolder, "Edge segments", { min: 2, max: 10, step: 1 }, gui.profileSegments, (v) => setGui("profileSegments", v));
   useSlider(layoutFolder, "Layer offset", { min: 0, max: 32, step: 1 }, gui.offset, (v) => setGui("offset", v));
   useToggle(layoutFolder, "Flat layers", gui.layered, (v) => setGui("layered", v));
+
+  // ── Render ────────────────────────────────────────────────────────────
+  // Scene-wide ASCII resolution — same range/step as /synth's "Density"
+  // (SynthWorkbench.tsx's `useSlider(stage, "Density", { min: 0.5, max: 4,
+  // step: 0.1 }, …)`), independent of Shape/Layout's mesh geometry knobs.
+  const renderFolder = useFolder(dock, "Render", { open: true });
+  useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
 
   // ── Effects ───────────────────────────────────────────────────────────
   // Reuses the gallery's own Effects folder hook (`useEffectsFolder` +
