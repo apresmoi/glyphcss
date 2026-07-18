@@ -24,6 +24,17 @@
  * same way fieldSynthCoordinate is, and (2) a hand-written inlined JS port of
  * its per-cell math (there is no way to ship an arbitrary GlyphEffectProgram's
  * `evaluate()` without shipping a JS engine's worth of glyphcss around it).
+ *
+ * Two payload cuts beyond the bench's baseline (see `detectAffineCoords` /
+ * `skipBase` in `buildRuntime`): a flat, head-on surface with a linear UV map
+ * (e.g. the `/synth` page's default fullscreen plane) makes every cell's
+ * domain coordinate an exact affine function of (col,row), so the per-cell
+ * coordinate table — the bulk of the payload — is replaced with 6 fitted
+ * scalars and a one-line formula; and when the effect covers every cell of
+ * the grid with `blend:"replace"` at full opacity, the baked base glyph/color
+ * grid is provably never read by the compositor and is skipped too. Curved or
+ * projected surfaces (cube, sphere, a tilted plane, …) fail the affine
+ * residual check and keep the table, unchanged from before.
  */
 import {
   buildRasterizeContext,
@@ -271,6 +282,78 @@ function bake(
   return { cells, cols: options.cols, rows: options.rows };
 }
 
+interface AffineCoordFit {
+  ax: number; bx: number; ecx: number;
+  ay: number; by: number; ecy: number;
+}
+
+// A flat, head-on surface with a linear UV map (the /synth page's default
+// fullscreen plane, and any other surface whose per-cell domain coordinate
+// happens to come out affine) needs no per-cell coordinate table at all: the
+// per-cell (x,y) is an exact affine function of grid (col,row), so the
+// runtime can recompute it from 6 fitted scalars instead of shipping one
+// float pair per cell — the ~86% of the payload the bench in
+// bench/static-effect-export.md attributes to that table. Curved or
+// perspective-projected surfaces (cube, sphere, a tilted/foreshortened
+// plane, …) are NOT globally affine in cell space and must keep the baked
+// table; the fit below detects that mechanically rather than assuming it
+// from the shape name, so any surface that happens to be affine benefits and
+// nothing else is misdetected.
+//
+// Least-squares fit of (col,row) → x and (col,row) → y shares one 3×3
+// normal-equations solve (both regressions have the same design matrix).
+// "Affine within epsilon" requires the max PER-CELL residual — not an
+// average — to be under AFFINE_EPSILON: an average-error check would accept
+// a surface that's affine almost everywhere but curves at the edges, which
+// would silently corrupt exactly those cells once the table is dropped.
+const AFFINE_EPSILON = 1e-3;
+
+function detectAffineCoords(points: { col: number; row: number; x: number; y: number }[]): AffineCoordFit | null {
+  const n = points.length;
+  if (n < 3) return null;
+  let Scc = 0, Scr = 0, Sc = 0, Srr = 0, Sr = 0;
+  let Sxc = 0, Sxr = 0, Sx = 0, Syc = 0, Syr = 0, Sy = 0;
+  for (const p of points) {
+    Scc += p.col * p.col; Scr += p.col * p.row; Sc += p.col;
+    Srr += p.row * p.row; Sr += p.row;
+    Sxc += p.col * p.x; Sxr += p.row * p.x; Sx += p.x;
+    Syc += p.col * p.y; Syr += p.row * p.y; Sy += p.y;
+  }
+  const m00 = Scc, m01 = Scr, m02 = Sc;
+  const m10 = Scr, m11 = Srr, m12 = Sr;
+  const m20 = Sc, m21 = Sr, m22 = n;
+  const det =
+    m00 * (m11 * m22 - m12 * m21)
+    - m01 * (m10 * m22 - m12 * m20)
+    + m02 * (m10 * m21 - m11 * m20);
+  // Singular normal matrix — e.g. a 1-row/1-col grid, or too few points to
+  // pin down 3 unknowns per axis. Keep the table; there's nothing to fit.
+  if (Math.abs(det) < 1e-9) return null;
+  const solve = (r0: number, r1: number, r2: number): [number, number, number] => {
+    const dA =
+      r0 * (m11 * m22 - m12 * m21)
+      - m01 * (r1 * m22 - m12 * r2)
+      + m02 * (r1 * m21 - m11 * r2);
+    const dB =
+      m00 * (r1 * m22 - m12 * r2)
+      - r0 * (m10 * m22 - m12 * m20)
+      + m02 * (m10 * r2 - r1 * m20);
+    const dC =
+      m00 * (m11 * r2 - r1 * m21)
+      - m01 * (m10 * r2 - r1 * m20)
+      + r0 * (m10 * m21 - m11 * m20);
+    return [dA / det, dB / det, dC / det];
+  };
+  const [ax, bx, ecx] = solve(Sxc, Sxr, Sx);
+  const [ay, by, ecy] = solve(Syc, Syr, Sy);
+  for (const p of points) {
+    const px = ax * p.col + bx * p.row + ecx;
+    const py = ay * p.col + by * p.row + ecy;
+    if (Math.abs(px - p.x) >= AFFINE_EPSILON || Math.abs(py - p.y) >= AFFINE_EPSILON) return null;
+  }
+  return { ax, bx, ecx, ay, by, ecy };
+}
+
 function jsonForScript(value: unknown): string {
   return JSON.stringify(value)
     .replace(/</g, "\\u003c")
@@ -322,7 +405,9 @@ var rowBuf=new Array(C.rows);
 function frame(now){var t=(now/1000)%C.loop;
 for(var i=0;i<C.rows;i++)rowBuf[i]=[];
 for(var k=0;k<N;k++){
-var x=D.x[k],y=D.y[k],cx=C.cxFixed?C.cx:D.cx[k],cy=C.cyFixed?C.cy:D.cy[k];
+var x=C.aff?C.aff[0]*D.c[k]+C.aff[1]*D.r[k]+C.aff[2]:D.x[k];
+var y=C.aff?C.aff[3]*D.c[k]+C.aff[4]*D.r[k]+C.aff[5]:D.y[k];
+var cx=C.cxFixed?C.cx:D.cx[k],cy=C.cyFixed?C.cy:D.cy[k];
 var combined=0,active=0,cr=0,cg=0,cbv=0,cw=0,co=0,car=0,cag=0,cabv=0,caw=0,cao=0;
 for(var j=0;j<V.length;j++){var o=osc(V[j],x,y,cx,cy,t);
 if(active===0)combined=V[j].amp*o;else combined+=V[j].amp*(combine(combined,o)-combined);
@@ -337,7 +422,7 @@ else if(C.voiceColors&&caw>0){packed=(Math.round(car/caw)<<16)|(Math.round(cag/c
 else{packed=C.gradient>0?lerp(C.cA.p,C.cB.p,clamp01(value*C.gradient)):C.cA.p;resolvedOpacity=C.cA.o}
 if(C.lit>0)packed=shadeColor(packed,1-C.lit*(1-clamp01(D.sh[k])))}
 var emittedCoverage=value>0?clamp01(value*resolvedOpacity):0;
-var inputCoverage=D.bg[k]!==" "?1:0;
+var inputCoverage=C.skipBase?1:D.bg[k]!==" "?1:0;
 var emittedWeight=emittedCoverage*C.opacity;
 var inputWeight=C.blend==="over"?inputCoverage*(1-emittedWeight):inputCoverage*(1-C.opacity);
 var nextCoverage=clamp01(emittedWeight+inputWeight);
@@ -345,8 +430,8 @@ var col=D.c[k],rw=D.r[k];
 var visible=nextCoverage>=1||(nextCoverage>0&&nextCoverage>thr(col,rw));
 if(!visible)continue;
 var chooseEmitted=emittedWeight>=inputWeight;
-var g=chooseEmitted?ramp[Math.min(rmax,Math.max(0,Math.round(value*rmax)))]:D.bg[k];
-var pk=blendColor(D.bc[k],packed,inputWeight,emittedWeight);
+var g=chooseEmitted?ramp[Math.min(rmax,Math.max(0,Math.round(value*rmax)))]:(C.skipBase?" ":D.bg[k]);
+var pk=blendColor(C.skipBase?-1:D.bc[k],packed,inputWeight,emittedWeight);
 rowBuf[rw].push([col,g,pk])}
 if(C.useColors){var html="";
 for(var r2=0;r2<C.rows;r2++){var cells=rowBuf[r2];cells.sort(function(a,b){return a[0]-b[0]});
@@ -381,6 +466,23 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   const gridRows = Math.max(0, maxRow - minRow + 1);
 
   const q = (n: number) => Math.round(n * 1000) / 1000;
+  const affine = detectAffineCoords(
+    baked.cells.map((c) => ({ col: c.col - minCol, row: c.row - minRow, x: c.x, y: c.y })),
+  );
+  // Plane-fill case: every raster cell in the grid got baked (no silhouette
+  // gaps — the surface fills the whole viewport) AND the effect fully
+  // overwrites the pixel (`replace` at opacity 1 means the base contributes
+  // EXACTLY zero weight to every composited cell: see `inputWeight` in
+  // RUNTIME_JS's `frame()` — `inputCoverage*(1-C.opacity)` is 0 whenever
+  // opacity is 1). The baked base glyph/color grid is then provably never
+  // read, so it's dropped entirely and the runtime hardcodes "no base"
+  // instead. Partial coverage, `over`, or opacity < 1 all mean the base
+  // genuinely still shows through — keep baking it.
+  const skipBase =
+    baked.cells.length === options.cols * options.rows
+    && options.blend === "replace"
+    && clamp01(options.opacity ?? 1) === 1;
+
   const col: number[] = [], row: number[] = [], X: number[] = [], Y: number[] = [];
   const CXa: number[] = [], CYa: number[] = [], SH: number[] = [], BG: string[] = [], BC: number[] = [];
   // `cx,cy` are per-coplanar-group constants; in the common single-facet /
@@ -398,15 +500,15 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
   for (const c of baked.cells) {
     col.push(c.col - minCol);
     row.push(c.row - minRow);
-    X.push(q(c.x));
-    Y.push(q(c.y));
+    if (!affine) { X.push(q(c.x)); Y.push(q(c.y)); }
     if (!cxFixed) CXa.push(q(c.cx));
     if (!cyFixed) CYa.push(q(c.cy));
     SH.push(Math.round(c.shade * 100) / 100);
-    BG.push(c.glyph);
-    BC.push(c.color);
+    if (!skipBase) { BG.push(c.glyph); BC.push(c.color); }
   }
-  const data: Record<string, unknown> = { c: col, r: row, x: X, y: Y, sh: SH, bg: BG, bc: BC };
+  const data: Record<string, unknown> = { c: col, r: row, sh: SH };
+  if (!affine) { data.x = X; data.y = Y; }
+  if (!skipBase) { data.bg = BG; data.bc = BC; }
   if (!cxFixed) data.cx = CXa;
   if (!cyFixed) data.cy = CYa;
 
@@ -447,6 +549,14 @@ function buildRuntime(baked: Baked, params: GlyphEffectParamsOf<typeof fieldSynt
     cyFixed,
     cx: cxFixed ? q(cx0) : 0,
     cy: cyFixed ? q(cy0) : 0,
+    // Full precision here, NOT `q()`: these 6 scalars are multiplied by
+    // (col,row) — up to a few hundred — at runtime, so 3-decimal rounding
+    // (fine for a per-cell coordinate, where the error stays put) would get
+    // amplified by that multiplication into an error many times bigger than
+    // AFFINE_EPSILON. Six extra full-precision numbers cost a few dozen
+    // bytes; that's irrelevant next to the table this replaces.
+    aff: affine ? [affine.ax, affine.bx, affine.ecx, affine.ay, affine.by, affine.ecy] : null,
+    skipBase,
   };
 
   const js = `var DATA=${jsonForScript(data)};var CFG=${jsonForScript(cfg)};${RUNTIME_JS}`;

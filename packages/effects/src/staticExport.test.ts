@@ -6,6 +6,19 @@ function mesh(): Polygon[] {
   return spherePolygons({ center: [0, 0, 0], size: 4, subdivisions: 1, color: "#8fb3d9" });
 }
 
+// Mirrors website/src/components/SynthWorkbench/SynthWorkbench.tsx `flatQuad`
+// (the /synth page's default "plane" shape): a flat square in the world XY
+// plane, z=0, linear 0..1 UVs across the whole quad — the case whose
+// per-cell field-synth domain coordinate is an exact affine function of
+// (col,row).
+function planeMesh(size = 3): Polygon[] {
+  return [{
+    vertices: [[-size, -size, 0], [size, -size, 0], [size, size, 0], [-size, size, 0]],
+    uvs: [[0, 0], [1, 0], [1, 1], [0, 1]],
+    color: "#8fb3d9",
+  }];
+}
+
 function baseOptions(overrides: Partial<GlyphFieldSynthStaticExportOptions> = {}): GlyphFieldSynthStaticExportOptions {
   return {
     params: {
@@ -111,5 +124,100 @@ describe("buildGlyphFieldSynthStaticExport", () => {
 
   it("throws when field-synth's own param validation rejects the patch", () => {
     expect(() => buildGlyphFieldSynthStaticExport(mesh(), baseOptions({ params: { glyphs: "" } }))).toThrow();
+  });
+
+  it("a flat, head-on, fully-covered plane bakes an inline affine coordinate function instead of a per-cell table, and skips the base grid", () => {
+    const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
+      rotX: 0,
+      rotY: 0,
+      zoom: 150,
+      cols: 24,
+      rows: 12,
+    }));
+    const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);
+    expect(dataMatch).not.toBeNull();
+    const data = JSON.parse(dataMatch![1]!) as Record<string, unknown>;
+    const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+    expect(cfgMatch).not.toBeNull();
+    const cfg = JSON.parse(cfgMatch![1]!) as { aff: number[] | null; skipBase: boolean };
+
+    // No per-cell coordinate table (the ~86%-of-payload cost the affine path
+    // is meant to eliminate) and no baked base glyph/color grid (`replace`
+    // blend at opacity 1 fully covering the grid makes it unread).
+    expect(data.x).toBeUndefined();
+    expect(data.y).toBeUndefined();
+    expect(data.bg).toBeUndefined();
+    expect(data.bc).toBeUndefined();
+    // The per-cell col/row index and shade arrays are still baked (cheap,
+    // and needed regardless of the coordinate strategy).
+    expect(Array.isArray(data.c)).toBe(true);
+    expect((data.c as unknown[]).length).toBeGreaterThan(0);
+
+    // 6 fitted scalars driving `x = aff[0]*col + aff[1]*row + aff[2]`
+    // (and the `y` analogue) at runtime instead.
+    expect(cfg.aff).not.toBeNull();
+    expect(cfg.aff).toHaveLength(6);
+    expect(cfg.aff!.every((n) => Number.isFinite(n))).toBe(true);
+    expect(cfg.skipBase).toBe(true);
+    expect(result.js).toContain("C.aff?C.aff[0]*D.c[k]+C.aff[1]*D.r[k]+C.aff[2]:D.x[k]");
+  });
+
+  it("a curved surface (sphere) keeps the baked per-cell coordinate table and base grid — never mis-detected as affine", () => {
+    const result = buildGlyphFieldSynthStaticExport(mesh(), baseOptions());
+    const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);
+    const data = JSON.parse(dataMatch![1]!) as { x: number[]; y: number[]; bg: string[]; bc: number[] };
+    const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+    const cfg = JSON.parse(cfgMatch![1]!) as { aff: number[] | null; skipBase: boolean };
+
+    expect(cfg.aff).toBeNull();
+    expect(cfg.skipBase).toBe(false);
+    expect(Array.isArray(data.x)).toBe(true);
+    expect(Array.isArray(data.y)).toBe(true);
+    expect(data.x.length).toBeGreaterThan(0);
+    expect(Array.isArray(data.bg)).toBe(true);
+    expect(Array.isArray(data.bc)).toBe(true);
+  });
+
+  it("a partially-covered plane (not filling the grid) keeps the base grid even though coordinates are still affine", () => {
+    const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
+      rotX: 0,
+      rotY: 0,
+      zoom: 40, // small enough that the quad doesn't fill the 24x12 grid
+      cols: 24,
+      rows: 12,
+    }));
+    const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);
+    const data = JSON.parse(dataMatch![1]!) as Record<string, unknown>;
+    const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+    const cfg = JSON.parse(cfgMatch![1]!) as { aff: number[] | null; skipBase: boolean };
+
+    // Coordinates are still an exact affine function of (col,row) on a flat
+    // plane regardless of how much of the grid it covers.
+    expect(cfg.aff).not.toBeNull();
+    expect(data.x).toBeUndefined();
+    // But the base is genuinely needed here (uncovered cells fall back to
+    // it), so it must NOT be skipped.
+    expect(cfg.skipBase).toBe(false);
+    expect(data.bg).toBeDefined();
+    expect(data.bc).toBeDefined();
+  });
+
+  it("opacity < 1 with a fully-covered `replace` plane keeps the base grid (input genuinely still shows through)", () => {
+    const result = buildGlyphFieldSynthStaticExport(planeMesh(), baseOptions({
+      rotX: 0,
+      rotY: 0,
+      zoom: 150,
+      cols: 24,
+      rows: 12,
+      opacity: 0.5,
+    }));
+    const dataMatch = result.js.match(/var DATA=(\{.*?\});var CFG=/);
+    const data = JSON.parse(dataMatch![1]!) as Record<string, unknown>;
+    const cfgMatch = result.js.match(/var CFG=(\{.*\});\s*"use strict"/s);
+    const cfg = JSON.parse(cfgMatch![1]!) as { skipBase: boolean };
+
+    expect(cfg.skipBase).toBe(false);
+    expect(data.bg).toBeDefined();
+    expect(data.bc).toBeDefined();
   });
 });
