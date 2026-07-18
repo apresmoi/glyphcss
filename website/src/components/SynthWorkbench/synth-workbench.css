@@ -89,7 +89,9 @@
    Confined to the 92px left column now (was full-card-width) and roughly
    aligns with the "Voice N" title row on the right. */
 .voice-trend {
-  display: block; width: 92px; height: 24px; flex: 0 0 24px;
+  /* Grow to absorb the left column's slack (the grid stretches this column to the
+     controls' height) so no empty row sits below the fixed-square glyph. */
+  display: block; width: 92px; flex: 1 1 auto; min-height: 24px;
   background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-trend-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
