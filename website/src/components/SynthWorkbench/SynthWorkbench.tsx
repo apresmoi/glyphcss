@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
 import {
   createGlyphScene,
   createGlyphOrthographicCamera,
@@ -48,17 +48,75 @@ const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opt
 const RAMP_OPTS: Record<string, string> = { ...Object.fromEntries(Object.keys(GlyphRamps).map((k) => [k, k])), Custom: "Custom" };
 const matchRamp = (glyphs: string): string => Object.entries(GlyphRamps).find(([, v]) => v === glyphs)?.[0] ?? "Custom";
 
-// ASCII icons for the field/wave multi-toggles (segmented control, like text-align).
-const FIELD_ICONS: Record<string, string> = { radial: "◎", linearX: "→", linearY: "↓", diagonal: "↘", angular: "↻", spiral: "@", noise: "▚" };
-const WAVE_ICONS: Record<string, string> = { sin: "∿", triangle: "∧", saw: "╱", square: "⊓" };
+// Inline SVG icons for the field/wave multi-toggles (segmented control, like
+// text-align). `stroke`/`fill: currentColor` so each icon inherits the button's
+// text color for free — dim when inactive, cyan when `.is-active` (see
+// `.gx-toggle-btn` / `.gx-toggle-btn.is-active` in synth-workbench.css).
+function ToggleIcon({ children, ...rest }: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" aria-hidden="true" {...rest}>
+      {children}
+    </svg>
+  );
+}
+
+// Each shape is tuned at actual button size (~15px), not just eyeballed bigger and
+// shrunk: round joins blur short segments into blobs at this size, so `saw` and
+// `square` use square caps/miter joins to keep their corners crisp, and `square`'s
+// plateaus are widened relative to its drop so they don't get swallowed by the cap.
+const WAVE_ICONS: Record<string, ReactNode> = {
+  sin: <ToggleIcon><path d="M2 8 C4 2 6 2 8 8 C10 14 12 14 14 8" /></ToggleIcon>,
+  triangle: <ToggleIcon><path d="M2 12 L5 4 L8 12 L11 4 L14 12" /></ToggleIcon>,
+  saw: <ToggleIcon strokeLinecap="square" strokeLinejoin="miter"><path d="M2 13 L8 3 L8 13 L14 3" /></ToggleIcon>,
+  square: <ToggleIcon strokeWidth={1.4} strokeLinecap="square" strokeLinejoin="miter"><path d="M2 6 H6 V11 H10 V6 H14" /></ToggleIcon>,
+};
+
+const FIELD_ICONS: Record<string, ReactNode> = {
+  radial: (
+    <ToggleIcon strokeWidth={1.3}>
+      <circle cx="8" cy="8" r="2" />
+      <circle cx="8" cy="8" r="4.3" />
+      <circle cx="8" cy="8" r="6.5" />
+    </ToggleIcon>
+  ),
+  linearX: <ToggleIcon><path d="M2 8 H12 M9 5 L12 8 L9 11" /></ToggleIcon>,
+  linearY: <ToggleIcon><path d="M8 2 V12 M5 9 L8 12 L11 9" /></ToggleIcon>,
+  diagonal: <ToggleIcon><path d="M3 3 L13 13 M9 13 H13 V9" /></ToggleIcon>,
+  angular: (
+    <ToggleIcon>
+      <path d="M13 6 A6 6 0 1 1 6.2 2.3" />
+      <path d="M9.5 1.3 L6.2 2.3 L7.6 5.3" fill="currentColor" stroke="none" />
+    </ToggleIcon>
+  ),
+  // Archimedean spiral (2.2 turns), sampled to a fixed polyline — a hand-drawn
+  // nested-arc "snail shell" path read as a crown/W at icon size, this reads
+  // unambiguously as a spiral.
+  spiral: (
+    <ToggleIcon strokeWidth={1.3}>
+      <path d="M8.50 8.00 L8.58 8.22 L8.57 8.49 L8.42 8.76 L8.15 8.98 L7.77 9.10 L7.34 9.05 L6.92 8.83 L6.58 8.44 L6.39 7.91 L6.40 7.31 L6.66 6.71 L7.13 6.21 L7.80 5.90 L8.57 5.84 L9.36 6.07 L10.05 6.60 L10.53 7.37 L10.71 8.30 L10.55 9.28 L10.03 10.18 L9.20 10.86 L8.13 11.22 L6.96 11.19 L5.84 10.72 L4.93 9.87 L4.35 8.71 L4.21 7.37 L4.55 6.03 L5.37 4.86 L6.59 4.03 L8.06 3.66 L9.61 3.84 L11.04 4.56 L12.15 5.77 L12.79 7.34 L12.84 9.08 L12.27 10.76 L11.12 12.17 L9.51 13.11 L7.63 13.44 L5.71 13.09 L3.99 12.06 L2.72 10.47 L2.07 8.49 L2.15 6.36 L2.98 4.36" />
+    </ToggleIcon>
+  ),
+  noise: (
+    <ToggleIcon fill="currentColor" stroke="none">
+      <circle cx="3" cy="5" r="0.9" />
+      <circle cx="6.5" cy="3" r="0.9" />
+      <circle cx="10" cy="4.5" r="0.9" />
+      <circle cx="13" cy="6.5" r="0.9" />
+      <circle cx="4" cy="10" r="0.9" />
+      <circle cx="8" cy="8.5" r="0.9" />
+      <circle cx="12" cy="11.5" r="0.9" />
+      <circle cx="6" cy="13" r="0.9" />
+    </ToggleIcon>
+  ),
+};
 const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], title: v }));
 const WAVE_TOGGLE = WAVES.map((v) => ({ value: v as string, icon: WAVE_ICONS[v], title: v }));
 
-function IconToggle({ options, value, onChange }: { options: { value: string; icon: string; title: string }[]; value: string; onChange: (v: string) => void }) {
+function IconToggle({ options, value, onChange }: { options: { value: string; icon: ReactNode; title: string }[]; value: string; onChange: (v: string) => void }) {
   return (
     <div className="gx-toggle" role="group">
       {options.map((o) => (
-        <button key={o.value} type="button" className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`} title={o.title} onClick={() => onChange(o.value)}>{o.icon}</button>
+        <button key={o.value} type="button" className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`} title={o.title} aria-label={o.title} onClick={() => onChange(o.value)}>{o.icon}</button>
       ))}
     </div>
   );
