@@ -216,24 +216,55 @@
 /* ── Center: viewport ──────────────────────────────────────────────────── */
 .synth-main { flex: 1; position: relative; min-width: 0; }
 .synth-viewport { position: absolute; inset: 0; overflow: hidden; }
-.synth-codepen-btn {
-  /* Bottom-left, not top-right — the floating Dock GUI anchors top-right of
-     `.synth-body` (the nearest `position: relative` ancestor) and would
-     otherwise sit on top of this button and eat its clicks. */
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  z-index: 5;
-  font: inherit;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  padding: 5px 12px;
-  border-radius: 0;
-  cursor: pointer;
-  background: rgba(7, 9, 13, 0.7);
-  backdrop-filter: blur(2px);
-}
 .synth-viewport .glyph-output { color: rgba(255, 232, 184, 0.92); }
+
+/* ── Floating export panel (bottom-left of the viewport) ─────────────────────
+   Mirrors the gallery's `.gw-code-panel` collapse pattern: a small header
+   trigger, collapsed by default (no code/tabs here — just two export
+   actions), that expands downward-anchored-upward (position: absolute +
+   `bottom` fixes the bottom edge, so growth pushes the top edge up instead
+   of overflowing off-screen). Reuses `.gw-code-panel__head/__legend/
+   __actions/__action(--codepen)` from gallery-workbench.css (imported by
+   this page) for the header/button look; positioning + collapse sizing are
+   synth-specific since this panel has no tabs/code body to size around. */
+.synth-export {
+  position: absolute;
+  bottom: var(--overlay-bottom, 12px);
+  left: var(--overlay-left, 12px);
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: min(280px, calc(100% - 24px));
+  background: #0d1018;
+  border: 1px solid rgba(255, 232, 184, 0.18);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+}
+.synth-export__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.synth-export__body .gw-code-panel__action {
+  width: 100%;
+  text-align: center;
+}
+.synth-export__status {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.55);
+}
+
+@media (max-width: 760px) {
+  /* Sits just above the mobile tab bar (same `--mobile-panel-bottom` offset
+     the drawers use) instead of the desktop `--overlay-bottom`, so it never
+     sits underneath/behind the fixed tab bar. */
+  .dn-root--synth .synth-export {
+    bottom: var(--mobile-panel-bottom);
+    max-width: calc(100% - var(--overlay-left) - var(--overlay-right));
+  }
+}
 
 /* Combined-waveform scope, portaled into the right Dock's MIX folder above
    Combine (`useDockSlot(mix, { position: "top" })` in SynthWorkbench.tsx) —

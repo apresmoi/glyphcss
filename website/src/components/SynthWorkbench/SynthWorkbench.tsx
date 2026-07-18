@@ -21,7 +21,7 @@ import {
 import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyphcss/effects";
 import { Dock } from "../Dock";
 import { useDockGui } from "../Dock/slots";
-import { useButton, useColor, useDockSlot, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
+import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./synth-workbench.css";
 
@@ -417,13 +417,12 @@ function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onA
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, onExportCodepen, onExportCopyHtml, exportStatus, paramsRef, tsRef, pausedRef }: {
+function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   density: number; onDensity: (n: number) => void;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
-  onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
 }): ReactNode {
   const gui = useDockGui();
@@ -464,16 +463,60 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useColor(light, "Key color", lighting.keyColor, (v) => onLight({ keyColor: v }));
   useSlider(light, "Ambient", { min: 0, max: 1, step: 0.05 }, lighting.ambient, (v) => onLight({ ambient: v }));
 
-  // Static export — bakes the current patch into a self-contained pen (inlined
-  // vanilla-JS field-synth evaluator, zero glyphcss at runtime). Both actions
-  // build the SAME export; one opens it in CodePen, the other copies the full
-  // standalone HTML document so it can be tested locally (drop into a file and
-  // open it — no server, no build step).
-  const exportFolder = useFolder(gui, "Export", { open: false });
-  useButton(exportFolder, "Open in CodePen", onExportCodepen);
-  useButton(exportFolder, "Copy standalone HTML", onExportCopyHtml);
-  useReadonlyText(exportFolder, "Status", exportStatus);
   return scopeHost ? createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost) : null;
+}
+
+// ── Floating export control (bottom-left of the viewport) ─────────────────────
+// Mirrors the gallery's `.gw-code-panel` collapse pattern (CodePanel.tsx +
+// gallery-workbench.css): a small header trigger, collapsed by default, that
+// expands to reveal actions. Reuses the shared `.gw-code-panel__*` header/
+// action classes for visual consistency; the export logic itself lives in
+// `SynthWorkbench` (`handleExportCodepen` / `handleExportCopyHtml`) — this
+// component only renders the trigger + the two buttons + status readout.
+function SynthExportPanel({ onExportCodepen, onExportCopyHtml, exportStatus }: {
+  onExportCodepen: () => void; onExportCopyHtml: () => void; exportStatus: string;
+}): ReactNode {
+  const [collapsed, setCollapsed] = useState(true);
+  return (
+    <div className={`synth-export${collapsed ? " synth-export--collapsed" : ""}`}>
+      <header className="gw-code-panel__head synth-export__head">
+        <span className="gw-code-panel__legend">[ EXPORT ]</span>
+        <div className="gw-code-panel__actions">
+          <button
+            type="button"
+            className="gw-code-panel__action"
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? "Expand export panel" : "Collapse export panel"}
+            aria-label={collapsed ? "Expand export panel" : "Collapse export panel"}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? "▾" : "▴"}
+          </button>
+        </div>
+      </header>
+      {!collapsed && (
+        <div className="synth-export__body">
+          <button
+            type="button"
+            className="gw-code-panel__action gw-code-panel__action--codepen"
+            onClick={onExportCodepen}
+            title="Compile the current patch into a self-contained CodePen"
+          >
+            Open in CodePen
+          </button>
+          <button
+            type="button"
+            className="gw-code-panel__action"
+            onClick={onExportCopyHtml}
+            title="Copy a standalone HTML document (no glyphcss runtime)"
+          >
+            Copy standalone HTML
+          </button>
+          {exportStatus && <span className="synth-export__status">{exportStatus}</span>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
@@ -728,9 +771,10 @@ export default function SynthWorkbench() {
         </aside>
         <main className="synth-main">
           <div className="synth-viewport" ref={hostRef} />
+          <SynthExportPanel onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} />
         </main>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} onExportCodepen={handleExportCodepen} onExportCopyHtml={handleExportCopyHtml} exportStatus={exportStatus} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
         </Dock>
       </div>
       <div id="synth-presets-panel" className={`synth-presets${mobilePanel === "presets" ? " is-mobile-open" : ""}`} role="list" aria-label="Pattern presets">
