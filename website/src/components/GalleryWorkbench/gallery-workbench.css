@@ -105,6 +105,19 @@
   --overlay-left: calc(var(--overlay-gap) + env(safe-area-inset-left, 0px));
 }
 
+/* ModelsSidebar.css also defines a bare `.models-sidebar { position: relative }`
+   (so its ::before legend anchors when used standalone). Both that rule and the
+   overlay positioning below are single-class selectors of equal specificity, so
+   the winner flips with CSS bundle order — in the prod bundle `relative` wins,
+   dropping the sidebar into normal flow and shoving the viewport (.dn-main) down
+   by the sidebar's height. Pin the overlay position at higher specificity
+   (.dn-root .models-sidebar, 0,2,0) so it wins regardless of order; the sidebar
+   only ever renders inside .dn-root, and it stays absolutely positioned across
+   every breakpoint (the mobile rules only reposition it, never un-absolute it). */
+.dn-root .models-sidebar {
+  position: absolute;
+}
+
 .models-sidebar {
   position: absolute;
   top: var(--overlay-top);

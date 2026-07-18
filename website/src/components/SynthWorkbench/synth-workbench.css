@@ -1,8 +1,16 @@
-.synth-shell {
+/* The shell element carries both `synth-shell` and `dn-root` (the shared Dock
+   overlay class from gallery-workbench.css). Both are single-class selectors, so
+   `.dn-root`'s position/height/display/background would win or lose purely on CSS
+   bundle order — fine in dev, broken in the prod bundle (shell collapses to
+   position:relative + content height, leaving a black void below the presets).
+   Qualifying with `.dn-root` raises specificity (0,2,0 > 0,1,0) so the fixed
+   full-viewport layout wins deterministically. */
+.synth-shell.dn-root {
   position: fixed;
   inset: var(--sl-nav-height, 72px) 0 0 0;
-  /* Override .dn-root's height:100% — with position:fixed + top:72px it would make
-     the shell 100vh tall starting below the nav, pushing the footer off-screen. */
+  /* height:auto (not .dn-root's height:100%) — with position:fixed + top:72px,
+     100% would make the shell 100vh tall starting below the nav, pushing the
+     footer off-screen. inset already resolves the height from nav to viewport bottom. */
   height: auto;
   display: flex;
   flex-direction: column;
