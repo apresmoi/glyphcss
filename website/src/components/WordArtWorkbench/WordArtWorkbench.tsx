@@ -24,7 +24,6 @@ import { StatsOverlay } from "../StatsOverlay";
 import {
   composeText,
   listGoogleFonts,
-  loadFont,
   loadGoogleFont,
   resolveFace,
   pickWeight,
@@ -99,6 +98,23 @@ const TEXTURES: { id: string; label: string }[] = [
   { id: "sand", label: "Sand" }, { id: "cacti", label: "Cactus" }, { id: "mine", label: "Ore" }, { id: "mine4", label: "Ore 2" },
 ];
 const texUrl = (id: string) => (id ? `/textures/wordart/${id}.svg` : "");
+
+// Default font — a real Google font (served open-CORS from the Fontsource
+// CDN by `loadGoogleFont`), so both the live page AND the export work from
+// any origin, including CodePen. Hardcoded rather than looked up from
+// `listGoogleFonts()` so the default mesh can start composing immediately
+// on mount instead of waiting on the catalog fetch; mirrors the shape
+// `listGoogleFonts()` itself returns for this exact family.
+const ROBOTO_FONT_ENTRY: FontEntry = {
+  id: "roboto",
+  family: "Roboto",
+  weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  styles: ["normal", "italic"],
+  subsets: ["cyrillic", "cyrillic-ext", "greek", "greek-ext", "latin", "latin-ext", "math", "symbols", "vietnamese"],
+  defSubset: "latin",
+  category: "sans-serif",
+  type: "google",
+};
 
 interface Preset {
   label: string;
@@ -230,13 +246,16 @@ function initialEffectState(): GalleryEffectState {
 
 export function WordArtWorkbench() {
   const [font, setFont] = useState<ParsedFont | null>(null);
-  // Pinned to the bundled default font (never swapped to a picked Google font)
-  // so the preset tiles' single-letter static renders stay stable — they only
-  // need to change look, not typeface, when a preset changes colors/profile.
+  // Pinned to whichever font loads FIRST (never swapped to a later-picked
+  // Google font) so the preset tiles' single-letter static renders stay
+  // stable — they only need to change look, not typeface, when a preset
+  // changes colors/profile.
   const [previewFont, setPreviewFont] = useState<ParsedFont | null>(null);
   const [catalog, setCatalog] = useState<FontEntry[]>([]);
-  const [entry, setEntry] = useState<FontEntry | null>(null);
-  const [familyInput, setFamilyInput] = useState(() => qs("font", ""));
+  // Always a real Google font — defaults to Roboto so both the live page and
+  // the export work from any origin (CodePen included). Never reset to null.
+  const [entry, setEntry] = useState<FontEntry>(ROBOTO_FONT_ENTRY);
+  const [familyInput, setFamilyInput] = useState(() => qs("font", "Roboto"));
   const [weight, setWeight] = useState(() => qn("weight", 700));
   const [italic, setItalic] = useState(() => qb("italic", false));
   const [status, setStatus] = useState("");
@@ -333,10 +352,10 @@ export function WordArtWorkbench() {
   // don't depend on mount order.
   useEffect(() => { injectGlyphBaseStyles(); }, []);
 
-  // Default bundled font + Google catalog. If the URL named a font, select it
-  // once the catalog is in.
+  // Google font catalog (Roboto — `entry`'s initial state — is already
+  // loading via the effect below). If the URL named a different font, select
+  // it once the catalog is in.
   useEffect(() => {
-    loadFont("/fonts/default.ttf").then((f) => { setFont(f); setPreviewFont(f); }).catch((e) => setStatus(String(e)));
     listGoogleFonts()
       .then((c) => {
         setCatalog(c);
@@ -355,7 +374,7 @@ export function WordArtWorkbench() {
     const ss = (k: string, v: string, d: string) => { if (v !== d) p.set(k, v); };
     const sn = (k: string, v: number, d: number) => { if (v !== d) p.set(k, String(v)); };
     p.set("text", text);
-    if (entry) p.set("font", entry.family);
+    ss("font", entry.family, "Roboto");
     sn("weight", weight, 700);
     if (italic) p.set("italic", "1");
     ss("case", textCase, "as-typed");
@@ -424,17 +443,18 @@ export function WordArtWorkbench() {
     window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
   }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
-  // Load the picked Google font whenever family / weight / style changes.
+  // Load the picked Google font (Roboto by default) whenever family / weight
+  // / style changes. The first font to resolve also pins `previewFont` — the
+  // preset tiles' static single-letter renders.
   useEffect(() => {
-    if (!entry) return;
     let alive = true;
     setStatus(`loading ${entry.family}…`);
     loadGoogleFont(entry, weight, italic ? "italic" : "normal")
       .then((f) => {
-        if (alive) {
-          setFont(f);
-          setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
-        }
+        if (!alive) return;
+        setFont(f);
+        setPreviewFont((prev) => prev ?? f);
+        setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
       })
       .catch((e) => alive && setStatus(`couldn't load ${entry.family}: ${e}`));
     return () => {
@@ -560,10 +580,12 @@ export function WordArtWorkbench() {
   // `polygons` useMemo's own `front`/`sides`/`back`/`profileObj` construction
   // above, but as a serializable spec (`WordArtFaceSpec`/`WordArtProfileSpec`/
   // `WordArtFontSpec`) the exported snippet reconstructs via `resolveFace`/
-  // `loadFont`/`loadGoogleFont` instead of a resolved `Face`/`ParsedFont`.
-  // Texture URLs and the bundled default font are relative site assets, so
-  // they're baked to an ABSOLUTE URL off this page's own origin here — a
-  // relative path wouldn't resolve from a CodePen or a copy-pasted snippet.
+  // `loadGoogleFont` instead of a resolved `Face`/`ParsedFont`. Texture URLs
+  // are relative site assets, so they're baked to an ABSOLUTE URL off this
+  // page's own origin here — a relative path wouldn't resolve from a CodePen
+  // or a copy-pasted snippet. The font itself needs no such baking: it's
+  // always a Google font (Roboto by default), fetched by `loadGoogleFont`
+  // from the open-CORS Fontsource CDN, same as the live page.
   const composeInput = useMemo<WordArtComposeInput>(() => {
     const absUrl = (path: string) => (typeof window !== "undefined" ? `${window.location.origin}${path}` : path);
     const frontSpec: WordArtFaceSpec =
@@ -585,9 +607,7 @@ export function WordArtWorkbench() {
       profile === "flat" ? { kind: "flat" }
       : profile === "custom" ? { kind: "curve", curve: bezier, segments: profileSegments }
       : { kind: "edge", edge: profile, raised: roundConvex, segments: profileSegments };
-    const fontSpec: WordArtFontSpec = entry
-      ? { kind: "google", entry, weight, style: italic ? "italic" : "normal" }
-      : { kind: "default", url: absUrl("/fonts/default.ttf") };
+    const fontSpec: WordArtFontSpec = { entry, weight, style: italic ? "italic" : "normal" };
     return {
       text: applyCase(text, textCase),
       font: fontSpec,
