@@ -1,0 +1,540 @@
+---
+import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
+import Analytics from "../../components/Analytics.astro";
+const title = "glyphcss · Parthenon";
+const description = "The Parthenon — octastyle Doric peripteral temple built from glyphcss primitives, rendered as ASCII with green Matrix rain flowing down its columns. First-person: walk up the steps and in between the colonnade.";
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <Analytics />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <style>
+    html, body { background: #010604; color: #d8ffe4; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
+    body { display: flex; overflow: hidden; }
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
+    .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .map-shell { flex: 1; display: flex; flex-direction: column; }
+    .map-head { padding: 24px 32px 12px; border-bottom: 1px solid rgba(0, 255, 102, 0.14); }
+    .map-head h1 { margin: 0; font-size: 22px; color: rgba(214, 255, 228, 0.94); font-weight: 600; letter-spacing: 0.04em; }
+    .map-head p { margin: 6px 0 0; font-size: 13px; color: rgba(160, 232, 184, 0.55); }
+    .map-stage { flex: 1; min-height: 0; position: relative; }
+    /* touch-action:none on the HOST — the .glyph-output <pre> is created by the
+       runtime and lacks the Astro scope class, so a rule on it never matches.
+       As an ancestor this makes the temple drag-to-orbit instead of scrolling
+       the page on touch. */
+    .temple-host {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      touch-action: none;
+      background: radial-gradient(circle at 50% 62%, rgba(0, 70, 32, 0.22), transparent 55%), #010604;
+    }
+    .temple-host .glyph-output { touch-action: none; text-shadow: 0 0 7px rgba(0, 255, 102, 0.22); }
+    .map-foot { padding: 14px 32px; border-top: 1px solid rgba(0, 255, 102, 0.14); font-size: 11px; color: rgba(160, 232, 184, 0.45); display: flex; gap: 18px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <DocsHeader />
+  <div class="ex-layout">
+    <ExamplesSidebar active="parthenon" />
+    <div class="ex-main">
+      <div class="map-shell">
+        <header class="map-head">
+          <h1>[ PARTHENON · MATRIX ]</h1>
+          <p>The Parthenon as an octastyle Doric peripteral temple — three crepidoma steps, an 8 × 17 colonnade, entablature, cornice, triangular pediments, and a walkable interior: porch columns, cella doorways, the naos colonnade, and a golden Athena Parthenos — built from glyphcss primitives while green Matrix rain from @glyphcss/effects streams down every surface. First person: click the scene to capture the mouse, WASD to walk (the steps carry you up onto the stylobate — go through the east door), Space to jump, Esc to release.</p>
+        </header>
+        <div class="map-stage">
+          <div class="temple-host" id="temple-host"></div>
+        </div>
+        <footer class="map-foot">
+          <span>Geometry: procedural — 46-column peristyle, 92-triglyph frieze, naos + Athena Parthenos, opisthodomos</span>
+          <span>Effect: GlyphEffects.matrixRain · monochrome #00ff66</span>
+          <span>Controls: first person — click to look · WASD walk · Space jump</span>
+          <span>Renderer: glyphcss solid + perspective camera</span>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    import {
+      createGlyphFirstPersonControls,
+      createGlyphPerspectiveCamera,
+      createGlyphScene,
+    } from "glyphcss";
+    import type { Polygon } from "glyphcss";
+    import { GlyphEffects } from "@glyphcss/effects";
+
+    // ── Procedural Parthenon (Z-up, ~meters) ─────────────────────────────
+    // Real proportions: 69.5 m × 30.9 m stylobate, 8 × 17 Doric peristyle
+    // (corner columns shared → 46), ~10.4 m columns, entablature + cornice,
+    // low triangular pediments over both octastyle fronts.
+    const STEP_COLOR = "#4f8f66";
+    const STYLOBATE_COLOR = "#5da272";
+    const COLUMN_COLOR = "#7ccf92";
+    const CAPITAL_COLOR = "#8fdfa3";
+    const CELLA_COLOR = "#3f7050";
+    const CEILING_COLOR = "#1b3829";
+    const ENTABLATURE_COLOR = "#68b57e";
+    const CORNICE_COLOR = "#7fcc93";
+    const ROOF_COLOR = "#549a69";
+    const PEDIMENT_COLOR = "#9dedb0";
+    const GOLD = "#c2a44e";
+    const GOLD_LIGHT = "#d8bd68";
+    const IVORY = "#e8dca6";
+
+    const L = 69.5; // stylobate length (X)
+    const W = 30.9; // stylobate width (Y)
+    const STEP_H = 0.55;
+    const STEP_EXTEND = 1.5;
+    const COL_MARGIN = 1.9; // column axis inset from the stylobate edge
+    const SHAFT_H = 9.6;
+    const SHAFT_RB = 1.0;
+    const SHAFT_RT = 0.78;
+    const ECHINUS_H = 0.35;
+    const ABACUS_H = 0.4;
+    const COL_H = SHAFT_H + ECHINUS_H + ABACUS_H;
+    const ENT_H = 3.1;
+    const CORNICE_H = 0.7;
+    const PED_H = 4.7;
+    const STYLOBATE_TOP = 3 * STEP_H;
+
+    // Cella (naos) shell — real walls with doorways, not a solid block.
+    const CELLA_HX = 24; // half-length
+    const CELLA_HY = 9.5; // half-width
+    const WALL_T = 1.2;
+    const WALL_H = COL_H;
+    const WALL_IN = CELLA_HY - WALL_T; // inner face of the side walls
+    const END_IN = CELLA_HX - WALL_T; // inner face of the end walls
+    const DOOR_HW = 2.5; // door half-width
+    const DOOR_H = 8;
+
+    // Interior layout: a solid cross-wall splits the cella into the naos
+    // (east, with the statue) and the opisthodomos treasury (west, entered
+    // only from the west porch) — as in the real building.
+    const PARTITION_X = -16.2;
+    const STATUE_X = -9;
+    const PLINTH_HALF = 3.8;
+
+    function quad(polys: Polygon[], color: string, pts: [number, number, number][]): void {
+      polys.push({ vertices: pts, color });
+    }
+
+    function boxAt(
+      polys: Polygon[],
+      sideColor: string,
+      topColor: string,
+      cx: number,
+      cy: number,
+      z0: number,
+      w: number,
+      d: number,
+      h: number,
+    ): void {
+      const x0 = cx - w / 2, x1 = cx + w / 2;
+      const y0 = cy - d / 2, y1 = cy + d / 2;
+      const z1 = z0 + h;
+      quad(polys, topColor, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]);
+      quad(polys, sideColor, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]]);
+      quad(polys, sideColor, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]);
+      quad(polys, sideColor, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]]);
+      quad(polys, sideColor, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]);
+    }
+
+    function frustum(
+      polys: Polygon[],
+      color: string,
+      cx: number,
+      cy: number,
+      z0: number,
+      rb: number,
+      rt: number,
+      h: number,
+      sides: number,
+    ): void {
+      const z1 = z0 + h;
+      for (let k = 0; k < sides; k++) {
+        const a0 = (k / sides) * Math.PI * 2;
+        const a1 = ((k + 1) / sides) * Math.PI * 2;
+        quad(polys, color, [
+          [cx + rb * Math.cos(a0), cy + rb * Math.sin(a0), z0],
+          [cx + rb * Math.cos(a1), cy + rb * Math.sin(a1), z0],
+          [cx + rt * Math.cos(a1), cy + rt * Math.sin(a1), z1],
+          [cx + rt * Math.cos(a0), cy + rt * Math.sin(a0), z1],
+        ]);
+      }
+    }
+
+    function column(
+      polys: Polygon[],
+      cx: number,
+      cy: number,
+      z0: number,
+      scale = 1,
+      sides = 8,
+    ): void {
+      const rb = SHAFT_RB * scale, rt = SHAFT_RT * scale;
+      frustum(polys, COLUMN_COLOR, cx, cy, z0, rb, rt, SHAFT_H, sides);
+      frustum(polys, CAPITAL_COLOR, cx, cy, z0 + SHAFT_H, rt, 1.15 * scale, ECHINUS_H, sides);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, z0 + SHAFT_H + ECHINUS_H, 2.3 * scale, 2.3 * scale, ABACUS_H);
+    }
+
+    // Interior naos column — slim and two-tiered like the real double-story
+    // Doric screen: lower shaft, band, upper shaft, capital block.
+    function naosColumn(polys: Polygon[], cx: number, cy: number): void {
+      frustum(polys, COLUMN_COLOR, cx, cy, STYLOBATE_TOP, 0.8, 0.66, 5.3, 6);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, STYLOBATE_TOP + 5.3, 1.7, 1.7, 0.3);
+      frustum(polys, COLUMN_COLOR, cx, cy, STYLOBATE_TOP + 5.6, 0.62, 0.5, 4, 6);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, STYLOBATE_TOP + 9.6, 1.4, 1.4, 0.35);
+    }
+
+    // Vertical N-gon disc in the XZ plane (Athena's shield).
+    function discXZ(polys: Polygon[], color: string, cx: number, cy: number, cz: number, r: number, t: number): void {
+      const sides = 8;
+      const front: [number, number, number][] = [];
+      const back: [number, number, number][] = [];
+      for (let k = 0; k < sides; k++) {
+        const a = (k / sides) * Math.PI * 2;
+        front.push([cx + r * Math.cos(a), cy + t / 2, cz + r * Math.sin(a)]);
+        back.push([cx + r * Math.cos(a), cy - t / 2, cz + r * Math.sin(a)]);
+      }
+      polys.push({ vertices: front, color });
+      polys.push({ vertices: back, color });
+    }
+
+    // Cella end wall (at cx = ±(CELLA_HX − WALL_T/2)) with a central doorway
+    // and a protruding jamb-and-lintel door frame on the outer face.
+    function endWallWithDoor(polys: Polygon[], cx: number): void {
+      const segD = CELLA_HY - DOOR_HW;
+      const segCy = DOOR_HW + segD / 2;
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, cx, -segCy, STYLOBATE_TOP, WALL_T, segD, WALL_H);
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, cx, segCy, STYLOBATE_TOP, WALL_T, segD, WALL_H);
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, cx, 0, STYLOBATE_TOP + DOOR_H, WALL_T, DOOR_HW * 2, WALL_H - DOOR_H);
+      const face = Math.sign(cx) * CELLA_HX;
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, face, -(DOOR_HW + 0.35), STYLOBATE_TOP, 0.7, 0.7, DOOR_H + 0.5);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, face, DOOR_HW + 0.35, STYLOBATE_TOP, 0.7, 0.7, DOOR_H + 0.5);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, face, 0, STYLOBATE_TOP + DOOR_H + 0.5, 0.75, (DOOR_HW + 0.7) * 2, 0.7);
+    }
+
+    // Doric frieze: 92 triglyphs — flat proud quads on the entablature faces
+    // (14 per front, 32 per flank, like the real metope count).
+    function triglyphs(polys: Polygon[], entZ: number): void {
+      const hx = (L - 0.6) / 2, hy = (W - 0.6) / 2;
+      const zLo = entZ + 1.6, zHi = entZ + 2.9;
+      const color = "#3f7050";
+      for (let i = 0; i < 14; i++) {
+        const y = -hy + ((i + 0.5) * (hy * 2)) / 14;
+        for (const s of [1, -1]) {
+          const fx = s * (hx + 0.06);
+          quad(polys, color, [[fx, y - 0.42, zLo], [fx, y + 0.42, zLo], [fx, y + 0.42, zHi], [fx, y - 0.42, zHi]]);
+        }
+      }
+      for (let i = 0; i < 32; i++) {
+        const x = -hx + ((i + 0.5) * (hx * 2)) / 32;
+        for (const s of [1, -1]) {
+          const fy = s * (hy + 0.06);
+          quad(polys, color, [[x - 0.42, fy, zLo], [x + 0.42, fy, zLo], [x + 0.42, fy, zHi], [x - 0.42, fy, zHi]]);
+        }
+      }
+    }
+
+    // Pediment sculpture groups: dark figure silhouettes standing in each
+    // tympanum, tallest at the apex like the real east pediment.
+    function pedimentFigures(polys: Polygon[], baseZ: number): void {
+      const groups: Array<[number, number, number]> = [
+        [0, 1.9, 3.4], [3.4, 1.6, 2.5], [-3.4, 1.6, 2.5], [6.6, 1.3, 1.7], [-6.6, 1.3, 1.7],
+      ];
+      for (const s of [1, -1]) {
+        const fx = s * ((L + 1.4) / 2 + 0.06);
+        for (const [y, w, h] of groups) {
+          quad(polys, STEP_COLOR, [
+            [fx, y - w / 2, baseZ], [fx, y + w / 2, baseZ],
+            [fx, y + w / 2, baseZ + h], [fx, y - w / 2, baseZ + h],
+          ]);
+        }
+      }
+    }
+
+    // Stylized chryselephantine Athena Parthenos, facing +X (the east door).
+    // Built for silhouette at ASCII resolution: flaring peplos, waist,
+    // widening chest, a shoulder slab (the "T" that makes her read as a
+    // figure), ivory head under a crested helmet, right arm extended with a
+    // winged Nike, left arm dropping to a great shield, spear at her side.
+    function athenaParthenos(polys: Polygon[]): void {
+      const x = STATUE_X;
+      // Plinth + pedestal.
+      boxAt(polys, STEP_COLOR, STEP_COLOR, x, 0, STYLOBATE_TOP, 7.6, 7.6, 0.5);
+      boxAt(polys, STYLOBATE_COLOR, STYLOBATE_COLOR, x, 0, STYLOBATE_TOP + 0.5, 6, 6, 0.85);
+      const z0 = STYLOBATE_TOP + 1.35; // her feet
+      // Peplos skirt (A-line), waist, chest widening to the shoulders.
+      frustum(polys, GOLD, x, 0, z0, 1.5, 1.0, 4.6, 12);
+      frustum(polys, GOLD_LIGHT, x, 0, z0 + 4.6, 0.95, 1.15, 2.2, 12);
+      // Shoulder slab — wider across Y than the chest.
+      boxAt(polys, GOLD, GOLD_LIGHT, x, 0, z0 + 6.8, 1.15, 2.75, 0.6);
+      // Neck + ivory head (egg) + helmet cap and crest.
+      frustum(polys, IVORY, x, 0, z0 + 7.4, 0.3, 0.28, 0.35, 6);
+      frustum(polys, IVORY, x, 0, z0 + 7.75, 0.34, 0.46, 0.35, 8);
+      frustum(polys, IVORY, x, 0, z0 + 8.1, 0.46, 0.26, 0.5, 8);
+      frustum(polys, GOLD, x, 0, z0 + 8.35, 0.5, 0.3, 0.45, 8);
+      boxAt(polys, GOLD_LIGHT, GOLD_LIGHT, x, 0, z0 + 8.85, 1.7, 0.18, 0.55);
+      // Right arm (her right = −Y) extended forward, Nike on the palm.
+      boxAt(polys, GOLD, GOLD, x + 0.4, -1.35, z0 + 6.3, 1.1, 0.42, 0.42);
+      boxAt(polys, IVORY, IVORY, x + 1.6, -1.35, z0 + 6.15, 1.9, 0.36, 0.36);
+      frustum(polys, IVORY, x + 2.4, -1.35, z0 + 6.5, 0.2, 0.12, 0.7, 6);
+      // Nike's wings: two small triangles in the YZ plane.
+      polys.push({
+        vertices: [[x + 2.4, -1.42, z0 + 6.75], [x + 2.4, -2.1, z0 + 7.5], [x + 2.4, -1.42, z0 + 7.1]],
+        color: IVORY,
+      });
+      polys.push({
+        vertices: [[x + 2.4, -1.28, z0 + 6.75], [x + 2.4, -0.6, z0 + 7.5], [x + 2.4, -1.28, z0 + 7.1]],
+        color: IVORY,
+      });
+      // Left arm dropping to the shield rim.
+      boxAt(polys, GOLD, GOLD, x + 0.1, 1.35, z0 + 5.4, 0.42, 0.5, 1.6);
+      // The great shield, resting upright at her left; brighter boss discs.
+      discXZ(polys, GOLD, x - 0.2, 2.15, z0 + 1.9, 1.9, 0.3);
+      discXZ(polys, GOLD_LIGHT, x - 0.2, 2.32, z0 + 1.9, 0.8, 0.1);
+      // Spear leaning at her left shoulder.
+      boxAt(polys, GOLD, GOLD, x - 0.9, 2.0, z0, 0.24, 0.24, 9.4);
+      frustum(polys, IVORY, x - 0.78, 2.12, z0 + 9.4, 0.22, 0.03, 0.6, 4);
+    }
+
+    function gableRoof(polys: Polygon[], length: number, width: number, z0: number, apexH: number): void {
+      const x0 = -length / 2, x1 = length / 2;
+      const y0 = -width / 2, y1 = width / 2;
+      const z1 = z0 + apexH;
+      quad(polys, ROOF_COLOR, [[x0, y0, z0], [x1, y0, z0], [x1, 0, z1], [x0, 0, z1]]);
+      quad(polys, ROOF_COLOR, [[x0, y1, z0], [x1, y1, z0], [x1, 0, z1], [x0, 0, z1]]);
+      // Pediment tympanum triangles above both octastyle fronts.
+      polys.push({ vertices: [[x0, y0, z0], [x0, y1, z0], [x0, 0, z1]], color: PEDIMENT_COLOR });
+      polys.push({ vertices: [[x1, y0, z0], [x1, y1, z0], [x1, 0, z1]], color: PEDIMENT_COLOR });
+    }
+
+    function buildParthenon(): Polygon[] {
+      const polys: Polygon[] = [];
+      // Crepidoma: three steps up to the stylobate.
+      for (let i = 0; i < 3; i++) {
+        const extend = (2 - i) * STEP_EXTEND;
+        const color = i === 2 ? STYLOBATE_COLOR : STEP_COLOR;
+        boxAt(polys, color, color, 0, 0, i * STEP_H, L + extend * 2, W + extend * 2, STEP_H);
+      }
+      // Peristyle: 8 × 17 columns around the perimeter (corners shared → 46).
+      const nFront = 8, nSide = 17;
+      const cy0 = -(W / 2 - COL_MARGIN), cy1 = W / 2 - COL_MARGIN;
+      const cx0 = -(L / 2 - COL_MARGIN), cx1 = L / 2 - COL_MARGIN;
+      for (let i = 0; i < nFront; i++) {
+        const y = cy0 + (i * (cy1 - cy0)) / (nFront - 1);
+        column(polys, cx0, y, STYLOBATE_TOP);
+        column(polys, cx1, y, STYLOBATE_TOP);
+      }
+      for (let i = 1; i < nSide - 1; i++) {
+        const x = cx0 + (i * (cx1 - cx0)) / (nSide - 1);
+        column(polys, x, cy0, STYLOBATE_TOP);
+        column(polys, x, cy1, STYLOBATE_TOP);
+      }
+      // Pronaos / opisthodomos: six prostyle porch columns before each door.
+      for (let i = 0; i < 6; i++) {
+        const y = -8.4 + (i * 16.8) / 5;
+        column(polys, CELLA_HX + 4.4, y, STYLOBATE_TOP, 0.92);
+        column(polys, -(CELLA_HX + 4.4), y, STYLOBATE_TOP, 0.92);
+      }
+      // Cella shell: two side walls + end walls pierced by doorways, and a
+      // flat naos ceiling under the roof volume.
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, 0, CELLA_HY - WALL_T / 2, STYLOBATE_TOP, CELLA_HX * 2, WALL_T, WALL_H);
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, 0, -(CELLA_HY - WALL_T / 2), STYLOBATE_TOP, CELLA_HX * 2, WALL_T, WALL_H);
+      endWallWithDoor(polys, CELLA_HX - WALL_T / 2);
+      endWallWithDoor(polys, -(CELLA_HX - WALL_T / 2));
+      const ceilZ = STYLOBATE_TOP + WALL_H - 0.02;
+      polys.push({
+        vertices: [
+          [-CELLA_HX, -CELLA_HY, ceilZ], [CELLA_HX, -CELLA_HY, ceilZ],
+          [CELLA_HX, CELLA_HY, ceilZ], [-CELLA_HX, CELLA_HY, ceilZ],
+        ],
+        color: CEILING_COLOR,
+      });
+      // Solid cross-wall: naos (east) / opisthodomos treasury (west) — the
+      // two rooms never connected inside the real building either.
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, PARTITION_X, 0, STYLOBATE_TOP, WALL_T, WALL_IN * 2, WALL_H);
+      // Interior colonnades: the naos two-tier Π around the statue, plus the
+      // opisthodomos' own pair.
+      for (let i = 0; i < 8; i++) {
+        const x = -13.5 + i * 4.5;
+        naosColumn(polys, x, 5.9);
+        naosColumn(polys, x, -5.9);
+      }
+      for (const y of [-2.9, 2.9]) naosColumn(polys, -13.9, y);
+      naosColumn(polys, -19.8, -3);
+      naosColumn(polys, -19.8, 3);
+      athenaParthenos(polys);
+      // Entablature (architrave + triglyph frieze), cornice, gable roof with
+      // pediment figures and acroteria.
+      const entZ = STYLOBATE_TOP + COL_H;
+      boxAt(polys, ENTABLATURE_COLOR, ENTABLATURE_COLOR, 0, 0, entZ, L - 0.6, W - 0.6, ENT_H);
+      triglyphs(polys, entZ);
+      boxAt(polys, CORNICE_COLOR, CORNICE_COLOR, 0, 0, entZ + ENT_H, L + 1.4, W + 1.4, CORNICE_H);
+      const roofZ = entZ + ENT_H + CORNICE_H;
+      gableRoof(polys, L + 1.4, W + 1.4, roofZ, PED_H);
+      pedimentFigures(polys, roofZ);
+      for (const sx of [1, -1]) {
+        boxAt(polys, CORNICE_COLOR, CORNICE_COLOR, sx * 34.7, 0, roofZ + PED_H - 0.25, 1, 1, 1.15);
+        for (const sy of [1, -1]) {
+          boxAt(polys, CORNICE_COLOR, CORNICE_COLOR, sx * 34.9, sy * 15.6, roofZ, 0.9, 0.9, 1);
+        }
+      }
+      return polys;
+    }
+
+    // Ground height under a world XY — lets the first-person eye climb the
+    // three crepidoma steps and stand on the stylobate (no physics engine,
+    // just "which step footprint am I inside?").
+    function groundHeightAt(x: number, y: number): number {
+      for (let i = 2; i >= 0; i--) {
+        const extend = (2 - i) * STEP_EXTEND;
+        if (Math.abs(x) <= (L + extend * 2) / 2 && Math.abs(y) <= (W + extend * 2) / 2) {
+          return (i + 1) * STEP_H;
+        }
+      }
+      return 0;
+    }
+
+    // Walkthrough blockers (2D AABBs, inflated by a small player radius):
+    // cella walls (the doorways are the gaps between them), the naos/treasury
+    // partition, and the statue plinth. Columns stay walk-through — clipping
+    // a column beats getting snagged on 60 of them.
+    const PLAYER_R = 0.45;
+    const BLOCKERS: Array<[number, number, number, number]> = [
+      [-CELLA_HX, CELLA_HX, WALL_IN, CELLA_HY],
+      [-CELLA_HX, CELLA_HX, -CELLA_HY, -WALL_IN],
+      [END_IN, CELLA_HX, DOOR_HW, CELLA_HY],
+      [END_IN, CELLA_HX, -CELLA_HY, -DOOR_HW],
+      [-CELLA_HX, -END_IN, DOOR_HW, CELLA_HY],
+      [-CELLA_HX, -END_IN, -CELLA_HY, -DOOR_HW],
+      [PARTITION_X - WALL_T / 2, PARTITION_X + WALL_T / 2, -WALL_IN, WALL_IN],
+      [STATUE_X - PLINTH_HALF, STATUE_X + PLINTH_HALF, -PLINTH_HALF, PLINTH_HALF],
+    ];
+
+    function resolveCollision(x: number, y: number): [number, number] | null {
+      for (const [x0, x1, y0, y1] of BLOCKERS) {
+        const bx0 = x0 - PLAYER_R, bx1 = x1 + PLAYER_R;
+        const by0 = y0 - PLAYER_R, by1 = y1 + PLAYER_R;
+        if (x <= bx0 || x >= bx1 || y <= by0 || y >= by1) continue;
+        const pushLeft = x - bx0, pushRight = bx1 - x;
+        const pushDown = y - by0, pushUp = by1 - y;
+        const min = Math.min(pushLeft, pushRight, pushDown, pushUp);
+        if (min === pushLeft) return [bx0, y];
+        if (min === pushRight) return [bx1, y];
+        if (min === pushDown) return [x, by0];
+        return [x, by1];
+      }
+      return null;
+    }
+
+    // ── Mount ─────────────────────────────────────────────────────────────
+    function mountParthenon(): void {
+      const host = document.getElementById("temple-host") as HTMLDivElement | null;
+      if (!host) return;
+
+      // First-person at human scale: 1 world unit ≈ 1 m, eye at 1.7. zoom is
+      // CSS px per world unit; perspective is the CSS-perspective focal length
+      // in virtual px, so ~1000 gives a natural ~65° walkthrough FOV.
+      const camera = createGlyphPerspectiveCamera({
+        rotX: 91,
+        rotY: 351,
+        zoom: 50,
+        perspective: 1000,
+      });
+
+      const scene = createGlyphScene(host, {
+        camera,
+        autoSize: true,
+        mode: "solid",
+        useColors: true,
+        glyphPalette: "default",
+        doubleSided: true,
+        directionalLight: { direction: [0.65, -0.25, 0.55], intensity: 1.3, color: "#eafff0" },
+        ambientLight: { intensity: 0.62, color: "#bdeccb" },
+      });
+      scene.output.style.fontSize = "9px";
+      scene.output.style.lineHeight = "1";
+      scene.fit();
+
+      const polygons = buildParthenon();
+      // A bounded plaza (not an infinite plane) grounds the walkthrough
+      // without flooding the whole viewport with ground-surface rain.
+      polygons.push({
+        vertices: [[-110, -75, -0.02], [110, -75, -0.02], [110, 75, -0.02], [-110, 75, -0.02]],
+        color: "#142c1f",
+      });
+      scene.add(polygons);
+
+      const fpv = createGlyphFirstPersonControls(scene, {
+        moveSpeed: 9,
+        jumpVelocity: 6,
+        gravity: 16,
+        eyeHeight: 1.7,
+        crouchHeight: 0.9,
+        groundZ: 0,
+      });
+      // Spawn outside the east facade (the real main entrance), looking at
+      // the octastyle front 3/4-on; walk in through the door to meet Athena.
+      fpv.setOrigin([88, -10, 1.7]);
+
+      // Matrix rain over the temple surfaces: green monochrome code flowing
+      // down each face (space: "surface" derives per-face downhill directions,
+      // so strands run down the columns, steps, and pediment alike).
+      const rain = scene.addEffectLayer({
+        effect: GlyphEffects.matrixRain,
+        blend: "over",
+        target: "surfaces",
+        params: {
+          glyphs: "ΠΑΡΘΕΝΩΝΑΘΗΝΑ01",
+          direction: "down",
+          space: "surface",
+          scale: 1,
+          speedMin: 5,
+          speedMax: 13,
+          trail: 13,
+          density: 0.38,
+          seed: 7,
+          colorMode: "monochrome",
+          color: "#00ff66",
+        },
+      });
+
+      let effectTime = 0;
+      let previous = performance.now();
+      let currentGround = 0;
+      function frame(now: number): void {
+        effectTime += Math.min((now - previous) / 1000, 0.1);
+        previous = now;
+        rain.params.time = effectTime;
+        // Terrain-follow: step the eye up/down the crepidoma as you walk,
+        // and slide along cella walls / the statue pedestal instead of
+        // walking through them (the doorways are the gaps).
+        const origin = fpv.getOrigin();
+        let [ox, oy] = origin;
+        const pushed = resolveCollision(ox, oy);
+        if (pushed) {
+          [ox, oy] = pushed;
+          fpv.setOrigin([ox, oy, origin[2]]);
+        }
+        const ground = groundHeightAt(ox, oy);
+        if (ground !== currentGround) {
+          currentGround = ground;
+          fpv.update({ groundZ: ground });
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+
+    mountParthenon();
+  </script>
+</body>
+</html>
