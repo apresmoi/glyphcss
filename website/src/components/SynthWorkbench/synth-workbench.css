@@ -21,6 +21,7 @@
   --overlay-top: 12px;
   --overlay-right: 12px;
   --overlay-bottom: 12px;
+  --overlay-left: 12px;
 }
 /* Top region: voices rail + viewport (+ floating Dock). The footer sits below. */
 .synth-body {
@@ -65,17 +66,38 @@
 .synth-voices-list { flex: 1; overflow-y: auto; padding: 9px; display: flex; flex-direction: column; gap: 9px; }
 .synth-empty { color: rgba(255, 232, 184, 0.4); font-size: 12px; text-align: center; margin-top: 24px; }
 
-/* Horizontal card: [ cube render ] [ controls column ] */
+/* Card: [ left column — trendline stacked above the square preview ] [ controls column ] */
 .voice-card {
   display: grid;
   grid-template-columns: 92px 1fr;
-  gap: 10px;
+  gap: 8px 10px;
   border: 1px solid rgba(255, 232, 184, 0.16);
   background: #04060b;
   padding: 9px;
 }
+/* Left column: a fixed-92px flex stack so the square preview below stays exactly
+   square regardless of the grid track's stretch behavior — both children pin
+   their own width/height instead of inheriting it from the grid item. */
+.voice-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* The voice's own waveform: freq = cycles across the width, mix = vertical
+   amplitude, wave toggle = shape — a direct visual read of the sliders below it.
+   Confined to the 92px left column now (was full-card-width) and roughly
+   aligns with the "Voice N" title row on the right. */
+.voice-trend {
+  /* Grow to absorb the left column's slack (the grid stretches this column to the
+     controls' height) so no empty row sits below the fixed-square glyph. */
+  display: block; width: 92px; flex: 1 1 auto; min-height: 24px;
+  background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
+}
+.voice-trend-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
+.voice-trend-line { stroke-width: 1.4; opacity: 0.95; }
 .voice-preview {
-  display: block; width: 92px; height: 92px; align-self: center;
+  display: block; width: 92px; height: 92px; flex: 0 0 92px;
   overflow: hidden; background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-preview .glyph-output { color: rgba(255, 232, 184, 0.92); }
@@ -101,12 +123,23 @@
 .gx-toggle { display: flex; }
 .gx-toggle-btn {
   flex: 1; min-width: 0; font: inherit; font-size: 13px; line-height: 1; padding: 4px 0;
+  display: flex; align-items: center; justify-content: center;
   background: #0d1118; color: rgba(255, 232, 184, 0.55);
   border: 1px solid rgba(255, 232, 184, 0.18); border-left-width: 0; cursor: pointer;
 }
 .gx-toggle-btn:first-child { border-left-width: 1px; }
 .gx-toggle-btn:hover:not(.is-active) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
-.gx-toggle-btn.is-active { background: rgba(56, 189, 248, 0.2); color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.55); }
+/* box-shadow (not border-color) draws the active ring: border-left-width is 0 on
+   every button but the first (adjacent buttons share an edge), so a border-color
+   change alone paints cyan on 3 sides and leaves the neighbour's default-colored
+   border showing through on the left. An inset ring is independent of border-width
+   and border-color: transparent hides the shared border underneath, so the ring
+   reads as a clean, even 1px outline on all four sides with no layout shift. */
+.gx-toggle-btn.is-active {
+  background: rgba(56, 189, 248, 0.2); color: rgba(56, 189, 248, 1);
+  border-color: transparent; box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.85);
+  position: relative; z-index: 1;
+}
 
 /* glyphcss select — square, dark, custom caret (like the Dock) */
 .gx-select { position: relative; flex: 1; min-width: 0; }
@@ -122,25 +155,61 @@
 }
 .gx-select select:focus { outline: none; border-color: rgba(56, 189, 248, 0.7); }
 
-/* glyphcss slider — filled track + square thumb (matches the Dock look) */
-.voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 10px; color: rgba(255, 232, 184, 0.55); }
-.voice-slider b { color: rgba(56, 189, 248, 0.95); font-weight: 500; text-align: right; font-size: 10px; }
+/* glyphcss slider — pixel-matches the right Dock's lil-gui `.controller.number
+   .slider`/`.fill` look: a 10px bracketed `[ ─█──── ]` bar, cyan gradient fill
+   with a bright hard-edged cap, and a cyan bracket-underlined number readout.
+   See `.dn-floating-controls .lil-gui .controller.number .slider` in
+   gallery-workbench.css (the Dock's shared stylesheet, imported by this page)
+   for the source of truth these values are copied from. */
+.voice-slider { display: grid; grid-template-columns: 34px 1fr 34px; align-items: center; gap: 7px; font-size: 11px; }
+.voice-slider span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; }
+.voice-slider b {
+  color: #38bdf8; font-weight: 400; text-align: right; font-size: 11px;
+  font-family: inherit; padding: 1px 0; margin-left: -7px;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18);
+}
+/* Wrapper reserves the 8px on each side the `[ … ]` bracket pseudos sit in —
+   mirrors the Dock's `.controller.number .widget { padding-inline: 8px }`. */
+.voice-slider-track { position: relative; padding-inline: 8px; }
+.voice-slider-track::before,
+.voice-slider-track::after {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.55); pointer-events: none;
+}
+.voice-slider-track::before { content: "["; left: 0; }
+.voice-slider-track::after { content: "]"; right: 0; }
 .voice-slider input[type="range"] {
-  -webkit-appearance: none; appearance: none; width: 100%; height: 14px; margin: 0; background: transparent; cursor: pointer;
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 10px; margin: 0;
+  background: transparent; cursor: ew-resize;
 }
 .voice-slider input[type="range"]::-webkit-slider-runnable-track {
-  height: 4px; border-radius: 0;
-  background: linear-gradient(90deg, #38bdf8 var(--fill, 0%), rgba(255, 232, 184, 0.14) var(--fill, 0%));
+  height: 10px; border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  background: linear-gradient(
+    90deg,
+    rgba(56, 189, 248, 0.55) 0%,
+    #38bdf8 var(--fill, 0%),
+    rgba(255, 232, 184, 0.04) var(--fill, 0%)
+  );
 }
 .voice-slider input[type="range"]::-moz-range-track {
-  height: 4px; background: linear-gradient(90deg, #38bdf8 var(--fill, 0%), rgba(255, 232, 184, 0.14) var(--fill, 0%));
+  height: 10px; border-radius: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  background: rgba(255, 232, 184, 0.04);
+}
+.voice-slider input[type="range"]::-moz-range-progress {
+  height: 10px; border-radius: 0;
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.55), #38bdf8);
 }
 .voice-slider input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none; width: 4px; height: 14px; margin-top: -5px;
-  background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
+  -webkit-appearance: none; appearance: none; width: 2px; height: 10px; margin-top: 0;
+  background: #38bdf8; border: none; border-radius: 0;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
 }
 .voice-slider input[type="range"]::-moz-range-thumb {
-  width: 4px; height: 14px; background: rgba(255, 232, 184, 0.95); border: none; border-radius: 0;
+  width: 2px; height: 10px; background: #38bdf8; border: none; border-radius: 0;
+  box-shadow: 2px 0 4px rgba(56, 189, 248, 0.6);
 }
 
 
@@ -148,6 +217,101 @@
 .synth-main { flex: 1; position: relative; min-width: 0; }
 .synth-viewport { position: absolute; inset: 0; overflow: hidden; }
 .synth-viewport .glyph-output { color: rgba(255, 232, 184, 0.92); }
+
+/* ── Export (bottom-left of the viewport) ────────────────────────────────────
+   Gallery-style export: a standard, always-visible "Open in CodePen" button
+   plus an "Export" toggle, both bottom-left; "Export" mounts a gallery-look
+   code window (`SynthCodePanel` — reuses `.gw-code-panel__head/__legend/
+   __tabs/__tab/__actions/__action(--codepen)/__body/__code` from
+   gallery-workbench.css, imported by this page) above the bar. Unlike the
+   gallery's `CodePanel` (always mounted, internal collapse), the code window
+   here is only mounted by `SynthWorkbench` while open — `.synth-code-panel`
+   only needs to override the base `.gw-code-panel` rule's position so it
+   sits above the bar instead of on top of it, and to redo the mobile
+   drawer sizing scoped to `.dn-root--synth` (the gallery's own mobile
+   override only matches `.dn-root--gallery`, so it never applies here). */
+.synth-export-bar {
+  position: absolute;
+  left: var(--overlay-left, 12px);
+  bottom: var(--overlay-bottom, 12px);
+  z-index: 15;
+  display: flex;
+  gap: 6px;
+}
+.synth-export-bar .gw-code-panel__action {
+  background: #0d1018;
+}
+.synth-export-bar .gw-code-panel__action.is-active {
+  color: #03050a;
+  background: rgba(56, 189, 248, 0.85);
+  border-color: rgba(56, 189, 248, 0.85);
+}
+
+/* Compound with `.gw-code-panel` (0,2,0) rather than `.synth-code-panel`
+   alone (0,1,0): Astro/Vite emit `gallery-workbench.css` and
+   `synth-workbench.css` as separate chunks, and the built page has been
+   observed loading the gallery chunk's <link> AFTER this page's own chunk
+   (reversed from the source `import` order) — a same-specificity override
+   would then lose the cascade to `.gw-code-panel`'s base rule. The extra
+   specificity makes this override win regardless of chunk/link order. */
+.synth-code-panel.gw-code-panel {
+  bottom: calc(var(--overlay-bottom, 12px) + 34px);
+  width: clamp(360px, 42vw, 640px);
+  /* `.gw-code-panel`'s own max-height formula assumes the gallery's taller
+     chrome above the panel (`- 60vh`) and starves this shorter `.synth-main`
+     (viewport + a slim bottom bar, no side inspector) down to a sliver —
+     size against this container's own height instead, generously (like the
+     gallery's panel reads on a typical viewport). */
+  max-height: min(64vh, calc(100% - var(--overlay-top, 12px) - 34px - 12px));
+}
+
+@media (max-width: 760px) {
+  /* The bar duplicates the mobile tab bar's "Export" tab — hide it and rely
+     on that tab (same drawer, opened via `mobilePanel === "export"`). */
+  .dn-root--synth .synth-export-bar { display: none; }
+
+  /* Export becomes a full bottom-drawer reachable via the Export tab —
+     mirrors the gallery's `.dn-root--gallery .gw-code-panel.is-mobile-open`
+     mobile sizing, scoped to this page's root class instead. */
+  .dn-root--synth .synth-code-panel.gw-code-panel {
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    width: auto;
+    max-width: none;
+    max-height: none;
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    z-index: 25;
+  }
+}
+
+/* Combined-waveform scope, portaled into the right Dock's MIX folder above
+   Combine (`useDockSlot(mix, { position: "top" })` in SynthWorkbench.tsx) —
+   every active voice's raw wave faint in its own color, the real mixed result
+   (combineSynth, mix-weighted) bold on top, so close frequencies visibly beat
+   instead of just reading as two numbers. `.dock-scope-slot` is the plain DOM
+   node `useDockSlot` inserts as a folder row; it isn't a `.controller`, so it
+   gets its own padding here matching lil-gui's `--padding`/`--spacing` rather
+   than inheriting the controller layout. The plot is fully responsive (no
+   fixed width) so it fills whatever width the Dock panel happens to have. */
+.dn-floating-controls .lil-gui .dock-scope-slot {
+  padding: var(--spacing, 5px) var(--padding, 6px) 0;
+}
+.dock-scope {
+  width: 100%;
+}
+.dock-scope-label {
+  display: block; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.5); margin-bottom: 4px;
+}
+.dock-scope-plot {
+  display: block; width: 100%; height: 52px;
+  background: rgba(2, 4, 10, 0.85); border: 1px solid rgba(255, 232, 184, 0.16);
+}
+.dock-scope-mid { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; }
+.dock-scope-voice { stroke-width: 1; opacity: 0.4; }
+.dock-scope-mix { stroke: #f4f0e6; stroke-width: 1.6; opacity: 0.95; }
 
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */
 .synth-presets {
@@ -168,4 +332,115 @@
 
 @media (max-width: 62rem) {
   .synth-voices { flex-basis: 300px; }
+}
+
+/* ── Mobile: viewport-primary + bottom drawers ─────────────────────────────
+   Mirrors the gallery's mobile pattern (`.dn-root--gallery` rules + the
+   `.dn-mobile-tabs` bar, both in gallery-workbench.css, imported by this
+   page): same 760px breakpoint, same `is-mobile-open` toggle driven by a
+   bottom tab bar, viewport stays full-bleed and primary. The Voices rail,
+   the Dock, and the preset footer all collapse into drawers instead of
+   fighting the render for space. Export (the floating panel below) joins the
+   same tab bar as a 4th tab. `.dn-mobile-tabs`'s own chrome (buttons, position)
+   is already styled generically there; only the 4-tab grid and the drawer
+   positioning/toggle are synth-specific here. */
+@media (max-width: 760px) {
+  .dn-root--synth {
+    --mobile-tabs-height: 52px;
+    --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
+  }
+
+  .dn-root--synth .dn-mobile-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  /* Voices rail: out of the flex flow so `.synth-main` fills the full width,
+     shown as a bottom drawer like the gallery's `.models-sidebar`. */
+  .dn-root--synth .synth-voices {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    flex-basis: auto;
+    width: auto;
+    height: min(60vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+    z-index: 25;
+    border: 1px solid rgba(255, 232, 184, 0.22);
+  }
+  .dn-root--synth .synth-voices.is-mobile-open { display: flex; }
+
+  /* Dock: same bottom-drawer treatment as `.dn-root--gallery .dn-floating-controls`,
+     but the drawer itself owns the scroll (`overflow-y: auto`) instead of nesting
+     a second scroll region inside `.lil-gui.root` — with Stage/Mix/Output open by
+     default (unlike the gallery dock, which starts fully collapsed), the content
+     reliably exceeds the drawer height and the Export folder must stay reachable
+     by scrolling, so the scroll container needs to actually work. Chaining
+     `overflow-y: auto` through a `height: 100%` flex descendant into `.lil-gui.root`'s
+     own `overflow-y: auto` (its normal desktop behavior) measured a stale 0-scroll
+     `scrollHeight === clientHeight` here even after the folder-open transition
+     settled, so `.lil-gui.root` is unclamped instead and left to size to its
+     natural content height. */
+  .dn-root--synth .dn-floating-controls {
+    display: none;
+    top: auto;
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    left: var(--overlay-left);
+    width: auto;
+    max-width: none;
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+    padding-top: 14px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 25;
+  }
+  .dn-root--synth .dn-floating-controls.is-mobile-open { display: flex; }
+  /* The desktop legend straddles the panel's top border via `top: 0; transform:
+     translateY(-50%)`, poking half its height above the box — clipped now that
+     this element itself scrolls. Pull it fully inside the padding reserved above. */
+  .dn-root--synth .dn-floating-controls::before {
+    top: 7px;
+    transform: none;
+  }
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host,
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+    width: 100% !important;
+    max-width: 100%;
+  }
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .dn-root--synth .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+    box-sizing: border-box;
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  /* Presets: out of the footer flow (so `.synth-body` fills the freed height)
+     until opened, then a wrapping-grid bottom drawer — more browsable than
+     the desktop's single scrolling strip once it has real vertical room. */
+  .dn-root--synth .synth-presets {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    width: auto;
+    height: min(50vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 25;
+    border: 1px solid rgba(255, 232, 184, 0.22);
+    border-radius: 0;
+  }
+  .dn-root--synth .synth-presets.is-mobile-open { display: flex; }
 }

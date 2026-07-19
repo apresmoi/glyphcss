@@ -1,18 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
+  GlyphEffectLayer,
   GlyphMesh,
   GlyphOrthographicCamera,
   GlyphPerspectiveCamera,
   GlyphScene,
+  useGlyphSceneContext,
 } from "@glyphcss/react";
 import type { Vec3 } from "@glyphcss/react";
 import type { Polygon } from "@glyphcss/react";
-import GUI from "lil-gui";
+import type { GlyphEffectLayerHandle } from "@glyphcss/react";
+import {
+  compileScene,
+  createGlyphOrthographicCamera,
+  encodeStaticGlyphHtml,
+  injectGlyphBaseStyles,
+} from "glyphcss";
+import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema } from "glyphcss";
+import type { GlyphEffectId } from "@glyphcss/effects";
+import type { GUI } from "lil-gui";
 import { StatsOverlay } from "../StatsOverlay";
 import {
   composeText,
   listGoogleFonts,
-  loadFont,
   loadGoogleFont,
   resolveFace,
   pickWeight,
@@ -25,6 +36,31 @@ import {
   type Profile,
   type WarpShape,
 } from "@glyphcss/fonts";
+import { Dock } from "../Dock";
+import { useDockGui } from "../Dock/slots";
+import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
+import { EffectParameterControls, useEffectsFolder } from "../Dock/folders/useEffectsFolder";
+import {
+  DEFAULT_GALLERY_EFFECT_STATE,
+  GALLERY_EFFECT_OPTIONS,
+  createGalleryEffectState,
+  galleryEffectDefaultParams,
+  galleryEffectDefinition,
+  galleryEffectExportName,
+  sanitizeGalleryEffectParams,
+  type GalleryEffectDefinition,
+} from "../GalleryWorkbench/effects";
+import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
+import { WordArtCodePanel } from "./WordArtCodePanel";
+import { buildWordArtCodepenPen } from "./wordartSnippets";
+import type {
+  WordArtComposeInput,
+  WordArtFaceSpec,
+  WordArtFontSpec,
+  WordArtProfileSpec,
+  WordArtSnippetInput,
+} from "./wordartSnippets";
+import "../GalleryWorkbench/gallery-workbench.css";
 import "./wordart.css";
 
 type Align = "left" | "center" | "right";
@@ -63,6 +99,23 @@ const TEXTURES: { id: string; label: string }[] = [
 ];
 const texUrl = (id: string) => (id ? `/textures/wordart/${id}.svg` : "");
 
+// Default font — a real Google font (served open-CORS from the Fontsource
+// CDN by `loadGoogleFont`), so both the live page AND the export work from
+// any origin, including CodePen. Hardcoded rather than looked up from
+// `listGoogleFonts()` so the default mesh can start composing immediately
+// on mount instead of waiting on the catalog fetch; mirrors the shape
+// `listGoogleFonts()` itself returns for this exact family.
+const ROBOTO_FONT_ENTRY: FontEntry = {
+  id: "roboto",
+  family: "Roboto",
+  weights: [100, 200, 300, 400, 500, 600, 700, 800, 900],
+  styles: ["normal", "italic"],
+  subsets: ["cyrillic", "cyrillic-ext", "greek", "greek-ext", "latin", "latin-ext", "math", "symbols", "vietnamese"],
+  defSubset: "latin",
+  category: "sans-serif",
+  type: "google",
+};
+
 interface Preset {
   label: string;
   profile: ExtrudeProfile;
@@ -86,36 +139,46 @@ interface Preset {
   outline?: { color: string; width: number };
   /** Flat two-layer drop shadow (no extrusion walls). */
   layered?: boolean;
-  /** CSS background for the preset tile thumbnail (defaults to `color`). */
-  thumb?: string;
 }
 
-// Left-rail style presets — each is a full "look": extrusion, layered front/back,
+// Bottom preset row — each is a full "look": extrusion, layered front/back,
 // and/or a baked-in WordArt warp (like the builder's shape tiles).
 const PRESETS: Preset[] = [
   { label: "Gold Gradient", profile: "bevel", depth: 26, color: "#ffd23f", sideColor: "#7c4a12",
-    fill: "gradient", gradA: "#ffe14d", gradB: "#ff7a1a", gradAngle: 270, thumb: "linear-gradient(#ffe14d,#ff7a1a)" },
+    fill: "gradient", gradA: "#ffe14d", gradB: "#ff7a1a", gradAngle: 270 },
   { label: "Grape Pop", profile: "flat", depth: 5, color: "#b14be0", sideColor: "#7a8cff", backColor: "#8aa0ff", offset: 14, layered: true,
-    fill: "gradient", gradA: "#c45cf0", gradB: "#7a1fb8", gradAngle: 270, thumb: "linear-gradient(#c45cf0,#7a1fb8)" },
+    fill: "gradient", gradA: "#c45cf0", gradB: "#7a1fb8", gradAngle: 270 },
   { label: "Chrome", profile: "bevel", depth: 22, color: "#d7dde4", sideColor: "#3a2222",
-    fill: "gradient", gradA: "#f4f8ff", gradB: "#9a4b4b", gradAngle: 270, thumb: "linear-gradient(#f4f8ff 45%,#9a4b4b)" },
+    fill: "gradient", gradA: "#f4f8ff", gradB: "#9a4b4b", gradAngle: 270 },
   { label: "Rainbow", profile: "flat", depth: 10, color: "#ff5e3a", sideColor: "#7a2a55",
-    fill: "rainbow", gradAngle: 0, thumb: "linear-gradient(90deg,#ff3b30,#ffcc00,#34c759,#007aff,#af52de)" },
+    fill: "rainbow", gradAngle: 0 },
   { label: "Sky Outline", profile: "flat", depth: 8, color: "#7ec8ff", sideColor: "#2b50b0",
-    outline: { color: "#1838b8", width: 3 }, thumb: "#7ec8ff" },
+    outline: { color: "#1838b8", width: 3 } },
   { label: "Grass Block", profile: "flat", depth: 18, color: "#6ab04c", sideColor: "#6b4a2b",
-    fill: "texture", faceTex: "grass3", sideTex: "dirt", thumb: "url(/textures/wordart/grass3.svg) center/cover" },
+    fill: "texture", faceTex: "grass3", sideTex: "dirt" },
   { label: "Brick Wall", profile: "bevel", depth: 22, color: "#a8432a", sideColor: "#7a2f1d",
-    fill: "texture", faceTex: "brick", sideTex: "brick2", thumb: "url(/textures/wordart/brick.svg) center/cover" },
+    fill: "texture", faceTex: "brick", sideTex: "brick2" },
   { label: "Stone", profile: "flat", depth: 20, color: "#8d8d8d", sideColor: "#5a5a5a",
-    fill: "texture", faceTex: "rock", sideTex: "rock3", thumb: "url(/textures/wordart/rock.svg) center/cover" },
+    fill: "texture", faceTex: "rock", sideTex: "rock3" },
   { label: "Ice", profile: "bevel", depth: 18, color: "#b9e6ff", sideColor: "#6aa9cc",
-    fill: "texture", faceTex: "ice", sideTex: "ice3", thumb: "url(/textures/wordart/ice.svg) center/cover" },
+    fill: "texture", faceTex: "ice", sideTex: "ice3" },
   { label: "Gold Bevel", profile: "bevel", depth: 26, color: "#d4a82a", sideColor: "#7c5e16" },
-  { label: "Retro Block", profile: "flat", depth: 6, color: "#ff4d6d", sideColor: "#3a0ca3", backColor: "#3a0ca3", offset: 16, layered: true, thumb: "#ff4d6d" },
+  { label: "Retro Block", profile: "flat", depth: 6, color: "#ff4d6d", sideColor: "#3a0ca3", backColor: "#3a0ca3", offset: 16, layered: true },
   { label: "Arch Gold", profile: "bevel", depth: 22, color: "#e9b949", sideColor: "#8a5a12", warp: { shape: "arch", amount: 0.6 } },
   { label: "Wave Mint", profile: "round", depth: 24, color: "#7cffb2", sideColor: "#2f8f5e", warp: { shape: "wave", amount: 0.55 } },
-  { label: "Ink Shadow", profile: "flat", depth: 4, color: "#e8edf2", sideColor: "#2b313b", backColor: "#2b313b", offset: 12, layered: true, thumb: "#e8edf2" },
+  { label: "Ink Shadow", profile: "flat", depth: 4, color: "#e8edf2", sideColor: "#2b313b", backColor: "#2b313b", offset: 12, layered: true },
+  { label: "Sand Dune", profile: "round", depth: 16, color: "#e3c17a", sideColor: "#b8935a",
+    fill: "texture", faceTex: "sand", sideTex: "dirt2", warp: { shape: "wave", amount: 0.4 } },
+  { label: "Timber", profile: "bevel", depth: 20, color: "#a9713f", sideColor: "#5c3a1e",
+    fill: "texture", faceTex: "wood", sideTex: "wood3" },
+  { label: "Ore Vein", profile: "flat", depth: 18, color: "#c9a227", sideColor: "#3a3a3a",
+    fill: "texture", faceTex: "mine", sideTex: "rock3" },
+  { label: "Glass Frost", profile: "bevel", depth: 16, color: "#dff3ff", sideColor: "#7fb8d9",
+    fill: "texture", faceTex: "glass", sideTex: "ice3" },
+  { label: "Neon Outline", profile: "flat", depth: 6, color: "#0b0f1a", sideColor: "#0b0f1a",
+    outline: { color: "#ff2fd0", width: 5 } },
+  { label: "Copper Shine", profile: "bevel", depth: 24, color: "#e0813a", sideColor: "#6b2f12",
+    fill: "gradient", gradA: "#ffcf8a", gradB: "#a34a12", gradAngle: 200 },
 ];
 
 function applyCase(text: string, mode: "as-typed" | "upper" | "lower" | "title"): string {
@@ -125,13 +188,12 @@ function applyCase(text: string, mode: "as-typed" | "upper" | "lower" | "title")
   return text;
 }
 
-function readable(hex: string): string {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return "#000";
-  const n = parseInt(m[1], 16);
-  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
-  return lum > 150 ? "#0b0f18" : "#ffffff";
-}
+// The Density slider's baseline cell size (px) at density=1 — the same value
+// the stage otherwise inherits by default from the page's base font-size, so
+// density=1 reproduces the pre-Density-slider look. `<pre class="glyph-output">`
+// has no font-size of its own (see the base stylesheet `injectGlyphBaseStyles`
+// ships), so it cascades from whatever this Stage host sets explicitly.
+const BASE_FONT_PX = 16;
 
 function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, scaleX = 1, scaleY = 1): number {
   if (!polygons.length) return 3;
@@ -150,25 +212,50 @@ function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, sca
   return Math.max(0.5, Math.min(10, Math.min(fitW, fitH)));
 }
 
-function codePenPayload(snapshotHtml: string, title: string): string {
-  const parsed = new DOMParser().parseFromString(snapshotHtml, "text/html");
-  const css = Array.from(parsed.querySelectorAll("style")).map((s) => s.textContent ?? "").filter(Boolean).join("\n\n");
-  const html = parsed.body.innerHTML.trim() || snapshotHtml;
-  return JSON.stringify({ title, html, css, editors: "100", layout: "left" });
-}
-
-
 // All controls persist to the URL query string so any look is a shareable link.
 const URL_SEARCH = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
 const qs = (k: string, d: string) => URL_SEARCH.get(k) ?? d;
 const qn = (k: string, d: number) => (URL_SEARCH.has(k) ? Number(URL_SEARCH.get(k)) : d);
 const qb = (k: string, d: boolean) => (URL_SEARCH.has(k) ? URL_SEARCH.get(k) === "1" : d);
 
+/** Restore the Effects folder's selection from the URL (mirrors the gallery's
+ *  `fx`/`fxb`/`fxp`/`fxs`/`fxx` shape, but folded into this page's single
+ *  flat-URLSearchParams persistence pass instead of a second read-modify-write
+ *  — see the big `useEffect` below, which is the only writer). */
+function initialEffectState(): GalleryEffectState {
+  const id = qs("fx", "");
+  if (!id) return DEFAULT_GALLERY_EFFECT_STATE;
+  const definition = galleryEffectDefinition(id as GlyphEffectId);
+  if (!definition) return DEFAULT_GALLERY_EFFECT_STATE;
+  const state = createGalleryEffectState(definition.id, {
+    blend: qs("fxb", definition.defaultBlend) as GalleryEffectBlend,
+    paused: qb("fxp", false),
+    timeScale: qn("fxs", 1),
+  });
+  if (!state) return DEFAULT_GALLERY_EFFECT_STATE;
+  const rawParams = qs("fxx", "");
+  if (rawParams) {
+    try {
+      state.params = sanitizeGalleryEffectParams(definition, JSON.parse(rawParams));
+    } catch {
+      // Malformed/legacy `fxx` payload — keep the definition's defaults.
+    }
+  }
+  return state;
+}
+
 export function WordArtWorkbench() {
   const [font, setFont] = useState<ParsedFont | null>(null);
+  // Pinned to whichever font loads FIRST (never swapped to a later-picked
+  // Google font) so the preset tiles' single-letter static renders stay
+  // stable — they only need to change look, not typeface, when a preset
+  // changes colors/profile.
+  const [previewFont, setPreviewFont] = useState<ParsedFont | null>(null);
   const [catalog, setCatalog] = useState<FontEntry[]>([]);
-  const [entry, setEntry] = useState<FontEntry | null>(null);
-  const [familyInput, setFamilyInput] = useState(() => qs("font", ""));
+  // Always a real Google font — defaults to Roboto so both the live page and
+  // the export work from any origin (CodePen included). Never reset to null.
+  const [entry, setEntry] = useState<FontEntry>(ROBOTO_FONT_ENTRY);
+  const [familyInput, setFamilyInput] = useState(() => qs("font", "Roboto"));
   const [weight, setWeight] = useState(() => qn("weight", 700));
   const [italic, setItalic] = useState(() => qb("italic", false));
   const [status, setStatus] = useState("");
@@ -217,15 +304,40 @@ export function WordArtWorkbench() {
   // Camera + lighting (gallery-style)
   const [perspective, setPerspective] = useState(() => qb("persp", true));
   const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
+  // Scene-wide ASCII resolution (mirrors /synth's Density): drives the
+  // GlyphScene host's font-size (BASE_FONT_PX ÷ density) — smaller cell = more
+  // columns/rows in the same on-screen box (zoom is CSS px/world-unit,
+  // independent of font size — see `fitWordArtZoom`). Same technique
+  // `SynthWorkbench`'s `host.style.fontSize` uses, just via the React
+  // `<GlyphScene style>` prop instead of an imperative host ref (glyphcss/react
+  // has no scene-wide `fontSize` option — only the per-mesh detail-layer one).
+  const [density, setDensity] = useState(() => qn("density", 1));
   const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
   const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
   const [lightColor, setLightColor] = useState(() => qs("lc", "#ffffff"));
   const [lightAz, setLightAz] = useState(() => qn("laz", -25));
   const [lightEl, setLightEl] = useState(() => qn("lel", 45));
+  // Glyph Effects layer (gallery-style): same state shape, same
+  // `scene.addEffectLayer`-backed `<GlyphEffectLayer>` wiring, just applied to
+  // the word-art mesh instead of a dropped model.
+  const [effectState, setEffectState] = useState<GalleryEffectState>(initialEffectState);
   const [activePreset, setActivePreset] = useState<string | null>(null);
-  // Mobile: only one floating panel is open at a time, toggled by the bottom tabs.
-  const [mobilePanel, setMobilePanel] = useState<"style" | "controls" | null>(null);
+  // Mobile: only one floating panel is open at a time, toggled by the bottom tabs
+  // (mirrors /synth's voices/controls/presets drawer pattern).
+  const [mobilePanel, setMobilePanel] = useState<"compose" | "controls" | "presets" | "export" | null>(null);
 
+  // ── Export (gallery/synth-style) ─────────────────────────────────────────
+  // Bottom-left, always-visible "Open in CodePen" (static, zero-runtime bake
+  // of the live rendered `<pre>`) + an "Export" toggle that mounts a
+  // gallery-look code window (`WordArtCodePanel`) with framework tabs of
+  // lib-based code that REGENERATES the mesh via `@glyphcss/fonts`'
+  // `composeText` (camera + lighting + effect reconstruction mirrors the
+  // gallery/synth). Mirrors `SynthWorkbench`'s own
+  // `codeOpen`/`exporting`/`cameraSnapshot` trio.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const stageSnapshotRef = useRef<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
+  const [stageSnapshot, setStageSnapshot] = useState<{ rotation: Vec3; zoom: number }>({ rotation: [0, 14, 0], zoom: 3 });
 
   useEffect(() => {
     if (!mobilePanel) return;
@@ -234,10 +346,16 @@ export function WordArtWorkbench() {
     return () => window.removeEventListener("keydown", onKey);
   }, [mobilePanel]);
 
-  // Default bundled font + Google catalog. If the URL named a font, select it
-  // once the catalog is in.
+  // `.glyph-output` (the compiled preset tiles below use it directly, with no
+  // `<glyph-scene>` ancestor) needs the base stylesheet present — the live
+  // Stage's GlyphScene injects it too, but do it here explicitly so the tiles
+  // don't depend on mount order.
+  useEffect(() => { injectGlyphBaseStyles(); }, []);
+
+  // Google font catalog (Roboto — `entry`'s initial state — is already
+  // loading via the effect below). If the URL named a different font, select
+  // it once the catalog is in.
   useEffect(() => {
-    loadFont("/fonts/default.ttf").then(setFont).catch((e) => setStatus(String(e)));
     listGoogleFonts()
       .then((c) => {
         setCatalog(c);
@@ -256,7 +374,7 @@ export function WordArtWorkbench() {
     const ss = (k: string, v: string, d: string) => { if (v !== d) p.set(k, v); };
     const sn = (k: string, v: number, d: number) => { if (v !== d) p.set(k, String(v)); };
     p.set("text", text);
-    if (entry) p.set("font", entry.family);
+    ss("font", entry.family, "Roboto");
     sn("weight", weight, 700);
     if (italic) p.set("italic", "1");
     ss("case", textCase, "as-typed");
@@ -283,6 +401,7 @@ export function WordArtWorkbench() {
     if (!spin) p.set("spin", "0");
     if (!perspective) p.set("persp", "0");
     sn("zoom", zoomScale, 1);
+    sn("density", density, 1);
     sn("li", lightIntensity, 0.95);
     sn("amb", ambient, 0.5);
     ss("lc", lightColor, "#ffffff");
@@ -301,21 +420,41 @@ export function WordArtWorkbench() {
     ss("olc", outlineColor, "#1a1a2e");
     sn("olw", outlineWidth, 3);
     if (layered) p.set("layer", "1");
+    // Effects folder — folded into this same flat-URLSearchParams pass (rather
+    // than a second read-modify-write like the gallery's `useEffectRouteSync`)
+    // so it can't race the rest of this page's controls for the last write.
+    if (effectState.effectId) {
+      p.set("fx", effectState.effectId);
+      const definition = galleryEffectDefinition(effectState.effectId);
+      if (definition) {
+        ss("fxb", effectState.blend, definition.defaultBlend);
+        if (effectState.paused) p.set("fxp", "1");
+        sn("fxs", effectState.timeScale, 1);
+        const defaults = galleryEffectDefaultParams(definition);
+        const overrides: Record<string, GalleryEffectParamValue> = {};
+        for (const [name, value] of Object.entries(effectState.params)) {
+          if (name === "time" || value === defaults[name]) continue;
+          overrides[name] = value;
+        }
+        if (Object.keys(overrides).length > 0) p.set("fxx", JSON.stringify(overrides));
+      }
+    }
     const search = p.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered]);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
-  // Load the picked Google font whenever family / weight / style changes.
+  // Load the picked Google font (Roboto by default) whenever family / weight
+  // / style changes. The first font to resolve also pins `previewFont` — the
+  // preset tiles' static single-letter renders.
   useEffect(() => {
-    if (!entry) return;
     let alive = true;
     setStatus(`loading ${entry.family}…`);
     loadGoogleFont(entry, weight, italic ? "italic" : "normal")
       .then((f) => {
-        if (alive) {
-          setFont(f);
-          setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
-        }
+        if (!alive) return;
+        setFont(f);
+        setPreviewFont((prev) => prev ?? f);
+        setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
       })
       .catch((e) => alive && setStatus(`couldn't load ${entry.family}: ${e}`));
     return () => {
@@ -384,6 +523,207 @@ export function WordArtWorkbench() {
     return [-Math.sin(e), -Math.sin(a) * Math.cos(e), Math.max(0.25, Math.cos(e))];
   }, [lightAz, lightEl]);
 
+  const effectDefinition = useMemo<GalleryEffectDefinition | null>(
+    () => galleryEffectDefinition(effectState.effectId),
+    [effectState.effectId],
+  );
+
+  const handleEffectChange = useCallback((effectId: GlyphEffectId | null) => {
+    setEffectState((current) => {
+      if (!effectId) return DEFAULT_GALLERY_EFFECT_STATE;
+      return createGalleryEffectState(effectId, {
+        paused: current.paused,
+        timeScale: current.timeScale,
+      }) ?? DEFAULT_GALLERY_EFFECT_STATE;
+    });
+  }, []);
+
+  const updateEffectSettings = useCallback(
+    (partial: Partial<Pick<GalleryEffectState, "blend" | "paused" | "timeScale">>) => {
+      setEffectState((current) => ({ ...current, ...partial }));
+    },
+    [],
+  );
+
+  const updateEffectParams = useCallback((partial: Record<string, GalleryEffectParamValue>) => {
+    setEffectState((current) => {
+      const params = { ...current.params, ...partial };
+      const definition = galleryEffectDefinition(current.effectId);
+      return { ...current, params: definition ? sanitizeGalleryEffectParams(definition, params) : params };
+    });
+  }, []);
+
+  // ── Export (gallery/synth-style) ─────────────────────────────────────────
+  const snapshotStage = useCallback(() => {
+    setStageSnapshot({ ...stageSnapshotRef.current });
+  }, []);
+  const toggleCodeOpen = useCallback(() => {
+    setCodeOpen((open) => {
+      if (!open) snapshotStage();
+      return !open;
+    });
+  }, [snapshotStage]);
+  const handleMobileExportTab = useCallback(() => {
+    setMobilePanel((current) => {
+      if (current === "export") return null;
+      snapshotStage();
+      return "export";
+    });
+  }, [snapshotStage]);
+  const closeCodePanel = useCallback(() => {
+    setCodeOpen(false);
+    setMobilePanel((m) => (m === "export" ? null : m));
+  }, []);
+
+  // Everything `composeText` needs to REGENERATE the mesh at export time
+  // (rather than inlining the already-composed `polygons`) — mirrors the
+  // `polygons` useMemo's own `front`/`sides`/`back`/`profileObj` construction
+  // above, but as a serializable spec (`WordArtFaceSpec`/`WordArtProfileSpec`/
+  // `WordArtFontSpec`) the exported snippet reconstructs via `resolveFace`/
+  // `loadGoogleFont` instead of a resolved `Face`/`ParsedFont`. Texture URLs
+  // are relative site assets, so they're baked to an ABSOLUTE URL off this
+  // page's own origin here — a relative path wouldn't resolve from a CodePen
+  // or a copy-pasted snippet. The font itself needs no such baking: it's
+  // always a Google font (Roboto by default), fetched by `loadGoogleFont`
+  // from the open-CORS Fontsource CDN, same as the live page.
+  const composeInput = useMemo<WordArtComposeInput>(() => {
+    const absUrl = (path: string) => (typeof window !== "undefined" ? `${window.location.origin}${path}` : path);
+    const frontSpec: WordArtFaceSpec =
+      fillType === "gradient" ? { kind: "gradient", color, from: gradA, to: gradB, angle: gradAngle }
+      : fillType === "rainbow" ? { kind: "rainbow", color, angle: gradAngle }
+      : fillType === "texture" ? { kind: "texture", color, url: absUrl(texUrl(faceTex)), tile: TILE }
+      : fillType === "image" ? { kind: "image", color, src: fillImage }
+      : { kind: "solid", color };
+    const sidesSpec: WordArtFaceSpec | null =
+      sideFill === "texture" ? { kind: "texture", color: sideColor, url: absUrl(texUrl(sideTex)), tile: TILE }
+      : sideFill === "solid" ? { kind: "solid", color: sideColor }
+      : null;
+    const backSpec: (WordArtFaceSpec & { offset?: [number, number] }) | null =
+      backFill === "texture" ? { kind: "texture", color: backColor, url: absUrl(texUrl(backTex)), tile: TILE }
+      : backFill === "solid" ? { kind: "solid", color: backColor }
+      : null;
+    if (backSpec && layered) backSpec.offset = [offset || 12, -(offset || 12)];
+    const profileSpec: WordArtProfileSpec =
+      profile === "flat" ? { kind: "flat" }
+      : profile === "custom" ? { kind: "curve", curve: bezier, segments: profileSegments }
+      : { kind: "edge", edge: profile, raised: roundConvex, segments: profileSegments };
+    const fontSpec: WordArtFontSpec = { entry, weight, style: italic ? "italic" : "normal" };
+    return {
+      text: applyCase(text, textCase),
+      font: fontSpec,
+      depth: layered ? 0 : depth,
+      profile: profileSpec,
+      letterSpacing,
+      lineHeight,
+      align,
+      underline,
+      strike,
+      curveSteps: curveSegments,
+      simplify,
+      warpShape,
+      warpAmount,
+      front: frontSpec,
+      sides: sidesSpec,
+      back: backSpec,
+      outline: outlineOn ? { color: outlineColor, width: outlineWidth } : null,
+    };
+  }, [entry, weight, italic, text, textCase, depth, profile, roundConvex, bezier, profileSegments, letterSpacing, lineHeight, align, underline, strike, curveSegments, simplify, warpShape, warpAmount, fillType, color, gradA, gradB, gradAngle, faceTex, fillImage, sideFill, sideColor, sideTex, backFill, backColor, backTex, offset, layered, outlineOn, outlineColor, outlineWidth]);
+
+  const codeInput = useMemo<WordArtSnippetInput>(() => {
+    const hasEffect = !!effectState.effectId && !!effectDefinition;
+    const exportName = hasEffect ? galleryEffectExportName(effectDefinition) : null;
+    const hasClock = hasEffect && effectDefinition ? "time" in effectDefinition.parameterSchema : false;
+    return {
+      compose: composeInput,
+      scaleX: scaleX / 100,
+      scaleY: scaleY / 100,
+      rotation: stageSnapshot.rotation,
+      perspective,
+      zoom: stageSnapshot.zoom,
+      lightDir,
+      lightIntensity,
+      lightColor,
+      ambient,
+      density,
+      effect: hasEffect && exportName
+        ? {
+            id: effectState.effectId as string,
+            exportName,
+            params: effectState.params,
+            blend: effectState.blend,
+            paused: effectState.paused,
+            timeScale: effectState.timeScale,
+            hasClock,
+          }
+        : null,
+    };
+  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, effectState, effectDefinition]);
+
+  /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
+  function postCodepenForm(action: string, data: string): void {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = action;
+    form.target = "_blank";
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "data";
+    input.value = data;
+    form.appendChild(input);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }
+
+  const exportTitle = () => `glyphcss word art — ${text.replace(/\s+/g, " ").trim().slice(0, 40) || "untitled"}`;
+
+  // Standalone, always-visible "Open in CodePen" button (bottom-left): ships
+  // the static, zero-runtime bake of whatever's currently on screen — the
+  // exact rendered `<pre>` re-encoded via `encodeStaticGlyphHtml`, no
+  // glyphcss import — mirrors the gallery's own static-pen builder
+  // (`CodePanel.tsx`'s `buildStaticPen`) and /synth's standalone button.
+  const handleExportCodepenStatic = useCallback(() => {
+    const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
+    if (!pre || !pre.innerHTML.trim()) return;
+    setExporting(true);
+    try {
+      const cs = getComputedStyle(pre);
+      const fontCss = `html,body{margin:0;height:100%;background:#07090d;display:grid;place-items:center}
+.glyph-output{margin:0;white-space:pre;font-family:${cs.fontFamily};font-size:${cs.fontSize};line-height:${cs.lineHeight};color:${cs.color}}`;
+      const enc = encodeStaticGlyphHtml(pre.innerHTML, "classes", { crop: true });
+      postCodepenForm("https://codepen.io/pen/define", JSON.stringify({
+        title: exportTitle(),
+        html: enc.html,
+        css: enc.css ? `${fontCss}\n${enc.css}` : fontCss,
+        js: "",
+        editors: "100",
+      }));
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  // "Export" code window's own CodePen action: a self-contained, lib-based
+  // (glyphcss + @glyphcss/fonts + @glyphcss/effects from the CDN) pen that
+  // REGENERATES the mesh via `composeText` at runtime (same `codeInput` the
+  // code panel's tabs render from) instead of shipping a baked polygon
+  // literal — mirrors the gallery/synth's `handleCodepen`/
+  // `handleExportCodepenDynamic`, except orientation comes from the camera
+  // (pinned rotX/rotY=0) + `<GlyphMesh rotation/scale>` exactly like the
+  // live Stage, so no vertex-baking (`bakeMeshTransform`) is needed for this
+  // path anymore.
+  const handleExportCodepenDynamic = useCallback(() => {
+    setExporting(true);
+    try {
+      const prefill = buildWordArtCodepenPen(codeInput, exportTitle());
+      postCodepenForm(prefill.action, prefill.data);
+    } finally {
+      setExporting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeInput, text]);
+
   function pickFamily(value: string) {
     setFamilyInput(value);
     const f = catalog.find((e) => e.family.toLowerCase() === value.trim().toLowerCase());
@@ -417,8 +757,54 @@ export function WordArtWorkbench() {
     setActivePreset(p.label);
   }
 
+  // The Profile dropdown encodes edge shape only — colors now come from the
+  // axial face stops, so there's no coverage to bundle in.
+  const profileMode = profile === "flat" ? "flat"
+    : profile === "custom" ? "custom"
+    : profile === "round" ? (roundConvex ? "roundup" : "round")
+    : "bevel";
+  const guiValues: GuiValues = {
+    layered,
+    profileMode, warp: warpShape, bend: warpAmount,
+    depth, scaleX, scaleY,
+    curveSegments, simplify, profileSegments, offset,
+    density,
+    perspective, zoom: zoomScale, spin,
+    light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
+  };
+  const guiSet = (k: keyof GuiValues, v: number | string | boolean) => {
+    switch (k) {
+      case "layered": setLayered(v as boolean); break;
+      case "profileMode": {
+        const base = v as string;
+        setProfile(base === "flat" ? "flat" : base === "custom" ? "custom" : base.startsWith("round") ? "round" : "bevel");
+        setRoundConvex(base === "roundup");
+        break;
+      }
+      case "warp": setWarpShape(v as WarpShape); break;
+      case "bend": setWarpAmount(v as number); break;
+      case "depth": setDepth(v as number); break;
+      case "scaleX": setScaleX(v as number); break;
+      case "scaleY": setScaleY(v as number); break;
+      case "curveSegments": setCurveSegments(v as number); break;
+      case "simplify": setSimplify(v as number); break;
+      case "profileSegments": setProfileSegments(v as number); break;
+      case "offset": setOffset(v as number); break;
+      case "density": setDensity(v as number); break;
+      case "perspective": setPerspective(v as boolean); break;
+      case "zoom": setZoomScale(v as number); break;
+      case "spin": setSpin(v as boolean); break;
+      case "light": setLightIntensity(v as number); break;
+      case "ambient": setAmbient(v as number); break;
+      case "az": setLightAz(v as number); break;
+      case "el": setLightEl(v as number); break;
+      case "lightColor": setLightColor(v as string); break;
+    }
+  };
+
   const leftValues: LeftValues = {
-    weight, italic, underline, strike, textCase, align, color, sideColor, backColor,
+    weight, italic, underline, strike, textCase, align, letterSpacing, lineHeight,
+    color, sideColor, backColor,
     fillType, gradA, gradB, gradAngle, image: fillImage, faceTex,
     sideFill, sideTex, backFill, backTex,
     outlineOn, outlineColor, outlineWidth,
@@ -431,6 +817,8 @@ export function WordArtWorkbench() {
       case "strike": setStrike(v as boolean); break;
       case "textCase": setTextCase(v as "as-typed" | "upper" | "lower" | "title"); break;
       case "align": setAlign(v as Align); break;
+      case "letterSpacing": setLetterSpacing(v as number); break;
+      case "lineHeight": setLineHeight(v as number); break;
       case "color": setColor(v as string); break;
       case "sideColor": setSideColor(v as string); break;
       case "backColor": setBackColor(v as string); break;
@@ -450,132 +838,172 @@ export function WordArtWorkbench() {
     }
   };
 
-  // The Profile dropdown encodes edge shape only — colors now come from the
-  // axial face stops, so there's no coverage to bundle in.
-  const profileMode = profile === "flat" ? "flat"
-    : profile === "custom" ? "custom"
-    : profile === "round" ? (roundConvex ? "roundup" : "round")
-    : "bevel";
-  const guiValues: GuiValues = {
-    layered,
-    profileMode, warp: warpShape, bend: warpAmount,
-    depth, letterSpacing, lineHeight, scaleX, scaleY,
-    curveSegments, simplify, profileSegments, offset,
-    perspective, zoom: zoomScale, spin,
-    light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
-  };
-  const guiSet = (k: keyof GuiValues, v: number | string | boolean) => {
-    switch (k) {
-      case "layered": setLayered(v as boolean); break;
-      case "profileMode": {
-        const base = v as string;
-        setProfile(base === "flat" ? "flat" : base === "custom" ? "custom" : base.startsWith("round") ? "round" : "bevel");
-        setRoundConvex(base === "roundup");
-        break;
-      }
-      case "warp": setWarpShape(v as WarpShape); break;
-      case "bend": setWarpAmount(v as number); break;
-      case "depth": setDepth(v as number); break;
-      case "letterSpacing": setLetterSpacing(v as number); break;
-      case "lineHeight": setLineHeight(v as number); break;
-      case "scaleX": setScaleX(v as number); break;
-      case "scaleY": setScaleY(v as number); break;
-      case "curveSegments": setCurveSegments(v as number); break;
-      case "simplify": setSimplify(v as number); break;
-      case "profileSegments": setProfileSegments(v as number); break;
-      case "offset": setOffset(v as number); break;
-      case "perspective": setPerspective(v as boolean); break;
-      case "zoom": setZoomScale(v as number); break;
-      case "spin": setSpin(v as boolean); break;
-      case "light": setLightIntensity(v as number); break;
-      case "ambient": setAmbient(v as number); break;
-      case "az": setLightAz(v as number); break;
-      case "el": setLightEl(v as number); break;
-      case "lightColor": setLightColor(v as string); break;
-    }
-  };
+  // Bottom preset row — one static single-letter glyphcss render per preset,
+  // computed once (memoized on the pinned preview font) with NO live scene /
+  // rAF: `compileScene` is pure (geometry + camera → string), so each tile is
+  // a plain `<pre>` string baked at mount and re-baked only if the bundled
+  // font itself reloads.
+  const presetTiles = useMemo(() => {
+    if (!previewFont) return null;
+    const map = new Map<string, CompileSceneResult | null>();
+    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p));
+    return map;
+  }, [previewFont]);
 
   return (
-    <div className="wa-root">
+    <div className="wa-shell dn-root dn-root--wordart">
       <StatsOverlay />
-      <Stage
-        polygons={polygons}
-        scaleXFrac={scaleX / 100}
-        scaleYFrac={scaleY / 100}
-        zoomScale={zoomScale}
-        setZoomScale={setZoomScale}
-        perspective={perspective}
-        lightDir={lightDir}
-        lightIntensity={lightIntensity}
-        lightColor={lightColor}
-        ambient={ambient}
-        spin={spin}
-        status={status}
-      />
+      <div className="wa-body">
+        <aside
+          id="wa-compose-panel"
+          className={`wa-rail ${mobilePanel === "compose" ? "is-mobile-open" : ""}`}
+          aria-label="Text and style"
+        >
+          <div className="wa-rail-head"><span>Text &amp; Style</span></div>
+          <div className="wa-rail-body">
+            <label className="wa-field">
+              <span>Text</span>
+              <textarea
+                className="wa-input"
+                rows={2}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <label className="wa-field">
+              <span>Google font</span>
+              <FontPicker catalog={catalog} value={familyInput} onPick={pickFamily} />
+            </label>
 
-      <aside
-        id="wa-style-panel"
-        className={`wa-card wa-left ${mobilePanel === "style" ? "is-mobile-open" : ""}`}
-        aria-label="Text and presets"
-      >
-        <div className="wa-card__body">
-          <label className="wa-field">
-            <span>Text</span>
-            <textarea
-              className="wa-input"
-              rows={2}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              spellCheck={false}
-            />
-          </label>
-
-          <label className="wa-field">
-            <span>Google font</span>
-            <FontPicker catalog={catalog} value={familyInput} onPick={pickFamily} />
-          </label>
-
-          <LeftGuiPanel values={leftValues} set={leftSet} />
-
-          <div className="wa-section">Presets</div>
-          <div className="wa-grid">
-            {PRESETS.map((p) => (
-              <button key={p.label} type="button" className={`wa-tile ${activePreset === p.label ? "is-active" : ""}`} onClick={() => applyPreset(p)}>
-                <span className="wa-tile__thumb" style={{ background: p.thumb ?? p.color, color: readable(p.color) }}>Aa</span>
-                <span className="wa-tile__label">{p.label}</span>
-              </button>
-            ))}
+            <Dock id="wa-rail-controls" className="wa-rail-dock">
+              <WordArtRailControls left={leftValues} setLeft={leftSet} />
+            </Dock>
           </div>
-        </div>
-      </aside>
+        </aside>
 
-      <GuiPanel
-        id="wa-controls-panel"
-        className={mobilePanel === "controls" ? "is-mobile-open" : ""}
-        values={guiValues}
-        set={guiSet}
-        bezier={bezier}
-        onBezier={setBezier}
-      />
+        <main className="wa-main">
+          <Stage
+            polygons={polygons}
+            scaleXFrac={scaleX / 100}
+            scaleYFrac={scaleY / 100}
+            zoomScale={zoomScale}
+            setZoomScale={setZoomScale}
+            density={density}
+            perspective={perspective}
+            lightDir={lightDir}
+            lightIntensity={lightIntensity}
+            lightColor={lightColor}
+            ambient={ambient}
+            spin={spin}
+            status={status}
+            effectDefinition={effectDefinition}
+            effectParams={effectState.params}
+            effectBlend={effectState.blend}
+            effectPaused={effectState.paused}
+            effectTimeScale={effectState.timeScale}
+            snapshotRef={stageSnapshotRef}
+          />
+          <div className="wa-export-bar">
+            <button
+              type="button"
+              className="gw-code-panel__action gw-code-panel__action--codepen"
+              onClick={handleExportCodepenStatic}
+              disabled={exporting}
+              title="Open the current rendered word art as a static, zero-runtime CodePen"
+            >
+              {exporting ? "Exporting…" : "Open in CodePen"}
+            </button>
+            <button
+              type="button"
+              className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`}
+              onClick={toggleCodeOpen}
+              aria-expanded={codeOpen}
+              title={codeOpen ? "Close export code window" : "Open export code window"}
+            >
+              Export
+            </button>
+          </div>
+          {(codeOpen || mobilePanel === "export") && (
+            <WordArtCodePanel
+              id="wa-export-panel"
+              input={codeInput}
+              onCodepen={handleExportCodepenDynamic}
+              exporting={exporting}
+              onClose={closeCodePanel}
+            />
+          )}
+        </main>
 
-      <nav className="wa-mobile-tabs" aria-label="WordArt panels">
+        <Dock id="wa-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+          <WordArtDock
+            gui={guiValues}
+            setGui={guiSet}
+            bezier={bezier}
+            onBezier={setBezier}
+            effectState={effectState}
+            effectDefinition={effectDefinition}
+            onEffectChange={handleEffectChange}
+            onUpdateEffectSettings={updateEffectSettings}
+            onUpdateEffectParams={updateEffectParams}
+          />
+        </Dock>
+      </div>
+
+      <div id="wa-presets-panel" className={`wa-presets ${mobilePanel === "presets" ? "is-mobile-open" : ""}`} role="list" aria-label="Style presets">
+        {PRESETS.map((p) => {
+          const tile = presetTiles?.get(p.label);
+          return (
+            <button key={p.label} type="button" className={`wa-tile ${activePreset === p.label ? "is-active" : ""}`} onClick={() => applyPreset(p)} title={`Apply “${p.label}”`}>
+              <span className="wa-tile__thumb">
+                {/* `tile.html` (not `.inner`) — the `<pre class="glyph-output">` wrapper
+                    carries the base stylesheet's `white-space: pre` + monospace
+                    font, which the raw newline-joined grid string needs to lay out
+                    as rows instead of collapsing/wrapping like normal text. */}
+                {tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.html }} />}
+              </span>
+              <span className="wa-tile__label">{p.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <nav className="dn-mobile-tabs" aria-label="WordArt panels">
         <button
           type="button"
-          className={`wa-mobile-tabs__button ${mobilePanel === "style" ? "is-active" : ""}`}
-          aria-controls="wa-style-panel"
-          aria-expanded={mobilePanel === "style"}
-          onClick={() => setMobilePanel((cur) => (cur === "style" ? null : "style"))}
+          className={`dn-mobile-tabs__button${mobilePanel === "compose" ? " is-active" : ""}`}
+          aria-controls="wa-compose-panel"
+          aria-expanded={mobilePanel === "compose"}
+          onClick={() => setMobilePanel((cur) => (cur === "compose" ? null : "compose"))}
         >
           Style
         </button>
         <button
           type="button"
-          className={`wa-mobile-tabs__button ${mobilePanel === "controls" ? "is-active" : ""}`}
+          className={`dn-mobile-tabs__button${mobilePanel === "controls" ? " is-active" : ""}`}
           aria-controls="wa-controls-panel"
           aria-expanded={mobilePanel === "controls"}
           onClick={() => setMobilePanel((cur) => (cur === "controls" ? null : "controls"))}
         >
           Controls
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "presets" ? " is-active" : ""}`}
+          aria-controls="wa-presets-panel"
+          aria-expanded={mobilePanel === "presets"}
+          onClick={() => setMobilePanel((cur) => (cur === "presets" ? null : "presets"))}
+        >
+          Presets
+        </button>
+        <button
+          type="button"
+          className={`dn-mobile-tabs__button${mobilePanel === "export" ? " is-active" : ""}`}
+          aria-controls="wa-export-panel"
+          aria-expanded={mobilePanel === "export"}
+          onClick={handleMobileExportTab}
+        >
+          Export
         </button>
       </nav>
     </div>
@@ -601,12 +1029,39 @@ function centerMesh(polygons: Polygon[]): Polygon[] {
   }));
 }
 
+/** World-frame XYZ Euler rotation (degrees), R = Rx·Ry·Rz — the exact
+ *  convention `createGlyphScene`'s internal mesh-transform applies for a
+ *  `<GlyphMesh rotation>` prop. Used by the preset tiles to angle a static
+ *  letter without touching the camera (whose own `rotX`/`rotY` orbits in a
+ *  different, camera-specific convention). */
+function rotateMeshVerticesDeg(polygons: Polygon[], [rxDeg, ryDeg, rzDeg]: Vec3): Polygon[] {
+  const DEG2RAD = Math.PI / 180;
+  const rx = rxDeg * DEG2RAD, ry = ryDeg * DEG2RAD, rz = rzDeg * DEG2RAD;
+  const cosX = Math.cos(rx), sinX = Math.sin(rx);
+  const cosY = Math.cos(ry), sinY = Math.sin(ry);
+  const cosZ = Math.cos(rz), sinZ = Math.sin(rz);
+  function rotate([x, y, z]: Vec3): Vec3 {
+    let nx = cosZ * x - sinZ * y;
+    let ny = sinZ * x + cosZ * y;
+    let nz = z;
+    x = cosY * nx + sinY * nz;
+    y = ny;
+    z = -sinY * nx + cosY * nz;
+    nx = x;
+    ny = cosX * y - sinX * z;
+    nz = sinX * y + cosX * z;
+    return [nx, ny, nz];
+  }
+  return polygons.map((p) => ({ ...p, vertices: p.vertices.map(rotate) }));
+}
+
 interface StageProps {
   polygons: Polygon[];
   scaleXFrac: number;
   scaleYFrac: number;
   zoomScale: number;
   setZoomScale: (updater: (prev: number) => number) => void;
+  density: number;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -614,6 +1069,18 @@ interface StageProps {
   ambient: number;
   spin: boolean;
   status: string;
+  effectDefinition: GalleryEffectDefinition | null;
+  effectParams: Record<string, GalleryEffectParamValue>;
+  effectBlend: GalleryEffectBlend;
+  effectPaused: boolean;
+  effectTimeScale: number;
+  /** Always-fresh mesh-rotation + effective-zoom snapshot, read (not
+   *  subscribed to) by the Export panel's "CodePen" action when it fires —
+   *  mirrors `SynthWorkbench`'s `cameraRef`/`snapshotCamera()`, except here
+   *  it's the MESH that turntables (the camera is pinned at rot 0), so what's
+   *  snapshotted is `<GlyphMesh rotation>` + the fitted `zoom`, not a camera
+   *  orientation. */
+  snapshotRef: React.MutableRefObject<{ rotation: Vec3; zoom: number }>;
 }
 
 /**
@@ -623,7 +1090,29 @@ interface StageProps {
  * the per-frame spin re-render doesn't touch the parent's controls +
  * 2000-option font datalist.
  */
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status }: StageProps) {
+/**
+ * `<GlyphScene autoSize>` only re-measures cols/rows via a `ResizeObserver`
+ * on the HOST BOX size (`createGlyphScene`'s `fitToHost`) — changing the
+ * Density slider's font-size alone doesn't resize that box, so the grid
+ * would stay stale until something else (e.g. a window resize) happened to
+ * trigger a refit. Mounted as a scene child (same `useGlyphSceneContext`
+ * seam `GlyphMesh` itself uses) so it can call the imperative `scene.fit()`
+ * + `rerender()` explicitly whenever `density` changes — mirrors
+ * `SynthWorkbench`'s own density effect (`host.style.fontSize = …; scene.fit();
+ * scene.rerender();`), just declared as a child instead of an imperative ref.
+ */
+function DensityFit({ density }: { density: number }) {
+  const { sceneRef } = useGlyphSceneContext();
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.fit();
+    scene.rerender();
+  }, [density, sceneRef]);
+  return null;
+}
+
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, density, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const [turn, setTurn] = useState(0); // Rx — turntable around screen-vertical (text up = world X)
@@ -681,6 +1170,10 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, pers
   const centered = useMemo(() => centerMesh(polygons), [polygons]);
   const zoom = fitWordArtZoom(centered, stage.w, stage.h, scaleXFrac, scaleYFrac) * zoomScale;
   const Cam = perspective ? GlyphPerspectiveCamera : GlyphOrthographicCamera;
+  // Always-fresh — read only when the Export panel/CodePen action fires (see
+  // `StageProps.snapshotRef`), never subscribed to, so this plain assignment
+  // (not a `useEffect`) is fine even though `turn` changes every spin frame.
+  snapshotRef.current = { rotation: [turn, tilt, 0], zoom };
 
   return (
     <div
@@ -696,15 +1189,26 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, pers
       <Cam rotX={0} rotY={0} zoom={zoom}>
         <GlyphScene
           autoSize
-          style={{ width: "100%", height: "100%" }}
+          style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
         >
+          <DensityFit density={density} />
           {/* Font mesh is X-up: local X = text height (screen-down), local Y =
               text width (screen-right). The "Scale X" slider should stretch
               horizontally, so it maps to local Y; "Scale Y" maps to local X.
               Depth is baked into the geometry, so Z stays 1. */}
           <GlyphMesh polygons={centered} rotation={[turn, tilt, 0]} scale={[scaleYFrac, scaleXFrac, 1]} />
+          {effectDefinition && (
+            <WordArtEffectLayer
+              key={effectDefinition.id}
+              definition={effectDefinition}
+              params={effectParams}
+              blend={effectBlend}
+              paused={effectPaused}
+              timeScale={effectTimeScale}
+            />
+          )}
         </GlyphScene>
       </Cam>
       <div className="wa-stage-foot">
@@ -714,13 +1218,387 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, pers
   );
 }
 
+interface WordArtEffectLayerProps {
+  definition: GalleryEffectDefinition;
+  params: Record<string, GalleryEffectParamValue>;
+  blend: GalleryEffectBlend;
+  paused: boolean;
+  timeScale: number;
+}
+
+/**
+ * One `@glyphcss/effects` layer applied to the word-art mesh — the
+ * doc-canonical React pattern (`<GlyphEffectLayer ref>` + a `requestAnimationFrame`
+ * loop mutating `ref.current.params.time` directly, bypassing React state so
+ * the clock never re-renders the composition/Dock tree) mirroring the
+ * gallery's own paused/timeScale-aware `configureEffect`/`startEffectLoop`
+ * clock in `glyph-runtime.ts`. Effects without a `time` parameter mount with
+ * no clock at all — same `"time" in parameterSchema` gate the Effects folder
+ * uses to enable/disable its own Paused/Speed controls.
+ */
+function WordArtEffectLayer({ definition, params, blend, paused, timeScale }: WordArtEffectLayerProps) {
+  const layerRef = useRef<GlyphEffectLayerHandle<Record<string, GalleryEffectParamValue>>>(null);
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const timeScaleRef = useRef(timeScale);
+  timeScaleRef.current = timeScale;
+  const hasTime = "time" in definition.parameterSchema;
+
+  useEffect(() => {
+    if (!hasTime) return;
+    let raf = 0;
+    let last: number | null = null;
+    let time = 0;
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (pausedRef.current) { last = now; return; }
+      const elapsed = last === null ? 0 : Math.min(Math.max(now - last, 0) / 1000, 0.1);
+      last = now;
+      time += elapsed * timeScaleRef.current;
+      if (layerRef.current) layerRef.current.params.time = time;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [hasTime]);
+
+  return (
+    <GlyphEffectLayer
+      ref={layerRef}
+      effect={definition as GlyphEffectDefinition<GlyphEffectParamSchema>}
+      params={params}
+      target="surfaces"
+      blend={blend}
+    />
+  );
+}
+
 interface GuiValues {
   layered: boolean;
   profileMode: string; warp: string; bend: number;
-  depth: number; letterSpacing: number; lineHeight: number; scaleX: number; scaleY: number;
+  depth: number; scaleX: number; scaleY: number;
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
+  density: number;
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
+}
+
+interface LeftValues {
+  weight: number; italic: boolean; underline: boolean; strike: boolean;
+  textCase: string; align: string; letterSpacing: number; lineHeight: number;
+  color: string; sideColor: string; backColor: string;
+  fillType: string; gradA: string; gradB: string; gradAngle: number; image: string;
+  faceTex: string; sideFill: string; sideTex: string; backFill: string; backTex: string;
+  outlineOn: boolean; outlineColor: string; outlineWidth: number;
+}
+
+// ── Preset tile static render ──────────────────────────────────────────────
+// A SMALL grid of FEW, LARGE cells rendered at a comfortably legible
+// font-size (`.wa-tile__glyph` in wordart.css) — not a big grid shrunk down.
+// A browser can't render monospace glyphs crisply much below ~7px, so a
+// denser grid forced into a small box just reads as blurred noise even
+// though the underlying character data is a perfectly clean letterform
+// (verified by dumping the plain-text `compileScene` output directly).
+// Lowercase needs a bit more resolution than uppercase did: the "a" glyph's
+// bowl/counter is a small interior hole (vs. the big triangular gap inside
+// an "A"), and at the yaw this tile now uses to show the extrusion's side
+// wall, a too-small grid or too-large a yaw flattens that hole into a solid
+// blob — 16×11 at the rotation below is the smallest grid that keeps the
+// bowl legible while still reading as a clean, un-noisy glyph.
+// `cellAspect` is picked so a roughly square glyph bbox (~cap-height square,
+// see `composeText`'s size:100) fills both cols and rows at close to the
+// same fraction — `createGlyphOrthographicCamera`'s col axis divides by
+// `BASE_TILE/cellAspect` while the row axis divides by `BASE_TILE` (see
+// `project()`), so col demand scales with `cellAspect`; the library's own
+// monospace-matching default (~2) is col-constrained for a square shape and
+// wastes rows as blank margin.
+const TILE_COLS = 16;
+const TILE_ROWS = 11;
+const TILE_CELL_ASPECT = 1.45;
+// A little breathing room around the letter inside the grid (vs. the
+// library's own 0.95 default), so the "a" doesn't touch the tile's edges.
+const TILE_FRAME_FILL = 0.92;
+const TILE_TEXTURE_SIZE = 20;
+// Stage's own default light (lightAz -25 / lightEl 45), computed the same
+// way — see the `lightDir` useMemo below — so the tile preview is lit
+// exactly like the live composition's resting state.
+const TILE_LIGHT_DIR: Vec3 = [-Math.sin(45 * (Math.PI / 180)), -Math.sin(-25 * (Math.PI / 180)) * Math.cos(45 * (Math.PI / 180)), Math.max(0.25, Math.cos(45 * (Math.PI / 180)))];
+
+/** Fit `polygons` into an orthographic camera's cols×rows grid by scaling
+ *  zoom linearly off a zoom=1 projection (exact for orthographic — no
+ *  perspective divide to fight). Mirrors `/synth`'s `frameObject`, minus the
+ *  live-DOM cell-metrics measurement (compileScene has no DOM, so it always
+ *  projects with the same BASE_TILE fallback metrics this uses too). */
+function frameZoomForGrid(
+  camera: ReturnType<typeof createGlyphOrthographicCamera>,
+  polygons: Polygon[],
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  fill = 0.95,
+): number {
+  camera.zoom = 1;
+  let minc = Infinity, maxc = -Infinity, minr = Infinity, maxr = -Infinity;
+  for (const p of polygons) for (const v of p.vertices) {
+    const pr = camera.project(v as Vec3, cols, rows, cellAspect);
+    if (!isFinite(pr[0]!) || !isFinite(pr[1]!)) continue;
+    if (pr[0]! < minc) minc = pr[0]!; if (pr[0]! > maxc) maxc = pr[0]!;
+    if (pr[1]! < minr) minr = pr[1]!; if (pr[1]! > maxr) maxr = pr[1]!;
+  }
+  const w = maxc - minc, h = maxr - minr;
+  if (!(w > 0) || !(h > 0)) return 1;
+  return Math.min((fill * cols) / w, (fill * rows) / h);
+}
+
+/**
+ * Render one preset as a static single-letter `<pre>` — the same face-fill /
+ * profile / warp mapping `applyPreset` drives the live composition with,
+ * extruded via the pinned preview font and compiled with `compileScene`
+ * (pure: geometry + camera → string, no DOM, no rAF). Gradient/rainbow/
+ * texture/image fills fall back to their flat `color` here — compileScene
+ * has no async image decode to sample a texture sampler from (same fallback
+ * the live runtime shows for one frame before its own sampler resolves).
+ */
+function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult | null {
+  const sides: Face = preset.sideTex
+    ? resolveFace({ kind: "texture", color: preset.sideColor, url: texUrl(preset.sideTex), tile: TILE_TEXTURE_SIZE })
+    : { color: preset.sideColor };
+  let back: BackFace = preset.backTex
+    ? resolveFace({ kind: "texture", color: preset.backColor ?? preset.color, url: texUrl(preset.backTex), tile: TILE_TEXTURE_SIZE })
+    : { color: preset.backColor ?? preset.color };
+  if (preset.layered) back = { ...back, offset: [preset.offset ?? 12, -(preset.offset ?? 12)] };
+
+  const front: Face = resolveFace(
+    preset.fill === "gradient" ? { kind: "gradient", color: preset.color, from: preset.gradA ?? preset.color, to: preset.gradB ?? preset.color, angle: preset.gradAngle ?? 270 }
+    : preset.fill === "rainbow" ? { kind: "rainbow", color: preset.color, angle: preset.gradAngle ?? 0 }
+    : preset.fill === "texture" ? { kind: "texture", color: preset.color, url: texUrl(preset.faceTex ?? "dirt"), tile: TILE_TEXTURE_SIZE }
+    : { kind: "solid", color: preset.color },
+  );
+
+  const profileObj: Profile = preset.profile === "flat" ? "flat"
+    // No PRESETS entry uses "custom" (that needs a caller-authored bezier curve,
+    // which a Preset doesn't carry) — fall back to the default easing if one ever does.
+    : preset.profile === "custom" ? { curve: [0.3, 0.9, 0.7, 0.1], segments: 3 }
+    : { edge: preset.profile, raised: false, segments: 3 };
+
+  const polygons = composeText(font, "a", {
+    size: 100,
+    depth: preset.layered ? 0 : preset.depth,
+    profile: profileObj,
+    letterSpacing: 0,
+    lineHeight: 1.15,
+    align: "center",
+    curveSteps: 3,
+    simplify: 3,
+    warp: { shape: preset.warp?.shape ?? "none", amount: preset.warp?.amount ?? 0.5 },
+    faces: { front, sides, back },
+    outline: preset.outline ? { color: preset.outline.color, width: preset.outline.width } : undefined,
+  });
+  if (polygons.length === 0) return null;
+
+  // Turn + tilt the MESH (not the camera) for a 3/4 icon angle that shows a
+  // strip of the extrusion's side wall (its own `sideColor`/`sideTex`, not
+  // just the front face) — same convention `createGlyphScene`'s internal
+  // `applyTransform` uses for a mesh's `rotation` prop (world-frame XYZ
+  // Euler, R = Rx·Ry·Rz), and the same one the live Stage's
+  // `<GlyphMesh rotation={[turn, tilt, 0]}>` drives. The camera's own
+  // `rotX`/`rotY` is a DIFFERENT convention (orbits per voxcss's
+  // `rotateVec3Voxcss`) — mixing the two produced a squashed, illegible glyph.
+  // The yaw (Rx, turntable around the glyph's vertical) is kept modest: past
+  // ~24° it closes up the "a" bowl's small counter into a solid blob at this
+  // grid size (an "A"'s big triangular gap tolerated much more yaw).
+  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [18, 10, 0]);
+  const centered = centerMesh(tilted);
+  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
+  camera.zoom = frameZoomForGrid(camera, centered, TILE_COLS, TILE_ROWS, TILE_CELL_ASPECT, TILE_FRAME_FILL);
+  return compileScene({
+    polygons: centered,
+    camera,
+    cols: TILE_COLS,
+    rows: TILE_ROWS,
+    cellAspect: TILE_CELL_ASPECT,
+    mode: "solid",
+    useColors: true,
+    // Same light vector the live Stage defaults to (lightAz -25 / lightEl 45)
+    // — proven to keep the front face readably lit for this exact mesh
+    // convention. A guessed off-axis vector left most of the front face
+    // shaded dark enough to fall to near-blank ramp glyphs, so only a thin
+    // bevel highlight band was visible — illegible. Ambient is bumped a
+    // little further so weakly-lit facets still render a visible glyph.
+    directionalLight: { direction: TILE_LIGHT_DIR, intensity: 0.95 },
+    ambientLight: { intensity: 0.7 },
+  });
+}
+
+/**
+ * Custom widgets injected into a Dock folder via `useDockSlot` — the same
+ * portal seam `/synth`'s `SynthDock` uses for its oscilloscope, and the same
+ * pattern the right-hand `WordArtDock` uses for its bezier editor. Segmented
+ * button groups (Case/Align), the bundled-texture swatch grid, and the image
+ * upload button have no lil-gui equivalent, so they render as plain React
+ * into a slot `<div>` lil-gui reserves for arbitrary content. Kept as real
+ * lil-gui folder controllers (not bespoke HTML inputs) for everything else so
+ * the left rail's composition controls are pixel-identical to the right
+ * Dock's — same checkbox brackets, same slider brackets, same select chevron.
+ */
+interface SegmentedGroup {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string; title: string }[];
+}
+
+function SegmentedGroupRow({ label, value, onChange, options }: SegmentedGroup) {
+  return (
+    <div className="wa-seg-row">
+      <span className="wa-seg-name">{label}</span>
+      <div className="wa-seg" role="group" aria-label={label}>
+        {options.map((o) => (
+          <button key={o.value} type="button" title={o.title} className={o.value === value ? "is-on" : ""} onClick={() => onChange(o.value)}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Case + Align share one slot row (side by side) instead of two stacked
+ *  rows — both are short segmented picks, so pairing them saves vertical
+ *  space without crowding either. */
+function useSegmentedDuoSlot(folder: GUI | null, a: SegmentedGroup, b: SegmentedGroup): ReactNode {
+  const host = useDockSlot(folder, { position: "bottom", className: "wa-widget-slot" });
+  if (!host) return null;
+  return createPortal(
+    <div className="wa-seg-duo">
+      <SegmentedGroupRow {...a} />
+      <SegmentedGroupRow {...b} />
+    </div>,
+    host,
+  );
+}
+
+function useTextureGridSlot(folder: GUI | null, value: string, onChange: (v: string) => void, visible: boolean): ReactNode {
+  const host = useDockSlot(folder, { position: "bottom", className: "wa-widget-slot" });
+  if (!host) return null;
+  return createPortal(
+    <div className="wa-texrow" style={{ display: visible ? "" : "none" }}>
+      <div className="wa-texgrid">
+        {TEXTURES.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`wa-texgrid__sw${t.id === value ? " is-on" : ""}`}
+            title={t.label}
+            style={{ backgroundImage: `url(${texUrl(t.id)})` }}
+            onClick={() => onChange(t.id)}
+          />
+        ))}
+      </div>
+    </div>,
+    host,
+  );
+}
+
+function useImageUploadSlot(folder: GUI | null, visible: boolean, onChange: (dataUrl: string) => void): ReactNode {
+  const host = useDockSlot(folder, { position: "bottom", className: "wa-widget-slot" });
+  const inputRef = useRef<HTMLInputElement>(null);
+  if (!host) return null;
+  return createPortal(
+    <div className="wa-imgrow" style={{ display: visible ? "" : "none" }}>
+      <button type="button" className="wa-imgbtn" onClick={() => inputRef.current?.click()}>Choose image…</button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => onChange(String(reader.result));
+          reader.readAsDataURL(file);
+        }}
+      />
+    </div>,
+    host,
+  );
+}
+
+/**
+ * Left rail — the word's composition: Typography (weight/style/case/align/
+ * spacing) and Color (front/sides/back/outline). Mounted as its OWN `<Dock>`
+ * instance (own `useGui`, own lil-gui root) inside the left rail instead of
+ * the shared right-hand Dock, so it renders with the identical row styling
+ * (checkbox, slider, select, color swatch) while staying visually separate
+ * from the 3D/scene knobs on the right.
+ */
+function WordArtRailControls({ left, setLeft }: {
+  left: LeftValues; setLeft: (k: keyof LeftValues, v: number | string | boolean) => void;
+}): ReactNode {
+  const dock = useDockGui();
+
+  // ── Typography ────────────────────────────────────────────────────────
+  const typeFolder = useFolder(dock, "Typography", { open: true });
+  useOption(typeFolder, "Weight", WEIGHT_OPTS, left.weight, (v) => setLeft("weight", v));
+  useToggle(typeFolder, "Italic", left.italic, (v) => setLeft("italic", v));
+  useToggle(typeFolder, "Underline", left.underline, (v) => setLeft("underline", v));
+  useToggle(typeFolder, "Strikethrough", left.strike, (v) => setLeft("strike", v));
+  const caseAlignSlot = useSegmentedDuoSlot(
+    typeFolder,
+    { label: "Case", value: left.textCase, onChange: (v) => setLeft("textCase", v), options: CASE_OPTS },
+    { label: "Align", value: left.align, onChange: (v) => setLeft("align", v), options: ALIGN_OPTS },
+  );
+  useSlider(typeFolder, "Letter spacing", { min: -20, max: 60, step: 1 }, left.letterSpacing, (v) => setLeft("letterSpacing", v));
+  useSlider(typeFolder, "Line height", { min: 0.8, max: 2.5, step: 0.05 }, left.lineHeight, (v) => setLeft("lineHeight", v));
+
+  // ── Color ─────────────────────────────────────────────────────────────
+  const colorFolder = useFolder(dock, "Color", { open: true });
+  useOption(colorFolder, "Front", FILL_OPTS, left.fillType, (v) => setLeft("fillType", v));
+  const frontColorCtrl = useColor(colorFolder, "Color", left.color, (v) => setLeft("color", v));
+  const gradACtrl = useColor(colorFolder, "Color A", left.gradA, (v) => setLeft("gradA", v));
+  const gradBCtrl = useColor(colorFolder, "Color B", left.gradB, (v) => setLeft("gradB", v));
+  const gradAngleCtrl = useSlider(colorFolder, "Angle", { min: 0, max: 360, step: 5 }, left.gradAngle, (v) => setLeft("gradAngle", v));
+  const imageSlot = useImageUploadSlot(colorFolder, left.fillType === "image", (v) => setLeft("image", v));
+  const frontTexSlot = useTextureGridSlot(colorFolder, left.faceTex, (v) => setLeft("faceTex", v), left.fillType === "texture");
+
+  useOption(colorFolder, "Sides", FACE_FILL_OPTS, left.sideFill, (v) => setLeft("sideFill", v));
+  const sideColorCtrl = useColor(colorFolder, "Side color", left.sideColor, (v) => setLeft("sideColor", v));
+  const sideTexSlot = useTextureGridSlot(colorFolder, left.sideTex, (v) => setLeft("sideTex", v), left.sideFill === "texture");
+
+  useOption(colorFolder, "Back", FACE_FILL_OPTS, left.backFill, (v) => setLeft("backFill", v));
+  const backColorCtrl = useColor(colorFolder, "Back color", left.backColor, (v) => setLeft("backColor", v));
+  const backTexSlot = useTextureGridSlot(colorFolder, left.backTex, (v) => setLeft("backTex", v), left.backFill === "texture");
+
+  useToggle(colorFolder, "Outline", left.outlineOn, (v) => setLeft("outlineOn", v));
+  const outlineColorCtrl = useColor(colorFolder, "Outline color", left.outlineColor, (v) => setLeft("outlineColor", v));
+  const outlineWidthCtrl = useSlider(colorFolder, "Outline width", { min: 0.5, max: 12, step: 0.5 }, left.outlineWidth, (v) => setLeft("outlineWidth", v));
+
+  // ── Conditional show/hide + enable/disable ───────────────────────────
+  useEffect(() => {
+    const grad = left.fillType === "gradient";
+    frontColorCtrl?.setVisible(left.fillType === "solid");
+    gradACtrl?.setVisible(grad);
+    gradBCtrl?.setVisible(grad);
+    gradAngleCtrl?.setVisible(grad || left.fillType === "rainbow");
+    sideColorCtrl?.setVisible(left.sideFill === "solid");
+    backColorCtrl?.setVisible(left.backFill === "solid");
+    // Outline color/width stay MOUNTED (not hidden) — the "Outline" toggle
+    // above them already names the section, so hiding+re-showing them under
+    // a second "Outline" label would read as a redundant repeat. Grey them
+    // out via the same disabled treatment lil-gui gives any dependent row.
+    outlineColorCtrl?.setEnabled(left.outlineOn);
+    outlineWidthCtrl?.setEnabled(left.outlineOn);
+  }, [frontColorCtrl, gradACtrl, gradBCtrl, gradAngleCtrl, sideColorCtrl, backColorCtrl, outlineColorCtrl, outlineWidthCtrl, left.fillType, left.sideFill, left.backFill, left.outlineOn]);
+
+  return (
+    <>
+      {caseAlignSlot}
+      {imageSlot}
+      {frontTexSlot}
+      {sideTexSlot}
+      {backTexSlot}
+    </>
+  );
 }
 
 /** One coordinate of a cubic Bézier P0..P3 at parameter t. */
@@ -807,276 +1685,153 @@ function mountBezierEditor(parent: HTMLElement, getB: () => Bezier4, setB: (b: B
   return () => { if (!active) drawB = getB(); render(); };
 }
 
+// ── Dock option tables (module-level so identities are stable across renders) ──
+const WEIGHT_OPTS: Record<string, number> = Object.fromEntries(
+  [100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => [String(w), w]),
+);
+const CASE_OPTS: { value: string; label: string; title: string }[] = [
+  { value: "as-typed", label: "Aa", title: "As typed" },
+  { value: "upper", label: "AB", title: "UPPERCASE" },
+  { value: "lower", label: "ab", title: "lowercase" },
+  { value: "title", label: "Ab", title: "Title Case" },
+];
+const ALIGN_OPTS: { value: string; label: string; title: string }[] = [
+  { value: "left", label: "L", title: "Left" },
+  { value: "center", label: "C", title: "Center" },
+  { value: "right", label: "R", title: "Right" },
+];
+const PROFILE_OPTS: Record<string, string> = {
+  "Flat (slab)": "flat", Bevel: "bevel", "Round in": "round", "Round out": "roundup", "Custom curve": "custom",
+};
+const WARP_OPTS: Record<string, string> = {
+  None: "none", "Arch up": "arch", "Arch down": "archDown", "Arc (circle)": "arc", Wave: "wave",
+  Bulge: "bulge", "Cone (taper)": "cone", "Slant up": "slantUp", "Slant down": "slantDown",
+};
+const FILL_OPTS: Record<string, string> = { Solid: "solid", Gradient: "gradient", Rainbow: "rainbow", Texture: "texture", Image: "image" };
+const FACE_FILL_OPTS: Record<string, string> = { Solid: "solid", Texture: "texture", None: "none" };
+
 /**
- * Right-hand control panel built with the SAME library the /gallery uses
- * (lil-gui), themed with the gallery's exact CSS variables — so the controls
- * are identical, not a CSS approximation. lil-gui is imperative, so we mount it
- * once and bridge its onChange → React, and React state → updateDisplay().
+ * Custom widget injected into the Shape folder via `useDockSlot` — the same
+ * portal seam `/synth`'s `SynthDock` uses for its oscilloscope. The draggable
+ * bezier curve editor has no lil-gui equivalent, so it renders as plain React
+ * into a slot `<div>` lil-gui reserves for arbitrary content, positioned by
+ * hook-call order relative to the surrounding `use*` controllers in the same
+ * folder.
  */
-function GuiPanel({ id, className = "", values, set, bezier, onBezier }: { id?: string; className?: string; values: GuiValues; set: (k: keyof GuiValues, v: number | string | boolean) => void; bezier: Bezier4; onBezier: (b: Bezier4) => void }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const cfgRef = useRef<GuiValues>({ ...values });
-  const ctrlRef = useRef<Record<string, ReturnType<GUI["add"]>>>({});
+function useBezierEditorSlot(folder: GUI | null, visible: boolean, bezier: Bezier4, onBezier: (b: Bezier4) => void): ReactNode {
+  const host = useDockSlot(folder, { position: "bottom", className: "wa-widget-slot" });
   const bezierRef = useRef(bezier);
+  bezierRef.current = bezier;
   const onBezierRef = useRef(onBezier);
-  const bezUiRef = useRef<{ wrap: HTMLElement; input: HTMLInputElement; redraw: () => void } | null>(null);
-
-  useEffect(() => {
-    const cfg = cfgRef.current;
-    const c = ctrlRef.current;
-    const gui = new GUI({ container: hostRef.current!, title: "Settings", width: 300 });
-    const on = (k: keyof GuiValues) => (v: number | string | boolean) => set(k, v);
-
-    const shape = gui.addFolder("Shape");
-    c.profileMode = shape.add(cfg, "profileMode", {
-      "Flat (slab)": "flat",
-      "Bevel": "bevel",
-      "Round in": "round",
-      "Round out": "roundup",
-      "Custom curve": "custom",
-    }).name("Profile").onChange(on("profileMode"));
-
-    // Custom-profile curve: a CSS cubic-bezier() text field + a draggable editor
-    // (shown only for the Custom profile). Both drive the `bezier` prop.
-    c.bezierText = shape.add({ _: "" }, "_").name("Curve");
-    {
-      const widget = c.bezierText.domElement.querySelector<HTMLElement>(".widget");
-      const wrap = document.createElement("div");
-      wrap.className = "wa-bezwrap";
-      let input = document.createElement("input");
-      if (widget) {
-        widget.replaceChildren();
-        input.type = "text";
-        input.className = "wa-input wa-bezinput";
-        input.spellcheck = false;
-        input.addEventListener("change", () => {
-          const parsed = parseBezier(input.value);
-          if (parsed) onBezierRef.current(parsed);
-        });
-        widget.appendChild(input);
-      }
-      shape.domElement.querySelector(".children")?.appendChild(wrap);
-      const redraw = mountBezierEditor(wrap, () => bezierRef.current, (b) => onBezierRef.current(b));
-      bezUiRef.current = { wrap, input, redraw };
-    }
-
-    c.warp = shape.add(cfg, "warp", { None: "none", "Arch up": "arch", "Arch down": "archDown", "Arc (circle)": "arc", Wave: "wave", Bulge: "bulge", "Cone (taper)": "cone", "Slant up": "slantUp", "Slant down": "slantDown" }).name("Warp").onChange(on("warp"));
-    // Tier-3 (changes poly count / non-linear): no live recompute — bake on release.
-    c.bend = shape.add(cfg, "bend", 0, 1, 0.02).name("Bend").onFinishChange(on("bend"));
-
-    const layout = gui.addFolder("Layout");
-    // glyphcss rebuilds geometry reactively on every change (no async atlas
-    // decode), so each control just bakes straight into state.
-    c.depth = layout.add(cfg, "depth", 2, 80, 1).name("Depth").onChange(on("depth"));
-    c.letterSpacing = layout.add(cfg, "letterSpacing", -20, 60, 1).name("Letter spacing").onFinishChange(on("letterSpacing"));
-    c.lineHeight = layout.add(cfg, "lineHeight", 0.8, 2.5, 0.05).name("Line height").onFinishChange(on("lineHeight"));
-    // Scale X = horizontal stretch, Scale Y = vertical (mapped to mesh axes in Stage).
-    c.scaleX = layout.add(cfg, "scaleX", 40, 200, 1).name("Scale X").onChange(on("scaleX"));
-    c.scaleY = layout.add(cfg, "scaleY", 40, 200, 1).name("Scale Y").onChange(on("scaleY"));
-    c.curveSegments = layout.add(cfg, "curveSegments", 1, 12, 1).name("Curve segments").onFinishChange(on("curveSegments"));
-    c.simplify = layout.add(cfg, "simplify", 0, 8, 0.5).name("Simplify").onFinishChange(on("simplify"));
-    c.profileSegments = layout.add(cfg, "profileSegments", 2, 10, 1).name("Edge segments").onFinishChange(on("profileSegments"));
-    c.offset = layout.add(cfg, "offset", 0, 32, 1).name("Layer offset").onFinishChange(on("offset"));
-    c.layered = layout.add(cfg, "layered").name("Flat layers").onChange(on("layered"));
-
-    const cam = gui.addFolder("Camera");
-    c.perspective = cam.add(cfg, "perspective").name("Perspective").onChange(on("perspective"));
-    c.zoom = cam.add(cfg, "zoom", 0.1, 6, 0.05).name("Zoom").onChange(on("zoom"));
-    c.spin = cam.add(cfg, "spin").name("Auto-spin").onChange(on("spin"));
-
-    const lighting = gui.addFolder("Lighting");
-    c.light = lighting.add(cfg, "light", 0, 2, 0.05).name("Light").onChange(on("light"));
-    c.ambient = lighting.add(cfg, "ambient", 0, 1, 0.05).name("Ambient").onChange(on("ambient"));
-    c.az = lighting.add(cfg, "az", -90, 90, 1).name("Angle").onChange(on("az"));
-    c.el = lighting.add(cfg, "el", 0, 90, 1).name("Elev.").onChange(on("el"));
-    c.lightColor = lighting.addColor(cfg, "lightColor").name("Light color").onChange(on("lightColor"));
-
-    return () => gui.destroy();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  onBezierRef.current = onBezier;
+  const redrawRef = useRef<() => void>(() => {});
+  const mount = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    el.innerHTML = "";
+    redrawRef.current = mountBezierEditor(el, () => bezierRef.current, (b) => onBezierRef.current(b));
   }, []);
-
-  // Push React state back into the GUI display + toggle conditional controllers.
-  useEffect(() => {
-    Object.assign(cfgRef.current, values);
-    for (const ctrl of Object.values(ctrlRef.current)) ctrl?.updateDisplay();
-    bezierRef.current = bezier;
-    onBezierRef.current = onBezier;
-    const isCustom = values.profileMode.startsWith("custom");
-    ctrlRef.current.bend?.[values.warp !== "none" ? "show" : "hide"]();
-    ctrlRef.current.profileSegments?.[(values.profileMode.startsWith("round") || isCustom) ? "show" : "hide"]();
-    ctrlRef.current.bezierText?.[isCustom ? "show" : "hide"]();
-    if (bezUiRef.current) {
-      bezUiRef.current.wrap.style.display = isCustom ? "" : "none";
-      bezUiRef.current.redraw();
-      if (document.activeElement !== bezUiRef.current.input) bezUiRef.current.input.value = bezierToCss(bezier);
-    }
-  });
-
-  return <div id={id} className={`wa-gui ${className}`} ref={hostRef} />;
+  useEffect(() => { redrawRef.current(); }, [bezier]);
+  if (!host) return null;
+  return createPortal(<div className="wa-bezwrap" ref={mount} style={{ display: visible ? "" : "none" }} />, host);
 }
 
-interface LeftValues {
-  weight: number; italic: boolean; underline: boolean; strike: boolean;
-  textCase: string; align: string; color: string; sideColor: string; backColor: string;
-  fillType: string; gradA: string; gradB: string; gradAngle: number; image: string;
-  faceTex: string; sideFill: string; sideTex: string; backFill: string; backTex: string;
-  outlineOn: boolean; outlineColor: string; outlineWidth: number;
-}
+/**
+ * Right-hand Dock — 3D/scene knobs only: Shape (profile/warp), Layout
+ * (extrusion + mesh geometry), Camera, Lighting. Typography and Color moved
+ * to the left rail (plain React, see `RailSlider`/`RailSelect`/`SegmentedRow`
+ * above) — this Dock never owned them conceptually, it just inherited the
+ * old floating panel's full control set during the /synth-style restyle.
+ * Built with the same `useFolder`/`useSlider`/`useOption`/`useColor`/
+ * `useToggle`/`useText` primitives `/synth`'s `SynthDock` uses.
+ */
+function WordArtDock({
+  gui, setGui, bezier, onBezier,
+  effectState, effectDefinition, onEffectChange, onUpdateEffectSettings, onUpdateEffectParams,
+}: {
+  gui: GuiValues; setGui: (k: keyof GuiValues, v: number | string | boolean) => void;
+  bezier: Bezier4; onBezier: (b: Bezier4) => void;
+  effectState: GalleryEffectState;
+  effectDefinition: GalleryEffectDefinition | null;
+  onEffectChange: (effectId: GlyphEffectId | null) => void;
+  onUpdateEffectSettings: (partial: Partial<Pick<GalleryEffectState, "blend" | "paused" | "timeScale">>) => void;
+  onUpdateEffectParams: (partial: Record<string, GalleryEffectParamValue>) => void;
+}): ReactNode {
+  const dock = useDockGui();
 
-/** lil-gui typography + color panel for the left card (blends in, borderless). */
-function LeftGuiPanel({ values, set }: { values: LeftValues; set: (k: keyof LeftValues, v: number | string | boolean) => void }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const cfgRef = useRef<LeftValues>({ ...values });
-  const ctrlRef = useRef<Record<string, ReturnType<GUI["add"]>>>({});
-  const segRef = useRef<Record<string, (v: string) => void>>({});
-  const texRef = useRef<Record<string, (v: string) => void>>({});
-  const texWrapRef = useRef<Record<string, HTMLElement>>({});
-
-  useEffect(() => {
-    const cfg = cfgRef.current;
-    const c = ctrlRef.current;
-    const gui = new GUI({ container: hostRef.current!, title: "", width: 300 });
-    const on = (k: keyof LeftValues) => (v: number | string | boolean) => set(k, v);
-
-    // Inject a segmented button-group into a lil-gui row's widget (lil-gui has
-    // no native one — the gallery injects custom widgets the same way).
-    const segmented = (folder: GUI, name: string, key: keyof LeftValues, options: [string, string, string][]) => {
-      const ctrl = folder.add({ _: "" }, "_").name(name);
-      const widget = ctrl.domElement.querySelector<HTMLElement>(".widget");
-      if (!widget) return;
-      widget.replaceChildren();
-      widget.classList.add("wa-seg");
-      const btns: Record<string, HTMLButtonElement> = {};
-      for (const [value, label, title] of options) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = label;
-        btn.title = title;
-        btn.addEventListener("click", () => set(key, value));
-        widget.appendChild(btn);
-        btns[value] = btn;
-      }
-      segRef.current[key] = (v: string) => {
-        for (const k in btns) btns[k].classList.toggle("is-on", k === v);
-      };
-    };
-
-    const type = gui.addFolder("Type");
-    c.weight = type.add(cfg, "weight", [100, 200, 300, 400, 500, 600, 700, 800, 900]).name("Weight").onChange(on("weight"));
-    c.italic = type.add(cfg, "italic").name("Italic").onChange(on("italic"));
-    c.underline = type.add(cfg, "underline").name("Underline").onChange(on("underline"));
-    c.strike = type.add(cfg, "strike").name("Strikethrough").onChange(on("strike"));
-    segmented(type, "Case", "textCase", [["as-typed", "Aa", "As typed"], ["upper", "AB", "UPPERCASE"], ["lower", "ab", "lowercase"], ["title", "Ab", "Title Case"]]);
-    segmented(type, "Align", "align", [["left", "L", "Left"], ["center", "C", "Center"], ["right", "R", "Right"]]);
-
-    // Each face (front / sides / back) has its own fill-type selector that
-    // generates the matching input below it.
-    const col = gui.addFolder("Color");
-    const colChildren = col.domElement.querySelector(".children");
-
-    // A grid of bundled block-texture swatches injected into the folder
-    // (lil-gui has no image picker). Shown only when that face is in Texture mode.
-    const texGrid = (key: keyof LeftValues) => {
-      const wrap = document.createElement("div");
-      wrap.className = "wa-texrow";
-      const grid = document.createElement("div");
-      grid.className = "wa-texgrid";
-      wrap.append(grid);
-      const swatches: Record<string, HTMLButtonElement> = {};
-      for (const t of TEXTURES) {
-        const sw = document.createElement("button");
-        sw.type = "button";
-        sw.className = "wa-texgrid__sw";
-        sw.title = t.label;
-        sw.style.backgroundImage = `url(${texUrl(t.id)})`;
-        sw.addEventListener("click", () => set(key, t.id));
-        grid.appendChild(sw);
-        swatches[t.id] = sw;
-      }
-      colChildren?.appendChild(wrap);
-      texRef.current[key] = (v: string) => {
-        for (const id in swatches) swatches[id].classList.toggle("is-on", id === v);
-      };
-      texWrapRef.current[key] = wrap;
-    };
-
-    // Front — the full fill set.
-    c.fillType = col.add(cfg, "fillType", { Solid: "solid", Gradient: "gradient", Rainbow: "rainbow", Texture: "texture", Image: "image" }).name("Front").onChange(on("fillType"));
-    c.color = col.addColor(cfg, "color").name("Color").onChange(on("color"));
-    c.gradA = col.addColor(cfg, "gradA").name("Color A").onChange(on("gradA"));
-    c.gradB = col.addColor(cfg, "gradB").name("Color B").onChange(on("gradB"));
-    c.gradAngle = col.add(cfg, "gradAngle", 0, 360, 5).name("Angle").onChange(on("gradAngle"));
-    // lil-gui has no file input — inject a "Choose image" button that reads the
-    // picked file as a data URL (the renderer uses it as a background-image).
-    c.image = col.add({ _: "" }, "_").name("Image");
-    {
-      const widget = c.image.domElement.querySelector<HTMLElement>(".widget");
-      if (widget) {
-        widget.replaceChildren();
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "wa-imgbtn";
-        btn.textContent = "Choose image…";
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = "image/*";
-        input.style.display = "none";
-        btn.addEventListener("click", () => input.click());
-        input.addEventListener("change", () => {
-          const file = input.files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => set("image", String(reader.result));
-          reader.readAsDataURL(file);
-        });
-        widget.append(btn, input);
-      }
-    }
-    texGrid("faceTex");
-
-    // Sides — solid color or block texture.
-    c.sideFill = col.add(cfg, "sideFill", { Solid: "solid", Texture: "texture", None: "none" }).name("Sides").onChange(on("sideFill"));
-    c.sideColor = col.addColor(cfg, "sideColor").name("Color").onChange(on("sideColor"));
-    texGrid("sideTex");
-
-    // Back — solid color or block texture.
-    c.backFill = col.add(cfg, "backFill", { Solid: "solid", Texture: "texture", None: "none" }).name("Back").onChange(on("backFill"));
-    c.backColor = col.addColor(cfg, "backColor").name("Color").onChange(on("backColor"));
-    texGrid("backTex");
-
-    c.outlineOn = col.add(cfg, "outlineOn").name("Outline").onChange(on("outlineOn"));
-    c.outlineColor = col.addColor(cfg, "outlineColor").name("Outline color").onChange(on("outlineColor"));
-    c.outlineWidth = col.add(cfg, "outlineWidth", 0.5, 12, 0.5).name("Outline width").onChange(on("outlineWidth"));
-
-    return () => gui.destroy();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    Object.assign(cfgRef.current, values);
-    for (const ctrl of Object.values(ctrlRef.current)) ctrl?.updateDisplay();
-    segRef.current.textCase?.(values.textCase);
-    segRef.current.align?.(values.align);
-    // Show only the input that matches each face's selected fill mode.
-    const grad = values.fillType === "gradient";
-    ctrlRef.current.color?.[values.fillType === "solid" ? "show" : "hide"]();
-    ctrlRef.current.gradA?.[grad ? "show" : "hide"]();
-    ctrlRef.current.gradB?.[grad ? "show" : "hide"]();
-    ctrlRef.current.gradAngle?.[grad || values.fillType === "rainbow" ? "show" : "hide"]();
-    ctrlRef.current.image?.[values.fillType === "image" ? "show" : "hide"]();
-    texWrapRef.current.faceTex?.style.setProperty("display", values.fillType === "texture" ? "" : "none");
-    ctrlRef.current.sideColor?.[values.sideFill === "solid" ? "show" : "hide"]();
-    texWrapRef.current.sideTex?.style.setProperty("display", values.sideFill === "texture" ? "" : "none");
-    ctrlRef.current.backColor?.[values.backFill === "solid" ? "show" : "hide"]();
-    texWrapRef.current.backTex?.style.setProperty("display", values.backFill === "texture" ? "" : "none");
-    ctrlRef.current.outlineColor?.[values.outlineOn ? "show" : "hide"]();
-    ctrlRef.current.outlineWidth?.[values.outlineOn ? "show" : "hide"]();
-    texRef.current.faceTex?.(values.faceTex);
-    texRef.current.sideTex?.(values.sideTex);
-    texRef.current.backTex?.(values.backTex);
+  // ── Shape ─────────────────────────────────────────────────────────────
+  const shapeFolder = useFolder(dock, "Shape", { open: true });
+  useOption(shapeFolder, "Profile", PROFILE_OPTS, gui.profileMode, (v) => setGui("profileMode", v));
+  const isCustom = gui.profileMode === "custom";
+  const curveTextCtrl = useText(shapeFolder, "Curve", bezierToCss(bezier), (v) => {
+    const p = parseBezier(v);
+    if (p) onBezier(p);
   });
+  const bezierSlot = useBezierEditorSlot(shapeFolder, isCustom, bezier, onBezier);
+  useOption(shapeFolder, "Warp", WARP_OPTS, gui.warp, (v) => setGui("warp", v));
+  const bendCtrl = useSlider(shapeFolder, "Bend", { min: 0, max: 1, step: 0.02 }, gui.bend, (v) => setGui("bend", v));
 
-  return <div className="wa-gui wa-gui--inline" ref={hostRef} />;
+  // ── Layout ────────────────────────────────────────────────────────────
+  const layoutFolder = useFolder(dock, "Layout", { open: true });
+  useSlider(layoutFolder, "Depth", { min: 2, max: 80, step: 1 }, gui.depth, (v) => setGui("depth", v));
+  useSlider(layoutFolder, "Scale X", { min: 40, max: 200, step: 1 }, gui.scaleX, (v) => setGui("scaleX", v));
+  useSlider(layoutFolder, "Scale Y", { min: 40, max: 200, step: 1 }, gui.scaleY, (v) => setGui("scaleY", v));
+  useSlider(layoutFolder, "Curve segments", { min: 1, max: 12, step: 1 }, gui.curveSegments, (v) => setGui("curveSegments", v));
+  useSlider(layoutFolder, "Simplify", { min: 0, max: 8, step: 0.5 }, gui.simplify, (v) => setGui("simplify", v));
+  const profileSegCtrl = useSlider(layoutFolder, "Edge segments", { min: 2, max: 10, step: 1 }, gui.profileSegments, (v) => setGui("profileSegments", v));
+  useSlider(layoutFolder, "Layer offset", { min: 0, max: 32, step: 1 }, gui.offset, (v) => setGui("offset", v));
+  useToggle(layoutFolder, "Flat layers", gui.layered, (v) => setGui("layered", v));
+
+  // ── Render ────────────────────────────────────────────────────────────
+  // Scene-wide ASCII resolution — same range/step as /synth's "Density"
+  // (SynthWorkbench.tsx's `useSlider(stage, "Density", { min: 0.5, max: 4,
+  // step: 0.1 }, …)`), independent of Shape/Layout's mesh geometry knobs.
+  const renderFolder = useFolder(dock, "Render", { open: true });
+  useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
+
+  // ── Effects ───────────────────────────────────────────────────────────
+  // Reuses the gallery's own Effects folder hook (`useEffectsFolder` +
+  // `EffectParameterControls`, imported from `../Dock/folders/useEffectsFolder`)
+  // instead of rebuilding the effect picker / auto-generated param controls.
+  // Called directly (rather than via the `<DockEffects>` wrapper) so its
+  // folder lands between Layout and Camera by hook-call order, matching every
+  // other folder in this Dock.
+  const effectsFolderInputs = {
+    effectState,
+    definition: effectDefinition,
+    effectOptions: GALLERY_EFFECT_OPTIONS,
+    onEffectChange,
+    onUpdateSettings: onUpdateEffectSettings,
+    onUpdateParams: onUpdateEffectParams,
+  };
+  const effectsFolder = useEffectsFolder(dock, effectsFolderInputs);
+
+  // ── Camera ────────────────────────────────────────────────────────────
+  const cameraFolder = useFolder(dock, "Camera", { open: false });
+  useToggle(cameraFolder, "Perspective", gui.perspective, (v) => setGui("perspective", v));
+  useSlider(cameraFolder, "Zoom", { min: 0.1, max: 6, step: 0.05 }, gui.zoom, (v) => setGui("zoom", v));
+  useToggle(cameraFolder, "Auto-spin", gui.spin, (v) => setGui("spin", v));
+
+  // ── Lighting ──────────────────────────────────────────────────────────
+  const lightingFolder = useFolder(dock, "Lighting", { open: false });
+  useSlider(lightingFolder, "Light", { min: 0, max: 2, step: 0.05 }, gui.light, (v) => setGui("light", v));
+  useSlider(lightingFolder, "Ambient", { min: 0, max: 1, step: 0.05 }, gui.ambient, (v) => setGui("ambient", v));
+  useSlider(lightingFolder, "Angle", { min: -90, max: 90, step: 1 }, gui.az, (v) => setGui("az", v));
+  useSlider(lightingFolder, "Elev.", { min: 0, max: 90, step: 1 }, gui.el, (v) => setGui("el", v));
+  useColor(lightingFolder, "Light color", gui.lightColor, (v) => setGui("lightColor", v));
+
+  // ── Conditional show/hide (mirrors the original lil-gui .show()/.hide()) ──
+  useEffect(() => {
+    curveTextCtrl?.setVisible(isCustom);
+    bendCtrl?.setVisible(gui.warp !== "none");
+    profileSegCtrl?.setVisible(gui.profileMode.startsWith("round") || isCustom);
+  }, [curveTextCtrl, bendCtrl, profileSegCtrl, isCustom, gui.warp, gui.profileMode]);
+
+  return (
+    <>
+      {bezierSlot}
+      <EffectParameterControls folder={effectsFolder} inputs={effectsFolderInputs} />
+    </>
+  );
 }
 
 /** Searchable font dropdown — filters the catalog as you type, styled list. */

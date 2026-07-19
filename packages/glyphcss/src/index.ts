@@ -28,6 +28,18 @@ export type {
 // Effect-program protocol + scene-root compositor layers.
 export * from "./api/effects";
 
+// Retained-effect base frame — turns a rasterized `CellGrid` (with optional
+// shade/worldPosition/normal buffers) into the `GlyphEffectFrameView` +
+// coverage shape an effect program's `evaluate()` reads. Exposed so a
+// build-time exporter (e.g. `@glyphcss/effects`'s static field-synth export)
+// can bake the SAME per-cell inputs a mounted effect layer sees, instead of
+// re-deriving coverage/color-packing from a `CellGrid` by hand.
+export { retainGlyphEffectOutput } from "./render/effectCompositor";
+export type {
+  GlyphEffectOutputMetadata,
+  RetainedGlyphEffectOutput,
+} from "./render/effectCompositor";
+
 // Static compile — render a scene to its `<pre>` without a DOM (build-time / SSR).
 export { compileScene } from "./api/compileScene";
 export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene";

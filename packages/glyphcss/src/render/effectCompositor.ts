@@ -25,7 +25,15 @@ import {
 } from "../api/effects";
 
 type AnyParams = Record<string, GlyphEffectParamValue>;
-type AnyProgram = GlyphEffectProgram<AnyParams, any>;
+// `unknown` (not `any`) for the state param: `GlyphEffectProgram<P, S>`'s
+// `createState` field type is a conditional on `[S] extends [undefined]`, and
+// a bare `any` there triggers TS's "any collapses a conditional type to the
+// union of both branches" rule, which made `program.createState` resolve to
+// an uncallable `never` at the one call site below. `unknown` picks the
+// `{ createState(): unknown }` branch cleanly — correct anyway, since a
+// runtime-dispatched program's state is always handled opaquely (cast at the
+// point of use), never actually relied on to BE `any`.
+type AnyProgram = GlyphEffectProgram<AnyParams, unknown>;
 
 const SUPPORTED_REQUIREMENTS = new Set<GlyphEffectRequirement>([
   "baseColor",

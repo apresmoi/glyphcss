@@ -3,9 +3,11 @@ export {
   GlyphEffectNoColor,
   GlyphEffects,
   GlyphRamps,
+  combineSynth,
   defaultGlyphEffectParams,
   getGlyphEffect,
   glyphEffectHasColor,
+  synthWave,
 } from "./stock";
 
 export {
@@ -26,3 +28,13 @@ export type {
   GlyphStockEffect,
   GlyphStockEffectDefinition,
 } from "./stock";
+
+// Static effect export — bake an effect-only, static-camera scene into a
+// self-contained pen (inlined vanilla-JS evaluator, zero glyphcss at runtime).
+// Field-synth only for now; see the module doc for what generalizing needs.
+export { buildGlyphFieldSynthStaticExport } from "./staticExport";
+export type {
+  GlyphFieldSynthStaticExportEffect,
+  GlyphFieldSynthStaticExportOptions,
+  GlyphFieldSynthStaticExportResult,
+} from "./staticExport";

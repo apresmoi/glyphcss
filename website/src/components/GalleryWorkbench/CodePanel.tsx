@@ -589,6 +589,14 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
         mode: options.renderMode === "wireframe" ? "wireframe" : "solid",
         useColors: options.useColors,
         decimateGrid,
+        effect: effectState.effectId
+          ? {
+              id: effectState.effectId,
+              params: effectState.params,
+              blend: effectState.blend,
+              timeScale: effectState.paused ? 0 : effectState.timeScale,
+            }
+          : undefined,
       });
       postToCodepen(glyphCodepenPrefill(result, title));
     } catch (err) {
@@ -596,7 +604,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
     } finally {
       setExporting(false);
     }
-  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate]);
+  }, [meshUrl, selectedPreset, options, interactions, staticMode, staticEncoding, rotate, effectState]);
 
   return (
     <aside id={id} className={`gw-code-panel${collapsed ? " gw-code-panel--collapsed" : ""}${className ? ` ${className}` : ""}`}>
