@@ -3,7 +3,7 @@ import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
 import DocsHeader from "../../components/DocsHeader.astro";
 import Analytics from "../../components/Analytics.astro";
 const title = "glyphcss · Parthenon";
-const description = "The Parthenon — octastyle Doric peripteral temple built from glyphcss primitives, rendered as ASCII with green Matrix rain flowing down its columns. First-person: walk up the steps and in between the colonnade.";
+const description = "The Parthenon — octastyle Doric peripteral temple built from glyphcss primitives, rendered as ASCII with green Matrix rain flowing down its columns. Orbit by default, or switch to first-person and walk the colonnade.";
 ---
 
 <html lang="en">
@@ -34,8 +34,82 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       touch-action: none;
       background: radial-gradient(circle at 50% 62%, rgba(0, 70, 32, 0.22), transparent 55%), #010604;
     }
-    .temple-host .glyph-output { touch-action: none; text-shadow: 0 0 7px rgba(0, 255, 102, 0.22); }
-    .map-foot { padding: 14px 32px; border-top: 1px solid rgba(0, 255, 102, 0.14); font-size: 11px; color: rgba(160, 232, 184, 0.45); display: flex; gap: 18px; flex-wrap: wrap; }
+    .temple-host .glyph-output { touch-action: none; text-shadow: 0 0 7px rgba(0, 255, 102, 0.22); cursor: grab; }
+    .temple-host .glyph-output:active { cursor: grabbing; }
+    .temple-host.is-fpv .glyph-output { cursor: crosshair; }
+    .temple-host.is-fpv .glyph-output:active { cursor: crosshair; }
+
+    /* ── Floating-right control dock — copied from /examples/flatmap so every
+       example page shares the same chrome language (amber-on-dark, sky-blue
+       accent), independent of each page's own render palette. ── */
+    .iso-controls {
+      position: absolute; top: 14px; right: 14px; z-index: 10;
+      width: 220px; padding: 12px 14px;
+      background: rgba(8,12,18,0.86); backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,232,184,0.18);
+      font-size: 11px; color: rgba(255,232,184,0.7);
+      max-height: calc(100% - 28px); overflow-y: auto;
+    }
+    .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
+    .iso-ctl-toggle { display: none; }
+    @media (max-width: 50rem) {
+      .iso-ctl-toggle {
+        display: block;
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+        min-height: 44px; padding: 0 12px;
+        background: rgba(8,12,18,0.94); color: rgba(255,232,184,0.9);
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        font: 600 13px/1 ui-monospace, "JetBrains Mono", monospace;
+        letter-spacing: 0.04em; cursor: pointer;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      }
+      .iso-controls {
+        top: auto; right: 0; left: 0; bottom: 44px; z-index: 30;
+        width: auto; max-height: 55vh; overflow-y: auto;
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        display: none;
+      }
+      .iso-controls.is-open { display: block; }
+    }
+    .iso-ctl { margin-bottom: 11px; }
+    .iso-ctl:last-child { margin-bottom: 0; }
+    .iso-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+    .iso-ctl-row .val { color: rgba(255,232,184,0.95); }
+    .iso-ctl input[type="range"] {
+      width: 100%; height: 3px; -webkit-appearance: none; appearance: none;
+      background: rgba(255,232,184,0.2); outline: none; cursor: pointer;
+    }
+    .iso-ctl input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 12px; height: 12px;
+      background: #38bdf8; border: 1px solid rgba(255,255,255,0.4); cursor: pointer;
+    }
+    .iso-ctl input[type="range"]::-moz-range-thumb {
+      width: 12px; height: 12px; background: #38bdf8; border: 1px solid rgba(255,255,255,0.4); cursor: pointer; border-radius: 0;
+    }
+    .iso-seg { display: flex; gap: 4px; }
+    .iso-seg button {
+      flex: 1; padding: 4px 0; font: inherit; font-size: 10px;
+      background: transparent; color: rgba(255,232,184,0.55);
+      border: 1px solid rgba(255,232,184,0.2); cursor: pointer;
+    }
+    .iso-seg button.active { color: rgba(255,232,184,0.98); border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.08); }
+    .iso-check { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+    .iso-check input { accent-color: #38bdf8; cursor: pointer; }
+    .iso-ctl select {
+      width: 100%; font: inherit; font-size: 11px; padding: 3px 4px;
+      background: #0b1018; color: rgba(255,232,184,0.9);
+      border: 1px solid rgba(255,232,184,0.2); cursor: pointer;
+    }
+    /* Color swatch input — same treatment as the city-lab example's mono-color
+       control, scoped under the .iso-ctl namespace here. */
+    .iso-color {
+      display: block; width: 100%; height: 26px; box-sizing: border-box;
+      padding: 2px; border: 1px solid rgba(255,232,184,0.2); border-radius: 0;
+      background: rgba(3,5,10,0.76); cursor: pointer;
+    }
+    .iso-color::-webkit-color-swatch-wrapper { padding: 0; }
+    .iso-color::-webkit-color-swatch { border: 0; }
+    .iso-color::-moz-color-swatch { border: 0; }
   </style>
 </head>
 <body>
@@ -46,17 +120,57 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       <div class="map-shell">
         <header class="map-head">
           <h1>[ PARTHENON · MATRIX ]</h1>
-          <p>The Parthenon as an octastyle Doric peripteral temple — three crepidoma steps, an 8 × 17 colonnade, entablature, cornice, triangular pediments, and a walkable interior: porch columns, cella doorways, the naos colonnade, and a golden Athena Parthenos — built from glyphcss primitives while green Matrix rain from @glyphcss/effects streams down every surface. First person: click the scene to capture the mouse, WASD to walk (the steps carry you up onto the stylobate — go through the east door), Space to jump, Esc to release.</p>
+          <p>The Parthenon as an octastyle Doric peripteral temple — three crepidoma steps, an 8 × 17 colonnade, entablature, cornice, triangular pediments, and a walkable interior: porch columns, cella doorways, the naos colonnade, and a golden Athena Parthenos — built from glyphcss primitives while green Matrix rain from @glyphcss/effects streams down every surface. Orbit by default — drag to orbit, scroll to zoom. Switch to FPV in the dock to walk in: click the render to capture the mouse, WASD to walk (the steps carry you up onto the stylobate — go through the east door), Space to jump, Esc to release.</p>
         </header>
         <div class="map-stage">
           <div class="temple-host" id="temple-host"></div>
+          <button class="iso-ctl-toggle" type="button" id="ctl-toggle" aria-expanded="false" aria-controls="iso-controls">[ Controls ]</button>
+          <div class="iso-controls" id="iso-controls">
+            <h2>[ CONTROLS ]</h2>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>camera</span></div>
+              <div class="iso-seg" id="camera-seg">
+                <button type="button" data-camera="orbit" class="active">orbit</button>
+                <button type="button" data-camera="fpv">fpv</button>
+              </div>
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>density</span><span class="val" id="density-val">1.00</span></div>
+              <input type="range" id="density" min="0.5" max="3" step="0.05" value="1" />
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>matrix scale</span><span class="val" id="scale-val">0.50</span></div>
+              <input type="range" id="scale" min="0.05" max="3" step="0.05" value="0.5" />
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>speed min</span><span class="val" id="speed-min-val">5</span></div>
+              <input type="range" id="speed-min" min="0" max="40" step="0.25" value="5" />
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>speed max</span><span class="val" id="speed-max-val">13</span></div>
+              <input type="range" id="speed-max" min="0" max="40" step="0.25" value="13" />
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>trail</span><span class="val" id="trail-val">13</span></div>
+              <input type="range" id="trail" min="1" max="64" step="1" value="13" />
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>streams</span><span class="val" id="rain-density-val">0.38</span></div>
+              <input type="range" id="rain-density" min="0.02" max="1" step="0.01" value="0.38" />
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>color mode</span></div>
+              <div class="iso-seg" id="color-mode-seg">
+                <button type="button" data-color-mode="monochrome" class="active">mono</button>
+                <button type="button" data-color-mode="original">original</button>
+              </div>
+            </div>
+            <div class="iso-ctl" id="mono-color-row">
+              <div class="iso-ctl-row"><span>mono color</span><span class="val" id="mono-color-val">#00FF66</span></div>
+              <input class="iso-color" type="color" id="mono-color" value="#00ff66" aria-label="Monochrome rain color" />
+            </div>
+          </div>
         </div>
-        <footer class="map-foot">
-          <span>Geometry: procedural — 46-column peristyle, 92-triglyph frieze, naos + Athena Parthenos, opisthodomos</span>
-          <span>Effect: GlyphEffects.matrixRain · monochrome #00ff66</span>
-          <span>Controls: first person — click to look · WASD walk · Space jump</span>
-          <span>Renderer: glyphcss solid + perspective camera</span>
-        </footer>
       </div>
     </div>
   </div>
@@ -64,6 +178,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
   <script>
     import {
       createGlyphFirstPersonControls,
+      createGlyphOrbitControls,
       createGlyphPerspectiveCamera,
       createGlyphScene,
     } from "glyphcss";
@@ -436,18 +551,32 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     }
 
     // ── Mount ─────────────────────────────────────────────────────────────
+    type CameraMode = "orbit" | "fpv";
+
+    // Orbit: pulled back to frame the whole ~70×31 m temple at a 3/4 angle.
+    // `distance` (a CSS-px pull-back applied only to the perspective-divide
+    // Z register, decoupled from `zoom`'s on-screen X/Y scale — see
+    // createGlyphCamera's perspective `project()`) is what keeps the near/far
+    // spread across the building's footprint small relative to the camera's
+    // focal length, so the whole colonnade reads without edge distortion.
+    const ORBIT_TARGET: [number, number, number] = [0, 0, 6.5];
+    const ORBIT_DEFAULT = { rotX: 80, rotY: 40, zoom: 14, distance: 2000, perspective: 4200 };
+    // FPV: the original walkthrough spawn — unchanged from the first cut of
+    // this page. Perspective 1000 ≈ a natural ~65° walking FOV.
+    const FPV_ROT = { rotX: 91, rotY: 351 };
+    const FPV_ZOOM = 50;
+    const FPV_PERSPECTIVE = 1000;
+    const FPV_ORIGIN: [number, number, number] = [88, -10, 1.7];
+
     function mountParthenon(): void {
       const host = document.getElementById("temple-host") as HTMLDivElement | null;
       if (!host) return;
 
-      // First-person at human scale: 1 world unit ≈ 1 m, eye at 1.7. zoom is
-      // CSS px per world unit; perspective is the CSS-perspective focal length
-      // in virtual px, so ~1000 gives a natural ~65° walkthrough FOV.
       const camera = createGlyphPerspectiveCamera({
-        rotX: 91,
-        rotY: 351,
-        zoom: 50,
-        perspective: 1000,
+        rotX: FPV_ROT.rotX,
+        rotY: FPV_ROT.rotY,
+        zoom: FPV_ZOOM,
+        perspective: FPV_PERSPECTIVE,
       });
 
       const scene = createGlyphScene(host, {
@@ -460,9 +589,15 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         directionalLight: { direction: [0.65, -0.25, 0.55], intensity: 1.3, color: "#eafff0" },
         ambientLight: { intensity: 0.62, color: "#bdeccb" },
       });
-      scene.output.style.fontSize = "9px";
-      scene.output.style.lineHeight = "1";
-      scene.fit();
+
+      const BASE_FONT_SIZE = 9;
+      function setDensity(density: number): void {
+        const next = Math.max(0.1, density);
+        scene.output.style.fontSize = `${BASE_FONT_SIZE / next}px`;
+        scene.output.style.lineHeight = "1";
+        scene.fit();
+      }
+      setDensity(1);
 
       const polygons = buildParthenon();
       // A bounded plaza (not an infinite plane) grounds the walkthrough
@@ -473,6 +608,21 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       });
       scene.add(polygons);
 
+      // ── Camera controls: ORBIT (default) / FPV, one perspective camera
+      // shared between both — switching just resets its state and swaps
+      // which control handle is attached. Matrix rain keeps animating in
+      // both modes (its own rAF loop below, independent of camera mode).
+      let mode: CameraMode = "orbit";
+
+      function applyOrbitDefault(): void {
+        camera.perspective = ORBIT_DEFAULT.perspective;
+        camera.distance = ORBIT_DEFAULT.distance;
+        camera.zoom = ORBIT_DEFAULT.zoom;
+        camera.rotX = ORBIT_DEFAULT.rotX;
+        camera.rotY = ORBIT_DEFAULT.rotY;
+        camera.target = ORBIT_TARGET;
+      }
+
       const fpv = createGlyphFirstPersonControls(scene, {
         moveSpeed: 9,
         jumpVelocity: 6,
@@ -481,9 +631,70 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         crouchHeight: 0.9,
         groundZ: 0,
       });
-      // Spawn outside the east facade (the real main entrance), looking at
-      // the octastyle front 3/4-on; walk in through the door to meet Athena.
-      fpv.setOrigin([88, -10, 1.7]);
+      fpv.setOrigin(FPV_ORIGIN);
+      fpv.pause();
+
+      const orbitControls = createGlyphOrbitControls(scene, { drag: true, wheel: true, clampPitch: true });
+
+      // fpv's own setup (initializeOriginFromTarget) stamps camera.target
+      // before we pause it — reassert the orbit defaults now that it's inert.
+      applyOrbitDefault();
+      scene.rerender();
+
+      const cameraSeg = document.getElementById("camera-seg");
+      function updateCameraSeg(): void {
+        cameraSeg?.querySelectorAll("button").forEach((button) => {
+          button.classList.toggle("active", (button as HTMLElement).dataset.camera === mode);
+        });
+        host.classList.toggle("is-fpv", mode === "fpv");
+      }
+      updateCameraSeg();
+
+      function setMode(next: CameraMode): void {
+        if (next === mode) return;
+        mode = next;
+        if (next === "orbit") {
+          fpv.pause();
+          applyOrbitDefault();
+          orbitControls.resume();
+        } else {
+          orbitControls.pause();
+          camera.perspective = FPV_PERSPECTIVE;
+          camera.distance = 0;
+          camera.zoom = FPV_ZOOM;
+          camera.rotX = FPV_ROT.rotX;
+          camera.rotY = FPV_ROT.rotY;
+          fpv.resume();
+          fpv.setOrigin(FPV_ORIGIN);
+        }
+        scene.rerender();
+        updateCameraSeg();
+      }
+
+      cameraSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-camera]") as HTMLElement | null;
+        if (!btn) return;
+        setMode(btn.dataset.camera as CameraMode);
+      });
+
+      // Fix: FPV's built-in pointer-lock trigger listens for a native `click`
+      // on the host. Because the matrix-rain effect layer rewrites the base
+      // <pre>'s colored spans every animation frame, a mousedown that lands
+      // on a glyph span is very likely to have that exact DOM node replaced
+      // before mouseup — and browsers never fire `click` when its target was
+      // detached mid-press. That reproduces as "clicking the background
+      // works, clicking the temple doesn't" (the background is host itself,
+      // stable; the temple is inside the <pre>, rewritten every frame).
+      // `pointerdown` fires synchronously at press time, before any frame can
+      // rewrite the target, so route pointer-lock through it instead — this
+      // is a page-level workaround; the underlying fragility (any FPV scene
+      // with a per-frame effect layer) lives in createGlyphFirstPersonControls'
+      // use of `click` and would be a good candidate for an upstream fix.
+      host.addEventListener("pointerdown", () => {
+        if (mode === "fpv" && !fpv.isLocked()) {
+          try { fpv.lock(); } catch { /* ignore */ }
+        }
+      });
 
       // Matrix rain over the temple surfaces: green monochrome code flowing
       // down each face (space: "surface" derives per-face downhill directions,
@@ -496,7 +707,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
           glyphs: "ΠΑΡΘΕΝΩΝΑΘΗΝΑ01",
           direction: "down",
           space: "surface",
-          scale: 1,
+          scale: 0.5,
           speedMin: 5,
           speedMax: 13,
           trail: 13,
@@ -507,6 +718,89 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         },
       });
 
+      // ── Control dock wiring ───────────────────────────────────────────
+      const $ = (id: string) => document.getElementById(id);
+      const ctlToggle = $("ctl-toggle");
+      const ctlPanel = $("iso-controls");
+      ctlToggle?.addEventListener("click", () => {
+        const open = ctlPanel?.classList.toggle("is-open") ?? false;
+        ctlToggle.setAttribute("aria-expanded", String(open));
+        ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+      });
+
+      const densityInput = $("density") as HTMLInputElement | null;
+      const densityVal = $("density-val");
+      densityInput?.addEventListener("input", () => {
+        const density = parseFloat(densityInput.value) || 1;
+        if (densityVal) densityVal.textContent = density.toFixed(2);
+        setDensity(density);
+        scene.rerender();
+      });
+
+      const bindRainRange = (
+        id: string,
+        valId: string,
+        key: "scale" | "speedMin" | "speedMax" | "trail" | "density",
+        fmt: (v: number) => string,
+        onChange?: (v: number) => void,
+      ) => {
+        const input = $(id) as HTMLInputElement | null;
+        const valEl = $(valId);
+        input?.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          rain.params[key] = v;
+          if (valEl) valEl.textContent = fmt(v);
+          onChange?.(v);
+        });
+      };
+      const speedMinInput = $("speed-min") as HTMLInputElement | null;
+      const speedMaxInput = $("speed-max") as HTMLInputElement | null;
+      bindRainRange("scale", "scale-val", "scale", (v) => v.toFixed(2));
+      bindRainRange("speed-min", "speed-min-val", "speedMin", (v) => v.toFixed(2).replace(/\.?0+$/, ""), (v) => {
+        // matrixRain requires speedMax >= speedMin — keep the pair valid live.
+        if (speedMaxInput && v > parseFloat(speedMaxInput.value)) {
+          speedMaxInput.value = String(v);
+          rain.params.speedMax = v;
+          const maxVal = $("speed-max-val");
+          if (maxVal) maxVal.textContent = v.toFixed(2).replace(/\.?0+$/, "");
+        }
+      });
+      bindRainRange("speed-max", "speed-max-val", "speedMax", (v) => v.toFixed(2).replace(/\.?0+$/, ""), (v) => {
+        if (speedMinInput && v < parseFloat(speedMinInput.value)) {
+          speedMinInput.value = String(v);
+          rain.params.speedMin = v;
+          const minVal = $("speed-min-val");
+          if (minVal) minVal.textContent = v.toFixed(2).replace(/\.?0+$/, "");
+        }
+      });
+      bindRainRange("trail", "trail-val", "trail", (v) => String(Math.round(v)));
+      bindRainRange("rain-density", "rain-density-val", "density", (v) => v.toFixed(2));
+
+      const colorModeSeg = $("color-mode-seg");
+      const monoColorRow = $("mono-color-row");
+      function updateMonoColorVisibility(): void {
+        if (monoColorRow) monoColorRow.hidden = rain.params.colorMode !== "monochrome";
+      }
+      colorModeSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-color-mode]") as HTMLElement | null;
+        if (!btn) return;
+        const value = btn.dataset.colorMode as "monochrome" | "original";
+        rain.params.colorMode = value;
+        colorModeSeg.querySelectorAll("button").forEach((b) =>
+          b.classList.toggle("active", (b as HTMLElement).dataset.colorMode === value));
+        updateMonoColorVisibility();
+      });
+      updateMonoColorVisibility();
+
+      const monoColorInput = $("mono-color") as HTMLInputElement | null;
+      const monoColorVal = $("mono-color-val");
+      monoColorInput?.addEventListener("input", () => {
+        rain.params.color = monoColorInput.value;
+        if (monoColorVal) monoColorVal.textContent = monoColorInput.value.toUpperCase();
+      });
+
+      // ── Frame loop: rain always animates; ground-follow / collision only
+      // matter while walking in FPV.
       let effectTime = 0;
       let previous = performance.now();
       let currentGround = 0;
@@ -514,24 +808,29 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         effectTime += Math.min((now - previous) / 1000, 0.1);
         previous = now;
         rain.params.time = effectTime;
-        // Terrain-follow: step the eye up/down the crepidoma as you walk,
-        // and slide along cella walls / the statue pedestal instead of
-        // walking through them (the doorways are the gaps).
-        const origin = fpv.getOrigin();
-        let [ox, oy] = origin;
-        const pushed = resolveCollision(ox, oy);
-        if (pushed) {
-          [ox, oy] = pushed;
-          fpv.setOrigin([ox, oy, origin[2]]);
-        }
-        const ground = groundHeightAt(ox, oy);
-        if (ground !== currentGround) {
-          currentGround = ground;
-          fpv.update({ groundZ: ground });
+        if (mode === "fpv") {
+          const origin = fpv.getOrigin();
+          let [ox, oy] = origin;
+          const pushed = resolveCollision(ox, oy);
+          if (pushed) {
+            [ox, oy] = pushed;
+            fpv.setOrigin([ox, oy, origin[2]]);
+          }
+          const ground = groundHeightAt(ox, oy);
+          if (ground !== currentGround) {
+            currentGround = ground;
+            fpv.update({ groundZ: ground });
+          }
         }
         requestAnimationFrame(frame);
       }
       requestAnimationFrame(frame);
+
+      // Debug hook for precise camera positioning during iteration.
+      (window as unknown as { __parthenon: unknown }).__parthenon = {
+        camera, scene, orbitControls, fpv, rain, setMode,
+        applyOrbitDefault,
+      };
     }
 
     mountParthenon();
