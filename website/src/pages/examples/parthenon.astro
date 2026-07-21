@@ -1263,9 +1263,13 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         applyingState = false;
         setMode(st.camera === 1 ? "fpv" : "orbit");
         if (st.camera === 1 && st.fpv) {
-          fpv.setOrigin([st.fpv.x, st.fpv.y, 1.7]);
+          // Set the look angles BEFORE setOrigin: setOrigin() syncs the camera
+          // target from the current rotX/rotY, so restoring position first would
+          // bake the default look into the target and the initial render would
+          // point the wrong way until a mouse-move re-synced it.
           camera.rotX = st.fpv.pitch;
           camera.rotY = st.fpv.yaw;
+          fpv.setOrigin([st.fpv.x, st.fpv.y, 1.7]);
           scene.rerender();
         }
       }
