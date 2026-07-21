@@ -185,9 +185,11 @@ Every active trail cell emits full coverage; `Streams` and `Trail` create the
 sparse shape without coverage dithering breaking a word into isolated glyphs.
 
 Matrix rain's `Color mode` can preserve the model's original colors or use a
-single `Monochrome color`. Monochrome strands multiply that hue by the retained
-surface shade, so lighting, shadows, texture luminance, and the 3D silhouette
-remain visible.
+single `Monochrome color`. In monochrome, each strand lights a bright head with
+the `Original head color` and fades its tail toward black — the classic
+head-to-tail falling-code gradient — while the retained surface shade still
+modulates brightness, so lighting, shadows, texture luminance, and the 3D
+silhouette remain visible.
 
 ## Field synth
 

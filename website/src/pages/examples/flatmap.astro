@@ -1,16 +1,14 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
 import DocsHeader from "../../components/DocsHeader.astro";
-import Analytics from "../../components/Analytics.astro";
+import BaseHead from "../../components/BaseHead.astro";
 const title = "glyphcss · ASCII Iso World Map";
+const description = "The whole planet flattened into a tiled isometric glyph map — ETOPO1 topography rasterised to colored ASCII, drag to pan and zoom.";
 ---
 
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <Analytics />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
+  <BaseHead title={title} description={description} path="/examples/flatmap/" image="/og/flatmap.png" />
   <style>
     html, body { background: #04060b; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
     body { display: flex; overflow: hidden; }

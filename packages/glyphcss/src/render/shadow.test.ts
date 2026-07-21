@@ -227,4 +227,53 @@ describe("shadow map", () => {
 
     expect(rasterize(ctxSelf)).not.toBe(rasterize(ctxBaseline));
   });
+
+  it("perspective-correct: a big receiver quad shadows the same cells as a tessellated one", () => {
+    // The light-space (u,v,depth) sampled per cell must be interpolated
+    // perspective-correctly. On a small triangle affine ≈ perspective-correct,
+    // but a big receiver quad under a perspective camera warps the shadow if the
+    // UVs are interpolated affinely (screen-space). A finely tessellated ground
+    // is affine-safe, so it's the ground truth: the big single quad must land
+    // the shadow in the same cells. (Before the fix these diverged badly.)
+    const cube = makeCubePolygons(3); // hovering caster so the shadow falls on open ground
+    const nc = cube.length;
+    const light = { direction: [0.5, -0.3, 0.8] as Vec3, intensity: 1 };
+    const cam = createGlyphPerspectiveCamera({ rotX: 66, rotY: 20, zoom: 90, distance: 14 });
+    const grid = { cols: 90, rows: 46, cellAspect: 2 };
+
+    const bigGround: Polygon[] = [
+      { vertices: [[-24, -24, 0], [24, -24, 0], [24, 24, 0]], color: "#888888" },
+      { vertices: [[-24, -24, 0], [24, 24, 0], [-24, 24, 0]], color: "#888888" },
+    ];
+    const tessGround: Polygon[] = [];
+    for (let x = -24; x < 24; x += 4) for (let y = -24; y < 24; y += 4) {
+      tessGround.push({ vertices: [[x, y, 0], [x + 4, y, 0], [x + 4, y + 4, 0], [x, y + 4, 0]], color: "#888888" });
+    }
+
+    const shadowedCells = (ground: Polygon[]): Set<string> => {
+      const all = [...cube, ...ground];
+      const n = all.length;
+      const cast = new Array(n).fill(false); for (let i = 0; i < nc; i++) cast[i] = true;
+      const receive = new Array(n).fill(false); for (let i = nc; i < n; i++) receive[i] = true;
+      const common = { camera: cam, grid, polygons: all, mode: "solid" as const, directionalLight: light, ambientLight: AMB_LIGHT, useColors: false };
+      const base = rasterize(buildRasterizeContext(common)).split("\n");
+      const shad = rasterize(buildRasterizeContext({ ...common, shadow: { opacity: 0.85, lift: 0.06 }, castShadowFlags: cast, receiveShadowFlags: receive })).split("\n");
+      const set = new Set<string>();
+      for (let r = 0; r < grid.rows; r++) for (let c = 0; c < grid.cols; c++) {
+        if (base[r]?.[c] !== undefined && base[r]![c] !== shad[r]?.[c]) set.add(`${r},${c}`);
+      }
+      return set;
+    };
+
+    const big = shadowedCells(bigGround);
+    const tess = shadowedCells(tessGround);
+
+    expect(tess.size).toBeGreaterThan(5); // there is a real shadow to compare
+    let intersection = 0;
+    for (const key of big) if (tess.has(key)) intersection++;
+    const union = big.size + tess.size - intersection;
+    // Perspective-correct → the big quad lands the shadow where the tessellated
+    // reference does. Affine interpolation would drop this Jaccard far below 0.7.
+    expect(intersection / union).toBeGreaterThan(0.7);
+  });
 });

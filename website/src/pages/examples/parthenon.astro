@@ -1,0 +1,1337 @@
+---
+import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
+import DocsHeader from "../../components/DocsHeader.astro";
+import BaseHead from "../../components/BaseHead.astro";
+const title = "glyphcss · Parthenon";
+const description = "The Parthenon — octastyle Doric peripteral temple built from glyphcss primitives, rendered as ASCII with green Matrix rain flowing down its columns. Orbit by default, or switch to first-person and walk the colonnade.";
+---
+
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} path="/examples/parthenon/" image="/og/parthenon.png" />
+  <style>
+    html, body { background: #010604; color: #d8ffe4; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
+    body { display: flex; overflow: hidden; }
+    .ex-layout { position: fixed; inset: var(--sl-nav-height, 72px) 0 0; display: flex; min-width: 0; }
+    .ex-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .map-shell { flex: 1; display: flex; flex-direction: column; }
+    .map-head { padding: 24px 32px 12px; border-bottom: 1px solid rgba(0, 255, 102, 0.14); }
+    .map-head h1 { margin: 0; font-size: 22px; color: rgba(214, 255, 228, 0.94); font-weight: 600; letter-spacing: 0.04em; }
+    .map-head p { margin: 6px 0 0; font-size: 13px; color: rgba(160, 232, 184, 0.55); }
+    .map-stage { flex: 1; min-height: 0; position: relative; }
+    /* touch-action:none on the HOST — the .glyph-output <pre> is created by the
+       runtime and lacks the Astro scope class, so a rule on it never matches.
+       As an ancestor this makes the temple drag-to-orbit instead of scrolling
+       the page on touch. */
+    .temple-host {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      touch-action: none;
+      background: radial-gradient(circle at 50% 62%, rgba(0, 70, 32, 0.22), transparent 55%), #010604;
+    }
+    .temple-host .glyph-output { touch-action: none; text-shadow: 0 0 7px rgba(0, 255, 102, 0.22); cursor: grab; }
+    .temple-host .glyph-output:active { cursor: grabbing; }
+    .temple-host.is-fpv .glyph-output { cursor: crosshair; }
+    /* Marble style: neutral warm-dark backdrop instead of the green matrix haze. */
+    body.temple-marble .temple-host {
+      background: radial-gradient(circle at 50% 60%, rgba(92, 80, 58, 0.16), transparent 55%), #0a0908;
+    }
+    body.temple-marble .temple-host .glyph-output { text-shadow: 0 0 6px rgba(255, 240, 214, 0.14); }
+    .temple-host.is-fpv .glyph-output:active { cursor: crosshair; }
+
+    /* ── Floating-right control dock — copied from /examples/flatmap so every
+       example page shares the same chrome language (amber-on-dark, sky-blue
+       accent), independent of each page's own render palette. ── */
+    .iso-controls {
+      position: absolute; top: 14px; right: 14px; z-index: 10;
+      width: 220px; padding: 12px 14px;
+      background: rgba(8,12,18,0.86); backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,232,184,0.18);
+      font-size: 11px; color: rgba(255,232,184,0.7);
+      max-height: calc(100% - 28px); overflow-y: auto;
+    }
+    .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
+    .iso-ctl-toggle { display: none; }
+    @media (max-width: 50rem) {
+      .iso-ctl-toggle {
+        display: block;
+        position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
+        min-height: 44px; padding: 0 12px;
+        background: rgba(8,12,18,0.94); color: rgba(255,232,184,0.9);
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        font: 600 13px/1 ui-monospace, "JetBrains Mono", monospace;
+        letter-spacing: 0.04em; cursor: pointer;
+        backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      }
+      .iso-controls {
+        top: auto; right: 0; left: 0; bottom: 44px; z-index: 30;
+        width: auto; max-height: 55vh; overflow-y: auto;
+        border: none; border-top: 1px solid rgba(255,232,184,0.18);
+        display: none;
+      }
+      .iso-controls.is-open { display: block; }
+    }
+    .iso-ctl { margin-bottom: 11px; }
+    .iso-ctl:last-child { margin-bottom: 0; }
+    /* Marble style renders the plain solid temple — hide the matrix-only rows. */
+    .iso-controls.is-marble .matrix-only { display: none; }
+    /* Environment toggles only apply to marble (sky/clouds/ground/hills). */
+    .iso-controls .marble-only { display: none; }
+    .iso-controls.is-marble .marble-only { display: block; }
+    .env-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .env-seg button {
+      font: 600 11px/1 ui-monospace, "JetBrains Mono", monospace;
+      padding: 6px 4px; border: 1px solid rgba(255,232,184,0.18); border-radius: 4px;
+      background: rgba(255,232,184,0.04); color: rgba(255,232,184,0.5);
+      cursor: pointer; letter-spacing: 0.03em; text-transform: lowercase;
+    }
+    .env-seg button.active { background: rgba(56,189,248,0.16); border-color: rgba(56,189,248,0.6); color: #d8ecff; }
+    .iso-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+    .iso-ctl-row .val { color: rgba(255,232,184,0.95); }
+    .iso-ctl input[type="range"] {
+      width: 100%; height: 3px; -webkit-appearance: none; appearance: none;
+      background: rgba(255,232,184,0.2); outline: none; cursor: pointer;
+    }
+    .iso-ctl input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; width: 12px; height: 12px;
+      background: #38bdf8; border: 1px solid rgba(255,255,255,0.4); cursor: pointer;
+    }
+    .iso-ctl input[type="range"]::-moz-range-thumb {
+      width: 12px; height: 12px; background: #38bdf8; border: 1px solid rgba(255,255,255,0.4); cursor: pointer; border-radius: 0;
+    }
+    .iso-seg { display: flex; gap: 4px; }
+    .iso-seg button {
+      flex: 1; padding: 4px 0; font: inherit; font-size: 10px;
+      background: transparent; color: rgba(255,232,184,0.55);
+      border: 1px solid rgba(255,232,184,0.2); cursor: pointer;
+    }
+    .iso-seg button.active { color: rgba(255,232,184,0.98); border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.08); }
+    .iso-check { display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+    .iso-check input { accent-color: #38bdf8; cursor: pointer; }
+    .iso-ctl select {
+      width: 100%; font: inherit; font-size: 11px; padding: 3px 4px;
+      background: #0b1018; color: rgba(255,232,184,0.9);
+      border: 1px solid rgba(255,232,184,0.2); cursor: pointer;
+    }
+    /* Color swatch input — same treatment as the city-lab example's mono-color
+       control, scoped under the .iso-ctl namespace here. */
+    .iso-color {
+      display: block; width: 100%; height: 26px; box-sizing: border-box;
+      padding: 2px; border: 1px solid rgba(255,232,184,0.2); border-radius: 0;
+      background: rgba(3,5,10,0.76); cursor: pointer;
+    }
+    .iso-color::-webkit-color-swatch-wrapper { padding: 0; }
+    .iso-color::-webkit-color-swatch { border: 0; }
+    .iso-color::-moz-color-swatch { border: 0; }
+  </style>
+</head>
+<body>
+  <DocsHeader />
+  <div class="ex-layout">
+    <ExamplesSidebar active="parthenon" />
+    <div class="ex-main">
+      <div class="map-shell">
+        <header class="map-head">
+          <h1>[ PARTHENON · MATRIX ]</h1>
+          <p>The Parthenon as an octastyle Doric peripteral temple — three crepidoma steps, an 8 × 17 colonnade, entablature, cornice, triangular pediments, and a walkable interior: porch columns, cella doorways, the naos colonnade, and a golden Athena Parthenos — built from glyphcss primitives while green Matrix rain from @glyphcss/effects streams down every surface. Orbit by default — drag to orbit, scroll to zoom. Switch to FPV in the dock to walk in: click the render to capture the mouse, WASD to walk (the steps carry you up onto the stylobate — go through the east door), Space to jump, Esc to release.</p>
+        </header>
+        <div class="map-stage">
+          <div class="temple-host" id="temple-host"></div>
+          <button class="iso-ctl-toggle" type="button" id="ctl-toggle" aria-expanded="false" aria-controls="iso-controls">[ Controls ]</button>
+          <div class="iso-controls" id="iso-controls">
+            <h2>[ CONTROLS ]</h2>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>style</span></div>
+              <div class="iso-seg" id="style-seg">
+                <button type="button" data-style="matrix" class="active">matrix</button>
+                <button type="button" data-style="marble">marble</button>
+              </div>
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>camera</span></div>
+              <div class="iso-seg" id="camera-seg">
+                <button type="button" data-camera="orbit" class="active">orbit</button>
+                <button type="button" data-camera="fpv">fpv</button>
+              </div>
+            </div>
+            <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>density</span><span class="val" id="density-val">1.00</span></div>
+              <input type="range" id="density" min="0.5" max="3" step="0.05" value="1" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>environment</span></div>
+              <div class="env-seg" id="env-seg">
+                <button type="button" data-env="sky" class="active">sky</button>
+                <button type="button" data-env="clouds" class="active">clouds</button>
+                <button type="button" data-env="floor" class="active">ground</button>
+                <button type="button" data-env="hills" class="active">hills</button>
+              </div>
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>cloud size</span><span class="val" id="cloud-size-val">1.00</span></div>
+              <input type="range" id="cloud-size" min="0.5" max="3" step="0.05" value="1" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>cloud cover</span><span class="val" id="cloud-cover-val">0.46</span></div>
+              <input type="range" id="cloud-cover" min="0" max="1" step="0.02" value="0.46" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>cloud drift</span><span class="val" id="cloud-drift-val">1.00</span></div>
+              <input type="range" id="cloud-drift" min="0" max="3" step="0.05" value="1" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>sun azimuth</span><span class="val" id="sun-az-val">340</span></div>
+              <input type="range" id="sun-az" min="0" max="360" step="5" value="340" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>sun height</span><span class="val" id="sun-elev-val">38</span></div>
+              <input type="range" id="sun-elev" min="5" max="85" step="2" value="38" />
+            </div>
+            <div class="iso-ctl matrix-only">
+              <div class="iso-ctl-row"><span>matrix scale</span><span class="val" id="scale-val">0.50</span></div>
+              <input type="range" id="scale" min="0.05" max="3" step="0.05" value="0.5" />
+            </div>
+            <div class="iso-ctl matrix-only">
+              <div class="iso-ctl-row"><span>speed min</span><span class="val" id="speed-min-val">5</span></div>
+              <input type="range" id="speed-min" min="0" max="40" step="0.25" value="5" />
+            </div>
+            <div class="iso-ctl matrix-only">
+              <div class="iso-ctl-row"><span>speed max</span><span class="val" id="speed-max-val">13</span></div>
+              <input type="range" id="speed-max" min="0" max="40" step="0.25" value="13" />
+            </div>
+            <div class="iso-ctl matrix-only">
+              <div class="iso-ctl-row"><span>trail</span><span class="val" id="trail-val">13</span></div>
+              <input type="range" id="trail" min="1" max="64" step="1" value="13" />
+            </div>
+            <div class="iso-ctl matrix-only">
+              <div class="iso-ctl-row"><span>streams</span><span class="val" id="rain-density-val">0.38</span></div>
+              <input type="range" id="rain-density" min="0.02" max="1" step="0.01" value="0.38" />
+            </div>
+            <div class="iso-ctl matrix-only">
+              <div class="iso-ctl-row"><span>color mode</span></div>
+              <div class="iso-seg" id="color-mode-seg">
+                <button type="button" data-color-mode="monochrome" class="active">mono</button>
+                <button type="button" data-color-mode="original">original</button>
+              </div>
+            </div>
+            <div class="iso-ctl matrix-only" id="mono-color-row">
+              <div class="iso-ctl-row"><span>mono color</span><span class="val" id="mono-color-val">#00FF66</span></div>
+              <input class="iso-color" type="color" id="mono-color" value="#00ff66" aria-label="Monochrome rain color" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    import {
+      createGlyphFirstPersonControls,
+      createGlyphOrbitControls,
+      createGlyphPerspectiveCamera,
+      createGlyphScene,
+      defineGlyphEffect,
+    } from "glyphcss";
+    import type { Polygon } from "glyphcss";
+    import { GlyphEffects } from "@glyphcss/effects";
+
+    // ── Procedural Parthenon (Z-up, ~meters) ─────────────────────────────
+    // Real proportions: 69.5 m × 30.9 m stylobate, 8 × 17 Doric peristyle
+    // (corner columns shared → 46), ~10.4 m columns, entablature + cornice,
+    // low triangular pediments over both octastyle fronts.
+    const STEP_COLOR = "#4f8f66";
+    const STYLOBATE_COLOR = "#5da272";
+    const COLUMN_COLOR = "#7ccf92";
+    const CAPITAL_COLOR = "#8fdfa3";
+    const CELLA_COLOR = "#3f7050";
+    const CEILING_COLOR = "#1b3829";
+    const ENTABLATURE_COLOR = "#68b57e";
+    const CORNICE_COLOR = "#7fcc93";
+    const ROOF_COLOR = "#549a69";
+    const PEDIMENT_COLOR = "#9dedb0";
+    const GOLD = "#c2a44e";
+    const GOLD_LIGHT = "#d8bd68";
+    const IVORY = "#e8dca6";
+
+    const L = 69.5; // stylobate length (X)
+    const W = 30.9; // stylobate width (Y)
+    const STEP_H = 0.55;
+    const STEP_EXTEND = 1.5;
+    const COL_MARGIN = 1.9; // column axis inset from the stylobate edge
+    const SHAFT_H = 9.6;
+    const SHAFT_RB = 1.0;
+    const SHAFT_RT = 0.78;
+    const ECHINUS_H = 0.35;
+    const ABACUS_H = 0.4;
+    const COL_H = SHAFT_H + ECHINUS_H + ABACUS_H;
+    const ENT_H = 3.1;
+    const CORNICE_H = 0.7;
+    const PED_H = 4.7;
+    const STYLOBATE_TOP = 3 * STEP_H;
+
+    // Cella (naos) shell — real walls with doorways, not a solid block.
+    const CELLA_HX = 24; // half-length
+    const CELLA_HY = 9.5; // half-width
+    const WALL_T = 1.2;
+    const WALL_H = COL_H;
+    const WALL_IN = CELLA_HY - WALL_T; // inner face of the side walls
+    const END_IN = CELLA_HX - WALL_T; // inner face of the end walls
+    const DOOR_HW = 2.5; // door half-width
+    const DOOR_H = 8;
+
+    // Interior layout: a solid cross-wall splits the cella into the naos
+    // (east, with the statue) and the opisthodomos treasury (west, entered
+    // only from the west porch) — as in the real building.
+    const PARTITION_X = -16.2;
+    const STATUE_X = -9;
+    const PLINTH_HALF = 3.8;
+
+    function quad(polys: Polygon[], color: string, pts: [number, number, number][]): void {
+      polys.push({ vertices: pts, color });
+    }
+
+    function boxAt(
+      polys: Polygon[],
+      sideColor: string,
+      topColor: string,
+      cx: number,
+      cy: number,
+      z0: number,
+      w: number,
+      d: number,
+      h: number,
+    ): void {
+      const x0 = cx - w / 2, x1 = cx + w / 2;
+      const y0 = cy - d / 2, y1 = cy + d / 2;
+      const z1 = z0 + h;
+      quad(polys, topColor, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]);
+      quad(polys, sideColor, [[x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1]]);
+      quad(polys, sideColor, [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]]);
+      quad(polys, sideColor, [[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]]);
+      quad(polys, sideColor, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]);
+    }
+
+    function frustum(
+      polys: Polygon[],
+      color: string,
+      cx: number,
+      cy: number,
+      z0: number,
+      rb: number,
+      rt: number,
+      h: number,
+      sides: number,
+    ): void {
+      const z1 = z0 + h;
+      for (let k = 0; k < sides; k++) {
+        const a0 = (k / sides) * Math.PI * 2;
+        const a1 = ((k + 1) / sides) * Math.PI * 2;
+        quad(polys, color, [
+          [cx + rb * Math.cos(a0), cy + rb * Math.sin(a0), z0],
+          [cx + rb * Math.cos(a1), cy + rb * Math.sin(a1), z0],
+          [cx + rt * Math.cos(a1), cy + rt * Math.sin(a1), z1],
+          [cx + rt * Math.cos(a0), cy + rt * Math.sin(a0), z1],
+        ]);
+      }
+    }
+
+    // Every column records a circular footprint here so FPV can collide with
+    // it (round columns don't fit the AABB blockers used for the walls).
+    const columnColliders: Array<[number, number, number]> = [];
+
+    function column(
+      polys: Polygon[],
+      cx: number,
+      cy: number,
+      z0: number,
+      scale = 1,
+      sides = 8,
+    ): void {
+      const rb = SHAFT_RB * scale, rt = SHAFT_RT * scale;
+      columnColliders.push([cx, cy, rb]);
+      frustum(polys, COLUMN_COLOR, cx, cy, z0, rb, rt, SHAFT_H, sides);
+      frustum(polys, CAPITAL_COLOR, cx, cy, z0 + SHAFT_H, rt, 1.15 * scale, ECHINUS_H, sides);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, z0 + SHAFT_H + ECHINUS_H, 2.3 * scale, 2.3 * scale, ABACUS_H);
+    }
+
+    // Interior naos column — slim and two-tiered like the real double-story
+    // Doric screen: lower shaft, band, upper shaft, capital block.
+    function naosColumn(polys: Polygon[], cx: number, cy: number): void {
+      columnColliders.push([cx, cy, 0.8]);
+      frustum(polys, COLUMN_COLOR, cx, cy, STYLOBATE_TOP, 0.8, 0.66, 5.3, 6);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, STYLOBATE_TOP + 5.3, 1.7, 1.7, 0.3);
+      frustum(polys, COLUMN_COLOR, cx, cy, STYLOBATE_TOP + 5.6, 0.62, 0.5, 4, 6);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, STYLOBATE_TOP + 9.6, 1.4, 1.4, 0.35);
+    }
+
+    // Vertical N-gon disc in the XZ plane (Athena's shield).
+    function discXZ(polys: Polygon[], color: string, cx: number, cy: number, cz: number, r: number, t: number): void {
+      const sides = 8;
+      const front: [number, number, number][] = [];
+      const back: [number, number, number][] = [];
+      for (let k = 0; k < sides; k++) {
+        const a = (k / sides) * Math.PI * 2;
+        front.push([cx + r * Math.cos(a), cy + t / 2, cz + r * Math.sin(a)]);
+        back.push([cx + r * Math.cos(a), cy - t / 2, cz + r * Math.sin(a)]);
+      }
+      polys.push({ vertices: front, color });
+      polys.push({ vertices: back, color });
+    }
+
+    // Cella end wall (at cx = ±(CELLA_HX − WALL_T/2)) with a central doorway
+    // and a protruding jamb-and-lintel door frame on the outer face.
+    function endWallWithDoor(polys: Polygon[], cx: number): void {
+      const segD = CELLA_HY - DOOR_HW;
+      const segCy = DOOR_HW + segD / 2;
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, cx, -segCy, STYLOBATE_TOP, WALL_T, segD, WALL_H);
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, cx, segCy, STYLOBATE_TOP, WALL_T, segD, WALL_H);
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, cx, 0, STYLOBATE_TOP + DOOR_H, WALL_T, DOOR_HW * 2, WALL_H - DOOR_H);
+      const face = Math.sign(cx) * CELLA_HX;
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, face, -(DOOR_HW + 0.35), STYLOBATE_TOP, 0.7, 0.7, DOOR_H + 0.5);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, face, DOOR_HW + 0.35, STYLOBATE_TOP, 0.7, 0.7, DOOR_H + 0.5);
+      boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, face, 0, STYLOBATE_TOP + DOOR_H + 0.5, 0.75, (DOOR_HW + 0.7) * 2, 0.7);
+    }
+
+    // Doric frieze: 92 triglyphs — flat proud quads on the entablature faces
+    // (14 per front, 32 per flank, like the real metope count).
+    function triglyphs(polys: Polygon[], entZ: number): void {
+      const hx = (L - 0.6) / 2, hy = (W - 0.6) / 2;
+      const zLo = entZ + 1.6, zHi = entZ + 2.9;
+      const color = "#3f7050";
+      for (let i = 0; i < 14; i++) {
+        const y = -hy + ((i + 0.5) * (hy * 2)) / 14;
+        for (const s of [1, -1]) {
+          const fx = s * (hx + 0.06);
+          quad(polys, color, [[fx, y - 0.42, zLo], [fx, y + 0.42, zLo], [fx, y + 0.42, zHi], [fx, y - 0.42, zHi]]);
+        }
+      }
+      for (let i = 0; i < 32; i++) {
+        const x = -hx + ((i + 0.5) * (hx * 2)) / 32;
+        for (const s of [1, -1]) {
+          const fy = s * (hy + 0.06);
+          quad(polys, color, [[x - 0.42, fy, zLo], [x + 0.42, fy, zLo], [x + 0.42, fy, zHi], [x - 0.42, fy, zHi]]);
+        }
+      }
+    }
+
+    // Pediment sculpture groups: dark figure silhouettes standing in each
+    // tympanum, tallest at the apex like the real east pediment.
+    function pedimentFigures(polys: Polygon[], baseZ: number): void {
+      const groups: Array<[number, number, number]> = [
+        [0, 1.9, 3.4], [3.4, 1.6, 2.5], [-3.4, 1.6, 2.5], [6.6, 1.3, 1.7], [-6.6, 1.3, 1.7],
+      ];
+      for (const s of [1, -1]) {
+        const fx = s * ((L + 1.4) / 2 + 0.06);
+        for (const [y, w, h] of groups) {
+          quad(polys, STEP_COLOR, [
+            [fx, y - w / 2, baseZ], [fx, y + w / 2, baseZ],
+            [fx, y + w / 2, baseZ + h], [fx, y - w / 2, baseZ + h],
+          ]);
+        }
+      }
+    }
+
+    // Stylized chryselephantine Athena Parthenos, facing +X (the east door).
+    // Built for silhouette at ASCII resolution: flaring peplos, waist,
+    // widening chest, a shoulder slab (the "T" that makes her read as a
+    // figure), ivory head under a crested helmet, right arm extended with a
+    // winged Nike, left arm dropping to a great shield, spear at her side.
+    function athenaParthenos(polys: Polygon[]): void {
+      const x = STATUE_X;
+      // Plinth + pedestal.
+      boxAt(polys, STEP_COLOR, STEP_COLOR, x, 0, STYLOBATE_TOP, 7.6, 7.6, 0.5);
+      boxAt(polys, STYLOBATE_COLOR, STYLOBATE_COLOR, x, 0, STYLOBATE_TOP + 0.5, 6, 6, 0.85);
+      const z0 = STYLOBATE_TOP + 1.35; // her feet
+      // Peplos skirt (A-line), waist, chest widening to the shoulders.
+      frustum(polys, GOLD, x, 0, z0, 1.5, 1.0, 4.6, 12);
+      frustum(polys, GOLD_LIGHT, x, 0, z0 + 4.6, 0.95, 1.15, 2.2, 12);
+      // Shoulder slab — wider across Y than the chest.
+      boxAt(polys, GOLD, GOLD_LIGHT, x, 0, z0 + 6.8, 1.15, 2.75, 0.6);
+      // Neck + ivory head (egg) + helmet cap and crest.
+      frustum(polys, IVORY, x, 0, z0 + 7.4, 0.3, 0.28, 0.35, 6);
+      frustum(polys, IVORY, x, 0, z0 + 7.75, 0.34, 0.46, 0.35, 8);
+      frustum(polys, IVORY, x, 0, z0 + 8.1, 0.46, 0.26, 0.5, 8);
+      frustum(polys, GOLD, x, 0, z0 + 8.35, 0.5, 0.3, 0.45, 8);
+      boxAt(polys, GOLD_LIGHT, GOLD_LIGHT, x, 0, z0 + 8.85, 1.7, 0.18, 0.55);
+      // Right arm (her right = −Y) extended forward, Nike on the palm.
+      boxAt(polys, GOLD, GOLD, x + 0.4, -1.35, z0 + 6.3, 1.1, 0.42, 0.42);
+      boxAt(polys, IVORY, IVORY, x + 1.6, -1.35, z0 + 6.15, 1.9, 0.36, 0.36);
+      frustum(polys, IVORY, x + 2.4, -1.35, z0 + 6.5, 0.2, 0.12, 0.7, 6);
+      // Nike's wings: two small triangles in the YZ plane.
+      polys.push({
+        vertices: [[x + 2.4, -1.42, z0 + 6.75], [x + 2.4, -2.1, z0 + 7.5], [x + 2.4, -1.42, z0 + 7.1]],
+        color: IVORY,
+      });
+      polys.push({
+        vertices: [[x + 2.4, -1.28, z0 + 6.75], [x + 2.4, -0.6, z0 + 7.5], [x + 2.4, -1.28, z0 + 7.1]],
+        color: IVORY,
+      });
+      // Left arm dropping to the shield rim.
+      boxAt(polys, GOLD, GOLD, x + 0.1, 1.35, z0 + 5.4, 0.42, 0.5, 1.6);
+      // The great shield, resting upright at her left; brighter boss discs.
+      discXZ(polys, GOLD, x - 0.2, 2.15, z0 + 1.9, 1.9, 0.3);
+      discXZ(polys, GOLD_LIGHT, x - 0.2, 2.32, z0 + 1.9, 0.8, 0.1);
+      // Spear leaning at her left shoulder.
+      boxAt(polys, GOLD, GOLD, x - 0.9, 2.0, z0, 0.24, 0.24, 9.4);
+      frustum(polys, IVORY, x - 0.78, 2.12, z0 + 9.4, 0.22, 0.03, 0.6, 4);
+    }
+
+    function gableRoof(polys: Polygon[], length: number, width: number, z0: number, apexH: number): void {
+      const x0 = -length / 2, x1 = length / 2;
+      const y0 = -width / 2, y1 = width / 2;
+      const z1 = z0 + apexH;
+      quad(polys, ROOF_COLOR, [[x0, y0, z0], [x1, y0, z0], [x1, 0, z1], [x0, 0, z1]]);
+      quad(polys, ROOF_COLOR, [[x0, y1, z0], [x1, y1, z0], [x1, 0, z1], [x0, 0, z1]]);
+      // Pediment tympanum triangles above both octastyle fronts.
+      polys.push({ vertices: [[x0, y0, z0], [x0, y1, z0], [x0, 0, z1]], color: PEDIMENT_COLOR });
+      polys.push({ vertices: [[x1, y0, z0], [x1, y1, z0], [x1, 0, z1]], color: PEDIMENT_COLOR });
+    }
+
+    function buildParthenon(): Polygon[] {
+      const polys: Polygon[] = [];
+      // Crepidoma: three steps up to the stylobate.
+      for (let i = 0; i < 3; i++) {
+        const extend = (2 - i) * STEP_EXTEND;
+        const color = i === 2 ? STYLOBATE_COLOR : STEP_COLOR;
+        boxAt(polys, color, color, 0, 0, i * STEP_H, L + extend * 2, W + extend * 2, STEP_H);
+      }
+      // Peristyle: 8 × 17 columns around the perimeter (corners shared → 46).
+      const nFront = 8, nSide = 17;
+      const cy0 = -(W / 2 - COL_MARGIN), cy1 = W / 2 - COL_MARGIN;
+      const cx0 = -(L / 2 - COL_MARGIN), cx1 = L / 2 - COL_MARGIN;
+      for (let i = 0; i < nFront; i++) {
+        const y = cy0 + (i * (cy1 - cy0)) / (nFront - 1);
+        column(polys, cx0, y, STYLOBATE_TOP);
+        column(polys, cx1, y, STYLOBATE_TOP);
+      }
+      for (let i = 1; i < nSide - 1; i++) {
+        const x = cx0 + (i * (cx1 - cx0)) / (nSide - 1);
+        column(polys, x, cy0, STYLOBATE_TOP);
+        column(polys, x, cy1, STYLOBATE_TOP);
+      }
+      // Pronaos / opisthodomos: six prostyle porch columns before each door.
+      for (let i = 0; i < 6; i++) {
+        const y = -8.4 + (i * 16.8) / 5;
+        column(polys, CELLA_HX + 4.4, y, STYLOBATE_TOP, 0.92);
+        column(polys, -(CELLA_HX + 4.4), y, STYLOBATE_TOP, 0.92);
+      }
+      // Cella shell: two side walls + end walls pierced by doorways, and a
+      // flat naos ceiling under the roof volume.
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, 0, CELLA_HY - WALL_T / 2, STYLOBATE_TOP, CELLA_HX * 2, WALL_T, WALL_H);
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, 0, -(CELLA_HY - WALL_T / 2), STYLOBATE_TOP, CELLA_HX * 2, WALL_T, WALL_H);
+      endWallWithDoor(polys, CELLA_HX - WALL_T / 2);
+      endWallWithDoor(polys, -(CELLA_HX - WALL_T / 2));
+      const ceilZ = STYLOBATE_TOP + WALL_H - 0.02;
+      polys.push({
+        vertices: [
+          [-CELLA_HX, -CELLA_HY, ceilZ], [CELLA_HX, -CELLA_HY, ceilZ],
+          [CELLA_HX, CELLA_HY, ceilZ], [-CELLA_HX, CELLA_HY, ceilZ],
+        ],
+        color: CEILING_COLOR,
+      });
+      // Solid cross-wall: naos (east) / opisthodomos treasury (west) — the
+      // two rooms never connected inside the real building either.
+      boxAt(polys, CELLA_COLOR, CELLA_COLOR, PARTITION_X, 0, STYLOBATE_TOP, WALL_T, WALL_IN * 2, WALL_H);
+      // Interior colonnades: the naos two-tier Π around the statue, plus the
+      // opisthodomos' own pair.
+      for (let i = 0; i < 8; i++) {
+        const x = -13.5 + i * 4.5;
+        naosColumn(polys, x, 5.9);
+        naosColumn(polys, x, -5.9);
+      }
+      for (const y of [-2.9, 2.9]) naosColumn(polys, -13.9, y);
+      naosColumn(polys, -19.8, -3);
+      naosColumn(polys, -19.8, 3);
+      athenaParthenos(polys);
+      // Entablature (architrave + triglyph frieze), cornice, gable roof with
+      // pediment figures and acroteria.
+      const entZ = STYLOBATE_TOP + COL_H;
+      boxAt(polys, ENTABLATURE_COLOR, ENTABLATURE_COLOR, 0, 0, entZ, L - 0.6, W - 0.6, ENT_H);
+      triglyphs(polys, entZ);
+      boxAt(polys, CORNICE_COLOR, CORNICE_COLOR, 0, 0, entZ + ENT_H, L + 1.4, W + 1.4, CORNICE_H);
+      const roofZ = entZ + ENT_H + CORNICE_H;
+      gableRoof(polys, L + 1.4, W + 1.4, roofZ, PED_H);
+      pedimentFigures(polys, roofZ);
+      for (const sx of [1, -1]) {
+        boxAt(polys, CORNICE_COLOR, CORNICE_COLOR, sx * 34.7, 0, roofZ + PED_H - 0.25, 1, 1, 1.15);
+        for (const sy of [1, -1]) {
+          boxAt(polys, CORNICE_COLOR, CORNICE_COLOR, sx * 34.9, sy * 15.6, roofZ, 0.9, 0.9, 1);
+        }
+      }
+      return polys;
+    }
+
+    // Ground height under a world XY — lets the first-person eye climb the
+    // three crepidoma steps and stand on the stylobate (no physics engine,
+    // just "which step footprint am I inside?").
+    function groundHeightAt(x: number, y: number): number {
+      for (let i = 2; i >= 0; i--) {
+        const extend = (2 - i) * STEP_EXTEND;
+        if (Math.abs(x) <= (L + extend * 2) / 2 && Math.abs(y) <= (W + extend * 2) / 2) {
+          return (i + 1) * STEP_H;
+        }
+      }
+      return 0;
+    }
+
+    // Walkthrough blockers (2D AABBs, inflated by a small player radius):
+    // cella walls (the doorways are the gaps between them), the naos/treasury
+    // partition, and the statue plinth. Columns are solid too, but as circles
+    // (see resolveCollision) — the colonnade gaps stay wider than the player,
+    // so you walk between columns, not through them.
+    const PLAYER_R = 0.45;
+    const BLOCKERS: Array<[number, number, number, number]> = [
+      [-CELLA_HX, CELLA_HX, WALL_IN, CELLA_HY],
+      [-CELLA_HX, CELLA_HX, -CELLA_HY, -WALL_IN],
+      [END_IN, CELLA_HX, DOOR_HW, CELLA_HY],
+      [END_IN, CELLA_HX, -CELLA_HY, -DOOR_HW],
+      [-CELLA_HX, -END_IN, DOOR_HW, CELLA_HY],
+      [-CELLA_HX, -END_IN, -CELLA_HY, -DOOR_HW],
+      [PARTITION_X - WALL_T / 2, PARTITION_X + WALL_T / 2, -WALL_IN, WALL_IN],
+      [STATUE_X - PLINTH_HALF, STATUE_X + PLINTH_HALF, -PLINTH_HALF, PLINTH_HALF],
+    ];
+
+    function resolveCollision(x: number, y: number): [number, number] | null {
+      for (const [x0, x1, y0, y1] of BLOCKERS) {
+        const bx0 = x0 - PLAYER_R, bx1 = x1 + PLAYER_R;
+        const by0 = y0 - PLAYER_R, by1 = y1 + PLAYER_R;
+        if (x <= bx0 || x >= bx1 || y <= by0 || y >= by1) continue;
+        const pushLeft = x - bx0, pushRight = bx1 - x;
+        const pushDown = y - by0, pushUp = by1 - y;
+        const min = Math.min(pushLeft, pushRight, pushDown, pushUp);
+        if (min === pushLeft) return [bx0, y];
+        if (min === pushRight) return [bx1, y];
+        if (min === pushDown) return [x, by0];
+        return [x, by1];
+      }
+      // Round columns: push the player radially out to the shaft's edge.
+      for (const [cx, cy, r] of columnColliders) {
+        const dx = x - cx, dy = y - cy;
+        const rr = r + PLAYER_R;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr) continue;
+        const d = Math.sqrt(d2);
+        if (d === 0) return [cx + rr, cy];
+        return [cx + (dx / d) * rr, cy + (dy / d) * rr];
+      }
+      return null;
+    }
+
+    // ── Mount ─────────────────────────────────────────────────────────────
+    type CameraMode = "orbit" | "fpv";
+
+    // Orbit: pulled back to frame the whole ~70×31 m temple at a 3/4 angle.
+    // `distance` (a CSS-px pull-back applied only to the perspective-divide
+    // Z register, decoupled from `zoom`'s on-screen X/Y scale — see
+    // createGlyphCamera's perspective `project()`) is what keeps the near/far
+    // spread across the building's footprint small relative to the camera's
+    // focal length, so the whole colonnade reads without edge distortion.
+    const ORBIT_TARGET: [number, number, number] = [0, 0, 6.5];
+    const ORBIT_DEFAULT = { rotX: 80, rotY: 40, zoom: 14, distance: 2000, perspective: 4200 };
+    // FPV: the original walkthrough spawn — unchanged from the first cut of
+    // this page. Perspective 1000 ≈ a natural ~65° walking FOV.
+    const FPV_ROT = { rotX: 91, rotY: 351 };
+    const FPV_ZOOM = 50;
+    const FPV_PERSPECTIVE = 1000;
+    const FPV_ORIGIN: [number, number, number] = [88, -10, 1.7];
+
+    function mountParthenon(): void {
+      const host = document.getElementById("temple-host") as HTMLDivElement | null;
+      if (!host) return;
+
+      const camera = createGlyphPerspectiveCamera({
+        rotX: FPV_ROT.rotX,
+        rotY: FPV_ROT.rotY,
+        zoom: FPV_ZOOM,
+        perspective: FPV_PERSPECTIVE,
+      });
+
+      const scene = createGlyphScene(host, {
+        camera,
+        autoSize: true,
+        mode: "solid",
+        useColors: true,
+        glyphPalette: "default",
+        doubleSided: true,
+        directionalLight: { direction: [0.65, -0.25, 0.55], intensity: 1.3, color: "#eafff0" },
+        ambientLight: { intensity: 0.62, color: "#bdeccb" },
+      });
+
+      const BASE_FONT_SIZE = 9;
+      function setDensity(density: number): void {
+        const next = Math.max(0.1, density);
+        scene.output.style.fontSize = `${BASE_FONT_SIZE / next}px`;
+        scene.output.style.lineHeight = "1";
+        scene.fit();
+      }
+      setDensity(1);
+
+      // Triplanar UVs from world position: gives every face authored UVs at a
+      // single isotropic scale, so the Matrix effect (space:"auto") maps in
+      // world/UV space (anchored to the surface, no camera swim) AND at a
+      // uniform 1-glyph-wide strand density — the auto-generated surface path
+      // is coarse (GENERATED_SURFACE_PITCH) and renders strands several cells
+      // wide, which the scale slider can't compensate. K sets strand pitch.
+      const TRI_UV_K = 0.019;
+      const addTriplanarUvs = (polys: Polygon[]): Polygon[] => polys.map((p) => {
+        const v = p.vertices;
+        const ax = v[1]![0] - v[0]![0], ay = v[1]![1] - v[0]![1], az = v[1]![2] - v[0]![2];
+        const bx = v[2]![0] - v[0]![0], by = v[2]![1] - v[0]![1], bz = v[2]![2] - v[0]![2];
+        const nx = Math.abs(ay * bz - az * by), ny = Math.abs(az * bx - ax * bz), nz = Math.abs(ax * by - ay * bx);
+        // Vertical faces put world -Z on the V axis so direction:"down" falls
+        // downward (Z is up in this world); horizontal faces map X/Y.
+        const uvs = v.map((w): [number, number] =>
+          nz >= nx && nz >= ny ? [w[0]! * TRI_UV_K, w[1]! * TRI_UV_K]      // horizontal → XY
+            : nx >= ny ? [w[1]! * TRI_UV_K, -w[2]! * TRI_UV_K]             // x-facing → Y,-Z
+              : [w[0]! * TRI_UV_K, -w[2]! * TRI_UV_K]);                    // y-facing → X,-Z
+        return { ...p, uvs };
+      });
+      const templePolygons = addTriplanarUvs(buildParthenon());
+
+      // Two palettes over the temple geometry: the green "matrix" theme, and a
+      // weathered Pentelic-marble "marble" theme. Athena's gold/ivory
+      // (#c2a44e/#d8bd68/#e8dca6) pass through unchanged.
+      const MARBLE_MAP: Record<string, string> = {
+        "#4f8f66": "#a99e86", // steps
+        "#5da272": "#c6bca3", // stylobate
+        "#7ccf92": "#e2d8c1", // column shafts
+        "#8fdfa3": "#ece3cf", // capitals
+        "#3f7050": "#b0a58c", // cella walls / frieze
+        "#1b3829": "#58513f", // naos ceiling
+        "#68b57e": "#d6cbb2", // entablature
+        "#7fcc93": "#e4dac2", // cornice
+        "#549a69": "#beb299", // roof
+        "#9dedb0": "#efe7d3", // pediments
+        "#bdeccb": "#f0e9d8", // light accents
+      };
+      const matrixTemple = templePolygons;
+      const marbleTemple = templePolygons.map((p) => ({ ...p, color: MARBLE_MAP[p.color!] ?? p.color }));
+
+      // Ground: matrix uses a bounded dark plaza (keeps surface rain from
+      // flooding the viewport); marble uses a wide warm-earth terrain the
+      // distant hills sit on.
+      const GROUND_MATRIX: Polygon[] = addTriplanarUvs([{
+        vertices: [[-110, -75, -0.02], [110, -75, -0.02], [110, 75, -0.02], [-110, 75, -0.02]],
+        color: "#142c1f",
+      }]);
+      // grassy green, light enough that the cast shadow reads against it.
+      const GROUND_MARBLE: Polygon[] = [{
+        vertices: [[-360, -320, -0.02], [360, -320, -0.02], [360, 320, -0.02], [-360, 320, -0.02]],
+        color: "#5a6b34",
+      }];
+
+      // Distant hills — a deterministic ring of low hazy cones on the horizon,
+      // so the land reads behind the temple rather than a flat void. Hazy blue
+      // for atmospheric depth (marble only).
+      const rnd = (n: number) => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+      const HILLS: Polygon[] = (() => {
+        const h: Polygon[] = [];
+        const N = 20, R = 150;
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2;
+          const j = rnd(i + 1);
+          frustum(h, "#46566e", Math.cos(a) * (R + j * 45), Math.sin(a) * (R + j * 45), -3, 34 + j * 30, 3, 26 + j * 40, 6);
+        }
+        return h;
+      })();
+
+      // Skydome: the sky is REAL geometry (a large inward hemisphere), so the
+      // cloud effect maps onto its own surface and the renderer projects it
+      // like anything else — anchored to the world with zero camera math. The
+      // dome is far (radius SKY_R), so temple/ground/hills occlude it.
+      const SKY_R = 900;
+      const SKYDOME: Polygon[] = (() => {
+        const polys: Polygon[] = [];
+        const SEG = 44, RING = 16;
+        const v = (p: number, a: number): [number, number, number] =>
+          [SKY_R * Math.cos(p) * Math.cos(a), SKY_R * Math.cos(p) * Math.sin(a), SKY_R * Math.sin(p)];
+        for (let ri = 0; ri < RING; ri++) {
+          const p0 = (ri / RING) * (Math.PI / 2), p1 = ((ri + 1) / RING) * (Math.PI / 2);
+          for (let si = 0; si < SEG; si++) {
+            const a0 = (si / SEG) * Math.PI * 2, a1 = ((si + 1) / SEG) * Math.PI * 2;
+            polys.push({ vertices: [v(p0, a0), v(p0, a1), v(p1, a1), v(p1, a0)], color: "#4a7bb0" });
+          }
+        }
+        return polys;
+      })();
+
+      // Shadow casters/receivers (only render when the scene `shadow` option is
+      // set, i.e. marble mode): the temple casts AND receives so it self-shadows
+      // — columns, roof, walls and the statue shade each other and the interior;
+      // the ground receives the temple's cast shadow.
+      const meshHandle = scene.add(matrixTemple, { castShadow: true, receiveShadow: true });
+      const groundHandle = scene.add(GROUND_MATRIX, { receiveShadow: true });
+      const hillsHandle = scene.add([]);
+      const skyHandle = scene.add([]);
+
+      // ── Sky + clouds effect: runs in the dome's OWN surface space. Each cell
+      // is coloured by the dome point's world elevation (blue gradient) and a
+      // value-noise cloud layer sampled in world azimuth/elevation — never in
+      // screen space — so it's camera-independent. Clouds drift slowly over
+      // `time` only. Foreground geometry (nearer than the dome) is skipped.
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      const cloudField = (x: number, y: number) =>
+        (Math.sin(x * 3.4 + y * 1.5) + Math.sin(x * 1.9 - y * 2.3)
+          + Math.sin(x * 5.7 + y * 1.1) + Math.sin(y * 3.0 + x)) * 0.125 + 0.5;
+      const CLOUD_RAMP = ".:-=+*oO#%@";
+      const skyProgram = defineGlyphEffect<{ time: number; sky: number; clouds: number; size: number; cover: number; drift: number; sunX: number; sunY: number; sunZ: number }>({
+        requirements: ["worldPosition"],
+        evaluate(ctx) {
+          if (ctx.params.sky <= 0.5) return;
+          const wp = ctx.base.worldPosition;
+          if (!wp) return;
+          const cloudsOn = ctx.params.clouds > 0.5;
+          // size → bigger blobs (lower sampling frequency); cover → how much of
+          // the sky is cloud (lower threshold); drift → azimuth scroll speed.
+          const freq = 1 / Math.max(0.2, ctx.params.size);
+          const threshold = 0.82 - Math.max(0, Math.min(1, ctx.params.cover)) * 0.6;
+          const span = Math.max(0.05, 1 - threshold);
+          const driftPhase = ctx.params.time * ctx.params.drift * 0.03;
+          const sx = ctx.params.sunX, sy = ctx.params.sunY, sz = ctx.params.sunZ;
+          for (let i = 0; i < ctx.base.length; i++) {
+            if (ctx.base.coverage[i]! <= 0) continue;
+            const wx = wp[i * 3]!, wy = wp[i * 3 + 1]!, wz = wp[i * 3 + 2]!;
+            const dist = Math.hypot(wx, wy, wz);
+            if (dist < SKY_R * 0.6) continue; // only the far dome, not foreground
+            const elev = Math.max(0, Math.min(1, wz / dist)); // 0 horizon .. 1 zenith
+            let r = lerp(0xc6, 0x4f, elev), g = lerp(0xdd, 0x8c, elev), b = lerp(0xef, 0xd2, elev);
+            let glyph = "`";
+            // Sun disc + glow at the directional-light direction (drawn under
+            // the clouds, so cloud cells cover it → "sun behind the clouds").
+            const dot = (wx * sx + wy * sy + wz * sz) / dist;
+            const ang = Math.acos(Math.max(-1, Math.min(1, dot)));
+            if (ang < 0.55) {
+              const t = 1 - ang / 0.55;
+              const core = t * t;
+              glyph = core > 0.5 ? "@" : core > 0.22 ? "#" : core > 0.08 ? "*" : "+";
+              const w = 0.45 + 0.55 * core;
+              r = lerp(r, 0xff, w); g = lerp(g, 0xf3, w); b = lerp(b, 0xcc, w * 0.7);
+            }
+            if (cloudsOn) {
+              const az = Math.atan2(wy, wx);
+              const n = cloudField(az * freq + driftPhase, elev * 2 * freq);
+              if (n > threshold) {
+                const d = Math.min(1, (n - threshold) / span);
+                glyph = CLOUD_RAMP[Math.min(CLOUD_RAMP.length - 1, (d * CLOUD_RAMP.length) | 0)]!;
+                const w = 0.4 + 0.6 * d;
+                r = lerp(r, 0xf4, w); g = lerp(g, 0xf6, w); b = lerp(b, 0xff, w);
+              }
+            }
+            ctx.output.glyph[i] = glyph;
+            ctx.output.color[i] = (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+            ctx.output.coverage[i] = 1;
+            ctx.output.channels[i]! |= 3;
+          }
+        },
+      });
+      const skyLayer = scene.addEffectLayer({
+        effect: skyProgram,
+        target: "surfaces",
+        blend: "over",
+        enabled: false,
+        params: { time: 0, sky: 1, clouds: 1, size: 1, cover: 0.46, drift: 1, sunX: 0.6, sunY: -0.22, sunZ: 0.6 },
+      });
+
+      // ── Camera controls: ORBIT (default) / FPV, one perspective camera
+      // shared between both — switching just resets its state and swaps
+      // which control handle is attached. Matrix rain keeps animating in
+      // both modes (its own rAF loop below, independent of camera mode).
+      let mode: CameraMode = "orbit";
+
+      function applyOrbitDefault(): void {
+        camera.perspective = ORBIT_DEFAULT.perspective;
+        camera.distance = ORBIT_DEFAULT.distance;
+        camera.zoom = ORBIT_DEFAULT.zoom;
+        camera.rotX = ORBIT_DEFAULT.rotX;
+        camera.rotY = ORBIT_DEFAULT.rotY;
+        camera.target = ORBIT_TARGET;
+      }
+
+      const fpv = createGlyphFirstPersonControls(scene, {
+        moveSpeed: 9,
+        jumpVelocity: 6,
+        gravity: 16,
+        eyeHeight: 1.7,
+        crouchHeight: 0.9,
+        groundZ: 0,
+      });
+      fpv.setOrigin(FPV_ORIGIN);
+      fpv.pause();
+
+      const orbitControls = createGlyphOrbitControls(scene, { drag: true, wheel: true, clampPitch: true });
+
+      // fpv's own setup (initializeOriginFromTarget) stamps camera.target
+      // before we pause it — reassert the orbit defaults now that it's inert.
+      applyOrbitDefault();
+      scene.rerender();
+
+      const cameraSeg = document.getElementById("camera-seg");
+      function updateCameraSeg(): void {
+        cameraSeg?.querySelectorAll("button").forEach((button) => {
+          button.classList.toggle("active", (button as HTMLElement).dataset.camera === mode);
+        });
+        host.classList.toggle("is-fpv", mode === "fpv");
+      }
+      updateCameraSeg();
+
+      function setMode(next: CameraMode): void {
+        if (next === mode) return;
+        mode = next;
+        if (next === "orbit") {
+          fpv.pause();
+          applyOrbitDefault();
+          orbitControls.resume();
+        } else {
+          orbitControls.pause();
+          camera.perspective = FPV_PERSPECTIVE;
+          camera.distance = 0;
+          camera.zoom = FPV_ZOOM;
+          camera.rotX = FPV_ROT.rotX;
+          camera.rotY = FPV_ROT.rotY;
+          fpv.resume();
+          fpv.setOrigin(FPV_ORIGIN);
+        }
+        scene.rerender();
+        updateCameraSeg();
+      }
+
+      cameraSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-camera]") as HTMLElement | null;
+        if (!btn) return;
+        setMode(btn.dataset.camera as CameraMode);
+        scheduleWrite();
+      });
+
+      // Fix: FPV's built-in pointer-lock trigger listens for a native `click`
+      // on the host. Because the matrix-rain effect layer rewrites the base
+      // <pre>'s colored spans every animation frame, a mousedown that lands
+      // on a glyph span is very likely to have that exact DOM node replaced
+      // before mouseup — and browsers never fire `click` when its target was
+      // detached mid-press. That reproduces as "clicking the background
+      // works, clicking the temple doesn't" (the background is host itself,
+      // stable; the temple is inside the <pre>, rewritten every frame).
+      // `pointerdown` fires synchronously at press time, before any frame can
+      // rewrite the target, so route pointer-lock through it instead — this
+      // is a page-level workaround; the underlying fragility (any FPV scene
+      // with a per-frame effect layer) lives in createGlyphFirstPersonControls'
+      // use of `click` and would be a good candidate for an upstream fix.
+      host.addEventListener("pointerdown", () => {
+        if (mode === "fpv" && !fpv.isLocked()) {
+          try { fpv.lock(); } catch { /* ignore */ }
+        }
+      });
+
+      // Matrix rain over the temple surfaces: green monochrome code flowing
+      // down each face (space: "surface" derives per-face downhill directions,
+      // so strands run down the columns, steps, and pediment alike).
+      const rain = scene.addEffectLayer({
+        effect: GlyphEffects.matrixRain,
+        blend: "over",
+        target: "surfaces",
+        params: {
+          glyphs: "ΠΑΡΘΕΝΩΝΑΘΗΝΑ01",
+          direction: "down",
+          space: "auto",
+          scale: 0.5,
+          speedMin: 5,
+          speedMax: 13,
+          trail: 13,
+          density: 0.38,
+          seed: 7,
+          colorMode: "monochrome",
+          color: "#00ff66",
+          headColor: "#e8ffe8",
+        },
+      });
+
+      // ── Control dock wiring ───────────────────────────────────────────
+      const $ = (id: string) => document.getElementById(id);
+      const ctlToggle = $("ctl-toggle");
+      const ctlPanel = $("iso-controls");
+      ctlToggle?.addEventListener("click", () => {
+        const open = ctlPanel?.classList.toggle("is-open") ?? false;
+        ctlToggle.setAttribute("aria-expanded", String(open));
+        ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+      });
+
+      // Style: "matrix" (green mesh + rain) vs "marble" (plain solid stone
+      // render, effect disabled, matrix-only controls hidden).
+      let style: "matrix" | "marble" = "matrix";
+      // Marble-only environment toggles (sky/clouds/ground/hills).
+      const env = { sky: true, clouds: true, floor: true, hills: true };
+      const styleSeg = $("style-seg");
+      const envSeg = $("env-seg");
+      // The scene's default lights are green-tinted for the matrix theme, which
+      // would cast the marble cream green. Marble mode swaps in warm daylight +
+      // a cool sky fill so the stone reads as stone.
+      const MATRIX_LIGHTS = {
+        directionalLight: { direction: [0.65, -0.25, 0.55] as [number, number, number], intensity: 1.3, color: "#eafff0" },
+        ambientLight: { intensity: 0.62, color: "#bdeccb" },
+      };
+      const MARBLE_LIGHTS = {
+        directionalLight: { direction: [0.65, -0.25, 0.55] as [number, number, number], intensity: 1.55, color: "#fff4e2" },
+        ambientLight: { intensity: 0.42, color: "#b4bccb" },
+      };
+      // Shadows render only when the scene `shadow` option is set (marble mode).
+      const SHADOW_OPTS = { color: "#0b0a05", opacity: 0.55, lift: 0.16, maxExtend: 400 };
+
+      // One sun/light direction (azimuth + elevation) drives the directional
+      // light, the sky's sun disc, and the shadow direction together.
+      const sun = { az: 340, elev: 38 };
+      function sunDir(): [number, number, number] {
+        const a = sun.az * Math.PI / 180, e = sun.elev * Math.PI / 180;
+        return [Math.cos(e) * Math.cos(a), Math.cos(e) * Math.sin(a), Math.sin(e)];
+      }
+      function applySun(): void {
+        const d = sunDir();
+        MARBLE_LIGHTS.directionalLight.direction = d;
+        skyLayer.params.sunX = d[0]; skyLayer.params.sunY = d[1]; skyLayer.params.sunZ = d[2];
+        if (style === "marble") {
+          scene.setOptions({ directionalLight: MARBLE_LIGHTS.directionalLight });
+          scene.rerender();
+        }
+      }
+      function applyEnv(): void {
+        const marble = style === "marble";
+        groundHandle.setPolygons(marble ? (env.floor ? GROUND_MARBLE : []) : GROUND_MATRIX);
+        hillsHandle.setPolygons(marble && env.hills ? HILLS : []);
+        skyHandle.setPolygons(marble && env.sky ? SKYDOME : []);
+        skyLayer.enabled = marble;
+        skyLayer.params.sky = marble && env.sky ? 1 : 0;
+        skyLayer.params.clouds = marble && env.clouds ? 1 : 0;
+        envSeg?.querySelectorAll("[data-env]").forEach((b) => {
+          const k = (b as HTMLElement).dataset.env as keyof typeof env;
+          b.classList.toggle("active", env[k]);
+        });
+      }
+      envSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-env]") as HTMLElement | null;
+        if (!btn) return;
+        const key = btn.dataset.env as keyof typeof env;
+        env[key] = !env[key];
+        applyEnv();
+        scene.rerender();
+        scheduleWrite();
+      });
+
+      const bindCloud = (id: string, valId: string, key: "size" | "cover" | "drift") => {
+        const input = $(id) as HTMLInputElement | null;
+        const valEl = $(valId);
+        input?.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          skyLayer.params[key] = v;
+          if (valEl) valEl.textContent = v.toFixed(2);
+          scene.rerender();
+        });
+      };
+      bindCloud("cloud-size", "cloud-size-val", "size");
+      bindCloud("cloud-cover", "cloud-cover-val", "cover");
+      bindCloud("cloud-drift", "cloud-drift-val", "drift");
+
+      const bindSun = (id: string, valId: string, key: "az" | "elev") => {
+        const input = $(id) as HTMLInputElement | null;
+        const valEl = $(valId);
+        input?.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          sun[key] = v;
+          if (valEl) valEl.textContent = String(Math.round(v));
+          applySun();
+        });
+      };
+      bindSun("sun-az", "sun-az-val", "az");
+      bindSun("sun-elev", "sun-elev-val", "elev");
+      applySun(); // seed the sky sun disc + light direction from the default sun
+      function applyStyle(next: "matrix" | "marble"): void {
+        style = next;
+        meshHandle.setPolygons(next === "marble" ? marbleTemple : matrixTemple);
+        rain.enabled = next === "matrix";
+        scene.setOptions(next === "marble"
+          ? { ...MARBLE_LIGHTS, shadow: SHADOW_OPTS }
+          : { ...MATRIX_LIGHTS, shadow: undefined });
+        applyEnv();
+        ctlPanel?.classList.toggle("is-marble", next === "marble");
+        document.body.classList.toggle("temple-marble", next === "marble");
+        styleSeg?.querySelectorAll("button").forEach((b) =>
+          b.classList.toggle("active", (b as HTMLElement).dataset.style === next));
+        scene.rerender();
+      }
+      styleSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-style]") as HTMLElement | null;
+        if (!btn) return;
+        applyStyle(btn.dataset.style as "matrix" | "marble");
+        scheduleWrite();
+      });
+
+      const densityInput = $("density") as HTMLInputElement | null;
+      const densityVal = $("density-val");
+      densityInput?.addEventListener("input", () => {
+        const density = parseFloat(densityInput.value) || 1;
+        if (densityVal) densityVal.textContent = density.toFixed(2);
+        setDensity(density);
+        scene.rerender();
+      });
+
+      const bindRainRange = (
+        id: string,
+        valId: string,
+        key: "scale" | "speedMin" | "speedMax" | "trail" | "density",
+        fmt: (v: number) => string,
+        onChange?: (v: number) => void,
+      ) => {
+        const input = $(id) as HTMLInputElement | null;
+        const valEl = $(valId);
+        input?.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          rain.params[key] = v;
+          if (valEl) valEl.textContent = fmt(v);
+          onChange?.(v);
+        });
+      };
+      const speedMinInput = $("speed-min") as HTMLInputElement | null;
+      const speedMaxInput = $("speed-max") as HTMLInputElement | null;
+      bindRainRange("scale", "scale-val", "scale", (v) => v.toFixed(2));
+      bindRainRange("speed-min", "speed-min-val", "speedMin", (v) => v.toFixed(2).replace(/\.?0+$/, ""), (v) => {
+        // matrixRain requires speedMax >= speedMin — keep the pair valid live.
+        if (speedMaxInput && v > parseFloat(speedMaxInput.value)) {
+          speedMaxInput.value = String(v);
+          rain.params.speedMax = v;
+          const maxVal = $("speed-max-val");
+          if (maxVal) maxVal.textContent = v.toFixed(2).replace(/\.?0+$/, "");
+        }
+      });
+      bindRainRange("speed-max", "speed-max-val", "speedMax", (v) => v.toFixed(2).replace(/\.?0+$/, ""), (v) => {
+        if (speedMinInput && v < parseFloat(speedMinInput.value)) {
+          speedMinInput.value = String(v);
+          rain.params.speedMin = v;
+          const minVal = $("speed-min-val");
+          if (minVal) minVal.textContent = v.toFixed(2).replace(/\.?0+$/, "");
+        }
+      });
+      bindRainRange("trail", "trail-val", "trail", (v) => String(Math.round(v)));
+      bindRainRange("rain-density", "rain-density-val", "density", (v) => v.toFixed(2));
+
+      const colorModeSeg = $("color-mode-seg");
+      const monoColorRow = $("mono-color-row");
+      function updateMonoColorVisibility(): void {
+        if (monoColorRow) monoColorRow.hidden = rain.params.colorMode !== "monochrome";
+      }
+      colorModeSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-color-mode]") as HTMLElement | null;
+        if (!btn) return;
+        const value = btn.dataset.colorMode as "monochrome" | "original";
+        rain.params.colorMode = value;
+        colorModeSeg.querySelectorAll("button").forEach((b) =>
+          b.classList.toggle("active", (b as HTMLElement).dataset.colorMode === value));
+        updateMonoColorVisibility();
+        scheduleWrite();
+      });
+      updateMonoColorVisibility();
+
+      const monoColorInput = $("mono-color") as HTMLInputElement | null;
+      const monoColorVal = $("mono-color-val");
+      monoColorInput?.addEventListener("input", () => {
+        rain.params.color = monoColorInput.value;
+        if (monoColorVal) monoColorVal.textContent = monoColorInput.value.toUpperCase();
+      });
+
+      // ── Sidebar state → tiny base64url hash ───────────────────────────────
+      // Every sidebar control is quantized to its own slider step, then packed
+      // mixed-radix into one integer → bytes → base64url in the URL hash. This
+      // is far smaller than a query string or base64'd JSON: the whole panel
+      // fits in ~12 characters. Field order below is the wire format — changing
+      // it invalidates old links (no back-compat, by project policy).
+      const numSpecs = [
+        { el: densityInput, min: 0.5, step: 0.05, count: 51 },
+        { el: $("scale") as HTMLInputElement | null, min: 0.05, step: 0.05, count: 60 },
+        { el: speedMinInput, min: 0, step: 0.25, count: 161 },
+        { el: speedMaxInput, min: 0, step: 0.25, count: 161 },
+        { el: $("trail") as HTMLInputElement | null, min: 1, step: 1, count: 64 },
+        { el: $("rain-density") as HTMLInputElement | null, min: 0.02, step: 0.01, count: 99 },
+        { el: $("cloud-size") as HTMLInputElement | null, min: 0.5, step: 0.05, count: 51 },
+        { el: $("cloud-cover") as HTMLInputElement | null, min: 0, step: 0.02, count: 51 },
+        { el: $("cloud-drift") as HTMLInputElement | null, min: 0, step: 0.05, count: 61 },
+        { el: $("sun-az") as HTMLInputElement | null, min: 0, step: 5, count: 73 },
+        { el: $("sun-elev") as HTMLInputElement | null, min: 5, step: 2, count: 41 },
+      ];
+      const clampIdx = (i: number, count: number) => Math.max(0, Math.min(count - 1, i));
+
+      // FPV position/look are only packed when the camera is in first-person,
+      // so orbit links stay ~12 chars and fpv links grow by ~7. Position is
+      // quantized to 0.25 m over ±256 m; look angles to 1°. Z is recomputed
+      // from the ground each frame, so only X/Y and pitch/yaw are stored.
+      const POS_MIN = -256, POS_STEP = 0.25, POS_COUNT = 2048, ANG_COUNT = 360;
+      const posIdx = (v: number) => clampIdx(Math.round((v - POS_MIN) / POS_STEP), POS_COUNT);
+      const posVal = (i: number) => POS_MIN + i * POS_STEP;
+      const angIdx = (v: number) => (((Math.round(v) % 360) + 360) % 360);
+
+      interface SidebarState {
+        nums: number[];
+        camera: number;
+        colorMode: number;
+        color: number;
+        style: number;
+        env: number;
+        fpv: { x: number; y: number; pitch: number; yaw: number } | null;
+      }
+
+      function readState(): SidebarState {
+        const nums = numSpecs.map((s) =>
+          clampIdx(Math.round(((parseFloat(s.el?.value ?? "0") || 0) - s.min) / s.step), s.count));
+        const cameraBit = mode === "fpv" ? 1 : 0;
+        const colorMode = rain.params.colorMode === "original" ? 1 : 0;
+        const color = parseInt((monoColorInput?.value ?? "#00ff66").slice(1), 16) & 0xffffff;
+        let fpvState: SidebarState["fpv"] = null;
+        if (cameraBit === 1) {
+          const [x, y] = fpv.getOrigin();
+          fpvState = { x, y, pitch: camera.rotX, yaw: camera.rotY };
+        }
+        const envBits = (env.sky ? 1 : 0) | (env.clouds ? 2 : 0) | (env.floor ? 4 : 0) | (env.hills ? 8 : 0);
+        return { nums, camera: cameraBit, colorMode, color, style: style === "marble" ? 1 : 0, env: envBits, fpv: fpvState };
+      }
+
+      function encodeState(st: SidebarState): string {
+        let n = 0n;
+        for (let i = 0; i < numSpecs.length; i++) n = n * BigInt(numSpecs[i]!.count) + BigInt(st.nums[i]!);
+        n = n * 2n + BigInt(st.colorMode);
+        n = n * 0x1000000n + BigInt(st.color);
+        n = n * 2n + BigInt(st.style);
+        n = n * 16n + BigInt(st.env);
+        if (st.camera === 1 && st.fpv) {
+          n = n * BigInt(POS_COUNT) + BigInt(posIdx(st.fpv.x));
+          n = n * BigInt(POS_COUNT) + BigInt(posIdx(st.fpv.y));
+          n = n * BigInt(ANG_COUNT) + BigInt(angIdx(st.fpv.pitch));
+          n = n * BigInt(ANG_COUNT) + BigInt(angIdx(st.fpv.yaw));
+        }
+        n = n * 2n + BigInt(st.camera);
+        const bytes: number[] = [];
+        for (let m = n; m > 0n; m >>= 8n) bytes.unshift(Number(m & 0xffn));
+        if (!bytes.length) bytes.push(0);
+        return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function decodeState(str: string): SidebarState | null {
+        try {
+          const bin = atob(str.replace(/-/g, "+").replace(/_/g, "/"));
+          let n = 0n;
+          for (let i = 0; i < bin.length; i++) n = (n << 8n) | BigInt(bin.charCodeAt(i));
+          const camera = Number(n % 2n); n /= 2n;
+          let fpv: SidebarState["fpv"] = null;
+          if (camera === 1) {
+            const yaw = Number(n % BigInt(ANG_COUNT)); n /= BigInt(ANG_COUNT);
+            const pitch = Number(n % BigInt(ANG_COUNT)); n /= BigInt(ANG_COUNT);
+            const yi = Number(n % BigInt(POS_COUNT)); n /= BigInt(POS_COUNT);
+            const xi = Number(n % BigInt(POS_COUNT)); n /= BigInt(POS_COUNT);
+            fpv = { x: posVal(xi), y: posVal(yi), pitch, yaw };
+          }
+          const envBits = Number(n % 16n); n /= 16n;
+          const styleBit = Number(n % 2n); n /= 2n;
+          const color = Number(n % 0x1000000n); n /= 0x1000000n;
+          const colorMode = Number(n % 2n); n /= 2n;
+          const nums: number[] = [];
+          for (let i = numSpecs.length - 1; i >= 0; i--) {
+            const c = BigInt(numSpecs[i]!.count);
+            nums[i] = Number(n % c); n /= c;
+          }
+          return { nums, camera, colorMode, color, style: styleBit, env: envBits, fpv };
+        } catch { return null; }
+      }
+
+      let applyingState = false;
+      function applyState(st: SidebarState): void {
+        applyingState = true;
+        // Reuse each control's existing 'input' handler so labels + effect
+        // params stay in sync with the DOM.
+        numSpecs.forEach((s, i) => {
+          if (!s.el) return;
+          s.el.value = String(s.min + st.nums[i]! * s.step);
+          s.el.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        if (monoColorInput) {
+          monoColorInput.value = "#" + st.color.toString(16).padStart(6, "0");
+          monoColorInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        const wantMode = st.colorMode === 1 ? "original" : "monochrome";
+        if (rain.params.colorMode !== wantMode) {
+          (colorModeSeg?.querySelector(`[data-color-mode="${wantMode}"]`) as HTMLElement | null)?.click();
+        }
+        env.sky = !!(st.env & 1);
+        env.clouds = !!(st.env & 2);
+        env.floor = !!(st.env & 4);
+        env.hills = !!(st.env & 8);
+        applyStyle(st.style === 1 ? "marble" : "matrix");
+        applyingState = false;
+        setMode(st.camera === 1 ? "fpv" : "orbit");
+        if (st.camera === 1 && st.fpv) {
+          fpv.setOrigin([st.fpv.x, st.fpv.y, 1.7]);
+          camera.rotX = st.fpv.pitch;
+          camera.rotY = st.fpv.yaw;
+          scene.rerender();
+        }
+      }
+
+      let writeScheduled = false;
+      function writeHash(): void {
+        const encoded = encodeState(readState());
+        const newHash = encoded ? `#${encoded}` : "";
+        if (newHash !== location.hash) {
+          history.replaceState(null, "", `${location.pathname}${location.search}${newHash}`);
+        }
+      }
+      function scheduleWrite(): void {
+        if (applyingState || writeScheduled) return;
+        writeScheduled = true;
+        requestAnimationFrame(() => { writeScheduled = false; writeHash(); });
+      }
+      ctlPanel?.addEventListener("input", scheduleWrite);
+
+      const initialState = location.hash.length > 1 ? decodeState(location.hash.slice(1)) : null;
+      if (initialState) applyState(initialState);
+
+      // ── Frame loop: rain always animates; ground-follow / collision only
+      // matter while walking in FPV.
+      let effectTime = 0;
+      let previous = performance.now();
+      let currentGround = 0;
+      let lastFpvHashWrite = 0;
+      function frame(now: number): void {
+        effectTime += Math.min((now - previous) / 1000, 0.1);
+        previous = now;
+        rain.params.time = effectTime;
+        skyLayer.params.time = effectTime;
+        if (mode === "fpv") {
+          const origin = fpv.getOrigin();
+          let [ox, oy] = origin;
+          const pushed = resolveCollision(ox, oy);
+          if (pushed) {
+            [ox, oy] = pushed;
+            fpv.setOrigin([ox, oy, origin[2]]);
+          }
+          const ground = groundHeightAt(ox, oy);
+          if (ground !== currentGround) {
+            currentGround = ground;
+            fpv.update({ groundZ: ground });
+          }
+          // Persist walk position + look angle, throttled; writeHash no-ops when
+          // the quantized state is unchanged (standing still), so an idle player
+          // never spams history.replaceState.
+          if (now - lastFpvHashWrite > 400) {
+            lastFpvHashWrite = now;
+            writeHash();
+          }
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      // Debug hook for precise camera positioning during iteration.
+      (window as unknown as { __parthenon: unknown }).__parthenon = {
+        camera, scene, orbitControls, fpv, rain, skyLayer, env, setMode,
+        applyOrbitDefault,
+      };
+    }
+
+    mountParthenon();
+  </script>
+</body>
+</html>

@@ -1,19 +1,14 @@
 ---
 import { WordArtWorkbench } from '../components/WordArtWorkbench';
 import DocsHeader from '../components/DocsHeader.astro';
-import Analytics from '../components/Analytics.astro';
+import BaseHead from '../components/BaseHead.astro';
 
 const title = 'WordArt — 3D ASCII text from any font | glyphcss';
 const description = 'Extrude any Google font into 3D text — gradients, block textures, bevels, warps — rasterised to ASCII in a single <pre>. Powered by glyphcss + @glyphcss/fonts.';
 ---
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <Analytics />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <BaseHead title={title} description={description} path="/wordart/" image="/og/wordart.png" />
   </head>
   <body>
     <div class="page">

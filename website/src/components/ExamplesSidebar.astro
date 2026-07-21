@@ -1,6 +1,6 @@
 ---
 interface Props {
-  active: "world" | "flatmap" | "city-lab" | "image";
+  active: "world" | "flatmap" | "city-lab" | "image" | "parthenon";
 }
 const { active } = Astro.props;
 
@@ -9,6 +9,7 @@ const items = [
   { id: "flatmap", label: "Flat Map", href: "/examples/flatmap/", desc: "Iso · Web Mercator" },
   { id: "city-lab", label: "City Lab", href: "/examples/city-lab/", desc: "Procedural · Endless" },
   { id: "image", label: "Image", href: "/examples/image/", desc: "Drop a photo · ASCII" },
+  { id: "parthenon", label: "Parthenon", href: "/examples/parthenon/", desc: "Matrix · Greek temple" },
 ] as const;
 ---
 

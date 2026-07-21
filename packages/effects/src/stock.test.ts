@@ -408,47 +408,90 @@ describe("stock effects", () => {
     expect(activePairs).toBeGreaterThan(0);
   });
 
-  it("uses surface shade for every monochrome rain glyph", () => {
-    const shade = new Float32Array(12 * 6).fill(0.25);
+  it("lights a bright head and fades the tail on every monochrome strand", () => {
+    // Body cells use `color` (green, red channel 0); head cells use `headColor`
+    // (mint, red channel > 0). The red channel therefore separates head from
+    // body, and the green channel measures the head→tail brightness gradient.
     const output = evaluate(matrixRain, {
       colorMode: "monochrome",
-      color: "#804020",
+      color: "#00ff66",
+      headColor: "#e8ffe8",
       space: "scene",
       time: 1.25,
       speedMin: 5,
       speedMax: 5,
       density: 1,
-      trail: 4,
-    }, { shade });
-    const shaded = parseGlyphEffectColor("#201008").packed;
-    const rainColors: number[] = [];
-
+      trail: 8,
+    }, { shade: new Float32Array(12 * 6).fill(1) });
+    const rgb = (packed: number) => ({ r: (packed >>> 16) & 0xff, g: (packed >>> 8) & 0xff, b: packed & 0xff });
+    const active: { r: number; g: number; b: number }[] = [];
     for (let i = 0; i < output.coverage.length; i++) {
       if (output.coverage[i]! <= 0) continue;
       expect(output.channels[i]! & GlyphEffectOutputChannel.Color).toBeTruthy();
-      rainColors.push(output.color[i]!);
+      active.push(rgb(output.color[i]!));
     }
+    const heads = active.filter((c) => c.r > 0);
+    const body = active.filter((c) => c.r === 0);
 
-    expect(rainColors.length).toBeGreaterThan(0);
-    expect(new Set(rainColors)).toEqual(new Set([shaded]));
+    expect(heads.length).toBeGreaterThan(0);
+    expect(body.length).toBeGreaterThan(1);
+    // The tail is a gradient, not one flat green.
+    expect(new Set(body.map((c) => c.g)).size).toBeGreaterThan(1);
+    // The bright head outshines the darkest tail cell.
+    expect(Math.max(...heads.map((c) => c.g))).toBeGreaterThan(Math.min(...body.map((c) => c.g)));
   });
 
-  it("falls back to the selected monochrome color when surface shade is unavailable", () => {
+  it("modulates monochrome brightness by surface shade", () => {
+    const params = {
+      colorMode: "monochrome",
+      color: "#00ff66",
+      space: "scene" as const,
+      time: 1.25,
+      speedMin: 5,
+      speedMax: 5,
+      density: 1,
+      trail: 8,
+    };
+    const green = (output: ReturnType<typeof evaluate>) => {
+      let sum = 0;
+      for (let i = 0; i < output.coverage.length; i++) {
+        if (output.coverage[i]! > 0) sum += (output.color[i]! >>> 8) & 0xff;
+      }
+      return sum;
+    };
+    const dim = evaluate(matrixRain, params, { shade: new Float32Array(12 * 6).fill(0.2) });
+    const bright = evaluate(matrixRain, params, { shade: new Float32Array(12 * 6).fill(1) });
+
+    expect(green(dim)).toBeGreaterThan(0);
+    expect(green(bright)).toBeGreaterThan(green(dim));
+  });
+
+  it("renders monochrome rain from the configured color when surface shade is unavailable", () => {
     const output = evaluate(matrixRain, {
       colorMode: "monochrome",
       color: "#37c96f",
+      headColor: "#d8ffe4",
       space: "scene",
       time: 1.25,
       speedMin: 5,
       speedMax: 5,
       density: 1,
-      trail: 4,
+      trail: 8,
     });
-    const selected = parseGlyphEffectColor("#37c96f").packed;
-    const activeColors = Array.from(output.color).filter((_, index) => output.coverage[index]! > 0);
+    const rgb = (packed: number) => ({ r: (packed >>> 16) & 0xff, g: (packed >>> 8) & 0xff, b: packed & 0xff });
+    const active: { r: number; g: number; b: number }[] = [];
+    for (let i = 0; i < output.coverage.length; i++) {
+      if (output.coverage[i]! > 0) active.push(rgb(output.color[i]!));
+    }
 
-    expect(activeColors.length).toBeGreaterThan(0);
-    expect(new Set(activeColors)).toEqual(new Set([selected]));
+    expect(active.length).toBeGreaterThan(0);
+    // Every cell is a real, green-dominant color (no fall-through to black).
+    for (const c of active) {
+      expect(c.g).toBeGreaterThan(0);
+      expect(c.g).toBeGreaterThanOrEqual(c.r);
+    }
+    // Head + fading tail give more than one brightness level.
+    expect(new Set(active.map((c) => c.g)).size).toBeGreaterThan(1);
   });
 
   it("scales monochrome coverage by the color's alpha channel", () => {

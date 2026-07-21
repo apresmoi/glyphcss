@@ -1,5 +1,5 @@
 ---
-import Analytics from "../../components/Analytics.astro";
+import BaseHead from "../../components/BaseHead.astro";
 import DocsHeader from "../../components/DocsHeader.astro";
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
 import { StatsOverlay } from "../../components/StatsOverlay";
@@ -10,11 +10,7 @@ const description = "A procedural endless city rendered as colored ASCII with a 
 
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <Analytics />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content={description} />
-  <title>{title}</title>
+  <BaseHead title={title} description={description} path="/examples/city-lab/" image="/og/city-lab.png" />
   <style>
     html, body {
       min-height: 100vh;
