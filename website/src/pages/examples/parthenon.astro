@@ -124,6 +124,77 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     .iso-color::-webkit-color-swatch-wrapper { padding: 0; }
     .iso-color::-webkit-color-swatch { border: 0; }
     .iso-color::-moz-color-swatch { border: 0; }
+
+    /* ── Keyboard hints — a monospace chip next to controls that have a
+       shortcut (M toggles style, C toggles camera), plus a WASD/ESC legend
+       that only shows while walking in FPV. ── */
+    .iso-ctl-row .keys { display: flex; gap: 3px; }
+    kbd.key {
+      display: inline-block; min-width: 12px; padding: 1px 4px;
+      font: 600 9px/1.4 ui-monospace, "JetBrains Mono", monospace;
+      text-align: center; color: rgba(255,232,184,0.82);
+      background: rgba(255,232,184,0.06); border: 1px solid rgba(255,232,184,0.22);
+      border-radius: 3px; box-shadow: 0 1px 0 rgba(0,0,0,0.4);
+    }
+    /* The FPV legend row is hidden until the camera enters first-person. */
+    .fpv-hint { display: none; }
+    body.temple-fpv .fpv-hint { display: block; }
+    .fpv-hint .legend { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+    .fpv-hint .legend span { display: flex; align-items: center; gap: 4px; color: rgba(255,232,184,0.55); }
+    /* ESC's meaning flips with pointer-lock: "release" mouselook while locked,
+       "exit" back to orbit otherwise. One row, two labels, toggled by body class. */
+    .fpv-hint .esc-locked, .fpv-hint .esc-unlocked { display: none; }
+    body.temple-fpv .fpv-hint .esc-unlocked { display: flex; }
+    body.temple-fpv.temple-locked .fpv-hint .esc-unlocked { display: none; }
+    body.temple-fpv.temple-locked .fpv-hint .esc-locked { display: flex; }
+
+    /* ── Mobile game pad — a touch controller drawn ON-CANVAS: the joystick
+       and the action buttons are all their own tiny glyph scenes (finer
+       density than the temple). Touch-only, gated by the `is-touch` class that
+       setupGamePad() sets from JS (maxTouchPoints / coarse pointer / mobile UA)
+       — CSS media queries alone proved unreliable, since many phones report
+       `hover: hover`. The joystick only appears in FPV. ── */
+    .game-pad { display: none; }
+    html.is-touch .game-pad {
+      display: block; position: absolute; inset: 0; z-index: 20;
+      pointer-events: none; touch-action: none;
+    }
+    /* Kept laid-out (not display:none) so its glyph scene can measure a real
+       size; hidden by opacity outside FPV, and only interactive while walking. */
+    .game-joy {
+      position: absolute; left: 20px; bottom: 64px;
+      width: 132px; height: 132px; pointer-events: none; touch-action: none;
+      opacity: 0; transition: opacity 0.15s ease;
+    }
+    body.temple-fpv .game-joy { opacity: 1; pointer-events: auto; }
+    .game-joy .glyph-output {
+      text-shadow: 0 0 6px rgba(0,255,102,0.3); user-select: none;
+    }
+    body.temple-marble .game-joy .glyph-output { text-shadow: 0 0 6px rgba(255,240,214,0.2); }
+    .game-btns {
+      position: absolute; right: 20px; bottom: 74px; z-index: 21;
+      display: flex; flex-direction: column; gap: 16px; pointer-events: auto;
+    }
+    /* Each action button is a glyph object (a spinning themed cube) with the
+       key letter overlaid on top. */
+    .game-btn {
+      position: relative; width: 66px; height: 66px; padding: 0;
+      border-radius: 50%; overflow: hidden;
+      background: rgba(6,10,16,0.7); backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,232,184,0.28);
+      cursor: pointer; touch-action: manipulation;
+      box-shadow: 0 2px 14px rgba(0,0,0,0.4);
+    }
+    .game-btn:active { border-color: #38bdf8; box-shadow: 0 0 16px rgba(56,189,248,0.35); }
+    .game-btn .gb-scene { position: absolute; inset: 0; pointer-events: none; }
+    .game-btn .gb-label {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      pointer-events: none; z-index: 2;
+      font: 700 15px/1 ui-monospace, "JetBrains Mono", monospace;
+      letter-spacing: 0.05em; color: rgba(255,255,255,0.96);
+      text-shadow: 0 0 8px rgba(0,0,0,0.85), 0 1px 2px rgba(0,0,0,0.9);
+    }
+    #btn-c .gb-label { font-size: 12px; }
   </style>
 </head>
 <body>
@@ -142,17 +213,25 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
           <div class="iso-controls" id="iso-controls">
             <h2>[ CONTROLS ]</h2>
             <div class="iso-ctl">
-              <div class="iso-ctl-row"><span>style</span></div>
+              <div class="iso-ctl-row"><span>style</span><span class="keys"><kbd class="key">M</kbd></span></div>
               <div class="iso-seg" id="style-seg">
                 <button type="button" data-style="matrix" class="active">matrix</button>
                 <button type="button" data-style="marble">marble</button>
               </div>
             </div>
             <div class="iso-ctl">
-              <div class="iso-ctl-row"><span>camera</span></div>
+              <div class="iso-ctl-row"><span>camera</span><span class="keys"><kbd class="key">C</kbd></span></div>
               <div class="iso-seg" id="camera-seg">
                 <button type="button" data-camera="orbit" class="active">orbit</button>
                 <button type="button" data-camera="fpv">fpv</button>
+              </div>
+            </div>
+            <div class="iso-ctl fpv-hint">
+              <div class="legend">
+                <span><kbd class="key">W</kbd><kbd class="key">A</kbd><kbd class="key">S</kbd><kbd class="key">D</kbd> move</span>
+                <span><kbd class="key">Space</kbd> jump</span>
+                <span class="esc-unlocked"><kbd class="key">click</kbd> look</span>
+                <span class="esc-locked"><kbd class="key">Esc</kbd> release</span>
               </div>
             </div>
             <div class="iso-ctl">
@@ -220,6 +299,19 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
               <input class="iso-color" type="color" id="mono-color" value="#00ff66" aria-label="Monochrome rain color" />
             </div>
           </div>
+          <div class="game-pad" id="game-pad">
+            <div class="game-joy" id="game-joy"></div>
+            <div class="game-btns">
+              <button type="button" class="game-btn" id="btn-m" aria-label="Toggle style">
+                <span class="gb-scene" id="btn-m-scene"></span>
+                <span class="gb-label">M</span>
+              </button>
+              <button type="button" class="game-btn" id="btn-c" aria-label="Toggle camera">
+                <span class="gb-scene" id="btn-c-scene"></span>
+                <span class="gb-label" id="btn-c-label">FPV</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -229,6 +321,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     import {
       createGlyphFirstPersonControls,
       createGlyphOrbitControls,
+      createGlyphOrthographicCamera,
       createGlyphPerspectiveCamera,
       createGlyphScene,
       defineGlyphEffect,
@@ -838,6 +931,9 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       // which control handle is attached. Matrix rain keeps animating in
       // both modes (its own rAF loop below, independent of camera mode).
       let mode: CameraMode = "orbit";
+      // Registered by the mobile game pad; fired on any style/camera change so
+      // the button cubes re-theme and the C label tracks the mode.
+      let syncGamePad: (() => void) | null = null;
 
       function applyOrbitDefault(): void {
         camera.perspective = ORBIT_DEFAULT.perspective;
@@ -872,8 +968,20 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
           button.classList.toggle("active", (button as HTMLElement).dataset.camera === mode);
         });
         host.classList.toggle("is-fpv", mode === "fpv");
+        // Body-level flag drives the sidebar FPV legend and the mobile joystick
+        // (both live outside the temple host).
+        document.body.classList.toggle("temple-fpv", mode === "fpv");
+        if (mode !== "fpv") document.body.classList.remove("temple-locked");
+        syncGamePad?.();
       }
       updateCameraSeg();
+
+      // Pointer-lock state flips the sidebar ESC legend between "release" (unlock
+      // mouselook) and the default "click look" hint.
+      document.addEventListener("pointerlockchange", () => {
+        const locked = document.pointerLockElement === host;
+        document.body.classList.toggle("temple-locked", locked && mode === "fpv");
+      });
 
       function setMode(next: CameraMode): void {
         if (next === mode) return;
@@ -916,11 +1024,63 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       // is a page-level workaround; the underlying fragility (any FPV scene
       // with a per-frame effect layer) lives in createGlyphFirstPersonControls'
       // use of `click` and would be a good candidate for an upstream fix.
-      host.addEventListener("pointerdown", () => {
-        if (mode === "fpv" && !fpv.isLocked()) {
-          try { fpv.lock(); } catch { /* ignore */ }
+      // ── Touch drag-to-look (FPV) ──────────────────────────────────────────
+      // Pointer-lock mouselook is desktop-only, so on touch we turn the camera
+      // by dragging on the temple. The joystick and buttons are their own
+      // sibling elements (not inside the host), so those touches never reach
+      // here — a second finger can look while the first walks (twin-stick).
+      // Mirrors the FPV control's deriveTarget so it composes with WASD:
+      //   target = eye + forward(rotX,rotY) * (perspective / BASE_TILE).
+      const BASE_TILE = 50; // glyphcss authoring unit (see AGENTS.md)
+      const LOOK_SENS = 0.24; // degrees per CSS pixel dragged
+      const FPV_MIN_PITCH = 6, FPV_MAX_PITCH = 174;
+      function applyLook(rotX: number, rotY: number): void {
+        camera.rotX = Math.max(FPV_MIN_PITCH, Math.min(FPV_MAX_PITCH, rotX));
+        camera.rotY = ((rotY % 360) + 360) % 360;
+        const rx = (camera.rotX * Math.PI) / 180, ry = (camera.rotY * Math.PI) / 180;
+        const fx = -Math.sin(rx) * Math.cos(ry), fy = -Math.sin(rx) * Math.sin(ry), fz = -Math.cos(rx);
+        const d = (Number.isFinite(camera.perspective) && camera.perspective > 0 ? camera.perspective : 32000) / BASE_TILE;
+        const o = fpv.getOrigin();
+        camera.target = [o[0] + fx * d, o[1] + fy * d, o[2] + fz * d];
+        scene.rerender();
+      }
+      let lookId: number | null = null, lookX = 0, lookY = 0;
+      const onLookMove = (e: PointerEvent): void => {
+        if (e.pointerId !== lookId) return;
+        e.preventDefault();
+        const dx = e.clientX - lookX, dy = e.clientY - lookY;
+        lookX = e.clientX; lookY = e.clientY;
+        applyLook(camera.rotX - dy * LOOK_SENS, camera.rotY - dx * LOOK_SENS);
+      };
+      const endLook = (e?: PointerEvent): void => {
+        if (lookId === null || (e && e.pointerId !== lookId)) return;
+        lookId = null;
+        window.removeEventListener("pointermove", onLookMove);
+        window.removeEventListener("pointerup", endLook);
+        window.removeEventListener("pointercancel", endLook);
+      };
+      // One host pointerdown handles both look models: mouse → pointer-lock
+      // (see below), touch → drag-to-look via window-level listeners (robust to
+      // the finger leaving the element).
+      host.addEventListener("pointerdown", (e) => {
+        if (mode !== "fpv") return;
+        if (e.pointerType === "mouse") {
+          // FPV's own pointer-lock trigger listens for a native `click`, but the
+          // matrix effect rewrites the <pre> spans every frame, detaching the
+          // mousedown target before mouseup so `click` never fires on the
+          // temple. `pointerdown` fires synchronously at press time, so route
+          // desktop pointer-lock through it instead.
+          if (!fpv.isLocked()) { try { fpv.lock(); } catch { /* ignore */ } }
+          return;
         }
+        if (lookId !== null) return;
+        lookId = e.pointerId; lookX = e.clientX; lookY = e.clientY;
+        window.addEventListener("pointermove", onLookMove, { passive: false });
+        window.addEventListener("pointerup", endLook);
+        window.addEventListener("pointercancel", endLook);
       });
+      window.addEventListener("blur", () => endLook());
+      document.addEventListener("visibilitychange", () => { if (document.hidden) endLook(); });
 
       // Matrix rain over the temple surfaces: green monochrome code flowing
       // down each face (space: "surface" derives per-face downhill directions,
@@ -1055,12 +1215,28 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         styleSeg?.querySelectorAll("button").forEach((b) =>
           b.classList.toggle("active", (b as HTMLElement).dataset.style === next));
         scene.rerender();
+        syncGamePad?.();
       }
       styleSeg?.addEventListener("click", (e) => {
         const btn = (e.target as HTMLElement).closest("[data-style]") as HTMLElement | null;
         if (!btn) return;
         applyStyle(btn.dataset.style as "matrix" | "marble");
         scheduleWrite();
+      });
+
+      // Recording shortcuts: M = toggle matrix/marble, C = toggle orbit/fpv.
+      // (WASD/Space/Ctrl stay reserved for FPV movement.)
+      window.addEventListener("keydown", (e) => {
+        const tag = (e.target as HTMLElement | null)?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || e.metaKey || e.ctrlKey || e.altKey) return;
+        const k = e.key.toLowerCase();
+        if (k === "m") {
+          applyStyle(style === "matrix" ? "marble" : "matrix");
+          scheduleWrite();
+        } else if (k === "c") {
+          setMode(mode === "fpv" ? "orbit" : "fpv");
+          scheduleWrite();
+        }
       });
 
       const densityInput = $("density") as HTMLInputElement | null;
@@ -1291,6 +1467,249 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
 
       const initialState = location.hash.length > 1 ? decodeState(location.hash.slice(1)) : null;
       if (initialState) applyState(initialState);
+
+      // ── Mobile game pad (touch only) ─────────────────────────────────────
+      // A touch controller for phones. Everything is drawn by glyphcss: the
+      // joystick is its own glyph scene (finer density than the temple) driven
+      // by a hand-rolled pointer-drag handler (with pointer capture, so the
+      // drag keeps tracking outside the ring), and each action button is a
+      // spinning themed glyph cube. The joystick feeds synthetic WASD — the FPV
+      // control walks on keysHeld and moves without pointer-lock, which touch
+      // can't grant anyway. M toggles style, C toggles orbit/FPV.
+      setupGamePad();
+      function setupGamePad(): void {
+        // Touch-device gate for the whole pad. Media queries alone are
+        // unreliable (some phones report hover: hover), so combine the touch
+        // signals; `?pad=1`/`?pad=0` in the URL force it on/off for testing.
+        const padParam = new URLSearchParams(location.search).get("pad");
+        const isTouch = padParam === "1" ? true
+          : padParam === "0" ? false
+          : ((navigator.maxTouchPoints ?? 0) > 0
+            || (window.matchMedia?.("(pointer: coarse)").matches ?? false)
+            || /Mobi|Android|iP(hone|od|ad)|Tablet|Touch/i.test(navigator.userAgent));
+        document.documentElement.classList.toggle("is-touch", isTouch);
+
+        // ── Glyph HUD meshes (joystick ring/knob) ──
+        const BASE_R = 1.05, KNOB_R = 0.42, MAX_OFF = BASE_R - KNOB_R;
+        const RING_COLOR = "#41708a", KNOB_COLOR = "#8fe6ff"; // dim + bright cyan UI palette
+        const disc = (cx: number, cy: number, cz: number, r: number, color: string): Polygon[] => {
+          const sides = 20, out: Polygon[] = [];
+          for (let k = 0; k < sides; k++) {
+            const a0 = (k / sides) * Math.PI * 2, a1 = ((k + 1) / sides) * Math.PI * 2;
+            out.push({
+              vertices: [[cx, cy, cz], [cx + r * Math.cos(a0), cy + r * Math.sin(a0), cz], [cx + r * Math.cos(a1), cy + r * Math.sin(a1), cz]],
+              color,
+            });
+          }
+          return out;
+        };
+        // Base ring (annulus) — outlines the joystick bounds so the knob reads
+        // against the scene behind it.
+        const ring = (r0: number, r1: number, color: string): Polygon[] => {
+          const sides = 28, out: Polygon[] = [];
+          for (let k = 0; k < sides; k++) {
+            const a0 = (k / sides) * Math.PI * 2, a1 = ((k + 1) / sides) * Math.PI * 2;
+            out.push({
+              vertices: [
+                [r0 * Math.cos(a0), r0 * Math.sin(a0), 0], [r1 * Math.cos(a0), r1 * Math.sin(a0), 0],
+                [r1 * Math.cos(a1), r1 * Math.sin(a1), 0], [r0 * Math.cos(a1), r0 * Math.sin(a1), 0],
+              ],
+              color,
+            });
+          }
+          return out;
+        };
+        // knobAt(vx,vy): ring + knob offset. This top-down ortho basis maps
+        // world +X → screen-DOWN and +Y → screen-right (measured), so the knob
+        // feeds (-vy, vx): thumb-up (vy>0) → world -X → screen-up, thumb-right
+        // (vx>0) → world +Y → screen-right. The WASD mapping stays (vx, vy).
+        const joyRing = ring(BASE_R * 0.82, BASE_R, RING_COLOR);
+        const knobAt = (vx: number, vy: number): Polygon[] =>
+          joyRing.concat(disc(-vy * MAX_OFF, vx * MAX_OFF, 0.02, KNOB_R, KNOB_COLOR));
+
+        // ── HUD layer (page-local prototype of the future glyphcss feature) ──
+        // Renders a mesh into its own <pre> through a FIXED camera — its own
+        // viewpoint, independent of the temple camera — positioned by the host's
+        // CSS anchor, with optional spin and pointer routing (drag → onDrag(vx,vy),
+        // vx right+/vy up+ unit-clamped; tap handled by the caller). The library
+        // version folds this into the scene as a managed detail-<pre> with a real
+        // anchor system; here the host elements + CSS supply the anchor.
+        interface HudLayer { setPolygons(p: Polygon[]): void; }
+        interface HudOpts {
+          cam: { rotX: number; rotY: number; zoom: number };
+          fontSize: number;
+          lights: { ambient: number; dir: [number, number, number]; dirI: number };
+          polys: Polygon[];
+          spin?: number;              // deg/sec, camera-spun (own viewpoint)
+          onlyWhen?: () => boolean;   // gate drag start (e.g. FPV only)
+          onDrag?: (vx: number, vy: number) => void;
+          onEnd?: () => void;
+        }
+        const spinners: Array<{ cam: { rotY: number }; scene: { rerender(): void }; rate: number }> = [];
+        let spinRunning = false;
+        const startSpin = (): void => {
+          if (spinRunning) return;
+          spinRunning = true;
+          let prev = performance.now();
+          const loop = (now: number): void => {
+            const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
+            for (const s of spinners) { s.cam.rotY = (s.cam.rotY + dt * s.rate) % 360; s.scene.rerender(); }
+            requestAnimationFrame(loop);
+          };
+          requestAnimationFrame(loop);
+        };
+        const makeHudLayer = (hostId: string, opts: HudOpts): HudLayer => {
+          const host = document.getElementById(hostId);
+          let handle: { setPolygons(p: Polygon[]): void } | null = null;
+          let pending = opts.polys;
+          // Build lazily — the host is opacity-hidden / display:none until shown,
+          // so wait for a measured size before creating the scene.
+          if (host && "ResizeObserver" in window) {
+            const ro = new ResizeObserver((entries) => {
+              const box = entries[0]?.contentRect;
+              if (!box || box.width < 8 || box.height < 8 || handle) return;
+              const cam = createGlyphOrthographicCamera(opts.cam);
+              const s = createGlyphScene(host, {
+                camera: cam,
+                autoSize: true,
+                mode: "solid",
+                useColors: true,
+                doubleSided: true,
+                directionalLight: { direction: opts.lights.dir, intensity: opts.lights.dirI, color: "#ffffff" },
+                ambientLight: { intensity: opts.lights.ambient, color: "#ffffff" },
+              });
+              s.output.style.fontSize = `${opts.fontSize}px`;
+              s.output.style.lineHeight = "1";
+              s.fit();
+              handle = s.add(pending);
+              if (opts.spin) { spinners.push({ cam, scene: s, rate: opts.spin }); startSpin(); }
+              ro.disconnect();
+            });
+            ro.observe(host);
+          }
+          // Pointer routing on WINDOW (robust release — element capture on a tiny
+          // pad drops the finger off-ring and sticks the knob; blur / tab-hide
+          // are extra safety resets).
+          if (host && opts.onDrag) {
+            let dragId: number | null = null;
+            const toVec = (cx: number, cy: number): [number, number] => {
+              const r = host.getBoundingClientRect();
+              const half = Math.min(r.width, r.height) / 2;
+              let dx = (cx - (r.left + r.width / 2)) / half;
+              let dy = (cy - (r.top + r.height / 2)) / half;
+              const m = Math.hypot(dx, dy); if (m > 1) { dx /= m; dy /= m; }
+              return [dx, -dy];
+            };
+            const move = (e: PointerEvent): void => {
+              if (e.pointerId !== dragId) return;
+              e.preventDefault();
+              const [vx, vy] = toVec(e.clientX, e.clientY); opts.onDrag!(vx, vy);
+            };
+            const end = (e?: PointerEvent): void => {
+              if (dragId === null || (e && e.pointerId !== dragId)) return;
+              dragId = null;
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", end);
+              window.removeEventListener("pointercancel", end);
+              opts.onEnd?.();
+            };
+            host.addEventListener("pointerdown", (e) => {
+              if (dragId !== null || (opts.onlyWhen && !opts.onlyWhen())) return;
+              dragId = e.pointerId;
+              e.preventDefault();
+              window.addEventListener("pointermove", move, { passive: false });
+              window.addEventListener("pointerup", end);
+              window.addEventListener("pointercancel", end);
+              const [vx, vy] = toVec(e.clientX, e.clientY); opts.onDrag!(vx, vy);
+            });
+            window.addEventListener("blur", () => end());
+            document.addEventListener("visibilitychange", () => { if (document.hidden) end(); });
+          }
+          return { setPolygons(p: Polygon[]): void { pending = p; handle?.setPolygons(p); } };
+        };
+
+        // ── Joystick → synthetic WASD ──
+        const CODES = { W: "KeyW", A: "KeyA", S: "KeyS", D: "KeyD" } as const;
+        const held = new Set<string>();
+        const setKey = (code: string, down: boolean): void => {
+          if (down === held.has(code)) return;
+          if (down) held.add(code); else held.delete(code);
+          const key = { KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d" }[code] ?? "";
+          window.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { code, key, bubbles: true }));
+        };
+        const releaseAll = (): void => { for (const c of [...held]) setKey(c, false); };
+        const DEAD = 0.3;
+
+        // ── Joystick HUD layer ──
+        const joyDir: [number, number, number] = [0, 0, 1];
+        const joy = makeHudLayer("game-joy", {
+          cam: { rotX: 0, rotY: 0, zoom: 52 },
+          fontSize: 6,
+          lights: { ambient: 1, dir: joyDir, dirI: 0.2 },
+          polys: knobAt(0, 0),
+          onlyWhen: () => mode === "fpv",
+          onDrag: (vx, vy) => {
+            joy.setPolygons(knobAt(vx, vy));
+            if (mode === "fpv") {
+              setKey(CODES.W, vy > DEAD);
+              setKey(CODES.S, vy < -DEAD);
+              setKey(CODES.D, vx > DEAD);
+              setKey(CODES.A, vx < -DEAD);
+            }
+          },
+          onEnd: () => { joy.setPolygons(knobAt(0, 0)); releaseAll(); },
+        });
+
+        // ── Action buttons: spinning themed glyph cubes as HUD layers (M
+        // previews the style you'll switch TO; C shows the camera mode). ──
+        const MATRIX_CUBE = "#1fd65a", MARBLE_CUBE = "#d8cdb2";
+        const shade = (hex: string, f: number): string => {
+          const n = parseInt(hex.slice(1), 16);
+          const r = Math.min(255, Math.round(((n >> 16) & 255) * f));
+          const g = Math.min(255, Math.round(((n >> 8) & 255) * f));
+          const b = Math.min(255, Math.round((n & 255) * f));
+          return "#" + ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0");
+        };
+        // Per-face brightness bakes in 3D reading even under flat lighting.
+        const CUBE_FACES: Array<[[number, number, number, number], number]> = [
+          [[4, 5, 6, 7], 1.0], [[0, 3, 2, 1], 0.4],
+          [[0, 1, 5, 4], 0.68], [[2, 3, 7, 6], 0.86],
+          [[1, 2, 6, 5], 0.6], [[3, 0, 4, 7], 0.78],
+        ];
+        const cubePolys = (color: string): Polygon[] => {
+          const h = 0.72;
+          const c: [number, number, number][] = [
+            [-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h],
+            [-h, -h, h], [h, -h, h], [h, h, h], [-h, h, h],
+          ];
+          return CUBE_FACES.map(([idx, f]) => ({ vertices: idx.map((i) => c[i]!), color: shade(color, f) }));
+        };
+        const cubeDir: [number, number, number] = [0.5, -0.3, 0.72];
+        const cubeLights = { ambient: 0.5, dir: cubeDir, dirI: 1.1 };
+        const cubeCam = { rotX: 62, rotY: 24, zoom: 24 };
+        const mColor = (): string => (style === "matrix" ? MARBLE_CUBE : MATRIX_CUBE);
+        const cColor = (): string => (style === "matrix" ? MATRIX_CUBE : MARBLE_CUBE);
+        const mCube = makeHudLayer("btn-m-scene", { cam: cubeCam, fontSize: 7, lights: cubeLights, polys: cubePolys(mColor()), spin: 34 });
+        const cCube = makeHudLayer("btn-c-scene", { cam: cubeCam, fontSize: 7, lights: cubeLights, polys: cubePolys(cColor()), spin: 34 });
+        const cLabel = document.getElementById("btn-c-label");
+
+        // Re-theme cubes + track the C label on every style/camera change.
+        syncGamePad = (): void => {
+          mCube.setPolygons(cubePolys(mColor()));
+          cCube.setPolygons(cubePolys(cColor()));
+          if (cLabel) cLabel.textContent = mode === "fpv" ? "ORBIT" : "FPV";
+        };
+        syncGamePad();
+
+        document.getElementById("btn-m")?.addEventListener("click", () => {
+          applyStyle(style === "matrix" ? "marble" : "matrix");
+          scheduleWrite();
+        });
+        document.getElementById("btn-c")?.addEventListener("click", () => {
+          setMode(mode === "fpv" ? "orbit" : "fpv");
+          scheduleWrite();
+        });
+      }
 
       // ── Frame loop: rain always animates; ground-follow / collision only
       // matter while walking in FPV.
