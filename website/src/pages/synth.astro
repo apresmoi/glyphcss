@@ -1,15 +1,15 @@
 ---
 import SynthWorkbench from '../components/SynthWorkbench/SynthWorkbench.tsx';
 import DocsHeader from '../components/DocsHeader.astro';
-import Analytics from '../components/Analytics.astro';
+import BaseHead from '../components/BaseHead.astro';
 import '../styles/glyph-demo.css';
+
+const title = 'Synth — modular ASCII field synthesizer | glyphcss';
+const description = 'Stack oscillators into moiré interference and map them to glyphs — a live, in-browser modular synthesizer for animated ASCII fields, built on glyphcss.';
 ---
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <Analytics />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Synth — glyphcss</title>
+    <BaseHead title={title} description={description} path="/synth/" image="/og/synth.png" />
   </head>
   <body>
     <div class="page">

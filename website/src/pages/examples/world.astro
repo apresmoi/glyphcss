@@ -1,18 +1,14 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
 import DocsHeader from "../../components/DocsHeader.astro";
-import Analytics from "../../components/Analytics.astro";
+import BaseHead from "../../components/BaseHead.astro";
 const title = "glyphcss · ASCII Earth";
 const description = "ETOPO1 global topography rasterised into ASCII. Isometric, drag to orbit.";
 ---
 
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <Analytics />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
-  <meta name="description" content={description} />
+  <BaseHead title={title} description={description} path="/examples/world/" image="/og/world.png" />
   <style>
     html, body { background: #03050a; color: #e2e8f0; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
     body { display: flex; overflow: hidden; }
