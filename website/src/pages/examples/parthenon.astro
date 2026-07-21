@@ -1,18 +1,14 @@
 ---
 import ExamplesSidebar from "../../components/ExamplesSidebar.astro";
 import DocsHeader from "../../components/DocsHeader.astro";
-import Analytics from "../../components/Analytics.astro";
+import BaseHead from "../../components/BaseHead.astro";
 const title = "glyphcss · Parthenon";
 const description = "The Parthenon — octastyle Doric peripteral temple built from glyphcss primitives, rendered as ASCII with green Matrix rain flowing down its columns. Orbit by default, or switch to first-person and walk the colonnade.";
 ---
 
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <Analytics />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{title}</title>
-  <meta name="description" content={description} />
+  <BaseHead title={title} description={description} path="/examples/parthenon/" image="/og/parthenon.png" />
   <style>
     html, body { background: #010604; color: #d8ffe4; margin: 0; min-height: 100vh; font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; }
     body { display: flex; overflow: hidden; }
@@ -37,6 +33,11 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     .temple-host .glyph-output { touch-action: none; text-shadow: 0 0 7px rgba(0, 255, 102, 0.22); cursor: grab; }
     .temple-host .glyph-output:active { cursor: grabbing; }
     .temple-host.is-fpv .glyph-output { cursor: crosshair; }
+    /* Marble style: neutral warm-dark backdrop instead of the green matrix haze. */
+    body.temple-marble .temple-host {
+      background: radial-gradient(circle at 50% 60%, rgba(92, 80, 58, 0.16), transparent 55%), #0a0908;
+    }
+    body.temple-marble .temple-host .glyph-output { text-shadow: 0 0 6px rgba(255, 240, 214, 0.14); }
     .temple-host.is-fpv .glyph-output:active { cursor: crosshair; }
 
     /* ── Floating-right control dock — copied from /examples/flatmap so every
@@ -73,6 +74,19 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     }
     .iso-ctl { margin-bottom: 11px; }
     .iso-ctl:last-child { margin-bottom: 0; }
+    /* Marble style renders the plain solid temple — hide the matrix-only rows. */
+    .iso-controls.is-marble .matrix-only { display: none; }
+    /* Environment toggles only apply to marble (sky/clouds/ground/hills). */
+    .iso-controls .marble-only { display: none; }
+    .iso-controls.is-marble .marble-only { display: block; }
+    .env-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .env-seg button {
+      font: 600 11px/1 ui-monospace, "JetBrains Mono", monospace;
+      padding: 6px 4px; border: 1px solid rgba(255,232,184,0.18); border-radius: 4px;
+      background: rgba(255,232,184,0.04); color: rgba(255,232,184,0.5);
+      cursor: pointer; letter-spacing: 0.03em; text-transform: lowercase;
+    }
+    .env-seg button.active { background: rgba(56,189,248,0.16); border-color: rgba(56,189,248,0.6); color: #d8ecff; }
     .iso-ctl-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
     .iso-ctl-row .val { color: rgba(255,232,184,0.95); }
     .iso-ctl input[type="range"] {
@@ -128,6 +142,13 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
           <div class="iso-controls" id="iso-controls">
             <h2>[ CONTROLS ]</h2>
             <div class="iso-ctl">
+              <div class="iso-ctl-row"><span>style</span></div>
+              <div class="iso-seg" id="style-seg">
+                <button type="button" data-style="matrix" class="active">matrix</button>
+                <button type="button" data-style="marble">marble</button>
+              </div>
+            </div>
+            <div class="iso-ctl">
               <div class="iso-ctl-row"><span>camera</span></div>
               <div class="iso-seg" id="camera-seg">
                 <button type="button" data-camera="orbit" class="active">orbit</button>
@@ -138,34 +159,63 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
               <div class="iso-ctl-row"><span>density</span><span class="val" id="density-val">1.00</span></div>
               <input type="range" id="density" min="0.5" max="3" step="0.05" value="1" />
             </div>
-            <div class="iso-ctl">
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>environment</span></div>
+              <div class="env-seg" id="env-seg">
+                <button type="button" data-env="sky" class="active">sky</button>
+                <button type="button" data-env="clouds" class="active">clouds</button>
+                <button type="button" data-env="floor" class="active">ground</button>
+                <button type="button" data-env="hills" class="active">hills</button>
+              </div>
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>cloud size</span><span class="val" id="cloud-size-val">1.00</span></div>
+              <input type="range" id="cloud-size" min="0.5" max="3" step="0.05" value="1" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>cloud cover</span><span class="val" id="cloud-cover-val">0.46</span></div>
+              <input type="range" id="cloud-cover" min="0" max="1" step="0.02" value="0.46" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>cloud drift</span><span class="val" id="cloud-drift-val">1.00</span></div>
+              <input type="range" id="cloud-drift" min="0" max="3" step="0.05" value="1" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>sun azimuth</span><span class="val" id="sun-az-val">340</span></div>
+              <input type="range" id="sun-az" min="0" max="360" step="5" value="340" />
+            </div>
+            <div class="iso-ctl marble-only">
+              <div class="iso-ctl-row"><span>sun height</span><span class="val" id="sun-elev-val">38</span></div>
+              <input type="range" id="sun-elev" min="5" max="85" step="2" value="38" />
+            </div>
+            <div class="iso-ctl matrix-only">
               <div class="iso-ctl-row"><span>matrix scale</span><span class="val" id="scale-val">0.50</span></div>
               <input type="range" id="scale" min="0.05" max="3" step="0.05" value="0.5" />
             </div>
-            <div class="iso-ctl">
+            <div class="iso-ctl matrix-only">
               <div class="iso-ctl-row"><span>speed min</span><span class="val" id="speed-min-val">5</span></div>
               <input type="range" id="speed-min" min="0" max="40" step="0.25" value="5" />
             </div>
-            <div class="iso-ctl">
+            <div class="iso-ctl matrix-only">
               <div class="iso-ctl-row"><span>speed max</span><span class="val" id="speed-max-val">13</span></div>
               <input type="range" id="speed-max" min="0" max="40" step="0.25" value="13" />
             </div>
-            <div class="iso-ctl">
+            <div class="iso-ctl matrix-only">
               <div class="iso-ctl-row"><span>trail</span><span class="val" id="trail-val">13</span></div>
               <input type="range" id="trail" min="1" max="64" step="1" value="13" />
             </div>
-            <div class="iso-ctl">
+            <div class="iso-ctl matrix-only">
               <div class="iso-ctl-row"><span>streams</span><span class="val" id="rain-density-val">0.38</span></div>
               <input type="range" id="rain-density" min="0.02" max="1" step="0.01" value="0.38" />
             </div>
-            <div class="iso-ctl">
+            <div class="iso-ctl matrix-only">
               <div class="iso-ctl-row"><span>color mode</span></div>
               <div class="iso-seg" id="color-mode-seg">
                 <button type="button" data-color-mode="monochrome" class="active">mono</button>
                 <button type="button" data-color-mode="original">original</button>
               </div>
             </div>
-            <div class="iso-ctl" id="mono-color-row">
+            <div class="iso-ctl matrix-only" id="mono-color-row">
               <div class="iso-ctl-row"><span>mono color</span><span class="val" id="mono-color-val">#00FF66</span></div>
               <input class="iso-color" type="color" id="mono-color" value="#00ff66" aria-label="Monochrome rain color" />
             </div>
@@ -181,6 +231,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       createGlyphOrbitControls,
       createGlyphPerspectiveCamera,
       createGlyphScene,
+      defineGlyphEffect,
     } from "glyphcss";
     import type { Polygon } from "glyphcss";
     import { GlyphEffects } from "@glyphcss/effects";
@@ -285,6 +336,10 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       }
     }
 
+    // Every column records a circular footprint here so FPV can collide with
+    // it (round columns don't fit the AABB blockers used for the walls).
+    const columnColliders: Array<[number, number, number]> = [];
+
     function column(
       polys: Polygon[],
       cx: number,
@@ -294,6 +349,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       sides = 8,
     ): void {
       const rb = SHAFT_RB * scale, rt = SHAFT_RT * scale;
+      columnColliders.push([cx, cy, rb]);
       frustum(polys, COLUMN_COLOR, cx, cy, z0, rb, rt, SHAFT_H, sides);
       frustum(polys, CAPITAL_COLOR, cx, cy, z0 + SHAFT_H, rt, 1.15 * scale, ECHINUS_H, sides);
       boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, z0 + SHAFT_H + ECHINUS_H, 2.3 * scale, 2.3 * scale, ABACUS_H);
@@ -302,6 +358,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     // Interior naos column — slim and two-tiered like the real double-story
     // Doric screen: lower shaft, band, upper shaft, capital block.
     function naosColumn(polys: Polygon[], cx: number, cy: number): void {
+      columnColliders.push([cx, cy, 0.8]);
       frustum(polys, COLUMN_COLOR, cx, cy, STYLOBATE_TOP, 0.8, 0.66, 5.3, 6);
       boxAt(polys, CAPITAL_COLOR, CAPITAL_COLOR, cx, cy, STYLOBATE_TOP + 5.3, 1.7, 1.7, 0.3);
       frustum(polys, COLUMN_COLOR, cx, cy, STYLOBATE_TOP + 5.6, 0.62, 0.5, 4, 6);
@@ -520,8 +577,9 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
 
     // Walkthrough blockers (2D AABBs, inflated by a small player radius):
     // cella walls (the doorways are the gaps between them), the naos/treasury
-    // partition, and the statue plinth. Columns stay walk-through — clipping
-    // a column beats getting snagged on 60 of them.
+    // partition, and the statue plinth. Columns are solid too, but as circles
+    // (see resolveCollision) — the colonnade gaps stay wider than the player,
+    // so you walk between columns, not through them.
     const PLAYER_R = 0.45;
     const BLOCKERS: Array<[number, number, number, number]> = [
       [-CELLA_HX, CELLA_HX, WALL_IN, CELLA_HY],
@@ -546,6 +604,16 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         if (min === pushRight) return [bx1, y];
         if (min === pushDown) return [x, by0];
         return [x, by1];
+      }
+      // Round columns: push the player radially out to the shaft's edge.
+      for (const [cx, cy, r] of columnColliders) {
+        const dx = x - cx, dy = y - cy;
+        const rr = r + PLAYER_R;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= rr * rr) continue;
+        const d = Math.sqrt(d2);
+        if (d === 0) return [cx + rr, cy];
+        return [cx + (dx / d) * rr, cy + (dy / d) * rr];
       }
       return null;
     }
@@ -599,14 +667,151 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       }
       setDensity(1);
 
-      const polygons = buildParthenon();
-      // A bounded plaza (not an infinite plane) grounds the walkthrough
-      // without flooding the whole viewport with ground-surface rain.
-      polygons.push({
+      const templePolygons = buildParthenon();
+
+      // Two palettes over the temple geometry: the green "matrix" theme, and a
+      // weathered Pentelic-marble "marble" theme. Athena's gold/ivory
+      // (#c2a44e/#d8bd68/#e8dca6) pass through unchanged.
+      const MARBLE_MAP: Record<string, string> = {
+        "#4f8f66": "#a99e86", // steps
+        "#5da272": "#c6bca3", // stylobate
+        "#7ccf92": "#e2d8c1", // column shafts
+        "#8fdfa3": "#ece3cf", // capitals
+        "#3f7050": "#b0a58c", // cella walls / frieze
+        "#1b3829": "#58513f", // naos ceiling
+        "#68b57e": "#d6cbb2", // entablature
+        "#7fcc93": "#e4dac2", // cornice
+        "#549a69": "#beb299", // roof
+        "#9dedb0": "#efe7d3", // pediments
+        "#bdeccb": "#f0e9d8", // light accents
+      };
+      const matrixTemple = templePolygons;
+      const marbleTemple = templePolygons.map((p) => ({ ...p, color: MARBLE_MAP[p.color!] ?? p.color }));
+
+      // Ground: matrix uses a bounded dark plaza (keeps surface rain from
+      // flooding the viewport); marble uses a wide warm-earth terrain the
+      // distant hills sit on.
+      const GROUND_MATRIX: Polygon[] = [{
         vertices: [[-110, -75, -0.02], [110, -75, -0.02], [110, 75, -0.02], [-110, 75, -0.02]],
         color: "#142c1f",
+      }];
+      // grassy green, light enough that the cast shadow reads against it.
+      const GROUND_MARBLE: Polygon[] = [{
+        vertices: [[-360, -320, -0.02], [360, -320, -0.02], [360, 320, -0.02], [-360, 320, -0.02]],
+        color: "#5a6b34",
+      }];
+
+      // Distant hills — a deterministic ring of low hazy cones on the horizon,
+      // so the land reads behind the temple rather than a flat void. Hazy blue
+      // for atmospheric depth (marble only).
+      const rnd = (n: number) => { const s = Math.sin(n * 127.1) * 43758.5453; return s - Math.floor(s); };
+      const HILLS: Polygon[] = (() => {
+        const h: Polygon[] = [];
+        const N = 20, R = 150;
+        for (let i = 0; i < N; i++) {
+          const a = (i / N) * Math.PI * 2;
+          const j = rnd(i + 1);
+          frustum(h, "#46566e", Math.cos(a) * (R + j * 45), Math.sin(a) * (R + j * 45), -3, 34 + j * 30, 3, 26 + j * 40, 6);
+        }
+        return h;
+      })();
+
+      // Skydome: the sky is REAL geometry (a large inward hemisphere), so the
+      // cloud effect maps onto its own surface and the renderer projects it
+      // like anything else — anchored to the world with zero camera math. The
+      // dome is far (radius SKY_R), so temple/ground/hills occlude it.
+      const SKY_R = 900;
+      const SKYDOME: Polygon[] = (() => {
+        const polys: Polygon[] = [];
+        const SEG = 44, RING = 16;
+        const v = (p: number, a: number): [number, number, number] =>
+          [SKY_R * Math.cos(p) * Math.cos(a), SKY_R * Math.cos(p) * Math.sin(a), SKY_R * Math.sin(p)];
+        for (let ri = 0; ri < RING; ri++) {
+          const p0 = (ri / RING) * (Math.PI / 2), p1 = ((ri + 1) / RING) * (Math.PI / 2);
+          for (let si = 0; si < SEG; si++) {
+            const a0 = (si / SEG) * Math.PI * 2, a1 = ((si + 1) / SEG) * Math.PI * 2;
+            polys.push({ vertices: [v(p0, a0), v(p0, a1), v(p1, a1), v(p1, a0)], color: "#4a7bb0" });
+          }
+        }
+        return polys;
+      })();
+
+      // Shadow casters/receivers (only render when the scene `shadow` option is
+      // set, i.e. marble mode): the temple casts AND receives so it self-shadows
+      // — columns, roof, walls and the statue shade each other and the interior;
+      // the ground receives the temple's cast shadow.
+      const meshHandle = scene.add(matrixTemple, { castShadow: true, receiveShadow: true });
+      const groundHandle = scene.add(GROUND_MATRIX, { receiveShadow: true });
+      const hillsHandle = scene.add([]);
+      const skyHandle = scene.add([]);
+
+      // ── Sky + clouds effect: runs in the dome's OWN surface space. Each cell
+      // is coloured by the dome point's world elevation (blue gradient) and a
+      // value-noise cloud layer sampled in world azimuth/elevation — never in
+      // screen space — so it's camera-independent. Clouds drift slowly over
+      // `time` only. Foreground geometry (nearer than the dome) is skipped.
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      const cloudField = (x: number, y: number) =>
+        (Math.sin(x * 3.4 + y * 1.5) + Math.sin(x * 1.9 - y * 2.3)
+          + Math.sin(x * 5.7 + y * 1.1) + Math.sin(y * 3.0 + x)) * 0.125 + 0.5;
+      const CLOUD_RAMP = ".:-=+*oO#%@";
+      const skyProgram = defineGlyphEffect<{ time: number; sky: number; clouds: number; size: number; cover: number; drift: number; sunX: number; sunY: number; sunZ: number }>({
+        requirements: ["worldPosition"],
+        evaluate(ctx) {
+          if (ctx.params.sky <= 0.5) return;
+          const wp = ctx.base.worldPosition;
+          if (!wp) return;
+          const cloudsOn = ctx.params.clouds > 0.5;
+          // size → bigger blobs (lower sampling frequency); cover → how much of
+          // the sky is cloud (lower threshold); drift → azimuth scroll speed.
+          const freq = 1 / Math.max(0.2, ctx.params.size);
+          const threshold = 0.82 - Math.max(0, Math.min(1, ctx.params.cover)) * 0.6;
+          const span = Math.max(0.05, 1 - threshold);
+          const driftPhase = ctx.params.time * ctx.params.drift * 0.03;
+          const sx = ctx.params.sunX, sy = ctx.params.sunY, sz = ctx.params.sunZ;
+          for (let i = 0; i < ctx.base.length; i++) {
+            if (ctx.base.coverage[i]! <= 0) continue;
+            const wx = wp[i * 3]!, wy = wp[i * 3 + 1]!, wz = wp[i * 3 + 2]!;
+            const dist = Math.hypot(wx, wy, wz);
+            if (dist < SKY_R * 0.6) continue; // only the far dome, not foreground
+            const elev = Math.max(0, Math.min(1, wz / dist)); // 0 horizon .. 1 zenith
+            let r = lerp(0xc6, 0x4f, elev), g = lerp(0xdd, 0x8c, elev), b = lerp(0xef, 0xd2, elev);
+            let glyph = "`";
+            // Sun disc + glow at the directional-light direction (drawn under
+            // the clouds, so cloud cells cover it → "sun behind the clouds").
+            const dot = (wx * sx + wy * sy + wz * sz) / dist;
+            const ang = Math.acos(Math.max(-1, Math.min(1, dot)));
+            if (ang < 0.55) {
+              const t = 1 - ang / 0.55;
+              const core = t * t;
+              glyph = core > 0.5 ? "@" : core > 0.22 ? "#" : core > 0.08 ? "*" : "+";
+              const w = 0.45 + 0.55 * core;
+              r = lerp(r, 0xff, w); g = lerp(g, 0xf3, w); b = lerp(b, 0xcc, w * 0.7);
+            }
+            if (cloudsOn) {
+              const az = Math.atan2(wy, wx);
+              const n = cloudField(az * freq + driftPhase, elev * 2 * freq);
+              if (n > threshold) {
+                const d = Math.min(1, (n - threshold) / span);
+                glyph = CLOUD_RAMP[Math.min(CLOUD_RAMP.length - 1, (d * CLOUD_RAMP.length) | 0)]!;
+                const w = 0.4 + 0.6 * d;
+                r = lerp(r, 0xf4, w); g = lerp(g, 0xf6, w); b = lerp(b, 0xff, w);
+              }
+            }
+            ctx.output.glyph[i] = glyph;
+            ctx.output.color[i] = (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+            ctx.output.coverage[i] = 1;
+            ctx.output.channels[i]! |= 3;
+          }
+        },
       });
-      scene.add(polygons);
+      const skyLayer = scene.addEffectLayer({
+        effect: skyProgram,
+        target: "surfaces",
+        blend: "over",
+        enabled: false,
+        params: { time: 0, sky: 1, clouds: 1, size: 1, cover: 0.46, drift: 1, sunX: 0.6, sunY: -0.22, sunZ: 0.6 },
+      });
 
       // ── Camera controls: ORBIT (default) / FPV, one perspective camera
       // shared between both — switching just resets its state and swaps
@@ -675,6 +880,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         const btn = (e.target as HTMLElement).closest("[data-camera]") as HTMLElement | null;
         if (!btn) return;
         setMode(btn.dataset.camera as CameraMode);
+        scheduleWrite();
       });
 
       // Fix: FPV's built-in pointer-lock trigger listens for a native `click`
@@ -715,6 +921,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
           seed: 7,
           colorMode: "monochrome",
           color: "#00ff66",
+          headColor: "#e8ffe8",
         },
       });
 
@@ -726,6 +933,114 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         const open = ctlPanel?.classList.toggle("is-open") ?? false;
         ctlToggle.setAttribute("aria-expanded", String(open));
         ctlToggle.textContent = open ? "[ Close ]" : "[ Controls ]";
+      });
+
+      // Style: "matrix" (green mesh + rain) vs "marble" (plain solid stone
+      // render, effect disabled, matrix-only controls hidden).
+      let style: "matrix" | "marble" = "matrix";
+      // Marble-only environment toggles (sky/clouds/ground/hills).
+      const env = { sky: true, clouds: true, floor: true, hills: true };
+      const styleSeg = $("style-seg");
+      const envSeg = $("env-seg");
+      // The scene's default lights are green-tinted for the matrix theme, which
+      // would cast the marble cream green. Marble mode swaps in warm daylight +
+      // a cool sky fill so the stone reads as stone.
+      const MATRIX_LIGHTS = {
+        directionalLight: { direction: [0.65, -0.25, 0.55] as [number, number, number], intensity: 1.3, color: "#eafff0" },
+        ambientLight: { intensity: 0.62, color: "#bdeccb" },
+      };
+      const MARBLE_LIGHTS = {
+        directionalLight: { direction: [0.65, -0.25, 0.55] as [number, number, number], intensity: 1.55, color: "#fff4e2" },
+        ambientLight: { intensity: 0.42, color: "#b4bccb" },
+      };
+      // Shadows render only when the scene `shadow` option is set (marble mode).
+      const SHADOW_OPTS = { color: "#0b0a05", opacity: 0.55, lift: 0.16, maxExtend: 400 };
+
+      // One sun/light direction (azimuth + elevation) drives the directional
+      // light, the sky's sun disc, and the shadow direction together.
+      const sun = { az: 340, elev: 38 };
+      function sunDir(): [number, number, number] {
+        const a = sun.az * Math.PI / 180, e = sun.elev * Math.PI / 180;
+        return [Math.cos(e) * Math.cos(a), Math.cos(e) * Math.sin(a), Math.sin(e)];
+      }
+      function applySun(): void {
+        const d = sunDir();
+        MARBLE_LIGHTS.directionalLight.direction = d;
+        skyLayer.params.sunX = d[0]; skyLayer.params.sunY = d[1]; skyLayer.params.sunZ = d[2];
+        if (style === "marble") {
+          scene.setOptions({ directionalLight: MARBLE_LIGHTS.directionalLight });
+          scene.rerender();
+        }
+      }
+      function applyEnv(): void {
+        const marble = style === "marble";
+        groundHandle.setPolygons(marble ? (env.floor ? GROUND_MARBLE : []) : GROUND_MATRIX);
+        hillsHandle.setPolygons(marble && env.hills ? HILLS : []);
+        skyHandle.setPolygons(marble && env.sky ? SKYDOME : []);
+        skyLayer.enabled = marble;
+        skyLayer.params.sky = marble && env.sky ? 1 : 0;
+        skyLayer.params.clouds = marble && env.clouds ? 1 : 0;
+        envSeg?.querySelectorAll("[data-env]").forEach((b) => {
+          const k = (b as HTMLElement).dataset.env as keyof typeof env;
+          b.classList.toggle("active", env[k]);
+        });
+      }
+      envSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-env]") as HTMLElement | null;
+        if (!btn) return;
+        const key = btn.dataset.env as keyof typeof env;
+        env[key] = !env[key];
+        applyEnv();
+        scene.rerender();
+        scheduleWrite();
+      });
+
+      const bindCloud = (id: string, valId: string, key: "size" | "cover" | "drift") => {
+        const input = $(id) as HTMLInputElement | null;
+        const valEl = $(valId);
+        input?.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          skyLayer.params[key] = v;
+          if (valEl) valEl.textContent = v.toFixed(2);
+          scene.rerender();
+        });
+      };
+      bindCloud("cloud-size", "cloud-size-val", "size");
+      bindCloud("cloud-cover", "cloud-cover-val", "cover");
+      bindCloud("cloud-drift", "cloud-drift-val", "drift");
+
+      const bindSun = (id: string, valId: string, key: "az" | "elev") => {
+        const input = $(id) as HTMLInputElement | null;
+        const valEl = $(valId);
+        input?.addEventListener("input", () => {
+          const v = parseFloat(input.value);
+          sun[key] = v;
+          if (valEl) valEl.textContent = String(Math.round(v));
+          applySun();
+        });
+      };
+      bindSun("sun-az", "sun-az-val", "az");
+      bindSun("sun-elev", "sun-elev-val", "elev");
+      applySun(); // seed the sky sun disc + light direction from the default sun
+      function applyStyle(next: "matrix" | "marble"): void {
+        style = next;
+        meshHandle.setPolygons(next === "marble" ? marbleTemple : matrixTemple);
+        rain.enabled = next === "matrix";
+        scene.setOptions(next === "marble"
+          ? { ...MARBLE_LIGHTS, shadow: SHADOW_OPTS }
+          : { ...MATRIX_LIGHTS, shadow: undefined });
+        applyEnv();
+        ctlPanel?.classList.toggle("is-marble", next === "marble");
+        document.body.classList.toggle("temple-marble", next === "marble");
+        styleSeg?.querySelectorAll("button").forEach((b) =>
+          b.classList.toggle("active", (b as HTMLElement).dataset.style === next));
+        scene.rerender();
+      }
+      styleSeg?.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest("[data-style]") as HTMLElement | null;
+        if (!btn) return;
+        applyStyle(btn.dataset.style as "matrix" | "marble");
+        scheduleWrite();
       });
 
       const densityInput = $("density") as HTMLInputElement | null;
@@ -789,6 +1104,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         colorModeSeg.querySelectorAll("button").forEach((b) =>
           b.classList.toggle("active", (b as HTMLElement).dataset.colorMode === value));
         updateMonoColorVisibility();
+        scheduleWrite();
       });
       updateMonoColorVisibility();
 
@@ -799,15 +1115,170 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         if (monoColorVal) monoColorVal.textContent = monoColorInput.value.toUpperCase();
       });
 
+      // ── Sidebar state → tiny base64url hash ───────────────────────────────
+      // Every sidebar control is quantized to its own slider step, then packed
+      // mixed-radix into one integer → bytes → base64url in the URL hash. This
+      // is far smaller than a query string or base64'd JSON: the whole panel
+      // fits in ~12 characters. Field order below is the wire format — changing
+      // it invalidates old links (no back-compat, by project policy).
+      const numSpecs = [
+        { el: densityInput, min: 0.5, step: 0.05, count: 51 },
+        { el: $("scale") as HTMLInputElement | null, min: 0.05, step: 0.05, count: 60 },
+        { el: speedMinInput, min: 0, step: 0.25, count: 161 },
+        { el: speedMaxInput, min: 0, step: 0.25, count: 161 },
+        { el: $("trail") as HTMLInputElement | null, min: 1, step: 1, count: 64 },
+        { el: $("rain-density") as HTMLInputElement | null, min: 0.02, step: 0.01, count: 99 },
+        { el: $("cloud-size") as HTMLInputElement | null, min: 0.5, step: 0.05, count: 51 },
+        { el: $("cloud-cover") as HTMLInputElement | null, min: 0, step: 0.02, count: 51 },
+        { el: $("cloud-drift") as HTMLInputElement | null, min: 0, step: 0.05, count: 61 },
+        { el: $("sun-az") as HTMLInputElement | null, min: 0, step: 5, count: 73 },
+        { el: $("sun-elev") as HTMLInputElement | null, min: 5, step: 2, count: 41 },
+      ];
+      const clampIdx = (i: number, count: number) => Math.max(0, Math.min(count - 1, i));
+
+      // FPV position/look are only packed when the camera is in first-person,
+      // so orbit links stay ~12 chars and fpv links grow by ~7. Position is
+      // quantized to 0.25 m over ±256 m; look angles to 1°. Z is recomputed
+      // from the ground each frame, so only X/Y and pitch/yaw are stored.
+      const POS_MIN = -256, POS_STEP = 0.25, POS_COUNT = 2048, ANG_COUNT = 360;
+      const posIdx = (v: number) => clampIdx(Math.round((v - POS_MIN) / POS_STEP), POS_COUNT);
+      const posVal = (i: number) => POS_MIN + i * POS_STEP;
+      const angIdx = (v: number) => (((Math.round(v) % 360) + 360) % 360);
+
+      interface SidebarState {
+        nums: number[];
+        camera: number;
+        colorMode: number;
+        color: number;
+        style: number;
+        env: number;
+        fpv: { x: number; y: number; pitch: number; yaw: number } | null;
+      }
+
+      function readState(): SidebarState {
+        const nums = numSpecs.map((s) =>
+          clampIdx(Math.round(((parseFloat(s.el?.value ?? "0") || 0) - s.min) / s.step), s.count));
+        const cameraBit = mode === "fpv" ? 1 : 0;
+        const colorMode = rain.params.colorMode === "original" ? 1 : 0;
+        const color = parseInt((monoColorInput?.value ?? "#00ff66").slice(1), 16) & 0xffffff;
+        let fpvState: SidebarState["fpv"] = null;
+        if (cameraBit === 1) {
+          const [x, y] = fpv.getOrigin();
+          fpvState = { x, y, pitch: camera.rotX, yaw: camera.rotY };
+        }
+        const envBits = (env.sky ? 1 : 0) | (env.clouds ? 2 : 0) | (env.floor ? 4 : 0) | (env.hills ? 8 : 0);
+        return { nums, camera: cameraBit, colorMode, color, style: style === "marble" ? 1 : 0, env: envBits, fpv: fpvState };
+      }
+
+      function encodeState(st: SidebarState): string {
+        let n = 0n;
+        for (let i = 0; i < numSpecs.length; i++) n = n * BigInt(numSpecs[i]!.count) + BigInt(st.nums[i]!);
+        n = n * 2n + BigInt(st.colorMode);
+        n = n * 0x1000000n + BigInt(st.color);
+        n = n * 2n + BigInt(st.style);
+        n = n * 16n + BigInt(st.env);
+        if (st.camera === 1 && st.fpv) {
+          n = n * BigInt(POS_COUNT) + BigInt(posIdx(st.fpv.x));
+          n = n * BigInt(POS_COUNT) + BigInt(posIdx(st.fpv.y));
+          n = n * BigInt(ANG_COUNT) + BigInt(angIdx(st.fpv.pitch));
+          n = n * BigInt(ANG_COUNT) + BigInt(angIdx(st.fpv.yaw));
+        }
+        n = n * 2n + BigInt(st.camera);
+        const bytes: number[] = [];
+        for (let m = n; m > 0n; m >>= 8n) bytes.unshift(Number(m & 0xffn));
+        if (!bytes.length) bytes.push(0);
+        return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function decodeState(str: string): SidebarState | null {
+        try {
+          const bin = atob(str.replace(/-/g, "+").replace(/_/g, "/"));
+          let n = 0n;
+          for (let i = 0; i < bin.length; i++) n = (n << 8n) | BigInt(bin.charCodeAt(i));
+          const camera = Number(n % 2n); n /= 2n;
+          let fpv: SidebarState["fpv"] = null;
+          if (camera === 1) {
+            const yaw = Number(n % BigInt(ANG_COUNT)); n /= BigInt(ANG_COUNT);
+            const pitch = Number(n % BigInt(ANG_COUNT)); n /= BigInt(ANG_COUNT);
+            const yi = Number(n % BigInt(POS_COUNT)); n /= BigInt(POS_COUNT);
+            const xi = Number(n % BigInt(POS_COUNT)); n /= BigInt(POS_COUNT);
+            fpv = { x: posVal(xi), y: posVal(yi), pitch, yaw };
+          }
+          const envBits = Number(n % 16n); n /= 16n;
+          const styleBit = Number(n % 2n); n /= 2n;
+          const color = Number(n % 0x1000000n); n /= 0x1000000n;
+          const colorMode = Number(n % 2n); n /= 2n;
+          const nums: number[] = [];
+          for (let i = numSpecs.length - 1; i >= 0; i--) {
+            const c = BigInt(numSpecs[i]!.count);
+            nums[i] = Number(n % c); n /= c;
+          }
+          return { nums, camera, colorMode, color, style: styleBit, env: envBits, fpv };
+        } catch { return null; }
+      }
+
+      let applyingState = false;
+      function applyState(st: SidebarState): void {
+        applyingState = true;
+        // Reuse each control's existing 'input' handler so labels + effect
+        // params stay in sync with the DOM.
+        numSpecs.forEach((s, i) => {
+          if (!s.el) return;
+          s.el.value = String(s.min + st.nums[i]! * s.step);
+          s.el.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        if (monoColorInput) {
+          monoColorInput.value = "#" + st.color.toString(16).padStart(6, "0");
+          monoColorInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        const wantMode = st.colorMode === 1 ? "original" : "monochrome";
+        if (rain.params.colorMode !== wantMode) {
+          (colorModeSeg?.querySelector(`[data-color-mode="${wantMode}"]`) as HTMLElement | null)?.click();
+        }
+        env.sky = !!(st.env & 1);
+        env.clouds = !!(st.env & 2);
+        env.floor = !!(st.env & 4);
+        env.hills = !!(st.env & 8);
+        applyStyle(st.style === 1 ? "marble" : "matrix");
+        applyingState = false;
+        setMode(st.camera === 1 ? "fpv" : "orbit");
+        if (st.camera === 1 && st.fpv) {
+          fpv.setOrigin([st.fpv.x, st.fpv.y, 1.7]);
+          camera.rotX = st.fpv.pitch;
+          camera.rotY = st.fpv.yaw;
+          scene.rerender();
+        }
+      }
+
+      let writeScheduled = false;
+      function writeHash(): void {
+        const encoded = encodeState(readState());
+        const newHash = encoded ? `#${encoded}` : "";
+        if (newHash !== location.hash) {
+          history.replaceState(null, "", `${location.pathname}${location.search}${newHash}`);
+        }
+      }
+      function scheduleWrite(): void {
+        if (applyingState || writeScheduled) return;
+        writeScheduled = true;
+        requestAnimationFrame(() => { writeScheduled = false; writeHash(); });
+      }
+      ctlPanel?.addEventListener("input", scheduleWrite);
+
+      const initialState = location.hash.length > 1 ? decodeState(location.hash.slice(1)) : null;
+      if (initialState) applyState(initialState);
+
       // ── Frame loop: rain always animates; ground-follow / collision only
       // matter while walking in FPV.
       let effectTime = 0;
       let previous = performance.now();
       let currentGround = 0;
+      let lastFpvHashWrite = 0;
       function frame(now: number): void {
         effectTime += Math.min((now - previous) / 1000, 0.1);
         previous = now;
         rain.params.time = effectTime;
+        skyLayer.params.time = effectTime;
         if (mode === "fpv") {
           const origin = fpv.getOrigin();
           let [ox, oy] = origin;
@@ -821,6 +1292,13 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
             currentGround = ground;
             fpv.update({ groundZ: ground });
           }
+          // Persist walk position + look angle, throttled; writeHash no-ops when
+          // the quantized state is unchanged (standing still), so an idle player
+          // never spams history.replaceState.
+          if (now - lastFpvHashWrite > 400) {
+            lastFpvHashWrite = now;
+            writeHash();
+          }
         }
         requestAnimationFrame(frame);
       }
@@ -828,7 +1306,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
 
       // Debug hook for precise camera positioning during iteration.
       (window as unknown as { __parthenon: unknown }).__parthenon = {
-        camera, scene, orbitControls, fpv, rain, setMode,
+        camera, scene, orbitControls, fpv, rain, skyLayer, env, setMode,
         applyOrbitDefault,
       };
     }
