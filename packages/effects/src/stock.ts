@@ -700,9 +700,22 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
         );
         setGlyph(context, i, glyphs[glyphIndex]!);
         if (monochrome) {
+          // Matrix signature: a bright leading head that fades to a dark tail.
+          // `behind` is 0 at the head and grows toward the tail — light the
+          // head cell toward `headColor` and fall the body off toward black so
+          // each strand glows at its tip and trails away, instead of every cell
+          // sharing one flat green. Surface shade still modulates so lit faces
+          // read brighter than faces turned away from the light.
           const shade = context.base.shade?.[i];
-          const intensity = shade !== undefined && Number.isFinite(shade) ? shade : 1;
-          setColor(context, i, scalePackedColor(parsedColor.packed, intensity));
+          const surfaceLit = shade !== undefined && Number.isFinite(shade) ? shade : 1;
+          const headSpan = 1 / glyphsPerPatternCell;
+          if (behind < headSpan && parsedHead.opacity > 0) {
+            setColor(context, i, scalePackedColor(parsedHead.packed, 0.6 + 0.4 * surfaceLit));
+          } else {
+            const fade = Math.pow(1 - behind / trail, 1.6);
+            const intensity = (0.12 + 0.88 * fade) * (0.5 + 0.5 * surfaceLit);
+            setColor(context, i, scalePackedColor(parsedColor.packed, intensity));
+          }
           context.output.coverage[i] = parsedColor.opacity;
         } else {
           context.output.coverage[i] = 1;
