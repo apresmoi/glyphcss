@@ -1215,7 +1215,7 @@ function scanFillTriangle(
   const ccw = area2 > 0;
   const perspectiveAttributes = aq !== 1 || bq !== 1 || cq !== 1;
   const interpolatePerspective = perspectiveAttributes
-    && (worldPosBuf !== null || surfaceUvBuf !== null || tex !== null);
+    && (worldPosBuf !== null || surfaceUvBuf !== null || tex !== null || sh !== null);
 
   // Bounding box clamped to grid.
   let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
@@ -1342,9 +1342,20 @@ function scanFillTriangle(
         // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
         // sample the shadow map, darken if occluded.
         if (sh !== null) {
-          const lu = (wA * sh.luA + wB * sh.luB + wC * sh.luC) * invArea2;
-          const lv = (wA * sh.lvA + wB * sh.lvB + wC * sh.lvC) * invArea2;
-          const ld = (wA * sh.ldA + wB * sh.ldB + wC * sh.ldC) * invArea2;
+          // Light-space (u,v,depth) are affine in world position, so they need
+          // the SAME perspective-correct interpolation as world position/UV —
+          // interpolating them affinely in screen space warps the shadow under a
+          // perspective camera (and the warp shifts with the camera, worst up
+          // close). Ortho supplies q=1, reducing exactly to affine barycentrics.
+          const lu = perspectiveAttributes
+            ? (wA * aq * sh.luA + wB * bq * sh.luB + wC * cq * sh.luC) * invQ
+            : (wA * sh.luA + wB * sh.luB + wC * sh.luC) * invArea2;
+          const lv = perspectiveAttributes
+            ? (wA * aq * sh.lvA + wB * bq * sh.lvB + wC * cq * sh.lvC) * invQ
+            : (wA * sh.lvA + wB * sh.lvB + wC * sh.lvC) * invArea2;
+          const ld = perspectiveAttributes
+            ? (wA * aq * sh.ldA + wB * bq * sh.ldB + wC * cq * sh.ldC) * invQ
+            : (wA * sh.ldA + wB * sh.ldB + wC * sh.ldC) * invArea2;
           // Nearest-neighbor sample (integer texel coords).
           const tu = lu | 0;
           const tv = lv | 0;
