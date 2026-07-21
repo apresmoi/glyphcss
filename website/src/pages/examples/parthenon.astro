@@ -667,7 +667,27 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       }
       setDensity(1);
 
-      const templePolygons = buildParthenon();
+      // Triplanar UVs from world position: gives every face authored UVs at a
+      // single isotropic scale, so the Matrix effect (space:"auto") maps in
+      // world/UV space (anchored to the surface, no camera swim) AND at a
+      // uniform 1-glyph-wide strand density — the auto-generated surface path
+      // is coarse (GENERATED_SURFACE_PITCH) and renders strands several cells
+      // wide, which the scale slider can't compensate. K sets strand pitch.
+      const TRI_UV_K = 0.019;
+      const addTriplanarUvs = (polys: Polygon[]): Polygon[] => polys.map((p) => {
+        const v = p.vertices;
+        const ax = v[1]![0] - v[0]![0], ay = v[1]![1] - v[0]![1], az = v[1]![2] - v[0]![2];
+        const bx = v[2]![0] - v[0]![0], by = v[2]![1] - v[0]![1], bz = v[2]![2] - v[0]![2];
+        const nx = Math.abs(ay * bz - az * by), ny = Math.abs(az * bx - ax * bz), nz = Math.abs(ax * by - ay * bx);
+        // Vertical faces put world -Z on the V axis so direction:"down" falls
+        // downward (Z is up in this world); horizontal faces map X/Y.
+        const uvs = v.map((w): [number, number] =>
+          nz >= nx && nz >= ny ? [w[0]! * TRI_UV_K, w[1]! * TRI_UV_K]      // horizontal → XY
+            : nx >= ny ? [w[1]! * TRI_UV_K, -w[2]! * TRI_UV_K]             // x-facing → Y,-Z
+              : [w[0]! * TRI_UV_K, -w[2]! * TRI_UV_K]);                    // y-facing → X,-Z
+        return { ...p, uvs };
+      });
+      const templePolygons = addTriplanarUvs(buildParthenon());
 
       // Two palettes over the temple geometry: the green "matrix" theme, and a
       // weathered Pentelic-marble "marble" theme. Athena's gold/ivory
@@ -691,10 +711,10 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       // Ground: matrix uses a bounded dark plaza (keeps surface rain from
       // flooding the viewport); marble uses a wide warm-earth terrain the
       // distant hills sit on.
-      const GROUND_MATRIX: Polygon[] = [{
+      const GROUND_MATRIX: Polygon[] = addTriplanarUvs([{
         vertices: [[-110, -75, -0.02], [110, -75, -0.02], [110, 75, -0.02], [-110, 75, -0.02]],
         color: "#142c1f",
-      }];
+      }]);
       // grassy green, light enough that the cast shadow reads against it.
       const GROUND_MARBLE: Polygon[] = [{
         vertices: [[-360, -320, -0.02], [360, -320, -0.02], [360, 320, -0.02], [-360, 320, -0.02]],
@@ -912,7 +932,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         params: {
           glyphs: "ΠΑΡΘΕΝΩΝΑΘΗΝΑ01",
           direction: "down",
-          space: "surface",
+          space: "auto",
           scale: 0.5,
           speedMin: 5,
           speedMax: 13,
