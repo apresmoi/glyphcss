@@ -18,6 +18,15 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     .map-head { padding: 24px 32px 12px; border-bottom: 1px solid rgba(0, 255, 102, 0.14); }
     .map-head h1 { margin: 0; font-size: 22px; color: rgba(214, 255, 228, 0.94); font-weight: 600; letter-spacing: 0.04em; }
     .map-head p { margin: 6px 0 0; font-size: 13px; color: rgba(160, 232, 184, 0.55); }
+    /* Landscape phone (very short viewport) → fullscreen game view: hide the
+       site nav (.header), the examples sidebar, and the page header so the
+       matrix fills the whole screen. Rotate back to portrait for chrome + nav. */
+    @media (max-height: 34rem) {
+      :global(body > .header) { display: none; }
+      :global(.ex-sidebar) { display: none; }
+      .ex-layout { top: 0; }
+      .map-head { display: none; }
+    }
     .map-stage { flex: 1; min-height: 0; position: relative; }
     /* touch-action:none on the HOST — the .glyph-output <pre> is created by the
        runtime and lacks the Astro scope class, so a rule on it never matches.
@@ -53,7 +62,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
     }
     .iso-controls h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.08em; color: rgba(56,189,248,0.9); font-weight: 600; }
     .iso-ctl-toggle { display: none; }
-    @media (max-width: 50rem) {
+    @media (max-width: 50rem), (max-height: 34rem) {
       .iso-ctl-toggle {
         display: block;
         position: absolute; left: 0; right: 0; bottom: 0; z-index: 31;
@@ -983,6 +992,18 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
         document.body.classList.toggle("temple-locked", locked && mode === "fpv");
       });
 
+      // FPV field-of-view scales with viewport WIDTH. The CSS-perspective focal
+      // length sets horizontal FOV ≈ atan((width/2) / P), so a fixed P feels far
+      // too "zoomed in" (telephoto) on a narrow portrait phone — ~22° there vs
+      // ~56° on desktop. Scaling P with the stage width (anchored so a desktop-
+      // width stage keeps FPV_PERSPECTIVE) holds a roughly constant horizontal
+      // FOV across phone / tablet / desktop.
+      const FPV_REF_WIDTH = 1060, FPV_MIN_PERSPECTIVE = 320;
+      function fpvPerspective(): number {
+        const w = host.clientWidth || window.innerWidth || FPV_REF_WIDTH;
+        return Math.max(FPV_MIN_PERSPECTIVE, Math.min(FPV_PERSPECTIVE, (FPV_PERSPECTIVE * w) / FPV_REF_WIDTH));
+      }
+
       function setMode(next: CameraMode): void {
         if (next === mode) return;
         mode = next;
@@ -992,7 +1013,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
           orbitControls.resume();
         } else {
           orbitControls.pause();
-          camera.perspective = FPV_PERSPECTIVE;
+          camera.perspective = fpvPerspective();
           camera.distance = 0;
           camera.zoom = FPV_ZOOM;
           camera.rotX = FPV_ROT.rotX;
@@ -1081,6 +1102,15 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       });
       window.addEventListener("blur", () => endLook());
       document.addEventListener("visibilitychange", () => { if (document.hidden) endLook(); });
+
+      // Re-adapt the FPV FOV when the viewport changes (rotation / resize). The
+      // scene auto-refits its grid already; this just keeps the focal length
+      // matched to the new width and re-derives the look-ahead target.
+      window.addEventListener("resize", () => {
+        if (mode !== "fpv") return;
+        camera.perspective = fpvPerspective();
+        applyLook(camera.rotX, camera.rotY);
+      });
 
       // Matrix rain over the temple surfaces: green monochrome code flowing
       // down each face (space: "surface" derives per-face downhill directions,
