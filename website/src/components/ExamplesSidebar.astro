@@ -85,8 +85,11 @@ const items = [
   .ex-sb-desc { font-size: 10px; color: rgba(255, 232, 184, 0.4); margin-top: 1px; }
 
   /* Mobile: stack the canvas below a horizontal tab bar instead of a 220px
-     side rail that would squash the render into a sliver. */
-  @media (max-width: 50rem) {
+     side rail that would squash the render into a sliver. Also triggers on
+     short viewports (max-height) so a landscape phone — wider than 50rem but
+     only ~400px tall — gets the compact layout instead of the desktop rail +
+     header eating the whole screen. */
+  @media (max-width: 50rem), (max-height: 34rem) {
     :global(.ex-layout) { flex-direction: column; }
     :global(.ex-main) { min-height: 0; }
     /* Reclaim vertical space for the canvas — the title/description header is
