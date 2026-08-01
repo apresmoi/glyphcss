@@ -17,7 +17,7 @@ import {
   encodeStaticGlyphHtml,
   injectGlyphBaseStyles,
 } from "glyphcss";
-import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema } from "glyphcss";
+import type { CompileSceneResult, GlyphEffectDefinition, GlyphEffectParamSchema, RenderMode } from "glyphcss";
 import type { GlyphEffectId } from "@glyphcss/effects";
 import type { GUI } from "lil-gui";
 import { StatsOverlay } from "../StatsOverlay";
@@ -67,6 +67,22 @@ type Align = "left" | "center" | "right";
 type FillType = "solid" | "gradient" | "rainbow" | "texture" | "image";
 type FaceFill = "solid" | "texture" | "none";
 type Bezier4 = [number, number, number, number];
+/** Word-art has no "semantic" presentation (that's a gallery-only debug view
+ *  over a dropped model's mesh), so this is the gallery's own render-mode set
+ *  minus that one option — see `Dock/folders/useRenderingFolder.ts`'s
+ *  `GalleryRenderPresentation` for the sibling with Semantic included. */
+type WordArtRenderMode = Exclude<RenderMode, "voxel">;
+type WordArtCharMode = "ascii" | "braille" | "halfblock";
+const RENDER_MODE_OPTIONS: Record<string, WordArtRenderMode> = {
+  Wireframe: "wireframe",
+  Solid: "solid",
+  Ink: "ink",
+};
+const CHAR_MODE_OPTIONS: Record<string, WordArtCharMode> = {
+  ASCII: "ascii",
+  Braille: "braille",
+  Halfblock: "halfblock",
+};
 
 // Named CSS easings → cubic-bezier control points, for the custom edge profile.
 const CSS_EASINGS: Record<string, Bezier4> = {
@@ -312,6 +328,8 @@ export function WordArtWorkbench() {
   // `<GlyphScene style>` prop instead of an imperative host ref (glyphcss/react
   // has no scene-wide `fontSize` option — only the per-mesh detail-layer one).
   const [density, setDensity] = useState(() => qn("density", 1));
+  const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("mode", "solid") as WordArtRenderMode);
+  const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charmode", "ascii") as WordArtCharMode);
   const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
   const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
   const [lightColor, setLightColor] = useState(() => qs("lc", "#ffffff"));
@@ -402,6 +420,8 @@ export function WordArtWorkbench() {
     if (!perspective) p.set("persp", "0");
     sn("zoom", zoomScale, 1);
     sn("density", density, 1);
+    ss("mode", renderMode, "solid");
+    ss("charmode", charMode, "ascii");
     sn("li", lightIntensity, 0.95);
     sn("amb", ambient, 0.5);
     ss("lc", lightColor, "#ffffff");
@@ -441,7 +461,7 @@ export function WordArtWorkbench() {
     }
     const search = p.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, renderMode, charMode, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font (Roboto by default) whenever family / weight
   // / style changes. The first font to resolve also pins `previewFont` — the
@@ -456,7 +476,11 @@ export function WordArtWorkbench() {
         setPreviewFont((prev) => prev ?? f);
         setStatus(`${entry.family} ${weight}${italic ? " italic" : ""}`);
       })
-      .catch((e) => alive && setStatus(`couldn't load ${entry.family}: ${e}`));
+      .catch((e) => {
+        if (!alive) return;
+        console.error(`WordArt: failed to load ${entry.family} ${weight}${italic ? " italic" : ""}`, e);
+        setStatus(`couldn't load ${entry.family}: ${e instanceof Error ? e.message : e}`);
+      });
     return () => {
       alive = false;
     };
@@ -645,6 +669,8 @@ export function WordArtWorkbench() {
       lightColor,
       ambient,
       density,
+      mode: renderMode,
+      charMode,
       effect: hasEffect && exportName
         ? {
             id: effectState.effectId as string,
@@ -657,7 +683,7 @@ export function WordArtWorkbench() {
           }
         : null,
     };
-  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, effectState, effectDefinition]);
+  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, renderMode, charMode, effectState, effectDefinition]);
 
   /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
   function postCodepenForm(action: string, data: string): void {
@@ -768,7 +794,7 @@ export function WordArtWorkbench() {
     profileMode, warp: warpShape, bend: warpAmount,
     depth, scaleX, scaleY,
     curveSegments, simplify, profileSegments, offset,
-    density,
+    density, renderMode, charMode,
     perspective, zoom: zoomScale, spin,
     light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
   };
@@ -791,6 +817,8 @@ export function WordArtWorkbench() {
       case "profileSegments": setProfileSegments(v as number); break;
       case "offset": setOffset(v as number); break;
       case "density": setDensity(v as number); break;
+      case "renderMode": setRenderMode(v as WordArtRenderMode); break;
+      case "charMode": setCharMode(v as WordArtCharMode); break;
       case "perspective": setPerspective(v as boolean); break;
       case "zoom": setZoomScale(v as number); break;
       case "spin": setSpin(v as boolean); break;
@@ -846,9 +874,9 @@ export function WordArtWorkbench() {
   const presetTiles = useMemo(() => {
     if (!previewFont) return null;
     const map = new Map<string, CompileSceneResult | null>();
-    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p));
+    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p, renderMode, charMode));
     return map;
-  }, [previewFont]);
+  }, [previewFont, renderMode, charMode]);
 
   return (
     <div className="wa-shell dn-root dn-root--wordart">
@@ -890,6 +918,8 @@ export function WordArtWorkbench() {
             zoomScale={zoomScale}
             setZoomScale={setZoomScale}
             density={density}
+            renderMode={renderMode}
+            charMode={charMode}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -1062,6 +1092,8 @@ interface StageProps {
   zoomScale: number;
   setZoomScale: (updater: (prev: number) => number) => void;
   density: number;
+  renderMode: WordArtRenderMode;
+  charMode: WordArtCharMode;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -1112,7 +1144,7 @@ function DensityFit({ density }: { density: number }) {
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, density, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, density, renderMode, charMode, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
   const [turn, setTurn] = useState(0); // Rx — turntable around screen-vertical (text up = world X)
@@ -1189,6 +1221,8 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, dens
       <Cam rotX={0} rotY={0} zoom={zoom}>
         <GlyphScene
           autoSize
+          mode={renderMode}
+          charMode={charMode}
           style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
@@ -1278,6 +1312,7 @@ interface GuiValues {
   depth: number; scaleX: number; scaleY: number;
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
   density: number;
+  renderMode: WordArtRenderMode; charMode: WordArtCharMode;
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
 }
@@ -1358,7 +1393,7 @@ function frameZoomForGrid(
  * has no async image decode to sample a texture sampler from (same fallback
  * the live runtime shows for one frame before its own sampler resolves).
  */
-function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult | null {
+function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderMode, charMode: WordArtCharMode): CompileSceneResult | null {
   const sides: Face = preset.sideTex
     ? resolveFace({ kind: "texture", color: preset.sideColor, url: texUrl(preset.sideTex), tile: TILE_TEXTURE_SIZE })
     : { color: preset.sideColor };
@@ -1416,7 +1451,8 @@ function renderPresetTile(font: ParsedFont, preset: Preset): CompileSceneResult 
     cols: TILE_COLS,
     rows: TILE_ROWS,
     cellAspect: TILE_CELL_ASPECT,
-    mode: "solid",
+    mode,
+    charMode,
     useColors: true,
     // Same light vector the live Stage defaults to (lightAz -25 / lightEl 45)
     // — proven to keep the front face readably lit for this exact mesh
@@ -1786,6 +1822,14 @@ function WordArtDock({
   // (SynthWorkbench.tsx's `useSlider(stage, "Density", { min: 0.5, max: 4,
   // step: 0.1 }, …)`), independent of Shape/Layout's mesh geometry knobs.
   const renderFolder = useFolder(dock, "Render", { open: true });
+  useOption<WordArtRenderMode>(renderFolder, "Render mode", RENDER_MODE_OPTIONS, gui.renderMode, (v) => setGui("renderMode", v));
+  const charModeControl = useOption<WordArtCharMode>(renderFolder, "Character mode", CHAR_MODE_OPTIONS, gui.charMode, (v) => setGui("charMode", v));
+  useEffect(() => {
+    // Same gating as the gallery's Rendering folder: braille only encodes
+    // wireframe mode, halfblock is the solid-mode mirror — both are a
+    // documented no-op in ink, so the control dims outside wireframe/solid.
+    charModeControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "solid", { dim: true });
+  }, [charModeControl, gui.renderMode]);
   useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
 
   // ── Effects ───────────────────────────────────────────────────────────

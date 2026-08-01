@@ -10,7 +10,9 @@ const shouldRenderSearch =
 const pathname = Astro.url.pathname.replace(/\/$/, '') || '/';
 const isLanding = pathname === '/';
 const isGallery = pathname.startsWith('/gallery');
+const fetchLiveStars = import.meta.env.PROD;
 const isSynth = pathname.startsWith('/synth');
+const isGenerative = pathname.startsWith('/generative');
 
 const topLinks = [
   { href: '/', label: 'Home', active: pathname === '/' },
@@ -20,6 +22,7 @@ const topLinks = [
     active: ['/quickstart', '/introduction', '/core-concepts'].some((path) => pathname === path),
   },
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
+  { href: '/generative', label: 'Generative', active: pathname.startsWith('/generative') },
   { href: '/synth', label: 'Synth', active: pathname.startsWith('/synth') },
   { href: '/examples/world', label: 'Examples', active: pathname.startsWith('/examples') },
   { href: '/wordart', label: 'WordArt', active: pathname.startsWith('/wordart') },
@@ -30,7 +33,7 @@ const topLinks = [
   <div class="title-wrapper sl-flex">
     <SiteTitle />
   </div>
-  {!isLanding && !isGallery && !isSynth && (
+  {!isLanding && !isGallery && !isSynth && !isGenerative && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>
@@ -66,7 +69,7 @@ const topLinks = [
   )}
 </div>
 
-<script>
+{fetchLiveStars && <script>
   async function fetchStars() {
     try {
       const res = await fetch("https://api.github.com/repos/apresmoi/glyphcss");
@@ -80,6 +83,7 @@ const topLinks = [
   }
   fetchStars();
 </script>
+}
 
 <style>
   @layer starlight.core {

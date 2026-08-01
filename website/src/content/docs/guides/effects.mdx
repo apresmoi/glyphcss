@@ -245,6 +245,17 @@ moves between faces.
   not a random-pick character set — see [`GlyphRamps`](#glyphramps) below, or
   author a string such as `" .:-=+*#%@"`. A leading space renders a
   genuinely blank cell, giving the ramp a true dark step.
+- `subcellRes: "1x1" | "2x4"` (default `"1x1"`) swaps the ramp-indexed glyph
+  for a synthesized Braille pattern character at `"2x4"`: the combined field
+  is resampled and thresholded at each of a cell's 8 dot positions and packed
+  into one `U+2800`-block glyph — still exactly one glyph per cell, so it does
+  not change the renderer's single-glyph-per-cell output contract. The 8
+  offsets are exact under `space: "scene"` (the domain coordinate is affine in
+  col/row there); under `"auto"`/`"surface"` they're reconstructed by
+  finite-differencing neighboring cells' resolved coordinates, a local-affine
+  approximation that shears on genuinely curved surfaces (a sphere, the round
+  part of a cylinder, …) the same way the static field-synth exporter's own
+  affine-fit optimization only applies to the flat case.
 - `color` / `colorB` / `gradient` blend a single two-color gradient across
   the mapped value (`gradient: 0` is solid `color`, `1` is a full blend to
   `colorB`).
@@ -318,6 +329,60 @@ scene.addEffectLayer({
 | `Hatch` | `" .-+=#"` |
 | `Stars` | `" .+*✦★"` |
 | `Digital` | `" .:i\|1oX#"` |
+
+### Font-calibrated ramps
+
+`GlyphRamps` above are authored guesses — hand-picked and eyeballed against
+one font. Change family or weight and the gradient bands unevenly, because
+the glyphs' actual ink coverage was never measured. `calibrateGlyphRamp`
+measures it: it paints each candidate glyph onto a 2D canvas in a given font,
+sums its alpha-weighted ink coverage, sorts by coverage, and collapses
+glyphs that land in the same coverage bucket (two visually identical ramp
+steps are a defect, not detail) into a ramp that's perceptually linear for
+**that font**.
+
+```ts
+import { calibrateGlyphRamp } from "@glyphcss/effects";
+
+const { ramp } = calibrateGlyphRamp({
+  font: { family: "ui-monospace, Menlo, monospace", size: 32 },
+  steps: 12,
+});
+// ramp is a plain string, e.g. " .'`,:;+=xXo#8@" (exact glyphs depend on
+// the resolved font) — drop it in anywhere a ramp is used today.
+```
+
+`measureGlyphInkCoverage(glyph, { font })` is the underlying per-glyph
+measurement, exported separately if you want raw coverage numbers instead of
+a generated ramp.
+
+Both are **browser-only** — the real measurement needs a Canvas 2D context
+(`document.createElement("canvas")`). Off the DOM (SSR, a worker, a test),
+pass `canvasFactory` to supply any Canvas-2D-compatible surface, such as
+[`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas)'s `createCanvas`.
+
+The result is a **plain string**, the same shape as `GlyphRamps` — it is
+data, not a live measurement tied to `@glyphcss/effects`. That's what keeps
+it free to use anywhere a ramp slots in, including static compile:
+`compileScene` and the rest of the static-compile toolchain stay
+byte-identical to the runtime render, because a calibrated ramp is no
+different from an authored one once it's a string — for example, registered
+as a solid-mode ramp on a `glyphcss` `WIREFRAME_PALETTES` entry:
+
+```ts
+import { compileScene, WIREFRAME_PALETTES } from "glyphcss";
+import { calibrateGlyphRamp } from "@glyphcss/effects";
+
+const { ramp } = calibrateGlyphRamp({ font: { family: "Menlo, monospace" }, steps: 12 });
+WIREFRAME_PALETTES.myCalibrated = { ...WIREFRAME_PALETTES.default!, solid: ramp.split("") };
+
+compileScene({ polygons, mode: "solid", glyphPalette: "myCalibrated" });
+```
+
+The gallery's Rendering dock exposes this as the **Calibrated** glyph
+palette option, alongside the authored named palettes — pick it to see the
+live scene switch from an authored ramp to one measured in the gallery's own
+font.
 
 ### Design it live
 

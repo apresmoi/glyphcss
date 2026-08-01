@@ -3,7 +3,9 @@
 // (index / gallery / wordart / examples). Starlight docs pages get the same tag
 // via the `head` config in astro.config.mjs, so every page is covered.
 const GA_ID = 'G-PHHY1R5B58';
+const analyticsEnabled = import.meta.env.PROD;
 ---
+{analyticsEnabled && <>
 <script async is:inline src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}></script>
 <script is:inline define:vars={{ GA_ID }}>
   window.dataLayer = window.dataLayer || [];
@@ -11,3 +13,4 @@ const GA_ID = 'G-PHHY1R5B58';
   gtag('js', new Date());
   gtag('config', GA_ID);
 </script>
+</>}

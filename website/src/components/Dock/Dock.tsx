@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import React, { useRef, type ReactNode } from "react";
 import { useGui } from "./primitives";
 import { DockGuiContext } from "./slots";
 

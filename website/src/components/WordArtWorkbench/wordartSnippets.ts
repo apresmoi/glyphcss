@@ -114,6 +114,11 @@ export interface WordArtSnippetInput {
   ambient: number;
   /** Scene-wide density multiplier — emitted as the render font-size. */
   density: number;
+  /** Render mode + character encoding — mirrors the gallery's own Rendering
+   *  folder options; "voxel" is not offered (word-art meshes are extruded
+   *  glyphs, not cube-aligned geometry). */
+  mode: "wireframe" | "solid" | "ink";
+  charMode: "ascii" | "braille" | "halfblock";
   effect: WordArtSnippetEffect | null;
 }
 
@@ -264,13 +269,15 @@ interface Prepared {
   lightIntensity: string;
   lightColor: string;
   ambient: string;
+  mode: "wireframe" | "solid" | "ink";
+  charMode: "ascii" | "braille" | "halfblock";
   effect: WordArtSnippetEffect | null;
   effectParamsJson: string;
   hasEffectClock: boolean;
 }
 
 function prepare(input: WordArtSnippetInput): Prepared {
-  const { scaleX, scaleY, rotation, perspective, zoom, lightDir, lightIntensity, lightColor, ambient, density, effect } = input;
+  const { scaleX, scaleY, rotation, perspective, zoom, lightDir, lightIntensity, lightColor, ambient, density, mode, charMode, effect } = input;
   return {
     fontSizePx: Math.round((BASE_FONT_PX / density) * 100) / 100,
     // Mesh local X = text height (screen-down), local Y = text width
@@ -284,6 +291,8 @@ function prepare(input: WordArtSnippetInput): Prepared {
     lightIntensity: fmt(lightIntensity),
     lightColor,
     ambient: fmt(ambient),
+    mode,
+    charMode,
     effect,
     effectParamsJson: effect ? jsonForScript(effect.params) : "{}",
     hasEffectClock: !!effect?.hasClock && !effect.paused && effect.timeScale > 0,
@@ -389,7 +398,8 @@ const camera = ${cameraCtor}({ rotX: 0, rotY: 0, zoom: ${p.zoom} });
 
 const scene = createGlyphScene(host, {
   camera,
-  mode: "solid",
+  mode: "${p.mode}",
+  charMode: "${p.charMode}",
   autoSize: true,
   useColors: true,
   directionalLight: {
@@ -524,7 +534,8 @@ ${effectClock}
         onWheel={onWheel}
       >
         <GlyphScene
-          mode="solid"
+          mode="${p.mode}"
+          charMode="${p.charMode}"
           autoSize
           style={{ width: "100%", height: "100%", fontSize: ${p.fontSizePx} }}
           useColors
@@ -573,7 +584,8 @@ onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
       @wheel="onWheel"
     >
       <GlyphScene
-        mode="solid"
+        mode="${p.mode}"
+        char-mode="${p.charMode}"
         auto-size
         :style="{ width: '100%', height: '100%', fontSize: '${p.fontSizePx}px' }"
         use-colors
@@ -699,7 +711,7 @@ function buildHtml(p: Prepared, mesh: MeshBlock): string {
   </head>
   <body>
     <${cameraTag} rot-x="0" rot-y="0" zoom="${p.zoom}">
-      <glyph-scene id="scene" mode="solid" auto-size use-colors></glyph-scene>
+      <glyph-scene id="scene" mode="${p.mode}" char-mode="${p.charMode}" auto-size use-colors></glyph-scene>
     </${cameraTag}>
 
     <script type="module">

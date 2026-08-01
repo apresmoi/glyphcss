@@ -4,7 +4,7 @@ ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace 
 
 ![glyphcss — ETOPO1 world topography rasterised to ASCII](assets/banner.png)
 
-Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files. Supports wireframe, solid, and voxel render modes with swappable glyph palettes.
+Loads OBJ, glTF, GLB, and MagicaVoxel `.vox` files. Supports wireframe, solid, voxel, and ink render modes with swappable glyph palettes.
 
 > Forked from [polycss](https://github.com/LayoutitStudio/polycss) — the mesh math, parsers (OBJ / glTF / GLB / VOX), scene composition tree, camera math, and input controls carried over intact. The paint backend is rewritten: instead of emitting one CSS-transformed DOM leaf per polygon, the rasteriser walks all polygons, fills a `cols × rows` character grid, and writes a single string to `<pre>.textContent` per render.
 
@@ -135,7 +135,7 @@ Must be placed inside a camera component.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
+| `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `"solid"` | Render mode |
 | `glyphPalette` | `string` | `"default"` | Named glyph character set |
 | `useColors` | `boolean` | `true` | Emit `<span>` color elements inside the `<pre>` |
 | `cols` | `number` | `80` | Character grid width |

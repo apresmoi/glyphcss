@@ -50,6 +50,9 @@ import type {
   GlyphEffectDefinition,
   GlyphEffectLayerHandle,
   GlyphEffectParamSchema,
+  GlyphControlSceneManifest,
+  GlyphObjectDictionary,
+  GlyphSemanticCellFrame,
 } from 'glyphcss';
 import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from 'glyphcss';
 import { resolveGeometry } from '@glyphcss/core';
@@ -66,6 +69,7 @@ type RuntimeEffectConfig = {
 };
 
 type RuntimeEffectLayer = GlyphEffectLayerHandle<Record<string, RuntimeEffectParam>>;
+type RuntimeSemanticOutput = { sceneManifest: GlyphControlSceneManifest; dictionary: GlyphObjectDictionary } | null;
 
 /** Compute the face normal (unnormalized) of a triangle. */
 function faceNormal(t: TextureTriangle): [number, number, number] {
@@ -153,6 +157,7 @@ interface MeshGeometry {
   polygons: TextureTriangle[];
   animations: ParseAnimationClip[];
   sample: (clipIndex: number, time: number) => TextureTriangle[];
+  dispose?: () => void;
 }
 
 /** Fan-triangulate a Polygon (N vertices) into N-2 TextureTriangles. */
@@ -300,7 +305,7 @@ function recenterTriangles(triangles: TextureTriangle[]): TextureTriangle[] {
   }));
 }
 
-async function loadMeshAsGeometry(
+export async function loadMeshAsGeometry(
   url: string,
   normalize = true,
   mtlUrl?: string,
@@ -321,6 +326,11 @@ async function loadMeshAsGeometry(
     ...(options ?? {}),
     baseUrl: options?.baseUrl ?? url,
     ...(resolvedMtl ? { mtlUrl: resolvedMtl } : {}),
+    // The gallery's renderer samples authored UV textures per cell. The legacy
+    // solid sampler can replace uniform-looking textured polygons before this
+    // runtime gets a chance to build its sampler map, which breaks exact
+    // texture identity and makes the control path depend on a browser heuristic.
+    solidTextureSamples: false,
   });
   // Textures are now sampled per cell by the renderer (UV-mapped, glyph-
   // resolution) — carried through `fanTriangulate` as `texture` + real UVs.
@@ -346,12 +356,18 @@ async function loadMeshAsGeometry(
   } else {
     sample = () => polys;
   }
+  let disposed = false;
   return {
     vertices: Array.from(vertSet.values()),
     edges,
     polygons: polys,
     animations: clips,
     sample,
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      result.dispose();
+    },
   };
 }
 
@@ -432,9 +448,11 @@ interface Tunables {
   lineHeight: number;
   fontSize?: number;
   geometry: GeometryName;
-  renderMode?: 'wireframe' | 'solid';
+  renderMode?: 'wireframe' | 'solid' | 'ink';
   featureEdges?: number;
   glyphPalette?: string;
+  charMode?: 'ascii' | 'braille' | 'halfblock';
+  wireframeJunctions?: boolean;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -735,7 +753,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   // Derive render options from current state
   function buildSceneOptions() {
-    const activeMode = tunables.renderMode ?? 'wireframe';
+    const activeMode = semanticOutput ? 'solid' : (tunables.renderMode ?? 'wireframe');
     const featureAngle = tunables.featureEdges ?? 0;
     let activeEdges = geometry.edges;
     if (activeMode === 'wireframe' && featureAngle > 0) {
@@ -752,8 +770,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     baseWireframe = activeEdges;
 
     return {
-      mode: activeMode as 'wireframe' | 'solid',
+      mode: activeMode as 'wireframe' | 'solid' | 'ink',
       glyphPalette: tunables.glyphPalette ?? 'default',
+      charMode: tunables.charMode ?? 'ascii',
+      wireframeJunctions: tunables.wireframeJunctions ?? false,
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -774,6 +794,10 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   // Declare before buildSceneOptions() is called to avoid temporal dead zone.
   let baseWireframe: WireframeEdge[] = geometry.edges;
+  // Gallery Semantic is presentation state over the public solid renderer.
+  // Geometry rebuilds can happen after it is enabled, so this must be known
+  // when their scene options are reconstructed as well.
+  let semanticOutput: RuntimeSemanticOutput = null;
 
   const scene: GlyphSceneHandle = createGlyphScene(sceneHost, {
     camera,
@@ -881,6 +905,22 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     effectTimeScale = Number.isFinite(config.timeScale) ? Math.max(0, config.timeScale) : 1;
     if (effectPaused || effectTimeScale === 0) stopEffectLoop();
     else startEffectLoop();
+  }
+
+  /** Uses the renderer's public semantic selector; no gallery rasterizer exists. */
+  function setPresentation(renderMode: 'wireframe' | 'solid' | 'ink', config: RuntimeSemanticOutput): void {
+    semanticOutput = config;
+    tunables.renderMode = renderMode;
+    scene.setOptions(config
+      // Semantic is gallery presentation state, not another renderer mode.
+      // Set the compatible public mode atomically with glyphOutput so a
+      // pending wireframe render cannot reject the semantic selector.
+      ? { mode: 'solid', glyphOutput: 'semantic', sceneManifest: config.sceneManifest, dictionary: config.dictionary }
+      : { mode: renderMode, glyphOutput: 'visible', sceneManifest: undefined, dictionary: undefined });
+  }
+
+  function getSemanticCellFrame(): GlyphSemanticCellFrame | null {
+    return scene.getGlyphSemanticCellFrame();
   }
 
   // Floor handle — ground plane added when shadows + floor are both on.
@@ -1316,7 +1356,11 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
   function rebuildAll(): void {
     stopAnimationLoop();
-    if (usesBuiltInGeometry) geometry = buildDemoGeometry(tunables.geometry);
+    if (usesBuiltInGeometry) {
+      const previousGeometry = geometry;
+      geometry = buildDemoGeometry(tunables.geometry);
+      previousGeometry.dispose?.();
+    }
     selectedTriangleIndex = -1;
     onSelectionChange?.(-1, null);
     rebuildSceneFromGeometry();
@@ -1335,15 +1379,18 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     loadingEl.textContent = `Loading ${url.split('/').pop()}…`;
     try {
       const loaded = await loadMeshAsGeometry(url, controlState.autoCenter, mtlUrl, options);
-      if (token !== meshLoadToken) return; // superseded by a newer selection
+      if (token !== meshLoadToken) { loaded.dispose?.(); return; } // superseded by a newer selection
       if (loaded.edges.length === 0) {
+        loaded.dispose?.();
         loadingEl.textContent = 'Empty mesh (0 edges).';
         return;
       }
       controlState.lastMeshUrl = url;
       controlState.lastMtlUrl = mtlUrl ?? null;
       controlState.lastLoadOptions = options ?? null;
+      const previousGeometry = geometry;
       geometry = loaded;
+      previousGeometry.dispose?.();
       selectedTriangleIndex = -1;
       onSelectionChange?.(-1, null);
       rebuildSceneFromGeometry();
@@ -1376,6 +1423,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       vertSet.set(e.to.join(','), e.to);
     }
     controlState.lastMeshUrl = null;
+    const previousGeometry = geometry;
     geometry = {
       vertices: Array.from(vertSet.values()),
       edges,
@@ -1384,6 +1432,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       animations: [],
       sample: () => polyTris,
     };
+    previousGeometry.dispose?.();
     selectedTriangleIndex = -1;
     onSelectionChange?.(-1, null);
     rebuildSceneFromGeometry();
@@ -1637,8 +1686,14 @@ function initGlyphDemo(demoEl: HTMLElement): void {
 
     // Forward render-affecting options to the scene without recreating it.
     const sceneOpts: Partial<Parameters<typeof scene.setOptions>[0]> = {};
-    if ('renderMode' in partial && partial.renderMode !== undefined) sceneOpts.mode = partial.renderMode;
+    if ('renderMode' in partial && partial.renderMode !== undefined) {
+      // Keep Gallery's semantic presentation on the public solid path even if
+      // a delayed visible-mode effect flushes while the selector is changing.
+      sceneOpts.mode = semanticOutput ? 'solid' : partial.renderMode;
+    }
     if ('glyphPalette' in partial && partial.glyphPalette !== undefined) sceneOpts.glyphPalette = partial.glyphPalette;
+    if ('charMode' in partial && partial.charMode !== undefined) sceneOpts.charMode = partial.charMode;
+    if ('wireframeJunctions' in partial && partial.wireframeJunctions !== undefined) sceneOpts.wireframeJunctions = partial.wireframeJunctions;
     if ('useColors' in partial && partial.useColors !== undefined) sceneOpts.useColors = partial.useColors;
     if ('smoothShading' in partial && partial.smoothShading !== undefined) sceneOpts.smoothShading = partial.smoothShading;
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
@@ -1893,6 +1948,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       setLighting: (partial: { azimuth?: number; elevation?: number; keyIntensity?: number; ambientIntensity?: number; keyColor?: string; ambientColor?: string }) => void;
       setShadow: (partial: Partial<ShadowState>) => void;
       configureEffect: (config: RuntimeEffectConfig | null) => void;
+      setPresentation: (renderMode: 'wireframe' | 'solid' | 'ink', config: RuntimeSemanticOutput) => void;
+      getSemanticCellFrame: () => GlyphSemanticCellFrame | null;
       getDragMode: () => DragMode;
       getPolygons: () => Polygon[];
     }
@@ -1920,6 +1977,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     setLighting,
     setShadow,
     configureEffect,
+    setPresentation,
+    getSemanticCellFrame,
     getDragMode,
     getPolygons,
   };

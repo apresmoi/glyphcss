@@ -121,9 +121,17 @@ export interface SceneOptionsState {
   ambientIntensity: number;
   ambientColor: string;
   target: [number, number, number];
-  renderMode: "wireframe" | "solid";
+  renderMode: "wireframe" | "solid" | "ink";
   featureEdges: number;
-  glyphPalette: "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
+  glyphPalette: "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex" | "calibrated";
+  /**
+   * Character encoding for rasterized output. "braille" only affects
+   * wireframe mode; "halfblock" only affects solid mode (2x vertical color
+   * resolution via `▀`/`▄`/`█`).
+   */
+  charMode: "ascii" | "braille" | "halfblock";
+  /** Box-drawing junction resolve pass (wireframe + charMode "ascii" only). */
+  wireframeJunctions: boolean;
   lineHeight: number;
   /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
   density: number;

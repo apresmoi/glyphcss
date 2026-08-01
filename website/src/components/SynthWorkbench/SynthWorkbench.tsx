@@ -15,9 +15,11 @@ import {
 import {
   GlyphFieldSynthEffect as fieldSynth,
   buildGlyphFieldSynthStaticExport,
+  calibrateGlyphRamp,
   combineSynth,
   defaultGlyphEffectParams,
   GlyphRamps,
+  measureGlyphInkCoverage,
   synthWave,
 } from "@glyphcss/effects";
 import type { GlyphEffectPreset, GlyphFieldSynthStaticExportResult } from "@glyphcss/effects";
@@ -26,8 +28,16 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
 import type { SynthSnippetInput } from "./synthSnippets";
+import {
+  InstrumentBody,
+  InstrumentMain,
+  InstrumentMobileTabs,
+  InstrumentRail,
+  InstrumentShell,
+  InstrumentTray,
+  InstrumentViewport,
+} from "../InstrumentWorkbench/InstrumentWorkbench";
 import "../GalleryWorkbench/gallery-workbench.css";
-import "./synth-workbench.css";
 
 // The ONE blend both `scene.addEffectLayer()` calls below mount the layer
 // with. The static export must read the layer's REAL blend rather than the
@@ -46,17 +56,149 @@ const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral",
 const WAVES = ["sin", "triangle", "saw", "square"] as const;
 const COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 const SPACES = ["auto", "surface", "scene"] as const;
+const SUBCELL_RES = ["1x1", "2x4"] as const;
 const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
 
 const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 const SHAPE_OPTS = opts(SHAPES), COMBINE_OPTS = opts(COMBINES), SPACE_OPTS = opts(SPACES);
-const RAMP_OPTS: Record<string, string> = { ...Object.fromEntries(Object.keys(GlyphRamps).map((k) => [k, k])), Custom: "Custom" };
-const matchRamp = (glyphs: string): string => Object.entries(GlyphRamps).find(([, v]) => v === glyphs)?.[0] ?? "Custom";
+// "Calibrated" measures the VIEWER'S actual resolved font (not an authored
+// guess) at pick time — see `useRampCalibration` below. Its result is a
+// plain ramp string, same as any `GlyphRamps` entry, so it writes into
+// `glyphs`/the `?s=` URL exactly like any other ramp: self-contained, no
+// symbolic name that could fall back silently in a fresh environment.
+const CALIBRATED_RAMP_NAME = "Calibrated";
+const RAMP_OPTS: Record<string, string> = {
+  ...Object.fromEntries(Object.keys(GlyphRamps).map((k) => [k, k])),
+  [CALIBRATED_RAMP_NAME]: CALIBRATED_RAMP_NAME,
+  Custom: "Custom",
+};
+// `calibratedRamp` lets a currently-applied calibrated ramp keep reading back
+// as "Calibrated" in the picker instead of immediately falling to "Custom" —
+// purely a display nicety; the underlying fallback (an edited/typed ramp, or
+// one applied before calibration finished) still resolves to "Custom" exactly
+// as before.
+const matchRamp = (glyphs: string, calibratedRamp?: string | null): string => {
+  if (calibratedRamp && glyphs === calibratedRamp) return CALIBRATED_RAMP_NAME;
+  return Object.entries(GlyphRamps).find(([, v]) => v === glyphs)?.[0] ?? "Custom";
+};
+
+const RAMP_CALIBRATION_STEPS = 10;
+
+interface RampCalibrationState {
+  /** Font-calibrated ramp, darkest → densest. `null` until measured. */
+  ramp: string | null;
+  /** Per-glyph measured ink coverage (0..1) for every ramp option, keyed by
+   *  its `RAMP_OPTS` name (authored ramps AND `CALIBRATED_RAMP_NAME`). Empty
+   *  until the font is ready and measurement completes. */
+  coverageByOption: Record<string, number[]>;
+}
+
+// Measures the PAGE's actual resolved render font (read live off the mounted
+// `<pre class="glyph-output">`, not a hardcoded guess) and produces both a
+// calibrated ramp and a density table for every ramp option, for the density
+// bars in the picker. `document.fonts.ready` is awaited FIRST — canvas glyph
+// measurement races webfont loading, so measuring before it resolves can
+// silently measure a fallback font's metrics instead of the real one.
+function useRampCalibration(hostRef: { current: HTMLElement | null }): RampCalibrationState {
+  const [state, setState] = useState<RampCalibrationState>({ ramp: null, coverageByOption: {} });
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let cancelled = false;
+    document.fonts.ready.then(() => {
+      if (cancelled) return;
+      const font = getRenderFont(hostRef.current);
+      const calibrated = calibrateGlyphRamp({ font, steps: RAMP_CALIBRATION_STEPS });
+      const coverageByOption: Record<string, number[]> = { [CALIBRATED_RAMP_NAME]: calibrated.steps.map((step) => step.coverage) };
+      for (const [name, glyphs] of Object.entries(GlyphRamps)) {
+        coverageByOption[name] = glyphs.split("").map((glyph) => measureGlyphInkCoverage(glyph, { font }));
+      }
+      if (!cancelled) setState({ ramp: calibrated.ramp, coverageByOption });
+    });
+    return () => { cancelled = true; };
+  }, [hostRef]);
+  return state;
+}
+
+// Reads the page's actual resolved render font off the mounted
+// `<pre class="glyph-output">` (not a hardcoded guess) — shared by ramp
+// calibration and the live "Custom" swatch measurement below.
+function getRenderFont(host: HTMLElement | null): { family: string; size: number; weight?: string } {
+  const pre = host?.querySelector("pre.glyph-output") as HTMLElement | null;
+  const cs = pre ? getComputedStyle(pre) : null;
+  return { family: cs?.fontFamily || "monospace", size: cs ? parseFloat(cs.fontSize) || 16 : 16, weight: cs?.fontWeight };
+}
+
+// Measures the CURRENTLY TYPED `glyphs` string (not a preset) so the density
+// illustration keeps describing what's actually rendering when the ramp
+// doesn't match any `GlyphRamps` preset. Debounced 250ms: canvas glyph
+// measurement runs per character, so re-measuring on every keystroke would
+// paint a fresh <canvas> per key while the user is mid-edit — 250ms lands
+// after a typing pause without reading as laggy.
+const CUSTOM_RAMP_MEASURE_DEBOUNCE_MS = 250;
+function useCustomRampCoverage(hostRef: { current: HTMLElement | null }, glyphs: string): number[] {
+  const [coverage, setCoverage] = useState<number[]>([]);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    let cancelled = false;
+    const chars = Array.from(glyphs);
+    if (chars.length === 0) { setCoverage([]); return; }
+    const timer = window.setTimeout(() => {
+      document.fonts.ready.then(() => {
+        if (cancelled) return;
+        const font = getRenderFont(hostRef.current);
+        setCoverage(chars.map((glyph) => measureGlyphInkCoverage(glyph, { font })));
+      });
+    }, CUSTOM_RAMP_MEASURE_DEBOUNCE_MS);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [hostRef, glyphs]);
+  return coverage;
+}
+
+// Small measured-coverage density bar per ramp option — darkest glyph's bar
+// is shortest, densest glyph's bar is tallest, using the SAME per-font
+// measurement `useRampCalibration` produces (so "Calibrated"'s bars and the
+// authored ramps' bars are directly comparable, real ink coverage, not a
+// synthetic index-based ramp). `disabledReason`, when set, replaces the
+// swatches with a visible explanation instead of just dimming them (2x4
+// subcell mode renders Braille dots and never reads the ramp at all).
+function RampDensityRow({ names, coverageByOption, selected, onSelect, disabledReason }: {
+  names: string[]; coverageByOption: Record<string, number[]>; selected: string; onSelect: (name: string) => void;
+  disabledReason?: string;
+}) {
+  if (disabledReason) {
+    return <p className="dock-ramp-density-reason">{disabledReason}</p>;
+  }
+  return (
+    <div className="dock-ramp-density" role="listbox" aria-label="Ramp density preview">
+      {names.map((name) => {
+        const coverage = coverageByOption[name];
+        return (
+          <button
+            key={name}
+            type="button"
+            role="option"
+            aria-selected={name === selected}
+            className={`dock-ramp-density-item${name === selected ? " is-active" : ""}`}
+            onClick={() => onSelect(name)}
+            title={name === CALIBRATED_RAMP_NAME ? "Font-calibrated — measured from the viewer's actual font stack" : name}
+          >
+            <span className="dock-ramp-density-bars">
+              {coverage
+                ? coverage.map((c, i) => <span key={i} className="dock-ramp-density-bar" style={{ height: `${Math.max(6, c * 100)}%` }} />)
+                : <span className="dock-ramp-density-pending">…</span>}
+            </span>
+            <span className="dock-ramp-density-label">{name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // Inline SVG icons for the field/wave multi-toggles (segmented control, like
 // text-align). `stroke`/`fill: currentColor` so each icon inherits the button's
 // text color for free — dim when inactive, cyan when `.is-active` (see
-// `.gx-toggle-btn` / `.gx-toggle-btn.is-active` in synth-workbench.css).
+// `.gx-toggle-btn` / `.gx-toggle-btn.is-active` in the shared apparatus CSS).
 function ToggleIcon({ children, ...rest }: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" aria-hidden="true" {...rest}>
@@ -114,14 +256,66 @@ const FIELD_ICONS: Record<string, ReactNode> = {
     </ToggleIcon>
   ),
 };
-const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], title: v }));
-const WAVE_TOGGLE = WAVES.map((v) => ({ value: v as string, icon: WAVE_ICONS[v], title: v }));
+// Short, concrete per-option hover copy — each button's `title` names the
+// shape AND says what it does, so a voice card is self-explanatory without
+// leaving the page (see `AGENTS.md`'s field-synth section for the source
+// semantics: `fieldN` is the spatial domain, `waveN` is the oscillator shape
+// sampled across it).
+const FIELD_DESCRIPTIONS: Record<string, string> = {
+  radial: "distance from a center point — concentric rings",
+  linearX: "sweeps left to right across the field",
+  linearY: "sweeps bottom to top across the field",
+  diagonal: "sweeps along the diagonal",
+  angular: "angle around a center point — rotational bands",
+  spiral: "winds outward from a center point",
+  noise: "randomized, non-repeating — no directional structure",
+};
+const WAVE_DESCRIPTIONS: Record<string, string> = {
+  sin: "smooth, rounded oscillation",
+  triangle: "linear ramp up, then down",
+  saw: "linear ramp up, then a hard snap back down",
+  square: "hard on/off, no ramp",
+};
+const FIELD_TOGGLE = FIELDS.map((v) => ({ value: v as string, icon: FIELD_ICONS[v], label: v, desc: FIELD_DESCRIPTIONS[v] }));
+const WAVE_TOGGLE = WAVES.map((v) => ({ value: v as string, icon: WAVE_ICONS[v], label: v, desc: WAVE_DESCRIPTIONS[v] }));
 
-function IconToggle({ options, value, onChange }: { options: { value: string; icon: ReactNode; title: string }[]; value: string; onChange: (v: string) => void }) {
+// Single filled cell (one glyph per cell, ramp-based) vs. a braille-style
+// 2x4 dot grid (the synthesized dot mask `subcellRes: "2x4"` renders instead)
+// — reads at a glance instead of the raw "1x1"/"2x4" strings.
+const SUBCELL_ICONS: Record<string, ReactNode> = {
+  "1x1": <ToggleIcon fill="currentColor" stroke="none"><rect x="4" y="4" width="8" height="8" /></ToggleIcon>,
+  "2x4": (
+    <ToggleIcon fill="currentColor" stroke="none">
+      <circle cx="5.3" cy="3.3" r="1.05" /><circle cx="10.7" cy="3.3" r="1.05" />
+      <circle cx="5.3" cy="6.4" r="1.05" /><circle cx="10.7" cy="6.4" r="1.05" />
+      <circle cx="5.3" cy="9.5" r="1.05" /><circle cx="10.7" cy="9.5" r="1.05" />
+      <circle cx="5.3" cy="12.6" r="1.05" /><circle cx="10.7" cy="12.6" r="1.05" />
+    </ToggleIcon>
+  ),
+};
+const SUBCELL_TOGGLE = SUBCELL_RES.map((v) => ({
+  value: v as string,
+  icon: SUBCELL_ICONS[v],
+  label: v,
+  desc: v === "1x1" ? "one glyph per cell, picked from the ramp" : "braille dot matrix per cell — finer apparent grain, ignores the ramp",
+}));
+
+function IconToggle({ options, value, onChange, groupTitle }: {
+  options: { value: string; icon: ReactNode; label: string; desc?: string }[]; value: string; onChange: (v: string) => void; groupTitle?: string;
+}) {
   return (
-    <div className="gx-toggle" role="group">
+    <div className="gx-toggle" role="group" title={groupTitle}>
       {options.map((o) => (
-        <button key={o.value} type="button" className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`} title={o.title} aria-label={o.title} onClick={() => onChange(o.value)}>{o.icon}</button>
+        <button
+          key={o.value}
+          type="button"
+          className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`}
+          title={o.desc ? `${o.label} — ${o.desc}` : o.label}
+          aria-label={o.label}
+          onClick={() => onChange(o.value)}
+        >
+          {o.icon}
+        </button>
       ))}
     </div>
   );
@@ -406,11 +600,11 @@ function VoiceCard({ slot, index, params, onParam, onRemove }: {
             <button className="voice-remove" onClick={onRemove} title="Remove voice">×</button>
           </span>
         </div>
-        <IconToggle options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
-        <IconToggle options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
-        <label className="voice-slider"><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /></span><b>{num("freq").toFixed(1)}</b></label>
-        <label className="voice-slider"><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
-        <label className="voice-slider"><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
+        <IconToggle groupTitle="Wave — the oscillator shape sampled across this voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
+        <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
+        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /></span><b>{num("freq").toFixed(1)}</b></label>
+        <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
+        <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
       </div>
     </div>
   );
@@ -429,17 +623,24 @@ function PresetTile({ preset, onApply }: { preset: GlyphEffectPreset<never>; onA
 }
 
 // ── Right dock controls (stage / mix / output) ────────────────────────────────
-function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef }: {
+function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, density, onDensity, lighting, onLight, params, onParam, paramsRef, tsRef, pausedRef, hostRef }: {
   shape: string; onShape: (s: string) => void;
   timeScale: number; onTimeScale: (n: number) => void; paused: boolean; onPaused: (b: boolean) => void;
   density: number; onDensity: (n: number) => void;
   lighting: Lighting; onLight: (partial: Partial<Lighting>) => void;
   params: Params; onParam: (key: string, value: ParamValue) => void;
   paramsRef: { current: Params }; tsRef: { current: number }; pausedRef: { current: boolean };
+  hostRef: { current: HTMLElement | null };
 }): ReactNode {
   const gui = useDockGui();
   const s = (k: string) => String(params[k] ?? "");
   const n = (k: string) => Number(params[k] ?? 0);
+  // At "2x4" subcell resolution, field-synth emits a synthesized Braille dot
+  // mask and never reads the `glyphs` ramp at all (the ramp branch is the
+  // `1x1`-only else in fieldSynth's evaluate()) — Ramp/Chars/the density row
+  // are dimmed and the reason is spelled out below, and `gain`/`bias`
+  // (Contrast/Brightness) instead become the per-dot threshold cutoff.
+  const subcellIs2x4 = s("subcellRes") === "2x4";
 
   const stage = useFolder(gui, "Stage", { open: true });
   useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v));
@@ -452,16 +653,89 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   // Scope goes first so `useDockSlot`'s insertBefore(…, firstChild) lands it
   // above every controller subsequently added to this folder (Combine, Scale, …).
   const scopeHost = useDockSlot(mix, { position: "top", className: "dock-scope-slot" });
-  useOption(mix, "Combine", COMBINE_OPTS, s("combine"), (v) => onParam("combine", v));
+  const combineCtrl = useOption(mix, "Combine", COMBINE_OPTS, s("combine"), (v) => onParam("combine", v));
+  // `DockController.raw` is the underlying lil-gui `Controller`, whose `$name`
+  // is a public DOM element (see `primitives.tsx`) — setting its native
+  // `title` attribute reuses the SAME hover-tooltip convention already used
+  // everywhere else on this page (IconToggle buttons, the ramp density
+  // swatches, the voice color/remove buttons) instead of inventing a second
+  // tooltip system for lil-gui rows.
+  useEffect(() => {
+    if (combineCtrl) combineCtrl.raw.$name.title = "Combine — how each active voice after the first folds into the running result: add, multiply, max, min, or difference.";
+  }, [combineCtrl]);
   useSlider(mix, "Scale", { min: 0.1, max: 12, step: 0.1 }, n("scale"), (v) => onParam("scale", v));
   useSlider(mix, "Origin U", { min: 0, max: 1, step: 0.01 }, n("originU"), (v) => onParam("originU", v));
   useSlider(mix, "Origin V", { min: 0, max: 1, step: 0.01 }, n("originV"), (v) => onParam("originV", v));
-  useSlider(mix, "Contrast", { min: 0, max: 4, step: 0.05 }, n("gain"), (v) => onParam("gain", v));
-  useSlider(mix, "Brightness", { min: -1, max: 2, step: 0.05 }, n("bias"), (v) => onParam("bias", v));
+  const gainCtrl = useSlider(mix, "Contrast", { min: 0, max: 4, step: 0.05 }, n("gain"), (v) => onParam("gain", v));
+  const biasCtrl = useSlider(mix, "Brightness", { min: -1, max: 2, step: 0.05 }, n("bias"), (v) => onParam("bias", v));
+  // Relabel in place at 2x4 — same two sliders, different meaning: they set
+  // the dot-density / line-weight threshold each subcell's value is cut
+  // against (`subValue > 0.5` in fieldSynth's Braille branch) instead of the
+  // ramp index.
+  useEffect(() => {
+    gainCtrl?.raw.name(subcellIs2x4 ? "Contrast (dot threshold)" : "Contrast");
+    biasCtrl?.raw.name(subcellIs2x4 ? "Brightness (dot threshold)" : "Brightness");
+  }, [gainCtrl, biasCtrl, subcellIs2x4]);
 
   const out = useFolder(gui, "Output", { open: true });
-  useOption(out, "Ramp", RAMP_OPTS, matchRamp(s("glyphs")), (name) => { if (name !== "Custom" && GlyphRamps[name]) onParam("glyphs", GlyphRamps[name]); });
-  useText(out, "Chars", s("glyphs"), (v) => onParam("glyphs", v));
+  // Subcell GATES Ramp/Chars/density below it (2x4 never reads the ramp — see
+  // `subcellIs2x4` above), so it must render as the parent choice, ABOVE the
+  // controls it disables. Requested first (before any other `use*` call on
+  // `out`) so `useDockSlot`'s insertBefore(…, firstChild) lands it above
+  // Ramp. A segmented icon control (reusing the SAME `IconToggle` component
+  // and `.gx-toggle`/`.gx-toggle-btn` CSS the voice cards already use for
+  // field/wave) instead of a dropdown — "1x1"/"2x4" read as a filled cell vs.
+  // a braille dot grid instead of code-ish strings.
+  const subcellSlot = useDockSlot(out, { position: "top", className: "dock-subcell-slot" });
+  const calibration = useRampCalibration(hostRef);
+  // Selecting "Calibrated" before the font-ready measurement lands (rare —
+  // `document.fonts.ready` is usually already resolved by the time the Dock
+  // is interactive) queues the apply instead of silently no-op'ing.
+  const pendingCalibratedRef = useRef(false);
+  const selectedRamp = matchRamp(s("glyphs"), calibration.ramp);
+  // "Custom" only gets its own swatch once the current ramp is actually
+  // custom (typed/edited, not a preset) — otherwise the density row would
+  // carry a permanently-empty "Custom" entry.
+  const customCoverage = useCustomRampCoverage(hostRef, s("glyphs"));
+  const rampNames = useMemo(
+    () => (selectedRamp === "Custom" ? [...Object.keys(GlyphRamps), CALIBRATED_RAMP_NAME, "Custom"] : [...Object.keys(GlyphRamps), CALIBRATED_RAMP_NAME]),
+    [selectedRamp],
+  );
+  const coverageByOption = useMemo(
+    () => (selectedRamp === "Custom" ? { ...calibration.coverageByOption, Custom: customCoverage } : calibration.coverageByOption),
+    [calibration.coverageByOption, selectedRamp, customCoverage],
+  );
+  const selectRamp = useCallback((name: string) => {
+    if (name === CALIBRATED_RAMP_NAME) {
+      if (calibration.ramp) onParam("glyphs", calibration.ramp);
+      else pendingCalibratedRef.current = true;
+      return;
+    }
+    if (name !== "Custom" && GlyphRamps[name]) onParam("glyphs", GlyphRamps[name]);
+  }, [calibration.ramp, onParam]);
+  useEffect(() => {
+    if (pendingCalibratedRef.current && calibration.ramp) {
+      onParam("glyphs", calibration.ramp);
+      pendingCalibratedRef.current = false;
+    }
+  }, [calibration.ramp, onParam]);
+  const rampCtrl = useOption(out, "Ramp", RAMP_OPTS, selectedRamp, selectRamp);
+  const rampDensitySlot = useDockSlot(out, { position: "bottom", className: "dock-ramp-density-slot" });
+  // `isValid` rejects an empty ramp before it ever reaches `onParam`/the
+  // mounted effect layer's `setParams` — fieldSynth's `validateParams` (see
+  // `packages/effects/src/stock.ts`, `validateGlyphRamp`) intentionally
+  // THROWS on an empty ramp (deliberate authoring-time validation, distinct
+  // from `glyphRamp()`'s safe `["?"]` render-time fallback), and this text
+  // field is the one path that can hand it an empty string live. Reverts the
+  // field to its last non-empty value instead of clearing it.
+  const charsCtrl = useText(out, "Chars", s("glyphs"), (v) => onParam("glyphs", v), (next) => next.length > 0);
+  // Ramp/Chars/the density row do nothing at 2x4 (see `subcellIs2x4` above) —
+  // dim them AND say why, rather than leaving live-looking controls that
+  // silently no-op.
+  useEffect(() => {
+    rampCtrl?.setEnabled(!subcellIs2x4, { dim: true });
+    charsCtrl?.setEnabled(!subcellIs2x4, { dim: true });
+  }, [rampCtrl, charsCtrl, subcellIs2x4]);
   const voiceColorsOn = params.voiceColors === true;
   useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
   const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));
@@ -485,7 +759,33 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
   useColor(light, "Key color", lighting.keyColor, (v) => onLight({ keyColor: v }));
   useSlider(light, "Ambient", { min: 0, max: 1, step: 0.05 }, lighting.ambient, (v) => onLight({ ambient: v }));
 
-  return scopeHost ? createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost) : null;
+  return (
+    <>
+      {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
+      {subcellSlot && createPortal(
+        <div className="dock-subcell">
+          <span className="dock-subcell-label">Subcell</span>
+          <IconToggle
+            groupTitle="Subcell — cell resolution. 1x1 picks one glyph per cell from the Ramp below; 2x4 renders a synthesized braille dot matrix per cell instead and ignores the ramp entirely."
+            options={SUBCELL_TOGGLE}
+            value={s("subcellRes")}
+            onChange={(v) => onParam("subcellRes", v)}
+          />
+        </div>,
+        subcellSlot,
+      )}
+      {rampDensitySlot && createPortal(
+        <RampDensityRow
+          names={rampNames}
+          coverageByOption={coverageByOption}
+          selected={selectedRamp}
+          onSelect={selectRamp}
+          disabledReason={subcellIs2x4 ? "Subcell = 2x4 renders a Braille dot pattern, not the ramp — Ramp/Chars have no effect. Contrast/Brightness set the dot threshold instead." : undefined}
+        />,
+        rampDensitySlot,
+      )}
+    </>
+  );
 }
 
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
@@ -797,22 +1097,21 @@ export default function SynthWorkbench() {
   }, [shape, params, paused, timeScale]);
 
   return (
-    <div className="synth-shell dn-root dn-root--synth">
-      <div className="synth-body">
-        <aside id="synth-voices-panel" className={`synth-voices${mobilePanel === "voices" ? " is-mobile-open" : ""}`}>
-          <div className="synth-voices-head">
-            <span>Voices</span>
-            <button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>
-          </div>
-          <div className="synth-voices-list">
+    <InstrumentShell kind="synth">
+      <InstrumentBody>
+        <InstrumentRail
+          id="synth-voices-panel"
+          title="Voices"
+          action={<button className="voice-add" onClick={addVoice} disabled={voiceSlots.length >= MAX_VOICES}>+ Add</button>}
+          open={mobilePanel === "voices"}
+        >
             {voiceSlots.map((slot, i) => (
               <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
             ))}
             {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
-          </div>
-        </aside>
-        <main className="synth-main">
-          <div className="synth-viewport" ref={hostRef} />
+        </InstrumentRail>
+        <InstrumentMain>
+          <InstrumentViewport elementRef={hostRef} />
           <div className="synth-export-bar">
             <button
               type="button"
@@ -842,52 +1141,20 @@ export default function SynthWorkbench() {
               onClose={closeCodePanel}
             />
           )}
-        </main>
+        </InstrumentMain>
         <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
+          <SynthDock shape={shape} onShape={setShape} timeScale={timeScale} onTimeScale={setTimeScale} paused={paused} onPaused={setPaused} density={density} onDensity={setDensity} lighting={lighting} onLight={(partial) => setLighting((l) => ({ ...l, ...partial }))} params={params} onParam={onParam} paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} hostRef={hostRef} />
         </Dock>
-      </div>
-      <div id="synth-presets-panel" className={`synth-presets${mobilePanel === "presets" ? " is-mobile-open" : ""}`} role="list" aria-label="Pattern presets">
+      </InstrumentBody>
+      <InstrumentTray id="synth-presets-panel" label="Pattern presets" open={mobilePanel === "presets"}>
         {presets.map((p) => <PresetTile key={p.name} preset={p} onApply={() => applyPreset(p)} />)}
-      </div>
-      <nav className="dn-mobile-tabs" aria-label="Synth panels">
-        <button
-          type="button"
-          className={`dn-mobile-tabs__button${mobilePanel === "voices" ? " is-active" : ""}`}
-          aria-controls="synth-voices-panel"
-          aria-expanded={mobilePanel === "voices"}
-          onClick={() => setMobilePanel((current) => current === "voices" ? null : "voices")}
-        >
-          Voices
-        </button>
-        <button
-          type="button"
-          className={`dn-mobile-tabs__button${mobilePanel === "controls" ? " is-active" : ""}`}
-          aria-controls="synth-controls-panel"
-          aria-expanded={mobilePanel === "controls"}
-          onClick={() => setMobilePanel((current) => current === "controls" ? null : "controls")}
-        >
-          Controls
-        </button>
-        <button
-          type="button"
-          className={`dn-mobile-tabs__button${mobilePanel === "presets" ? " is-active" : ""}`}
-          aria-controls="synth-presets-panel"
-          aria-expanded={mobilePanel === "presets"}
-          onClick={() => setMobilePanel((current) => current === "presets" ? null : "presets")}
-        >
-          Presets
-        </button>
-        <button
-          type="button"
-          className={`dn-mobile-tabs__button${mobilePanel === "export" ? " is-active" : ""}`}
-          aria-controls="synth-export-panel"
-          aria-expanded={mobilePanel === "export"}
-          onClick={handleMobileExportTab}
-        >
-          Export
-        </button>
-      </nav>
-    </div>
+      </InstrumentTray>
+      <InstrumentMobileTabs label="Synth panels" items={[
+        { id: "voices", label: "Voices", controls: "synth-voices-panel", expanded: mobilePanel === "voices", onClick: () => setMobilePanel((current) => current === "voices" ? null : "voices") },
+        { id: "controls", label: "Controls", controls: "synth-controls-panel", expanded: mobilePanel === "controls", onClick: () => setMobilePanel((current) => current === "controls" ? null : "controls") },
+        { id: "presets", label: "Presets", controls: "synth-presets-panel", expanded: mobilePanel === "presets", onClick: () => setMobilePanel((current) => current === "presets" ? null : "presets") },
+        { id: "export", label: "Export", controls: "synth-export-panel", expanded: mobilePanel === "export", onClick: handleMobileExportTab },
+      ]} />
+    </InstrumentShell>
   );
 }

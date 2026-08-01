@@ -55,6 +55,7 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 | `rows` | number | Grid height in character rows |
 | `cell-aspect` | number | Height ÷ width of the cell (default `2.0`) |
 | `glyph-palette` | string | Named palette: `default`, `ascii`, `lines`, `blocks`, `stars`, `arrows`, `math`, `binary`, `hex` |
+| `char-mode` | `"ascii" \| "braille" \| "halfblock"` | Character encoding for rasterized output (default `"ascii"`). `"braille"` (wireframe-only) packs a 2×4 subcell dot grid into Unicode Braille Patterns for smoother edges. `"halfblock"` (solid-only) packs two independently colored subcells (top/bottom) into `▀`/`▄`/`█` for 2× vertical color resolution. Each is a documented no-op outside the mode it applies to |
 | `use-colors` | bool | Emit color spans in the output |
 | `directional-intensity` | number | Key-light intensity |
 | `ambient-intensity` | number | Ambient fill intensity |

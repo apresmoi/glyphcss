@@ -45,12 +45,12 @@ interface WireframeEdge {
 
 | Type | Description | Used in |
 |---|---|---|
-| `RenderMode` | `"wireframe" \| "solid" \| "voxel"` | `SceneContextOptions.mode`, all framework props |
+| `RenderMode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `SceneContextOptions.mode`, all framework props |
 | `CharRamp` | `string[]` — index 0 = darkest, last = brightest | Solid-mode Lambert → glyph mapping |
 | `EdgeWeight` | `1 \| 2 \| 3` — thin / normal / core | `WireframeEdge.weight` |
 
 ```ts
-type RenderMode = "wireframe" | "solid" | "voxel";
+type RenderMode = "wireframe" | "solid" | "voxel" | "ink";
 type CharRamp = string[];          // e.g. [" ", ".", ":", "-", "=", "+", "*", "#", "%", "@"]
 type EdgeWeight = 1 | 2 | 3;
 ```

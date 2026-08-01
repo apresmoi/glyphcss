@@ -22,6 +22,8 @@
     "build:packages": "pnpm --filter './packages/*' -r build",
     "test": "pnpm --filter './packages/*' -r --if-present test",
     "test:coverage": "pnpm --filter './packages/*' -r --if-present test:coverage",
+    "test:research": "pnpm --filter @glyphcss/ascii-image-generation test && pnpm --filter @glyphcss/ascii-image-generation validate:schema",
+    "build:research": "pnpm --filter @glyphcss/ascii-image-generation typecheck",
     "publish:all": "pnpm --filter './packages/*' -r publish --access public",
     "dev:website": "pnpm --filter @glyphcss/website dev",
     "build:website": "pnpm --filter @glyphcss/website build"

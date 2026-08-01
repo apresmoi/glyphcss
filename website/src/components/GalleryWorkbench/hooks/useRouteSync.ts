@@ -29,6 +29,8 @@ interface SerializedGallerySceneOptions {
   rm?: SceneOptionsState["renderMode"];
   fe?: number;    // featureEdges
   gp?: SceneOptionsState["glyphPalette"];
+  cm?: SceneOptionsState["charMode"];
+  wj?: boolean;   // wireframeJunctions
   lh?: number;    // lineHeight
   dn?: number;    // density
   dq?: number;    // dragDensity
@@ -66,7 +68,7 @@ const COMPACT_NUMBER_SCALE = 10000;
 const COMPACT_KEY_BY_OPTION: Record<SerializedGallerySceneOptionKey, string> = {
   ap: "P", ats: "A", c: "c", ar: "n", i: "i", rx: "X", ry: "Y",
   p: "p", az: "a", el: "e", key: "k", kc: "K", amb: "m", amc: "M", t: "t",
-  rm: "R", fe: "F", gp: "G", lh: "H", dn: "D", dq: "q", uc: "U", ss: "W", ca: "N", drag: "d",
+  rm: "R", fe: "F", gp: "G", cm: "Z", wj: "j", lh: "H", dn: "D", dq: "q", uc: "U", ss: "W", ca: "N", drag: "d",
   fl: "L", fm: "V", fj: "J", fcr: "C", fms: "1", fjv: "2", fg: "3", feh: "4",
   fch: "5", fls: "6", fiy: "7", sh: "S", so: "O", sli: "8", sc: "Q",
   sca: "9", sre: "B", sfl: "E",
@@ -76,16 +78,17 @@ const COMPACT_OPTION_BY_KEY = Object.fromEntries(
 ) as Record<string, SerializedGallerySceneOptionKey>;
 
 const BOOLEAN_OPTIONS = new Set<SerializedGallerySceneOptionKey>([
-  "ap", "c", "ar", "i", "uc", "ss", "fl", "fm", "fj", "fcr", "fiy",
+  "ap", "c", "ar", "i", "uc", "ss", "wj", "fl", "fm", "fj", "fcr", "fiy",
   "sh", "sca", "sre", "sfl",
 ]);
 
-const RENDER_MODE_ENUM = { wireframe: "w", solid: "s" } as const;
+const RENDER_MODE_ENUM = { wireframe: "w", solid: "s", ink: "i" } as const;
 const DRAG_MODE_ENUM = { orbit: "o", pan: "p", fpv: "f" } as const;
 const GLYPH_PALETTE_ENUM = {
   default: "d", ascii: "a", lines: "l", blocks: "b", stars: "r",
-  arrows: "o", math: "m", binary: "y", hex: "x",
+  arrows: "o", math: "m", binary: "y", hex: "x", calibrated: "c",
 } as const;
+const CHAR_MODE_ENUM = { ascii: "a", braille: "b", halfblock: "h" } as const;
 
 // ── Model param ────────────────────────────────────────────────────────────
 
@@ -263,6 +266,8 @@ function sceneOptionsPayload(
   addString(out, "rm", options.renderMode, defaults.renderMode);
   addNumber(out, "fe", options.featureEdges, defaults.featureEdges);
   addString(out, "gp", options.glyphPalette, defaults.glyphPalette);
+  addString(out, "cm", options.charMode, defaults.charMode);
+  addBoolean(out, "wj", options.wireframeJunctions, defaults.wireframeJunctions);
   addNumber(out, "lh", options.lineHeight, defaults.lineHeight);
   addNumber(out, "dn", options.density, defaults.density);
   addNumber(out, "dq", options.dragDensity, defaults.dragDensity);
@@ -298,6 +303,7 @@ function encodeCompactValue(key: SerializedGallerySceneOptionKey, value: unknown
   if (key === "kc" || key === "amc" || key === "sc") return typeof value === "string" ? encodeCompactColor(value) : undefined;
   if (key === "rm") return typeof value === "string" ? encodeEnum(value as SceneOptionsState["renderMode"], RENDER_MODE_ENUM) : undefined;
   if (key === "gp") return typeof value === "string" ? encodeEnum(value as SceneOptionsState["glyphPalette"], GLYPH_PALETTE_ENUM) : undefined;
+  if (key === "cm") return typeof value === "string" ? encodeEnum(value as SceneOptionsState["charMode"], CHAR_MODE_ENUM) : undefined;
   if (key === "drag") return typeof value === "string" ? encodeEnum(value as SceneOptionsState["dragMode"], DRAG_MODE_ENUM) : undefined;
   if (typeof value === "number") return encodePackedNumber(value);
   return undefined;
@@ -334,11 +340,15 @@ function isVec3(value: unknown): value is SceneTarget {
 }
 
 function isRenderMode(value: unknown): value is SceneOptionsState["renderMode"] {
-  return value === "wireframe" || value === "solid";
+  return value === "wireframe" || value === "solid" || value === "ink";
 }
 
 function isGlyphPalette(value: unknown): value is SceneOptionsState["glyphPalette"] {
   return typeof value === "string" && value in GLYPH_PALETTE_ENUM;
+}
+
+function isCharMode(value: unknown): value is SceneOptionsState["charMode"] {
+  return typeof value === "string" && value in CHAR_MODE_ENUM;
 }
 
 function isDragMode(value: unknown): value is SceneOptionsState["dragMode"] {
@@ -365,6 +375,8 @@ function sceneOptionsFromPayload(o: SerializedGallerySceneOptions): Partial<Scen
     ...(isRenderMode(o.rm) ? { renderMode: o.rm } : null),
     ...(isFiniteNumber(o.fe) ? { featureEdges: o.fe } : null),
     ...(isGlyphPalette(o.gp) ? { glyphPalette: o.gp } : null),
+    ...(isCharMode(o.cm) ? { charMode: o.cm } : null),
+    ...(isBoolean(o.wj) ? { wireframeJunctions: o.wj } : null),
     ...(isFiniteNumber(o.lh) ? { lineHeight: o.lh } : null),
     ...(isFiniteNumber(o.dn) ? { density: o.dn } : null),
     ...(isFiniteNumber(o.dq) ? { dragDensity: o.dq } : null),
@@ -425,6 +437,10 @@ function readPackedValue(
   }
   if (key === "gp") {
     const value = decodeEnum<SceneOptionsState["glyphPalette"]>(routeValue[index] ?? "", GLYPH_PALETTE_ENUM);
+    return value ? { value, next: index + 1 } : undefined;
+  }
+  if (key === "cm") {
+    const value = decodeEnum<SceneOptionsState["charMode"]>(routeValue[index] ?? "", CHAR_MODE_ENUM);
     return value ? { value, next: index + 1 } : undefined;
   }
   if (key === "drag") {

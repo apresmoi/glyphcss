@@ -4,26 +4,41 @@
  */
 import type { GUI } from "lil-gui";
 import type { SceneOptionsState } from "../../GalleryWorkbench/types";
+import { useEffect } from "react";
 import { useFolder, useOption, useSlider, useToggle } from "../primitives";
+import { CALIBRATED_PALETTE_NAME, ensureCalibratedPalette } from "../../GalleryWorkbench/calibratedPalette";
+
+// Registered once, at module load — before this folder's "Calibrated" option
+// is ever selectable, and before any route can preselect it.
+ensureCalibratedPalette();
+
+export type GalleryRenderPresentation = SceneOptionsState["renderMode"] | "semantic";
 
 export interface RenderingFolderInputs {
-  renderMode: SceneOptionsState["renderMode"];
+  /** Gallery-only presentation state. `semantic` still renders core solid mode. */
+  renderMode: GalleryRenderPresentation;
+  semanticAvailable: boolean;
   featureEdges: number;
   glyphPalette: SceneOptionsState["glyphPalette"];
+  charMode: SceneOptionsState["charMode"];
+  wireframeJunctions: boolean;
   density: number;
   dragDensity: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "renderMode" | "featureEdges" | "glyphPalette" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
+  onRenderModeChange: (mode: GalleryRenderPresentation) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
 
 
-const RENDER_MODE_OPTIONS: Record<string, "wireframe" | "solid"> = {
+const RENDER_MODE_OPTIONS: Record<string, GalleryRenderPresentation> = {
   Wireframe: "wireframe",
   Solid: "solid",
+  Ink: "ink",
+  Semantic: "semantic",
 };
-type GlyphPaletteId = "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex";
+type GlyphPaletteId = SceneOptionsState["glyphPalette"];
 const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
   Default: "default",
   ASCII: "ascii",
@@ -34,21 +49,69 @@ const GLYPH_PALETTE_OPTIONS: Record<string, GlyphPaletteId> = {
   Math: "math",
   Binary: "binary",
   Hex: "hex",
+  // Font-calibrated: measures real ink coverage per glyph in the gallery's
+  // font (`@glyphcss/effects`' `calibrateGlyphRamp`) instead of an authored
+  // guess — perceptually linear for THAT font, not eyeballed.
+  Calibrated: CALIBRATED_PALETTE_NAME as GlyphPaletteId,
+};
+const CHAR_MODE_OPTIONS: Record<string, SceneOptionsState["charMode"]> = {
+  ASCII: "ascii",
+  Braille: "braille",
+  Halfblock: "halfblock",
 };
 
-export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): void {
-  const { renderMode, featureEdges, glyphPalette, density, dragDensity, useColors, smoothShading, creaseAngle, onUpdateScene } = inputs;
+export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): GUI | null {
+  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
-  useOption<"wireframe" | "solid">(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, (value) =>
-    onUpdateScene({ renderMode: value }),
-  );
+  const renderModeControl = useOption<GalleryRenderPresentation>(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, onRenderModeChange);
+  useEffect(() => {
+    const semanticOption = Array.from(renderModeControl?.raw.domElement.querySelectorAll<HTMLOptionElement>("option") ?? [])
+      .find((option) => option.textContent === "Semantic");
+    if (semanticOption) semanticOption.disabled = !semanticAvailable;
+  }, [renderModeControl, semanticAvailable]);
+  useEffect(() => {
+    const select = renderModeControl?.raw.domElement.querySelector<HTMLSelectElement>("select");
+    if (!select) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "End" && semanticAvailable) {
+        event.preventDefault();
+        onRenderModeChange("semantic");
+      }
+    };
+    select.addEventListener("keydown", onKeyDown);
+    return () => select.removeEventListener("keydown", onKeyDown);
+  }, [onRenderModeChange, renderModeControl, semanticAvailable]);
   useSlider(folder, "Feature edges °", { min: 0, max: 90, step: 1 }, featureEdges, (value) =>
     onUpdateScene({ featureEdges: value }),
   );
   useOption<GlyphPaletteId>(folder, "Glyph palette", GLYPH_PALETTE_OPTIONS, glyphPalette as GlyphPaletteId, (value) =>
     onUpdateScene({ glyphPalette: value }),
   );
+  const charModeControl = useOption<SceneOptionsState["charMode"]>(
+    folder,
+    "Character mode",
+    CHAR_MODE_OPTIONS,
+    charMode,
+    (value) => onUpdateScene({ charMode: value }),
+  );
+  useEffect(() => {
+    // Braille only encodes wireframe mode; halfblock is the solid-mode mirror
+    // (2x vertical color resolution via `▀`/`▄`/`█`, coarser shape than a
+    // ramp glyph). Neither option does anything in ink/semantic presentation,
+    // so the control is enabled for wireframe OR solid and dimmed otherwise —
+    // whichever of braille/halfblock doesn't apply to the active render mode
+    // is simply a documented no-op once selected (same as before).
+    charModeControl?.setEnabled(renderMode === "wireframe" || renderMode === "solid", { dim: true });
+  }, [charModeControl, renderMode]);
+  const junctionsControl = useToggle(folder, "Box junctions (wireframe)", wireframeJunctions, (value) =>
+    onUpdateScene({ wireframeJunctions: value }),
+  );
+  useEffect(() => {
+    // The junction resolve pass is an ASCII-path refinement — dim it outside
+    // wireframe mode and while braille (its own corner/join encoding) is active.
+    junctionsControl?.setEnabled(renderMode === "wireframe" && charMode !== "braille", { dim: true });
+  }, [junctionsControl, renderMode, charMode]);
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),
   );
@@ -64,4 +127,5 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   useSlider(folder, "Drag density ×", { min: 0.5, max: 1, step: 0.05 }, dragDensity, (value) =>
     onUpdateScene({ dragDensity: value }),
   );
+  return folder;
 }

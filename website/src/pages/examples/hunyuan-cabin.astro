@@ -1,0 +1,80 @@
+---
+import BaseHead from "../../components/BaseHead.astro";
+
+const title = "glyphcss · Hunyuan3D cabin";
+const description = "The cabin mesh textured by Hunyuan3D-Paint, rendered in PolyCSS beside the SDXL atlas version.";
+---
+
+<html lang="en">
+<head>
+  <BaseHead title={title} description={description} path="/examples/hunyuan-cabin/" />
+  <style>
+    html, body { background: #0a0c0e; color: #f6e8cb; margin: 0; height: 100%; font-family: ui-monospace, "JetBrains Mono", monospace; }
+    .wrap { display: flex; height: 100vh; }
+    .pane { flex: 1; position: relative; overflow: hidden; border-right: 1px solid rgba(255,232,184,0.15); }
+    .pane:last-child { border-right: 0; }
+    .host { position: absolute; inset: 0; background: linear-gradient(#1b2431 0%, #52697d 46%, #3b4b3a 52%, #1d281e 100%); }
+    .tag {
+      position: absolute; top: 10px; left: 10px; z-index: 5; padding: 5px 9px; font-size: 11px;
+      background: rgba(8,12,18,0.85); border: 1px solid rgba(255,232,184,0.22); color: rgba(255,232,184,0.9);
+    }
+    .tag b { color: #38bdf8; font-weight: 600; }
+    .err { position: absolute; bottom: 10px; left: 10px; z-index: 5; font-size: 11px; color: #ff9a9a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="pane"><div class="tag"><b>SDXL 1024 · architectural prompt</b> · our atlas, building only</div><div class="host" id="host-hunyuan"></div><div class="err" id="err-hunyuan"></div></div>
+    <div class="pane"><div class="tag"><b>SDXL 512</b> · previous bake, whole scene</div><div class="host" id="host-sdxl"></div><div class="err" id="err-sdxl"></div></div>
+  </div>
+
+  <script>
+    import { createPolyPerspectiveCamera, createPolyScene, createPolyOrbitControls, parseObj, type Polygon } from "@layoutit/polycss";
+
+    // Both meshes are metric and Z-up; the Hunyuan bake keeps the same cabin
+    // geometry we sent it, so one camera frames both panes identically.
+    async function mount(hostId: string, errId: string, objUrl: string, texUrl: string, flipV: boolean) {
+      const host = document.getElementById(hostId) as HTMLDivElement;
+      const err = document.getElementById(errId)!;
+      try {
+        const obj = await (await fetch(objUrl)).text();
+        const materials = [...new Set([...obj.matchAll(/^usemtl\s+(\S+)/gm)].map((m) => m[1]!))];
+        const parsed = parseObj(obj, {
+          targetSize: 20,
+          materialTextures: Object.fromEntries(materials.map((m) => [m, texUrl])),
+        });
+        const polygons: Polygon[] = parsed.polygons.map((p) => ({
+          ...p,
+          vertices: p.vertices.map(([x, y, z]): [number, number, number] => [y, z, x]),
+          // Our authored OBJ uses a top-origin V; Hunyuan writes standard OBJ V.
+          uvs: flipV ? p.uvs?.map(([u, v]): [number, number] => [u, 1 - v]) : p.uvs,
+        }));
+        const bounds = polygons.reduce((a, p) => {
+          for (const v of p.vertices) for (let i = 0; i < 3; i++) { a.min[i] = Math.min(a.min[i], v[i]); a.max[i] = Math.max(a.max[i], v[i]); }
+          return a;
+        }, { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
+        const centroid = [0, 1, 2].map((i) => (bounds.min[i] + bounds.max[i]) / 2) as [number, number, number];
+        const span = Math.max(...[0, 1, 2].map((i) => bounds.max[i] - bounds.min[i]));
+        const rect = host.getBoundingClientRect();
+        const camera = createPolyPerspectiveCamera({
+          rotX: 66, rotY: 28, zoom: (0.55 * Math.min(rect.width, rect.height)) / span,
+          perspective: 900, target: centroid,
+        });
+        const scene = createPolyScene(host, {
+          camera, autoCenter: true, textureBackend: "atlas",
+          textureLighting: "dynamic", textureQuality: 1, seamBleed: 0,
+          directionalLight: { direction: [-0.4, -0.55, 0.72], intensity: 0, color: "#ffffff" },
+          ambientLight: { intensity: 1, color: "#ffffff" },
+        });
+        scene.add({ ...parsed, polygons }, { id: hostId, merge: true, meshResolution: "lossless" });
+        createPolyOrbitControls(scene, {});
+      } catch (error) {
+        err.textContent = String(error);
+      }
+    }
+
+    mount("host-hunyuan", "err-hunyuan", "/examples/textured-house/cabin-building-1024.obj", "/examples/textured-house/cabin1024-texture.png", false);
+    mount("host-sdxl", "err-sdxl", "/examples/textured-house/cabin.obj", "/examples/textured-house/cabin-texture.png", true);
+  </script>
+</body>
+</html>

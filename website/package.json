@@ -16,6 +16,7 @@
     "@astrojs/starlight": "^0.38.2",
     "@glyphcss/effects": "workspace:^",
     "@glyphcss/react": "workspace:^",
+    "@layoutit/polycss": "^0.2.7",
     "glyphcss": "workspace:^",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

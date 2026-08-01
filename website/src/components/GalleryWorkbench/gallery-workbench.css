@@ -1606,3 +1606,4 @@
   border-radius: 4px;
   cursor: pointer;
 }
+.gallery-semantic-details{margin:8px 4px 2px;padding:8px 0 0;border-top:1px solid rgba(148,163,184,.2);font-size:11px;color:#d7dde8}.gallery-semantic-details__note,.gallery-semantic-details__lineage{margin:0;line-height:1.35;color:#aab5c5}.gallery-semantic-details__legend{display:grid;gap:4px;margin:9px 0;padding:0;list-style:none}.gallery-semantic-details__legend li{display:grid;grid-template-columns:10px 20px 1fr;gap:7px;align-items:center}.gallery-semantic-details__legend i{width:10px;height:10px;border-radius:2px}.gallery-semantic-details__legend code{color:#fff;font-weight:700}

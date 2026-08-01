@@ -1,4 +1,4 @@
-/* The shell element carries both `synth-shell` and `dn-root` (the shared Dock
+/* The shared apparatus shell carries both `synth-shell` and `dn-root` (the shared Dock
    overlay class from gallery-workbench.css). Both are single-class selectors, so
    `.dn-root`'s position/height/display/background would win or lose purely on CSS
    bundle order — fine in dev, broken in the prod bundle (shell collapses to
@@ -249,7 +249,7 @@
 
 /* Compound with `.gw-code-panel` (0,2,0) rather than `.synth-code-panel`
    alone (0,1,0): Astro/Vite emit `gallery-workbench.css` and
-   `synth-workbench.css` as separate chunks, and the built page has been
+   this apparatus stylesheet as a separate chunk, and the built page has been
    observed loading the gallery chunk's <link> AFTER this page's own chunk
    (reversed from the source `import` order) — a same-specificity override
    would then lose the cascade to `.gw-code-panel`'s base rule. The extra
@@ -268,12 +268,12 @@
 @media (max-width: 760px) {
   /* The bar duplicates the mobile tab bar's "Export" tab — hide it and rely
      on that tab (same drawer, opened via `mobilePanel === "export"`). */
-  .dn-root--synth .synth-export-bar { display: none; }
+  :is(.dn-root--synth, .dn-root--generative) .synth-export-bar { display: none; }
 
   /* Export becomes a full bottom-drawer reachable via the Export tab —
      mirrors the gallery's `.dn-root--gallery .gw-code-panel.is-mobile-open`
      mobile sizing, scoped to this page's root class instead. */
-  .dn-root--synth .synth-code-panel.gw-code-panel {
+  :is(.dn-root--synth, .dn-root--generative) .synth-code-panel.gw-code-panel {
     top: auto;
     left: var(--overlay-left);
     right: var(--overlay-right);
@@ -313,6 +313,71 @@
 .dock-scope-voice { stroke-width: 1; opacity: 0.4; }
 .dock-scope-mix { stroke: #f4f0e6; stroke-width: 1.6; opacity: 0.95; }
 
+/* Subcell segmented control — portaled ABOVE "Ramp" in the Output folder
+   (`useDockSlot(out, { position: "top" })` in SynthWorkbench.tsx) since it
+   gates Ramp/Chars/the density row (2x4 never reads the ramp). Reuses the
+   SAME `.gx-toggle`/`.gx-toggle-btn` segmented-icon CSS the voice cards use
+   for field/wave, just wrapped with a label like `.dock-scope-label` so it
+   reads as a folder row rather than a bare icon strip. */
+.dn-floating-controls .lil-gui .dock-subcell-slot {
+  padding: 0 var(--padding, 6px);
+}
+/* Match lil-gui's own controller row: label inline on the left at the same
+   `--name-width` every other control uses, widget on the right. Values are
+   lil-gui's computed `.controller .name` style (11px, no uppercase,
+   0.22px tracking, 0.7 alpha) so "Subcell" reads identically to "Ramp" and
+   "Chars" rather than as a differently-lit section heading. */
+.dock-subcell {
+  display: flex; align-items: center; min-height: 20px;
+}
+.dock-subcell-label {
+  flex: 0 0 var(--name-width, 45%);
+  font-size: 11px; letter-spacing: 0.22px; line-height: 20px; text-transform: none;
+  color: rgba(255, 232, 184, 0.7);
+  padding-right: var(--spacing, 5px);
+}
+.dock-subcell .gx-toggle { flex: 1 1 auto; }
+.dock-subcell .gx-toggle-btn { padding: 3px 0; }
+
+/* Ramp picker density bars — portaled below the "Ramp" dropdown in the
+   Output folder (`useDockSlot(out, { position: "bottom" })` in
+   SynthWorkbench.tsx). Each swatch's bar heights are REAL measured ink
+   coverage for that ramp's glyphs in the viewer's own font (see
+   `useRampCalibration`), including the font-calibrated "Calibrated" entry —
+   not a synthetic index-based ramp. */
+.dn-floating-controls .lil-gui .dock-ramp-density-slot {
+  padding: 0 var(--padding, 6px) var(--spacing, 5px);
+}
+.dock-ramp-density {
+  display: flex; gap: 4px; overflow-x: auto; padding-top: 2px;
+}
+.dock-ramp-density-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  flex: 0 0 auto; width: 40px; padding: 3px 2px 4px;
+  background: rgba(2, 4, 10, 0.85); border: 1px solid rgba(255, 232, 184, 0.16);
+  cursor: pointer; color: inherit; font: inherit;
+}
+.dock-ramp-density-item:hover { border-color: rgba(255, 232, 184, 0.4); }
+.dock-ramp-density-item.is-active { border-color: #38bdf8; background: rgba(56, 189, 248, 0.12); }
+.dock-ramp-density-bars {
+  display: flex; align-items: flex-end; gap: 1px; width: 100%; height: 20px;
+}
+.dock-ramp-density-bar { flex: 1 1 auto; min-width: 1px; background: #38bdf8; opacity: 0.85; }
+.dock-ramp-density-item.is-active .dock-ramp-density-bar { background: #f4f0e6; opacity: 0.95; }
+.dock-ramp-density-pending {
+  width: 100%; text-align: center; font-size: 9px; color: rgba(255, 232, 184, 0.4); align-self: center;
+}
+.dock-ramp-density-label {
+  font-size: 8px; letter-spacing: 0.04em; color: rgba(255, 232, 184, 0.6);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dock-ramp-density-item.is-active .dock-ramp-density-label { color: #f4f0e6; }
+.dock-ramp-density-reason {
+  margin: 2px 0 0; padding: 6px 8px; font-size: 10px; line-height: 1.4;
+  color: rgba(255, 232, 184, 0.75); background: rgba(2, 4, 10, 0.85);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+}
+
 /* ── Footer: full-width preset gallery ─────────────────────────────────── */
 .synth-presets {
   flex: 0 0 auto; width: 100%; display: flex; gap: 10px; padding: 10px 12px; overflow-x: auto;
@@ -345,18 +410,18 @@
    is already styled generically there; only the 4-tab grid and the drawer
    positioning/toggle are synth-specific here. */
 @media (max-width: 760px) {
-  .dn-root--synth {
+  :is(.dn-root--synth, .dn-root--generative) {
     --mobile-tabs-height: 52px;
     --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
   }
 
-  .dn-root--synth .dn-mobile-tabs {
+  :is(.dn-root--synth, .dn-root--generative) .dn-mobile-tabs {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   /* Voices rail: out of the flex flow so `.synth-main` fills the full width,
      shown as a bottom drawer like the gallery's `.models-sidebar`. */
-  .dn-root--synth .synth-voices {
+  :is(.dn-root--synth, .dn-root--generative) .synth-voices {
     display: none;
     position: absolute;
     top: auto;
@@ -370,7 +435,7 @@
     z-index: 25;
     border: 1px solid rgba(255, 232, 184, 0.22);
   }
-  .dn-root--synth .synth-voices.is-mobile-open { display: flex; }
+  :is(.dn-root--synth, .dn-root--generative) .synth-voices.is-mobile-open { display: flex; }
 
   /* Dock: same bottom-drawer treatment as `.dn-root--gallery .dn-floating-controls`,
      but the drawer itself owns the scroll (`overflow-y: auto`) instead of nesting
@@ -383,7 +448,7 @@
      `scrollHeight === clientHeight` here even after the folder-open transition
      settled, so `.lil-gui.root` is unclamped instead and left to size to its
      natural content height. */
-  .dn-root--synth .dn-floating-controls {
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls {
     display: none;
     top: auto;
     right: var(--overlay-right);
@@ -398,24 +463,24 @@
     overscroll-behavior: contain;
     z-index: 25;
   }
-  .dn-root--synth .dn-floating-controls.is-mobile-open { display: flex; }
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls.is-mobile-open { display: flex; }
   /* The desktop legend straddles the panel's top border via `top: 0; transform:
      translateY(-50%)`, poking half its height above the box — clipped now that
      this element itself scrolls. Pull it fully inside the padding reserved above. */
-  .dn-root--synth .dn-floating-controls::before {
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls::before {
     top: 7px;
     transform: none;
   }
-  .dn-root--synth .dn-floating-controls .dn-lil-gui-host,
-  .dn-root--synth .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls .dn-lil-gui-host,
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
     width: 100% !important;
     max-width: 100%;
   }
-  .dn-root--synth .dn-floating-controls .dn-lil-gui-host {
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls .dn-lil-gui-host {
     flex: 1 1 auto;
     min-height: 0;
   }
-  .dn-root--synth .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
+  :is(.dn-root--synth, .dn-root--generative) .dn-floating-controls .dn-lil-gui-host > .lil-gui.root {
     box-sizing: border-box;
     height: auto !important;
     max-height: none !important;
@@ -425,7 +490,7 @@
   /* Presets: out of the footer flow (so `.synth-body` fills the freed height)
      until opened, then a wrapping-grid bottom drawer — more browsable than
      the desktop's single scrolling strip once it has real vertical room. */
-  .dn-root--synth .synth-presets {
+  :is(.dn-root--synth, .dn-root--generative) .synth-presets {
     display: none;
     position: absolute;
     top: auto;
@@ -442,5 +507,5 @@
     border: 1px solid rgba(255, 232, 184, 0.22);
     border-radius: 0;
   }
-  .dn-root--synth .synth-presets.is-mobile-open { display: flex; }
+  :is(.dn-root--synth, .dn-root--generative) .synth-presets.is-mobile-open { display: flex; }
 }
