@@ -14,6 +14,8 @@ import type {
   GlyphDirectionalLight,
   GlyphAmbientLight,
   GlyphShadowOptions,
+  GlyphControlSceneManifest,
+  GlyphObjectDictionary,
   TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
@@ -23,6 +25,24 @@ import { GlyphSceneContextKey } from "./context";
 export interface GlyphSceneProps {
   mode?: RenderMode;
   glyphPalette?: string;
+  /**
+   * Character encoding for rasterized output. `"ascii"` (default) is the
+   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
+   * using Unicode Braille Patterns (U+2800..U+28FF) for smoother diagonal
+   * and curved edges. Documented no-op in `solid`/`voxel`/`ink` modes.
+   * `"halfblock"` is the solid-mode mirror: two independently colored
+   * subcells (top/bottom) packed into one `▀`/`▄`/`█` cell for 2× vertical
+   * color resolution. Documented no-op outside `solid` mode.
+   */
+  charMode?: "ascii" | "braille" | "halfblock";
+  /**
+   * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only).
+   * When `true`, near-axis-aligned wireframe edges meeting in the same cell
+   * resolve to a single `┌┐└┘├┤┬┴┼─│` glyph consistent with every edge that
+   * touches it (corners, T-junctions, crossings) instead of a random per-tier
+   * glyph. Default `false`.
+   */
+  wireframeJunctions?: boolean;
   useColors?: boolean;
   cols?: number;
   rows?: number;
@@ -47,6 +67,9 @@ export interface GlyphSceneProps {
    * single `<pre>` write. Removing the prop restores the untransformed output.
    */
   transformCells?: TransformCells;
+  glyphOutput?: "visible" | "semantic";
+  sceneManifest?: GlyphControlSceneManifest;
+  dictionary?: GlyphObjectDictionary;
   class?: string;
 }
 
@@ -56,6 +79,8 @@ export const GlyphScene = defineComponent({
   props: {
     mode: { type: String as PropType<RenderMode>, default: undefined },
     glyphPalette: { type: String, default: undefined },
+    charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
+    wireframeJunctions: { type: Boolean, default: undefined },
     useColors: { type: Boolean, default: undefined },
     cols: { type: Number, default: undefined },
     rows: { type: Number, default: undefined },
@@ -66,6 +91,9 @@ export const GlyphScene = defineComponent({
     interactiveDownscale: { type: Number, default: undefined },
     shadow: { type: Object as PropType<GlyphShadowOptions>, default: undefined },
     transformCells: { type: Function as PropType<TransformCells>, default: undefined },
+    glyphOutput: { type: String as PropType<"visible" | "semantic">, default: undefined },
+    sceneManifest: { type: Object as PropType<GlyphControlSceneManifest>, default: undefined },
+    dictionary: { type: Object as PropType<GlyphObjectDictionary>, default: undefined },
     class: { type: String, default: undefined },
   },
   setup(props, { slots, attrs }) {
@@ -83,6 +111,8 @@ export const GlyphScene = defineComponent({
       const opts: GlyphSceneOptions = {};
       if (props.mode !== undefined) opts.mode = props.mode;
       if (props.glyphPalette !== undefined) opts.glyphPalette = props.glyphPalette;
+      if (props.charMode !== undefined) opts.charMode = props.charMode;
+      if (props.wireframeJunctions !== undefined) opts.wireframeJunctions = props.wireframeJunctions;
       if (props.useColors !== undefined) opts.useColors = props.useColors;
       if (props.cols !== undefined) opts.cols = props.cols;
       if (props.rows !== undefined) opts.rows = props.rows;
@@ -93,6 +123,9 @@ export const GlyphScene = defineComponent({
       if (props.interactiveDownscale !== undefined) opts.interactiveDownscale = props.interactiveDownscale;
       if (props.shadow !== undefined) opts.shadow = props.shadow;
       if (props.transformCells !== undefined) opts.transformCells = props.transformCells;
+      if (props.glyphOutput !== undefined) opts.glyphOutput = props.glyphOutput;
+      if (props.sceneManifest !== undefined) opts.sceneManifest = props.sceneManifest;
+      if (props.dictionary !== undefined) opts.dictionary = props.dictionary;
       if (cameraRef.value !== null) opts.camera = cameraRef.value;
       sceneRef.value = createGlyphScene(el, opts);
       // Register the rerender callback with the camera context so prop changes
@@ -111,6 +144,8 @@ export const GlyphScene = defineComponent({
       () => ({
         mode: props.mode,
         glyphPalette: props.glyphPalette,
+        charMode: props.charMode,
+        wireframeJunctions: props.wireframeJunctions,
         useColors: props.useColors,
         cols: props.cols,
         rows: props.rows,
@@ -121,6 +156,9 @@ export const GlyphScene = defineComponent({
         interactiveDownscale: props.interactiveDownscale,
         shadow: props.shadow,
         transformCells: props.transformCells,
+        glyphOutput: props.glyphOutput,
+        sceneManifest: props.sceneManifest,
+        dictionary: props.dictionary,
       }),
       (next) => {
         const scene = sceneRef.value;
@@ -128,6 +166,8 @@ export const GlyphScene = defineComponent({
         const partial: Partial<GlyphSceneOptions> = {};
         if (next.mode !== undefined) partial.mode = next.mode;
         if (next.glyphPalette !== undefined) partial.glyphPalette = next.glyphPalette;
+        if (next.charMode !== undefined) partial.charMode = next.charMode;
+        if (next.wireframeJunctions !== undefined) partial.wireframeJunctions = next.wireframeJunctions;
         if (next.useColors !== undefined) partial.useColors = next.useColors;
         if (next.cols !== undefined) partial.cols = next.cols;
         if (next.rows !== undefined) partial.rows = next.rows;
@@ -141,6 +181,10 @@ export const GlyphScene = defineComponent({
         partial.shadow = next.shadow;
         // Always forward the hook so removing the prop clears it in vanilla.
         partial.transformCells = next.transformCells;
+        // Forward absence as an explicit reset to the visible default.
+        partial.glyphOutput = next.glyphOutput;
+        partial.sceneManifest = next.sceneManifest;
+        partial.dictionary = next.dictionary;
         if (Object.keys(partial).length > 0) scene.setOptions(partial);
       },
       { deep: false },

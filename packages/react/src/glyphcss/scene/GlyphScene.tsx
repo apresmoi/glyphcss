@@ -17,6 +17,8 @@ import type {
   GlyphDirectionalLight,
   GlyphAmbientLight,
   GlyphShadowOptions,
+  GlyphControlSceneManifest,
+  GlyphObjectDictionary,
   TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
@@ -28,6 +30,24 @@ export interface GlyphSceneProps {
   mode?: RenderMode;
   /** Named glyph palette. Defaults to "default". */
   glyphPalette?: string;
+  /**
+   * Character encoding for rasterized output. `"ascii"` (default) is the
+   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
+   * using Unicode Braille Patterns (U+2800..U+28FF) for smoother diagonal
+   * and curved edges. Documented no-op in `solid`/`voxel`/`ink` modes.
+   * `"halfblock"` is the solid-mode mirror: two independently colored
+   * subcells (top/bottom) packed into one `▀`/`▄`/`█` cell for 2× vertical
+   * color resolution. Documented no-op outside `solid` mode.
+   */
+  charMode?: "ascii" | "braille" | "halfblock";
+  /**
+   * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only).
+   * When `true`, near-axis-aligned wireframe edges meeting in the same cell
+   * resolve to a single `┌┐└┘├┤┬┴┼─│` glyph consistent with every edge that
+   * touches it (corners, T-junctions, crossings) instead of a random per-tier
+   * glyph. Default `false`.
+   */
+  wireframeJunctions?: boolean;
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -63,6 +83,9 @@ export interface GlyphSceneProps {
    * the active cell effect + progress each frame.
    */
   transformCells?: TransformCells;
+  glyphOutput?: "visible" | "semantic";
+  sceneManifest?: GlyphControlSceneManifest;
+  dictionary?: GlyphObjectDictionary;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
@@ -71,6 +94,8 @@ export interface GlyphSceneProps {
 function GlyphSceneInner({
   mode,
   glyphPalette,
+  charMode,
+  wireframeJunctions,
   useColors,
   cols,
   rows,
@@ -83,6 +108,9 @@ function GlyphSceneInner({
   interactiveDownscale,
   shadow,
   transformCells,
+  glyphOutput,
+  sceneManifest,
+  dictionary,
   className,
   style,
   children,
@@ -95,6 +123,8 @@ function GlyphSceneInner({
   const initialOpts: GlyphSceneOptions = useMemo(() => ({
     mode,
     glyphPalette,
+    charMode,
+    wireframeJunctions,
     useColors,
     cols,
     rows,
@@ -107,6 +137,9 @@ function GlyphSceneInner({
     interactiveDownscale,
     shadow,
     transformCells,
+    glyphOutput,
+    sceneManifest,
+    dictionary,
     camera: cameraRef.current ?? undefined,
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -135,6 +168,8 @@ function GlyphSceneInner({
     const partial: Partial<GlyphSceneOptions> = {};
     if (mode !== undefined) partial.mode = mode;
     if (glyphPalette !== undefined) partial.glyphPalette = glyphPalette;
+    if (charMode !== undefined) partial.charMode = charMode;
+    if (wireframeJunctions !== undefined) partial.wireframeJunctions = wireframeJunctions;
     if (useColors !== undefined) partial.useColors = useColors;
     if (cols !== undefined) partial.cols = cols;
     if (rows !== undefined) partial.rows = rows;
@@ -152,10 +187,14 @@ function GlyphSceneInner({
     // restores the byte-identical no-hook path. New fn each frame is expected
     // (DancePreview rebuilds it per progress); setOptions just re-renders.
     partial.transformCells = transformCells;
+    // Forward absence as an explicit reset to the visible default.
+    partial.glyphOutput = glyphOutput;
+    partial.sceneManifest = sceneManifest;
+    partial.dictionary = dictionary;
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells]);
+  }, [mode, glyphPalette, charMode, wireframeJunctions, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

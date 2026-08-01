@@ -89,6 +89,28 @@ describe("parseGltf — real fixture (tree.glb)", () => {
   });
 });
 
+describe("parseGltf — Smithsonian interleaved GLB fixture", () => {
+  it("reads POSITION from its byte-strided vertex buffer rather than adjacent NORMAL/UV data", () => {
+    const result = parseGltf(
+      loadGlbFile("smithsonian", "morse-telegraph-key.glb"),
+      { gridShift: 0 },
+    );
+    const vertices = result.polygons.flatMap((polygon) => polygon.vertices);
+    const span = (axis: number) =>
+      Math.max(...vertices.map((vertex) => vertex[axis])) -
+      Math.min(...vertices.map((vertex) => vertex[axis]));
+
+    // The source POSITION accessor starts 12 bytes into a 32-byte
+    // NORMAL/POSITION/TEXCOORD_0 record. The true source bounds are
+    // 168.9019 × 76.4931 × 50.5343; glyphcss's Y-up projection and 60-unit
+    // fit therefore produce these spans.
+    expect(result.polygons).toHaveLength(3600);
+    expect(span(0)).toBeCloseTo(17.952, 3);
+    expect(span(1)).toBeCloseTo(60, 3);
+    expect(span(2)).toBeCloseTo(27.173, 3);
+  });
+});
+
 describe("parseGltf — animated fixture (FishAnimated.glb)", () => {
   const animatedGalleryFixtures = [
     ["FishAnimated.glb", 1],

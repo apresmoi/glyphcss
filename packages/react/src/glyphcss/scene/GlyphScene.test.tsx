@@ -3,9 +3,11 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphScene } from "./GlyphScene";
 import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
+import { GlyphOrthographicCamera } from "../camera/GlyphOrthographicCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import { GlyphOrbitControls } from "../controls/GlyphOrbitControls";
 import type { Polygon } from "@glyphcss/core";
+import { computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
 
 const POLYGON: Polygon = {
   vertices: [
@@ -15,6 +17,14 @@ const POLYGON: Polygon = {
   ],
   color: "#ff0000",
 };
+
+const SEMANTIC_POLYGON: Polygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" };
+const semanticDigest = (char: string) => char.repeat(64);
+const semanticDictionaryBase = { schemaVersion: "glyph-object-dictionary/v2" as const, id: "dictionary/react", font: { id: "font/react", version: "1", sha256: semanticDigest("a") }, classes: [{ id: 1, name: "quad", semanticGlyph: "Q", controlColor: "#123456" }] };
+const semanticDictionary: GlyphObjectDictionary = { ...semanticDictionaryBase, contentSha256: computeGlyphControlContentSha256(semanticDictionaryBase) };
+const semanticHashes = computeGlyphControlGeometryHashes([SEMANTIC_POLYGON]);
+const semanticManifestBase = { schemaVersion: "control-scene/v1" as const, id: "scene/react", dictionaryId: semanticDictionary.id, dictionarySha256: semanticDictionary.contentSha256, ...semanticHashes, contentSha256: "", instances: [{ id: "quad", classId: 1 }], surfaces: [{ id: "surface", instanceId: "quad" }], polygonSurfaceIds: ["surface"] };
+const semanticManifest: GlyphControlSceneManifest = { ...semanticManifestBase, contentSha256: computeGlyphControlContentSha256(semanticManifestBase) };
 
 function renderScene(
   sceneProps: React.ComponentProps<typeof GlyphScene>,
@@ -95,6 +105,36 @@ describe("GlyphScene — options forwarding", () => {
 
   it("renders with useColors=false without errors", () => {
     expect(() => renderScene({ useColors: false })).not.toThrow();
+  });
+
+  it("renders wireframe mode with charMode=\"braille\" without errors", () => {
+    expect(() => renderScene({ mode: "wireframe", charMode: "braille" })).not.toThrow();
+  });
+
+  it("renders wireframe mode with wireframeJunctions=true without errors", () => {
+    expect(() => renderScene({ mode: "wireframe", wireframeJunctions: true })).not.toThrow();
+  });
+
+  it("enables semantic output and resets to visible when the prop is removed", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const paint = (semantic: boolean) => act(() => root.render(
+      <GlyphOrthographicCamera zoom={8}>
+        <GlyphScene cols={12} rows={8} useColors={false} {...(semantic ? { glyphOutput: "semantic" as const, sceneManifest: semanticManifest, dictionary: semanticDictionary } : {})}>
+          <GlyphMesh polygons={[SEMANTIC_POLYGON]} />
+        </GlyphScene>
+      </GlyphOrthographicCamera>,
+    ));
+    paint(false);
+    const visible = container.querySelector(".glyph-output")?.textContent;
+    paint(true);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector(".glyph-output")?.textContent).toContain("Q");
+    paint(false);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector(".glyph-output")?.textContent).toBe(visible);
+    act(() => root.unmount());
   });
 });
 

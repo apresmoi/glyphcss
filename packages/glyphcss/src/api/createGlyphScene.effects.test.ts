@@ -8,6 +8,11 @@ import {
   type GlyphEffectDefinition,
 } from "./effects";
 
+declare global {
+  var __glyphRenderStage: ((stage: string) => void) | undefined;
+  var __glyphRenderError: ((error: unknown) => void) | undefined;
+}
+
 function makeCubePolygons(): Polygon[] {
   const out: Polygon[] = [];
   const faces: Array<[number, number, number, number, number, number, number, number, number]> = [
@@ -49,6 +54,45 @@ describe("createGlyphScene effects", () => {
   beforeEach(() => {
     host = document.createElement("div");
     document.body.appendChild(host);
+    delete globalThis.__glyphRenderStage;
+    delete globalThis.__glyphRenderError;
+  });
+
+  it("rolls back a retained-only effect publish when its output setter fails", async () => {
+    const scene = createGlyphScene(host, { cols: 32, rows: 18, useColors: true, camera: createGlyphOrthographicCamera({ zoom: 50 }) });
+    scene.add(makeCubePolygons());
+    scene.add(makeCubePolygons(), { density: 2 });
+    const layer = scene.addEffectLayer({ effect: glyphProgram("X"), params: { phase: 0 }, blend: "replace" });
+    await flushRenders();
+    const before = scene.output.innerHTML;
+    const detail = host.querySelector("pre.glyph-output--detail") as HTMLPreElement;
+    const detailBefore = detail.innerHTML;
+    const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!;
+    let reached = false;
+    let captured: unknown;
+    let fail = true;
+    Object.defineProperty(detail, "innerHTML", {
+      configurable: true,
+      get: descriptor.get,
+      set(value) { if (fail) { fail = false; throw new Error("publish failed"); } descriptor.set!.call(this, value); },
+    });
+    globalThis.__glyphRenderStage = (stage) => { if (stage === "effect-compose") reached = true; };
+    globalThis.__glyphRenderError = (error) => { captured = error; };
+    layer.params.phase = 1;
+    await flushRenders();
+    Object.defineProperty(detail, "innerHTML", descriptor);
+    delete globalThis.__glyphRenderStage;
+    delete globalThis.__glyphRenderError;
+    expect(reached).toBe(true);
+    expect((captured as Error).message).toBe("publish failed");
+    expect(scene.output.innerHTML).toBe(before);
+    expect(detail.innerHTML).toBe(detailBefore);
+    // A later retained-only update still composes and publishes from the same
+    // retained frame rather than requiring a camera/geometry rerender.
+    layer.params.phase = 2;
+    await flushRenders();
+    expect(scene.output.textContent).toContain("X");
+    scene.destroy();
   });
 
   it("uses definition defaults and exposes stable Anime-compatible params", async () => {

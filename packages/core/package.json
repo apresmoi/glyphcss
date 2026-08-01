@@ -6,7 +6,15 @@
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "keywords": ["glyphcss", "ascii", "polygon", "mesh", "3d", "dom", "rendering"],
+  "keywords": [
+    "glyphcss",
+    "ascii",
+    "polygon",
+    "mesh",
+    "3d",
+    "dom",
+    "rendering"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -34,7 +42,9 @@
   },
   "typesVersions": {
     "*": {
-      "three": ["dist/three.d.ts"]
+      "three": [
+        "dist/three.d.ts"
+      ]
     }
   },
   "scripts": {
@@ -47,9 +57,14 @@
     "access": "public"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.1.1",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
-    "vitest": "^3.1.1",
-    "@vitest/coverage-v8": "^3.1.1"
+    "vitest": "^3.1.1"
+  },
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0"
   }
 }

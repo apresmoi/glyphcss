@@ -20,6 +20,8 @@ export type {
   GlyphMeshHandle,
   GlyphMeshTransform,
   GlyphSceneOptions,
+  GlyphSemanticCellFrame,
+  GlyphSemanticCellLineage,
   GlyphHotspotOptions,
   GlyphHotspotHandle,
   GlyphShadowOptions,
@@ -43,6 +45,62 @@ export type {
 // Static compile — render a scene to its `<pre>` without a DOM (build-time / SSR).
 export { compileScene } from "./api/compileScene";
 export type { CompileSceneOptions, CompileSceneResult } from "./api/compileScene";
+
+// Pure semantic/control capture — one real solid rasterization with an optional
+// winner-polygon buffer, for browser-safe dataset and reprojection consumers.
+export { buildGlyphControlFrame, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, resolveGlyphControlLineage, validateGlyphControlMetadata } from "./api/controlFrame";
+export type {
+  GlyphObjectDictionary,
+  GlyphObjectDictionaryClass,
+  GlyphControlSceneManifest,
+  GlyphControlInstance,
+  GlyphControlSurface,
+  GlyphControlFrameOptions,
+  GlyphControlFrameMetadata,
+  GlyphControlCameraMetadata,
+  GlyphControlFrame,
+  GlyphControlGeometryHashes,
+  GlyphControlPolygonLineage,
+} from "./api/controlFrame";
+
+// Frozen model-facing control tensor contract. This deliberately excludes raw
+// polygon/class/instance/surface identifiers; those remain atlas-routing data.
+export { GLYPH_CONTROL_TENSOR_CONTRACT, packGlyphControlTensor, validateGlyphControlTensorSpec } from "./api/controlTensor";
+export type {
+  GlyphControlTensorChannelSource,
+  GlyphControlTensorChannel,
+  GlyphControlTensorContract,
+  GlyphControlTensorInstance,
+  GlyphControlTensorSpec,
+  GlyphControlTensorNormalization,
+  GlyphTemporalControlInputs,
+  GlyphPackedControlTensors,
+} from "./api/controlTensor";
+
+// Deterministic, surface-addressed temporal presentation. This is pure and
+// browser-safe: it consumes control frames and accepted RGB, never the DOM.
+export { reprojectGlyphSurfaceAtlas, resampleGlyphTemporalInputs } from "./api/reprojectSurfaceAtlas";
+export type {
+  GlyphSurfaceAtlasState,
+  GlyphSurfaceAtlasProvenance,
+  GlyphSurfaceAtlasCamera,
+  GlyphSurfaceAtlasSurface,
+  GlyphReprojectSurfaceAtlasOptions,
+  GlyphReprojectSurfaceAtlasResult,
+} from "./api/reprojectSurfaceAtlas";
+
+// Browser-only GPU presentation counterpart. The CPU atlas remains the public
+// deterministic oracle and checkpoint format; this session never touches the
+// renderer's `<pre>` surface.
+export { createGlyphSurfaceAtlasWebGpuSession } from "./api/reprojectSurfaceAtlasWebGpu";
+export type {
+  GlyphSurfaceAtlasWebGpuSession,
+  GlyphSurfaceAtlasWebGpuSessionOptions,
+  GlyphSurfaceAtlasWebGpuSubmitOptions,
+  GlyphSurfaceAtlasWebGpuReadback,
+  GlyphSurfaceAtlasWebGpuPresentationReadback,
+  GlyphSurfaceAtlasWebGpuProfile,
+} from "./api/reprojectSurfaceAtlasWebGpu";
 
 // Static encoding — re-encode a rendered colored `<pre>` into a compacter static
 // form (color classes / CSS-grid placement) for zero-runtime artifacts.

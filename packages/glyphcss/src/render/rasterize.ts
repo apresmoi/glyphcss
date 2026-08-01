@@ -3,7 +3,7 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type Glyph
 import type { Polygon, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
-import { applyCellHook, buildCellGrid, encodeGlyphBuffers } from "./cells";
+import { applyCellHook, buildCellGrid, encodeGlyphBuffers, encodeGlyphBuffersDual } from "./cells";
 import type { CellGrid } from "./cells";
 
 /**
@@ -128,22 +128,67 @@ function fillDepthTri(
   }
 }
 
+/**
+ * `charMode: "halfblock"` (B4) is solid-mode-only and needs a genuine top/
+ * bottom subcell split to draw from, so it only engages when nothing else
+ * already owns the single-color-per-cell downsample path: no `transformCells`
+ * hook (which — like `rasterizeToCells` always setting one — expects and
+ * returns the existing one-color {@link CellGrid} contract; see `cells.ts`'s
+ * `encodeGlyphBuffersDual` doc) and no active reprojection TAA (which blends
+ * a single ramp-index + RGB history, with no top/bottom equivalent). Outside
+ * those cases it's a documented no-op — the scene renders exactly as it
+ * would under `charMode: "ascii"` — mirroring how `charMode: "braille"` is a
+ * documented no-op outside wireframe mode.
+ */
+function wantsHalfblockSolid(scene: RasterizeContext): boolean {
+  return scene.charMode === "halfblock"
+    && !scene.transformCells
+    && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
+}
+
 export function rasterize(scene: RasterizeContext): string {
   const { camera, grid, wireframe, mode } = scene;
   const { cols, rows, cellAspect } = grid;
   const metrics = projectionMetricsForGrid(cols, rows, cellAspect, grid);
 
   if (mode === "solid") {
-    const ss = scene.supersample && scene.supersample > 1 ? Math.floor(scene.supersample) : 1;
+    const baseSS = scene.supersample && scene.supersample > 1 ? Math.floor(scene.supersample) : 1;
+    // Halfblock needs at least two EVEN subcell rows per output cell (a clean
+    // top/bottom split) to sample from — borrow the existing supersample
+    // machinery rather than inventing a second subcell mechanism. Forcing this
+    // only when halfblock will actually apply keeps every other charMode/
+    // supersample combination byte-identical to before.
+    let ss = baseSS;
+    if (wantsHalfblockSolid(scene)) {
+      ss = Math.max(2, baseSS);
+      if (ss % 2 !== 0) ss++;
+    }
     return rasterizeSolid(scene, cols, rows, cellAspect, ss, metrics);
   }
 
+  if (mode === "ink") {
+    return rasterizeInk(scene, cols, rows, cellAspect, metrics);
+  }
+
   // wireframe (and voxel falls through to wireframe for now)
+
+  // `charMode: "braille"` only encodes wireframe mode — voxel falls through to
+  // this same branch but keeps the ASCII path (braille coverage is binary and
+  // has no voxel-face-normal glyph mapping). Default/absent `charMode` and
+  // `"ascii"` both take the untouched path below, so default output stays
+  // byte-identical.
+  if (scene.charMode === "braille" && mode === "wireframe") {
+    return rasterizeWireframeBraille(scene, cols, rows, cellAspect, metrics);
+  }
+
   const glyphs = getWireframeGlyphs(scene.glyphPalette);
   const stamp = new Uint8Array(cols * rows);
   // Color buffer: one entry per cell. null means "no color" (use CSS fallback).
   // When colors are disabled, we don't even allocate the buffer (saves GC).
   const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
+  // Per-cell N/E/S/W side mask for the box-drawing junction resolve pass.
+  // `null` (the default) skips the pass entirely — byte-identical output.
+  const junctionMask: Uint8Array | null = scene.wireframeJunctions ? new Uint8Array(cols * rows) : null;
 
   for (const e of wireframe) {
     const a = camera.project(e.from, cols, rows, cellAspect, metrics);
@@ -151,6 +196,7 @@ export function rasterize(scene: RasterizeContext): string {
     // Near-plane culled vertices come back as NaN — skip the line entirely.
     if (a[0] !== a[0] || b[0] !== b[0]) continue;
     drawLineToStamp(stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, e.weight ?? 2, e.color ?? null, cols, rows);
+    if (junctionMask) accumulateJunctionMask(junctionMask, a[0], a[1], b[0], b[1], cols, rows);
   }
 
   // Post-rasterize cell hook (wireframe). No-op path below is the untouched
@@ -165,11 +211,7 @@ export function rasterize(scene: RasterizeContext): string {
         cChar[i] = " ";
         if (cColor) cColor[i] = null;
       } else {
-        cChar[i] = v === 1
-          ? glyphs.thin[(Math.random() * glyphs.thin.length) | 0]!
-          : v === 2
-            ? glyphs.normal[(Math.random() * glyphs.normal.length) | 0]!
-            : glyphs.core[(Math.random() * glyphs.core.length) | 0]!;
+        cChar[i] = wireframeGlyphForCell(v, junctionMask ? junctionMask[i]! : 0, glyphs);
         if (cColor) cColor[i] = colorBuf ? (colorBuf[i] ?? null) : null;
       }
     }
@@ -177,7 +219,412 @@ export function rasterize(scene: RasterizeContext): string {
     return solidBufToString(applied.char, applied.color, cols, rows, true);
   }
 
-  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs);
+  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask);
+}
+
+/** N/E/S/W side bits for the box-drawing junction resolve pass. */
+const JUNCTION_N = 1;
+const JUNCTION_E = 2;
+const JUNCTION_S = 4;
+const JUNCTION_W = 8;
+
+/** Mask → box-drawing glyph. A single bit (a dangling stub at a clipped or
+ *  unjoined endpoint) still reads as a straight rule on its axis. */
+const JUNCTION_GLYPHS: Record<number, string> = {
+  [JUNCTION_N]: "│",
+  [JUNCTION_S]: "│",
+  [JUNCTION_N | JUNCTION_S]: "│",
+  [JUNCTION_E]: "─",
+  [JUNCTION_W]: "─",
+  [JUNCTION_E | JUNCTION_W]: "─",
+  [JUNCTION_N | JUNCTION_E]: "└",
+  [JUNCTION_N | JUNCTION_W]: "┘",
+  [JUNCTION_S | JUNCTION_E]: "┌",
+  [JUNCTION_S | JUNCTION_W]: "┐",
+  [JUNCTION_N | JUNCTION_E | JUNCTION_S]: "├",
+  [JUNCTION_N | JUNCTION_S | JUNCTION_W]: "┤",
+  [JUNCTION_E | JUNCTION_W | JUNCTION_S]: "┬",
+  [JUNCTION_E | JUNCTION_W | JUNCTION_N]: "┴",
+  [JUNCTION_N | JUNCTION_E | JUNCTION_S | JUNCTION_W]: "┼",
+};
+
+/**
+ * Accumulate N/E/S/W side bits for a single wireframe edge into `mask`.
+ *
+ * An edge only contributes when it is near-axis-aligned: its two projected
+ * endpoints round to the same output ROW (near-horizontal) or the same
+ * output COLUMN (near-vertical) — under half a cell of perpendicular drift
+ * across its whole screen-space length. This threshold scales with edge
+ * length instead of a fixed angle constant, and needs no extra tuning knob.
+ * A diagonal-dominant edge (endpoints round to neither) contributes nothing;
+ * its cells keep the existing per-tier slope-glyph selection untouched.
+ */
+function accumulateJunctionMask(
+  mask: Uint8Array,
+  ax: number, ay: number, bx: number, by: number,
+  cols: number, rows: number,
+): void {
+  const rowA = Math.round(ay), rowB = Math.round(by);
+  const colA = Math.round(ax), colB = Math.round(bx);
+  if (rowA === rowB) {
+    markHorizontalRun(mask, colA, colB, rowA, cols, rows);
+  } else if (colA === colB) {
+    markVerticalRun(mask, rowA, rowB, colA, cols, rows);
+  }
+}
+
+function markHorizontalRun(mask: Uint8Array, colStart: number, colEnd: number, row: number, cols: number, rows: number): void {
+  if (row < 0 || row >= rows) return;
+  const lo = Math.min(colStart, colEnd), hi = Math.max(colStart, colEnd);
+  const cLo = Math.max(0, lo), cHi = Math.min(cols - 1, hi);
+  const base = row * cols;
+  for (let c = cLo; c <= cHi; c++) {
+    const idx = base + c;
+    if (c > lo) mask[idx] |= JUNCTION_W;
+    if (c < hi) mask[idx] |= JUNCTION_E;
+  }
+}
+
+function markVerticalRun(mask: Uint8Array, rowStart: number, rowEnd: number, col: number, cols: number, rows: number): void {
+  if (col < 0 || col >= cols) return;
+  const lo = Math.min(rowStart, rowEnd), hi = Math.max(rowStart, rowEnd);
+  const rLo = Math.max(0, lo), rHi = Math.min(rows - 1, hi);
+  for (let r = rLo; r <= rHi; r++) {
+    const idx = r * cols + col;
+    if (r > lo) mask[idx] |= JUNCTION_N;
+    if (r < hi) mask[idx] |= JUNCTION_S;
+  }
+}
+
+/** Resolve a single wireframe cell's glyph: junction mask wins when set (and
+ *  maps to a known combination), otherwise the existing random per-tier pick. */
+function wireframeGlyphForCell(
+  stampValue: number,
+  maskValue: number,
+  glyphs: { thin: string[]; normal: string[]; core: string[] },
+): string {
+  if (maskValue !== 0) {
+    const jg = JUNCTION_GLYPHS[maskValue];
+    if (jg !== undefined) return jg;
+  }
+  return stampValue === 1
+    ? glyphs.thin[(Math.random() * glyphs.thin.length) | 0]!
+    : stampValue === 2
+      ? glyphs.normal[(Math.random() * glyphs.normal.length) | 0]!
+      : glyphs.core[(Math.random() * glyphs.core.length) | 0]!;
+}
+
+// ── Ink mode ─────────────────────────────────────────────────────────────────
+
+/**
+ * Dihedral-angle threshold for a CREASE edge in `ink` mode: adjacent face
+ * normals diverging by more than this many degrees are a hard edge (e.g. a
+ * cube corner) and are always drawn, independent of the view-dependent
+ * silhouette test below. 35° mirrors the common NPR/toon-outline default
+ * (Blender Freestyle ships ~30°) — sharp enough to skip a sphere/torus's
+ * naturally smooth curvature (no false creases) while still catching a cube's
+ * 90° edges and similar hard corners.
+ */
+const INK_CREASE_ANGLE_DEG = 35;
+const INK_CREASE_COS_THRESHOLD = Math.cos((INK_CREASE_ANGLE_DEG * Math.PI) / 180);
+
+function inkVertexKey(v: Vec3): string {
+  return `${v[0]},${v[1]},${v[2]}`;
+}
+
+function normalize2(v: [number, number]): [number, number] {
+  const len = Math.hypot(v[0], v[1]);
+  return len < 1e-9 ? [0, 0] : [v[0] / len, v[1] / len];
+}
+
+/**
+ * Bias a smoothed vertex tangent toward the screen-space direction of the
+ * specific segment it's about to be interpolated across.
+ *
+ * `tangent` (the >2-neighbor "most anti-parallel pair" junction heuristic,
+ * smoothed) is a per-VERTEX quantity shared by every edge touching that
+ * vertex — at a >=3-edge junction (a cube corner, an icosahedron crease
+ * vertex) the picked pair can be unrelated to any one of those edges, so a
+ * segment can inherit an orientation that has nothing to do with itself
+ * (P2: a cube's vertical edges rendering as horizontal glyphs). `segDir` is
+ * this segment's OWN direction (`b - a`), always correct for a straight
+ * edge and never junction-contaminated.
+ *
+ * `agreement` — the absolute cosine between the (sign-aligned) vertex
+ * tangent and `segDir` — is how much the two already agree. `segDir` is
+ * always given full weight; `vt` is given weight `agreement`. So: a smooth
+ * contour, where the vertex tangent is already close to every one of its
+ * segments' own directions (agreement ~= 1), keeps close to full smoothing
+ * (the blend is close to a straight average, still correcting the
+ * chord-vs-tangent stair-step). A junction where the picked pair is
+ * unrelated to this segment (agreement ~= 0) collapses to `segDir` alone —
+ * exactly the straight, isolated-segment behavior a hard edge needs.
+ */
+function biasTangentToSegment(vt: [number, number], segDir: [number, number]): [number, number] {
+  if (segDir[0] === 0 && segDir[1] === 0) return vt;
+  const rawDot = vt[0] * segDir[0] + vt[1] * segDir[1];
+  const aligned: [number, number] = rawDot < 0 ? [-vt[0], -vt[1]] : vt;
+  const agreement = Math.abs(rawDot);
+  return normalize2([segDir[0] + aligned[0] * agreement, segDir[1] + aligned[1] * agreement]);
+}
+
+/**
+ * Map a screen-space contour tangent (+ the cell's fractional vertical
+ * position, used only by the horizontal glyphs) to an oriented ink glyph.
+ * `theta = atan2(dy, dx)` is folded into `[0, π)` (a tangent and its negation
+ * trace the same line) and quantized into four 45°-wide buckets centered on
+ * horizontal / "\" / vertical / "/". Exported so the quantization can be unit
+ * tested directly, independent of the full silhouette + smoothing pipeline.
+ */
+export function inkGlyphForTangent(dx: number, dy: number, subRow = 0.5): string {
+  if (Math.hypot(dx, dy) < 1e-6) return "·"; // "·" — degenerate/point contour
+  let theta = Math.atan2(dy, dx);
+  if (theta < 0) theta += Math.PI;
+  const EIGHTH = Math.PI / 8;
+  if (theta < EIGHTH || theta >= Math.PI - EIGHTH) {
+    // Near-horizontal: use the cell's fractional vertical position to pick
+    // among three vertically-offset glyphs instead of always "-".
+    if (subRow < 1 / 3) return "‾"; // "‾" OVERLINE
+    if (subRow < 2 / 3) return "-";
+    return "_";
+  }
+  if (theta < 3 * EIGHTH) return "\\";
+  if (theta < 5 * EIGHTH) return "|";
+  return "/";
+}
+
+/**
+ * `ink` mode: oriented silhouette + crease outline rasterizer.
+ *
+ * 1. Fan-triangulates every polygon and projects each triangle to determine
+ *    front/back facing — the SAME signed-screen-area convention `scanFillTriangle`
+ *    uses for its backface cull (`area2 <= 0` = front-facing) — so silhouette
+ *    detection is view-dependent and correct under both ortho and perspective.
+ * 2. Builds a shared-edge adjacency map (glyphcss's existing feature-edge
+ *    convention from `featureEdges.ts`: canonical key from vertex position).
+ *    An edge is KEPT when it is a silhouette (adjacent faces disagree on
+ *    facing), a crease (dihedral angle beyond `INK_CREASE_COS_THRESHOLD`), or
+ *    a boundary (single adjacent face) — and always requires at least one
+ *    adjacent face to be front-facing (a crease entirely on the mesh's far
+ *    side is invisible and must not draw through the surface).
+ * 3. Chains kept edges into a per-vertex neighbor graph in SCREEN space, takes
+ *    a raw central-difference tangent per vertex (or, at a junction with more
+ *    than two neighbors, the most anti-parallel neighbor pair), then runs two
+ *    sign-aligned neighbor-averaging smoothing passes over the tangent field —
+ *    this is what turns the per-triangle-edge stair-stepping into a tangent
+ *    that reads as continuous along the chain.
+ * 4. Walks each kept edge in screen space, interpolating the two endpoints'
+ *    smoothed tangents, and writes ONE oriented glyph per covered cell via
+ *    `inkGlyphForTangent`. Interior cells stay empty (`" "`) — texture/hatch
+ *    fills are deliberately out of scope for this mode; see AGENTS.md.
+ *
+ * `charMode` and `wireframeJunctions` are wireframe-path-only concerns (braille
+ * subcell dot coverage / box-drawing corner resolution) and are simply never
+ * consulted here — `ink` always renders its own fixed oriented-glyph set as
+ * plain ASCII, regardless of those options.
+ */
+function rasterizeInk(
+  scene: RasterizeContext,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+): string {
+  const { camera, polygons } = scene;
+  const charBuf: string[] = new Array(cols * rows).fill(" ");
+  const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
+
+  interface InkTri {
+    v0: Vec3; v1: Vec3; v2: Vec3;
+    normal: [number, number, number];
+    color: string | undefined;
+    frontFacing: boolean;
+  }
+  const tris: InkTri[] = [];
+  for (const poly of polygons) {
+    const verts = poly.vertices;
+    if (verts.length < 3 || poly.hidden) continue;
+    for (let f = 1; f < verts.length - 1; f++) {
+      const v0 = verts[0]! as Vec3, v1 = verts[f]! as Vec3, v2 = verts[f + 1]! as Vec3;
+      const ux = v1[0] - v0[0], uy = v1[1] - v0[1], uz = v1[2] - v0[2];
+      const vx = v2[0] - v0[0], vy = v2[1] - v0[1], vz = v2[2] - v0[2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const nLen = Math.hypot(nx, ny, nz) || 1;
+      const normal: [number, number, number] = [nx / nLen, ny / nLen, nz / nLen];
+      const pa = camera.project(v0, cols, rows, cellAspect, metrics);
+      const pb = camera.project(v1, cols, rows, cellAspect, metrics);
+      const pc = camera.project(v2, cols, rows, cellAspect, metrics);
+      const projected = pa[0] === pa[0] && pb[0] === pb[0] && pc[0] === pc[0];
+      const area2 = projected ? (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]) : 0;
+      tris.push({ v0, v1, v2, normal, color: poly.color, frontFacing: projected && area2 <= 0 });
+    }
+  }
+
+  interface InkEdgeEntry {
+    fromWorld: Vec3; toWorld: Vec3;
+    contribs: { normal: [number, number, number]; frontFacing: boolean; color: string | undefined }[];
+  }
+  const edgeMap = new Map<string, InkEdgeEntry>();
+  const addEdge = (a: Vec3, b: Vec3, normal: [number, number, number], frontFacing: boolean, color: string | undefined): void => {
+    const ka = inkVertexKey(a), kb = inkVertexKey(b);
+    if (ka === kb) return;
+    const canon = ka < kb;
+    const key = canon ? `${ka}|${kb}` : `${kb}|${ka}`;
+    let entry = edgeMap.get(key);
+    if (!entry) {
+      entry = { fromWorld: canon ? a : b, toWorld: canon ? b : a, contribs: [] };
+      edgeMap.set(key, entry);
+    }
+    entry.contribs.push({ normal, frontFacing, color });
+  };
+  for (const t of tris) {
+    addEdge(t.v0, t.v1, t.normal, t.frontFacing, t.color);
+    addEdge(t.v1, t.v2, t.normal, t.frontFacing, t.color);
+    addEdge(t.v2, t.v0, t.normal, t.frontFacing, t.color);
+  }
+
+  // `rank` orders how a cell shared by two edges resolves: a silhouette or
+  // crease is the outline a person would draw, so it must win over a lone
+  // front-facing triangle's boundary edge running off it at another angle.
+  const keptEdges: { fromWorld: Vec3; toWorld: Vec3; color: string | undefined; rank: number }[] = [];
+  for (const entry of edgeMap.values()) {
+    const { contribs } = entry;
+    if (contribs.length === 1) {
+      if (contribs[0]!.frontFacing) {
+        keptEdges.push({ fromWorld: entry.fromWorld, toWorld: entry.toWorld, color: contribs[0]!.color, rank: 0 });
+      }
+      continue;
+    }
+    let silhouette = false;
+    let crease = false;
+    let anyFront = false;
+    let frontColor: string | undefined;
+    for (let i = 0; i < contribs.length; i++) {
+      if (contribs[i]!.frontFacing) { anyFront = true; frontColor = frontColor ?? contribs[i]!.color; }
+      for (let j = i + 1; j < contribs.length; j++) {
+        if (contribs[i]!.frontFacing !== contribs[j]!.frontFacing) silhouette = true;
+        const ni = contribs[i]!.normal, nj = contribs[j]!.normal;
+        const dot = ni[0] * nj[0] + ni[1] * nj[1] + ni[2] * nj[2];
+        if (dot < INK_CREASE_COS_THRESHOLD) crease = true;
+      }
+    }
+    if (!anyFront) continue;
+    if (silhouette || crease) {
+      keptEdges.push({ fromWorld: entry.fromWorld, toWorld: entry.toWorld, color: frontColor ?? contribs[0]!.color, rank: 1 });
+    }
+  }
+
+  const vertexScreen = new Map<string, [number, number] | null>();
+  const projectVertex = (v: Vec3): [number, number] | null => {
+    const key = inkVertexKey(v);
+    const cached = vertexScreen.get(key);
+    if (cached !== undefined) return cached;
+    const p = camera.project(v, cols, rows, cellAspect, metrics);
+    const s: [number, number] | null = p[0] === p[0] ? [p[0], p[1]] : null;
+    vertexScreen.set(key, s);
+    return s;
+  };
+  const neighbors = new Map<string, { screen: [number, number]; nbrKeys: string[] }>();
+  const ensureNode = (v: Vec3): string | null => {
+    const s = projectVertex(v);
+    if (!s) return null;
+    const key = inkVertexKey(v);
+    if (!neighbors.has(key)) neighbors.set(key, { screen: s, nbrKeys: [] });
+    return key;
+  };
+  const edgeSegments: { fromKey: string; toKey: string; color: string | undefined; rank: number }[] = [];
+  for (const e of keptEdges) {
+    const fk = ensureNode(e.fromWorld);
+    const tk = ensureNode(e.toWorld);
+    if (!fk || !tk || fk === tk) continue;
+    neighbors.get(fk)!.nbrKeys.push(tk);
+    neighbors.get(tk)!.nbrKeys.push(fk);
+    edgeSegments.push({ fromKey: fk, toKey: tk, color: e.color, rank: e.rank });
+  }
+
+  // Raw per-vertex tangent: central difference between two neighbors (the
+  // common contour case), the single neighbor direction at a chain endpoint,
+  // or — at a >2-neighbor junction — the most anti-parallel neighbor pair.
+  let tangent = new Map<string, [number, number]>();
+  for (const [key, node] of neighbors) {
+    const self = node.screen;
+    if (node.nbrKeys.length === 0) { tangent.set(key, [0, 0]); continue; }
+    if (node.nbrKeys.length === 1) {
+      const n = neighbors.get(node.nbrKeys[0]!)!.screen;
+      tangent.set(key, normalize2([self[0] - n[0], self[1] - n[1]]));
+      continue;
+    }
+    const dirs = node.nbrKeys.map((nk) => {
+      const n = neighbors.get(nk)!.screen;
+      return normalize2([n[0] - self[0], n[1] - self[1]]);
+    });
+    let bestI = 0, bestJ = 1, bestDot = Infinity;
+    for (let i = 0; i < dirs.length; i++) {
+      for (let j = i + 1; j < dirs.length; j++) {
+        const dot = dirs[i]![0] * dirs[j]![0] + dirs[i]![1] * dirs[j]![1];
+        if (dot < bestDot) { bestDot = dot; bestI = i; bestJ = j; }
+      }
+    }
+    const a = neighbors.get(node.nbrKeys[bestI]!)!.screen;
+    const b = neighbors.get(node.nbrKeys[bestJ]!)!.screen;
+    tangent.set(key, normalize2([b[0] - a[0], b[1] - a[1]]));
+  }
+
+  // Smoothing: two passes of sign-aligned neighbor averaging. Raw per-vertex
+  // tangents come from single triangle edges and stair-step on a curved
+  // surface (a sphere/torus silhouette is a smooth curve, but its polygonal
+  // chord directions jump cell to cell); this pass blends each vertex's
+  // tangent with its neighbors', flipping a neighbor's tangent first when it
+  // points the "wrong way" (negative dot) so smoothing doesn't cancel itself.
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Map<string, [number, number]>();
+    for (const [key, node] of neighbors) {
+      const t0 = tangent.get(key)!;
+      let sx = t0[0], sy = t0[1];
+      for (const nk of node.nbrKeys) {
+        const tn = tangent.get(nk)!;
+        const dot = t0[0] * tn[0] + t0[1] * tn[1];
+        const s = dot < 0 ? -1 : 1;
+        sx += tn[0] * s;
+        sy += tn[1] * s;
+      }
+      next.set(key, normalize2([sx, sy]));
+    }
+    tangent = next;
+  }
+
+  const cellRank = new Int8Array(cols * rows).fill(-1);
+  for (const seg of [...edgeSegments].sort((l, r) => l.rank - r.rank)) {
+    const a = neighbors.get(seg.fromKey)!.screen;
+    const b = neighbors.get(seg.toKey)!.screen;
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    // Anchor both endpoint tangents to THIS segment's own direction before
+    // interpolating across it — see `biasTangentToSegment`. Both endpoints
+    // are biased toward the same `segDir`, so they're already sign-consistent
+    // with each other; no separate a/b sign-alignment step is needed.
+    const segDir = normalize2([dx, dy]);
+    const ta = biasTangentToSegment(tangent.get(seg.fromKey)!, segDir);
+    const tb = biasTangentToSegment(tangent.get(seg.toKey)!, segDir);
+    const steps = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy))));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = a[0] + dx * t, y = a[1] + dy * t;
+      const cx = Math.floor(x), cy = Math.floor(y);
+      if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) continue;
+      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
+      const idx = cy * cols + cx;
+      if (cellRank[idx]! > seg.rank) continue;
+      cellRank[idx] = seg.rank;
+      charBuf[idx] = inkGlyphForTangent(tx, ty, y - cy);
+      if (colorBuf) colorBuf[idx] = seg.color ?? null;
+    }
+  }
+
+  if (scene.transformCells) {
+    const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows);
+    return solidBufToString(applied.char, applied.color, cols, rows, true);
+  }
+  return solidBufToString(charBuf, colorBuf, cols, rows, false);
 }
 
 /** Solid-mode: scan-fill polygons (fan-triangulated) with Lambert shading + depth buffer. */
@@ -236,6 +683,9 @@ function rasterizeSolid(
       world: Float32Array | null;
       normal: Float32Array | null;
       surfaceUv: Float32Array | null;
+      winnerPolygon: Int32Array | null;
+      albedoRgb: Uint32Array | null;
+      targetRgb: Uint32Array | null;
     };
   };
   let scratch = camHost.__glyphScratch;
@@ -249,6 +699,9 @@ function rasterizeSolid(
       world: null,
       normal: null,
       surfaceUv: null,
+      winnerPolygon: null,
+      albedoRgb: null,
+      targetRgb: null,
     };
     camHost.__glyphScratch = scratch;
   }
@@ -288,6 +741,26 @@ function rasterizeSolid(
     }
     surfaceUvBuf = scratch.surfaceUv;
     surfaceUvBuf.fill(NaN);
+  }
+  let winnerPolygonBuf: Int32Array | null = null;
+  if (scene.retainWinnerPolygon) {
+    if (!scratch.winnerPolygon || scratch.winnerPolygon.length !== n) {
+      scratch.winnerPolygon = new Int32Array(n);
+    }
+    winnerPolygonBuf = scratch.winnerPolygon;
+    winnerPolygonBuf.fill(-1);
+  }
+  let albedoRgbBuf: Uint32Array | null = null;
+  if (scene.retainAlbedoRgb) {
+    if (!scratch.albedoRgb || scratch.albedoRgb.length !== n) scratch.albedoRgb = new Uint32Array(n);
+    albedoRgbBuf = scratch.albedoRgb;
+    albedoRgbBuf.fill(0);
+  }
+  let targetRgbBuf: Uint32Array | null = null;
+  if (scene.retainTargetRgb) {
+    if (!scratch.targetRgb || scratch.targetRgb.length !== n) scratch.targetRgb = new Uint32Array(n);
+    targetRgbBuf = scratch.targetRgb;
+    targetRgbBuf.fill(0);
   }
 
   // Normalize the light direction once.
@@ -583,6 +1056,12 @@ function rasterizeSolid(
           surfaceUvCtx, surfaceUvBuf,
           depthEpsilon,
           texCtx,
+          polyIdx,
+          winnerPolygonBuf,
+          albedoRgbBuf,
+          targetRgbBuf,
+          ambIntensity, ambRgb, keyRgb,
+          poly.color ?? "#ffffff",
         );
       } else {
         // Straddles the near plane: clip the triangle to the visible half-space
@@ -658,6 +1137,12 @@ function rasterizeSolid(
               // texture sampling context; fall back to flat color for that rare
               // eye-straddling case. Surface-effect UVs remain available above.
               null,
+              polyIdx,
+              winnerPolygonBuf,
+              albedoRgbBuf,
+              targetRgbBuf,
+              ambIntensity, ambRgb, keyRgb,
+              poly.color ?? "#ffffff",
             );
           }
         }
@@ -705,6 +1190,9 @@ function rasterizeSolid(
             surfaceUvBuf[idx * 2] = NaN;
             surfaceUvBuf[idx * 2 + 1] = NaN;
           }
+          if (winnerPolygonBuf) winnerPolygonBuf[idx] = -1;
+          if (albedoRgbBuf) albedoRgbBuf[idx] = 0;
+          if (targetRgbBuf) targetRgbBuf[idx] = 0;
         }
       }
     }
@@ -720,6 +1208,20 @@ function rasterizeSolid(
   let finalWorldPos: Float32Array | null = worldPosBuf;
   let finalNormal: Float32Array | null = normalBuf;
   let finalSurfaceUv: Float32Array | null = surfaceUvBuf;
+  let finalWinnerPolygon: Int32Array | null = winnerPolygonBuf;
+  let finalAlbedoRgb: Uint32Array | null = albedoRgbBuf;
+  let finalTargetRgb: Uint32Array | null = targetRgbBuf;
+  if (supersample > 1 && wantsHalfblockSolid(scene)) {
+    // Two-color (`▀`/`▄`/`█`) encoding straight from the raw supersampled
+    // subcells — see `encodeHalfblockSolid` for the per-cell decision table
+    // and `encodeGlyphBuffersDual` (cells.ts) for the span/dedupe rules. This
+    // terminates the function here: `reproject` and `transformCells` are both
+    // guaranteed false by `wantsHalfblockSolid`, so the single-color
+    // downsample/TAA/hook machinery below is never reached for this cell path.
+    const out = encodeHalfblockSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
+    return out;
+  }
   if (supersample > 1) {
     const ds = downsampleSolid(
       glyphBuf,
@@ -729,6 +1231,9 @@ function rasterizeSolid(
       worldPosBuf,
       normalBuf,
       surfaceUvBuf,
+      winnerPolygonBuf,
+      albedoRgbBuf,
+      targetRgbBuf,
       outCols,
       outRows,
       supersample,
@@ -741,6 +1246,9 @@ function rasterizeSolid(
     finalWorldPos = ds.worldPos;
     finalNormal = ds.normal;
     finalSurfaceUv = ds.surfaceUv;
+    finalWinnerPolygon = ds.winnerPolygon;
+    finalAlbedoRgb = ds.albedoRgb;
+    finalTargetRgb = ds.targetRgb;
   }
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
@@ -754,6 +1262,9 @@ function rasterizeSolid(
       scene.transformCells, finalGlyph, finalColor,
       finalDepth, outCols, outRows, finalSurfaceUv, finalShade,
       finalWorldPos, finalNormal,
+      finalWinnerPolygon,
+      finalAlbedoRgb,
+      finalTargetRgb,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -885,6 +1396,9 @@ function downsampleSolid(
   worldPosIn: Float32Array | null,
   normalIn: Float32Array | null,
   surfaceUvIn: Float32Array | null,
+  winnerPolygonIn: Int32Array | null,
+  albedoRgbIn: Uint32Array | null,
+  targetRgbIn: Uint32Array | null,
   outCols: number,
   outRows: number,
   S: number,
@@ -897,6 +1411,9 @@ function downsampleSolid(
   worldPos: Float32Array | null;
   normal: Float32Array | null;
   surfaceUv: Float32Array | null;
+  winnerPolygon: Int32Array | null;
+  albedoRgb: Uint32Array | null;
+  targetRgb: Uint32Array | null;
 } {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
@@ -910,6 +1427,9 @@ function downsampleSolid(
   const ow: Float32Array | null = worldPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const on: Float32Array | null = normalIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const ouv: Float32Array | null = surfaceUvIn ? new Float32Array(outCols * outRows * 2).fill(NaN) : null;
+  const owinner: Int32Array | null = winnerPolygonIn ? new Int32Array(outCols * outRows).fill(-1) : null;
+  const oalbedo: Uint32Array | null = albedoRgbIn ? new Uint32Array(outCols * outRows) : null;
+  const otarget: Uint32Array | null = targetRgbIn ? new Uint32Array(outCols * outRows) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
     for (let ox = 0; ox < outCols; ox++) {
@@ -959,9 +1479,113 @@ function downsampleSolid(
         ouv[oi * 2] = surfaceUvIn![representative * 2]!;
         ouv[oi * 2 + 1] = surfaceUvIn![representative * 2 + 1]!;
       }
+      if (owinner && representative >= 0) owinner[oi] = winnerPolygonIn![representative]!;
+      if (oalbedo && representative >= 0) oalbedo[oi] = albedoRgbIn![representative]!;
+      if (otarget && representative >= 0) otarget[oi] = targetRgbIn![representative]!;
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget };
+}
+
+/**
+ * `charMode: "halfblock"` (B4): pack TWO independently colored subcells into
+ * one output cell instead of averaging them into a single shade, buying 2×
+ * vertical color resolution at the cost of coarser shape (the mirror
+ * trade-off to braille, which buys shape at one color per cell — see the
+ * `charMode` doc). `S` (the forced-even supersample factor) subcell ROWS
+ * split evenly: `[0, S/2)` is "top", `[S/2, S)` is "bottom"; each half is
+ * independently box-averaged over its `S/2 × S` subcells, exactly like
+ * `downsampleSolid`'s single average but computed twice.
+ *
+ * Coverage (not glyph) again drives whether a subcell counts, so a dim but
+ * covered subcell is never mistaken for empty. Per output cell:
+ *  - neither half covered → `" "`, no color, no background: a cell with no
+ *    geometry must never paint an opaque rectangle.
+ *  - both halves covered, SAME resolved color (common on a flat-shaded
+ *    surface, and after the 8-bit lit-color cache collapses near-identical
+ *    shades) → `█` (full block) with just `color` set — no `background-color`
+ *    at all, saving a style property and letting the cell merge into a
+ *    same-color run exactly like the ASCII solid path.
+ *  - both halves covered, DIFFERENT colors → `▀` with `color` = the TOP
+ *    subcell's average (the glyph's own ink) and `background-color` = the
+ *    BOTTOM subcell's average (the rest of the cell box) — this is the
+ *    literal "two pixels, one cell" case video-to-ascii-style renderers use.
+ *  - only one half covered → the half-block glyph for THAT half (`▀` top-
+ *    only, `▄` bottom-only) with its color as the foreground and no
+ *    background — the uncovered half shows through to the page/`<pre>`
+ *    background instead of a painted rectangle.
+ *
+ * Terminal (not fed through `downsampleSolid`/reprojection/`transformCells` —
+ * see `wantsHalfblockSolid`): builds the final string directly via
+ * `encodeGlyphBuffersDual` (cells.ts), which is a sibling encoder to
+ * `encodeGlyphBuffers` and does not extend the shared {@link CellGrid}
+ * contract — the `transformCells` hook and the generic effect compositor
+ * stay exactly as one-color-per-cell as they are today.
+ */
+export function encodeHalfblockSolid(
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  outCols: number,
+  outRows: number,
+  S: number,
+  useColors: boolean,
+): string {
+  const inCols = outCols * S;
+  const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
+  const n = outCols * outRows;
+  const charBuf: string[] = new Array(n);
+  const fgBuf: (string | null)[] = new Array(n).fill(null);
+  const bgBuf: (string | null)[] = new Array(n).fill(null);
+
+  for (let oy = 0; oy < outRows; oy++) {
+    for (let ox = 0; ox < outCols; ox++) {
+      let topCov = 0, topR = 0, topG = 0, topB = 0;
+      let botCov = 0, botR = 0, botG = 0, botB = 0;
+      for (let sy = 0; sy < S; sy++) {
+        const base = (oy * S + sy) * inCols + ox * S;
+        const isTop = sy < half;
+        for (let sx = 0; sx < S; sx++) {
+          const si = base + sx;
+          if (depthBuf[si] === -Infinity) continue;
+          if (isTop) {
+            topCov++;
+            if (colorBuf) { const c = colorBuf[si]; if (c) { const rgb = hexToRgb(c); topR += rgb[0]; topG += rgb[1]; topB += rgb[2]; } }
+          } else {
+            botCov++;
+            if (colorBuf) { const c = colorBuf[si]; if (c) { const rgb = hexToRgb(c); botR += rgb[0]; botG += rgb[1]; botB += rgb[2]; } }
+          }
+        }
+      }
+      const oi = oy * outCols + ox;
+      if (topCov === 0 && botCov === 0) {
+        charBuf[oi] = " ";
+        continue;
+      }
+      const topColor = useColors && topCov > 0
+        ? `#${toHex2(topR / topCov)}${toHex2(topG / topCov)}${toHex2(topB / topCov)}`
+        : null;
+      const botColor = useColors && botCov > 0
+        ? `#${toHex2(botR / botCov)}${toHex2(botG / botCov)}${toHex2(botB / botCov)}`
+        : null;
+      if (topCov > 0 && botCov > 0) {
+        if (!useColors || topColor === botColor) {
+          charBuf[oi] = "█";
+          fgBuf[oi] = topColor;
+        } else {
+          charBuf[oi] = "▀";
+          fgBuf[oi] = topColor;
+          bgBuf[oi] = botColor;
+        }
+      } else if (topCov > 0) {
+        charBuf[oi] = "▀";
+        fgBuf[oi] = topColor;
+      } else {
+        charBuf[oi] = "▄";
+        fgBuf[oi] = botColor;
+      }
+    }
+  }
+  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);
 }
 
 /**
@@ -1200,6 +1824,14 @@ function scanFillTriangle(
   depthEpsilon: number,
   // Per-cell texture sampling for this triangle (null → flat `color`).
   tex: ScanFillTexCtx | null,
+  polygonIndex: number,
+  winnerPolygonBuf: Int32Array | null,
+  albedoRgbBuf: Uint32Array | null,
+  targetRgbBuf: Uint32Array | null,
+  ambientIntensity: number,
+  ambientRgb: [number, number, number],
+  keyLightRgb: [number, number, number],
+  flatBaseColor: string,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -1254,6 +1886,7 @@ function scanFillTriangle(
       // ortho (≤0) fall through to the plain `>` test.
       if (pixelDepth > (prevDepth > 0 ? prevDepth * (1 - depthEpsilon) : prevDepth)) {
         depthBuf[idx] = pixelDepth;
+        if (winnerPolygonBuf !== null) winnerPolygonBuf[idx] = polygonIndex;
         const invQ = interpolatePerspective
           ? 1 / (wA * aq + wB * bq + wC * cq)
           : invArea2;
@@ -1310,8 +1943,10 @@ function scanFillTriangle(
         //      producing a stippled gradient that reads as continuous from a
         //      distance and breaks up the visible contour bands between ramp
         //      steps.
-        let intensity = (wA * ia + wB * ib + wC * ic) * invArea2;
+        const lightIntensity = (wA * ia + wB * ib + wC * ic) * invArea2;
+        let intensity = lightIntensity;
         let cellColor = color;
+        let sourceRgb = hexToRgb(flatBaseColor);
 
         // Per-cell texture: barycentric-interpolate UV, sample the texel. Its
         // color (× the triangle's light tint) becomes this cell's color, and its
@@ -1327,17 +1962,21 @@ function scanFillTriangle(
             : (wA * tex.va + wB * tex.vb + wC * tex.vc) * invArea2;
           const texel = sampleTexel(tex.sampler, u, v);
           if (texel !== null && texel.a > 8) {
-            let r = (texel.r * tex.tintR) | 0; if (r > 255) r = 255;
-            let g = (texel.g * tex.tintG) | 0; if (g > 255) g = 255;
-            let b = (texel.b * tex.tintB) | 0; if (b > 255) b = 255;
+            const base = hexToRgb(flatBaseColor);
+            sourceRgb = [(texel.r * base[0] / 255) | 0, (texel.g * base[1] / 255) | 0, (texel.b * base[2] / 255) | 0];
+            let r = (sourceRgb[0] * tex.tintR) | 0; if (r > 255) r = 255;
+            let g = (sourceRgb[1] * tex.tintG) | 0; if (g > 255) g = 255;
+            let b = (sourceRgb[2] * tex.tintB) | 0; if (b > 255) b = 255;
             cellColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
             intensity *= (0.299 * texel.r + 0.587 * texel.g + 0.114 * texel.b) / 255;
           }
         }
+        if (albedoRgbBuf !== null) albedoRgbBuf[idx] = (sourceRgb[0] << 16) | (sourceRgb[1] << 8) | sourceRgb[2];
 
         // Per-cell intensity. Glyph choice happens after shadowing so shadows
         // can attenuate only the direct/key-light part of the signal.
         let clamped = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+        let shadowOpacity = 0;
 
         // Shadow occlusion: barycentric-interpolate light-space (u,v,depth),
         // sample the shadow map, darken if occluded.
@@ -1373,6 +2012,7 @@ function scanFillTriangle(
               if (directPart > 0) {
                 const effectiveOpacity = sh.opacity * (directPart / Math.max(clamped, 1e-6));
                 clamped = ambientPart + directPart * (1 - sh.opacity);
+                shadowOpacity = sh.opacity;
                 if (cellColor !== null && effectiveOpacity > 0) {
                   // Color shadowing follows the same rule: only the direct
                   // contribution is blended toward the shadow color.
@@ -1403,6 +2043,17 @@ function scanFillTriangle(
         if (glyphIdx > rampMax) glyphIdx = rampMax;
 
         glyphBuf[idx] = ramp[glyphIdx]!;
+        if (targetRgbBuf !== null) {
+          // Targets retain the exact per-cell Lambert/key calculation. The
+          // presentation color intentionally uses a triangle-level tint to
+          // coalesce DOM spans, so it is not a valid RGB-training authority.
+          const direct = Math.max(0, lightIntensity - ambientIntensity);
+          const shadowRgb = sh?.shadowColorRgb ?? [0, 0, 0];
+          const r = Math.min(255, (sourceRgb[0] * ambientIntensity * ambientRgb[0] / 255 + sourceRgb[0] * direct * keyLightRgb[0] / 255 * (1 - shadowOpacity) + shadowRgb[0] * direct * shadowOpacity) | 0);
+          const g = Math.min(255, (sourceRgb[1] * ambientIntensity * ambientRgb[1] / 255 + sourceRgb[1] * direct * keyLightRgb[1] / 255 * (1 - shadowOpacity) + shadowRgb[1] * direct * shadowOpacity) | 0);
+          const b = Math.min(255, (sourceRgb[2] * ambientIntensity * ambientRgb[2] / 255 + sourceRgb[2] * direct * keyLightRgb[2] / 255 * (1 - shadowOpacity) + shadowRgb[2] * direct * shadowOpacity) | 0);
+          targetRgbBuf[idx] = (r << 16) | (g << 8) | b;
+        }
         if (colorBuf) colorBuf[idx] = cellColor;
       }
     }
@@ -1553,6 +2204,9 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.shade ?? null,
       g.worldPosition ?? null,
       g.normal ?? null,
+      g.winnerPolygon ?? null,
+      g.albedoRgb ?? null,
+      g.targetRgb ?? null,
     );
   };
   rasterize({
@@ -1560,6 +2214,9 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
     retainShade: scene.mode === "solid",
     retainWorldPosition: scene.mode === "solid",
     retainNormal: scene.mode === "solid",
+    retainWinnerPolygon: scene.mode === "solid",
+    retainAlbedoRgb: scene.mode === "solid",
+    retainTargetRgb: scene.mode === "solid",
     transformCells: capture,
   });
   if (captured) return captured;
@@ -1617,12 +2274,213 @@ function drawLineToStamp(
   }
 }
 
+/**
+ * Braille-encoded wireframe (`charMode: "braille"`). Rasterizes each edge
+ * ONCE, directly into a 2-wide × 4-tall subcell grid per output cell, to
+ * build a dot-coverage bitmask; color is attributed from that SAME subcell
+ * pass (same coordinates, same rounding) rather than from an independent
+ * cell-resolution line pass, so a cell's color and its lit dots can never
+ * disagree about which edge (or whether any edge) covers it. Each covered
+ * output cell becomes `U+2800 + mask` (Unicode Braille Patterns block),
+ * giving up to 8 independent sub-cell "pixels" per glyph — visibly smoother
+ * diagonal/curved edges than the single ASCII rule glyph the default path
+ * picks per cell. Runs entirely after camera projection and before
+ * string-building; still exactly one string produced per call. Like the
+ * ASCII wireframe path, the post-rasterize `transformCells` hook (when
+ * supplied) runs on the folded per-cell char/color buffers before the final
+ * string is built.
+ */
+function rasterizeWireframeBraille(
+  scene: RasterizeContext,
+  cols: number,
+  rows: number,
+  cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+): string {
+  const { camera, wireframe } = scene;
+  const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
+  // Cell-resolution weight, updated from the same subcell coordinates that
+  // light dots — the only tie-break input for overlapping edges' colors.
+  const colorWeight: Uint8Array | null = colorBuf ? new Uint8Array(cols * rows) : null;
+
+  const subCols = cols * 2;
+  const subRows = rows * 4;
+  const subStamp = new Uint8Array(subCols * subRows);
+
+  for (const e of wireframe) {
+    const a = camera.project(e.from, cols, rows, cellAspect, metrics);
+    const b = camera.project(e.to, cols, rows, cellAspect, metrics);
+    // Near-plane culled vertices come back as NaN — skip the line entirely.
+    if (a[0] !== a[0] || b[0] !== b[0]) continue;
+    drawSubcellLine(
+      subStamp, colorWeight, colorBuf,
+      Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+      subCols, subRows, cols,
+      e.weight ?? 2, e.color ?? null,
+    );
+  }
+
+  const { char: cChar, color: cColor } = foldBrailleSubStampToCells(subStamp, colorBuf, cols, rows, subCols);
+
+  if (scene.transformCells) {
+    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
+    return solidBufToString(applied.char, applied.color, cols, rows, true);
+  }
+
+  return solidBufToString(cChar, cColor, cols, rows, false);
+}
+
+/**
+ * 4-connected Bresenham coverage line into a subcell grid (a dot is either
+ * lit or not — no weight tiers). When `colorBuf` is supplied, also
+ * attributes the owning CELL's color from this same subcell walk
+ * (max-merging by `val`, same semantics as `drawLineToStamp`), so color and
+ * dot coverage are always derived from identical coordinates/rounding —
+ * never a separate pass.
+ *
+ * Two properties matter for braille output specifically (a plain 8-connected
+ * Bresenham, as used by the ASCII stamp path, has neither):
+ *
+ * - Endpoint-order independence: walking `from → to` and `to → from` must
+ *   light the identical dot set. `featureEdges` fixes a `from`/`to` order per
+ *   mesh edge from vertex authoring order, not from screen-space geometry —
+ *   on a bilaterally symmetric mesh a left-side edge and its mirror-image
+ *   right-side edge can walk in opposite relative screen directions. A plain
+ *   Bresenham's tie-breaking is direction-dependent, so the two sides light
+ *   different dot patterns for otherwise-mirrored geometry. Canonicalizing
+ *   the walk direction before stepping (smallest-`y` endpoint first, `x`
+ *   tie-break) makes the result depend only on the two endpoints, not which
+ *   one was authored as `from`.
+ * - 4-connectivity: a plain Bresenham is only 8-connected — consecutive dots
+ *   on a steep diagonal can be corner-adjacent with no shared edge, which a
+ *   sparse braille dot (a small glyph inside its cell, not a filled pixel)
+ *   renders as a visible gap. Each diagonal step (both x and y advance in
+ *   the same iteration) also lights the intermediate orthogonal dot, so the
+ *   lit set forms an unbroken 4-connected path.
+ *
+ * The Y-first canonicalization (rather than X-first) is what keeps this
+ * mirror-symmetric under horizontal reflection: mirroring negates only `x`,
+ * so canonicalizing on `y` never changes which endpoint the walk starts
+ * from, and the "move-y-first" intermediate-dot tie-break stays consistent
+ * on both sides. Termination is unaffected — canonicalization only swaps
+ * the two endpoints (dx/dy magnitudes, and thus the standard Bresenham
+ * step/termination guarantee, are unchanged); this is NOT an aspect-weighted
+ * variant.
+ *
+ * Exported (in addition to its use from `rasterizeWireframeBraille`) so the
+ * order-independence / mirror-symmetry / 4-connectivity regression tests in
+ * `rasterize.braille.test.ts` can exercise this exact walk directly at
+ * integer subcell coordinates, instead of through camera projection's own
+ * (unrelated) floor-rounding.
+ */
+export function drawSubcellLine(
+  stamp: Uint8Array,
+  colorWeight: Uint8Array | null,
+  colorBuf: (string | null)[] | null,
+  x0: number, y0: number,
+  x1: number, y1: number,
+  subCols: number,
+  subRows: number,
+  cellCols: number,
+  val: number,
+  color: string | null,
+): void {
+  if (y0 > y1 || (y0 === y1 && x0 > x1)) {
+    const tx = x0; x0 = x1; x1 = tx;
+    const ty = y0; y0 = y1; y1 = ty;
+  }
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : (x0 > x1 ? -1 : 1);
+  let err = dx + dy;
+  let cx = x0, cy = y0;
+  while (true) {
+    if (cx >= 0 && cx < subCols && cy >= 0 && cy < subRows) {
+      stamp[cy * subCols + cx] = 1;
+      if (colorBuf) {
+        const cellIdx = (cy >> 2) * cellCols + (cx >> 1);
+        if (colorWeight![cellIdx] < val) {
+          colorWeight![cellIdx] = val;
+          colorBuf[cellIdx] = color;
+        }
+      }
+    }
+    if (cx === x1 && cy === y1) break;
+    const e2 = 2 * err;
+    let movedX = false;
+    let nx = cx, ny = cy;
+    if (e2 >= dy) { err += dy; nx = cx + sx; movedX = true; }
+    if (e2 <= dx) { err += dx; ny = cy + 1; }
+    if (movedX && ny !== cy) {
+      // Diagonal step: light the "move-y-first" intermediate dot so the
+      // path stays 4-connected instead of only touching at a corner.
+      if (cx >= 0 && cx < subCols && ny >= 0 && ny < subRows) {
+        stamp[ny * subCols + cx] = 1;
+        if (colorBuf) {
+          const cellIdx = (ny >> 2) * cellCols + (cx >> 1);
+          if (colorWeight![cellIdx] < val) {
+            colorWeight![cellIdx] = val;
+            colorBuf[cellIdx] = color;
+          }
+        }
+      }
+    }
+    cx = nx; cy = ny;
+  }
+}
+
+// Braille Patterns dot-bit layout (NOT raster order): col0 rows 0..3 →
+// 0x01,0x02,0x04,0x40; col1 rows 0..3 → 0x08,0x10,0x20,0x80.
+const BRAILLE_BITS_COL0 = [0x01, 0x02, 0x04, 0x40];
+const BRAILLE_BITS_COL1 = [0x08, 0x10, 0x20, 0x80];
+
+/**
+ * Fold a 2×4 subcell coverage grid down to one braille glyph per output
+ * cell. `colorBuf`, when supplied, is already cell-resolution — it was
+ * populated by `drawSubcellLine` from the SAME subcell coordinates being
+ * folded here, so it needs no re-derivation; this just clears any stray
+ * entry on a cell that ends up uncovered. Returns plain arrays (not a
+ * string) so the caller can run the `transformCells` hook on them before
+ * stringifying, exactly like the ASCII wireframe path does with its stamp
+ * buffer.
+ */
+function foldBrailleSubStampToCells(
+  subStamp: Uint8Array,
+  colorBuf: (string | null)[] | null,
+  cols: number,
+  rows: number,
+  subCols: number,
+): { char: string[]; color: (string | null)[] | null } {
+  const n = cols * rows;
+  const char: string[] = new Array(n);
+  for (let y = 0; y < rows; y++) {
+    const baseSubY = y * 4;
+    for (let x = 0; x < cols; x++) {
+      const baseSubX = x * 2;
+      let mask = 0;
+      for (let r = 0; r < 4; r++) {
+        const rowBase = (baseSubY + r) * subCols;
+        if (subStamp[rowBase + baseSubX]) mask |= BRAILLE_BITS_COL0[r]!;
+        if (subStamp[rowBase + baseSubX + 1]) mask |= BRAILLE_BITS_COL1[r]!;
+      }
+      const idx = y * cols + x;
+      if (mask === 0) {
+        char[idx] = " ";
+        if (colorBuf) colorBuf[idx] = null;
+      } else {
+        char[idx] = String.fromCharCode(0x2800 + mask);
+      }
+    }
+  }
+  return { char, color: colorBuf };
+}
+
 function stampToGlyphs(
   stamp: Uint8Array,
   colorBuf: (string | null)[] | null,
   cols: number,
   rows: number,
   glyphs: { thin: string[]; normal: string[]; core: string[] },
+  junctionMask: Uint8Array | null = null,
 ): string {
   // Coalesce same-color consecutive non-empty cells into one <span> per run.
   // When colors are disabled (colorBuf=null) we emit plain text — one text node.
@@ -1648,11 +2506,7 @@ function stampToGlyphs(
         g = " ";
         col = null;
       } else {
-        g = v === 1
-          ? glyphs.thin[(Math.random() * glyphs.thin.length) | 0]!
-          : v === 2
-            ? glyphs.normal[(Math.random() * glyphs.normal.length) | 0]!
-            : glyphs.core[(Math.random() * glyphs.core.length) | 0]!;
+        g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
         col = colorBuf ? (colorBuf[idx] ?? null) : null;
       }
       if (col !== runColor) {

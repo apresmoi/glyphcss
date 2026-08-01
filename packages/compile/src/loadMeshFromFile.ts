@@ -11,7 +11,7 @@
 import { readFile } from "node:fs/promises";
 import { loadMesh } from "@glyphcss/core";
 import type { ParseResult, LoadMeshOptions } from "@glyphcss/core";
-import { bakeTexturesNode, hasTextures } from "./textureBakeNode";
+import { bakeTexturesNode, hasTextures, materializeNodeTextureUrls, releaseNodeTextureUrls } from "./textureBakeNode";
 
 function stripQuery(url: string): string {
   return url.split("?")[0].split("#")[0];
@@ -21,14 +21,17 @@ function stripQuery(url: string): string {
 async function siblingMtl(objPath: string): Promise<string | undefined> {
   const clean = stripQuery(objPath);
   const dir = clean.replace(/[^/\\]+$/, "");
-  let candidate: string;
+  const candidates: string[] = [];
   try {
     const m = (await readFile(clean, "utf8")).match(/^\s*mtllib\s+(.+?)\s*$/im);
-    candidate = m ? dir + m[1].trim() : clean.replace(/\.obj$/i, ".mtl");
-  } catch {
-    candidate = clean.replace(/\.obj$/i, ".mtl");
+    if (m) candidates.push(dir + m[1].trim());
+  } catch { /* the conventional sibling remains a useful last attempt */ }
+  const conventional = clean.replace(/\.obj$/i, ".mtl");
+  if (!candidates.includes(conventional)) candidates.push(conventional);
+  for (const candidate of candidates) {
+    try { await readFile(candidate); return candidate; } catch { /* try the next declared/conventional candidate */ }
   }
-  try { await readFile(candidate); return candidate; } catch { return undefined; }
+  return undefined;
 }
 
 interface FetchLike {
@@ -55,19 +58,33 @@ async function fileFetch(url: string): Promise<FetchLike> {
   }
 }
 
-export async function loadMeshFromFile(path: string, options?: LoadMeshOptions): Promise<ParseResult> {
+export interface LoadMeshFromFileOptions extends LoadMeshOptions {
+  /** Preserve authored texture references and UVs for an exact per-cell caller. */
+  preserveTextures?: boolean;
+}
+
+export async function loadMeshFromFile(path: string, options?: LoadMeshFromFileOptions): Promise<ParseResult> {
   const g = globalThis as unknown as { fetch?: unknown };
   const prev = g.fetch;
   g.fetch = fileFetch as unknown as typeof fetch;
   let result: ParseResult;
   try {
     const mtlUrl = options?.mtlUrl ?? (/\.obj(\?|$)/i.test(path) ? await siblingMtl(path) : undefined);
-    result = await loadMesh(path, { solidTextureSamples: false, ...options, mtlUrl });
+    result = await loadMesh(path, {
+      solidTextureSamples: false,
+      ...options,
+      gltfOptions: options?.gltfOptions,
+      mtlUrl,
+    });
   } finally {
     g.fetch = prev as typeof fetch;
   }
   // Bake textures to per-face colors in Node (the library's sampler is browser-only),
   // so the CLI shows true texture colors instead of the flat material fallback.
+  if (options?.preserveTextures && hasTextures(result.polygons)) {
+    const polygons = await materializeNodeTextureUrls(result.polygons), dispose = result.dispose;
+    return { ...result, polygons, dispose: () => { releaseNodeTextureUrls(polygons); dispose(); } };
+  }
   if (hasTextures(result.polygons)) {
     return { ...result, polygons: await bakeTexturesNode(result.polygons) };
   }

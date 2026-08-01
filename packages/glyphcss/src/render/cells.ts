@@ -52,6 +52,17 @@ export interface CellGrid {
    * Empty cells contain `NaN`. Present only when requested by an effect program.
    */
   normal?: Float32Array;
+  /**
+   * Positional index into the source polygon array for the depth-winning solid
+   * surface. `-1` marks an empty cell. This is deliberately opaque: callers
+   * resolve it through their own immutable scene lineage rather than treating
+   * it as a semantic class ID.
+   */
+  winnerPolygon?: Int32Array;
+  /** Packed `0xRRGGBB` unlit albedo from the same depth-winning surface cell. */
+  albedoRgb?: Uint32Array;
+  /** Packed `0xRRGGBB` final lit RGB from the same depth-winning surface cell. */
+  targetRgb?: Uint32Array;
   /** Per-cell column index (`= idx % cols`). Length `cols*rows`. */
   screenX: Int32Array;
   /** Per-cell row index (`= (idx / cols) | 0`). Length `cols*rows`. */
@@ -64,6 +75,17 @@ export interface CellGrid {
    * foreshorten with polygon faces instead of swimming in screen space.
    */
   surfaceUv?: Float32Array;
+  /**
+   * SPIKE (B7, internal/opt-in): per-cell CSS `font-weight` override, e.g.
+   * `700` for bold. `0` means "no override" (span carries no `font-weight`
+   * style, byte-identical to today). Length `cols*rows`. Not populated by
+   * the default rasterizer; nothing sets this yet — `encodeGlyphBuffers`
+   * threading it through is the feasibility spike only. See B7 in the
+   * burnlist for the measurement that justified this (advance width is
+   * stable across weight 400/700 in every tested monospace stack, so a
+   * weight-bearing span cannot desync the character grid).
+   */
+  weight?: Uint16Array;
 }
 
 /**
@@ -113,6 +135,10 @@ export function buildCellGrid(
   shadeSrc: Float32Array | null = null,
   worldPositionSrc: Float32Array | null = null,
   normalSrc: Float32Array | null = null,
+  winnerPolygonSrc: Int32Array | null = null,
+  albedoRgbSrc: Uint32Array | null = null,
+  targetRgbSrc: Uint32Array | null = null,
+  weightSrc: Uint16Array | null = null,
 ): CellGrid {
   const n = cols * rows;
   const outChar = char.slice(0, n);
@@ -144,6 +170,12 @@ export function buildCellGrid(
   if (normalSrc !== null && normalSrc.length >= n * 3) {
     grid.normal = new Float32Array(normalSrc.subarray(0, n * 3));
   }
+  if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
+    grid.winnerPolygon = new Int32Array(winnerPolygonSrc.subarray(0, n));
+  }
+  if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = new Uint32Array(albedoRgbSrc.subarray(0, n));
+  if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = new Uint32Array(targetRgbSrc.subarray(0, n));
+  if (weightSrc !== null && weightSrc.length >= n) grid.weight = new Uint16Array(weightSrc.subarray(0, n));
   return grid;
 }
 
@@ -170,7 +202,11 @@ function assertCellGridShape(grid: CellGrid): void {
   if (grid.shade) assertCellBufferLength(grid.shade, n, "cell-grid shade buffer");
   if (grid.worldPosition) assertCellBufferLength(grid.worldPosition, n * 3, "cell-grid worldPosition buffer");
   if (grid.normal) assertCellBufferLength(grid.normal, n * 3, "cell-grid normal buffer");
+  if (grid.winnerPolygon) assertCellBufferLength(grid.winnerPolygon, n, "cell-grid winnerPolygon buffer");
+  if (grid.albedoRgb) assertCellBufferLength(grid.albedoRgb, n, "cell-grid albedoRgb buffer");
+  if (grid.targetRgb) assertCellBufferLength(grid.targetRgb, n, "cell-grid targetRgb buffer");
   if (grid.surfaceUv) assertCellBufferLength(grid.surfaceUv, n * 2, "cell-grid surfaceUv buffer");
+  if (grid.weight) assertCellBufferLength(grid.weight, n, "cell-grid weight buffer");
 }
 
 /** Return a durable deep copy of a cell grid and all of its typed buffers. */
@@ -189,7 +225,11 @@ export function cloneCellGrid(grid: CellGrid): CellGrid {
   if (grid.shade) clone.shade = new Float32Array(grid.shade.subarray(0, n));
   if (grid.worldPosition) clone.worldPosition = new Float32Array(grid.worldPosition.subarray(0, n * 3));
   if (grid.normal) clone.normal = new Float32Array(grid.normal.subarray(0, n * 3));
+  if (grid.winnerPolygon) clone.winnerPolygon = new Int32Array(grid.winnerPolygon.subarray(0, n));
+  if (grid.albedoRgb) clone.albedoRgb = new Uint32Array(grid.albedoRgb.subarray(0, n));
+  if (grid.targetRgb) clone.targetRgb = new Uint32Array(grid.targetRgb.subarray(0, n));
   if (grid.surfaceUv) clone.surfaceUv = new Float32Array(grid.surfaceUv.subarray(0, n * 2));
+  if (grid.weight) clone.weight = new Uint16Array(grid.weight.subarray(0, n));
   return clone;
 }
 
@@ -244,12 +284,31 @@ function assertColor(color: unknown, index: number): asserts color is string | n
  * Encode final cell buffers for a `<pre>`. Colored output is HTML-escaped and
  * accepts only canonical hex colors; plain output is suitable for textContent.
  */
+function assertWeight(weight: unknown, index: number): asserts weight is number {
+  if (typeof weight !== "number" || !Number.isFinite(weight) || weight < 0) {
+    throw new TypeError(`glyphcss: cell ${index} weight must be a non-negative number.`);
+  }
+}
+
+/**
+ * Encode final cell buffers for a `<pre>`. Colored output is HTML-escaped and
+ * accepts only canonical hex colors; plain output is suitable for textContent.
+ *
+ * `weight` (SPIKE, B7, opt-in) is an optional trailing per-cell CSS
+ * `font-weight` buffer, same length/index convention as `color`. `0` (or
+ * omitting the buffer) means "no override" — completely unaffected output,
+ * byte-identical to calling this without the parameter. A non-zero weight
+ * only has an effect under `useColors: true` (plain `textContent` cannot
+ * carry a style), and starts a new run alongside color so `font-weight`
+ * lands in the same `<span style="...">` as the existing color styling.
+ */
 export function encodeGlyphBuffers(
   char: readonly string[],
   color: readonly (string | null)[],
   cols: number,
   rows: number,
   useColors = true,
+  weight: ArrayLike<number> | null = null,
 ): string {
   if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
     throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
@@ -257,14 +316,22 @@ export function encodeGlyphBuffers(
   const n = cols * rows;
   assertCellBufferLength(char, n, "cell char buffer");
   assertCellBufferLength(color, n, "cell color buffer");
+  if (weight) assertCellBufferLength(weight, n, "cell weight buffer");
 
   const parts: string[] = [];
   let runColor: string | null = null;
+  let runWeight = 0;
   let runText = "";
   const flushRun = () => {
     if (!runText) return;
-    if (useColors && runColor !== null) {
-      parts.push(`<span style="color:${runColor}">${runText}</span>`);
+    if (useColors && (runColor !== null || runWeight !== 0)) {
+      const style =
+        runColor !== null && runWeight !== 0
+          ? `color:${runColor};font-weight:${runWeight}`
+          : runColor !== null
+            ? `color:${runColor}`
+            : `font-weight:${runWeight}`;
+      parts.push(`<span style="${style}">${runText}</span>`);
     } else {
       parts.push(runText);
     }
@@ -278,14 +345,18 @@ export function encodeGlyphBuffers(
       assertGlyph(glyph, index);
       const nextColor = useColors && glyph !== " " ? color[index] ?? null : null;
       if (useColors) assertColor(nextColor, index);
-      if (nextColor !== runColor) {
+      const nextWeight = useColors && glyph !== " " && weight ? weight[index]! : 0;
+      if (useColors && weight) assertWeight(nextWeight, index);
+      if (nextColor !== runColor || nextWeight !== runWeight) {
         flushRun();
         runColor = nextColor;
+        runWeight = nextWeight;
       }
       runText += useColors ? escapeGlyphHtml(glyph) : glyph;
     }
     flushRun();
     runColor = null;
+    runWeight = 0;
     if (row < rows - 1) parts.push("\n");
   }
   return parts.join("");
@@ -294,7 +365,84 @@ export function encodeGlyphBuffers(
 /** Encode a validated cell grid for innerHTML (colored) or textContent (plain). */
 export function encodeCellGrid(grid: CellGrid, useColors = true): string {
   assertCellGridShape(grid);
-  return encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, useColors);
+  return encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, useColors, grid.weight ?? null);
+}
+
+/**
+ * Encode TWO independent per-cell colors (`charMode: "halfblock"` — B4). A run
+ * only merges consecutive cells when BOTH `fg` (foreground / `color`, drawn
+ * where the glyph itself paints — the whole cell for `█`, the top half for
+ * `▀`, the bottom half for `▄`) AND `bg` (`background-color`, painted behind
+ * the WHOLE cell) match, unlike {@link encodeGlyphBuffers}'s single-color run
+ * key. `bg === null` renders no `background-color` at all — the cell must NOT
+ * paint an opaque rectangle over an empty subcell, so callers only pass a
+ * non-null `bg` when BOTH the top and bottom subcells are actually covered by
+ * geometry (see `rasterize.ts`'s `encodeHalfblockSolid`). This is a sibling to
+ * `encodeGlyphBuffers`, not a variant of it: it deliberately does NOT touch
+ * {@link CellGrid} (single color per cell), so the `transformCells` hook and
+ * the generic effect compositor (`effectCompositor.ts`, one-color-per-cell
+ * until its own item) are completely unaffected by this two-color path.
+ */
+export function encodeGlyphBuffersDual(
+  char: readonly string[],
+  fg: readonly (string | null)[],
+  bg: readonly (string | null)[],
+  cols: number,
+  rows: number,
+  useColors = true,
+): string {
+  if (!Number.isInteger(cols) || cols < 0 || !Number.isInteger(rows) || rows < 0) {
+    throw new RangeError("glyphcss: cell-buffer dimensions must be non-negative integers.");
+  }
+  const n = cols * rows;
+  assertCellBufferLength(char, n, "cell char buffer");
+  assertCellBufferLength(fg, n, "cell fg buffer");
+  assertCellBufferLength(bg, n, "cell bg buffer");
+
+  const parts: string[] = [];
+  let runFg: string | null = null;
+  let runBg: string | null = null;
+  let runText = "";
+  const flushRun = () => {
+    if (!runText) return;
+    if (useColors && (runFg !== null || runBg !== null)) {
+      const style =
+        runFg !== null && runBg !== null
+          ? `color:${runFg};background-color:${runBg}`
+          : runFg !== null
+            ? `color:${runFg}`
+            : `background-color:${runBg}`;
+      parts.push(`<span style="${style}">${runText}</span>`);
+    } else {
+      parts.push(runText);
+    }
+    runText = "";
+  };
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const index = row * cols + col;
+      const glyph = char[index];
+      assertGlyph(glyph, index);
+      const nextFg = useColors && glyph !== " " ? fg[index] ?? null : null;
+      const nextBg = useColors && glyph !== " " ? bg[index] ?? null : null;
+      if (useColors) {
+        assertColor(nextFg, index);
+        assertColor(nextBg, index);
+      }
+      if (nextFg !== runFg || nextBg !== runBg) {
+        flushRun();
+        runFg = nextFg;
+        runBg = nextBg;
+      }
+      runText += useColors ? escapeGlyphHtml(glyph) : glyph;
+    }
+    flushRun();
+    runFg = null;
+    runBg = null;
+    if (row < rows - 1) parts.push("\n");
+  }
+  return parts.join("");
 }
 
 /**
@@ -317,6 +465,9 @@ export function applyCellHook(
   shadeSrc: Float32Array | null = null,
   worldPositionSrc: Float32Array | null = null,
   normalSrc: Float32Array | null = null,
+  winnerPolygonSrc: Int32Array | null = null,
+  albedoRgbSrc: Uint32Array | null = null,
+  targetRgbSrc: Uint32Array | null = null,
 ): { char: string[]; color: (string | null)[] | null } {
   if (!hook) return { char, color };
   const n = cols * rows;
@@ -338,6 +489,11 @@ export function applyCellHook(
   if (surfaceUvSrc !== null && surfaceUvSrc.length >= cols * rows * 2) {
     grid.surfaceUv = surfaceUvSrc;
   }
+  if (winnerPolygonSrc !== null && winnerPolygonSrc.length >= n) {
+    grid.winnerPolygon = winnerPolygonSrc;
+  }
+  if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = albedoRgbSrc;
+  if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = targetRgbSrc;
   const result = hook(grid) ?? grid;
   assertCellGridShape(result);
   if (result.cols !== cols || result.rows !== rows) {

@@ -1113,6 +1113,14 @@ const fieldSynthSchema = {
   gain: { kind: "number", default: 1, min: 0, max: 4, step: 0.05, label: "Contrast" },
   bias: { kind: "number", default: 0.5, min: -1, max: 2, step: 0.05, label: "Brightness" },
   glyphs: { kind: "string", default: " .:-=+*#%@", animation: "discrete", label: "Ramp" },
+  // "2x4" swaps the ramp-indexed glyph for a synthesized Braille pattern
+  // character (U+2800 + dot bitmask), one 2×4 dot grid sampled and thresholded
+  // per cell — still exactly one glyph per cell, so the renderer's
+  // single-glyph-per-cell contract is unaffected. Subcell coordinates outside
+  // `space: "scene"` are reconstructed by finite-differencing neighboring
+  // cells' resolved coordinates (a local-affine approximation), so dots shear
+  // on genuinely curved generated-surface/UV mappings; `space: "scene"` is exact.
+  subcellRes: { kind: "string", default: "1x1", values: ["1x1", "2x4"], animation: "discrete", label: "Subcell resolution" },
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
@@ -1199,6 +1207,91 @@ export function fieldSynthCoordinate<P extends AnyParams>(
   }
   const [x, y] = sceneCoordinate(context, index);
   return [(x / sceneCols) * scale, (y / sceneRows) * scale, originU * scale, originV * scale];
+}
+
+// Braille block (U+2800..U+28FF) dot bit weights, indexed [dotCol][dotRow].
+// This is the block's actual bit layout, NOT raster order: column 0 runs
+// 0x01,0x02,0x04 top-to-bottom then jumps to 0x40 for its bottom dot; column 1
+// mirrors that at 0x08,0x10,0x20,0x80.
+const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] = [
+  [0x01, 0x02, 0x04, 0x40],
+  [0x08, 0x10, 0x20, 0x80],
+];
+
+// Same voice-fold as the main evaluate() loop below, minus the color
+// bookkeeping the main loop needs — used to resample the scalar field at each
+// of a cell's 8 Braille subcell offsets, where only the scalar matters.
+function subcellFieldValue(
+  voices: readonly SynthVoice[],
+  combine: string,
+  x: number,
+  y: number,
+  cx: number,
+  cy: number,
+  time: number,
+): number {
+  let combined = 0;
+  let active = 0;
+  for (let k = 0; k < SYNTH_VOICES; k++) {
+    const voice = voices[k]!;
+    if (!(voice.amp > 0)) continue;
+    const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, cx, cy, time);
+    if (active === 0) combined = voice.amp * o;
+    else combined += voice.amp * (combineSynth(combine, combined, o) - combined);
+    active++;
+  }
+  return combined;
+}
+
+// Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
+// per full cell step, right and down) by finite-differencing
+// `fieldSynthCoordinate` at the neighboring cell indices. Exact for
+// `space: "scene"` (the domain coordinate is affine in col/row there); a
+// local-affine approximation everywhere else, matching the assumption the
+// static field-synth exporter's affine-fit already relies on for the common
+// flat-surface case. Falls back to the opposite neighbor at a grid edge, and
+// to a zero gradient (all 8 subcells collapse to the cell-center sample) when
+// a neighbor's coordinate is unavailable.
+function fieldSynthSubcellGradient<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  space: EffectSpace,
+  uvBounds: boolean,
+  scale: number,
+  originU: number,
+  originV: number,
+  sceneCols: number,
+  sceneRows: number,
+  generatedSurface: GeneratedSurfaceField | null | undefined,
+  x: number,
+  y: number,
+): readonly [number, number, number, number] {
+  const cols = context.base.cols;
+  const rows = context.base.rows;
+  const col = index % cols;
+  const row = (index / cols) | 0;
+  let dxCol = 0, dyCol = 0, dxRow = 0, dyRow = 0;
+  if (cols > 1) {
+    const hasRight = col + 1 < cols;
+    const rightIndex = hasRight ? index + 1 : index - 1;
+    const right = fieldSynthCoordinate(context, rightIndex, space, uvBounds, scale, originU, originV, sceneCols, sceneRows, generatedSurface);
+    if (right) {
+      const sign = hasRight ? 1 : -1;
+      dxCol = (right[0] - x) * sign;
+      dyCol = (right[1] - y) * sign;
+    }
+  }
+  if (rows > 1) {
+    const hasDown = row + 1 < rows;
+    const downIndex = hasDown ? index + cols : index - cols;
+    const down = fieldSynthCoordinate(context, downIndex, space, uvBounds, scale, originU, originV, sceneCols, sceneRows, generatedSurface);
+    if (down) {
+      const sign = hasDown ? 1 : -1;
+      dxRow = (down[0] - x) * sign;
+      dyRow = (down[1] - y) * sign;
+    }
+  }
+  return [dxCol, dyCol, dxRow, dyRow];
 }
 
 // Exported for the same reason as `synthWave` above — reuse the exact
@@ -1328,7 +1421,27 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         if (active === 0) continue;
         const value = clamp01(params.bias + params.gain * combined * 0.5);
         if (value <= 0) continue;
-        setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
+        if (params.subcellRes === "2x4") {
+          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+            context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
+            sceneCols, sceneRows, generatedSurface, x, y,
+          );
+          let mask = 0;
+          for (let dotCol = 0; dotCol < 2; dotCol++) {
+            const fx = dotCol === 0 ? -0.25 : 0.25;
+            for (let dotRow = 0; dotRow < 4; dotRow++) {
+              const fy = (dotRow + 0.5) / 4 - 0.5;
+              const subX = x + fx * dxCol + fy * dxRow;
+              const subY = y + fx * dyCol + fy * dyRow;
+              const subCombined = subcellFieldValue(voices, params.combine, subX, subY, cx, cy, time);
+              const subValue = clamp01(params.bias + params.gain * subCombined * 0.5);
+              if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
+            }
+          }
+          setGlyph(context, i, String.fromCharCode(0x2800 + mask));
+        } else {
+          setGlyph(context, i, glyphs[Math.min(rampMax, Math.max(0, Math.round(value * rampMax)))]!);
+        }
         let packed: number;
         let resolvedOpacity: number;
         if (parsedVoiceColors && cw > 0) {

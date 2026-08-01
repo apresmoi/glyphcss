@@ -51,14 +51,21 @@ export function textPolygons(font: ParsedFont, text: string, options: TextPolygo
 
   const scale = size / font.unitsPerEm;
   const chars = [...text];
-  const glyphs = chars.map((ch) => font.glyph(ch.codePointAt(0) ?? 0, curveSteps));
+  const glyphs = chars.map((ch) => {
+    const cp = ch.codePointAt(0) ?? 0;
+    return { cp, g: font.glyph(cp, curveSteps) };
+  });
 
   let totalAdvance = 0;
-  for (const g of glyphs) totalAdvance += g.advanceWidth * scale + letterSpacing;
+  glyphs.forEach(({ cp, g }, i) => {
+    if (i > 0) totalAdvance += font.kerning(glyphs[i - 1].cp, cp) * scale;
+    totalAdvance += g.advanceWidth * scale + letterSpacing;
+  });
   let cursor = -totalAdvance / 2;
 
   const shapes: Shape[] = [];
-  for (const g of glyphs) {
+  glyphs.forEach(({ cp, g }, i) => {
+    if (i > 0) cursor += font.kerning(glyphs[i - 1].cp, cp) * scale;
     if (g.contours.length) {
       const placed = g.contours.map((c) =>
         dedupeContour(c.map(([x, y]): Pt => [x * scale + cursor, y * scale])),
@@ -66,7 +73,7 @@ export function textPolygons(font: ParsedFont, text: string, options: TextPolygo
       shapes.push(...groupShapes(placed));
     }
     cursor += g.advanceWidth * scale + letterSpacing;
-  }
+  });
 
   return extrudeContours(shapes, {
     depth,

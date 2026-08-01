@@ -620,6 +620,22 @@ export function groupShapes(contours: Contour[]): Shape[] {
     parent[i] = bestParent;
   }
 
+  // Every contour landed at odd depth (each is "inside" some other one) —
+  // impossible for genuinely nested outer/hole shapes, which always have at
+  // least one depth-0 root. This happens when contours actually overlap
+  // rather than nest: some TrueType sources (notably hinted/autohinted
+  // Google Fonts static instances) ship a glyph as two or more overlapping
+  // simple contours that are meant to be combined by the nonzero winding
+  // fill rule, not read as outer+hole pairs. We don't implement a true
+  // winding-rule polygon union here — render each contour as its own filled
+  // outer instead of silently dropping the whole glyph. The overlap region
+  // just fills twice (harmless) instead of leaving a hole; this only
+  // triggers when the strict-nesting path below would otherwise yield zero
+  // shapes, so it never changes output for contours that already nest cleanly.
+  if (n > 0 && depth.every((d) => d % 2 === 1)) {
+    return valid.map((v) => ({ outer: withWinding(v, true), holes: [] }));
+  }
+
   const shapes: Shape[] = [];
   const indexOfShape = new Map<number, number>();
   for (let i = 0; i < n; i++) {

@@ -3,10 +3,12 @@ import { createApp, h, nextTick, ref } from "vue";
 import type { VNode } from "vue";
 import { GlyphScene } from "./GlyphScene";
 import { GlyphPerspectiveCamera } from "../camera/GlyphPerspectiveCamera";
+import { GlyphOrthographicCamera } from "../camera/GlyphOrthographicCamera";
 import { GlyphMesh } from "./GlyphMesh";
 import { GlyphOrbitControls } from "../controls/GlyphOrbitControls";
 import type { Polygon } from "@glyphcss/core";
 import type { TransformCells } from "glyphcss";
+import { computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
 
 const POLYGON: Polygon = {
   vertices: [
@@ -16,6 +18,14 @@ const POLYGON: Polygon = {
   ],
   color: "#ff0000",
 };
+
+const SEMANTIC_POLYGON: Polygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" };
+const semanticDigest = (char: string) => char.repeat(64);
+const semanticDictionaryBase = { schemaVersion: "glyph-object-dictionary/v2" as const, id: "dictionary/vue", font: { id: "font/vue", version: "1", sha256: semanticDigest("a") }, classes: [{ id: 1, name: "quad", semanticGlyph: "Q", controlColor: "#123456" }] };
+const semanticDictionary: GlyphObjectDictionary = { ...semanticDictionaryBase, contentSha256: computeGlyphControlContentSha256(semanticDictionaryBase) };
+const semanticHashes = computeGlyphControlGeometryHashes([SEMANTIC_POLYGON]);
+const semanticManifestBase = { schemaVersion: "control-scene/v1" as const, id: "scene/vue", dictionaryId: semanticDictionary.id, dictionarySha256: semanticDictionary.contentSha256, ...semanticHashes, contentSha256: "", instances: [{ id: "quad", classId: 1 }], surfaces: [{ id: "surface", instanceId: "quad" }], polygonSurfaceIds: ["surface"] };
+const semanticManifest: GlyphControlSceneManifest = { ...semanticManifestBase, contentSha256: computeGlyphControlContentSha256(semanticManifestBase) };
 
 function renderScene(
   sceneProps: Record<string, unknown> = {},
@@ -101,6 +111,14 @@ describe("GlyphScene (Vue) — options forwarding", () => {
     expect(() => renderScene({ useColors: false })).not.toThrow();
   });
 
+  it("renders wireframe mode with charMode=\"braille\" without errors", () => {
+    expect(() => renderScene({ mode: "wireframe", charMode: "braille" })).not.toThrow();
+  });
+
+  it("renders wireframe mode with wireframeJunctions=true without errors", () => {
+    expect(() => renderScene({ mode: "wireframe", wireframeJunctions: true })).not.toThrow();
+  });
+
   it("applies transformCells before writing the glyph output", async () => {
     const transformCells: TransformCells = (grid) => {
       grid.char.fill("X");
@@ -148,6 +166,32 @@ describe("GlyphScene (Vue) — options forwarding", () => {
     await Promise.resolve();
 
     expect(container.querySelector(".glyph-output")?.textContent).not.toContain("X");
+  });
+
+  it("enables semantic output and resets to visible when the prop is removed", async () => {
+    const semantic = ref(false);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const app = createApp({
+      setup() {
+        return () => h(GlyphOrthographicCamera, { zoom: 8 }, {
+          default: () => h(GlyphScene, {
+            cols: 12, rows: 8, useColors: false,
+            ...(semantic.value ? { glyphOutput: "semantic", sceneManifest: semanticManifest, dictionary: semanticDictionary } : {}),
+          }, { default: () => h(GlyphMesh, { polygons: [SEMANTIC_POLYGON] }) }),
+        });
+      },
+    });
+    app.mount(container);
+    await nextTick(); await Promise.resolve();
+    const visible = container.querySelector(".glyph-output")?.textContent;
+    semantic.value = true;
+    await nextTick(); await Promise.resolve();
+    expect(container.querySelector(".glyph-output")?.textContent).toContain("Q");
+    semantic.value = false;
+    await nextTick(); await Promise.resolve();
+    expect(container.querySelector(".glyph-output")?.textContent).toBe(visible);
+    app.unmount();
   });
 });
 

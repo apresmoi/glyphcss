@@ -163,8 +163,17 @@ export interface Polygon {
 
 // ── Glyphcss-specific (ASCII rendering) ─────────────────────────
 
-/** Rendering mode for `rasterize`. See README for tradeoffs. */
-export type RenderMode = "wireframe" | "solid" | "voxel";
+/**
+ * Rendering mode for `rasterize`. See README for tradeoffs.
+ *
+ * `"ink"` — oriented silhouette/crease outline mode: detects view-dependent
+ * silhouette edges (front/back facing sign flip across a shared edge) plus
+ * fixed dihedral-angle crease edges, chains them into contours, smooths the
+ * screen-space tangent along each chain, and picks a glyph
+ * (`_ / | \ - ‾` etc.) that traces the local contour direction. Interior
+ * cells stay empty — hatching/fills are a future effect-layer concern.
+ */
+export type RenderMode = "wireframe" | "solid" | "voxel" | "ink";
 
 /**
  * Character ramp used by `solid` mode to map shaded intensity to a glyph.

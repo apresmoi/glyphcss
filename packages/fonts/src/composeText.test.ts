@@ -274,4 +274,50 @@ describe("composeText", () => {
     expect(flat.length).toBeLessThan(walled.length);
     expect(flat.some((p) => p.color === "#00ff00")).toBe(true); // shadow layer kept
   });
+
+  // ── kerning / baseline layout ────────────────────────────────────────────
+  it("kerns a known tight pair (AV) below its unkerned advance sum", () => {
+    // Ground truth from the font itself, independent of composeText: the
+    // "AV" pair carries a real GPOS kerning rule, and it tightens the pair.
+    const kernValue = roboto.kerning("A".codePointAt(0)!, "V".codePointAt(0)!);
+    expect(kernValue).toBeLessThan(0);
+
+    // The `underline` bar is drawn from `startX` to `startX + line.width`
+    // (see composeText's `barShape` call), so its span *is* the measured
+    // line width — a way to read the internal advance sum back out of the
+    // emitted geometry instead of asserting on private state.
+    const size = 100;
+    const scale = size / roboto.unitsPerEm;
+    const unkernedWidth =
+      (roboto.glyph("A".codePointAt(0)!).advanceWidth + roboto.glyph("V".codePointAt(0)!).advanceWidth) * scale;
+
+    const polys = composeText(roboto, "AV", { size, underline: true });
+    const b = bounds(polys);
+    const kernedWidth = b.maxY - b.minY; // world Y = plane x = the horizontal run
+
+    expect(kernedWidth).toBeLessThan(unkernedWidth);
+    // The shrink should match the kerning adjustment itself, not just be
+    // some other, unrelated width change.
+    expect(unkernedWidth - kernedWidth).toBeCloseTo(-kernValue * scale, 1);
+  });
+
+  it("drops a descender below the baseline instead of bottom-snapping", () => {
+    // "n" is flat-bottomed and sits on the baseline; "o" has only the small
+    // round-letter overshoot type designers add for optical alignment; "g"
+    // has a real descender that must droop well below both. World X is
+    // screen-down (see extrude.ts), so a larger maxX is lower on screen.
+    const n = bounds(composeText(roboto, "n"));
+    const o = bounds(composeText(roboto, "o"));
+    const g = bounds(composeText(roboto, "g"));
+
+    const descenderDrop = g.maxX - n.maxX;
+    const overshoot = o.maxX - n.maxX;
+
+    expect(descenderDrop).toBeGreaterThan(0);
+    // If glyphs were bottom-snapped into a shared box instead of using their
+    // own font-space y, the descender's lowest point would land on the same
+    // line as every other glyph's — indistinguishable from "n"'s. It must
+    // instead drop well past even a round letter's normal overshoot.
+    expect(descenderDrop).toBeGreaterThan(overshoot * 5);
+  });
 });

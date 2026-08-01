@@ -14,11 +14,18 @@
  *     a different outline format (Type2 charstrings) and is rejected with a
  *     clear error. Google Fonts ship TrueType, so this covers most fonts.
  *   - Uncompressed sfnt only — woff/woff2 wrappers are not unpacked.
- *   - cmap formats 4 (BMP) and 12 (full Unicode). No shaping, kerning,
- *     ligatures, or variable-font axes: each character maps to one glyph plus
- *     its advance width.
+ *   - cmap formats 4 (BMP) and 12 (full Unicode). No shaping, ligatures, or
+ *     variable-font axes: each character maps to one glyph plus its advance
+ *     width. Pair kerning is read from `GPOS` (lookup type 2, `kern`
+ *     feature) when present — see `kerning()` below. The legacy `kern` table
+ *     is not read: modern TrueType families (e.g. Google Fonts) ship GPOS
+ *     pair kerning instead, so supporting that one format covers the common
+ *     case without doubling the kerning code path.
  *
- * TrueType glyph space: font units, y-up, origin on the baseline.
+ * TrueType glyph space: font units, y-up, origin on the baseline. Descenders
+ * (g, y, p, q, j…) are simply glyph contours whose y drops below 0 — callers
+ * that place glyphs at `y * scale + baselineY` get correct descender droop
+ * for free, with no separate "is this glyph a descender" step.
  */
 import type { Vec2 } from "@glyphcss/core";
 
@@ -40,6 +47,13 @@ export interface ParsedFont {
   lineGap: number;
   /** Outline + advance for a Unicode codepoint. Empty contours for blanks. */
   glyph(codePoint: number, curveSteps?: number): FontGlyph;
+  /**
+   * GPOS pair-kerning adjustment (font units) to apply to the advance
+   * between `leftCodePoint` and the codepoint that immediately follows it.
+   * Negative tightens the pair (e.g. "AV"), positive loosens it. `0` when
+   * the font has no `GPOS` table, no `kern` feature, or no rule for the pair.
+   */
+  kerning(leftCodePoint: number, rightCodePoint: number): number;
 }
 
 const TAG_TRUETYPE = 0x00010000;
@@ -239,7 +253,195 @@ export function parseFont(data: ArrayBuffer | Uint8Array, defaultCurveSteps = 8)
     return { contours, advanceWidth: advanceWidth(gi) };
   };
 
-  return { unitsPerEm, ascender, descender, lineGap, glyph };
+  const gpos = tables.get("GPOS");
+  const kernPairs = gpos ? buildKernLookup(view, gpos.offset) : null;
+  const kerning = (leftCodePoint: number, rightCodePoint: number): number => {
+    if (!kernPairs) return 0;
+    return kernPairs(lookup(leftCodePoint), lookup(rightCodePoint));
+  };
+
+  return { unitsPerEm, ascender, descender, lineGap, glyph, kerning };
+}
+
+/**
+ * Read the `GPOS` table's `kern` feature (lookup type 2, pair adjustment)
+ * into a `(leftGid, rightGid) => xAdvance` function, font units. Only the
+ * horizontal advance of value record 1 is read — placement/vertical-advance
+ * fields and mark-to-base lookups are irrelevant to glyph-run kerning.
+ * Extension positioning (lookup type 9) is unwrapped transparently. Returns
+ * `null` when the table has no `kern` feature or no pair-adjustment lookup.
+ */
+function buildKernLookup(view: DataView, gposOffset: number): ((leftGid: number, rightGid: number) => number) | null {
+  const featureListOffset = view.getUint16(gposOffset + 6);
+  const lookupListOffset = view.getUint16(gposOffset + 8);
+  const featureListBase = gposOffset + featureListOffset;
+  const featureCount = view.getUint16(featureListBase);
+
+  const lookupIndices = new Set<number>();
+  for (let i = 0; i < featureCount; i++) {
+    const rec = featureListBase + 2 + i * 6;
+    if (tag(view, rec) !== "kern") continue;
+    const featureBase = featureListBase + view.getUint16(rec + 4);
+    const lookupIndexCount = view.getUint16(featureBase + 2);
+    for (let j = 0; j < lookupIndexCount; j++) lookupIndices.add(view.getUint16(featureBase + 4 + j * 2));
+  }
+  if (lookupIndices.size === 0) return null;
+
+  const lookupListBase = gposOffset + lookupListOffset;
+  const lookupCount = view.getUint16(lookupListBase);
+  const matchers: PairMatcher[] = [];
+  for (const li of lookupIndices) {
+    if (li >= lookupCount) continue;
+    const lookupBase = lookupListBase + view.getUint16(lookupListBase + 2 + li * 2);
+    const lookupType = view.getUint16(lookupBase);
+    const subtableCount = view.getUint16(lookupBase + 4);
+    for (let s = 0; s < subtableCount; s++) {
+      let subBase = lookupBase + view.getUint16(lookupBase + 6 + s * 2);
+      let type = lookupType;
+      if (type === 9) {
+        // Extension positioning: unwrap to the real subtable + lookup type.
+        type = view.getUint16(subBase + 2);
+        subBase = subBase + view.getUint32(subBase + 4);
+      }
+      if (type !== 2) continue; // only pair adjustment carries kerning
+      const format = view.getUint16(subBase);
+      if (format === 1) matchers.push(parsePairPosFormat1(view, subBase));
+      else if (format === 2) matchers.push(parsePairPosFormat2(view, subBase));
+    }
+  }
+  if (matchers.length === 0) return null;
+
+  return (leftGid: number, rightGid: number): number => {
+    for (const m of matchers) {
+      const v = m(leftGid, rightGid);
+      if (v !== null) return v;
+    }
+    return 0;
+  };
+}
+
+/**
+ * `null` = this subtable doesn't apply to the pair — either its Coverage
+ * doesn't include `leftGid`, or (format 1 only) `leftGid` is covered but has
+ * no explicit rule for `rightGid` — so the caller should try the next
+ * subtable in the lookup.
+ */
+type PairMatcher = (leftGid: number, rightGid: number) => number | null;
+
+/** Number of ValueRecord fields present in a GPOS `valueFormat` bitmask (each field is 2 bytes). */
+function valueRecordSize(format: number): number {
+  let bits = 0;
+  for (let f = format; f; f &= f - 1) bits++;
+  return bits * 2;
+}
+
+/** Read just the XAdvance field (format bit `0x0004`) of a ValueRecord at `pos`. */
+function readXAdvance(view: DataView, pos: number, format: number): number {
+  if (!(format & 0x0004)) return 0;
+  let offset = 0;
+  if (format & 0x0001) offset += 2; // XPlacement
+  if (format & 0x0002) offset += 2; // YPlacement
+  return view.getInt16(pos + offset);
+}
+
+/** Coverage table (format 1: glyph list, format 2: glyph ranges) → glyph's coverage index, or -1. */
+function parseCoverage(view: DataView, offset: number): (gid: number) => number {
+  const format = view.getUint16(offset);
+  if (format === 1) {
+    const count = view.getUint16(offset + 2);
+    const index = new Map<number, number>();
+    for (let i = 0; i < count; i++) index.set(view.getUint16(offset + 4 + i * 2), i);
+    return (gid) => index.get(gid) ?? -1;
+  }
+  if (format === 2) {
+    const count = view.getUint16(offset + 2);
+    const ranges: { start: number; end: number; startIndex: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const rec = offset + 4 + i * 6;
+      ranges.push({ start: view.getUint16(rec), end: view.getUint16(rec + 2), startIndex: view.getUint16(rec + 4) });
+    }
+    return (gid) => {
+      for (const r of ranges) if (gid >= r.start && gid <= r.end) return r.startIndex + (gid - r.start);
+      return -1;
+    };
+  }
+  return () => -1;
+}
+
+/** ClassDef table (format 1: contiguous range, format 2: ranges) → glyph's class, default 0. */
+function parseClassDef(view: DataView, offset: number): (gid: number) => number {
+  const format = view.getUint16(offset);
+  if (format === 1) {
+    const startGlyph = view.getUint16(offset + 2);
+    const count = view.getUint16(offset + 4);
+    const classes: number[] = [];
+    for (let i = 0; i < count; i++) classes.push(view.getUint16(offset + 6 + i * 2));
+    return (gid) => {
+      const i = gid - startGlyph;
+      return i >= 0 && i < classes.length ? classes[i] : 0;
+    };
+  }
+  if (format === 2) {
+    const count = view.getUint16(offset + 2);
+    const ranges: { start: number; end: number; class: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const rec = offset + 4 + i * 6;
+      ranges.push({ start: view.getUint16(rec), end: view.getUint16(rec + 2), class: view.getUint16(rec + 4) });
+    }
+    return (gid) => {
+      for (const r of ranges) if (gid >= r.start && gid <= r.end) return r.class;
+      return 0;
+    };
+  }
+  return () => 0;
+}
+
+/** PairPosFormat1: explicit (firstGlyph → [secondGlyph → ValueRecord]) pair list. */
+function parsePairPosFormat1(view: DataView, base: number): PairMatcher {
+  const coverage = parseCoverage(view, base + view.getUint16(base + 2));
+  const valueFormat1 = view.getUint16(base + 4);
+  const valueFormat2 = view.getUint16(base + 6);
+  const pairSetCount = view.getUint16(base + 8);
+  const pairSetOffsets: number[] = [];
+  for (let i = 0; i < pairSetCount; i++) pairSetOffsets.push(view.getUint16(base + 10 + i * 2));
+  const recordSize = 2 + valueRecordSize(valueFormat1) + valueRecordSize(valueFormat2);
+
+  return (leftGid, rightGid) => {
+    const idx = coverage(leftGid);
+    if (idx < 0 || idx >= pairSetOffsets.length) return null;
+    const setBase = base + pairSetOffsets[idx];
+    const count = view.getUint16(setBase);
+    let p = setBase + 2;
+    for (let i = 0; i < count; i++) {
+      if (view.getUint16(p) === rightGid) return readXAdvance(view, p + 2, valueFormat1);
+      p += recordSize;
+    }
+    // Covered, but this exact pair isn't listed — this format-1 exception
+    // table doesn't apply to it; fall through to the next subtable (e.g. a
+    // format-2 class-based lookup covering the general case).
+    return null;
+  };
+}
+
+/** PairPosFormat2: class-based (class(firstGlyph), class(secondGlyph)) → ValueRecord grid. */
+function parsePairPosFormat2(view: DataView, base: number): PairMatcher {
+  const coverage = parseCoverage(view, base + view.getUint16(base + 2));
+  const valueFormat1 = view.getUint16(base + 4);
+  const valueFormat2 = view.getUint16(base + 6);
+  const classOf1 = parseClassDef(view, base + view.getUint16(base + 8));
+  const classOf2 = parseClassDef(view, base + view.getUint16(base + 10));
+  const class1Count = view.getUint16(base + 12);
+  const class2Count = view.getUint16(base + 14);
+  const class2RecordSize = valueRecordSize(valueFormat1) + valueRecordSize(valueFormat2);
+  const recordsBase = base + 16;
+
+  return (leftGid, rightGid) => {
+    if (coverage(leftGid) < 0) return null;
+    const c1 = classOf1(leftGid);
+    const c2 = classOf2(rightGid);
+    if (c1 >= class1Count || c2 >= class2Count) return 0;
+    return readXAdvance(view, recordsBase + c1 * class2Count * class2RecordSize + c2 * class2RecordSize, valueFormat1);
+  };
 }
 
 /** Build a codepoint → glyph-index lookup from the best available cmap subtable. */

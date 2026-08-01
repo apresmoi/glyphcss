@@ -47,7 +47,7 @@ JSON is an array (or `{ "polygons": [...] }`) of `{ vertices: [[x,y,z] ×3+], co
 - **Output** `-f, --format` `ansi` | `text` | `html` | `full` (default: terminal→ansi, `-o` file→html, pipe→text)
 - **Frame** `--auto-center` recenters; with no `--cols`/`--rows` it auto-fits the grid to the content (or `--fit N` cols; give one of `--cols`/`--rows` and the other adapts)
 - **Camera** `--rot-x N` `--rot-y N` `--zoom N` `--ortho`
-- **Render** `--mode solid|wireframe|voxel` `--palette default|ascii|blocks|…` `--no-colors`
+- **Render** `--mode solid|wireframe|voxel|ink` `--palette default|ascii|blocks|…` `--no-colors`
 - **Output to file** `-o FILE`
 - `glyphcss --help` lists everything.
 

@@ -2,6 +2,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { GlyphSceneElement } from "./GlyphSceneElement";
 import { GlyphPerspectiveCameraElement } from "./GlyphPerspectiveCameraElement";
 import { GlyphOrthographicCameraElement } from "./GlyphOrthographicCameraElement";
+import type { Polygon } from "@glyphcss/core";
+import { computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "../api/controlFrame";
+
+const semanticPolygon: Polygon = { vertices: [[-1, -1, 0], [-1, 1, 0], [1, 1, 0], [1, -1, 0]], color: "#fff" };
+const semanticDictionaryBase: Omit<GlyphObjectDictionary, "contentSha256"> = { schemaVersion: "glyph-object-dictionary/v2", id: "dictionary/element", font: { id: "font/element", version: "1", sha256: "a".repeat(64) }, classes: [{ id: 1, name: "quad", semanticGlyph: "Q", controlColor: "#123456" }] };
+const semanticDictionary: GlyphObjectDictionary = { ...semanticDictionaryBase, contentSha256: computeGlyphControlContentSha256(semanticDictionaryBase) };
+function semanticManifest(): GlyphControlSceneManifest {
+  const hashes = computeGlyphControlGeometryHashes([semanticPolygon]);
+  const base = { schemaVersion: "control-scene/v1" as const, id: "scene/element", dictionaryId: semanticDictionary.id, dictionarySha256: semanticDictionary.contentSha256, ...hashes, contentSha256: "", instances: [{ id: "instance/quad", classId: 1 }], surfaces: [{ id: "surface/quad", instanceId: "instance/quad" }], polygonSurfaceIds: ["surface/quad"] };
+  return { ...base, contentSha256: computeGlyphControlContentSha256(base) };
+}
 
 // Register elements if not already registered.
 if (!customElements.get("glyph-scene")) {
@@ -46,6 +57,8 @@ describe("GlyphSceneElement", () => {
     expect(GlyphSceneElement.observedAttributes).toContain("rows");
     expect(GlyphSceneElement.observedAttributes).toContain("use-colors");
     expect(GlyphSceneElement.observedAttributes).toContain("glyph-palette");
+    expect(GlyphSceneElement.observedAttributes).toContain("char-mode");
+    expect(GlyphSceneElement.observedAttributes).toContain("wireframe-junctions");
     expect(GlyphSceneElement.observedAttributes).toContain("cell-aspect");
     expect(GlyphSceneElement.observedAttributes).toContain("directional-intensity");
     expect(GlyphSceneElement.observedAttributes).toContain("ambient-intensity");
@@ -95,6 +108,28 @@ describe("GlyphSceneElement", () => {
     document.body.appendChild(camEl);
     await Promise.resolve();
     host.setAttribute("mode", "wireframe");
+    await Promise.resolve();
+    const pre = host.querySelector("pre.glyph-output") as HTMLPreElement;
+    expect(pre).toBeTruthy();
+  });
+
+  it("char-mode=braille attribute in wireframe mode renders without throwing", async () => {
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    host.setAttribute("mode", "wireframe");
+    host.setAttribute("char-mode", "braille");
+    document.body.appendChild(camEl);
+    await Promise.resolve();
+    const pre = host.querySelector("pre.glyph-output") as HTMLPreElement;
+    expect(pre).toBeTruthy();
+  });
+
+  it("wireframe-junctions attribute in wireframe mode renders without throwing", async () => {
+    host.setAttribute("cols", "20");
+    host.setAttribute("rows", "5");
+    host.setAttribute("mode", "wireframe");
+    host.setAttribute("wireframe-junctions", "true");
+    document.body.appendChild(camEl);
     await Promise.resolve();
     const pre = host.querySelector("pre.glyph-output") as HTMLPreElement;
     expect(pre).toBeTruthy();
@@ -222,5 +257,32 @@ describe("GlyphSceneElement", () => {
     expect(setOptionsSpy).toHaveBeenCalled();
     const lastCall = setOptionsSpy.mock.calls[setOptionsSpy.mock.calls.length - 1]![0];
     expect(lastCall.shadow).toMatchObject({ opacity: 0.25 });
+  });
+
+  it("stages semantic properties, activates once complete, and resets when the attribute is removed", () => {
+    host.setAttribute("glyph-output", "semantic");
+    document.body.appendChild(camEl);
+    const scene = host.getScene()!;
+    scene.add([semanticPolygon]);
+    expect(scene.getOptions().glyphOutput).toBe("visible");
+    host.sceneManifest = semanticManifest();
+    expect(scene.getOptions().glyphOutput).toBe("visible");
+    host.dictionary = semanticDictionary;
+    expect(scene.getOptions().glyphOutput).toBe("semantic");
+    host.removeAttribute("glyph-output");
+    expect(scene.getOptions().glyphOutput).toBe("visible");
+  });
+
+  it("rolls back a failed semantic property update without changing the active scene", () => {
+    document.body.appendChild(camEl);
+    const scene = host.getScene()!;
+    scene.add([semanticPolygon]);
+    host.setAttribute("glyph-output", "semantic");
+    host.sceneManifest = semanticManifest();
+    host.dictionary = semanticDictionary;
+    const before = host.dictionary;
+    expect(() => { host.dictionary = { ...semanticDictionary, contentSha256: "f".repeat(64) }; }).toThrow(/dictionary/);
+    expect(host.dictionary).toBe(before);
+    expect(scene.getOptions().dictionary).toBe(before);
   });
 });

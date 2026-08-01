@@ -1305,6 +1305,90 @@ describe("regression: field-synth generated-surface isotropy", () => {
   });
 });
 
+describe("fieldSynth: subcellRes braille", () => {
+  const COLS = 12;
+
+  // `space: "scene"` with a square glyphs=1 field, freq1=1 gives every
+  // (col+0.5) center a mod-1 fractional part of exactly 0.5 — the p<0.5
+  // decision boundary itself — which is degenerate (float-fragile) for a
+  // hand-computed assertion. freq1=1.1 escapes that alignment while staying
+  // simple enough to compute by hand; every margin below is checked to sit
+  // comfortably away from the 0.5 threshold so float rounding can't flip it.
+  const HAND_PARAMS = {
+    space: "scene" as const,
+    field1: "linearX",
+    wave1: "square",
+    freq1: 1.1,
+    speed1: 0,
+    time: 0,
+    amp1: 1,
+    amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
+    combine: "add",
+    scale: 12, // cancels the /sceneCols normalization: resolved x === col + 0.5
+    bias: 0.5,
+    gain: 1,
+    subcellRes: "2x4",
+  };
+
+  it("1x1 (default, and explicit) is byte-identical to the pre-subcell ramp-indexed output", () => {
+    const { subcellRes: _drop, ...withoutSubcellRes } = HAND_PARAMS;
+    const omitted = evaluate(fieldSynth, withoutSubcellRes); // hits the schema default ("1x1")
+    const explicit1x1 = evaluate(fieldSynth, { ...withoutSubcellRes, subcellRes: "1x1" });
+    // col=5,row=2 -> index 29: center x=5.5, u=5.5*1.1=6.05, fract=0.05 < 0.5 -> wave=+1
+    const index = 2 * COLS + 5;
+    const expectedGlyphs = " .:-=+*#%@";
+    const rampMax = expectedGlyphs.length - 1;
+    const expectedValue = Math.min(1, Math.max(0, 0.5 + 1 * 1 * 0.5)); // wave=+1 -> value=1
+    const expectedGlyph = expectedGlyphs[Math.min(rampMax, Math.max(0, Math.round(expectedValue * rampMax)))];
+    expect(omitted.glyph[index]).toBe(expectedGlyph);
+    expect(explicit1x1.glyph[index]).toBe(expectedGlyph);
+    expect(explicit1x1.glyph).toEqual(omitted.glyph);
+    expect(explicit1x1.coverage).toEqual(omitted.coverage);
+  });
+
+  it("produces the hand-computed Braille bitmask for a known field at a specific cell", () => {
+    // col=5, row=2 -> index 29. scale=12 makes resolved x exactly col+0.5, so
+    // finite-differencing neighbors gives an exact dxCol=1, dyCol=dxRow=0
+    // (linearX doesn't depend on y) — no approximation error to account for.
+    //
+    // Hand computation (wave "square": p = fract(x*freq1); on iff p < 0.5):
+    //   center  x=5.5   -> u=6.05  -> fract=0.05  -> ON  (passes the value>0 cell gate)
+    //   dotCol0 x=5.25  -> u=5.775 -> fract=0.775 -> OFF (margin 0.275 from 0.5)
+    //   dotCol1 x=5.75  -> u=6.325 -> fract=0.325 -> ON  (margin 0.175 from 0.5)
+    // linearX ignores y, so all 4 rows repeat the same per-column on/off state:
+    //   col0 (bits 0x01,0x02,0x04,0x40) -> all OFF
+    //   col1 (bits 0x08,0x10,0x20,0x80) -> all ON
+    // expected mask = 0x08|0x10|0x20|0x80 = 0xB8
+    const output = evaluate(fieldSynth, HAND_PARAMS);
+    const index = 2 * COLS + 5;
+    const glyph = output.glyph[index]!;
+    expect(glyph.length).toBe(1);
+    const codepoint = glyph.codePointAt(0)!;
+    expect(codepoint).toBeGreaterThanOrEqual(0x2800);
+    expect(codepoint).toBeLessThanOrEqual(0x28ff);
+    const mask = codepoint - 0x2800;
+    expect(mask).toBe(0xb8);
+  });
+
+  it("renders at visibly finer grain than 1x1 on the same moiré preset params", () => {
+    const moire = fieldSynth.presets?.find((preset) => preset.name === "Moiré rings")!.params;
+    const coarse = evaluate(fieldSynth, moire as Record<string, number | string | boolean>, { withUv: true });
+    const fine = evaluate(fieldSynth, { ...moire, subcellRes: "2x4" } as Record<string, number | string | boolean>, { withUv: true });
+    // A finer grain means more DISTINCT rendered symbols carrying pattern
+    // detail than the coarse ramp-indexed pass can express in the same
+    // cell count — not just "a braille character appears somewhere".
+    const coarseDistinct = new Set(coarse.glyph.filter((g, i) => coarse.coverage[i]! > 0));
+    const fineDistinct = new Set(fine.glyph.filter((g, i) => fine.coverage[i]! > 0));
+    expect(fineDistinct.size).toBeGreaterThan(coarseDistinct.size);
+    for (const g of fine.glyph) {
+      if (g === " ") continue;
+      const cp = g.codePointAt(0)!;
+      expect(cp).toBeGreaterThanOrEqual(0x2800);
+      expect(cp).toBeLessThanOrEqual(0x28ff);
+    }
+  });
+});
+
 describe("effect presets", () => {
   it("validates every catalog effect's shipped presets against its own schema and evaluates cleanly", () => {
     for (const effect of GlyphEffectCatalog) {

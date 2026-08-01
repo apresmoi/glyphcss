@@ -10,12 +10,14 @@ import { icosahedronPolygons, cubePolygons } from "@glyphcss/core";
  */
 function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   rotX: number; rotY: number; zoom: number; cols: number; rows: number; useColors: boolean;
+  mode?: "wireframe" | "solid"; charMode?: "ascii" | "braille" | "halfblock";
 }): string {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const camera = createGlyphPerspectiveCamera({ rotX: opts.rotX, rotY: opts.rotY, zoom: opts.zoom });
   const scene = createGlyphScene(host, {
     camera, cols: opts.cols, rows: opts.rows, useColors: opts.useColors,
+    mode: opts.mode, charMode: opts.charMode,
   });
   scene.add(polys);
   scene.rerender(); // createGlyphScene paints async (rAF); force a synchronous render
@@ -57,6 +59,65 @@ describe("compileScene — matches the runtime render", () => {
       cols: cfg.cols, rows: cfg.rows,
     });
     expect(compiled.inner).toBe(runtime);
+  });
+
+  it("braille wireframe, charMode set, matches the runtime render", () => {
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const cfg = { rotX: 65, rotY: 45, zoom: 0.3, cols: 60, rows: 24, useColors: true } as const;
+    const runtime = runtimeRender(polys, { ...cfg, mode: "wireframe", charMode: "braille" });
+    const compiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "wireframe", charMode: "braille",
+    });
+    expect(compiled.inner).toBe(runtime);
+    // And it must actually differ from the ASCII wireframe render — otherwise
+    // the option silently no-op'd instead of taking effect.
+    const asciiCompiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "wireframe",
+    });
+    expect(compiled.inner).not.toBe(asciiCompiled.inner);
+  });
+
+  it("halfblock solid, charMode set, matches the runtime render", () => {
+    const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const cfg = { rotX: 30, rotY: 20, zoom: 0.5, cols: 50, rows: 20, useColors: true } as const;
+    const runtime = runtimeRender(polys, { ...cfg, mode: "solid", charMode: "halfblock" });
+    const compiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "solid", charMode: "halfblock",
+    });
+    expect(compiled.inner).toBe(runtime);
+  });
+
+  it("omitting charMode is byte-identical to today (ascii default, unchanged)", () => {
+    // Solid mode is deterministic (Lambert-shaded, no per-render random glyph
+    // pick like wireframe's tier selection), so two separate compileScene
+    // calls are directly comparable here.
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+    const cfg = { rotX: 65, rotY: 45, zoom: 0.3, cols: 60, rows: 24, useColors: true } as const;
+    const withoutOption = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+    });
+    const explicitAscii = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      charMode: "ascii",
+    });
+    expect(withoutOption.inner).toBe(explicitAscii.inner);
+
+    // And every pre-existing (no-charMode) call site is unaffected: the
+    // original parity tests above already assert compileScene === runtime
+    // render byte-for-byte with charMode entirely absent from both calls.
   });
 
   it("wraps output in a .glyph-output <pre>", () => {

@@ -10,7 +10,7 @@ import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
 import type { Polygon, RenderMode } from "@glyphcss/core";
 import { compileScene } from "glyphcss";
-import type { GlyphCamera } from "glyphcss";
+import type { GlyphCamera, GlyphControlSceneManifest, GlyphObjectDictionary } from "glyphcss";
 
 export interface GlyphSceneStaticProps {
   polygons: Polygon[];
@@ -21,11 +21,15 @@ export interface GlyphSceneStaticProps {
   cellAspect?: number;
   mode?: RenderMode;
   glyphPalette?: string;
+  charMode?: "ascii" | "braille" | "halfblock";
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
   doubleSided?: boolean;
   supersample?: number;
+  glyphOutput?: "visible" | "semantic";
+  sceneManifest?: GlyphControlSceneManifest;
+  dictionary?: GlyphObjectDictionary;
 }
 
 export const GlyphSceneStatic = defineComponent({
@@ -39,11 +43,15 @@ export const GlyphSceneStatic = defineComponent({
     cellAspect: { type: Number, default: undefined },
     mode: { type: String as PropType<RenderMode>, default: undefined },
     glyphPalette: { type: String, default: undefined },
+    charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
     useColors: { type: Boolean, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
     doubleSided: { type: Boolean, default: undefined },
     supersample: { type: Number, default: undefined },
+    glyphOutput: { type: String as PropType<"visible" | "semantic">, default: undefined },
+    sceneManifest: { type: Object as PropType<GlyphControlSceneManifest>, default: undefined },
+    dictionary: { type: Object as PropType<GlyphObjectDictionary>, default: undefined },
   },
   setup(props) {
     const inner = computed(() => compileScene({
@@ -55,11 +63,15 @@ export const GlyphSceneStatic = defineComponent({
       cellAspect: props.cellAspect,
       mode: props.mode,
       glyphPalette: props.glyphPalette,
+      charMode: props.charMode,
       useColors: props.useColors,
       smoothShading: props.smoothShading,
       creaseAngle: props.creaseAngle,
       doubleSided: props.doubleSided,
       supersample: props.supersample,
+      glyphOutput: props.glyphOutput,
+      sceneManifest: props.sceneManifest,
+      dictionary: props.dictionary,
     }).inner);
     return () => h("pre", { class: "glyph-output", innerHTML: inner.value });
   },
