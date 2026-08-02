@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { compileScene } from "./compileScene";
@@ -11,13 +11,14 @@ import { icosahedronPolygons, cubePolygons } from "@glyphcss/core";
 function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   rotX: number; rotY: number; zoom: number; cols: number; rows: number; useColors: boolean;
   mode?: "wireframe" | "solid"; charMode?: "ascii" | "braille" | "halfblock";
+  hiddenLines?: "show" | "hide";
 }): string {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const camera = createGlyphPerspectiveCamera({ rotX: opts.rotX, rotY: opts.rotY, zoom: opts.zoom });
   const scene = createGlyphScene(host, {
     camera, cols: opts.cols, rows: opts.rows, useColors: opts.useColors,
-    mode: opts.mode, charMode: opts.charMode,
+    mode: opts.mode, charMode: opts.charMode, hiddenLines: opts.hiddenLines,
   });
   scene.add(polys);
   scene.rerender(); // createGlyphScene paints async (rAF); force a synchronous render
@@ -94,6 +95,65 @@ describe("compileScene — matches the runtime render", () => {
       mode: "solid", charMode: "halfblock",
     });
     expect(compiled.inner).toBe(runtime);
+  });
+
+  it("hiddenLines: \"hide\", wireframe, matches the runtime render", () => {
+    // Wireframe's per-cell glyph pick within a weight tier is randomized —
+    // pin it so the compiled and runtime renders (two independent calls,
+    // each consuming Math.random separately) are directly comparable.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      // A coarse grid relative to mesh size maximizes the chance that a front
+      // and a back edge of this closed convex mesh land in the SAME output
+      // cell (where HLR has something to remove) — icosahedron wireframe
+      // draws every edge, front and back, with no culling of its own
+      // (parameters mirror `research/contour-first-text/experiments/05-wireframe-hlr.mjs`,
+      // which measured a real front/back overlap at this mesh-size/grid ratio).
+      const polys = icosahedronPolygons({ center: [0, 0, 0], size: 3 });
+      const cfg = { rotX: 20, rotY: 25, zoom: 15, cols: 24, rows: 12, useColors: true } as const;
+      const runtime = runtimeRender(polys, { ...cfg, mode: "wireframe", hiddenLines: "hide" });
+      const compiled = compileScene({
+        polygons: polys,
+        camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+        cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+        mode: "wireframe", hiddenLines: "hide",
+      });
+      expect(compiled.inner).toBe(runtime);
+      // And it must actually differ from "show" — otherwise the option
+      // silently no-op'd instead of taking effect.
+      const shown = compileScene({
+        polygons: polys,
+        camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+        cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+        mode: "wireframe", hiddenLines: "show",
+      });
+      expect(compiled.inner).not.toBe(shown.inner);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("omitting hiddenLines is byte-identical to today (\"show\" default, unchanged)", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const polys = icosahedronPolygons({ center: [0, 0, 0], size: 1 });
+      const cfg = { rotX: 65, rotY: 45, zoom: 0.3, cols: 60, rows: 24, useColors: true } as const;
+      const withoutOption = compileScene({
+        polygons: polys,
+        camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+        cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+        mode: "wireframe",
+      });
+      const explicitShow = compileScene({
+        polygons: polys,
+        camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+        cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+        mode: "wireframe", hiddenLines: "show",
+      });
+      expect(withoutOption.inner).toBe(explicitShow.inner);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("omitting charMode is byte-identical to today (ascii default, unchanged)", () => {

@@ -26,6 +26,7 @@ keyframes consume.
 | `glyphPalette` | `string` | `"default"` | Named glyph palette |
 | `charMode` | `"ascii" \| "braille" \| "halfblock"` | `"ascii"` | Character encoding for rasterized output. `"braille"` (wireframe-only) packs a 2×4 subcell dot grid into Unicode Braille Patterns for smoother edges. `"halfblock"` (solid-only) packs two independently colored subcells (top/bottom) into `▀`/`▄`/`█` for 2× vertical color resolution. Each is a documented no-op outside the mode it applies to |
 | `wireframeJunctions` | `boolean` | `false` | Box-drawing junction resolve pass for wireframe + `charMode: "ascii"`. Resolves corners/T-junctions/crossings to `┌┐└┘├┤┬┴┼─│` instead of a random per-edge glyph |
+| `hiddenLines` | `"show" \| "hide"` | `"show"` | Hidden-line removal for wireframe (+ `charMode: "braille"`). `"hide"` depth-tests strokes against a solid surface prepass so a farther edge can't paint over a nearer one. No-op in `solid` (already depth-buffered) and `ink` (not wired) |
 | `useColors` | `boolean` | `true` | Emit color spans in the output |
 | `directionalLight` | `GlyphDirectionalLight` | — | Directional light for solid mode |
 | `ambientLight` | `GlyphAmbientLight` | — | Ambient fill for solid mode |

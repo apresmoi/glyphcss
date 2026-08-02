@@ -252,6 +252,7 @@ export function GlyphScene({
           glyphPalette: currentOptions.glyphPalette,
           charMode: currentOptions.charMode,
           wireframeJunctions: currentOptions.wireframeJunctions,
+          hiddenLines: currentOptions.hiddenLines,
           useColors: currentOptions.useColors,
           smoothShading: currentOptions.smoothShading,
           creaseAngle: currentOptions.creaseAngle,
@@ -517,6 +518,13 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ wireframeJunctions: options.wireframeJunctions });
   }, [options.wireframeJunctions]);
+
+  // React to hiddenLines changes.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ hiddenLines: options.hiddenLines });
+  }, [options.hiddenLines]);
 
   // React to useColors toggle.
   useEffect(() => {

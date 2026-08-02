@@ -48,6 +48,13 @@ export interface GlyphSceneProps {
    * glyph. Default `false`.
    */
   wireframeJunctions?: boolean;
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`). `"show"` (default) is today's behavior. `"hide"`
+   * depth-tests every stroke against a solid surface prepass so a back edge
+   * doesn't paint through a nearer one. Documented no-op in `solid` and `ink`.
+   */
+  hiddenLines?: "show" | "hide";
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -96,6 +103,7 @@ function GlyphSceneInner({
   glyphPalette,
   charMode,
   wireframeJunctions,
+  hiddenLines,
   useColors,
   cols,
   rows,
@@ -125,6 +133,7 @@ function GlyphSceneInner({
     glyphPalette,
     charMode,
     wireframeJunctions,
+    hiddenLines,
     useColors,
     cols,
     rows,
@@ -170,6 +179,7 @@ function GlyphSceneInner({
     if (glyphPalette !== undefined) partial.glyphPalette = glyphPalette;
     if (charMode !== undefined) partial.charMode = charMode;
     if (wireframeJunctions !== undefined) partial.wireframeJunctions = wireframeJunctions;
+    if (hiddenLines !== undefined) partial.hiddenLines = hiddenLines;
     if (useColors !== undefined) partial.useColors = useColors;
     if (cols !== undefined) partial.cols = cols;
     if (rows !== undefined) partial.rows = rows;
@@ -194,7 +204,7 @@ function GlyphSceneInner({
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, charMode, wireframeJunctions, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
+  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

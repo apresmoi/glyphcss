@@ -43,6 +43,15 @@ export interface CompileSceneOptions {
    * runtime scene option — see {@link RasterizeContextOptions.charMode}.
    */
   charMode?: "ascii" | "braille" | "halfblock";
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`); `"show"` default matches the runtime scene option — see
+   * {@link RasterizeContextOptions.hiddenLines}. Exposed here (unlike
+   * `wireframeJunctions`, which is runtime-only) because it is a pure
+   * function of geometry + camera, exactly like `charMode`, and fixes a
+   * genuine occlusion defect a static bake shouldn't reproduce.
+   */
+  hiddenLines?: "show" | "hide";
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -127,6 +136,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
     glyphPalette: opts.glyphPalette ?? "default",
     charMode: opts.charMode,
+    hiddenLines: opts.hiddenLines,
     useColors,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

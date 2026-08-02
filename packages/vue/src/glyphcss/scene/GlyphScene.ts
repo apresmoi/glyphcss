@@ -43,6 +43,13 @@ export interface GlyphSceneProps {
    * glyph. Default `false`.
    */
   wireframeJunctions?: boolean;
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`). `"show"` (default) is today's behavior. `"hide"`
+   * depth-tests every stroke against a solid surface prepass so a back edge
+   * doesn't paint through a nearer one. Documented no-op in `solid` and `ink`.
+   */
+  hiddenLines?: "show" | "hide";
   useColors?: boolean;
   cols?: number;
   rows?: number;
@@ -81,6 +88,7 @@ export const GlyphScene = defineComponent({
     glyphPalette: { type: String, default: undefined },
     charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
     wireframeJunctions: { type: Boolean, default: undefined },
+    hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     useColors: { type: Boolean, default: undefined },
     cols: { type: Number, default: undefined },
     rows: { type: Number, default: undefined },
@@ -113,6 +121,7 @@ export const GlyphScene = defineComponent({
       if (props.glyphPalette !== undefined) opts.glyphPalette = props.glyphPalette;
       if (props.charMode !== undefined) opts.charMode = props.charMode;
       if (props.wireframeJunctions !== undefined) opts.wireframeJunctions = props.wireframeJunctions;
+      if (props.hiddenLines !== undefined) opts.hiddenLines = props.hiddenLines;
       if (props.useColors !== undefined) opts.useColors = props.useColors;
       if (props.cols !== undefined) opts.cols = props.cols;
       if (props.rows !== undefined) opts.rows = props.rows;
@@ -146,6 +155,7 @@ export const GlyphScene = defineComponent({
         glyphPalette: props.glyphPalette,
         charMode: props.charMode,
         wireframeJunctions: props.wireframeJunctions,
+        hiddenLines: props.hiddenLines,
         useColors: props.useColors,
         cols: props.cols,
         rows: props.rows,
@@ -168,6 +178,7 @@ export const GlyphScene = defineComponent({
         if (next.glyphPalette !== undefined) partial.glyphPalette = next.glyphPalette;
         if (next.charMode !== undefined) partial.charMode = next.charMode;
         if (next.wireframeJunctions !== undefined) partial.wireframeJunctions = next.wireframeJunctions;
+        if (next.hiddenLines !== undefined) partial.hiddenLines = next.hiddenLines;
         if (next.useColors !== undefined) partial.useColors = next.useColors;
         if (next.cols !== undefined) partial.cols = next.cols;
         if (next.rows !== undefined) partial.rows = next.rows;

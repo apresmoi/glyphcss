@@ -28,6 +28,7 @@ export function GlyphSceneStatic({ className, style, ...compileOptions }: GlyphS
     compileOptions.mode,
     compileOptions.glyphPalette,
     compileOptions.charMode,
+    compileOptions.hiddenLines,
     compileOptions.useColors,
     compileOptions.smoothShading,
     compileOptions.creaseAngle,

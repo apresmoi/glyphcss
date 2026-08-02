@@ -453,6 +453,7 @@ interface Tunables {
   glyphPalette?: string;
   charMode?: 'ascii' | 'braille' | 'halfblock';
   wireframeJunctions?: boolean;
+  hiddenLines?: 'show' | 'hide';
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -774,6 +775,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       glyphPalette: tunables.glyphPalette ?? 'default',
       charMode: tunables.charMode ?? 'ascii',
       wireframeJunctions: tunables.wireframeJunctions ?? false,
+      hiddenLines: tunables.hiddenLines ?? 'show',
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -1694,6 +1696,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('glyphPalette' in partial && partial.glyphPalette !== undefined) sceneOpts.glyphPalette = partial.glyphPalette;
     if ('charMode' in partial && partial.charMode !== undefined) sceneOpts.charMode = partial.charMode;
     if ('wireframeJunctions' in partial && partial.wireframeJunctions !== undefined) sceneOpts.wireframeJunctions = partial.wireframeJunctions;
+    if ('hiddenLines' in partial && partial.hiddenLines !== undefined) sceneOpts.hiddenLines = partial.hiddenLines;
     if ('useColors' in partial && partial.useColors !== undefined) sceneOpts.useColors = partial.useColors;
     if ('smoothShading' in partial && partial.smoothShading !== undefined) sceneOpts.smoothShading = partial.smoothShading;
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;

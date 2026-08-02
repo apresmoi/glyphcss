@@ -22,13 +22,14 @@ export interface RenderingFolderInputs {
   glyphPalette: SceneOptionsState["glyphPalette"];
   charMode: SceneOptionsState["charMode"];
   wireframeJunctions: boolean;
+  hiddenLines: SceneOptionsState["hiddenLines"];
   density: number;
   dragDensity: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
   onRenderModeChange: (mode: GalleryRenderPresentation) => void;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
 
 
@@ -59,9 +60,13 @@ const CHAR_MODE_OPTIONS: Record<string, SceneOptionsState["charMode"]> = {
   Braille: "braille",
   Halfblock: "halfblock",
 };
+const HIDDEN_LINES_OPTIONS: Record<string, SceneOptionsState["hiddenLines"]> = {
+  Show: "show",
+  Hide: "hide",
+};
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): GUI | null {
-  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
+  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, hiddenLines, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   const renderModeControl = useOption<GalleryRenderPresentation>(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, onRenderModeChange);
@@ -112,6 +117,19 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     // wireframe mode and while braille (its own corner/join encoding) is active.
     junctionsControl?.setEnabled(renderMode === "wireframe" && charMode !== "braille", { dim: true });
   }, [junctionsControl, renderMode, charMode]);
+  const hiddenLinesControl = useOption<SceneOptionsState["hiddenLines"]>(
+    folder,
+    "Hidden lines",
+    HIDDEN_LINES_OPTIONS,
+    hiddenLines,
+    (value) => onUpdateScene({ hiddenLines: value }),
+  );
+  useEffect(() => {
+    // Depth-tests wireframe strokes (ASCII or braille) against a solid
+    // surface prepass. No-op in solid (already depth-buffered per cell) and
+    // ink (not wired — see AGENTS.md), so dim outside wireframe.
+    hiddenLinesControl?.setEnabled(renderMode === "wireframe", { dim: true });
+  }, [hiddenLinesControl, renderMode]);
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),
   );

@@ -246,6 +246,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   glyphPalette: "default",
   charMode: "ascii",
   wireframeJunctions: false,
+  hiddenLines: "show",
   lineHeight: 1.0,
   density: 1.0,
   dragDensity: 1,
@@ -786,6 +787,7 @@ export default function GalleryWorkbench() {
           glyphPalette={sceneOptions.glyphPalette}
           charMode={sceneOptions.charMode}
           wireframeJunctions={sceneOptions.wireframeJunctions}
+          hiddenLines={sceneOptions.hiddenLines}
           density={sceneOptions.density}
           dragDensity={sceneOptions.dragDensity}
           useColors={sceneOptions.useColors}

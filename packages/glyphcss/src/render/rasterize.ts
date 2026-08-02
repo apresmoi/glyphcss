@@ -27,6 +27,22 @@ interface ProjectCamera {
   project(v: Vec3, cols: number, rows: number, cellAspect: number, metrics?: GlyphProjectionMetrics): [number, number, number, number?];
 }
 
+/**
+ * `hiddenLines: "hide"` depth-test allowance: `bias + slopeScale * |grad
+ * depth|` (standard shadow-map slope-scaled bias). Internal constants, not
+ * public options — measured in `research/contour-first-text/decisions.md`
+ * (subpath 05). `HLR_SLOPE_SCALE` must stay > 0: a FLAT bias (slope 0)
+ * regresses every convex mesh at every magnitude tried (cube -11..-32,
+ * icosahedron -5..-44, sphere -12..-158 inked cells vs ground truth) because
+ * a silhouette that grazes its own surface needs a depth allowance
+ * proportional to the local screen-space depth gradient there, not a
+ * constant one. `0.5` converges within ~0-4% of ground truth (cube 115->115,
+ * icosahedron 177->173-175, sphere 431->426-430) — the gradient term does
+ * the real work; the flat term only guards near-zero-gradient (head-on) cells.
+ */
+const HLR_BIAS = 0.03;
+const HLR_SLOPE_SCALE = 0.5;
+
 function projectionMetricsForGrid(
   cols: number,
   rows: number,
@@ -129,6 +145,102 @@ function fillDepthTri(
 }
 
 /**
+ * Surface depth-only prepass for `hiddenLines: "hide"` wireframe removal,
+ * reusing `fillDepthTri` (the same triangle-depth rasterizer
+ * `computeOcclusionIds` uses) rather than a second depth rasterizer.
+ *
+ * Projects each polygon at the CELL grid's resolution (same call
+ * `camera.project` already gets for wireframe edges), then scales the
+ * resulting screen x/y by `(sx, sy)` before filling — this matches how
+ * `rasterizeWireframeBraille` derives subcell coordinates by scaling a
+ * cell-space projection (`a[0] * 2`, `a[1] * 4`), so `sx=2, sy=4` builds a
+ * depth buffer at SUBCELL resolution with no second projection pass, and
+ * `sx=1, sy=1` (the ASCII path, and braille's coarser per-cell option)
+ * builds it at cell resolution directly.
+ */
+function buildSurfaceDepth(
+  polygons: Polygon[],
+  camera: ProjectCamera,
+  cellCols: number, cellRows: number, cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+  sx = 1, sy = 1,
+): Float64Array {
+  const W = cellCols * sx, H = cellRows * sy;
+  const depth = new Float64Array(W * H).fill(-Infinity);
+  const idMap = new Int32Array(W * H).fill(-1);
+  for (const poly of polygons) {
+    const vs = poly.vertices;
+    if (vs.length < 3 || poly.hidden) continue;
+    const proj = (v: Vec3): [number, number, number, number?] => {
+      const p = camera.project(v, cellCols, cellRows, cellAspect, metrics);
+      return [p[0] * sx, p[1] * sy, p[2], p[3]];
+    };
+    const p0 = proj(vs[0]! as Vec3);
+    let prev = proj(vs[1]! as Vec3);
+    for (let k = 2; k < vs.length; k++) {
+      const cur = proj(vs[k]! as Vec3);
+      fillDepthTri(p0, prev, cur, depth, idMap, 0, W, H);
+      prev = cur;
+    }
+  }
+  return depth;
+}
+
+/**
+ * Local screen-space depth-gradient magnitude at `(x, y)`
+ * in a depth buffer of size `W×H`, via central differences (one-sided at
+ * buffer edges or next to an unpopulated — `-Infinity` — neighbor cell,
+ * which is treated as "no constraint" rather than a cliff, since a missing
+ * neighbor means no surface, not a large real depth jump). Feeds the
+ * slope-scaled bias: a surface seen at a grazing angle (e.g. a sphere's
+ * silhouette, which lies ON the contour it outlines) has a large screen-space
+ * depth gradient there, so it earns a larger depth-test allowance than a
+ * head-on, nearly depth-constant surface — the standard shadow-map
+ * slope-scaled-bias technique, applied to wireframe hidden-line removal.
+ */
+function depthGradient(depth: Float64Array, W: number, H: number, x: number, y: number): number {
+  const idx = y * W + x;
+  const d = depth[idx]!;
+  if (!Number.isFinite(d)) return 0;
+  const dl = x > 0 ? depth[idx - 1]! : NaN;
+  const dr = x < W - 1 ? depth[idx + 1]! : NaN;
+  let gx = 0;
+  if (Number.isFinite(dl) && Number.isFinite(dr)) gx = (dr - dl) / 2;
+  else if (Number.isFinite(dr)) gx = dr - d;
+  else if (Number.isFinite(dl)) gx = d - dl;
+  const du = y > 0 ? depth[idx - W]! : NaN;
+  const dd = y < H - 1 ? depth[idx + W]! : NaN;
+  let gy = 0;
+  if (Number.isFinite(du) && Number.isFinite(dd)) gy = (dd - du) / 2;
+  else if (Number.isFinite(dd)) gy = dd - d;
+  else if (Number.isFinite(du)) gy = d - du;
+  return Math.hypot(gx, gy);
+}
+
+/**
+ * Depth-test a single wireframe stroke sample (`hiddenLines: "hide"`): visible when
+ * there is no surface at this cell at all (nothing to occlude against — a
+ * stroke drawn off any mesh's silhouette, or over background), or when the
+ * stroke's own camera-space depth `edgeZ` (larger = nearer, matching
+ * `fillDepthTri`'s `z >` convention) is no farther than the surface depth
+ * minus an allowance. The allowance is `bias` (flat) plus `slopeScale` times
+ * the local surface depth gradient (see `depthGradient`) — zero `slopeScale`
+ * reproduces a flat bias.
+ */
+function wireframeVisibleAtCell(
+  surfaceDepth: Float64Array, W: number, H: number,
+  cx: number, cy: number, edgeZ: number,
+  bias: number, slopeScale: number,
+): boolean {
+  const idx = cy * W + cx;
+  const sd = surfaceDepth[idx]!;
+  if (!Number.isFinite(sd)) return true;
+  const grad = slopeScale > 0 ? depthGradient(surfaceDepth, W, H, cx, cy) : 0;
+  const allowed = bias + slopeScale * grad;
+  return edgeZ >= sd - allowed;
+}
+
+/**
  * `charMode: "halfblock"` (B4) is solid-mode-only and needs a genuine top/
  * bottom subcell split to draw from, so it only engages when nothing else
  * already owns the single-color-per-cell downsample path: no `transformCells`
@@ -190,12 +302,27 @@ export function rasterize(scene: RasterizeContext): string {
   // `null` (the default) skips the pass entirely — byte-identical output.
   const junctionMask: Uint8Array | null = scene.wireframeJunctions ? new Uint8Array(cols * rows) : null;
 
+  // `hiddenLines: "hide"` depth-tests each wireframe stroke against a solid
+  // surface prepass so an edge genuinely BEHIND another mesh's (or the same
+  // mesh's back side) surface doesn't paint through it. `"show"` (the
+  // default) skips every line below and leaves this function byte-identical
+  // to before the option existed.
+  const hlr = scene.hiddenLines === "hide";
+  const surfaceDepth = hlr ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics) : null;
+
   for (const e of wireframe) {
     const a = camera.project(e.from, cols, rows, cellAspect, metrics);
     const b = camera.project(e.to, cols, rows, cellAspect, metrics);
     // Near-plane culled vertices come back as NaN — skip the line entirely.
     if (a[0] !== a[0] || b[0] !== b[0]) continue;
-    drawLineToStamp(stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, e.weight ?? 2, e.color ?? null, cols, rows);
+    if (surfaceDepth) {
+      drawLineToStampDepthTested(
+        stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, a[2]!, b[2]!,
+        e.weight ?? 2, e.color ?? null, cols, rows, surfaceDepth, HLR_BIAS, HLR_SLOPE_SCALE,
+      );
+    } else {
+      drawLineToStamp(stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, e.weight ?? 2, e.color ?? null, cols, rows);
+    }
     if (junctionMask) accumulateJunctionMask(junctionMask, a[0], a[1], b[0], b[1], cols, rows);
   }
 
@@ -2275,6 +2402,56 @@ function drawLineToStamp(
 }
 
 /**
+ * Depth-tested sibling of `drawLineToStamp` for
+ * `hiddenLines: "hide"`. Same Bresenham walk, but each sample
+ * interpolates the edge's own camera-space depth linearly over the walk's
+ * step count (a screen-space-parametric approximation — adequate at the
+ * straight, moderate-depth-range edges this spike targets, and consistent
+ * with the rest of the wireframe path already working in integer cell
+ * coordinates with no other correction) and only stamps the cell when
+ * `wireframeVisibleAtCell` says the stroke is not hidden behind the surface
+ * prepass there.
+ */
+function drawLineToStampDepthTested(
+  stamp: Uint8Array,
+  colorBuf: (string | null)[] | null,
+  x0: number, y0: number,
+  x1: number, y1: number,
+  z0: number, z1: number,
+  val: number,
+  color: string | null,
+  cols: number,
+  rows: number,
+  surfaceDepth: Float64Array,
+  bias: number,
+  slopeScale: number,
+): void {
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx + dy;
+  const totalSteps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+  let step = 0;
+  while (true) {
+    if (x0 >= 0 && x0 < cols && y0 >= 0 && y0 < rows) {
+      const t = step / totalSteps;
+      const z = z0 + (z1 - z0) * t;
+      if (wireframeVisibleAtCell(surfaceDepth, cols, rows, x0, y0, z, bias, slopeScale)) {
+        const idx = y0 * cols + x0;
+        if (stamp[idx] < val) {
+          stamp[idx] = val;
+          if (colorBuf) colorBuf[idx] = color;
+        }
+      }
+    }
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+    step++;
+  }
+}
+
+/**
  * Braille-encoded wireframe (`charMode: "braille"`). Rasterizes each edge
  * ONCE, directly into a 2-wide × 4-tall subcell grid per output cell, to
  * build a dot-coverage bitmask; color is attributed from that SAME subcell
@@ -2307,17 +2484,39 @@ function rasterizeWireframeBraille(
   const subRows = rows * 4;
   const subStamp = new Uint8Array(subCols * subRows);
 
+  // `hiddenLines: "hide"` for braille — see the ASCII path in `rasterize()`.
+  // The surface prepass is built at CELL resolution, not braille's finer 2×4
+  // subcell resolution: measured 777 vs 786 inked cells (1.2% difference)
+  // for 25% more cost (0.916ms vs 0.733ms subcell-resolution depth) — braille
+  // strokes are already ~1 subcell wide, so a whole glyph can share one
+  // occlusion decision (`research/contour-first-text/decisions.md`, subpath 05).
+  const hlr = scene.hiddenLines === "hide";
+  const surfaceDepth = hlr
+    ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics)
+    : null;
+
   for (const e of wireframe) {
     const a = camera.project(e.from, cols, rows, cellAspect, metrics);
     const b = camera.project(e.to, cols, rows, cellAspect, metrics);
     // Near-plane culled vertices come back as NaN — skip the line entirely.
     if (a[0] !== a[0] || b[0] !== b[0]) continue;
-    drawSubcellLine(
-      subStamp, colorWeight, colorBuf,
-      Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
-      subCols, subRows, cols,
-      e.weight ?? 2, e.color ?? null,
-    );
+    if (surfaceDepth) {
+      drawSubcellLineDepthTested(
+        subStamp, colorWeight, colorBuf,
+        Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+        a[2]!, b[2]!,
+        subCols, subRows, cols,
+        e.weight ?? 2, e.color ?? null,
+        surfaceDepth, HLR_BIAS, HLR_SLOPE_SCALE,
+      );
+    } else {
+      drawSubcellLine(
+        subStamp, colorWeight, colorBuf,
+        Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+        subCols, subRows, cols,
+        e.weight ?? 2, e.color ?? null,
+      );
+    }
   }
 
   const { char: cChar, color: cColor } = foldBrailleSubStampToCells(subStamp, colorBuf, cols, rows, subCols);
@@ -2425,6 +2624,87 @@ export function drawSubcellLine(
       }
     }
     cx = nx; cy = ny;
+  }
+}
+
+/**
+ * Depth-tested sibling of `drawSubcellLine` for
+ * `hiddenLines: "hide"` in braille mode. Same canonicalized 4-connected
+ * walk (endpoint depths `z0`/`z1` are swapped together with `x0,y0`/`x1,y1` so
+ * the depth interpolation stays consistent with whichever endpoint the walk
+ * now starts from), but each dot (including the 4-connectivity intermediate
+ * dot) is depth-tested via `wireframeVisibleAtCell` before being lit.
+ * `surfaceDepth` is always CELL resolution (index by the owning cell,
+ * `cx>>1, cy>>2`) — see `rasterizeWireframeBraille`'s doc comment for why
+ * subcell-resolution depth was measured and not shipped.
+ */
+function drawSubcellLineDepthTested(
+  stamp: Uint8Array,
+  colorWeight: Uint8Array | null,
+  colorBuf: (string | null)[] | null,
+  x0: number, y0: number,
+  x1: number, y1: number,
+  z0: number, z1: number,
+  subCols: number,
+  subRows: number,
+  cellCols: number,
+  val: number,
+  color: string | null,
+  surfaceDepth: Float64Array,
+  bias: number,
+  slopeScale: number,
+): void {
+  if (y0 > y1 || (y0 === y1 && x0 > x1)) {
+    const tx = x0; x0 = x1; x1 = tx;
+    const ty = y0; y0 = y1; y1 = ty;
+    const tz = z0; z0 = z1; z1 = tz;
+  }
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : (x0 > x1 ? -1 : 1);
+  let err = dx + dy;
+  let cx = x0, cy = y0;
+  const totalSteps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+  let step = 0;
+  const depthCols = cellCols;
+  const depthRows = subRows >> 2;
+  const visible = (px: number, py: number): boolean => {
+    const dcx = px >> 1;
+    const dcy = py >> 2;
+    const t = step / totalSteps;
+    const z = z0 + (z1 - z0) * t;
+    return wireframeVisibleAtCell(surfaceDepth, depthCols, depthRows, dcx, dcy, z, bias, slopeScale);
+  };
+  while (true) {
+    if (cx >= 0 && cx < subCols && cy >= 0 && cy < subRows && visible(cx, cy)) {
+      stamp[cy * subCols + cx] = 1;
+      if (colorBuf) {
+        const cellIdx = (cy >> 2) * cellCols + (cx >> 1);
+        if (colorWeight![cellIdx] < val) {
+          colorWeight![cellIdx] = val;
+          colorBuf[cellIdx] = color;
+        }
+      }
+    }
+    if (cx === x1 && cy === y1) break;
+    const e2 = 2 * err;
+    let movedX = false;
+    let nx = cx, ny = cy;
+    if (e2 >= dy) { err += dy; nx = cx + sx; movedX = true; }
+    if (e2 <= dx) { err += dx; ny = cy + 1; }
+    if (movedX && ny !== cy) {
+      if (cx >= 0 && cx < subCols && ny >= 0 && ny < subRows && visible(cx, ny)) {
+        stamp[ny * subCols + cx] = 1;
+        if (colorBuf) {
+          const cellIdx = (ny >> 2) * cellCols + (cx >> 1);
+          if (colorWeight![cellIdx] < val) {
+            colorWeight![cellIdx] = val;
+            colorBuf[cellIdx] = color;
+          }
+        }
+      }
+    }
+    cx = nx; cy = ny;
+    step++;
   }
 }
 

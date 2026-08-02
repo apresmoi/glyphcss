@@ -169,6 +169,60 @@ const scene = createGlyphScene(document.querySelector("#scene")!, {
 Mirrored as `wireframe-junctions` on `<glyph-scene>` and `wireframeJunctions`
 on `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
 
+### Hidden-line removal (`hiddenLines`)
+
+The wireframe path has no depth reference by default: edges draw in mesh
+order, and a contested cell resolves by edge WEIGHT, not by which edge is
+actually nearer the camera. On any mesh where a farther edge (another mesh's
+far side, an extruded side wall behind a front face) projects into the same
+cell as a nearer one, the farther edge can paint over the nearer one —
+visible as cross-object bleed-through, `charMode: "braille"` strokes mixing
+with a farther stroke's dots, or a darker `sideColor` edge overwriting a
+brighter front-face color.
+
+`hiddenLines: "hide"` (default `"show"`, today's behavior) depth-tests every
+wireframe stroke sample against a solid surface prepass — the same
+triangle-depth rasterizer cross-layer occlusion uses — with a slope-scaled
+depth bias (the standard shadow-map technique: a grazing silhouette earns a
+larger allowance than a head-on crease, since a smooth surface's own
+silhouette lies ON the contour it outlines). Applies to both `charMode:
+"ascii"` and `charMode: "braille"`. Documented no-op in `solid` mode (already
+depth-buffered per cell) and in `ink` mode (not wired — a flat-bias attempt
+regressed every convex mesh there; see `research/contour-first-text/decisions.md`).
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="wireframe" hiddenLines="hide" cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={extrudedText} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "wireframe",
+  hiddenLines: "hide",
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+Mirrored as `hidden-lines` on `<glyph-scene>` and `hiddenLines` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also accepted by
+`compileScene`/`GlyphSceneStatic` (unlike `wireframeJunctions`, which is
+runtime-only) — it's a pure function of geometry and camera, exactly like
+`charMode`, and fixes a genuine occlusion defect a static bake shouldn't
+reproduce.
+
 ## `solid`
 
 Triangle scan-fill, with Lambert shading per cell mapped to a ramp:
@@ -386,8 +440,8 @@ scene.add(spherePolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
   </TabItem>
 </Tabs>
 
-`charMode` and `wireframeJunctions` are documented no-ops in `ink` mode — it
-always picks its own fixed oriented-glyph set as plain ASCII.
+`charMode`, `wireframeJunctions`, and `hiddenLines` are documented no-ops in
+`ink` mode — it always picks its own fixed oriented-glyph set as plain ASCII.
 
 Best for: illustration-style previews, product-shot outlines, sphere/torus/organic
 silhouettes where a filled ramp or a dense wireframe cage reads as noise.

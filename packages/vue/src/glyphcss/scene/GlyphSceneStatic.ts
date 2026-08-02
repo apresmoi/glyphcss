@@ -22,6 +22,7 @@ export interface GlyphSceneStaticProps {
   mode?: RenderMode;
   glyphPalette?: string;
   charMode?: "ascii" | "braille" | "halfblock";
+  hiddenLines?: "show" | "hide";
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -44,6 +45,7 @@ export const GlyphSceneStatic = defineComponent({
     mode: { type: String as PropType<RenderMode>, default: undefined },
     glyphPalette: { type: String, default: undefined },
     charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
+    hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     useColors: { type: Boolean, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
@@ -64,6 +66,7 @@ export const GlyphSceneStatic = defineComponent({
       mode: props.mode,
       glyphPalette: props.glyphPalette,
       charMode: props.charMode,
+      hiddenLines: props.hiddenLines,
       useColors: props.useColors,
       smoothShading: props.smoothShading,
       creaseAngle: props.creaseAngle,

@@ -94,6 +94,16 @@ export interface GlyphSceneOptions {
    * `false`.
    */
   wireframeJunctions?: boolean;
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`). `"show"` (default) is today's behavior: edges draw in mesh
+   * order with no depth reference. `"hide"` depth-tests every stroke against
+   * a solid surface prepass so a back edge (another mesh's or the same
+   * mesh's far side) doesn't paint through a nearer one. Documented no-op in
+   * `solid` (already depth-buffered per cell) and `ink` (not wired — see
+   * {@link RasterizeContextOptions.hiddenLines}).
+   */
+  hiddenLines?: "show" | "hide";
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -386,6 +396,7 @@ export function createGlyphScene(
     glyphPalette: opts.glyphPalette ?? "default",
     charMode: opts.charMode ?? "ascii",
     wireframeJunctions: opts.wireframeJunctions ?? false,
+    hiddenLines: opts.hiddenLines ?? "show",
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
@@ -797,6 +808,7 @@ export function createGlyphScene(
       glyphPalette: options.glyphPalette,
       charMode: options.charMode,
       wireframeJunctions: options.wireframeJunctions,
+      hiddenLines: options.hiddenLines,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -1232,6 +1244,7 @@ export function createGlyphScene(
           glyphPalette: options.glyphPalette,
           charMode: options.charMode,
           wireframeJunctions: options.wireframeJunctions,
+          hiddenLines: options.hiddenLines,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -1491,6 +1504,7 @@ export function createGlyphScene(
     if (partial.glyphPalette !== undefined) options.glyphPalette = partial.glyphPalette;
     if (partial.charMode !== undefined) options.charMode = partial.charMode;
     if (partial.wireframeJunctions !== undefined) options.wireframeJunctions = partial.wireframeJunctions;
+    if (partial.hiddenLines !== undefined) options.hiddenLines = partial.hiddenLines;
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;

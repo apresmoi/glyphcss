@@ -114,6 +114,20 @@ unaffected and keep the default slope-glyph behavior. Mirrored as
 `wireframe-junctions` on `<glyph-scene>` and `wireframeJunctions` on
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
 
+`hiddenLines: "show" | "hide"` (default `"show"`) is hidden-line removal for
+the `wireframe` path (including `charMode: "braille"`). The wireframe path has
+no depth reference by default — edges draw in mesh order, and a contested
+cell resolves by edge WEIGHT, not by which edge is nearer the camera, so a
+farther edge (another mesh's far side, an extruded side wall behind a front
+face) can paint over a nearer one. `"hide"` depth-tests every stroke sample
+against a solid surface prepass with a slope-scaled depth bias (the standard
+shadow-map technique — a grazing silhouette earns a larger allowance than a
+head-on crease). Documented no-op in `solid` (already depth-buffered per
+cell) and `ink` (not wired — a flat-bias attempt regressed every convex mesh
+there). Mirrored as `hidden-lines` on `<glyph-scene>` and `hiddenLines` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also accepted by
+`compileScene`/`GlyphSceneStatic`, unlike `wireframeJunctions`.
+
 ## Static & build-time rendering
 
 `rasterize` is pure (geometry + camera → string), so a scene can be rendered ahead of time and inlined as text with **zero runtime**:

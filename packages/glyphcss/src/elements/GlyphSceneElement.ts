@@ -31,6 +31,7 @@ const OBSERVED_ATTRS = [
   "glyph-palette",
   "char-mode",
   "wireframe-junctions",
+  "hidden-lines",
   "use-colors",
   "cols",
   "rows",
@@ -64,6 +65,10 @@ function parseGlyphOutput(value: string | null): "visible" | "semantic" | undefi
 
 function parseCharMode(value: string | null): "ascii" | "braille" | "halfblock" | undefined {
   return value === "ascii" || value === "braille" || value === "halfblock" ? value : undefined;
+}
+
+function parseHiddenLines(value: string | null): "show" | "hide" | undefined {
+  return value === "show" || value === "hide" ? value : undefined;
 }
 
 function parseBool(value: string | null): boolean | undefined {
@@ -118,6 +123,8 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (charMode !== undefined) opts.charMode = charMode;
     const wireframeJunctions = parseBool(this.getAttribute("wireframe-junctions"));
     if (wireframeJunctions !== undefined) opts.wireframeJunctions = wireframeJunctions;
+    const hiddenLines = parseHiddenLines(this.getAttribute("hidden-lines"));
+    if (hiddenLines !== undefined) opts.hiddenLines = hiddenLines;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));

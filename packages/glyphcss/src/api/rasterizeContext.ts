@@ -87,6 +87,26 @@ export interface RasterizeContextOptions {
    */
   wireframeJunctions?: boolean;
   /**
+   * Hidden-line removal for the wireframe path (wireframe + `charMode:
+   * "braille"`; documented no-op in `solid`, which is already depth-buffered
+   * per cell, and in `ink` — a flat-bias spike regressed every convex mesh
+   * there, see `research/contour-first-text/decisions.md`, and is not wired
+   * into this option). Default `"show"` (today's behavior: edges draw in
+   * mesh order with no depth reference, so a farther edge can paint over a
+   * nearer one — byte-identical output).
+   *
+   * `"hide"` depth-tests every wireframe stroke sample against a solid
+   * surface prepass (the same triangle-depth rasterizer
+   * {@link OcclusionMap} uses) with a slope-scaled bias, so an edge that is
+   * genuinely behind another mesh's surface (or the far side of its own
+   * mesh) does not paint through it — fixing cross-letter/cross-mesh
+   * side-wall bleed-through and darker `sideColor` edges overwriting a
+   * brighter front face. A string union (not boolean) because a future
+   * `"dashed"` state (hidden lines drawn faintly, classic CAD convention)
+   * should not require a breaking change.
+   */
+  hiddenLines?: "show" | "hide";
+  /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
    */
@@ -231,6 +251,8 @@ export interface RasterizeContext {
   charMode: "ascii" | "braille" | "halfblock";
   /** Box-drawing junction resolve pass — see {@link RasterizeContextOptions.wireframeJunctions}. */
   wireframeJunctions: boolean;
+  /** Wireframe hidden-line removal — see {@link RasterizeContextOptions.hiddenLines}. */
+  hiddenLines: "show" | "hide";
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -316,6 +338,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     glyphPalette: opts.glyphPalette ?? "default",
     charMode: opts.charMode ?? "ascii",
     wireframeJunctions: opts.wireframeJunctions ?? false,
+    hiddenLines: opts.hiddenLines ?? "show",
     useColors: opts.useColors ?? true,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

@@ -119,6 +119,8 @@ export interface WordArtSnippetInput {
    *  glyphs, not cube-aligned geometry). */
   mode: "wireframe" | "solid" | "ink";
   charMode: "ascii" | "braille" | "halfblock";
+  /** Hidden-line removal for the wireframe path. No-op outside wireframe. */
+  hiddenLines: "show" | "hide";
   effect: WordArtSnippetEffect | null;
 }
 
@@ -271,13 +273,14 @@ interface Prepared {
   ambient: string;
   mode: "wireframe" | "solid" | "ink";
   charMode: "ascii" | "braille" | "halfblock";
+  hiddenLines: "show" | "hide";
   effect: WordArtSnippetEffect | null;
   effectParamsJson: string;
   hasEffectClock: boolean;
 }
 
 function prepare(input: WordArtSnippetInput): Prepared {
-  const { scaleX, scaleY, rotation, perspective, zoom, lightDir, lightIntensity, lightColor, ambient, density, mode, charMode, effect } = input;
+  const { scaleX, scaleY, rotation, perspective, zoom, lightDir, lightIntensity, lightColor, ambient, density, mode, charMode, hiddenLines, effect } = input;
   return {
     fontSizePx: Math.round((BASE_FONT_PX / density) * 100) / 100,
     // Mesh local X = text height (screen-down), local Y = text width
@@ -293,6 +296,7 @@ function prepare(input: WordArtSnippetInput): Prepared {
     ambient: fmt(ambient),
     mode,
     charMode,
+    hiddenLines,
     effect,
     effectParamsJson: effect ? jsonForScript(effect.params) : "{}",
     hasEffectClock: !!effect?.hasClock && !effect.paused && effect.timeScale > 0,
@@ -400,6 +404,7 @@ const scene = createGlyphScene(host, {
   camera,
   mode: "${p.mode}",
   charMode: "${p.charMode}",
+  hiddenLines: "${p.hiddenLines}",
   autoSize: true,
   useColors: true,
   directionalLight: {
@@ -536,6 +541,7 @@ ${effectClock}
         <GlyphScene
           mode="${p.mode}"
           charMode="${p.charMode}"
+          hiddenLines="${p.hiddenLines}"
           autoSize
           style={{ width: "100%", height: "100%", fontSize: ${p.fontSizePx} }}
           useColors
@@ -586,6 +592,7 @@ onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
       <GlyphScene
         mode="${p.mode}"
         char-mode="${p.charMode}"
+        hidden-lines="${p.hiddenLines}"
         auto-size
         :style="{ width: '100%', height: '100%', fontSize: '${p.fontSizePx}px' }"
         use-colors
@@ -711,7 +718,7 @@ function buildHtml(p: Prepared, mesh: MeshBlock): string {
   </head>
   <body>
     <${cameraTag} rot-x="0" rot-y="0" zoom="${p.zoom}">
-      <glyph-scene id="scene" mode="${p.mode}" char-mode="${p.charMode}" auto-size use-colors></glyph-scene>
+      <glyph-scene id="scene" mode="${p.mode}" char-mode="${p.charMode}" hidden-lines="${p.hiddenLines}" auto-size use-colors></glyph-scene>
     </${cameraTag}>
 
     <script type="module">

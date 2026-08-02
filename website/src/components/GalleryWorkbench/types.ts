@@ -132,6 +132,13 @@ export interface SceneOptionsState {
   charMode: "ascii" | "braille" | "halfblock";
   /** Box-drawing junction resolve pass (wireframe + charMode "ascii" only). */
   wireframeJunctions: boolean;
+  /**
+   * Hidden-line removal for the wireframe path (wireframe + charMode
+   * "braille"). "show" is today's default; "hide" depth-tests strokes
+   * against a solid surface prepass. No-op in solid mode (already
+   * depth-buffered) and ink mode (not wired).
+   */
+  hiddenLines: "show" | "hide";
   lineHeight: number;
   /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
   density: number;

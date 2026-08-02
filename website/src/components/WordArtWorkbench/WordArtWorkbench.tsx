@@ -73,6 +73,9 @@ type Bezier4 = [number, number, number, number];
  *  `GalleryRenderPresentation` for the sibling with Semantic included. */
 type WordArtRenderMode = Exclude<RenderMode, "voxel">;
 type WordArtCharMode = "ascii" | "braille" | "halfblock";
+/** Hidden-line removal for the wireframe path (wireframe + charMode
+ *  "braille"). No-op in solid (already depth-buffered) and ink (not wired). */
+type WordArtHiddenLines = "show" | "hide";
 const RENDER_MODE_OPTIONS: Record<string, WordArtRenderMode> = {
   Wireframe: "wireframe",
   Solid: "solid",
@@ -82,6 +85,10 @@ const CHAR_MODE_OPTIONS: Record<string, WordArtCharMode> = {
   ASCII: "ascii",
   Braille: "braille",
   Halfblock: "halfblock",
+};
+const HIDDEN_LINES_OPTIONS: Record<string, WordArtHiddenLines> = {
+  Show: "show",
+  Hide: "hide",
 };
 
 // Named CSS easings → cubic-bezier control points, for the custom edge profile.
@@ -320,6 +327,10 @@ export function WordArtWorkbench() {
   // Camera + lighting (gallery-style)
   const [perspective, setPerspective] = useState(() => qb("persp", true));
   const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
+  // Viewing angle lives here, not in <Stage>, so the URL effect below can see
+  // it. Dragging rotates the MESH (see <Stage>) — the camera stays pinned.
+  const [turn, setTurn] = useState(() => qn("turn", 0));
+  const [tilt, setTilt] = useState(() => qn("tilt", 14));
   // Scene-wide ASCII resolution (mirrors /synth's Density): drives the
   // GlyphScene host's font-size (BASE_FONT_PX ÷ density) — smaller cell = more
   // columns/rows in the same on-screen box (zoom is CSS px/world-unit,
@@ -330,6 +341,7 @@ export function WordArtWorkbench() {
   const [density, setDensity] = useState(() => qn("density", 1));
   const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("mode", "solid") as WordArtRenderMode);
   const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charmode", "ascii") as WordArtCharMode);
+  const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hl", "show") as WordArtHiddenLines);
   const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
   const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
   const [lightColor, setLightColor] = useState(() => qs("lc", "#ffffff"));
@@ -419,9 +431,15 @@ export function WordArtWorkbench() {
     if (!spin) p.set("spin", "0");
     if (!perspective) p.set("persp", "0");
     sn("zoom", zoomScale, 1);
+    // Round to 0.1deg: a drag emits hundreds of updates and 15-digit floats
+    // would bloat every shared link. `turn` is skipped while `spin` animates,
+    // or the turntable would rewrite the URL on every frame.
+    if (!spin) sn("turn", Math.round(turn * 10) / 10, 0);
+    sn("tilt", Math.round(tilt * 10) / 10, 14);
     sn("density", density, 1);
     ss("mode", renderMode, "solid");
     ss("charmode", charMode, "ascii");
+    ss("hl", hiddenLines, "show");
     sn("li", lightIntensity, 0.95);
     sn("amb", ambient, 0.5);
     ss("lc", lightColor, "#ffffff");
@@ -461,7 +479,7 @@ export function WordArtWorkbench() {
     }
     const search = p.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
-  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, density, renderMode, charMode, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
+  }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font (Roboto by default) whenever family / weight
   // / style changes. The first font to resolve also pins `previewFont` — the
@@ -671,6 +689,7 @@ export function WordArtWorkbench() {
       density,
       mode: renderMode,
       charMode,
+      hiddenLines,
       effect: hasEffect && exportName
         ? {
             id: effectState.effectId as string,
@@ -683,7 +702,7 @@ export function WordArtWorkbench() {
           }
         : null,
     };
-  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, renderMode, charMode, effectState, effectDefinition]);
+  }, [composeInput, scaleX, scaleY, stageSnapshot, perspective, lightDir, lightIntensity, lightColor, ambient, density, renderMode, charMode, hiddenLines, effectState, effectDefinition]);
 
   /** POST a raw CodePen prefill `data` JSON payload (opens a new pen in a new tab). */
   function postCodepenForm(action: string, data: string): void {
@@ -794,7 +813,7 @@ export function WordArtWorkbench() {
     profileMode, warp: warpShape, bend: warpAmount,
     depth, scaleX, scaleY,
     curveSegments, simplify, profileSegments, offset,
-    density, renderMode, charMode,
+    density, renderMode, charMode, hiddenLines,
     perspective, zoom: zoomScale, spin,
     light: lightIntensity, ambient, az: lightAz, el: lightEl, lightColor,
   };
@@ -819,6 +838,7 @@ export function WordArtWorkbench() {
       case "density": setDensity(v as number); break;
       case "renderMode": setRenderMode(v as WordArtRenderMode); break;
       case "charMode": setCharMode(v as WordArtCharMode); break;
+      case "hiddenLines": setHiddenLines(v as WordArtHiddenLines); break;
       case "perspective": setPerspective(v as boolean); break;
       case "zoom": setZoomScale(v as number); break;
       case "spin": setSpin(v as boolean); break;
@@ -917,9 +937,14 @@ export function WordArtWorkbench() {
             scaleYFrac={scaleY / 100}
             zoomScale={zoomScale}
             setZoomScale={setZoomScale}
+            turn={turn}
+            setTurn={setTurn}
+            tilt={tilt}
+            setTilt={setTilt}
             density={density}
             renderMode={renderMode}
             charMode={charMode}
+            hiddenLines={hiddenLines}
             perspective={perspective}
             lightDir={lightDir}
             lightIntensity={lightIntensity}
@@ -1091,9 +1116,14 @@ interface StageProps {
   scaleYFrac: number;
   zoomScale: number;
   setZoomScale: (updater: (prev: number) => number) => void;
+  turn: number;
+  setTurn: (updater: (prev: number) => number) => void;
+  tilt: number;
+  setTilt: (updater: (prev: number) => number) => void;
   density: number;
   renderMode: WordArtRenderMode;
   charMode: WordArtCharMode;
+  hiddenLines: WordArtHiddenLines;
   perspective: boolean;
   lightDir: Vec3;
   lightIntensity: number;
@@ -1144,11 +1174,9 @@ function DensityFit({ density }: { density: number }) {
   return null;
 }
 
-function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, density, renderMode, charMode, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
+function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn, setTurn, tilt, setTilt, density, renderMode, charMode, hiddenLines, perspective, lightDir, lightIntensity, lightColor, ambient, spin, status, effectDefinition, effectParams, effectBlend, effectPaused, effectTimeScale, snapshotRef }: StageProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState({ w: 900, h: 600 });
-  const [turn, setTurn] = useState(0); // Rx — turntable around screen-vertical (text up = world X)
-  const [tilt, setTilt] = useState(14); // Ry — tilt/nod around screen-horizontal (world Y)
   const draggingRef = useRef(false);
   const lastPtr = useRef({ x: 0, y: 0 });
 
@@ -1223,6 +1251,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, dens
           autoSize
           mode={renderMode}
           charMode={charMode}
+          hiddenLines={hiddenLines}
           style={{ width: "100%", height: "100%", fontSize: `${BASE_FONT_PX / density}px` }}
           directionalLight={{ direction: lightDir, intensity: lightIntensity, color: lightColor }}
           ambientLight={{ intensity: ambient }}
@@ -1312,7 +1341,7 @@ interface GuiValues {
   depth: number; scaleX: number; scaleY: number;
   curveSegments: number; simplify: number; profileSegments: number; offset: number;
   density: number;
-  renderMode: WordArtRenderMode; charMode: WordArtCharMode;
+  renderMode: WordArtRenderMode; charMode: WordArtCharMode; hiddenLines: WordArtHiddenLines;
   perspective: boolean; zoom: number; spin: boolean;
   light: number; ambient: number; az: number; el: number; lightColor: string;
 }
@@ -1830,6 +1859,12 @@ function WordArtDock({
     // documented no-op in ink, so the control dims outside wireframe/solid.
     charModeControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "solid", { dim: true });
   }, [charModeControl, gui.renderMode]);
+  const hiddenLinesControl = useOption<WordArtHiddenLines>(renderFolder, "Hidden lines", HIDDEN_LINES_OPTIONS, gui.hiddenLines, (v) => setGui("hiddenLines", v));
+  useEffect(() => {
+    // Depth-tests wireframe strokes (ASCII or braille) against a solid
+    // surface prepass. No-op in solid/ink, so dim outside wireframe.
+    hiddenLinesControl?.setEnabled(gui.renderMode === "wireframe", { dim: true });
+  }, [hiddenLinesControl, gui.renderMode]);
   useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
 
   // ── Effects ───────────────────────────────────────────────────────────

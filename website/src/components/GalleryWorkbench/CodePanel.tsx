@@ -223,6 +223,10 @@ function generateSnippets({
   const emitCharMode = (mode === "wireframe" && charMode === "braille") || (mode === "solid" && charMode === "halfblock");
   const wireframeJunctions = options.wireframeJunctions === true;
   const emitWireframeJunctions = mode === "wireframe" && charMode !== "braille" && wireframeJunctions;
+  const hiddenLines = options.hiddenLines ?? "show";
+  // Unlike wireframeJunctions, hiddenLines applies to BOTH ascii and braille
+  // charMode — it's a no-op only outside wireframe mode.
+  const emitHiddenLines = mode === "wireframe" && hiddenLines === "hide";
   const useColors = options.useColors !== false;
   const autoCenter = options.autoCenter !== false;
   // The gallery recenters every mesh to its own center (voxcss `autoCenter`).
@@ -271,6 +275,7 @@ function generateSnippets({
   const featureEdgesProp = mode === "wireframe" ? ` featureEdges={${fmt(featureEdges)}}` : "";
   const charModeProp = emitCharMode ? ` charMode="${charMode}"` : "";
   const junctionsPropReact = emitWireframeJunctions ? ` wireframeJunctions` : "";
+  const hiddenLinesPropReact = emitHiddenLines ? ` hiddenLines="hide"` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
   const meshTagReact = isPrimitive
     ? `<GlyphMesh geometry="${geometryName}" size={${fmt(primitiveSize)}}${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${centerJsx} />`
@@ -318,7 +323,7 @@ ${reactEffectClock}
         mode="${mode}"
         autoSize
         style={{ width: "100%", height: "100%", fontSize: ${fontSizePx} }}
-        glyphPalette="${palette}"${charModeProp}${junctionsPropReact}
+        glyphPalette="${palette}"${charModeProp}${junctionsPropReact}${hiddenLinesPropReact}
         useColors={${useColors}}
         lineHeight={${fmt(lineHeight)}}${featureEdgesProp}${targetReact}
         directionalLight={directionalLight}
@@ -339,6 +344,7 @@ ${reactEffectClock}
   const featureEdgesVue = mode === "wireframe" ? `\n    :feature-edges="${fmt(featureEdges)}"` : "";
   const charModeVue = emitCharMode ? `\n      char-mode="${charMode}"` : "";
   const junctionsPropVue = emitWireframeJunctions ? `\n      wireframe-junctions` : "";
+  const hiddenLinesPropVue = emitHiddenLines ? `\n      hidden-lines="hide"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
   const meshTagVue = isPrimitive
     ? `<GlyphMesh geometry="${geometryName}" :size="${fmt(primitiveSize)}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${centerKebab} />`
@@ -369,7 +375,7 @@ onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
       mode="${mode}"
       auto-size
       :style="{ width: '100%', height: '100%', fontSize: '${fontSizePx}px' }"
-      glyphPalette="${palette}"${charModeVue}${junctionsPropVue}
+      glyphPalette="${palette}"${charModeVue}${junctionsPropVue}${hiddenLinesPropVue}
       :use-colors="${useColors}"
       :line-height="${fmt(lineHeight)}"${featureEdgesVue}${targetVue}
       :directional-light="directionalLight"
@@ -408,6 +414,7 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const featureEdgesV = mode === "wireframe" ? `\n  featureEdges: ${fmt(featureEdges)},` : "";
   const charModeV = emitCharMode ? `\n  charMode: "${charMode}",` : "";
   const junctionsPropV = emitWireframeJunctions ? `\n  wireframeJunctions: true,` : "";
+  const hiddenLinesPropV = emitHiddenLines ? `\n  hiddenLines: "hide",` : "";
   const targetV = hasTarget ? `\ncamera.target = ${vec3(target)};` : "";
   const meshImportV = isPrimitive ? "" : "\n  loadMesh,";
   const fitImportV = autoCenter ? "\n  recenterPolygons," : "";
@@ -449,7 +456,7 @@ const scene = createGlyphScene(host, {
   camera,
   mode: "${mode}",
   autoSize: true,
-  glyphPalette: "${palette}",${charModeV}${junctionsPropV}
+  glyphPalette: "${palette}",${charModeV}${junctionsPropV}${hiddenLinesPropV}
   useColors: ${useColors},
   lineHeight: ${fmt(lineHeight)},${featureEdgesV}
   directionalLight: {
@@ -473,6 +480,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
   const featureEdgesHtml = mode === "wireframe" ? ` feature-edges="${fmt(featureEdges)}"` : "";
   const charModeHtml = emitCharMode ? `\n        char-mode="${charMode}"` : "";
   const junctionsPropHtml = emitWireframeJunctions ? `\n        wireframe-junctions="true"` : "";
+  const hiddenLinesPropHtml = emitHiddenLines ? `\n        hidden-lines="hide"` : "";
   const meshTagHtml = isPrimitive
     ? `<glyph-mesh geometry="${geometryName}" size="${fmt(primitiveSize)}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${centerKebab}></glyph-mesh>`
     : `<glyph-mesh src="${url}"${centerKebab}></glyph-mesh>`;
@@ -494,7 +502,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
       <glyph-scene
         mode="${mode}"
         auto-size
-        glyph-palette="${palette}"${charModeHtml}${junctionsPropHtml}
+        glyph-palette="${palette}"${charModeHtml}${junctionsPropHtml}${hiddenLinesPropHtml}
         use-colors="${useColors}"
         line-height="${fmt(lineHeight)}"${featureEdgesHtml}
         light-direction="${fmt(lightDir[0])},${fmt(lightDir[1])},${fmt(lightDir[2])}"
