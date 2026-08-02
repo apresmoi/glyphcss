@@ -496,14 +496,32 @@ function biasTangentToSegment(vt: [number, number], segDir: [number, number]): [
 }
 
 /**
- * Map a screen-space contour tangent (+ the cell's fractional vertical
- * position, used only by the horizontal glyphs) to an oriented ink glyph.
- * `theta = atan2(dy, dx)` is folded into `[0, π)` (a tangent and its negation
- * trace the same line) and quantized into four 45°-wide buckets centered on
- * horizontal / "\" / vertical / "/". Exported so the quantization can be unit
- * tested directly, independent of the full silhouette + smoothing pipeline.
+ * Map a screen-space contour tangent (+ the cell's fractional vertical/
+ * horizontal position, used by the horizontal and vertical glyphs
+ * respectively) to an oriented ink glyph. `theta = atan2(dy, dx)` is folded
+ * into `[0, π)` (a tangent and its negation trace the same line) and
+ * quantized into four 45°-wide buckets centered on horizontal / "\" /
+ * vertical / "/". Exported so the quantization can be unit tested directly,
+ * independent of the full silhouette + smoothing pipeline.
+ *
+ * Sub-cell discrimination is only added where a monospace font actually
+ * renders font-distinct glyphs for it (verified against Menlo/JetBrains
+ * Mono/SF Mono glyph outlines — see AGENTS.md-adjacent commit notes):
+ *
+ * - Horizontal picks among "‾"/"-"/"_" (glyph ink at the top/middle/bottom
+ *   of the cell) by fractional row, as before.
+ * - Vertical picks among "▏"/"|"/"▕" (LEFT ONE EIGHTH BLOCK / VERTICAL LINE /
+ *   RIGHT ONE EIGHTH BLOCK) by fractional column — the same trick mirrored
+ *   onto the horizontal axis. These are real, distinctly-inked glyphs in
+ *   every monospace font checked, not an invented set.
+ * - Diagonals ("\\" and "/") do NOT get sub-cell discrimination: ASCII and
+ *   the Unicode box-drawing diagonals (U+2571/U+2572) have exactly one
+ *   glyph per direction with no left/right-shifted variant a monospace font
+ *   renders distinctly, and a diagonal stroke already spans corner-to-corner
+ *   within its cell, so there's no analogous "offset within the cell" to
+ *   express even if a variant existed.
  */
-export function inkGlyphForTangent(dx: number, dy: number, subRow = 0.5): string {
+export function inkGlyphForTangent(dx: number, dy: number, subRow = 0.5, subCol = 0.5): string {
   if (Math.hypot(dx, dy) < 1e-6) return "·"; // "·" — degenerate/point contour
   let theta = Math.atan2(dy, dx);
   if (theta < 0) theta += Math.PI;
@@ -516,7 +534,12 @@ export function inkGlyphForTangent(dx: number, dy: number, subRow = 0.5): string
     return "_";
   }
   if (theta < 3 * EIGHTH) return "\\";
-  if (theta < 5 * EIGHTH) return "|";
+  if (theta < 5 * EIGHTH) {
+    // Near-vertical: mirror the horizontal case onto the column axis.
+    if (subCol < 1 / 3) return "▏"; // "▏" LEFT ONE EIGHTH BLOCK
+    if (subCol < 2 / 3) return "|";
+    return "▕"; // "▕" RIGHT ONE EIGHTH BLOCK
+  }
   return "/";
 }
 
@@ -742,7 +765,7 @@ function rasterizeInk(
       const idx = cy * cols + cx;
       if (cellRank[idx]! > seg.rank) continue;
       cellRank[idx] = seg.rank;
-      charBuf[idx] = inkGlyphForTangent(tx, ty, y - cy);
+      charBuf[idx] = inkGlyphForTangent(tx, ty, y - cy, x - cx);
       if (colorBuf) colorBuf[idx] = seg.color ?? null;
     }
   }

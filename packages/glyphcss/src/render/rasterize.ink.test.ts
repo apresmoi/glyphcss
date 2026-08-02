@@ -109,19 +109,56 @@ describe("inkGlyphForTangent — direction quantization", () => {
     expect(inkGlyphForTangent(-1, 0, 0.1)).toBe("‾");
   });
 
-  it("picks '|' for a vertical tangent, independent of sub-row", () => {
+  it("picks '|' for a vertical tangent at the default (centre) sub-column, independent of sub-row", () => {
     expect(inkGlyphForTangent(0, 1, 0.1)).toBe("|");
     expect(inkGlyphForTangent(0, -1, 0.9)).toBe("|");
   });
 
-  it("picks '\\\\' for a down-right/up-left 45° tangent", () => {
-    expect(inkGlyphForTangent(1, 1)).toBe("\\");
-    expect(inkGlyphForTangent(-1, -1)).toBe("\\");
+  it("picks a vertical glyph for a vertical tangent, keyed by sub-column position", () => {
+    // Mirrors the horizontal sub-row test above, onto the column axis.
+    expect(inkGlyphForTangent(0, 1, 0.5, 0.1)).toBe("▏"); // left edge
+    expect(inkGlyphForTangent(0, 1, 0.5, 0.5)).toBe("|"); // centre
+    expect(inkGlyphForTangent(0, 1, 0.5, 0.9)).toBe("▕"); // right edge
+    // A tangent and its negation trace the same line.
+    expect(inkGlyphForTangent(0, -1, 0.5, 0.1)).toBe("▏");
+    // Sub-row is irrelevant to the vertical bucket's glyph choice.
+    expect(inkGlyphForTangent(0, 1, 0.9, 0.1)).toBe("▏");
   });
 
-  it("picks '/' for an up-right/down-left 45° tangent", () => {
+  it("a vertical stroke near a cell's left edge picks a different glyph than one at centre-right, and the choice tracks the stroke as it moves across the cell", () => {
+    const atSubCol = (subCol: number) => inkGlyphForTangent(0, 1, 0.5, subCol);
+    const left = atSubCol(0.05);
+    const centreRight = atSubCol(0.7);
+    expect(left).not.toBe(centreRight);
+    // Sweep sub-column left to right across a cell: the glyph choice is
+    // monotonically non-decreasing through the left -> centre -> right
+    // ordering (never regresses to an earlier bucket), so a stroke sliding
+    // across the cell reads as continuous motion instead of jitter.
+    const order = ["▏", "|", "▕"];
+    let lastIdx = -1;
+    for (let subCol = 0; subCol <= 1; subCol += 0.05) {
+      const idx = order.indexOf(atSubCol(subCol));
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeGreaterThanOrEqual(lastIdx);
+      lastIdx = idx;
+    }
+  });
+
+  it("picks '\\\\' for a down-right/up-left 45° tangent, independent of sub-cell position", () => {
+    expect(inkGlyphForTangent(1, 1)).toBe("\\");
+    expect(inkGlyphForTangent(-1, -1)).toBe("\\");
+    // No sub-cell-shifted "\\" variant exists in monospace fonts, so a
+    // diagonal tangent renders the same glyph regardless of where within
+    // the cell it sits.
+    expect(inkGlyphForTangent(1, 1, 0.1, 0.1)).toBe("\\");
+    expect(inkGlyphForTangent(1, 1, 0.9, 0.9)).toBe("\\");
+  });
+
+  it("picks '/' for an up-right/down-left 45° tangent, independent of sub-cell position", () => {
     expect(inkGlyphForTangent(1, -1)).toBe("/");
     expect(inkGlyphForTangent(-1, 1)).toBe("/");
+    expect(inkGlyphForTangent(1, -1, 0.1, 0.9)).toBe("/");
+    expect(inkGlyphForTangent(1, -1, 0.9, 0.1)).toBe("/");
   });
 });
 
@@ -137,12 +174,30 @@ describe("rasterize — ink mode oriented silhouette outline", () => {
     expect(cellAt(out, 5, 5)).toBe("‾");
   });
 
-  it("renders a vertical silhouette chain as '|'", () => {
+  it("renders a vertical silhouette chain keyed by sub-column position, mirroring the horizontal case", () => {
+    // The whole chain sits at exactly x === 5 (integer, zero sub-column
+    // offset within cell 5) — deterministically the left-third glyph,
+    // exactly mirroring the horizontal chain test above landing on the
+    // top-third glyph at zero sub-row offset.
     const polygons = chainSilhouettePolygons([[5, -1, 0], [5, 2, 0], [5, 8, 0], [5, 11, 0]], [3, 0, 0]);
     const out = inkRasterize(polygons);
     for (let row = 2; row <= 8; row++) {
-      expect(cellAt(out, 5, row)).toBe("|");
+      expect(cellAt(out, 5, row)).toBe("▏");
     }
+  });
+
+  it("a vertical stroke's glyph tracks its sub-cell position as the stroke translates within the same cell — this is the fix for reported head-on wobble", () => {
+    // Same vertical chain shape, shifted by a fraction of a cell in x: this
+    // is the direct regression test for the reported defect (a vertical
+    // stroke wandering within a cell as geometry moves previously always
+    // rendered "|" no matter where in the cell it sat; now the glyph itself
+    // shifts to track it).
+    const leftOut = inkRasterize(chainSilhouettePolygons([[5.05, -1, 0], [5.05, 2, 0], [5.05, 8, 0], [5.05, 11, 0]], [3, 0, 0]));
+    const centreOut = inkRasterize(chainSilhouettePolygons([[5.5, -1, 0], [5.5, 2, 0], [5.5, 8, 0], [5.5, 11, 0]], [3, 0, 0]));
+    const rightOut = inkRasterize(chainSilhouettePolygons([[5.95, -1, 0], [5.95, 2, 0], [5.95, 8, 0], [5.95, 11, 0]], [3, 0, 0]));
+    expect(cellAt(leftOut, 5, 5)).toBe("▏");
+    expect(cellAt(centreOut, 5, 5)).toBe("|");
+    expect(cellAt(rightOut, 5, 5)).toBe("▕");
   });
 
   it("renders a down-right (positive-slope) diagonal silhouette chain as '\\\\'", () => {
@@ -231,7 +286,10 @@ describe("rasterize — ink mode junction tangent (>=3-neighbor vertex)", () => 
     // so it was asserting draw order rather than tangent choice.)
     const cases: { a: Vec3; b: Vec3; expected: string[] }[] = [
       { a: [4, 10, 0], b: [16, 10, 0], expected: ["\u203e", "-", "_"] },
-      { a: [10, 4, 0], b: [10, 16, 0], expected: ["|"] },
+      // x === 10 throughout (integer, zero sub-column offset) selects the
+      // left-third vertical glyph, mirroring the horizontal case's zero
+      // sub-row offset selecting the top-third glyph above.
+      { a: [10, 4, 0], b: [10, 16, 0], expected: ["\u258f"] },
       { a: [4, 4, 0], b: [16, 16, 0], expected: ["\\"] },
       { a: [4, 16, 0], b: [16, 4, 0], expected: ["/"] },
     ];
