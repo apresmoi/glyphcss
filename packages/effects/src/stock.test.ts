@@ -55,6 +55,7 @@ interface EvaluateOptions {
   withUv?: boolean;
   shade?: Float32Array;
   worldPosition?: Float32Array;
+  objectPosition?: Float32Array;
   normal?: Float32Array;
   cellToSceneGrid?: GridAffine;
   worldToSceneScale?: number;
@@ -99,6 +100,7 @@ function evaluate(
       ...(uv0 ? { uv0 } : {}),
       ...(options.shade ? { shade: options.shade } : {}),
       ...(options.worldPosition ? { worldPosition: options.worldPosition } : {}),
+      ...(options.objectPosition ? { objectPosition: options.objectPosition } : {}),
       ...(options.normal ? { normal: options.normal } : {}),
     },
     input: { cols, rows, length, glyph, coverage, color },
@@ -246,6 +248,78 @@ describe("stock effects", () => {
     const active = Array.from(output.coverage).filter((value) => value > 0).length;
     expect(active).toBeGreaterThan(0);
     expect(active).toBeLessThan(output.coverage.length);
+  });
+
+  it("supports space: \"object\" and declares objectPosition as an optional requirement", () => {
+    for (const effect of [matrixRain, flowText, scan]) {
+      expect(effect.parameterSchema.space.values).toContain("object");
+      expect(effect.program.optionalRequirements).toContain("objectPosition");
+    }
+  });
+
+  it("matrix-rain volumetric (space: \"object\"): same object-space point renders identically regardless of grid position", () => {
+    // Two cells FAR apart in the 2D output grid (index 0 vs. the last cell)
+    // but at the SAME 3D point in the mesh's own frame — as if one were on a
+    // cap and the other on a wall meeting it, both windows into the same
+    // volumetric field. A per-face UV atlas has no way to make these two
+    // grid-disjoint cells agree; the volumetric formulation does by
+    // construction, since it reads only (x, y, z).
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3).fill(NaN);
+    const iA = 0;
+    const iB = length - 1;
+    const point: [number, number, number] = [2.3, -1.7, 4.1];
+    objectPosition[iA * 3] = point[0]; objectPosition[iA * 3 + 1] = point[1]; objectPosition[iA * 3 + 2] = point[2];
+    objectPosition[iB * 3] = point[0]; objectPosition[iB * 3 + 1] = point[1]; objectPosition[iB * 3 + 2] = point[2];
+
+    const output = evaluate(matrixRain, {
+      space: "object",
+      direction: "down",
+      time: 3.4,
+      speedMin: 4,
+      speedMax: 9,
+      density: 1,
+      trail: 6,
+      seed: 5,
+      scale: 1,
+    }, { objectPosition });
+
+    expect(output.coverage[iA]).toBe(output.coverage[iB]);
+    expect(output.glyph[iA]).toBe(output.glyph[iB]);
+    expect(output.color[iA]).toBe(output.color[iB]);
+  });
+
+  it("matrix-rain volumetric (space: \"object\") is invariant to the mesh's world position/rotation — only objectPosition drives it", () => {
+    // The SAME objectPosition buffer, evaluated twice with completely
+    // different (irrelevant) worldPosition buffers standing in for two
+    // different mesh rotations, must produce byte-identical output: the
+    // volumetric branch never reads worldPosition.
+    const cols = 12, rows = 6, length = cols * rows;
+    const objectPosition = new Float32Array(length * 3);
+    for (let i = 0; i < length; i++) {
+      objectPosition[i * 3] = (i % cols) - cols / 2;
+      objectPosition[i * 3 + 1] = Math.floor(i / cols) - rows / 2;
+      objectPosition[i * 3 + 2] = Math.sin(i) * 2;
+    }
+    const worldA = new Float32Array(length * 3).fill(1);
+    const worldB = new Float32Array(length * 3).fill(-99);
+    const params = {
+      space: "object",
+      direction: "down",
+      time: 1.1,
+      speedMin: 2,
+      speedMax: 8,
+      density: 0.8,
+      trail: 5,
+      seed: 42,
+      scale: 1.5,
+    };
+    const outputA = evaluate(matrixRain, params, { objectPosition, worldPosition: worldA });
+    const outputB = evaluate(matrixRain, params, { objectPosition, worldPosition: worldB });
+
+    expect(outputA.glyph).toEqual(outputB.glyph);
+    expect(Array.from(outputA.color)).toEqual(Array.from(outputB.color));
+    expect(Array.from(outputA.coverage)).toEqual(Array.from(outputB.coverage));
   });
 
   it("moves Matrix strands toward lower world Z at a constant lane speed", () => {

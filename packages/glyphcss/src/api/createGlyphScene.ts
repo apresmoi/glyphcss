@@ -373,6 +373,11 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
   return polygons.map((p) => ({
     ...p,
     vertices: p.vertices.map(transformVertex),
+    // Pre-transform positions, parallel to the new `vertices` — recovers the
+    // mesh's own local frame for `space: "object"` effects without an
+    // inverse-matrix pass. `p.vertices` is never mutated above (`.map`
+    // returns a fresh array), so aliasing it here is safe and free.
+    objectVertices: p.vertices,
   }));
 }
 
@@ -466,7 +471,7 @@ export function createGlyphScene(
     return effectLayers.length > 0;
   }
 
-  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition"): boolean {
+  function effectRequests(requirement: "baseShade" | "normal" | "worldPosition" | "objectPosition"): boolean {
     return effectLayers.some((layer) => (
       !layer.disposed && (
         layer.program.requirements?.includes(requirement) === true
@@ -760,6 +765,7 @@ export function createGlyphScene(
     const retainBaseShade = effectsActive && effectRequests("baseShade");
     const retainWorldPosition = effectsActive && effectRequests("worldPosition");
     const retainNormal = effectsActive && effectRequests("normal");
+    const retainObjectPosition = effectsActive && effectRequests("objectPosition");
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -825,6 +831,7 @@ export function createGlyphScene(
       retainShade: retainBaseShade,
       retainWorldPosition,
       retainNormal,
+      retainObjectPosition,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
@@ -888,6 +895,7 @@ export function createGlyphScene(
       retainBaseShade,
       retainWorldPosition,
       retainNormal,
+      retainObjectPosition,
       worldToSceneScale,
       semanticLineage,
       globalPolygonOffsets,
@@ -1088,6 +1096,7 @@ export function createGlyphScene(
     retainBaseShade: boolean,
     retainWorldPosition: boolean,
     retainNormal: boolean,
+    retainObjectPosition: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
@@ -1264,6 +1273,7 @@ export function createGlyphScene(
           retainShade: retainBaseShade,
           retainWorldPosition,
           retainNormal,
+          retainObjectPosition,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = textureSamplers;

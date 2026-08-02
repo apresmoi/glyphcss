@@ -170,7 +170,9 @@ When a face normal is parallel to world `-Z`, the projection has zero length, so
 that plane receives a deterministic pseudo-random in-plane direction. `up`
 reverses the generated flow; `left` and `right` use its perpendicular lane axis.
 If surface fields are unavailable, the effect falls back to canonical projected
-scene coordinates. Choose `"scene"` to force projected mapping.
+scene coordinates. Choose `"scene"` to force projected mapping. Choose
+`"object"` for a volumetric mesh-local mapping instead of a per-face one — see
+[`space: "object"`](#space-object--volumetric-mapping) below.
 The `scale` parameter controls pattern frequency without changing scene glyph
 density. Text effects accept printable, single-cell sets such as `HOLA`,
 `⣿⠿⠷`, `ᚠᚢᚦ`, or `←↑→↓`; combining marks, emoji, and double-width glyphs are
@@ -190,6 +192,48 @@ the `Original head color` and fades its tail toward black — the classic
 head-to-tail falling-code gradient — while the retained surface shade still
 modulates brightness, so lighting, shadows, texture luminance, and the 3D
 silhouette remain visible.
+
+### `space: "object"` — volumetric mapping
+
+`"auto"`/`"surface"` give every polygon its own 2D parameterization (a cube's
+caps use one axis pair, its walls another), so faces cannot agree on one flow
+and a face turned edge-on to its own projection plane gets an exploding UV
+gradient — visible as Matrix rain losing cohesion or smearing into fuzz as a
+mesh rotates. `space: "object"` fixes this by stopping the pattern from being
+painted per-face at all: it becomes a **field filling the mesh's volume**,
+sampled at each covered cell's position in the mesh's own pre-transform 3D
+frame. Faces become windows into the same body of rain, so they agree by
+construction, and rotating the mesh turns the object through a field that
+stays put relative to it — no seams, no per-face blend weights, no stretch.
+
+Matrix rain has a natural 3D form and uses this **volumetric** formulation
+directly: strand lanes are indexed by the two mesh-local axes perpendicular to
+`direction` (object `X`/`Z` for `down`/`up`, object `Y`/`Z` for `left`/`right`),
+and the strand's phase runs along the remaining axis. A cap cell and an
+adjacent wall cell read the same underlying `(x, y, z)` at their shared edge,
+so the same strands continue across the seam instead of restarting.
+
+`scan` and `flow-text` are inherently 2D effects with no 3D form of their own
+(a scan band, a line of reading text), so `space: "object"` gives them a
+**triplanar** fallback instead: each covered cell projects onto whichever of
+the three axis-aligned planes its face normal most faces (X-facing reads
+`(y, z)`, Y-facing reads `(x, z)`, Z-facing reads `(x, y)`), blended by
+`normalize(|normal|^4)`. The exponent (`4`) is the seam-vs-mush knob: `1`
+blends across a wide band around each normal transition (visible double-vision
+where two projections disagree), while a much higher exponent collapses
+toward a hard per-axis seam; `4` is the conventional triplanar starting point
+that keeps the blend narrow without a visible seam line.
+
+`space: "object"` requires the retained `objectPosition` cell field, which
+only exists in solid mode (hard surface requirements are solid-mode-only, same
+as `worldPosition`/`normal`/`uv0`). In wireframe/voxel modes it degrades to
+the same generated-surface/scene fallback `"surface"` already uses when its
+own optional inputs are unavailable — never a silent empty render.
+
+`scale` means something different under `"object"`: a 3D field frequency
+rather than a 2D UV-domain frequency. A `scale` tuned for `"auto"`/`"surface"`
+on a given mesh will not carry over 1:1 to `"object"` on the same mesh —
+re-tune it after switching mapping.
 
 ## Field synth
 

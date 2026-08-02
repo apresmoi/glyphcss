@@ -1129,6 +1129,7 @@ function rasterizeSolid(
       depth: Float64Array;
       shade: Float32Array | null;
       world: Float32Array | null;
+      objectPos: Float32Array | null;
       normal: Float32Array | null;
       surfaceUv: Float32Array | null;
       winnerPolygon: Int32Array | null;
@@ -1145,6 +1146,7 @@ function rasterizeSolid(
       depth: new Float64Array(n),
       shade: null,
       world: null,
+      objectPos: null,
       normal: null,
       surfaceUv: null,
       winnerPolygon: null,
@@ -1175,6 +1177,19 @@ function rasterizeSolid(
     if (!scratch.world || scratch.world.length !== n * 3) scratch.world = new Float32Array(n * 3);
     worldPosBuf = scratch.world;
     worldPosBuf.fill(NaN);
+  }
+  // Object-space position: same shape as worldPosBuf but interpolated against
+  // each polygon's PRE-transform vertices (`objectVertices`, falling back to
+  // `vertices` for untransformed meshes where the two frames coincide). Never
+  // driven by `reproject` — that TAA reprojection is inherently a WORLD-space
+  // concern — so this buffer is allocated ONLY when an effect's requirement
+  // asked for it (`scene.retainObjectPosition`), unlike worldPosBuf which is
+  // also forced on by temporal reprojection.
+  let objectPosBuf: Float32Array | null = null;
+  if (scene.retainObjectPosition) {
+    if (!scratch.objectPos || scratch.objectPos.length !== n * 3) scratch.objectPos = new Float32Array(n * 3);
+    objectPosBuf = scratch.objectPos;
+    objectPosBuf.fill(NaN);
   }
   let normalBuf: Float32Array | null = null;
   if (scene.retainNormal) {
@@ -1292,6 +1307,8 @@ function rasterizeSolid(
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
     if (verts.length < 3) continue;
+    // Pre-transform vertices, parallel to `verts` — see `objectPosBuf`.
+    const objVerts = poly.objectVertices ?? verts;
     // Consumer-driven cull (e.g. BSP PVS): a hidden polygon is skipped before any
     // projection/shading/scan-fill. `triT` must still advance by this polygon's
     // triangle count so the positional cross-frame shadeCache stays aligned when
@@ -1317,6 +1334,9 @@ function rasterizeSolid(
       const v0 = verts[vi0]! as Vec3;
       const v1 = verts[vi1]! as Vec3;
       const v2 = verts[vi2]! as Vec3;
+      const ov0 = objVerts[vi0]! as Vec3;
+      const ov1 = objVerts[vi1]! as Vec3;
+      const ov2 = objVerts[vi2]! as Vec3;
 
       const pa = projScratch[vi0]!;
       const pb = projScratch[vi1]!;
@@ -1500,6 +1520,7 @@ function rasterizeSolid(
           makeShadowCtx(v0, v1, v2, receiveShadow),
           doubleSided,
           v0, v1, v2, worldPosBuf,
+          ov0, ov1, ov2, objectPosBuf,
           fnxN, fnyN, fnzN, normalBuf,
           surfaceUvCtx, surfaceUvBuf,
           depthEpsilon,
@@ -1517,9 +1538,14 @@ function rasterizeSolid(
         // normal, colour and shading are unchanged by clipping; only positions
         // and per-vertex intensities are interpolated at the crossings.
         const cw: Vec3[] = [];
+        // Clipped OBJECT-space verts, parallel to `cw` — same `e`/`t` crossings,
+        // interpolated against `objTri` instead of `tri`, so a straddling
+        // triangle's object position stays correct under near-plane clipping.
+        const cow: Vec3[] | null = objectPosBuf ? [] : null;
         const ci: number[] = [];
         const cuv: Vec2[] | null = polyUvs ? [] : null;
         const tri: Vec3[] = [v0, v1, v2];
+        const objTri: Vec3[] = [ov0, ov1, ov2];
         const triI = [iA, iB, iC];
         const triUv: [Vec2, Vec2, Vec2] | null = polyUvs
           ? [polyUvs[vi0]!, polyUvs[vi1]!, polyUvs[vi2]!]
@@ -1534,6 +1560,7 @@ function rasterizeSolid(
           const dn = triD[n]!;
           if (de > 0) {
             cw.push(tri[e]!);
+            if (cow) cow.push(objTri[e]!);
             ci.push(triI[e]!);
             if (cuv && triUv) cuv.push(triUv[e]!);
           }
@@ -1545,6 +1572,14 @@ function rasterizeSolid(
               ve[1] + t * (vn[1] - ve[1]),
               ve[2] + t * (vn[2] - ve[2]),
             ] as Vec3);
+            if (cow) {
+              const oe = objTri[e]!, on = objTri[n]!;
+              cow.push([
+                oe[0] + t * (on[0] - oe[0]),
+                oe[1] + t * (on[1] - oe[1]),
+                oe[2] + t * (on[2] - oe[2]),
+              ] as Vec3);
+            }
             ci.push(triI[e]! + t * (triI[n]! - triI[e]!));
             if (cuv && triUv) {
               const ue = triUv[e]!, un = triUv[n]!;
@@ -1578,6 +1613,7 @@ function rasterizeSolid(
               makeShadowCtx(cw[0]!, cw[f]!, cw[f + 1]!, receiveShadow),
               doubleSided,
               cw[0]!, cw[f]!, cw[f + 1]!, worldPosBuf,
+              cow ? cow[0]! : ov0, cow ? cow[f]! : ov1, cow ? cow[f + 1]! : ov2, objectPosBuf,
               fnxN, fnyN, fnzN, normalBuf,
               clippedUvCtx, surfaceUvBuf,
               depthEpsilon,
@@ -1629,6 +1665,11 @@ function rasterizeSolid(
             worldPosBuf[idx * 3 + 1] = NaN;
             worldPosBuf[idx * 3 + 2] = NaN;
           }
+          if (objectPosBuf) {
+            objectPosBuf[idx * 3] = NaN;
+            objectPosBuf[idx * 3 + 1] = NaN;
+            objectPosBuf[idx * 3 + 2] = NaN;
+          }
           if (normalBuf) {
             normalBuf[idx * 3] = NaN;
             normalBuf[idx * 3 + 1] = NaN;
@@ -1654,6 +1695,7 @@ function rasterizeSolid(
   let finalDepth = depthBuf;
   let finalShade: Float32Array | null = shadeBuf;
   let finalWorldPos: Float32Array | null = worldPosBuf;
+  let finalObjectPos: Float32Array | null = objectPosBuf;
   let finalNormal: Float32Array | null = normalBuf;
   let finalSurfaceUv: Float32Array | null = surfaceUvBuf;
   let finalWinnerPolygon: Int32Array | null = winnerPolygonBuf;
@@ -1686,6 +1728,7 @@ function rasterizeSolid(
       outRows,
       supersample,
       ramp,
+      objectPosBuf,
     );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
@@ -1697,6 +1740,7 @@ function rasterizeSolid(
     finalWinnerPolygon = ds.winnerPolygon;
     finalAlbedoRgb = ds.albedoRgb;
     finalTargetRgb = ds.targetRgb;
+    finalObjectPos = ds.objectPos;
   }
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
@@ -1713,6 +1757,7 @@ function rasterizeSolid(
       finalWinnerPolygon,
       finalAlbedoRgb,
       finalTargetRgb,
+      finalObjectPos,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -1851,6 +1896,7 @@ function downsampleSolid(
   outRows: number,
   S: number,
   ramp: string[],
+  objectPosIn: Float32Array | null = null,
 ): {
   glyphBuf: string[];
   colorBuf: (string | null)[] | null;
@@ -1862,6 +1908,7 @@ function downsampleSolid(
   winnerPolygon: Int32Array | null;
   albedoRgb: Uint32Array | null;
   targetRgb: Uint32Array | null;
+  objectPos: Float32Array | null;
 } {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
@@ -1878,6 +1925,7 @@ function downsampleSolid(
   const owinner: Int32Array | null = winnerPolygonIn ? new Int32Array(outCols * outRows).fill(-1) : null;
   const oalbedo: Uint32Array | null = albedoRgbIn ? new Uint32Array(outCols * outRows) : null;
   const otarget: Uint32Array | null = targetRgbIn ? new Uint32Array(outCols * outRows) : null;
+  const oobj: Float32Array | null = objectPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
     for (let ox = 0; ox < outCols; ox++) {
@@ -1930,9 +1978,14 @@ function downsampleSolid(
       if (owinner && representative >= 0) owinner[oi] = winnerPolygonIn![representative]!;
       if (oalbedo && representative >= 0) oalbedo[oi] = albedoRgbIn![representative]!;
       if (otarget && representative >= 0) otarget[oi] = targetRgbIn![representative]!;
+      if (oobj && representative >= 0) {
+        oobj[oi * 3] = objectPosIn![representative * 3]!;
+        oobj[oi * 3 + 1] = objectPosIn![representative * 3 + 1]!;
+        oobj[oi * 3 + 2] = objectPosIn![representative * 3 + 2]!;
+      }
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj };
 }
 
 /**
@@ -2262,6 +2315,12 @@ function scanFillTriangle(
   // (used by reprojection TAA). `worldPosBuf` is null when not needed.
   wv0: Vec3, wv1: Vec3, wv2: Vec3,
   worldPosBuf: Float32Array | null,
+  // Pre-transform (mesh-local) triangle verts + output buffer for per-cell
+  // object position (`space: "object"` effects). Same interpolation as
+  // wv0/wv1/wv2 → worldPosBuf, just against the mesh's own frame. Null when
+  // not requested.
+  ov0: Vec3, ov1: Vec3, ov2: Vec3,
+  objectPosBuf: Float32Array | null,
   normalX: number, normalY: number, normalZ: number,
   normalBuf: Float32Array | null,
   surfaceUv: ScanFillSurfaceUvCtx | null,
@@ -2295,7 +2354,7 @@ function scanFillTriangle(
   const ccw = area2 > 0;
   const perspectiveAttributes = aq !== 1 || bq !== 1 || cq !== 1;
   const interpolatePerspective = perspectiveAttributes
-    && (worldPosBuf !== null || surfaceUvBuf !== null || tex !== null || sh !== null);
+    && (worldPosBuf !== null || objectPosBuf !== null || surfaceUvBuf !== null || tex !== null || sh !== null);
 
   // Bounding box clamped to grid.
   let minX = ax < bx ? ax : bx; if (cx < minX) minX = cx;
@@ -2350,6 +2409,18 @@ function scanFillTriangle(
             worldPosBuf[o] = (wA * wv0[0]! + wB * wv1[0]! + wC * wv2[0]!) * invArea2;
             worldPosBuf[o + 1] = (wA * wv0[1]! + wB * wv1[1]! + wC * wv2[1]!) * invArea2;
             worldPosBuf[o + 2] = (wA * wv0[2]! + wB * wv1[2]! + wC * wv2[2]!) * invArea2;
+          }
+        }
+        if (objectPosBuf !== null) {
+          const o = idx * 3;
+          if (perspectiveAttributes) {
+            objectPosBuf[o] = (wA * aq * ov0[0]! + wB * bq * ov1[0]! + wC * cq * ov2[0]!) * invQ;
+            objectPosBuf[o + 1] = (wA * aq * ov0[1]! + wB * bq * ov1[1]! + wC * cq * ov2[1]!) * invQ;
+            objectPosBuf[o + 2] = (wA * aq * ov0[2]! + wB * bq * ov1[2]! + wC * cq * ov2[2]!) * invQ;
+          } else {
+            objectPosBuf[o] = (wA * ov0[0]! + wB * ov1[0]! + wC * ov2[0]!) * invArea2;
+            objectPosBuf[o + 1] = (wA * ov0[1]! + wB * ov1[1]! + wC * ov2[1]!) * invArea2;
+            objectPosBuf[o + 2] = (wA * ov0[2]! + wB * ov1[2]! + wC * ov2[2]!) * invArea2;
           }
         }
         if (normalBuf !== null) {
@@ -2655,6 +2726,8 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.winnerPolygon ?? null,
       g.albedoRgb ?? null,
       g.targetRgb ?? null,
+      undefined,
+      g.objectPosition ?? null,
     );
   };
   rasterize({

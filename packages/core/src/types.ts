@@ -107,6 +107,19 @@ export interface Polygon {
   /** N coplanar vertices in 3D space, CCW winding from outside. */
   vertices: Vec3[];
   /**
+   * Renderer-internal, pre-transform vertex positions parallel to
+   * `vertices` (same length, same winding/order) — the mesh's own local
+   * frame BEFORE `applyTransform` bakes rotation/scale/position into
+   * `vertices`. Set by glyphcss when a mesh carries a non-identity
+   * transform; absent (falls back to `vertices`) for untransformed meshes,
+   * where object space and world space coincide. Consumers barycentric-
+   * interpolate this the same way they interpolate `vertices` to recover a
+   * depth-winning cell's position in the mesh's own 3D frame (`space:
+   * "object"` effects) without re-deriving an inverse transform.
+   * @internal
+   */
+  objectVertices?: Vec3[];
+  /**
    * Solid base color. Falls back to "#cccccc" when neither color nor
    * texture is set.
    */

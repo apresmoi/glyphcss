@@ -185,6 +185,11 @@ export interface RasterizeContextOptions {
   /** Retain depth-winning geometric face normals for an effect input. */
   retainNormal?: boolean;
   /**
+   * Retain depth-winning positions in each mesh's own pre-transform 3D frame
+   * for an effect input (`space: "object"`).
+   */
+  retainObjectPosition?: boolean;
+  /**
    * Retain the positional source-polygon index that won each solid cell.
    * `-1` marks an empty cell. This is an opaque lookup key for durable control
    * capture; it is not a semantic label and is never allocated by default.
@@ -288,6 +293,8 @@ export interface RasterizeContext {
   retainWorldPosition?: boolean;
   /** Retain depth-winning geometric face normals for an effect input. */
   retainNormal?: boolean;
+  /** Retain depth-winning pre-transform (mesh-local) positions for an effect input. */
+  retainObjectPosition?: boolean;
   /** Retain the positional source-polygon winner for durable control capture. */
   retainWinnerPolygon?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
@@ -355,6 +362,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainShade: opts.retainShade ?? false,
     retainWorldPosition: opts.retainWorldPosition ?? false,
     retainNormal: opts.retainNormal ?? false,
+    retainObjectPosition: opts.retainObjectPosition ?? false,
     retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
     retainAlbedoRgb: opts.retainAlbedoRgb ?? false,
     retainTargetRgb: opts.retainTargetRgb ?? false,

@@ -74,7 +74,20 @@ export interface GeneratedSurfaceField {
 // Exported so a build-time exporter (see `staticExport.ts`) can resolve the
 // SAME domain coordinate a mounted effect layer's `evaluate()` reads, instead
 // of re-deriving the surface-basis / coplanar-group math by hand.
-export type EffectSpace = "auto" | "surface" | "scene";
+export type EffectSpace = "auto" | "surface" | "scene" | "object";
+
+// Triplanar blend sharpness for the "object"-space 2D fallback (`scan`,
+// `wipe`-adjacent, `flow-text`). Each covered cell projects onto whichever of
+// the three axis-aligned planes its face normal most faces, blended by
+// `normalize(|n|^TRIPLANAR_K)`. K=4 is the conventional starting point for
+// triplanar blending (id-tech/Sequoia-style shaders): K=1 blends across a
+// wide band around each 45°-ish normal transition (visible double-vision
+// "mush" where two projections disagree), while a much higher K collapses
+// toward a hard per-axis seam (the K→∞ limit is a discontinuous 3-way
+// nearest-axis pick). K=4 keeps the transition narrow — most cells commit
+// fully to one plane — while still blending the handful of cells whose
+// normal sits close to a plane diagonal, so there is no visible seam line.
+const TRIPLANAR_K = 4;
 type EffectDirection = "down" | "up" | "right" | "left";
 const GENERATED_SURFACE_PITCH = 4;
 const generatedSurfaceFieldCache = new WeakMap<object, GeneratedSurfaceField>();
@@ -480,6 +493,42 @@ export function generatedSurfaceField<P extends AnyParams>(context: AnyContext<P
   return field;
 }
 
+// `space: "object"` triplanar fallback for the 2D-domain effects (`scan`,
+// `flow-text`) — see the `TRIPLANAR_K` comment for the blend rationale.
+// Blends the axis-plane 2D COORDINATES (not a sampled scalar): the caller
+// only ever reads a coordinate out of `domainCoordinate`, so this is the
+// cheap "triplanar UV" approximation rather than full triplanar texture
+// blending. `matrix-rain` does NOT go through this path — it has a natural
+// 3D form (falling strands) and uses the volumetric object-space
+// formulation directly in its own `evaluate()` instead.
+function triplanarObjectCoordinate<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  scale: number,
+): readonly [number, number, number, number, number, number] | null {
+  const op = context.base.objectPosition;
+  if (!op) return null;
+  const x = op[index * 3]!, y = op[index * 3 + 1]!, z = op[index * 3 + 2]!;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  const nrm = context.base.normal;
+  let nx = 0, ny = 0, nz = 1;
+  if (nrm) {
+    const rnx = nrm[index * 3]!, rny = nrm[index * 3 + 1]!, rnz = nrm[index * 3 + 2]!;
+    if (Number.isFinite(rnx) && Number.isFinite(rny) && Number.isFinite(rnz)) { nx = rnx; ny = rny; nz = rnz; }
+  }
+  const wxRaw = Math.pow(Math.abs(nx), TRIPLANAR_K);
+  const wyRaw = Math.pow(Math.abs(ny), TRIPLANAR_K);
+  const wzRaw = Math.pow(Math.abs(nz), TRIPLANAR_K);
+  const wSum = wxRaw + wyRaw + wzRaw;
+  const wx = wSum > 1e-9 ? wxRaw / wSum : 1 / 3;
+  const wy = wSum > 1e-9 ? wyRaw / wSum : 1 / 3;
+  const wz = wSum > 1e-9 ? wzRaw / wSum : 1 / 3;
+  // X-facing plane reads (y, z); Y-facing reads (x, z); Z-facing reads (x, y).
+  const u = (wx * y + wy * x + wz * x) * scale;
+  const v = (wx * z + wy * z + wz * y) * scale;
+  return [u, v, 1, 0, 0, 1];
+}
+
 function domainCoordinate<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
@@ -489,6 +538,13 @@ function domainCoordinate<P extends AnyParams>(
   generatedSurface?: GeneratedSurfaceField | null,
 ): readonly [number, number, number, number, number, number] | null {
   if (space !== "scene") {
+    if (space === "object") {
+      const triplanar = triplanarObjectCoordinate(context, index, scale);
+      if (triplanar) return triplanar;
+      // No objectPosition on this cell (wireframe/voxel mode, or empty cell):
+      // degrade to the same generated-surface / scene fallback `"surface"`
+      // already uses when its own optional inputs are unavailable.
+    }
     if (space === "auto" && uvBounds && context.base.uv0) {
       const u = context.base.uv0[index * 2]!;
       const v = context.base.uv0[index * 2 + 1]!;
@@ -613,7 +669,7 @@ const timeSpec = {
 const spaceSpec = {
   kind: "string",
   default: "auto",
-  values: ["auto", "surface", "scene"],
+  values: ["auto", "surface", "scene", "object"],
   animation: "discrete",
   label: "Mapping",
 } as const;
@@ -657,6 +713,36 @@ const matrixRainSchema = {
   headColor: { kind: "color", default: "#d8ffe4", label: "Original head color" },
 } as const satisfies GlyphEffectParamSchema;
 
+// Volumetric `space: "object"` formulation for matrix rain: the pattern
+// fills the mesh's own 3D volume — `f(x, z, y - t)` — instead of painting
+// per-face UVs, so faces are just windows into the same body of rain and
+// rotating the mesh turns the object through a field that stays put
+// relative to it. "down"/"up" fall along the mesh's own Y (lanes keyed by
+// X, Z); "left"/"right" fall along X (lanes keyed by Y, Z), so the same
+// volumetric field also reads correctly on a mesh authored sideways. A cap
+// cell and an adjacent wall cell sample the SAME (x, y, z) at their shared
+// edge, so they agree by construction — no per-face seam, no UV-gradient
+// blowup on a face turned edge-on to the camera.
+function objectVolumetricAlongLane<P extends AnyParams>(
+  context: AnyContext<P>,
+  index: number,
+  direction: EffectDirection,
+  scale: number,
+): { along: number; lane: number } | null {
+  const op = context.base.objectPosition;
+  if (!op) return null;
+  const x = op[index * 3]!, y = op[index * 3 + 1]!, z = op[index * 3 + 2]!;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  const horizontal = direction === "left" || direction === "right";
+  const along = (horizontal ? (direction === "right" ? x : -x) : (direction === "down" ? y : -y)) * scale;
+  const lane0 = horizontal ? y : x;
+  const lane1 = z;
+  // Combine the 2D lane key (the two axes perpendicular to flow) into the
+  // single integer `hash2(lane, seed)` below expects.
+  const lane = hash2(Math.floor(lane0 * scale), Math.floor(lane1 * scale)) | 0;
+  return { along, lane };
+}
+
 export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
   id: "matrix-rain",
   version: 1,
@@ -665,7 +751,7 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
   defaultBlend: "replace",
   parameterSchema: matrixRainSchema,
   program: {
-    optionalRequirements: ["baseShade", "normal", "worldPosition", "uv0"],
+    optionalRequirements: ["baseShade", "normal", "worldPosition", "objectPosition", "uv0"],
     validateParams(params) {
       validateGlyphs(params);
       validatePositiveScale(params);
@@ -681,27 +767,45 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
       const parsedHead = parseGlyphEffectColor(params.headColor);
       const parsedColor = parseGlyphEffectColor(params.color);
       const monochrome = params.colorMode === "monochrome";
-      const generatedSurface = params.space !== "scene" && !(params.space === "auto" && uvBounds)
+      // Volumetric branch is all-or-nothing per render: `objectPosition` is
+      // either retained for every solid-mode cell or entirely absent (any
+      // other mode). Skip building the costly generated-surface fit when the
+      // volumetric path will actually be used — it only exists as this
+      // effect's degrade-to-`"surface"` path for wireframe/voxel modes.
+      const volumetric = params.space === "object" && !!context.base.objectPosition;
+      const generatedSurface = !volumetric && params.space !== "scene" && !(params.space === "auto" && uvBounds)
         ? generatedSurfaceField(context)
         : undefined;
       const fittedSurface = generatedSurface !== undefined && generatedSurface !== null;
+      const direction = params.direction as EffectDirection;
       for (let i = 0; i < context.base.length; i++) {
         if (context.target.coverage[i]! <= 0) continue;
-        const coordinate = domainCoordinate(
-          context,
-          i,
-          params.space as EffectSpace,
-          uvBounds,
-          params.scale,
-          generatedSurface,
-        );
-        if (!coordinate) continue;
-        const direction = params.direction as EffectDirection;
-        const [along, across] = fittedSurface
-          ? projectedSurfaceDirection(coordinate, direction)
-          : directed(coordinate[0], coordinate[1], direction);
-        const glyphsPerPatternCell = fittedSurface ? 1 / params.scale : 1;
-        const lane = Math.floor(across);
+        let along: number;
+        let lane: number;
+        let glyphsPerPatternCell: number;
+        if (volumetric) {
+          const v = objectVolumetricAlongLane(context, i, direction, params.scale);
+          if (!v) continue;
+          along = v.along;
+          lane = v.lane;
+          glyphsPerPatternCell = 1 / params.scale;
+        } else {
+          const coordinate = domainCoordinate(
+            context,
+            i,
+            params.space as EffectSpace,
+            uvBounds,
+            params.scale,
+            generatedSurface,
+          );
+          if (!coordinate) continue;
+          const [alongC, acrossC] = fittedSurface
+            ? projectedSurfaceDirection(coordinate, direction)
+            : directed(coordinate[0], coordinate[1], direction);
+          along = alongC;
+          lane = Math.floor(acrossC);
+          glyphsPerPatternCell = fittedSurface ? 1 / params.scale : 1;
+        }
         const seed = hash2(lane, Math.floor(params.seed));
         if ((seed & 0xffff) / 0x1_0000 >= params.density) continue;
         const speedUnit = ((seed >>> 16) & 0xffff) / 0xffff;
@@ -761,7 +865,7 @@ export const flowText: GlyphStockEffectDefinition<typeof flowTextSchema> = {
   defaultBlend: "replace",
   parameterSchema: flowTextSchema,
   program: {
-    optionalRequirements: ["normal", "worldPosition", "uv0"],
+    optionalRequirements: ["normal", "worldPosition", "objectPosition", "uv0"],
     validateParams(params) {
       validateGlyphs(params);
       validatePositiveScale(params);
@@ -802,7 +906,7 @@ export const scan: GlyphStockEffectDefinition<typeof scanSchema> = {
   defaultBlend: "over",
   parameterSchema: scanSchema,
   program: {
-    optionalRequirements: ["normal", "worldPosition", "uv0"],
+    optionalRequirements: ["normal", "worldPosition", "objectPosition", "uv0"],
     validateParams(params) { validatePositiveScale(params); },
     evaluate(context) {
       const { params } = context;

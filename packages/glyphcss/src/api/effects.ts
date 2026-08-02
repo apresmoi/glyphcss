@@ -99,6 +99,15 @@ export interface GlyphEffectFrameView extends GlyphEffectImageView {
   readonly depth?: GlyphReadonlyNumberArray;
   readonly normal?: GlyphReadonlyNumberArray;
   readonly worldPosition?: GlyphReadonlyNumberArray;
+  /**
+   * Interleaved depth-winning positions in the mesh's own pre-transform 3D
+   * frame (`[x0, y0, z0, ...]`), NaN for empty cells. Requested via the
+   * `"objectPosition"` requirement (`space: "object"` effects) — unlike
+   * `worldPosition`, this stays fixed relative to the mesh as it rotates,
+   * so a program sampling it treats the mesh as a volume the pattern fills
+   * rather than a per-face UV surface.
+   */
+  readonly objectPosition?: GlyphReadonlyNumberArray;
   readonly surfaceKey?: GlyphReadonlyNumberArray;
   readonly uv0?: GlyphReadonlyNumberArray;
 }
@@ -188,6 +197,7 @@ export type GlyphEffectRequirement =
   | "depth"
   | "normal"
   | "worldPosition"
+  | "objectPosition"
   | "surfaceKey"
   | "uv0"
   | "uv0Footprint";
