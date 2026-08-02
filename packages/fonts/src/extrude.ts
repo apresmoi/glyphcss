@@ -590,6 +590,30 @@ function withWinding(c: Contour, ccw: boolean): Contour {
   return positive === ccw ? c : c.slice().reverse();
 }
 
+/** Proper segment intersection (excludes shared/collinear touches at a
+ * tolerance) — a crossing, not a tangential touch. */
+function segmentsCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
+  const d1 = turn(c, d, a);
+  const d2 = turn(c, d, b);
+  const d3 = turn(a, b, c);
+  const d4 = turn(a, b, d);
+  const eps = 1e-9;
+  if (Math.abs(d1) < eps || Math.abs(d2) < eps || Math.abs(d3) < eps || Math.abs(d4) < eps) return false;
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
+}
+
+/** Do two contour boundaries actually cross anywhere (not just touch)? */
+function contoursCross(a: Contour, b: Contour): boolean {
+  for (let i = 0; i < a.length; i++) {
+    const a0 = a[i];
+    const a1 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      if (segmentsCross(a0, a1, b[j], b[(j + 1) % b.length])) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Group contours into filled shapes with holes by nesting depth (even depth =
  * filled, odd = hole of its immediate parent), independent of font winding.
@@ -608,7 +632,21 @@ export function groupShapes(contours: Contour[]): Shape[] {
     let bestArea = Infinity;
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
-      if (pointInPolygon(probe, valid[j])) {
+      // A single probe-point-in-polygon test only proves true containment
+      // when the two boundaries never cross. Some TrueType sources (notably
+      // hinted/autohinted Google Fonts static instances) draw a glyph as
+      // several simple contours meant to be combined by the nonzero winding
+      // fill rule — e.g. an "h" as a separate stem rectangle plus an
+      // arch+leg contour that overlap without either nesting inside the
+      // other. Contour i's first vertex can still land inside contour j by
+      // coincidence of that overlap, which would wrongly turn j into a
+      // "hole" subtracted from a shape it isn't actually contained by —
+      // earcut then triangulates a hole that pokes outside its outer
+      // boundary, producing a cap whose edges don't match the (correctly
+      // built) extrusion walls: a non-watertight mesh. Requiring the
+      // boundaries to never cross before counting containment routes this
+      // case to the overlap-union fallback below instead.
+      if (pointInPolygon(probe, valid[j]) && !contoursCross(valid[i], valid[j])) {
         depth[i]++;
         const a = Math.abs(signedArea(valid[j]));
         if (a < bestArea) {
