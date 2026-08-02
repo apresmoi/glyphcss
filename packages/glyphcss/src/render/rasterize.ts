@@ -241,74 +241,91 @@ function wireframeVisibleAtCell(
 }
 
 /**
- * `hiddenLines: "hide"` for `mode: "ink"`: hide a kept silhouette/crease EDGE
- * only when EVERY sampled point along it fails the per-sample depth test
- * (`wireframeVisibleAtCell`, the same surface-depth prepass and slope-scaled
- * bias wireframe HLR already ships). This is deliberately per-EDGE, not
- * per-sample like the two prior attempts recorded in
- * `research/contour-first-text/decisions.md` (2026-08-02 entries): a flat
- * bias and a slope-scaled bias both ate 38-46% of a sphere's silhouette
- * because ink draws exactly ONE non-redundant stroke per cell — any
- * per-sample hole is visible with no neighbor edge to backfill it, unlike
- * wireframe's many overlapping mesh edges.
+ * `hiddenLines: "hide"` for `mode: "ink"` (third design — see
+ * `research/contour-first-text/decisions.md`, 2026-08-02 entries, for the two
+ * ruled-out bias-based attempts this replaces). Both prior attempts fought
+ * SELF-occlusion with a depth-test margin (flat, then slope-scaled): a
+ * sphere's silhouette lies ON the sphere, so the surface occludes its own
+ * outline, and any bias large enough to prevent that ate 38-46% of the
+ * silhouette anyway — a margin can't tell "this edge's own tangent face" from
+ * "a genuinely nearer, different surface" because both look like "a surface
+ * at roughly this depth".
  *
- * A grazing silhouette edge lies ON the surface it outlines, so it sits at
- * essentially the surface's own depth at every sample along its length — the
- * same triangle whose boundary it is contributes that surface depth, so the
- * per-sample test passes (visible) at least once, usually everywhere. A
- * genuinely occluded extrusion side wall sits behind the front cap by a real,
- * roughly uniform margin at every sample along its whole length. Requiring
- * ALL samples to fail turns that geometric difference into an all-or-nothing
- * decision per edge: a silhouette edge needs only one surviving sample to stay
- * fully visible, so it cannot be partially eaten; a hidden wall has no
- * samples to survive on, so it drops as a whole segment instead of leaving a
- * gap mid-stroke.
+ * The fix is identity, not margin — the same principle as excluding the
+ * caster from its own shadow map. `buildInkOcclusionMap` rasterizes every ink
+ * triangle into a depth+id buffer (id = triangle index, reusing
+ * `fillDepthTri` exactly as `computeOcclusionIds` does for cross-layer
+ * occlusion). A stroke sample is hidden only when a DIFFERENT triangle wins
+ * that cell AND that winner is strictly nearer than the sample — never when
+ * the winner is one of the edge's own adjacent faces (recorded per kept edge
+ * as `faceIds`, 1 for a boundary edge, 2 for a silhouette/crease).
  *
- * Samples the edge in WORLD space (correct under perspective, unlike lerping
- * screen-space endpoints) at a fixed count — the decision only needs to catch
- * "every sample failed", so more samples than the edge's own screen length
- * would just be redundant along a straight world-space segment. Measured in
- * `research/contour-first-text/experiments/12-ink-edge-hlr-sweep.mjs`: 6, 10,
- * 16, and 24 samples all converge to the exact same kept/hidden edge set on
- * both the convex-mesh regression suite and the extruded-text repro, so 6 is
- * not under-sampling — it is already past the point where more matters.
+ * A sphere silhouette sample's own adjacent triangles are exempt, so identity
+ * alone already prevents the coarse failure the prior attempts hit. It does
+ * NOT fully close the gap, though: a piecewise-flat mesh approximates a
+ * curved surface with CHORDS, so on a finely tessellated convex surface a
+ * non-adjacent triangle a vertex or two away can legitimately win the same
+ * screen cell's depth test by a tiny margin at a grazing angle — a
+ * discretization artifact, not a real occluder. `faceIds` (built by
+ * `edgeOwnFaceIds`) widens the exemption to a small vertex-topology
+ * neighborhood (`INK_HLR_RING` hops) to absorb that, and the residual margin
+ * is bounded by `depthGradient` (the same screen-space depth-slope probe
+ * `wireframeVisibleAtCell` uses) rather than a flat constant — a flat
+ * constant is scale-dependent (measured: fixed at world scale ~3 it rescues
+ * subdiv-3, but the SAME constant regresses a 10x-larger sphere in the same
+ * projection by -60%, reproducing the original flat-bias failure one scale
+ * away). The gradient term instead scales with the mesh's own local
+ * screen-space depth variation, so it stays proportionate across world scale
+ * and camera zoom. A letter's back/side wall is occluded by the front cap, a
+ * DIFFERENT triangle both outside the ring AND with a real depth gap far
+ * larger than the local gradient allowance — correctly hidden.
  *
- * `INK_HLR_BIAS`/`INK_HLR_SLOPE_SCALE` are ink's OWN constants, separate from
- * wireframe's `HLR_BIAS`/`HLR_SLOPE_SCALE` — same slope-scaled-bias formula
- * (`wireframeVisibleAtCell`), but a different per-edge, all-samples-must-fail
- * decision needs its own tuning. The same sweep found slope `0.5` (wireframe's
- * value) reproduces the sphere-eating failure at reduced but still real
- * magnitude even under the per-edge rule (subdiv 2 -7.7%, subdiv 3 -19.2%);
- * `1.5` reduces every convex case (cube/icosahedron/sphere subdiv 2 AND 3) to
- * exactly 0 while still catching the reported cross-letter/side-wall defect
- * (`Glyph\nCSS`, depth 80, curveSteps 4, turn -38 tilt 0.2: 1152 → 1130 inked
- * cells, -1.9%, with the interior tram-line clutter visibly gone). Bias magnitude
- * (`0.03` vs `0.06`/`0.1`) made no measurable difference once slope was 1.5 —
- * the gradient term does the work, exactly as it does for wireframe.
+ * Per-SAMPLE, not per-edge: with self-occlusion mostly handled by identity
+ * instead of margin, a per-sample test is finally safe (proven by the convex
+ * table in `rasterize.ink.hiddenlines.test.ts` and the research doc — cube,
+ * icosahedron, sphere subdiv 2 and 3 all hold to 0 delta, at five different
+ * world scales/projections). Per-sample is also strictly better fidelity than
+ * the old per-edge "all samples must fail" rule: a wall edge only PARTLY
+ * behind a cap now hides just the covered portion instead of drawing (or
+ * dropping) the whole segment.
+ *
+ * `INK_HLR_RING` / `INK_HLR_SLOPE_SCALE` were swept together (`research/
+ * contour-first-text/experiments/16-ink-identity-hlr-convex-table.mjs` and
+ * `17-ink-hlr-scale-invariance.mjs`) for the SMALLEST combination that holds
+ * cube/icosahedron/sphere(subdiv 2,3) to exactly 0 delta across five
+ * world-scale/projection combinations: `RING 1` (each edge's own 2 faces plus
+ * their immediate vertex neighbors) with `SLOPE_SCALE 2.5` is that point —
+ * `RING 1` alone needed slope up to 2.5 before the last convex case closed;
+ * larger rings closed the gap at a smaller slope but only by over-exempting
+ * nearby GENUINE occluders too, measurably weakening removal on the
+ * motivating repro (`13-ink-repro-glyphcss.mjs`: `RING 1, SLOPE 2.5` →
+ * 1152→914 inked cells, -20.7%; `RING 3` needed only `SLOPE 0.5` for the same
+ * convex parity but only reached 1152→1011, -12.3%). This is the minimal safe
+ * point measured, not a rounder "looks tuned enough" number.
  */
-const INK_HLR_EDGE_SAMPLES = 6;
-const INK_HLR_BIAS = 0.03;
-const INK_HLR_SLOPE_SCALE = 1.5;
+const INK_HLR_RING = 1;
+const INK_HLR_SLOPE_SCALE = 2.5;
 
-function inkEdgeFullyHidden(
-  fromWorld: Vec3, toWorld: Vec3,
+/**
+ * Depth+id prepass for ink's `hiddenLines: "hide"` occlusion test — one
+ * `fillDepthTri` call per ink triangle (same rasterizer `computeOcclusionIds`
+ * and `buildSurfaceDepth` use), keyed by that triangle's own index so the
+ * render loop can exempt an edge's adjacent faces by identity.
+ */
+function buildInkOcclusionMap(
+  tris: { v0: Vec3; v1: Vec3; v2: Vec3 }[],
   camera: ProjectCamera, cols: number, rows: number, cellAspect: number, metrics: GlyphProjectionMetrics,
-  surfaceDepth: Float64Array, bias: number, slopeScale: number,
-): boolean {
-  for (let i = 0; i <= INK_HLR_EDGE_SAMPLES; i++) {
-    const t = i / INK_HLR_EDGE_SAMPLES;
-    const wx = fromWorld[0] + (toWorld[0] - fromWorld[0]) * t;
-    const wy = fromWorld[1] + (toWorld[1] - fromWorld[1]) * t;
-    const wz = fromWorld[2] + (toWorld[2] - fromWorld[2]) * t;
-    const p = camera.project([wx, wy, wz], cols, rows, cellAspect, metrics);
-    // A culled (off-frustum) sample has no depth constraint to test — treat
-    // the edge as visible there rather than silently helping it hide.
-    if (p[0] !== p[0]) return false;
-    const cx = Math.min(cols - 1, Math.max(0, p[0] | 0));
-    const cy = Math.min(rows - 1, Math.max(0, p[1] | 0));
-    if (wireframeVisibleAtCell(surfaceDepth, cols, rows, cx, cy, p[2]!, bias, slopeScale)) return false;
+): { depth: Float64Array; id: Int32Array } {
+  const depth = new Float64Array(cols * rows).fill(-Infinity);
+  const id = new Int32Array(cols * rows).fill(-1);
+  for (let i = 0; i < tris.length; i++) {
+    const t = tris[i]!;
+    const p0 = camera.project(t.v0, cols, rows, cellAspect, metrics);
+    const p1 = camera.project(t.v1, cols, rows, cellAspect, metrics);
+    const p2 = camera.project(t.v2, cols, rows, cellAspect, metrics);
+    fillDepthTri(p0, p1, p2, depth, id, i, cols, rows);
   }
-  return true;
+  return { depth, id };
 }
 
 /**
@@ -696,6 +713,7 @@ function rasterizeInk(
   const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
 
   interface InkTri {
+    id: number;
     v0: Vec3; v1: Vec3; v2: Vec3;
     normal: [number, number, number];
     color: string | undefined;
@@ -717,9 +735,55 @@ function rasterizeInk(
       const pc = camera.project(v2, cols, rows, cellAspect, metrics);
       const projected = pa[0] === pa[0] && pb[0] === pb[0] && pc[0] === pc[0];
       const area2 = projected ? (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0]) : 0;
-      tris.push({ v0, v1, v2, normal, color: poly.color, frontFacing: projected && area2 <= 0 });
+      tris.push({ id: tris.length, v0, v1, v2, normal, color: poly.color, frontFacing: projected && area2 <= 0 });
     }
   }
+
+  // Vertex → adjacent-triangle-ids map, keyed the same way `edgeMap` keys
+  // vertices. Used below to exempt a kept edge from `hiddenLines: "hide"`
+  // occlusion by every triangle touching either of its OWN endpoints — not
+  // just the 1-2 triangles the edge itself bounds. A single silhouette-edge's
+  // 2 adjacent faces are not always the nearest surface at their shared
+  // screen cell on a finely tessellated convex surface (a neighboring,
+  // non-adjacent triangle one vertex over can win the depth test by a
+  // sub-pixel margin at the same grazing angle); the full vertex ring is
+  // still exactly the LOCAL neighborhood a silhouette vertex belongs to, so
+  // it keeps the exemption self-contained (a spatially distant part of the
+  // same mesh — e.g. a letter's far wall behind its own front cap — shares no
+  // vertices with the occluder and is still correctly hidden).
+  const vertexTriIds = new Map<string, number[]>();
+  const registerVertexTri = (v: Vec3, id: number): void => {
+    const key = inkVertexKey(v);
+    let ids = vertexTriIds.get(key);
+    if (!ids) { ids = []; vertexTriIds.set(key, ids); }
+    ids.push(id);
+  };
+  for (const t of tris) {
+    registerVertexTri(t.v0, t.id);
+    registerVertexTri(t.v1, t.id);
+    registerVertexTri(t.v2, t.id);
+  }
+  const edgeOwnFaceIds = (a: Vec3, b: Vec3): number[] => {
+    let ringIds = new Set<number>();
+    let ringKeys = new Set<string>([inkVertexKey(a), inkVertexKey(b)]);
+    for (let hop = 0; hop < INK_HLR_RING; hop++) {
+      const nextKeys = new Set<string>();
+      for (const k of ringKeys) {
+        const ids = vertexTriIds.get(k);
+        if (!ids) continue;
+        for (const id of ids) {
+          if (ringIds.has(id)) continue;
+          ringIds.add(id);
+          const t = tris[id]!;
+          nextKeys.add(inkVertexKey(t.v0));
+          nextKeys.add(inkVertexKey(t.v1));
+          nextKeys.add(inkVertexKey(t.v2));
+        }
+      }
+      ringKeys = nextKeys;
+    }
+    return [...ringIds];
+  };
 
   interface InkEdgeEntry {
     fromWorld: Vec3; toWorld: Vec3;
@@ -747,12 +811,17 @@ function rasterizeInk(
   // `rank` orders how a cell shared by two edges resolves: a silhouette or
   // crease is the outline a person would draw, so it must win over a lone
   // front-facing triangle's boundary edge running off it at another angle.
-  const keptEdges: { fromWorld: Vec3; toWorld: Vec3; color: string | undefined; rank: number }[] = [];
+  // `faceIds` records this edge's own local vertex-ring (`edgeOwnFaceIds`) —
+  // consulted by `hiddenLines: "hide"` below to exempt an edge from being
+  // occluded by its own immediate neighborhood (see `buildInkOcclusionMap`'s
+  // doc comment).
+  const keptEdges: { fromWorld: Vec3; toWorld: Vec3; color: string | undefined; rank: number; faceIds: number[] }[] = [];
   for (const entry of edgeMap.values()) {
     const { contribs } = entry;
+    const ownFaceIds = edgeOwnFaceIds(entry.fromWorld, entry.toWorld);
     if (contribs.length === 1) {
       if (contribs[0]!.frontFacing) {
-        keptEdges.push({ fromWorld: entry.fromWorld, toWorld: entry.toWorld, color: contribs[0]!.color, rank: 0 });
+        keptEdges.push({ fromWorld: entry.fromWorld, toWorld: entry.toWorld, color: contribs[0]!.color, rank: 0, faceIds: ownFaceIds });
       }
       continue;
     }
@@ -771,23 +840,19 @@ function rasterizeInk(
     }
     if (!anyFront) continue;
     if (silhouette || crease) {
-      keptEdges.push({ fromWorld: entry.fromWorld, toWorld: entry.toWorld, color: frontColor ?? contribs[0]!.color, rank: 1 });
+      keptEdges.push({
+        fromWorld: entry.fromWorld, toWorld: entry.toWorld, color: frontColor ?? contribs[0]!.color, rank: 1,
+        faceIds: ownFaceIds,
+      });
     }
   }
 
-  // `hiddenLines: "hide"` drops edges that are ENTIRELY behind another
-  // surface — see `inkEdgeFullyHidden`. `"show"` (the default) skips this
-  // and every line below, leaving `rasterizeInk` byte-identical to before
-  // the option was wired here.
-  const hiddenLinesEdges = scene.hiddenLines === "hide"
-    ? (() => {
-        const surfaceDepth = buildSurfaceDepth(polygons, camera, cols, rows, cellAspect, metrics);
-        return keptEdges.filter((e) => !inkEdgeFullyHidden(
-          e.fromWorld, e.toWorld, camera, cols, rows, cellAspect, metrics,
-          surfaceDepth, INK_HLR_BIAS, INK_HLR_SLOPE_SCALE,
-        ));
-      })()
-    : keptEdges;
+  // `hiddenLines: "hide"` occlusion map — see `buildInkOcclusionMap`'s doc
+  // comment for the identity-exemption design. `"show"` (the default) skips
+  // this, leaving `rasterizeInk` byte-identical to before the option existed.
+  const inkOcclusion = scene.hiddenLines === "hide"
+    ? buildInkOcclusionMap(tris, camera, cols, rows, cellAspect, metrics)
+    : null;
 
   // Per-vertex camera-space depth (`p[2]`, same "larger = nearer" convention
   // as `fillDepthTri`'s `z > depth[idx]` test), cached alongside the screen
@@ -815,14 +880,14 @@ function rasterizeInk(
     if (!neighbors.has(key)) neighbors.set(key, { screen: s, nbrKeys: [] });
     return key;
   };
-  const edgeSegments: { fromKey: string; toKey: string; color: string | undefined; rank: number; fromZ: number; toZ: number }[] = [];
-  for (const e of hiddenLinesEdges) {
+  const edgeSegments: { fromKey: string; toKey: string; color: string | undefined; rank: number; fromZ: number; toZ: number; faceIds: number[] }[] = [];
+  for (const e of keptEdges) {
     const fk = ensureNode(e.fromWorld);
     const tk = ensureNode(e.toWorld);
     if (!fk || !tk || fk === tk) continue;
     neighbors.get(fk)!.nbrKeys.push(tk);
     neighbors.get(tk)!.nbrKeys.push(fk);
-    edgeSegments.push({ fromKey: fk, toKey: tk, color: e.color, rank: e.rank, fromZ: vertexDepth.get(fk)!, toZ: vertexDepth.get(tk)! });
+    edgeSegments.push({ fromKey: fk, toKey: tk, color: e.color, rank: e.rank, fromZ: vertexDepth.get(fk)!, toZ: vertexDepth.get(tk)!, faceIds: e.faceIds });
   }
 
   // Raw per-vertex tangent: central difference between two neighbors (the
@@ -909,10 +974,24 @@ function rasterizeInk(
       const x = a[0] + dx * t, y = a[1] + dy * t;
       const cx = Math.floor(x), cy = Math.floor(y);
       if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) continue;
-      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
       const idx = cy * cols + cx;
-      if (cellRank[idx]! > seg.rank) continue;
       const z = seg.fromZ + dz * t;
+      // `hiddenLines: "hide"`: skip this SAMPLE (not the whole segment) when
+      // a different, nearer surface occludes it — see `buildInkOcclusionMap`.
+      // The winning face is exempt when it's within this edge's own local
+      // vertex-ring (`seg.faceIds`), so a silhouette sample is never hidden by
+      // the surface it outlines. The residual allowance for a foreign winner
+      // is `depthGradient`-scaled (see the design doc above `INK_HLR_RING`),
+      // not flat, so it stays proportionate at any world scale.
+      if (inkOcclusion) {
+        const winner = inkOcclusion.id[idx]!;
+        if (winner >= 0 && !seg.faceIds.includes(winner)) {
+          const allowed = INK_HLR_SLOPE_SCALE * depthGradient(inkOcclusion.depth, cols, rows, cx, cy);
+          if (inkOcclusion.depth[idx]! > z + allowed) continue;
+        }
+      }
+      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
+      if (cellRank[idx]! > seg.rank) continue;
       if (cellRank[idx]! === seg.rank && cellDepth[idx]! >= z) continue;
       cellRank[idx] = seg.rank;
       cellDepth[idx] = z;

@@ -101,7 +101,11 @@ export interface RasterizeContextOptions {
    * genuinely behind another mesh's surface (or the far side of its own
    * mesh) does not paint through it — fixing cross-letter/cross-mesh
    * side-wall bleed-through and darker `sideColor` edges overwriting a
-   * brighter front face. A string union (not boolean) because a future
+   * brighter front face. Also wired in `mode: "ink"`, with an identity-based
+   * test instead of a margin: each kept silhouette/crease edge exempts its
+   * own local vertex neighborhood from occluding it, so a mesh's own
+   * silhouette never self-occludes, while a genuinely different, farther
+   * surface still hides it. A string union (not boolean) because a future
    * `"dashed"` state (hidden lines drawn faintly, classic CAD convention)
    * should not require a breaking change.
    */

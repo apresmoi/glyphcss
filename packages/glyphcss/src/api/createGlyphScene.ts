@@ -96,12 +96,14 @@ export interface GlyphSceneOptions {
   wireframeJunctions?: boolean;
   /**
    * Hidden-line removal for the wireframe path (wireframe + `charMode:
-   * "braille"`). `"show"` (default) is today's behavior: edges draw in mesh
-   * order with no depth reference. `"hide"` depth-tests every stroke against
-   * a solid surface prepass so a back edge (another mesh's or the same
-   * mesh's far side) doesn't paint through a nearer one. Documented no-op in
-   * `solid` (already depth-buffered per cell) and `ink` (not wired — see
-   * {@link RasterizeContextOptions.hiddenLines}).
+   * "braille"`) and for `mode: "ink"`. `"show"` (default) is today's
+   * behavior: edges/strokes draw with no depth reference. `"hide"`
+   * depth-tests every stroke against a solid surface prepass so a back edge
+   * (another mesh's or the same mesh's far side) doesn't paint through a
+   * nearer one — wireframe with a slope-scaled margin, `ink` by exempting
+   * each edge's own local vertex neighborhood so a mesh never self-occludes
+   * its own silhouette. Documented no-op in `solid` (already depth-buffered
+   * per cell). See {@link RasterizeContextOptions.hiddenLines}.
    */
   hiddenLines?: "show" | "hide";
   /** Whether to emit color spans. Default true. */

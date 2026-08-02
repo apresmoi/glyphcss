@@ -125,10 +125,12 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     (value) => onUpdateScene({ hiddenLines: value }),
   );
   useEffect(() => {
-    // Depth-tests wireframe strokes (ASCII or braille) against a solid
-    // surface prepass. No-op in solid (already depth-buffered per cell) and
-    // ink (not wired — see AGENTS.md), so dim outside wireframe.
-    hiddenLinesControl?.setEnabled(renderMode === "wireframe", { dim: true });
+    // Depth-tests outline strokes against a solid surface prepass, in both
+    // wireframe (ASCII or braille) and ink. `"show"` is the x-ray/blueprint
+    // look — every contour drawn, nothing occludes; `"hide"` is the opaque
+    // illustration look. No-op in solid, which is already depth-buffered per
+    // cell, so dim there.
+    hiddenLinesControl?.setEnabled(renderMode === "wireframe" || renderMode === "ink", { dim: true });
   }, [hiddenLinesControl, renderMode]);
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),

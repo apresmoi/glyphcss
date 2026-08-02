@@ -1863,7 +1863,7 @@ function WordArtDock({
   useEffect(() => {
     // Depth-tests wireframe strokes (ASCII or braille) against a solid
     // surface prepass. No-op in solid/ink, so dim outside wireframe.
-    hiddenLinesControl?.setEnabled(gui.renderMode === "wireframe", { dim: true });
+    hiddenLinesControl?.setEnabled(gui.renderMode === "wireframe" || gui.renderMode === "ink", { dim: true });
   }, [hiddenLinesControl, gui.renderMode]);
   useSlider(renderFolder, "Density", { min: 0.5, max: 4, step: 0.1 }, gui.density, (v) => setGui("density", v));
 

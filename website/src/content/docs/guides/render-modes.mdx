@@ -192,20 +192,23 @@ depth-buffered per cell).
 `ink` mode also wires `hiddenLines: "hide"`, fixing the same defect on
 extruded text and other closed meshes (an extrusion's back/side walls no
 longer paint over its own front face, or a nearer letter's face, when the
-camera angle puts them in the same cell). It uses a different decision rule
-than wireframe, not the same per-sample test: ink draws exactly one
-non-redundant stroke per silhouette cell, so a per-sample hidden test (tried
-twice — a flat bias, then wireframe's slope-scaled bias reused as-is) punches
-visible holes in a sphere's silhouette with no neighboring stroke to backfill
-them, regressing convex meshes by up to ~46%. `ink`'s HLR instead hides a
-whole kept edge only when EVERY sample along its length fails the depth
-test — a grazing silhouette edge sits at the surface's own depth everywhere
-along it and always keeps at least one passing sample, while a genuinely
-occluded wall has none. This per-edge rule, tuned separately from wireframe's,
-holds the convex-mesh regression to exactly 0 (cube, icosahedron, sphere at
-two subdivision levels) while still removing the reported tram-lines. See
+camera angle puts them in the same cell). It uses an IDENTITY-based test, not
+a margin reused from wireframe: two earlier margin attempts (a flat bias, then
+wireframe's slope-scaled bias, tried both per-sample and per-edge) fought
+SELF-occlusion — a sphere's silhouette lies ON the sphere, so the surface
+occludes its own outline, and any margin large enough to prevent that ate
+38-46% of the silhouette anyway. The fix excludes each kept edge's own local
+neighborhood (the triangles touching its endpoints, one vertex-ring hop out)
+from occluding it — the same principle as excluding the caster from its own
+shadow map — so a stroke is hidden only when a genuinely DIFFERENT, non-exempt
+surface wins that cell by more than a small `depthGradient`-scaled residual
+(needed only for discretization noise between a fine mesh's neighboring
+facets, not for self-occlusion). This holds the convex-mesh regression to
+exactly 0 (cube, icosahedron, sphere at two subdivision levels, across five
+world scales/projections) while running per-SAMPLE rather than per-edge, so a
+wall only partly behind a cap now hides just the covered portion. See
 `research/contour-first-text/decisions.md` for the measurements behind both
-ruled-out attempts and the shipped design.
+ruled-out margin attempts and the shipped identity-based design.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
