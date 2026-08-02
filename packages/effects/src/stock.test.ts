@@ -10,6 +10,7 @@ import {
   defaultGlyphEffectParams,
   fieldSynth,
   flowText,
+  generatedSurfaceField,
   getGlyphEffect,
   glitch,
   matrixRain,
@@ -18,6 +19,8 @@ import {
   scan,
   scramble,
   wipe,
+  type AnyContext,
+  type AnyParams,
   type GlyphStockEffect,
 } from "./stock";
 
@@ -1302,6 +1305,100 @@ describe("regression: field-synth generated-surface isotropy", () => {
     const cellA = 2 * 12 + 8; // col=8, row=2
     const cellB = 0 * 12 + 6; // col=6, row=0
     expect(output.coverage[cellA]!).toBeCloseTo(output.coverage[cellB]!, 5);
+  });
+});
+
+describe("regression: generated-surface direction stays consistent as a mesh rotates", () => {
+  // Simulates a flat face (e.g. an extruded word-art front cap) spinning
+  // rigidly about the world Y axis, the way `<GlyphMesh rotation={[turn, ...]}>`
+  // turntables a mesh under a fixed camera. `worldPosition`/`normal` are what
+  // the real rasterizer would hand a mounted effect after projecting that
+  // rotated geometry into the same fixed 24x12 output grid.
+  const COLS = 24;
+  const ROWS = 12;
+
+  function rotatedCapSurface(thetaDeg: number) {
+    const theta = (thetaDeg * Math.PI) / 180;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+    const worldPosition = new Float32Array(COLS * ROWS * 3);
+    const normal = new Float32Array(COLS * ROWS * 3);
+    for (let row = 0; row < ROWS; row++) {
+      for (let col = 0; col < COLS; col++) {
+        const offset = (row * COLS + col) * 3;
+        const lx = col - COLS / 2;
+        const ly = -(row - ROWS / 2);
+        worldPosition[offset] = lx * cosT;
+        worldPosition[offset + 1] = ly;
+        worldPosition[offset + 2] = -lx * sinT + 20;
+        normal[offset] = sinT;
+        normal[offset + 1] = 0;
+        normal[offset + 2] = cosT;
+      }
+    }
+    return { worldPosition, normal };
+  }
+
+  function contextFor(surface: { worldPosition: Float32Array; normal: Float32Array }): AnyContext<AnyParams> {
+    const length = COLS * ROWS;
+    return {
+      base: { cols: COLS, rows: ROWS, length, worldPosition: surface.worldPosition, normal: surface.normal },
+      coordinates: { cellToSceneGrid: [1, 0, 0, 1, 0, 0], sceneGridSize: [COLS, ROWS], localCellFootprint: [1, 1] },
+    } as never;
+  }
+
+  // Before the fix, `horizontal = vertical x normal` inherited a hard sign
+  // flip from the dominant-axis canonicalization in `surfaceBasisSample`
+  // every time a rotating normal crossed that boundary (here, between 135deg
+  // and 150deg: nx=0.707 is x-dominant and positive at 135deg, nz=-0.866 is
+  // z-dominant and negative at 150deg, which used to flip the whole normal
+  // and, with it, only `horizontal` — not `vertical`, which is quadratic in
+  // the normal and already invariant to that flip). That asymmetric flip is
+  // exactly a "right" (horizontal-axis) flow reversing mid-rotation while
+  // "down" (vertical-axis) held steady.
+  it("keeps the horizontal surface axis' screen mapping stable across the dominant-axis boundary", () => {
+    const before = generatedSurfaceField(contextFor(rotatedCapSurface(135)));
+    const after = generatedSurfaceField(contextFor(rotatedCapSurface(150)));
+    const beforeGroup = before?.groups[0];
+    const afterGroup = after?.groups[0];
+    expect(beforeGroup).toBeDefined();
+    expect(afterGroup).toBeDefined();
+
+    // The horizontal (u) axis' screen-space Jacobian must land on the same
+    // screen side (same sign) before and after crossing the boundary...
+    expect(Math.sign(beforeGroup!.dyDu)).toBe(Math.sign(afterGroup!.dyDu));
+    // ...matching the vertical (v) axis, which was already stable.
+    expect(Math.sign(beforeGroup!.dxDv)).toBe(Math.sign(afterGroup!.dxDv));
+  });
+
+  // A second boundary crossing (315deg x-negative-dominant -> 330deg
+  // z-negative-dominant), so the fix isn't pinned to one specific angle.
+  it("keeps both surface axes' screen mapping stable across a second dominant-axis boundary", () => {
+    const before = generatedSurfaceField(contextFor(rotatedCapSurface(315)));
+    const after = generatedSurfaceField(contextFor(rotatedCapSurface(330)));
+    const beforeGroup = before?.groups[0];
+    const afterGroup = after?.groups[0];
+    expect(beforeGroup).toBeDefined();
+    expect(afterGroup).toBeDefined();
+    expect(Math.sign(beforeGroup!.dyDu)).toBe(Math.sign(afterGroup!.dyDu));
+    expect(Math.sign(beforeGroup!.dxDv)).toBe(Math.sign(afterGroup!.dxDv));
+  });
+
+  // matrix-rain's per-cell flow (`projectedSurfaceDirection`) is built
+  // directly from this same fitted Jacobian (`dxDu/dyDu` for left/right,
+  // `dxDv/dyDv` for up/down — see stock.ts's `domainCoordinate` /
+  // `projectedSurfaceDirection`), so pinning the Jacobian's sign here pins
+  // the actual on-screen advection direction matrix-rain (and every other
+  // generated-surface effect) reads for "right"/"left"/"down"/"up".
+  it("keeps every direction's screen mapping internally consistent (matches the sign vocabulary matrixRain reads)", () => {
+    for (const theta of [135, 150, 315, 330]) {
+      const field = generatedSurfaceField(contextFor(rotatedCapSurface(theta)));
+      const group = field!.groups[0]!;
+      // "right"/"left" read (dxDu, dyDu); "down"/"up" read (dxDv, dyDv).
+      // Each pair must stay a well-defined, non-degenerate flow vector.
+      expect(Math.hypot(group.dxDu, group.dyDu)).toBeGreaterThan(0.5);
+      expect(Math.hypot(group.dxDv, group.dyDv)).toBeGreaterThan(0.5);
+    }
   });
 });
 

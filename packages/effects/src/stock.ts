@@ -240,7 +240,8 @@ function surfaceBasisSample<P extends AnyParams>(
   const absY = Math.abs(ny);
   const absZ = Math.abs(nz);
   const dominant = absX >= absY && absX >= absZ ? nx : absY >= absZ ? ny : nz;
-  if (dominant < 0) {
+  const canonicalSign = dominant < 0 ? -1 : 1;
+  if (canonicalSign < 0) {
     nx = -nx;
     ny = -ny;
     nz = -nz;
@@ -297,9 +298,23 @@ function surfaceBasisSample<P extends AnyParams>(
     verticalCoordinate = px * verticalX + py * verticalY + pz * verticalZ;
   }
 
-  const horizontalX = verticalY * nz - verticalZ * ny;
-  const horizontalY = verticalZ * nx - verticalX * nz;
-  const horizontalZ = verticalX * ny - verticalY * nx;
+  // `verticalX/Y/Z` above is world -Z projected into the tangent plane —
+  // quadratic in `nx/ny/nz`, so it is unaffected by the `canonicalSign` flip
+  // above (a whole-normal sign flip leaves nz*nx, nz*ny, nz*nz-1 unchanged).
+  // `horizontal = vertical × normal` is *linear* in the normal, so it does
+  // NOT share that invariance: it silently flips sign every time a rotating
+  // mesh's normal crosses the dominant-axis canonicalization boundary, while
+  // `vertical` stays continuous — an asymmetric flip a viewer reads as "down"
+  // staying put while "right" reverses mid-rotation. Re-apply `canonicalSign`
+  // here (only for this non-degenerate branch — the exact-perpendicular
+  // fallback below already derives its own basis straight from the
+  // canonicalized normal and must not be touched) to undo that propagated
+  // flip, so `horizontal` is computed as if from the raw, un-canonicalized
+  // normal and stays continuous across the same boundary as `vertical`.
+  const horizontalSign = verticalLength < 1e-4 ? 1 : canonicalSign;
+  const horizontalX = (verticalY * nz - verticalZ * ny) * horizontalSign;
+  const horizontalY = (verticalZ * nx - verticalX * nz) * horizontalSign;
+  const horizontalZ = (verticalX * ny - verticalY * nx) * horizontalSign;
   const planeOffset = px * nx + py * ny + pz * nz;
   return {
     u: (px * horizontalX + py * horizontalY + pz * horizontalZ) * worldToSceneScale,
