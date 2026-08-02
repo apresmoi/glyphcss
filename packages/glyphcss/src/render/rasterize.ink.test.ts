@@ -109,6 +109,27 @@ describe("inkGlyphForTangent — direction quantization", () => {
     expect(inkGlyphForTangent(-1, 0, 0.1)).toBe("‾");
   });
 
+  it("picks '▔' for a horizontal tangent in the finer sub-row band between '‾' and '-'", () => {
+    // Measured (14-subcell-quantization-census.mjs): "▔" (UPPER ONE EIGHTH
+    // BLOCK) sits at row-centroid .28, between "‾" (.16) and "-" (.68), at
+    // the same ~2.5-4.3% coverage / ~0.9 eccentricity as the existing three
+    // glyphs — a real, weight-consistent finer level, not a new one.
+    expect(inkGlyphForTangent(1, 0, 0.25)).toBe("▔");
+    expect(inkGlyphForTangent(-1, 0, 0.25)).toBe("▔");
+  });
+
+  it("a horizontal stroke's glyph is monotonic as it sweeps top to bottom across a cell", () => {
+    const atSubRow = (subRow: number) => inkGlyphForTangent(1, 0, subRow);
+    const order = ["‾", "▔", "-", "_"];
+    let lastIdx = -1;
+    for (let subRow = 0; subRow <= 1; subRow += 0.05) {
+      const idx = order.indexOf(atSubRow(subRow));
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeGreaterThanOrEqual(lastIdx);
+      lastIdx = idx;
+    }
+  });
+
   it("picks '|' for a vertical tangent at the default (centre) sub-column, independent of sub-row", () => {
     expect(inkGlyphForTangent(0, 1, 0.1)).toBe("|");
     expect(inkGlyphForTangent(0, -1, 0.9)).toBe("|");
@@ -126,6 +147,11 @@ describe("inkGlyphForTangent — direction quantization", () => {
   });
 
   it("a vertical stroke near a cell's left edge picks a different glyph than one at centre-right, and the choice tracks the stroke as it moves across the cell", () => {
+    // Vertical stays at three levels (unchanged from db5703c): a finer "▎"
+    // level was tried and measured plausible by coverage alone, but the
+    // rendered visual proof on real extruded-text geometry showed it
+    // replacing "▏" almost everywhere rather than adding occasional finer
+    // positioning — see the `inkGlyphForTangent` doc comment.
     const atSubCol = (subCol: number) => inkGlyphForTangent(0, 1, 0.5, subCol);
     const left = atSubCol(0.05);
     const centreRight = atSubCol(0.7);
