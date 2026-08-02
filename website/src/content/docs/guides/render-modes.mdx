@@ -187,8 +187,25 @@ depth bias (the standard shadow-map technique: a grazing silhouette earns a
 larger allowance than a head-on crease, since a smooth surface's own
 silhouette lies ON the contour it outlines). Applies to both `charMode:
 "ascii"` and `charMode: "braille"`. Documented no-op in `solid` mode (already
-depth-buffered per cell) and in `ink` mode (not wired — a flat-bias attempt
-regressed every convex mesh there; see `research/contour-first-text/decisions.md`).
+depth-buffered per cell).
+
+`ink` mode also wires `hiddenLines: "hide"`, fixing the same defect on
+extruded text and other closed meshes (an extrusion's back/side walls no
+longer paint over its own front face, or a nearer letter's face, when the
+camera angle puts them in the same cell). It uses a different decision rule
+than wireframe, not the same per-sample test: ink draws exactly one
+non-redundant stroke per silhouette cell, so a per-sample hidden test (tried
+twice — a flat bias, then wireframe's slope-scaled bias reused as-is) punches
+visible holes in a sphere's silhouette with no neighboring stroke to backfill
+them, regressing convex meshes by up to ~46%. `ink`'s HLR instead hides a
+whole kept edge only when EVERY sample along its length fails the depth
+test — a grazing silhouette edge sits at the surface's own depth everywhere
+along it and always keeps at least one passing sample, while a genuinely
+occluded wall has none. This per-edge rule, tuned separately from wireframe's,
+holds the convex-mesh regression to exactly 0 (cube, icosahedron, sphere at
+two subdivision levels) while still removing the reported tram-lines. See
+`research/contour-first-text/decisions.md` for the measurements behind both
+ruled-out attempts and the shipped design.
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -440,8 +457,9 @@ scene.add(spherePolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
   </TabItem>
 </Tabs>
 
-`charMode`, `wireframeJunctions`, and `hiddenLines` are documented no-ops in
-`ink` mode — it always picks its own fixed oriented-glyph set as plain ASCII.
+`charMode` and `wireframeJunctions` are documented no-ops in `ink` mode — it
+always picks its own fixed oriented-glyph set as plain ASCII. `hiddenLines` IS
+wired in `ink` — see [Hidden-line removal](#hidden-line-removal-hiddenlines) above.
 
 Best for: illustration-style previews, product-shot outlines, sphere/torus/organic
 silhouettes where a filled ramp or a dense wireframe cage reads as noise.

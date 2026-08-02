@@ -241,6 +241,77 @@ function wireframeVisibleAtCell(
 }
 
 /**
+ * `hiddenLines: "hide"` for `mode: "ink"`: hide a kept silhouette/crease EDGE
+ * only when EVERY sampled point along it fails the per-sample depth test
+ * (`wireframeVisibleAtCell`, the same surface-depth prepass and slope-scaled
+ * bias wireframe HLR already ships). This is deliberately per-EDGE, not
+ * per-sample like the two prior attempts recorded in
+ * `research/contour-first-text/decisions.md` (2026-08-02 entries): a flat
+ * bias and a slope-scaled bias both ate 38-46% of a sphere's silhouette
+ * because ink draws exactly ONE non-redundant stroke per cell — any
+ * per-sample hole is visible with no neighbor edge to backfill it, unlike
+ * wireframe's many overlapping mesh edges.
+ *
+ * A grazing silhouette edge lies ON the surface it outlines, so it sits at
+ * essentially the surface's own depth at every sample along its length — the
+ * same triangle whose boundary it is contributes that surface depth, so the
+ * per-sample test passes (visible) at least once, usually everywhere. A
+ * genuinely occluded extrusion side wall sits behind the front cap by a real,
+ * roughly uniform margin at every sample along its whole length. Requiring
+ * ALL samples to fail turns that geometric difference into an all-or-nothing
+ * decision per edge: a silhouette edge needs only one surviving sample to stay
+ * fully visible, so it cannot be partially eaten; a hidden wall has no
+ * samples to survive on, so it drops as a whole segment instead of leaving a
+ * gap mid-stroke.
+ *
+ * Samples the edge in WORLD space (correct under perspective, unlike lerping
+ * screen-space endpoints) at a fixed count — the decision only needs to catch
+ * "every sample failed", so more samples than the edge's own screen length
+ * would just be redundant along a straight world-space segment. Measured in
+ * `research/contour-first-text/experiments/12-ink-edge-hlr-sweep.mjs`: 6, 10,
+ * 16, and 24 samples all converge to the exact same kept/hidden edge set on
+ * both the convex-mesh regression suite and the extruded-text repro, so 6 is
+ * not under-sampling — it is already past the point where more matters.
+ *
+ * `INK_HLR_BIAS`/`INK_HLR_SLOPE_SCALE` are ink's OWN constants, separate from
+ * wireframe's `HLR_BIAS`/`HLR_SLOPE_SCALE` — same slope-scaled-bias formula
+ * (`wireframeVisibleAtCell`), but a different per-edge, all-samples-must-fail
+ * decision needs its own tuning. The same sweep found slope `0.5` (wireframe's
+ * value) reproduces the sphere-eating failure at reduced but still real
+ * magnitude even under the per-edge rule (subdiv 2 -7.7%, subdiv 3 -19.2%);
+ * `1.5` reduces every convex case (cube/icosahedron/sphere subdiv 2 AND 3) to
+ * exactly 0 while still catching the reported cross-letter/side-wall defect
+ * (`Glyph\nCSS`, depth 80, curveSteps 4, turn -38 tilt 0.2: 1152 → 1130 inked
+ * cells, -1.9%, with the interior tram-line clutter visibly gone). Bias magnitude
+ * (`0.03` vs `0.06`/`0.1`) made no measurable difference once slope was 1.5 —
+ * the gradient term does the work, exactly as it does for wireframe.
+ */
+const INK_HLR_EDGE_SAMPLES = 6;
+const INK_HLR_BIAS = 0.03;
+const INK_HLR_SLOPE_SCALE = 1.5;
+
+function inkEdgeFullyHidden(
+  fromWorld: Vec3, toWorld: Vec3,
+  camera: ProjectCamera, cols: number, rows: number, cellAspect: number, metrics: GlyphProjectionMetrics,
+  surfaceDepth: Float64Array, bias: number, slopeScale: number,
+): boolean {
+  for (let i = 0; i <= INK_HLR_EDGE_SAMPLES; i++) {
+    const t = i / INK_HLR_EDGE_SAMPLES;
+    const wx = fromWorld[0] + (toWorld[0] - fromWorld[0]) * t;
+    const wy = fromWorld[1] + (toWorld[1] - fromWorld[1]) * t;
+    const wz = fromWorld[2] + (toWorld[2] - fromWorld[2]) * t;
+    const p = camera.project([wx, wy, wz], cols, rows, cellAspect, metrics);
+    // A culled (off-frustum) sample has no depth constraint to test — treat
+    // the edge as visible there rather than silently helping it hide.
+    if (p[0] !== p[0]) return false;
+    const cx = Math.min(cols - 1, Math.max(0, p[0] | 0));
+    const cy = Math.min(rows - 1, Math.max(0, p[1] | 0));
+    if (wireframeVisibleAtCell(surfaceDepth, cols, rows, cx, cy, p[2]!, bias, slopeScale)) return false;
+  }
+  return true;
+}
+
+/**
  * `charMode: "halfblock"` (B4) is solid-mode-only and needs a genuine top/
  * bottom subcell split to draw from, so it only engages when nothing else
  * already owns the single-color-per-cell downsample path: no `transformCells`
@@ -664,6 +735,20 @@ function rasterizeInk(
     }
   }
 
+  // `hiddenLines: "hide"` drops edges that are ENTIRELY behind another
+  // surface — see `inkEdgeFullyHidden`. `"show"` (the default) skips this
+  // and every line below, leaving `rasterizeInk` byte-identical to before
+  // the option was wired here.
+  const hiddenLinesEdges = scene.hiddenLines === "hide"
+    ? (() => {
+        const surfaceDepth = buildSurfaceDepth(polygons, camera, cols, rows, cellAspect, metrics);
+        return keptEdges.filter((e) => !inkEdgeFullyHidden(
+          e.fromWorld, e.toWorld, camera, cols, rows, cellAspect, metrics,
+          surfaceDepth, INK_HLR_BIAS, INK_HLR_SLOPE_SCALE,
+        ));
+      })()
+    : keptEdges;
+
   const vertexScreen = new Map<string, [number, number] | null>();
   const projectVertex = (v: Vec3): [number, number] | null => {
     const key = inkVertexKey(v);
@@ -683,7 +768,7 @@ function rasterizeInk(
     return key;
   };
   const edgeSegments: { fromKey: string; toKey: string; color: string | undefined; rank: number }[] = [];
-  for (const e of keptEdges) {
+  for (const e of hiddenLinesEdges) {
     const fk = ensureNode(e.fromWorld);
     const tk = ensureNode(e.toWorld);
     if (!fk || !tk || fk === tk) continue;
