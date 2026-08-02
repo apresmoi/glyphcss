@@ -543,8 +543,71 @@ function wireframeGlyphForCell(
 const INK_CREASE_ANGLE_DEG = 35;
 const INK_CREASE_COS_THRESHOLD = Math.cos((INK_CREASE_ANGLE_DEG * Math.PI) / 180);
 
-function inkVertexKey(v: Vec3): string {
-  return `${v[0]},${v[1]},${v[2]}`;
+/**
+ * Relative tolerance (fraction of the mesh's bounding-box diagonal) used to
+ * snap two vertices that are the SAME solid corner but differ by float
+ * rounding noise onto one adjacency key. Picked to sit comfortably inside
+ * the gap between two measured floors:
+ *
+ * - Noise ceiling: accumulated float error through a chain of curve
+ *   flattening + rotation/extrusion transforms stays within ~1e-10 relative
+ *   to the operands' magnitude in practice (a few ULPs per op, hundreds of
+ *   ops) — well above IEEE754's ~1e-16 per-op precision but still tiny.
+ * - Distinct-vertex floor: measured directly on the shipped Roboto-Bold
+ *   fixture's extruded "h p y o" meshes (`research/contour-first-text/
+ *   experiments/33-min-edge-length.mjs`), the tightest real mesh edge
+ *   (curve tessellation on "y") is ~8.6e-4 of the bounding-box diagonal.
+ *   A conservative floor one order of magnitude below that, ~1e-4, is used
+ *   for margin.
+ *
+ * `1e-7` sits ~3 orders of magnitude above the noise ceiling and ~3 orders
+ * below the distinct-vertex floor on both sides — it snaps float-noise
+ * duplicates without ever being able to fuse two genuinely distinct corners
+ * this mesh family is expected to produce.
+ */
+const INK_VERTEX_EPSILON_REL = 1e-7;
+
+/** Absolute fallback quantum for a degenerate (empty or single-point) mesh,
+ *  where a bounding-box diagonal can't derive a relative tolerance. */
+const INK_VERTEX_QUANTUM_FALLBACK = 1e-9;
+
+/**
+ * Derive a SCALE-AWARE snapping quantum from the mesh's own extent (the
+ * bounding-box diagonal of every triangle vertex `ink` will key), once per
+ * render rather than per vertex. A fixed decimal quantum is wrong across
+ * authored scales (a mesh at `size: 0.1` vs one at `size: 50`); deriving it
+ * from the mesh's own diagonal keeps the same RELATIVE tolerance at any
+ * scale.
+ */
+function computeInkVertexQuantum(tris: { v0: Vec3; v1: Vec3; v2: Vec3 }[]): number {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const t of tris) {
+    for (const v of [t.v0, t.v1, t.v2]) {
+      if (v[0] < minX) minX = v[0]; if (v[0] > maxX) maxX = v[0];
+      if (v[1] < minY) minY = v[1]; if (v[1] > maxY) maxY = v[1];
+      if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
+    }
+  }
+  const diag = Math.hypot(maxX - minX, maxY - minY, maxZ - minZ);
+  return diag > 0 ? diag * INK_VERTEX_EPSILON_REL : INK_VERTEX_QUANTUM_FALLBACK;
+}
+
+/**
+ * Build a tolerant vertex-adjacency key: each coordinate snaps to the
+ * nearest multiple of `quantum` via integer rounding (`Math.round`), so the
+ * key string is built from exact integers — never from a re-multiplied
+ * float, which could reintroduce the same formatting noise this exists to
+ * remove.
+ */
+function makeInkVertexKey(quantum: number): (v: Vec3) => string {
+  const inv = 1 / quantum;
+  return (v: Vec3): string => {
+    const ix = Math.round(v[0] * inv);
+    const iy = Math.round(v[1] * inv);
+    const iz = Math.round(v[2] * inv);
+    return `${ix},${iy},${iz}`;
+  };
 }
 
 function normalize2(v: [number, number]): [number, number] {
@@ -738,6 +801,11 @@ function rasterizeInk(
       tris.push({ id: tris.length, v0, v1, v2, normal, color: poly.color, frontFacing: projected && area2 <= 0 });
     }
   }
+
+  // Scale-aware tolerant key, derived once from this mesh's own bounding-box
+  // diagonal — see `computeInkVertexQuantum`'s doc comment for the noise-vs-
+  // distinct-vertex margin this tolerance is picked inside.
+  const inkVertexKey = makeInkVertexKey(computeInkVertexQuantum(tris));
 
   // Vertex → adjacent-triangle-ids map, keyed the same way `edgeMap` keys
   // vertices. Used below to exempt a kept edge from `hiddenLines: "hide"`

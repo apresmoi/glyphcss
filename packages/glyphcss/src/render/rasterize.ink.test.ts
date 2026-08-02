@@ -278,6 +278,24 @@ describe("rasterize — ink mode oriented silhouette outline", () => {
     // the perimeter boundary edges.
     for (const i of [4, 5, 6]) expect(cellAt(out, i, i)).toBe(" ");
   });
+
+  it("still drops the shared edge when its endpoints differ only by float rounding noise (~1e-12)", () => {
+    // Same flat-quad setup as the test above, but the second triangle's
+    // copies of the two shared-edge endpoints are perturbed by ~1e-12 — the
+    // magnitude of noise a chain of transforms can leave behind on what
+    // should be the same solid corner. Without a tolerant vertex key, these
+    // two triangles' shared edge would key to two DIFFERENT strings and the
+    // adjacency map would see two degree-1 (lone-triangle) edges instead of
+    // one degree-2 (shared) edge — each front-facing lone edge is then kept
+    // and drawn, so the diagonal would incorrectly appear.
+    const NOISE = 1e-12;
+    const polygons: Polygon[] = [
+      { vertices: [[2, 2, 0], [8, 8, 0], [8, 2, 0]], color: "#ff0000" },
+      { vertices: [[8 + NOISE, 8 - NOISE, 0], [2 + NOISE, 2, 0], [2, 8, 0]], color: "#ff0000" },
+    ];
+    const out = inkRasterize(polygons);
+    for (const i of [4, 5, 6]) expect(cellAt(out, i, i)).toBe(" ");
+  });
 });
 
 describe("rasterize — ink mode junction tangent (>=3-neighbor vertex)", () => {
