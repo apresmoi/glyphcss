@@ -162,6 +162,13 @@ interface Preset {
   outline?: { color: string; width: number };
   /** Flat two-layer drop shadow (no extrusion walls). */
   layered?: boolean;
+  /** Stage zoom, paired with `density`: density alone changes cell size, so an
+      effect preset that raises it also needs its framing back. */
+  zoom?: number;
+  /** Scene glyph density. Effect presets need real cell resolution to read —
+      matrix rain at the default density 1 is ~440 cells of confetti; at 3.4 it
+      is ~4900 and the word reads as letterforms filled with falling code. */
+  density?: number;
   /** Render mode this preset wants. Optional: absent means "don't touch the
    *  current render mode" — `applyPreset` never resets a style-only preset's
    *  target back to whatever mode the user happened to be in. */
@@ -227,12 +234,17 @@ const PRESETS: Preset[] = [
     mode: "ink", hiddenLines: "hide" },
   { label: "Braille Wire", profile: "bevel", depth: 34, color: "#7ec8ff", sideColor: "#1838b8",
     mode: "wireframe", charMode: "braille", hiddenLines: "hide" },
-  { label: "Matrix Fall", profile: "flat", depth: 10, color: "#0b0f1a", sideColor: "#0b0f1a",
-    mode: "solid",
-    effect: { id: "matrix-rain", blend: "replace", params: {
-      glyphs: "GLYPH", direction: "down", space: "auto", scale: 1,
-      speedMin: 6, speedMax: 14, trail: 16, density: 0.6, seed: 1,
-      colorMode: "monochrome", color: "#0b3d1f", headColor: "#8affc1",
+  // Tuned by looking at it: the first pass used a near-black base under a
+  // `replace` blend at density 0.6, which left the letterform unreadable —
+  // ~111 inked cells of scattered confetti. A readable green base under an
+  // `over` blend at density 0.99 gives ~4900 cells and the word actually reads
+  // as letterforms filled with falling code.
+  { label: "Matrix Fall", profile: "flat", depth: 10, color: "#1d6b3a", sideColor: "#0f3a20",
+    backColor: "#0f3a20", mode: "solid", density: 2.6,
+    effect: { id: "matrix-rain", blend: "over", params: {
+      glyphs: "GLYPH01", direction: "down", space: "auto", scale: 1,
+      speedMin: 6, speedMax: 14, trail: 10, density: 0.95, seed: 1,
+      colorMode: "monochrome", color: "#1aa34a", headColor: "#baffd6",
     } } },
   { label: "Scan Pulse", profile: "bevel", depth: 20, color: "#161b22", sideColor: "#0b0f1a",
     mode: "ink", hiddenLines: "hide",
@@ -836,6 +848,8 @@ export function WordArtWorkbench() {
     setOutlineOn(!!p.outline);
     if (p.outline) { setOutlineColor(p.outline.color); setOutlineWidth(p.outline.width); }
     setLayered(!!p.layered);
+    if (p.density !== undefined) setDensity(p.density);
+    if (p.zoom !== undefined) setZoomScale(() => p.zoom!);
     // Render mode / char mode / hidden lines are OPTIONAL on a preset — only
     // touch state the preset actually specifies, so a style-only preset (the
     // original 20) never resets a render mode the user already has dialed

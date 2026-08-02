@@ -377,6 +377,12 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
    (see the base stylesheet `injectGlyphBaseStyles` ships), so the flex box
    centers it like an icon inside the fixed square tile. */
 .wa-tile__thumb {
+  /* The preview is real selectable text (a `<pre>` of glyphs), so a click that
+     drifts a pixel over it becomes a text-selection drag and the tile's
+     `click` never fires — the tile then only responded on its short label.
+     The thumb is decorative, so let pointer events fall through to the button. */
+  pointer-events: none;
+  user-select: none;
   width: 100%;
   aspect-ratio: 1;
   display: flex;
