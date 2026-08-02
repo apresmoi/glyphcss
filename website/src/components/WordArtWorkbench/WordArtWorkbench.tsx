@@ -1506,6 +1506,7 @@ const TILE_TEXTURE_SIZE = 20;
 // Repaint cadence cap for a live effect tile's clock (see `WordArtEffectLayer`'s
 // `maxFps` doc comment for the measured cost this recovers) — plenty to read
 // as "animating" at 16×11, far cheaper than the main Stage's uncapped 60fps.
+const TILE_EFFECT_ZOOM = 0.62;
 const TILE_EFFECT_MAX_FPS = 12;
 // Stage's own default light (lightAz -25 / lightEl 45), computed the same
 // way — see the `lightDir` useMemo below — so the tile preview is lit
@@ -1666,7 +1667,11 @@ function LiveEffectTile({ font, preset, mode, charMode }: { font: ParsedFont; pr
   }, [definition, effect]);
   if (!mesh || !definition || !effectParams || !effect) return null;
   return (
-    <GlyphOrthographicCamera rotX={0} rotY={0} zoom={mesh.zoom}>
+    // Effect tiles pull the camera back: a full-coverage effect (matrix rain
+    // at density ~1) paints every covered cell, so at the static tiles' framing
+    // the slab fills the grid edge-to-edge with no margin and reads as "too
+    // big" beside the letter-with-breathing-room static tiles.
+    <GlyphOrthographicCamera rotX={0} rotY={0} zoom={mesh.zoom * TILE_EFFECT_ZOOM}>
       <GlyphScene
         cols={TILE_COLS}
         rows={TILE_ROWS}
