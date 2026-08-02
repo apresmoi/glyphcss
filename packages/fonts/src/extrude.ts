@@ -297,12 +297,19 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
           vertices: pts.map((p) => place(p, z, o)),
           color: mat.color ?? "#cccccc",
         };
+        // Cap UVs are authored unconditionally (not just when textured), planar
+        // in the glyph's own type-plane bounds — stable under mesh rotation,
+        // since this coordinate is computed before the mesh's `rotation` is
+        // applied. This is what lets surface-locked effects (`space: "auto"`)
+        // resolve authored UVs on solid-colour text instead of falling back to
+        // the generated world-surface basis, which is anchored to world space
+        // and slides under the geometry as the mesh turns.
+        if (fb) poly.uvs = pts.map((p) => uvAt(p, tile));
         if (mat.texture && fb) {
           // Inline `texture` (not just `material`) so the mesh atlas planner —
           // which reads polygon.texture — UV-maps the shared fill across the word.
           poly.texture = mat.texture;
           poly.material = { texture: mat.texture };
-          poly.uvs = pts.map((p) => uvAt(p, tile));
           if (tile > 0) poly.textureWrap = REPEAT;
         }
         polygons.push(poly);
@@ -325,6 +332,16 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
     cap(si(rings[rings.length - 1].inset), rings[rings.length - 1].z, ZERO, true, materialAt(1));
 
     for (const contour of contours) {
+      // Wall strip UV: u = fractional arc-length position around this contour
+      // (0..1, wrapping at the seam), v = fractional depth (0 front → 1 back,
+      // via the same `tOf` axis the material bands use). This is a genuinely
+      // depth-aware parameterization — unlike the planar cap mapping, whose
+      // (x, y) barely changes between the front and back ring on a "flat"
+      // profile (near-zero inset), which would leave a surface-locked effect
+      // with no usable depth axis on the walls. Computed once per contour
+      // (not per ring) since ring offsets only inset the contour, they don't
+      // change vertex correspondence or perimeter topology.
+      const arcFrac = arcLengthFractions(contour);
       let prevOffset = offsetContour(contour, si(rings[0].inset));
       for (let r = 1; r < rings.length; r++) {
         const curOffset = offsetContour(contour, si(rings[r].inset));
@@ -332,6 +349,8 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
         const z1 = rings[r].z;
         const mat = materialAt(tOf((z0 + z1) / 2));
         const tile = mat.tile ?? 0;
+        const v0 = tOf(z0);
+        const v1 = tOf(z1);
         for (let i = 0, len = contour.length; i < len; i++) {
           const j = (i + 1) % len;
           const wall: Polygon = {
@@ -342,6 +361,12 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
               place(prevOffset[i], z0, ZERO),
             ],
             color: mat.color ?? "#cccccc",
+            uvs: [
+              [arcFrac[i], v1],
+              [arcFrac[j], v1],
+              [arcFrac[j], v0],
+              [arcFrac[i], v0],
+            ],
           };
           if (mat.texture) {
             wall.texture = mat.texture;
@@ -445,6 +470,25 @@ function safeInset(contours: Contour[], desired: number): number {
     }
   }
   return Math.min(desired, Math.sqrt(minSq) * 0.4);
+}
+
+/**
+ * Cumulative perimeter fraction at each vertex of a closed contour (0 at
+ * vertex 0, increasing monotonically, wrapping back toward 1 at the seam).
+ * Used as the wall strip's `u` axis — continuous around the glyph outline,
+ * independent of the ring's inward offset.
+ */
+function arcLengthFractions(c: Contour): number[] {
+  const n = c.length;
+  const cum = new Array<number>(n).fill(0);
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    cum[i] = total;
+    const next = c[(i + 1) % n];
+    total += Math.hypot(next[0] - c[i][0], next[1] - c[i][1]);
+  }
+  if (total < 1e-9) return cum.map(() => 0);
+  return cum.map((d) => d / total);
 }
 
 function leftNormal(a: Pt, b: Pt): Pt {

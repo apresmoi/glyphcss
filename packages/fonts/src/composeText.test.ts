@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { resolve } from "path";
+import { rotateVec3 } from "@glyphcss/core";
 import { parseFont } from "./parseFont";
 import { composeText } from "./composeText";
 
@@ -156,9 +157,14 @@ describe("composeText", () => {
     expect(polys.some((p) => !p.texture)).toBe(true);
   });
 
-  it("solid (no faceTexture) leaves the face untextured", () => {
+  it("solid (no faceTexture) leaves the face untextured but still authors UVs", () => {
     const polys = composeText(roboto, "Hi");
-    expect(polys.every((p) => !p.texture && !p.uvs)).toBe(true);
+    // No texture is applied…
+    expect(polys.every((p) => !p.texture)).toBe(true);
+    // …but every polygon still carries a UV per vertex, so surface-locked
+    // effects (`space: "auto"`) resolve the authored, mesh-local UV basis
+    // instead of falling back to the generated world-surface mapping.
+    expect(polys.every((p) => p.uvs?.length === p.vertices.length)).toBe(true);
   });
 
   it("outline adds a halo silhouette in the outline color", () => {
@@ -319,5 +325,46 @@ describe("composeText", () => {
     // line as every other glyph's — indistinguishable from "n"'s. It must
     // instead drop well past even a round letter's normal overshoot.
     expect(descenderDrop).toBeGreaterThan(overshoot * 5);
+  });
+
+  // ── regression: solid-color text UVs are surface-locked, not world-anchored ──
+  it("authored UVs stay fixed as the mesh rotates, while world-space vertices don't", () => {
+    // Solid color, no faceTexture — the WordArt repro config (matrix rain over
+    // a flat-colored word). A `<GlyphMesh rotation={[rx, ry, rz]}>` applies
+    // `rotateVec3` to each local vertex before the camera projects it; UVs are
+    // untouched by that transform because they're authored in the glyph's own
+    // 2D type-plane space upstream of it. A surface-locked effect resolving
+    // `space: "auto"` reads those UVs, so its flow direction is invariant
+    // under mesh rotation — the opposite invariant from the old fallback
+    // (generated world-surface coordinates derived from rotated vertices),
+    // which is what let the render mesh slide underneath a fixed-direction
+    // rain instead of the rain turning with the glyph faces.
+    const polysAtRest = composeText(roboto, "Glyph");
+    expect(polysAtRest.some((p) => p.uvs !== undefined)).toBe(true);
+
+    const rotate = (rx: number, ry: number, rz: number) => polysAtRest.map((p) => ({
+      ...p,
+      vertices: p.vertices.map((v) => rotateVec3(v, rx, ry, rz)),
+    }));
+    const restPose = rotate(0, 0, 0); // identity, still exercises the same mapping
+    const spunPose = rotate(0, 47, 12); // an arbitrary later frame of a spinning mesh
+
+    expect(polysAtRest.length).toBe(restPose.length);
+    expect(restPose.length).toBe(spunPose.length);
+
+    let uvInvariant = true;
+    let worldVaries = false;
+    for (let i = 0; i < polysAtRest.length; i++) {
+      const rest = restPose[i]!;
+      const spun = spunPose[i]!;
+      // The authored UV is identical at both rotations — it never depended on
+      // the vertex positions the rotation touched.
+      if (JSON.stringify(rest.uvs) !== JSON.stringify(spun.uvs)) uvInvariant = false;
+      // The world-space vertices — the only inputs the old generated-surface
+      // fallback had to work with — genuinely differ once the mesh has turned.
+      if (JSON.stringify(rest.vertices) !== JSON.stringify(spun.vertices)) worldVaries = true;
+    }
+    expect(uvInvariant).toBe(true);
+    expect(worldVaries).toBe(true);
   });
 });
