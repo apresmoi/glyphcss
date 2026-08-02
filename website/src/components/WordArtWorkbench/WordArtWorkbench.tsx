@@ -173,8 +173,10 @@ interface Preset {
   hiddenLines?: WordArtHiddenLines;
   /** A stock `@glyphcss/effects` layer to mount with this preset. `params` are
    *  merged over the effect's own schema defaults (not the current live
-   *  effect's params). Absent means "don't touch the current effect layer" —
-   *  applying a style-only preset never clears an effect the user turned on. */
+   *  effect's params). Unlike `mode`/`charMode`/`hiddenLines`, absent means
+   *  "this look has no effect" — applying ANY preset without one CLEARS the
+   *  active effect layer (see `applyPreset`). An effect is part of the whole
+   *  look, not a standalone viewing choice that should survive preset changes. */
   effect?: { id: GlyphEffectId; blend?: GalleryEffectBlend; params?: Partial<Record<string, GalleryEffectParamValue>> };
 }
 
@@ -834,20 +836,33 @@ export function WordArtWorkbench() {
     setOutlineOn(!!p.outline);
     if (p.outline) { setOutlineColor(p.outline.color); setOutlineWidth(p.outline.width); }
     setLayered(!!p.layered);
-    // Render mode / char mode / hidden lines / effect are OPTIONAL on a
-    // preset — only touch state the preset actually specifies, so a
-    // style-only preset (the original 20) never resets a render mode or
-    // effect the user already has dialed in.
+    // Render mode / char mode / hidden lines are OPTIONAL on a preset — only
+    // touch state the preset actually specifies, so a style-only preset (the
+    // original 20) never resets a render mode the user already has dialed
+    // in. These are the user's own VIEWING choice; staying put is useful.
     if (p.mode) setRenderMode(p.mode);
     if (p.charMode) setCharMode(p.charMode);
     if (p.hiddenLines) setHiddenLines(p.hiddenLines);
+    // Effect is deliberately NOT sticky, unlike mode/charMode/hiddenLines
+    // above: a preset is a whole LOOK, and an effect (Matrix rain, a scan
+    // sweep, …) is part of that look, not a standalone viewing preference. A
+    // preset always determines the effect — present means "mount this one",
+    // absent means "this look has no effect", so clicking a style-only
+    // preset after "Matrix Fall" clears the rain instead of leaving it
+    // running over an unrelated style. Do not "fix" this back into the
+    // absent-means-untouched rule mode/charMode/hiddenLines use above — the
+    // asymmetry is intentional (reported bug: effect stuck across presets).
     if (p.effect) {
       const definition = galleryEffectDefinition(p.effect.id);
       const state = definition ? createGalleryEffectState(definition.id, { blend: p.effect.blend }) : null;
       if (state) {
         state.params = sanitizeGalleryEffectParams(definition!, { ...state.params, ...p.effect.params });
         setEffectState(state);
+      } else {
+        setEffectState(DEFAULT_GALLERY_EFFECT_STATE);
       }
+    } else {
+      setEffectState(DEFAULT_GALLERY_EFFECT_STATE);
     }
     setActivePreset(p.label);
   }
@@ -936,11 +951,14 @@ export function WordArtWorkbench() {
     }
   };
 
-  // Bottom preset row — one static single-letter glyphcss render per preset,
-  // computed once (memoized on the pinned preview font) with NO live scene /
-  // rAF: `compileScene` is pure (geometry + camera → string), so each tile is
-  // a plain `<pre>` string baked at mount and re-baked only if the bundled
-  // font itself reloads.
+  // Bottom preset row — one static single-letter glyphcss render per
+  // style-only preset, computed once (memoized on the pinned preview font)
+  // with NO live scene / rAF: `compileScene` is pure (geometry + camera →
+  // string), so each tile is a plain `<pre>` string baked at mount and
+  // re-baked only if the bundled font itself reloads. The (currently 2)
+  // presets that carry an `effect` are excluded here and rendered live by
+  // `LiveEffectTile` instead (see the preset row below) — a static bake
+  // can't show a running effect.
   const presetTiles = useMemo(() => {
     if (!previewFont) return null;
     const map = new Map<string, CompileSceneResult | null>();
@@ -948,11 +966,11 @@ export function WordArtWorkbench() {
     // current workbench state, so e.g. the Braille Wire tile always previews
     // as braille wireframe regardless of what mode the user is currently in.
     // Style-only presets (no `mode`/`charMode`) keep the prior behaviour of
-    // following the live workbench state. Effects are NOT shown in tiles:
-    // `compileScene` is a pure static bake and never evaluates a Glyph
-    // Effect layer (see AGENTS.md's "Compilation" section) — an effect
-    // preset's tile is honestly just its base style, not a fake overlay.
-    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p, p.mode ?? renderMode, p.charMode ?? charMode));
+    // following the live workbench state.
+    for (const p of PRESETS) {
+      if (p.effect) continue;
+      map.set(p.label, renderPresetTile(previewFont, p, p.mode ?? renderMode, p.charMode ?? charMode));
+    }
     return map;
   }, [previewFont, renderMode, charMode]);
 
@@ -1069,11 +1087,15 @@ export function WordArtWorkbench() {
           return (
             <button key={p.label} type="button" className={`wa-tile ${activePreset === p.label ? "is-active" : ""}`} onClick={() => applyPreset(p)} title={`Apply “${p.label}”`}>
               <span className="wa-tile__thumb">
-                {/* `tile.html` (not `.inner`) — the `<pre class="glyph-output">` wrapper
-                    carries the base stylesheet's `white-space: pre` + monospace
-                    font, which the raw newline-joined grid string needs to lay out
-                    as rows instead of collapsing/wrapping like normal text. */}
-                {tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.html }} />}
+                {p.effect && previewFont ? (
+                  <LiveEffectTile font={previewFont} preset={p} mode={p.mode ?? renderMode} charMode={p.charMode ?? charMode} />
+                ) : (
+                  /* `tile.html` (not `.inner`) — the `<pre class="glyph-output">` wrapper
+                     carries the base stylesheet's `white-space: pre` + monospace
+                     font, which the raw newline-joined grid string needs to lay out
+                     as rows instead of collapsing/wrapping like normal text. */
+                  tile && <span className="wa-tile__glyph" dangerouslySetInnerHTML={{ __html: tile.html }} />
+                )}
               </span>
               <span className="wa-tile__label">{p.label}</span>
             </button>
@@ -1345,6 +1367,21 @@ interface WordArtEffectLayerProps {
   blend: GalleryEffectBlend;
   paused: boolean;
   timeScale: number;
+  /** Caps how often the rAF clock actually PUSHES `params.time` (and so
+   *  triggers a re-render/re-paint) — the sim clock itself still advances
+   *  every real frame, so effect speed is unaffected, only paint cadence.
+   *  `undefined` (the main Stage's usage) means uncapped, unchanged 60fps
+   *  behavior. Used by the footer `LiveEffectTile`s (see below): measured
+   *  with Chrome DevTools Protocol `Performance.getMetrics` `TaskDuration`,
+   *  two tiny 16×11 tiles animating uncapped added ~20-25 percentage points
+   *  of sustained main-thread busy time versus zero live tiles (idle
+   *  ~6% → ~30%) — disproportionate to their cell count, because the fixed
+   *  per-frame cost (effect eval + colored-span innerHTML re-paint × 2
+   *  layers × 60fps) dominates at this tiny grid size, not the cell count
+   *  itself. A tile only needs to visibly be moving, not track wall-clock
+   *  time exactly, so capping repaint cadence recovers most of that cost
+   *  for ~free perceived smoothness — see `LiveEffectTile`. */
+  maxFps?: number;
 }
 
 /**
@@ -1357,18 +1394,21 @@ interface WordArtEffectLayerProps {
  * no clock at all — same `"time" in parameterSchema` gate the Effects folder
  * uses to enable/disable its own Paused/Speed controls.
  */
-function WordArtEffectLayer({ definition, params, blend, paused, timeScale }: WordArtEffectLayerProps) {
+function WordArtEffectLayer({ definition, params, blend, paused, timeScale, maxFps }: WordArtEffectLayerProps) {
   const layerRef = useRef<GlyphEffectLayerHandle<Record<string, GalleryEffectParamValue>>>(null);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
   const timeScaleRef = useRef(timeScale);
   timeScaleRef.current = timeScale;
+  const maxFpsRef = useRef(maxFps);
+  maxFpsRef.current = maxFps;
   const hasTime = "time" in definition.parameterSchema;
 
   useEffect(() => {
     if (!hasTime) return;
     let raf = 0;
     let last: number | null = null;
+    let lastPaint: number | null = null;
     let time = 0;
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
@@ -1376,6 +1416,9 @@ function WordArtEffectLayer({ definition, params, blend, paused, timeScale }: Wo
       const elapsed = last === null ? 0 : Math.min(Math.max(now - last, 0) / 1000, 0.1);
       last = now;
       time += elapsed * timeScaleRef.current;
+      const fps = maxFpsRef.current;
+      if (fps && lastPaint !== null && now - lastPaint < 1000 / fps) return;
+      lastPaint = now;
       if (layerRef.current) layerRef.current.params.time = time;
     };
     raf = requestAnimationFrame(tick);
@@ -1440,6 +1483,10 @@ const TILE_CELL_ASPECT = 1.45;
 // library's own 0.95 default), so the "a" doesn't touch the tile's edges.
 const TILE_FRAME_FILL = 0.92;
 const TILE_TEXTURE_SIZE = 20;
+// Repaint cadence cap for a live effect tile's clock (see `WordArtEffectLayer`'s
+// `maxFps` doc comment for the measured cost this recovers) — plenty to read
+// as "animating" at 16×11, far cheaper than the main Stage's uncapped 60fps.
+const TILE_EFFECT_MAX_FPS = 12;
 // Stage's own default light (lightAz -25 / lightEl 45), computed the same
 // way — see the `lightDir` useMemo below — so the tile preview is lit
 // exactly like the live composition's resting state.
@@ -1471,16 +1518,22 @@ function frameZoomForGrid(
   return Math.min((fill * cols) / w, (fill * rows) / h);
 }
 
-/**
- * Render one preset as a static single-letter `<pre>` — the same face-fill /
- * profile / warp mapping `applyPreset` drives the live composition with,
- * extruded via the pinned preview font and compiled with `compileScene`
- * (pure: geometry + camera → string, no DOM, no rAF). Gradient/rainbow/
- * texture/image fills fall back to their flat `color` here — compileScene
- * has no async image decode to sample a texture sampler from (same fallback
- * the live runtime shows for one frame before its own sampler resolves).
- */
-function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderMode, charMode: WordArtCharMode): CompileSceneResult | null {
+interface PresetTileMesh {
+  /** Already tilted + centered — same polygons for the static bake and a
+   *  live tile's `<GlyphMesh>` (no separate `rotation` prop needed). */
+  polygons: Polygon[];
+  /** Orthographic zoom that fits `polygons` into `TILE_COLS`×`TILE_ROWS` at
+   *  `TILE_CELL_ASPECT` — computed once via `frameZoomForGrid` and reused
+   *  verbatim as `<GlyphOrthographicCamera zoom>` by a live tile, since it's
+   *  the exact same `camera.project` fit `compileScene` renders with. */
+  zoom: number;
+}
+
+/** Build the single-letter preset mesh + fitted camera zoom — the geometry
+ *  half of a preset tile, shared by the static `compileScene` bake
+ *  (`renderPresetTile`) and a live effect tile (`LiveEffectTile`) so both
+ *  paths frame the exact same "a" the exact same way. */
+function buildPresetTileMesh(font: ParsedFont, preset: Preset): PresetTileMesh | null {
   const sides: Face = preset.sideTex
     ? resolveFace({ kind: "texture", color: preset.sideColor, url: texUrl(preset.sideTex), tile: TILE_TEXTURE_SIZE })
     : { color: preset.sideColor };
@@ -1532,8 +1585,24 @@ function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderM
   const centered = centerMesh(tilted);
   const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
   camera.zoom = frameZoomForGrid(camera, centered, TILE_COLS, TILE_ROWS, TILE_CELL_ASPECT, TILE_FRAME_FILL);
+  return { polygons: centered, zoom: camera.zoom };
+}
+
+/**
+ * Render one preset as a static single-letter `<pre>` — the same face-fill /
+ * profile / warp mapping `applyPreset` drives the live composition with,
+ * extruded via the pinned preview font and compiled with `compileScene`
+ * (pure: geometry + camera → string, no DOM, no rAF). Gradient/rainbow/
+ * texture/image fills fall back to their flat `color` here — compileScene
+ * has no async image decode to sample a texture sampler from (same fallback
+ * the live runtime shows for one frame before its own sampler resolves).
+ */
+function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderMode, charMode: WordArtCharMode): CompileSceneResult | null {
+  const mesh = buildPresetTileMesh(font, preset);
+  if (!mesh) return null;
+  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: mesh.zoom });
   return compileScene({
-    polygons: centered,
+    polygons: mesh.polygons,
     camera,
     cols: TILE_COLS,
     rows: TILE_ROWS,
@@ -1550,6 +1619,58 @@ function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderM
     directionalLight: { direction: TILE_LIGHT_DIR, intensity: 0.95 },
     ambientLight: { intensity: 0.7 },
   });
+}
+
+/**
+ * Live counterpart to `renderPresetTile`, used ONLY for the (currently 2)
+ * presets that carry an `effect` — a static `compileScene` bake can't show a
+ * Glyph Effect layer (it's runtime-only, see AGENTS.md's "Compilation"
+ * section: `compileScene` never evaluates a mounted effect), so those tiles
+ * were silently showing just the base style with no visible rain/scan. This
+ * mounts the exact same live-scene machinery the main Stage uses for its own
+ * effect layer (`<GlyphScene>` + `<GlyphMesh>` + `WordArtEffectLayer`'s
+ * `requestAnimationFrame` clock) at the tile's own tiny `TILE_COLS`×`TILE_ROWS`
+ * grid instead of reinventing a second effect-mounting path. The other 20
+ * style-only presets are untouched — still a single cheap `compileScene`
+ * bake computed once in the `presetTiles` memo.
+ */
+function LiveEffectTile({ font, preset, mode, charMode }: { font: ParsedFont; preset: Preset; mode: WordArtRenderMode; charMode: WordArtCharMode }) {
+  const mesh = useMemo(() => buildPresetTileMesh(font, preset), [font, preset]);
+  const effect = preset.effect;
+  const definition = effect ? galleryEffectDefinition(effect.id) : null;
+  const effectParams = useMemo(() => {
+    if (!definition || !effect) return null;
+    const state = createGalleryEffectState(definition.id, { blend: effect.blend });
+    if (!state) return null;
+    return sanitizeGalleryEffectParams(definition, { ...state.params, ...effect.params });
+  }, [definition, effect]);
+  if (!mesh || !definition || !effectParams || !effect) return null;
+  return (
+    <GlyphOrthographicCamera rotX={0} rotY={0} zoom={mesh.zoom}>
+      <GlyphScene
+        cols={TILE_COLS}
+        rows={TILE_ROWS}
+        cellAspect={TILE_CELL_ASPECT}
+        mode={mode}
+        charMode={charMode}
+        useColors
+        className="wa-tile__glyph"
+        directionalLight={{ direction: TILE_LIGHT_DIR, intensity: 0.95 }}
+        ambientLight={{ intensity: 0.7 }}
+      >
+        <GlyphMesh polygons={mesh.polygons} />
+        <WordArtEffectLayer
+          key={definition.id}
+          definition={definition}
+          params={effectParams}
+          blend={effect.blend ?? definition.defaultBlend}
+          paused={false}
+          timeScale={1}
+          maxFps={TILE_EFFECT_MAX_FPS}
+        />
+      </GlyphScene>
+    </GlyphOrthographicCamera>
+  );
 }
 
 /**
