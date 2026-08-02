@@ -789,7 +789,14 @@ function rasterizeInk(
       })()
     : keptEdges;
 
+  // Per-vertex camera-space depth (`p[2]`, same "larger = nearer" convention
+  // as `fillDepthTri`'s `z > depth[idx]` test), cached alongside the screen
+  // position from the SAME `camera.project` call — no second projection pass.
+  // Used below to break ties between two equal-`rank` strokes contesting the
+  // same cell (e.g. a front-face silhouette edge and an extrusion side-wall
+  // edge, both `rank: 1`) in favor of the nearer one.
   const vertexScreen = new Map<string, [number, number] | null>();
+  const vertexDepth = new Map<string, number>();
   const projectVertex = (v: Vec3): [number, number] | null => {
     const key = inkVertexKey(v);
     const cached = vertexScreen.get(key);
@@ -797,6 +804,7 @@ function rasterizeInk(
     const p = camera.project(v, cols, rows, cellAspect, metrics);
     const s: [number, number] | null = p[0] === p[0] ? [p[0], p[1]] : null;
     vertexScreen.set(key, s);
+    vertexDepth.set(key, p[2]!);
     return s;
   };
   const neighbors = new Map<string, { screen: [number, number]; nbrKeys: string[] }>();
@@ -807,14 +815,14 @@ function rasterizeInk(
     if (!neighbors.has(key)) neighbors.set(key, { screen: s, nbrKeys: [] });
     return key;
   };
-  const edgeSegments: { fromKey: string; toKey: string; color: string | undefined; rank: number }[] = [];
+  const edgeSegments: { fromKey: string; toKey: string; color: string | undefined; rank: number; fromZ: number; toZ: number }[] = [];
   for (const e of hiddenLinesEdges) {
     const fk = ensureNode(e.fromWorld);
     const tk = ensureNode(e.toWorld);
     if (!fk || !tk || fk === tk) continue;
     neighbors.get(fk)!.nbrKeys.push(tk);
     neighbors.get(tk)!.nbrKeys.push(fk);
-    edgeSegments.push({ fromKey: fk, toKey: tk, color: e.color, rank: e.rank });
+    edgeSegments.push({ fromKey: fk, toKey: tk, color: e.color, rank: e.rank, fromZ: vertexDepth.get(fk)!, toZ: vertexDepth.get(tk)! });
   }
 
   // Raw per-vertex tangent: central difference between two neighbors (the
@@ -868,7 +876,21 @@ function rasterizeInk(
     tangent = next;
   }
 
+  // Conflict resolution when two strokes contest the same cell: `rank` is
+  // still the primary key (a silhouette/crease always beats a lone
+  // front-facing boundary edge), but two EQUAL-rank strokes — e.g. a front
+  // face's own silhouette and a farther extrusion side wall, both `rank: 1`
+  // — used to resolve by draw order alone (whichever segment rasterized
+  // last won), with no regard for which one the camera actually sees. This
+  // is the reported "sides instead of front" defect on extruded word-art.
+  // `cellDepth` breaks that tie by nearest-camera-space-depth (same
+  // "larger = nearer" convention as `fillDepthTri`): among segments of equal
+  // rank, only a STRICTLY nearer sample overwrites a cell's already-drawn
+  // depth. This never removes a stroke — every contested cell still gets
+  // whichever equal-rank segment is nearest, so it cannot punch the
+  // mid-stroke holes the per-sample hidden-line attempts did.
   const cellRank = new Int8Array(cols * rows).fill(-1);
+  const cellDepth = new Float64Array(cols * rows).fill(-Infinity);
   for (const seg of [...edgeSegments].sort((l, r) => l.rank - r.rank)) {
     const a = neighbors.get(seg.fromKey)!.screen;
     const b = neighbors.get(seg.toKey)!.screen;
@@ -880,6 +902,7 @@ function rasterizeInk(
     const segDir = normalize2([dx, dy]);
     const ta = biasTangentToSegment(tangent.get(seg.fromKey)!, segDir);
     const tb = biasTangentToSegment(tangent.get(seg.toKey)!, segDir);
+    const dz = seg.toZ - seg.fromZ;
     const steps = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy))));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
@@ -889,7 +912,10 @@ function rasterizeInk(
       const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
       const idx = cy * cols + cx;
       if (cellRank[idx]! > seg.rank) continue;
+      const z = seg.fromZ + dz * t;
+      if (cellRank[idx]! === seg.rank && cellDepth[idx]! >= z) continue;
       cellRank[idx] = seg.rank;
+      cellDepth[idx] = z;
       charBuf[idx] = inkGlyphForTangent(tx, ty, y - cy, x - cx);
       if (colorBuf) colorBuf[idx] = seg.color ?? null;
     }
