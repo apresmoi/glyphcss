@@ -162,6 +162,20 @@ interface Preset {
   outline?: { color: string; width: number };
   /** Flat two-layer drop shadow (no extrusion walls). */
   layered?: boolean;
+  /** Render mode this preset wants. Optional: absent means "don't touch the
+   *  current render mode" — `applyPreset` never resets a style-only preset's
+   *  target back to whatever mode the user happened to be in. */
+  mode?: WordArtRenderMode;
+  /** Character encoding this preset wants (braille is wireframe-only,
+   *  halfblock is solid-only — see AGENTS.md). Same absent-means-untouched rule as `mode`. */
+  charMode?: WordArtCharMode;
+  /** Hidden-line removal this preset wants (wireframe/ink only). Same absent-means-untouched rule as `mode`. */
+  hiddenLines?: WordArtHiddenLines;
+  /** A stock `@glyphcss/effects` layer to mount with this preset. `params` are
+   *  merged over the effect's own schema defaults (not the current live
+   *  effect's params). Absent means "don't touch the current effect layer" —
+   *  applying a style-only preset never clears an effect the user turned on. */
+  effect?: { id: GlyphEffectId; blend?: GalleryEffectBlend; params?: Partial<Record<string, GalleryEffectParamValue>> };
 }
 
 // Bottom preset row — each is a full "look": extrusion, layered front/back,
@@ -202,6 +216,27 @@ const PRESETS: Preset[] = [
     outline: { color: "#ff2fd0", width: 5 } },
   { label: "Copper Shine", profile: "bevel", depth: 24, color: "#e0813a", sideColor: "#6b2f12",
     fill: "gradient", gradA: "#ffcf8a", gradB: "#a34a12", gradAngle: 200 },
+  // ── Render-mode showcase presets ──────────────────────────────────────
+  // These four exercise render modes/char modes/effects the other 20 never
+  // touch. Each sets `mode`/`charMode`/`hiddenLines`/`effect` explicitly so
+  // clicking the tile shows the feature, not whatever mode the user was
+  // already in — see `applyPreset`'s absent-means-untouched contract above.
+  { label: "Ink Silhouette", profile: "bevel", depth: 24, color: "#39ff14", sideColor: "#0f4d0f",
+    mode: "ink", hiddenLines: "hide" },
+  { label: "Braille Wire", profile: "bevel", depth: 34, color: "#7ec8ff", sideColor: "#1838b8",
+    mode: "wireframe", charMode: "braille", hiddenLines: "hide" },
+  { label: "Matrix Fall", profile: "flat", depth: 10, color: "#0b0f1a", sideColor: "#0b0f1a",
+    mode: "solid",
+    effect: { id: "matrix-rain", blend: "replace", params: {
+      glyphs: "GLYPH", direction: "down", space: "auto", scale: 1,
+      speedMin: 6, speedMax: 14, trail: 16, density: 0.6, seed: 1,
+      colorMode: "monochrome", color: "#0b3d1f", headColor: "#8affc1",
+    } } },
+  { label: "Scan Pulse", profile: "bevel", depth: 20, color: "#161b22", sideColor: "#0b0f1a",
+    mode: "ink", hiddenLines: "hide",
+    effect: { id: "scan", blend: "over", params: {
+      direction: "down", space: "auto", scale: 1, speed: 12, width: 4, spacing: 30, color: "#5ad1ff",
+    } } },
 ];
 
 function applyCase(text: string, mode: "as-typed" | "upper" | "lower" | "title"): string {
@@ -799,6 +834,21 @@ export function WordArtWorkbench() {
     setOutlineOn(!!p.outline);
     if (p.outline) { setOutlineColor(p.outline.color); setOutlineWidth(p.outline.width); }
     setLayered(!!p.layered);
+    // Render mode / char mode / hidden lines / effect are OPTIONAL on a
+    // preset — only touch state the preset actually specifies, so a
+    // style-only preset (the original 20) never resets a render mode or
+    // effect the user already has dialed in.
+    if (p.mode) setRenderMode(p.mode);
+    if (p.charMode) setCharMode(p.charMode);
+    if (p.hiddenLines) setHiddenLines(p.hiddenLines);
+    if (p.effect) {
+      const definition = galleryEffectDefinition(p.effect.id);
+      const state = definition ? createGalleryEffectState(definition.id, { blend: p.effect.blend }) : null;
+      if (state) {
+        state.params = sanitizeGalleryEffectParams(definition!, { ...state.params, ...p.effect.params });
+        setEffectState(state);
+      }
+    }
     setActivePreset(p.label);
   }
 
@@ -894,7 +944,15 @@ export function WordArtWorkbench() {
   const presetTiles = useMemo(() => {
     if (!previewFont) return null;
     const map = new Map<string, CompileSceneResult | null>();
-    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p, renderMode, charMode));
+    // A preset's own `mode`/`charMode` (when it specifies one) wins over the
+    // current workbench state, so e.g. the Braille Wire tile always previews
+    // as braille wireframe regardless of what mode the user is currently in.
+    // Style-only presets (no `mode`/`charMode`) keep the prior behaviour of
+    // following the live workbench state. Effects are NOT shown in tiles:
+    // `compileScene` is a pure static bake and never evaluates a Glyph
+    // Effect layer (see AGENTS.md's "Compilation" section) — an effect
+    // preset's tile is honestly just its base style, not a fake overlay.
+    for (const p of PRESETS) map.set(p.label, renderPresetTile(previewFont, p, p.mode ?? renderMode, p.charMode ?? charMode));
     return map;
   }, [previewFont, renderMode, charMode]);
 
