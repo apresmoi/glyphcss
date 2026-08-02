@@ -396,6 +396,12 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
    so the "a" reads clearly instead of blurring into noise. */
 .wa-tile__glyph { font-size: 12px; line-height: 1; }
 .wa-tile__glyph .glyph-output { color: rgba(255, 232, 184, 0.92); }
+/* Live effect tiles put `.wa-tile__glyph` on the scene HOST, so the `<pre>`
+   inside keeps the base stylesheet's own explicit font-size instead of
+   inheriting the tile's 12px — which rendered those tiles ~1.5x too large and
+   spilling out of the thumb. Pin the size on the output itself so live and
+   static tiles match. */
+.wa-tile__thumb .glyph-output { font-size: 12px !important; line-height: 1 !important; }
 .wa-tile__label {
   padding: 3px 6px 5px;
   font-size: 10px;
