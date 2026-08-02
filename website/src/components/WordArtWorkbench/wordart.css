@@ -526,3 +526,34 @@ textarea.wa-input { resize: vertical; line-height: 1.4; height: auto; padding: 0
 
   .wa-stage-foot { bottom: calc(var(--overlay-bottom, 12px) + var(--mobile-tabs-height, 52px) + 8px); }
 }
+
+/* ── Right Dock: run to the bottom of the body like the left rail ──────────
+   The floating Dock defaults to a 12px bottom inset (`--overlay-bottom`),
+   which left it hovering above the preset footer while `.wa-rail` runs the
+   full height of `.wa-body` and the footer sits on top of it. Match the rail:
+   drop the inset so both sidebars end at the same line. */
+.dn-root--wordart .wa-body > .dn-floating-controls {
+  --overlay-bottom: 0px;
+  /* `height`, not just `max-height`: the Dock is content-sized, so a max alone
+     left it ending wherever its last folder did. Filling makes its panel run to
+     the footer exactly like `.wa-rail` does. */
+  height: calc(100% - var(--overlay-top));
+  max-height: calc(100% - var(--overlay-top));
+}
+.dn-root--wordart .wa-body > .dn-floating-controls > .dn-lil-gui-host,
+.dn-root--wordart .wa-body > .dn-floating-controls .lil-gui.root {
+  height: 100% !important;
+  max-height: 100% !important;
+}
+
+/* ── Stats readout: top-left of the render space ──────────────────────────
+   stats-js pins itself bottom-right, where it overlapped the preset tiles.
+   Anchor it to the viewport area instead, just right of the left rail. */
+.dn-root--wordart .glyph-stats-host {
+  position: absolute;
+  top: var(--overlay-top);
+  left: var(--overlay-left);
+  right: auto;
+  bottom: auto;
+  align-items: flex-start;
+}

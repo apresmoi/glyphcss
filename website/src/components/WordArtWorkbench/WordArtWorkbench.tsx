@@ -376,6 +376,9 @@ export function WordArtWorkbench() {
   // Camera + lighting (gallery-style)
   const [perspective, setPerspective] = useState(() => qb("persp", true));
   const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
+  // State, not a ref: StatsOverlay mounts imperatively into this element, and
+  // a ref mutation would not re-run its effect.
+  const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
   // Viewing angle lives here, not in <Stage>, so the URL effect below can see
   // it. Dragging rotates the MESH (see <Stage>) — the camera stays pinned.
   const [turn, setTurn] = useState(() => qn("turn", 0));
@@ -990,7 +993,6 @@ export function WordArtWorkbench() {
 
   return (
     <div className="wa-shell dn-root dn-root--wordart">
-      <StatsOverlay />
       <div className="wa-body">
         <aside
           id="wa-compose-panel"
@@ -1020,7 +1022,11 @@ export function WordArtWorkbench() {
           </div>
         </aside>
 
-        <main className="wa-main">
+        <main className="wa-main" ref={setStageHost}>
+          {/* Anchored to the render area's top-left, clear of the left rail
+              and the preset footer (it mounts imperatively, so it needs the
+              host element rather than JSX placement). */}
+          <StatsOverlay anchor="top-left" container={stageHost} />
           <Stage
             polygons={polygons}
             scaleXFrac={scaleX / 100}
