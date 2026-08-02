@@ -241,9 +241,15 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
   const faceH = fb ? Math.max(fb.maxY - fb.minY, 1e-6) : 1;
   // tile > 0 → repeat the texture every `tile` world units (crisp block look);
   // tile === 0 → stretch one copy across the whole word (gradient / photo).
+  // `v` is flipped so it grows DOWNWARD in screen terms. The composed mesh is
+  // X-up (local X = text height, growing screen-down), and an unflipped
+  // `(p[0] - minX)` therefore produced a `v` that grew screen-UP: an effect
+  // asking for `direction: "down"` visibly travelled upward, and textures were
+  // mirrored vertically (unnoticed because the bundled fills are noise-like).
+  // Image/texture convention is v-down, so flip it here at the source.
   const uvAt = (p: Pt, tile: number): Vec2 => tile > 0
-    ? [(p[0] - fb!.minX) / tile, (p[1] - fb!.minY) / tile]
-    : [Math.min(1, Math.max(0, (p[0] - fb!.minX) / faceW)), Math.min(1, Math.max(0, (p[1] - fb!.minY) / faceH))];
+    ? [(p[0] - fb!.minX) / tile, (fb!.maxY - p[1]) / tile]
+    : [Math.min(1, Math.max(0, (p[0] - fb!.minX) / faceW)), Math.min(1, Math.max(0, (fb!.maxY - p[1]) / faceH))];
   const REPEAT = { s: "repeat", t: "repeat" } as const;
   const outlineWidth = opts.outlineColor ? Math.max(0, opts.outlineWidth ?? 0) : 0;
 
@@ -361,12 +367,29 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
               place(prevOffset[i], z0, ZERO),
             ],
             color: mat.color ?? "#cccccc",
-            uvs: [
-              [arcFrac[i], v1],
-              [arcFrac[j], v1],
-              [arcFrac[j], v0],
-              [arcFrac[i], v0],
-            ],
+            // `v` is the letterform's OWN vertical (the same planar axis the
+            // caps use), not the extrusion depth. With depth as `v`, a
+            // surface-locked effect asking for "down" travelled INTO the
+            // screen on every side wall while flowing correctly down the face
+            // — the word did not read as one continuous flow. Depth becomes
+            // `u` instead, which keeps the quad's parameterisation
+            // non-degenerate (front and back rings share (x, y) on a flat
+            // profile, so a planar `u` there would collapse to zero area).
+            // Without face bounds there is no letterform vertical to map to, so
+            // fall back to the arc-length/depth strip.
+            uvs: fb
+              ? [
+                [v1, uvAt(curOffset[i], 0)[1]],
+                [v1, uvAt(curOffset[j], 0)[1]],
+                [v0, uvAt(prevOffset[j], 0)[1]],
+                [v0, uvAt(prevOffset[i], 0)[1]],
+              ]
+              : [
+                [arcFrac[i], v1],
+                [arcFrac[j], v1],
+                [arcFrac[j], v0],
+                [arcFrac[i], v0],
+              ],
           };
           if (mat.texture) {
             wall.texture = mat.texture;
