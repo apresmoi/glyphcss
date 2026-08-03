@@ -239,12 +239,12 @@ const PRESETS: Preset[] = [
   // ~111 inked cells of scattered confetti. A readable green base under an
   // `over` blend at density 0.99 gives ~4900 cells and the word actually reads
   // as letterforms filled with falling code.
-  { label: "Matrix Fall", profile: "flat", depth: 10, color: "#1d6b3a", sideColor: "#0f3a20",
-    backColor: "#0f3a20", mode: "solid", density: 2.6,
-    effect: { id: "matrix-rain", blend: "over", params: {
-      glyphs: "GLYPH01", direction: "down", space: "auto", scale: 1,
-      speedMin: 6, speedMax: 14, trail: 10, density: 0.95, seed: 1,
-      colorMode: "monochrome", color: "#1aa34a", headColor: "#baffd6",
+  { label: "Matrix Fall", profile: "flat", depth: 20, color: "#1d6b3a", sideColor: "#0f3a20",
+    backColor: "#0f3a20", mode: "solid", density: 2.5, hiddenLines: "hide",
+    effect: { id: "matrix-rain", blend: "over", timeScale: 2.5, params: {
+      glyphs: "GLYPH01", direction: "down", space: "object", scale: 1.01,
+      speedMin: 5.25, speedMax: 25.25, trail: 45, density: 0.88, seed: 306,
+      colorMode: "monochrome", color: "#00d149", headColor: "#baffd6",
     } } },
   { label: "Scan Pulse", profile: "bevel", depth: 20, color: "#161b22", sideColor: "#0b0f1a",
     mode: "ink", hiddenLines: "hide",
@@ -876,6 +876,7 @@ export function WordArtWorkbench() {
       const state = definition ? createGalleryEffectState(definition.id, { blend: p.effect.blend }) : null;
       if (state) {
         state.params = sanitizeGalleryEffectParams(definition!, { ...state.params, ...p.effect.params });
+        if (p.effect.timeScale !== undefined) state.timeScale = p.effect.timeScale;
         setEffectState(state);
       } else {
         setEffectState(DEFAULT_GALLERY_EFFECT_STATE);
