@@ -160,9 +160,14 @@ JSON in attributes.
 - `target: "surfaces"` limits writes to visible rendered geometry.
 - `target: "viewport"` can also author the base output's background.
 
-Surface-aware catalog effects default to `space: "auto"`: authored,
+`flowText` and `scan` default to `space: "auto"`: authored,
 perspective-correct UVs win when available, followed by retained world positions
-and geometric face normals. Choose `"surface"` to force the generated geometry
+and geometric face normals. `matrixRain` defaults to `space: "object"` instead —
+a volumetric mesh-local field is matrix rain's natural form (see
+[`space: "object"`](#space-object--volumetric-mapping) below) — so a matrix-rain
+preset tuned under the old `"auto"` default (its `scale` in particular means a
+different thing under `"object"`) should set `space: "auto"` explicitly to keep
+its old look. Choose `"surface"` to force the generated geometry
 mapping even when UVs exist. For generated `down`, world `-Z` is projected into
 each face's tangent plane: slopes follow their downhill gradient, coplanar
 triangles agree, and differently oriented faces derive different directions.
@@ -170,9 +175,7 @@ When a face normal is parallel to world `-Z`, the projection has zero length, so
 that plane receives a deterministic pseudo-random in-plane direction. `up`
 reverses the generated flow; `left` and `right` use its perpendicular lane axis.
 If surface fields are unavailable, the effect falls back to canonical projected
-scene coordinates. Choose `"scene"` to force projected mapping. Choose
-`"object"` for a volumetric mesh-local mapping instead of a per-face one — see
-[`space: "object"`](#space-object--volumetric-mapping) below.
+scene coordinates. Choose `"scene"` to force projected mapping.
 The `scale` parameter controls pattern frequency without changing scene glyph
 density. Text effects accept printable, single-cell sets such as `HOLA`,
 `⣿⠿⠷`, `ᚠᚢᚦ`, or `←↑→↓`; combining marks, emoji, and double-width glyphs are
@@ -207,14 +210,28 @@ construction, and rotating the mesh turns the object through a field that
 stays put relative to it — no seams, no per-face blend weights, no stretch.
 
 Matrix rain has a natural 3D form and uses this **volumetric** formulation
-directly. The mesh-local frame is Z-up, matching glyphcss's world convention,
-so a text mesh reads `X` = extrusion depth, `Y` = width, `Z` = height. The
+directly — this is why `matrixRain` defaults its `space` param to `"object"`
+(`flowText`/`scan` still default to `"auto"`, since their triplanar fallback
+is a compromise, not a natural fit). The mesh-local frame is Z-up, matching
+glyphcss's world convention, so a text mesh reads `X` = extrusion depth, `Y` =
+width, `Z` = height. The
 strand's phase therefore runs along `Z` for `down`/`up` and along `Y` for
 `left`/`right`, and lanes are indexed by the two remaining axes — always
 including depth (`X`), so cells at different depths in the same column share a
 strand. A cap cell and an
 adjacent wall cell read the same underlying `(x, y, z)` at their shared edge,
 so the same strands continue across the seam instead of restarting.
+
+Each cell's lane is a hashed integer bucket of its `objectPosition`
+(`Math.floor`'d), so a mesh rotation that nudges a cell's sampled point across
+a lane boundary swaps it to a whole new, unrelated strand. Because the
+supersampled rasterizer picks that sampled point from the nearest covered
+subcell to the cell's screen-space center, which subcell wins can itself flip
+between adjacent frames even under a tiny rotation. To keep that from reading
+as a strand popping in and out, matrix rain fades a cell's coverage out as its
+sample nears a lane boundary (within 18% of the lane's width on either side)
+instead of hard-committing right up to the edge — a crossing reads as a brief
+fade, not a pop.
 
 `scan` and `flow-text` are inherently 2D effects with no 3D form of their own
 (a scan band, a line of reading text), so `space: "object"` gives them a

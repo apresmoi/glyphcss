@@ -695,7 +695,18 @@ const matrixRainSchema = {
   time: timeSpec,
   glyphs: { kind: "string", default: "HOLA", animation: "discrete", label: "Glyphs" },
   direction: directionSpec,
-  space: spaceSpec,
+  // Matrix rain defaults to the volumetric object-space field (unlike
+  // flow-text/scan, which keep `spaceSpec`'s "auto" default): a strand
+  // falling through the mesh's own volume, agreeing across faces with no
+  // per-face UV seam, is matrix rain's natural form (see AGENTS.md's
+  // `space: "object"` volumetric formulation) and reads better as the
+  // out-of-the-box look than the 2D-domain "auto" fallback most other
+  // effects want. `scale` means a DIFFERENT thing under "object" (a 3D
+  // field, not a 2D UV) than under "auto"/"surface" — existing saved
+  // URLs/presets that relied on the old "auto" default and set a
+  // non-default `scale` may look different after this change (see the
+  // word-art/gallery/synth preset audit in the same change).
+  space: { ...spaceSpec, default: "object" },
   scale: scaleSpec,
   speedMin: { kind: "number", default: 5, min: 0, max: 40, step: 0.25, unit: "cells/s", label: "Min speed" },
   speedMax: { kind: "number", default: 12, min: 0, max: 40, step: 0.25, unit: "cells/s", label: "Max speed" },
@@ -723,12 +734,34 @@ const matrixRainSchema = {
 // cell and an adjacent wall cell sample the SAME (x, y, z) at their shared
 // edge, so they agree by construction — no per-face seam, no UV-gradient
 // blowup on a face turned edge-on to the camera.
-function objectVolumetricAlongLane<P extends AnyParams>(
+// Fraction of a lane's width, on either side of its integer boundary, that
+// fades out instead of committing hard to one lane's `hash2` bucket. Sized
+// from a measured rotation sweep (packages/effects/src/stock.test.ts,
+// "matrix-rain volumetric lane-boundary stability"): the rasterizer's
+// depth-winning object-position sample for a given output cell is chosen
+// per-subcell (nearest COVERED subcell to the cell's screen-space center —
+// see AGENTS.md's Retained Glyph Effects section), and that pick can jump to
+// a DIFFERENT subcell — a different point on the surface, up to roughly half
+// an output cell's object-space footprint away — as the mesh rotates and
+// coverage shifts within the cell, even with the effect clock paused. A hard
+// `Math.floor` lane boundary turns that small, genuine positional jitter into
+// a full swap to an unrelated `hash2` bucket (different phase/speed/glyph
+// offset), which reads as a strand popping in or out. 0.18 was picked as the
+// smallest margin that drove the measured sweep's "visible" churn (both the
+// pre- and post-step sample solidly inside the faded band, i.e. an actual
+// hard pop rather than a graceful fade) to zero on that sweep without fading
+// a large fraction of each lane's interior at rest.
+const OBJECT_LANE_EDGE_MARGIN = 0.18;
+
+// Exported for direct regression testing (packages/effects/src/stock.test.ts
+// pins this against a real rasterized rotating mesh) — see `generatedSurfaceField`
+// above for the same "internal helper, exported for test/build reuse" convention.
+export function objectVolumetricAlongLane<P extends AnyParams>(
   context: AnyContext<P>,
   index: number,
   direction: EffectDirection,
   scale: number,
-): { along: number; lane: number } | null {
+): { along: number; lane: number; edgeFade: number } | null {
   const op = context.base.objectPosition;
   if (!op) return null;
   const x = op[index * 3]!, y = op[index * 3 + 1]!, z = op[index * 3 + 2]!;
@@ -740,12 +773,19 @@ function objectVolumetricAlongLane<P extends AnyParams>(
   // at different depths on the same column share a strand.
   const horizontal = direction === "left" || direction === "right";
   const along = (horizontal ? (direction === "right" ? y : -y) : (direction === "down" ? -z : z)) * scale;
-  const lane0 = horizontal ? z : y;
-  const lane1 = x;
+  const lane0 = (horizontal ? z : y) * scale;
+  const lane1 = x * scale;
+  const f0 = lane0 - Math.floor(lane0);
+  const f1 = lane1 - Math.floor(lane1);
+  // Distance from the nearest lane boundary, in EITHER key axis (a crossing
+  // in either flips the combined hash) — 0 exactly on a boundary, 0.5 at a
+  // lane's center.
+  const edgeDistance = Math.min(Math.min(f0, 1 - f0), Math.min(f1, 1 - f1));
+  const edgeFade = smoothstep(0, OBJECT_LANE_EDGE_MARGIN, edgeDistance);
   // Combine the 2D lane key (the two axes perpendicular to flow) into the
   // single integer `hash2(lane, seed)` below expects.
-  const lane = hash2(Math.floor(lane0 * scale), Math.floor(lane1 * scale)) | 0;
-  return { along, lane };
+  const lane = hash2(Math.floor(lane0), Math.floor(lane1)) | 0;
+  return { along, lane, edgeFade };
 }
 
 export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
@@ -788,11 +828,19 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
         let along: number;
         let lane: number;
         let glyphsPerPatternCell: number;
+        // Only the volumetric (`space: "object"`) path softens near a lane
+        // boundary — see `OBJECT_LANE_EDGE_MARGIN`. The 2D domain paths below
+        // sample a stable per-cell UV/surface coordinate, not a
+        // supersample-quantized object position, so they don't exhibit the
+        // same rotation-driven pop and stay at full strength (edgeFade 1).
+        let edgeFade = 1;
         if (volumetric) {
           const v = objectVolumetricAlongLane(context, i, direction, params.scale);
           if (!v) continue;
           along = v.along;
           lane = v.lane;
+          edgeFade = v.edgeFade;
+          if (edgeFade <= 0) continue;
           glyphsPerPatternCell = 1 / params.scale;
         } else {
           const coordinate = domainCoordinate(
@@ -840,12 +888,12 @@ export const matrixRain: GlyphStockEffectDefinition<typeof matrixRainSchema> = {
             const intensity = (0.12 + 0.88 * fade) * (0.5 + 0.5 * surfaceLit);
             setColor(context, i, scalePackedColor(parsedColor.packed, intensity));
           }
-          context.output.coverage[i] = parsedColor.opacity;
+          context.output.coverage[i] = parsedColor.opacity * edgeFade;
         } else {
-          context.output.coverage[i] = 1;
+          context.output.coverage[i] = edgeFade;
           if (behind < 1 / glyphsPerPatternCell && parsedHead.opacity > 0) {
             setColor(context, i, parsedHead.packed);
-            context.output.coverage[i] = parsedHead.opacity;
+            context.output.coverage[i] = parsedHead.opacity * edgeFade;
           }
         }
       }

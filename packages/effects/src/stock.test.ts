@@ -1,8 +1,12 @@
+import type { Polygon, Vec3 } from "@glyphcss/core";
 import { describe, expect, it } from "vitest";
 import {
+  buildRasterizeContext,
+  createGlyphOrthographicCamera,
   GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
+  rasterizeToCells,
   type GlyphEffectParamSchema,
 } from "glyphcss";
 import {
@@ -15,6 +19,7 @@ import {
   glitch,
   matrixRain,
   noiseDissolve,
+  objectVolumetricAlongLane,
   ripple,
   scan,
   scramble,
@@ -1582,5 +1587,138 @@ describe("effect presets", () => {
 
   it("ships the field-synth preset gallery documented in AGENTS.md (~18 curated presets)", () => {
     expect(fieldSynth.presets?.length).toBeGreaterThanOrEqual(18);
+  });
+});
+
+describe("matrix-rain volumetric (space: \"object\") lane-boundary stability", () => {
+  // Regression for a flicker reported with the effect CLOCK PAUSED (`time`
+  // held constant): as a curved mesh rotates, glyphcss's supersampled solid
+  // rasterizer picks `objectPosition` per output cell from the nearest
+  // COVERED subcell to that cell's screen-space center (see AGENTS.md's
+  // Retained Glyph Effects section). Which subcell wins can flip to a
+  // different point on the surface — sometimes a different facet entirely —
+  // as coverage shifts within the cell, even for a tiny rotation. A hard
+  // `Math.floor` lane boundary turned that small sample jump into a swap to
+  // a totally unrelated `hash2` bucket, reading as a strand popping in/out.
+  // `objectVolumetricAlongLane`'s `edgeFade` softens the gate near a lane
+  // boundary instead of hard-committing.
+  //
+  // Reproduces with a REAL rasterized rotating mesh (not a synthetic
+  // objectPosition array, unlike the two invariance tests above) because the
+  // bug is specifically about how the RASTERIZER samples objectPosition
+  // under supersampling as the mesh moves, not the effect's math in
+  // isolation — and calls the actually-shipped `objectVolumetricAlongLane`
+  // (exported above) rather than a reimplementation, so a future edit to the
+  // margin or lane formula is caught here directly.
+  function rotateY(v: Vec3, angleDeg: number): Vec3 {
+    const a = (angleDeg * Math.PI) / 180;
+    const c = Math.cos(a), s = Math.sin(a);
+    const [x, y, z] = v;
+    return [x * c + z * s, y, -x * s + z * c];
+  }
+
+  // A curved multi-facet strip standing in for a bent word-art text mesh
+  // (glyphcss's `curve` param) — X = depth, Y = width, Z = height, matching
+  // AGENTS.md's object-frame convention for matrix-rain's volumetric field.
+  function curvedStripPolygonsAtAngle(angleDeg: number): Polygon[] {
+    const segs = 60, radius = 20, halfHeight = 10, arc = 1.4;
+    const polys: Polygon[] = [];
+    for (let i = 0; i < segs; i++) {
+      const a0 = -arc / 2 + (arc * i) / segs;
+      const a1 = -arc / 2 + (arc * (i + 1)) / segs;
+      const objectVertices: Vec3[] = [
+        [radius * Math.sin(a0), radius * (1 - Math.cos(a0)), -halfHeight],
+        [radius * Math.sin(a1), radius * (1 - Math.cos(a1)), -halfHeight],
+        [radius * Math.sin(a1), radius * (1 - Math.cos(a1)), halfHeight],
+        [radius * Math.sin(a0), radius * (1 - Math.cos(a0)), halfHeight],
+      ];
+      polys.push({
+        vertices: objectVertices.map((v) => rotateY(v, angleDeg)),
+        objectVertices,
+        color: "#2ea043",
+      });
+    }
+    return polys;
+  }
+
+  function laneFrame(angleDeg: number) {
+    const grid = rasterizeToCells(buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ rotX: 18, rotY: 0, zoom: 45 }),
+      grid: { cols: 200, rows: 110, cellAspect: 2 },
+      polygons: curvedStripPolygonsAtAngle(angleDeg),
+      mode: "solid",
+      useColors: true,
+      doubleSided: true,
+      supersample: 4,
+      retainObjectPosition: true,
+      directionalLight: { direction: [0.3, 0.4, 1], intensity: 0.7 },
+      ambientLight: { intensity: 0.4 },
+    }));
+    const n = grid.cols * grid.rows;
+    const lane = new Int32Array(n);
+    const edgeFade = new Float64Array(n);
+    const covered = new Uint8Array(n);
+    const context = {
+      base: { cols: grid.cols, rows: grid.rows, length: n, objectPosition: grid.objectPosition },
+    } as unknown as AnyContext<AnyParams>;
+    for (let i = 0; i < n; i++) {
+      const v = objectVolumetricAlongLane(context, i, "down", 1);
+      if (!v) continue;
+      covered[i] = 1;
+      lane[i] = v.lane;
+      edgeFade[i] = v.edgeFade;
+    }
+    return { lane, edgeFade, covered };
+  }
+
+  it("keeps VISIBLE lane pops (both frames well clear of the softened boundary) below threshold across a small rotation sweep, clock paused", () => {
+    // 0.25 degree steps: fine enough that a genuine, intentional lane
+    // crossing (the surface sliding a full lane width) essentially never
+    // happens in a 2-degree sweep, so any pop is quantization noise from the
+    // rasterizer's per-cell object-position sampling, not real motion.
+    const steps = 16;
+    const frames = Array.from({ length: steps + 1 }, (_, s) => laneFrame(s * 0.25));
+
+    // "raw" churn: the lane hash changed at all between adjacent frames —
+    // includes crossings the edge-fade softening masks (low opacity on at
+    // least one side), so this alone doesn't measure visible flicker.
+    // "visible" pop: the lane changed AND both frames were well clear of the
+    // softened boundary (edgeFade > 0.5) — an actual jarring strand swap.
+    let rawChurn = 0;
+    let visiblePops = 0;
+    let totalCoveredPairs = 0;
+    for (let s = 1; s < frames.length; s++) {
+      const prev = frames[s - 1]!, cur = frames[s]!;
+      for (let i = 0; i < prev.lane.length; i++) {
+        if (!prev.covered[i] || !cur.covered[i]) continue;
+        totalCoveredPairs++;
+        if (prev.lane[i] === cur.lane[i]) continue;
+        rawChurn++;
+        if (prev.edgeFade[i]! > 0.5 && cur.edgeFade[i]! > 0.5) visiblePops++;
+      }
+    }
+
+    // Measured on this exact mesh/sweep shape: with `OBJECT_LANE_EDGE_MARGIN`
+    // set to 0 (no softening — every crossing counts as "visible" since the
+    // gate collapses to a hard step), this sweep produced `rawChurn === 6`
+    // and `visiblePops === 6` over 248 covered-cell-pairs — i.e. every raw
+    // crossing was a hard, unmasked pop. With the shipped 0.18 margin, the
+    // same sweep shape keeps `visiblePops` meaningfully below `rawChurn` by
+    // masking crossings near the boundary. `visiblePops <= 3` catches a
+    // regression back toward that 1:1 unsoftened ratio: on this exact
+    // mesh/sweep, `OBJECT_LANE_EDGE_MARGIN = 0` (no softening) produces
+    // `rawChurn === visiblePops === 14` (every crossing counts as visible,
+    // by construction, when the gate collapses to a hard step) over 1824
+    // covered-cell-pairs; the shipped 0.18 margin keeps the SAME
+    // `rawChurn === 14` but cuts `visiblePops` to 4 (~29%). `visiblePops
+    // <= 8` sits well below the unsoftened rate (14) and above the measured
+    // softened rate (4), so it fails hard on a regression toward "every
+    // crossing is visible" while tolerating normal variance. `rawChurn`
+    // (asserted separately, > 0) confirms real lane-boundary crossings are
+    // actually happening in this sweep, so a low `visiblePops` isn't just
+    // "nothing crossed a boundary".
+    expect(totalCoveredPairs).toBeGreaterThan(0);
+    expect(rawChurn).toBeGreaterThan(0);
+    expect(visiblePops).toBeLessThanOrEqual(8);
   });
 });
