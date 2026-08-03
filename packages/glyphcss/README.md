@@ -87,20 +87,24 @@ Units match three.js / voxcss:
 | `voxel` | cube-aligned geometry; face normals drive glyph selection |
 | `ink` | silhouette + crease outlines only; oriented glyph (`_ / \| \ - ‾`) traces the smoothed contour tangent, interior stays empty |
 
-`charMode: "ascii" | "braille" | "halfblock"` (default `"ascii"`) selects the
-character encoding used for rasterized output. `"braille"` packs a 2×4 subcell
-dot grid into Unicode Braille Patterns (`U+2800`..`U+28FF`) per cell for
-smoother diagonal/curved edges than the default rule-glyph encoding — it only
-applies to `wireframe` output. `"halfblock"` is solid mode's mirror: instead of
-one shade-ramp glyph per cell, it packs two independently colored subcells
-(top/bottom) into `▀`/`▄`/`█` for 2× vertical color resolution at coarser
-(block) shape. Each mode is a documented no-op outside the mode it applies to
-— braille dot coverage is binary and cannot carry a shade ramp or voxel face
-glyph; halfblock needs supersampled subcell color data solid mode alone
-produces, and is also a no-op alongside a `transformCells` hook or active
-`temporalBlend` reprojection (both already expect the existing one-color-per-
-cell grid). Mirrored as `char-mode` on `<glyph-scene>` and `charMode` on
-`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
+`charMode: "ascii" | "braille" | "halfblock" | "quadrant"` (default `"ascii"`)
+selects the character encoding used for rasterized output. `"braille"` packs
+a 2×4 subcell dot grid into Unicode Braille Patterns (`U+2800`..`U+28FF`) per
+cell for smoother diagonal/curved edges than the default rule-glyph encoding
+— it only applies to `wireframe` output. `"halfblock"` is solid mode's
+mirror: instead of one shade-ramp glyph per cell, it packs two independently
+colored subcells (top/bottom) into `▀`/`▄`/`█` for 2× vertical color
+resolution at coarser (block) shape. `"quadrant"` generalizes `"halfblock"`
+to a full 2×2 subcell split (16 possible glyphs — space, `▘▝▖▗▀▄▌▐▚▞█`, and
+the three-quadrant glyphs `▛▜▙▟`), buying both shape AND color resolution at
+the same two-colors-per-cell markup cost. Each mode is a documented no-op
+outside the mode it applies to — braille dot coverage is binary and cannot
+carry a shade ramp or voxel face glyph; halfblock/quadrant need supersampled
+subcell color data solid mode alone produces, and are also a no-op alongside
+a `transformCells` hook or active `temporalBlend` reprojection (both already
+expect the existing one-color-per-cell grid). Mirrored as `char-mode` on
+`<glyph-scene>` and `charMode` on `@glyphcss/react`/`@glyphcss/vue`'s
+`<GlyphScene>`.
 
 `wireframeJunctions: boolean` (default `false`, `charMode: "ascii"` only)
 resolves corners, T-junctions, and crossings in `wireframe` output. By

@@ -52,6 +52,11 @@ describe("wordArtCodec", () => {
     console.log(`wordart representative packed length: ${packed.length}`);
   });
 
+  it("round-trips charMode \"quadrant\" (appended enum value)", () => {
+    const state = { ...WORD_ART_DEFAULTS, charMode: "quadrant" as const };
+    expect(wordArtCodec.decode(wordArtCodec.encode(state)).charMode).toBe("quadrant");
+  });
+
   it("round-trips unicode text", () => {
     const state = { ...WORD_ART_DEFAULTS, text: "héllo\n世界 🎉" };
     expect(wordArtCodec.decode(wordArtCodec.encode(state)).text).toBe(state.text);

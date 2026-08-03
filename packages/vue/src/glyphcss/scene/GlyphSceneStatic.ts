@@ -21,7 +21,7 @@ export interface GlyphSceneStaticProps {
   cellAspect?: number;
   mode?: RenderMode;
   glyphPalette?: string;
-  charMode?: "ascii" | "braille" | "halfblock";
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   hiddenLines?: "show" | "hide";
   solidWeightRamp?: GlyphSolidWeightRampStep[];
   useColors?: boolean;
@@ -45,7 +45,7 @@ export const GlyphSceneStatic = defineComponent({
     cellAspect: { type: Number, default: undefined },
     mode: { type: String as PropType<RenderMode>, default: undefined },
     glyphPalette: { type: String, default: undefined },
-    charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
+    charMode: { type: String as PropType<"ascii" | "braille" | "halfblock" | "quadrant">, default: undefined },
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
     useColors: { type: Boolean, default: undefined },

@@ -35,7 +35,7 @@ export interface GlyphSceneProps {
    * subcells (top/bottom) packed into one `▀`/`▄`/`█` cell for 2× vertical
    * color resolution. Documented no-op outside `solid` mode.
    */
-  charMode?: "ascii" | "braille" | "halfblock";
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
    * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only).
    * When `true`, near-axis-aligned wireframe edges meeting in the same cell
@@ -97,7 +97,7 @@ export const GlyphScene = defineComponent({
   props: {
     mode: { type: String as PropType<RenderMode>, default: undefined },
     glyphPalette: { type: String, default: undefined },
-    charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
+    charMode: { type: String as PropType<"ascii" | "braille" | "halfblock" | "quadrant">, default: undefined },
     wireframeJunctions: { type: Boolean, default: undefined },
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },

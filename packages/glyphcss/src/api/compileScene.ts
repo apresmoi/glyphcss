@@ -43,7 +43,7 @@ export interface CompileSceneOptions {
    * original ramp/rule-glyph encoding; `"braille"`/`"halfblock"` match the
    * runtime scene option — see {@link RasterizeContextOptions.charMode}.
    */
-  charMode?: "ascii" | "braille" | "halfblock";
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
    * Hidden-line removal for the wireframe path (wireframe + `charMode:
    * "braille"`); `"show"` default matches the runtime scene option — see

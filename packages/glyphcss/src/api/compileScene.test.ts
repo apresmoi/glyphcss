@@ -11,7 +11,7 @@ import type { GlyphSolidWeightRampStep } from "./types";
  */
 function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   rotX: number; rotY: number; zoom: number; cols: number; rows: number; useColors: boolean;
-  mode?: "wireframe" | "solid"; charMode?: "ascii" | "braille" | "halfblock";
+  mode?: "wireframe" | "solid"; charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   hiddenLines?: "show" | "hide";
   solidWeightRamp?: GlyphSolidWeightRampStep[];
 }): string {
@@ -98,6 +98,35 @@ describe("compileScene — matches the runtime render", () => {
       mode: "solid", charMode: "halfblock",
     });
     expect(compiled.inner).toBe(runtime);
+  });
+
+  it("quadrant solid, charMode set, matches the runtime render", () => {
+    const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const cfg = { rotX: 30, rotY: 20, zoom: 0.5, cols: 50, rows: 20, useColors: true } as const;
+    const runtime = runtimeRender(polys, { ...cfg, mode: "solid", charMode: "quadrant" });
+    const compiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "solid", charMode: "quadrant",
+    });
+    expect(compiled.inner).toBe(runtime);
+    // And it must actually differ from both ascii and halfblock — otherwise
+    // the option silently no-op'd or fell through to a sibling encoding.
+    const asciiCompiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "solid",
+    });
+    const halfblockCompiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "solid", charMode: "halfblock",
+    });
+    expect(compiled.inner).not.toBe(asciiCompiled.inner);
+    expect(compiled.inner).not.toBe(halfblockCompiled.inner);
   });
 
   it("solidWeightRamp, solid mode, matches the runtime render", () => {

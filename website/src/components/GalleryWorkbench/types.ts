@@ -126,10 +126,12 @@ export interface SceneOptionsState {
   glyphPalette: "default" | "ascii" | "lines" | "blocks" | "stars" | "arrows" | "math" | "binary" | "hex" | "calibrated";
   /**
    * Character encoding for rasterized output. "braille" only affects
-   * wireframe mode; "halfblock" only affects solid mode (2x vertical color
-   * resolution via `▀`/`▄`/`█`).
+   * wireframe mode; "halfblock" and "quadrant" only affect solid mode.
+   * "halfblock" packs top/bottom subcells into `▀`/`▄`/`█` for 2x vertical
+   * color resolution; "quadrant" generalizes that to a full 2x2 subcell
+   * split (16 possible glyphs) for both shape AND color resolution.
    */
-  charMode: "ascii" | "braille" | "halfblock";
+  charMode: "ascii" | "braille" | "halfblock" | "quadrant";
   /** Box-drawing junction resolve pass (wireframe + charMode "ascii" only). */
   wireframeJunctions: boolean;
   /**
@@ -145,8 +147,9 @@ export interface SceneOptionsState {
    * font (via `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`) and passes
    * it as the scene's `solidWeightRamp` option, so shading picks both a
    * glyph and a CSS `font-weight` — more perceptual steps than glyph shape
-   * alone. No-op outside solid mode, and with `charMode: "halfblock"` (its
-   * two-color-per-cell encoding has no font-weight span either).
+   * alone. No-op outside solid mode, and with `charMode: "halfblock"` or
+   * `"quadrant"` (both two-color-per-cell encodings have no font-weight
+   * span).
    */
   solidWeightRamp: boolean;
   lineHeight: number;

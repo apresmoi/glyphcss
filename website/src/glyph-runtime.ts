@@ -452,7 +452,7 @@ interface Tunables {
   renderMode?: 'wireframe' | 'solid' | 'ink';
   featureEdges?: number;
   glyphPalette?: string;
-  charMode?: 'ascii' | 'braille' | 'halfblock';
+  charMode?: 'ascii' | 'braille' | 'halfblock' | 'quadrant';
   wireframeJunctions?: boolean;
   hiddenLines?: 'show' | 'hide';
   /** Solid-mode-only font-weight-calibrated ramp toggle — see `weightedRamp.ts`. */

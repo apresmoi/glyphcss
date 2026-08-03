@@ -79,7 +79,7 @@ type Bezier4 = [number, number, number, number];
  *  minus that one option — see `Dock/folders/useRenderingFolder.ts`'s
  *  `GalleryRenderPresentation` for the sibling with Semantic included. */
 type WordArtRenderMode = Exclude<RenderMode, "voxel">;
-type WordArtCharMode = "ascii" | "braille" | "halfblock";
+type WordArtCharMode = "ascii" | "braille" | "halfblock" | "quadrant";
 /** Hidden-line removal for the wireframe path (wireframe + charMode
  *  "braille"). No-op in solid (already depth-buffered) and ink (not wired). */
 type WordArtHiddenLines = "show" | "hide";
@@ -92,6 +92,7 @@ const CHAR_MODE_OPTIONS: Record<string, WordArtCharMode> = {
   ASCII: "ascii",
   Braille: "braille",
   Halfblock: "halfblock",
+  Quadrant: "quadrant",
 };
 const HIDDEN_LINES_OPTIONS: Record<string, WordArtHiddenLines> = {
   Show: "show",

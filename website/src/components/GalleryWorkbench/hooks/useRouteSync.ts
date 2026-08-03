@@ -18,7 +18,9 @@ const DRAG_MODE_VALUES = ["orbit", "pan", "fpv"] as const;
 const GLYPH_PALETTE_VALUES = [
   "default", "ascii", "lines", "blocks", "stars", "arrows", "math", "binary", "hex", "calibrated",
 ] as const;
-const CHAR_MODE_VALUES = ["ascii", "braille", "halfblock"] as const;
+// "quadrant" appended (not inserted) so previously-shared URLs keep decoding
+// to the same enum index for every earlier value.
+const CHAR_MODE_VALUES = ["ascii", "braille", "halfblock", "quadrant"] as const;
 const HIDDEN_LINES_VALUES = ["show", "hide"] as const;
 
 const sceneFields: readonly UrlField<SceneOptionsState>[] = [

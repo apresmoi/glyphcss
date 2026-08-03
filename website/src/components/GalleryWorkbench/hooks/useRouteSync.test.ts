@@ -100,6 +100,11 @@ describe("gallery scene codec", () => {
     expect(merged).toEqual(expected);
   });
 
+  it("round-trips charMode \"quadrant\" (appended enum value)", () => {
+    const decoded = sceneCodec.decode(sceneCodec.encode({ ...DEFAULTS, charMode: "quadrant" }));
+    expect(decoded.charMode).toBe("quadrant");
+  });
+
   it("round-trips perspective=false and a numeric perspective", () => {
     expect(sceneCodec.decode(sceneCodec.encode({ ...DEFAULTS, perspective: false })).perspective).toBeUndefined();
     expect(sceneCodec.decode(sceneCodec.encode({ ...DEFAULTS, perspective: 640 })).perspective).toBe(640);

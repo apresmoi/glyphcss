@@ -355,6 +355,56 @@ reprojection — both already expect the single-color-per-cell output. Mirrored
 as `char-mode="halfblock"` on `<glyph-scene>` and `charMode` on
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
 
+### Four-quadrant cells (`charMode: "quadrant"`)
+
+`charMode: "quadrant"` generalizes `"halfblock"` from a 1×2 (top/bottom)
+subcell split to a full 2×2 split — TL/TR/BL/BR — buying BOTH shape and color
+resolution at the same two-colors-per-cell markup cost. It picks from all 16
+Unicode quadrant/half/full-block glyphs (space, `▘▝▖▗▀▄▌▐▚▞█`, and the
+three-quadrant glyphs `▛▜▙▟`), which cover every possible binary 2×2 coverage
+pattern exactly — halfblock's `▀`/`▄` are just two of these 16 masks.
+
+A partially-covered cell (1-3 of the 4 regions) renders the exact coverage
+mask — 14 distinct partial silhouettes, instead of halfblock's fixed
+top/bottom rounding — with one averaged color and no background (a background
+would have to paint an uncovered region, which never happens). A
+fully-covered cell either collapses to a single-color `█` (same color on all
+four regions) or splits into a genuine two-tone glyph: the 4 regions partition
+into a "high"/"low" luminance group against their mean, and the matching mask
+renders with `color` = the high group and `background-color` = the low group.
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="solid" charMode="quadrant" cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={dodeca} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  charMode: "quadrant",
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+`charMode: "quadrant"` shares every eligibility rule `"halfblock"` has: a
+documented no-op outside `solid` mode, and no-op when combined with a
+`transformCells` hook or active `temporalBlend` reprojection. Mirrored as
+`char-mode="quadrant"` on `<glyph-scene>` and `charMode` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
+
 ### Font-weight density ramp (`solidWeightRamp`)
 
 `solidWeightRamp` adds a SECOND density axis to `solid` shading: CSS
@@ -413,9 +463,9 @@ const scene = createGlyphScene(document.querySelector("#scene")!, {
 </Tabs>
 
 `undefined` (the default) is byte-identical to before this option existed.
-Documented no-op outside `solid` mode, under `charMode: "halfblock"` (its
-two-color-per-cell encoding has no font-weight span either), and during
-active `temporalBlend` reprojection. Mirrored as a `solidWeightRamp` JS
+Documented no-op outside `solid` mode, under `charMode: "halfblock"` or
+`"quadrant"` (both two-color-per-cell encodings have no font-weight span
+either), and during active `temporalBlend` reprojection. Mirrored as a `solidWeightRamp` JS
 property on `<glyph-scene>` (data, not an attribute — same rule
 `sceneManifest`/`dictionary` use) and `solidWeightRamp` on
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also reachable from

@@ -22,7 +22,7 @@ export type WordArtFillType = "solid" | "gradient" | "rainbow" | "texture" | "im
 export type WordArtFaceFill = "solid" | "texture" | "none";
 export type WordArtCase = "as-typed" | "upper" | "lower" | "title";
 export type WordArtRenderMode = "wireframe" | "solid" | "ink";
-export type WordArtCharMode = "ascii" | "braille" | "halfblock";
+export type WordArtCharMode = "ascii" | "braille" | "halfblock" | "quadrant";
 export type WordArtHiddenLines = "show" | "hide";
 export type Bezier4 = [number, number, number, number];
 
@@ -186,7 +186,9 @@ const wordArtFields: readonly UrlField<WordArtUrlState>[] = [
   { key: "tilt", token: "L", type: { kind: "float", step: 0.1 }, default: WORD_ART_DEFAULTS.tilt },
   { key: "density", token: "D", type: { kind: "float", step: 0.1 }, default: WORD_ART_DEFAULTS.density },
   { key: "renderMode", token: "m", type: { kind: "enum", values: ["wireframe", "solid", "ink"] }, default: WORD_ART_DEFAULTS.renderMode },
-  { key: "charMode", token: "M", type: { kind: "enum", values: ["ascii", "braille", "halfblock"] }, default: WORD_ART_DEFAULTS.charMode },
+  // "quadrant" appended (not inserted) so previously-shared URLs keep
+  // decoding to the same enum index for every earlier value.
+  { key: "charMode", token: "M", type: { kind: "enum", values: ["ascii", "braille", "halfblock", "quadrant"] }, default: WORD_ART_DEFAULTS.charMode },
   { key: "hiddenLines", token: "h", type: { kind: "enum", values: ["show", "hide"] }, default: WORD_ART_DEFAULTS.hiddenLines },
   { key: "lightIntensity", token: "g", type: { kind: "float", step: 0.05 }, default: WORD_ART_DEFAULTS.lightIntensity },
   { key: "ambient", token: "B", type: { kind: "float", step: 0.05 }, default: WORD_ART_DEFAULTS.ambient },

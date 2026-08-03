@@ -40,7 +40,7 @@ export interface GlyphSceneProps {
    * subcells (top/bottom) packed into one `▀`/`▄`/`█` cell for 2× vertical
    * color resolution. Documented no-op outside `solid` mode.
    */
-  charMode?: "ascii" | "braille" | "halfblock";
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
    * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only).
    * When `true`, near-axis-aligned wireframe edges meeting in the same cell

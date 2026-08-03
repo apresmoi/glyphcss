@@ -220,7 +220,8 @@ function generateSnippets({
   const mode = options.renderMode ?? "solid";
   const palette = options.glyphPalette ?? "default";
   const charMode = options.charMode ?? "ascii";
-  const emitCharMode = (mode === "wireframe" && charMode === "braille") || (mode === "solid" && charMode === "halfblock");
+  const emitCharMode = (mode === "wireframe" && charMode === "braille")
+    || (mode === "solid" && (charMode === "halfblock" || charMode === "quadrant"));
   const wireframeJunctions = options.wireframeJunctions === true;
   const emitWireframeJunctions = mode === "wireframe" && charMode !== "braille" && wireframeJunctions;
   const hiddenLines = options.hiddenLines ?? "show";
@@ -228,8 +229,10 @@ function generateSnippets({
   // charMode — it's a no-op only outside wireframe mode.
   const emitHiddenLines = mode === "wireframe" && hiddenLines === "hide";
   // Solid-mode-only second density axis. Also a no-op under charMode
-  // "halfblock" (its two-color-per-cell encoding has no font-weight span).
-  const emitSolidWeightRamp = mode === "solid" && charMode !== "halfblock" && options.solidWeightRamp === true;
+  // "halfblock"/"quadrant" (both two-color-per-cell encodings have no
+  // font-weight span).
+  const emitSolidWeightRamp = mode === "solid" && charMode !== "halfblock" && charMode !== "quadrant"
+    && options.solidWeightRamp === true;
   // The ramp is measurement DATA (a `(glyph, weight)[]` step list), not a
   // primitive prop value like charMode — so instead of a literal snapshot,
   // every flavor computes it the same way the gallery itself does:

@@ -119,7 +119,7 @@ export interface WordArtSnippetInput {
    *  folder options; "voxel" is not offered (word-art meshes are extruded
    *  glyphs, not cube-aligned geometry). */
   mode: "wireframe" | "solid" | "ink";
-  charMode: "ascii" | "braille" | "halfblock";
+  charMode: "ascii" | "braille" | "halfblock" | "quadrant";
   /** Hidden-line removal for the wireframe path. No-op outside wireframe. */
   hiddenLines: "show" | "hide";
   effect: WordArtSnippetEffect | null;
@@ -273,7 +273,7 @@ interface Prepared {
   lightColor: string;
   ambient: string;
   mode: "wireframe" | "solid" | "ink";
-  charMode: "ascii" | "braille" | "halfblock";
+  charMode: "ascii" | "braille" | "halfblock" | "quadrant";
   hiddenLines: "show" | "hide";
   effect: WordArtSnippetEffect | null;
   effectParamsJson: string;

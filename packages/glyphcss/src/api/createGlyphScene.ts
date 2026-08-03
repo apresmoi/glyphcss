@@ -80,11 +80,15 @@ export interface GlyphSceneOptions {
    * face glyph, so those modes always render ASCII regardless of this option.
    * `"halfblock"` is solid-mode-only: it packs two independently colored
    * subcells (top/bottom) into one `▀`/`▄`/`█` cell for 2× vertical color
-   * resolution, at coarser shape. Documented no-op outside `solid` mode and
-   * when combined with a `transformCells` hook or active `temporalBlend`
-   * reprojection. See {@link RasterizeContextOptions.charMode}.
+   * resolution, at coarser shape. `"quadrant"` generalizes it to a full 2×2
+   * subcell split (16 possible `▘▝▖▗▀▄▌▐▚▞█` + three-quadrant glyphs),
+   * buying shape resolution AND, on a fully-covered cell, a two-color split
+   * — twice halfblock's shape resolution at the same two-colors-per-cell
+   * cost. Both are documented no-ops outside `solid` mode and when combined
+   * with a `transformCells` hook or active `temporalBlend` reprojection. See
+   * {@link RasterizeContextOptions.charMode}.
    */
-  charMode?: "ascii" | "braille" | "halfblock";
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
    * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only).
    * When `true`, near-axis-aligned wireframe edges meeting in the same cell

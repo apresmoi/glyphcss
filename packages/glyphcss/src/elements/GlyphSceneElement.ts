@@ -63,8 +63,8 @@ function parseGlyphOutput(value: string | null): "visible" | "semantic" | undefi
   return value === "visible" || value === "semantic" ? value : undefined;
 }
 
-function parseCharMode(value: string | null): "ascii" | "braille" | "halfblock" | undefined {
-  return value === "ascii" || value === "braille" || value === "halfblock" ? value : undefined;
+function parseCharMode(value: string | null): "ascii" | "braille" | "halfblock" | "quadrant" | undefined {
+  return value === "ascii" || value === "braille" || value === "halfblock" || value === "quadrant" ? value : undefined;
 }
 
 function parseHiddenLines(value: string | null): "show" | "hide" | undefined {

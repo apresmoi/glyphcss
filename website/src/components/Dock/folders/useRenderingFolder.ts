@@ -60,6 +60,7 @@ const CHAR_MODE_OPTIONS: Record<string, SceneOptionsState["charMode"]> = {
   ASCII: "ascii",
   Braille: "braille",
   Halfblock: "halfblock",
+  Quadrant: "quadrant",
 };
 const HIDDEN_LINES_OPTIONS: Record<string, SceneOptionsState["hiddenLines"]> = {
   Show: "show",
@@ -102,12 +103,12 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     (value) => onUpdateScene({ charMode: value }),
   );
   useEffect(() => {
-    // Braille only encodes wireframe mode; halfblock is the solid-mode mirror
-    // (2x vertical color resolution via `▀`/`▄`/`█`, coarser shape than a
-    // ramp glyph). Neither option does anything in ink/semantic presentation,
-    // so the control is enabled for wireframe OR solid and dimmed otherwise —
-    // whichever of braille/halfblock doesn't apply to the active render mode
-    // is simply a documented no-op once selected (same as before).
+    // Braille only encodes wireframe mode; halfblock and quadrant are the
+    // solid-mode mirrors (2x/4x subcell resolution via block glyphs, coarser
+    // shape than a ramp glyph). None of the three do anything in ink/semantic
+    // presentation, so the control is enabled for wireframe OR solid and
+    // dimmed otherwise — whichever option doesn't apply to the active render
+    // mode is simply a documented no-op once selected (same as before).
     charModeControl?.setEnabled(renderMode === "wireframe" || renderMode === "solid", { dim: true });
   }, [charModeControl, renderMode]);
   const junctionsControl = useToggle(folder, "Box junctions (wireframe)", wireframeJunctions, (value) =>
@@ -138,10 +139,13 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   );
   useEffect(() => {
     // Solid-mode-only second density axis (font-weight-calibrated ramp). Also
-    // a no-op under charMode "halfblock" — its two-color-per-cell encoding
-    // has no font-weight span either — so dim there too, same treatment
-    // `charMode`'s own no-op combinations get above.
-    weightRampControl?.setEnabled(renderMode === "solid" && charMode !== "halfblock", { dim: true });
+    // a no-op under charMode "halfblock"/"quadrant" — both two-color-per-cell
+    // encodings have no font-weight span either — so dim there too, same
+    // treatment `charMode`'s own no-op combinations get above.
+    weightRampControl?.setEnabled(
+      renderMode === "solid" && charMode !== "halfblock" && charMode !== "quadrant",
+      { dim: true },
+    );
   }, [weightRampControl, renderMode, charMode]);
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),

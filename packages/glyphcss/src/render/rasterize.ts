@@ -346,6 +346,19 @@ function wantsHalfblockSolid(scene: RasterizeContext): boolean {
     && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
 }
 
+/**
+ * `charMode: "quadrant"` (solid-mode-only, see the doc comment above
+ * {@link encodeQuadrantSolid}) has the exact same eligibility rule as
+ * `wantsHalfblockSolid`: it needs the raw supersampled subcell buffers
+ * (nothing downsampled/reprojected yet) and produces a two-color-per-cell
+ * span that neither `transformCells` nor temporal reprojection understand.
+ */
+function wantsQuadrantSolid(scene: RasterizeContext): boolean {
+  return scene.charMode === "quadrant"
+    && !scene.transformCells
+    && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
+}
+
 export function rasterize(scene: RasterizeContext): string {
   const { camera, grid, wireframe, mode } = scene;
   const { cols, rows, cellAspect } = grid;
@@ -358,8 +371,11 @@ export function rasterize(scene: RasterizeContext): string {
     // machinery rather than inventing a second subcell mechanism. Forcing this
     // only when halfblock will actually apply keeps every other charMode/
     // supersample combination byte-identical to before.
+    // `quadrant` needs the same even-supersample subcell split as `halfblock`
+    // (a clean 2×2 quadrant bisection instead of halfblock's top/bottom one),
+    // so it forces the same minimum — see `wantsQuadrantSolid`.
     let ss = baseSS;
-    if (wantsHalfblockSolid(scene)) {
+    if (wantsHalfblockSolid(scene) || wantsQuadrantSolid(scene)) {
       ss = Math.max(2, baseSS);
       if (ss % 2 !== 0) ss++;
     }
@@ -1740,6 +1756,16 @@ function rasterizeSolid(
     if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
     return out;
   }
+  if (supersample > 1 && wantsQuadrantSolid(scene)) {
+    // Four-color-region (16-glyph quadrant) encoding straight from the raw
+    // supersampled subcells — see `encodeQuadrantSolid`. Same early-return
+    // shape as the halfblock branch above: `wantsQuadrantSolid` already
+    // guarantees no `transformCells`/reprojection, so the downsample/TAA/hook
+    // machinery below is never reached for this cell path.
+    const out = encodeQuadrantSolid(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
+    return out;
+  }
   if (supersample > 1) {
     const ds = downsampleSolid(
       glyphBuf,
@@ -2138,6 +2164,183 @@ export function encodeHalfblockSolid(
         charBuf[oi] = "▄";
         fgBuf[oi] = botColor;
       }
+    }
+  }
+  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);
+}
+
+/** Quadrant bit ordering: TL/TR/BL/BR, matching the classic sixel/chafa quadrant convention. */
+const QUAD_TL = 1;
+const QUAD_TR = 2;
+const QUAD_BL = 4;
+const QUAD_BR = 8;
+
+/**
+ * Coverage-mask → Unicode quadrant glyph. All 16 combinations exist as real
+ * codepoints — the empty and full masks reuse the plain space/`█` (`FULL
+ * BLOCK`) rather than a "quadrant" variant, so a fully (or emptily) covered
+ * quadrant cell still merges into a same-glyph run with ordinary solid-mode
+ * or halfblock output. The other 14 are the Block Elements quadrant set
+ * (U+2596..U+259F) plus the two half-block glyphs (`▀`/`▌`/`▐`/`▄`) halfblock
+ * mode also uses — half-block's top/bottom split is a strict SUBSET of this
+ * table (masks `TL|TR` and `BL|BR`).
+ */
+const QUADRANT_GLYPHS: Record<number, string> = {
+  0: " ",
+  [QUAD_TL]: "▘",
+  [QUAD_TR]: "▝",
+  [QUAD_TL | QUAD_TR]: "▀",
+  [QUAD_BL]: "▖",
+  [QUAD_TL | QUAD_BL]: "▌",
+  [QUAD_TR | QUAD_BL]: "▞",
+  [QUAD_TL | QUAD_TR | QUAD_BL]: "▛",
+  [QUAD_BR]: "▗",
+  [QUAD_TL | QUAD_BR]: "▚",
+  [QUAD_TR | QUAD_BR]: "▐",
+  [QUAD_TL | QUAD_TR | QUAD_BR]: "▜",
+  [QUAD_BL | QUAD_BR]: "▄",
+  [QUAD_TL | QUAD_BL | QUAD_BR]: "▙",
+  [QUAD_TR | QUAD_BL | QUAD_BR]: "▟",
+  [QUAD_TL | QUAD_TR | QUAD_BL | QUAD_BR]: "█",
+};
+
+/**
+ * `charMode: "quadrant"`: pack a 2×2 subcell coverage mask into one of the 16
+ * Unicode quadrant/half/full-block glyphs, generalizing `charMode:
+ * "halfblock"` from a 1×2 (top/bottom) split to a full 2×2 split — twice the
+ * shape resolution at the SAME two-colors-per-cell markup cost (see
+ * `encodeGlyphBuffersDual`, the same dual-color encoder halfblock uses).
+ * Half-block's `▀`/`▄` are two of these 16 masks (`TL|TR` and `BL|BR`).
+ *
+ * `S` (forced even, ≥2 — see `wantsQuadrantSolid`) subcell rows AND columns
+ * split evenly into four regions: TL/TR are `[0,S/2)` rows, BL/BR are
+ * `[S/2,S)`; TL/BL are `[0,S/2)` cols, TR/BR are `[S/2,S)`. Coverage (not
+ * glyph) drives whether a region counts, exactly like `encodeHalfblockSolid`.
+ *
+ * Per output cell:
+ *  - no region covered → `" "`, no color, no background — a cell with no
+ *    geometry never paints an opaque rectangle (same rule halfblock enforces).
+ *  - 1-3 regions covered (the SHAPE win over halfblock: 14 distinct partial
+ *    silhouettes instead of just "top" or "bottom") → the glyph for that exact
+ *    coverage mask, `color` = the coverage-weighted average of the covered
+ *    regions' subcells, no `background-color` — a background would have to
+ *    paint the WHOLE cell rectangle, including the uncovered regions, which
+ *    is exactly the "never paint an empty subcell" rule this mode (like
+ *    halfblock) must not violate. Distinct colors among the covered regions
+ *    collapse into that one average: with no room left to paint a `bg` behind
+ *    an uncovered region, a second on-cell color has nowhere to go.
+ *  - all 4 regions covered → the COLOR win over plain solid-mode averaging:
+ *    if every region resolves to the same color (common on a flat-shaded
+ *    triangle interior, and after the 8-bit lit-color cache collapses
+ *    near-identical shades), emit `█` with just `color` set — no
+ *    `background-color`, cheaper markup, same run-merging as the ASCII solid
+ *    path. Otherwise, split the 4 regions into a "high" and "low" group by
+ *    each region's average luminance vs. the mean of the 4 (deterministic,
+ *    no real k-means clustering): `color` = the coverage-weighted average of
+ *    the high group, `background-color` = the coverage-weighted average of
+ *    the low group, and the glyph is whichever of the 16 masks matches the
+ *    high group's quadrant membership. A degenerate split (every region ends
+ *    up on the same side of the mean, e.g. three near-identical regions plus
+ *    one float-rounding outlier) falls back to the same-color `█` case. This
+ *    is a genuine two-tone split of the WHOLE cell, unlike the partial-
+ *    coverage case above — full coverage is the only state where painting a
+ *    `background-color` can never touch an uncovered region.
+ *
+ * What's lost vs. exact per-subcell color: a partially-covered cell with
+ * more than one true subcell color still collapses to one `color` (no
+ * background slot available); a fully-covered cell with more than two true
+ * colors collapses to whichever two-group luminance split the mean threshold
+ * produces, not a globally optimal 2-cluster partition.
+ *
+ * Terminal, like `encodeHalfblockSolid`: builds the final string directly via
+ * `encodeGlyphBuffersDual`, so `CellGrid`/`transformCells`/the generic effect
+ * compositor stay exactly one-color-per-cell, untouched by this path.
+ */
+export function encodeQuadrantSolid(
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  outCols: number,
+  outRows: number,
+  S: number,
+  useColors: boolean,
+): string {
+  const inCols = outCols * S;
+  const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
+  const n = outCols * outRows;
+  const charBuf: string[] = new Array(n);
+  const fgBuf: (string | null)[] = new Array(n).fill(null);
+  const bgBuf: (string | null)[] = new Array(n).fill(null);
+
+  for (let oy = 0; oy < outRows; oy++) {
+    for (let ox = 0; ox < outCols; ox++) {
+      // Per-quadrant coverage-weighted color sums, indexed [TL, TR, BL, BR].
+      const cov = [0, 0, 0, 0];
+      const sumR = [0, 0, 0, 0];
+      const sumG = [0, 0, 0, 0];
+      const sumB = [0, 0, 0, 0];
+      for (let sy = 0; sy < S; sy++) {
+        const base = (oy * S + sy) * inCols + ox * S;
+        const rowIsTop = sy < half;
+        for (let sx = 0; sx < S; sx++) {
+          const si = base + sx;
+          if (depthBuf[si] === -Infinity) continue;
+          const q = (rowIsTop ? 0 : 2) + (sx < half ? 0 : 1); // 0=TL 1=TR 2=BL 3=BR
+          cov[q]!++;
+          if (colorBuf) {
+            const c = colorBuf[si];
+            if (c) {
+              const rgb = hexToRgb(c);
+              sumR[q]! += rgb[0]; sumG[q]! += rgb[1]; sumB[q]! += rgb[2];
+            }
+          }
+        }
+      }
+      const oi = oy * outCols + ox;
+      const coveredMask =
+        (cov[0]! > 0 ? QUAD_TL : 0) | (cov[1]! > 0 ? QUAD_TR : 0) |
+        (cov[2]! > 0 ? QUAD_BL : 0) | (cov[3]! > 0 ? QUAD_BR : 0);
+      if (coveredMask === 0) {
+        charBuf[oi] = " ";
+        continue;
+      }
+      const avgColor = (bit: number): string | null => {
+        if (!useColors) return null;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let q = 0; q < 4; q++) {
+          if (!(bit & (1 << q))) continue;
+          count += cov[q]!;
+          r += sumR[q]!; g += sumG[q]!; b += sumB[q]!;
+        }
+        return count > 0 ? `#${toHex2(r / count)}${toHex2(g / count)}${toHex2(b / count)}` : null;
+      };
+      if (coveredMask !== (QUAD_TL | QUAD_TR | QUAD_BL | QUAD_BR)) {
+        // Partial coverage: shape carries the resolution — one collapsed
+        // average color across every covered region, no background (would
+        // have to paint an uncovered region).
+        charBuf[oi] = QUADRANT_GLYPHS[coveredMask]!;
+        fgBuf[oi] = avgColor(coveredMask);
+        continue;
+      }
+      // Full coverage: try a two-tone luminance split across all 4 regions.
+      if (useColors) {
+        const lum = [0, 1, 2, 3].map((q) => {
+          if (cov[q]! === 0) return 0;
+          return (0.299 * sumR[q]! + 0.587 * sumG[q]! + 0.114 * sumB[q]!) / cov[q]!;
+        });
+        const mean = (lum[0]! + lum[1]! + lum[2]! + lum[3]!) / 4;
+        let highMask = 0;
+        for (let q = 0; q < 4; q++) if (lum[q]! >= mean) highMask |= 1 << q;
+        if (highMask !== 0 && highMask !== 15) {
+          charBuf[oi] = QUADRANT_GLYPHS[highMask]!;
+          fgBuf[oi] = avgColor(highMask);
+          bgBuf[oi] = avgColor(15 & ~highMask);
+          continue;
+        }
+      }
+      // Same color (or useColors: false, or a degenerate split) — cheapest
+      // markup: solid glyph, single color, no background.
+      charBuf[oi] = "█";
+      fgBuf[oi] = avgColor(15);
     }
   }
   return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors);

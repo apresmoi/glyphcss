@@ -62,8 +62,22 @@ export interface RasterizeContextOptions {
    * when a `transformCells` hook is supplied, or during active temporal
    * reprojection (`temporalBlend > 0` with retained history) — those paths
    * all expect/produce the existing one-color-per-cell {@link CellGrid}.
+   *
+   * `"quadrant"` generalizes `"halfblock"` from a 1×2 (top/bottom) subcell
+   * split to a full 2×2 split, packing a 4-region coverage mask into one of
+   * 16 Unicode quadrant/half/full-block glyphs (space, `▘▝▖▗▀▄▌▐▚▞█`, and the
+   * four three-quadrant glyphs `▛▜▙▟`) — twice halfblock's shape resolution
+   * at the same two-colors-per-cell markup cost (`▀`/`▄` are two of these 16
+   * masks). A partially-covered cell picks the exact coverage-mask glyph with
+   * one collapsed average color (no `background-color` — that would have to
+   * paint an uncovered region); a fully-covered cell either collapses to a
+   * single-color `█` or splits into a genuine two-tone glyph via a
+   * mean-luminance threshold over the 4 regions. Same eligibility rule as
+   * `"halfblock"`: solid-mode-only, forces the same even supersample ≥2, and
+   * is a documented no-op with a `transformCells` hook or active
+   * `temporalBlend` reprojection.
    */
-  charMode?: "ascii" | "braille" | "halfblock";
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
    * Box-drawing junction resolve pass (wireframe + `charMode: "ascii"` only;
    * documented no-op for `"braille"` — which already derives corners/joins
@@ -277,7 +291,7 @@ export interface RasterizeContext {
   /** Named wireframe glyph palette passed to the rasterizer. */
   glyphPalette: string;
   /** Character encoding — see {@link RasterizeContextOptions.charMode}. */
-  charMode: "ascii" | "braille" | "halfblock";
+  charMode: "ascii" | "braille" | "halfblock" | "quadrant";
   /** Box-drawing junction resolve pass — see {@link RasterizeContextOptions.wireframeJunctions}. */
   wireframeJunctions: boolean;
   /** Wireframe hidden-line removal — see {@link RasterizeContextOptions.hiddenLines}. */
