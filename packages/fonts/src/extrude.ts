@@ -5,11 +5,16 @@
  * units) and hand them here as pre-grouped shapes; this turns each shape into
  * front/back caps + side walls following the chosen depth profile.
  *
- * Type plane → glyphcss world: glyphcss maps world X → screen-down,
- * world Y → screen-right, world Z → toward the viewer. So world Y = plane x,
- * world X = -plane y (screen-up), and depth runs along world Z. That single
- * y-negation is a reflection, so it flips winding — every emitted polygon is
- * wound in reverse to stay outward-facing (glyphcss hides back-faces).
+ * Type plane → glyphcss world: glyphcss authors geometry Z-up (`+Z` is
+ * "up" — the same convention `cubePolygons`' "+Z (top)" face and every other
+ * native primitive use), so the mesh's own local frame is Z-up too: world
+ * Z = plane y (the glyph's ascent/height, `+Z` = up, unflipped — no sign
+ * mismatch to reconcile with primitives), world Y = plane x (glyph width),
+ * and depth runs along world X. This is a rotation of the (plane-x,
+ * plane-y, depth) axes, not a reflection (same orientation-preserving
+ * handedness as the old mapping it replaces), so the existing front/back cap
+ * winding (`flip` in `cap()` below) is unchanged — every emitted polygon
+ * still winds outward-facing without needing a fresh parity fixup.
  */
 import earcut from "earcut";
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
@@ -215,7 +220,7 @@ function convexPartition(flat: number[], tris: number[]): number[][] {
   return polys.filter((p): p is number[] => p !== null);
 }
 
-const toWorld = (p: Pt, z: number): Vec3 => [-p[1], p[0], z];
+const toWorld = (p: Pt, z: number): Vec3 => [z, p[0], p[1]];
 
 /** Extrude pre-grouped 2D shapes (type-plane, world units) into polygons. */
 export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[] {
@@ -241,12 +246,10 @@ export function extrudeContours(shapes: Shape[], opts: ExtrudeOptions): Polygon[
   const faceH = fb ? Math.max(fb.maxY - fb.minY, 1e-6) : 1;
   // tile > 0 → repeat the texture every `tile` world units (crisp block look);
   // tile === 0 → stretch one copy across the whole word (gradient / photo).
-  // `v` is flipped so it grows DOWNWARD in screen terms. The composed mesh is
-  // X-up (local X = text height, growing screen-down), and an unflipped
-  // `(p[0] - minX)` therefore produced a `v` that grew screen-UP: an effect
-  // asking for `direction: "down"` visibly travelled upward, and textures were
-  // mirrored vertically (unnoticed because the bundled fills are noise-like).
-  // Image/texture convention is v-down, so flip it here at the source.
+  // `v` is flipped so it grows DOWNWARD in type-plane terms (an unflipped
+  // `(p[1] - minY)` would produce a `v` that grows UP the glyph, the opposite
+  // of the image/texture convention that `v` grows down), independent of
+  // which world axis the type plane's y (glyph height) is authored onto.
   const uvAt = (p: Pt, tile: number): Vec2 => tile > 0
     ? [(p[0] - fb!.minX) / tile, (fb!.maxY - p[1]) / tile]
     : [Math.min(1, Math.max(0, (p[0] - fb!.minX) / faceW)), Math.min(1, Math.max(0, (fb!.maxY - p[1]) / faceH))];

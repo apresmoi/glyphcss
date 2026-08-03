@@ -733,10 +733,15 @@ function objectVolumetricAlongLane<P extends AnyParams>(
   if (!op) return null;
   const x = op[index * 3]!, y = op[index * 3 + 1]!, z = op[index * 3 + 2]!;
   if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+  // Object frame is Z-up (X = extrusion depth, Y = width, Z = height), matching
+  // glyphcss's world convention — see AGENTS.md. Vertical flow therefore runs
+  // along Z (down = decreasing height) and horizontal flow along Y; the lane key
+  // is the two axes perpendicular to that, always including depth (X) so cells
+  // at different depths on the same column share a strand.
   const horizontal = direction === "left" || direction === "right";
-  const along = (horizontal ? (direction === "right" ? x : -x) : (direction === "down" ? y : -y)) * scale;
-  const lane0 = horizontal ? y : x;
-  const lane1 = z;
+  const along = (horizontal ? (direction === "right" ? y : -y) : (direction === "down" ? -z : z)) * scale;
+  const lane0 = horizontal ? z : y;
+  const lane1 = x;
   // Combine the 2D lane key (the two axes perpendicular to flow) into the
   // single integer `hash2(lane, seed)` below expects.
   const lane = hash2(Math.floor(lane0 * scale), Math.floor(lane1 * scale)) | 0;

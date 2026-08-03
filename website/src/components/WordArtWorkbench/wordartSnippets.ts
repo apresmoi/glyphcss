@@ -10,7 +10,8 @@
  * clock round out the scene.
  *
  * Orbit is authored as a drag on the MESH's rotation, not the camera: the
- * camera stays pinned at `rotX=0, rotY=0` and every tab wires its own
+ * camera stays pinned at `rotX=90, rotY=0` (Z-up text mesh viewed from the
+ * front — see `packages/fonts/src/extrude.ts`) and every tab wires its own
  * pointer/wheel handlers that mirror the live page's `Stage` turntable math
  * exactly (see `buildDragBlock`). A camera-orbit control (`GlyphOrbitControls`
  * / `createGlyphOrbitControls`) rotates in a different, axis-swapped
@@ -101,9 +102,9 @@ export interface WordArtSnippetInput {
   compose: WordArtComposeInput;
   /** Local-Y-axis stretch fraction (maps to the mesh's screen-horizontal axis). */
   scaleX: number;
-  /** Local-X-axis stretch fraction (maps to the mesh's screen-vertical axis). */
+  /** Local-Z-axis stretch fraction (maps to the mesh's screen-vertical axis). */
   scaleY: number;
-  /** `[turn, tilt, 0]` — the live turntable/tilt snapshot at export time. */
+  /** `[0, tilt, turn]` — the live turntable/tilt snapshot at export time. */
   rotation: Vec3;
   perspective: boolean;
   /** Snapshotted camera zoom (CSS px per world unit). */
@@ -283,11 +284,12 @@ function prepare(input: WordArtSnippetInput): Prepared {
   const { scaleX, scaleY, rotation, perspective, zoom, lightDir, lightIntensity, lightColor, ambient, density, mode, charMode, hiddenLines, effect } = input;
   return {
     fontSizePx: Math.round((BASE_FONT_PX / density) * 100) / 100,
-    // Mesh local X = text height (screen-down), local Y = text width
-    // (screen-right) — mirrors `Stage`'s `<GlyphMesh scale={[scaleYFrac, scaleXFrac, 1]}>`.
-    rotationTurn: fmt(rotation[0]),
+    // Mesh local Z = text height, local Y = text width, local X = extrusion
+    // depth — mirrors `Stage`'s `<GlyphMesh scale={[1, scaleXFrac, scaleYFrac]}
+    // rotation={[0, tilt, turn]}>` (turn drives Rz since height moved to Z).
+    rotationTurn: fmt(rotation[2]),
     rotationTilt: fmt(rotation[1]),
-    scale: vec3([scaleY, scaleX, 1]),
+    scale: vec3([1, scaleX, scaleY]),
     isOrtho: !perspective,
     zoom: fmt(zoom),
     lightDir: vec3(lightDir),
@@ -333,7 +335,7 @@ requestAnimationFrame(animateEffect);` : ""}`;
  * the scene via the imperative `createGlyphScene`/`GlyphMeshHandle` API
  * (vanilla, the HTML custom-element tab, and the CodePen pen). Mirrors the
  * live `/wordart` page's own `Stage` component exactly: the camera stays
- * pinned at `rotX=0, rotY=0` and a horizontal/vertical drag updates the
+ * pinned at `rotX=90, rotY=0` and a horizontal/vertical drag updates the
  * MESH's `rotation` (turn/tilt) instead — a camera-orbit control rotates in
  * a different, axis-swapped convention than a mesh's XYZ Euler `rotation`,
  * so orbiting the camera around a scene whose mesh carries this initial
@@ -365,7 +367,7 @@ ${host}.addEventListener("pointermove", (event) => {
   lastY = event.clientY;
   turn -= dx * 0.4;
   tilt = Math.max(-85, Math.min(85, tilt + dy * 0.4));
-  ${mesh}.setTransform({ rotation: [turn, tilt, 0], scale: ${p.scale} });
+  ${mesh}.setTransform({ rotation: [0, tilt, turn], scale: ${p.scale} });
   scene.rerender();
 });
 
@@ -398,7 +400,7 @@ function buildImperativeSetup(p: Prepared, mesh: MeshBlock, hostExpr: string): s
 // Cell font-size sets the ASCII resolution; autoSize fills the host's box.
 host.style.fontSize = "${p.fontSizePx}px";
 
-const camera = ${cameraCtor}({ rotX: 0, rotY: 0, zoom: ${p.zoom} });
+const camera = ${cameraCtor}({ rotX: 90, rotY: 0, zoom: ${p.zoom} });
 
 const scene = createGlyphScene(host, {
   camera,
@@ -418,7 +420,7 @@ const scene = createGlyphScene(host, {
 // Load the font, then regenerate the extruded-text mesh with the same
 // options the page composed it with.
 ${mesh.statements.join("\n")}
-const mesh = scene.add(meshPolygons, { rotation: [${p.rotationTurn}, ${p.rotationTilt}, 0], scale: ${p.scale} });
+const mesh = scene.add(meshPolygons, { rotation: [0, ${p.rotationTilt}, ${p.rotationTurn}], scale: ${p.scale} });
 
 ${buildDragBlock(p, { host: "host", camera: "camera", mesh: "mesh" })}${buildSceneEffectBlock(p)}`;
 }
@@ -484,7 +486,7 @@ const ambientLight = { intensity: ${p.ambient} };
 
 export function App() {
   const [polygons, setPolygons] = useState<Polygon[]>([]);
-  // Camera stays pinned at rotX=0/rotY=0 — a horizontal/vertical drag turns
+  // Camera stays pinned at rotX=90/rotY=0 — a horizontal/vertical drag turns
   // the MESH instead (mirrors the live /wordart page's own turntable), so
   // orbiting matches the site exactly on both axes.
   const [turn, setTurn] = useState(${p.rotationTurn});
@@ -529,7 +531,7 @@ ${effectClock}
   };
 
   return (
-    <${cameraComponentName} rotX={0} rotY={0} zoom={zoom}>
+    <${cameraComponentName} rotX={90} rotY={0} zoom={zoom}>
       <div
         style={{ width: "100%", height: "100%", cursor: "grab", touchAction: "none" }}
         onPointerDown={onPointerDown}
@@ -548,7 +550,7 @@ ${effectClock}
           directionalLight={directionalLight}
           ambientLight={ambientLight}
         >
-          <GlyphMesh polygons={polygons} rotation={[turn, tilt, 0]} scale={${p.scale}} />${effectTag}
+          <GlyphMesh polygons={polygons} rotation={[0, tilt, turn]} scale={${p.scale}} />${effectTag}
         </GlyphScene>
       </div>
     </${cameraComponentName}>
@@ -580,7 +582,7 @@ onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
 ` : "";
 
   return `<template>
-  <${cameraComponentName} :rot-x="0" :rot-y="0" :zoom="zoom">
+  <${cameraComponentName} :rot-x="90" :rot-y="0" :zoom="zoom">
     <div
       style="width: 100%; height: 100%; cursor: grab; touch-action: none"
       @pointerdown="onPointerDown"
@@ -599,7 +601,7 @@ onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
         :directional-light="directionalLight"
         :ambient-light="ambientLight"
       >
-        <GlyphMesh :polygons="polygons" :rotation="[turn, tilt, 0]" :scale="${p.scale}" />${effectTag}
+        <GlyphMesh :polygons="polygons" :rotation="[0, tilt, turn]" :scale="${p.scale}" />${effectTag}
       </GlyphScene>
     </div>
   </${cameraComponentName}>
@@ -618,7 +620,7 @@ import { ${mesh.imports.join(", ")} } from "@glyphcss/fonts";${effectImport}
 ${CENTER_POLYGONS_TS}
 
 const polygons = ref<Polygon[]>([]);
-// Camera stays pinned at rotX=0/rotY=0 — a horizontal/vertical drag turns
+// Camera stays pinned at rotX=90/rotY=0 — a horizontal/vertical drag turns
 // the MESH instead (mirrors the live /wordart page's own turntable), so
 // orbiting matches the site exactly on both axes.
 const turn = ref(${p.rotationTurn});
@@ -717,7 +719,7 @@ function buildHtml(p: Prepared, mesh: MeshBlock): string {
     </style>
   </head>
   <body>
-    <${cameraTag} rot-x="0" rot-y="0" zoom="${p.zoom}">
+    <${cameraTag} rot-x="90" rot-y="0" zoom="${p.zoom}">
       <glyph-scene id="scene" mode="${p.mode}" char-mode="${p.charMode}" hidden-lines="${p.hiddenLines}" auto-size use-colors></glyph-scene>
     </${cameraTag}>
 
@@ -744,7 +746,7 @@ ${indent(CENTER_POLYGONS_JS, 6)}
         // Load the font, then regenerate the extruded-text mesh with the
         // same options the page composed it with.
 ${indent(mesh.statements.join("\n"), 8)}
-        const mesh = scene.add(meshPolygons, { rotation: [${p.rotationTurn}, ${p.rotationTilt}, 0], scale: ${p.scale} });
+        const mesh = scene.add(meshPolygons, { rotation: [0, ${p.rotationTilt}, ${p.rotationTurn}], scale: ${p.scale} });
         scene.fit();
 
 ${indent(dragBlock, 8)}

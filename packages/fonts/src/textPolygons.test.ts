@@ -35,10 +35,10 @@ describe("textPolygons", () => {
     expect(Math.abs(b.minY + b.maxY)).toBeLessThan(b.maxY - b.minY); // roughly symmetric
   });
 
-  it("flat profile depth matches the requested depth on world Z", () => {
+  it("flat profile depth matches the requested depth on world X", () => {
     const depth = 30;
     const b = bounds(textPolygons(roboto, "I", { depth, profile: "flat" }));
-    expect(b.maxZ - b.minZ).toBeCloseTo(depth, 5);
+    expect(b.maxX - b.minX).toBeCloseTo(depth, 5);
   });
 
   it("longer text produces more polygons", () => {

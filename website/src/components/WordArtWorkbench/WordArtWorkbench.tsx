@@ -277,8 +277,8 @@ function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, sca
       if (v[2] < minZ) minZ = v[2]; if (v[2] > maxZ) maxZ = v[2];
     }
   }
-  const horizontal = Math.max((maxY - minY) * scaleX, maxZ - minZ);
-  const vertical = (maxX - minX) * scaleY;
+  const horizontal = Math.max((maxY - minY) * scaleX, maxX - minX);
+  const vertical = (maxZ - minZ) * scaleY;
   const fitW = (stageW * 0.7) / Math.max(horizontal, 1);
   const fitH = (stageH * 0.68) / Math.max(vertical, 1);
   return Math.max(0.5, Math.min(10, Math.min(fitW, fitH)));
@@ -610,11 +610,13 @@ export function WordArtWorkbench() {
   }, [font, text, textCase, depth, profile, roundConvex, bezier, letterSpacing, lineHeight, align, underline, strike, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, front, fillType, backFill, backTex, sideFill, sideTex, outlineOn, outlineColor, outlineWidth, layered]);
 
   // Source vector from azimuth (left/right) + elevation (height), biased toward
-  // the front so the face stays lit.
+  // the front so the face stays lit. The front cap faces world X now (extrusion
+  // depth moved off Z, see extrude.ts), so the "stays lit" floor applies to the
+  // X component instead of Z.
   const lightDir = useMemo<Vec3>(() => {
     const a = (lightAz * Math.PI) / 180;
     const e = (lightEl * Math.PI) / 180;
-    return [-Math.sin(e), -Math.sin(a) * Math.cos(e), Math.max(0.25, Math.cos(e))];
+    return [Math.max(0.25, Math.cos(e)), -Math.sin(a) * Math.cos(e), -Math.sin(e)];
   }, [lightAz, lightEl]);
 
   const effectDefinition = useMemo<GalleryEffectDefinition | null>(
@@ -1166,8 +1168,9 @@ export function WordArtWorkbench() {
 }
 
 /** Center the word's bbox on the origin so the camera frames it (glyphcss has
- *  no scene-side autoCenter). NO axis swap: @glyphcss/fonts emits polygons in
- *  the same world→screen frame glyphcss projects with (X down, Y right, Z depth). */
+ *  no scene-side autoCenter). NO axis swap: @glyphcss/fonts emits Z-up polygons
+ *  (world Z = letter height, world Y = letter width, world X = extrusion depth
+ *  — see extrude.ts), viewed by this page's `rotX={90}` camera (see `Stage`). */
 function centerMesh(polygons: Polygon[]): Polygon[] {
   if (polygons.length === 0) return polygons;
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1333,7 +1336,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
   // Always-fresh — read only when the Export panel/CodePen action fires (see
   // `StageProps.snapshotRef`), never subscribed to, so this plain assignment
   // (not a `useEffect`) is fine even though `turn` changes every spin frame.
-  snapshotRef.current = { rotation: [turn, tilt, 0], zoom };
+  snapshotRef.current = { rotation: [0, tilt, turn], zoom };
 
   return (
     <div
@@ -1346,7 +1349,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
       onWheel={onWheel}
       style={{ cursor: "grab", touchAction: "none" }}
     >
-      <Cam rotX={0} rotY={0} zoom={zoom}>
+      <Cam rotX={90} rotY={0} zoom={zoom}>
         <GlyphScene
           autoSize
           mode={renderMode}
@@ -1357,11 +1360,16 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
           ambientLight={{ intensity: ambient }}
         >
           <DensityFit density={density} />
-          {/* Font mesh is X-up: local X = text height (screen-down), local Y =
-              text width (screen-right). The "Scale X" slider should stretch
-              horizontally, so it maps to local Y; "Scale Y" maps to local X.
-              Depth is baked into the geometry, so Z stays 1. */}
-          <GlyphMesh polygons={centered} rotation={[turn, tilt, 0]} scale={[scaleYFrac, scaleXFrac, 1]} />
+          {/* Font mesh is Z-up: local Z = text height, local Y = text width,
+              local X = extrusion depth (see extrude.ts). The camera is tilted
+              `rotX={90}` (instead of the flat `rotX={0}` a screen-plane-authored
+              mesh would use) so that vertical axis reads on screen — this
+              reproduces byte-identical output to the old X-up mesh at rotX=0
+              (verified: both project to the same screen col/row for every
+              vertex). "Scale X" stretches horizontally, so it maps directly to
+              local Y; "Scale Y" maps directly to local Z. Depth (local X) is
+              baked into the geometry, so it stays 1. */}
+          <GlyphMesh polygons={centered} rotation={[0, tilt, turn]} scale={[1, scaleXFrac, scaleYFrac]} />
           {effectDefinition && (
             <WordArtEffectLayer
               key={effectDefinition.id}
@@ -1511,7 +1519,7 @@ const TILE_EFFECT_MAX_FPS = 12;
 // Stage's own default light (lightAz -25 / lightEl 45), computed the same
 // way — see the `lightDir` useMemo below — so the tile preview is lit
 // exactly like the live composition's resting state.
-const TILE_LIGHT_DIR: Vec3 = [-Math.sin(45 * (Math.PI / 180)), -Math.sin(-25 * (Math.PI / 180)) * Math.cos(45 * (Math.PI / 180)), Math.max(0.25, Math.cos(45 * (Math.PI / 180)))];
+const TILE_LIGHT_DIR: Vec3 = [Math.max(0.25, Math.cos(45 * (Math.PI / 180))), -Math.sin(-25 * (Math.PI / 180)) * Math.cos(45 * (Math.PI / 180)), -Math.sin(45 * (Math.PI / 180))];
 
 /** Fit `polygons` into an orthographic camera's cols×rows grid by scaling
  *  zoom linearly off a zoom=1 projection (exact for orthographic — no
@@ -1596,15 +1604,16 @@ function buildPresetTileMesh(font: ParsedFont, preset: Preset): PresetTileMesh |
   // just the front face) — same convention `createGlyphScene`'s internal
   // `applyTransform` uses for a mesh's `rotation` prop (world-frame XYZ
   // Euler, R = Rx·Ry·Rz), and the same one the live Stage's
-  // `<GlyphMesh rotation={[turn, tilt, 0]}>` drives. The camera's own
+  // `<GlyphMesh rotation={[0, tilt, turn]}>` drives. The camera's own
   // `rotX`/`rotY` is a DIFFERENT convention (orbits per voxcss's
   // `rotateVec3Voxcss`) — mixing the two produced a squashed, illegible glyph.
-  // The yaw (Rx, turntable around the glyph's vertical) is kept modest: past
-  // ~24° it closes up the "a" bowl's small counter into a solid blob at this
-  // grid size (an "A"'s big triangular gap tolerated much more yaw).
-  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [18, 10, 0]);
+  // The yaw (Rz, turntable around the glyph's vertical — height moved to
+  // world Z, see extrude.ts) is kept modest: past ~24° it closes up the "a"
+  // bowl's small counter into a solid blob at this grid size (an "A"'s big
+  // triangular gap tolerated much more yaw).
+  const tilted = rotateMeshVerticesDeg(centerMesh(polygons), [0, 10, 18]);
   const centered = centerMesh(tilted);
-  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
+  const camera = createGlyphOrthographicCamera({ rotX: 90, rotY: 0, zoom: 1 });
   camera.zoom = frameZoomForGrid(camera, centered, TILE_COLS, TILE_ROWS, TILE_CELL_ASPECT, TILE_FRAME_FILL);
   return { polygons: centered, zoom: camera.zoom };
 }
@@ -1621,7 +1630,7 @@ function buildPresetTileMesh(font: ParsedFont, preset: Preset): PresetTileMesh |
 function renderPresetTile(font: ParsedFont, preset: Preset, mode: WordArtRenderMode, charMode: WordArtCharMode): CompileSceneResult | null {
   const mesh = buildPresetTileMesh(font, preset);
   if (!mesh) return null;
-  const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: mesh.zoom });
+  const camera = createGlyphOrthographicCamera({ rotX: 90, rotY: 0, zoom: mesh.zoom });
   return compileScene({
     polygons: mesh.polygons,
     camera,
@@ -1671,7 +1680,7 @@ function LiveEffectTile({ font, preset, mode, charMode }: { font: ParsedFont; pr
     // at density ~1) paints every covered cell, so at the static tiles' framing
     // the slab fills the grid edge-to-edge with no margin and reads as "too
     // big" beside the letter-with-breathing-room static tiles.
-    <GlyphOrthographicCamera rotX={0} rotY={0} zoom={mesh.zoom * TILE_EFFECT_ZOOM}>
+    <GlyphOrthographicCamera rotX={90} rotY={0} zoom={mesh.zoom * TILE_EFFECT_ZOOM}>
       <GlyphScene
         cols={TILE_COLS}
         rows={TILE_ROWS}

@@ -18,7 +18,7 @@ Monorepo layout (pnpm workspaces):
 | `packages/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
 | `packages/compile` | `@glyphcss/compile` | Build-time static compiler: 3D mesh → static `<pre>` ASCII. Vite plugin, CLI, Node API. Node-only (fs); reuses `compileScene` (pure) from glyphcss. |
 | `packages/effects` | `@glyphcss/effects` | Framework-agnostic spatial effect definitions and stock surface/scene effects. Depends on glyphcss's generic effect protocol; never owns the renderer or animation clock. |
-| `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. |
+| `packages/fonts` | `@glyphcss/fonts` | Framework-agnostic font/text → extruded polygon-mesh generation. Emits Z-up meshes: world Z = letter height (`+Z` = up, matching every native primitive's `+Z (top)` convention), world Y = letter width, world X = extrusion depth (see `extrude.ts`'s `toWorld`). A camera viewing a flat, unrotated text mesh needs `rotX: 90` (not the default `rotX: 0`) so that vertical axis reads on screen — the word-art page (`website/src/components/WordArtWorkbench`) is the reference consumer. |
 | `website` | `@glyphcss/website` | Astro + Starlight docs site. Not published. |
 
 Public API is **mirrored** across React and Vue. Adding a hook on one side without adding the matching composable on the other is not acceptable (see "Cross-package discipline" below).

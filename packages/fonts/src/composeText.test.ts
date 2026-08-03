@@ -13,12 +13,13 @@ function loadFixture(name: string): ArrayBuffer {
 const roboto = parseFont(loadFixture("Roboto-Bold.ttf"));
 
 function bounds(polys: ReturnType<typeof composeText>) {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const p of polys) for (const [x, y] of p.vertices) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const p of polys) for (const [x, y, z] of p.vertices) {
     minX = Math.min(minX, x); maxX = Math.max(maxX, x);
     minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
   }
-  return { minX, maxX, minY, maxY };
+  return { minX, maxX, minY, maxY, minZ, maxZ };
 }
 
 describe("composeText", () => {
@@ -26,10 +27,10 @@ describe("composeText", () => {
     expect(composeText(roboto, "Poly").length).toBeGreaterThan(0);
   });
 
-  it("stacks multiple lines taller (world X = screen-down)", () => {
+  it("stacks multiple lines taller (world Z = letter height)", () => {
     const one = bounds(composeText(roboto, "Poly"));
     const three = bounds(composeText(roboto, "Poly\nCSS\nText"));
-    expect(three.maxX - three.minX).toBeGreaterThan((one.maxX - one.minX) * 2);
+    expect(three.maxZ - three.minZ).toBeGreaterThan((one.maxZ - one.minZ) * 2);
   });
 
   it("splits on \\n into independent lines", () => {
@@ -57,8 +58,8 @@ describe("composeText", () => {
   it("arc warp spreads the text wider than unwarped", () => {
     const flat = bounds(composeText(roboto, "WordArt"));
     const arced = bounds(composeText(roboto, "WordArt", { warp: { shape: "arc", amount: 0.8 } }));
-    // The arc bows letters up/down, so the vertical (world X) extent grows.
-    expect(arced.maxX - arced.minX).toBeGreaterThan(flat.maxX - flat.minX);
+    // The arc bows letters up/down, so the vertical (world Z) extent grows.
+    expect(arced.maxZ - arced.minZ).toBeGreaterThan(flat.maxZ - flat.minZ);
   });
 
   it("warp shapes change the geometry vs none", () => {
@@ -72,7 +73,7 @@ describe("composeText", () => {
   it("larger lineHeight increases vertical extent", () => {
     const tight = bounds(composeText(roboto, "A\nB", { lineHeight: 1 }));
     const loose = bounds(composeText(roboto, "A\nB", { lineHeight: 2 }));
-    expect(loose.maxX - loose.minX).toBeGreaterThan(tight.maxX - tight.minX);
+    expect(loose.maxZ - loose.minZ).toBeGreaterThan(tight.maxZ - tight.minZ);
   });
 
   // ── regression: holes must never break ──────────────────────────────────
@@ -106,7 +107,7 @@ describe("composeText", () => {
   it("vertical scale heightens the glyphs", () => {
     const a = bounds(composeText(roboto, "A"));
     const b = bounds(composeText(roboto, "A", { scale: [1, 2] }));
-    expect(b.maxX - b.minX).toBeGreaterThan((a.maxX - a.minX) * 1.6);
+    expect(b.maxZ - b.minZ).toBeGreaterThan((a.maxZ - a.minZ) * 1.6);
   });
 
   it("cap triangles merge into convex polygons (fewer nodes, no concavity)", () => {
@@ -210,10 +211,11 @@ describe("composeText", () => {
     expect(front.length).toBeGreaterThan(0); // front cap (t≈0)
     expect(side.length).toBeGreaterThan(0);  // body walls (t≈0.5)
     expect(back.length).toBeGreaterThan(0);  // back cap (t≈1)
-    // The front cap sits at the most-forward z; the back cap at the most-back.
-    const frontZ = Math.max(...front.flatMap((p) => p.vertices.map((v) => v[2])));
-    const backZ = Math.min(...back.flatMap((p) => p.vertices.map((v) => v[2])));
-    expect(frontZ).toBeGreaterThan(backZ);
+    // The front cap sits at the most-forward depth; the back cap at the
+    // most-back — depth runs along world X now (extrude.ts's toWorld).
+    const frontDepth = Math.max(...front.flatMap((p) => p.vertices.map((v) => v[0])));
+    const backDepth = Math.min(...back.flatMap((p) => p.vertices.map((v) => v[0])));
+    expect(frontDepth).toBeGreaterThan(backDepth);
   });
 
   it("omitting `sides` makes the front meet the back (no side band)", () => {
@@ -310,14 +312,15 @@ describe("composeText", () => {
   it("drops a descender below the baseline instead of bottom-snapping", () => {
     // "n" is flat-bottomed and sits on the baseline; "o" has only the small
     // round-letter overshoot type designers add for optical alignment; "g"
-    // has a real descender that must droop well below both. World X is
-    // screen-down (see extrude.ts), so a larger maxX is lower on screen.
+    // has a real descender that must droop well below both. World Z is the
+    // letter's own vertical axis, unflipped (+Z = up, see extrude.ts), so a
+    // smaller minZ is lower / further below the baseline.
     const n = bounds(composeText(roboto, "n"));
     const o = bounds(composeText(roboto, "o"));
     const g = bounds(composeText(roboto, "g"));
 
-    const descenderDrop = g.maxX - n.maxX;
-    const overshoot = o.maxX - n.maxX;
+    const descenderDrop = n.minZ - g.minZ;
+    const overshoot = n.minZ - o.minZ;
 
     expect(descenderDrop).toBeGreaterThan(0);
     // If glyphs were bottom-snapped into a shared box instead of using their

@@ -35,7 +35,7 @@ scene.add(polygons);
 | Option | Default | Notes |
 |---|---|---|
 | `size` | `100` | Cap-em size in world units. |
-| `depth` | `size * 0.2` | Extrusion depth along world Z. |
+| `depth` | `size * 0.2` | Extrusion depth along world X (the mesh is Z-up: world Z = letter height, world Y = letter width). |
 | `profile` | `"flat"` | `"flat"` slab · `"round"` bullnose · `"bevel"` chamfered edge. |
 | `curveSteps` | `6` | Bézier flattening — higher is smoother, more polygons. |
 | `letterSpacing` | `0` | Extra space between glyphs. |
