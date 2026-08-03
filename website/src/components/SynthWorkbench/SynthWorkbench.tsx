@@ -28,6 +28,7 @@ import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { SynthCodePanel } from "./SynthCodePanel";
 import type { SynthSnippetInput } from "./synthSnippets";
+import { readInitialSynthState, writeSynthUrlState, type Lighting } from "./synthUrlState";
 import {
   InstrumentBody,
   InstrumentMain,
@@ -324,8 +325,6 @@ function IconToggle({ options, value, onChange, groupTitle }: {
 const LIGHT = { direction: [-0.4, -0.6, -0.5] as [number, number, number], intensity: 1.05 };
 const AMBIENT = { intensity: 0.6 };
 
-interface Lighting { azimuth: number; elevation: number; keyIntensity: number; keyColor: string; ambient: number; }
-const DEFAULT_LIGHTING: Lighting = { azimuth: 40, elevation: 38, keyIntensity: 1.1, keyColor: "#ffffff", ambient: 0.5 };
 function buildLighting(l: Lighting): { directionalLight: { direction: [number, number, number]; intensity: number; color: string }; ambientLight: { intensity: number } } {
   const a = (l.azimuth * Math.PI) / 180, e = (l.elevation * Math.PI) / 180;
   return {
@@ -789,36 +788,26 @@ function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPaused, d
 }
 
 // ── URL persistence (everything the synth is configured to, in ?s=) ───────────
-function encodeSynthState(state: unknown): string {
-  try { return btoa(unescape(encodeURIComponent(JSON.stringify(state)))).replace(/=+$/, ""); } catch { return ""; }
-}
-function decodeSynthState(s: string): Record<string, unknown> | null {
-  try { return JSON.parse(decodeURIComponent(escape(atob(s)))) as Record<string, unknown>; } catch { return null; }
-}
-function readSynthUrl(): Record<string, unknown> | null {
-  if (typeof window === "undefined") return null;
-  const s = new URLSearchParams(window.location.search).get("s");
-  return s ? decodeSynthState(s) : null;
-}
-function slotsFromParams(p: Params): number[] {
-  return Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(p[`amp${k}`]) > 0);
-}
+// See synthUrlState.ts: a single packed `?s=` param built on the shared codec
+// (website/src/lib/urlState.ts), replacing the old base64url(JSON) payload —
+// base64 inflates a short packed string by ~33% for nothing, so a schema-
+// packed value round-trips through the SAME `?s=` key smaller, not bigger.
 
 // ── Workbench ────────────────────────────────────────────────────────────────
 export default function SynthWorkbench() {
-  const initial = useMemo(() => readSynthUrl(), []);
+  const initial = useMemo(() => readInitialSynthState(), []);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<GlyphSceneHandle | null>(null);
   const cameraRef = useRef<ReturnType<typeof createGlyphOrthographicCamera> | null>(null);
   const layerRef = useRef<{ setParams: (p: Params) => void; dispose: () => void } | null>(null);
   const meshRef = useRef<{ dispose: () => void } | null>(null);
 
-  const [shape, setShape] = useState<string>((initial?.sh as string) ?? "plane");
-  const [params, setParams] = useState<Params>(() => ({ ...synthDefaults(), voiceColors: true, ...((initial?.p as Params) ?? {}) }));
-  const [timeScale, setTimeScale] = useState((initial?.ts as number) ?? 1.4);
+  const [shape, setShape] = useState<string>(initial.shape);
+  const [params, setParams] = useState<Params>(initial.params as Params);
+  const [timeScale, setTimeScale] = useState(initial.timeScale);
   const [paused, setPaused] = useState(false);
-  const [density, setDensity] = useState((initial?.d as number) ?? 1);
-  const [lighting, setLighting] = useState<Lighting>(() => ({ ...DEFAULT_LIGHTING, ...((initial?.l as Partial<Lighting>) ?? {}) }));
+  const [density, setDensity] = useState(initial.density);
+  const [lighting, setLighting] = useState<Lighting>(initial.lighting);
   const lightingRef = useRef(lighting); lightingRef.current = lighting;
 
   // Mobile-only: which panel is open as a bottom drawer (null = viewport only).
@@ -911,16 +900,13 @@ export default function SynthWorkbench() {
 
   // Which oscillator slots have a CARD (exist), independent of their amp. Muting a
   // voice (amp 0) keeps its card; only Remove (×) deletes it.
-  const [voiceSlots, setVoiceSlots] = useState<number[]>(() => (initial?.v as number[]) ?? slotsFromParams(params));
+  const [voiceSlots, setVoiceSlots] = useState<number[]>(initial.voiceSlots);
   const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
 
-  // Persist everything to the URL (?s=…) so a reload/share restores the patch.
+  // Persist everything to the single packed `?s=` param so a reload/share
+  // restores the patch (see synthUrlState.ts).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const s = encodeSynthState({ p: params, sh: shape, ts: timeScale, d: density, v: voiceSlots, l: lighting });
-    const url = new URL(window.location.href);
-    url.searchParams.set("s", s);
-    window.history.replaceState(null, "", url.toString());
+    writeSynthUrlState({ shape, params, timeScale, density, lighting, voiceSlots });
   }, [params, shape, timeScale, density, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);

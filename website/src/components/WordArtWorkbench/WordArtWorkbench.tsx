@@ -53,6 +53,13 @@ import {
 import type { GalleryEffectBlend, GalleryEffectParamValue, GalleryEffectState } from "../GalleryWorkbench/types";
 import { WordArtCodePanel } from "./WordArtCodePanel";
 import { buildWordArtCodepenPen } from "./wordartSnippets";
+import {
+  readInitialWordArtState,
+  WORD_ART_DEFAULTS,
+  wordArtEffectStateFromUrlState,
+  writeWordArtUrlState,
+  type WordArtUrlState,
+} from "./wordartUrlState";
 import type {
   WordArtComposeInput,
   WordArtFaceSpec,
@@ -284,37 +291,11 @@ function fitWordArtZoom(polygons: Polygon[], stageW: number, stageH: number, sca
   return Math.max(0.5, Math.min(10, Math.min(fitW, fitH)));
 }
 
-// All controls persist to the URL query string so any look is a shareable link.
-const URL_SEARCH = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-const qs = (k: string, d: string) => URL_SEARCH.get(k) ?? d;
-const qn = (k: string, d: number) => (URL_SEARCH.has(k) ? Number(URL_SEARCH.get(k)) : d);
-const qb = (k: string, d: boolean) => (URL_SEARCH.has(k) ? URL_SEARCH.get(k) === "1" : d);
-
-/** Restore the Effects folder's selection from the URL (mirrors the gallery's
- *  `fx`/`fxb`/`fxp`/`fxs`/`fxx` shape, but folded into this page's single
- *  flat-URLSearchParams persistence pass instead of a second read-modify-write
- *  — see the big `useEffect` below, which is the only writer). */
-function initialEffectState(): GalleryEffectState {
-  const id = qs("fx", "");
-  if (!id) return DEFAULT_GALLERY_EFFECT_STATE;
-  const definition = galleryEffectDefinition(id as GlyphEffectId);
-  if (!definition) return DEFAULT_GALLERY_EFFECT_STATE;
-  const state = createGalleryEffectState(definition.id, {
-    blend: qs("fxb", definition.defaultBlend) as GalleryEffectBlend,
-    paused: qb("fxp", false),
-    timeScale: qn("fxs", 1),
-  });
-  if (!state) return DEFAULT_GALLERY_EFFECT_STATE;
-  const rawParams = qs("fxx", "");
-  if (rawParams) {
-    try {
-      state.params = sanitizeGalleryEffectParams(definition, JSON.parse(rawParams));
-    } catch {
-      // Malformed/legacy `fxx` payload — keep the definition's defaults.
-    }
-  }
-  return state;
-}
+// All controls persist to a single packed `?w=` query param — see
+// `wordartUrlState.ts` (shared codec: website/src/lib/urlState.ts). Measured
+// on a representative state: 419 chars verbose -> 93 chars packed.
+const initialWordArtState = readInitialWordArtState();
+const qs = <K extends keyof WordArtUrlState>(key: K): WordArtUrlState[K] => initialWordArtState[key];
 
 export function WordArtWorkbench() {
   const [font, setFont] = useState<ParsedFont | null>(null);
@@ -327,62 +308,59 @@ export function WordArtWorkbench() {
   // Always a real Google font — defaults to Roboto so both the live page and
   // the export work from any origin (CodePen included). Never reset to null.
   const [entry, setEntry] = useState<FontEntry>(ROBOTO_FONT_ENTRY);
-  const [familyInput, setFamilyInput] = useState(() => qs("font", "Roboto"));
-  const [weight, setWeight] = useState(() => qn("weight", 700));
-  const [italic, setItalic] = useState(() => qb("italic", false));
+  const [familyInput, setFamilyInput] = useState(() => qs("font"));
+  const [weight, setWeight] = useState(() => qs("weight"));
+  const [italic, setItalic] = useState(() => qs("italic"));
   const [status, setStatus] = useState("");
 
-  const [text, setText] = useState(() => qs("text", "Glyph\nCSS"));
-  const [textCase, setTextCase] = useState<"as-typed" | "upper" | "lower" | "title">(() => qs("case", "as-typed") as "as-typed");
-  const [scaleX, setScaleX] = useState(() => qn("sx", 100));
-  const [scaleY, setScaleY] = useState(() => qn("sy", 100));
-  const [profile, setProfile] = useState<ExtrudeProfile>(() => qs("profile", "bevel") as ExtrudeProfile);
-  const [roundConvex, setRoundConvex] = useState(() => qb("rconv", false));
-  const [bezier, setBezier] = useState<Bezier4>(() => {
-    const p = qs("bez", "").split(",").map(Number);
-    return p.length === 4 && p.every((n) => !Number.isNaN(n)) ? (p as Bezier4) : [0.3, 0.9, 0.7, 0.1];
-  });
-  const [depth, setDepth] = useState(() => qn("depth", 26));
-  const [letterSpacing, setLetterSpacing] = useState(() => qn("ls", 0));
-  const [lineHeight, setLineHeight] = useState(() => qn("lh", 1.15));
-  const [align, setAlign] = useState<Align>(() => qs("align", "center") as Align);
-  const [underline, setUnderline] = useState(() => qb("ul", false));
-  const [strike, setStrike] = useState(() => qb("st", false));
-  const [color, setColor] = useState(() => qs("color", "#d4a82a"));
-  const [sideColor, setSideColor] = useState(() => qs("side", "#7c5e16"));
-  const [backColor, setBackColor] = useState(() => qs("back", "#7c5e16"));
-  const [offset, setOffset] = useState(() => qn("offset", 0));
-  const [curveSegments, setCurveSegments] = useState(() => qn("curve", 4));
-  const [simplify, setSimplify] = useState(() => qn("simplify", 2));
-  const [profileSegments, setProfileSegments] = useState(() => qn("edge", 3));
-  const [warpShape, setWarpShape] = useState<WarpShape>(() => qs("warp", "none") as WarpShape);
-  const [warpAmount, setWarpAmount] = useState(() => qn("bend", 0.5));
-  const [spin, setSpin] = useState(() => qb("spin", true));
+  const [text, setText] = useState(() => qs("text"));
+  const [textCase, setTextCase] = useState<"as-typed" | "upper" | "lower" | "title">(() => qs("textCase"));
+  const [scaleX, setScaleX] = useState(() => qs("scaleX"));
+  const [scaleY, setScaleY] = useState(() => qs("scaleY"));
+  const [profile, setProfile] = useState<ExtrudeProfile>(() => qs("profile"));
+  const [roundConvex, setRoundConvex] = useState(() => qs("roundConvex"));
+  const [bezier, setBezier] = useState<Bezier4>(() => qs("bezier"));
+  const [depth, setDepth] = useState(() => qs("depth"));
+  const [letterSpacing, setLetterSpacing] = useState(() => qs("letterSpacing"));
+  const [lineHeight, setLineHeight] = useState(() => qs("lineHeight"));
+  const [align, setAlign] = useState<Align>(() => qs("align"));
+  const [underline, setUnderline] = useState(() => qs("underline"));
+  const [strike, setStrike] = useState(() => qs("strike"));
+  const [color, setColor] = useState(() => qs("color"));
+  const [sideColor, setSideColor] = useState(() => qs("sideColor"));
+  const [backColor, setBackColor] = useState(() => qs("backColor"));
+  const [offset, setOffset] = useState(() => qs("offset"));
+  const [curveSegments, setCurveSegments] = useState(() => qs("curveSegments"));
+  const [simplify, setSimplify] = useState(() => qs("simplify"));
+  const [profileSegments, setProfileSegments] = useState(() => qs("profileSegments"));
+  const [warpShape, setWarpShape] = useState<WarpShape>(() => qs("warpShape"));
+  const [warpAmount, setWarpAmount] = useState(() => qs("warpAmount"));
+  const [spin, setSpin] = useState(() => qs("spin"));
   // Face fill (solid / gradient / rainbow / image), outline, flat-layer shadow.
-  const [fillType, setFillType] = useState<FillType>(() => qs("fill", "solid") as FillType);
-  const [gradA, setGradA] = useState(() => qs("ga", "#ffd23f"));
-  const [gradB, setGradB] = useState(() => qs("gb", "#ff5e3a"));
-  const [gradAngle, setGradAngle] = useState(() => qn("gang", 270));
+  const [fillType, setFillType] = useState<FillType>(() => qs("fillType"));
+  const [gradA, setGradA] = useState(() => qs("gradA"));
+  const [gradB, setGradB] = useState(() => qs("gradB"));
+  const [gradAngle, setGradAngle] = useState(() => qs("gradAngle"));
   const [fillImage, setFillImage] = useState("");
-  const [faceTex, setFaceTex] = useState(() => qs("ftex", "dirt"));
-  const [sideFill, setSideFill] = useState<FaceFill>(() => qs("sfill", "solid") as FaceFill);
-  const [sideTex, setSideTex] = useState(() => qs("stex", "dirt"));
-  const [backFill, setBackFill] = useState<FaceFill>(() => qs("bfill", "solid") as FaceFill);
-  const [backTex, setBackTex] = useState(() => qs("btex", "dirt"));
-  const [outlineOn, setOutlineOn] = useState(() => qb("ol", false));
-  const [outlineColor, setOutlineColor] = useState(() => qs("olc", "#1a1a2e"));
-  const [outlineWidth, setOutlineWidth] = useState(() => qn("olw", 3));
-  const [layered, setLayered] = useState(() => qb("layer", false));
+  const [faceTex, setFaceTex] = useState(() => qs("faceTex"));
+  const [sideFill, setSideFill] = useState<FaceFill>(() => qs("sideFill"));
+  const [sideTex, setSideTex] = useState(() => qs("sideTex"));
+  const [backFill, setBackFill] = useState<FaceFill>(() => qs("backFill"));
+  const [backTex, setBackTex] = useState(() => qs("backTex"));
+  const [outlineOn, setOutlineOn] = useState(() => qs("outlineOn"));
+  const [outlineColor, setOutlineColor] = useState(() => qs("outlineColor"));
+  const [outlineWidth, setOutlineWidth] = useState(() => qs("outlineWidth"));
+  const [layered, setLayered] = useState(() => qs("layered"));
   // Camera + lighting (gallery-style)
-  const [perspective, setPerspective] = useState(() => qb("persp", true));
-  const [zoomScale, setZoomScale] = useState(() => qn("zoom", 1));
+  const [perspective, setPerspective] = useState(() => qs("perspective"));
+  const [zoomScale, setZoomScale] = useState(() => qs("zoomScale"));
   // State, not a ref: StatsOverlay mounts imperatively into this element, and
   // a ref mutation would not re-run its effect.
   const [stageHost, setStageHost] = useState<HTMLElement | null>(null);
   // Viewing angle lives here, not in <Stage>, so the URL effect below can see
   // it. Dragging rotates the MESH (see <Stage>) — the camera stays pinned.
-  const [turn, setTurn] = useState(() => qn("turn", 0));
-  const [tilt, setTilt] = useState(() => qn("tilt", 14));
+  const [turn, setTurn] = useState(() => qs("turn"));
+  const [tilt, setTilt] = useState(() => qs("tilt"));
   // Scene-wide ASCII resolution (mirrors /synth's Density): drives the
   // GlyphScene host's font-size (BASE_FONT_PX ÷ density) — smaller cell = more
   // columns/rows in the same on-screen box (zoom is CSS px/world-unit,
@@ -390,19 +368,19 @@ export function WordArtWorkbench() {
   // `SynthWorkbench`'s `host.style.fontSize` uses, just via the React
   // `<GlyphScene style>` prop instead of an imperative host ref (glyphcss/react
   // has no scene-wide `fontSize` option — only the per-mesh detail-layer one).
-  const [density, setDensity] = useState(() => qn("density", 1));
-  const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("mode", "solid") as WordArtRenderMode);
-  const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charmode", "ascii") as WordArtCharMode);
-  const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hl", "show") as WordArtHiddenLines);
-  const [lightIntensity, setLightIntensity] = useState(() => qn("li", 0.95));
-  const [ambient, setAmbient] = useState(() => qn("amb", 0.5));
-  const [lightColor, setLightColor] = useState(() => qs("lc", "#ffffff"));
-  const [lightAz, setLightAz] = useState(() => qn("laz", -25));
-  const [lightEl, setLightEl] = useState(() => qn("lel", 45));
+  const [density, setDensity] = useState(() => qs("density"));
+  const [renderMode, setRenderMode] = useState<WordArtRenderMode>(() => qs("renderMode"));
+  const [charMode, setCharMode] = useState<WordArtCharMode>(() => qs("charMode"));
+  const [hiddenLines, setHiddenLines] = useState<WordArtHiddenLines>(() => qs("hiddenLines"));
+  const [lightIntensity, setLightIntensity] = useState(() => qs("lightIntensity"));
+  const [ambient, setAmbient] = useState(() => qs("ambient"));
+  const [lightColor, setLightColor] = useState(() => qs("lightColor"));
+  const [lightAz, setLightAz] = useState(() => qs("lightAz"));
+  const [lightEl, setLightEl] = useState(() => qs("lightEl"));
   // Glyph Effects layer (gallery-style): same state shape, same
   // `scene.addEffectLayer`-backed `<GlyphEffectLayer>` wiring, just applied to
   // the word-art mesh instead of a dropped model.
-  const [effectState, setEffectState] = useState<GalleryEffectState>(initialEffectState);
+  const [effectState, setEffectState] = useState<GalleryEffectState>(() => wordArtEffectStateFromUrlState(initialWordArtState));
   const [activePreset, setActivePreset] = useState<string | null>(null);
   // Mobile: only one floating panel is open at a time, toggled by the bottom tabs
   // (mirrors /synth's voices/controls/presets drawer pattern).
@@ -441,8 +419,8 @@ export function WordArtWorkbench() {
     listGoogleFonts()
       .then((c) => {
         setCatalog(c);
-        const wanted = qs("font", "").trim().toLowerCase();
-        if (wanted) {
+        const wanted = qs("font").trim().toLowerCase();
+        if (wanted && wanted !== "roboto") {
           const f = c.find((e) => e.family.toLowerCase() === wanted);
           if (f) setEntry(f);
         }
@@ -450,87 +428,75 @@ export function WordArtWorkbench() {
       .catch(() => {});
   }, []);
 
-  // Persist every control to the URL (non-defaults only, for short links).
+  // Persist every control to a single packed `?w=` param (non-defaults only,
+  // for short links) — see wordartUrlState.ts (shared codec).
   useEffect(() => {
-    const p = new URLSearchParams();
-    const ss = (k: string, v: string, d: string) => { if (v !== d) p.set(k, v); };
-    const sn = (k: string, v: number, d: number) => { if (v !== d) p.set(k, String(v)); };
-    p.set("text", text);
-    ss("font", entry.family, "Roboto");
-    sn("weight", weight, 700);
-    if (italic) p.set("italic", "1");
-    ss("case", textCase, "as-typed");
-    sn("sx", scaleX, 100);
-    sn("sy", scaleY, 100);
-    ss("profile", profile, "bevel");
-    if (roundConvex) p.set("rconv", "1");
-    if (profile === "custom") p.set("bez", bezier.map((n) => +n.toFixed(3)).join(","));
-    sn("depth", depth, 26);
-    sn("ls", letterSpacing, 0);
-    sn("lh", lineHeight, 1.15);
-    ss("align", align, "center");
-    if (underline) p.set("ul", "1");
-    if (strike) p.set("st", "1");
-    ss("color", color, "#d4a82a");
-    ss("side", sideColor, "#7c5e16");
-    ss("back", backColor, "#7c5e16");
-    sn("offset", offset, 0);
-    sn("curve", curveSegments, 1);
-    sn("simplify", simplify, 2);
-    sn("edge", profileSegments, 3);
-    ss("warp", warpShape, "none");
-    sn("bend", warpAmount, 0.5);
-    if (!spin) p.set("spin", "0");
-    if (!perspective) p.set("persp", "0");
-    sn("zoom", zoomScale, 1);
-    // Round to 0.1deg: a drag emits hundreds of updates and 15-digit floats
-    // would bloat every shared link. `turn` is skipped while `spin` animates,
-    // or the turntable would rewrite the URL on every frame.
-    if (!spin) sn("turn", Math.round(turn * 10) / 10, 0);
-    sn("tilt", Math.round(tilt * 10) / 10, 14);
-    sn("density", density, 1);
-    ss("mode", renderMode, "solid");
-    ss("charmode", charMode, "ascii");
-    ss("hl", hiddenLines, "show");
-    sn("li", lightIntensity, 0.95);
-    sn("amb", ambient, 0.5);
-    ss("lc", lightColor, "#ffffff");
-    sn("laz", lightAz, -25);
-    sn("lel", lightEl, 45);
-    ss("fill", fillType, "solid");
-    ss("ga", gradA, "#ffd23f");
-    ss("gb", gradB, "#ff5e3a");
-    sn("gang", gradAngle, 270);
-    ss("ftex", faceTex, "dirt");
-    ss("sfill", sideFill, "solid");
-    ss("stex", sideTex, "dirt");
-    ss("bfill", backFill, "solid");
-    ss("btex", backTex, "dirt");
-    if (outlineOn) p.set("ol", "1");
-    ss("olc", outlineColor, "#1a1a2e");
-    sn("olw", outlineWidth, 3);
-    if (layered) p.set("layer", "1");
-    // Effects folder — folded into this same flat-URLSearchParams pass (rather
-    // than a second read-modify-write like the gallery's `useEffectRouteSync`)
-    // so it can't race the rest of this page's controls for the last write.
-    if (effectState.effectId) {
-      p.set("fx", effectState.effectId);
-      const definition = galleryEffectDefinition(effectState.effectId);
-      if (definition) {
-        ss("fxb", effectState.blend, definition.defaultBlend);
-        if (effectState.paused) p.set("fxp", "1");
-        sn("fxs", effectState.timeScale, 1);
-        const defaults = galleryEffectDefaultParams(definition);
-        const overrides: Record<string, GalleryEffectParamValue> = {};
-        for (const [name, value] of Object.entries(effectState.params)) {
-          if (name === "time" || value === defaults[name]) continue;
-          overrides[name] = value;
-        }
-        if (Object.keys(overrides).length > 0) p.set("fxx", JSON.stringify(overrides));
-      }
-    }
-    const search = p.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`);
+    const state: WordArtUrlState = {
+      text,
+      font: entry.family,
+      weight,
+      italic,
+      textCase,
+      scaleX,
+      scaleY,
+      profile,
+      roundConvex,
+      bezier,
+      depth,
+      letterSpacing,
+      lineHeight,
+      align,
+      underline,
+      strike,
+      color,
+      sideColor,
+      backColor,
+      offset,
+      curveSegments,
+      simplify,
+      profileSegments,
+      warpShape,
+      warpAmount,
+      spin,
+      perspective,
+      zoomScale,
+      // `turn` is skipped while `spin` animates (falls back to the default so
+      // it's omitted from the packed state), or the turntable would rewrite
+      // the URL every frame. Rounded to 0.1deg — a drag emits hundreds of
+      // updates and full float precision would bloat every shared link.
+      turn: spin ? WORD_ART_DEFAULTS.turn : Math.round(turn * 10) / 10,
+      tilt: Math.round(tilt * 10) / 10,
+      density,
+      renderMode,
+      charMode,
+      hiddenLines,
+      lightIntensity,
+      ambient,
+      lightColor,
+      lightAz,
+      lightEl,
+      fillType,
+      gradA,
+      gradB,
+      gradAngle,
+      faceTex,
+      sideFill,
+      sideTex,
+      backFill,
+      backTex,
+      outlineOn,
+      outlineColor,
+      outlineWidth,
+      layered,
+      // Placeholders — writeWordArtUrlState folds in the real effect fields
+      // from `effectState` below (mirrors the gallery's `fx*` shape).
+      effectId: "",
+      effectBlend: "replace",
+      effectPaused: false,
+      effectTimeScale: 1,
+      effectParams: "",
+    };
+    writeWordArtUrlState(state, effectState);
   }, [text, entry, weight, italic, textCase, scaleX, scaleY, profile, depth, letterSpacing, lineHeight, align, underline, strike, color, sideColor, backColor, offset, curveSegments, simplify, profileSegments, warpShape, warpAmount, spin, perspective, zoomScale, turn, tilt, density, renderMode, charMode, hiddenLines, lightIntensity, ambient, lightColor, lightAz, lightEl, roundConvex, bezier, fillType, gradA, gradB, gradAngle, faceTex, sideFill, sideTex, backFill, backTex, outlineOn, outlineColor, outlineWidth, layered, effectState]);
 
   // Load the picked Google font (Roboto by default) whenever family / weight
