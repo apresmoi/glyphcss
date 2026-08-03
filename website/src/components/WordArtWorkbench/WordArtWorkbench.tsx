@@ -1317,7 +1317,7 @@ function Stage({ polygons, scaleXFrac, scaleYFrac, zoomScale, setZoomScale, turn
     const dx = e.clientX - lastPtr.current.x;
     const dy = e.clientY - lastPtr.current.y;
     lastPtr.current = { x: e.clientX, y: e.clientY };
-    setTurn((t) => t - dx * 0.4);
+    setTurn((t) => t + dx * 0.4);
     setTilt((t) => Math.max(-85, Math.min(85, t + dy * 0.4)));
   };
   const onPointerUp = (e: React.PointerEvent) => {
@@ -1514,7 +1514,7 @@ const TILE_TEXTURE_SIZE = 20;
 // Repaint cadence cap for a live effect tile's clock (see `WordArtEffectLayer`'s
 // `maxFps` doc comment for the measured cost this recovers) — plenty to read
 // as "animating" at 16×11, far cheaper than the main Stage's uncapped 60fps.
-const TILE_EFFECT_ZOOM = 0.62;
+const TILE_EFFECT_ZOOM = 0.21;
 const TILE_EFFECT_MAX_FPS = 12;
 // Stage's own default light (lightAz -25 / lightEl 45), computed the same
 // way — see the `lightDir` useMemo below — so the tile preview is lit
