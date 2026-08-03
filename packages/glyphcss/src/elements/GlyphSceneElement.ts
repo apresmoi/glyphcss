@@ -16,7 +16,7 @@ import {
   type GlyphSceneHandle,
   type GlyphSceneOptions,
 } from "../api/createGlyphScene";
-import type { GlyphShadowOptions } from "../api/types";
+import type { GlyphShadowOptions, GlyphSolidWeightRampStep } from "../api/types";
 import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "../api/controlFrame";
 import type { RenderMode } from "@glyphcss/core";
 
@@ -86,6 +86,22 @@ export class GlyphSceneElement extends ELEMENT_BASE {
   private _scene: GlyphSceneHandle | null = null;
   private _sceneManifest: GlyphControlSceneManifest | undefined;
   private _dictionary: GlyphObjectDictionary | undefined;
+  private _solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
+
+  /**
+   * Solid-mode font-weight density ramp (see
+   * {@link RasterizeContextOptions.solidWeightRamp}). A JS property, not an
+   * attribute — the ramp is a `(glyph, weight)[]` step list (typically the
+   * output of `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`), the same
+   * "complex data through a property" convention `sceneManifest`/
+   * `dictionary` above use, since it cannot round-trip through a string
+   * attribute.
+   */
+  get solidWeightRamp(): GlyphSolidWeightRampStep[] | undefined { return this._solidWeightRamp; }
+  set solidWeightRamp(value: GlyphSolidWeightRampStep[] | undefined) {
+    this._solidWeightRamp = value;
+    this._scene?.setOptions({ solidWeightRamp: value });
+  }
 
   get sceneManifest(): GlyphControlSceneManifest | undefined { return this._sceneManifest; }
   set sceneManifest(value: GlyphControlSceneManifest | undefined) {
@@ -125,6 +141,7 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (wireframeJunctions !== undefined) opts.wireframeJunctions = wireframeJunctions;
     const hiddenLines = parseHiddenLines(this.getAttribute("hidden-lines"));
     if (hiddenLines !== undefined) opts.hiddenLines = hiddenLines;
+    if (this._solidWeightRamp !== undefined) opts.solidWeightRamp = this._solidWeightRamp;
     const useColors = parseBool(this.getAttribute("use-colors"));
     if (useColors !== undefined) opts.useColors = useColors;
     const cols = parseNumber(this.getAttribute("cols"));

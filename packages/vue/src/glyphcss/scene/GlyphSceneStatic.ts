@@ -10,7 +10,7 @@ import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
 import type { Polygon, RenderMode } from "@glyphcss/core";
 import { compileScene } from "glyphcss";
-import type { GlyphCamera, GlyphControlSceneManifest, GlyphObjectDictionary } from "glyphcss";
+import type { GlyphCamera, GlyphControlSceneManifest, GlyphObjectDictionary, GlyphSolidWeightRampStep } from "glyphcss";
 
 export interface GlyphSceneStaticProps {
   polygons: Polygon[];
@@ -23,6 +23,7 @@ export interface GlyphSceneStaticProps {
   glyphPalette?: string;
   charMode?: "ascii" | "braille" | "halfblock";
   hiddenLines?: "show" | "hide";
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -46,6 +47,7 @@ export const GlyphSceneStatic = defineComponent({
     glyphPalette: { type: String, default: undefined },
     charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
+    solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
     useColors: { type: Boolean, default: undefined },
     smoothShading: { type: Boolean, default: undefined },
     creaseAngle: { type: Number, default: undefined },
@@ -67,6 +69,7 @@ export const GlyphSceneStatic = defineComponent({
       glyphPalette: props.glyphPalette,
       charMode: props.charMode,
       hiddenLines: props.hiddenLines,
+      solidWeightRamp: props.solidWeightRamp,
       useColors: props.useColors,
       smoothShading: props.smoothShading,
       creaseAngle: props.creaseAngle,

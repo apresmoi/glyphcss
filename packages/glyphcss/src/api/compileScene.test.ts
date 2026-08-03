@@ -3,6 +3,7 @@ import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { compileScene } from "./compileScene";
 import { icosahedronPolygons, cubePolygons } from "@glyphcss/core";
+import type { GlyphSolidWeightRampStep } from "./types";
 
 /**
  * The static compiler must produce byte-identical output to the runtime render
@@ -12,6 +13,7 @@ function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   rotX: number; rotY: number; zoom: number; cols: number; rows: number; useColors: boolean;
   mode?: "wireframe" | "solid"; charMode?: "ascii" | "braille" | "halfblock";
   hiddenLines?: "show" | "hide";
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
 }): string {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -19,6 +21,7 @@ function runtimeRender(polys: ReturnType<typeof icosahedronPolygons>, opts: {
   const scene = createGlyphScene(host, {
     camera, cols: opts.cols, rows: opts.rows, useColors: opts.useColors,
     mode: opts.mode, charMode: opts.charMode, hiddenLines: opts.hiddenLines,
+    solidWeightRamp: opts.solidWeightRamp,
   });
   scene.add(polys);
   scene.rerender(); // createGlyphScene paints async (rAF); force a synchronous render
@@ -95,6 +98,35 @@ describe("compileScene — matches the runtime render", () => {
       mode: "solid", charMode: "halfblock",
     });
     expect(compiled.inner).toBe(runtime);
+  });
+
+  it("solidWeightRamp, solid mode, matches the runtime render", () => {
+    const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const cfg = { rotX: 30, rotY: 20, zoom: 0.5, cols: 50, rows: 20, useColors: true } as const;
+    const solidWeightRamp: GlyphSolidWeightRampStep[] = [
+      { glyph: ".", weight: 400 },
+      { glyph: ".", weight: 700 },
+      { glyph: "o", weight: 400 },
+      { glyph: "o", weight: 700 },
+      { glyph: "#", weight: 700 },
+    ];
+    const runtime = runtimeRender(polys, { ...cfg, mode: "solid", solidWeightRamp });
+    const compiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "solid", solidWeightRamp,
+    });
+    expect(compiled.inner).toBe(runtime);
+    expect(compiled.inner).toMatch(/font-weight:(400|700)/);
+    // And it must actually differ from the plain (no weight ramp) solid render.
+    const plainCompiled = compileScene({
+      polygons: polys,
+      camera: createGlyphPerspectiveCamera({ rotX: cfg.rotX, rotY: cfg.rotY, zoom: cfg.zoom }),
+      cols: cfg.cols, rows: cfg.rows, useColors: cfg.useColors,
+      mode: "solid",
+    });
+    expect(compiled.inner).not.toBe(plainCompiled.inner);
   });
 
   it("hiddenLines: \"hide\", wireframe, matches the runtime render", () => {

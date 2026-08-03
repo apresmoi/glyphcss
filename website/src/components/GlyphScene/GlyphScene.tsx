@@ -253,6 +253,7 @@ export function GlyphScene({
           charMode: currentOptions.charMode,
           wireframeJunctions: currentOptions.wireframeJunctions,
           hiddenLines: currentOptions.hiddenLines,
+          solidWeightRamp: currentOptions.solidWeightRamp,
           useColors: currentOptions.useColors,
           smoothShading: currentOptions.smoothShading,
           creaseAngle: currentOptions.creaseAngle,
@@ -525,6 +526,13 @@ export function GlyphScene({
     if (!handle) return;
     handle.setTunables({ hiddenLines: options.hiddenLines });
   }, [options.hiddenLines]);
+
+  // React to solidWeightRamp toggle.
+  useEffect(() => {
+    const handle = getHandle();
+    if (!handle) return;
+    handle.setTunables({ solidWeightRamp: options.solidWeightRamp });
+  }, [options.solidWeightRamp]);
 
   // React to useColors toggle.
   useEffect(() => {

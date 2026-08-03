@@ -484,8 +484,9 @@ export function applyCellHook(
   albedoRgbSrc: Uint32Array | null = null,
   targetRgbSrc: Uint32Array | null = null,
   objectPositionSrc: Float32Array | null = null,
-): { char: string[]; color: (string | null)[] | null } {
-  if (!hook) return { char, color };
+  weightSrc: Uint16Array | null = null,
+): { char: string[]; color: (string | null)[] | null; weight: Uint16Array | null } {
+  if (!hook) return { char, color, weight: weightSrc };
   const n = cols * rows;
   const hookColor = color ?? new Array<string | null>(n).fill(null);
   let depth: Float64Array;
@@ -511,11 +512,12 @@ export function applyCellHook(
   }
   if (albedoRgbSrc !== null && albedoRgbSrc.length >= n) grid.albedoRgb = albedoRgbSrc;
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = targetRgbSrc;
+  if (weightSrc !== null && weightSrc.length >= n) grid.weight = weightSrc;
   const result = hook(grid) ?? grid;
   assertCellGridShape(result);
   if (result.cols !== cols || result.rows !== rows) {
     throw new RangeError("glyphcss: transformCells cannot change cell-grid dimensions.");
   }
   // Write char back always; color only when the scene renders colored output.
-  return { char: result.char, color: color ? result.color : color };
+  return { char: result.char, color: color ? result.color : color, weight: weightSrc !== null ? result.weight ?? null : null };
 }

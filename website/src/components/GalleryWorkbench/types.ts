@@ -139,6 +139,16 @@ export interface SceneOptionsState {
    * depth-buffered) and ink mode (not wired).
    */
   hiddenLines: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: font-weight-calibrated ramp toggle.
+   * When on, the gallery calibrates a `(glyph, weight)[]` ramp for the active
+   * font (via `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`) and passes
+   * it as the scene's `solidWeightRamp` option, so shading picks both a
+   * glyph and a CSS `font-weight` — more perceptual steps than glyph shape
+   * alone. No-op outside solid mode, and with `charMode: "halfblock"` (its
+   * two-color-per-cell encoding has no font-weight span either).
+   */
+  solidWeightRamp: boolean;
   lineHeight: number;
   /** Scene-wide glyph density multiplier (1 = base). Drives the render font-size. */
   density: number;

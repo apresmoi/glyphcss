@@ -63,8 +63,8 @@ import {
 } from "../render/effectCompositor";
 import { injectGlyphBaseStyles } from "../styles/styles";
 import { projectHotspots } from "./projectHotspots";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions } from "./types";
-export type { GlyphMeshTransform, GlyphShadowOptions } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 export interface GlyphSceneOptions {
   /** Render mode: "wireframe" | "solid". Default "solid". */
@@ -106,6 +106,17 @@ export interface GlyphSceneOptions {
    * per cell). See {@link RasterizeContextOptions.hiddenLines}.
    */
   hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: a font-weight-calibrated ramp of
+   * (glyph, `font-weight`) steps ordered darkest → densest by measured ink
+   * coverage — see `@glyphcss/effects`'s `calibrateWeightedGlyphRamp` and
+   * {@link RasterizeContextOptions.solidWeightRamp}. When set, replaces
+   * `glyphPalette`'s solid ramp so shading picks both a glyph and a weight,
+   * buying more perceptual steps than glyph shape alone. Default `undefined`
+   * (off, byte-identical). Documented no-op during active `temporalBlend`
+   * reprojection.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -313,11 +324,12 @@ interface RenderCommit {
   retained: Map<string, RetainedGlyphEffectOutput> | null;
 }
 
-type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary"> & {
+type InternalOptions = Omit<Required<GlyphSceneOptions>, "shadow" | "transformCells" | "sceneManifest" | "dictionary" | "solidWeightRamp"> & {
   shadow: GlyphShadowOptions | undefined;
   transformCells: TransformCells | undefined;
   sceneManifest: GlyphControlSceneManifest | undefined;
   dictionary: GlyphObjectDictionary | undefined;
+  solidWeightRamp: GlyphSolidWeightRampStep[] | undefined;
 };
 
 let nextMeshId = 1;
@@ -404,6 +416,7 @@ export function createGlyphScene(
     charMode: opts.charMode ?? "ascii",
     wireframeJunctions: opts.wireframeJunctions ?? false,
     hiddenLines: opts.hiddenLines ?? "show",
+    solidWeightRamp: opts.solidWeightRamp,
     useColors: opts.useColors ?? true,
     cols: opts.cols ?? 80,
     rows: opts.rows ?? 24,
@@ -817,6 +830,7 @@ export function createGlyphScene(
       charMode: options.charMode,
       wireframeJunctions: options.wireframeJunctions,
       hiddenLines: options.hiddenLines,
+      solidWeightRamp: options.solidWeightRamp,
       useColors: options.useColors,
       smoothShading: options.smoothShading,
       creaseAngle: options.creaseAngle,
@@ -1256,6 +1270,7 @@ export function createGlyphScene(
           charMode: options.charMode,
           wireframeJunctions: options.wireframeJunctions,
           hiddenLines: options.hiddenLines,
+          solidWeightRamp: options.solidWeightRamp,
           useColors: options.useColors,
           smoothShading: options.smoothShading,
           creaseAngle: options.creaseAngle,
@@ -1517,6 +1532,11 @@ export function createGlyphScene(
     if (partial.charMode !== undefined) options.charMode = partial.charMode;
     if (partial.wireframeJunctions !== undefined) options.wireframeJunctions = partial.wireframeJunctions;
     if (partial.hiddenLines !== undefined) options.hiddenLines = partial.hiddenLines;
+    // Unlike `charMode`/`hiddenLines` (which always have a meaningful
+    // non-undefined default), `solidWeightRamp`'s "off" state IS `undefined` —
+    // so clearing it needs the same explicit "key present" check `shadow`/
+    // `sceneManifest`/`dictionary` use below, not a `!== undefined` guard.
+    if ("solidWeightRamp" in partial) options.solidWeightRamp = partial.solidWeightRamp;
     if (partial.useColors !== undefined) options.useColors = partial.useColors;
     if (partial.cols !== undefined) options.cols = partial.cols;
     if (partial.rows !== undefined) options.rows = partial.rows;

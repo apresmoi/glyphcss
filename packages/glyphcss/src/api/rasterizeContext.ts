@@ -7,7 +7,7 @@ import type {
 } from "@glyphcss/core";
 import type { TransformCells } from "../render/cells";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
-import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions } from "./types";
+import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 
 /**
  * Cross-layer occlusion input. A shared buffer storing, per reference cell, the
@@ -110,6 +110,26 @@ export interface RasterizeContextOptions {
    * should not require a breaking change.
    */
   hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: a font-weight-calibrated ramp of
+   * (glyph, `font-weight`) steps, ordered darkest → densest by MEASURED ink
+   * coverage (see `@glyphcss/effects`' `calibrateWeightedGlyphRamp`, which
+   * crosses a glyph pool against candidate `font-weight` values through real
+   * canvas measurement — never a hand-authored table). When set (length > 0),
+   * it REPLACES `glyphPalette`'s solid ramp for this render: solid mode picks
+   * both a glyph AND a `font-weight` from these steps instead of only a
+   * glyph, buying MORE perceptually distinct shading steps than the glyph
+   * pool's shape count alone provides (bold ink coverage measurably differs
+   * per weight without changing monospace advance width, so a weight-bearing
+   * span never desyncs the character grid — see `AGENTS.md`). Default
+   * `undefined` (off): rasterize output is byte-identical to before this
+   * option existed. Documented no-op during active temporal-blend
+   * reprojection (`temporalBlend > 0` with retained history) — reprojection
+   * blends the ramp index continuously across frames and has no notion of a
+   * parallel weight lookup, the same precedent as `charMode: "halfblock"`
+   * being a no-op there.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   /**
    * When `false`, the rasterizer emits plain text (no <span> wrappers). The
    * output is just one text node — fastest possible DOM update. Default `true`.
@@ -262,6 +282,8 @@ export interface RasterizeContext {
   wireframeJunctions: boolean;
   /** Wireframe hidden-line removal — see {@link RasterizeContextOptions.hiddenLines}. */
   hiddenLines: "show" | "hide";
+  /** Solid-mode font-weight density ramp — see {@link RasterizeContextOptions.solidWeightRamp}. */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
@@ -371,5 +393,6 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
     ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),
     ...(opts.transformCells ? { transformCells: opts.transformCells } : {}),
+    ...(opts.solidWeightRamp ? { solidWeightRamp: opts.solidWeightRamp } : {}),
   };
 }

@@ -56,6 +56,7 @@ import type {
 } from 'glyphcss';
 import type { GlyphSceneHandle, GlyphFirstPersonControlsHandle, GlyphFirstPersonControlsOptions } from 'glyphcss';
 import { resolveGeometry } from '@glyphcss/core';
+import { getSolidWeightRamp } from './components/GalleryWorkbench/weightedRamp';
 
 type GeometryName = 'cuboctahedron' | 'icosahedron' | 'cube';
 
@@ -454,6 +455,8 @@ interface Tunables {
   charMode?: 'ascii' | 'braille' | 'halfblock';
   wireframeJunctions?: boolean;
   hiddenLines?: 'show' | 'hide';
+  /** Solid-mode-only font-weight-calibrated ramp toggle — see `weightedRamp.ts`. */
+  solidWeightRamp?: boolean;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -776,6 +779,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       charMode: tunables.charMode ?? 'ascii',
       wireframeJunctions: tunables.wireframeJunctions ?? false,
       hiddenLines: tunables.hiddenLines ?? 'show',
+      solidWeightRamp: tunables.solidWeightRamp ? getSolidWeightRamp() ?? undefined : undefined,
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -1697,6 +1701,9 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if ('charMode' in partial && partial.charMode !== undefined) sceneOpts.charMode = partial.charMode;
     if ('wireframeJunctions' in partial && partial.wireframeJunctions !== undefined) sceneOpts.wireframeJunctions = partial.wireframeJunctions;
     if ('hiddenLines' in partial && partial.hiddenLines !== undefined) sceneOpts.hiddenLines = partial.hiddenLines;
+    if ('solidWeightRamp' in partial && partial.solidWeightRamp !== undefined) {
+      sceneOpts.solidWeightRamp = partial.solidWeightRamp ? getSolidWeightRamp() ?? undefined : undefined;
+    }
     if ('useColors' in partial && partial.useColors !== undefined) sceneOpts.useColors = partial.useColors;
     if ('smoothShading' in partial && partial.smoothShading !== undefined) sceneOpts.smoothShading = partial.smoothShading;
     if ('creaseAngle' in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;

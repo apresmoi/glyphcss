@@ -46,6 +46,7 @@ const sceneFields: readonly UrlField<SceneOptionsState>[] = [
   { key: "charMode", token: "Z", type: { kind: "enum", values: CHAR_MODE_VALUES }, default: "ascii" },
   { key: "wireframeJunctions", token: "j", type: { kind: "bool" }, default: false },
   { key: "hiddenLines", token: "h", type: { kind: "enum", values: HIDDEN_LINES_VALUES }, default: "show" },
+  { key: "solidWeightRamp", token: "w", type: { kind: "bool" }, default: false },
   { key: "lineHeight", token: "H", type: { kind: "float", step: 0.0001 }, default: 1 },
   { key: "density", token: "D", type: { kind: "float", step: 0.0001 }, default: 1 },
   { key: "dragDensity", token: "q", type: { kind: "float", step: 0.0001 }, default: 1 },

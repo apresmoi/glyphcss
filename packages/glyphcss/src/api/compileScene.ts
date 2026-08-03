@@ -23,6 +23,7 @@ import type {
   GlyphDirectionalLight,
   GlyphAmbientLight,
   GlyphShadowOptions,
+  GlyphSolidWeightRampStep,
 } from "./types";
 
 export interface CompileSceneOptions {
@@ -52,6 +53,14 @@ export interface CompileSceneOptions {
    * genuine occlusion defect a static bake shouldn't reproduce.
    */
   hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only font-weight density ramp — see
+   * {@link RasterizeContextOptions.solidWeightRamp}. A calibrated `(glyph,
+   * weight)[]` step list is plain data (produced ahead of time by
+   * `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`), so it bakes here
+   * exactly like `charMode` — no browser/canvas dependency at compile time.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;
@@ -137,6 +146,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     glyphPalette: opts.glyphPalette ?? "default",
     charMode: opts.charMode,
     hiddenLines: opts.hiddenLines,
+    solidWeightRamp: opts.solidWeightRamp,
     useColors,
     smoothShading: opts.smoothShading ?? false,
     creaseAngle: opts.creaseAngle ?? 60,

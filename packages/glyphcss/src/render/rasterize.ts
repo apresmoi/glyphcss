@@ -1106,7 +1106,19 @@ function rasterizeSolid(
   const camera = rawCamera;
   // Pick the solid ramp from the active palette so the glyph palette dropdown
   // affects solid mode too — not just wireframe.
-  const ramp = getWireframeGlyphs(scene.glyphPalette).solid;
+  const paletteRamp = getWireframeGlyphs(scene.glyphPalette).solid;
+  // `solidWeightRamp` (opt-in, default undefined): a font-weight-calibrated
+  // ramp REPLACES the palette ramp's glyph sequence with its own
+  // measurement-ordered (glyph, weight) steps, same darkest→densest index
+  // convention as `paletteRamp` — so `rampMax`/dithering/downsampling below
+  // are unchanged, just indexing a different glyph sequence with a parallel
+  // weight lookup. `undefined`/empty means "off": `ramp` stays `paletteRamp`
+  // and `weightRamp` stays `null`, so `weightBuf` is never allocated or
+  // written and output is byte-identical to before this option existed.
+  const weightSteps = scene.solidWeightRamp;
+  const weightRamp: Uint16Array | null =
+    weightSteps && weightSteps.length > 0 ? new Uint16Array(weightSteps.map((s) => s.weight)) : null;
+  const ramp = weightRamp ? weightSteps!.map((s) => s.glyph) : paletteRamp;
   const rampMax = ramp.length - 1;
 
   // Per-cell scratch buffers (glyph + colour + depth + optional surface fields). These
@@ -1135,6 +1147,7 @@ function rasterizeSolid(
       winnerPolygon: Int32Array | null;
       albedoRgb: Uint32Array | null;
       targetRgb: Uint32Array | null;
+      weight: Uint16Array | null;
     };
   };
   let scratch = camHost.__glyphScratch;
@@ -1152,6 +1165,7 @@ function rasterizeSolid(
       winnerPolygon: null,
       albedoRgb: null,
       targetRgb: null,
+      weight: null,
     };
     camHost.__glyphScratch = scratch;
   }
@@ -1224,6 +1238,16 @@ function rasterizeSolid(
     if (!scratch.targetRgb || scratch.targetRgb.length !== n) scratch.targetRgb = new Uint32Array(n);
     targetRgbBuf = scratch.targetRgb;
     targetRgbBuf.fill(0);
+  }
+  // `solidWeightRamp` per-cell `font-weight` buffer. Only allocated when the
+  // option is active — absent scene.solidWeightRamp means weightBuf stays
+  // null for this render, `encodeGlyphBuffers` never receives a weight
+  // buffer, and output is byte-identical to before this feature existed.
+  let weightBuf: Uint16Array | null = null;
+  if (weightRamp) {
+    if (!scratch.weight || scratch.weight.length !== n) scratch.weight = new Uint16Array(n);
+    weightBuf = scratch.weight;
+    weightBuf.fill(0);
   }
 
   // Normalize the light direction once.
@@ -1531,6 +1555,7 @@ function rasterizeSolid(
           targetRgbBuf,
           ambIntensity, ambRgb, keyRgb,
           poly.color ?? "#ffffff",
+          weightRamp, weightBuf,
         );
       } else {
         // Straddles the near plane: clip the triangle to the visible half-space
@@ -1627,6 +1652,7 @@ function rasterizeSolid(
               targetRgbBuf,
               ambIntensity, ambRgb, keyRgb,
               poly.color ?? "#ffffff",
+              weightRamp, weightBuf,
             );
           }
         }
@@ -1682,6 +1708,7 @@ function rasterizeSolid(
           if (winnerPolygonBuf) winnerPolygonBuf[idx] = -1;
           if (albedoRgbBuf) albedoRgbBuf[idx] = 0;
           if (targetRgbBuf) targetRgbBuf[idx] = 0;
+          if (weightBuf) weightBuf[idx] = 0;
         }
       }
     }
@@ -1701,6 +1728,7 @@ function rasterizeSolid(
   let finalWinnerPolygon: Int32Array | null = winnerPolygonBuf;
   let finalAlbedoRgb: Uint32Array | null = albedoRgbBuf;
   let finalTargetRgb: Uint32Array | null = targetRgbBuf;
+  let finalWeight: Uint16Array | null = weightBuf;
   if (supersample > 1 && wantsHalfblockSolid(scene)) {
     // Two-color (`▀`/`▄`/`█`) encoding straight from the raw supersampled
     // subcells — see `encodeHalfblockSolid` for the per-cell decision table
@@ -1729,6 +1757,7 @@ function rasterizeSolid(
       supersample,
       ramp,
       objectPosBuf,
+      weightRamp,
     );
     finalGlyph = ds.glyphBuf;
     finalColor = ds.colorBuf;
@@ -1741,9 +1770,17 @@ function rasterizeSolid(
     finalAlbedoRgb = ds.albedoRgb;
     finalTargetRgb = ds.targetRgb;
     finalObjectPos = ds.objectPos;
+    finalWeight = ds.weight;
   }
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
+    // `solidWeightRamp` is a documented no-op under active temporal-blend
+    // reprojection: `applyReprojectionTAA` blends ramp INDEX continuously
+    // across frames and has no notion of a parallel weight lookup, so
+    // forwarding a stale weight buffer here would desync it from the
+    // reprojected glyph. Drop it — same precedent as `charMode: "halfblock"`
+    // being a no-op alongside `temporalBlend` reprojection.
+    finalWeight = null;
   }
   // Post-rasterize cell hook (M4 composition effects). No-op + byte-identical
   // when scene.transformCells is absent (block skipped entirely). Output-res
@@ -1758,11 +1795,18 @@ function rasterizeSolid(
       finalAlbedoRgb,
       finalTargetRgb,
       finalObjectPos,
+      finalWeight,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
+    finalWeight = applied.weight;
   }
-  const out = solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells);
+  // `finalWeight` is non-null only when `solidWeightRamp` is active (and
+  // temporal reprojection didn't drop it) — the byte-identical default path
+  // (`finalWeight === null`) keeps using the original unweighted encoder.
+  const out = finalWeight
+    ? encodeGlyphBuffers(finalGlyph, finalColor ?? new Array(outCols * outRows).fill(null), outCols, outRows, useColors, finalWeight)
+    : solidBufToString(finalGlyph, finalColor, outCols, outRows, !!scene.transformCells);
   if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
   return out;
 }
@@ -1897,6 +1941,13 @@ function downsampleSolid(
   S: number,
   ramp: string[],
   objectPosIn: Float32Array | null = null,
+  // `solidWeightRamp` (opt-in): same darkest→densest index as `ramp`. The
+  // downsampled weight is looked up from the coverage-weighted averaged
+  // ramp index `gi` (the SAME index that picks `og[oi]`'s glyph) rather than
+  // a representative subcell's own weight, so a cell's glyph and its
+  // `font-weight` always describe the same ramp step — never a glyph from
+  // one step paired with the weight of another. `null` → no weight buffer.
+  weightRamp: Uint16Array | null = null,
 ): {
   glyphBuf: string[];
   colorBuf: (string | null)[] | null;
@@ -1909,6 +1960,7 @@ function downsampleSolid(
   albedoRgb: Uint32Array | null;
   targetRgb: Uint32Array | null;
   objectPos: Float32Array | null;
+  weight: Uint16Array | null;
 } {
   const rampIndex = new Map<string, number>();
   for (let i = 0; i < ramp.length; i++) rampIndex.set(ramp[i]!, i);
@@ -1926,6 +1978,7 @@ function downsampleSolid(
   const oalbedo: Uint32Array | null = albedoRgbIn ? new Uint32Array(outCols * outRows) : null;
   const otarget: Uint32Array | null = targetRgbIn ? new Uint32Array(outCols * outRows) : null;
   const oobj: Float32Array | null = objectPosIn ? new Float32Array(outCols * outRows * 3).fill(NaN) : null;
+  const oweight: Uint16Array | null = weightRamp ? new Uint16Array(outCols * outRows) : null;
   const inv = 1 / (S * S);
   for (let oy = 0; oy < outRows; oy++) {
     for (let ox = 0; ox < outCols; ox++) {
@@ -1958,6 +2011,7 @@ function downsampleSolid(
       let gi = Math.round(idxSum * inv); // coverage-weighted intensity (empty subcells = 0)
       if (gi < 0) gi = 0; else if (gi > rampMax) gi = rampMax;
       og[oi] = ramp[gi]!;
+      if (oweight) oweight[oi] = weightRamp![gi] ?? 0;
       od[oi] = depthBuf[representative]!;
       if (os) os[oi] = shadeSum * inv;
       if (oc) oc[oi] = `#${toHex2(r / cov)}${toHex2(g / cov)}${toHex2(b / cov)}`;
@@ -1985,7 +2039,7 @@ function downsampleSolid(
       }
     }
   }
-  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj };
+  return { glyphBuf: og, colorBuf: oc, depth: od, shade: os, worldPos: ow, normal: on, surfaceUv: ouv, winnerPolygon: owinner, albedoRgb: oalbedo, targetRgb: otarget, objectPos: oobj, weight: oweight };
 }
 
 /**
@@ -2339,6 +2393,11 @@ function scanFillTriangle(
   ambientRgb: [number, number, number],
   keyLightRgb: [number, number, number],
   flatBaseColor: string,
+  // `solidWeightRamp` (opt-in, default off): per-ramp-step CSS `font-weight`,
+  // same index convention as `ramp`/`rampMax` above. `null` when the option is
+  // unset — `weightBuf` is never written and output stays byte-identical.
+  weightRamp: Uint16Array | null = null,
+  weightBuf: Uint16Array | null = null,
 ): void {
   // Signed 2× area. Sign tells us screen-space winding.
   const area2 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -2562,6 +2621,7 @@ function scanFillTriangle(
         if (glyphIdx > rampMax) glyphIdx = rampMax;
 
         glyphBuf[idx] = ramp[glyphIdx]!;
+        if (weightBuf !== null) weightBuf[idx] = weightRamp ? weightRamp[glyphIdx] ?? 0 : 0;
         if (targetRgbBuf !== null) {
           // Targets retain the exact per-cell Lambert/key calculation. The
           // presentation color intentionally uses a triangle-level tint to
@@ -2726,7 +2786,7 @@ export function rasterizeToCells(scene: RasterizeContext): CellGrid {
       g.winnerPolygon ?? null,
       g.albedoRgb ?? null,
       g.targetRgb ?? null,
-      undefined,
+      g.weight ?? null,
       g.objectPosition ?? null,
     );
   };

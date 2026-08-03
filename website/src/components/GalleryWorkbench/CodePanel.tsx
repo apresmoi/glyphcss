@@ -227,6 +227,19 @@ function generateSnippets({
   // Unlike wireframeJunctions, hiddenLines applies to BOTH ascii and braille
   // charMode — it's a no-op only outside wireframe mode.
   const emitHiddenLines = mode === "wireframe" && hiddenLines === "hide";
+  // Solid-mode-only second density axis. Also a no-op under charMode
+  // "halfblock" (its two-color-per-cell encoding has no font-weight span).
+  const emitSolidWeightRamp = mode === "solid" && charMode !== "halfblock" && options.solidWeightRamp === true;
+  // The ramp is measurement DATA (a `(glyph, weight)[]` step list), not a
+  // primitive prop value like charMode — so instead of a literal snapshot,
+  // every flavor computes it the same way the gallery itself does:
+  // `calibrateWeightedGlyphRamp` against the live font, at import time.
+  const weightRampImport = '\nimport { calibrateWeightedGlyphRamp } from "@glyphcss/effects";';
+  const weightRampCompute = `const solidWeightRamp = calibrateWeightedGlyphRamp({
+  font: { family: "ui-monospace, monospace", size: 32 },
+  steps: 24,
+  weights: [400, 700],
+}).steps.map(({ glyph, weight }) => ({ glyph, weight: Number(weight) }));`;
   const useColors = options.useColors !== false;
   const autoCenter = options.autoCenter !== false;
   // The gallery recenters every mesh to its own center (voxcss `autoCenter`).
@@ -276,6 +289,7 @@ function generateSnippets({
   const charModeProp = emitCharMode ? ` charMode="${charMode}"` : "";
   const junctionsPropReact = emitWireframeJunctions ? ` wireframeJunctions` : "";
   const hiddenLinesPropReact = emitHiddenLines ? ` hiddenLines="hide"` : "";
+  const weightRampPropReact = emitSolidWeightRamp ? ` solidWeightRamp={solidWeightRamp}` : "";
   const targetReact = hasTarget ? `\n      target={${vec3(target)}}` : "";
   const meshTagReact = isPrimitive
     ? `<GlyphMesh geometry="${geometryName}" size={${fmt(primitiveSize)}}${needsUpright ? ` rotation={${vec3(uprightRotation)}}` : ""}${centerJsx} />`
@@ -305,7 +319,7 @@ function generateSnippets({
   GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
-${hasEffect ? "  GlyphEffectLayer,\n" : ""}${hasEffectClock ? "  type GlyphEffectLayerHandle,\n" : ""}} from "@glyphcss/react";
+${hasEffect ? "  GlyphEffectLayer,\n" : ""}${hasEffectClock ? "  type GlyphEffectLayerHandle,\n" : ""}} from "@glyphcss/react";${emitSolidWeightRamp ? weightRampImport : ""}
 ${effectImport}
 
 const directionalLight = {
@@ -314,7 +328,7 @@ const directionalLight = {
   color: "${lightColor}",
 };
 const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientColor}" };
-
+${emitSolidWeightRamp ? `\n${weightRampCompute}\n` : ""}
 export function App() {
 ${reactEffectClock}
   return (
@@ -323,7 +337,7 @@ ${reactEffectClock}
         mode="${mode}"
         autoSize
         style={{ width: "100%", height: "100%", fontSize: ${fontSizePx} }}
-        glyphPalette="${palette}"${charModeProp}${junctionsPropReact}${hiddenLinesPropReact}
+        glyphPalette="${palette}"${charModeProp}${junctionsPropReact}${hiddenLinesPropReact}${weightRampPropReact}
         useColors={${useColors}}
         lineHeight={${fmt(lineHeight)}}${featureEdgesProp}${targetReact}
         directionalLight={directionalLight}
@@ -345,6 +359,7 @@ ${reactEffectClock}
   const charModeVue = emitCharMode ? `\n      char-mode="${charMode}"` : "";
   const junctionsPropVue = emitWireframeJunctions ? `\n      wireframe-junctions` : "";
   const hiddenLinesPropVue = emitHiddenLines ? `\n      hidden-lines="hide"` : "";
+  const weightRampPropVue = emitSolidWeightRamp ? `\n      :solid-weight-ramp="solidWeightRamp"` : "";
   const targetVue = hasTarget ? `\n    :target="${vec3(target)}"` : "";
   const meshTagVue = isPrimitive
     ? `<GlyphMesh geometry="${geometryName}" :size="${fmt(primitiveSize)}"${needsUpright ? ` :rotation="${vec3(uprightRotation)}"` : ""}${centerKebab} />`
@@ -375,7 +390,7 @@ onBeforeUnmount(() => cancelAnimationFrame(effectRaf));
       mode="${mode}"
       auto-size
       :style="{ width: '100%', height: '100%', fontSize: '${fontSizePx}px' }"
-      glyphPalette="${palette}"${charModeVue}${junctionsPropVue}${hiddenLinesPropVue}
+      glyphPalette="${palette}"${charModeVue}${junctionsPropVue}${hiddenLinesPropVue}${weightRampPropVue}
       :use-colors="${useColors}"
       :line-height="${fmt(lineHeight)}"${featureEdgesVue}${targetVue}
       :directional-light="directionalLight"
@@ -393,11 +408,11 @@ ${hasEffectClock ? `import { onBeforeUnmount, onMounted, ref } from "vue";\n` : 
   GlyphScene,
   GlyphMesh,
   GlyphOrbitControls,
-${hasEffect ? "  GlyphEffectLayer,\n" : ""}} from "@glyphcss/vue";
+${hasEffect ? "  GlyphEffectLayer,\n" : ""}} from "@glyphcss/vue";${emitSolidWeightRamp ? weightRampImport : ""}
 ${effectImport}
 ${hasEffect ? `\nconst effectParams = ${effectParams};` : ""}
 ${vueEffectClock}
-
+${emitSolidWeightRamp ? `\n${weightRampCompute}\n` : ""}
 const directionalLight = {
   direction: ${vec3(lightDir)},
   intensity: ${fmt(lightIntensity)},
@@ -415,6 +430,7 @@ const ambientLight = { intensity: ${fmt(ambientIntensity)}, color: "${ambientCol
   const charModeV = emitCharMode ? `\n  charMode: "${charMode}",` : "";
   const junctionsPropV = emitWireframeJunctions ? `\n  wireframeJunctions: true,` : "";
   const hiddenLinesPropV = emitHiddenLines ? `\n  hiddenLines: "hide",` : "";
+  const weightRampPropV = emitSolidWeightRamp ? `\n  solidWeightRamp,` : "";
   const targetV = hasTarget ? `\ncamera.target = ${vec3(target)};` : "";
   const meshImportV = isPrimitive ? "" : "\n  loadMesh,";
   const fitImportV = autoCenter ? "\n  recenterPolygons," : "";
@@ -443,20 +459,20 @@ requestAnimationFrame(animateEffect);` : ""}`
   ${cameraImport},
   createGlyphScene,
   createGlyphOrbitControls,${meshImportV}${fitImportV}
-} from "glyphcss";${polygonsImportV}
+} from "glyphcss";${polygonsImportV}${emitSolidWeightRamp ? weightRampImport : ""}
 ${effectImport}
 
 const host = document.querySelector<HTMLElement>("#scene")!;
 // Cell font-size sets the ASCII resolution; autoSize fills the host's box.
 host.style.fontSize = "${fontSizePx}px";
-
+${emitSolidWeightRamp ? `\n${weightRampCompute}\n` : ""}
 const camera = ${createCameraCall};${targetV}
 
 const scene = createGlyphScene(host, {
   camera,
   mode: "${mode}",
   autoSize: true,
-  glyphPalette: "${palette}",${charModeV}${junctionsPropV}${hiddenLinesPropV}
+  glyphPalette: "${palette}",${charModeV}${junctionsPropV}${hiddenLinesPropV}${weightRampPropV}
   useColors: ${useColors},
   lineHeight: ${fmt(lineHeight)},${featureEdgesV}
   directionalLight: {
@@ -481,6 +497,13 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
   const charModeHtml = emitCharMode ? `\n        char-mode="${charMode}"` : "";
   const junctionsPropHtml = emitWireframeJunctions ? `\n        wireframe-junctions="true"` : "";
   const hiddenLinesPropHtml = emitHiddenLines ? `\n        hidden-lines="hide"` : "";
+  // `solidWeightRamp` is data (a `(glyph, weight)[]` step list), not a string
+  // attribute — same "JS property, not attribute" rule the custom element
+  // uses for `sceneManifest`/`dictionary`. Set it via script, gated on the
+  // scene being ready (mirrors the effect-layer script below).
+  const weightRampScriptHtml = emitSolidWeightRamp
+    ? `\n    <script type="module">\n      import { calibrateWeightedGlyphRamp } from "https://esm.sh/@glyphcss/effects";\n\n      const weightSceneElement = document.querySelector("glyph-scene");\n      const applyWeightRamp = () => {\n        weightSceneElement.solidWeightRamp = calibrateWeightedGlyphRamp({\n          font: { family: "ui-monospace, monospace", size: 32 },\n          steps: 24,\n          weights: [400, 700],\n        }).steps.map(({ glyph, weight }) => ({ glyph, weight: Number(weight) }));\n      };\n      if (weightSceneElement.getScene()) applyWeightRamp();\n      else weightSceneElement.addEventListener("glyphcss:scene-ready", applyWeightRamp, { once: true });\n    </script>`
+    : "";
   const meshTagHtml = isPrimitive
     ? `<glyph-mesh geometry="${geometryName}" size="${fmt(primitiveSize)}"${needsUpright ? ` rotation="${fmt(uprightRotation[0])},${fmt(uprightRotation[1])},${fmt(uprightRotation[2])}"` : ""}${centerKebab}></glyph-mesh>`
     : `<glyph-mesh src="${url}"${centerKebab}></glyph-mesh>`;
@@ -514,7 +537,7 @@ createGlyphOrbitControls(scene, { drag: true, wheel: true });`;
         <glyph-orbit-controls drag wheel></glyph-orbit-controls>
         ${meshTagHtml}
       </glyph-scene>
-    ${cameraCloseHtml}${effectScriptHtml}
+    ${cameraCloseHtml}${weightRampScriptHtml}${effectScriptHtml}
   </body>
 </html>`;
 

@@ -19,6 +19,7 @@ import type {
   GlyphShadowOptions,
   GlyphControlSceneManifest,
   GlyphObjectDictionary,
+  GlyphSolidWeightRampStep,
   TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
@@ -55,6 +56,16 @@ export interface GlyphSceneProps {
    * doesn't paint through a nearer one. Documented no-op in `solid` and `ink`.
    */
   hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: a font-weight-calibrated ramp of
+   * (glyph, `font-weight`) steps ordered darkest → densest by measured ink
+   * coverage (see `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`). When
+   * set, replaces `glyphPalette`'s solid ramp so shading picks both a glyph
+   * and a weight, buying more perceptual shading steps than glyph shape
+   * alone. `undefined` (default) is off and byte-identical. Documented no-op
+   * during active temporal-blend reprojection.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   /** Whether to emit color spans. Default true. */
   useColors?: boolean;
   /** Grid columns. Default 80. */
@@ -104,6 +115,7 @@ function GlyphSceneInner({
   charMode,
   wireframeJunctions,
   hiddenLines,
+  solidWeightRamp,
   useColors,
   cols,
   rows,
@@ -134,6 +146,7 @@ function GlyphSceneInner({
     charMode,
     wireframeJunctions,
     hiddenLines,
+    solidWeightRamp,
     useColors,
     cols,
     rows,
@@ -180,6 +193,12 @@ function GlyphSceneInner({
     if (charMode !== undefined) partial.charMode = charMode;
     if (wireframeJunctions !== undefined) partial.wireframeJunctions = wireframeJunctions;
     if (hiddenLines !== undefined) partial.hiddenLines = hiddenLines;
+    // Unlike `charMode`/`hiddenLines` (which always have a meaningful
+    // non-undefined default), `solidWeightRamp`'s "off" state IS `undefined` —
+    // always forward it (like `shadow`/`sceneManifest` below) so removing the
+    // prop actually clears the ramp in vanilla instead of being swallowed by
+    // an `!== undefined` guard.
+    partial.solidWeightRamp = solidWeightRamp;
     if (useColors !== undefined) partial.useColors = useColors;
     if (cols !== undefined) partial.cols = cols;
     if (rows !== undefined) partial.rows = rows;
@@ -204,7 +223,7 @@ function GlyphSceneInner({
     if (Object.keys(partial).length > 0) {
       scene.setOptions(partial);
     }
-  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
+  }, [mode, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, useColors, cols, rows, cellAspect, directionalLight, ambientLight, smoothShading, creaseAngle, autoSize, interactiveDownscale, shadow, transformCells, glyphOutput, sceneManifest, dictionary]);
 
   const ctxValue = useMemo(() => ({ sceneRef }), [sceneRef]);
 

@@ -67,6 +67,12 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 | `shadow-lift` | number | Depth bias — prevents self-shadow acne (default `0.05`) |
 | `shadow-max-extend` | number | Half-extent of the light-space projection volume (default `2000`) |
 
+`solidWeightRamp` (solid-mode-only font-weight density ramp — see the
+[render modes guide](/guides/render-modes/#font-weight-density-ramp-solidweightramp))
+is a JS property, not an attribute — it is measurement data
+(`{ glyph: string; weight: number }[]`), the same "property, not attribute"
+rule `sceneManifest`/`dictionary` use: `document.querySelector("glyph-scene").solidWeightRamp = steps`.
+
 ### `<glyph-perspective-camera>` / `<glyph-orthographic-camera>` / `<glyph-camera>`
 
 `<glyph-camera>` is the ergonomic default — an alias for

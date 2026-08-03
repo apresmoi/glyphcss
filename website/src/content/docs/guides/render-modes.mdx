@@ -355,6 +355,73 @@ reprojection — both already expect the single-color-per-cell output. Mirrored
 as `char-mode="halfblock"` on `<glyph-scene>` and `charMode` on
 `@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`.
 
+### Font-weight density ramp (`solidWeightRamp`)
+
+`solidWeightRamp` adds a SECOND density axis to `solid` shading: CSS
+`font-weight`, alongside the usual glyph-shape ramp. Bold does not change
+monospace advance width in any tested stack (Menlo, Courier New, Monaco,
+Andale Mono, `ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace`
+— including a browser-synthesized bold), so a weight-bearing span can never
+desync the character grid.
+
+The ramp itself is measurement data, not a plain string — a list of
+`(glyph, weight)` steps ordered darkest → densest by real ink coverage,
+produced by `@glyphcss/effects`'s `calibrateWeightedGlyphRamp` (never a
+hand-authored table):
+
+```ts
+import { calibrateWeightedGlyphRamp } from "@glyphcss/effects";
+
+const { steps } = calibrateWeightedGlyphRamp({
+  font: { family: "ui-monospace, monospace", size: 32 },
+  steps: 24,
+  weights: [400, 700],
+});
+const solidWeightRamp = steps.map(({ glyph, weight }) => ({ glyph, weight: Number(weight) }));
+```
+
+When set, `solidWeightRamp` REPLACES `glyphPalette`'s solid ramp — shading
+picks both a glyph and a weight from the calibrated steps, buying more
+perceptual shading buckets than glyph shape alone provides (measured: a
+10-glyph Menlo pool reaches 10 steps / coverage 0.3295 on its own; weighted,
+the same pool reaches 15 steps / coverage 0.4508).
+
+<Tabs syncKey="fw">
+  <TabItem label="React">
+
+```tsx
+<GlyphScene mode="solid" solidWeightRamp={solidWeightRamp} cols={80} rows={24}>
+  <GlyphOrbitControls />
+  <GlyphMesh polygons={dodeca} />
+</GlyphScene>
+```
+
+  </TabItem>
+  <TabItem label="Vanilla JS">
+
+```ts
+const scene = createGlyphScene(document.querySelector("#scene")!, {
+  camera,
+  mode: "solid",
+  solidWeightRamp,
+  cols: 80,
+  rows: 24,
+});
+```
+
+  </TabItem>
+</Tabs>
+
+`undefined` (the default) is byte-identical to before this option existed.
+Documented no-op outside `solid` mode, under `charMode: "halfblock"` (its
+two-color-per-cell encoding has no font-weight span either), and during
+active `temporalBlend` reprojection. Mirrored as a `solidWeightRamp` JS
+property on `<glyph-scene>` (data, not an attribute — same rule
+`sceneManifest`/`dictionary` use) and `solidWeightRamp` on
+`@glyphcss/react`/`@glyphcss/vue`'s `<GlyphScene>`. Also reachable from
+`compileScene` — the ramp is plain step data, so a weighted-ramp render bakes
+at build time too.
+
 ## `voxel`
 
 One glyph per voxel face, depth-sorted. Natural fit for MagicaVoxel `.vox` files
@@ -460,9 +527,11 @@ scene.add(spherePolygons({ center: [0, 0, 0], size: 1, color: "#44ffcc" }));
   </TabItem>
 </Tabs>
 
-`charMode` and `wireframeJunctions` are documented no-ops in `ink` mode — it
-always picks its own fixed oriented-glyph set as plain ASCII. `hiddenLines` IS
-wired in `ink` — see [Hidden-line removal](#hidden-line-removal-hiddenlines) above.
+`charMode`, `wireframeJunctions`, and `solidWeightRamp` are documented no-ops
+in `ink` mode — it always picks its own fixed oriented-glyph set as plain
+ASCII (and has no shade ramp for `solidWeightRamp` to extend). `hiddenLines`
+IS wired in `ink` — see [Hidden-line removal](#hidden-line-removal-hiddenlines)
+above.
 
 Best for: illustration-style previews, product-shot outlines, sphere/torus/organic
 silhouettes where a filled ramp or a dense wireframe cage reads as noise.

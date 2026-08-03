@@ -122,7 +122,7 @@ export type {
 } from "./api/interactiveExport";
 
 // Re-export glyph-specific types
-export type { GlyphDirectionalLight, GlyphAmbientLight } from "./api/types";
+export type { GlyphDirectionalLight, GlyphAmbientLight, GlyphSolidWeightRampStep } from "./api/types";
 
 // ── Camera factories ──────────────────────────────────────────────
 export {

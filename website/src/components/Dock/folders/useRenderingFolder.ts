@@ -23,13 +23,14 @@ export interface RenderingFolderInputs {
   charMode: SceneOptionsState["charMode"];
   wireframeJunctions: boolean;
   hiddenLines: SceneOptionsState["hiddenLines"];
+  solidWeightRamp: boolean;
   density: number;
   dragDensity: number;
   useColors: boolean;
   smoothShading: boolean;
   creaseAngle: number;
   onRenderModeChange: (mode: GalleryRenderPresentation) => void;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
+  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "solidWeightRamp" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
 }
 
 
@@ -66,7 +67,7 @@ const HIDDEN_LINES_OPTIONS: Record<string, SceneOptionsState["hiddenLines"]> = {
 };
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): GUI | null {
-  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, hiddenLines, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
+  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, wireframeJunctions, hiddenLines, solidWeightRamp, density, dragDensity, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
   const renderModeControl = useOption<GalleryRenderPresentation>(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, onRenderModeChange);
@@ -132,6 +133,16 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     // cell, so dim there.
     hiddenLinesControl?.setEnabled(renderMode === "wireframe" || renderMode === "ink", { dim: true });
   }, [hiddenLinesControl, renderMode]);
+  const weightRampControl = useToggle(folder, "Weighted shading", solidWeightRamp, (value) =>
+    onUpdateScene({ solidWeightRamp: value }),
+  );
+  useEffect(() => {
+    // Solid-mode-only second density axis (font-weight-calibrated ramp). Also
+    // a no-op under charMode "halfblock" — its two-color-per-cell encoding
+    // has no font-weight span either — so dim there too, same treatment
+    // `charMode`'s own no-op combinations get above.
+    weightRampControl?.setEnabled(renderMode === "solid" && charMode !== "halfblock", { dim: true });
+  }, [weightRampControl, renderMode, charMode]);
   useToggle(folder, "Colors", useColors, (value) =>
     onUpdateScene({ useColors: value }),
   );

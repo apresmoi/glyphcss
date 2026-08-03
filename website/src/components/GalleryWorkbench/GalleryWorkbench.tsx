@@ -247,6 +247,7 @@ const DEFAULT_SCENE: SceneOptionsState = {
   charMode: "ascii",
   wireframeJunctions: false,
   hiddenLines: "show",
+  solidWeightRamp: false,
   lineHeight: 1.0,
   density: 1.0,
   dragDensity: 1,
@@ -788,6 +789,7 @@ export default function GalleryWorkbench() {
           charMode={sceneOptions.charMode}
           wireframeJunctions={sceneOptions.wireframeJunctions}
           hiddenLines={sceneOptions.hiddenLines}
+          solidWeightRamp={sceneOptions.solidWeightRamp}
           density={sceneOptions.density}
           dragDensity={sceneOptions.dragDensity}
           useColors={sceneOptions.useColors}

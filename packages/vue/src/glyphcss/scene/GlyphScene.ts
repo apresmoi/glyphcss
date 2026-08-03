@@ -16,6 +16,7 @@ import type {
   GlyphShadowOptions,
   GlyphControlSceneManifest,
   GlyphObjectDictionary,
+  GlyphSolidWeightRampStep,
   TransformCells,
 } from "glyphcss";
 import { createGlyphScene, injectGlyphBaseStyles } from "glyphcss";
@@ -50,6 +51,16 @@ export interface GlyphSceneProps {
    * doesn't paint through a nearer one. Documented no-op in `solid` and `ink`.
    */
   hiddenLines?: "show" | "hide";
+  /**
+   * Solid-mode-only second density axis: a font-weight-calibrated ramp of
+   * (glyph, `font-weight`) steps ordered darkest → densest by measured ink
+   * coverage (see `@glyphcss/effects`'s `calibrateWeightedGlyphRamp`). When
+   * set, replaces `glyphPalette`'s solid ramp so shading picks both a glyph
+   * and a weight, buying more perceptual shading steps than glyph shape
+   * alone. `undefined` (default) is off and byte-identical. Documented no-op
+   * during active temporal-blend reprojection.
+   */
+  solidWeightRamp?: GlyphSolidWeightRampStep[];
   useColors?: boolean;
   cols?: number;
   rows?: number;
@@ -89,6 +100,7 @@ export const GlyphScene = defineComponent({
     charMode: { type: String as PropType<"ascii" | "braille" | "halfblock">, default: undefined },
     wireframeJunctions: { type: Boolean, default: undefined },
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
+    solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
     useColors: { type: Boolean, default: undefined },
     cols: { type: Number, default: undefined },
     rows: { type: Number, default: undefined },
@@ -122,6 +134,7 @@ export const GlyphScene = defineComponent({
       if (props.charMode !== undefined) opts.charMode = props.charMode;
       if (props.wireframeJunctions !== undefined) opts.wireframeJunctions = props.wireframeJunctions;
       if (props.hiddenLines !== undefined) opts.hiddenLines = props.hiddenLines;
+      if (props.solidWeightRamp !== undefined) opts.solidWeightRamp = props.solidWeightRamp;
       if (props.useColors !== undefined) opts.useColors = props.useColors;
       if (props.cols !== undefined) opts.cols = props.cols;
       if (props.rows !== undefined) opts.rows = props.rows;
@@ -156,6 +169,7 @@ export const GlyphScene = defineComponent({
         charMode: props.charMode,
         wireframeJunctions: props.wireframeJunctions,
         hiddenLines: props.hiddenLines,
+        solidWeightRamp: props.solidWeightRamp,
         useColors: props.useColors,
         cols: props.cols,
         rows: props.rows,
@@ -179,6 +193,9 @@ export const GlyphScene = defineComponent({
         if (next.charMode !== undefined) partial.charMode = next.charMode;
         if (next.wireframeJunctions !== undefined) partial.wireframeJunctions = next.wireframeJunctions;
         if (next.hiddenLines !== undefined) partial.hiddenLines = next.hiddenLines;
+        // `solidWeightRamp`'s "off" state IS `undefined` — always forward it
+        // (like `shadow` below) so removing the prop actually clears the ramp.
+        partial.solidWeightRamp = next.solidWeightRamp;
         if (next.useColors !== undefined) partial.useColors = next.useColors;
         if (next.cols !== undefined) partial.cols = next.cols;
         if (next.rows !== undefined) partial.rows = next.rows;
