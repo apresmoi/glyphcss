@@ -1,219 +1,200 @@
 import type { GlyphEffectBlend } from "glyphcss";
 
-/** One loader = a stock effect id plus the params that make it read as a
- *  looping progress/wait indicator on a flat plane. Nothing here is a new
- *  engine feature — every loader is authored purely out of `@glyphcss/effects`
- *  stock definitions, which is the point of the page. */
-export interface LoaderPreset {
-  id: string;
-  label: string;
-  /** What the shape communicates — shown under the stage, not on the tile. */
-  note: string;
+/** One mounted effect layer. A loader is a *stack* because the interesting
+ *  determinate ones are a texture masked by a progress mask — two stock effects,
+ *  neither of which needs a new engine feature. */
+export interface LoaderLayer {
   effectId: string;
   params: Record<string, string | number | boolean>;
   blend: GlyphEffectBlend;
-  /** Seconds of effect `time` per wall-clock second. */
-  timeScale: number;
+  /** Seconds of effect `time` per wall-clock second. Omit for a static layer. */
+  timeScale?: number;
+  /** Drive a 0..1 param (`progress`) from the clock — what makes a loader
+   *  determinate. `cycle` is the seconds for one empty→full sweep. */
+  progress?: { param: string; cycle: number };
 }
 
-// The plane carries a 0..1 UV, so every loader below is authored in UV space and
-// re-reads correctly at any cols×rows — that invariance is exactly what the
-// stage's size-ratio grid demonstrates.
+export type LoaderKind = "spinner" | "progress";
+
+export interface LoaderPreset {
+  id: string;
+  label: string;
+  kind: LoaderKind;
+  layers: LoaderLayer[];
+}
+
+// Every loader is authored in the plane's 0..1 UV, so it re-reads correctly at
+// any cols×rows — the invariance the stage's size grid demonstrates.
 const RAMP_SOFT = " .:-=+*#%@";
 const RAMP_BLOCK = " ░▒▓█";
 const RAMP_DOTS = " ·:∙•●";
+const RAMP_HARD = " █";
 
-/** field-synth with every voice silenced — presets opt voices back in, so a
- *  preset only ever states the oscillators it actually uses. */
-const SYNTH_SILENT = {
+/** field-synth with every voice silenced — a preset then states only the
+ *  oscillators it actually uses. */
+const SILENT = {
   amp1: 0, amp2: 0, amp3: 0, amp4: 0, amp5: 0, amp6: 0,
-  combine: "add",
-  gain: 1,
-  bias: 0.5,
-  space: "auto",
-  lit: 0,
+  combine: "add", gain: 1, bias: 0.5, space: "auto", lit: 0,
 } as const;
 
+/** field-synth layer shorthand. */
+const synth = (
+  params: Record<string, string | number | boolean>,
+  timeScale = 1,
+): LoaderLayer => ({ effectId: "field-synth", params: { ...SILENT, ...params }, blend: "replace", timeScale });
+
+/** A `wipe` mask driven from the clock — the determinate half of the page. */
+const progressMask = (
+  params: Record<string, string | number | boolean>,
+  cycle: number,
+): LoaderLayer => ({
+  effectId: "wipe",
+  params: { softness: 0.02, invert: false, progress: 0, ...params },
+  // A mask writes coverage ONLY. Under `over` the compositor keeps
+  // `input × (1 - emitted)`, so the track would stay lit and nothing would
+  // appear to fill; `replace` zeroes the input weight, which is what makes the
+  // uncovered part of the bar actually empty (and why `wipe`'s own
+  // `defaultBlend` is `replace`).
+  blend: "replace",
+  progress: { param: "progress", cycle },
+});
+
 export const LOADERS: LoaderPreset[] = [
+  // ── Indeterminate: "still working", no end in sight ──────────────────────
   {
-    id: "pulse",
-    label: "Pulse",
-    note: "A radial sine breathing out from the centre — the plainest 'working' beat.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 1.6,
-      field1: "radial", wave1: "sin", freq1: 1.6, speed1: 0.9, amp1: 1,
-      glyphs: RAMP_SOFT,
-      color: "#7df9ff", colorB: "#2a6cff", gradient: 0.6,
-    },
+    id: "pulse", label: "Pulse", kind: "spinner",
+    layers: [synth({ scale: 1.6, field1: "radial", wave1: "sin", freq1: 1.6, speed1: 0.9, amp1: 1, glyphs: RAMP_SOFT, color: "#7df9ff", colorB: "#2a6cff", gradient: 0.6 })],
   },
   {
-    id: "spinner",
-    label: "Spinner",
-    note: "An angular saw multiplied by a radial falloff — a sweep that rotates around the centre, the classic spinner read.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      combine: "multiply",
-      scale: 2,
-      field1: "angular", wave1: "saw", freq1: 1, speed1: 0.8, amp1: 1,
-      field2: "radial", wave2: "triangle", freq2: 0.9, speed2: 0, amp2: 1,
-      glyphs: RAMP_SOFT,
-      gain: 1.5,
-      color: "#8affc1", colorB: "#0f6b4a", gradient: 0.8,
-    },
+    id: "spinner", label: "Spinner", kind: "spinner",
+    layers: [synth({ combine: "multiply", scale: 2, field1: "angular", wave1: "saw", freq1: 1, speed1: 0.8, amp1: 1, field2: "radial", wave2: "triangle", freq2: 0.9, speed2: 0, amp2: 1, glyphs: RAMP_SOFT, gain: 1.5, color: "#8affc1", colorB: "#0f6b4a", gradient: 0.8 })],
   },
   {
-    id: "bars",
-    label: "Bars",
-    note: "A square wave marching along U — indeterminate progress, the barber-pole family.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 1,
-      field1: "linearX", wave1: "square", freq1: 5, speed1: 0.7, amp1: 1,
-      glyphs: RAMP_BLOCK,
-      color: "#ffcf5a", colorB: "#7a4a00", gradient: 0.5,
-    },
+    id: "comet", label: "Comet", kind: "spinner",
+    layers: [synth({ combine: "multiply", scale: 2, field1: "angular", wave1: "saw", freq1: 1, speed1: 1.1, amp1: 1, field2: "radial", wave2: "sin", freq2: 1.6, speed2: 0, amp2: 1, glyphs: RAMP_DOTS, gain: 2.6, bias: 0.1, color: "#ffd280", colorB: "#7a2d00", gradient: 1 })],
   },
   {
-    id: "wave",
-    label: "Wave",
-    note: "Two perpendicular sines added — a travelling swell that stays legible when the box gets very wide.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      combine: "add",
-      scale: 1.4,
-      field1: "linearX", wave1: "sin", freq1: 2.4, speed1: 0.9, amp1: 1,
-      field2: "linearY", wave2: "sin", freq2: 1.2, speed2: 0.35, amp2: 0.5,
-      glyphs: RAMP_SOFT,
-      color: "#7df9ff", colorB: "#ff4fa3", gradient: 0.7,
-    },
+    id: "bars", label: "Bars", kind: "spinner",
+    layers: [synth({ scale: 1, field1: "linearX", wave1: "square", freq1: 5, speed1: 0.7, amp1: 1, glyphs: RAMP_BLOCK, color: "#ffcf5a", colorB: "#7a4a00", gradient: 0.5 })],
   },
   {
-    id: "rings",
-    label: "Rings",
-    note: "A radial triangle running inward — concentric rings collapsing toward the centre.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 2.4,
-      field1: "radial", wave1: "triangle", freq1: 4, speed1: -0.8, amp1: 1,
-      glyphs: RAMP_DOTS,
-      gain: 1.3,
-      color: "#c8b5ff", colorB: "#3a1f7a", gradient: 0.6,
-    },
+    id: "wave", label: "Wave", kind: "spinner",
+    layers: [synth({ scale: 1.4, field1: "linearX", wave1: "sin", freq1: 2.4, speed1: 0.9, amp1: 1, field2: "linearY", wave2: "sin", freq2: 1.2, speed2: 0.35, amp2: 0.5, glyphs: RAMP_SOFT, color: "#7df9ff", colorB: "#ff4fa3", gradient: 0.7 })],
   },
   {
-    id: "orbit",
-    label: "Orbit",
-    note: "A spiral field — angular and radial motion at once, so it reads as rotation even in a squat box.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 2,
-      field1: "spiral", wave1: "sin", freq1: 3, speed1: 0.9, amp1: 1,
-      glyphs: RAMP_SOFT,
-      color: "#ff8f5a", colorB: "#5a1400", gradient: 0.7,
-    },
+    id: "rings", label: "Rings", kind: "spinner",
+    layers: [synth({ scale: 2.4, field1: "radial", wave1: "triangle", freq1: 4, speed1: -0.8, amp1: 1, glyphs: RAMP_DOTS, gain: 1.3, color: "#c8b5ff", colorB: "#3a1f7a", gradient: 0.6 })],
   },
   {
-    id: "barber",
-    label: "Barber",
-    note: "A diagonal saw — stripes sliding corner to corner, the loader that most obviously changes character with aspect.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 1.2,
-      field1: "diagonal", wave1: "saw", freq1: 4, speed1: 0.8, amp1: 1,
-      glyphs: RAMP_BLOCK,
-      color: "#38bdf8", colorB: "#08304a", gradient: 0.5,
-    },
+    id: "orbit", label: "Orbit", kind: "spinner",
+    layers: [synth({ scale: 2, field1: "spiral", wave1: "sin", freq1: 3, speed1: 0.9, amp1: 1, glyphs: RAMP_SOFT, color: "#ff8f5a", colorB: "#5a1400", gradient: 0.7 })],
   },
   {
-    id: "moire",
-    label: "Moiré",
-    note: "Two close radial frequencies multiplied — interference that never visibly repeats.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      combine: "multiply",
-      scale: 3,
-      field1: "radial", wave1: "sin", freq1: 6, speed1: 0.4, amp1: 1,
-      field2: "radial", wave2: "sin", freq2: 6.7, speed2: -0.3, amp2: 1,
-      originU: 0.35, originV: 0.5,
-      glyphs: RAMP_SOFT,
-      gain: 1.4,
-      color: "#7df9ff", colorB: "#ff4fa3", gradient: 1,
-    },
+    id: "barber", label: "Barber", kind: "spinner",
+    layers: [synth({ scale: 1.2, field1: "diagonal", wave1: "saw", freq1: 4, speed1: 0.8, amp1: 1, glyphs: RAMP_BLOCK, color: "#38bdf8", colorB: "#08304a", gradient: 0.5 })],
   },
   {
-    id: "static",
-    label: "Static",
-    note: "A drifting noise field — the 'still connecting' loader, with no directional promise.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 5,
-      field1: "noise", wave1: "sin", freq1: 3, speed1: 1.2, amp1: 1,
-      glyphs: RAMP_SOFT,
-      gain: 1.2,
-      color: "#9fb2c9", colorB: "#1b2530", gradient: 0.4,
-    },
+    id: "sweep", label: "Sweep", kind: "spinner",
+    layers: [synth({ scale: 1, field1: "linearX", wave1: "sin", freq1: 1, speed1: 0.9, amp1: 1, glyphs: RAMP_SOFT, gain: 2.2, bias: 0.15, color: "#e8f4ff", colorB: "#12324a", gradient: 0.9 })],
   },
   {
-    id: "braille-pulse",
-    label: "Braille",
-    note: "The Pulse field at 2×4 subcell resolution — four times the vertical detail per cell, so it stays smooth in a 3-row strip.",
-    effectId: "field-synth",
-    blend: "replace",
-    timeScale: 1,
-    params: {
-      ...SYNTH_SILENT,
-      scale: 1.8,
-      field1: "radial", wave1: "sin", freq1: 2, speed1: 0.9, amp1: 1,
-      subcellRes: "2x4",
-      glyphs: RAMP_SOFT,
-      color: "#8affc1", colorB: "#0b3b2a", gradient: 0.6,
-    },
+    id: "breathe", label: "Breathe", kind: "spinner",
+    layers: [synth({ scale: 0.6, field1: "radial", wave1: "sin", freq1: 0.5, speed1: 0.35, amp1: 1, glyphs: RAMP_SOFT, color: "#a5b4fc", colorB: "#1e1b4b", gradient: 0.5 })],
   },
   {
-    id: "scan",
-    label: "Scan",
-    note: "The stock `scan` effect — a hard sweep line, tied to cell rows rather than UV, so it keeps its thickness at every size.",
-    effectId: "scan",
-    blend: "over",
-    timeScale: 1,
-    params: { speed: 10, width: 2, spacing: 14, color: "#7df9ff" },
+    id: "moire", label: "Moiré", kind: "spinner",
+    layers: [synth({ combine: "multiply", scale: 3, field1: "radial", wave1: "sin", freq1: 6, speed1: 0.4, amp1: 1, field2: "radial", wave2: "sin", freq2: 6.7, speed2: -0.3, amp2: 1, originU: 0.35, originV: 0.5, glyphs: RAMP_SOFT, gain: 1.4, color: "#7df9ff", colorB: "#ff4fa3", gradient: 1 })],
   },
   {
-    id: "ripple",
-    label: "Ripple",
-    note: "The stock `ripple` effect — expanding rings from a point, good as a one-shot 'received' confirmation.",
-    effectId: "ripple",
-    blend: "over",
-    timeScale: 1,
-    params: { glyphs: "*+·", speed: 4, frequency: 0.8, width: 0.16, amount: 0.9, color: "#ffcf5a" },
+    id: "grid", label: "Grid", kind: "spinner",
+    layers: [synth({ combine: "multiply", scale: 1, field1: "linearX", wave1: "square", freq1: 4, speed1: 0.5, amp1: 1, field2: "linearY", wave2: "square", freq2: 3, speed2: -0.4, amp2: 1, glyphs: RAMP_BLOCK, color: "#5eead4", colorB: "#134e4a", gradient: 0.6 })],
+  },
+  {
+    id: "static", label: "Static", kind: "spinner",
+    layers: [synth({ scale: 5, field1: "noise", wave1: "sin", freq1: 3, speed1: 1.2, amp1: 1, glyphs: RAMP_SOFT, gain: 1.2, color: "#9fb2c9", colorB: "#1b2530", gradient: 0.4 })],
+  },
+  {
+    id: "braille", label: "Braille", kind: "spinner",
+    layers: [synth({ scale: 1.8, field1: "radial", wave1: "sin", freq1: 2, speed1: 0.9, amp1: 1, subcellRes: "2x4", glyphs: RAMP_SOFT, color: "#8affc1", colorB: "#0b3b2a", gradient: 0.6 })],
+  },
+  {
+    id: "scan", label: "Scan", kind: "spinner",
+    layers: [{ effectId: "scan", params: { speed: 10, width: 2, spacing: 14, color: "#7df9ff" }, blend: "over", timeScale: 1 }],
+  },
+  {
+    id: "ripple", label: "Ripple", kind: "spinner",
+    layers: [{ effectId: "ripple", params: { glyphs: "*+·", speed: 4, frequency: 0.8, width: 0.16, amount: 0.9, color: "#ffcf5a" }, blend: "over", timeScale: 1 }],
+  },
+  {
+    id: "flow", label: "Flow text", kind: "spinner",
+    layers: [
+      synth({ scale: 2, field1: "linearX", wave1: "sin", freq1: 1, speed1: 0.3, amp1: 1, glyphs: " .", color: "#1f3350", colorB: "#0b1626", gradient: 0.4 }),
+      { effectId: "flow-text", params: { glyphs: "LOADING ", direction: "right", speed: 7, space: "auto", scale: 1 }, blend: "over", timeScale: 1 },
+    ],
+  },
+  {
+    id: "matrix", label: "Matrix", kind: "spinner",
+    layers: [{ effectId: "matrix-rain", params: { glyphs: "01LOAD", direction: "down", space: "auto", scale: 1, speedMin: 6, speedMax: 18, trail: 12, density: 0.7, seed: 4, colorMode: "monochrome", color: "#00d149", headColor: "#baffd6" }, blend: "over", timeScale: 1 }],
+  },
+  {
+    id: "scramble", label: "Scramble", kind: "spinner",
+    layers: [
+      synth({ scale: 2, field1: "linearY", wave1: "sin", freq1: 1, speed1: 0.4, amp1: 1, glyphs: RAMP_SOFT, color: "#4b5f7a", colorB: "#0d1622", gradient: 0.5 }),
+      { effectId: "scramble", params: { glyphs: "@#$%&*+=?", amount: 0.55, rate: 14, seed: 3 }, blend: "over", timeScale: 1 },
+    ],
+  },
+  {
+    id: "glitch", label: "Glitch", kind: "spinner",
+    layers: [
+      synth({ scale: 1.6, field1: "linearX", wave1: "saw", freq1: 2, speed1: 0.5, amp1: 1, glyphs: RAMP_BLOCK, color: "#334155", colorB: "#0b1220", gradient: 0.5 }),
+      { effectId: "glitch", params: { glyphs: "#%/=+!?", amount: 0.4, rate: 10, bandSize: 3, seed: 7, color: "#ff4fd8" }, blend: "over", timeScale: 1 },
+    ],
+  },
+
+  // ── Determinate: a real 0→100% sweep, driven by a `progress` param ────────
+  {
+    id: "progress-bar", label: "Progress", kind: "progress",
+    layers: [
+      synth({ scale: 1, field1: "linearX", wave1: "sin", freq1: 0.5, speed1: 0, amp1: 1, glyphs: RAMP_HARD, gain: 3, bias: 0.9, color: "#38bdf8", colorB: "#0ea5e9", gradient: 0.4 }),
+      progressMask({ direction: "right", softness: 0.01 }, 4),
+    ],
+  },
+  {
+    id: "progress-soft", label: "Soft fill", kind: "progress",
+    layers: [
+      synth({ scale: 1, field1: "linearX", wave1: "sin", freq1: 0.5, speed1: 0, amp1: 1, glyphs: RAMP_SOFT, gain: 3, bias: 0.9, color: "#a78bfa", colorB: "#4c1d95", gradient: 0.5 }),
+      progressMask({ direction: "right", softness: 0.14 }, 4),
+    ],
+  },
+  {
+    id: "progress-stripes", label: "Striped bar", kind: "progress",
+    layers: [
+      synth({ scale: 1.2, field1: "diagonal", wave1: "saw", freq1: 5, speed1: 0.9, amp1: 1, glyphs: RAMP_BLOCK, color: "#ffcf5a", colorB: "#7a4a00", gradient: 0.6 }),
+      progressMask({ direction: "right", softness: 0.01 }, 5),
+    ],
+  },
+  {
+    id: "progress-gauge", label: "Gauge", kind: "progress",
+    layers: [
+      synth({ scale: 1, field1: "linearY", wave1: "sin", freq1: 0.5, speed1: 0, amp1: 1, glyphs: RAMP_BLOCK, gain: 3, bias: 0.9, color: "#4ade80", colorB: "#14532d", gradient: 0.5 }),
+      progressMask({ direction: "up", softness: 0.02 }, 5),
+    ],
+  },
+  {
+    id: "progress-ring", label: "Ring", kind: "progress",
+    layers: [{
+      effectId: "field-synth",
+      params: { ...SILENT, combine: "multiply", scale: 2, field1: "angular", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, field2: "radial", wave2: "triangle", freq2: 0.9, speed2: 0, amp2: 1, glyphs: RAMP_BLOCK, gain: 6, bias: 0, color: "#f472b6", colorB: "#831843", gradient: 0.6 },
+      blend: "replace",
+      progress: { param: "bias", cycle: 5 },
+    }],
+  },
+  {
+    id: "progress-dissolve", label: "Dissolve", kind: "progress",
+    layers: [
+      synth({ scale: 2.5, field1: "noise", wave1: "sin", freq1: 2, speed1: 0.25, amp1: 1, glyphs: RAMP_BLOCK, color: "#22d3ee", colorB: "#083344", gradient: 0.6 }),
+      { effectId: "noise-dissolve", params: { progress: 0, softness: 0.12, scale: 0.3, seed: 2 }, blend: "replace", progress: { param: "progress", cycle: 5 } },
+    ],
   },
 ];
 
@@ -224,8 +205,8 @@ export function findLoader(id: string | null): LoaderPreset {
 }
 
 /** Box shapes a loader realistically has to survive, from an inline badge to a
- *  full-width banner. Each is rendered from the SAME params — differences on
- *  screen are the pattern re-reading at that aspect, not a re-tuned preset. */
+ *  full-width banner. Each renders the SAME params — differences on screen are
+ *  the pattern re-reading at that aspect, not a re-tuned preset. */
 export interface LoaderSize {
   cols: number;
   rows: number;

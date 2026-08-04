@@ -10,6 +10,9 @@ import {
 import { getGlyphEffect } from "@glyphcss/effects";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { DEFAULT_LOADER, findLoader, LOADERS, LOADER_SIZES, type LoaderPreset } from "./loaders";
+import { LoaderCodePanel } from "./LoaderCodePanel";
+import { generateLoaderSnippets, type LoaderTab } from "./loaderSnippets";
+import "../GalleryWorkbench/gallery-workbench.css";
 import "./loaders.css";
 
 type Polys = Parameters<GlyphSceneHandle["add"]>[0];
@@ -24,10 +27,10 @@ function flatQuad(size: number, color: string): Polys {
   }] as unknown as Polys;
 }
 
-// One rAF for the whole page. Each tile is tiny, but there are ~20 of them —
-// twenty independent loops would each pay their own callback and their own
-// clock drift, and the footer minis would visibly run out of phase with the
-// stage tile showing the same loader.
+// One rAF for the whole page. Each tile is tiny, but there are ~30 of them —
+// thirty independent loops would each pay their own callback and their own clock
+// drift, and a footer mini would visibly run out of phase with the stage tile
+// showing the same loader.
 type Tick = (t: number) => void;
 const ticks = new Set<Tick>();
 let clockRaf = 0;
@@ -100,30 +103,68 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     coverGrid(scene, camera, polys);
     scene.rerender();
 
-    const definition = getGlyphEffect(loader.effectId);
-    if (!definition) { scene.destroy(); return; }
-    const layer = scene.addEffectLayer({
-      effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema>,
-      params: { ...loader.params },
-      blend: loader.blend,
-      target: "surfaces",
-    });
+    const mounted = loader.layers.map((spec) => {
+      const definition = getGlyphEffect(spec.effectId);
+      if (!definition) return null;
+      const layer = scene.addEffectLayer({
+        effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema>,
+        params: { ...spec.params },
+        blend: spec.blend,
+        target: "surfaces",
+      });
+      return { layer, spec };
+    }).filter(Boolean) as { layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderPreset["layers"][number] }[];
     scene.rerender();
 
-    const stop = registerTick((t) => { layer.setParams({ time: t * loader.timeScale }); });
-    return () => { stop(); layer.dispose(); scene.destroy(); };
+    const stop = registerTick((t) => {
+      for (const { layer, spec } of mounted) {
+        const next: Record<string, number> = {};
+        if (spec.timeScale) next.time = t * spec.timeScale;
+        // A determinate loader's sweep is just another driven param — the page
+        // owns the clock, the effect owns the shape.
+        if (spec.progress) next[spec.progress.param] = (t % spec.progress.cycle) / spec.progress.cycle;
+        if (Object.keys(next).length > 0) layer.setParams(next);
+      }
+    });
+    return () => { stop(); for (const { layer } of mounted) layer.dispose(); scene.destroy(); };
   }, [host, cols, rows, loader]);
 }
 
-function LoaderTile({ loader, cols, rows, label }: { loader: LoaderPreset; cols: number; rows: number; label: string }) {
+function LoaderTile({ loader, cols, rows, label, lang, onCode }: {
+  loader: LoaderPreset;
+  cols: number;
+  rows: number;
+  label: string;
+  lang: LoaderTab;
+  onCode: () => void;
+}) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [copied, setCopied] = useState(false);
   useLoaderScene(host, loader, cols, rows);
+
+  // Each example is its own exportable size, so its snippet states THIS grid.
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(generateLoaderSnippets(loader, cols, rows)[lang]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      /* clipboard unavailable — the panel keeps the code selectable */
+    }
+  };
+
   return (
     <figure className="ld-size">
       <div className="ld-size__view" ref={setHost} />
       <figcaption className="ld-size__meta">
         <span className="ld-size__label">{label}</span>
         <span className="ld-size__dims">{cols}×{rows}</span>
+        <span className="ld-size__tools">
+          <button type="button" className="ld-mini" onClick={onCode} title={`Code for ${cols}×${rows}`}>{"</>"}</button>
+          <button type="button" className="ld-mini" onClick={copy} title={`Copy ${lang.toUpperCase()} for ${cols}×${rows}`}>
+            {copied ? "✓" : "copy"}
+          </button>
+        </span>
       </figcaption>
     </figure>
   );
@@ -137,6 +178,12 @@ function LoaderThumb({ loader }: { loader: LoaderPreset }) {
 
 export default function LoadersWorkbench() {
   const [loaderId, setLoaderId] = useState<string>(() => readUrlParam("l") ?? DEFAULT_LOADER);
+  // Which example's code is open — null = none. Export is per size, so the
+  // panel is addressed by the grid it was opened from.
+  const [openSize, setOpenSize] = useState<{ cols: number; rows: number } | null>(null);
+  // Language choice is shared: pick it once in the panel, every tile's Copy
+  // then hands you that language for its own size.
+  const [lang, setLang] = useState<LoaderTab>("html");
   const loader = findLoader(loaderId);
   const first = useRef(true);
 
@@ -146,36 +193,68 @@ export default function LoadersWorkbench() {
     writeUrlParam("l", loaderId === DEFAULT_LOADER ? null : loaderId);
   }, [loaderId]);
 
+  const spinners = LOADERS.filter((l) => l.kind === "spinner");
+  const progress = LOADERS.filter((l) => l.kind === "progress");
+
   return (
     <div className="ld-page">
       <main className="ld-stage">
         <header className="ld-stage__head">
-          <h1 className="ld-stage__title">{loader.label}</h1>
-          <p className="ld-stage__note">{loader.note}</p>
-          <p className="ld-stage__hint">
-            One set of params, nine box shapes — every tile below renders the same effect at a different
-            cols×rows, so what changes is how the pattern reads at that aspect.
-          </p>
+          <div className="ld-stage__titlerow">
+            <h1 className="ld-stage__title">{loader.label}</h1>
+            <span className="ld-stage__kind">{loader.kind === "progress" ? "determinate" : "indeterminate"}</span>
+          </div>
         </header>
+
         <div className="ld-sizes">
           {LOADER_SIZES.map((s) => (
-            <LoaderTile key={`${loader.id}-${s.cols}x${s.rows}`} loader={loader} cols={s.cols} rows={s.rows} label={s.label} />
+            <LoaderTile
+              key={`${loader.id}-${s.cols}x${s.rows}`}
+              loader={loader}
+              cols={s.cols}
+              rows={s.rows}
+              label={s.label}
+              lang={lang}
+              onCode={() => setOpenSize((cur) => (cur && cur.cols === s.cols && cur.rows === s.rows ? null : { cols: s.cols, rows: s.rows }))}
+            />
           ))}
         </div>
+
+        {openSize && (
+          <LoaderCodePanel
+            loader={loader}
+            cols={openSize.cols}
+            rows={openSize.rows}
+            lang={lang}
+            onLang={setLang}
+            onClose={() => setOpenSize(null)}
+          />
+        )}
       </main>
 
       <footer className="ld-strip" aria-label="Loader presets">
-        {LOADERS.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            className={`ld-tile${l.id === loader.id ? " is-active" : ""}`}
-            aria-pressed={l.id === loader.id}
-            onClick={() => setLoaderId(l.id)}
-          >
-            <LoaderThumb loader={l} />
-            <span className="ld-tile__label">{l.label}</span>
-          </button>
+        {[
+          { key: "spinner", label: "Indeterminate", items: spinners },
+          { key: "progress", label: "Determinate", items: progress },
+        ].map((group) => (
+          <section className="ld-group" key={group.key}>
+            <h2 className="ld-group__label">{group.label}</h2>
+            <div className="ld-group__items">
+              {group.items.map((l) => (
+                <div key={l.id} className={`ld-tile${l.id === loader.id ? " is-active" : ""}`}>
+                  <button
+                    type="button"
+                    className="ld-tile__pick"
+                    aria-pressed={l.id === loader.id}
+                    onClick={() => { setLoaderId(l.id); setOpenSize(null); }}
+                  >
+                    <LoaderThumb loader={l} />
+                    <span className="ld-tile__label">{l.label}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
         ))}
       </footer>
     </div>
