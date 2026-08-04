@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createGlyphScene,
   createGlyphOrthographicCamera,
@@ -9,7 +9,18 @@ import {
 } from "glyphcss";
 import { getGlyphEffect } from "@glyphcss/effects";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
-import { DEFAULT_LOADER, findLoader, LOADERS, LOADER_SIZES, type LoaderPreset } from "./loaders";
+import { MAX_VOICES, VoiceCard, synthDefaults, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
+import { Dock } from "../Dock";
+import {
+  InstrumentBody,
+  InstrumentMain,
+  InstrumentMobileTabs,
+  InstrumentRail,
+  InstrumentShell,
+  InstrumentTray,
+} from "../InstrumentWorkbench/InstrumentWorkbench";
+import { DEFAULT_LOADER, findLoader, LOADERS, LOADER_SIZES, type LoaderLayer, type LoaderPreset } from "./loaders";
+import { LoadersDock } from "./LoadersDock";
 import { LoaderCodePanel } from "./LoaderCodePanel";
 import { generateLoaderSnippets, type LoaderTab } from "./loaderSnippets";
 import "../GalleryWorkbench/gallery-workbench.css";
@@ -53,9 +64,9 @@ function registerTick(fn: Tick): () => void {
 }
 
 /** Zoom the head-on quad so it covers the whole cols×rows grid. Must project
- *  with the MEASURED cell (see SynthWorkbench's `frameObject` for the same
- *  rationale): the default `cellAspect` is ~20% off the real monospace cell, and
- *  a fixed-size scene has no `fitToHost` to correct it. */
+ *  with the MEASURED cell (see synthKit's `frameObject` for the same rationale):
+ *  the default `cellAspect` is ~20% off the real monospace cell, and a
+ *  fixed-size scene has no `fitToHost` to correct it. */
 function coverGrid(scene: GlyphSceneHandle, camera: ReturnType<typeof createGlyphOrthographicCamera>, polys: Polys): void {
   const o = scene.getOptions();
   const cols = o.cols ?? 80, rows = o.rows ?? 24;
@@ -84,9 +95,20 @@ function coverGrid(scene: GlyphSceneHandle, camera: ReturnType<typeof createGlyp
   if (w > 0 && h > 0) camera.zoom = Math.max(cols / w, rows / h);
 }
 
+/** Live edit state pushed into an already-mounted scene. Absent for the footer
+ *  thumbnails, which stay canonical so the catalog is a stable reference. */
+interface LiveEdits {
+  layerParams: Record<number, Params>;
+  drive: { current: { timeScale: number; paused: boolean } };
+}
+
 /** Mount one live loader at an exact cols×rows. Fixed grid (no `autoSize`) is
  *  the whole point — the box shape is the variable under test. */
-function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: number, rows: number): void {
+function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: number, rows: number, live?: LiveEdits): void {
+  const mountedRef = useRef<{ layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderLayer }[]>([]);
+  const liveRef = useRef(live);
+  liveRef.current = live;
+
   useEffect(() => {
     if (!host) return;
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
@@ -103,51 +125,77 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     coverGrid(scene, camera, polys);
     scene.rerender();
 
-    const mounted = loader.layers.map((spec) => {
+    const mounted = loader.layers.map((spec, index) => {
       const definition = getGlyphEffect(spec.effectId);
       if (!definition) return null;
       const layer = scene.addEffectLayer({
         effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema>,
-        params: { ...spec.params },
+        params: { ...spec.params, ...(liveRef.current?.layerParams[index] ?? {}) },
         blend: spec.blend,
         target: "surfaces",
       });
       return { layer, spec };
-    }).filter(Boolean) as { layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderPreset["layers"][number] }[];
+    }).filter(Boolean) as { layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderLayer }[];
+    mountedRef.current = mounted;
     scene.rerender();
 
+    let clock = 0;
+    let previous: number | null = null;
     const stop = registerTick((t) => {
+      // A paused loader holds its frame: advance our own accumulator only while
+      // running, so unpausing resumes instead of jumping forward by the gap.
+      const drive = liveRef.current?.drive.current;
+      if (previous !== null && !(drive?.paused ?? false)) clock += (t - previous) * (drive?.timeScale ?? 1);
+      previous = t;
       for (const { layer, spec } of mounted) {
         const next: Record<string, number> = {};
-        if (spec.timeScale) next.time = t * spec.timeScale;
+        if (spec.timeScale) next.time = clock * spec.timeScale;
         // A determinate loader's sweep is just another driven param — the page
         // owns the clock, the effect owns the shape. Ramp over the first
         // `1 - hold` of the loop, then rest at 1.0: a bar that snaps straight
         // from full back to empty reads as a glitch, not as completion.
         if (spec.progress) {
           const { param, cycle, hold = 0 } = spec.progress;
-          const phase = (t % cycle) / cycle;
+          const phase = (clock % cycle) / cycle;
           const ramp = 1 - hold;
           next[param] = ramp <= 0 ? 1 : Math.min(1, phase / ramp);
         }
         if (Object.keys(next).length > 0) layer.setParams(next);
       }
     });
-    return () => { stop(); for (const { layer } of mounted) layer.dispose(); scene.destroy(); };
+    return () => {
+      stop();
+      mountedRef.current = [];
+      for (const { layer } of mounted) layer.dispose();
+      scene.destroy();
+    };
   }, [host, cols, rows, loader]);
+
+  // Push edits without remounting — re-creating the scene per slider tick would
+  // restart every animation mid-drag.
+  const edits = live?.layerParams;
+  useEffect(() => {
+    if (!edits) return;
+    mountedRef.current.forEach(({ layer }, index) => {
+      const patch = edits[index];
+      if (patch) layer.setParams(patch);
+    });
+  }, [edits]);
 }
 
-function LoaderTile({ loader, cols, rows, label, lang, onCode }: {
+function LoaderTile({ loader, cols, rows, label, lang, live, fontSize, onCode }: {
   loader: LoaderPreset;
   cols: number;
   rows: number;
   label: string;
   lang: LoaderTab;
+  live: LiveEdits;
+  fontSize: number;
   onCode: () => void;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState(false);
-  useLoaderScene(host, loader, cols, rows);
+  useLoaderScene(host, loader, cols, rows, live);
 
   // Each example is its own exportable size, so its snippet states THIS grid.
   const copy = async () => {
@@ -162,7 +210,7 @@ function LoaderTile({ loader, cols, rows, label, lang, onCode }: {
 
   return (
     <figure className="ld-size">
-      <div className="ld-size__view" ref={setHost} />
+      <div className="ld-size__view" ref={setHost} style={{ fontSize: `${fontSize}px` }} />
       <figcaption className="ld-size__meta">
         <span className="ld-size__label">{label}</span>
         <span className="ld-size__dims">{cols}×{rows}</span>
@@ -183,15 +231,37 @@ function LoaderThumb({ loader }: { loader: LoaderPreset }) {
   return <span className="ld-tile__thumb"><span className="ld-tile__glyph" ref={setHost} /></span>;
 }
 
+/** The loader's field-synth layer as a full patch — merged over the schema
+ *  defaults so every voice key the cards read exists. */
+function synthPatchOf(loader: LoaderPreset): Params {
+  const layer = loader.layers.find((l) => l.effectId === "field-synth");
+  return { ...synthDefaults(), ...(layer?.params ?? {}) } as Params;
+}
+function stockPatchesOf(loader: LoaderPreset): Record<number, Params> {
+  const out: Record<number, Params> = {};
+  loader.layers.forEach((l, i) => { if (l.effectId !== "field-synth") out[i] = { ...l.params } as Params; });
+  return out;
+}
+const slotsOf = (params: Params): number[] =>
+  Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(params[`amp${k}`]) > 0);
+
 export default function LoadersWorkbench() {
   const [loaderId, setLoaderId] = useState<string>(() => readUrlParam("l") ?? DEFAULT_LOADER);
-  // Which example's code is open — null = none. Export is per size, so the
-  // panel is addressed by the grid it was opened from.
-  const [openSize, setOpenSize] = useState<{ cols: number; rows: number } | null>(null);
-  // Language choice is shared: pick it once in the panel, every tile's Copy
-  // then hands you that language for its own size.
-  const [lang, setLang] = useState<LoaderTab>("html");
   const loader = findLoader(loaderId);
+
+  const [params, setParams] = useState<Params>(() => synthPatchOf(loader));
+  const [stockParams, setStockParams] = useState<Record<number, Params>>(() => stockPatchesOf(loader));
+  const [voiceSlots, setVoiceSlots] = useState<number[]>(() => slotsOf(synthPatchOf(loader)));
+  const [timeScale, setTimeScale] = useState(1);
+  const [paused, setPaused] = useState(false);
+  const [fontSize, setFontSize] = useState(11);
+  const [openSize, setOpenSize] = useState<{ cols: number; rows: number } | null>(null);
+  const [lang, setLang] = useState<LoaderTab>("html");
+  const [mobilePanel, setMobilePanel] = useState<string | null>(null);
+
+  const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
+  const drive = useRef({ timeScale, paused });
+  drive.current = { timeScale, paused };
   const first = useRef(true);
 
   useEffect(() => {
@@ -200,50 +270,126 @@ export default function LoadersWorkbench() {
     writeUrlParam("l", loaderId === DEFAULT_LOADER ? null : loaderId);
   }, [loaderId]);
 
+  // Selecting a preset re-seeds every editable surface from it.
+  const selectLoader = useCallback((id: string) => {
+    const next = findLoader(id);
+    setLoaderId(id);
+    const patch = synthPatchOf(next);
+    setParams(patch);
+    setStockParams(stockPatchesOf(next));
+    setVoiceSlots(slotsOf(patch));
+    setOpenSize(null);
+  }, []);
+
+  const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
+  const onLayerParam = useCallback((index: number, key: string, value: ParamValue) => {
+    setStockParams((all) => ({ ...all, [index]: { ...(all[index] ?? {}), [key]: value } }));
+  }, []);
+
+  const addVoice = useCallback(() => {
+    const slots = voiceSlotsRef.current;
+    let slot = 0;
+    for (let k = 1; k <= MAX_VOICES; k++) if (!slots.includes(k)) { slot = k; break; }
+    if (!slot) return;
+    setVoiceSlots([...slots, slot].sort((a, b) => a - b));
+    setParams((p) => ({ ...p, [`amp${slot}`]: 1 }));
+  }, []);
+  const removeVoice = useCallback((slot: number) => {
+    setVoiceSlots((slots) => slots.filter((s) => s !== slot));
+    setParams((p) => ({ ...p, [`amp${slot}`]: 0 }));
+  }, []);
+
+  // What the stage renders: the edited field-synth patch plus each edited stock
+  // layer, addressed by layer index.
+  const layerParams = useMemo(() => {
+    const out: Record<number, Params> = {};
+    loader.layers.forEach((l, i) => { out[i] = l.effectId === "field-synth" ? params : (stockParams[i] ?? ({} as Params)); });
+    return out;
+  }, [loader, params, stockParams]);
+  const live = useMemo<LiveEdits>(() => ({ layerParams, drive }), [layerParams]);
+
+  const hasSynthLayer = loader.layers.some((l) => l.effectId === "field-synth");
   const spinners = LOADERS.filter((l) => l.kind === "spinner");
   const progress = LOADERS.filter((l) => l.kind === "progress");
 
   return (
-    <div className="ld-page">
-      <main className="ld-stage">
-        <header className="ld-stage__head">
-          <div className="ld-stage__titlerow">
-            <h1 className="ld-stage__title">{loader.label}</h1>
-            <span className="ld-stage__kind">{loader.kind === "progress" ? "determinate" : "indeterminate"}</span>
+    <InstrumentShell kind="synth">
+      <InstrumentBody>
+        <InstrumentRail
+          id="loaders-voices-panel"
+          title="Voices"
+          action={<button className="voice-add" onClick={addVoice} disabled={!hasSynthLayer || voiceSlots.length >= MAX_VOICES}>+ Add</button>}
+          open={mobilePanel === "voices"}
+        >
+          {hasSynthLayer
+            ? <>
+              {voiceSlots.map((slot, i) => (
+                <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
+              ))}
+              {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
+            </>
+            // scan / ripple / matrix-rain have no oscillators at all; their
+            // controls live in the right rail, generated from their schema.
+            : <p className="synth-empty">{loader.label} is a stock effect with no oscillators — its controls are in the right panel.</p>}
+        </InstrumentRail>
+
+        <InstrumentMain>
+          <div className="ld-stage">
+            <header className="ld-stage__head">
+              <div className="ld-stage__titlerow">
+                <h1 className="ld-stage__title">{loader.label}</h1>
+                <span className="ld-stage__kind">{loader.kind === "progress" ? "determinate" : "indeterminate"}</span>
+              </div>
+            </header>
+
+            <div className="ld-sizes">
+              {LOADER_SIZES.map((s) => (
+                <LoaderTile
+                  key={`${loader.id}-${s.cols}x${s.rows}`}
+                  loader={loader}
+                  cols={s.cols}
+                  rows={s.rows}
+                  label={s.label}
+                  lang={lang}
+                  live={live}
+                  fontSize={fontSize}
+                  onCode={() => setOpenSize((cur) => (cur && cur.cols === s.cols && cur.rows === s.rows ? null : { cols: s.cols, rows: s.rows }))}
+                />
+              ))}
+            </div>
+
+            {openSize && (
+              <LoaderCodePanel
+                loader={loader}
+                cols={openSize.cols}
+                rows={openSize.rows}
+                lang={lang}
+                onLang={setLang}
+                onClose={() => setOpenSize(null)}
+              />
+            )}
           </div>
-        </header>
+        </InstrumentMain>
 
-        <div className="ld-sizes">
-          {LOADER_SIZES.map((s) => (
-            <LoaderTile
-              key={`${loader.id}-${s.cols}x${s.rows}`}
-              loader={loader}
-              cols={s.cols}
-              rows={s.rows}
-              label={s.label}
-              lang={lang}
-              onCode={() => setOpenSize((cur) => (cur && cur.cols === s.cols && cur.rows === s.rows ? null : { cols: s.cols, rows: s.rows }))}
-            />
-          ))}
-        </div>
-
-        {openSize && (
-          <LoaderCodePanel
+        <Dock id="loaders-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+          <LoadersDock
             loader={loader}
-            cols={openSize.cols}
-            rows={openSize.rows}
-            lang={lang}
-            onLang={setLang}
-            onClose={() => setOpenSize(null)}
+            params={params}
+            onParam={onParam}
+            layerParams={stockParams}
+            onLayerParam={onLayerParam}
+            timeScale={timeScale}
+            onTimeScale={setTimeScale}
+            paused={paused}
+            onPaused={setPaused}
+            density={fontSize}
+            onDensity={setFontSize}
           />
-        )}
-      </main>
+        </Dock>
+      </InstrumentBody>
 
-      <footer className="ld-strip" aria-label="Loader presets">
-        {[
-          { key: "spinner", label: "Indeterminate", items: spinners },
-          { key: "progress", label: "Determinate", items: progress },
-        ].map((group) => (
+      <InstrumentTray id="loaders-presets-panel" label="Loaders" open={mobilePanel === "presets"}>
+        {[{ key: "spinner", label: "Indeterminate", items: spinners }, { key: "progress", label: "Determinate", items: progress }].map((group) => (
           <section className="ld-group" key={group.key}>
             <h2 className="ld-group__label">{group.label}</h2>
             <div className="ld-group__items">
@@ -253,7 +399,7 @@ export default function LoadersWorkbench() {
                     type="button"
                     className="ld-tile__pick"
                     aria-pressed={l.id === loader.id}
-                    onClick={() => { setLoaderId(l.id); setOpenSize(null); }}
+                    onClick={() => selectLoader(l.id)}
                   >
                     <LoaderThumb loader={l} />
                     <span className="ld-tile__label">{l.label}</span>
@@ -263,7 +409,13 @@ export default function LoadersWorkbench() {
             </div>
           </section>
         ))}
-      </footer>
-    </div>
+      </InstrumentTray>
+
+      <InstrumentMobileTabs label="Loader panels" items={[
+        { id: "voices", label: "Voices", controls: "loaders-voices-panel", expanded: mobilePanel === "voices", onClick: () => setMobilePanel((c) => c === "voices" ? null : "voices") },
+        { id: "controls", label: "Controls", controls: "loaders-controls-panel", expanded: mobilePanel === "controls", onClick: () => setMobilePanel((c) => c === "controls" ? null : "controls") },
+        { id: "presets", label: "Loaders", controls: "loaders-presets-panel", expanded: mobilePanel === "presets", onClick: () => setMobilePanel((c) => c === "presets" ? null : "presets") },
+      ]} />
+    </InstrumentShell>
   );
 }

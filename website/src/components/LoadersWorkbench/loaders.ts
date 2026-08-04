@@ -124,7 +124,7 @@ export const LOADERS: LoaderPreset[] = [
   },
   {
     id: "scan", label: "Scan", kind: "spinner",
-    layers: [{ effectId: "scan", params: { speed: 10, width: 2, spacing: 14, color: "#7df9ff" }, blend: "over", timeScale: 1 }],
+    layers: [{ effectId: "scan", params: { direction: "down", space: "auto", scale: 1, speed: 9, width: 3, spacing: 12, color: "#5ad1ff" }, blend: "over", timeScale: 1 }],
   },
   {
     id: "ripple", label: "Ripple", kind: "spinner",

@@ -1,21 +1,24 @@
-.ld-page {
-  display: flex;
-  flex-direction: column;
-  /* Flex child of the examples shell's `.ex-main` — `height: 100%` alone does
-     not resolve there, so the stage would grow past the viewport and slide the
-     code panel under the pinned preset strip instead of scrolling. */
-  flex: 1 1 auto;
-  height: 100%;
-  min-height: 0;
-  background: #07090d;
-  color: rgba(255, 232, 184, 0.94);
-}
-
+/* `.synth-main` is a block-level flex ITEM (see instrument-workbench.css), so
+   the stage fills it the same way `.synth-viewport` does, and owns its scroll. */
 .ld-stage {
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
   overflow: auto;
-  padding: 20px 24px 28px;
+  padding: 18px 22px 24px;
+}
+/* The controls dock is an absolute overlay over `.synth-main` (it floats above
+   the synth's full-bleed render). Here the stage is CONTENT, so reserve the
+   dock's column instead of letting it cover the right-hand examples. */
+@media (min-width: 1100px) {
+  .ld-stage { padding-right: 396px; }
+}
+/* This page keeps the examples sidebar, but `.synth-shell.dn-root` is
+   `position: fixed` full-bleed and would cover it — put the shell in flow so
+   the two navigations coexist. */
+.ex-main .synth-shell.dn-root {
+  position: relative;
+  inset: auto;
+  height: 100%;
 }
 .ld-stage__head { max-width: 78ch; margin: 0 0 20px; }
 .ld-stage__titlerow { display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; }
@@ -56,8 +59,6 @@
   border: 1px solid rgba(255, 232, 184, 0.18);
 }
 .ld-mini:hover { color: #38bdf8; border-color: #38bdf8; }
-.ld-stage__note { margin: 0 0 8px; font-size: 13px; line-height: 1.5; color: rgba(255, 232, 184, 0.82); }
-.ld-stage__hint { margin: 0; font-size: 11px; line-height: 1.5; color: rgba(255, 232, 184, 0.45); }
 
 .ld-sizes {
   display: flex;
@@ -78,7 +79,7 @@
    render rather than the render being stretched to a CSS box — a 64×6 banner and
    a 6×14 column end up at genuinely different footprints, which is the point. */
 .ld-size__view { display: flex; }
-.ld-size__view .glyph-output { font-size: 11px !important; line-height: 1 !important; }
+.ld-size__view .glyph-output { font-size: inherit !important; line-height: 1 !important; }
 .ld-size__meta {
   display: flex;
   justify-content: space-between;
@@ -90,16 +91,6 @@
 .ld-size__dims { color: rgba(255, 232, 184, 0.32); }
 
 /* ── Footer: every loader, live (mirrors /wordart's .wa-presets) ─────────── */
-.ld-strip {
-  flex: 0 0 auto;
-  width: 100%;
-  display: flex;
-  gap: 18px;
-  padding: 8px 12px 10px;
-  overflow-x: auto;
-  border-top: 1px solid rgba(255, 232, 184, 0.14);
-  background: rgba(6, 8, 13, 0.92);
-}
 .ld-group { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
 .ld-group + .ld-group { border-left: 1px solid rgba(255, 232, 184, 0.14); padding-left: 18px; }
 .ld-group__label {
@@ -132,26 +123,6 @@
   font: inherit;
   cursor: pointer;
 }
-/* Per-loader export affordance. Sits above the (pointer-events-none) preview,
-   so it stays clickable without stealing the tile's own select click. */
-.ld-tile__code {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  padding: 0 4px;
-  font: inherit;
-  font-size: 9px;
-  line-height: 15px;
-  cursor: pointer;
-  color: rgba(255, 232, 184, 0.55);
-  background: rgba(4, 6, 11, 0.86);
-  border: 1px solid rgba(255, 232, 184, 0.2);
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.ld-tile:hover .ld-tile__code,
-.ld-tile.is-active .ld-tile__code { opacity: 1; }
-.ld-tile__code:hover { color: #38bdf8; border-color: #38bdf8; }
 .ld-tile:hover { border-color: rgba(56, 189, 248, 0.9); transform: translateY(-2px); }
 .ld-tile.is-active { border-color: #38bdf8; box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.5); }
 .ld-tile__thumb {
