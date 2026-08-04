@@ -121,8 +121,15 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
         const next: Record<string, number> = {};
         if (spec.timeScale) next.time = t * spec.timeScale;
         // A determinate loader's sweep is just another driven param — the page
-        // owns the clock, the effect owns the shape.
-        if (spec.progress) next[spec.progress.param] = (t % spec.progress.cycle) / spec.progress.cycle;
+        // owns the clock, the effect owns the shape. Ramp over the first
+        // `1 - hold` of the loop, then rest at 1.0: a bar that snaps straight
+        // from full back to empty reads as a glitch, not as completion.
+        if (spec.progress) {
+          const { param, cycle, hold = 0 } = spec.progress;
+          const phase = (t % cycle) / cycle;
+          const ramp = 1 - hold;
+          next[param] = ramp <= 0 ? 1 : Math.min(1, phase / ramp);
+        }
         if (Object.keys(next).length > 0) layer.setParams(next);
       }
     });

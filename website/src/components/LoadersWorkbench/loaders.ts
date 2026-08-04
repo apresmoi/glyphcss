@@ -10,8 +10,11 @@ export interface LoaderLayer {
   /** Seconds of effect `time` per wall-clock second. Omit for a static layer. */
   timeScale?: number;
   /** Drive a 0..1 param (`progress`) from the clock — what makes a loader
-   *  determinate. `cycle` is the seconds for one empty→full sweep. */
-  progress?: { param: string; cycle: number };
+   *  determinate. `cycle` is one full loop; `hold` is the fraction of it spent
+   *  resting at 1.0 before restarting. Without a hold the sweep snaps from full
+   *  straight back to empty, which reads as "resetting too soon" rather than as
+   *  a bar that completed. */
+  progress?: { param: string; cycle: number; hold?: number };
 }
 
 export type LoaderKind = "spinner" | "progress";
@@ -43,10 +46,12 @@ const synth = (
   timeScale = 1,
 ): LoaderLayer => ({ effectId: "field-synth", params: { ...SILENT, ...params }, blend: "replace", timeScale });
 
-/** A `wipe` mask driven from the clock — the determinate half of the page. */
+/** A `wipe` mask driven from the clock — the determinate half of the page.
+ *  Defaults to resting a quarter of each loop at 100%. */
 const progressMask = (
   params: Record<string, string | number | boolean>,
   cycle: number,
+  hold = 0.25,
 ): LoaderLayer => ({
   effectId: "wipe",
   params: { softness: 0.02, invert: false, progress: 0, ...params },
@@ -56,7 +61,7 @@ const progressMask = (
   // uncovered part of the bar actually empty (and why `wipe`'s own
   // `defaultBlend` is `replace`).
   blend: "replace",
-  progress: { param: "progress", cycle },
+  progress: { param: "progress", cycle, hold },
 });
 
 export const LOADERS: LoaderPreset[] = [
@@ -156,29 +161,41 @@ export const LOADERS: LoaderPreset[] = [
     id: "progress-bar", label: "Progress", kind: "progress",
     layers: [
       synth({ scale: 1, field1: "linearX", wave1: "sin", freq1: 0.5, speed1: 0, amp1: 1, glyphs: RAMP_HARD, gain: 3, bias: 0.9, color: "#38bdf8", colorB: "#0ea5e9", gradient: 0.4 }),
-      progressMask({ direction: "right", softness: 0.01 }, 4),
+      progressMask({ direction: "right", softness: 0.01 }, 7),
     ],
   },
   {
     id: "progress-soft", label: "Soft fill", kind: "progress",
     layers: [
       synth({ scale: 1, field1: "linearX", wave1: "sin", freq1: 0.5, speed1: 0, amp1: 1, glyphs: RAMP_SOFT, gain: 3, bias: 0.9, color: "#a78bfa", colorB: "#4c1d95", gradient: 0.5 }),
-      progressMask({ direction: "right", softness: 0.14 }, 4),
+      progressMask({ direction: "right", softness: 0.14 }, 7),
     ],
   },
   {
     id: "progress-stripes", label: "Striped bar", kind: "progress",
     layers: [
       synth({ scale: 1.2, field1: "diagonal", wave1: "saw", freq1: 5, speed1: 0.9, amp1: 1, glyphs: RAMP_BLOCK, color: "#ffcf5a", colorB: "#7a4a00", gradient: 0.6 }),
-      progressMask({ direction: "right", softness: 0.01 }, 5),
+      progressMask({ direction: "right", softness: 0.01 }, 8),
     ],
   },
   {
     id: "progress-gauge", label: "Gauge", kind: "progress",
     layers: [
       synth({ scale: 1, field1: "linearY", wave1: "sin", freq1: 0.5, speed1: 0, amp1: 1, glyphs: RAMP_BLOCK, gain: 3, bias: 0.9, color: "#4ade80", colorB: "#14532d", gradient: 0.5 }),
-      progressMask({ direction: "up", softness: 0.02 }, 5),
+      progressMask({ direction: "up", softness: 0.02 }, 8),
     ],
+  },
+  {
+    // No mask layer at all: a linearX field with speed 0 is a STATIC gradient
+    // across U, so sweeping `bias` walks a hard threshold along it. The voices
+    // alone make the bar — `gain` is what sharpens the fill edge.
+    id: "progress-voices", label: "Voice bar", kind: "progress",
+    layers: [{
+      effectId: "field-synth",
+      params: { ...SILENT, scale: 1, field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, glyphs: RAMP_BLOCK, gain: 8, bias: 0, color: "#7df9ff", colorB: "#0b3b52", gradient: 0.7 },
+      blend: "replace",
+      progress: { param: "bias", cycle: 7, hold: 0.25 },
+    }],
   },
   {
     id: "progress-ring", label: "Ring", kind: "progress",
@@ -186,14 +203,14 @@ export const LOADERS: LoaderPreset[] = [
       effectId: "field-synth",
       params: { ...SILENT, combine: "multiply", scale: 2, field1: "angular", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, field2: "radial", wave2: "triangle", freq2: 0.9, speed2: 0, amp2: 1, glyphs: RAMP_BLOCK, gain: 6, bias: 0, color: "#f472b6", colorB: "#831843", gradient: 0.6 },
       blend: "replace",
-      progress: { param: "bias", cycle: 5 },
+      progress: { param: "bias", cycle: 7, hold: 0.25 },
     }],
   },
   {
     id: "progress-dissolve", label: "Dissolve", kind: "progress",
     layers: [
       synth({ scale: 2.5, field1: "noise", wave1: "sin", freq1: 2, speed1: 0.25, amp1: 1, glyphs: RAMP_BLOCK, color: "#22d3ee", colorB: "#083344", gradient: 0.6 }),
-      { effectId: "noise-dissolve", params: { progress: 0, softness: 0.12, scale: 0.3, seed: 2 }, blend: "replace", progress: { param: "progress", cycle: 5 } },
+      { effectId: "noise-dissolve", params: { progress: 0, softness: 0.12, scale: 0.3, seed: 2 }, blend: "replace", progress: { param: "progress", cycle: 7, hold: 0.25 } },
     ],
   },
 ];
