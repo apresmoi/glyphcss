@@ -115,6 +115,12 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 20 });
     const scene = createGlyphScene(host, {
       camera, cols, rows, autoSize: false, mode: "solid", useColors: true,
+      // No `charMode` here on purpose: a mounted effect installs the scene's
+      // `transformCells` hook (createGlyphScene.ts), and `wantsHalfblockSolid`/
+      // `wantsQuadrantSolid` require that hook to be ABSENT — so halfblock and
+      // quadrant are structurally unreachable for an effect-driven loader.
+      // Sub-cell detail comes from field-synth's own `subcellRes: "2x4"`
+      // (braille dots), which the Braille preset uses.
       doubleSided: true, glyphPalette: "default",
       directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
       ambientLight: { intensity: 0.45 },
@@ -209,18 +215,21 @@ function LoaderTile({ loader, cols, rows, label, lang, live, fontSize, onCode }:
   };
 
   return (
+    // Header/footer rather than one meta ROW: a 6-wide render is ~40px, and a
+    // single row of label + dims + two buttons forced the tile to ~184px, so
+    // narrow loaders sat in mostly-empty boxes.
     <figure className="ld-size">
-      <div className="ld-size__view" ref={setHost} style={{ fontSize: `${fontSize}px` }} />
-      <figcaption className="ld-size__meta">
+      <figcaption className="ld-size__head">
         <span className="ld-size__label">{label}</span>
         <span className="ld-size__dims">{cols}×{rows}</span>
-        <span className="ld-size__tools">
-          <button type="button" className="ld-mini" onClick={onCode} title={`Code for ${cols}×${rows}`}>{"</>"}</button>
-          <button type="button" className="ld-mini" onClick={copy} title={`Copy ${lang.toUpperCase()} for ${cols}×${rows}`}>
-            {copied ? "✓" : "copy"}
-          </button>
-        </span>
       </figcaption>
+      <div className="ld-size__view" ref={setHost} style={{ fontSize: `${fontSize}px` }} />
+      <div className="ld-size__foot">
+        <button type="button" className="ld-mini" onClick={onCode} title={`Code for ${cols}×${rows}`} aria-label={`Code for ${cols}×${rows}`}>{"</>"}</button>
+        <button type="button" className="ld-mini" onClick={copy} title={`Copy ${lang.toUpperCase()} for ${cols}×${rows}`} aria-label={`Copy ${cols}×${rows}`}>
+          {copied ? "✓" : "⧉"}
+        </button>
+      </div>
     </figure>
   );
 }

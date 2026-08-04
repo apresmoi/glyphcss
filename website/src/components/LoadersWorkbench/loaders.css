@@ -47,12 +47,12 @@
 .ld-code-panel .gw-code-panel__body { max-height: 40vh; overflow: auto; }
 /* Per-example export controls: each tile is its own size, so each carries its
    own code/copy rather than the page carrying one ambiguous pair. */
-.ld-size__tools { display: flex; gap: 4px; margin-left: 8px; }
 .ld-mini {
   font: inherit;
   font-size: 9px;
-  line-height: 14px;
-  padding: 0 5px;
+  line-height: 15px;
+  min-width: 20px;
+  padding: 0 4px;
   cursor: pointer;
   color: rgba(255, 232, 184, 0.5);
   background: #04060b;
@@ -70,23 +70,30 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
+  /* Size the box to its render, not to its chrome: the label/dims header and the
+     button footer stack instead of sharing one row, so a 6-wide loader stops
+     sitting in a box four times its width. */
+  width: min-content;
+  min-width: 46px;
   border: 1px solid rgba(255, 232, 184, 0.14);
   background: #04060b;
-  padding: 10px 10px 8px;
+  padding: 8px 9px 7px;
 }
 /* The `<pre>` sizes itself from its cols×rows, so the tile is measured by the
    render rather than the render being stretched to a CSS box — a 64×6 banner and
    a 6×14 column end up at genuinely different footprints, which is the point. */
 .ld-size__view { display: flex; }
 .ld-size__view .glyph-output { font-size: inherit !important; line-height: 1 !important; }
-.ld-size__meta {
+.ld-size__head {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 6px;
   font-size: 10px;
   letter-spacing: 0.04em;
 }
+.ld-size__foot { display: flex; gap: 4px; }
 .ld-size__label { color: rgba(255, 232, 184, 0.62); }
 .ld-size__dims { color: rgba(255, 232, 184, 0.32); }
 

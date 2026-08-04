@@ -231,6 +231,10 @@ export interface LoaderSize {
 }
 
 export const LOADER_SIZES: LoaderSize[] = [
+  // A single cell is the hardest case a loader has to survive — one glyph, no
+  // room for a shape, only the ramp value over time.
+  { cols: 1, rows: 1, label: "single" },
+  { cols: 6, rows: 1, label: "strip" },
   { cols: 6, rows: 2, label: "inline" },
   { cols: 12, rows: 3, label: "badge" },
   { cols: 24, rows: 3, label: "bar" },
