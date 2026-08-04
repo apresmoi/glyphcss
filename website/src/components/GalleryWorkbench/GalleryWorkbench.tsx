@@ -797,15 +797,14 @@ export default function GalleryWorkbench() {
           creaseAngle={sceneOptions.creaseAngle}
           onRenderModeChange={handleRenderModeChange}
           onUpdateScene={updateScene}
-          semanticDetails={<section className="gallery-semantic-details" aria-label="Semantic rendering details">
-            {glyphOutput === "semantic" && semanticScene ? <>
-              <p className="gallery-semantic-details__note">Immutable class labels for this authored cube fixture.</p>
+          semanticDetails={glyphOutput === "semantic" && semanticScene
+            ? <section className="gallery-semantic-details" aria-label="Semantic rendering details">
               <ul className="gallery-semantic-details__legend" aria-label="Semantic dictionary legend">
                 {semanticScene.dictionary.classes.map((entry) => <li key={entry.id}><i style={{ backgroundColor: entry.controlColor }} /><code>{entry.semanticGlyph}</code><span>{entry.name}</span></li>)}
               </ul>
               <p className="gallery-semantic-details__lineage">{semanticCell ? <>polygon {semanticCell.polygonIndex} → {semanticCell.surfaceId} → {semanticCell.instanceId} → {semanticCell.className}</> : "Select a rendered semantic cell to inspect its depth-winning lineage."}</p>
-            </> : <p className="gallery-semantic-details__note">{semanticAvailable ? "Select Semantic to inspect the cube's immutable class labels." : "Semantic labels are available for the authored Cube fixture. This model stays usable in its selected visible render mode."}</p>}
-          </section>}
+            </section>
+            : null}
         />
         <DockEffects
           effectState={effectState}
