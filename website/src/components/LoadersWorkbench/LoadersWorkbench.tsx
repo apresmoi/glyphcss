@@ -48,6 +48,30 @@ WIREFRAME_PALETTES[BRAILLE_BLANK_PALETTE] = {
   ...WIREFRAME_PALETTES.default!,
   solid: ["\u2800"],
 };
+/**
+ * Braille's fallback font is WIDER than the monospace face (7.52px vs 6.60px at
+ * 11px), so a Braille grid occupies a bigger box than the same cols×rows in
+ * ASCII and every tile jumps ~14% when you switch Subcell. Pull the advance back
+ * to the ASCII cell with negative tracking, measured live rather than hardcoded
+ * because both advances scale with the rendered font-size. Braille dots sit well
+ * inside their em box, so tightening by the difference doesn't clip them.
+ */
+function applyBrailleTracking(pre: HTMLElement): void {
+  const cs = getComputedStyle(pre);
+  const probe = pre.ownerDocument.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;letter-spacing:normal";
+  probe.style.font = cs.font;
+  pre.ownerDocument.body.appendChild(probe);
+  const advance = (ch: string): number => {
+    probe.textContent = ch.repeat(50);
+    return probe.getBoundingClientRect().width / 50;
+  };
+  const ascii = advance("M");
+  const braille = advance("\u28FF");
+  probe.remove();
+  pre.style.letterSpacing = ascii > 0 && braille > 0 ? `${(ascii - braille).toFixed(3)}px` : "";
+}
+
 const rendersBraille = (loader: LoaderPreset, live?: LiveEdits): boolean =>
   loader.layers.some((layer, index) =>
     (live?.layerParams[index]?.subcellRes ?? layer.params.subcellRes) === "2x4");
@@ -91,7 +115,7 @@ function registerTick(fn: Tick): () => void {
  *  with the MEASURED cell (see synthKit's `frameObject` for the same rationale):
  *  the default `cellAspect` is ~20% off the real monospace cell, and a
  *  fixed-size scene has no `fitToHost` to correct it. */
-function coverGrid(scene: GlyphSceneHandle, camera: ReturnType<typeof createGlyphOrthographicCamera>, polys: Polys): void {
+function coverGrid(scene: GlyphSceneHandle, camera: ReturnType<typeof createGlyphOrthographicCamera>, polys: Polys, overscan = 1): void {
   const o = scene.getOptions();
   const cols = o.cols ?? 80, rows = o.rows ?? 24;
   const pre = scene.host.querySelector("pre.glyph-output") as HTMLElement | null;
@@ -116,7 +140,7 @@ function coverGrid(scene: GlyphSceneHandle, camera: ReturnType<typeof createGlyp
     }
   }
   const w = maxc - minc, h = maxr - minr;
-  if (w > 0 && h > 0) camera.zoom = Math.max(cols / w, rows / h);
+  if (w > 0 && h > 0) camera.zoom = Math.max(cols / w, rows / h) * overscan;
 }
 
 /** Live edit state pushed into an already-mounted scene. Absent for the footer
@@ -157,7 +181,15 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     const polys = flatQuad(3, "#243244");
     scene.add(polys);
     scene.rerender();
-    coverGrid(scene, camera, polys);
+    // Before framing: tracking changes the cell width, and coverGrid measures
+    // the real cell to derive cellAspect and the zoom.
+    const pre = scene.host.querySelector("pre.glyph-output") as HTMLElement | null;
+    if (pre && braille) applyBrailleTracking(pre);
+    // Braille overscans a touch so no edge cell is left uncovered: an empty cell
+    // is an ASCII space, and the negative tracking above is calibrated for the
+    // Braille advance, so a stray space would measure narrow and pull the line
+    // back out of alignment with the ASCII grid.
+    coverGrid(scene, camera, polys, braille ? 1.2 : 1);
     scene.rerender();
 
     const mounted = loader.layers.map((spec, index) => {
