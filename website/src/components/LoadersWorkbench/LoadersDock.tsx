@@ -11,10 +11,17 @@ const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
 const COMBINE_OPTS = opts(["add", "multiply", "max", "min", "difference"] as const);
 const SPACE_OPTS = opts(["auto", "surface", "scene"] as const);
 const SUBCELL_OPTS = opts(["1x1", "2x4"] as const);
-/** Named character sets, same source /synth and the gallery pick from. */
-const RAMP_OPTS: Record<string, string> = Object.fromEntries(Object.entries(GlyphRamps).map(([name, ramp]) => [name, ramp]));
-const rampNameFor = (glyphs: string): string =>
-  Object.entries(GlyphRamps).find(([, ramp]) => ramp === glyphs)?.[1] ?? "";
+/** Named character sets, same source /synth and the gallery pick from. The
+ *  option VALUE is the ramp's NAME (not its glyphs), and "Custom" covers a
+ *  hand-typed ramp — without it the select reads blank whenever a preset ships
+ *  a ramp that is not one of the named ones. */
+const RAMP_OPTS: Record<string, string> = {
+  ...Object.fromEntries(Object.keys(GlyphRamps).map((k) => [k, k])),
+  Custom: "Custom",
+};
+const CUSTOM_RAMP = "Custom";
+const matchRamp = (glyphs: string): string =>
+  Object.entries(GlyphRamps).find(([, ramp]) => ramp === glyphs)?.[0] ?? CUSTOM_RAMP;
 
 /**
  * Right rail for /examples/loaders — the same lil-gui dock /synth uses, with
@@ -70,7 +77,12 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   // the ramp at all (the ramp branch is the 1x1-only `else` in its evaluate()),
   // so Ramp/Chars are dimmed rather than left live and inert — same treatment
   // /synth gives them.
-  const ramp = useOption(output, "Ramp", RAMP_OPTS, rampNameFor(s("glyphs")), (v) => onParam("glyphs", v));
+  const ramp = useOption(output, "Ramp", RAMP_OPTS, matchRamp(s("glyphs")), (name) => {
+    // "Custom" is a display state for a hand-typed ramp, not a ramp itself —
+    // picking it would have no glyphs to apply, so it leaves Chars alone.
+    const next = GlyphRamps[name];
+    if (next) onParam("glyphs", next);
+  });
   // An empty ramp leaves the shader with no glyph to index and blanks the
   // render, so reject it instead of accepting an unusable value.
   const chars = useText(output, "Chars", s("glyphs"), (v) => onParam("glyphs", v), (next) => next.length > 0);
