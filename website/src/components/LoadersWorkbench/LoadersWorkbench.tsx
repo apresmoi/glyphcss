@@ -184,7 +184,17 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     // Before framing: tracking changes the cell width, and coverGrid measures
     // the real cell to derive cellAspect and the zoom.
     const pre = scene.host.querySelector("pre.glyph-output") as HTMLElement | null;
-    if (pre && braille) applyBrailleTracking(pre);
+    if (pre && braille) {
+      applyBrailleTracking(pre);
+      // Tracking is calibrated for the Braille advance, so any cell the effect
+      // does NOT cover — a wipe-masked progress bar's empty half, say — is an
+      // ASCII space that measures narrower, and the box would grow as the fill
+      // sweeps in. Pin the width to the ASCII grid (`ch` is the "0" advance, so
+      // it tracks the Cell size slider) and coverage can no longer move it.
+      // Masked-out runs are contiguous and blank, so the sub-pixel drift inside
+      // them is invisible.
+      pre.style.width = `${cols}ch`;
+    }
     // Braille overscans a touch so no edge cell is left uncovered: an empty cell
     // is an ASCII space, and the negative tracking above is calibrated for the
     // Braille advance, so a stray space would measure narrow and pull the line
