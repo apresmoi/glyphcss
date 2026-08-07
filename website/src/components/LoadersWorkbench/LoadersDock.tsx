@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { getGlyphEffect } from "@glyphcss/effects";
+import { useEffect, type ReactNode } from "react";
+import { getGlyphEffect, GlyphRamps } from "@glyphcss/effects";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import type { Params, ParamValue } from "../SynthWorkbench/synthKit";
@@ -11,6 +11,10 @@ const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
 const COMBINE_OPTS = opts(["add", "multiply", "max", "min", "difference"] as const);
 const SPACE_OPTS = opts(["auto", "surface", "scene"] as const);
 const SUBCELL_OPTS = opts(["1x1", "2x4"] as const);
+/** Named character sets, same source /synth and the gallery pick from. */
+const RAMP_OPTS: Record<string, string> = Object.fromEntries(Object.entries(GlyphRamps).map(([name, ramp]) => [name, ramp]));
+const rampNameFor = (glyphs: string): string =>
+  Object.entries(GlyphRamps).find(([, ramp]) => ramp === glyphs)?.[1] ?? "";
 
 /**
  * Right rail for /examples/loaders — the same lil-gui dock /synth uses, with
@@ -62,10 +66,26 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
 
   const output = useFolder(hasSynth ? gui : null, "Output", { open: true });
   useOption(output, "Subcell", SUBCELL_OPTS, s("subcellRes"), (v) => onParam("subcellRes", v));
-  useText(output, "Chars", s("glyphs"), (v) => onParam("glyphs", v));
+  // At 2x4 field-synth synthesizes a Braille dot mask per cell and never reads
+  // the ramp at all (the ramp branch is the 1x1-only `else` in its evaluate()),
+  // so Ramp/Chars are dimmed rather than left live and inert — same treatment
+  // /synth gives them.
+  const ramp = useOption(output, "Ramp", RAMP_OPTS, rampNameFor(s("glyphs")), (v) => onParam("glyphs", v));
+  // An empty ramp leaves the shader with no glyph to index and blanks the
+  // render, so reject it instead of accepting an unusable value.
+  const chars = useText(output, "Chars", s("glyphs"), (v) => onParam("glyphs", v), (next) => next.length > 0);
   useColor(output, "Color", s("color"), (v) => onParam("color", v));
   useColor(output, "Color B", s("colorB"), (v) => onParam("colorB", v));
   useSlider(output, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
+
+  const subcellIs2x4 = s("subcellRes") === "2x4";
+  useEffect(() => {
+    for (const c of [ramp, chars]) {
+      if (!c) continue;
+      if (subcellIs2x4) { c.raw.disable(); c.raw.$name.title = "Subcell = 2x4 renders a Braille dot mask, not the ramp — Chars/Ramp have no effect."; }
+      else { c.raw.enable(); c.raw.$name.title = ""; }
+    }
+  }, [ramp, chars, subcellIs2x4]);
 
   // Every layer that is not the field-synth patch, driven straight off its
   // stock `parameterSchema` — no per-effect UI to keep in sync.

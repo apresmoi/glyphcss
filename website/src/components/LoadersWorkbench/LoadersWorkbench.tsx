@@ -5,6 +5,7 @@ import {
   injectGlyphBaseStyles,
   type GlyphEffectDefinition,
   type GlyphEffectParamSchema,
+  WIREFRAME_PALETTES,
   type GlyphSceneHandle,
 } from "glyphcss";
 import { getGlyphEffect } from "@glyphcss/effects";
@@ -27,6 +28,29 @@ import "../GalleryWorkbench/gallery-workbench.css";
 import "./loaders.css";
 
 type Polys = Parameters<GlyphSceneHandle["add"]>[0];
+
+/**
+ * Braille glyphs (U+28xx) are NOT in the monospace face this page renders with,
+ * so the browser serves them from a fallback font at a different advance —
+ * measured 7.52px vs 6.60px for ASCII, 14% wider. field-synth at
+ * `subcellRes: "2x4"` skips cells whose value hits 0, and those fall through to
+ * the base plane's ASCII ramp, so a frame mixes both widths; as the pattern
+ * animates the mix changes, the widest line changes, and the whole `<pre>`
+ * visibly resizes frame to frame.
+ *
+ * Fix: when a loader renders Braille, give the BASE a blank-Braille ramp. Every
+ * cell is then a U+28xx glyph on one font with one advance — U+2800 has no dots,
+ * so an empty cell looks exactly like a space but measures like Braille. This is
+ * the same convention drawille-style renderers use for blank Braille cells.
+ */
+const BRAILLE_BLANK_PALETTE = "loaders-braille-blank";
+WIREFRAME_PALETTES[BRAILLE_BLANK_PALETTE] = {
+  ...WIREFRAME_PALETTES.default!,
+  solid: ["\u2800"],
+};
+const rendersBraille = (loader: LoaderPreset, live?: LiveEdits): boolean =>
+  loader.layers.some((layer, index) =>
+    (live?.layerParams[index]?.subcellRes ?? layer.params.subcellRes) === "2x4");
 
 // Every loader is a texture on the same head-on flat quad, so the page compares
 // patterns and box shapes rather than geometry.
@@ -108,6 +132,10 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
   const mountedRef = useRef<{ layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderLayer }[]>([]);
   const liveRef = useRef(live);
   liveRef.current = live;
+  // Switching Subcell live changes which ramp the BASE must use, and the ramp is
+  // fixed at scene creation — so this one edit re-mounts, unlike every other
+  // param which is pushed into the running scene.
+  const braille = rendersBraille(loader, live);
 
   useEffect(() => {
     if (!host) return;
@@ -115,13 +143,14 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 20 });
     const scene = createGlyphScene(host, {
       camera, cols, rows, autoSize: false, mode: "solid", useColors: true,
+      glyphPalette: braille ? BRAILLE_BLANK_PALETTE : "default",
       // No `charMode` here on purpose: a mounted effect installs the scene's
       // `transformCells` hook (createGlyphScene.ts), and `wantsHalfblockSolid`/
       // `wantsQuadrantSolid` require that hook to be ABSENT — so halfblock and
       // quadrant are structurally unreachable for an effect-driven loader.
       // Sub-cell detail comes from field-synth's own `subcellRes: "2x4"`
       // (braille dots), which the Braille preset uses.
-      doubleSided: true, glyphPalette: "default",
+      doubleSided: true,
       directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
       ambientLight: { intensity: 0.45 },
     });
@@ -137,7 +166,12 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       const layer = scene.addEffectLayer({
         effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema>,
         params: { ...spec.params, ...(liveRef.current?.layerParams[index] ?? {}) },
-        blend: spec.blend,
+        // Braille needs EVERY cell to be a U+28xx glyph or the line mixes two
+        // font advances (see BRAILLE_BLANK_PALETTE). Under `replace` a cell the
+        // effect skips gets coverage 0 and the compositor forces a hard " ";
+        // under `over` it falls through to the base's blank-Braille glyph, which
+        // has no dots and so looks identical while measuring like Braille.
+        blend: braille && spec.effectId === "field-synth" ? "over" : spec.blend,
         target: "surfaces",
       });
       return { layer, spec };
@@ -175,7 +209,7 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       for (const { layer } of mounted) layer.dispose();
       scene.destroy();
     };
-  }, [host, cols, rows, loader]);
+  }, [host, cols, rows, loader, braille]);
 
   // Push edits without remounting — re-creating the scene per slider tick would
   // restart every animation mid-drag.
