@@ -562,6 +562,25 @@ export function SynthScope({ paramsRef, tsRef, pausedRef }: {
 }
 
 // ── Voice card (left rail) ────────────────────────────────────────────────────
+/**
+ * Frequency taper. `freq` is linear 0..24 in the schema, but every authored
+ * preset in this repo lives between 0.5 and 14 and the loaders never exceed 6.7
+ * — on a linear dial the whole useful range is squeezed into the bottom third
+ * while half the travel is spent above 12. A cubic taper spends travel by RATIO
+ * instead of by unit, so 0..1 gets ~35% of the dial and 0..10 gets ~75%, and
+ * unlike a true log it represents 0 exactly (log(0) is undefined and `freq: 0`
+ * is a legal, meaningful value — a voice with no spatial variation).
+ */
+const FREQ_TAPER = 3;
+export const freqFromSlider = (pos: number, max: number): number => {
+  const v = max * Math.pow(Math.min(1, Math.max(0, pos)), FREQ_TAPER);
+  // Finer quantization down low, where the taper hands you the resolution: a
+  // flat 0.1 step would throw that resolution away exactly where it was bought.
+  return v < 2 ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10;
+};
+export const freqToSlider = (value: number, max: number): number =>
+  Math.pow(Math.min(1, Math.max(0, value / max)), 1 / FREQ_TAPER);
+
 export function VoiceCard({ slot, index, params, onParam, onRemove }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
@@ -601,7 +620,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove }: {
         </div>
         <IconToggle groupTitle="Wave — the oscillator shape sampled across this voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
         <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
-        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={24} step={0.1} value={num("freq")} style={fill(num("freq"), 0, 24)} onChange={(e) => onParam(`freq${slot}`, +e.target.value)} /></span><b>{num("freq").toFixed(1)}</b></label>
+        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), 24)} style={fill(freqToSlider(num("freq"), 24), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, 24))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
       </div>
