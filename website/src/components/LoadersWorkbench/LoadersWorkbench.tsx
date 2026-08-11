@@ -72,6 +72,24 @@ function applyBrailleTracking(pre: HTMLElement): void {
   pre.style.letterSpacing = ascii > 0 && braille > 0 ? `${(ascii - braille).toFixed(3)}px` : "";
 }
 
+/**
+ * The overlay is a SECOND `<pre>` stacked on the tile, not a layer composited
+ * into the same grid — a grid holds one glyph per cell, so compositing would
+ * REPLACE the loader's glyphs rather than overlay them. Stacking keeps the
+ * loader intact underneath and lets CSS opacity do the blending.
+ *
+ * Its base plane uses a ramp of pure spaces so every cell the voice does not
+ * reach stays empty and the render below shows through untouched.
+ */
+const GHOST_BLANK_PALETTE = "loaders-ghost-blank";
+WIREFRAME_PALETTES[GHOST_BLANK_PALETTE] = {
+  ...WIREFRAME_PALETTES.default!,
+  solid: [" "],
+};
+/** Two steps, so only the crest of the wave marks a cell — a contour hint
+ *  rather than a second fill competing with the loader. */
+const GHOST_RAMP = " ·";
+
 const rendersBraille = (loader: LoaderPreset, live?: LiveEdits): boolean =>
   loader.layers.some((layer, index) =>
     (live?.layerParams[index]?.subcellRes ?? layer.params.subcellRes) === "2x4");
@@ -152,12 +170,6 @@ interface LiveEdits {
   highlight: { current: { slot: number | null; params: Params } };
 }
 
-/** Opacity of the "where does this voice apply" overlay. Low enough to read as
- *  a shadow over the real render rather than replacing it. */
-const SOLO_OVERLAY_OPACITY = 0.55;
-/** A sparse ramp so the overlay reads as crests-and-troughs contour rather than
- *  a second solid fill competing with the loader underneath. */
-const SOLO_OVERLAY_RAMP = " ·-+*#";
 
 /** Mount one live loader at an exact cols×rows. Fixed grid (no `autoSize`) is
  *  the whole point — the box shape is the variable under test. */
@@ -229,53 +241,17 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     }).filter(Boolean) as { layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderLayer }[];
     mountedRef.current = mounted;
 
-    // One always-mounted overlay per tile, disabled until a voice is hovered:
-    // `enabled`/`opacity`/`setParams` recompose from the RETAINED grid, so
-    // toggling it never re-transforms or re-projects the mesh (AGENTS.md,
-    // "Retained Glyph Effects"). Mounting on hover instead would pay a full
-    // effect-layer mount across every tile on each pointer move.
-    const synthDefinition = loader.layers.some((l) => l.effectId === "field-synth")
-      ? getGlyphEffect("field-synth")
-      : undefined;
-    const solo = synthDefinition
-      ? scene.addEffectLayer({
-        effect: synthDefinition as GlyphEffectDefinition<GlyphEffectParamSchema>,
-        params: { ...synthDefaults() },
-        blend: "over",
-        target: "surfaces",
-      })
-      : null;
-    if (solo) { solo.enabled = false; solo.opacity = SOLO_OVERLAY_OPACITY; }
 
     scene.rerender();
 
     let clock = 0;
     let previous: number | null = null;
-    let soloSlot: number | null = null;
     const stop = registerTick((t) => {
       // A paused loader holds its frame: advance our own accumulator only while
       // running, so unpausing resumes instead of jumping forward by the gap.
       const drive = liveRef.current?.drive.current;
       if (previous !== null && !(drive?.paused ?? false)) clock += (t - previous) * (drive?.timeScale ?? 1);
       previous = t;
-      if (solo) {
-        const hl = liveRef.current?.highlight.current;
-        const slot = hl?.slot ?? null;
-        if (slot !== soloSlot) {
-          soloSlot = slot;
-          solo.enabled = slot !== null;
-          if (slot !== null && hl) {
-            solo.setParams({
-              ...soloParams(hl.params, slot),
-              glyphs: SOLO_OVERLAY_RAMP,
-              // Paint in the voice's own colour so two voices are told apart.
-              voiceColors: true,
-              lit: 0,
-            });
-          }
-        }
-        if (slot !== null) solo.setParams({ time: clock });
-      }
       for (const { layer, spec } of mounted) {
         const next: Record<string, number> = {};
         if (spec.timeScale) next.time = clock * spec.timeScale;
@@ -294,7 +270,6 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     });
     return () => {
       stop();
-      solo?.dispose();
       mountedRef.current = [];
       for (const { layer } of mounted) layer.dispose();
       scene.destroy();
@@ -313,6 +288,74 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
   }, [edits]);
 }
 
+
+/**
+ * The hover overlay: its own scene writing its own `<pre>`, stacked over the
+ * tile. Always mounted so a pointer move never pays a scene mount, but it only
+ * renders while a voice is hovered — with no highlight it neither updates
+ * params nor writes, and CSS hides it.
+ */
+function useGhostScene(host: HTMLElement | null, cols: number, rows: number, live: LiveEdits): void {
+  const liveRef = useRef(live);
+  liveRef.current = live;
+
+  useEffect(() => {
+    if (!host) return;
+    injectGlyphBaseStyles(host.ownerDocument ?? undefined);
+    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 20 });
+    const scene = createGlyphScene(host, {
+      camera, cols, rows, autoSize: false, mode: "solid", useColors: true,
+      glyphPalette: GHOST_BLANK_PALETTE, doubleSided: true,
+      directionalLight: { direction: [0.2, 0.3, 0.93], intensity: 0.85 },
+      ambientLight: { intensity: 0.45 },
+    });
+    const polys = flatQuad(3, "#000000");
+    scene.add(polys);
+    scene.rerender();
+    coverGrid(scene, camera, polys);
+    scene.rerender();
+
+    const definition = getGlyphEffect("field-synth");
+    const layer = definition
+      ? scene.addEffectLayer({
+        effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema>,
+        params: { ...synthDefaults(), glyphs: GHOST_RAMP },
+        blend: "over",
+        target: "surfaces",
+      })
+      : null;
+    if (!layer) { scene.destroy(); return; }
+
+    let shownSlot: number | null = null;
+    let clock = 0;
+    let previous: number | null = null;
+    const stop = registerTick((t) => {
+      const drive = liveRef.current.drive.current;
+      if (previous !== null && !drive.paused) clock += (t - previous) * drive.timeScale;
+      previous = t;
+      const { slot, params } = liveRef.current.highlight.current;
+      if (slot !== shownSlot) {
+        shownSlot = slot;
+        host.style.opacity = slot === null ? "0" : "1";
+        if (slot !== null) {
+          layer.setParams({
+            ...soloParams(params, slot),
+            glyphs: GHOST_RAMP,
+            // Only the crest marks a cell: push the threshold high so the trace
+            // reads as a contour of where this voice peaks, not a wash.
+            gain: 2.4,
+            bias: -0.55,
+            voiceColors: true,
+            lit: 0,
+          });
+        }
+      }
+      if (slot !== null) layer.setParams({ time: clock });
+    });
+    return () => { stop(); layer.dispose(); scene.destroy(); };
+  }, [host, cols, rows]);
+}
+
 function LoaderTile({ loader, cols, rows, label, lang, live, fontSize, onCode }: {
   loader: LoaderPreset;
   cols: number;
@@ -324,8 +367,10 @@ function LoaderTile({ loader, cols, rows, label, lang, live, fontSize, onCode }:
   onCode: () => void;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
+  const [ghost, setGhost] = useState<HTMLDivElement | null>(null);
   const [copied, setCopied] = useState(false);
   useLoaderScene(host, loader, cols, rows, live);
+  useGhostScene(ghost, cols, rows, live);
 
   // Each example is its own exportable size, so its snippet states THIS grid.
   const copy = async () => {
@@ -347,7 +392,10 @@ function LoaderTile({ loader, cols, rows, label, lang, live, fontSize, onCode }:
         <span className="ld-size__label">{label}</span>
         <span className="ld-size__dims">{cols}×{rows}</span>
       </figcaption>
-      <div className="ld-size__view" ref={setHost} style={{ fontSize: `${fontSize}px` }} />
+      <div className="ld-size__stack" style={{ fontSize: `${fontSize}px` }}>
+        <div className="ld-size__view" ref={setHost} />
+        <div className="ld-size__ghost" ref={setGhost} aria-hidden="true" />
+      </div>
       <div className="ld-size__foot">
         <button type="button" className="ld-mini" onClick={onCode} title={`Code for ${cols}×${rows}`} aria-label={`Code for ${cols}×${rows}`}>{"</>"}</button>
         <button type="button" className="ld-mini" onClick={copy} title={`Copy ${lang.toUpperCase()} for ${cols}×${rows}`} aria-label={`Copy ${cols}×${rows}`}>

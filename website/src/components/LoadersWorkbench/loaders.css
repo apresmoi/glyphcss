@@ -83,7 +83,26 @@
 /* The `<pre>` sizes itself from its cols×rows, so the tile is measured by the
    render rather than the render being stretched to a CSS box — a 64×6 banner and
    a 6×14 column end up at genuinely different footprints, which is the point. */
+/* The hover overlay is a second `<pre>` sitting exactly on top of the render —
+   same cols×rows and font metrics, so the two grids align cell for cell. */
+.ld-size__stack { position: relative; display: flex; }
 .ld-size__view { display: flex; }
+.ld-size__ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+.ld-size__ghost .glyph-output {
+  font-size: inherit !important;
+  line-height: 1 !important;
+  /* A faint bloom is what makes a one-dot-per-crest trace readable at this
+     weight without turning it into a second solid layer. */
+  text-shadow: 0 0 4px currentColor;
+  mix-blend-mode: screen;
+}
 .ld-size__view .glyph-output { font-size: inherit !important; line-height: 1 !important; }
 .ld-size__head {
   display: flex;
