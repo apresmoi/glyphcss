@@ -581,9 +581,14 @@ export const freqFromSlider = (pos: number, max: number): number => {
 export const freqToSlider = (value: number, max: number): number =>
   Math.pow(Math.min(1, Math.max(0, value / max)), 1 / FREQ_TAPER);
 
-export function VoiceCard({ slot, index, params, onParam, onRemove }: {
+export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
+  /** Fires this card's slot while the pointer is on it (and null when it
+   *  leaves), so a host can highlight that voice's contribution in the render.
+   *  Optional — /synth doesn't use it. Pointer-over covers dragging too, since
+   *  the pointer stays on the card for the whole drag. */
+  onHover?: (slot: number | null) => void;
 }) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const f = (k: string) => String(params[`${k}${slot}`]);
@@ -602,7 +607,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove }: {
   useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
-    <div className="voice-card">
+    <div className="voice-card" onPointerEnter={() => onHover?.(slot)} onPointerLeave={() => onHover?.(null)}>
       <div className="voice-left">
         <svg className="voice-trend" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />

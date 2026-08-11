@@ -10,7 +10,7 @@ import {
 } from "glyphcss";
 import { getGlyphEffect } from "@glyphcss/effects";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
-import { MAX_VOICES, VoiceCard, synthDefaults, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
+import { MAX_VOICES, VoiceCard, soloParams, synthDefaults, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import { Dock } from "../Dock";
 import {
   InstrumentBody,
@@ -148,7 +148,16 @@ function coverGrid(scene: GlyphSceneHandle, camera: ReturnType<typeof createGlyp
 interface LiveEdits {
   layerParams: Record<number, Params>;
   drive: { current: { timeScale: number; paused: boolean } };
+  /** Which voice the pointer is on, if any — drives the solo overlay below. */
+  highlight: { current: { slot: number | null; params: Params } };
 }
+
+/** Opacity of the "where does this voice apply" overlay. Low enough to read as
+ *  a shadow over the real render rather than replacing it. */
+const SOLO_OVERLAY_OPACITY = 0.55;
+/** A sparse ramp so the overlay reads as crests-and-troughs contour rather than
+ *  a second solid fill competing with the loader underneath. */
+const SOLO_OVERLAY_RAMP = " ·-+*#";
 
 /** Mount one live loader at an exact cols×rows. Fixed grid (no `autoSize`) is
  *  the whole point — the box shape is the variable under test. */
@@ -219,16 +228,54 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
       return { layer, spec };
     }).filter(Boolean) as { layer: ReturnType<GlyphSceneHandle["addEffectLayer"]>; spec: LoaderLayer }[];
     mountedRef.current = mounted;
+
+    // One always-mounted overlay per tile, disabled until a voice is hovered:
+    // `enabled`/`opacity`/`setParams` recompose from the RETAINED grid, so
+    // toggling it never re-transforms or re-projects the mesh (AGENTS.md,
+    // "Retained Glyph Effects"). Mounting on hover instead would pay a full
+    // effect-layer mount across every tile on each pointer move.
+    const synthDefinition = loader.layers.some((l) => l.effectId === "field-synth")
+      ? getGlyphEffect("field-synth")
+      : undefined;
+    const solo = synthDefinition
+      ? scene.addEffectLayer({
+        effect: synthDefinition as GlyphEffectDefinition<GlyphEffectParamSchema>,
+        params: { ...synthDefaults() },
+        blend: "over",
+        target: "surfaces",
+      })
+      : null;
+    if (solo) { solo.enabled = false; solo.opacity = SOLO_OVERLAY_OPACITY; }
+
     scene.rerender();
 
     let clock = 0;
     let previous: number | null = null;
+    let soloSlot: number | null = null;
     const stop = registerTick((t) => {
       // A paused loader holds its frame: advance our own accumulator only while
       // running, so unpausing resumes instead of jumping forward by the gap.
       const drive = liveRef.current?.drive.current;
       if (previous !== null && !(drive?.paused ?? false)) clock += (t - previous) * (drive?.timeScale ?? 1);
       previous = t;
+      if (solo) {
+        const hl = liveRef.current?.highlight.current;
+        const slot = hl?.slot ?? null;
+        if (slot !== soloSlot) {
+          soloSlot = slot;
+          solo.enabled = slot !== null;
+          if (slot !== null && hl) {
+            solo.setParams({
+              ...soloParams(hl.params, slot),
+              glyphs: SOLO_OVERLAY_RAMP,
+              // Paint in the voice's own colour so two voices are told apart.
+              voiceColors: true,
+              lit: 0,
+            });
+          }
+        }
+        if (slot !== null) solo.setParams({ time: clock });
+      }
       for (const { layer, spec } of mounted) {
         const next: Record<string, number> = {};
         if (spec.timeScale) next.time = clock * spec.timeScale;
@@ -247,6 +294,7 @@ function useLoaderScene(host: HTMLElement | null, loader: LoaderPreset, cols: nu
     });
     return () => {
       stop();
+      solo?.dispose();
       mountedRef.current = [];
       for (const { layer } of mounted) layer.dispose();
       scene.destroy();
@@ -350,6 +398,11 @@ export default function LoadersWorkbench() {
   // The scope draws from its own rAF, so it needs always-fresh refs rather than
   // render-time values (same contract SynthDock passes to SynthScope).
   const paramsRef = useRef(params); paramsRef.current = params;
+  // Hover lives in a ref, not state: the tick reads it every frame, and a
+  // re-render per pointer move across 11 mounted scenes buys nothing.
+  const highlight = useRef<{ slot: number | null; params: Params }>({ slot: null, params });
+  highlight.current.params = params;
+  const onVoiceHover = useCallback((slot: number | null) => { highlight.current.slot = slot; }, []);
   const tsRef = useRef(timeScale); tsRef.current = timeScale;
   const pausedRef = useRef(paused); pausedRef.current = paused;
   const first = useRef(true);
@@ -396,7 +449,7 @@ export default function LoadersWorkbench() {
     loader.layers.forEach((l, i) => { out[i] = l.effectId === "field-synth" ? params : (stockParams[i] ?? ({} as Params)); });
     return out;
   }, [loader, params, stockParams]);
-  const live = useMemo<LiveEdits>(() => ({ layerParams, drive }), [layerParams]);
+  const live = useMemo<LiveEdits>(() => ({ layerParams, drive, highlight }), [layerParams]);
 
   const hasSynthLayer = loader.layers.some((l) => l.effectId === "field-synth");
   const spinners = LOADERS.filter((l) => l.kind === "spinner");
@@ -414,7 +467,7 @@ export default function LoadersWorkbench() {
           {hasSynthLayer
             ? <>
               {voiceSlots.map((slot, i) => (
-                <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} />
+                <VoiceCard key={slot} slot={slot} index={i} params={params} onParam={onParam} onRemove={() => removeVoice(slot)} onHover={onVoiceHover} />
               ))}
               {voiceSlots.length === 0 && <p className="synth-empty">No voices — add one to start.</p>}
             </>
