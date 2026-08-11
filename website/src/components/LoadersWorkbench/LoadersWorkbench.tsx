@@ -347,6 +347,11 @@ export default function LoadersWorkbench() {
   const voiceSlotsRef = useRef(voiceSlots); voiceSlotsRef.current = voiceSlots;
   const drive = useRef({ timeScale, paused });
   drive.current = { timeScale, paused };
+  // The scope draws from its own rAF, so it needs always-fresh refs rather than
+  // render-time values (same contract SynthDock passes to SynthScope).
+  const paramsRef = useRef(params); paramsRef.current = params;
+  const tsRef = useRef(timeScale); tsRef.current = timeScale;
+  const pausedRef = useRef(paused); pausedRef.current = paused;
   const first = useRef(true);
 
   useEffect(() => {
@@ -469,6 +474,9 @@ export default function LoadersWorkbench() {
             onPaused={setPaused}
             density={fontSize}
             onDensity={setFontSize}
+            paramsRef={paramsRef}
+            tsRef={tsRef}
+            pausedRef={pausedRef}
           />
         </Dock>
       </InstrumentBody>

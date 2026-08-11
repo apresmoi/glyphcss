@@ -1,8 +1,9 @@
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { getGlyphEffect, GlyphRamps } from "@glyphcss/effects";
 import { useDockGui } from "../Dock/slots";
-import { useColor, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
-import type { Params, ParamValue } from "../SynthWorkbench/synthKit";
+import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
+import { SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import type { LoaderPreset } from "./loaders";
 
 const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
@@ -33,7 +34,7 @@ const matchRamp = (glyphs: string): string =>
  * `parameterSchema`, so every loader is tunable rather than only the ~20
  * field-synth ones.
  */
-export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam, timeScale, onTimeScale, paused, onPaused, density, onDensity }: {
+export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam, timeScale, onTimeScale, paused, onPaused, density, onDensity, paramsRef, tsRef, pausedRef }: {
   loader: LoaderPreset;
   params: Params;
   onParam: (key: string, value: ParamValue) => void;
@@ -47,6 +48,11 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
    *  a loader's cols×rows is the example itself — so it scales the glyph box. */
   density: number;
   onDensity: (n: number) => void;
+  /** Live refs the scope reads from inside its own rAF — same contract /synth
+   *  uses, so the trace stays in sync with what the tiles render. */
+  paramsRef: { current: Params };
+  tsRef: { current: number };
+  pausedRef: { current: boolean };
 }): ReactNode {
   const gui = useDockGui();
   const s = (k: string) => String(params[k] ?? "");
@@ -63,6 +69,9 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   // effects (scan, ripple, matrix-rain) has no patch, so showing them would be
   // a dozen controls that change nothing.
   const mix = useFolder(hasSynth ? gui : null, "Mix", { open: true });
+  // Scope first so `useDockSlot`'s insertBefore(…, firstChild) lands it above
+  // every controller added to this folder afterwards (same as SynthDock).
+  const scopeHost = useDockSlot(mix, { position: "top", className: "dock-scope-slot" });
   useOption(mix, "Mapping", SPACE_OPTS, s("space"), (v) => onParam("space", v));
   useOption(mix, "Combine", COMBINE_OPTS, s("combine"), (v) => onParam("combine", v));
   useSlider(mix, "Scale", { min: 0.1, max: 12, step: 0.1 }, n("scale"), (v) => onParam("scale", v));
@@ -107,6 +116,7 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
 
   return (
     <>
+      {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
       {stockLayers.map(({ layer, index }) => (
         <StockLayerFolder
           key={`${loader.id}-${index}`}
