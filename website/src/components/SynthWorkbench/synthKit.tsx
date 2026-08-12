@@ -674,6 +674,10 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // are dimmed and the reason is spelled out below, and `gain`/`bias`
   // (Contrast/Brightness) instead become the per-dot threshold cutoff.
   const subcellIs2x4 = s("subcellRes") === "2x4";
+  // Ink synthesizes contour strokes for the same reason: it reads the field's
+  // shape, never the ramp. Both modes therefore dim Ramp/Chars.
+  const subcellIsInk = s("subcellRes") === "ink";
+  const ramplessSubcell = subcellIs2x4 || subcellIsInk;
 
   const stage = useFolder(gui, "Stage", { open: true });
   useOption(stage, "Shape", SHAPE_OPTS, shape, (v) => onShape(v));
@@ -766,9 +770,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // dim them AND say why, rather than leaving live-looking controls that
   // silently no-op.
   useEffect(() => {
-    rampCtrl?.setEnabled(!subcellIs2x4, { dim: true });
-    charsCtrl?.setEnabled(!subcellIs2x4, { dim: true });
-  }, [rampCtrl, charsCtrl, subcellIs2x4]);
+    rampCtrl?.setEnabled(!ramplessSubcell, { dim: true });
+    charsCtrl?.setEnabled(!ramplessSubcell, { dim: true });
+  }, [rampCtrl, charsCtrl, ramplessSubcell]);
+  // How many cuts through the amplitude axis to contour — only meaningful in
+  // ink, so it appears with the mode rather than sitting inert.
+  useSlider(subcellIsInk ? out : null, "Ink levels", { min: 1, max: 12, step: 1 }, Number(params.inkLevels ?? 4), (v) => onParam("inkLevels", v));
   const voiceColorsOn = params.voiceColors === true;
   useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
   const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));
@@ -813,7 +820,11 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
           coverageByOption={coverageByOption}
           selected={selectedRamp}
           onSelect={selectRamp}
-          disabledReason={subcellIs2x4 ? "Subcell = 2x4 renders a Braille dot pattern, not the ramp — Ramp/Chars have no effect. Contrast/Brightness set the dot threshold instead." : undefined}
+          disabledReason={subcellIs2x4
+            ? "Subcell = 2x4 renders a Braille dot pattern, not the ramp — Ramp/Chars have no effect. Contrast/Brightness set the dot threshold instead."
+            : subcellIsInk
+              ? "Subcell = ink contours the field's shape, not its level — Ramp/Chars have no effect. Ink levels sets how many cuts through the amplitude axis are traced."
+              : undefined}
         />,
         rampDensitySlot,
       )}

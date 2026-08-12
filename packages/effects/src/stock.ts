@@ -1294,8 +1294,9 @@ const fieldSynthSchema = {
   // on genuinely curved generated-surface/UV mappings; `space: "scene"` is exact.
   subcellRes: { kind: "string", default: "1x1", values: ["1x1", "2x4", "ink"], animation: "discrete", label: "Subcell resolution" },
   // "ink" reads the field's SHAPE rather than its level: see `inkGlyphForField`.
-  inkLevel: { kind: "number", default: 0.6, min: 0.05, max: 0.95, step: 0.05, label: "Ink level" },
-  inkArea: { kind: "number", default: 0.04, min: 0, max: 0.4, step: 0.01, label: "Ink area" },
+  // How many evenly spaced cuts through the amplitude axis to contour — a
+  // topographic map of the field, not a single iso-line.
+  inkLevels: { kind: "number", default: 4, min: 1, max: 12, step: 1, label: "Ink levels" },
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
@@ -1505,11 +1506,17 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
 
 
 /**
- * `subcellRes: "ink"` — draw the field's iso-contour instead of shading by its
- * level, the same way `mode: "ink"` outlines geometry instead of filling it.
+ * `subcellRes: "ink"` — contour the field instead of shading by its level, the
+ * same way `mode: "ink"` outlines geometry instead of filling it. Like that
+ * mode, it draws ONLY lines: interiors and plateaus stay empty, because an
+ * outline of a flat region is not a fill, it is the region's edges — and a step
+ * (a square wave) already presents those edges as an abrupt gradient the
+ * crossing test picks up on its own.
  *
- * A cell is inked when the iso-level falls BETWEEN it and a neighbour (a real
- * crossing, not "this cell happens to be near the level" — that is what makes a
+ * `inkLevels` cuts the amplitude axis into that many evenly spaced levels and
+ * contours each, so one pass reads like a topographic map rather than a single
+ * iso-line. A cell is inked when a level falls BETWEEN it and a neighbour (a
+ * real crossing, not "this cell is near a level" — that is what makes a
  * continuous line rather than a scatter of marks). The stroke is then oriented
  * perpendicular to the local gradient, quantized into the same four 45° buckets
  * the geometry ink path uses.
@@ -1635,19 +1642,18 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           const down = sample(dxRow, dyRow);
           const gx = right - value;
           const gy = down - value;
-          const level = params.inkLevel;
-          const side = value >= level;
-          const crosses = side !== (right >= level) || side !== (down >= level);
-          if (Math.hypot(gx, gy) <= params.inkArea && side) {
-            // Flat and above the level: a plateau, not an edge — a square wave's
-            // crest is an AREA, so fill it instead of tracing a line that the
-            // field does not actually have.
-            setGlyph(context, i, "\u2588");
-          } else if (crosses) {
-            setGlyph(context, i, inkGlyphForField(gx, gy));
-          } else {
-            continue;
+          // Contour every level, not just one: `n / (levels + 1)` spreads the
+          // cuts across the interior of the range so neither extreme (a flat
+          // floor or a saturated ceiling) gets a degenerate line of its own.
+          const levels = Math.max(1, Math.round(params.inkLevels));
+          let crosses = false;
+          for (let n = 1; n <= levels && !crosses; n++) {
+            const level = n / (levels + 1);
+            const side = value >= level;
+            crosses = side !== (right >= level) || side !== (down >= level);
           }
+          if (!crosses) continue;
+          setGlyph(context, i, inkGlyphForField(gx, gy));
         } else if (params.subcellRes === "2x4") {
           const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
             context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,

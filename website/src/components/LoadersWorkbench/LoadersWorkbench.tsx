@@ -88,15 +88,15 @@ WIREFRAME_PALETTES[GHOST_BLANK_PALETTE] = {
 };
 /**
  * The overlay renders the voice through field-synth's `subcellRes: "ink"` — a
- * real iso-contour of the voice's own field, with strokes oriented to the local
- * slope and flat crests filled as blocks. Colouring the ramp by value (what this
- * used to do) can only ever scatter marks; a contour is a boundary, so it has to
- * come from where the field CROSSES a level, which only the effect can know.
+ * contour map of the voice's own field, strokes oriented to the local slope.
+ * Colouring a ramp by value (what this used to do) can only ever scatter marks;
+ * a contour is a boundary, so it has to come from where the field CROSSES a
+ * level, which only the effect can know.
+ *
+ * Few cuts on purpose: each level is another line through the same field, and
+ * the point here is "where does this voice act", not a survey of its amplitude.
  */
-// Near the peak on purpose: a mid-level iso crosses an oscillating field on
-// almost every cell (measured 305/384 at 0.6 for a freq-6 voice), which is
-// truthful but unreadable. Contouring close to the crest marks the peaks only.
-const GHOST_INK_LEVEL = 0.88;
+const GHOST_INK_LEVELS = 2;
 /** Crest colour (value 1) and valley colour (value 0): `gradient: 1` makes
  *  field-synth interpolate between them by value, so the two lines are told
  *  apart at a glance rather than being one colour at two heights. */
@@ -354,8 +354,7 @@ function useGhostScene(host: HTMLElement | null, cols: number, rows: number, liv
           layer.setParams({
             ...soloParams(params, slot),
             subcellRes: "ink",
-            inkLevel: GHOST_INK_LEVEL,
-            inkArea: 0.02,
+            inkLevels: GHOST_INK_LEVELS,
             gain: 1,
             bias: 0.5,
             voiceColors: false,

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { getGlyphEffect, GlyphRamps } from "@glyphcss/effects";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
-import { SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
+import { IconToggle, SUBCELL_TOGGLE, SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import type { LoaderPreset } from "./loaders";
 
 const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
@@ -11,7 +11,6 @@ const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
 
 const COMBINE_OPTS = opts(["add", "multiply", "max", "min", "difference"] as const);
 const SPACE_OPTS = opts(["auto", "surface", "scene"] as const);
-const SUBCELL_OPTS = opts(["1x1", "2x4", "ink"] as const);
 /** Named character sets, same source /synth and the gallery pick from. The
  *  option VALUE is the ramp's NAME (not its glyphs), and "Custom" covers a
  *  hand-typed ramp — without it the select reads blank whenever a preset ships
@@ -81,7 +80,11 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   useSlider(mix, "Brightness", { min: -1, max: 2, step: 0.05 }, n("bias"), (v) => onParam("bias", v));
 
   const output = useFolder(hasSynth ? gui : null, "Output", { open: true });
-  useOption(output, "Subcell", SUBCELL_OPTS, s("subcellRes"), (v) => onParam("subcellRes", v));
+  // Segmented icon buttons, not a dropdown — the same `IconToggle` + toggle set
+  // /synth uses, so the two pages read identically. Requested before any other
+  // control on this folder so `useDockSlot`'s insertBefore(…, firstChild) puts
+  // it ABOVE the Ramp/Chars rows it gates.
+  const subcellSlot = useDockSlot(output, { position: "top", className: "dock-subcell-slot" });
   // At 2x4 field-synth synthesizes a Braille dot mask per cell and never reads
   // the ramp at all (the ramp branch is the 1x1-only `else` in its evaluate()),
   // so Ramp/Chars are dimmed rather than left live and inert — same treatment
@@ -95,10 +98,10 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   // An empty ramp leaves the shader with no glyph to index and blanks the
   // render, so reject it instead of accepting an unusable value.
   const chars = useText(output, "Chars", s("glyphs"), (v) => onParam("glyphs", v), (next) => next.length > 0);
-  // Ink draws a contour, so its two knobs replace the ramp entirely.
+  // Ink contours the field, so how many cuts through the amplitude axis
+  // replaces the ramp entirely.
   const inkMode = s("subcellRes") === "ink";
-  useSlider(inkMode ? output : null, "Ink level", { min: 0.05, max: 0.95, step: 0.05 }, n("inkLevel"), (v) => onParam("inkLevel", v));
-  useSlider(inkMode ? output : null, "Ink area", { min: 0, max: 0.4, step: 0.01 }, n("inkArea"), (v) => onParam("inkArea", v));
+  useSlider(inkMode ? output : null, "Ink levels", { min: 1, max: 12, step: 1 }, n("inkLevels"), (v) => onParam("inkLevels", v));
   useColor(output, "Color", s("color"), (v) => onParam("color", v));
   useColor(output, "Color B", s("colorB"), (v) => onParam("colorB", v));
   useSlider(output, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
@@ -121,6 +124,18 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   return (
     <>
       {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
+      {subcellSlot && createPortal(
+        <div className="dock-subcell">
+          <span className="dock-subcell-label">Subcell</span>
+          <IconToggle
+            groupTitle="Subcell — how the field becomes glyphs. 1x1 picks one glyph per cell from the Ramp; 2x4 synthesizes a braille dot matrix per cell; ink contours the field's shape. The last two ignore the ramp."
+            options={SUBCELL_TOGGLE}
+            value={s("subcellRes")}
+            onChange={(v) => onParam("subcellRes", v)}
+          />
+        </div>,
+        subcellSlot,
+      )}
       {stockLayers.map(({ layer, index }) => (
         <StockLayerFolder
           key={`${loader.id}-${index}`}

@@ -1733,7 +1733,7 @@ describe("field-synth ink mode", () => {
       subcellRes: "ink",
       space: "scene",
       field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1,
-      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevel: 0.6, inkArea: 0,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevels: 1,
     }, { withUv: true });
 
     const inked = out.glyph.filter((g) => g !== " ");
@@ -1746,28 +1746,33 @@ describe("field-synth ink mode", () => {
     expect(inked.length).toBeLessThan(out.glyph.length);
   });
 
-  it("fills a plateau with a block rather than tracing an edge that isn't there", () => {
-    // A square wave's crest is an AREA: flat on top, so there is no gradient to
-    // orient a stroke against. `inkArea` catches that and fills instead.
-    const flat = evaluate(fieldSynth, {
+  it("outlines a plateau instead of filling it", () => {
+    // A square wave is flat on top and flat at the bottom with an abrupt step
+    // between. Ink marks the STEP and leaves both plateaus empty — an outline
+    // mode never fills, and the step is already a gradient the crossing test
+    // sees. Nothing but strokes may be emitted.
+    const square = evaluate(fieldSynth, {
       subcellRes: "ink",
       space: "scene",
       field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1,
-      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevel: 0.6, inkArea: 0.4,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevels: 4,
     }, { withUv: true });
-    expect(flat.glyph.filter((g) => g === "█").length).toBeGreaterThan(0);
+    const marks = square.glyph.filter((g) => g !== " ");
+    expect(marks.length).toBeGreaterThan(0);
+    for (const g of marks) expect(INK_STROKES).toContain(g);
+    expect(square.glyph.filter((g) => g === "█")).toHaveLength(0);
+    // The plateaus dominate the grid, so an outline must leave most of it bare.
+    expect(marks.length).toBeLessThan(square.glyph.length / 2);
+  });
 
-    // A permanently sloped field has no plateau anywhere, so the same settings
-    // emit strokes only — the block comes from flatness, not from the mode.
-    // (A square wave's crest is EXACTLY flat, so it fills even at `inkArea: 0`;
-    // the knob widens the rule to near-flat fields, it does not enable it.)
-    const sloped = evaluate(fieldSynth, {
-      subcellRes: "ink",
-      space: "scene",
-      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1,
-      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevel: 0.6, inkArea: 0,
-    }, { withUv: true });
-    expect(sloped.glyph.filter((g) => g === "█")).toHaveLength(0);
+  it("contours more of the field as levels increase", () => {
+    const at = (inkLevels: number) => evaluate(fieldSynth, {
+      subcellRes: "ink", space: "scene",
+      field1: "radial", wave1: "sin", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 2, gain: 1, bias: 0.5, inkLevels,
+    }, { withUv: true }).glyph.filter((g) => g !== " ").length;
+    // Each added cut is another contour line through the same field.
+    expect(at(6)).toBeGreaterThan(at(1));
   });
 
   it("leaves 1x1 and 2x4 untouched", () => {
