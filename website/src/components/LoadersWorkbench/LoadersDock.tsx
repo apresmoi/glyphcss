@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { getGlyphEffect, GlyphRamps } from "@glyphcss/effects";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
-import { IconToggle, SUBCELL_TOGGLE, SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
+import { IconToggle, LogSliderRow, SUBCELL_TOGGLE, SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import type { LoaderPreset } from "./loaders";
 
 const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
@@ -73,7 +73,7 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   const scopeHost = useDockSlot(mix, { position: "top", className: "dock-scope-slot" });
   useOption(mix, "Mapping", SPACE_OPTS, s("space"), (v) => onParam("space", v));
   useOption(mix, "Combine", COMBINE_OPTS, s("combine"), (v) => onParam("combine", v));
-  useSlider(mix, "Scale", { min: 0.1, max: 12, step: 0.1 }, n("scale"), (v) => onParam("scale", v));
+  const scaleSlot = useDockSlot(mix, { position: "bottom", className: "dock-logrow-slot" });
   useSlider(mix, "Origin U", { min: 0, max: 1, step: 0.01 }, n("originU"), (v) => onParam("originU", v));
   useSlider(mix, "Origin V", { min: 0, max: 1, step: 0.01 }, n("originV"), (v) => onParam("originV", v));
   useSlider(mix, "Contrast", { min: 0, max: 12, step: 0.05 }, n("gain"), (v) => onParam("gain", v));
@@ -124,6 +124,17 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   return (
     <>
       {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
+      {scaleSlot && createPortal(
+        <LogSliderRow
+          label="Scale"
+          title="Pattern scale — a multiplier on the sampled domain, so its effect is per RATIO, not per unit. The dial is logarithmic: equal travel per doubling."
+          value={n("scale")}
+          min={0.1}
+          max={12}
+          onChange={(v) => onParam("scale", v)}
+        />,
+        scaleSlot,
+      )}
       {subcellSlot && createPortal(
         <div className="dock-subcell">
           <span className="dock-subcell-label">Subcell</span>

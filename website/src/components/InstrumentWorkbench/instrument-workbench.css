@@ -301,6 +301,9 @@
 .dock-scope {
   width: 100%;
 }
+/* The log-mapped Scale row reproduces lil-gui's own row markup so the dock
+   stylesheet dresses it identically; the slot itself must not add chrome. */
+.dock-logrow-slot { display: contents; }
 .dock-scope-label {
   display: block; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
   color: rgba(255, 232, 184, 0.5); margin-bottom: 4px;

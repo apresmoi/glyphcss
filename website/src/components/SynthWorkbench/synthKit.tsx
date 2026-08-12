@@ -591,6 +591,84 @@ export const freqFromSlider = (pos: number, max: number): number => {
 export const freqToSlider = (value: number, max: number): number =>
   Math.pow(Math.min(1, Math.max(0, value / max)), 1 / FREQ_TAPER);
 
+
+/**
+ * A dock row whose slider is LOGARITHMIC — equal travel per doubling.
+ *
+ * Used for `scale`, a pure multiplier: on a linear 0.1..12 dial every authored
+ * value in this repo sits below 3, so three quarters of the travel does nothing
+ * while the interesting octaves are crushed into the first quarter. A true log
+ * works here (unlike the voice `freq` dial, which needs a power taper because it
+ * must reach exactly 0).
+ *
+ * It renders through a dock SLOT because lil-gui's slider is linear over
+ * [min,max] and displays the raw proxy value — driving that controller in
+ * position space would show 0..1 instead of the real number. To stay visually
+ * identical to every other dock row it reproduces lil-gui's own row markup
+ * (`.controller.number.hasSlider > .name + .widget > .slider > .fill`, plus the
+ * text input), so the dock's stylesheet dresses it exactly like a native row.
+ */
+export function LogSliderRow({ label, title, value, min, max, onChange }: {
+  label: string;
+  title: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (next: number) => void;
+}) {
+  const span = Math.log(max / min);
+  const clamp = (v: number): number => Math.min(max, Math.max(min, v));
+  const toPos = (v: number): number => Math.log(clamp(v) / min) / span;
+  const toValue = (pos: number): number => {
+    const v = min * Math.exp(Math.min(1, Math.max(0, pos)) * span);
+    // Finer quantization down low, where the log hands you the resolution.
+    return v < 1 ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10;
+  };
+  const track = useRef<HTMLDivElement | null>(null);
+  const [text, setText] = useState<string | null>(null);
+
+  const setFromPointer = useCallback((clientX: number) => {
+    const el = track.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0) return;
+    onChange(toValue((clientX - r.left) / r.width));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onChange, min, max]);
+
+  return (
+    <div className="controller number hasSlider" title={title}>
+      <div className="name">{label}</div>
+      <div className="widget">
+        <div
+          className="slider"
+          ref={track}
+          onPointerDown={(e) => {
+            (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+            setFromPointer(e.clientX);
+          }}
+          onPointerMove={(e) => { if (e.buttons === 1) setFromPointer(e.clientX); }}
+        >
+          <div className="fill" style={{ width: `${toPos(value) * 100}%` }} />
+        </div>
+        <input
+          type="text"
+          value={text ?? (value < 1 ? value.toFixed(2) : value.toFixed(1))}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => {
+            if (text !== null) {
+              const parsed = Number.parseFloat(text);
+              if (Number.isFinite(parsed)) onChange(clamp(parsed));
+              setText(null);
+            }
+          }}
+          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
@@ -700,7 +778,7 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   useEffect(() => {
     if (combineCtrl) combineCtrl.raw.$name.title = "Combine — how each active voice after the first folds into the running result: add, multiply, max, min, or difference.";
   }, [combineCtrl]);
-  useSlider(mix, "Scale", { min: 0.1, max: 12, step: 0.1 }, n("scale"), (v) => onParam("scale", v));
+  const scaleSlot = useDockSlot(mix, { position: "bottom", className: "dock-logrow-slot" });
   useSlider(mix, "Origin U", { min: 0, max: 1, step: 0.01 }, n("originU"), (v) => onParam("originU", v));
   useSlider(mix, "Origin V", { min: 0, max: 1, step: 0.01 }, n("originV"), (v) => onParam("originV", v));
   const gainCtrl = useSlider(mix, "Contrast", { min: 0, max: 4, step: 0.05 }, n("gain"), (v) => onParam("gain", v));
@@ -802,6 +880,17 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   return (
     <>
       {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
+      {scaleSlot && createPortal(
+        <LogSliderRow
+          label="Scale"
+          title="Pattern scale — a multiplier on the sampled domain, so its effect is per RATIO, not per unit. The dial is logarithmic: equal travel per doubling."
+          value={n("scale")}
+          min={0.1}
+          max={12}
+          onChange={(v) => onParam("scale", v)}
+        />,
+        scaleSlot,
+      )}
       {subcellSlot && createPortal(
         <div className="dock-subcell">
           <span className="dock-subcell-label">Subcell</span>
