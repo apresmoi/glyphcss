@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"CONTENT_HASH_MISMATCH", "preserveContentHashes":true, "mutations":[{"op":"set","path":"/records/samples/0/prompt","value":"changed without canonical hash"}] }

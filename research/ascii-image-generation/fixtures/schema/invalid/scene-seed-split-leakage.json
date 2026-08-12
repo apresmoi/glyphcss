@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"SCENE_SEED_SPLIT_LEAKAGE", "mutations":[{"op":"set","path":"/records/samples/2/sceneSeed","value":"seed-train-a"},{"op":"set","path":"/records/trajectories/1/sceneSeed","value":"seed-train-a"}] }

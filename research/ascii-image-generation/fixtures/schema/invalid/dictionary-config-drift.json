@@ -1,7 +1,0 @@
-{
-  "extends": "../valid/golden.json",
-  "expectedError": "DICTIONARY_CONFIG_MISMATCH",
-  "mutations": [
-    { "op": "set", "path": "/records/dictionary/classes/0/semanticGlyph", "value": "C" }
-  ]
-}

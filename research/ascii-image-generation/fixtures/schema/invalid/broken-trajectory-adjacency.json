@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"BROKEN_TRAJECTORY_ADJACENCY", "mutations":[{"op":"set","path":"/records/trajectories/0/frames/1/previousFrameId","value":"frame/test-b-000"}] }

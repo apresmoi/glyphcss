@@ -1,8 +1,0 @@
-{
-  "schemaVersion": "glyph-pilot-manifest/v1",
-  "status": "not-generated",
-  "datasetRoot": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/pilot",
-  "admission": "B10",
-  "balanceReport": "pilot-balance.json",
-  "records": []
-}

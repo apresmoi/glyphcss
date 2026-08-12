@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"ARTIFACT_HASH_MISMATCH", "preserveArtifactHashes":true, "mutations":[{"op":"set","path":"/records/samples/0/artifacts/0/sha256","value":"0000000000000000000000000000000000000000000000000000000000000000"}] }

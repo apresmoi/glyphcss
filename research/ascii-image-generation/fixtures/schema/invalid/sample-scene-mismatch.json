@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"SCENE_MISMATCH", "preserveLinkedHashes":true, "mutations":[{"op":"set","path":"/records/samples/0/sceneSha256","value":"0000000000000000000000000000000000000000000000000000000000000000"}] }

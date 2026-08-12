@@ -1,8 +1,0 @@
-{
-  "id": "browser-parity-v1",
-  "evaluator": "eq",
-  "expected": 1,
-  "frozenAt": "2026-07-23",
-  "contractVersion": "v3",
-  "thresholds": {"nativeExportByteMismatchMax": 0, "nativeWebgpuByteMismatchMax": 0, "presentationP95MsMax": 33.3, "cpuFallbackMax": 0}
-}

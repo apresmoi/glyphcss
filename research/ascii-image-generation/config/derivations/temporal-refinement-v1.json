@@ -1,8 +1,0 @@
-{
-  "id": "temporal-refinement-v1",
-  "evaluator": "lte",
-  "expected": 500,
-  "frozenAt": "2026-07-23",
-  "contractVersion": "v3",
-  "thresholds": {"disocclusionRecoveryLatencyMsMax": 500, "validWarpErrorMax": 0.05, "correctionMagnitudeP95Max": 0.25, "stalePresentedMax": 0, "resetFrequencyMax": 0.1}
-}

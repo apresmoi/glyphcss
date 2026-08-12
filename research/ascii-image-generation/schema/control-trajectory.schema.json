@@ -1,6 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://glyphcss.dev/schema/ascii-image-generation/control-trajectory/v2", "type": "object", "additionalProperties": false,
-  "required": ["schemaVersion", "id", "sceneId", "sceneSha256", "sceneSeed", "split", "dictionaryId", "dictionarySha256", "frames", "contentSha256"],
-  "properties": { "schemaVersion": { "const": "control-trajectory/v2" }, "id": { "$ref": "#/$defs/id" }, "sceneId": { "$ref": "#/$defs/id" }, "sceneSha256": { "$ref": "#/$defs/hash" }, "sceneSeed": { "type": "string", "minLength": 1 }, "split": { "enum": ["train", "validation", "test"] }, "dictionaryId": { "$ref": "#/$defs/id" }, "dictionarySha256": { "$ref": "#/$defs/hash" }, "contentSha256": { "$ref": "#/$defs/hash" }, "frames": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["frameId", "cameraId", "index"], "properties": { "frameId": { "$ref": "#/$defs/id" }, "cameraId": { "$ref": "#/$defs/id" }, "index": { "type": "integer", "minimum": 0 }, "previousFrameId": { "$ref": "#/$defs/id" }, "nextFrameId": { "$ref": "#/$defs/id" } } } } },
-  "$defs": { "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "id": { "type": "string", "pattern": "^[a-z][a-z0-9._/-]*$" } }
-}

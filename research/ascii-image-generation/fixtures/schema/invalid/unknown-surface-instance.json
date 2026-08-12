@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"UNKNOWN_SURFACE_INSTANCE", "mutations":[{"op":"set","path":"/records/scenes/0/surfaces/0/instanceId","value":"instance/ghost"}] }

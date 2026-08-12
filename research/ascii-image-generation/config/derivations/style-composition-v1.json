@@ -1,8 +1,0 @@
-{
-  "id": "style-composition-v1",
-  "evaluator": "eq",
-  "expected": 1,
-  "frozenAt": "2026-07-23",
-  "contractVersion": "v3",
-  "thresholds": {"styleSeparationMin": 0.2, "styleMatchErrorMax": 0.05, "structuralRegressionMax": 0.05, "temporalRegressionMax": 0.05, "strengths": [0.5, 1, 1.5]}
-}

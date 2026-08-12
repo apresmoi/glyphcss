@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"ARTIFACT_PATH_ESCAPE", "preserveArtifactHashes":true, "artifactLinks":[{"path":"fixtures/schema/artifacts/root-link","target":"fixtures/schema/artifacts"}], "mutations":[{"op":"set","path":"/records/samples/0/artifacts/0/path","value":"fixtures/schema/artifacts/root-link"}] }

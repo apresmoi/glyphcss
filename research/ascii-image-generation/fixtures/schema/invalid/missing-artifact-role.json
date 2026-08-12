@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"MISSING_ARTIFACT_ROLE", "mutations":[{"op":"set","path":"/records/samples/0/artifacts","value":[{"role":"control-bundle","outputSource":"visible","path":"fixtures/schema/artifacts/train-0-control.bin","sha256":""},{"role":"target","outputSource":"target","path":"fixtures/schema/artifacts/train-0-target.bin","sha256":""}]}] }

@@ -1,1 +1,0 @@
-{ "extends":"../valid/golden.json", "expectedError":"UNKNOWN_POLYGON_SURFACE", "mutations":[{"op":"set","path":"/records/scenes/0/polygonSurfaceIds/0","value":"surface/ghost"}] }
