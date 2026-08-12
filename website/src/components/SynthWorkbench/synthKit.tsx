@@ -834,6 +834,14 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
       pendingCalibratedRef.current = false;
     }
   }, [calibration.ramp, onParam]);
+  // Created before Ramp so lil-gui appends it directly under the Subcell
+  // toggle — the mode's own knob belongs next to the mode, not buried at the
+  // bottom of the folder.
+  // Created ALWAYS and merely hidden when not in ink: lil-gui appends a
+  // controller at creation time, so building it only once ink is selected would
+  // append it after the colours. Creating it here — before Ramp — pins it
+  // directly under the Subcell toggle, where the mode's own knob belongs.
+  const inkLevelsCtrl = useSlider(out, "Ink levels", { min: 1, max: 12, step: 1 }, Number(params.inkLevels ?? 4), (v) => onParam("inkLevels", v));
   const rampCtrl = useOption(out, "Ramp", RAMP_OPTS, selectedRamp, selectRamp);
   const rampDensitySlot = useDockSlot(out, { position: "bottom", className: "dock-ramp-density-slot" });
   // `isValid` rejects an empty ramp before it ever reaches `onParam`/the
@@ -848,17 +856,16 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   // dim them AND say why, rather than leaving live-looking controls that
   // silently no-op.
   useEffect(() => {
-    rampCtrl?.setEnabled(!ramplessSubcell, { dim: true });
-    charsCtrl?.setEnabled(!ramplessSubcell, { dim: true });
-    // Ink needs no explanatory block: the dimming says it, and the mode toggle
-    // sits directly above. A hover title is enough for the why.
-    const why = subcellIsInk ? "Ink contours the field, so it never reads the ramp." : "";
-    if (rampCtrl) rampCtrl.raw.$name.title = why;
-    if (charsCtrl) charsCtrl.raw.$name.title = why;
-  }, [rampCtrl, charsCtrl, ramplessSubcell, subcellIsInk]);
+    // 2x4 DIMS the ramp rows (Contrast/Brightness change meaning there, so the
+    // relationship is worth keeping on screen). Ink simply has no ramp concept
+    // at all, so its rows are hidden outright rather than left as dead weight.
+    if (rampCtrl) { subcellIsInk ? rampCtrl.raw.hide() : rampCtrl.raw.show(); rampCtrl.setEnabled(!ramplessSubcell, { dim: true }); }
+    if (charsCtrl) { subcellIsInk ? charsCtrl.raw.hide() : charsCtrl.raw.show(); charsCtrl.setEnabled(!ramplessSubcell, { dim: true }); }
+    if (rampDensitySlot) rampDensitySlot.style.display = subcellIsInk ? "none" : "";
+    if (inkLevelsCtrl) { subcellIsInk ? inkLevelsCtrl.raw.show() : inkLevelsCtrl.raw.hide(); }
+  }, [rampCtrl, charsCtrl, rampDensitySlot, inkLevelsCtrl, ramplessSubcell, subcellIsInk]);
   // How many cuts through the amplitude axis to contour — only meaningful in
   // ink, so it appears with the mode rather than sitting inert.
-  useSlider(subcellIsInk ? out : null, "Ink levels", { min: 1, max: 12, step: 1 }, Number(params.inkLevels ?? 4), (v) => onParam("inkLevels", v));
   const voiceColorsOn = params.voiceColors === true;
   useToggle(out, "Per-voice colors", voiceColorsOn, (v) => onParam("voiceColors", v));
   const colorCtrl = useColor(out, "Color", s("color"), (v) => onParam("color", v));

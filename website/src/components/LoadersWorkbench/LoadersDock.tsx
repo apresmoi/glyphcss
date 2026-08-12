@@ -89,6 +89,10 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   // the ramp at all (the ramp branch is the 1x1-only `else` in its evaluate()),
   // so Ramp/Chars are dimmed rather than left live and inert — same treatment
   // /synth gives them.
+  // Created always and hidden when unused — lil-gui appends at creation time,
+  // so a conditionally-created row would land after the colours instead of
+  // directly under the Subcell toggle.
+  const inkLevelsCtrl = useSlider(output, "Ink levels", { min: 1, max: 12, step: 1 }, n("inkLevels"), (v) => onParam("inkLevels", v));
   const ramp = useOption(output, "Ramp", RAMP_OPTS, matchRamp(s("glyphs")), (name) => {
     // "Custom" is a display state for a hand-typed ramp, not a ramp itself —
     // picking it would have no glyphs to apply, so it leaves Chars alone.
@@ -98,10 +102,7 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   // An empty ramp leaves the shader with no glyph to index and blanks the
   // render, so reject it instead of accepting an unusable value.
   const chars = useText(output, "Chars", s("glyphs"), (v) => onParam("glyphs", v), (next) => next.length > 0);
-  // Ink contours the field, so how many cuts through the amplitude axis
-  // replaces the ramp entirely.
   const inkMode = s("subcellRes") === "ink";
-  useSlider(inkMode ? output : null, "Ink levels", { min: 1, max: 12, step: 1 }, n("inkLevels"), (v) => onParam("inkLevels", v));
   useColor(output, "Color", s("color"), (v) => onParam("color", v));
   useColor(output, "Color B", s("colorB"), (v) => onParam("colorB", v));
   useSlider(output, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
@@ -110,10 +111,14 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   useEffect(() => {
     for (const c of [ramp, chars]) {
       if (!c) continue;
+      // Ink has no ramp concept at all — hide the rows rather than leave dead
+      // controls. 2x4 only ignores them, so it dims instead.
+      if (inkMode) c.raw.hide(); else c.raw.show();
       if (subcellIs2x4) { c.raw.disable(); c.raw.$name.title = "This subcell mode synthesizes its own glyphs and never reads the ramp."; }
       else { c.raw.enable(); c.raw.$name.title = ""; }
     }
-  }, [ramp, chars, subcellIs2x4]);
+    if (inkLevelsCtrl) { if (inkMode) inkLevelsCtrl.raw.show(); else inkLevelsCtrl.raw.hide(); }
+  }, [ramp, chars, inkLevelsCtrl, subcellIs2x4, inkMode]);
 
   // Every layer that is not the field-synth patch, driven straight off its
   // stock `parameterSchema` — no per-effect UI to keep in sync.
