@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/control-tensor-contract/v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "dtype", "layout", "glyphVocabulary", "keyframeWidth", "temporalWidth", "keyframeChannels", "temporalPrefixChannels", "contentSha256"],
+  "properties": {
+    "schemaVersion": {"const": "glyph-control-tensor-contract/v2"},
+    "id": {"const": "glyph-control-tensor-contract/mvp-v2"},
+    "dtype": {"const": "float32"},
+    "layout": {"const": "NCHW"},
+    "glyphVocabulary": {"const": "ascii-printable-v1"},
+    "keyframeWidth": {"const": 17},
+    "temporalWidth": {"const": 23},
+    "keyframeChannels": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"$ref": "#/$defs/channel"}},
+    "temporalPrefixChannels": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"$ref": "#/$defs/channel"}},
+    "contentSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  },
+  "$defs": {
+    "channel": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "source", "width", "encoding", "scaling", "clamp", "emptySentinel", "inputPolicy", "causalityAblation"],
+      "properties": {
+        "id": {"type": "string"}, "source": {"enum": ["visibleGlyph", "semanticGlyph", "semanticColor", "depth", "normal", "worldPosition", "surfaceUv", "surfaceUvValid", "coverage", "shade", "warpRgb", "reprojectionValid", "disocclusion", "atlasConfidence"]}, "width": {"type": "integer", "minimum": 1}, "encoding": {"type": "string"}, "scaling": {"type": "string"}, "clamp": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{"const": 0}, {"const": 1}], "items": false}, "emptySentinel": {"const": 0}, "inputPolicy": {"enum": ["clamp", "reject"]}, "causalityAblation": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

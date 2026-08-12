@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/rendered-target-admission/v1",
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "strings": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["visible-ascii-adherence", "semantic-class-presence", "dictionary-class-confusion", "instance-surface-preservation", "depth-edge-agreement", "unintended-additions", "style-match", "cross-view-identity", "reprojection-valid-error", "disocclusion-recovery", "temporal-warp-error", "correction-magnitude"],
+      "properties": {
+        "visible-ascii-adherence": { "type": "number", "minimum": 0 },
+        "semantic-class-presence": { "type": "number", "minimum": 0 },
+        "dictionary-class-confusion": { "type": "number", "minimum": 0 },
+        "instance-surface-preservation": { "type": "number", "minimum": 0 },
+        "depth-edge-agreement": { "type": "number", "minimum": 0 },
+        "unintended-additions": { "type": "number", "minimum": 0 },
+        "style-match": { "type": "number", "minimum": 0 },
+        "cross-view-identity": { "type": "number", "minimum": 0 },
+        "reprojection-valid-error": { "type": "number", "minimum": 0 },
+        "disocclusion-recovery": { "type": "number", "minimum": 0 },
+        "temporal-warp-error": { "type": "number", "minimum": 0 },
+        "correction-magnitude": { "type": "number", "minimum": 0 }
+      }
+    },
+    "b10": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluator", "contractVersion", "accepted", "transition", "metrics"],
+      "properties": {
+        "evaluator": { "const": "admission-v1" }, "contractVersion": { "const": "v3" }, "accepted": { "const": true },
+        "transition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["sourceFrameId", "targetFrameId", "sourceCameraSha256", "targetCameraSha256", "cameraChanged", "validCellCount", "disoccludedCellCount", "oracleStateSha256"],
+          "properties": {
+            "sourceFrameId": { "type": "string", "pattern": "^frame-[0-9]{3}$" }, "pairId": { "type": "string", "minLength": 1 }, "anchorId": { "type": "string", "minLength": 1 }, "trackId": { "type": "string", "minLength": 1 }, "sourceRole": { "const": "keyframe" }, "targetRole": { "const": "adjacent" },
+            "targetFrameId": { "type": "string", "pattern": "^frame-[0-9]{3}$" },
+            "sourceCameraSha256": { "$ref": "#/$defs/sha" }, "targetCameraSha256": { "$ref": "#/$defs/sha" },
+            "cameraChanged": { "type": "boolean" }, "validCellCount": { "type": "integer", "minimum": 0 },
+            "disoccludedCellCount": { "type": "integer", "minimum": 0 }, "oracleStateSha256": { "$ref": "#/$defs/sha" }
+          }
+        },
+        "metrics": { "$ref": "#/$defs/metrics" }
+      }
+    },
+    "accepted": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assetId", "variantId", "frameId", "split", "splitGroupId", "target", "controls", "provenance", "b10"],
+      "properties": {
+        "assetId": { "type": "string", "pattern": "^asset/[a-f0-9]{64}$" }, "variantId": { "type": "string", "minLength": 1 },
+        "frameId": { "type": "string", "pattern": "^frame-[0-9]{3}$" }, "split": { "enum": ["train", "validation", "test"] },
+        "splitGroupId": { "type": "string", "minLength": 1 },
+        "target": {
+          "type": "object", "additionalProperties": false, "required": ["path", "sha256", "decodedPixelsSha256", "width", "height"],
+          "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha" }, "decodedPixelsSha256": { "$ref": "#/$defs/sha" }, "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } }
+        },
+        "controls": {
+          "type": "object", "additionalProperties": false,
+          "required": ["manifestSha256", "trajectorySha256", "sceneSha256", "visibleAsciiSha256", "semanticAsciiSha256", "targetRgbSha256", "coverageSha256"],
+          "properties": { "manifestSha256": { "$ref": "#/$defs/sha" }, "trajectorySha256": { "$ref": "#/$defs/sha" }, "sceneSha256": { "$ref": "#/$defs/sha" }, "visibleAsciiSha256": { "$ref": "#/$defs/sha" }, "semanticAsciiSha256": { "$ref": "#/$defs/sha" }, "targetRgbSha256": { "$ref": "#/$defs/sha" }, "coverageSha256": { "$ref": "#/$defs/sha" } }
+        },
+        "provenance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["aggregateReportSha256", "assetManifestSha256", "sourceGeometrySha256", "textureIds", "sourcePackIds", "renderer", "cameraSha256", "seed"],
+          "properties": {
+            "aggregateReportSha256": { "$ref": "#/$defs/sha" }, "assetManifestSha256": { "$ref": "#/$defs/sha" }, "sourceGeometrySha256": { "$ref": "#/$defs/sha" },
+            "textureIds": { "$ref": "#/$defs/strings" }, "sourcePackIds": { "$ref": "#/$defs/strings" }, "renderer": { "type": "object" },
+            "cameraSha256": { "$ref": "#/$defs/sha" }, "seed": { "type": "string", "minLength": 1 }
+          }
+        },
+        "b10": { "$ref": "#/$defs/b10" }
+      }
+    },
+    "material": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assetId", "split", "splitGroupId", "targetStatus", "disposition", "controlFrameCount", "assetManifestSha256", "sourceGeometrySha256", "textureIds", "sourcePackIds", "materialProvenance"],
+      "properties": {
+        "assetId": { "type": "string", "pattern": "^asset/[a-f0-9]{64}$" }, "split": { "enum": ["train", "validation", "test"] }, "splitGroupId": { "type": "string", "minLength": 1 },
+        "targetStatus": { "const": "material-only-not-exact-rgb" }, "disposition": { "const": "excluded-from-exact-rgb-b10" },
+        "controlFrameCount": { "type": "integer", "minimum": 1 }, "assetManifestSha256": { "$ref": "#/$defs/sha" }, "sourceGeometrySha256": { "$ref": "#/$defs/sha" },
+        "textureIds": { "$ref": "#/$defs/strings" }, "sourcePackIds": { "$ref": "#/$defs/strings" }, "materialProvenance": { "type": "object" }
+      }
+    }
+  },
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "status", "population", "b10", "exactRgb", "materialOnly", "contentSha256"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-rendered-target-admission/v1" }, "status": { "const": "admitted" }, "population": { "const": "exact-rgb" },
+    "b10": {
+      "type": "object", "additionalProperties": false,
+      "required": ["evaluator", "contractVersion", "contractPath", "contractSha256", "evaluatorPath", "evaluatorSha256", "baselinePath", "baselineSha256"],
+      "properties": {
+        "evaluator": { "const": "admission-v1" }, "contractVersion": { "const": "v3" },
+        "contractPath": { "const": "config/derivations/admission-v1.json" }, "contractSha256": { "$ref": "#/$defs/sha" },
+        "evaluatorPath": { "const": "src/eval/admission.mjs" }, "evaluatorSha256": { "$ref": "#/$defs/sha" },
+        "baselinePath": { "const": "reports/eval-baseline.json" }, "baselineSha256": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "exactRgb": {
+      "type": "object", "additionalProperties": false, "required": ["reportSha256", "admittedFrameCount", "accepted"],
+      "properties": { "reportSha256": { "$ref": "#/$defs/sha" }, "admittedFrameCount": { "type": "integer", "minimum": 1 }, "accepted": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/accepted" } } }
+    },
+    "materialOnly": {
+      "type": "object", "additionalProperties": false, "required": ["status", "reportSha256", "records"],
+      "properties": { "status": { "const": "excluded-from-exact-rgb-b10" }, "reportSha256": { "$ref": "#/$defs/sha" }, "records": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/material" } } }
+    },
+    "contentSha256": { "$ref": "#/$defs/sha" }
+  }
+}

@@ -1,0 +1,3292 @@
+{
+  "schemaVersion": "glyph-asset-render-binding/v2",
+  "registrySha256": "a9504ce13ae11b7b55508db476ffd90b8719310925d2ebc357eeabdb9a9def21",
+  "assets": [
+    {
+      "assetId": "asset/3892fb5acf3c1bfe303de2ca3ef20b30d03098b5d49f7632b2f6d26f7448d1be",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/barrel.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/ce6e55856a272eb0316a9a5dd6c04466bd627c7059098ec65da7fdc6193fda2c",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/car.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/5f48770afe260168275cb05f9262912030202b94125625080927d499106510d5",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/electric_pole_1.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/8db8b87a57e3cf28f9b4a8ba8adb5906ebfb141c715f6623aa6110e140ffdbf9",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/ground_planks.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/ad58678ce475e7c1cb4a3ad12edb903dbbcb5b47ce374297dbe1a8f34ff0b2df",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/jerry_can_with_nozzle.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/1e50470d4a9f4b58dac91b71aa0d47a69fd94b124d07ff4610aac0af03c0bb78",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/pallet_cluster_1.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/767992ee66d6b904b44ef9ce3056f7b454fcd43fab6e221d63e23c9abcb468fe",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/road_barrier.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/d3a2e4dd45d73d80f870844dcf0de12c22652673585d2cb17e2696fac48b8dc1",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/tire.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/4366ec2e9abd478b9ef65873a2e19b73e995c0bb798880bd8986bae2c37ee5db",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/wall_1_hole.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/ec50c095194ea1ca8a79b9e4a2bf40ff60aad15df996c76134dbc2bc939af96d",
+      "canonicalPath": "website/public/gallery/glb/apocalypse/wooden_spike_barricade.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/9b682b2cfbb11f1c2b0e10239d54efcddcb44ec5686abbfd9d557f6ce32e81d5",
+      "canonicalPath": "website/public/gallery/glb/insurgent.gltf",
+      "pass": true
+    },
+    {
+      "assetId": "asset/d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+      "canonicalPath": "website/public/gallery/glb/khronos/animated-fox.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/ccc9c3ce56423720b09399c2351537207cd5a65f859f9e6e2f30922762f3abd4",
+      "canonicalPath": "website/public/gallery/glb/khronos/avocado.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/313d48882e2ba7bb25a340dbfd3d6f9bbc7f012372d54f518dc52e4299e3a24e",
+      "canonicalPath": "website/public/gallery/glb/model-viewer/astronaut.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/abd3be0b79fef602ce9ec603f19980d313dfc46a5974d347a4a5ec201a7baf24",
+      "canonicalPath": "website/public/gallery/glb/nasa/crew-lock-bag.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/7b07acb8303a2dec1aa33438db12c27c760ab504a833329deb4eb201f0a5b878",
+      "canonicalPath": "website/public/gallery/glb/nasa/flight-system-support.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/8843f2a22fd0f836b9d2374f60909276d28cb6909ca36f52db82fe01684958b1",
+      "canonicalPath": "website/public/gallery/glb/nasa/icesat-a.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/781267aab7f8bcee7373e1db0777fc00d4f01f090a11852313050c706952f2c1",
+      "canonicalPath": "website/public/gallery/glb/nasa/orbiter-docking-system.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/eb68e0c9e4c492e9e013f84746863a21e1fb9df6b74310f8bcb8daa53585a68d",
+      "canonicalPath": "website/public/gallery/glb/nasa/solid-rocket-booster.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/ee2d727e23d796dd94a29dcbce03d645faea485b006edbb7319abdbf445d5ee7",
+      "canonicalPath": "website/public/gallery/glb/nasa/space-shuttle-external-tank.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/e0b58bdf8e3edcddd775f4aee79c06d64f63cf7fb7de3ab67284b42e8e0ae19b",
+      "canonicalPath": "website/public/gallery/glb/nasa/wide-field-planetary-camera.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/b5552adeb574d869282132de6c31195f60705c8044097e9b6906f9dae05a39fb",
+      "canonicalPath": "website/public/gallery/glb/opengameart/animated-pliers.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/7245ef40efd8537fcbd0e04f5d89980f540a695454a61cb4cf2e8e8af81992f3",
+      "canonicalPath": "website/public/gallery/glb/opengameart/animated-utility-knife.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/b4d6cb3e0920058eab20d079dc57fa6bdbaecad6806803f0f3d504ee730891dd",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/animated-enemy-small.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/d496c7b9a6428e1697b22dfb4eff58b6c0f56d54c2aac66e663ac7eacadd91b5",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/arrow.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/d0d08da2e47307301cfcff1d9d8bf713f92af67cd329e7a165af7854dade33f6",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/bird.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/4b6f7b2d17997f75192c706b28e2f894b6dff691bced17963470d2b2ceddbff9",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/box.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/f28f73f8ffa254b2a57130f1130cffa687ca2b3d610698aab3c948f1f9894ec8",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/bucket.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/1b4fedcdb1791f2b0d668d85e5cb49ba975d0ecfa851b4fd09e44be6104329f2",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/cactus-a.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/596b07fdf43d821437889a8c43627b6010f4a9cc70306af58fc455033cc607d4",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/cactus-model.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/1edba66e8a439fb0e07230beea67837d576ba3d7ae8e6caf1cfed42d1eee1ed9",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/ducky.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/16b9d215b614eaa43c31c84d2db8a6cdd37d55b54968fd1dd98793a4776c6bd3",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/empty-box.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/4f320514ca53f04d02e5e9009cf172e999a68d8478fd29c7f998d04dc2adde6e",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/flying-saucer.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/b05f707320781fc5a44152161c3c77980ea68ae30f4af22ac34a71becca04132",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/glass.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/284276ad175695639a8df651a5dd7ee7951fdf2d4ee3d49a2e5fc50df9f37975",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/rabbit-blond.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/c4e9f04c04419e67e919c4533dfd6044abc5f0640afa9d0e174cf474285d380c",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/rock-large.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/99881282aa8ee2bc89ac782911b90909c84e33d693c3a9c2ef5085f1d8214ffe",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/rock-medium.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/bec54c1773ff53bc27bf05c6be31f46e4582ec18129b74db6bedfe85f9290833",
+      "canonicalPath": "website/public/gallery/glb/poly-pizza/sword-diamond.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/c764726a33592ecf883d6003929099e84d42530d4bd85eb6be9aed08fa1593ea",
+      "canonicalPath": "website/public/gallery/glb/smithsonian/morse-telegraph-key.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/3c3f83c02a593b771d8ddbcbaaa2f43085cf297217192b87b5ee3073318bb5b1",
+      "canonicalPath": "website/public/gallery/glb/urban/Air conditioner.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/97a4e8c5e93b5c4f68b25e5240f308aa81ff4ae487b750e62f13e02c338d73e8",
+      "canonicalPath": "website/public/gallery/glb/urban/Animated Woman.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/197063f35b41c2c571666792ac7154d45a11d7c96c7f2aa9030e91c5037dc23e",
+      "canonicalPath": "website/public/gallery/glb/urban/Bicycle.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/dece50ba1ae265df28d55aacff220b00e24aee681e6bf7ef58e1cbc5ef220804",
+      "canonicalPath": "website/public/gallery/glb/urban/Billboard.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/594f1e515bd1882467f50bbc3588df5009338e2ec8bbc31eee36c85774207a76",
+      "canonicalPath": "website/public/gallery/glb/urban/Bus.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/a20a32a457e76cec52eb6c65919f3be8dbbe02d9b4a8ec5e789f11a07a4f39fc",
+      "canonicalPath": "website/public/gallery/glb/urban/Motorcycle.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/9d6b2e33af0d37bf42b2e7af850949f4efd0ddbb9a88077812d152d8b4c1c3eb",
+      "canonicalPath": "website/public/gallery/glb/urban/Pickup Truck.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/eb37bbfa8da41fab0ecaa67f1d796c406141ba648f6c0272b4eddfaaffb7de9d",
+      "canonicalPath": "website/public/gallery/glb/urban/Road Bits.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/e802a66e1f73d3e35b5d2462656b6e8d30a8e36d229e1776b082a82f955b94d2",
+      "canonicalPath": "website/public/gallery/glb/urban/Sports Car-Gzj704DXdr.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/c1717a9fff896de589c3ab99979c521eb5b708b0eab2e705ab522a92a7c746d4",
+      "canonicalPath": "website/public/gallery/glb/urban/Stop sign.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/948cae85241d59b35bde0e585e6da6894055da791efa37a06cd75eac82786079",
+      "canonicalPath": "website/public/gallery/glb/urban/Traffic Light.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/c2fb03e8dd4686082222e3faf0fc248bfd0e333289138133579ba6dc7e7d1cbd",
+      "canonicalPath": "website/public/gallery/glb/urban/Tree.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/21e57a7be6afbea279ed9acd91e2e0bb0ea0543100778386363eec9ccf9f6f5d",
+      "canonicalPath": "website/public/gallery/glb/urban/Van.glb",
+      "pass": true
+    },
+    {
+      "assetId": "asset/a0a3b6ef57a641663445d4481ad359e479d69ccfa5ebab6bec58f7bfd171339e",
+      "canonicalPath": "website/public/gallery/obj/cottage.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/dd99e218160fd870b6826c30a1b1e3979a6c129661a6ca15a2a8b3b47f7263e4",
+      "canonicalPath": "website/public/gallery/obj/opengameart/biplane/biplane.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/b2f9a0172b10efc0dc4cc48e7dfa541162c70447758ef893d10fe8f078518a52",
+      "canonicalPath": "website/public/gallery/obj/opengameart/broken-stone-slab/stone.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/c15ee1ca253975a5fc0a106f118200c967937457c1c0d1cca874b017bbf26b19",
+      "canonicalPath": "website/public/gallery/obj/opengameart/crate/Box.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/a70f9952dba6bf15144ea862c56929ce4741c623de24f1de3414370b65fa9b5b",
+      "canonicalPath": "website/public/gallery/obj/opengameart/fire-extinguisher/extinguisher.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/8b66dc7c28ae0a64d146ee8e5ee82ece7202e8b0d70a715c2d3995fe739df687",
+      "canonicalPath": "website/public/gallery/obj/opengameart/frog-guy/frog.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/9dde04d41ef8e8cbd952e29cea707ea9f84c7b3e0cb47605183d8e33442a8cc1",
+      "canonicalPath": "website/public/gallery/obj/opengameart/game-cartridge/cartridge.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/eb858e81f8554a2d53db0f661040a2d04542341f6f8ea9707ef40bf71ae91bb5",
+      "canonicalPath": "website/public/gallery/obj/opengameart/grandfather-clock/grandfather-clock.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/0f00cb52ea93fc291c19d5be85624b03720aabb7bcfd92318cc71059a76c7fe5",
+      "canonicalPath": "website/public/gallery/obj/opengameart/haunted-house/hauntedhouse.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/6b49c11bb8b7bd39212b5252e3f8862dce1eea3a62d3470926e080eea4e33438",
+      "canonicalPath": "website/public/gallery/obj/opengameart/hay-bale/hay_bale.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/1f66e686367242e344395643035871f8b8ff5edfee245fbe9528ce3b70ae6352",
+      "canonicalPath": "website/public/gallery/obj/opengameart/keycard/keycard.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/6d395b68cd38009574893097360749e007a965e1a3ea80de893250e6347bbd44",
+      "canonicalPath": "website/public/gallery/obj/opengameart/low-poly-car/car.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/05b07a15056fa2162057a6e33e36e73e3b23daad4a0ca2c2dbfefd708f9d9aba",
+      "canonicalPath": "website/public/gallery/obj/opengameart/old-book/old-book.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/1a5687a1e9e753108279f7e7774313c6fbb6173a5395e35a81185d345e4c9702",
+      "canonicalPath": "website/public/gallery/obj/opengameart/perfume-bottle/perfume.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/b4cd6ed685cde2282fbf2f4282026273f8e4ca5fd466af6f90631af2e661a49a",
+      "canonicalPath": "website/public/gallery/obj/opengameart/pirate-coin/pirate-coin.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/0fe2810311ab143d2b6080a769230c1ddb0bf5a17f2ad1c0b4a92735c6ef002e",
+      "canonicalPath": "website/public/gallery/obj/opengameart/wood-crate/woodcrate.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/b2ebff8cc25cac95cb9443a5f71c7a05f37b832878ceb4cb47b6e0aa80aa52b9",
+      "canonicalPath": "website/public/gallery/obj/quaternius/ultimate-spaceships/challenger/Challenger.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/74ff008ff89f50b83c873d9c0e10fd3ff8e7b64091c3abb7208abb25b1f573a6",
+      "canonicalPath": "website/public/gallery/obj/quaternius/ultimate-spaceships/executioner/Executioner.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/5bd41892526834e9d67c77246495be10352dc25fce3b5679fda43bab80b029ce",
+      "canonicalPath": "website/public/gallery/obj/quaternius/ultimate-spaceships/omen/Omen.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/9f39fb5eb780b531f8259a949e29110ecbee71aae9fa093482e06f89f30b0e45",
+      "canonicalPath": "website/public/gallery/obj/quaternius/ultimate-spaceships/pancake/Pancake.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/89996b7c4cbdd647300a80993cd8ba9d56e02309675557f702cbdeb2d5043d3a",
+      "canonicalPath": "website/public/gallery/obj/quaternius/ultimate-spaceships/spitfire/Spitfire.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/7ae305f04e661d0b417717b995aab84faa16be96da97a212cedbb8781e7f3eb3",
+      "canonicalPath": "website/public/gallery/obj/quaternius/ultimate-spaceships/zenith/Zenith.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/e51c00ff750eb59ad2cce231dedd1a6552ce95321c6ba3b651bf3d5e0bb3ba26",
+      "canonicalPath": "website/public/gallery/obj/rock1.obj",
+      "pass": true
+    },
+    {
+      "assetId": "asset/f35ae959629369e46c8d8981bc9da0cdf0fbaec79fb672d60ef270ba1874ce78",
+      "canonicalPath": "website/public/gallery/obj/sting.obj",
+      "pass": true
+    }
+  ],
+  "sourceCoverage": [
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/barrel.glb",
+      "canonicalAssetId": "asset/3892fb5acf3c1bfe303de2ca3ef20b30d03098b5d49f7632b2f6d26f7448d1be",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.5434700846672058,
+              0.11947780847549438
+            ],
+            "rgba": [
+              93,
+              124,
+              157,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/car.glb",
+      "canonicalAssetId": "asset/ce6e55856a272eb0316a9a5dd6c04466bd627c7059098ec65da7fdc6193fda2c",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.3307606279850006,
+              0.10413706302642822
+            ],
+            "rgba": [
+              156,
+              132,
+              98,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/electric_pole_1.glb",
+      "canonicalAssetId": "asset/5f48770afe260168275cb05f9262912030202b94125625080927d499106510d5",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.27653682231903076,
+              0.037554144859313965
+            ],
+            "rgba": [
+              124,
+              100,
+              73,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/ground_planks.glb",
+      "canonicalAssetId": "asset/8db8b87a57e3cf28f9b4a8ba8adb5906ebfb141c715f6623aa6110e140ffdbf9",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8268894553184509,
+              0.31304633617401123
+            ],
+            "rgba": [
+              204,
+              174,
+              114,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/jerry_can_with_nozzle.glb",
+      "canonicalAssetId": "asset/ad58678ce475e7c1cb4a3ad12edb903dbbcb5b47ce374297dbe1a8f34ff0b2df",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.6783550381660461,
+              0.06468820571899414
+            ],
+            "rgba": [
+              137,
+              89,
+              89,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/pallet_cluster_1.glb",
+      "canonicalAssetId": "asset/1e50470d4a9f4b58dac91b71aa0d47a69fd94b124d07ff4610aac0af03c0bb78",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.2867296636104584,
+              0.11617136001586914
+            ],
+            "rgba": [
+              162,
+              137,
+              102,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/road_barrier.glb",
+      "canonicalAssetId": "asset/767992ee66d6b904b44ef9ce3056f7b454fcd43fab6e221d63e23c9abcb468fe",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.706327497959137,
+              0.561247706413269
+            ],
+            "rgba": [
+              253,
+              199,
+              98,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/tire.glb",
+      "canonicalAssetId": "asset/d3a2e4dd45d73d80f870844dcf0de12c22652673585d2cb17e2696fac48b8dc1",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.04831027239561081,
+              0.8491851091384888
+            ],
+            "rgba": [
+              70,
+              70,
+              70,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/wall_1_hole.glb",
+      "canonicalAssetId": "asset/4366ec2e9abd478b9ef65873a2e19b73e995c0bb798880bd8986bae2c37ee5db",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.5393902063369751,
+              0.3721316456794739
+            ],
+            "rgba": [
+              162,
+              163,
+              163,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/apocalypse/wooden_spike_barricade.glb",
+      "canonicalAssetId": "asset/ec50c095194ea1ca8a79b9e4a2bf40ff60aad15df996c76134dbc2bc939af96d",
+      "textureRoles": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "byteSha256": "6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd",
+          "decodedPixelSha256": "c3264a43b1730afeb8bfbf89acbc0f6a7ae62e199caa8b0fc111ca91a9513653",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.2859651446342468,
+              0.0938342809677124
+            ],
+            "rgba": [
+              152,
+              127,
+              94,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/insurgent.gltf",
+      "canonicalAssetId": "asset/9b682b2cfbb11f1c2b0e10239d54efcddcb44ec5686abbfd9d557f6ce32e81d5",
+      "textureRoles": [
+        {
+          "textureId": "texture/747cc0798c673cfeb8294cf70786f5028b655a8b7beeb67d107d48ed4a2716ed",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/747cc0798c673cfeb8294cf70786f5028b655a8b7beeb67d107d48ed4a2716ed",
+          "byteSha256": "747cc0798c673cfeb8294cf70786f5028b655a8b7beeb67d107d48ed4a2716ed",
+          "decodedPixelSha256": "479011821a3eb7556a0df77dd5f8797a0c64440d7707783c9f0a79ed2614dde9",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.45990487933158875,
+              0.26184511184692383
+            ],
+            "rgba": [
+              124,
+              124,
+              124,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/khronos/animated-fox.glb",
+      "canonicalAssetId": "asset/d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+      "textureRoles": [
+        {
+          "textureId": "texture/61c8b109ee7f8bf262791933380fafb1465f7b51cbe6472c2d21eff0b31f83a1",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/61c8b109ee7f8bf262791933380fafb1465f7b51cbe6472c2d21eff0b31f83a1",
+          "byteSha256": "61c8b109ee7f8bf262791933380fafb1465f7b51cbe6472c2d21eff0b31f83a1",
+          "decodedPixelSha256": "5c57af2a041383fb32b9d6d81397400078107d0249ff91e65bc0eb38849782a2",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.5287119746208191,
+              0.32144802808761597
+            ],
+            "rgba": [
+              255,
+              250,
+              242,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/khronos/avocado.glb",
+      "canonicalAssetId": "asset/ccc9c3ce56423720b09399c2351537207cd5a65f859f9e6e2f30922762f3abd4",
+      "textureRoles": [
+        {
+          "textureId": "texture/25783c211761b7e32497fdd3e2490f3bac05b738e5e2bc62fc5b78a270bb4e50",
+          "role": "normal"
+        },
+        {
+          "textureId": "texture/33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901",
+          "role": "metallicRoughness"
+        },
+        {
+          "textureId": "texture/385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f",
+          "byteSha256": "385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f",
+          "decodedPixelSha256": "bfb6d6cb1a24eef6dbcc301ad39a294be14ae863582162102acdb156d97e096a",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8603740334510803,
+              0.6697767376899719
+            ],
+            "rgba": [
+              131,
+              55,
+              17,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/model-viewer/astronaut.glb",
+      "canonicalAssetId": "asset/313d48882e2ba7bb25a340dbfd3d6f9bbc7f012372d54f518dc52e4299e3a24e",
+      "textureRoles": [
+        {
+          "textureId": "texture/49376eefef8b0f6d16a4be93be2d0389c96e7e75059725e187250e373b47997f",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/49376eefef8b0f6d16a4be93be2d0389c96e7e75059725e187250e373b47997f",
+          "byteSha256": "49376eefef8b0f6d16a4be93be2d0389c96e7e75059725e187250e373b47997f",
+          "decodedPixelSha256": "d1b0a2dab631bb781c18b71e08a28456d79becc9710ac68751520dbccf82c57e",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.04198899865150452,
+              1.4161919951438904
+            ],
+            "rgba": [
+              209,
+              218,
+              218,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/crew-lock-bag.glb",
+      "canonicalAssetId": "asset/abd3be0b79fef602ce9ec603f19980d313dfc46a5974d347a4a5ec201a7baf24",
+      "textureRoles": [
+        {
+          "textureId": "texture/7c1eab2a11b35ba5e9fe51d489eade3b760040f849ba12096679589e66ebb05c",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/7c1eab2a11b35ba5e9fe51d489eade3b760040f849ba12096679589e66ebb05c",
+          "byteSha256": "7c1eab2a11b35ba5e9fe51d489eade3b760040f849ba12096679589e66ebb05c",
+          "decodedPixelSha256": "e437d8f8fb4c89802b9d20ba60da6098f4ad623e09617ec04530bec212a2b92f",
+          "width": 1024,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.06849999725818634,
+              0.7753999829292297
+            ],
+            "rgba": [
+              244,
+              243,
+              238,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/flight-system-support.glb",
+      "canonicalAssetId": "asset/7b07acb8303a2dec1aa33438db12c27c760ab504a833329deb4eb201f0a5b878",
+      "textureRoles": [
+        {
+          "textureId": "texture/6a680a97e4b80e168ae1f1fce786037633ed3c638b1c9b7b3acdd45b3060aa5d",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6a680a97e4b80e168ae1f1fce786037633ed3c638b1c9b7b3acdd45b3060aa5d",
+          "byteSha256": "6a680a97e4b80e168ae1f1fce786037633ed3c638b1c9b7b3acdd45b3060aa5d",
+          "decodedPixelSha256": "7a70eeb63106085f8b23c3db0725f3b6e888855700eed2702ce6acfdde483673",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.09200000017881393,
+              0.8944000005722046
+            ],
+            "rgba": [
+              223,
+              199,
+              113,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/icesat-a.glb",
+      "canonicalAssetId": "asset/8843f2a22fd0f836b9d2374f60909276d28cb6909ca36f52db82fe01684958b1",
+      "textureRoles": [
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "byteSha256": "b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431",
+          "decodedPixelSha256": "45a24a89f698d5c58f12a5501c926131d1a6a686a5ff0a90e90d134609048d5d",
+          "width": 1600,
+          "height": 1200,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.23624999821186066,
+              0.4036363363265991
+            ],
+            "rgba": [
+              39,
+              30,
+              21,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/orbiter-docking-system.glb",
+      "canonicalAssetId": "asset/781267aab7f8bcee7373e1db0777fc00d4f01f090a11852313050c706952f2c1",
+      "textureRoles": [
+        {
+          "textureId": "texture/7484354307da9dccdbae0aa6e73078c7e0b6c50d44fe37436fd809c81cd2906d",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/7484354307da9dccdbae0aa6e73078c7e0b6c50d44fe37436fd809c81cd2906d",
+          "byteSha256": "7484354307da9dccdbae0aa6e73078c7e0b6c50d44fe37436fd809c81cd2906d",
+          "decodedPixelSha256": "7dafd723952aca96b2e2a8a429b5c9d284f592dfbaa123a70855a4fb68976968",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.250197172164917,
+              20.168745040893555
+            ],
+            "rgba": [
+              240,
+              235,
+              235,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/solid-rocket-booster.glb",
+      "canonicalAssetId": "asset/eb68e0c9e4c492e9e013f84746863a21e1fb9df6b74310f8bcb8daa53585a68d",
+      "textureRoles": [
+        {
+          "textureId": "texture/7daa51f5517ff884b0d271b6149bdff0ab16586cf2132fc4be29c4544e7b29be",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/7daa51f5517ff884b0d271b6149bdff0ab16586cf2132fc4be29c4544e7b29be",
+          "byteSha256": "7daa51f5517ff884b0d271b6149bdff0ab16586cf2132fc4be29c4544e7b29be",
+          "decodedPixelSha256": "4cb171428b55c7c66676de4f10930af0628a7c22ee2755de269751ffec1ae1ef",
+          "width": 890,
+          "height": 3600,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.9783043265342712,
+              0.049081265926361084
+            ],
+            "rgba": [
+              233,
+              228,
+              213,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/space-shuttle-external-tank.glb",
+      "canonicalAssetId": "asset/ee2d727e23d796dd94a29dcbce03d645faea485b006edbb7319abdbf445d5ee7",
+      "textureRoles": [
+        {
+          "textureId": "texture/37d11e21fbf91ceb670131d78f17aad8032d260ebf42a2b7169c8a29acbfdbde",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/37d11e21fbf91ceb670131d78f17aad8032d260ebf42a2b7169c8a29acbfdbde",
+          "byteSha256": "37d11e21fbf91ceb670131d78f17aad8032d260ebf42a2b7169c8a29acbfdbde",
+          "decodedPixelSha256": "8dffbb5bd51c59ccc7ec5a8ae92cebaccb591549da27f18e4d8c4d3bca105107",
+          "width": 561,
+          "height": 3576,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.9269854426383972,
+              0.04693657159805298
+            ],
+            "rgba": [
+              165,
+              89,
+              53,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/nasa/wide-field-planetary-camera.glb",
+      "canonicalAssetId": "asset/e0b58bdf8e3edcddd775f4aee79c06d64f63cf7fb7de3ab67284b42e8e0ae19b",
+      "textureRoles": [
+        {
+          "textureId": "texture/41006ca89f633e9c2a3be483b8e58e0ead3d759983966c10af5846c01d96b66c",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/41006ca89f633e9c2a3be483b8e58e0ead3d759983966c10af5846c01d96b66c",
+          "byteSha256": "41006ca89f633e9c2a3be483b8e58e0ead3d759983966c10af5846c01d96b66c",
+          "decodedPixelSha256": "c6b60974ab0c6dd29ca61dfe2c138d3751c5486a7cce9e20591e9a9ee36d5e2a",
+          "width": 512,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.0005000000237487257,
+              0.8048999905586243
+            ],
+            "rgba": [
+              244,
+              244,
+              242,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is blocked"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/opengameart/animated-pliers.glb",
+      "canonicalAssetId": "asset/b5552adeb574d869282132de6c31195f60705c8044097e9b6906f9dae05a39fb",
+      "textureRoles": [
+        {
+          "textureId": "texture/2ec69267a076318e125d0a94f924a0bceb0b61d09163ac77a20eea9a165c071e",
+          "role": "normal"
+        },
+        {
+          "textureId": "texture/36885ac77c6d73281815c3a59344a47f5f08c2ee0a2de699d0bec7d9d5c3aaa4",
+          "role": "metallicRoughness"
+        },
+        {
+          "textureId": "texture/36885ac77c6d73281815c3a59344a47f5f08c2ee0a2de699d0bec7d9d5c3aaa4",
+          "role": "occlusion"
+        },
+        {
+          "textureId": "texture/d07057b654e10381abcd57e8e2cdc45a845bd8e0c172a7f6d5bb7220ef93c743",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/d07057b654e10381abcd57e8e2cdc45a845bd8e0c172a7f6d5bb7220ef93c743",
+          "byteSha256": "d07057b654e10381abcd57e8e2cdc45a845bd8e0c172a7f6d5bb7220ef93c743",
+          "decodedPixelSha256": "5242293f20689d24cc9e11c29f37b699710232df9845b8d04241f869bf47265f",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.7930776476860046,
+              0.3283109664916992
+            ],
+            "rgba": [
+              116,
+              118,
+              115,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/opengameart/animated-utility-knife.glb",
+      "canonicalAssetId": "asset/7245ef40efd8537fcbd0e04f5d89980f540a695454a61cb4cf2e8e8af81992f3",
+      "textureRoles": [
+        {
+          "textureId": "texture/ab702a9c2bb0c3401c9dc48ad22ffdfebbe125881a846eb770d0f8e711ccbaac",
+          "role": "normal"
+        },
+        {
+          "textureId": "texture/e3dcbd3cb99d9b3aa43b001a5951af12af753abec921a9f8097879163c09b564",
+          "role": "baseColor"
+        },
+        {
+          "textureId": "texture/f90aca27742183fe2e1b031e7f2a58e6a5009855fdb57207ae55027bd5ba5dab",
+          "role": "metallicRoughness"
+        },
+        {
+          "textureId": "texture/f90aca27742183fe2e1b031e7f2a58e6a5009855fdb57207ae55027bd5ba5dab",
+          "role": "occlusion"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/e3dcbd3cb99d9b3aa43b001a5951af12af753abec921a9f8097879163c09b564",
+          "byteSha256": "e3dcbd3cb99d9b3aa43b001a5951af12af753abec921a9f8097879163c09b564",
+          "decodedPixelSha256": "03f9d2d1d208ba28541d9d4f0d09910bf8da25642677eaa9c30a4a5a32d81933",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.09542305767536163,
+              0.798031210899353
+            ],
+            "rgba": [
+              201,
+              207,
+              209,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/animated-enemy-small.glb",
+      "canonicalAssetId": "asset/b4d6cb3e0920058eab20d079dc57fa6bdbaecad6806803f0f3d504ee730891dd",
+      "textureRoles": [
+        {
+          "textureId": "texture/bc0c0ce594ecc826d022233e0db08c237a1ab3439414d1f816bd8d8ee82ffe11",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/bc0c0ce594ecc826d022233e0db08c237a1ab3439414d1f816bd8d8ee82ffe11",
+          "byteSha256": "bc0c0ce594ecc826d022233e0db08c237a1ab3439414d1f816bd8d8ee82ffe11",
+          "decodedPixelSha256": "c8a903f8b5959495917e83268e527f93a0b6a3a5c975b10cea05d25ebbe21911",
+          "width": 32,
+          "height": 32,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.01544215902686119,
+              0.5460463166236877
+            ],
+            "rgba": [
+              51,
+              91,
+              22,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/arrow.glb",
+      "canonicalAssetId": "asset/d496c7b9a6428e1697b22dfb4eff58b6c0f56d54c2aac66e663ac7eacadd91b5",
+      "textureRoles": [
+        {
+          "textureId": "texture/858d426dc2fa507874c2578c3ec3bc706c23c428fdfcfe06909aadba6c27b5da",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/858d426dc2fa507874c2578c3ec3bc706c23c428fdfcfe06909aadba6c27b5da",
+          "byteSha256": "858d426dc2fa507874c2578c3ec3bc706c23c428fdfcfe06909aadba6c27b5da",
+          "decodedPixelSha256": "1bcaf6d72f856aa4c34ff1b46b1c6959312ff690ab10f53fe50fca289c40e2ff",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.6444303393363953,
+              0.15748900175094604
+            ],
+            "rgba": [
+              122,
+              128,
+              128,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/bird.glb",
+      "canonicalAssetId": "asset/d0d08da2e47307301cfcff1d9d8bf713f92af67cd329e7a165af7854dade33f6",
+      "textureRoles": [
+        {
+          "textureId": "texture/a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4",
+          "byteSha256": "a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4",
+          "decodedPixelSha256": "a1b251e1dd1e8fd782001f874d1b4a4fcf29cf7cd6bd2b3f3afc8d374301c4d5",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.7015254497528076,
+              0.7643083930015564
+            ],
+            "rgba": [
+              24,
+              24,
+              24,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/box.glb",
+      "canonicalAssetId": "asset/4b6f7b2d17997f75192c706b28e2f894b6dff691bced17963470d2b2ceddbff9",
+      "textureRoles": [
+        {
+          "textureId": "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "byteSha256": "6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "decodedPixelSha256": "27fee4362bb7f5ceb35d3bd4de8337d7b0ea5a7cdba8c21b705009c5bd84e498",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.6481257677078247,
+              0.5975536108016968
+            ],
+            "rgba": [
+              214,
+              168,
+              118,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/bucket.glb",
+      "canonicalAssetId": "asset/f28f73f8ffa254b2a57130f1130cffa687ca2b3d610698aab3c948f1f9894ec8",
+      "textureRoles": [
+        {
+          "textureId": "texture/a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4",
+          "byteSha256": "a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4",
+          "decodedPixelSha256": "a1b251e1dd1e8fd782001f874d1b4a4fcf29cf7cd6bd2b3f3afc8d374301c4d5",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.01123054139316082,
+              0.9541015625
+            ],
+            "rgba": [
+              87,
+              65,
+              44,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/cactus-a.glb",
+      "canonicalAssetId": "asset/1b4fedcdb1791f2b0d668d85e5cb49ba975d0ecfa851b4fd09e44be6104329f2",
+      "textureRoles": [
+        {
+          "textureId": "texture/31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5",
+          "byteSha256": "31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5",
+          "decodedPixelSha256": "5051bc3d1ae33ac730eb77f23485302eeca8be67918d820ea195048bef63eb7f",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.18398022651672363,
+              0.6084840297698975
+            ],
+            "rgba": [
+              54,
+              131,
+              111,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/cactus-model.glb",
+      "canonicalAssetId": "asset/596b07fdf43d821437889a8c43627b6010f4a9cc70306af58fc455033cc607d4",
+      "textureRoles": [
+        {
+          "textureId": "texture/31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5",
+          "byteSha256": "31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5",
+          "decodedPixelSha256": "5051bc3d1ae33ac730eb77f23485302eeca8be67918d820ea195048bef63eb7f",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8005552887916565,
+              0.2910473346710205
+            ],
+            "rgba": [
+              89,
+              131,
+              67,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/ducky.glb",
+      "canonicalAssetId": "asset/1edba66e8a439fb0e07230beea67837d576ba3d7ae8e6caf1cfed42d1eee1ed9",
+      "textureRoles": [
+        {
+          "textureId": "texture/0dc04a048fd85b129183864788cf85bd63ead6fdccb788a21be98d92f2c4e408",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/0dc04a048fd85b129183864788cf85bd63ead6fdccb788a21be98d92f2c4e408",
+          "byteSha256": "0dc04a048fd85b129183864788cf85bd63ead6fdccb788a21be98d92f2c4e408",
+          "decodedPixelSha256": "4e0021c56ed025a6aa8d010d5832c4ddcbe4f98d7412b989b80306b0edd01a9b",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.18601983785629272,
+              0.37292200326919556
+            ],
+            "rgba": [
+              254,
+              202,
+              74,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/empty-box.glb",
+      "canonicalAssetId": "asset/16b9d215b614eaa43c31c84d2db8a6cdd37d55b54968fd1dd98793a4776c6bd3",
+      "textureRoles": [
+        {
+          "textureId": "texture/ef89e695b8f33c051f023772aa1b150ed8be26f141cb1818b35ed2df2bd59a67",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/ef89e695b8f33c051f023772aa1b150ed8be26f141cb1818b35ed2df2bd59a67",
+          "byteSha256": "ef89e695b8f33c051f023772aa1b150ed8be26f141cb1818b35ed2df2bd59a67",
+          "decodedPixelSha256": "da270f04438fea80c4ae36ed381d995607a43e06e4cd40a87d5e0b6dec047e95",
+          "width": 128,
+          "height": 128,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.4777566194534302,
+              0.5145087242126465
+            ],
+            "rgba": [
+              178,
+              119,
+              87,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/flying-saucer.glb",
+      "canonicalAssetId": "asset/4f320514ca53f04d02e5e9009cf172e999a68d8478fd29c7f998d04dc2adde6e",
+      "textureRoles": [
+        {
+          "textureId": "texture/7a005004d6e16f0bda573e354cec743b77779beec01bc69f4a43ce526fa74753",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/7a005004d6e16f0bda573e354cec743b77779beec01bc69f4a43ce526fa74753",
+          "byteSha256": "7a005004d6e16f0bda573e354cec743b77779beec01bc69f4a43ce526fa74753",
+          "decodedPixelSha256": "45bc647908e4b95f1c3e2903e3c325dae3e95883c789f02e9b394379104e0602",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8174499869346619,
+              0.43278998136520386
+            ],
+            "rgba": [
+              191,
+              153,
+              204,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/glass.glb",
+      "canonicalAssetId": "asset/b05f707320781fc5a44152161c3c77980ea68ae30f4af22ac34a71becca04132",
+      "textureRoles": [
+        {
+          "textureId": "texture/eba4c31150db3d5f134e51bd6d3120d78bc21ea83a460f97b0b7a4a98159a2d8",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/eba4c31150db3d5f134e51bd6d3120d78bc21ea83a460f97b0b7a4a98159a2d8",
+          "byteSha256": "eba4c31150db3d5f134e51bd6d3120d78bc21ea83a460f97b0b7a4a98159a2d8",
+          "decodedPixelSha256": "031cf88c3d5e8e71c6a7b49ae3f2700b826f05e6e2905a851ca01a041ab95c94",
+          "width": 256,
+          "height": 1,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.029444999992847443,
+              0.5044009983539581
+            ],
+            "rgba": [
+              245,
+              247,
+              250,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/rabbit-blond.glb",
+      "canonicalAssetId": "asset/284276ad175695639a8df651a5dd7ee7951fdf2d4ee3d49a2e5fc50df9f37975",
+      "textureRoles": [
+        {
+          "textureId": "texture/62118ccee997298c33fcaf2d301ae82bdccdbc5a9c8f0e2719b7ad32032793df",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/62118ccee997298c33fcaf2d301ae82bdccdbc5a9c8f0e2719b7ad32032793df",
+          "byteSha256": "62118ccee997298c33fcaf2d301ae82bdccdbc5a9c8f0e2719b7ad32032793df",
+          "decodedPixelSha256": "f3756100b900af39a3235748ee967ee8ecaf0e10fe71e3a55ee3869a8fb6f812",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.33254918456077576,
+              0.5959703326225281
+            ],
+            "rgba": [
+              88,
+              109,
+              72,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/rock-large.glb",
+      "canonicalAssetId": "asset/c4e9f04c04419e67e919c4533dfd6044abc5f0640afa9d0e174cf474285d380c",
+      "textureRoles": [
+        {
+          "textureId": "texture/516cefca3254dff7655d7cde0af2a21723f1354172ba2436fd748bb0f038a81a",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/516cefca3254dff7655d7cde0af2a21723f1354172ba2436fd748bb0f038a81a",
+          "byteSha256": "516cefca3254dff7655d7cde0af2a21723f1354172ba2436fd748bb0f038a81a",
+          "decodedPixelSha256": "07f8664ebd40703437af00e27f6de04c4a0de05c17e719793d11d8f10aa43c22",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.01798204332590103,
+              0.9532990455627441
+            ],
+            "rgba": [
+              132,
+              76,
+              35,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/rock-medium.glb",
+      "canonicalAssetId": "asset/99881282aa8ee2bc89ac782911b90909c84e33d693c3a9c2ef5085f1d8214ffe",
+      "textureRoles": [
+        {
+          "textureId": "texture/fe12c2217ff4eb86e7212ff416ef18dabc82b6c0371946080225052964b68868",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/fe12c2217ff4eb86e7212ff416ef18dabc82b6c0371946080225052964b68868",
+          "byteSha256": "fe12c2217ff4eb86e7212ff416ef18dabc82b6c0371946080225052964b68868",
+          "decodedPixelSha256": "a43d234e1eb95892a86b7e13728b0e6153dcf133f0081774cb5d33d0c5457df7",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8420696258544922,
+              0.5274985432624817
+            ],
+            "rgba": [
+              104,
+              116,
+              57,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/poly-pizza/sword-diamond.glb",
+      "canonicalAssetId": "asset/bec54c1773ff53bc27bf05c6be31f46e4582ec18129b74db6bedfe85f9290833",
+      "textureRoles": [
+        {
+          "textureId": "texture/01bdd3af6fb1c26b1ee1630cdf5eb2bf181665d9057a70d1701e13134b3ca3b9",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/01bdd3af6fb1c26b1ee1630cdf5eb2bf181665d9057a70d1701e13134b3ca3b9",
+          "byteSha256": "01bdd3af6fb1c26b1ee1630cdf5eb2bf181665d9057a70d1701e13134b3ca3b9",
+          "decodedPixelSha256": "5f8465866a8a0341b4927a0935bc519e83c96b0f049f7f71176fefd299708464",
+          "width": 32,
+          "height": 32,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.044755175709724426,
+              0.8272840976715088
+            ],
+            "rgba": [
+              181,
+              143,
+              86,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/smithsonian/morse-telegraph-key.glb",
+      "canonicalAssetId": "asset/c764726a33592ecf883d6003929099e84d42530d4bd85eb6be9aed08fa1593ea",
+      "textureRoles": [
+        {
+          "textureId": "texture/1a33298528c62cc2de7b911101f75cb423f2fc4596a4c03fbaf8268b7fb3f852",
+          "role": "occlusion"
+        },
+        {
+          "textureId": "texture/8d69bf19edadfd5f22c3bff952c2faff1afc704740722b868fb815f2e28cd98b",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/8d69bf19edadfd5f22c3bff952c2faff1afc704740722b868fb815f2e28cd98b",
+          "byteSha256": "8d69bf19edadfd5f22c3bff952c2faff1afc704740722b868fb815f2e28cd98b",
+          "decodedPixelSha256": "73c7a7616ec9717aa4d02aa6f9f7d78f392cb8e51ea38a6e423e2bbb0be634d8",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.6699075698852539,
+              0.23571282625198364
+            ],
+            "rgba": [
+              47,
+              48,
+              39,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Air conditioner.glb",
+      "canonicalAssetId": "asset/3c3f83c02a593b771d8ddbcbaaa2f43085cf297217192b87b5ee3073318bb5b1",
+      "textureRoles": [
+        {
+          "textureId": "texture/7ccd3f639e126c8d940e34cfd21656c2fbe11e12584c037db0b2f5f46bfcdc7f",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/7ccd3f639e126c8d940e34cfd21656c2fbe11e12584c037db0b2f5f46bfcdc7f",
+          "byteSha256": "7ccd3f639e126c8d940e34cfd21656c2fbe11e12584c037db0b2f5f46bfcdc7f",
+          "decodedPixelSha256": "6f50d47ee23f105655495ba9519558bdc1e7a570c49c516aa823583cb4de3ba9",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.7876710295677185,
+              0.908159002661705
+            ],
+            "rgba": [
+              178,
+              178,
+              178,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Animated Woman.glb",
+      "canonicalAssetId": "asset/97a4e8c5e93b5c4f68b25e5240f308aa81ff4ae487b750e62f13e02c338d73e8",
+      "textureRoles": [
+        {
+          "textureId": "texture/77c799bc4937b510eda8b63a9bf5cd1942a2c657d74354334aa4e95f728fc4c5",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/77c799bc4937b510eda8b63a9bf5cd1942a2c657d74354334aa4e95f728fc4c5",
+          "byteSha256": "77c799bc4937b510eda8b63a9bf5cd1942a2c657d74354334aa4e95f728fc4c5",
+          "decodedPixelSha256": "45438d0ca135a4ae45c17c8c27e87c67203dc3aa1c8d0edd6e0d51c8e0337597",
+          "width": 32,
+          "height": 32,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.46301499009132385,
+              0.9597100019454956
+            ],
+            "rgba": [
+              231,
+              189,
+              145,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Bicycle.glb",
+      "canonicalAssetId": "asset/197063f35b41c2c571666792ac7154d45a11d7c96c7f2aa9030e91c5037dc23e",
+      "textureRoles": [
+        {
+          "textureId": "texture/5c2f0b739c224d89613aac9859c1551699d53c568f1a615d742871989b4eb53f",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/5c2f0b739c224d89613aac9859c1551699d53c568f1a615d742871989b4eb53f",
+          "byteSha256": "5c2f0b739c224d89613aac9859c1551699d53c568f1a615d742871989b4eb53f",
+          "decodedPixelSha256": "23ef59bcfdef54f8935652e84dc5cff4a24305e7f489c74c42877966366c3d4d",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.5832570195198059,
+              0.028136014938354492
+            ],
+            "rgba": [
+              31,
+              127,
+              207,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Billboard.glb",
+      "canonicalAssetId": "asset/dece50ba1ae265df28d55aacff220b00e24aee681e6bf7ef58e1cbc5ef220804",
+      "textureRoles": [
+        {
+          "textureId": "texture/544b0abb3ea26d4be32729b29cd753e4cd0c050405457c54fb7fdd4b12721719",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/544b0abb3ea26d4be32729b29cd753e4cd0c050405457c54fb7fdd4b12721719",
+          "byteSha256": "544b0abb3ea26d4be32729b29cd753e4cd0c050405457c54fb7fdd4b12721719",
+          "decodedPixelSha256": "e6026c834d65d5921cc41120b65d73a10ee067b11dd1e674f3283ba48a5d0a2c",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.9573690295219421,
+              0.5454469919204712
+            ],
+            "rgba": [
+              51,
+              50,
+              48,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Box.glb",
+      "canonicalAssetId": "asset/4b6f7b2d17997f75192c706b28e2f894b6dff691bced17963470d2b2ceddbff9",
+      "textureRoles": [
+        {
+          "textureId": "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "alias-of-rendered",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "byteSha256": "6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "decodedPixelSha256": "27fee4362bb7f5ceb35d3bd4de8337d7b0ea5a7cdba8c21b705009c5bd84e498",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.6481257677078247,
+              0.5975536108016968
+            ],
+            "rgba": [
+              214,
+              168,
+              118,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "alias-of-rendered",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Bus.glb",
+      "canonicalAssetId": "asset/594f1e515bd1882467f50bbc3588df5009338e2ec8bbc31eee36c85774207a76",
+      "textureRoles": [
+        {
+          "textureId": "texture/64c8a28f41ea7d467640419aaf7b38c1a09d6d32dd6cd8c2b382a58ff6c1271b",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/64c8a28f41ea7d467640419aaf7b38c1a09d6d32dd6cd8c2b382a58ff6c1271b",
+          "byteSha256": "64c8a28f41ea7d467640419aaf7b38c1a09d6d32dd6cd8c2b382a58ff6c1271b",
+          "decodedPixelSha256": "3119b21c700f233837120a4032b1cd4c59b855bc1ff503fa68a2f8d41b17d81c",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.6736999750137329,
+              0.6325840055942535
+            ],
+            "rgba": [
+              67,
+              67,
+              67,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Motorcycle.glb",
+      "canonicalAssetId": "asset/a20a32a457e76cec52eb6c65919f3be8dbbe02d9b4a8ec5e789f11a07a4f39fc",
+      "textureRoles": [
+        {
+          "textureId": "texture/3960b29079c61e536bf9bc939800e873f55a4cf2f8d622f43db24b4b91d22a93",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/3960b29079c61e536bf9bc939800e873f55a4cf2f8d622f43db24b4b91d22a93",
+          "byteSha256": "3960b29079c61e536bf9bc939800e873f55a4cf2f8d622f43db24b4b91d22a93",
+          "decodedPixelSha256": "a075afe98c50d2e6a8b719bd2e4cf7e35f0aba761ef1ec64266848eed2995254",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8309040069580078,
+              0.2719990015029907
+            ],
+            "rgba": [
+              44,
+              44,
+              44,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Pickup Truck.glb",
+      "canonicalAssetId": "asset/9d6b2e33af0d37bf42b2e7af850949f4efd0ddbb9a88077812d152d8b4c1c3eb",
+      "textureRoles": [
+        {
+          "textureId": "texture/a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78",
+          "byteSha256": "a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78",
+          "decodedPixelSha256": "9609a519030f37e0814526c255ad72fa023427d49f32276f9efce86d03eb89d2",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.01390153169631958,
+              0.23491400480270386
+            ],
+            "rgba": [
+              31,
+              31,
+              31,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Road Bits.glb",
+      "canonicalAssetId": "asset/eb37bbfa8da41fab0ecaa67f1d796c406141ba648f6c0272b4eddfaaffb7de9d",
+      "textureRoles": [
+        {
+          "textureId": "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "byteSha256": "6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b",
+          "decodedPixelSha256": "27fee4362bb7f5ceb35d3bd4de8337d7b0ea5a7cdba8c21b705009c5bd84e498",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.34182262420654297,
+              0.791153073310852
+            ],
+            "rgba": [
+              96,
+              103,
+              108,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Sports Car-Gzj704DXdr.glb",
+      "canonicalAssetId": "asset/e802a66e1f73d3e35b5d2462656b6e8d30a8e36d229e1776b082a82f955b94d2",
+      "textureRoles": [
+        {
+          "textureId": "texture/a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78",
+          "byteSha256": "a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78",
+          "decodedPixelSha256": "9609a519030f37e0814526c255ad72fa023427d49f32276f9efce86d03eb89d2",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.07618644833564758,
+              0.26716458797454834
+            ],
+            "rgba": [
+              31,
+              31,
+              31,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Stop sign.glb",
+      "canonicalAssetId": "asset/c1717a9fff896de589c3ab99979c521eb5b708b0eab2e705ab522a92a7c746d4",
+      "textureRoles": [
+        {
+          "textureId": "texture/41b39eec9cd695d65b95314483dc99d25f95afbf05888be5b8d73edffcb8ea44",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/41b39eec9cd695d65b95314483dc99d25f95afbf05888be5b8d73edffcb8ea44",
+          "byteSha256": "41b39eec9cd695d65b95314483dc99d25f95afbf05888be5b8d73edffcb8ea44",
+          "decodedPixelSha256": "8f29c04b8334e59e73b9e11f1cfbff8cf7978fab3fca53c13373a26702d4b95b",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.8021299839019775,
+              0.6387819945812225
+            ],
+            "rgba": [
+              238,
+              238,
+              238,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Traffic Light.glb",
+      "canonicalAssetId": "asset/948cae85241d59b35bde0e585e6da6894055da791efa37a06cd75eac82786079",
+      "textureRoles": [
+        {
+          "textureId": "texture/8803e5543d5e6b6f66aa41a5ef93e6c2ffb77b5476d0202296d2f4c8f4eb9e8d",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/8803e5543d5e6b6f66aa41a5ef93e6c2ffb77b5476d0202296d2f4c8f4eb9e8d",
+          "byteSha256": "8803e5543d5e6b6f66aa41a5ef93e6c2ffb77b5476d0202296d2f4c8f4eb9e8d",
+          "decodedPixelSha256": "9ffedf8f4532060e8a52290f57c0be0696fb5379c594d65d717668f0435fe255",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.11085426807403564,
+              0.7054206728935242
+            ],
+            "rgba": [
+              203,
+              195,
+              189,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Tree.glb",
+      "canonicalAssetId": "asset/c2fb03e8dd4686082222e3faf0fc248bfd0e333289138133579ba6dc7e7d1cbd",
+      "textureRoles": [
+        {
+          "textureId": "texture/3c3ed7b08e15311fb96786cf3f9c268d83a6cf416bf4c91e2ffbf7746ea0e4c9",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/3c3ed7b08e15311fb96786cf3f9c268d83a6cf416bf4c91e2ffbf7746ea0e4c9",
+          "byteSha256": "3c3ed7b08e15311fb96786cf3f9c268d83a6cf416bf4c91e2ffbf7746ea0e4c9",
+          "decodedPixelSha256": "8b939db43463dde537d3579f3cecc37ef247144b0ca4afe34de748d675a2ab1a",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.37605899572372437,
+              0.7538879960775375
+            ],
+            "rgba": [
+              93,
+              108,
+              58,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is unverified"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/glb/urban/Van.glb",
+      "canonicalAssetId": "asset/21e57a7be6afbea279ed9acd91e2e0bb0ea0543100778386363eec9ccf9f6f5d",
+      "textureRoles": [
+        {
+          "textureId": "texture/43828d642354119cc4421887280b3be1e301f02d0aed745d21e2f40c083f6e84",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/43828d642354119cc4421887280b3be1e301f02d0aed745d21e2f40c083f6e84",
+          "byteSha256": "43828d642354119cc4421887280b3be1e301f02d0aed745d21e2f40c083f6e84",
+          "decodedPixelSha256": "7447ddc196935f8d6f98bfee715b83bbbdcfde8d874346ac68590960b35a76d0",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.5468670129776001,
+              0.3130819797515869
+            ],
+            "rgba": [
+              48,
+              48,
+              48,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "admission-failure",
+      "admissionFailure": [
+        "provenance is attribution-only"
+      ]
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/cottage.obj",
+      "canonicalAssetId": "asset/a0a3b6ef57a641663445d4481ad359e479d69ccfa5ebab6bec58f7bfd171339e",
+      "textureRoles": [
+        {
+          "textureId": "texture/00a684f3dcaab17553a4ce7d57b11841e7574fe15f4cdf824137f60ec227a144",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/00a684f3dcaab17553a4ce7d57b11841e7574fe15f4cdf824137f60ec227a144",
+          "byteSha256": "00a684f3dcaab17553a4ce7d57b11841e7574fe15f4cdf824137f60ec227a144",
+          "decodedPixelSha256": "91d67272356e642b966ce0369c4a6afa8a9fb66055dac9aabb2415c03bd8784e",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.400001,
+              0.948156
+            ],
+            "rgba": [
+              143,
+              123,
+              92,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/biplane/biplane.obj",
+      "canonicalAssetId": "asset/dd99e218160fd870b6826c30a1b1e3979a6c129661a6ca15a2a8b3b47f7263e4",
+      "textureRoles": [
+        {
+          "textureId": "texture/c3f39294d4c8b04ceae359dbb07a438fcf76c4affea704489b636feeea38eee2",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/c3f39294d4c8b04ceae359dbb07a438fcf76c4affea704489b636feeea38eee2",
+          "byteSha256": "c3f39294d4c8b04ceae359dbb07a438fcf76c4affea704489b636feeea38eee2",
+          "decodedPixelSha256": "43bfffdebddd4d991e981cd3fa54dc3bc2c8aa2c147b3c08e32f1826a1ae0b5d",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.023534,
+              0.441375
+            ],
+            "rgba": [
+              218,
+              38,
+              38,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/broken-stone-slab/stone.obj",
+      "canonicalAssetId": "asset/b2f9a0172b10efc0dc4cc48e7dfa541162c70447758ef893d10fe8f078518a52",
+      "textureRoles": [
+        {
+          "textureId": "texture/6ff25f8d6121fad51947845970d51184a66fc08c80ade90286dd8119364b0710",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/6ff25f8d6121fad51947845970d51184a66fc08c80ade90286dd8119364b0710",
+          "byteSha256": "6ff25f8d6121fad51947845970d51184a66fc08c80ade90286dd8119364b0710",
+          "decodedPixelSha256": "7a55b506be988c45c7c4bb46102ab1147601cc1375a60030720f59737b83cebf",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.786462,
+              0.063781
+            ],
+            "rgba": [
+              105,
+              107,
+              108,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/crate/Box.obj",
+      "canonicalAssetId": "asset/c15ee1ca253975a5fc0a106f118200c967937457c1c0d1cca874b017bbf26b19",
+      "textureRoles": [
+        {
+          "textureId": "texture/aa0766b73ce0c864b2ce0be87a5dd2ddee2cc2f1b0c5d1352de65b6e8d044b81",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/aa0766b73ce0c864b2ce0be87a5dd2ddee2cc2f1b0c5d1352de65b6e8d044b81",
+          "byteSha256": "aa0766b73ce0c864b2ce0be87a5dd2ddee2cc2f1b0c5d1352de65b6e8d044b81",
+          "decodedPixelSha256": "d882aab297cd117d3f521cc89d988cfbe21f953deb9bdc2776fe2c1f04c0e792",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0,
+              0
+            ],
+            "rgba": [
+              84,
+              54,
+              43,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/fire-extinguisher/extinguisher.obj",
+      "canonicalAssetId": "asset/a70f9952dba6bf15144ea862c56929ce4741c623de24f1de3414370b65fa9b5b",
+      "textureRoles": [
+        {
+          "textureId": "texture/1521893ad95df079235bbd76cfb286dba70fb3dded5f929c1209fdfce18b06a5",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/1521893ad95df079235bbd76cfb286dba70fb3dded5f929c1209fdfce18b06a5",
+          "byteSha256": "1521893ad95df079235bbd76cfb286dba70fb3dded5f929c1209fdfce18b06a5",
+          "decodedPixelSha256": "7a75acf7441e02fe845290eabd3b79aa22bdc93f8c16a91094fe74c2d2240715",
+          "width": 2048,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.733116,
+              0.588604
+            ],
+            "rgba": [
+              77,
+              76,
+              82,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/frog-guy/frog.obj",
+      "canonicalAssetId": "asset/8b66dc7c28ae0a64d146ee8e5ee82ece7202e8b0d70a715c2d3995fe739df687",
+      "textureRoles": [
+        {
+          "textureId": "texture/0deaa17551b65de206200cd9684cb948213f0a1cbccf262e55123fac0f00a3ca",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/0deaa17551b65de206200cd9684cb948213f0a1cbccf262e55123fac0f00a3ca",
+          "byteSha256": "0deaa17551b65de206200cd9684cb948213f0a1cbccf262e55123fac0f00a3ca",
+          "decodedPixelSha256": "f70d2fc9dab16b7065f748172b3cc5d3aa1082bc483d30535b4e35afc047b4d2",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.175881,
+              0.893553
+            ],
+            "rgba": [
+              80,
+              75,
+              63,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/game-cartridge/cartridge.obj",
+      "canonicalAssetId": "asset/9dde04d41ef8e8cbd952e29cea707ea9f84c7b3e0cb47605183d8e33442a8cc1",
+      "textureRoles": [
+        {
+          "textureId": "texture/c3171f680c6133ea0d1431c6efb1b48c06e4143e7fd72cb3adbfcc32f1dc678a",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/c3171f680c6133ea0d1431c6efb1b48c06e4143e7fd72cb3adbfcc32f1dc678a",
+          "byteSha256": "c3171f680c6133ea0d1431c6efb1b48c06e4143e7fd72cb3adbfcc32f1dc678a",
+          "decodedPixelSha256": "d721b7192c5a7897e86c4a77729a288713d2e515efcb9fde8d9b3b00b80dd30c",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.1821,
+              0.435
+            ],
+            "rgba": [
+              113,
+              111,
+              111,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/grandfather-clock/grandfather-clock.obj",
+      "canonicalAssetId": "asset/eb858e81f8554a2d53db0f661040a2d04542341f6f8ea9707ef40bf71ae91bb5",
+      "textureRoles": [
+        {
+          "textureId": "texture/310ede9fc6ed0ef2ce8d57f805ec0e643b241254155fdc7f7f54331da5359964",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/310ede9fc6ed0ef2ce8d57f805ec0e643b241254155fdc7f7f54331da5359964",
+          "byteSha256": "310ede9fc6ed0ef2ce8d57f805ec0e643b241254155fdc7f7f54331da5359964",
+          "decodedPixelSha256": "e43fa64e6d4000ceeba0a8e3ba3c5e2aca075b25e301609b27140c2e15f4a30f",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.651029,
+              0.020009
+            ],
+            "rgba": [
+              32,
+              19,
+              17,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/haunted-house/hauntedhouse.obj",
+      "canonicalAssetId": "asset/0f00cb52ea93fc291c19d5be85624b03720aabb7bcfd92318cc71059a76c7fe5",
+      "textureRoles": [
+        {
+          "textureId": "texture/514faa0dec53e4a00e2bb758cae5fe4272731ad09ca338286e63f3ff4932e15e",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/514faa0dec53e4a00e2bb758cae5fe4272731ad09ca338286e63f3ff4932e15e",
+          "byteSha256": "514faa0dec53e4a00e2bb758cae5fe4272731ad09ca338286e63f3ff4932e15e",
+          "decodedPixelSha256": "02f7422b1550eae8d301e3d40b0b3d7e8e6d686d8beda709e3914d743cd5fbf3",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.623583,
+              0.334198
+            ],
+            "rgba": [
+              163,
+              130,
+              215,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/hay-bale/hay_bale.obj",
+      "canonicalAssetId": "asset/6b49c11bb8b7bd39212b5252e3f8862dce1eea3a62d3470926e080eea4e33438",
+      "textureRoles": [
+        {
+          "textureId": "texture/57cf3c004fb2759f15e3ead66ec95e7e11e929c4e70e2cc93238103121b01b06",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/57cf3c004fb2759f15e3ead66ec95e7e11e929c4e70e2cc93238103121b01b06",
+          "byteSha256": "57cf3c004fb2759f15e3ead66ec95e7e11e929c4e70e2cc93238103121b01b06",
+          "decodedPixelSha256": "cad6fe003e4881b4c8a23e960ff1ac981677cb7c7bed029355f0a2262ef1f2ff",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.263187,
+              0.805288
+            ],
+            "rgba": [
+              113,
+              79,
+              29,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/keycard/keycard.obj",
+      "canonicalAssetId": "asset/1f66e686367242e344395643035871f8b8ff5edfee245fbe9528ce3b70ae6352",
+      "textureRoles": [
+        {
+          "textureId": "texture/5c7bbe09838256610a55c7eb1f8ec3383d1219f94229bbf9d2d16b8d892eb7e3",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/5c7bbe09838256610a55c7eb1f8ec3383d1219f94229bbf9d2d16b8d892eb7e3",
+          "byteSha256": "5c7bbe09838256610a55c7eb1f8ec3383d1219f94229bbf9d2d16b8d892eb7e3",
+          "decodedPixelSha256": "9d5d9f362f2f04dd2de8ebcd82320b478eb7d210667e13b6e49a4c8817a3241b",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.0476,
+              0.5304
+            ],
+            "rgba": [
+              0,
+              0,
+              208,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/low-poly-car/car.obj",
+      "canonicalAssetId": "asset/6d395b68cd38009574893097360749e007a965e1a3ea80de893250e6347bbd44",
+      "textureRoles": [
+        {
+          "textureId": "texture/47afc8d9fbc1fb51999f86146fcd402e027f3d681ec907ee6227aad358a0a543",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/47afc8d9fbc1fb51999f86146fcd402e027f3d681ec907ee6227aad358a0a543",
+          "byteSha256": "47afc8d9fbc1fb51999f86146fcd402e027f3d681ec907ee6227aad358a0a543",
+          "decodedPixelSha256": "ffbd9b515e316b1129eda7907d9b3ab794ca0d903403d03ff5fe841e5f1c6700",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.125567,
+              0.263214
+            ],
+            "rgba": [
+              1,
+              1,
+              1,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/old-book/old-book.obj",
+      "canonicalAssetId": "asset/05b07a15056fa2162057a6e33e36e73e3b23daad4a0ca2c2dbfefd708f9d9aba",
+      "textureRoles": [
+        {
+          "textureId": "texture/259e85c27b9ce6355b8e996738e6822fcf93a35727241121dfdccee562e61d18",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/259e85c27b9ce6355b8e996738e6822fcf93a35727241121dfdccee562e61d18",
+          "byteSha256": "259e85c27b9ce6355b8e996738e6822fcf93a35727241121dfdccee562e61d18",
+          "decodedPixelSha256": "34a7c292a599e9cd99a09d8ba01ecdba09d90a7946d1bb752d858b9379bc0d96",
+          "width": 1024,
+          "height": 1024,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.732554,
+              0.506392
+            ],
+            "rgba": [
+              138,
+              107,
+              80,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/perfume-bottle/perfume.obj",
+      "canonicalAssetId": "asset/1a5687a1e9e753108279f7e7774313c6fbb6173a5395e35a81185d345e4c9702",
+      "textureRoles": [
+        {
+          "textureId": "texture/f508915310d004df4a7b7658d5fc788a6caf3b3363e7623ea963950e6c32d4a7",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/f508915310d004df4a7b7658d5fc788a6caf3b3363e7623ea963950e6c32d4a7",
+          "byteSha256": "f508915310d004df4a7b7658d5fc788a6caf3b3363e7623ea963950e6c32d4a7",
+          "decodedPixelSha256": "9a561289cb5ae1372aa492c6cda30aeceef10d06f94cea5ff4b16f3df4dd6d79",
+          "width": 256,
+          "height": 256,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.418469,
+              0.405932
+            ],
+            "rgba": [
+              211,
+              174,
+              55,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/pirate-coin/pirate-coin.obj",
+      "canonicalAssetId": "asset/b4cd6ed685cde2282fbf2f4282026273f8e4ca5fd466af6f90631af2e661a49a",
+      "textureRoles": [
+        {
+          "textureId": "texture/94cb46152bbee036ea0154e96107aef63a680fde3a38e26ed67d5c11f1f172ee",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/94cb46152bbee036ea0154e96107aef63a680fde3a38e26ed67d5c11f1f172ee",
+          "byteSha256": "94cb46152bbee036ea0154e96107aef63a680fde3a38e26ed67d5c11f1f172ee",
+          "decodedPixelSha256": "f1bf7e0a4244be57388f59a27a10e7b70461f48ff23bb03bc21be615a20016c6",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.212463,
+              0.240004
+            ],
+            "rgba": [
+              180,
+              153,
+              28,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/opengameart/wood-crate/woodcrate.obj",
+      "canonicalAssetId": "asset/0fe2810311ab143d2b6080a769230c1ddb0bf5a17f2ad1c0b4a92735c6ef002e",
+      "textureRoles": [
+        {
+          "textureId": "texture/61f235ab39bc563b3baff33918adb78af65dca6947515aa06eb262efa2ce0dd8",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/61f235ab39bc563b3baff33918adb78af65dca6947515aa06eb262efa2ce0dd8",
+          "byteSha256": "61f235ab39bc563b3baff33918adb78af65dca6947515aa06eb262efa2ce0dd8",
+          "decodedPixelSha256": "5f901961ddf9ce5a0cdcd4763dddd76a64dd5dc067672e0a1e67501e1f3e5eab",
+          "width": 512,
+          "height": 512,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.971732,
+              0.374485
+            ],
+            "rgba": [
+              168,
+              130,
+              56,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/quaternius/ultimate-spaceships/challenger/Challenger.obj",
+      "canonicalAssetId": "asset/b2ebff8cc25cac95cb9443a5f71c7a05f37b832878ceb4cb47b6e0aa80aa52b9",
+      "textureRoles": [
+        {
+          "textureId": "texture/53f804f81e2a6c7deac80ca481cb82d42ae793e4039a3966c11c24dbd8407bc4",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/53f804f81e2a6c7deac80ca481cb82d42ae793e4039a3966c11c24dbd8407bc4",
+          "byteSha256": "53f804f81e2a6c7deac80ca481cb82d42ae793e4039a3966c11c24dbd8407bc4",
+          "decodedPixelSha256": "e5637474067fd43698bd8bd1bc8b5a45c5a2df19265439af55e1d762d27e6acb",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.453314,
+              0.593855
+            ],
+            "rgba": [
+              29,
+              29,
+              29,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/quaternius/ultimate-spaceships/executioner/Executioner.obj",
+      "canonicalAssetId": "asset/74ff008ff89f50b83c873d9c0e10fd3ff8e7b64091c3abb7208abb25b1f573a6",
+      "textureRoles": [
+        {
+          "textureId": "texture/abd0011470e8fd9c8e64ca085b244c4b38f117611b60230ec4b9d0fc34d79b4c",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/abd0011470e8fd9c8e64ca085b244c4b38f117611b60230ec4b9d0fc34d79b4c",
+          "byteSha256": "abd0011470e8fd9c8e64ca085b244c4b38f117611b60230ec4b9d0fc34d79b4c",
+          "decodedPixelSha256": "3a5a091a59a417d10cb05e4ca12dc66caf7e592c621c71601ca9f4b6b1785da6",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.777167,
+              0.006106
+            ],
+            "rgba": [
+              133,
+              131,
+              131,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/quaternius/ultimate-spaceships/omen/Omen.obj",
+      "canonicalAssetId": "asset/5bd41892526834e9d67c77246495be10352dc25fce3b5679fda43bab80b029ce",
+      "textureRoles": [
+        {
+          "textureId": "texture/4925ba424ad828b1928926e057ca07232b7bfb7af8eb3542fa5e3d77d1d14648",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/4925ba424ad828b1928926e057ca07232b7bfb7af8eb3542fa5e3d77d1d14648",
+          "byteSha256": "4925ba424ad828b1928926e057ca07232b7bfb7af8eb3542fa5e3d77d1d14648",
+          "decodedPixelSha256": "b84b0507eb1b35439e87ea4fb015c0559389aee0c16fbd953e6966bbb2b18753",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.856706,
+              0.698295
+            ],
+            "rgba": [
+              131,
+              131,
+              131,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/quaternius/ultimate-spaceships/pancake/Pancake.obj",
+      "canonicalAssetId": "asset/9f39fb5eb780b531f8259a949e29110ecbee71aae9fa093482e06f89f30b0e45",
+      "textureRoles": [
+        {
+          "textureId": "texture/a34022dc922c43d8d4b25dcd31419a60fcedbac78a80e2ff782351087581ad9f",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/a34022dc922c43d8d4b25dcd31419a60fcedbac78a80e2ff782351087581ad9f",
+          "byteSha256": "a34022dc922c43d8d4b25dcd31419a60fcedbac78a80e2ff782351087581ad9f",
+          "decodedPixelSha256": "666743798ee490767f292ac1ca1e513021e0423c3076f528e1f74f137207cc41",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.925017,
+              0.122603
+            ],
+            "rgba": [
+              55,
+              55,
+              54,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/quaternius/ultimate-spaceships/spitfire/Spitfire.obj",
+      "canonicalAssetId": "asset/89996b7c4cbdd647300a80993cd8ba9d56e02309675557f702cbdeb2d5043d3a",
+      "textureRoles": [
+        {
+          "textureId": "texture/2f87a343f4e24d7b674eef89b01b4f0b3c46e7450109895f23cfd38ee5a2c7d7",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/2f87a343f4e24d7b674eef89b01b4f0b3c46e7450109895f23cfd38ee5a2c7d7",
+          "byteSha256": "2f87a343f4e24d7b674eef89b01b4f0b3c46e7450109895f23cfd38ee5a2c7d7",
+          "decodedPixelSha256": "33e0f2eb060024747224b7406f3fe38d2d33132a539aef6c64f7bcfb82ed0102",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.322645,
+              0.8892
+            ],
+            "rgba": [
+              94,
+              75,
+              74,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/quaternius/ultimate-spaceships/zenith/Zenith.obj",
+      "canonicalAssetId": "asset/7ae305f04e661d0b417717b995aab84faa16be96da97a212cedbb8781e7f3eb3",
+      "textureRoles": [
+        {
+          "textureId": "texture/cb74137aaee950547bbc03ed722b16305cd95cef726eed179d8aa40389f156ea",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/cb74137aaee950547bbc03ed722b16305cd95cef726eed179d8aa40389f156ea",
+          "byteSha256": "cb74137aaee950547bbc03ed722b16305cd95cef726eed179d8aa40389f156ea",
+          "decodedPixelSha256": "fe24f2a2da48965df533f21ad0c3de05a6e16a2e91daac6407af128821693cbc",
+          "width": 2048,
+          "height": 2048,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.561252,
+              0.799631
+            ],
+            "rgba": [
+              45,
+              37,
+              33,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/rock1.obj",
+      "canonicalAssetId": "asset/e51c00ff750eb59ad2cce231dedd1a6552ce95321c6ba3b651bf3d5e0bb3ba26",
+      "textureRoles": [
+        {
+          "textureId": "texture/0a76ab840c88d0f4df26f2be2bf2c9acb324269b774d9694dde3889cab2441b5",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/0a76ab840c88d0f4df26f2be2bf2c9acb324269b774d9694dde3889cab2441b5",
+          "byteSha256": "0a76ab840c88d0f4df26f2be2bf2c9acb324269b774d9694dde3889cab2441b5",
+          "decodedPixelSha256": "3755fa3821f46523c02c75e7000bf808083a7a410ffa7767d8be6cbd0f098414",
+          "width": 2592,
+          "height": 1944,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.137636,
+              0.563411
+            ],
+            "rgba": [
+              40,
+              34,
+              30,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    },
+    {
+      "sourcePath": "website/public/gallery/obj/sting.obj",
+      "canonicalAssetId": "asset/f35ae959629369e46c8d8981bc9da0cdf0fbaec79fb672d60ef270ba1874ce78",
+      "textureRoles": [
+        {
+          "textureId": "texture/869e4f7cb6d7fd5f5ba0b5fd460c9895bea6ff26d9ccc86061872fbe3ef338fd",
+          "role": "baseColor"
+        }
+      ],
+      "productionDisposition": "render-bound-base-color",
+      "baseColorSources": [
+        {
+          "textureId": "texture/869e4f7cb6d7fd5f5ba0b5fd460c9895bea6ff26d9ccc86061872fbe3ef338fd",
+          "byteSha256": "869e4f7cb6d7fd5f5ba0b5fd460c9895bea6ff26d9ccc86061872fbe3ef338fd",
+          "decodedPixelSha256": "2de2a68fb550fa905b4e927259f992bc46720735434fafe2c2eb4978d42ccf39",
+          "width": 4096,
+          "height": 4096,
+          "disposition": "render-bound-base-color",
+          "sample": {
+            "uv": [
+              0.2756,
+              0.8835
+            ],
+            "rgba": [
+              141,
+              141,
+              141,
+              255
+            ]
+          }
+        }
+      ],
+      "productionFailure": null,
+      "corpusDisposition": "render-bound-base-color",
+      "admissionFailure": null
+    }
+  ],
+  "pass": true,
+  "contentSha256": "846407beb9d86f2cdadb3214c8a0f60a7fdd7c406586f4bf0eaa7483f4e9e0a4"
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "glyph-cabin-subject-measurements/v1",
+  "modelImage": {
+    "width": 512,
+    "height": 512
+  },
+  "method": "covered model pixels / unique depth-winning polygon faces; effectivePixelsAcross = sqrt(pixelsPerVisibleFace)",
+  "base": {
+    "id": "orbit-000",
+    "tier": "base",
+    "coveredModelPixels": 37496,
+    "visibleFaces": 66,
+    "pixelsPerVisibleFace": 568.1212121212121,
+    "effectivePixelsAcross": 23.83529341378478
+  },
+  "closeup": {
+    "id": "detail-r0-c0-low",
+    "tier": "detail",
+    "coveredModelPixels": 65536,
+    "visibleFaces": 13,
+    "pixelsPerVisibleFace": 5041.2307692307695,
+    "effectivePixelsAcross": 71.00162511682933
+  },
+  "atlas": {
+    "referenceSize": 4096,
+    "faceCount": 209,
+    "minFaceAreaTexels": 576,
+    "medianFaceAreaTexels": 4896,
+    "maxFaceAreaTexels": 6193470,
+    "occupiedTexels": 11859125
+  }
+}

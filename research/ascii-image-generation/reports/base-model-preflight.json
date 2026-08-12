@@ -1,0 +1,422 @@
+{
+  "schemaVersion": "glyph-base-model-preflight/v1",
+  "generatedAt": "2026-07-23T18:12:05.951292Z",
+  "verdict": "pass",
+  "configSha256": "91f6fab310604fefa08c9e5edbaf763abfbab7057b84e15559668343eb5623e4",
+  "container": {
+    "image": "glyphcss-ascii-trainer:b8",
+    "digest": "sha256:015926d93d16a87eed48877405da596b4d3a6a799693cad6fa5072151b36b476",
+    "context": "gpu-4090"
+  },
+  "model": {
+    "id": "nota-ai-bk-sdm-small",
+    "repository": "nota-ai/bk-sdm-small",
+    "revision": "572238db7ed3a10858900803f3fc8cca53e893e0",
+    "resolvedRevision": "572238db7ed3a10858900803f3fc8cca53e893e0",
+    "precision": "float16 safetensors",
+    "parameterCount": {
+      "exactArtifacts": {
+        "unet": 482346884,
+        "generatorCore": 689061227,
+        "safetyChecker": 303981588,
+        "allDownloaded": 993042815
+      },
+      "upstreamCardApproximateClaims": {
+        "unet": 490000000,
+        "wholeModel": 660000000,
+        "source": "nota-ai/bk-sdm-small README.md at the pinned revision; rounded claims only"
+      }
+    },
+    "recomputedParameterCount": {
+      "unet": 482346884,
+      "generatorCore": 689061227,
+      "safetyChecker": 303981588,
+      "allDownloaded": 993042815
+    },
+    "files": [
+      {
+        "path": "model_index.json",
+        "bytes": 541,
+        "sha256": "c7cc314014486aa2f7f17ab8f90197fe0412c818cdefb9e15601ae58752b5001",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/model_index.json",
+        "kind": "config"
+      },
+      {
+        "path": "feature_extractor/preprocessor_config.json",
+        "bytes": 342,
+        "sha256": "2a1da83b5e1032aaeef397552ddb408dca0d8cd1dc58f61bf6abf38d6f33a0a2",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/feature_extractor/preprocessor_config.json",
+        "kind": "config"
+      },
+      {
+        "path": "safety_checker/config.json",
+        "bytes": 4556,
+        "sha256": "a069f3ab23e39f3d608b220d9ae6067a94e43405557e575cf7f98d7e8d2a255c",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/safety_checker/config.json",
+        "kind": "config"
+      },
+      {
+        "path": "safety_checker/model.fp16.safetensors",
+        "bytes": 608018440,
+        "sha256": "08902f19b1cfebd7c989f152fc0507bef6898c706a91d666509383122324b511",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/safety_checker/model.fp16.safetensors",
+        "kind": "safetensors"
+      },
+      {
+        "path": "scheduler/scheduler_config.json",
+        "bytes": 313,
+        "sha256": "8335df29b53da12e9aeca35b1c2e60d88b23eae4cc5ad3d07efdcd7f003cc343",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/scheduler/scheduler_config.json",
+        "kind": "config"
+      },
+      {
+        "path": "text_encoder/config.json",
+        "bytes": 592,
+        "sha256": "aa210e6d6abd239a466af57a1dadb62d5ced63295064d295a549e08a6c4a2020",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/text_encoder/config.json",
+        "kind": "config"
+      },
+      {
+        "path": "text_encoder/model.fp16.safetensors",
+        "bytes": 246144864,
+        "sha256": "77795e2023adcf39bc29a884661950380bd093cf0750a966d473d1718dc9ef4e",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/text_encoder/model.fp16.safetensors",
+        "kind": "safetensors"
+      },
+      {
+        "path": "tokenizer/merges.txt",
+        "bytes": 524619,
+        "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/merges.txt",
+        "kind": "config"
+      },
+      {
+        "path": "tokenizer/special_tokens_map.json",
+        "bytes": 472,
+        "sha256": "c4864a9376a8401918425bed71fc14fc0e81f9b59ec45c1cf96cccb2df508eac",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/special_tokens_map.json",
+        "kind": "config"
+      },
+      {
+        "path": "tokenizer/tokenizer_config.json",
+        "bytes": 806,
+        "sha256": "00439066fcba73de57644cf41e4e3b9f2dbb09d7f3fc2005898ba52399045882",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/tokenizer_config.json",
+        "kind": "config"
+      },
+      {
+        "path": "tokenizer/vocab.json",
+        "bytes": 1059962,
+        "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/vocab.json",
+        "kind": "config"
+      },
+      {
+        "path": "unet/config.json",
+        "bytes": 1512,
+        "sha256": "c20cac953013cd6d1e5bc9d0f279b23a5c56797e3a85d7573a7dffbc6ad3409a",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/unet/config.json",
+        "kind": "config"
+      },
+      {
+        "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+        "bytes": 964741320,
+        "sha256": "7e1cde360cc827073faf6dbcf50a0a0ef949d45ec65f22b4d3ddbec662d5cf87",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/unet/diffusion_pytorch_model.fp16.safetensors",
+        "kind": "safetensors"
+      },
+      {
+        "path": "vae/config.json",
+        "bytes": 551,
+        "sha256": "0e5966d4d52c8077648754ffd2c14ab5e0b26a4bdfa6af1d207c27550fa6d2af",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/vae/config.json",
+        "kind": "config"
+      },
+      {
+        "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+        "bytes": 167335342,
+        "sha256": "4fbcf0ebe55a0984f5a5e00d8c4521d52359af7229bb4d81890039d2aa16dd7c",
+        "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/vae/diffusion_pytorch_model.fp16.safetensors",
+        "kind": "safetensors"
+      }
+    ],
+    "browserPayload": {
+      "generatorCore": {
+        "paths": [
+          "text_encoder/model.fp16.safetensors",
+          "unet/diffusion_pytorch_model.fp16.safetensors",
+          "vae/diffusion_pytorch_model.fp16.safetensors"
+        ],
+        "weightsBytes": 1378221526,
+        "parameters": 689061227
+      },
+      "requiredLocalDemo": {
+        "paths": [
+          "text_encoder/model.fp16.safetensors",
+          "unet/diffusion_pytorch_model.fp16.safetensors",
+          "vae/diffusion_pytorch_model.fp16.safetensors",
+          "safety_checker/model.fp16.safetensors"
+        ],
+        "weightsBytes": 1986239966,
+        "parameters": 993042815,
+        "safetyCheckerWeightsBytes": 608018440,
+        "safetyCheckerParameters": 303981588
+      },
+      "status": "local-only; no public bundle or hosting authorization",
+      "note": "The generator-core value is only a raw fp16 floor. The approved local demo additionally requires the safety-checker path. Neither value asserts WebGPU export size or compatibility; B17/B18 must measure an exported graph without weakening the safety/use restrictions."
+    }
+  },
+  "sourceTexts": [
+    {
+      "role": "model-card",
+      "path": "licenses/base-model/nota-ai-bk-sdm-small-model-card.md",
+      "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/README.md",
+      "sha256": "5a5041fa5d0e06a5b9e16581462436ce9eeb611400b0c57de8b2b353e329c5e2"
+    },
+    {
+      "role": "license",
+      "path": "licenses/base-model/CompVis-CreativeML-OpenRAIL-M.txt",
+      "url": "https://raw.githubusercontent.com/CompVis/stable-diffusion/21f890f9da3cfbeaba8e2ac3c425ee9e998d5229/LICENSE",
+      "sha256": "be351ebe7ac01bcdbb018639aadcfd38f136b7dc3f2a3d4d3a24db51d1b210ef"
+    }
+  ],
+  "verification": {
+    "rounds": [
+      {
+        "round": 1,
+        "forceDownload": false,
+        "treeSha256": "ce5fd09e8607a3d3042893d602d31d8e50054b3c60561df677f38a47b85b6860",
+        "files": [
+          {
+            "path": "model_index.json",
+            "bytes": 541,
+            "sha256": "c7cc314014486aa2f7f17ab8f90197fe0412c818cdefb9e15601ae58752b5001",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/model_index.json",
+            "kind": "config"
+          },
+          {
+            "path": "feature_extractor/preprocessor_config.json",
+            "bytes": 342,
+            "sha256": "2a1da83b5e1032aaeef397552ddb408dca0d8cd1dc58f61bf6abf38d6f33a0a2",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/feature_extractor/preprocessor_config.json",
+            "kind": "config"
+          },
+          {
+            "path": "safety_checker/config.json",
+            "bytes": 4556,
+            "sha256": "a069f3ab23e39f3d608b220d9ae6067a94e43405557e575cf7f98d7e8d2a255c",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/safety_checker/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "safety_checker/model.fp16.safetensors",
+            "bytes": 608018440,
+            "sha256": "08902f19b1cfebd7c989f152fc0507bef6898c706a91d666509383122324b511",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/safety_checker/model.fp16.safetensors",
+            "kind": "safetensors"
+          },
+          {
+            "path": "scheduler/scheduler_config.json",
+            "bytes": 313,
+            "sha256": "8335df29b53da12e9aeca35b1c2e60d88b23eae4cc5ad3d07efdcd7f003cc343",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/scheduler/scheduler_config.json",
+            "kind": "config"
+          },
+          {
+            "path": "text_encoder/config.json",
+            "bytes": 592,
+            "sha256": "aa210e6d6abd239a466af57a1dadb62d5ced63295064d295a549e08a6c4a2020",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/text_encoder/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "text_encoder/model.fp16.safetensors",
+            "bytes": 246144864,
+            "sha256": "77795e2023adcf39bc29a884661950380bd093cf0750a966d473d1718dc9ef4e",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/text_encoder/model.fp16.safetensors",
+            "kind": "safetensors"
+          },
+          {
+            "path": "tokenizer/merges.txt",
+            "bytes": 524619,
+            "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/merges.txt",
+            "kind": "config"
+          },
+          {
+            "path": "tokenizer/special_tokens_map.json",
+            "bytes": 472,
+            "sha256": "c4864a9376a8401918425bed71fc14fc0e81f9b59ec45c1cf96cccb2df508eac",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/special_tokens_map.json",
+            "kind": "config"
+          },
+          {
+            "path": "tokenizer/tokenizer_config.json",
+            "bytes": 806,
+            "sha256": "00439066fcba73de57644cf41e4e3b9f2dbb09d7f3fc2005898ba52399045882",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/tokenizer_config.json",
+            "kind": "config"
+          },
+          {
+            "path": "tokenizer/vocab.json",
+            "bytes": 1059962,
+            "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/vocab.json",
+            "kind": "config"
+          },
+          {
+            "path": "unet/config.json",
+            "bytes": 1512,
+            "sha256": "c20cac953013cd6d1e5bc9d0f279b23a5c56797e3a85d7573a7dffbc6ad3409a",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/unet/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+            "bytes": 964741320,
+            "sha256": "7e1cde360cc827073faf6dbcf50a0a0ef949d45ec65f22b4d3ddbec662d5cf87",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/unet/diffusion_pytorch_model.fp16.safetensors",
+            "kind": "safetensors"
+          },
+          {
+            "path": "vae/config.json",
+            "bytes": 551,
+            "sha256": "0e5966d4d52c8077648754ffd2c14ab5e0b26a4bdfa6af1d207c27550fa6d2af",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/vae/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+            "bytes": 167335342,
+            "sha256": "4fbcf0ebe55a0984f5a5e00d8c4521d52359af7229bb4d81890039d2aa16dd7c",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/vae/diffusion_pytorch_model.fp16.safetensors",
+            "kind": "safetensors"
+          }
+        ]
+      },
+      {
+        "round": 2,
+        "forceDownload": true,
+        "treeSha256": "ce5fd09e8607a3d3042893d602d31d8e50054b3c60561df677f38a47b85b6860",
+        "files": [
+          {
+            "path": "model_index.json",
+            "bytes": 541,
+            "sha256": "c7cc314014486aa2f7f17ab8f90197fe0412c818cdefb9e15601ae58752b5001",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/model_index.json",
+            "kind": "config"
+          },
+          {
+            "path": "feature_extractor/preprocessor_config.json",
+            "bytes": 342,
+            "sha256": "2a1da83b5e1032aaeef397552ddb408dca0d8cd1dc58f61bf6abf38d6f33a0a2",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/feature_extractor/preprocessor_config.json",
+            "kind": "config"
+          },
+          {
+            "path": "safety_checker/config.json",
+            "bytes": 4556,
+            "sha256": "a069f3ab23e39f3d608b220d9ae6067a94e43405557e575cf7f98d7e8d2a255c",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/safety_checker/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "safety_checker/model.fp16.safetensors",
+            "bytes": 608018440,
+            "sha256": "08902f19b1cfebd7c989f152fc0507bef6898c706a91d666509383122324b511",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/safety_checker/model.fp16.safetensors",
+            "kind": "safetensors"
+          },
+          {
+            "path": "scheduler/scheduler_config.json",
+            "bytes": 313,
+            "sha256": "8335df29b53da12e9aeca35b1c2e60d88b23eae4cc5ad3d07efdcd7f003cc343",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/scheduler/scheduler_config.json",
+            "kind": "config"
+          },
+          {
+            "path": "text_encoder/config.json",
+            "bytes": 592,
+            "sha256": "aa210e6d6abd239a466af57a1dadb62d5ced63295064d295a549e08a6c4a2020",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/text_encoder/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "text_encoder/model.fp16.safetensors",
+            "bytes": 246144864,
+            "sha256": "77795e2023adcf39bc29a884661950380bd093cf0750a966d473d1718dc9ef4e",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/text_encoder/model.fp16.safetensors",
+            "kind": "safetensors"
+          },
+          {
+            "path": "tokenizer/merges.txt",
+            "bytes": 524619,
+            "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/merges.txt",
+            "kind": "config"
+          },
+          {
+            "path": "tokenizer/special_tokens_map.json",
+            "bytes": 472,
+            "sha256": "c4864a9376a8401918425bed71fc14fc0e81f9b59ec45c1cf96cccb2df508eac",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/special_tokens_map.json",
+            "kind": "config"
+          },
+          {
+            "path": "tokenizer/tokenizer_config.json",
+            "bytes": 806,
+            "sha256": "00439066fcba73de57644cf41e4e3b9f2dbb09d7f3fc2005898ba52399045882",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/tokenizer_config.json",
+            "kind": "config"
+          },
+          {
+            "path": "tokenizer/vocab.json",
+            "bytes": 1059962,
+            "sha256": "e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/tokenizer/vocab.json",
+            "kind": "config"
+          },
+          {
+            "path": "unet/config.json",
+            "bytes": 1512,
+            "sha256": "c20cac953013cd6d1e5bc9d0f279b23a5c56797e3a85d7573a7dffbc6ad3409a",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/unet/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "unet/diffusion_pytorch_model.fp16.safetensors",
+            "bytes": 964741320,
+            "sha256": "7e1cde360cc827073faf6dbcf50a0a0ef949d45ec65f22b4d3ddbec662d5cf87",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/unet/diffusion_pytorch_model.fp16.safetensors",
+            "kind": "safetensors"
+          },
+          {
+            "path": "vae/config.json",
+            "bytes": 551,
+            "sha256": "0e5966d4d52c8077648754ffd2c14ab5e0b26a4bdfa6af1d207c27550fa6d2af",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/vae/config.json",
+            "kind": "config"
+          },
+          {
+            "path": "vae/diffusion_pytorch_model.fp16.safetensors",
+            "bytes": 167335342,
+            "sha256": "4fbcf0ebe55a0984f5a5e00d8c4521d52359af7229bb4d81890039d2aa16dd7c",
+            "url": "https://huggingface.co/nota-ai/bk-sdm-small/resolve/572238db7ed3a10858900803f3fc8cca53e893e0/vae/diffusion_pytorch_model.fp16.safetensors",
+            "kind": "safetensors"
+          }
+        ]
+      }
+    ],
+    "identical": true,
+    "noPickleConsumed": true
+  },
+  "disposition": {
+    "localTraining": "allowed for this lawful local research slice, subject to CreativeML OpenRAIL-M and the model-card use restrictions",
+    "localDemo": "allowed only as a localhost/private research demonstration retaining the safety checker, attribution, model card, and license",
+    "browserBundle": "allowed only as a local unshared artifact carrying the license and use restrictions and preserving an effective safety-checker path; B18 must reject exports that omit or weaken that path; public serving is not authorized by this manifest",
+    "redistribution": "not authorized by this project; a later legal/safety/publication review must add the OpenRAIL restrictions, full license, attribution, and modified-file notices before any third-party transfer",
+    "derivativeWeights": "not authorized for publication or transfer; local training artifacts remain remote-only until the same later review confirms OpenRAIL downstream terms",
+    "attribution": "retain nota-ai/bk-sdm-small, the pinned Hugging Face revision, the BK-SDM model card citation, and the CreativeML OpenRAIL-M license with every local artifact"
+  },
+  "artifactRoot": "/mnt/docker-data/glyphcss-ascii-image-generation/models/base/nota-ai-bk-sdm-small/572238db7ed3a10858900803f3fc8cca53e893e0"
+}

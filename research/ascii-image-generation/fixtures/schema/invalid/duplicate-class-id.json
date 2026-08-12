@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"DUPLICATE_CLASS_ID", "mutations":[{"op":"set","path":"/records/dictionary/classes/1/id","value":1}] }

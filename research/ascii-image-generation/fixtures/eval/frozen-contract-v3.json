@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "glyph-eval-contract-freeze/v1",
+  "contractVersion": "v3",
+  "contractSha256": "122b3a42d75f9e9a0b473c9c2c38814cce3dc4239d27bb935af183c7e9fd43e9",
+  "g5Sha256": "0fee24a6ca7019f5a92974476e606b89eb990695b240a1cdfbab437d92e8885e",
+  "v2SnapshotSha256": "0c26297921f85d1166229f783b967b1f034145718618758dde72aa725804235a",
+  "v2V3DiffSha256": "c438e17aac40d2740ccf2d73c73c92581a548ea3a4e078ceb0d7d74c8af2b084",
+  "frozenAt": "2026-07-23",
+  "replacementPolicy": "Results cannot relax this contract. A new dated contract version and replacement freeze file are required before evaluation."
+}

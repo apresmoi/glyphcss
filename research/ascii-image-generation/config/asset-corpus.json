@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "glyph-asset-corpus-config/v3",
+  "id": "asset-corpus/native-v3",
+  "assetRegistry": "reports/asset-registry.json",
+  "assetRenderBindings": {
+    "path": "reports/asset-render-bindings.json",
+    "contentSha256": "846407beb9d86f2cdadb3214c8a0f60a7fdd7c406586f4bf0eaa7483f4e9e0a4",
+    "fileSha256": "10ca95fa9e6650b77e1ab642a64fd4127d28efab3216d3c0c40f069963b74b1c"
+  },
+  "assetDecoderParity": {
+    "path": "reports/asset-render-binding-decoder-parity.json",
+    "contentSha256": "bfb33f816742392f76bc06d7f6d7acd317ab07a972637f577d75ae407c844a14",
+    "fileSha256": "dfcf75234ddd6bd092e2463447b3c94875634b26ee409dd4b5d8d3766eee0b31"
+  },
+  "controlNormalization": "config/control-normalization.json",
+  "dictionary": "config/asset-object-dictionary.json",
+  "assetClassMapping": "config/asset-class-mapping.json",
+  "output": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/assets/native-v3-trace-bound",
+  "grid": { "cols": 256, "rows": 128, "cellAspect": 2 },
+  "modelRaster": {
+    "id": "glyph-model-raster/physical-cell-letterbox-v1",
+    "width": 256,
+    "height": 256,
+    "source": { "cols": 256, "rows": 128, "cellAspect": 2 },
+    "fit": "contain",
+    "targetSampling": "nearest",
+    "discreteControlSampling": "nearest",
+    "continuousControlSampling": "nearest",
+    "latentContinuousSampling": "bilinear",
+    "transform": {
+      "kind": "cell-aspect-aware-letterbox",
+      "activeRect": { "x": 0, "y": 0, "width": 256, "height": 256 },
+      "rawCellToModelPixels": { "x": 1, "y": 2 },
+      "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
+    }
+  },
+  "background": {
+    "id": "transparent-rgba-v1",
+    "targetRgba": [0, 0, 0, 0],
+    "modelRasterPaddingRgba": [0, 0, 0, 0],
+    "reviewComposite": "checkerboard-only-not-training-data"
+  },
+  "sampling": {
+    "targetAndDiscreteControls": "nearest",
+    "continuousControls": "nearest",
+    "latentReductionOnly": "bilinear",
+    "rationale": "Each 256x256 model pixel must retain its raw 256x128 winner cell; bilinear interpolation is permitted only after model-raster construction when reducing continuous controls for latent-space consumption."
+  },
+  "supersample": 1,
+  "trajectory": {
+    "id": "asset-variation-trace-bound-v3",
+    "seed": "glyphcss-asset-corpus-v3",
+    "rotX": 61,
+    "margin": 0.05,
+    "maxAnimationSampleSeconds": 2,
+    "poseSchedule": { "static": [{ "id": "static" }], "animated": { "idPrefix": "clip-", "sample": "midpoint-clamped" } },
+    "occlusionSchedule": ["none", "front-plane"],
+    "traceAuthority": {
+      "id": "b39-slow-trace-32-subdivision-v1",
+      "path": "fixtures/reprojection/reference-trace-v1.json",
+      "contentSha256": "e6e62a8300ffbbd7b8df2fffbfb2a72d87adf62eed47aa1ba97cb322f714657c",
+      "segmentId": "slow",
+      "traceModule": "src/generate-controls.mjs"
+    },
+    "anchors": [
+      { "id": "orbit-a", "rotXOffset": 0, "rotYOffset": 0 },
+      { "id": "orbit-b", "rotXOffset": 11, "rotYOffset": 37 }
+    ],
+    "steps": [
+      { "id": "keyframe", "role": "keyframe", "traceOffset": 0 },
+      { "id": "adjacent", "role": "adjacent", "traceOffset": 1 }
+    ],
+    "occlusions": [
+      { "id": "none" },
+      { "id": "front-plane" }
+    ],
+    "lighting": [
+      { "id": "key-a", "directional": { "direction": [0.5, 0.7, 0.5], "intensity": 1, "color": "#ffffff" }, "ambient": { "intensity": 0.4, "color": "#ffffff" } },
+      { "id": "key-b", "directional": { "direction": [-0.4, 0.8, 0.2], "intensity": 0.9, "color": "#fff8ed" }, "ambient": { "intensity": 0.5, "color": "#eef4ff" } }
+    ]
+  },
+  "texturePolicy": { "decoder": "pngjs/jpeg-js/v1", "colorSpace": "source-srgb-no-conversion", "filter": "nearest", "wrap": "clamp-to-edge" },
+  "populationFloors": { "exactRgb": { "train": 1, "validation": 1, "test": 1 } },
+  "proofCandidates": {
+    "cottage": "asset/a0a3b6ef57a641663445d4481ad359e479d69ccfa5ebab6bec58f7bfd171339e",
+    "highFrequencyTextured": "asset/0fe2810311ab143d2b6080a769230c1ddb0bf5a17f2ad1c0b4a92735c6ef002e"
+  }
+}

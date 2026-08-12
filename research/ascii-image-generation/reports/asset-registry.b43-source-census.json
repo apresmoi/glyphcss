@@ -1,0 +1,561 @@
+{
+  "schemaVersion": "glyph-asset-registry-historical-source-census/v1",
+  "source": {
+    "image": "glyphcss-asset-corpus:b44",
+    "registryContentSha256": "2cb92babadc754a1bc706b8ede193218f0a4aa317ebb578c8e1b62c996a8be12",
+    "registryFileSha256": "50239930a401dfa31f22c988a3c73617230a6a9d7e5bf1863286010efded72c8",
+    "corpusReportPath": "datasets/assets/native-v1/b44-exact-rgb-20260724T042300Z.json",
+    "corpusReportSha256": "afb6e57b3f9fe996b9928d941820c0b916fc564ee6a132c295d00aca7096222b",
+    "sourceArchiveSha256": "0496e33047a3b9007f0968c0f9aba608a33b801ee0fefeb239270e43cbd58194"
+  },
+  "sourceFiles": [
+    {
+      "path": "website/public/gallery/glb/apocalypse/barrel.glb",
+      "canonicalAssetId": "asset/3892fb5acf3c1bfe303de2ca3ef20b30d03098b5d49f7632b2f6d26f7448d1be",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/car.glb",
+      "canonicalAssetId": "asset/ce6e55856a272eb0316a9a5dd6c04466bd627c7059098ec65da7fdc6193fda2c",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/electric_pole_1.glb",
+      "canonicalAssetId": "asset/5f48770afe260168275cb05f9262912030202b94125625080927d499106510d5",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/ground_planks.glb",
+      "canonicalAssetId": "asset/8db8b87a57e3cf28f9b4a8ba8adb5906ebfb141c715f6623aa6110e140ffdbf9",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/jerry_can_with_nozzle.glb",
+      "canonicalAssetId": "asset/ad58678ce475e7c1cb4a3ad12edb903dbbcb5b47ce374297dbe1a8f34ff0b2df",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/pallet_cluster_1.glb",
+      "canonicalAssetId": "asset/1e50470d4a9f4b58dac91b71aa0d47a69fd94b124d07ff4610aac0af03c0bb78",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/road_barrier.glb",
+      "canonicalAssetId": "asset/767992ee66d6b904b44ef9ce3056f7b454fcd43fab6e221d63e23c9abcb468fe",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/tire.glb",
+      "canonicalAssetId": "asset/d3a2e4dd45d73d80f870844dcf0de12c22652673585d2cb17e2696fac48b8dc1",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/wall_1_hole.glb",
+      "canonicalAssetId": "asset/4366ec2e9abd478b9ef65873a2e19b73e995c0bb798880bd8986bae2c37ee5db",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/apocalypse/wooden_spike_barricade.glb",
+      "canonicalAssetId": "asset/ec50c095194ea1ca8a79b9e4a2bf40ff60aad15df996c76134dbc2bc939af96d",
+      "textureIds": [
+        "texture/6def4d84406d853d5f92c6237a1f8a3699561ec4721829a8a26d25641efc3fdd"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/insurgent.gltf",
+      "canonicalAssetId": "asset/9b682b2cfbb11f1c2b0e10239d54efcddcb44ec5686abbfd9d557f6ce32e81d5",
+      "textureIds": [
+        "texture/747cc0798c673cfeb8294cf70786f5028b655a8b7beeb67d107d48ed4a2716ed"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/khronos/animated-fox.glb",
+      "canonicalAssetId": "asset/d97044e701822bac5a62696459b27d7b375aada5de8574ed4362edbba94771f7",
+      "textureIds": [
+        "texture/61c8b109ee7f8bf262791933380fafb1465f7b51cbe6472c2d21eff0b31f83a1"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/khronos/avocado.glb",
+      "canonicalAssetId": "asset/ccc9c3ce56423720b09399c2351537207cd5a65f859f9e6e2f30922762f3abd4",
+      "textureIds": [
+        "texture/25783c211761b7e32497fdd3e2490f3bac05b738e5e2bc62fc5b78a270bb4e50",
+        "texture/33ee80f7ccfd36825acfbd5ef0a51326bea49e33efed852dca44798798bd6901",
+        "texture/385dce948c3b9e8bc93e1c930d796e72b02cbd474b121a160d577de95ebbb48f"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/model-viewer/astronaut.glb",
+      "canonicalAssetId": "asset/313d48882e2ba7bb25a340dbfd3d6f9bbc7f012372d54f518dc52e4299e3a24e",
+      "textureIds": [
+        "texture/49376eefef8b0f6d16a4be93be2d0389c96e7e75059725e187250e373b47997f"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/crew-lock-bag.glb",
+      "canonicalAssetId": "asset/abd3be0b79fef602ce9ec603f19980d313dfc46a5974d347a4a5ec201a7baf24",
+      "textureIds": [
+        "texture/7c1eab2a11b35ba5e9fe51d489eade3b760040f849ba12096679589e66ebb05c"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/flight-system-support.glb",
+      "canonicalAssetId": "asset/7b07acb8303a2dec1aa33438db12c27c760ab504a833329deb4eb201f0a5b878",
+      "textureIds": [
+        "texture/6a680a97e4b80e168ae1f1fce786037633ed3c638b1c9b7b3acdd45b3060aa5d"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/icesat-a.glb",
+      "canonicalAssetId": "asset/8843f2a22fd0f836b9d2374f60909276d28cb6909ca36f52db82fe01684958b1",
+      "textureIds": [
+        "texture/b5dea1594649010e21c994448b6d9fefd100522fb3409cfa144eade783c56431"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/orbiter-docking-system.glb",
+      "canonicalAssetId": "asset/781267aab7f8bcee7373e1db0777fc00d4f01f090a11852313050c706952f2c1",
+      "textureIds": [
+        "texture/7484354307da9dccdbae0aa6e73078c7e0b6c50d44fe37436fd809c81cd2906d"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/solid-rocket-booster.glb",
+      "canonicalAssetId": "asset/eb68e0c9e4c492e9e013f84746863a21e1fb9df6b74310f8bcb8daa53585a68d",
+      "textureIds": [
+        "texture/7daa51f5517ff884b0d271b6149bdff0ab16586cf2132fc4be29c4544e7b29be"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/space-shuttle-external-tank.glb",
+      "canonicalAssetId": "asset/ee2d727e23d796dd94a29dcbce03d645faea485b006edbb7319abdbf445d5ee7",
+      "textureIds": [
+        "texture/37d11e21fbf91ceb670131d78f17aad8032d260ebf42a2b7169c8a29acbfdbde"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/nasa/wide-field-planetary-camera.glb",
+      "canonicalAssetId": "asset/e0b58bdf8e3edcddd775f4aee79c06d64f63cf7fb7de3ab67284b42e8e0ae19b",
+      "textureIds": [
+        "texture/41006ca89f633e9c2a3be483b8e58e0ead3d759983966c10af5846c01d96b66c"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/opengameart/animated-pliers.glb",
+      "canonicalAssetId": "asset/b5552adeb574d869282132de6c31195f60705c8044097e9b6906f9dae05a39fb",
+      "textureIds": [
+        "texture/2ec69267a076318e125d0a94f924a0bceb0b61d09163ac77a20eea9a165c071e",
+        "texture/36885ac77c6d73281815c3a59344a47f5f08c2ee0a2de699d0bec7d9d5c3aaa4",
+        "texture/d07057b654e10381abcd57e8e2cdc45a845bd8e0c172a7f6d5bb7220ef93c743"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/opengameart/animated-utility-knife.glb",
+      "canonicalAssetId": "asset/7245ef40efd8537fcbd0e04f5d89980f540a695454a61cb4cf2e8e8af81992f3",
+      "textureIds": [
+        "texture/ab702a9c2bb0c3401c9dc48ad22ffdfebbe125881a846eb770d0f8e711ccbaac",
+        "texture/e3dcbd3cb99d9b3aa43b001a5951af12af753abec921a9f8097879163c09b564",
+        "texture/f90aca27742183fe2e1b031e7f2a58e6a5009855fdb57207ae55027bd5ba5dab"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/animated-enemy-small.glb",
+      "canonicalAssetId": "asset/b4d6cb3e0920058eab20d079dc57fa6bdbaecad6806803f0f3d504ee730891dd",
+      "textureIds": [
+        "texture/bc0c0ce594ecc826d022233e0db08c237a1ab3439414d1f816bd8d8ee82ffe11"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/arrow.glb",
+      "canonicalAssetId": "asset/d496c7b9a6428e1697b22dfb4eff58b6c0f56d54c2aac66e663ac7eacadd91b5",
+      "textureIds": [
+        "texture/858d426dc2fa507874c2578c3ec3bc706c23c428fdfcfe06909aadba6c27b5da"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/bird.glb",
+      "canonicalAssetId": "asset/d0d08da2e47307301cfcff1d9d8bf713f92af67cd329e7a165af7854dade33f6",
+      "textureIds": [
+        "texture/a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/box.glb",
+      "canonicalAssetId": "asset/4b6f7b2d17997f75192c706b28e2f894b6dff691bced17963470d2b2ceddbff9",
+      "textureIds": [
+        "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/bucket.glb",
+      "canonicalAssetId": "asset/f28f73f8ffa254b2a57130f1130cffa687ca2b3d610698aab3c948f1f9894ec8",
+      "textureIds": [
+        "texture/a538d23f834ab4233d871cb9688f98ff574fc31b00e4dd99b9b42750f577ede4"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/cactus-a.glb",
+      "canonicalAssetId": "asset/1b4fedcdb1791f2b0d668d85e5cb49ba975d0ecfa851b4fd09e44be6104329f2",
+      "textureIds": [
+        "texture/31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/cactus-model.glb",
+      "canonicalAssetId": "asset/596b07fdf43d821437889a8c43627b6010f4a9cc70306af58fc455033cc607d4",
+      "textureIds": [
+        "texture/31e5c7c81bfba644a59797b1907519592c7728d4af98a705449975dd929482e5"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/ducky.glb",
+      "canonicalAssetId": "asset/1edba66e8a439fb0e07230beea67837d576ba3d7ae8e6caf1cfed42d1eee1ed9",
+      "textureIds": [
+        "texture/0dc04a048fd85b129183864788cf85bd63ead6fdccb788a21be98d92f2c4e408"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/empty-box.glb",
+      "canonicalAssetId": "asset/16b9d215b614eaa43c31c84d2db8a6cdd37d55b54968fd1dd98793a4776c6bd3",
+      "textureIds": [
+        "texture/ef89e695b8f33c051f023772aa1b150ed8be26f141cb1818b35ed2df2bd59a67"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/flying-saucer.glb",
+      "canonicalAssetId": "asset/4f320514ca53f04d02e5e9009cf172e999a68d8478fd29c7f998d04dc2adde6e",
+      "textureIds": [
+        "texture/7a005004d6e16f0bda573e354cec743b77779beec01bc69f4a43ce526fa74753"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/glass.glb",
+      "canonicalAssetId": "asset/b05f707320781fc5a44152161c3c77980ea68ae30f4af22ac34a71becca04132",
+      "textureIds": [
+        "texture/eba4c31150db3d5f134e51bd6d3120d78bc21ea83a460f97b0b7a4a98159a2d8"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/rabbit-blond.glb",
+      "canonicalAssetId": "asset/284276ad175695639a8df651a5dd7ee7951fdf2d4ee3d49a2e5fc50df9f37975",
+      "textureIds": [
+        "texture/62118ccee997298c33fcaf2d301ae82bdccdbc5a9c8f0e2719b7ad32032793df"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/rock-large.glb",
+      "canonicalAssetId": "asset/c4e9f04c04419e67e919c4533dfd6044abc5f0640afa9d0e174cf474285d380c",
+      "textureIds": [
+        "texture/516cefca3254dff7655d7cde0af2a21723f1354172ba2436fd748bb0f038a81a"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/rock-medium.glb",
+      "canonicalAssetId": "asset/99881282aa8ee2bc89ac782911b90909c84e33d693c3a9c2ef5085f1d8214ffe",
+      "textureIds": [
+        "texture/fe12c2217ff4eb86e7212ff416ef18dabc82b6c0371946080225052964b68868"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/poly-pizza/sword-diamond.glb",
+      "canonicalAssetId": "asset/bec54c1773ff53bc27bf05c6be31f46e4582ec18129b74db6bedfe85f9290833",
+      "textureIds": [
+        "texture/01bdd3af6fb1c26b1ee1630cdf5eb2bf181665d9057a70d1701e13134b3ca3b9"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/smithsonian/morse-telegraph-key.glb",
+      "canonicalAssetId": "asset/c764726a33592ecf883d6003929099e84d42530d4bd85eb6be9aed08fa1593ea",
+      "textureIds": [
+        "texture/1a33298528c62cc2de7b911101f75cb423f2fc4596a4c03fbaf8268b7fb3f852",
+        "texture/8d69bf19edadfd5f22c3bff952c2faff1afc704740722b868fb815f2e28cd98b"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Air conditioner.glb",
+      "canonicalAssetId": "asset/3c3f83c02a593b771d8ddbcbaaa2f43085cf297217192b87b5ee3073318bb5b1",
+      "textureIds": [
+        "texture/7ccd3f639e126c8d940e34cfd21656c2fbe11e12584c037db0b2f5f46bfcdc7f"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Animated Woman.glb",
+      "canonicalAssetId": "asset/97a4e8c5e93b5c4f68b25e5240f308aa81ff4ae487b750e62f13e02c338d73e8",
+      "textureIds": [
+        "texture/77c799bc4937b510eda8b63a9bf5cd1942a2c657d74354334aa4e95f728fc4c5"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Bicycle.glb",
+      "canonicalAssetId": "asset/197063f35b41c2c571666792ac7154d45a11d7c96c7f2aa9030e91c5037dc23e",
+      "textureIds": [
+        "texture/5c2f0b739c224d89613aac9859c1551699d53c568f1a615d742871989b4eb53f"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Billboard.glb",
+      "canonicalAssetId": "asset/dece50ba1ae265df28d55aacff220b00e24aee681e6bf7ef58e1cbc5ef220804",
+      "textureIds": [
+        "texture/544b0abb3ea26d4be32729b29cd753e4cd0c050405457c54fb7fdd4b12721719"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Box.glb",
+      "canonicalAssetId": "asset/4b6f7b2d17997f75192c706b28e2f894b6dff691bced17963470d2b2ceddbff9",
+      "textureIds": [
+        "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Bus.glb",
+      "canonicalAssetId": "asset/594f1e515bd1882467f50bbc3588df5009338e2ec8bbc31eee36c85774207a76",
+      "textureIds": [
+        "texture/64c8a28f41ea7d467640419aaf7b38c1a09d6d32dd6cd8c2b382a58ff6c1271b"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Motorcycle.glb",
+      "canonicalAssetId": "asset/a20a32a457e76cec52eb6c65919f3be8dbbe02d9b4a8ec5e789f11a07a4f39fc",
+      "textureIds": [
+        "texture/3960b29079c61e536bf9bc939800e873f55a4cf2f8d622f43db24b4b91d22a93"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Pickup Truck.glb",
+      "canonicalAssetId": "asset/9d6b2e33af0d37bf42b2e7af850949f4efd0ddbb9a88077812d152d8b4c1c3eb",
+      "textureIds": [
+        "texture/a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Road Bits.glb",
+      "canonicalAssetId": "asset/eb37bbfa8da41fab0ecaa67f1d796c406141ba648f6c0272b4eddfaaffb7de9d",
+      "textureIds": [
+        "texture/6d2d9a5a13bce32209cd8c04572ab170504d68f34b1519165c9b0c41871e235b"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Sports Car-Gzj704DXdr.glb",
+      "canonicalAssetId": "asset/e802a66e1f73d3e35b5d2462656b6e8d30a8e36d229e1776b082a82f955b94d2",
+      "textureIds": [
+        "texture/a6cbb7205be11a4ce29f1a56924abf4dcc1570698249b92c31bfd245c83c4d78"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Stop sign.glb",
+      "canonicalAssetId": "asset/c1717a9fff896de589c3ab99979c521eb5b708b0eab2e705ab522a92a7c746d4",
+      "textureIds": [
+        "texture/41b39eec9cd695d65b95314483dc99d25f95afbf05888be5b8d73edffcb8ea44"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Traffic Light.glb",
+      "canonicalAssetId": "asset/948cae85241d59b35bde0e585e6da6894055da791efa37a06cd75eac82786079",
+      "textureIds": [
+        "texture/8803e5543d5e6b6f66aa41a5ef93e6c2ffb77b5476d0202296d2f4c8f4eb9e8d"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Tree.glb",
+      "canonicalAssetId": "asset/c2fb03e8dd4686082222e3faf0fc248bfd0e333289138133579ba6dc7e7d1cbd",
+      "textureIds": [
+        "texture/3c3ed7b08e15311fb96786cf3f9c268d83a6cf416bf4c91e2ffbf7746ea0e4c9"
+      ]
+    },
+    {
+      "path": "website/public/gallery/glb/urban/Van.glb",
+      "canonicalAssetId": "asset/21e57a7be6afbea279ed9acd91e2e0bb0ea0543100778386363eec9ccf9f6f5d",
+      "textureIds": [
+        "texture/43828d642354119cc4421887280b3be1e301f02d0aed745d21e2f40c083f6e84"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/cottage.obj",
+      "canonicalAssetId": "asset/a0a3b6ef57a641663445d4481ad359e479d69ccfa5ebab6bec58f7bfd171339e",
+      "textureIds": [
+        "texture/00a684f3dcaab17553a4ce7d57b11841e7574fe15f4cdf824137f60ec227a144"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/biplane/biplane.obj",
+      "canonicalAssetId": "asset/dd99e218160fd870b6826c30a1b1e3979a6c129661a6ca15a2a8b3b47f7263e4",
+      "textureIds": [
+        "texture/c3f39294d4c8b04ceae359dbb07a438fcf76c4affea704489b636feeea38eee2"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/broken-stone-slab/stone.obj",
+      "canonicalAssetId": "asset/b2f9a0172b10efc0dc4cc48e7dfa541162c70447758ef893d10fe8f078518a52",
+      "textureIds": [
+        "texture/6ff25f8d6121fad51947845970d51184a66fc08c80ade90286dd8119364b0710"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/crate/Box.obj",
+      "canonicalAssetId": "asset/c15ee1ca253975a5fc0a106f118200c967937457c1c0d1cca874b017bbf26b19",
+      "textureIds": [
+        "texture/aa0766b73ce0c864b2ce0be87a5dd2ddee2cc2f1b0c5d1352de65b6e8d044b81"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/fire-extinguisher/extinguisher.obj",
+      "canonicalAssetId": "asset/a70f9952dba6bf15144ea862c56929ce4741c623de24f1de3414370b65fa9b5b",
+      "textureIds": [
+        "texture/1521893ad95df079235bbd76cfb286dba70fb3dded5f929c1209fdfce18b06a5"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/frog-guy/frog.obj",
+      "canonicalAssetId": "asset/8b66dc7c28ae0a64d146ee8e5ee82ece7202e8b0d70a715c2d3995fe739df687",
+      "textureIds": [
+        "texture/0deaa17551b65de206200cd9684cb948213f0a1cbccf262e55123fac0f00a3ca"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/game-cartridge/cartridge.obj",
+      "canonicalAssetId": "asset/9dde04d41ef8e8cbd952e29cea707ea9f84c7b3e0cb47605183d8e33442a8cc1",
+      "textureIds": [
+        "texture/c3171f680c6133ea0d1431c6efb1b48c06e4143e7fd72cb3adbfcc32f1dc678a"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/grandfather-clock/grandfather-clock.obj",
+      "canonicalAssetId": "asset/eb858e81f8554a2d53db0f661040a2d04542341f6f8ea9707ef40bf71ae91bb5",
+      "textureIds": [
+        "texture/310ede9fc6ed0ef2ce8d57f805ec0e643b241254155fdc7f7f54331da5359964"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/haunted-house/hauntedhouse.obj",
+      "canonicalAssetId": "asset/0f00cb52ea93fc291c19d5be85624b03720aabb7bcfd92318cc71059a76c7fe5",
+      "textureIds": [
+        "texture/514faa0dec53e4a00e2bb758cae5fe4272731ad09ca338286e63f3ff4932e15e"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/hay-bale/hay_bale.obj",
+      "canonicalAssetId": "asset/6b49c11bb8b7bd39212b5252e3f8862dce1eea3a62d3470926e080eea4e33438",
+      "textureIds": [
+        "texture/57cf3c004fb2759f15e3ead66ec95e7e11e929c4e70e2cc93238103121b01b06"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/keycard/keycard.obj",
+      "canonicalAssetId": "asset/1f66e686367242e344395643035871f8b8ff5edfee245fbe9528ce3b70ae6352",
+      "textureIds": [
+        "texture/5c7bbe09838256610a55c7eb1f8ec3383d1219f94229bbf9d2d16b8d892eb7e3"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/low-poly-car/car.obj",
+      "canonicalAssetId": "asset/6d395b68cd38009574893097360749e007a965e1a3ea80de893250e6347bbd44",
+      "textureIds": [
+        "texture/47afc8d9fbc1fb51999f86146fcd402e027f3d681ec907ee6227aad358a0a543"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/old-book/old-book.obj",
+      "canonicalAssetId": "asset/05b07a15056fa2162057a6e33e36e73e3b23daad4a0ca2c2dbfefd708f9d9aba",
+      "textureIds": [
+        "texture/259e85c27b9ce6355b8e996738e6822fcf93a35727241121dfdccee562e61d18"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/perfume-bottle/perfume.obj",
+      "canonicalAssetId": "asset/1a5687a1e9e753108279f7e7774313c6fbb6173a5395e35a81185d345e4c9702",
+      "textureIds": [
+        "texture/f508915310d004df4a7b7658d5fc788a6caf3b3363e7623ea963950e6c32d4a7"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/pirate-coin/pirate-coin.obj",
+      "canonicalAssetId": "asset/b4cd6ed685cde2282fbf2f4282026273f8e4ca5fd466af6f90631af2e661a49a",
+      "textureIds": [
+        "texture/94cb46152bbee036ea0154e96107aef63a680fde3a38e26ed67d5c11f1f172ee"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/opengameart/wood-crate/woodcrate.obj",
+      "canonicalAssetId": "asset/0fe2810311ab143d2b6080a769230c1ddb0bf5a17f2ad1c0b4a92735c6ef002e",
+      "textureIds": [
+        "texture/61f235ab39bc563b3baff33918adb78af65dca6947515aa06eb262efa2ce0dd8"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/quaternius/ultimate-spaceships/challenger/Challenger.obj",
+      "canonicalAssetId": "asset/b2ebff8cc25cac95cb9443a5f71c7a05f37b832878ceb4cb47b6e0aa80aa52b9",
+      "textureIds": [
+        "texture/53f804f81e2a6c7deac80ca481cb82d42ae793e4039a3966c11c24dbd8407bc4"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/quaternius/ultimate-spaceships/executioner/Executioner.obj",
+      "canonicalAssetId": "asset/74ff008ff89f50b83c873d9c0e10fd3ff8e7b64091c3abb7208abb25b1f573a6",
+      "textureIds": [
+        "texture/abd0011470e8fd9c8e64ca085b244c4b38f117611b60230ec4b9d0fc34d79b4c"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/quaternius/ultimate-spaceships/omen/Omen.obj",
+      "canonicalAssetId": "asset/5bd41892526834e9d67c77246495be10352dc25fce3b5679fda43bab80b029ce",
+      "textureIds": [
+        "texture/4925ba424ad828b1928926e057ca07232b7bfb7af8eb3542fa5e3d77d1d14648"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/quaternius/ultimate-spaceships/pancake/Pancake.obj",
+      "canonicalAssetId": "asset/9f39fb5eb780b531f8259a949e29110ecbee71aae9fa093482e06f89f30b0e45",
+      "textureIds": [
+        "texture/a34022dc922c43d8d4b25dcd31419a60fcedbac78a80e2ff782351087581ad9f"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/quaternius/ultimate-spaceships/spitfire/Spitfire.obj",
+      "canonicalAssetId": "asset/89996b7c4cbdd647300a80993cd8ba9d56e02309675557f702cbdeb2d5043d3a",
+      "textureIds": [
+        "texture/2f87a343f4e24d7b674eef89b01b4f0b3c46e7450109895f23cfd38ee5a2c7d7"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/quaternius/ultimate-spaceships/zenith/Zenith.obj",
+      "canonicalAssetId": "asset/7ae305f04e661d0b417717b995aab84faa16be96da97a212cedbb8781e7f3eb3",
+      "textureIds": [
+        "texture/cb74137aaee950547bbc03ed722b16305cd95cef726eed179d8aa40389f156ea"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/rock1.obj",
+      "canonicalAssetId": "asset/e51c00ff750eb59ad2cce231dedd1a6552ce95321c6ba3b651bf3d5e0bb3ba26",
+      "textureIds": [
+        "texture/0a76ab840c88d0f4df26f2be2bf2c9acb324269b774d9694dde3889cab2441b5"
+      ]
+    },
+    {
+      "path": "website/public/gallery/obj/sting.obj",
+      "canonicalAssetId": "asset/f35ae959629369e46c8d8981bc9da0cdf0fbaec79fb672d60ef270ba1874ce78",
+      "textureIds": [
+        "texture/869e4f7cb6d7fd5f5ba0b5fd460c9895bea6ff26d9ccc86061872fbe3ef338fd"
+      ]
+    }
+  ],
+  "sourceLedgerSha256": "22a39c5dc88c9a49da5053c990c0cb74ab6be633ddb6bf7847177a6e0f538b55",
+  "contentSha256": "9e23716b1144258eac839aaf1b1086fa02d9abb7e2bfef3e5b5d545c052dcdcd"
+}

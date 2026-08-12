@@ -1,0 +1,22 @@
+{
+  "id": "corpus/reference-80x24-v1",
+  "dictionary": "config/glyph-object-dictionary.json",
+  "normalization": "config/control-normalization.json",
+  "output": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/controls/reference-80x24-v1",
+  "grid": { "cols": 80, "rows": 24, "cellAspect": 2 },
+  "framing": {
+    "rule": "world-bounds-sphere/v1",
+    "margin": 0.15,
+    "baseline": { "rotX": 61, "rotY": 24, "zoom": 18 }
+  },
+  "framesPerTrajectory": 3,
+  "expansionsPerScene": 2,
+  "minimumGlyphCellShare": 0.08,
+  "minimumGlyphSampleShare": 0.5,
+  "sceneSeeds": ["corpus-alpha", "corpus-bravo", "corpus-charlie", "corpus-delta", "corpus-echo"],
+  "splits": {
+    "train": ["corpus-alpha", "corpus-bravo"],
+    "validation": ["corpus-charlie"],
+    "test": ["corpus-delta", "corpus-echo"]
+  }
+}

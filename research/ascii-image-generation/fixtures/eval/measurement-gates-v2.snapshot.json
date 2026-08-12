@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "measurement-gates-snapshot/v1",
+  "contractVersion": "v2",
+  "contractSha256": "d9629d90761fbc855ce796efd1a309f488c7ff3fbe8d07220f9154887d87449d",
+  "baseContractPath": "config/measurement-gates.json",
+  "baseContractSha256": "122b3a42d75f9e9a0b473c9c2c38814cce3dc4239d27bb935af183c7e9fd43e9",
+  "replacements": [
+    {
+      "gateId": "G1",
+      "metric": {
+        "id": "admission",
+        "formula": "rejected invalid fixtures",
+        "unit": "fixtures",
+        "population": "schema and adversarial fixtures",
+        "aggregation": "sum",
+        "direction": "fixture",
+        "threshold": "fixture:admission-v1",
+        "scope": "manifest admission",
+        "evidence": "reports/evidence/raw/g1.json",
+        "unwired": false
+      }
+    },
+    {
+      "gateId": "G2",
+      "metric": {
+        "id": "overfit-causality",
+        "formula": "named tiny-set derivation",
+        "unit": "fixture",
+        "population": "balanced tiny set",
+        "aggregation": "fixture",
+        "direction": "fixture",
+        "threshold": "fixture:overfit-causality-v1",
+        "scope": "16 GB training",
+        "evidence": "reports/evidence/raw/g2.json",
+        "unwired": false
+      }
+    },
+    {
+      "gateId": "G3",
+      "metric": {
+        "id": "held-out-structure",
+        "formula": "named held-out derivation",
+        "unit": "fixture",
+        "population": "untouched scene seeds",
+        "aggregation": "fixture",
+        "direction": "fixture",
+        "threshold": "fixture:held-out-structure-v1",
+        "scope": "test trajectories",
+        "evidence": "reports/evidence/raw/g3.json",
+        "unwired": false
+      }
+    },
+    {
+      "gateId": "G4",
+      "metric": {
+        "id": "style-separation",
+        "formula": "named style derivation",
+        "unit": "fixture",
+        "population": "held-out styles",
+        "aggregation": "fixture",
+        "direction": "fixture",
+        "threshold": "fixture:style-composition-v1",
+        "scope": "supported strengths",
+        "evidence": "reports/evidence/raw/g4.json",
+        "unwired": false
+      }
+    }
+  ]
+}

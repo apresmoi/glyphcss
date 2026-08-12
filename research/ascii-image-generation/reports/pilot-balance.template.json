@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "glyph-pilot-balance/v1",
+  "status": "not-generated",
+  "admittedOnly": true,
+  "populations": [],
+  "note": "Populate only from B10-admitted remote records; do not hand-edit green values."
+}

@@ -1,0 +1,352 @@
+{
+  "schemaVersion": "glyph-asset-registry-config/v1",
+  "id": "asset-registry/gallery-v1",
+  "inventoryRoots": [
+    { "path": "website/public/gallery", "authority": "primary" },
+    { "path": "examples", "authority": "alias", "excludeSegments": ["dist"] },
+    { "path": "research/images-to-3d/experiments/generative/gallery", "authority": "alias" }
+  ],
+  "attributionSources": [
+    "website/src/components/GalleryWorkbench/presets/attributions.ts",
+    "website/src/components/GalleryWorkbench/presets/presetFiles.ts",
+    "website/src/components/GalleryWorkbench/presets/presetList.ts"
+  ],
+  "assetAttributionOverrides": {
+    "website/public/gallery/obj/cottage.obj": {
+      "creator": "Project Chrono Development Team",
+      "license": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/projectchrono/chrono/tree/main/data/sensor/offroad",
+      "evidenceToken": "/gallery/obj/cottage.obj"
+    },
+    "website/public/gallery/obj/rock1.obj": {
+      "creator": "Project Chrono Development Team",
+      "license": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/projectchrono/chrono/tree/main/data/sensor/offroad",
+      "evidenceToken": "/gallery/obj/rock1.obj"
+    },
+    "website/public/gallery/obj/sting.obj": {
+      "creator": "KangaroOz 3D",
+      "license": "CC-BY 4.0",
+      "sourceUrl": "https://sketchfab.com/3d-models/sting-sword-lowpoly-c4f80dfbb61745d6807dd511d3e74fd4",
+      "evidenceToken": "/gallery/obj/sting.obj"
+    }
+  },
+  "licenseEvidence": {
+    "BSD-3-Clause": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://opensource.org/license/bsd-3-clause",
+          "sha256": "f4217c6de0cd75226333c4327502923921bf2df0256411aa0bc038c10a9fc0da",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "CC0 1.0": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "CC-BY 2.0": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/licenses/by/2.0/legalcode.en",
+          "sha256": "1ffcf14382a6ab7d097163546b132899ef41039a132b8ae83b714122c0159a43",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "CC-BY 3.0": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/licenses/by/3.0/legalcode.txt",
+          "sha256": "e6bc9e9c474700b708f568bac9e5a8a9bcb2b1dad53442f5ba449fcb848b8e76",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "CC-BY 4.0": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/licenses/by/4.0/legalcode.txt",
+          "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "CC-BY-SA 4.0": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/licenses/by-sa/4.0/legalcode.txt",
+          "sha256": "28a9529c7d0bb4dc51f4bf5c116a3d16ef247a052f7591466768ddf563fd1cf5",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "CC0 1.0 / CC-BY 4.0": {
+      "admissionScope": "general",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+          "retrievedAt": "2026-07-24"
+        },
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/licenses/by/4.0/legalcode.txt",
+          "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    },
+    "NASA Images and Media Usage Guidelines": {
+      "admissionScope": "local-research-only",
+      "creatorPrefix": "NASA/",
+      "evidence": [
+        {
+          "kind": "remote-content",
+          "path": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+          "sha256": "19b9c59ad22664f3ddae32e9161475794be3941988599db108688c843049ef69",
+          "retrievedAt": "2026-07-24"
+        },
+        {
+          "kind": "policy-snapshot",
+          "path": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+          "sha256": "2ca598b309000df5e14dbd2e52731d75b0c2fafc7a83bcc1c5881d1e740e10d8",
+          "retrievedAt": "2026-07-24",
+          "assertion": "NASA 3D polygon data and texture maps may be used for educational or informational computer graphics and AI development with factual source disclosure, no implied endorsement, no NASA identifier training, and no third-party rights grant."
+        }
+      ]
+    },
+    "Public domain / CC0": {
+      "admissionScope": "general",
+      "sourceHost": "www.si.edu",
+      "evidence": [
+        {
+          "kind": "policy-snapshot",
+          "path": "https://www.si.edu/termsofuse",
+          "sha256": "b8817b2d3bfbc0aa065ffe09697b77420b8d33abf7b1d4755c32dbbd9650c25b",
+          "retrievedAt": "2026-07-24",
+          "assertion": "CC0-marked Smithsonian content may be used commercially or noncommercially without fee or copyright restriction, while third-party rights may still apply."
+        },
+        {
+          "kind": "policy-snapshot",
+          "path": "https://3d.si.edu/object/3d/morse-vail-telegraph-key%3Aed99f44d-3c60-4111-b666-e2908e1b64ef",
+          "sha256": "4c619b6e4eb3a22c2dc71d15b5fdb638200c181b2a0ced4f61f7e8e08d65aff1",
+          "retrievedAt": "2026-07-24",
+          "assertion": "The Smithsonian Morse-Vail Telegraph Key 3D record nmah_1096762 is marked CC0."
+        },
+        {
+          "kind": "remote-content",
+          "path": "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt",
+          "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+          "retrievedAt": "2026-07-24"
+        }
+      ]
+    }
+  },
+  "objMaterialOverrides": {
+    "website/public/gallery/obj/cottage.obj": "website/public/gallery/obj/cottage.mtl",
+    "website/public/gallery/obj/rock1.obj": "website/public/gallery/obj/rock1.mtl",
+    "website/public/gallery/obj/sting.obj": "website/public/gallery/obj/sting.mtl"
+  },
+  "sourcePacks": [
+    {
+      "id": "quaternius-ultimate-nature",
+      "pathPrefix": "website/public/gallery/obj/quaternius/nature/",
+      "creator": "Quaternius",
+      "license": "CC0 1.0",
+      "sourceUrl": "https://quaternius.com/packs/ultimatenature.html",
+      "provenanceDisposition": "verified",
+      "licenseTextPath": "website/public/gallery/obj/quaternius/nature/License.txt"
+    },
+    {
+      "id": "quaternius-ultimate-spaceships",
+      "pathPrefix": "website/public/gallery/obj/quaternius/ultimate-spaceships/",
+      "creator": "Quaternius",
+      "license": "CC0 1.0",
+      "sourceUrl": "https://quaternius.com/packs/ultimatespaceships.html",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "stem"
+    },
+    {
+      "id": "quaternius-medieval-dungeon",
+      "pathPrefix": "website/public/gallery/obj/quaternius/dungeon/",
+      "creator": "Quaternius",
+      "license": "CC0 1.0",
+      "sourceUrl": "https://quaternius.com/packs/medievaldungeon.html",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "stem"
+    },
+    {
+      "id": "opengameart-obj",
+      "pathPrefix": "website/public/gallery/obj/opengameart/",
+      "creator": "Per-asset OpenGameArt creator",
+      "license": "Per-asset Creative Commons license",
+      "sourceUrl": "https://opengameart.org/",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "gallery-root-obj",
+      "pathPrefix": "website/public/gallery/obj/",
+      "directChildrenOnly": true,
+      "creator": "Per-asset gallery attribution",
+      "license": "Per-asset gallery license",
+      "sourceUrl": "https://glyphcss.dev/",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetList.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "atomic-realm-post-apocalyptic",
+      "pathPrefix": "website/public/gallery/glb/apocalypse/",
+      "creator": "Atomic Realm",
+      "license": "custom license, attribution required",
+      "sourceUrl": "https://atomicrealm.itch.io/post-apocalyptic-world",
+      "provenanceDisposition": "blocked",
+      "evidenceSources": [
+        "website/src/components/GalleryWorkbench/presets/attributions.ts",
+        "website/src/components/GalleryWorkbench/presets/presetList.ts"
+      ],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "kenney-city-kit",
+      "pathPrefix": "website/public/gallery/glb/city/",
+      "creator": "Kenney",
+      "license": "CC0 1.0",
+      "sourceUrl": "https://poly.pizza/bundle/City-Kit-0CkvGrBJ0u",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/attributions.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "quaternius-medieval-village",
+      "pathPrefix": "website/public/gallery/glb/medieval/",
+      "creator": "Quaternius",
+      "license": "CC0 1.0",
+      "sourceUrl": "https://poly.pizza/bundle/Medieval-Village-Pack-NsHhjhlrfY",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/attributions.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "nasa-3d-resources",
+      "pathPrefix": "website/public/gallery/glb/nasa/",
+      "creator": "Per-asset NASA contributor",
+      "license": "NASA Images and Media Usage Guidelines",
+      "sourceUrl": "https://science.nasa.gov/3d-resources/",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "opengameart-tool-pack-2",
+      "pathPrefix": "website/public/gallery/glb/opengameart/",
+      "creator": "LonesomeDucky",
+      "license": "CC0 1.0",
+      "sourceUrl": "https://opengameart.org/content/tool-pack-2",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "poly-pizza-models",
+      "pathPrefix": "website/public/gallery/glb/poly-pizza/",
+      "creator": "Per-asset Poly Pizza creator",
+      "license": "Per-asset Creative Commons license",
+      "sourceUrl": "https://poly.pizza/",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "smithsonian-open-access",
+      "pathPrefix": "website/public/gallery/glb/smithsonian/",
+      "creator": "Smithsonian Institution",
+      "license": "Public domain / CC0",
+      "sourceUrl": "https://www.si.edu/openaccess",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "poly-pizza-city-pack",
+      "pathPrefix": "website/public/gallery/glb/urban/",
+      "creator": "Per-asset City Pack creator",
+      "license": "Per-asset CC0 or Creative Commons Attribution license",
+      "sourceUrl": "https://poly.pizza/bundle/City-Pack-kJqRAIGsw0",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/attributions.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "khronos-gltf-sample-assets",
+      "pathPrefix": "website/public/gallery/glb/khronos/",
+      "creator": "Khronos glTF Sample Assets contributors",
+      "license": "Per-model CC0 or CC-BY",
+      "sourceUrl": "https://github.com/KhronosGroup/glTF-Sample-Assets",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": [
+        "website/src/components/GalleryWorkbench/presets/attributions.ts",
+        "website/src/components/GalleryWorkbench/presets/presetFiles.ts"
+      ],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "google-model-viewer",
+      "pathPrefix": "website/public/gallery/glb/model-viewer/",
+      "creator": "Poly by Google",
+      "license": "CC-BY",
+      "sourceUrl": "https://modelviewer.dev/examples/augmentedreality/",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/presetFiles.ts"],
+      "assetEvidenceToken": "basename"
+    },
+    {
+      "id": "gallery-root-glb",
+      "pathPrefix": "website/public/gallery/glb/",
+      "directChildrenOnly": true,
+      "creator": "Per-asset gallery attribution",
+      "license": "Per-asset gallery license",
+      "sourceUrl": "https://glyphcss.dev/",
+      "provenanceDisposition": "attribution-only",
+      "evidenceSources": ["website/src/components/GalleryWorkbench/presets/attributions.ts"],
+      "assetEvidenceToken": "basename"
+    }
+  ],
+  "splitAuthority": {
+    "version": "source-pack-geometry-texture-connected/v1",
+    "salt": "glyphcss-asset-corpus-v4",
+    "trainBelow": 70,
+    "validationBelow": 85
+  },
+  "expected": {
+    "usableTextureUvSourceFiles": 77,
+    "admittedExactRgbBySplit": {
+      "train": 25,
+      "validation": 5,
+      "test": 15
+    }
+  }
+}

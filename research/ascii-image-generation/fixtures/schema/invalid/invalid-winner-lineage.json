@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"INVALID_WINNER_LINEAGE", "mutations":[{"op":"set","path":"/records/samples/0/controls/surfaceId/values/0","value":"surface/cube-a-side"}] }

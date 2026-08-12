@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "derivation-registry/v1",
+  "derivations": [
+    {
+      "id": "admission-v1",
+      "evaluator": "eq",
+      "expected": 1,
+      "definitionPath": "config/derivations/admission-v1.json",
+      "definitionSha256": "091a46d4602f7bbdaa5cb0e1109e8adc3d0eadaf7f6b5ac4972801e596fb972e"
+    },
+    {
+      "id": "overfit-causality-v1",
+      "evaluator": "eq",
+      "expected": 1,
+      "definitionPath": "config/derivations/overfit-causality-v1.json",
+      "definitionSha256": "1d7048f51292d3603c63aaaa41256610d476d8db47be753753e21d9860fa93ee"
+    },
+    {
+      "id": "held-out-structure-v1",
+      "evaluator": "eq",
+      "expected": 1,
+      "definitionPath": "config/derivations/held-out-structure-v1.json",
+      "definitionSha256": "ca83bdd816d4a65e4907bba527830f7a58b6ef3b1e851b0356d7463e34db43f9"
+    },
+    {
+      "id": "style-composition-v1",
+      "evaluator": "eq",
+      "expected": 1,
+      "definitionPath": "config/derivations/style-composition-v1.json",
+      "definitionSha256": "aba5f7a9cc531525d5acebed6ce9c6acc616cdf5e59fc32c75122c3168ca856d"
+    },
+    {
+      "id": "temporal-refinement-v1",
+      "evaluator": "lte",
+      "expected": 500,
+      "definitionPath": "config/derivations/temporal-refinement-v1.json",
+      "definitionSha256": "6d21929a9cbd41c999ca42006ec2db84643dcbf8afbf939718cac8539d09198c"
+    },
+    {
+      "id": "browser-parity-v1",
+      "evaluator": "eq",
+      "expected": 1,
+      "definitionPath": "config/derivations/browser-parity-v1.json",
+      "definitionSha256": "84ad7ea9a270c68172f149a8603d107c69073ec0cd0a28548940ee8db30f5114"
+    }
+  ]
+}

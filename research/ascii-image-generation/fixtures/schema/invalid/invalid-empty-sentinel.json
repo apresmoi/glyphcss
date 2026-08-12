@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"INVALID_EMPTY_SENTINEL", "mutations":[{"op":"set","path":"/records/samples/0/controls/winnerPolygon/values/0","value":-1}] }

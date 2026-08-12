@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/native-reference-review/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "modelAuthority", "comparison", "conclusion", "contentSha256"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-native-reference-review/v1" },
+    "modelAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseRevision", "controlRevision"],
+      "properties": {
+        "baseRevision": { "$ref": "#/$defs/commit" },
+        "controlRevision": { "$ref": "#/$defs/commit" }
+      }
+    },
+    "comparison": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/run" },
+      "allOf": [
+        { "contains": { "properties": { "role": { "const": "prompt-only" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "role": { "const": "correct-control-0.65" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "role": { "const": "wrong-control" } }, "required": ["role"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
+    "contentSha256": { "$ref": "#/$defs/hash" },
+    "conclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["best", "rejected", "scope"],
+      "properties": {
+        "best": { "const": "correct-control-0.65" },
+        "rejected": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["rabbit-hybrid", "car-failure"] },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "scope": { "const": "stock-depth-causality-and-integration-only-not-17-channel-training-proof" }
+      }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "reportPath", "reportSha256", "generatedPath", "generatedSha256", "controlDepthPath", "controlDepthSha256", "controlScale", "review"],
+      "properties": {
+        "role": { "enum": ["prompt-only", "correct-control-0.65", "wrong-control"] },
+        "reportPath": { "type": "string", "pattern": "^review/native-reference/.+/report\\.json$" },
+        "reportSha256": { "$ref": "#/$defs/hash" },
+        "generatedPath": { "type": "string", "pattern": "^review/native-reference/.+/generated\\.png$" },
+        "generatedSha256": { "$ref": "#/$defs/hash" },
+        "controlDepthPath": { "type": "string", "pattern": "^review/native-reference/.+/control-depth\\.png$" },
+        "controlScale": { "type": "number", "minimum": 0, "maximum": 1 },
+        "controlDepthSha256": { "$ref": "#/$defs/hash" },
+        "review": { "enum": ["baseline", "accepted-best", "causality-positive"] }
+      }
+    }
+  }
+}

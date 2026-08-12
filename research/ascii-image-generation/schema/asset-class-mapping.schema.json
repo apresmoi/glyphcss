@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/asset-class-mapping/v1",
+  "title": "Immutable B50 asset-class mapping",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "contentSha256", "registry", "dictionary", "mappings"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-asset-class-mapping/v1" },
+    "id": { "$ref": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2#/$defs/id" },
+    "contentSha256": { "$ref": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2#/$defs/sha256" },
+    "registry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "contentSha256"],
+      "properties": { "id": { "$ref": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2#/$defs/id" }, "contentSha256": { "$ref": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2#/$defs/sha256" } }
+    },
+    "dictionary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "contentSha256"],
+      "properties": { "id": { "$ref": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2#/$defs/id" }, "contentSha256": { "$ref": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2#/$defs/sha256" } }
+    },
+    "mappings": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["assetId", "canonicalPath", "appearanceDisposition", "classId"],
+        "properties": {
+          "assetId": { "type": "string", "pattern": "^asset/[a-f0-9]{64}$" },
+          "canonicalPath": { "type": "string", "pattern": "^website/public/gallery/" },
+          "appearanceDisposition": { "enum": ["exact-rgb", "material-only"] },
+          "classId": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

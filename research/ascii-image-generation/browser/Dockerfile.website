@@ -1,0 +1,22 @@
+FROM node@sha256:1c18d9ab3af4585870b92e4dbc5cac5a0dc77dd13df1a5905cea89fc720eb05b AS node-runtime
+
+FROM mcr.microsoft.com/playwright@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+
+USER root
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+RUN test "$(node --version)" = "v22.14.0" \
+  && npm install --global --force pnpm@10.32.1
+
+WORKDIR /workspace
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY research/ascii-image-generation ./research/ascii-image-generation
+COPY website ./website
+RUN pnpm install --filter @glyphcss/website... --filter @glyphcss/ascii-image-generation... --frozen-lockfile
+RUN pnpm --filter @glyphcss/core build \
+  && pnpm --filter glyphcss build \
+  && pnpm --filter @glyphcss/compile build \
+  && pnpm --filter @glyphcss/effects build
+RUN chmod 0755 research/ascii-image-generation/scripts/remote-website-browser.sh research/ascii-image-generation/scripts/remote-asset-render-binding-browser.sh
+
+ENTRYPOINT ["bash", "research/ascii-image-generation/scripts/remote-website-browser.sh"]

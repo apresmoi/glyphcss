@@ -1292,7 +1292,10 @@ const fieldSynthSchema = {
   // `space: "scene"` are reconstructed by finite-differencing neighboring
   // cells' resolved coordinates (a local-affine approximation), so dots shear
   // on genuinely curved generated-surface/UV mappings; `space: "scene"` is exact.
-  subcellRes: { kind: "string", default: "1x1", values: ["1x1", "2x4"], animation: "discrete", label: "Subcell resolution" },
+  subcellRes: { kind: "string", default: "1x1", values: ["1x1", "2x4", "ink"], animation: "discrete", label: "Subcell resolution" },
+  // "ink" reads the field's SHAPE rather than its level: see `inkGlyphForField`.
+  inkLevel: { kind: "number", default: 0.6, min: 0.05, max: 0.95, step: 0.05, label: "Ink level" },
+  inkArea: { kind: "number", default: 0.04, min: 0, max: 0.4, step: 0.01, label: "Ink area" },
   color: { kind: "color", default: "#7df9ff", label: "Color" },
   colorB: { kind: "color", default: "#ff4fa3", label: "Color B" },
   gradient: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Gradient" },
@@ -1500,6 +1503,31 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   { name: "Nebula", params: { field1: "noise", wave1: "sin", freq1: 2, speed1: 0.2, amp1: 1, field2: "noise", wave2: "sin", freq2: 5, speed2: 0.4, amp2: 0.6, field3: "radial", wave3: "sin", freq3: 1.5, speed3: 0.1, amp3: 0.5, combine: "add", scale: 3, glyphs: " .:-=+*#%@", color: "#6a3cff", colorB: "#ff4fa3", gradient: 1 } },
 ];
 
+
+/**
+ * `subcellRes: "ink"` — draw the field's iso-contour instead of shading by its
+ * level, the same way `mode: "ink"` outlines geometry instead of filling it.
+ *
+ * A cell is inked when the iso-level falls BETWEEN it and a neighbour (a real
+ * crossing, not "this cell happens to be near the level" — that is what makes a
+ * continuous line rather than a scatter of marks). The stroke is then oriented
+ * perpendicular to the local gradient, quantized into the same four 45° buckets
+ * the geometry ink path uses.
+ *
+ * Glyphs are deliberately plain ASCII: box-drawing and Braille are missing from
+ * common monospace faces and get served from a fallback at a DIFFERENT advance,
+ * which desynchronizes the character grid (see the Braille notes in AGENTS.md).
+ */
+const INK_STROKES = ["-", "\\", "|", "/"] as const;
+function inkGlyphForField(gx: number, gy: number): string {
+  // Contour tangent is perpendicular to the gradient. Rows grow downward, so a
+  // tangent heading right-and-down reads as "\".
+  let angle = Math.atan2(gx, -gy);
+  if (angle < 0) angle += Math.PI;
+  const bucket = Math.round(angle / (Math.PI / 4)) % 4;
+  return INK_STROKES[bucket]!;
+}
+
 export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
   id: "field-synth",
   version: 1,
@@ -1592,8 +1620,35 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         }
         if (active === 0) continue;
         const value = clamp01(params.bias + params.gain * combined * 0.5);
-        if (value <= 0) continue;
-        if (params.subcellRes === "2x4") {
+        const inkMode = params.subcellRes === "ink";
+        // A contour cell can sit BELOW the level — it is one side of a crossing.
+        // Dropping it here would draw only the inner edge of every contour.
+        if (!inkMode && value <= 0) continue;
+        if (inkMode) {
+          const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
+            context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
+            sceneCols, sceneRows, generatedSurface, x, y,
+          );
+          const sample = (ox: number, oy: number): number =>
+            clamp01(params.bias + params.gain * subcellFieldValue(voices, params.combine, x + ox, y + oy, cx, cy, time) * 0.5);
+          const right = sample(dxCol, dyCol);
+          const down = sample(dxRow, dyRow);
+          const gx = right - value;
+          const gy = down - value;
+          const level = params.inkLevel;
+          const side = value >= level;
+          const crosses = side !== (right >= level) || side !== (down >= level);
+          if (Math.hypot(gx, gy) <= params.inkArea && side) {
+            // Flat and above the level: a plateau, not an edge — a square wave's
+            // crest is an AREA, so fill it instead of tracing a line that the
+            // field does not actually have.
+            setGlyph(context, i, "\u2588");
+          } else if (crosses) {
+            setGlyph(context, i, inkGlyphForField(gx, gy));
+          } else {
+            continue;
+          }
+        } else if (params.subcellRes === "2x4") {
           const [dxCol, dyCol, dxRow, dyRow] = fieldSynthSubcellGradient(
             context, i, params.space as EffectSpace, uvBounds, scale, params.originU, params.originV,
             sceneCols, sceneRows, generatedSurface, x, y,
@@ -1633,7 +1688,10 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
           if (Number.isFinite(sh)) packed = scalePackedColor(packed, 1 - params.lit * (1 - clamp01(sh)));
         }
         setColor(context, i, packed);
-        context.output.coverage[i] = value * resolvedOpacity;
+        // Shaded modes fade a cell by its level; an inked cell is a decision, not
+        // a level — half a contour lies BELOW the iso-level and would render
+        // almost invisible if its coverage were scaled by it.
+        context.output.coverage[i] = inkMode ? resolvedOpacity : value * resolvedOpacity;
       }
     },
   },

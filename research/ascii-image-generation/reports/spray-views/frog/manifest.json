@@ -1,0 +1,1898 @@
+{
+  "schemaVersion": "glyph-spray-views/v1",
+  "subject": {
+    "key": "frog",
+    "assetId": "asset/8b66dc7c28ae0a64d146ee8e5ee82ece7202e8b0d70a715c2d3995fe739df687",
+    "path": "website/public/gallery/obj/opengameart/frog-guy/frog.obj",
+    "classId": 2
+  },
+  "grid": {
+    "cols": 256,
+    "rows": 128,
+    "cellAspect": 2
+  },
+  "supersample": 1,
+  "controls": {
+    "path": "views/manifest.json",
+    "contentSha256": "416244405fc0406f6923e0126dc65ecd36e247e389586cb1b8d15f437c3a34ac"
+  },
+  "views": [
+    {
+      "id": "frame-000",
+      "scheduleId": "orbit-000",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 0,
+        "center": [
+          0.033939886540489905,
+          0.7586927196480404
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 101.45871377056584,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "d4fe838a46c98c29d006dc9f307221777e5208344234c8a135568de85817c9d9",
+      "semanticAsciiSha256": "215ea65d7262753191d22ef497c71b80bfc4738c69f6f40e4cb4a1c800262325",
+      "albedoRgbSha256": "7d4c202b3a974842b62ab89c0ae2f4b55c2b81430f026dc511a541b7a12e4e95",
+      "targetRgbSha256": "d859571deaf0da8623c76ef63fe351c2183e16182b2271a66086fb9bac8e6028",
+      "coverageSha256": "18b969f8daa60f96cf5c19f17e92c33aa5153a0e02ba13ec9e6b84f35ba53d7f",
+      "surfaceUvSha256": "98763c1551c25eaa2a4bf1fd5b80772ad317f100bfdf6eaeab40564b5d07ea5f",
+      "files": {
+        "visible": {
+          "path": "frames/frame-000/visible.txt",
+          "sha256": "d4fe838a46c98c29d006dc9f307221777e5208344234c8a135568de85817c9d9"
+        },
+        "semantic": {
+          "path": "frames/frame-000/semantic.txt",
+          "sha256": "215ea65d7262753191d22ef497c71b80bfc4738c69f6f40e4cb4a1c800262325"
+        },
+        "selected": {
+          "path": "frames/frame-000/selected.txt",
+          "sha256": "d4fe838a46c98c29d006dc9f307221777e5208344234c8a135568de85817c9d9"
+        },
+        "metadata": {
+          "path": "frames/frame-000/metadata.json",
+          "sha256": "9da2726980c24ff13b9dbe60dfa8866448ae57cece6ff391573e2b78615ba0f1"
+        },
+        "indexLookups": {
+          "path": "frames/frame-000/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-000/semantic-color-argb.bin",
+          "sha256": "32456c547ff24a4a2f6b7791ab4082400fe198779ec54fc852393b11acd138aa"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-000/visible-color-argb.bin",
+          "sha256": "4857f63a9ed8e1cbd60685ce886b60fc62f132fa7d98b34d134cace6cc0414a6"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-000/albedo-rgb-u32.bin",
+          "sha256": "7d4c202b3a974842b62ab89c0ae2f4b55c2b81430f026dc511a541b7a12e4e95"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-000/target-rgb-u32.bin",
+          "sha256": "d859571deaf0da8623c76ef63fe351c2183e16182b2271a66086fb9bac8e6028"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-000/coverage-u8.bin",
+          "sha256": "18b969f8daa60f96cf5c19f17e92c33aa5153a0e02ba13ec9e6b84f35ba53d7f"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-000/winner-polygon-i32.bin",
+          "sha256": "17864e7c029d8e743f52c064a1cf43eb8ced9e9dd73dcd89627a0e9d70da67da"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-000/class-id-i32.bin",
+          "sha256": "ff6603d0733d7cec7ba07b54b54b1753bad524c41a4a24f05dd82dbb15579974"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-000/instance-id-i32.bin",
+          "sha256": "94290d762d95f8cff651f9b7f8f05f9befc20258a49113a485454f4cfce3c71b"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-000/surface-id-i32.bin",
+          "sha256": "50f55b21976283c06348ed3b26519187c69c3c86ecbd5e0db3d8f9382d07dc97"
+        },
+        "depth-f64": {
+          "path": "frames/frame-000/depth-f64.bin",
+          "sha256": "c4b248bc2dcae69c63857fa4d179456690737ac89984950a05a427ace5fc820e"
+        },
+        "shade-f32": {
+          "path": "frames/frame-000/shade-f32.bin",
+          "sha256": "aef5825943f7380b0845435903d17313ca72bdfd5484218c09f3e76ab4accbc3"
+        },
+        "normal-f32": {
+          "path": "frames/frame-000/normal-f32.bin",
+          "sha256": "a2b3ff6dd87966446804e084477b18ee9e2739bff6b48806ddba817ee641975a"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-000/world-position-f32.bin",
+          "sha256": "55d71af0c71e46d6994bdc705377bb83759a42bc367e0d143f6dcaf0ff4d8cee"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-000/surface-uv-f32.bin",
+          "sha256": "98763c1551c25eaa2a4bf1fd5b80772ad317f100bfdf6eaeab40564b5d07ea5f"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-000/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-000/tensor-keyframe-f32.bin",
+          "sha256": "2303d60c3668b88fce2f8555bde50811612785c9bfe582bdf206e9253e93c1e4"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-000/depth-normalized-f32.bin",
+          "sha256": "beab52ad13037e834e7ed2b1efd56e823366e57454b5208d0d55b59a5e594ae9"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-000/normal-normalized-f32.bin",
+          "sha256": "5a0f5e6d430ea8c6ea820c085b2cd67a86e9fea2f25870f19140584628217f28"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-000/world-position-normalized-f32.bin",
+          "sha256": "0db3a06ad2b55ee5e247d3f5a77b8b153a19d5dad8073f200c9e93c1a16b6922"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-000/surface-uv-normalized-f32.bin",
+          "sha256": "1baa637e83f05e34664d60104fb286a8d8db571746fddc4f06c7705fc659b0e4"
+        }
+      }
+    },
+    {
+      "id": "frame-001",
+      "scheduleId": "orbit-001",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 30,
+        "center": [
+          0.23572671536006312,
+          0.6616866506087252
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 100.02682422058312,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "d918e367df2e26bd79bc3b2b15416ec5f263c6af216c58ed7e9fa47bc97920ee",
+      "semanticAsciiSha256": "1d0889b2e44832bcf3462826d6ce6f1e0f77da9e827d381bc26b9d7e4abd3a0d",
+      "albedoRgbSha256": "6e0867c791fb7e1d3d44753de3d37a18f9b462c4189b6fd73bfa1edff6d5db1e",
+      "targetRgbSha256": "8ba31c4dbe2176330a61bf2e6be27ce9d88d30ffb3d4a307ffc1166ad9091a7f",
+      "coverageSha256": "8ccb26ffb68fc0e7bedb8c9b6fa82388fe283f593371104e443a020ea61f16c9",
+      "surfaceUvSha256": "d6cb014b1b99a3334bd4d6aaccb4cbb380df2a879397d5e7fc7fb16b6af8e330",
+      "files": {
+        "visible": {
+          "path": "frames/frame-001/visible.txt",
+          "sha256": "d918e367df2e26bd79bc3b2b15416ec5f263c6af216c58ed7e9fa47bc97920ee"
+        },
+        "semantic": {
+          "path": "frames/frame-001/semantic.txt",
+          "sha256": "1d0889b2e44832bcf3462826d6ce6f1e0f77da9e827d381bc26b9d7e4abd3a0d"
+        },
+        "selected": {
+          "path": "frames/frame-001/selected.txt",
+          "sha256": "d918e367df2e26bd79bc3b2b15416ec5f263c6af216c58ed7e9fa47bc97920ee"
+        },
+        "metadata": {
+          "path": "frames/frame-001/metadata.json",
+          "sha256": "baaeb1993c3ac2e65016e8147dfca807fd0b8b3c3a5635df595a79d2a0045198"
+        },
+        "indexLookups": {
+          "path": "frames/frame-001/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-001/semantic-color-argb.bin",
+          "sha256": "09d5185709a24e83792bc265713bb42ae25c2abdae8499d1c75c75024ab624e3"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-001/visible-color-argb.bin",
+          "sha256": "272ba2053f7c96f8648481952c43b9c0ba8b3cb558e90065b84e54d839ede08c"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-001/albedo-rgb-u32.bin",
+          "sha256": "6e0867c791fb7e1d3d44753de3d37a18f9b462c4189b6fd73bfa1edff6d5db1e"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-001/target-rgb-u32.bin",
+          "sha256": "8ba31c4dbe2176330a61bf2e6be27ce9d88d30ffb3d4a307ffc1166ad9091a7f"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-001/coverage-u8.bin",
+          "sha256": "8ccb26ffb68fc0e7bedb8c9b6fa82388fe283f593371104e443a020ea61f16c9"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-001/winner-polygon-i32.bin",
+          "sha256": "ba203748ee62434903138e4c9f74f1b1ed6b7f0be0b66132cbe96056592e621b"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-001/class-id-i32.bin",
+          "sha256": "163add46227d98b8a6dcf3b2f25bc840f26ec1b5586172c46b25e1a11aceaa44"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-001/instance-id-i32.bin",
+          "sha256": "0c3b0f020755375bcb8d4f3b64ff0ca8559cca28d335720d35e1bc76c7139d5e"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-001/surface-id-i32.bin",
+          "sha256": "7ec51aea43c707ea3e3e1060ec85ac3c74a30fef57c9ff2cd79c2495200ead15"
+        },
+        "depth-f64": {
+          "path": "frames/frame-001/depth-f64.bin",
+          "sha256": "ee4bd516f09503a6d2689a6d3177b2d995b5b291e954c80fbd2f40b01a9aaf41"
+        },
+        "shade-f32": {
+          "path": "frames/frame-001/shade-f32.bin",
+          "sha256": "1e2044e325d72f6bb090d2e366e240085975c611331ed1fb6860dcafc6a49c84"
+        },
+        "normal-f32": {
+          "path": "frames/frame-001/normal-f32.bin",
+          "sha256": "a9c2c0bd61d467ad029416a05cd82f9f70c69e61c4c574c0ccaaaf261b4bd4d0"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-001/world-position-f32.bin",
+          "sha256": "6211ad5d1e19cc065e3bd002cc19640d053cdfb3923849b791b9fa29a32c08d3"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-001/surface-uv-f32.bin",
+          "sha256": "d6cb014b1b99a3334bd4d6aaccb4cbb380df2a879397d5e7fc7fb16b6af8e330"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-001/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-001/tensor-keyframe-f32.bin",
+          "sha256": "c3ea7247f1eb4a5703a917a3dc4eb74f0f17102774516b1783277d366ca61980"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-001/depth-normalized-f32.bin",
+          "sha256": "66e926908e14452d9c751696bb5e06507c448b92e91ebd4b35c9d3ee522dfd8c"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-001/normal-normalized-f32.bin",
+          "sha256": "493f5e6b054705a0b8f255453ab5b5de8be63c972c2b3d9cce5001ed946f006d"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-001/world-position-normalized-f32.bin",
+          "sha256": "c1e25e0dfc4b560da46b7340e6e4e5a4c4c4f4d8f73f6f2681151099a564bee4"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-001/surface-uv-normalized-f32.bin",
+          "sha256": "c502f7e87f2b967bebf712fd2347469c10d7c29dcc1cf78b8ba70f4f63cb7789"
+        }
+      }
+    },
+    {
+      "id": "frame-002",
+      "scheduleId": "orbit-002",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 60,
+        "center": [
+          0.5299127114950465,
+          0.6173929470423131
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 93.35088343401405,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "ee5d48c545f5ef18f85ba357ba2c9763112898d96e6fdb0d3af9086d37014e88",
+      "semanticAsciiSha256": "fc44d59f220d4048bdcd01ecc6868aee98d884708c4e2d511288fcf3abffc064",
+      "albedoRgbSha256": "3c1b440cb0dda7d3c867621bb8807741c99386e45aca4e0e9ffc9a64da80968d",
+      "targetRgbSha256": "852fbd29479699513448924ea3954f6844367d79f3308d14a077314f2e980c3a",
+      "coverageSha256": "5edf005f49e13c221b37dde4cc8b140b8c76b3b352ace9f8f0a1970231a8a431",
+      "surfaceUvSha256": "e99b5b8dfdc9329e9bfe84f20ce1700f46c58db67b83f8bac1a9139a55f665dd",
+      "files": {
+        "visible": {
+          "path": "frames/frame-002/visible.txt",
+          "sha256": "ee5d48c545f5ef18f85ba357ba2c9763112898d96e6fdb0d3af9086d37014e88"
+        },
+        "semantic": {
+          "path": "frames/frame-002/semantic.txt",
+          "sha256": "fc44d59f220d4048bdcd01ecc6868aee98d884708c4e2d511288fcf3abffc064"
+        },
+        "selected": {
+          "path": "frames/frame-002/selected.txt",
+          "sha256": "ee5d48c545f5ef18f85ba357ba2c9763112898d96e6fdb0d3af9086d37014e88"
+        },
+        "metadata": {
+          "path": "frames/frame-002/metadata.json",
+          "sha256": "2430ba680b0acf63b47a419393b527b029dbed92351872f7ee5f73b299f2e218"
+        },
+        "indexLookups": {
+          "path": "frames/frame-002/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-002/semantic-color-argb.bin",
+          "sha256": "d73ed054114d5480de1db726aca35feffa03a88dc29e9da5c93ae3a3e5330f8c"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-002/visible-color-argb.bin",
+          "sha256": "ffaca72823e69467544c575332af56cee9aeead504fff5495930d9727518b2a5"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-002/albedo-rgb-u32.bin",
+          "sha256": "3c1b440cb0dda7d3c867621bb8807741c99386e45aca4e0e9ffc9a64da80968d"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-002/target-rgb-u32.bin",
+          "sha256": "852fbd29479699513448924ea3954f6844367d79f3308d14a077314f2e980c3a"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-002/coverage-u8.bin",
+          "sha256": "5edf005f49e13c221b37dde4cc8b140b8c76b3b352ace9f8f0a1970231a8a431"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-002/winner-polygon-i32.bin",
+          "sha256": "d063789ffaefa3632768854fd5cc92d067106bb50cc6aac45732a761f2b1f195"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-002/class-id-i32.bin",
+          "sha256": "422a75426f356bab57a63fbe3a4f224ae8b44e502e6c4c9386adf9e461fee777"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-002/instance-id-i32.bin",
+          "sha256": "3353fe735e3eca35fe94f5d25aa9a65be502dac8cb629e633d3e1c11ce5a76b5"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-002/surface-id-i32.bin",
+          "sha256": "c6a109f08b67d6548e3b6c50d31b75f044b98abdac43cd5f38bbe7de66b7cdcc"
+        },
+        "depth-f64": {
+          "path": "frames/frame-002/depth-f64.bin",
+          "sha256": "49bc33d852f1677abf6e015c1d0709d0b5796fe728f98668124641f9053b52a7"
+        },
+        "shade-f32": {
+          "path": "frames/frame-002/shade-f32.bin",
+          "sha256": "437fc4562d89abc7e536a136f80cd74ae1adb7fc12f16e505fb49d15df901230"
+        },
+        "normal-f32": {
+          "path": "frames/frame-002/normal-f32.bin",
+          "sha256": "a525e64bbcb8b07caa8c4932123654449d3588619f0c573981348f584c9dd2c0"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-002/world-position-f32.bin",
+          "sha256": "2db85fde3dec1869695413e353d172c5e79290cd9bf8c5d419d9c7a717307fa5"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-002/surface-uv-f32.bin",
+          "sha256": "e99b5b8dfdc9329e9bfe84f20ce1700f46c58db67b83f8bac1a9139a55f665dd"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-002/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-002/tensor-keyframe-f32.bin",
+          "sha256": "6aaa66c508c1184dd5b405490dc08c9bdca16a9b5395c4849ceca54829cbed52"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-002/depth-normalized-f32.bin",
+          "sha256": "f0c5191a650d82b7b9254aaf99d03be4d3458aac627d8c7e87e5a62a914f996c"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-002/normal-normalized-f32.bin",
+          "sha256": "913b1204651dd8c070e9764c7b2d5b6a9b018e914be2d6822c62fd8daeee41e0"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-002/world-position-normalized-f32.bin",
+          "sha256": "b51493e0eaaa0e10cf1ae4d96631e2e42e77ad9f51a0885aa21d8a1958ee6262"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-002/surface-uv-normalized-f32.bin",
+          "sha256": "1946ee3dda9832e8be4e036840876317e83dc65e730c5ac986cf63a3a6109514"
+        }
+      }
+    },
+    {
+      "id": "frame-003",
+      "scheduleId": "orbit-003",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 90,
+        "center": [
+          0.7848617746351232,
+          0.6597245529923483
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 89.31367336998353,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "a49a78c3c7ca932c9865332a5934a9b042d6082978bff78d3ee9b0f9730023c2",
+      "semanticAsciiSha256": "318267a7e1e1ef2cb07baca54781959138e652e1ba18317ab680a14044e5bc82",
+      "albedoRgbSha256": "c9c8578e31a55d81bfb239f02554cc5482d7947015b87e764693ce8d148093e5",
+      "targetRgbSha256": "59fd190a97b681dc2a75b9fea08748923b6268c9ff01ebbf30f41939f67c7273",
+      "coverageSha256": "760ee6064c8b5cddb0f482b5576a1fe6183734aacf071bced79ee7a04935808c",
+      "surfaceUvSha256": "6c30b70c681523178613222b764def42948a8c5c65540758a0400a5e6d05dfc5",
+      "files": {
+        "visible": {
+          "path": "frames/frame-003/visible.txt",
+          "sha256": "a49a78c3c7ca932c9865332a5934a9b042d6082978bff78d3ee9b0f9730023c2"
+        },
+        "semantic": {
+          "path": "frames/frame-003/semantic.txt",
+          "sha256": "318267a7e1e1ef2cb07baca54781959138e652e1ba18317ab680a14044e5bc82"
+        },
+        "selected": {
+          "path": "frames/frame-003/selected.txt",
+          "sha256": "a49a78c3c7ca932c9865332a5934a9b042d6082978bff78d3ee9b0f9730023c2"
+        },
+        "metadata": {
+          "path": "frames/frame-003/metadata.json",
+          "sha256": "0ea57ddfdcc8d7f43091d7696354cb3b77301899a488f05fda8d86d3b9cd0d6f"
+        },
+        "indexLookups": {
+          "path": "frames/frame-003/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-003/semantic-color-argb.bin",
+          "sha256": "9080358f3c6dc36785724f6d60f6fd42523dae5ed5923e8cef3d9fcb74f62dd9"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-003/visible-color-argb.bin",
+          "sha256": "bb5158f667d281a6e12d170144b3b6daa104cb7f775281a47c79a89262f849d2"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-003/albedo-rgb-u32.bin",
+          "sha256": "c9c8578e31a55d81bfb239f02554cc5482d7947015b87e764693ce8d148093e5"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-003/target-rgb-u32.bin",
+          "sha256": "59fd190a97b681dc2a75b9fea08748923b6268c9ff01ebbf30f41939f67c7273"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-003/coverage-u8.bin",
+          "sha256": "760ee6064c8b5cddb0f482b5576a1fe6183734aacf071bced79ee7a04935808c"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-003/winner-polygon-i32.bin",
+          "sha256": "fb3896ed47380806edaf206c4d79cd39c859f00a74ba43eb9313fc683d237931"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-003/class-id-i32.bin",
+          "sha256": "025720307a7590ae816a62432b1976bc1a475c6c31f5bab7943727a1b6557f89"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-003/instance-id-i32.bin",
+          "sha256": "2e4d772bee619c169dbe3990f676ecc1c1699698cd6e9b34499050dd1450ca51"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-003/surface-id-i32.bin",
+          "sha256": "8c52a472197d99039ebce18e1cd7aa9955cd17e00b6f7a3105612c3b64779032"
+        },
+        "depth-f64": {
+          "path": "frames/frame-003/depth-f64.bin",
+          "sha256": "90f7ab9a6edc5c5057f227b8a86462720ce1462a5264c143d41bd195f196cc75"
+        },
+        "shade-f32": {
+          "path": "frames/frame-003/shade-f32.bin",
+          "sha256": "88ba9b40827500535dbbc233afe095347b63656b71dc9ff5be45100998abbc98"
+        },
+        "normal-f32": {
+          "path": "frames/frame-003/normal-f32.bin",
+          "sha256": "d80876154adc62db52a3a40f63ede379e285d84dc55821e9efe79ef138b6785c"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-003/world-position-f32.bin",
+          "sha256": "9c0899744d3cb670de461ae24537841127785da2e8ec3fec2687924d6a4df2ec"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-003/surface-uv-f32.bin",
+          "sha256": "6c30b70c681523178613222b764def42948a8c5c65540758a0400a5e6d05dfc5"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-003/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-003/tensor-keyframe-f32.bin",
+          "sha256": "a5082c00584c624a3c3d95e21881595f5c808ee317f16909d53d4f79d5d76872"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-003/depth-normalized-f32.bin",
+          "sha256": "c6972acd00c2e7530e7673086d373a6d40001795adbe0e8cb7be309fd5968aa5"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-003/normal-normalized-f32.bin",
+          "sha256": "6ed38b9d5629dad7918855e1b661ebfe669376b314095ff3e8d6a670b78d3d08"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-003/world-position-normalized-f32.bin",
+          "sha256": "9f79d1e6deae91fdbd0f56fd7cdc5d6436fb57c641ff0b744606278970bd1920"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-003/surface-uv-normalized-f32.bin",
+          "sha256": "335102f93e6383b2c170406681e27622ee09429f8b60a9f8f69b1ac4cfc47789"
+        }
+      }
+    },
+    {
+      "id": "frame-004",
+      "scheduleId": "orbit-004",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 120,
+        "center": [
+          0.94009081824902,
+          0.7684232288462098
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 89.55808201591098,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "f03bf21bf76ac3b5a2e2ffe963515b5e1199f1f651e969a5e985e2c1582b3cdb",
+      "semanticAsciiSha256": "5a25f8fdbdd79a715c4ba52da14828c88c145887fe13ef2b2b40791aaff7edf6",
+      "albedoRgbSha256": "7366ab10fd1c561d946b35354802d6d445b7edbc568cf65839f4137ed0d73c7e",
+      "targetRgbSha256": "f68b6e7d7e3a1cb288a1ed4b947e23cf8f98872b87212d3f350afa73788e998a",
+      "coverageSha256": "c37b09e38b841dac3cb2d0df24422c396790657e66ae9753621be98f04cdd161",
+      "surfaceUvSha256": "c6c4299b94446a27bcac7d040a674f4f6240a3f81a838e5b92aa80aa245e8a5b",
+      "files": {
+        "visible": {
+          "path": "frames/frame-004/visible.txt",
+          "sha256": "f03bf21bf76ac3b5a2e2ffe963515b5e1199f1f651e969a5e985e2c1582b3cdb"
+        },
+        "semantic": {
+          "path": "frames/frame-004/semantic.txt",
+          "sha256": "5a25f8fdbdd79a715c4ba52da14828c88c145887fe13ef2b2b40791aaff7edf6"
+        },
+        "selected": {
+          "path": "frames/frame-004/selected.txt",
+          "sha256": "f03bf21bf76ac3b5a2e2ffe963515b5e1199f1f651e969a5e985e2c1582b3cdb"
+        },
+        "metadata": {
+          "path": "frames/frame-004/metadata.json",
+          "sha256": "b9b27971b6b931f7e45142a460b9aabf39a479b2942ab2d7d350466d9153e7bc"
+        },
+        "indexLookups": {
+          "path": "frames/frame-004/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-004/semantic-color-argb.bin",
+          "sha256": "310f58adf7d2d0c4fa2169e554f921e504d74b7e69d00a49329f8e7c9671aa34"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-004/visible-color-argb.bin",
+          "sha256": "1e561b361cf639756d13402344320a89076eb49834cce4de992f2da21a8c422b"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-004/albedo-rgb-u32.bin",
+          "sha256": "7366ab10fd1c561d946b35354802d6d445b7edbc568cf65839f4137ed0d73c7e"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-004/target-rgb-u32.bin",
+          "sha256": "f68b6e7d7e3a1cb288a1ed4b947e23cf8f98872b87212d3f350afa73788e998a"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-004/coverage-u8.bin",
+          "sha256": "c37b09e38b841dac3cb2d0df24422c396790657e66ae9753621be98f04cdd161"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-004/winner-polygon-i32.bin",
+          "sha256": "9bc25e59130bb44d79c89eef16eb220714e8f565aa9d1e640f9628a9abd8b5f0"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-004/class-id-i32.bin",
+          "sha256": "f8eeffc935834e6f2742f426933321f46abd3f49406a9500f3fd7a48ce0cc3ff"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-004/instance-id-i32.bin",
+          "sha256": "d2ac95a48a87127e1f76c292963687bbe78a3df964aa2029e1739b3274398c70"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-004/surface-id-i32.bin",
+          "sha256": "a778147df0ef50898c424d378a6e33802724e0815d78c13f238a1bed529e18a3"
+        },
+        "depth-f64": {
+          "path": "frames/frame-004/depth-f64.bin",
+          "sha256": "7a59e23aca3df2d50de5fdcb592676364136d8a4e33ebee269492101b80f5809"
+        },
+        "shade-f32": {
+          "path": "frames/frame-004/shade-f32.bin",
+          "sha256": "025369bcb3c7fd52a610a895368d4bec6c2676378548bf6d1a960a634b024f52"
+        },
+        "normal-f32": {
+          "path": "frames/frame-004/normal-f32.bin",
+          "sha256": "b31d9c30173e1566f93873a140afd0f13131c9baabe60343db5ca474f1149a1d"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-004/world-position-f32.bin",
+          "sha256": "6b03776731578ffdfe7b1f8b0a0c1cbb9ec2f10127ece92e37795d5b9fb2e9de"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-004/surface-uv-f32.bin",
+          "sha256": "c6c4299b94446a27bcac7d040a674f4f6240a3f81a838e5b92aa80aa245e8a5b"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-004/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-004/tensor-keyframe-f32.bin",
+          "sha256": "c3d760f839161b27c6508cf4b6984f6032c8727a0ed0539ddc9b956cdaab0405"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-004/depth-normalized-f32.bin",
+          "sha256": "b1ba2752d367954d942e9df069c89687b2762a8db0faf71c7401c49a042b9619"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-004/normal-normalized-f32.bin",
+          "sha256": "990ef698f22c7d769c5051fb2d9e33858de9aabc0fb4d5ccf1ed046efdbc7967"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-004/world-position-normalized-f32.bin",
+          "sha256": "e362e96a05ae021a385499626653fe994ec1af8f2508cbe5da812c9933497f6e"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-004/surface-uv-normalized-f32.bin",
+          "sha256": "26fbeb8222b4ee146a3eb1f3f4ee4223a59344ae522268570b0e76fc00aed227"
+        }
+      }
+    },
+    {
+      "id": "frame-005",
+      "scheduleId": "orbit-005",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 150,
+        "center": [
+          0.9858229354775703,
+          0.9026658386429189
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 91.4178142630406,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "5c08bdcda66d01f0827ac611e00b03683139b9229a18db5a3d98b3440e5e6c17",
+      "semanticAsciiSha256": "34e73d012499dbdd8d65dab3dde6078649133d2bc76c886865db166256f65fac",
+      "albedoRgbSha256": "027b16718a2bcf9412274ed46e6b8015ce28d9de7bdb363b1f681e0e218da91b",
+      "targetRgbSha256": "fb3a0c4294a890937fdf3966234f416b8b2b862650aaa34d641d168d01ad582a",
+      "coverageSha256": "e0d6f8fd9355b8a2710e663612e0839486a9bfeb838492f47dbb172f01226fe0",
+      "surfaceUvSha256": "d15cea9b97587cd42447f2dac6d04117cde2ae5d8f82d577a958c51bbd788154",
+      "files": {
+        "visible": {
+          "path": "frames/frame-005/visible.txt",
+          "sha256": "5c08bdcda66d01f0827ac611e00b03683139b9229a18db5a3d98b3440e5e6c17"
+        },
+        "semantic": {
+          "path": "frames/frame-005/semantic.txt",
+          "sha256": "34e73d012499dbdd8d65dab3dde6078649133d2bc76c886865db166256f65fac"
+        },
+        "selected": {
+          "path": "frames/frame-005/selected.txt",
+          "sha256": "5c08bdcda66d01f0827ac611e00b03683139b9229a18db5a3d98b3440e5e6c17"
+        },
+        "metadata": {
+          "path": "frames/frame-005/metadata.json",
+          "sha256": "cdb80d3c4d17edec7bd1a642f5d2ad2cc2df62248245f57b9c9dc55f216b2578"
+        },
+        "indexLookups": {
+          "path": "frames/frame-005/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-005/semantic-color-argb.bin",
+          "sha256": "beca9b8d30413f52d38bbcbf019d84aca44a91b9757d65ee4cb6c263fffbc5cd"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-005/visible-color-argb.bin",
+          "sha256": "14fbefd622eb106f7e61e1771fd2177e8188025950f3b90314a3d76126f2fa1d"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-005/albedo-rgb-u32.bin",
+          "sha256": "027b16718a2bcf9412274ed46e6b8015ce28d9de7bdb363b1f681e0e218da91b"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-005/target-rgb-u32.bin",
+          "sha256": "fb3a0c4294a890937fdf3966234f416b8b2b862650aaa34d641d168d01ad582a"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-005/coverage-u8.bin",
+          "sha256": "e0d6f8fd9355b8a2710e663612e0839486a9bfeb838492f47dbb172f01226fe0"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-005/winner-polygon-i32.bin",
+          "sha256": "3bd5ad402d02b5ecd281768d863d3422e247ea4c6d1beff79d31f0a8aae28460"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-005/class-id-i32.bin",
+          "sha256": "bfe636533868dd07eb4c2dff5b58df423ebf40724042d1e2cfeab6f8efbc370a"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-005/instance-id-i32.bin",
+          "sha256": "0c841e563d762686e0589312e72d94851e0dcdc5b9615670882409d752c24629"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-005/surface-id-i32.bin",
+          "sha256": "a22e366013da87118ec867e30b4b6da94c71c2305d007b7129b2b3da638315bd"
+        },
+        "depth-f64": {
+          "path": "frames/frame-005/depth-f64.bin",
+          "sha256": "a60b586c679f96e6637f4a151b81309361622810f12bc43baa7a7c74342598b2"
+        },
+        "shade-f32": {
+          "path": "frames/frame-005/shade-f32.bin",
+          "sha256": "3e9bfad93f3f7dbab102311959ce091ac64c88dad906545f446591f2a0ac9432"
+        },
+        "normal-f32": {
+          "path": "frames/frame-005/normal-f32.bin",
+          "sha256": "eeaacf386e3c978d8d6f1b7872c50f0fa70ca1babe95b155e376dfcd34e75409"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-005/world-position-f32.bin",
+          "sha256": "b890c24566af6db4fa5bd036c10c368cf3c13104d3f41ad3d4de6f351115c3b9"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-005/surface-uv-f32.bin",
+          "sha256": "d15cea9b97587cd42447f2dac6d04117cde2ae5d8f82d577a958c51bbd788154"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-005/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-005/tensor-keyframe-f32.bin",
+          "sha256": "69c43162c17c89377657594502e083ad01a85af763c7bc2a3fe697c2e603d4dc"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-005/depth-normalized-f32.bin",
+          "sha256": "03f3bb0a9c4c80f4dbeac604d5f3de1b0e4dffd3099e2faf5c5a91e9dcc2135f"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-005/normal-normalized-f32.bin",
+          "sha256": "9787570cb57ac76797c81fee1fd27a82af0da1386b6b039a73ec6349b3059137"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-005/world-position-normalized-f32.bin",
+          "sha256": "cf02548b0cf91155c18b5fac63b63dd24450936a9d1b3f9c8fda455a701de481"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-005/surface-uv-normalized-f32.bin",
+          "sha256": "9d19a866d7c6461357fcacb658b62e394adf1adefc0f5985d5e8cba661dd3bc8"
+        }
+      }
+    },
+    {
+      "id": "frame-006",
+      "scheduleId": "orbit-006",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 180,
+        "center": [
+          0.9342427423998474,
+          1.0525185288354384
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 94.53224774172668,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "959de56465bc1794e35631d48cece9ecd5f15eb3fe9378adb5d819d92032b27c",
+      "semanticAsciiSha256": "23da808a8944ee0d974d66c8b44b77a5afd957f29ef1dc1e25ac3320c2aee0f6",
+      "albedoRgbSha256": "06737c10aecf37076d3a7f42dfc14dbd0ac8072f0425b64e6ece3f42bfe3f44a",
+      "targetRgbSha256": "6a85a3a337f5760512de13c640186cf0241d974eb0dcf005616891c10812db41",
+      "coverageSha256": "04cba515874679c4dbfe1f10c073fdab58e0d32996e2e0d8d62e5859921f7ec1",
+      "surfaceUvSha256": "0cb6e47f45c0d925a1d54065ff509ba2416f33ab93116da47dddfca87a34ae67",
+      "files": {
+        "visible": {
+          "path": "frames/frame-006/visible.txt",
+          "sha256": "959de56465bc1794e35631d48cece9ecd5f15eb3fe9378adb5d819d92032b27c"
+        },
+        "semantic": {
+          "path": "frames/frame-006/semantic.txt",
+          "sha256": "23da808a8944ee0d974d66c8b44b77a5afd957f29ef1dc1e25ac3320c2aee0f6"
+        },
+        "selected": {
+          "path": "frames/frame-006/selected.txt",
+          "sha256": "959de56465bc1794e35631d48cece9ecd5f15eb3fe9378adb5d819d92032b27c"
+        },
+        "metadata": {
+          "path": "frames/frame-006/metadata.json",
+          "sha256": "d4092b26c63bcdee1243fd8dd56741d250b398d6ba5d3e95e98c80f216f3801a"
+        },
+        "indexLookups": {
+          "path": "frames/frame-006/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-006/semantic-color-argb.bin",
+          "sha256": "2ab079538c3a3c32042fb04ff15b1cd1e4a97c1658d31955877006029ada6832"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-006/visible-color-argb.bin",
+          "sha256": "f68b91e3d8360d9072e4bd3f0cef7d1f69e95abd53dc96f8dc2c57f26d1c3ca9"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-006/albedo-rgb-u32.bin",
+          "sha256": "06737c10aecf37076d3a7f42dfc14dbd0ac8072f0425b64e6ece3f42bfe3f44a"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-006/target-rgb-u32.bin",
+          "sha256": "6a85a3a337f5760512de13c640186cf0241d974eb0dcf005616891c10812db41"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-006/coverage-u8.bin",
+          "sha256": "04cba515874679c4dbfe1f10c073fdab58e0d32996e2e0d8d62e5859921f7ec1"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-006/winner-polygon-i32.bin",
+          "sha256": "834413620208f739e85f53f9229c02ccc6bab84599084fa50beb8966fdd93a16"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-006/class-id-i32.bin",
+          "sha256": "9ad478ad140443c0e7457a9d3bec2dc7efc7261c2f6cc6e9dd1aa813072599f3"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-006/instance-id-i32.bin",
+          "sha256": "515965abfe3596b358146e9ebc68765218b9ecab4a7ab553a8dc4dfade244d43"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-006/surface-id-i32.bin",
+          "sha256": "2d35f7370d2b7271e0eda75b7ad429e76b6d2d7eeda470edeee3e1a338419807"
+        },
+        "depth-f64": {
+          "path": "frames/frame-006/depth-f64.bin",
+          "sha256": "489312b227bd8d628f34c8be82590ef6da9cd9639c186597978c5fb234108bf4"
+        },
+        "shade-f32": {
+          "path": "frames/frame-006/shade-f32.bin",
+          "sha256": "c0baafb28a9bb884d00308c44961523ac1cc31652543407d87fa392cebd6c9ec"
+        },
+        "normal-f32": {
+          "path": "frames/frame-006/normal-f32.bin",
+          "sha256": "cb5a731df22ac7d9c961031f9021aa61c658847316fc5197728214f6f65361df"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-006/world-position-f32.bin",
+          "sha256": "bb64ef6586eab40b0df73715f788e756a70f999c4220ddf84fc8452224e55491"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-006/surface-uv-f32.bin",
+          "sha256": "0cb6e47f45c0d925a1d54065ff509ba2416f33ab93116da47dddfca87a34ae67"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-006/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-006/tensor-keyframe-f32.bin",
+          "sha256": "b6623bec25d01e931fa2dfa2c250edcb3f5c5979805e536701e919deb01df0f9"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-006/depth-normalized-f32.bin",
+          "sha256": "183de2826963ec6a3e18b16956088ba50d2eb6a1b99e7c6f05eb1695c4694ebc"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-006/normal-normalized-f32.bin",
+          "sha256": "6b4fc4c9f2140aba91b26acc0c8f9230d0c4e6979a6e41eabf8185e32a085f04"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-006/world-position-normalized-f32.bin",
+          "sha256": "69298fff43143a5b52fbdace7e5a360af4f266c59388569fba6278cf8246149d"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-006/surface-uv-normalized-f32.bin",
+          "sha256": "7d3f20c49abe1bc44e9dc34c8926d4ccce7a43a1f723c892ceda1ae06dd70e69"
+        }
+      }
+    },
+    {
+      "id": "frame-007",
+      "scheduleId": "orbit-007",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 210,
+        "center": [
+          0.7415280511838012,
+          1.1062549037730256
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 91.4178062039766,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "e6f80f3bc9bd3e5a4c7543281f3c6151d274413cf8ddd8b6644da92b0c03f72b",
+      "semanticAsciiSha256": "9545fe962a8898c5368256ae5eae7d528970512805b7e0ca106b52fcc28fb0b5",
+      "albedoRgbSha256": "f2aa029330a139ff48e8007e3c562e3ec25ee79b0e7c7a92948fdbd99e17b028",
+      "targetRgbSha256": "30ddcfb7e1139a0f451165af091e3ad8578343ee98009700966e3cf9a972fecd",
+      "coverageSha256": "3bc12893f4a485ebaaea4ffd1b5b90391fcfc2dd5f2e258be071725c9935f2f5",
+      "surfaceUvSha256": "5ad04a5db9bfe493bbc6c4e1a8e1ce498c3d7286e198722af0493b4c1e3220d4",
+      "files": {
+        "visible": {
+          "path": "frames/frame-007/visible.txt",
+          "sha256": "e6f80f3bc9bd3e5a4c7543281f3c6151d274413cf8ddd8b6644da92b0c03f72b"
+        },
+        "semantic": {
+          "path": "frames/frame-007/semantic.txt",
+          "sha256": "9545fe962a8898c5368256ae5eae7d528970512805b7e0ca106b52fcc28fb0b5"
+        },
+        "selected": {
+          "path": "frames/frame-007/selected.txt",
+          "sha256": "e6f80f3bc9bd3e5a4c7543281f3c6151d274413cf8ddd8b6644da92b0c03f72b"
+        },
+        "metadata": {
+          "path": "frames/frame-007/metadata.json",
+          "sha256": "4dc8176890c112dfbb3a1fc31097c9ad80c3f1b877194a06ea53bf3ca626c792"
+        },
+        "indexLookups": {
+          "path": "frames/frame-007/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-007/semantic-color-argb.bin",
+          "sha256": "39b2a0ffea378390d194d67e63a81597de491a2f7ab8a05fd3a3fd117b4cd76f"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-007/visible-color-argb.bin",
+          "sha256": "b6ac8ede9c20ea54742871988bc9cb4a5a7bc5cba7c5ce8e4b512b67522248b1"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-007/albedo-rgb-u32.bin",
+          "sha256": "f2aa029330a139ff48e8007e3c562e3ec25ee79b0e7c7a92948fdbd99e17b028"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-007/target-rgb-u32.bin",
+          "sha256": "30ddcfb7e1139a0f451165af091e3ad8578343ee98009700966e3cf9a972fecd"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-007/coverage-u8.bin",
+          "sha256": "3bc12893f4a485ebaaea4ffd1b5b90391fcfc2dd5f2e258be071725c9935f2f5"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-007/winner-polygon-i32.bin",
+          "sha256": "870bdb133eef83fd408358b11bd7de086bafa17ad3bef2f197fe5b5fe2ba30b6"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-007/class-id-i32.bin",
+          "sha256": "7d8ebdd89deb3419567ae9cf43c1e1077089e9dae9622cefbef30291966605bd"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-007/instance-id-i32.bin",
+          "sha256": "ef7f4b686b3bfea9357a5bbfcd404999bcdf90b4c5a1dc259a82af94262a24e8"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-007/surface-id-i32.bin",
+          "sha256": "80772a1f2f9f7e70275612f356302780b52d518ac5f6b790c5931c168890965e"
+        },
+        "depth-f64": {
+          "path": "frames/frame-007/depth-f64.bin",
+          "sha256": "f90bb05d94267b063a4bf09f91b87b72c49e6c5cbd95f689cd9870ba1567cb85"
+        },
+        "shade-f32": {
+          "path": "frames/frame-007/shade-f32.bin",
+          "sha256": "ee115ca3d64b97f3bf72512b0c7f9447d3b8c3f213d664c04acf16fbd188626c"
+        },
+        "normal-f32": {
+          "path": "frames/frame-007/normal-f32.bin",
+          "sha256": "5895f534d9be80ac2cfc039e9e547391fc5446222b9bc282ea79a886fa8ce229"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-007/world-position-f32.bin",
+          "sha256": "e42f218203abb5b513305a44b0ae04f5f85e71577219fad4b3a4fba9f739d0ff"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-007/surface-uv-f32.bin",
+          "sha256": "5ad04a5db9bfe493bbc6c4e1a8e1ce498c3d7286e198722af0493b4c1e3220d4"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-007/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-007/tensor-keyframe-f32.bin",
+          "sha256": "ddb9e393f0d5fb6ca7876c5c2bffb249907572d401fbcad47d17311f05e576ed"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-007/depth-normalized-f32.bin",
+          "sha256": "458a84048e5425b248379b565aa9e48bc122d90724c6effd2d7ca665f84c0689"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-007/normal-normalized-f32.bin",
+          "sha256": "4db35ce4d46b554f599f895d15a9694fee8f392ce9bdbd12bf4d6f49cc0cad52"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-007/world-position-normalized-f32.bin",
+          "sha256": "469d41139de5d54899855e99d479844df34bb8ff4b3ae8e1022724fac779c682"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-007/surface-uv-normalized-f32.bin",
+          "sha256": "79a30110d02683df873a2e33b39dd57a31e9c3aabca00655e00a125b0ec2bee7"
+        }
+      }
+    },
+    {
+      "id": "frame-008",
+      "scheduleId": "orbit-008",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 240,
+        "center": [
+          0.4713026277158244,
+          1.1138764269658479
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 89.5580815335391,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "5cbe4f95ccb5f2df8fc3c0aa850463ef888e63665f924142b99e5a82c5e0bda6",
+      "semanticAsciiSha256": "62292544e648184186ee03ce890f4f712f2d2fa6e9b86197c20006da3ba49cf4",
+      "albedoRgbSha256": "650f7d77afa0b816a7a5ff72e80f3a92480fefd992479a3e4f6a53e448d87537",
+      "targetRgbSha256": "ec525d237638423ba2aa26aeecf0a046cf6a4f3a97b61fed984004b3be450ec8",
+      "coverageSha256": "b91f1daa74f5e21a0288b09eb223f7b35c68e83fe4d7999682e4de89da6a9a73",
+      "surfaceUvSha256": "85e14f6155001ce768e13e7b026f7e87439695f8bd0ff3442d6a2baf971c43ab",
+      "files": {
+        "visible": {
+          "path": "frames/frame-008/visible.txt",
+          "sha256": "5cbe4f95ccb5f2df8fc3c0aa850463ef888e63665f924142b99e5a82c5e0bda6"
+        },
+        "semantic": {
+          "path": "frames/frame-008/semantic.txt",
+          "sha256": "62292544e648184186ee03ce890f4f712f2d2fa6e9b86197c20006da3ba49cf4"
+        },
+        "selected": {
+          "path": "frames/frame-008/selected.txt",
+          "sha256": "5cbe4f95ccb5f2df8fc3c0aa850463ef888e63665f924142b99e5a82c5e0bda6"
+        },
+        "metadata": {
+          "path": "frames/frame-008/metadata.json",
+          "sha256": "aeb2024df62f2abb447bbbbeb119577b7f997b5423cb940f43269fde7a924e68"
+        },
+        "indexLookups": {
+          "path": "frames/frame-008/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-008/semantic-color-argb.bin",
+          "sha256": "b359cf2268aaafa685c259451ed20e0e530849c32c276c33b8c43c72cc44030a"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-008/visible-color-argb.bin",
+          "sha256": "23e7cc2ffc0676955d70c81efa893d40b535fa550c6fde3d31248462ff04f0d4"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-008/albedo-rgb-u32.bin",
+          "sha256": "650f7d77afa0b816a7a5ff72e80f3a92480fefd992479a3e4f6a53e448d87537"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-008/target-rgb-u32.bin",
+          "sha256": "ec525d237638423ba2aa26aeecf0a046cf6a4f3a97b61fed984004b3be450ec8"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-008/coverage-u8.bin",
+          "sha256": "b91f1daa74f5e21a0288b09eb223f7b35c68e83fe4d7999682e4de89da6a9a73"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-008/winner-polygon-i32.bin",
+          "sha256": "b1811e3caf803c3e37978c846ea40b936d0472681ca690fcd95100ec2a453d18"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-008/class-id-i32.bin",
+          "sha256": "9142d0584b5b1983cebfc5bc89f30336ab2b28eae575ddddfe04c108b27f3d3c"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-008/instance-id-i32.bin",
+          "sha256": "efcd029da1a388f2da7f12bd4f49a65431c72910d82e1153f7f3c0f979f717ad"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-008/surface-id-i32.bin",
+          "sha256": "aa3677ba85eee6f0b15dd864954d69f9b96f5ce7788e709ccf5888fabbb6af42"
+        },
+        "depth-f64": {
+          "path": "frames/frame-008/depth-f64.bin",
+          "sha256": "7ad678e789ae16605b6e6d557f3a71bb5f0106214e199d53d1725ea0a7193009"
+        },
+        "shade-f32": {
+          "path": "frames/frame-008/shade-f32.bin",
+          "sha256": "1f91e7a46393b59fda132e59a0385c4a966f3ef377dee380019dc85561260a38"
+        },
+        "normal-f32": {
+          "path": "frames/frame-008/normal-f32.bin",
+          "sha256": "659f6064e779868f6d3cc0a75757d2da71c37b662ea58fbca64fc647bcd3fd72"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-008/world-position-f32.bin",
+          "sha256": "ed999637ec4921f78d810d88a6cc5cade8252edf6d92845d2aeb96a13cc77bb5"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-008/surface-uv-f32.bin",
+          "sha256": "85e14f6155001ce768e13e7b026f7e87439695f8bd0ff3442d6a2baf971c43ab"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-008/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-008/tensor-keyframe-f32.bin",
+          "sha256": "e4b227cef6e3c3f6aa51e09c8c26f04c05efcb9ea4042f3b675b04a1a9a4dcc7"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-008/depth-normalized-f32.bin",
+          "sha256": "ec9954eaef80fe1bdc758da080649ff783fadab1abef28e6c4fb9095523e85e4"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-008/normal-normalized-f32.bin",
+          "sha256": "010520488028e29643e8f98044544fc903c33daf1a6948ba5511aa46c7d6062e"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-008/world-position-normalized-f32.bin",
+          "sha256": "231ca94d20af6076c8688a94b2ba5feddfd892facff68580481215b108958503"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-008/surface-uv-normalized-f32.bin",
+          "sha256": "d5df135aaf903a26dcc9553ada32596f7f5aba419b12e993898726ce5fb9843d"
+        }
+      }
+    },
+    {
+      "id": "frame-009",
+      "scheduleId": "orbit-009",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 270,
+        "center": [
+          0.21513821833056357,
+          1.0575309732188307
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 89.3136755754755,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "7f8c0b4582fc269b02266590044944181696a5583de163ae32616ca76488e9a9",
+      "semanticAsciiSha256": "15a6e8f8617ad6d2350781ca8fbc9ba067e767aabbc871e4d938ce46516159ca",
+      "albedoRgbSha256": "02c4359734f27a40496f68a0a47ef2b2e11e2de389d7be1424b0872af9b8557b",
+      "targetRgbSha256": "0127d4eb864a7a23417fcc85a79a86f44739eba4a3c4fbf39b54731edf03fdb1",
+      "coverageSha256": "64f305d682aa1a52bd1a106f07083f29a0968dcd1c8d904c89b51283c2b989ff",
+      "surfaceUvSha256": "ae294bc433b5a8396ee4bb54f68484eeb5ec38c39e177e42a20aaaeaf66a5a6d",
+      "files": {
+        "visible": {
+          "path": "frames/frame-009/visible.txt",
+          "sha256": "7f8c0b4582fc269b02266590044944181696a5583de163ae32616ca76488e9a9"
+        },
+        "semantic": {
+          "path": "frames/frame-009/semantic.txt",
+          "sha256": "15a6e8f8617ad6d2350781ca8fbc9ba067e767aabbc871e4d938ce46516159ca"
+        },
+        "selected": {
+          "path": "frames/frame-009/selected.txt",
+          "sha256": "7f8c0b4582fc269b02266590044944181696a5583de163ae32616ca76488e9a9"
+        },
+        "metadata": {
+          "path": "frames/frame-009/metadata.json",
+          "sha256": "47056982c50b9c647ebbb9494574c49b0bb36700938910b191e47b75e63b0aca"
+        },
+        "indexLookups": {
+          "path": "frames/frame-009/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-009/semantic-color-argb.bin",
+          "sha256": "ef699a3268b3341a4a16732a26e08bc45dda9952ef99e0d2f946074ac8ff0bf8"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-009/visible-color-argb.bin",
+          "sha256": "da28646628fd193c584f95771a75675c66db1732f1c6267d7ff1a502692d1088"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-009/albedo-rgb-u32.bin",
+          "sha256": "02c4359734f27a40496f68a0a47ef2b2e11e2de389d7be1424b0872af9b8557b"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-009/target-rgb-u32.bin",
+          "sha256": "0127d4eb864a7a23417fcc85a79a86f44739eba4a3c4fbf39b54731edf03fdb1"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-009/coverage-u8.bin",
+          "sha256": "64f305d682aa1a52bd1a106f07083f29a0968dcd1c8d904c89b51283c2b989ff"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-009/winner-polygon-i32.bin",
+          "sha256": "30a5cb7472f2c2c460e8e83a134c277a8a2e4013c22977897f8b88d143d560c0"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-009/class-id-i32.bin",
+          "sha256": "523a6a7ed10da92969c3f35889da86edee674aa843fa2fae9c4f3d5f2f5542ba"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-009/instance-id-i32.bin",
+          "sha256": "29b8f98b52347c492d676c9b7165a602baeeaf0283bdcdad5dd6e94ee8958a9b"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-009/surface-id-i32.bin",
+          "sha256": "427c69091f01a5b0a9e1241a2e1003fc278e098be89a17250920909845c0b5e7"
+        },
+        "depth-f64": {
+          "path": "frames/frame-009/depth-f64.bin",
+          "sha256": "03aadc8d93cf1aaf9803023d8c734882465b4b6ad637d046f04a2be1e0c6c464"
+        },
+        "shade-f32": {
+          "path": "frames/frame-009/shade-f32.bin",
+          "sha256": "f3648cadf16ab3bcba106b073e3e2b4520c8285db851e7eab520ef3cad9e88db"
+        },
+        "normal-f32": {
+          "path": "frames/frame-009/normal-f32.bin",
+          "sha256": "caf6137cf4b733f2a5c7af4f08032a3eafc7b450b6e277d54f365e7c6676a6d2"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-009/world-position-f32.bin",
+          "sha256": "7d3b72484c7fe1942e04f2f61b1cb6f88e9059163144fd823c80cb9f5cb05a7f"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-009/surface-uv-f32.bin",
+          "sha256": "ae294bc433b5a8396ee4bb54f68484eeb5ec38c39e177e42a20aaaeaf66a5a6d"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-009/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-009/tensor-keyframe-f32.bin",
+          "sha256": "50053a67479df4128743b8d7cf04dfb22c4fe0d95a6f02a184304351af8cc190"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-009/depth-normalized-f32.bin",
+          "sha256": "f266f072ba9af91aa8dc5288274af5931d0e4353c0239f2fcf5dbdff4a3d12ba"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-009/normal-normalized-f32.bin",
+          "sha256": "07b5f677e90ad1adbc0da459115fd5a99c80f5a013271347235756c5aab67a72"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-009/world-position-normalized-f32.bin",
+          "sha256": "e9377bbd490d445f5f15685117ebfd624e7c503b0a1658774405fc82a3567cc4"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-009/surface-uv-normalized-f32.bin",
+          "sha256": "86b8cf201706f1882722f9df8a61f6461d4333f5b7dd9f9e1baf27f822fbf2eb"
+        }
+      }
+    },
+    {
+      "id": "frame-010",
+      "scheduleId": "orbit-010",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 300,
+        "center": [
+          0.04127395213560886,
+          0.9774761549438962
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 93.35033432628387,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "b687082a901628fb129e073c441ea34cacfc2a1d42f808fb42e39cc23395df6c",
+      "semanticAsciiSha256": "0338a8aa1522e273ecad1de1ccea0e9653078a3e4a94b27c67228cebe7a139a1",
+      "albedoRgbSha256": "b77968e2744083a82fff2024cdf05bd74ea4c2725ae099d373c4308cadcfbcd3",
+      "targetRgbSha256": "3b5b7c06ae6dd625d14c74823683f1c2937b68c9606fede318fe55f44cdd4b96",
+      "coverageSha256": "d3ebe42183eff218500c668de67cb18fcb4a3cc089f124f70e10b06cbdc03a2a",
+      "surfaceUvSha256": "af25bba1c524ef809f5ab255cf6c0246468c361fec0ff281d1b4b0b2927593eb",
+      "files": {
+        "visible": {
+          "path": "frames/frame-010/visible.txt",
+          "sha256": "b687082a901628fb129e073c441ea34cacfc2a1d42f808fb42e39cc23395df6c"
+        },
+        "semantic": {
+          "path": "frames/frame-010/semantic.txt",
+          "sha256": "0338a8aa1522e273ecad1de1ccea0e9653078a3e4a94b27c67228cebe7a139a1"
+        },
+        "selected": {
+          "path": "frames/frame-010/selected.txt",
+          "sha256": "b687082a901628fb129e073c441ea34cacfc2a1d42f808fb42e39cc23395df6c"
+        },
+        "metadata": {
+          "path": "frames/frame-010/metadata.json",
+          "sha256": "acb47653dec098a905a5fda2528912f4a7f128bec86369ea5d9b64e89a2e797a"
+        },
+        "indexLookups": {
+          "path": "frames/frame-010/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-010/semantic-color-argb.bin",
+          "sha256": "702f7bf920ceeb5a257dc6997a27570a3b3336189d7c4c2f07867a9fd05e6f6b"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-010/visible-color-argb.bin",
+          "sha256": "e3ee3445f05df31282b1a351fe12082c853d2e5c9d2793ab0493487677aee87e"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-010/albedo-rgb-u32.bin",
+          "sha256": "b77968e2744083a82fff2024cdf05bd74ea4c2725ae099d373c4308cadcfbcd3"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-010/target-rgb-u32.bin",
+          "sha256": "3b5b7c06ae6dd625d14c74823683f1c2937b68c9606fede318fe55f44cdd4b96"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-010/coverage-u8.bin",
+          "sha256": "d3ebe42183eff218500c668de67cb18fcb4a3cc089f124f70e10b06cbdc03a2a"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-010/winner-polygon-i32.bin",
+          "sha256": "f30c0755423f3aba2a64636f4fabfc3c604a43f0a45d7efba3cfd34f785e42c7"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-010/class-id-i32.bin",
+          "sha256": "d96d9473c94cc7dc8c99413bec27b1b0b9e695246241a8f359dbf7dfd281b13b"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-010/instance-id-i32.bin",
+          "sha256": "7405304b9d5928ae3d05c71aec6498d392ae7f8fd1b18e50ccbbbb6de469c961"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-010/surface-id-i32.bin",
+          "sha256": "6e561b723a46cc0badd844d1fde4a7d95a17a88cea8541b0f93fabe31d744579"
+        },
+        "depth-f64": {
+          "path": "frames/frame-010/depth-f64.bin",
+          "sha256": "4557a19ba5d9914cf5969dfc5599e3a0743460fd71ebb19750c12f9351ea8855"
+        },
+        "shade-f32": {
+          "path": "frames/frame-010/shade-f32.bin",
+          "sha256": "3e35ace97ec32610f3755ee6d69d513df9c5edbc2e883854b2ec0016bbb6bd32"
+        },
+        "normal-f32": {
+          "path": "frames/frame-010/normal-f32.bin",
+          "sha256": "b3f00ccff7728575b3bb432072c0bca7ffc1c735d4ce466f0a7f0522f00cea94"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-010/world-position-f32.bin",
+          "sha256": "86ecf46d709c57868deb49b81401217dd1a726332cd7164ff1912c03d19d3d93"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-010/surface-uv-f32.bin",
+          "sha256": "af25bba1c524ef809f5ab255cf6c0246468c361fec0ff281d1b4b0b2927593eb"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-010/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-010/tensor-keyframe-f32.bin",
+          "sha256": "7a888613e8cb690df95518614d5511053b36b487c71944a05ed85fe9cb7da55e"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-010/depth-normalized-f32.bin",
+          "sha256": "44b9dbde9b43968bb7416fd77eefeeb28e2bdecd7d1cbc9bb2c9bed70f5fc4f8"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-010/normal-normalized-f32.bin",
+          "sha256": "a2a1ae093a6ce4e958da71675b9f22e8c94e69313f5b0dfc5013237ba8e76e7c"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-010/world-position-normalized-f32.bin",
+          "sha256": "2cdb30c15193b9446c4243955a186d54b9192efcd8415bd9dc5e2f6aee67346f"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-010/surface-uv-normalized-f32.bin",
+          "sha256": "8f6915a371dd332326b543ba7ad999dba4fd0175c45767dbb6b9413584409fdf"
+        }
+      }
+    },
+    {
+      "id": "frame-011",
+      "scheduleId": "orbit-011",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 61,
+        "rotY": 330,
+        "center": [
+          -0.03157232917922659,
+          0.8844488182250705
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 100.0265259368801,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "e72904fd5e176e204116344f64e0e9bc9167f64a2f19857e4ffe078b2e62fce3",
+      "semanticAsciiSha256": "f5a46cda2cd77db815484ea95f165a124f1389afffc2c56e45f1736298a0319b",
+      "albedoRgbSha256": "08cb6467f51cc183b794d8b88147c494ee897afc28a96aa8ab37336123af9a67",
+      "targetRgbSha256": "d24b3b66de70cfecfe86f23a48576d6dc11c1db1f615dd32197dba0b761e4bab",
+      "coverageSha256": "b249145cecab527c7ff6c1d7b942b802864c9455cc0ea5110a99dbc7b9ea01a4",
+      "surfaceUvSha256": "d33e077bf2e0dd108e4673d672dc9740a536c82075c46f66f012e8eeb93761bd",
+      "files": {
+        "visible": {
+          "path": "frames/frame-011/visible.txt",
+          "sha256": "e72904fd5e176e204116344f64e0e9bc9167f64a2f19857e4ffe078b2e62fce3"
+        },
+        "semantic": {
+          "path": "frames/frame-011/semantic.txt",
+          "sha256": "f5a46cda2cd77db815484ea95f165a124f1389afffc2c56e45f1736298a0319b"
+        },
+        "selected": {
+          "path": "frames/frame-011/selected.txt",
+          "sha256": "e72904fd5e176e204116344f64e0e9bc9167f64a2f19857e4ffe078b2e62fce3"
+        },
+        "metadata": {
+          "path": "frames/frame-011/metadata.json",
+          "sha256": "1864021301fcc991eb58e3ad74a218e70693418569b4297cc2e8bd8c4b91194c"
+        },
+        "indexLookups": {
+          "path": "frames/frame-011/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-011/semantic-color-argb.bin",
+          "sha256": "14ff50c7a31dde365881902c0b3a32e56869b893ca76ea24c6d016931c3c7ece"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-011/visible-color-argb.bin",
+          "sha256": "e8344b6c4eef3fa380f821fc5f3fd4860432c78b409ae3bcdfbac6f13dbd295d"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-011/albedo-rgb-u32.bin",
+          "sha256": "08cb6467f51cc183b794d8b88147c494ee897afc28a96aa8ab37336123af9a67"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-011/target-rgb-u32.bin",
+          "sha256": "d24b3b66de70cfecfe86f23a48576d6dc11c1db1f615dd32197dba0b761e4bab"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-011/coverage-u8.bin",
+          "sha256": "b249145cecab527c7ff6c1d7b942b802864c9455cc0ea5110a99dbc7b9ea01a4"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-011/winner-polygon-i32.bin",
+          "sha256": "86cb18946b8c779d528c2e7c37b7f8a52d6b0f856c23d72d643466922fc96629"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-011/class-id-i32.bin",
+          "sha256": "ed59829202abf20a64b6eadde2cb7099affa37522f2cd27d691051f199b47c2c"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-011/instance-id-i32.bin",
+          "sha256": "365399eff325a7aef4014fbc59cfaecc9aa5a5013ed52c054112d800d579615c"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-011/surface-id-i32.bin",
+          "sha256": "03afd919d0905c222c50c6c997c24020fe43c0f3e9be2e6d6685b53904560946"
+        },
+        "depth-f64": {
+          "path": "frames/frame-011/depth-f64.bin",
+          "sha256": "d51e1a0d781df695be0ed06d78a49daa1b3da0f39f44a1f24b29a79ace528218"
+        },
+        "shade-f32": {
+          "path": "frames/frame-011/shade-f32.bin",
+          "sha256": "06918c283b113bd2b1aca185113bba07c0a83fc0553718ffe4375920f8e8c722"
+        },
+        "normal-f32": {
+          "path": "frames/frame-011/normal-f32.bin",
+          "sha256": "9518fdc5eac227a92ec95fb73a0c18935e54e0a5265f990977eb319de70083cb"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-011/world-position-f32.bin",
+          "sha256": "9c356a3b9415eba01f27c20ca6e061e2222b521c9b794f21fa8602616a1bda3f"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-011/surface-uv-f32.bin",
+          "sha256": "d33e077bf2e0dd108e4673d672dc9740a536c82075c46f66f012e8eeb93761bd"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-011/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-011/tensor-keyframe-f32.bin",
+          "sha256": "02f4d6700a09b1759a2c65b588564c0e0411946dca0b9bdbf7f73f0a97dd64e3"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-011/depth-normalized-f32.bin",
+          "sha256": "a7727f8353956c0ffb5734ceb58ab26fb3c9460dbe0e6770d7cbb6dc45712643"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-011/normal-normalized-f32.bin",
+          "sha256": "683303fe4d95dd7c0b3cc03f58740f0a7ef448398c0db18d4b691489c55ee8bd"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-011/world-position-normalized-f32.bin",
+          "sha256": "663c20ecaf665dcbadb7fb407af4c36fdd53d5d3ef5ddb11b0ac9885d3d0a739"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-011/surface-uv-normalized-f32.bin",
+          "sha256": "0dd25f90c573bff1e3bc0f36b1c247c1f9bf4b4dcd6a10c79fb43c14e420ebfe"
+        }
+      }
+    },
+    {
+      "id": "frame-012",
+      "scheduleId": "top",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 15,
+        "rotY": 0,
+        "center": [
+          0.033939886540489905,
+          0.3699844305761848
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 101.45871377056584,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "7a803313cbc9f2a00c0753f3611b9be987043440b91bd222f92a9fad8afe59ee",
+      "semanticAsciiSha256": "0d6392efa9bdeea95d0fbec96ab6a0bc4f98dc57060c4b7e2f86c213d4ab56ba",
+      "albedoRgbSha256": "218ef874330d48889cebfdb5ae1ceaf5228f7486bc710418574aa5b65238e1e4",
+      "targetRgbSha256": "114ec9cb6143bea98a4749d97430c6ae2ed635a05114e188e510bdaa89ae03ba",
+      "coverageSha256": "8b05857d4bac588754a18bc5f007e82e596ef7800352ca8e1e318e72e847114d",
+      "surfaceUvSha256": "478cdabc3804dc3e7cbea47c414d73ff941df78864e4cef5ec90e74aab07f286",
+      "files": {
+        "visible": {
+          "path": "frames/frame-012/visible.txt",
+          "sha256": "7a803313cbc9f2a00c0753f3611b9be987043440b91bd222f92a9fad8afe59ee"
+        },
+        "semantic": {
+          "path": "frames/frame-012/semantic.txt",
+          "sha256": "0d6392efa9bdeea95d0fbec96ab6a0bc4f98dc57060c4b7e2f86c213d4ab56ba"
+        },
+        "selected": {
+          "path": "frames/frame-012/selected.txt",
+          "sha256": "7a803313cbc9f2a00c0753f3611b9be987043440b91bd222f92a9fad8afe59ee"
+        },
+        "metadata": {
+          "path": "frames/frame-012/metadata.json",
+          "sha256": "1fd1d69bb9c55476e2126fd65572bee93d9c3747cd013b24a11d7743591905ea"
+        },
+        "indexLookups": {
+          "path": "frames/frame-012/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-012/semantic-color-argb.bin",
+          "sha256": "a04948e851bac71129398f639ec86331b0ccf43a0a10cd42e3f6a9d4ccbb352c"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-012/visible-color-argb.bin",
+          "sha256": "87cc485bbe971ebc7738bb6b39472e4de05ca914ef5e7c99886fc884696c2eb9"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-012/albedo-rgb-u32.bin",
+          "sha256": "218ef874330d48889cebfdb5ae1ceaf5228f7486bc710418574aa5b65238e1e4"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-012/target-rgb-u32.bin",
+          "sha256": "114ec9cb6143bea98a4749d97430c6ae2ed635a05114e188e510bdaa89ae03ba"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-012/coverage-u8.bin",
+          "sha256": "8b05857d4bac588754a18bc5f007e82e596ef7800352ca8e1e318e72e847114d"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-012/winner-polygon-i32.bin",
+          "sha256": "d3ce6fa9faee1d02bf75821f9f4d831db6fd6556636d1a9a975ede0f80dcf5a3"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-012/class-id-i32.bin",
+          "sha256": "1124cc3612612562be9b89d36cb819fe2528e1a01dc0cf1f4cdb4eb92338e661"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-012/instance-id-i32.bin",
+          "sha256": "318ec05955f8f2d10b6de4312a7b733f2013fbc0d098b0a9c03fb202ac06c7d5"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-012/surface-id-i32.bin",
+          "sha256": "8788b5a11d10c7d64a6c9a36911e1ace8db8c2129fe8b6285ad6fcf1cf35d0b0"
+        },
+        "depth-f64": {
+          "path": "frames/frame-012/depth-f64.bin",
+          "sha256": "a00aee3517143a1d4f83e8242ef2ab1d76a877ee1795f82c58b3a61772ab38e4"
+        },
+        "shade-f32": {
+          "path": "frames/frame-012/shade-f32.bin",
+          "sha256": "8cd87ec4ef90f9a1c84cf69b06cdf53ff46aef978650853adba123eb9fc6201d"
+        },
+        "normal-f32": {
+          "path": "frames/frame-012/normal-f32.bin",
+          "sha256": "41f2b2b28b7c754ca73439e98316d60ab1a2b424692db64da48f9c3863dc38fb"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-012/world-position-f32.bin",
+          "sha256": "3513a52b9df4e1b528099c0913181db4fc5f0ba2875a8a35947ad7a60318bf2f"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-012/surface-uv-f32.bin",
+          "sha256": "478cdabc3804dc3e7cbea47c414d73ff941df78864e4cef5ec90e74aab07f286"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-012/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-012/tensor-keyframe-f32.bin",
+          "sha256": "14d4069a17195b4e70eec8dd380d47c1d43c1239c827fb8e29935294aae3d9b3"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-012/depth-normalized-f32.bin",
+          "sha256": "3166fcbbac83e64ed574d6e5177c89d344382ee365adee00624e1eb83ae72297"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-012/normal-normalized-f32.bin",
+          "sha256": "8d7ae8f7759d0dcb038d2a19225bc113a03960cd1103a2efb8b98caa81488fa2"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-012/world-position-normalized-f32.bin",
+          "sha256": "5846385fb931644ca386fe418dec7d3ea3d8f0d7cc1e9170a18e7ab695bf62e6"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-012/surface-uv-normalized-f32.bin",
+          "sha256": "c6193a9a9b651ed7bafda115d3a28f55fb160568ff075ad1ae8f122b17bb5961"
+        }
+      }
+    },
+    {
+      "id": "frame-013",
+      "scheduleId": "bottom",
+      "camera": {
+        "kind": "orthographic",
+        "rotX": 105,
+        "rotY": 0,
+        "center": [
+          0.06576552300691896,
+          1.0228057588036505
+        ],
+        "mat": null,
+        "useMat": false,
+        "distance": 0,
+        "perspective": 0,
+        "zoom": 94.53044840830364,
+        "stretch": 1,
+        "fovScale": 1,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "eyeMode": false
+      },
+      "visibleAsciiSha256": "acce1c93f67698c6629a15b0d887c5c6a6a4d518c3d0e05a29d1f3b181e30d8d",
+      "semanticAsciiSha256": "7bfbace48fca736dc2b0b147ffbb854127b71c54e88ace171953f02c7e0f94b7",
+      "albedoRgbSha256": "a05085b63163ebf826ddf4598a2a6c8366b181d835ead9dda63c19ad3dd6dfab",
+      "targetRgbSha256": "5a46de49d12ccfc0e4f766e537a731788bb010893d7f3f869a8da71215c2f519",
+      "coverageSha256": "b981e3ea1f7a41d380c1feebf9b5bf0323f6bfefb0d2d54859f7a733695ba36a",
+      "surfaceUvSha256": "fa8ad1918909862486b5186086ad1a39159b26badea5a7ebe192a2e5deebc152",
+      "files": {
+        "visible": {
+          "path": "frames/frame-013/visible.txt",
+          "sha256": "acce1c93f67698c6629a15b0d887c5c6a6a4d518c3d0e05a29d1f3b181e30d8d"
+        },
+        "semantic": {
+          "path": "frames/frame-013/semantic.txt",
+          "sha256": "7bfbace48fca736dc2b0b147ffbb854127b71c54e88ace171953f02c7e0f94b7"
+        },
+        "selected": {
+          "path": "frames/frame-013/selected.txt",
+          "sha256": "acce1c93f67698c6629a15b0d887c5c6a6a4d518c3d0e05a29d1f3b181e30d8d"
+        },
+        "metadata": {
+          "path": "frames/frame-013/metadata.json",
+          "sha256": "f2c16b1dc8f67e3de792b8005ea5adbfd6b86765cf32f2b5dfe8cc21e2b73855"
+        },
+        "indexLookups": {
+          "path": "frames/frame-013/index-lookups.json",
+          "sha256": "0ca38ce5e426ecaa1d6fef0c42398a16c84fd1deb5d43742c99db9e255b7ba83"
+        },
+        "semantic-color-argb": {
+          "path": "frames/frame-013/semantic-color-argb.bin",
+          "sha256": "8272849fe08df4340f4d7ec66e2d53c21e2cc85a88fe6df58fa267ced00ba2cd"
+        },
+        "visible-color-argb": {
+          "path": "frames/frame-013/visible-color-argb.bin",
+          "sha256": "62c0135069c48bea4554bb058f829d11a0596f22467845be34727bfa1e17ae44"
+        },
+        "albedo-rgb-u32": {
+          "path": "frames/frame-013/albedo-rgb-u32.bin",
+          "sha256": "a05085b63163ebf826ddf4598a2a6c8366b181d835ead9dda63c19ad3dd6dfab"
+        },
+        "target-rgb-u32": {
+          "path": "frames/frame-013/target-rgb-u32.bin",
+          "sha256": "5a46de49d12ccfc0e4f766e537a731788bb010893d7f3f869a8da71215c2f519"
+        },
+        "coverage-u8": {
+          "path": "frames/frame-013/coverage-u8.bin",
+          "sha256": "b981e3ea1f7a41d380c1feebf9b5bf0323f6bfefb0d2d54859f7a733695ba36a"
+        },
+        "winner-polygon-i32": {
+          "path": "frames/frame-013/winner-polygon-i32.bin",
+          "sha256": "2904e980cbae8b643eb07215ba1f981c5540d07a5aeda17a99186edcef752393"
+        },
+        "class-id-i32": {
+          "path": "frames/frame-013/class-id-i32.bin",
+          "sha256": "2f3e951304585d69aaf8107cb8c27f794f35c8fd7cfe83a4233e0184f82fe4f5"
+        },
+        "instance-id-i32": {
+          "path": "frames/frame-013/instance-id-i32.bin",
+          "sha256": "17d4ec42392f61fe9af77f49e5a6327dd3b5f6ce87d2c010f9d121047846fba1"
+        },
+        "surface-id-i32": {
+          "path": "frames/frame-013/surface-id-i32.bin",
+          "sha256": "d133a91f4e69e10d38e7211cf3fbbb5441445328add9b0bbbba33edf9a131b5b"
+        },
+        "depth-f64": {
+          "path": "frames/frame-013/depth-f64.bin",
+          "sha256": "c1db6663c403b5bf0fd638970e669fa580e2d8e02120ef123ca246199061529b"
+        },
+        "shade-f32": {
+          "path": "frames/frame-013/shade-f32.bin",
+          "sha256": "e36d15bdf9b97525cd69451f153538396d086a000b9ba749bcd6e4419fa5e9b7"
+        },
+        "normal-f32": {
+          "path": "frames/frame-013/normal-f32.bin",
+          "sha256": "3b9c4d1ea79175ffc360b17131b335315c2135ecbf38831f80d2067840243d77"
+        },
+        "world-position-f32": {
+          "path": "frames/frame-013/world-position-f32.bin",
+          "sha256": "92cb026cc92ea90ff14cabf7a311598b821698bd2a3f194283389880b8ddad87"
+        },
+        "surface-uv-f32": {
+          "path": "frames/frame-013/surface-uv-f32.bin",
+          "sha256": "fa8ad1918909862486b5186086ad1a39159b26badea5a7ebe192a2e5deebc152"
+        },
+        "tensorSpec": {
+          "path": "frames/frame-013/tensor-spec.json",
+          "sha256": "6c06047508f9b04f085412e5ad11b68a8e4b16395eee85f3aae89d33c0308fcb"
+        },
+        "tensor-keyframe-f32": {
+          "path": "frames/frame-013/tensor-keyframe-f32.bin",
+          "sha256": "ede58d912231f7d2b47f261d5bedd3814a9ecaf6e6e303ca7b19994d558aa3ae"
+        },
+        "depth-normalized-f32": {
+          "path": "frames/frame-013/depth-normalized-f32.bin",
+          "sha256": "609b2df4b57fc380988ee79520567b008c1589e2435b6ec373c6de8e3d702a02"
+        },
+        "normal-normalized-f32": {
+          "path": "frames/frame-013/normal-normalized-f32.bin",
+          "sha256": "323e0275beaa3c34b5d8ad7d0586d475292fdbc5acb3391d1396383b844f1f7a"
+        },
+        "world-position-normalized-f32": {
+          "path": "frames/frame-013/world-position-normalized-f32.bin",
+          "sha256": "12eac20b6f7c6356390274f8051560733893a0ebf9dc23717908259c39a619e1"
+        },
+        "surface-uv-normalized-f32": {
+          "path": "frames/frame-013/surface-uv-normalized-f32.bin",
+          "sha256": "e53ac80239a85ece8994c2ae93a8c16b99daccea9066bdd142543b7f1e56880a"
+        }
+      }
+    }
+  ],
+  "contentSha256": "bb4f7ec78c1f2f5469ef91efc152afb8c7bf9ba15102d710d6700d9ef9fdacc9"
+}

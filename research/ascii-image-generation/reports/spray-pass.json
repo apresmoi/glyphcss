@@ -1,0 +1,3499 @@
+{
+  "config": {
+    "path": "/workspace/repo/research/ascii-image-generation/config/spray-pass.json",
+    "sha256": "f3572e23ce08469c2e720f44d1411f40ef6756f7b2c2dd6f01beb4fc6728c588"
+  },
+  "controlsRoot": "/workspace/repo/research/ascii-image-generation/reports/spray-views",
+  "disposition": "proof-only-not-admissible",
+  "generation": {
+    "backProjectionWeight": 0.25,
+    "controlScale": 0.75,
+    "depthSource": "frame-minmax",
+    "guidance": 7,
+    "steps": 24
+  },
+  "id": "glyphcss/spray-paint-proof/v1",
+  "modelRoots": {
+    "base": "/artifacts/models/native-reference/sdxl-base-1.0/462165984030d82259a11f4367a4eed129e94a7b",
+    "depthControl": "/artifacts/models/native-reference/controlnet-depth-sdxl-1.0/17bb97973f29801224cd66f192c5ffacf82648b4"
+  },
+  "schemaVersion": "glyph-spray-pass-report/v1",
+  "subjects": [
+    {
+      "afterFill": {
+        "filledTexels": 917536,
+        "observedTexels": 131040,
+        "unknownTexels": 0
+      },
+      "assetId": "asset/a0a3b6ef57a641663445d4481ad359e479d69ccfa5ebab6bec58f7bfd171339e",
+      "bakedFiles": [
+        {
+          "path": "subjects/cottage/textures/texture-0.png",
+          "sha256": "f8cafc1abe47c7666db2ef46e48bb6ec0fa8159ddf625e3a6faf88116dd6c677"
+        },
+        {
+          "path": "subjects/cottage/textures/state-0.png",
+          "sha256": "4f9d6d69c4645128f826969027d628aba52a23821dc0cd61fd02c4aa50874c74"
+        }
+      ],
+      "beforeFill": {
+        "filledTexels": 0,
+        "observedTexels": 131040,
+        "unknownTexels": 917536
+      },
+      "fillUnknown": {
+        "materials_without_observations": 0,
+        "texels_filled": 917536
+      },
+      "key": "cottage",
+      "materialTriangleCount": 478,
+      "materials": [
+        "cottage_texture"
+      ],
+      "negativePrompt": "background, floor, sky, text, watermark, logo, deformed architecture, duplicate windows, low quality, blurry",
+      "path": "website/public/gallery/obj/cottage.obj",
+      "prompt": "A charming weathered stone cottage with warm timber trim, mossy roof tiles, lush garden foliage, richly painted game asset texture, no background",
+      "views": [
+        {
+          "backProjection": {
+            "cells_covered": 12515,
+            "cells_projected": 12409,
+            "cells_skipped_grazing": 106,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 20253,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12515,
+            "incidence_sum": 10576.0443707636,
+            "texels_new": 12409,
+            "texels_written": 12409,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-000",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 12409,
+              "unknownTexels": 1036167
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 1048576
+            }
+          },
+          "coverageCells": 12515,
+          "generateReport": {
+            "modeUsed": "text2img",
+            "path": "subjects/cottage/generated/frame-000.report.json",
+            "sha256": "07dedbc23b33a0d20b99c22e42ff21922d28b85215cc6d027de22f917f3a8af8",
+            "workerReused": false
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-000.png",
+            "sha256": "5f81864700f72ed824c088991702d6e3a87f49913dd3f6031509e4004fdb6173",
+            "width": 512
+          },
+          "id": "orbit-000",
+          "index": 0,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-000-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-000-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": 0.8522882078139737,
+          "mode": "text2img",
+          "seed": 5900,
+          "viewDirection": [
+            0.8746197080107774,
+            2.748650749975891e-10,
+            0.484809618674323
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.8746197084797073,
+              2.7486507514495884e-10,
+              0.48480961893425506,
+              -2.546941156415794e-08
+            ],
+            "residualRms": 7.835323710188005e-07,
+            "sampleCount": 12515
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 10810,
+            "cells_projected": 10758,
+            "cells_skipped_grazing": 52,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21958,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 10810,
+            "incidence_sum": 8220.421827473838,
+            "texels_new": 9567,
+            "texels_written": 10758,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-001",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 21976,
+              "unknownTexels": 1026600
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 12409,
+              "unknownTexels": 1036167
+            }
+          },
+          "coverageCells": 10810,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-001.report.json",
+            "sha256": "fc5442eb0bd1c26eb7f72f106936906f539a52965ec63716d0f6f7830e147748",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-001.png",
+            "sha256": "bf680e0b84db244f13c2ec400981d59ee43f6dc6ad2961758acdc3eddb99af5d",
+            "width": 512
+          },
+          "id": "orbit-001",
+          "index": 1,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-001-known.png",
+              "sha256": "678782944646d2f150ba9150b2cbe5379aa3afe17a4650d2f0b19993fc496013"
+            },
+            "knownPixels": 7854,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-001-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "4dddeb422f7e8f8a2fb18d7e1bf2db75807cd8b35970e9da4b7a643bc57a7a04",
+              "unknownPixels": 57682
+            }
+          },
+          "meanIncidence": 0.7641217538086854,
+          "mode": "inpaint",
+          "seed": 5901,
+          "viewDirection": [
+            0.7574428844592055,
+            0.43730985301945996,
+            0.4848096216394813
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.7574428845194461,
+              0.43730985305423986,
+              0.484809621678039,
+              -2.021715303848759e-09
+            ],
+            "residualRms": 7.640256433629407e-07,
+            "sampleCount": 10810
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12891,
+            "cells_projected": 11688,
+            "cells_skipped_grazing": 1203,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 19877,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12891,
+            "incidence_sum": 7622.759847861367,
+            "texels_new": 9841,
+            "texels_written": 11688,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-002",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 31817,
+              "unknownTexels": 1016759
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 21976,
+              "unknownTexels": 1026600
+            }
+          },
+          "coverageCells": 12891,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-002.report.json",
+            "sha256": "b6c2a99f7e61c67c403e439eed998458fb17d55a8a7231bb5f7ca7a080294c48",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-002.png",
+            "sha256": "5a9f973fdd9dcdd52215d0a412085de495b53b376affeca6339bbea3f4c39e5e",
+            "width": 512
+          },
+          "id": "orbit-002",
+          "index": 2,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-002-known.png",
+              "sha256": "985a5905f85fd431bf1cc585c38d7f8b5e6b20e6699ada64fd1178913643183f"
+            },
+            "knownPixels": 10658,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-002-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "7c68ce6fa8b38938891d9b13c4e03c26a57a6c5fa43afe8aeace0b6b74e5ffac",
+              "unknownPixels": 54878
+            }
+          },
+          "meanIncidence": 0.6521868452995694,
+          "mode": "inpaint",
+          "seed": 5902,
+          "viewDirection": [
+            0.43730985369210956,
+            0.7574428849401926,
+            0.48480962028126456
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.4373098540545258,
+              0.757442885567916,
+              0.4848096206830458,
+              -3.683910284463243e-08
+            ],
+            "residualRms": 7.853139201274207e-07,
+            "sampleCount": 12891
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 14701,
+            "cells_projected": 14582,
+            "cells_skipped_grazing": 119,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 18067,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 14701,
+            "incidence_sum": 8660.317578666372,
+            "texels_new": 12576,
+            "texels_written": 14582,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-003",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 44393,
+              "unknownTexels": 1004183
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 31817,
+              "unknownTexels": 1016759
+            }
+          },
+          "coverageCells": 14701,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-003.report.json",
+            "sha256": "c254ff42720872adb10ee08e7b82fab0baff30573a43e59b458efa0d78e4223b",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-003.png",
+            "sha256": "e7dee1e7194f73786ef33c254313bc50e48f35a28e280acf234780bef82e005b",
+            "width": 512
+          },
+          "id": "orbit-003",
+          "index": 3,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-003-known.png",
+              "sha256": "494fd61d26d9ba9f1e80a8fdece086c63ba58a0241f4297d04b4b14ea60a6afd"
+            },
+            "knownPixels": 10100,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-003-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "4fcf2cf8c8baa7a3d58379571cdd0b7cd5dbc4190e44ecfef768b17a0372d7bb",
+              "unknownPixels": 55436
+            }
+          },
+          "meanIncidence": 0.5939046481049494,
+          "mode": "inpaint",
+          "seed": 5903,
+          "viewDirection": [
+            3.938434555389345e-10,
+            0.8746197072723535,
+            0.484809620006475
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              3.9384345553748484e-10,
+              0.8746197072691343,
+              0.4848096200046905,
+              -9.533296489033782e-09
+            ],
+            "residualRms": 8.583597427893213e-07,
+            "sampleCount": 14701
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 14949,
+            "cells_projected": 14949,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 17819,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 14949,
+            "incidence_sum": 8798.939590581267,
+            "texels_new": 13074,
+            "texels_written": 14949,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-004",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 57467,
+              "unknownTexels": 991109
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 44393,
+              "unknownTexels": 1004183
+            }
+          },
+          "coverageCells": 14949,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-004.report.json",
+            "sha256": "c0c104da2de7934bd31376ed277ac903c7472864b8991a7da0a08f6eddfc43c8",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-004.png",
+            "sha256": "94bace7ebec17676e5c757f7d2458072154b0119ae80c3d56e2b6e5fe921a374",
+            "width": 512
+          },
+          "id": "orbit-004",
+          "index": 4,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-004-known.png",
+              "sha256": "17aef05f645a61feb3d4f3df4bdf62f2706d63a555790ae9bd0f9913cb8634b7"
+            },
+            "knownPixels": 11556,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-004-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "672871f0bbef43e9293dd56ee09530765622b040e0c34751aa84b4568fc1fd9f",
+              "unknownPixels": 53980
+            }
+          },
+          "meanIncidence": 0.5885972031962852,
+          "mode": "inpaint",
+          "seed": 5904,
+          "viewDirection": [
+            -0.43730985261658156,
+            0.7574428836332497,
+            0.4848096232933203
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.4373098534342779,
+              0.7574428850495414,
+              0.4848096241998333,
+              -9.175743577796713e-08
+            ],
+            "residualRms": 7.596888187354079e-07,
+            "sampleCount": 14949
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11051,
+            "cells_projected": 10938,
+            "cells_skipped_grazing": 113,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21717,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 11051,
+            "incidence_sum": 8013.684814740713,
+            "texels_new": 9266,
+            "texels_written": 10938,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-005",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 66733,
+              "unknownTexels": 981843
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 57467,
+              "unknownTexels": 991109
+            }
+          },
+          "coverageCells": 11051,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-005.report.json",
+            "sha256": "d7c76c11b7fc3f6697c87d30bedb02d8e586208605e6c442cb2938c73af8b417",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-005.png",
+            "sha256": "fa8f0a3c8366f1dd604af9cf9583fc6089af1b11fdcf5ff166ec1d9d90d4de0a",
+            "width": 512
+          },
+          "id": "orbit-005",
+          "index": 5,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-005-known.png",
+              "sha256": "2e2412675446e84a985ec457cacc4670b9ef74a0db3c45614d17112d3ed67924"
+            },
+            "knownPixels": 10782,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-005-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "6ffcb1a9c5e168b97c7725137af7c7b3961f47bf6830d2b452df717151a11fed",
+              "unknownPixels": 54754
+            }
+          },
+          "meanIncidence": 0.7326462620900268,
+          "mode": "inpaint",
+          "seed": 5905,
+          "viewDirection": [
+            -0.7574428851795357,
+            0.4373098534177288,
+            0.4848096201548246
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.7574428851318394,
+              0.43730985339019135,
+              0.48480962012429607,
+              9.00488390451204e-09
+            ],
+            "residualRms": 4.938273691475368e-07,
+            "sampleCount": 11051
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12855,
+            "cells_projected": 12765,
+            "cells_skipped_grazing": 90,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 19913,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12855,
+            "incidence_sum": 10939.874125869228,
+            "texels_new": 9879,
+            "texels_written": 12765,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-006",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 76612,
+              "unknownTexels": 971964
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 66733,
+              "unknownTexels": 981843
+            }
+          },
+          "coverageCells": 12855,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-006.report.json",
+            "sha256": "6e92da423604a5b197a385733b5407e0e92a5a065b5b2a1184025b87f5aa92e4",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-006.png",
+            "sha256": "86c4552d58b7ea4b06e2c05058818e4ae114639ea39c98f078efb2bc7a78cc8a",
+            "width": 512
+          },
+          "id": "orbit-006",
+          "index": 6,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-006-known.png",
+              "sha256": "9c6ca47a1fbd16ddc62c0c379c12daf9e62683ccbf91f73ee9aad521779289a9"
+            },
+            "knownPixels": 15836,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-006-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "8de290cfd8b24c88d87fb6eebe05497b80a2f657935baca88687dcf6e7c7072f",
+              "unknownPixels": 49700
+            }
+          },
+          "meanIncidence": 0.8570210831076559,
+          "mode": "inpaint",
+          "seed": 5906,
+          "viewDirection": [
+            -0.8746197070294679,
+            2.481304052686319e-10,
+            0.4848096204446523
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.8746197064760403,
+              2.48130405111624e-10,
+              0.48480962013788237,
+              -1.1335664338620044e-08
+            ],
+            "residualRms": 3.2877748097369987e-07,
+            "sampleCount": 12855
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11029,
+            "cells_projected": 10980,
+            "cells_skipped_grazing": 49,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21739,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 11029,
+            "incidence_sum": 8349.584032859942,
+            "texels_new": 7771,
+            "texels_written": 10980,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-007",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 84383,
+              "unknownTexels": 964193
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 76612,
+              "unknownTexels": 971964
+            }
+          },
+          "coverageCells": 11029,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-007.report.json",
+            "sha256": "4fc33d5f9bd88a9d209af50aaaa8201cf76c38408f2ec130a2f92f59d9913077",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-007.png",
+            "sha256": "e50ea8a4429b7eda17e5579100ff4d3ef7e365df96ffa118c14cd74bb24ed0e1",
+            "width": 512
+          },
+          "id": "orbit-007",
+          "index": 7,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-007-known.png",
+              "sha256": "52b3dcb43bb38766af87204257635ac0eae91ad433bae174307f18e2df12d5cc"
+            },
+            "knownPixels": 14684,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-007-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "d1f5b67af901573d2a6493644de3c05e3f172e0bad2d0b7cd6d30bf23590e873",
+              "unknownPixels": 50852
+            }
+          },
+          "meanIncidence": 0.7604357042677543,
+          "mode": "inpaint",
+          "seed": 5907,
+          "viewDirection": [
+            -0.7574428847825748,
+            -0.43730985371413,
+            0.484809620507656
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.7574428851745351,
+              -0.4373098539404284,
+              0.48480962075853445,
+              5.353949054931473e-11
+            ],
+            "residualRms": 4.6890278251659995e-07,
+            "sampleCount": 11029
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 13045,
+            "cells_projected": 12044,
+            "cells_skipped_grazing": 1001,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 19723,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 13045,
+            "incidence_sum": 7828.3065662711315,
+            "texels_new": 8330,
+            "texels_written": 12044,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-008",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 92713,
+              "unknownTexels": 955863
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 84383,
+              "unknownTexels": 964193
+            }
+          },
+          "coverageCells": 13045,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-008.report.json",
+            "sha256": "95debee75b7a6a5294228a905ec64d6de4bc0f98ecd95280a8adc3e0ca93d463",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-008.png",
+            "sha256": "8a45a9484ee7a79629b9f130f667e87e3d1c79dc341c17abe973f3116fa47e44",
+            "width": 512
+          },
+          "id": "orbit-008",
+          "index": 8,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-008-known.png",
+              "sha256": "6df7f49f7aa765fb304e93917475410492c0012ca246c2c47f5616096d0c5ec0"
+            },
+            "knownPixels": 17006,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-008-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "6b7e01cf5251022b29d3732fea0c3c7cd9248f451a80e9d9a8b199aab1293773",
+              "unknownPixels": 48530
+            }
+          },
+          "meanIncidence": 0.6499756365220136,
+          "mode": "inpaint",
+          "seed": 5908,
+          "viewDirection": [
+            -0.43730985337056333,
+            -0.7574428852526249,
+            0.484809620083178
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.4373098530464815,
+              -0.7574428846912987,
+              0.484809619723895,
+              -4.140622230502933e-09
+            ],
+            "residualRms": 5.873163359551336e-07,
+            "sampleCount": 13045
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 14779,
+            "cells_projected": 14641,
+            "cells_skipped_grazing": 138,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 17989,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 14779,
+            "incidence_sum": 8788.930358426758,
+            "texels_new": 9556,
+            "texels_written": 14641,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-009",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 102269,
+              "unknownTexels": 946307
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 92713,
+              "unknownTexels": 955863
+            }
+          },
+          "coverageCells": 14779,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-009.report.json",
+            "sha256": "5a21b69519f24c885dee1520749a5197150998f0902c1359594b17d165a71e99",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-009.png",
+            "sha256": "9651fd62706cdf22f916d1b8fa72a8d9d0228fc158425904fa0f938e15c3ff7e",
+            "width": 512
+          },
+          "id": "orbit-009",
+          "index": 9,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-009-known.png",
+              "sha256": "99829ca1ab00bcfb4f34289ad8d72f9379b7f7d71f1fe2918797afe4d82a9c11"
+            },
+            "knownPixels": 19646,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-009-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "fcc96765687b22a36417deb0954a676c26b05149b20bfd5db3037ec3cb923b8a",
+              "unknownPixels": 45890
+            }
+          },
+          "meanIncidence": 0.600295769307203,
+          "mode": "inpaint",
+          "seed": 5909,
+          "viewDirection": [
+            1.0731020046839114e-10,
+            -0.8746197072822288,
+            0.48480961998865946
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              1.073102004345061e-10,
+              -0.8746197070060526,
+              0.48480961983557247,
+              2.052019065085231e-09
+            ],
+            "residualRms": 6.047983390680847e-07,
+            "sampleCount": 14779
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 14751,
+            "cells_projected": 14746,
+            "cells_skipped_grazing": 5,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 18017,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 14751,
+            "incidence_sum": 8489.780438684184,
+            "texels_new": 9388,
+            "texels_written": 14746,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-010",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 111657,
+              "unknownTexels": 936919
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 102269,
+              "unknownTexels": 946307
+            }
+          },
+          "coverageCells": 14751,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-010.report.json",
+            "sha256": "411b65d78e2daaad0adb688dcf48816059cc571170a3dd3d0a9c2eb24ed618ec",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-010.png",
+            "sha256": "71166ad4d7293ed85b269ee5b5b72db7db18dbedee58b7293950fb34f9eaa7fd",
+            "width": 512
+          },
+          "id": "orbit-010",
+          "index": 10,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-010-known.png",
+              "sha256": "3e8968b8388ad484b6c4a21e1e18fe53358e6513c00343a76bd3ce7ce8deacda"
+            },
+            "knownPixels": 21302,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-010-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "cdbc4e83615d5fec8e28addc2e8ae9563aecd7ffc08b3a0408bdb5b18ff7b487",
+              "unknownPixels": 44234
+            }
+          },
+          "meanIncidence": 0.5757344662067125,
+          "mode": "inpaint",
+          "seed": 5910,
+          "viewDirection": [
+            0.43730985365572816,
+            -0.7574428845875327,
+            0.48480962086506013
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.43730985420321933,
+              -0.7574428855358153,
+              0.4848096214720188,
+              -3.466262140858212e-08
+            ],
+            "residualRms": 6.442323844882225e-07,
+            "sampleCount": 14751
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 10762,
+            "cells_projected": 10634,
+            "cells_skipped_grazing": 128,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22006,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 10762,
+            "incidence_sum": 7647.390041809552,
+            "texels_new": 6676,
+            "texels_written": 10634,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-011",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 118333,
+              "unknownTexels": 930243
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 111657,
+              "unknownTexels": 936919
+            }
+          },
+          "coverageCells": 10762,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-011.report.json",
+            "sha256": "740ac5ce8ec5eac952128c064125284309e401e95649b0d36625201f5f118fb6",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-011.png",
+            "sha256": "ce77bad29d42f9e13b7e9d17c0492f2c5c89a7c1d7cce60e22c3b3ba1359a757",
+            "width": 512
+          },
+          "id": "orbit-011",
+          "index": 11,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-011-known.png",
+              "sha256": "514eeb81d4b400d36566582ba6959d3ff3d3fdee95421bc50b9f385becda3705"
+            },
+            "knownPixels": 16396,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-011-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "8ecd210dfaf6fd21d9e284359429eab4b89904952a6937c820fdf0e47962a86a",
+              "unknownPixels": 49140
+            }
+          },
+          "meanIncidence": 0.7191451985903283,
+          "mode": "inpaint",
+          "seed": 5911,
+          "viewDirection": [
+            0.7574428850600105,
+            -0.43730985405472783,
+            0.48480961976697673
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.7574428841749457,
+              -0.4373098535437354,
+              0.48480961920048127,
+              4.587789926777108e-08
+            ],
+            "residualRms": 7.265859116713804e-07,
+            "sampleCount": 10762
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 14302,
+            "cells_projected": 14297,
+            "cells_skipped_grazing": 5,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 18466,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 14302,
+            "incidence_sum": 11356.202621163966,
+            "texels_new": 5316,
+            "texels_written": 14297,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-012",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 123649,
+              "unknownTexels": 924927
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 118333,
+              "unknownTexels": 930243
+            }
+          },
+          "coverageCells": 14302,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-012.report.json",
+            "sha256": "a91608f2836401dfc5956d0514020cfa7ae7fcb1e3763f290a80c05b0990576c",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-012.png",
+            "sha256": "085d38faad55a3c04486b5f9f07af70e2f3e48f15e21076a644683b574d32880",
+            "width": 512
+          },
+          "id": "top",
+          "index": 12,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-012-known.png",
+              "sha256": "45e600937d1eaff87431a8fc19caddd00274e784b81423400a57abdd6524a171"
+            },
+            "knownPixels": 26672,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-012-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "ff81cbc1b93f298b6fa547e8908e7fd9598196981603ceae227a3ed1bf79d922",
+              "unknownPixels": 38864
+            }
+          },
+          "meanIncidence": 0.794306681203327,
+          "mode": "inpaint",
+          "seed": 5912,
+          "viewDirection": [
+            0.2588190454834234,
+            -3.2471803045571986e-12,
+            0.9659258261870058
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.25881904531336786,
+              -3.247180302423658e-12,
+              0.96592582555235,
+              1.3011206900087613e-08
+            ],
+            "residualRms": 5.392561018223894e-07,
+            "sampleCount": 14302
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12267,
+            "cells_projected": 11991,
+            "cells_skipped_grazing": 276,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 20501,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12267,
+            "incidence_sum": 9940.940979934627,
+            "texels_new": 7391,
+            "texels_written": 11991,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "cottage/views/frames/frame-013",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 131040,
+              "unknownTexels": 917536
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 123649,
+              "unknownTexels": 924927
+            }
+          },
+          "coverageCells": 12267,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/cottage/generated/frame-013.report.json",
+            "sha256": "1ee38e565aaad1b8f3e04f9cba1759bfc1ff35d8b592b828cc65d9899697895c",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/cottage/generated/frame-013.png",
+            "sha256": "2070555a4f6f8fce0ede2c05a91ce554812b64b330ff08b4830efaf605b87347",
+            "width": 512
+          },
+          "id": "bottom",
+          "index": 13,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-013-known.png",
+              "sha256": "2a4238be15712bfdf41296897f6b4f8b1d858e17854214df0ca10fd752f23437"
+            },
+            "knownPixels": 17098,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/cottage/inputs/frame-013-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "b53679207bbbb8199598d2e6a09186e634bb9d5499a3d7440badaa61db442ea2",
+              "unknownPixels": 48438
+            }
+          },
+          "meanIncidence": 0.8290335234704884,
+          "mode": "inpaint",
+          "seed": 5913,
+          "viewDirection": [
+            0.9659258260490913,
+            6.87743000489078e-10,
+            -0.2588190459981271
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.9659258273809529,
+              6.877430014373687e-10,
+              -0.25881904635499836,
+              -1.7938551353114535e-08
+            ],
+            "residualRms": 8.013339820049721e-07,
+            "sampleCount": 12267
+          }
+        }
+      ],
+      "warnings": []
+    },
+    {
+      "afterFill": {
+        "filledTexels": 978319,
+        "observedTexels": 70257,
+        "unknownTexels": 0
+      },
+      "assetId": "asset/8b66dc7c28ae0a64d146ee8e5ee82ece7202e8b0d70a715c2d3995fe739df687",
+      "bakedFiles": [
+        {
+          "path": "subjects/frog/textures/texture-0.png",
+          "sha256": "032e03988e3392917415892f9ef4aff02fdbef8509b2d9baf089dc7b04c7dd7b"
+        },
+        {
+          "path": "subjects/frog/textures/state-0.png",
+          "sha256": "2cd0189369e986c35fafe2a3c8deacdda693edca47e08431f8db9711556f9589"
+        }
+      ],
+      "beforeFill": {
+        "filledTexels": 0,
+        "observedTexels": 70257,
+        "unknownTexels": 978319
+      },
+      "fillUnknown": {
+        "materials_without_observations": 0,
+        "texels_filled": 978319
+      },
+      "key": "frog",
+      "materialTriangleCount": 356,
+      "materials": [
+        "frog"
+      ],
+      "negativePrompt": "background, text, watermark, logo, extra limbs, duplicate face, distorted anatomy, low quality, blurry",
+      "path": "website/public/gallery/obj/opengameart/frog-guy/frog.obj",
+      "prompt": "A colorful friendly frog adventurer with hand-painted green skin, warm cloth clothing, detailed stylized game character texture, no background",
+      "views": [
+        {
+          "backProjection": {
+            "cells_covered": 13308,
+            "cells_projected": 13144,
+            "cells_skipped_grazing": 164,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 19460,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 13308,
+            "incidence_sum": 8810.025128362357,
+            "texels_new": 6628,
+            "texels_written": 13144,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-000",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 6628,
+              "unknownTexels": 1041948
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 1048576
+            }
+          },
+          "coverageCells": 13308,
+          "generateReport": {
+            "modeUsed": "text2img",
+            "path": "subjects/frog/generated/frame-000.report.json",
+            "sha256": "268f77332b6c79d354ab3ba15f402a4f7c843580ccde5409833ff51c13202b4b",
+            "workerReused": false
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-000.png",
+            "sha256": "8382ba719180ce8637d88863895eec26f72457f3d4ab51ef16b5eef7d6aad44a",
+            "width": 512
+          },
+          "id": "orbit-000",
+          "index": 0,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-000-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-000-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": 0.6702697145741294,
+          "mode": "text2img",
+          "seed": 6900,
+          "viewDirection": [
+            0.8746197075789264,
+            1.2893353033977549e-11,
+            0.4848096194534031
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.8746197087932925,
+              1.289335305187933e-11,
+              0.4848096201265373,
+              -3.54972234332257e-08
+            ],
+            "residualRms": 6.889314262938204e-07,
+            "sampleCount": 13308
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12601,
+            "cells_projected": 12448,
+            "cells_skipped_grazing": 153,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 20167,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12601,
+            "incidence_sum": 8721.809312476444,
+            "texels_new": 11953,
+            "texels_written": 12448,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-001",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 18581,
+              "unknownTexels": 1029995
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 6628,
+              "unknownTexels": 1041948
+            }
+          },
+          "coverageCells": 12601,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-001.report.json",
+            "sha256": "2046bb614da39dbc3fa0d270c0963ee10770f8834322afedc64c161d26538bcc",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-001.png",
+            "sha256": "9f5be0b848786f6bf87367d0e5788074053d268a58008f13d57015bfb9573d28",
+            "width": 512
+          },
+          "id": "orbit-001",
+          "index": 1,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-001-known.png",
+              "sha256": "ea97cf4dc952e243de141941b67b4f91955a911d6508622d61d991f8388b6799"
+            },
+            "knownPixels": 2856,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-001-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "588d3c0c077364ec0a617816dd9baf072013d13b65bc40fc40529a01c6f864c8",
+              "unknownPixels": 62680
+            }
+          },
+          "meanIncidence": 0.7006594884701514,
+          "mode": "inpaint",
+          "seed": 6901,
+          "viewDirection": [
+            0.7574428853360223,
+            0.437309853425073,
+            0.4848096199037129
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.7574428853844117,
+              0.43730985345301066,
+              0.4848096199346851,
+              8.642539297068486e-09
+            ],
+            "residualRms": 7.38867144421531e-07,
+            "sampleCount": 12601
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9807,
+            "cells_projected": 9652,
+            "cells_skipped_grazing": 155,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22961,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 9807,
+            "incidence_sum": 6943.116030288372,
+            "texels_new": 8904,
+            "texels_written": 9652,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-002",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 27485,
+              "unknownTexels": 1021091
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 18581,
+              "unknownTexels": 1029995
+            }
+          },
+          "coverageCells": 9807,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-002.report.json",
+            "sha256": "ba2e51bfe18cea8d0fa26a7c736254be9d3833b420bc587dc8d5e41a3d8963c7",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-002.png",
+            "sha256": "9b1be33e93e571a43eda9755f38b40123da2aa4cac7d688802903000679bb1d7",
+            "width": 512
+          },
+          "id": "orbit-002",
+          "index": 2,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-002-known.png",
+              "sha256": "c9d7653d2d4d770ea82eac2953472e7bab2f36171d04d4b64adc02c504eba8a3"
+            },
+            "knownPixels": 4696,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-002-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "110e8dc7455a509b48f90317e599056cf627faf8e026b69986b27ed4b6062995",
+              "unknownPixels": 60840
+            }
+          },
+          "meanIncidence": 0.7193448021434284,
+          "mode": "inpaint",
+          "seed": 6902,
+          "viewDirection": [
+            0.4373098541107004,
+            0.7574428848045538,
+            0.48480962011560114
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.43730985416005236,
+              0.7574428848900339,
+              0.4848096201703136,
+              -3.2998024000752135e-09
+            ],
+            "residualRms": 8.649827221465882e-07,
+            "sampleCount": 9807
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 8139,
+            "cells_projected": 7943,
+            "cells_skipped_grazing": 196,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 24629,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 8139,
+            "incidence_sum": 5350.294156447261,
+            "texels_new": 7326,
+            "texels_written": 7943,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-003",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 34811,
+              "unknownTexels": 1013765
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 27485,
+              "unknownTexels": 1021091
+            }
+          },
+          "coverageCells": 8139,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-003.report.json",
+            "sha256": "52d260a61499ae3695ac4963b8186aed8e5b9e4e844a5d9b59138a178692321e",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-003.png",
+            "sha256": "6b7cd2fe90c364d6a4579bb213c3efbc1a25b81b70e48dd5435cf0215303d5c7",
+            "width": 512
+          },
+          "id": "orbit-003",
+          "index": 3,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-003-known.png",
+              "sha256": "da168bb085d4f6640f7075f547b83b23e5039e62bb4f6b0265944ed31621476c"
+            },
+            "knownPixels": 3834,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-003-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f01f30040fb4b9784834c3d89fa12cdc6262870911a8d02b5b644caa74d092de",
+              "unknownPixels": 61702
+            }
+          },
+          "meanIncidence": 0.6735860703068439,
+          "mode": "inpaint",
+          "seed": 6903,
+          "viewDirection": [
+            9.832663799614543e-10,
+            0.8746197078013056,
+            0.4848096190522203
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              9.832663813932853e-10,
+              0.8746197090749256,
+              0.4848096197581994,
+              -5.1396110489071445e-08
+            ],
+            "residualRms": 9.955164276034945e-07,
+            "sampleCount": 8139
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9905,
+            "cells_projected": 9761,
+            "cells_skipped_grazing": 144,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22863,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 9905,
+            "incidence_sum": 6486.744926278744,
+            "texels_new": 9038,
+            "texels_written": 9761,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-004",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 43849,
+              "unknownTexels": 1004727
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 34811,
+              "unknownTexels": 1013765
+            }
+          },
+          "coverageCells": 9905,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-004.report.json",
+            "sha256": "4e1d57331ebda88aff94d302970e41a43dfd9cb67f407c6f967cf39704e2d6f6",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-004.png",
+            "sha256": "0fbfe35405d474b14a55e39b3241acbb6258c8f67a45fd7610fa42cd8b2b9d6f",
+            "width": 512
+          },
+          "id": "orbit-004",
+          "index": 4,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-004-known.png",
+              "sha256": "363a0d6f13a0a0d856217812f5914d377a7e62c58ca0689c037ce7eb03077602"
+            },
+            "knownPixels": 4404,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-004-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "45ba1ece2b5f329225d71ffd94c4b28832103d3b2533372cb22eaa04b512eea1",
+              "unknownPixels": 61132
+            }
+          },
+          "meanIncidence": 0.6645574148426129,
+          "mode": "inpaint",
+          "seed": 6904,
+          "viewDirection": [
+            -0.43730985289817803,
+            0.7574428858126677,
+            0.4848096196342974
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.4373098528990839,
+              0.7574428858142367,
+              0.48480961963530167,
+              -1.9598213989169277e-08
+            ],
+            "residualRms": 8.829378034717912e-07,
+            "sampleCount": 9905
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11757,
+            "cells_projected": 11715,
+            "cells_skipped_grazing": 42,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21011,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 11757,
+            "incidence_sum": 8069.234934577135,
+            "texels_new": 10670,
+            "texels_written": 11715,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-005",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 54519,
+              "unknownTexels": 994057
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 43849,
+              "unknownTexels": 1004727
+            }
+          },
+          "coverageCells": 11757,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-005.report.json",
+            "sha256": "73e20bbafe4ad64a5bf4c34d7033022f9f46fc09fb38750d8197002b8eb3406f",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-005.png",
+            "sha256": "2003398dbdf028eb506276e6492356f398e52bf8fabd9bd5111ae844b6710b10",
+            "width": 512
+          },
+          "id": "orbit-005",
+          "index": 5,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-005-known.png",
+              "sha256": "be8f627fe97d5450f631887a7d83b46be7e93616fd52cb06845c31a39a4f1820"
+            },
+            "knownPixels": 6012,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-005-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "66a2b7d40dc59152297cf145c2687af03f8820558a33d3672f46f87199255d51",
+              "unknownPixels": 59524
+            }
+          },
+          "meanIncidence": 0.6887951288584836,
+          "mode": "inpaint",
+          "seed": 6905,
+          "viewDirection": [
+            -0.757442885208532,
+            0.4373098537225869,
+            0.484809619834533
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.7574428858326177,
+              0.4373098540829029,
+              0.4848096202339859,
+              -1.473486038565397e-08
+            ],
+            "residualRms": 6.546911523971017e-07,
+            "sampleCount": 11757
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12987,
+            "cells_projected": 12795,
+            "cells_skipped_grazing": 192,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 19781,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12987,
+            "incidence_sum": 9091.826335565669,
+            "texels_new": 5732,
+            "texels_written": 12795,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-006",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 60251,
+              "unknownTexels": 988325
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 54519,
+              "unknownTexels": 994057
+            }
+          },
+          "coverageCells": 12987,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-006.report.json",
+            "sha256": "34aac93f40bc26c90436db05c73215f712e7947f1687e02fbfb433aa887bc264",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-006.png",
+            "sha256": "7c9073cc504471517f9df9b7444f9cdf6c8f12111a28027455b6024e05094608",
+            "width": 512
+          },
+          "id": "orbit-006",
+          "index": 6,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-006-known.png",
+              "sha256": "661a08a5b8d9ff075dc2d987e6e412cb6ee61615a4353e6f297f0fcdbc782ad0"
+            },
+            "knownPixels": 9582,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-006-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "8bc8e4de90066817299b5da98d78ea2862d6bb1788452f987c90d2e114192be1",
+              "unknownPixels": 55954
+            }
+          },
+          "meanIncidence": 0.710576501411932,
+          "mode": "inpaint",
+          "seed": 6906,
+          "viewDirection": [
+            -0.874619707023891,
+            -2.100020157832592e-10,
+            0.4848096204547132
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.8746197069974988,
+              -2.1000201577692224e-10,
+              0.48480962044008374,
+              1.396905878296717e-09
+            ],
+            "residualRms": 5.420664204091522e-07,
+            "sampleCount": 12987
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11757,
+            "cells_projected": 11715,
+            "cells_skipped_grazing": 42,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21011,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 11757,
+            "incidence_sum": 8069.228523114702,
+            "texels_new": 22,
+            "texels_written": 11715,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-007",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 60273,
+              "unknownTexels": 988303
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 60251,
+              "unknownTexels": 988325
+            }
+          },
+          "coverageCells": 11757,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-007.report.json",
+            "sha256": "31ab91892c33d2cda6fc1036ee4fdfab368bc0e645b6d408e9ceedd8ad408f1b",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-007.png",
+            "sha256": "1335c04dd3f704f8d5afcabc4d999d42739150b0c00ec5031ff81656db1cdc95",
+            "width": 512
+          },
+          "id": "orbit-007",
+          "index": 7,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-007-known.png",
+              "sha256": "5e4ceb7a097d3413b61748036d26f9cba008b0f541721cacab7ee1150ebdee8b"
+            },
+            "knownPixels": 23440,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-007-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "fe4329876cdd81e080e40d8dfa4795d0b1b2403ca8ec6d423b61cda4d64d212e",
+              "unknownPixels": 42096
+            }
+          },
+          "meanIncidence": 0.6887945815718909,
+          "mode": "inpaint",
+          "seed": 6907,
+          "viewDirection": [
+            -0.7574428834589553,
+            -0.43730985478812,
+            0.48480962160684976
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.7574428817216244,
+              -0.4373098537850716,
+              0.4848096204948521,
+              -4.577794973821547e-08
+            ],
+            "residualRms": 6.186122826688755e-07,
+            "sampleCount": 11757
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9905,
+            "cells_projected": 9761,
+            "cells_skipped_grazing": 144,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22863,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 9905,
+            "incidence_sum": 6486.7809426227805,
+            "texels_new": 12,
+            "texels_written": 9761,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-008",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 60285,
+              "unknownTexels": 988291
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 60273,
+              "unknownTexels": 988303
+            }
+          },
+          "coverageCells": 9905,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-008.report.json",
+            "sha256": "2e705c321e155f6953bda920411cdac7d939533a06e1809a8b432da22240ffe0",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-008.png",
+            "sha256": "9fee5f06178ce378b1836bb365011fe5d6337e183daf8f233f977f3ae0d4a4a6",
+            "width": 512
+          },
+          "id": "orbit-008",
+          "index": 8,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-008-known.png",
+              "sha256": "7cb96f359b6f6ccdf0003d9523e128e95edb68ec799b55ad9463d4b39b823cc4"
+            },
+            "knownPixels": 19638,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-008-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "bf278abb5962d406338f2d225d77c29d9b457377813898adf8be577527d75d1a",
+              "unknownPixels": 45898
+            }
+          },
+          "meanIncidence": 0.6645611046637415,
+          "mode": "inpaint",
+          "seed": 6908,
+          "viewDirection": [
+            -0.43730985339199574,
+            -0.7574428850872905,
+            0.4848096203221561
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.4373098534996316,
+              -0.7574428852737213,
+              0.4848096204414831,
+              -7.532718239097735e-09
+            ],
+            "residualRms": 6.945748271444177e-07,
+            "sampleCount": 9905
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 8139,
+            "cells_projected": 7943,
+            "cells_skipped_grazing": 196,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 24629,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 8139,
+            "incidence_sum": 5350.239368995173,
+            "texels_new": 14,
+            "texels_written": 7943,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-009",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 60299,
+              "unknownTexels": 988277
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 60285,
+              "unknownTexels": 988291
+            }
+          },
+          "coverageCells": 8139,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-009.report.json",
+            "sha256": "341280b2da5aa7e1c1e9852ce86f0f37487da80028ba41f0e2c7513febf46c01",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-009.png",
+            "sha256": "8989a6282369d01a5dfe0f82a303d478a4b5189ac7e1a9f39e7b7a9994b8bdea",
+            "width": 512
+          },
+          "id": "orbit-009",
+          "index": 9,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-009-known.png",
+              "sha256": "58954f38a5f290d40f2543966b09db63456c74cf12079f055bc1a4e3a11b8481"
+            },
+            "knownPixels": 16090,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-009-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "368fa0ba3631879a4546ebc3b96c29cc657c013ed032cf2ef266034daedb13d0",
+              "unknownPixels": 49446
+            }
+          },
+          "meanIncidence": 0.6735791727300986,
+          "mode": "inpaint",
+          "seed": 6909,
+          "viewDirection": [
+            -2.6007858059011453e-09,
+            -0.874619707167963,
+            0.4848096201948006
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -2.6007858104190636e-09,
+              -0.8746197086872962,
+              0.4848096210369808,
+              4.500414255495522e-08
+            ],
+            "residualRms": 6.88639610604626e-07,
+            "sampleCount": 8139
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9807,
+            "cells_projected": 9651,
+            "cells_skipped_grazing": 156,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22961,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 9807,
+            "incidence_sum": 6942.066590520837,
+            "texels_new": 45,
+            "texels_written": 9651,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-010",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 60344,
+              "unknownTexels": 988232
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 60299,
+              "unknownTexels": 988277
+            }
+          },
+          "coverageCells": 9807,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-010.report.json",
+            "sha256": "11b2de0698805e59aad8c737b6b6a5db4447fb8f61a6a5ee833ec97d511e499b",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-010.png",
+            "sha256": "a8dbc405636528e4a255a48dd5c3900bcf960aa2bf8a6b82d4bc6b7bd250540e",
+            "width": 512
+          },
+          "id": "orbit-010",
+          "index": 10,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-010-known.png",
+              "sha256": "3ef03e26111800cccf7b7600e9dea77f096762fb568bd5e84a76e2f19807a2bb"
+            },
+            "knownPixels": 19394,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-010-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "ff4eb431ca08eb29af2181f6b62f14dc3d2796d5abf73e27e571b20ecd25ddcf",
+              "unknownPixels": 46142
+            }
+          },
+          "meanIncidence": 0.7193105989556354,
+          "mode": "inpaint",
+          "seed": 6910,
+          "viewDirection": [
+            0.43730985546184725,
+            -0.7574428845373538,
+            0.4848096193142946
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.4373098557530438,
+              -0.757442885041721,
+              0.4848096196371204,
+              -2.1521908413410507e-08
+            ],
+            "residualRms": 7.234899253679073e-07,
+            "sampleCount": 9807
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12601,
+            "cells_projected": 12448,
+            "cells_skipped_grazing": 153,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 20167,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12601,
+            "incidence_sum": 8721.842208526637,
+            "texels_new": 53,
+            "texels_written": 12448,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-011",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 60397,
+              "unknownTexels": 988179
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 60344,
+              "unknownTexels": 988232
+            }
+          },
+          "coverageCells": 12601,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-011.report.json",
+            "sha256": "15f39f99c3d87fa406990675855f9c9d3f3a465343d1f13afaf8dbb8ce7554f3",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-011.png",
+            "sha256": "400531c2af753682d1de5b668141eb03066db35fe410975b1c26bb0d24ec7eab",
+            "width": 512
+          },
+          "id": "orbit-011",
+          "index": 11,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-011-known.png",
+              "sha256": "3a6f445b8987c20942b60ea1b41f28252198fdda0c5c4368105f486942578c1c"
+            },
+            "knownPixels": 24948,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-011-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "e410962adf32a15f95030c1f54fec51e3d7388eae61c1e0f89c29c482a103eeb",
+              "unknownPixels": 40588
+            }
+          },
+          "meanIncidence": 0.7006621311477055,
+          "mode": "inpaint",
+          "seed": 6911,
+          "viewDirection": [
+            0.7574428850772373,
+            -0.4373098535909839,
+            0.48480962015837026
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.7574428843496845,
+              -0.4373098531709311,
+              0.4848096196926921,
+              1.044280546367779e-08
+            ],
+            "residualRms": 6.951391010589766e-07,
+            "sampleCount": 12601
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 10731,
+            "cells_projected": 10570,
+            "cells_skipped_grazing": 161,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22037,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 10731,
+            "incidence_sum": 7072.230629641508,
+            "texels_new": 3944,
+            "texels_written": 10570,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "frog/views/frames/frame-012",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 64341,
+              "unknownTexels": 984235
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 60397,
+              "unknownTexels": 988179
+            }
+          },
+          "coverageCells": 10731,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-012.report.json",
+            "sha256": "554724ee793fecc74660c2837d490d96cd1221f0d722844ab782f49ce5438003",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-012.png",
+            "sha256": "ad2aea374b4d9fa0efc3e5ac0c680f0f955dc86046ea0f549953fafa111ead4c",
+            "width": 512
+          },
+          "id": "top",
+          "index": 12,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-012-known.png",
+              "sha256": "6772d1afa45cbce3cc750561bf63b233d171ca0622bf5a079ebdd55958ed1389"
+            },
+            "knownPixels": 13508,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-012-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "5d33e86a021fdb520b4a3dcf43a780352f11d2c094ac7f431c31e3b5fc0352e0",
+              "unknownPixels": 52028
+            }
+          },
+          "meanIncidence": 0.6690852062101711,
+          "mode": "inpaint",
+          "seed": 6912,
+          "viewDirection": [
+            0.2588190439659272,
+            -4.6106973783067926e-10,
+            0.9659258265936176
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.25881904402998657,
+              -4.61069737944797e-10,
+              0.9659258268326905,
+              7.669944830299147e-09
+            ],
+            "residualRms": 1.0072477261860791e-06,
+            "sampleCount": 10731
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 12977,
+            "cells_projected": 12605,
+            "cells_skipped_grazing": 372,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 0,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 19791,
+            "cells_skipped_uv_invalid_plane": 0,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 12977,
+            "incidence_sum": 8227.409319396913,
+            "texels_new": 5916,
+            "texels_written": 12605,
+            "uvs_wrapped": 6
+          },
+          "controlFrame": "frog/views/frames/frame-013",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 70257,
+              "unknownTexels": 978319
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 64341,
+              "unknownTexels": 984235
+            }
+          },
+          "coverageCells": 12977,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/frog/generated/frame-013.report.json",
+            "sha256": "8589deea06d24f89f95874c4de71d456c01d5f512e2d186871af677c3e786975",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/frog/generated/frame-013.png",
+            "sha256": "b19b270cf81ec445312287079502ee38c5870d5cb30b43507e5208fcb560edcd",
+            "width": 512
+          },
+          "id": "bottom",
+          "index": 13,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-013-known.png",
+              "sha256": "1aba952aba1838b3eaf0302286096f12ae5f57dd6b8b8dc39d81e21510440ccd"
+            },
+            "knownPixels": 6330,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/frog/inputs/frame-013-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "28e1ea8d5bdb07c0918593f1c646d557ec84ac603632f1ba87c70f3993054ae7",
+              "unknownPixels": 59206
+            }
+          },
+          "meanIncidence": 0.6527099817054275,
+          "mode": "inpaint",
+          "seed": 6913,
+          "viewDirection": [
+            0.9659258262597973,
+            3.1610825035020023e-12,
+            -0.2588190452117622
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.9659258272871093,
+              3.161082506863977e-12,
+              -0.2588190454870296,
+              -8.720213210810374e-09
+            ],
+            "residualRms": 6.421626175301869e-07,
+            "sampleCount": 12977
+          }
+        }
+      ],
+      "warnings": [
+        "TEST SPLIT: frog outputs are proof-only and must never reach training."
+      ]
+    },
+    {
+      "afterFill": {
+        "filledTexels": 0,
+        "observedTexels": 0,
+        "unknownTexels": 5242880
+      },
+      "assetId": "asset/72c3d86fe7803f6cd8a7ae3e04ea63593ae644879a5d417261e2d5d5bb12c9ff",
+      "bakedFiles": [
+        {
+          "path": "subjects/chicken/textures/texture-0.png",
+          "sha256": "79238174f0b3e2441720c46339b8cce2c8be2c19a1507831e726b51b8bbe3b82"
+        },
+        {
+          "path": "subjects/chicken/textures/state-0.png",
+          "sha256": "c8b6bb3e837f846489438b47ae42f3960b820a17095ea66df3c5fa00fcd60665"
+        },
+        {
+          "path": "subjects/chicken/textures/texture-1.png",
+          "sha256": "79238174f0b3e2441720c46339b8cce2c8be2c19a1507831e726b51b8bbe3b82"
+        },
+        {
+          "path": "subjects/chicken/textures/state-1.png",
+          "sha256": "c8b6bb3e837f846489438b47ae42f3960b820a17095ea66df3c5fa00fcd60665"
+        },
+        {
+          "path": "subjects/chicken/textures/texture-2.png",
+          "sha256": "79238174f0b3e2441720c46339b8cce2c8be2c19a1507831e726b51b8bbe3b82"
+        },
+        {
+          "path": "subjects/chicken/textures/state-2.png",
+          "sha256": "c8b6bb3e837f846489438b47ae42f3960b820a17095ea66df3c5fa00fcd60665"
+        },
+        {
+          "path": "subjects/chicken/textures/texture-3.png",
+          "sha256": "79238174f0b3e2441720c46339b8cce2c8be2c19a1507831e726b51b8bbe3b82"
+        },
+        {
+          "path": "subjects/chicken/textures/state-3.png",
+          "sha256": "c8b6bb3e837f846489438b47ae42f3960b820a17095ea66df3c5fa00fcd60665"
+        },
+        {
+          "path": "subjects/chicken/textures/texture-4.png",
+          "sha256": "79238174f0b3e2441720c46339b8cce2c8be2c19a1507831e726b51b8bbe3b82"
+        },
+        {
+          "path": "subjects/chicken/textures/state-4.png",
+          "sha256": "c8b6bb3e837f846489438b47ae42f3960b820a17095ea66df3c5fa00fcd60665"
+        }
+      ],
+      "beforeFill": {
+        "filledTexels": 0,
+        "observedTexels": 0,
+        "unknownTexels": 5242880
+      },
+      "fillUnknown": {
+        "materials_without_observations": 5,
+        "texels_filled": 0
+      },
+      "key": "chicken",
+      "materialTriangleCount": 648,
+      "materials": [
+        "FF9800",
+        "FFFFFF",
+        "1A1A1A",
+        "F44336",
+        "455A64"
+      ],
+      "negativePrompt": "background, text, watermark, logo, extra wings, duplicate head, distorted anatomy, low quality, blurry",
+      "path": "website/public/gallery/obj/chicken.obj",
+      "prompt": "A stylized low-poly chicken with saturated hand-painted orange, white, charcoal, red, and slate details, clean game asset texture, no background",
+      "views": [
+        {
+          "backProjection": {
+            "cells_covered": 10798,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 10798,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21970,
+            "cells_skipped_uv_invalid_plane": 10798,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-000",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 10798,
+          "generateReport": {
+            "modeUsed": "text2img",
+            "path": "subjects/chicken/generated/frame-000.report.json",
+            "sha256": "fb5308a2fef1d140f82c36a4802a32c74c8ef73482433eb8096dd7537620ddcc",
+            "workerReused": false
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-000.png",
+            "sha256": "c2015fcd3a23712c18ee61c95ffd6146602d157fc0675012a95e858499476b19",
+            "width": 512
+          },
+          "id": "orbit-000",
+          "index": 0,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-000-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-000-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "text2img",
+          "seed": 7900,
+          "viewDirection": [
+            0.8746197067236086,
+            -1.0155021279636125e-10,
+            0.4848096209964372
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.8746197057500306,
+              -1.015502126833212e-10,
+              0.4848096204567741,
+              2.398266187465109e-08
+            ],
+            "residualRms": 6.559262639322474e-07,
+            "sampleCount": 10798
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9873,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 9873,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22895,
+            "cells_skipped_uv_invalid_plane": 9873,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-001",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 9873,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-001.report.json",
+            "sha256": "dba4dfd8b511ddec92b40b73eebfb26b45ff5c24f045d17fb4ebdb59df849083",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-001.png",
+            "sha256": "1ba4ebdcda1e06803e20cc737bc64de090b2d26356c978425a26977433d3d72e",
+            "width": 512
+          },
+          "id": "orbit-001",
+          "index": 1,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-001-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-001-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7901,
+          "viewDirection": [
+            0.7574428848714105,
+            0.43730985389316596,
+            0.4848096202073686
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.7574428840968532,
+              0.43730985344597506,
+              0.48480961971160474,
+              4.5757934654874766e-08
+            ],
+            "residualRms": 6.99769193627316e-07,
+            "sampleCount": 9873
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 8562,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 8562,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 24206,
+            "cells_skipped_uv_invalid_plane": 8562,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-002",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 8562,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-002.report.json",
+            "sha256": "0f3325e7363a7cf466f04d3c684a5d5e1a1639111bb7cdce010cb1191cec36dd",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-002.png",
+            "sha256": "1a4b915443896ae2c32d126b1809527548442d643c50ad9ea49bb4f4cba729ba",
+            "width": 512
+          },
+          "id": "orbit-002",
+          "index": 2,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-002-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-002-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7902,
+          "viewDirection": [
+            0.43730985278844453,
+            0.757442885285529,
+            0.4848096205568553
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.4373098521810343,
+              0.7574428842334636,
+              0.48480961988346927,
+              6.773886492353332e-08
+            ],
+            "residualRms": 8.211079452122068e-07,
+            "sampleCount": 8562
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 6841,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 6841,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 25927,
+            "cells_skipped_uv_invalid_plane": 6841,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-003",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 6841,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-003.report.json",
+            "sha256": "0b28b183efde803b376a102432b5e3376c9b6ceb5ce3a23efb86f49767927e6a",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-003.png",
+            "sha256": "5ca8bf47602cbe27ae9eda52506c2b4dd507153defe9b05f1d81c6018bd90a6e",
+            "width": 512
+          },
+          "id": "orbit-003",
+          "index": 3,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-003-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-003-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7903,
+          "viewDirection": [
+            2.2580564186619284e-09,
+            0.8746197075997076,
+            0.48480961941591255
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              2.2580564212235798e-09,
+              0.8746197085919196,
+              0.48480961996590466,
+              -8.906815782833144e-08
+            ],
+            "residualRms": 9.384008374329999e-07,
+            "sampleCount": 6841
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 8565,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 8565,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 24203,
+            "cells_skipped_uv_invalid_plane": 8565,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-004",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 8565,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-004.report.json",
+            "sha256": "08032999c3fa546c4bdb5b120d4208ffbcac6df7b4742904100c5870cb26baf2",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-004.png",
+            "sha256": "17d5b6d6d814ef9293cc91ccea85222756656b8145f3c095fa39e5867b99c690",
+            "width": 512
+          },
+          "id": "orbit-004",
+          "index": 4,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-004-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-004-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7904,
+          "viewDirection": [
+            -0.4373098528713958,
+            0.7574428853635491,
+            0.48480962036013653
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.43730985238335784,
+              0.7574428845182426,
+              0.4848096198190889,
+              2.0993973254279652e-08
+            ],
+            "residualRms": 8.126354116032502e-07,
+            "sampleCount": 8565
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9879,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 9879,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22889,
+            "cells_skipped_uv_invalid_plane": 9879,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-005",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 9879,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-005.report.json",
+            "sha256": "93605b2e16db38a7e67f5ea6f534a9a803ed9b1042c356d7da0c0f69ed203b30",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-005.png",
+            "sha256": "9ca2921d3feb6d82d9ac21a3cef5b1baa0b03a25169364e54a5271930b684693",
+            "width": 512
+          },
+          "id": "orbit-005",
+          "index": 5,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-005-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-005-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7905,
+          "viewDirection": [
+            -0.7574428852156285,
+            0.43730985259962085,
+            0.4848096208363878
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.7574428858524173,
+              0.437309852967271,
+              0.4848096212439714,
+              3.183306684223508e-09
+            ],
+            "residualRms": 6.209764494996721e-07,
+            "sampleCount": 9879
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 10795,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 10795,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21973,
+            "cells_skipped_uv_invalid_plane": 10795,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-006",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 10795,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-006.report.json",
+            "sha256": "6990ddb14dcd2baf8a85bc89df809efdc6696a856f28f4c8285cc0ee4deb5ee6",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-006.png",
+            "sha256": "3615dce38650be67d767a9f00965375387cb451b6b9cf7d76e0fa8dbc75a3906",
+            "width": 512
+          },
+          "id": "orbit-006",
+          "index": 6,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-006-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-006-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7906,
+          "viewDirection": [
+            -0.8746197068934514,
+            -5.112485997887408e-10,
+            0.4848096206900327
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.8746197055630711,
+              -5.112485990110827e-10,
+              0.48480961995259086,
+              8.939159148145526e-09
+            ],
+            "residualRms": 5.30283829578534e-07,
+            "sampleCount": 10795
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11916,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 11916,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 20852,
+            "cells_skipped_uv_invalid_plane": 11916,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-007",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 11916,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-007.report.json",
+            "sha256": "6a0444295472c935e260ef95116e665af1e77033bea724e763ad35ae8a8967b6",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-007.png",
+            "sha256": "5b42197fbd30183aef892983fc670ec5b93034bdacc0048bc7c64fb14522e612",
+            "width": 512
+          },
+          "id": "orbit-007",
+          "index": 7,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-007-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-007-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7907,
+          "viewDirection": [
+            -0.7574428848689697,
+            -0.43730985394262195,
+            0.48480962016657164
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.7574428852134663,
+              -0.43730985414151713,
+              0.48480962038707043,
+              1.1095682731117329e-08
+            ],
+            "residualRms": 5.987883586139115e-07,
+            "sampleCount": 11916
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 10972,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 10972,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21796,
+            "cells_skipped_uv_invalid_plane": 10972,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-008",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 10972,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-008.report.json",
+            "sha256": "0d5060b811ccded4c2ea7e67e3bee84836d4f270e2956cec81cc9ff9f5d8f715",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-008.png",
+            "sha256": "b89be460a539cea8f5617a4c0692e603204cc67b97c13e1de6d62df54f31df9e",
+            "width": 512
+          },
+          "id": "orbit-008",
+          "index": 8,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-008-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-008-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7908,
+          "viewDirection": [
+            -0.4373098534311755,
+            -0.7574428855302513,
+            0.48480961959475444
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -0.4373098535789176,
+              -0.7574428857861482,
+              0.48480961975854403,
+              3.132032373558136e-08
+            ],
+            "residualRms": 6.920714413506582e-07,
+            "sampleCount": 10972
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9695,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 9695,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 23073,
+            "cells_skipped_uv_invalid_plane": 9695,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-009",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 9695,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-009.report.json",
+            "sha256": "96c7dddf6c6c279e18e81e7bcb21a9b0806b088a3a3018df88808f7515292a50",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-009.png",
+            "sha256": "a64d9cd436c69ef1f7243560e5bd89ba5896b5739ca973a9bf52c0571d5daa5d",
+            "width": 512
+          },
+          "id": "orbit-009",
+          "index": 9,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-009-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-009-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7909,
+          "viewDirection": [
+            -1.1646521344576696e-09,
+            -0.8746197071727227,
+            0.4848096201862137
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              -1.1646521347342393e-09,
+              -0.8746197073804185,
+              0.48480962030134134,
+              1.7561807513430394e-08
+            ],
+            "residualRms": 7.04658903380353e-07,
+            "sampleCount": 9695
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 10974,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 10974,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21794,
+            "cells_skipped_uv_invalid_plane": 10974,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-010",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 10974,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-010.report.json",
+            "sha256": "e680c5c78b7582a88daec2f90f77b7aeed450f71113a71c326119ccd862818d4",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-010.png",
+            "sha256": "4e9b13479e9788d0f0d24b29de73e00d32bfa3d5532f1d561d67feb76e8336a9",
+            "width": 512
+          },
+          "id": "orbit-010",
+          "index": 10,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-010-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-010-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7910,
+          "viewDirection": [
+            0.43730985293823393,
+            -0.7574428853114554,
+            0.48480962038123554
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.4373098530085781,
+              -0.7574428854332951,
+              0.4848096204592203,
+              1.591668241478217e-08
+            ],
+            "residualRms": 7.098009384668413e-07,
+            "sampleCount": 10974
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11917,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 11917,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 20851,
+            "cells_skipped_uv_invalid_plane": 11917,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-011",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 11917,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-011.report.json",
+            "sha256": "d82ebbfff8f64b9b4d93acf9b8a37ec14d67820aa2d018ab59d9d94ff150abe8",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-011.png",
+            "sha256": "419b1679046d1542eb629b3dda91d0349559e9dee0e95f758f2511ec424df54d",
+            "width": 512
+          },
+          "id": "orbit-011",
+          "index": 11,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-011-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-011-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7911,
+          "viewDirection": [
+            0.7574428855823261,
+            -0.4373098529553787,
+            0.48480961994257543
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.7574428855743385,
+              -0.4373098529507671,
+              0.4848096199374629,
+              -1.9021666420801497e-08
+            ],
+            "residualRms": 6.788344301162603e-07,
+            "sampleCount": 11917
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 11163,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 11163,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 21605,
+            "cells_skipped_uv_invalid_plane": 11163,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-012",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 11163,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-012.report.json",
+            "sha256": "5aaf9515132356fdb03946654a7d925a12f2aa3a846655ee1eace9d4a1ecdca0",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-012.png",
+            "sha256": "5287de47e602bfb3c373216050e46735e010d8632e53e5125eb256267106dea3",
+            "width": 512
+          },
+          "id": "top",
+          "index": 12,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-012-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-012-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7912,
+          "viewDirection": [
+            0.25881904440961306,
+            -2.178465186419062e-10,
+            0.9659258264747324
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.2588190443622206,
+              -2.178465186020162e-10,
+              0.9659258262978612,
+              2.648397545539083e-08
+            ],
+            "residualRms": 1.014787353998369e-06,
+            "sampleCount": 11163
+          }
+        },
+        {
+          "backProjection": {
+            "cells_covered": 9892,
+            "cells_projected": 0,
+            "cells_skipped_grazing": 0,
+            "cells_skipped_invalid_material": 0,
+            "cells_skipped_no_normal": 0,
+            "cells_skipped_no_uv": 9892,
+            "cells_skipped_nonfinite_color": 0,
+            "cells_skipped_uncovered": 22876,
+            "cells_skipped_uv_invalid_plane": 9892,
+            "cells_skipped_uv_nonfinite": 0,
+            "cells_total": 32768,
+            "cells_valid_uv": 0,
+            "incidence_sum": 0.0,
+            "texels_new": 0,
+            "texels_written": 0,
+            "uvs_wrapped": 0
+          },
+          "controlFrame": "chicken/views/frames/frame-013",
+          "coverage": {
+            "after": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            },
+            "before": {
+              "filledTexels": 0,
+              "observedTexels": 0,
+              "unknownTexels": 5242880
+            }
+          },
+          "coverageCells": 9892,
+          "generateReport": {
+            "modeUsed": "inpaint",
+            "path": "subjects/chicken/generated/frame-013.report.json",
+            "sha256": "b37d0bafe6cfa8efca92d9435f7bc9c3b3ee84a1a5e7345b4719782136cdf027",
+            "workerReused": true
+          },
+          "generatedImage": {
+            "height": 512,
+            "path": "subjects/chicken/generated/frame-013.png",
+            "sha256": "6e37ba40b14389acd75b48a0197c78e85f5cccfb9a28879e9e1f9a21caf45181",
+            "width": 512
+          },
+          "id": "bottom",
+          "index": 13,
+          "knownInput": {
+            "knownImage": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-013-known.png",
+              "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+            },
+            "knownPixels": 0,
+            "unknownMask": {
+              "path": "/artifacts/spray-pass/subjects/chicken/inputs/frame-013-unknown-mask.png",
+              "semantics": "non-zero means unknown/regenerable",
+              "sha256": "f19e1d8eb9a3e5be118fd10d537b1ac5a9e6fbb7eae5b5ccd49eb51ebf768a44",
+              "unknownPixels": 65536
+            }
+          },
+          "meanIncidence": null,
+          "mode": "inpaint",
+          "seed": 7913,
+          "viewDirection": [
+            0.9659258261177041,
+            7.583148551285931e-10,
+            -0.2588190457420609
+          ],
+          "viewDirectionFit": {
+            "coefficients": [
+              0.9659258264043176,
+              7.583148553536034e-10,
+              -0.25881904581885873,
+              -1.3641428427829672e-08
+            ],
+            "residualRms": 5.644535062551498e-07,
+            "sampleCount": 9892
+          }
+        }
+      ],
+      "warnings": [
+        "Blocked/attribution-only visual proof: chicken has no authored texture material; do not compute a metric."
+      ]
+    }
+  ],
+  "warnings": [
+    "Proof-only spike. This report is not admissible evidence and makes no threshold or G-gate claim.",
+    "Frog is a test split; its outputs must never reach training."
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/metric-report/v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reportId",
+    "contractSha256",
+    "rawSha256",
+    "source",
+    "hardware",
+    "signals"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "metric-report/v2"
+    },
+    "reportId": {
+      "pattern": "^raw/g[0-7]$",
+      "type": "string"
+    },
+    "contractSha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "rawSha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "differential",
+            "visual-parity",
+            "performance-trace",
+            "reproducibility"
+          ]
+        },
+        "path": {
+          "pattern": "^reports/evidence/raw/artifacts/[a-z0-9._/-]+$",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        }
+      }
+    },
+    "hardware": {
+      "$ref": "#/$defs/hardware"
+    },
+    "signals": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/signal"
+      }
+    },
+    "derivation": {
+      "$ref": "#/$defs/derivation"
+    }
+  },
+  "$defs": {
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "browser",
+        "gpu",
+        "runtime"
+      ],
+      "properties": {
+        "browser": {
+          "const": "Chromium 140.0.7339.80"
+        },
+        "gpu": {
+          "const": "LeDeluge NVIDIA GeForce RTX 4090 Laptop GPU (16 GB)"
+        },
+        "runtime": {
+          "const": "Browser WebGPU only; CPU fallback disabled"
+        }
+      }
+    },
+    "derivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "metric"],
+      "properties": {
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": { "const": "reports/eval-baseline.json" },
+            "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        },
+        "metric": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "inputs", "result"],
+          "properties": {
+            "id": { "const": "admission" },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": { "type": "number" },
+              "minProperties": 1
+            },
+            "result": {
+              "type": "object",
+              "required": ["value"],
+              "properties": { "value": { "enum": [0, 1] } },
+              "additionalProperties": { "type": ["boolean", "number"] }
+            }
+          }
+        }
+      }
+    },
+    "signal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value"
+          ],
+          "properties": {
+            "value": {
+              "type": "number"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "value",
+            "reason"
+          ],
+          "properties": {
+            "value": {
+              "type": "null"
+            },
+            "reason": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

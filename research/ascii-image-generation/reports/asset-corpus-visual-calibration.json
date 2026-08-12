@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "glyph-asset-corpus-visual-calibration/v1",
+  "status": "approved-recipe-review-only",
+  "admissible": false,
+  "trainingAuthority": false,
+  "humanReviewSubstitutesForAlignmentProvenanceOrCausality": false,
+  "recipe": {
+    "path": "research/ascii-image-generation/config/asset-corpus.json",
+    "sha256": "efa31e28a683b1c07d8751c23c0e07a199538ef93e4dc0e63691a46c1186b8b6",
+    "frozen": {
+      "grid": { "cols": 256, "rows": 128, "cellAspect": 2 },
+      "margin": 0.05,
+      "modelRaster": {
+        "id": "glyph-model-raster/physical-cell-letterbox-v1",
+        "width": 256,
+        "height": 256,
+        "source": { "cols": 256, "rows": 128, "cellAspect": 2 },
+        "fit": "contain",
+        "targetSampling": "nearest",
+        "discreteControlSampling": "nearest",
+        "continuousControlSampling": "nearest",
+        "latentContinuousSampling": "bilinear",
+        "transform": {
+          "kind": "cell-aspect-aware-letterbox",
+          "activeRect": { "x": 0, "y": 0, "width": 256, "height": 256 },
+          "rawCellToModelPixels": { "x": 1, "y": 2 },
+          "padding": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
+        }
+      },
+      "background": {
+        "id": "transparent-rgba-v1",
+        "targetRgba": [0, 0, 0, 0],
+        "modelRasterPaddingRgba": [0, 0, 0, 0],
+        "reviewComposite": "checkerboard-only-not-training-data"
+      },
+      "sampling": {
+        "targetAndDiscreteControls": "nearest",
+        "continuousControls": "nearest",
+        "latentReductionOnly": "bilinear",
+        "rationale": "Each 256x256 model pixel must retain its raw 256x128 winner cell; bilinear interpolation is permitted only after model-raster construction when reducing continuous controls for latent-space consumption."
+      },
+      "texturePolicy": { "decoder": "pngjs/jpeg-js/v1", "colorSpace": "source-srgb-no-conversion", "filter": "nearest", "wrap": "clamp-to-edge" }
+    }
+  },
+  "rejectedRecipes": [
+    {
+      "id": "asset-corpus/native-v2-80x48",
+      "status": "rejected-non-admissible",
+      "configSha256": "98de09fab128b3a03bf7db0deaea53224a1393302f69b1ca9c26240aa4d81be9",
+      "reportSha256": "62a61ba7c16fc64269b43fc3c8b51eb3da50731f779635a4c570976833975d5f",
+      "reason": "The former 80x48 render was too low-resolution for B12 and did not freeze the final cell-aspect-aware square model-raster policy. These are historical rejected-byte identifiers, not current authority."
+    }
+  ],
+  "reviewBatches": [
+    {
+      "id": "visual-calibration-r1",
+      "sourceRoot": "research/ascii-image-generation/review/visual-calibration-r1/raw",
+      "sourceTreeSha256": "c404e49dbacc6e9c97eb3d6c56c1ba6d272b644dc0f66d67c2a385d5336491b2",
+      "remoteReview": {
+        "kind": "remote-rendered-calibration-batch",
+        "reportRoot": "research/ascii-image-generation/review/visual-calibration-r1/raw",
+        "sourceTreeSha256": "c404e49dbacc6e9c97eb3d6c56c1ba6d272b644dc0f66d67c2a385d5336491b2"
+      },
+      "disposition": "rejected",
+      "reason": "Pre-approval exploration; retained only as hash-bound review evidence and not promoted as the final recipe.",
+      "contactSheets": [
+        { "path": "research/ascii-image-generation/review/visual-calibration-r1/contact-sheets/animated-fox--d97044e7.png", "sha256": "f8fb2e203e7c372319bf4e3fc4a4ca7fb8fb0407f0b678a75019aedd9fb03c02" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r1/contact-sheets/avocado--ccc9c3ce.png", "sha256": "0af461c340bf9e448e6dd52424d04cf9b368ef6829d789ef8dabbedb86b99f26" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r1/contact-sheets/icesat-a--8843f2a2.png", "sha256": "ff8a9a8f8940988017fa7d068302d8be7b86deb5b2a40bf123b9c2b1214a2e45" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r1/contact-sheets/orbiter-docking-system--781267aa.png", "sha256": "6f2c067dd137e8d945c888ae812869fcece44682af15188c7d40e0468ce7e86e" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r1/contact-sheets/solid-rocket-booster--eb68e0c9.png", "sha256": "56929f881aac3bacf98b479c97d36d56ed859efd2cd8e273e7ee95e20b5fa898" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r1/contact-sheets/space-shuttle-external-tank--ee2d727e.png", "sha256": "20e53f1de6dec5af3a37c13bfb2ced4d4a889e237fc56dfc0b288d7e03fd19f9" }
+      ]
+    },
+    {
+      "id": "visual-calibration-r2",
+      "sourceRoot": "research/ascii-image-generation/review/visual-calibration-r2/raw",
+      "sourceTreeSha256": "ec51d207fb9c4655fbbd9d33a0c2bd25646061bf82836dfde75b033d3d25247b",
+      "remoteReview": {
+        "kind": "remote-rendered-calibration-batch",
+        "reportRoot": "research/ascii-image-generation/review/visual-calibration-r2/raw",
+        "sourceTreeSha256": "ec51d207fb9c4655fbbd9d33a0c2bd25646061bf82836dfde75b033d3d25247b"
+      },
+      "disposition": "approved-diverse-recipe",
+      "humanApproval": {
+        "approved": true,
+        "authority": "user",
+        "decision": "The textured 256x128, cellAspect 2, 5% margin recipe is approved for the final corpus recipe; review remains non-admissible evidence."
+      },
+      "passingContactSheetPaths": [
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/animated-pliers--b5552adeb5.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/car--6d395b68cd.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/cottage--a0a3b6ef57.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/frog--8b66dc7c28.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/keycard--1f66e68636.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/old-book--05b07a1505.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/pickup-truck--9d6b2e33af.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/rabbit-blond--284276ad17.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/spitfire--89996b7c4c.png",
+        "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/woodcrate--0fe2810311.png"
+      ],
+      "contactSheets": [
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/animated-pliers--b5552adeb5.png", "sha256": "0bd128c228e88d654064de058a119d2dacb192c6673ac8eb504046a0232520cb" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/car--6d395b68cd.png", "sha256": "00a2a986d6185495b84882c97916c30a95d1784d30a205a331266bfa0aa0b7df" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/cottage--a0a3b6ef57.png", "sha256": "18ae15070a91d942d649b314fba70ddc02bac74660800e2fae6c6b6b5500d962" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/frog--8b66dc7c28.png", "sha256": "57d25bfb8c8147a4d1fd818ff1646afc7bcb9f5c29778ba96e19c3076b7bba9c" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/keycard--1f66e68636.png", "sha256": "056abd2f65eb5e2198e5a13739d6bfbb6d8e072713f2f3c1610a0ceaa7686270" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/morse-telegraph-key--c764726a33.png", "sha256": "3fc4320df40dcfa21f79850c31c50f23b3b32a984a28be2a5fd3632695a538d9" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/old-book--05b07a1505.png", "sha256": "4f805e723773d6d57b4478899dd85af0e68825058c6128375c78c12da94f338f" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/pickup-truck--9d6b2e33af.png", "sha256": "8ce3c811af001fe387488141e1726c179979a5924e25df85394c99ceac9d3d03" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/rabbit-blond--284276ad17.png", "sha256": "3074fe529ee08a366f450a58405d033d3612021872bb993a6a9c2668ddb0728a" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/spitfire--89996b7c4c.png", "sha256": "64ab3f1b501f9ae896bc4966417828c3e812f51332c6f3b821afbec92eb90759" },
+        { "path": "research/ascii-image-generation/review/visual-calibration-r2/contact-sheets/woodcrate--0fe2810311.png", "sha256": "e66126c9d38b7e23c5eb85ca7eac9f36f3d6de327bb28dea41942c0d1e763ca5" }
+      ],
+      "assetExceptions": [
+        {
+          "assetId": "asset/c764726a33592ecf883d6003929099e84d42530d4bd85eb6be9aed08fa1593ea",
+          "label": "morse-telegraph-key",
+          "status": "visual-render-failure",
+          "reason": "The R2 contact sheet is malformed; it is not evidence of an acceptable target render.",
+          "disposition": "exclude-from-training-until-rerender-and-independent-admission",
+          "scope": "B51 recipe approval survives because the diverse recipe is independently represented by the remaining R2 assets; B44 must fail closed for this asset until a corrected render passes its own target/control/provenance gates."
+        }
+      ]
+    }
+  ]
+}

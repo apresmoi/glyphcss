@@ -1,0 +1,1138 @@
+{
+  "schemaVersion": "glyph-authored-grid-views/v1",
+  "sceneKey": "building",
+  "assetId": "asset/d2128967a74f353b58da73aa49f058e060c6f424a8d3ba9ca9e9d6f15ca94da1",
+  "input": {
+    "gridPath": "config/authored-building.grid.txt",
+    "mappingPath": "config/authored-building.mapping.json",
+    "grid": {
+      "cols": 20,
+      "rows": 14
+    },
+    "polygonCount": 1680
+  },
+  "viewSchedule": {
+    "baseViewCount": 38,
+    "detailViewCount": 8,
+    "ordering": "all-base-then-all-detail",
+    "views": [
+      {
+        "scheduleId": "orbit-000",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-001",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-002",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-003",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-004",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-005",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-006",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-007",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-008",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-009",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-010",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-011",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-000",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-001",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-002",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-003",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-004",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-005",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-006",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-007",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-008",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-009",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-010",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-low-011",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-000",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-001",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-002",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-003",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-004",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-005",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-006",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-007",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-008",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-009",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-010",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "orbit-high-011",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "top",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "bottom",
+        "tier": "base",
+        "footprint": null
+      },
+      {
+        "scheduleId": "detail-r0-c0-low",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            0,
+            7
+          ],
+          "max": [
+            10,
+            14
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r0-c0-high",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            0,
+            7
+          ],
+          "max": [
+            10,
+            14
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r0-c1-low",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            10,
+            7
+          ],
+          "max": [
+            20,
+            14
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r0-c1-high",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            10,
+            7
+          ],
+          "max": [
+            20,
+            14
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r1-c0-low",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            0,
+            0
+          ],
+          "max": [
+            10,
+            7
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r1-c0-high",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            0,
+            0
+          ],
+          "max": [
+            10,
+            7
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r1-c1-low",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            10,
+            0
+          ],
+          "max": [
+            20,
+            7
+          ]
+        }
+      },
+      {
+        "scheduleId": "detail-r1-c1-high",
+        "tier": "detail",
+        "footprint": {
+          "min": [
+            10,
+            0
+          ],
+          "max": [
+            20,
+            7
+          ]
+        }
+      }
+    ]
+  },
+  "controls": {
+    "path": "views/manifest.json",
+    "contentSha256": "d035f7f575d739200004d8fe2510ae18c233abf21eaa325de13970657a7e4d79"
+  },
+  "polygonUvImage": {
+    "path": "views/frames/<frame-id>/polygon-uv-image.json",
+    "schemaVersion": "glyph-spray-polygon-uv-image/v1",
+    "format": "authored UV triangles paired with exact control-image projections"
+  },
+  "semanticPreview": {
+    "path": "semantic-preview",
+    "format": "one .txt and one RGBA8 semantic-control-color PNG per frame"
+  },
+  "verification": [
+    {
+      "id": "frame-000",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 19125,
+      "finiteAuthoredUvCells": 19125,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-001",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 7570,
+      "finiteAuthoredUvCells": 7570,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-002",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 6532,
+      "finiteAuthoredUvCells": 6532,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-003",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 9999,
+      "finiteAuthoredUvCells": 9999,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-004",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 6532,
+      "finiteAuthoredUvCells": 6532,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-005",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 7569,
+      "finiteAuthoredUvCells": 7569,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-006",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 19126,
+      "finiteAuthoredUvCells": 19126,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-007",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 7752,
+      "finiteAuthoredUvCells": 7752,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-008",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 6627,
+      "finiteAuthoredUvCells": 6627,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-009",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 9791,
+      "finiteAuthoredUvCells": 9791,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-010",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 6627,
+      "finiteAuthoredUvCells": 6627,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-011",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 7752,
+      "finiteAuthoredUvCells": 7752,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-012",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 23841,
+      "finiteAuthoredUvCells": 23841,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-013",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 11677,
+      "finiteAuthoredUvCells": 11677,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-014",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 9664,
+      "finiteAuthoredUvCells": 9664,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-015",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 14345,
+      "finiteAuthoredUvCells": 14345,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-016",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 9663,
+      "finiteAuthoredUvCells": 9663,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-017",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 11680,
+      "finiteAuthoredUvCells": 11680,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-018",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 23841,
+      "finiteAuthoredUvCells": 23841,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-019",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 11687,
+      "finiteAuthoredUvCells": 11687,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-020",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 9792,
+      "finiteAuthoredUvCells": 9792,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-021",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 14598,
+      "finiteAuthoredUvCells": 14598,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-022",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 9792,
+      "finiteAuthoredUvCells": 9792,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-023",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 11687,
+      "finiteAuthoredUvCells": 11687,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-024",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 7810,
+      "finiteAuthoredUvCells": 7810,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-025",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3773,
+      "finiteAuthoredUvCells": 3773,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-026",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3383,
+      "finiteAuthoredUvCells": 3383,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-027",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 4895,
+      "finiteAuthoredUvCells": 4895,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-028",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3383,
+      "finiteAuthoredUvCells": 3383,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-029",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3773,
+      "finiteAuthoredUvCells": 3773,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-030",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 7794,
+      "finiteAuthoredUvCells": 7794,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-031",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3702,
+      "finiteAuthoredUvCells": 3702,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-032",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3342,
+      "finiteAuthoredUvCells": 3342,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-033",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 4757,
+      "finiteAuthoredUvCells": 4757,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-034",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3348,
+      "finiteAuthoredUvCells": 3348,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-035",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 3702,
+      "finiteAuthoredUvCells": 3702,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-036",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 19205,
+      "finiteAuthoredUvCells": 19205,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-037",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 11774,
+      "finiteAuthoredUvCells": 11774,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-038",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 18759,
+      "finiteAuthoredUvCells": 18759,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-039",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 8043,
+      "finiteAuthoredUvCells": 8043,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "O",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-040",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 21712,
+      "finiteAuthoredUvCells": 21712,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-041",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 10076,
+      "finiteAuthoredUvCells": 10076,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-042",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 20096,
+      "finiteAuthoredUvCells": 20096,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-043",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 10375,
+      "finiteAuthoredUvCells": 10375,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-044",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 18724,
+      "finiteAuthoredUvCells": 18724,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    },
+    {
+      "id": "frame-045",
+      "coverageBytes": 32768,
+      "surfaceUvBytes": 262144,
+      "coveredCells": 8028,
+      "finiteAuthoredUvCells": 8028,
+      "semanticGlyphs": [
+        ".",
+        "C",
+        "D",
+        "O",
+        "P",
+        "R",
+        "S",
+        "T",
+        "W"
+      ]
+    }
+  ]
+}

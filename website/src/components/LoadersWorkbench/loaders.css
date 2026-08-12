@@ -98,10 +98,9 @@
 .ld-size__ghost .glyph-output {
   font-size: inherit !important;
   line-height: 1 !important;
-  /* A faint bloom is what makes a one-dot-per-crest trace readable at this
-     weight without turning it into a second solid layer. */
-  text-shadow: 0 0 4px currentColor;
-  mix-blend-mode: screen;
+  /* Hard glyphs carry the contrast; the bloom just lifts them off whatever the
+     loader is doing underneath. */
+  text-shadow: 0 0 3px currentColor, 0 0 1px #000;
 }
 .ld-size__view .glyph-output { font-size: inherit !important; line-height: 1 !important; }
 .ld-size__head {

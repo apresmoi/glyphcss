@@ -1,0 +1,291 @@
+{
+  "scene": {
+    "schemaVersion": "control-scene/v1",
+    "id": "scene/cabin-building-48-face-architectural-1024",
+    "dictionaryId": "dictionary/asset-corpus-v1",
+    "dictionarySha256": "388428c5f06bf39628b1226aeef26eefe1f6f1615e5d53e6b9b9700c1c6ef2c1",
+    "polygonOrderSha256": "096737fce47d0e897ec94a369b900098df6f143ff53f1614b8e99fd5ada0c94b",
+    "geometrySha256": "b92fd165bedb64585e67bcf5fd1cc038a2756da7b3180838b9db4bb5ba3b3c6a",
+    "instances": [
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024",
+        "classId": 7
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/occluder",
+        "classId": 7
+      }
+    ],
+    "surfaces": [
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-0",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-1",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-2",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-3",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-4",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-5",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-6",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-7",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-8",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-9",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-10",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-11",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-12",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-13",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-14",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-15",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-16",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-17",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-18",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-19",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-20",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-21",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-22",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-23",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-24",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-25",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-26",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-27",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-28",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-29",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-30",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-31",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-32",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-33",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-34",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-35",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-36",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-37",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-38",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-39",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-40",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-41",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-42",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-43",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-44",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      },
+      {
+        "id": "instance/cabin-building-48-face-architectural-1024/surface-45",
+        "instanceId": "instance/cabin-building-48-face-architectural-1024"
+      }
+    ],
+    "polygonSurfaceIds": [
+      "instance/cabin-building-48-face-architectural-1024/surface-0",
+      "instance/cabin-building-48-face-architectural-1024/surface-1",
+      "instance/cabin-building-48-face-architectural-1024/surface-2",
+      "instance/cabin-building-48-face-architectural-1024/surface-3",
+      "instance/cabin-building-48-face-architectural-1024/surface-4",
+      "instance/cabin-building-48-face-architectural-1024/surface-5",
+      "instance/cabin-building-48-face-architectural-1024/surface-6",
+      "instance/cabin-building-48-face-architectural-1024/surface-7",
+      "instance/cabin-building-48-face-architectural-1024/surface-8",
+      "instance/cabin-building-48-face-architectural-1024/surface-9",
+      "instance/cabin-building-48-face-architectural-1024/surface-10",
+      "instance/cabin-building-48-face-architectural-1024/surface-11",
+      "instance/cabin-building-48-face-architectural-1024/surface-12",
+      "instance/cabin-building-48-face-architectural-1024/surface-13",
+      "instance/cabin-building-48-face-architectural-1024/surface-14",
+      "instance/cabin-building-48-face-architectural-1024/surface-15",
+      "instance/cabin-building-48-face-architectural-1024/surface-16",
+      "instance/cabin-building-48-face-architectural-1024/surface-17",
+      "instance/cabin-building-48-face-architectural-1024/surface-18",
+      "instance/cabin-building-48-face-architectural-1024/surface-19",
+      "instance/cabin-building-48-face-architectural-1024/surface-20",
+      "instance/cabin-building-48-face-architectural-1024/surface-21",
+      "instance/cabin-building-48-face-architectural-1024/surface-22",
+      "instance/cabin-building-48-face-architectural-1024/surface-23",
+      "instance/cabin-building-48-face-architectural-1024/surface-24",
+      "instance/cabin-building-48-face-architectural-1024/surface-25",
+      "instance/cabin-building-48-face-architectural-1024/surface-26",
+      "instance/cabin-building-48-face-architectural-1024/surface-27",
+      "instance/cabin-building-48-face-architectural-1024/surface-28",
+      "instance/cabin-building-48-face-architectural-1024/surface-29",
+      "instance/cabin-building-48-face-architectural-1024/surface-30",
+      "instance/cabin-building-48-face-architectural-1024/surface-31",
+      "instance/cabin-building-48-face-architectural-1024/surface-32",
+      "instance/cabin-building-48-face-architectural-1024/surface-33",
+      "instance/cabin-building-48-face-architectural-1024/surface-34",
+      "instance/cabin-building-48-face-architectural-1024/surface-35",
+      "instance/cabin-building-48-face-architectural-1024/surface-36",
+      "instance/cabin-building-48-face-architectural-1024/surface-37",
+      "instance/cabin-building-48-face-architectural-1024/surface-38",
+      "instance/cabin-building-48-face-architectural-1024/surface-39",
+      "instance/cabin-building-48-face-architectural-1024/surface-40",
+      "instance/cabin-building-48-face-architectural-1024/surface-41",
+      "instance/cabin-building-48-face-architectural-1024/surface-42",
+      "instance/cabin-building-48-face-architectural-1024/surface-43",
+      "instance/cabin-building-48-face-architectural-1024/surface-44",
+      "instance/cabin-building-48-face-architectural-1024/surface-45"
+    ],
+    "contentSha256": "138c2c3919b4cd35993dfffcdaa5f99a39cb9a6c6c7caad2dd8d2dc7bae78055"
+  },
+  "dictionary": {
+    "schemaVersion": "glyph-object-dictionary/v2",
+    "id": "dictionary/asset-corpus-v1",
+    "contentSha256": "388428c5f06bf39628b1226aeef26eefe1f6f1615e5d53e6b9b9700c1c6ef2c1",
+    "font": {
+      "id": "font/ibm-plex-mono-regular",
+      "version": "2.004@plex-v6.4.0",
+      "sha256": "fe11304a5fe956d5744e9b6a246cc83d90425245e75a62230044966ca96a7f50"
+    }
+  },
+  "camera": {
+    "kind": "orthographic",
+    "rotX": 82,
+    "rotY": 60,
+    "center": [
+      0.41984997018761205,
+      0.8786629438964438
+    ],
+    "mat": null,
+    "useMat": false,
+    "distance": 0,
+    "perspective": 0,
+    "zoom": 105.08517689645988,
+    "stretch": 1,
+    "fovScale": 1,
+    "target": [
+      0,
+      0,
+      0
+    ],
+    "eyeMode": false
+  },
+  "cols": 256,
+  "rows": 128,
+  "cellAspect": 2,
+  "supersample": 1
+}

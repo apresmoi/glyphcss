@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"SEMANTIC_ASCII_MISMATCH", "mutations":[{"op":"set","path":"/records/samples/0/ascii/semanticCells/0","value":"ZA"}] }

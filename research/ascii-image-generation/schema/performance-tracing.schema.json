@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://glyphcss.dev/schema/ascii-image-generation/performance-tracing/v2","allOf":[{"$ref":"https://glyphcss.dev/schema/ascii-image-generation/normalized-summary/v2"}]}

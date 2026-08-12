@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"SCHEMA_VALIDATION_FAILED", "mutations":[{"op":"set","path":"/records/dictionary/classes/0/semanticGlyph","value":" "}] }

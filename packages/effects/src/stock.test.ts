@@ -1722,3 +1722,67 @@ describe("matrix-rain volumetric (space: \"object\") lane-boundary stability", (
     expect(visiblePops).toBeLessThanOrEqual(8);
   });
 });
+
+describe("field-synth ink mode", () => {
+  const INK_STROKES = ["-", "\\", "|", "/"];
+
+  it("traces a contour with oriented strokes instead of shading by level", () => {
+    // A linear ramp across X: the iso-level is crossed on exactly one column
+    // band, and its contour runs vertically — so the strokes must be "|".
+    const out = evaluate(fieldSynth, {
+      subcellRes: "ink",
+      space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevel: 0.6, inkArea: 0,
+    }, { withUv: true });
+
+    const inked = out.glyph.filter((g) => g !== " ");
+    expect(inked.length).toBeGreaterThan(0);
+    // Only contour glyphs are emitted — never a shade ramp character.
+    for (const g of inked) expect(INK_STROKES).toContain(g);
+    // The interior is left empty for whatever renders underneath: a contour
+    // marks a boundary, so it can never cover the whole grid the way the
+    // ramp path does.
+    expect(inked.length).toBeLessThan(out.glyph.length);
+  });
+
+  it("fills a plateau with a block rather than tracing an edge that isn't there", () => {
+    // A square wave's crest is an AREA: flat on top, so there is no gradient to
+    // orient a stroke against. `inkArea` catches that and fills instead.
+    const flat = evaluate(fieldSynth, {
+      subcellRes: "ink",
+      space: "scene",
+      field1: "linearX", wave1: "square", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevel: 0.6, inkArea: 0.4,
+    }, { withUv: true });
+    expect(flat.glyph.filter((g) => g === "█").length).toBeGreaterThan(0);
+
+    // A permanently sloped field has no plateau anywhere, so the same settings
+    // emit strokes only — the block comes from flatness, not from the mode.
+    // (A square wave's crest is EXACTLY flat, so it fills even at `inkArea: 0`;
+    // the knob widens the rule to near-flat fields, it does not enable it.)
+    const sloped = evaluate(fieldSynth, {
+      subcellRes: "ink",
+      space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1,
+      amp2: 0, scale: 1, gain: 1, bias: 0.5, inkLevel: 0.6, inkArea: 0,
+    }, { withUv: true });
+    expect(sloped.glyph.filter((g) => g === "█")).toHaveLength(0);
+  });
+
+  it("leaves 1x1 and 2x4 untouched", () => {
+    const ramp = evaluate(fieldSynth, {
+      subcellRes: "1x1", space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, amp2: 0,
+    }, { withUv: true });
+    for (const g of ramp.glyph.filter((c) => c !== " ")) expect(INK_STROKES).not.toContain(g);
+
+    const braille = evaluate(fieldSynth, {
+      subcellRes: "2x4", space: "scene",
+      field1: "linearX", wave1: "saw", freq1: 1, speed1: 0, amp1: 1, amp2: 0,
+    }, { withUv: true });
+    const dots = braille.glyph.filter((g) => g !== " ");
+    expect(dots.length).toBeGreaterThan(0);
+    for (const g of dots) expect(g.codePointAt(0)).toBeGreaterThanOrEqual(0x2800);
+  });
+});

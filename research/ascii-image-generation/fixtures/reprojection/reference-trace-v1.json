@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "glyph-reprojection-reference-contract/v1",
+  "id": "b39-b7-representative-camera-trace-v1",
+  "status": "frozen-ready-for-latency-measurement",
+  "selectionRule": "Each exact B7 endpoint leg is linearly interpolated at 32 equal subdivisions fixed before browser timing. No endpoint, event, threshold, aggregation, browser, or hardware field may be changed after timing without a dated replacement contract.",
+  "derivation": "Exact B7 sceneFor/cameraFor/buildFrame/material schedules and B40's separately hash-bound bounds-fitted 80x24 corpus expansion. B5 frames feed B24 reprojectGlyphSurfaceAtlas at its public atlasSize 64 default. The resulting honest population is retained red because its occlusion/reveal frames make unchanged G5 min/max impossible.",
+  "corpus": {
+    "config": "config/reference-corpus.json",
+    "configSha256": "695b650b8960d776af0e4ada64da1564b82916e39f568c8c4bdb41aca2904cb4",
+    "manifestSha256": "f8300d29c4fb0a3938c1ced4ac6cb989dd0cec9134ab00f2899c5ff7d1768cd3"
+  },
+  "measurementGrid": { "cols": 80, "rows": 24, "cellAspect": 2, "authority": "glyphcss public createGlyphScene defaults" },
+  "atlasSize": { "value": 64, "authority": "reprojectGlyphSurfaceAtlas public default" },
+  "segments": [
+    { "id": "slow", "kind": "slow", "sceneSeed": "corpus-alpha", "seedIndex": 0, "expansionId": "cool-dark", "subdivisionsPerLeg": 32 },
+    { "id": "fast", "kind": "fast", "sceneSeed": "corpus-alpha", "seedIndex": 0, "expansionId": "warm-bright", "subdivisionsPerLeg": 32 },
+    { "id": "occlusion-swap", "kind": "occlusion-swap", "sceneSeed": "corpus-bravo", "seedIndex": 1, "expansionId": "warm-bright", "subdivisionsPerLeg": 32 },
+    { "id": "reveal", "kind": "reveal", "sceneSeed": "corpus-charlie", "seedIndex": 2, "expansionId": "warm-bright", "subdivisionsPerLeg": 32 },
+    { "id": "reset", "kind": "reset", "sceneSeed": "corpus-delta", "seedIndex": 3, "expansionId": "warm-bright", "subdivisionsPerLeg": 32 }
+  ],
+  "supersedes": {
+    "date": "2026-07-23",
+    "only": "G5 measurement population",
+    "reason": "The B24 two-cell parity probe intentionally revealed one of two cells. Its coverage and newly-revealed-area ratios are both 0.5, so it cannot represent the frozen G5 domains coverage >= 0.9 and newly-revealed-area <= 0.2.",
+    "remoteRun": "/mnt/docker-data/glyphcss-ascii-image-generation/reference-browser/runs/reference-g5-contract-20260723T002000Z/",
+    "preservedCopy": "/mnt/docker-data/glyphcss-ascii-image-generation/reference-browser/preserved-red/reference-g5-contract-20260723T002000Z/",
+    "traceSha256": "4b9d7ef97a9d765067aa019f598e147117507c3e0e9530ac44ce206f89d35c7d",
+    "normalizedSummarySha256": "25a6b35665a89ef4999eb1259e40ab05c8a972164e0c4f5966d043d901a19e70",
+    "gpuDiagnosticSha256": "ae10ce5527d6b305ad97ccbd4ada3e3d2ceb499b3fc46471b04e953e0492ac0c",
+    "referenceImageSha256": "3a034dd9275e3451e190e0df50da9891e8fee611c5092aa0034a1de9d206148f",
+    "runManifestSha256": "7ae59aad465be911e46f0f5d2ef9514b24982439efaa25cf2d915dc88125ae25",
+    "chromiumArchiveSha256": "7184052e2155f270dd49503b1c9c7163204f3a7bc0fba9bd9e746dde04eb0546",
+    "redSignals": { "coverage": 0.5, "newly-revealed-area": 0.5 },
+    "preserved": true
+  },
+  "priorFailedAttempts": [
+    { "id": "b24-two-cell-exact-hardware", "coverage": 0.5, "newlyRevealedArea": 0.5, "traceSha256": "4b9d7ef97a9d765067aa019f598e147117507c3e0e9530ac44ce206f89d35c7d" },
+    { "id": "b7-unframed-public-80x24", "coverage": 0, "newlyRevealedArea": 1, "inputSha256": "53c3b4fceab3578191ac66b44a9222b74a8acf8f1afb5270c3a1d65f9e7b48fa", "frameSha256": "9f4f8c5b9e06d59f12ef45b644c4d1a19185b1a3d48f49ae14ebfd05e121d23b", "eventSha256": "4ed5526e84b50b6f00ea7fb88d6fe3fdd21b9496da9f98c200afbadc01bf04b2" },
+    { "id": "b40-bounds-fitted-atlas8", "coverage": 0.6551724137931034, "newlyRevealedArea": 0.3448275862068966, "inputSha256": "9b75c6e69955acafbe84254e7bd40e1cdf6e5fb4ad92a6eca3a2498a11d5347f", "frameSha256": "be7778504a3c7369bd88b920c542e120aa180c4b85b97616123dcf36e5b07471", "eventSha256": "c0a728a94b89c2d5cff4ee344e20ace6ce5cc27b30545608d242ed5ecae99494" }
+  ],
+  "expected": { "inputSha256": "9b75c6e69955acafbe84254e7bd40e1cdf6e5fb4ad92a6eca3a2498a11d5347f", "frameSha256": "be7778504a3c7369bd88b920c542e120aa180c4b85b97616123dcf36e5b07471", "eventSha256": "7bff12fb2738ad116cc5ef93f9395785ef9071ac74569792322ad0855ac0af4f" },
+  "structuralResult": { "coverage": 0.04, "newlyRevealedArea": 0.96, "resetFrequency": 0.018404907975460124, "g5Compatible": false }
+}

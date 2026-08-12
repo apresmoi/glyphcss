@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "glyph-native-reference-model-config/v1",
+  "id": "native-reference/sdxl-base-depth-control-v1",
+  "status": "awaiting-remote-freeze",
+  "runtime": {
+    "dockerContext": "gpu-4090",
+    "artifactRoot": "/mnt/docker-data/glyphcss-ascii-image-generation/models/native-reference"
+  },
+  "pipeline": {
+    "class": "StableDiffusionXLControlNetPipeline",
+    "baseRole": "native-reference-generator",
+    "controlRole": "stock-depth-baseline-and-integration-authority",
+    "browserSizeCriterion": null,
+    "weightFiles": "default-safetensors",
+    "runtimeDtype": "float16"
+  },
+  "repositories": [
+    {
+      "id": "sdxl-base-1.0",
+      "role": "base",
+      "repository": "stabilityai/stable-diffusion-xl-base-1.0",
+      "revision": "462165984030d82259a11f4367a4eed129e94a7b",
+      "variant": "default-safetensors",
+      "requiredFiles": [
+        { "path": "README.md", "kind": "model-card" },
+        { "path": "LICENSE.md", "kind": "license" },
+        { "path": "model_index.json", "kind": "config" },
+        { "path": "scheduler/scheduler_config.json", "kind": "config" },
+        { "path": "text_encoder/config.json", "kind": "config" },
+        { "path": "text_encoder/model.safetensors", "kind": "safetensors" },
+        { "path": "text_encoder_2/config.json", "kind": "config" },
+        { "path": "text_encoder_2/model.safetensors", "kind": "safetensors" },
+        { "path": "tokenizer/merges.txt", "kind": "tokenizer" },
+        { "path": "tokenizer/special_tokens_map.json", "kind": "tokenizer" },
+        { "path": "tokenizer/tokenizer_config.json", "kind": "tokenizer" },
+        { "path": "tokenizer/vocab.json", "kind": "tokenizer" },
+        { "path": "tokenizer_2/merges.txt", "kind": "tokenizer" },
+        { "path": "tokenizer_2/special_tokens_map.json", "kind": "tokenizer" },
+        { "path": "tokenizer_2/tokenizer_config.json", "kind": "tokenizer" },
+        { "path": "tokenizer_2/vocab.json", "kind": "tokenizer" },
+        { "path": "unet/config.json", "kind": "config" },
+        { "path": "unet/diffusion_pytorch_model.safetensors", "kind": "safetensors" },
+        { "path": "vae/config.json", "kind": "config" },
+        { "path": "vae/diffusion_pytorch_model.safetensors", "kind": "safetensors" }
+      ]
+    },
+    {
+      "id": "controlnet-depth-sdxl-1.0",
+      "role": "depth-control",
+      "repository": "diffusers/controlnet-depth-sdxl-1.0",
+      "revision": "17bb97973f29801224cd66f192c5ffacf82648b4",
+      "variant": "default-safetensors",
+      "requiredFiles": [
+        { "path": "README.md", "kind": "model-card" },
+        { "path": "config.json", "kind": "config" },
+        { "path": "diffusion_pytorch_model.safetensors", "kind": "safetensors" }
+      ]
+    }
+  ],
+  "disposition": {
+    "nativeTraining": "authoritative capable native reference for B12-B16 after a passing remote freeze",
+    "browserStudent": "BK-SDM-Small remains a historical later distillation candidate only and is not native-reference authority",
+    "redistribution": "not authorized by this freeze; retain upstream licenses and perform a separate publication review"
+  }
+}

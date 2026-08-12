@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "glyph-authored-obj-export/v1",
+  "sceneKey": "cabin",
+  "obj": "cabin.obj",
+  "mtl": "cabin.mtl",
+  "polygonCount": 209,
+  "materialCount": 12,
+  "atlas": {
+    "schemaVersion": "glyph-authored-atlas-layout/v1",
+    "vConvention": "top-origin",
+    "faceToCell": "identity"
+  },
+  "verification": {
+    "vertexCount": 822,
+    "vtCount": 822,
+    "faceCount": 209,
+    "faceCornerCount": 822,
+    "everyFaceReferencesVt": true,
+    "authoredUvsMatchExactly": true
+  }
+}

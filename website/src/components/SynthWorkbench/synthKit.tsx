@@ -57,7 +57,7 @@ export const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "s
 export const WAVES = ["sin", "triangle", "saw", "square"] as const;
 export const COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
 export const SPACES = ["auto", "surface", "scene"] as const;
-export const SUBCELL_RES = ["1x1", "2x4"] as const;
+export const SUBCELL_RES = ["1x1", "2x4", "ink"] as const;
 export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
 
 export const opts = <T extends string>(list: readonly T[] | string[]): Record<string, T> => Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
@@ -293,12 +293,22 @@ export const SUBCELL_ICONS: Record<string, ReactNode> = {
       <circle cx="5.3" cy="12.6" r="1.05" /><circle cx="10.7" cy="12.6" r="1.05" />
     </ToggleIcon>
   ),
+  // A contour line rather than a fill — what the mode actually draws.
+  ink: (
+    <ToggleIcon fill="none" stroke="currentColor">
+      <path d="M2 11 C5 11, 5 5, 8 5 C11 5, 11 11, 14 11" strokeWidth="1.6" />
+    </ToggleIcon>
+  ),
 };
 export const SUBCELL_TOGGLE = SUBCELL_RES.map((v) => ({
   value: v as string,
   icon: SUBCELL_ICONS[v],
   label: v,
-  desc: v === "1x1" ? "one glyph per cell, picked from the ramp" : "braille dot matrix per cell — finer apparent grain, ignores the ramp",
+  desc: v === "1x1"
+    ? "one glyph per cell, picked from the ramp"
+    : v === "2x4"
+      ? "braille dot matrix per cell — finer apparent grain, ignores the ramp"
+      : "iso-contour: trace where the field crosses a level, oriented to the slope; flat crests fill as blocks. Ignores the ramp",
 }));
 
 export function IconToggle({ options, value, onChange, groupTitle }: {

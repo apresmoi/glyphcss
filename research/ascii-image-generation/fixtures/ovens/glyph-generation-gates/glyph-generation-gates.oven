@@ -1,0 +1,8 @@
+<oven id="glyph-generation-gates" version="0.1.0" contract="burnlist-differential-testing-data@1" theme="differential-testing">
+  <differential-kpi-strip source="/"/>
+  <differential-log-table source="/log"/>
+  <collection id="gate-scorecard" source="/fields" item-key="/id" paging="auto" page-size="25">
+    <field-list collection-from="gate-scorecard"/>
+    <pagination collection-from="gate-scorecard" page-sizes="25 50 100"/>
+  </collection>
+</oven>

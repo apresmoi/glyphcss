@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "glyph-authored-cabin/v1",
+  "id": "glyphcss/authored-cabin/v1",
+  "units": "metres",
+  "atlas": {
+    "referenceSize": 4096,
+    "gutterTexels": 2
+  },
+  "classes": [
+    { "id": 1, "name": "ground", "semanticGlyph": ".", "controlColor": "#6b7f52" },
+    { "id": 2, "name": "path", "semanticGlyph": "P", "controlColor": "#a89b84" },
+    { "id": 3, "name": "stone", "semanticGlyph": "S", "controlColor": "#8d8578" },
+    { "id": 4, "name": "wall", "semanticGlyph": "W", "controlColor": "#c9b391" },
+    { "id": 5, "name": "window", "semanticGlyph": "O", "controlColor": "#4ea8de" },
+    { "id": 6, "name": "door", "semanticGlyph": "D", "controlColor": "#6f4e37" },
+    { "id": 7, "name": "roof", "semanticGlyph": "R", "controlColor": "#8c4a3f" },
+    { "id": 8, "name": "chimney", "semanticGlyph": "C", "controlColor": "#7a6a5f" },
+    { "id": 9, "name": "fence", "semanticGlyph": "F", "controlColor": "#a7774f" },
+    { "id": 10, "name": "post", "semanticGlyph": "I", "controlColor": "#5b4636" },
+    { "id": 11, "name": "trunk", "semanticGlyph": "K", "controlColor": "#6a4b2f" },
+    { "id": 12, "name": "foliage", "semanticGlyph": "T", "controlColor": "#3f7d3a" }
+  ]
+}

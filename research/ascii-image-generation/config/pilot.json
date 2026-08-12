@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "glyph-pilot-config/v2",
+  "id": "pilot/native-asset-first-v1",
+  "remoteRoot": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/pilot",
+  "assetCorpusRoot": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/assets/native-v3",
+  "admissionReport": "reports/rendered-target-admission.json",
+  "assetReport": "reports/asset-corpus.json",
+  "materialReport": "reports/material-asset-corpus.json",
+  "materialDatasetRoot": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/assets/native-v3-material-only",
+  "assetRegistry": "reports/asset-registry.json",
+  "modelRaster": {
+    "id": "glyph-model-raster/physical-cell-letterbox-v1",
+    "width": 256,
+    "height": 256,
+    "source": { "cols": 256, "rows": 128, "cellAspect": 2 },
+    "fit": "contain",
+    "targetSampling": "nearest",
+    "discreteControlSampling": "nearest",
+    "continuousControlSampling": "nearest",
+    "latentContinuousSampling": "bilinear"
+  },
+  "balance": {
+    "source": "B43 split groups and B45 admitted exact-RGB records; all dimensions reconstruct from renderer provenance.",
+    "floors": { "sourcePacks": 1, "classes": 1, "semanticGlyphs": 1, "instances": 1, "surfaces": 1, "cameras": 1, "motions": 1, "occlusions": 1, "lighting": 1, "geometry": 1, "textures": 1, "textureStatus": 1, "appearance": 1, "scenes": 1, "trajectories": 1, "splitGroups": 1 }
+  },
+  "materialOnly": {
+    "targetStatus": "material-only-not-exact-rgb",
+    "disposition": "excluded-from-exact-rgb-training"
+  },
+  "heldOutAppearance": {
+    "splits": ["validation", "test"],
+    "minAssetsPerSplit": 1,
+    "minAppearancePopulationsPerSplit": 1
+  },
+  "nativePrompt": "faithful textured 3D asset render; preserve the exact glyphcss geometry, camera, visibility, materials, lighting, and object identity",
+  "teacher": {
+    "status": "legacy-only-not-B11-authority",
+    "allowedAfter": "B13 native asset-first baseline only"
+  }
+}

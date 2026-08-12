@@ -11,7 +11,7 @@ const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
 
 const COMBINE_OPTS = opts(["add", "multiply", "max", "min", "difference"] as const);
 const SPACE_OPTS = opts(["auto", "surface", "scene"] as const);
-const SUBCELL_OPTS = opts(["1x1", "2x4"] as const);
+const SUBCELL_OPTS = opts(["1x1", "2x4", "ink"] as const);
 /** Named character sets, same source /synth and the gallery pick from. The
  *  option VALUE is the ramp's NAME (not its glyphs), and "Custom" covers a
  *  hand-typed ramp — without it the select reads blank whenever a preset ships
@@ -95,15 +95,19 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   // An empty ramp leaves the shader with no glyph to index and blanks the
   // render, so reject it instead of accepting an unusable value.
   const chars = useText(output, "Chars", s("glyphs"), (v) => onParam("glyphs", v), (next) => next.length > 0);
+  // Ink draws a contour, so its two knobs replace the ramp entirely.
+  const inkMode = s("subcellRes") === "ink";
+  useSlider(inkMode ? output : null, "Ink level", { min: 0.05, max: 0.95, step: 0.05 }, n("inkLevel"), (v) => onParam("inkLevel", v));
+  useSlider(inkMode ? output : null, "Ink area", { min: 0, max: 0.4, step: 0.01 }, n("inkArea"), (v) => onParam("inkArea", v));
   useColor(output, "Color", s("color"), (v) => onParam("color", v));
   useColor(output, "Color B", s("colorB"), (v) => onParam("colorB", v));
   useSlider(output, "Gradient", { min: 0, max: 1, step: 0.05 }, n("gradient"), (v) => onParam("gradient", v));
 
-  const subcellIs2x4 = s("subcellRes") === "2x4";
+  const subcellIs2x4 = s("subcellRes") === "2x4" || inkMode;
   useEffect(() => {
     for (const c of [ramp, chars]) {
       if (!c) continue;
-      if (subcellIs2x4) { c.raw.disable(); c.raw.$name.title = "Subcell = 2x4 renders a Braille dot mask, not the ramp — Chars/Ramp have no effect."; }
+      if (subcellIs2x4) { c.raw.disable(); c.raw.$name.title = "This subcell mode synthesizes its own glyphs (Braille dots / contour strokes) and never reads the ramp — Chars/Ramp have no effect."; }
       else { c.raw.enable(); c.raw.$name.title = ""; }
     }
   }, [ramp, chars, subcellIs2x4]);

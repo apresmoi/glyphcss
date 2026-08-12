@@ -1,0 +1,7 @@
+{
+  "G0":{"visible-bytes":{"value":0},"selector-parity":{"value":0},"winner-lineage":{"value":0},"default-winner-allocation":{"value":0},"projection-passes":{"value":1},"pre-writes":{"value":1}},
+  "G1":{"admission":{"value":1}},"G2":{"overfit-causality":{"value":1}},"G3":{"held-out-structure":{"value":1}},"G4":{"style-separation":{"value":1}},
+  "G5":{"presentation-p95":{"value":20},"coverage":{"value":0.95},"valid-pixel-error":{"value":0.01},"newly-revealed-area":{"value":0.1},"disocclusion-recovery-latency":{"value":120},"temporal-warp-error":{"value":0.01},"correction-magnitude":{"value":0.1},"reset-frequency":{"value":0.02},"stale-result-rejection":{"value":0}},
+  "G6":{"native-export-parity":{"value":0},"native-webgpu-parity":{"value":0},"operator-coverage":{"value":1},"cached-offline":{"value":1},"download-bytes":{"value":1048576},"init-latency":{"value":1000},"peak-memory":{"value":512},"repeated-memory-growth":{"value":0},"keyframe-latency":{"value":100},"refinement-latency":{"value":400},"cpu-fallbacks":{"value":0}},
+  "G7":{"run-manifest":{"value":1},"container-digest":{"value":1},"commands-recorded":{"value":1},"peak-vram-mib":{"value":12000},"losses-recorded":{"value":1},"checkpoint-hash":{"value":1},"bundle-hash":{"value":1},"clean-reproduction":{"value":1},"research-tests":{"value":1},"package-build":{"value":1},"secret-audit":{"value":1},"large-artifact-audit":{"value":1}}
+}

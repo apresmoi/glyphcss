@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1400, height: 1200 } });
+await page.goto("http://localhost:4323/wordart", { waitUntil: "networkidle" });
+await page.waitForTimeout(2500);
+const tile = page.locator(".wa-tile", { has: page.locator(".wa-tile__label", { hasText: "Matrix Fall" }) });
+console.log("count:", await tile.count());
+const pre = tile.locator("pre").first();
+console.log("RAW:\n" + await pre.textContent());
+await tile.screenshot({ path: "/tmp/matrixfall_tile.png" });
+await browser.close();

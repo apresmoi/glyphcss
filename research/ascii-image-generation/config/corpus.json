@@ -1,0 +1,17 @@
+{
+  "id": "corpus/mvp-v1",
+  "dictionary": "config/glyph-object-dictionary.json",
+  "normalization": "config/control-normalization.json",
+  "output": "/mnt/docker-data/glyphcss-ascii-image-generation/datasets/controls/mvp-v1",
+  "grid": { "cols": 24, "rows": 16, "cellAspect": 2 },
+  "framesPerTrajectory": 3,
+  "expansionsPerScene": 2,
+  "minimumGlyphCellShare": 0.08,
+  "minimumGlyphSampleShare": 0.5,
+  "sceneSeeds": ["corpus-alpha", "corpus-bravo", "corpus-charlie", "corpus-delta", "corpus-echo"],
+  "splits": {
+    "train": ["corpus-alpha", "corpus-bravo"],
+    "validation": ["corpus-charlie"],
+    "test": ["corpus-delta", "corpus-echo"]
+  }
+}

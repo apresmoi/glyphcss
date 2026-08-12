@@ -1,0 +1,8 @@
+{
+  "id": "held-out-structure-v1",
+  "evaluator": "eq",
+  "expected": 1,
+  "frozenAt": "2026-07-23",
+  "contractVersion": "v3",
+  "thresholds": {"semanticErrorMax": 0.05, "depthEdgeErrorMax": 0.05, "unintendedAdditionMax": 0.02, "crossViewIdentityErrorMax": 0.05, "disocclusionRecoveryErrorMax": 0.05}
+}

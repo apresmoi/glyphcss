@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "glyph-coarse-base-request/v1",
+  "prompt": "weathered red clay in a quiet studio",
+  "seed": 1427,
+  "styleId": "base",
+  "controls": {
+    "geometry": "cube",
+    "sceneId": "generative/cube-v1",
+    "sceneSha256": "c80a02e78cc1fc6133d12267c8e79bfdcea7ef2d935ec2427eb558995c43c60f",
+    "tensorContractSha256": "a1e8600ad64f63b119e2113711b235a3007b28416ae03c38c2440eb6ed1c7a3f",
+    "coverageRatio": 0.30853174603174605,
+    "camera": {
+      "projection": "orthographic",
+      "rotX": 63,
+      "rotY": 70,
+      "zoom": 55
+    }
+  }
+}

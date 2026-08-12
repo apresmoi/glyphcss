@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"MISSING_TRANSITION", "mutations":[{"op":"delete","path":"/records/samples/1/transition"}] }

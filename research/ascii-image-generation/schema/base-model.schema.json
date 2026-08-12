@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/base-model-preflight/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "verdict", "configSha256", "container", "model", "sourceTexts", "verification", "disposition", "artifactRoot"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-base-model-preflight/v1" },
+    "generatedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" },
+    "verdict": { "const": "pass" },
+    "configSha256": { "$ref": "#/$defs/hash" },
+    "container": {
+      "type": "object", "additionalProperties": false, "required": ["image", "digest", "context"],
+      "properties": { "image": { "const": "glyphcss-ascii-trainer:b8" }, "digest": { "const": "sha256:015926d93d16a87eed48877405da596b4d3a6a799693cad6fa5072151b36b476" }, "context": { "const": "gpu-4090" } }
+    },
+    "model": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "repository", "revision", "resolvedRevision", "precision", "parameterCount", "recomputedParameterCount", "files", "browserPayload"],
+      "properties": {
+        "id": { "const": "nota-ai-bk-sdm-small" }, "repository": { "const": "nota-ai/bk-sdm-small" },
+        "revision": { "$ref": "#/$defs/commit" }, "resolvedRevision": { "$ref": "#/$defs/commit" }, "precision": { "const": "float16 safetensors" },
+        "parameterCount": { "type": "object", "additionalProperties": false, "required": ["exactArtifacts", "upstreamCardApproximateClaims"], "properties": { "exactArtifacts": { "$ref": "#/$defs/exactParameterCount" }, "upstreamCardApproximateClaims": { "type": "object", "additionalProperties": false, "required": ["unet", "wholeModel", "source"], "properties": { "unet": { "const": 490000000 }, "wholeModel": { "const": 660000000 }, "source": { "type": "string", "pattern": "rounded claims only$" } } } } },
+        "recomputedParameterCount": { "$ref": "#/$defs/exactParameterCount" },
+        "files": { "type": "array", "minItems": 15, "items": { "$ref": "#/$defs/file" } },
+        "browserPayload": { "type": "object", "additionalProperties": false, "required": ["generatorCore", "requiredLocalDemo", "status", "note"], "properties": { "generatorCore": { "$ref": "#/$defs/payload" }, "requiredLocalDemo": { "type": "object", "additionalProperties": false, "required": ["paths", "weightsBytes", "parameters", "safetyCheckerWeightsBytes", "safetyCheckerParameters"], "properties": { "paths": { "type": "array", "minItems": 4, "items": { "type": "string" } }, "weightsBytes": { "const": 1986239966 }, "parameters": { "const": 993042815 }, "safetyCheckerWeightsBytes": { "const": 608018440 }, "safetyCheckerParameters": { "const": 303981588 } } }, "status": { "const": "local-only; no public bundle or hosting authorization" }, "note": { "type": "string", "minLength": 1 } } }
+      }
+    },
+    "sourceTexts": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/sourceText" } },
+    "verification": { "type": "object", "additionalProperties": false, "required": ["rounds", "identical", "noPickleConsumed"], "properties": { "rounds": { "type": "array", "minItems": 2, "items": { "type": "object", "additionalProperties": false, "required": ["round", "forceDownload", "treeSha256", "files"], "properties": { "round": { "type": "integer", "minimum": 1 }, "forceDownload": { "type": "boolean" }, "treeSha256": { "$ref": "#/$defs/hash" }, "files": { "type": "array", "minItems": 15, "items": { "$ref": "#/$defs/file" } } } } }, "identical": { "const": true }, "noPickleConsumed": { "const": true } } },
+    "disposition": { "type": "object", "additionalProperties": false, "required": ["localTraining", "localDemo", "browserBundle", "redistribution", "derivativeWeights", "attribution"], "properties": { "localTraining": { "type": "string", "minLength": 1 }, "localDemo": { "type": "string", "minLength": 1 }, "browserBundle": { "type": "string", "minLength": 1 }, "redistribution": { "type": "string", "minLength": 1 }, "derivativeWeights": { "type": "string", "minLength": 1 }, "attribution": { "type": "string", "minLength": 1 } } },
+    "artifactRoot": { "pattern": "^/mnt/docker-data/glyphcss-ascii-image-generation/models/base/", "type": "string" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "exactParameterCount": { "type": "object", "additionalProperties": false, "required": ["unet", "generatorCore", "safetyChecker", "allDownloaded"], "properties": { "unet": { "const": 482346884 }, "generatorCore": { "const": 689061227 }, "safetyChecker": { "const": 303981588 }, "allDownloaded": { "const": 993042815 } } },
+    "payload": { "type": "object", "additionalProperties": false, "required": ["paths", "weightsBytes", "parameters"], "properties": { "paths": { "type": "array", "minItems": 3, "items": { "type": "string" } }, "weightsBytes": { "const": 1378221526 }, "parameters": { "const": 689061227 } } },
+    "file": { "type": "object", "additionalProperties": false, "required": ["path", "bytes", "sha256", "url", "kind"], "properties": { "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$" }, "bytes": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/hash" }, "url": { "type": "string", "pattern": "^https://huggingface\\.co/nota-ai/bk-sdm-small/resolve/[a-f0-9]{40}/" }, "kind": { "enum": ["config", "safetensors"] } } },
+    "sourceText": { "type": "object", "additionalProperties": false, "required": ["role", "path", "url", "sha256"], "properties": { "role": { "enum": ["model-card", "license"] }, "path": { "type": "string", "pattern": "^licenses/base-model/" }, "url": { "type": "string", "pattern": "^https://" }, "sha256": { "$ref": "#/$defs/hash" } } }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/glyph-object-dictionary/v2",
+  "title": "Glyph object dictionary v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "contentSha256", "font", "classes"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-object-dictionary/v2" },
+    "id": { "$ref": "#/$defs/id" },
+    "contentSha256": { "$ref": "#/$defs/sha256" },
+    "font": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "version": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "classes": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "name", "semanticGlyph", "controlColor"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 }, "name": { "$ref": "#/$defs/id" },
+          "semanticGlyph": { "$ref": "#/$defs/printableGlyph" }, "controlColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9._/-]*$" },
+    "printableGlyph": { "type": "string", "pattern": "^[!-~]$" }
+  }
+}

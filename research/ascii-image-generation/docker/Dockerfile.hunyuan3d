@@ -1,0 +1,45 @@
+# Clean, upstream Hunyuan3D-2 texture environment.  This intentionally does
+# not inherit glyphcss-ascii-trainer:b8: that image is the frozen SDXL setup.
+# The official PyTorch CUDA image provides the matching Torch/CUDA headers used
+# to compile Hunyuan's two local extensions.
+FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TORCH_CUDA_ARCH_LIST=8.9
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential git libegl1 libglib2.0-0 libgl1 libgomp1 libsm6 libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/hunyuan3d
+ARG HUNYUAN3D_REV=f8db63096c8282cb27354314d896feba5ba6ff8a
+RUN git clone https://github.com/Tencent/Hunyuan3D-2.git . \
+    && git checkout "$HUNYUAN3D_REV"
+
+# These are the upstream requirements plus the release-compatible Diffusers
+# stack used by the v2 Paint checkpoints.  Torch comes from the official base
+# image and is deliberately pinned here too, so pip cannot replace its CUDA
+# build with a different ABI.  The additional numerical pins keep
+# pymatting's import-time Numba compilation on a tested Python 3.11 ABI.
+# Unpinned requirements resolved in 2026 to NumPy 2.4 / Numba 0.66 /
+# llvmlite 0.48, which segfaulted importing hy3dgen.rembg.  Pymatting 1.1.15
+# requires Numba >=0.60; Numba 0.60.0 officially supports Python 3.11,
+# NumPy 1.26, and llvmlite 0.43.x.
+RUN pip install --no-compile -r requirements.txt \
+      'torch==2.4.1' 'torchvision==0.19.1' \
+      'diffusers==0.32.2' 'transformers==4.49.0' 'accelerate==1.2.1' \
+      'safetensors==0.5.2' \
+      'numpy==1.26.4' 'numba==0.60.0' 'llvmlite==0.43.0' 'scipy==1.14.1' \
+      'pymatting==1.1.15' 'rembg==2.0.59' 'onnxruntime==1.19.2' \
+      'opencv-python==4.10.0.84' 'opencv-python-headless==4.10.0.84' \
+    && pip install --no-compile --no-deps -e . \
+    && cd hy3dgen/texgen/custom_rasterizer && python setup.py install \
+    && cd ../differentiable_renderer && python setup.py install
+
+COPY run_hunyuan_paint.py /opt/hunyuan3d/run_hunyuan_paint.py
+RUN mkdir -p /work/input
+ENTRYPOINT ["python", "-B", "/opt/hunyuan3d/run_hunyuan_paint.py"]

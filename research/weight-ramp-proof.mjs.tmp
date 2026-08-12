@@ -1,0 +1,66 @@
+import { chromium } from 'playwright';
+
+const OUT = '/private/tmp/claude-501/-Users-apresmoi-glyphcss/243f410f-b122-4525-8a7b-42478386b127/scratchpad';
+
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+page.on('console', (msg) => {
+  if (msg.type() === 'error') console.log('PAGE ERROR:', msg.text());
+});
+page.on('pageerror', (err) => console.log('PAGE EXCEPTION:', err.message));
+
+await page.goto('http://localhost:4323/gallery', { waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+
+// Make sure we're on a solid-mode mesh (default gallery renderMode is solid already).
+const pre = page.locator('pre.glyph-output').first();
+await pre.waitFor({ state: 'visible', timeout: 15000 });
+await page.waitForTimeout(500);
+
+async function countPairs() {
+  return await page.evaluate(() => {
+    const pre = document.querySelector('pre.glyph-output');
+    if (!pre) return { spans: 0, pairs: 0, sample: [] };
+    const spans = Array.from(pre.querySelectorAll('span'));
+    const pairs = new Set();
+    for (const s of spans) {
+      const weight = s.style.fontWeight || '';
+      const text = s.textContent || '';
+      for (const ch of text) {
+        if (ch.trim() === '') continue;
+        pairs.add(ch + '|' + weight);
+      }
+    }
+    return { spans: spans.length, pairs: pairs.size, sample: Array.from(pairs).slice(0, 20) };
+  });
+}
+
+const before = await countPairs();
+console.log('BEFORE (weighted shading off):', JSON.stringify(before));
+await page.screenshot({ path: `${OUT}/gallery-weight-off.png` });
+
+// Open the Dock's Rendering folder and toggle "Weighted shading".
+// The Dock is lil-gui based; find the controller by its name text.
+const toggled = await page.evaluate(() => {
+  const controllers = Array.from(document.querySelectorAll('.lil-gui .controller'));
+  for (const c of controllers) {
+    const nameEl = c.querySelector('.name');
+    if (nameEl && nameEl.textContent.trim() === 'Weighted shading') {
+      const checkbox = c.querySelector('input[type="checkbox"]');
+      if (checkbox) {
+        checkbox.click();
+        return true;
+      }
+    }
+  }
+  return false;
+});
+console.log('Toggled weighted shading control found+clicked:', toggled);
+
+await page.waitForTimeout(1000);
+
+const after = await countPairs();
+console.log('AFTER (weighted shading on):', JSON.stringify(after));
+await page.screenshot({ path: `${OUT}/gallery-weight-on.png` });
+
+await browser.close();

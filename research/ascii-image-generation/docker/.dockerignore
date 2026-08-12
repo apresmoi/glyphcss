@@ -1,0 +1,10 @@
+*
+!Dockerfile
+!.dockerignore
+!requirements.lock
+!smoke.py
+!entrypoint.py
+!training_target_consumer.py
+!test_training_target_consumer.py
+!Dockerfile.hunyuan3d
+!run_hunyuan_paint.py

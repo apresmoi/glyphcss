@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "glyph-asset-render-binding-browser-run/v3",
+  "verdict": "pass",
+  "exitCode": 0,
+  "reportSha256": "10ca95fa9e6650b77e1ab642a64fd4127d28efab3216d3c0c40f069963b74b1c",
+  "reportContentSha256": "846407beb9d86f2cdadb3214c8a0f60a7fdd7c406586f4bf0eaa7483f4e9e0a4",
+  "imageId": "sha256:d8a157a6b8313d85e376ccf1177f8feeaf8e4603606aa23841967266c5218626",
+  "sourceArchive": {
+    "path": "source-tree.tar",
+    "sha256": "8026167c8c5d1523720e4ab58d05077716ccc78369ff5275bc27d8c47503164e"
+  },
+  "transitiveSourceSha256": "b4c6775ab0abff5c39ede3f51922fca575a83a925fb8e32d41453c757923c589",
+  "browserEvidence": {
+    "records": 77,
+    "attachmentName": "asset-render-binding-evidence",
+    "attachmentPaths": [
+      "results.json",
+      "test-results/.last-run.json"
+    ],
+    "sha256": "d7828d92ed4b50af50cdebe5ecdccd558c66f266400b0cab8ea9a63913609edc"
+  },
+  "decoderParity": {
+    "sourceRecords": 77,
+    "uniqueTextures": 63,
+    "sourceDecodedHashMismatches": [],
+    "uniqueDecodedHashMismatches": [],
+    "sourceExactUvSampleMismatches": [],
+    "uniqueExactUvSampleMismatches": [],
+    "b44ExactSharedDecoderStatus": "pass",
+    "browserNodeDecoderStatus": "pass"
+  },
+  "evidenceError": null,
+  "provenanceError": [],
+  "artifactHashes": {
+    "source-tree.tar": "8026167c8c5d1523720e4ab58d05077716ccc78369ff5275bc27d8c47503164e",
+    "source-tree.sha256": "03e82b21b456a2fffd6db4e5b19a3091bb9833b894ace6357594867e0b70ccca",
+    "transitive-source.sha256": "b4c6775ab0abff5c39ede3f51922fca575a83a925fb8e32d41453c757923c589",
+    "environment.txt": "a9ad867748436410205a2fe9b1ecd1dea7b8d73e6bd6fb787fbe4c214fc498be",
+    "provenance-errors.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "server.log": "3acc18bd00ac5513e020169608cea3884fd229a503c50a1fead0682d7d278de3",
+    "server-ready.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "test-discovery.log": "69b6488058993dae6bd82998fe3aaaa74c32ee9b9d6a1ba47ba69484e60e9b80",
+    "discovery-exit.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "test.log": "3b74b8ffe6d26ae9eca3a0d6f3a6f27b2f1893b7d46b1ff5f8a0115739fe96fb",
+    "results.json": "804be4c7452790e83eebf0175664bab6fca340411f50a69f9bac4fac2bf70ab6",
+    "exit-code.txt": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "test-results/.last-run.json": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+  },
+  "contentSha256": "1042070d03dd3ba0c34e3f117f28a9ac4bae2e189f294d73da5fd0196706fd4d"
+}

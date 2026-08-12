@@ -1,0 +1,1 @@
+{ "extends":"../valid/golden.json", "expectedError":"DUPLICATE_TRAJECTORY_ID", "mutations":[{"op":"set","path":"/records/trajectories/1/id","value":"trajectory/train-a"}] }

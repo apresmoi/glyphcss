@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://glyphcss.dev/schema/ascii-image-generation/native-reference-model-preflight/v1",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "verdict", "configSha256", "pipeline", "runtime", "repositories", "treeSha256", "contentSha256"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-native-reference-model-preflight/v1" },
+    "generatedAt": { "type": "string", "format": "date-time" }, "verdict": { "const": "pass" },
+    "configSha256": { "$ref": "#/$defs/hash" },
+    "pipeline": { "type": "object", "additionalProperties": false, "required": ["class", "baseRole", "controlRole", "browserSizeCriterion", "weightFiles", "runtimeDtype"], "properties": { "class": { "const": "StableDiffusionXLControlNetPipeline" }, "baseRole": { "const": "native-reference-generator" }, "controlRole": { "const": "stock-depth-baseline-and-integration-authority" }, "browserSizeCriterion": { "type": "null" }, "weightFiles": { "const": "default-safetensors" }, "runtimeDtype": { "const": "float16" } } },
+    "runtime": { "type": "object", "additionalProperties": false, "required": ["dockerContext", "artifactRoot", "python", "torch", "diffusers", "transformers", "safetensors"], "properties": { "dockerContext": { "const": "gpu-4090" }, "artifactRoot": { "type": "string", "pattern": "^/mnt/docker-data/glyphcss-ascii-image-generation/models/native-reference$" }, "python": { "type": "string", "minLength": 1 }, "torch": { "type": "string", "minLength": 1 }, "diffusers": { "type": "string", "minLength": 1 }, "transformers": { "type": "string", "minLength": 1 }, "safetensors": { "type": "string", "minLength": 1 } } },
+    "repositories": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/repository" } },
+    "treeSha256": { "$ref": "#/$defs/hash" }, "contentSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "file": { "type": "object", "additionalProperties": false, "required": ["path", "kind", "bytes", "sha256", "url"], "properties": { "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$" }, "kind": { "enum": ["config", "model-card", "license", "tokenizer", "safetensors"] }, "bytes": { "type": "integer", "minimum": 1 }, "sha256": { "$ref": "#/$defs/hash" }, "url": { "type": "string", "pattern": "^https://huggingface\\.co/" } } },
+    "repository": { "type": "object", "additionalProperties": false, "required": ["id", "role", "repository", "revision", "resolvedRevision", "variant", "artifactRoot", "files", "treeSha256", "safetensorsParameters"], "properties": { "id": { "enum": ["sdxl-base-1.0", "controlnet-depth-sdxl-1.0"] }, "role": { "enum": ["base", "depth-control"] }, "repository": { "enum": ["stabilityai/stable-diffusion-xl-base-1.0", "diffusers/controlnet-depth-sdxl-1.0"] }, "revision": { "$ref": "#/$defs/commit" }, "resolvedRevision": { "$ref": "#/$defs/commit" }, "variant": { "const": "default-safetensors" }, "artifactRoot": { "type": "string", "pattern": "^/mnt/docker-data/glyphcss-ascii-image-generation/models/native-reference/" }, "files": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/file" } }, "treeSha256": { "$ref": "#/$defs/hash" }, "safetensorsParameters": { "type": "integer", "minimum": 1 } } }
+  }
+}

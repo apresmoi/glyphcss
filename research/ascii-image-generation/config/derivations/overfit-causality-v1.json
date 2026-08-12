@@ -1,0 +1,8 @@
+{
+  "id": "overfit-causality-v1",
+  "evaluator": "eq",
+  "expected": 1,
+  "frozenAt": "2026-07-23",
+  "contractVersion": "v3",
+  "thresholds": {"correctControlScoreMin": 0.95, "promptOnlyScoreMax": 0.5, "removedControlScoreMax": 0.5, "shuffledControlScoreMax": 0.5, "interventionMarginMin": 0.2, "peakVramMiBMax": 16384}
+}

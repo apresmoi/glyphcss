@@ -1,0 +1,227 @@
+{
+  "schemaVersion": "glyph-spray-pass/v1",
+  "id": "glyphcss/spray-paint-proof/v1",
+  "disposition": "proof-only-not-admissible",
+  "outRoot": "reports/spray-views",
+  "artifactOutputRoot": "/artifacts/spray-pass",
+  "grid": {
+    "cols": 256,
+    "rows": 128,
+    "cellAspect": 2
+  },
+  "supersample": 1,
+  "framing": {
+    "margin": 0.05
+  },
+  "dictionary": "config/asset-object-dictionary.json",
+  "controlNormalization": "config/control-normalization.json",
+  "lighting": {
+    "directional": {
+      "direction": [
+        0.5,
+        0.7,
+        0.5
+      ],
+      "intensity": 1,
+      "color": "#ffffff"
+    },
+    "ambient": {
+      "intensity": 0.4,
+      "color": "#ffffff"
+    }
+  },
+  "views": [
+    { "id": "orbit-000", "rotX": 61, "rotY": 0 },
+    { "id": "orbit-001", "rotX": 61, "rotY": 30 },
+    { "id": "orbit-002", "rotX": 61, "rotY": 60 },
+    { "id": "orbit-003", "rotX": 61, "rotY": 90 },
+    { "id": "orbit-004", "rotX": 61, "rotY": 120 },
+    { "id": "orbit-005", "rotX": 61, "rotY": 150 },
+    { "id": "orbit-006", "rotX": 61, "rotY": 180 },
+    { "id": "orbit-007", "rotX": 61, "rotY": 210 },
+    { "id": "orbit-008", "rotX": 61, "rotY": 240 },
+    { "id": "orbit-009", "rotX": 61, "rotY": 270 },
+    { "id": "orbit-010", "rotX": 61, "rotY": 300 },
+    { "id": "orbit-011", "rotX": 61, "rotY": 330 },
+    { "id": "orbit-low-000", "rotX": 40, "rotY": 0 },
+    { "id": "orbit-low-001", "rotX": 40, "rotY": 30 },
+    { "id": "orbit-low-002", "rotX": 40, "rotY": 60 },
+    { "id": "orbit-low-003", "rotX": 40, "rotY": 90 },
+    { "id": "orbit-low-004", "rotX": 40, "rotY": 120 },
+    { "id": "orbit-low-005", "rotX": 40, "rotY": 150 },
+    { "id": "orbit-low-006", "rotX": 40, "rotY": 180 },
+    { "id": "orbit-low-007", "rotX": 40, "rotY": 210 },
+    { "id": "orbit-low-008", "rotX": 40, "rotY": 240 },
+    { "id": "orbit-low-009", "rotX": 40, "rotY": 270 },
+    { "id": "orbit-low-010", "rotX": 40, "rotY": 300 },
+    { "id": "orbit-low-011", "rotX": 40, "rotY": 330 },
+    { "id": "orbit-high-000", "rotX": 82, "rotY": 0 },
+    { "id": "orbit-high-001", "rotX": 82, "rotY": 30 },
+    { "id": "orbit-high-002", "rotX": 82, "rotY": 60 },
+    { "id": "orbit-high-003", "rotX": 82, "rotY": 90 },
+    { "id": "orbit-high-004", "rotX": 82, "rotY": 120 },
+    { "id": "orbit-high-005", "rotX": 82, "rotY": 150 },
+    { "id": "orbit-high-006", "rotX": 82, "rotY": 180 },
+    { "id": "orbit-high-007", "rotX": 82, "rotY": 210 },
+    { "id": "orbit-high-008", "rotX": 82, "rotY": 240 },
+    { "id": "orbit-high-009", "rotX": 82, "rotY": 270 },
+    { "id": "orbit-high-010", "rotX": 82, "rotY": 300 },
+    { "id": "orbit-high-011", "rotX": 82, "rotY": 330 },
+    {
+      "id": "top",
+      "rotX": 15,
+      "rotY": 0
+    },
+    {
+      "id": "bottom",
+      "rotX": 105,
+      "rotY": 0
+    },
+    {
+      "id": "detail-r0-c0-low",
+      "tier": "detail",
+      "rotX": 45,
+      "rotY": 45,
+      "footprint": { "min": [-4, -3], "max": [0, 0] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r0-c0-high",
+      "tier": "detail",
+      "rotX": 78,
+      "rotY": 225,
+      "footprint": { "min": [-4, -3], "max": [0, 0] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r0-c1-low",
+      "tier": "detail",
+      "rotX": 45,
+      "rotY": 45,
+      "footprint": { "min": [0, -3], "max": [4, 0] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r0-c1-high",
+      "tier": "detail",
+      "rotX": 78,
+      "rotY": 225,
+      "footprint": { "min": [0, -3], "max": [4, 0] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r1-c0-low",
+      "tier": "detail",
+      "rotX": 45,
+      "rotY": 45,
+      "footprint": { "min": [-4, 0], "max": [0, 3] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r1-c0-high",
+      "tier": "detail",
+      "rotX": 78,
+      "rotY": 225,
+      "footprint": { "min": [-4, 0], "max": [0, 3] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r1-c1-low",
+      "tier": "detail",
+      "rotX": 45,
+      "rotY": 45,
+      "footprint": { "min": [0, 0], "max": [4, 3] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    },
+    {
+      "id": "detail-r1-c1-high",
+      "tier": "detail",
+      "rotX": 78,
+      "rotY": 225,
+      "footprint": { "min": [0, 0], "max": [4, 3] },
+      "paintMode": "refine", "inpaintStrength": 0.4
+    }
+  ],
+  "texturePageSize": 4096,
+  "generation": {
+    "steps": 32,
+    "guidance": 7,
+    "controlScale": 0.85,
+    "backProjectionWeight": 0.6,
+    "depthSource": "frame-minmax",
+    "inpaintStrength": 0.85,
+    "anchorToAuthoredRender": "seed-only",
+    "multiViewMode": "per-view",
+    "synchronizationStartStep": 0,
+    "synchronizationBlend": 1.0
+  },
+  "modelRoots": {
+    "base": "/artifacts/models/native-reference/sdxl-base-1.0/462165984030d82259a11f4367a4eed129e94a7b",
+    "depthControl": "/artifacts/models/native-reference/controlnet-depth-sdxl-1.0/17bb97973f29801224cd66f192c5ffacf82648b4"
+  },
+  "subjects": [
+    {
+      "key": "cottage",
+      "assetId": "asset/a0a3b6ef57a641663445d4481ad359e479d69ccfa5ebab6bec58f7bfd171339e",
+      "path": "website/public/gallery/obj/cottage.obj",
+      "classId": 7,
+      "materials": [
+        "cottage_texture"
+      ],
+      "prompt": "A charming weathered stone cottage with warm timber trim, mossy roof tiles, lush garden foliage, richly painted game asset texture, no background",
+      "negativePrompt": "background, floor, sky, text, watermark, logo, deformed architecture, duplicate windows, low quality, blurry",
+      "seeds": [5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900, 5900]
+    },
+    {
+      "key": "frog",
+      "assetId": "asset/8b66dc7c28ae0a64d146ee8e5ee82ece7202e8b0d70a715c2d3995fe739df687",
+      "path": "website/public/gallery/obj/opengameart/frog-guy/frog.obj",
+      "classId": 2,
+      "materials": [
+        "frog"
+      ],
+      "prompt": "A colorful friendly frog adventurer with hand-painted green skin, warm cloth clothing, detailed stylized game character texture, no background",
+      "negativePrompt": "background, text, watermark, logo, extra limbs, duplicate face, distorted anatomy, low quality, blurry",
+      "seeds": [6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900, 6900],
+      "splitWarning": "TEST SPLIT: frog outputs are proof-only and must never reach training."
+    },
+    {
+      "key": "chicken",
+      "assetId": "asset/72c3d86fe7803f6cd8a7ae3e04ea63593ae644879a5d417261e2d5d5bb12c9ff",
+      "path": "website/public/gallery/obj/chicken.obj",
+      "classId": 2,
+      "materials": [
+        "FF9800",
+        "FFFFFF",
+        "1A1A1A",
+        "F44336",
+        "455A64"
+      ],
+      "prompt": "A stylized low-poly chicken with saturated hand-painted orange, white, charcoal, red, and slate details, clean game asset texture, no background",
+      "negativePrompt": "background, text, watermark, logo, extra wings, duplicate head, distorted anatomy, low quality, blurry",
+      "seeds": [7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900, 7900],
+      "attributionWarning": "Blocked/attribution-only visual proof: chicken has no authored texture material; do not compute a metric."
+    },
+    {
+      "key": "cabin",
+      "source": "authored-glyph-scene",
+      "assetId": "asset/46b0174aeb71bb4f2f7d6b2b1cf9bb47fcd14ed4701d83e51922ed95e4e8510a",
+      "path": "research/ascii-image-generation/config/authored-cabin.json",
+      "polygonCount": 209,
+      "materials": [
+        "building"
+      ],
+      "prompt": "a charming stone cottage with a terracotta tiled roof, warm cream plaster walls, a timber front door, blue-glass windows, a brick chimney, a stone garden path and leafy green trees; hand-painted stylised game asset, crisp readable detail, even soft daylight, consistent material palette",
+      "negativePrompt": "text, watermark, signature, blurry, noisy, grainy, jpeg artifacts, low quality, washed out, muddy colours, harsh shadows, extra buildings, duplicated structures",
+      "seeds": [7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100, 7100]
+    }
+  ],
+  "runtime": {
+    "dockerContext": "gpu-4090",
+    "image": "glyphcss-ascii-trainer:b8",
+    "imageDigest": "sha256:015926d93d16a87eed48877405da596b4d3a6a799693cad6fa5072151b36b476",
+    "artifactRoot": "/mnt/docker-data/glyphcss-ascii-image-generation",
+    "containerArtifactRoot": "/artifacts",
+    "containerRepoRoot": "/workspace/repo"
+  }
+}

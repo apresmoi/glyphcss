@@ -86,9 +86,22 @@ WIREFRAME_PALETTES[GHOST_BLANK_PALETTE] = {
   ...WIREFRAME_PALETTES.default!,
   solid: [" "],
 };
-/** Two steps, so only the crest of the wave marks a cell — a contour hint
- *  rather than a second fill competing with the loader. */
-const GHOST_RAMP = " ·";
+/**
+ * The overlay renders the voice through field-synth's `subcellRes: "ink"` — a
+ * real iso-contour of the voice's own field, with strokes oriented to the local
+ * slope and flat crests filled as blocks. Colouring the ramp by value (what this
+ * used to do) can only ever scatter marks; a contour is a boundary, so it has to
+ * come from where the field CROSSES a level, which only the effect can know.
+ */
+// Near the peak on purpose: a mid-level iso crosses an oscillating field on
+// almost every cell (measured 305/384 at 0.6 for a freq-6 voice), which is
+// truthful but unreadable. Contouring close to the crest marks the peaks only.
+const GHOST_INK_LEVEL = 0.88;
+/** Crest colour (value 1) and valley colour (value 0): `gradient: 1` makes
+ *  field-synth interpolate between them by value, so the two lines are told
+ *  apart at a glance rather than being one colour at two heights. */
+const GHOST_CREST = "#ffffff";
+const GHOST_VALLEY = "#38bdf8";
 
 const rendersBraille = (loader: LoaderPreset, live?: LiveEdits): boolean =>
   loader.layers.some((layer, index) =>
@@ -319,7 +332,7 @@ function useGhostScene(host: HTMLElement | null, cols: number, rows: number, liv
     const layer = definition
       ? scene.addEffectLayer({
         effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema>,
-        params: { ...synthDefaults(), glyphs: GHOST_RAMP },
+        params: { ...synthDefaults(), subcellRes: "ink" },
         blend: "over",
         target: "surfaces",
       })
@@ -340,12 +353,15 @@ function useGhostScene(host: HTMLElement | null, cols: number, rows: number, liv
         if (slot !== null) {
           layer.setParams({
             ...soloParams(params, slot),
-            glyphs: GHOST_RAMP,
-            // Only the crest marks a cell: push the threshold high so the trace
-            // reads as a contour of where this voice peaks, not a wash.
-            gain: 2.4,
-            bias: -0.55,
-            voiceColors: true,
+            subcellRes: "ink",
+            inkLevel: GHOST_INK_LEVEL,
+            inkArea: 0.02,
+            gain: 1,
+            bias: 0.5,
+            voiceColors: false,
+            color: GHOST_CREST,
+            colorB: GHOST_VALLEY,
+            gradient: 1,
             lit: 0,
           });
         }

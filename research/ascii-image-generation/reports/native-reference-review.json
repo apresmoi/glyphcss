@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "glyph-native-reference-review/v1",
+  "modelAuthority": {
+    "baseRevision": "462165984030d82259a11f4367a4eed129e94a7b",
+    "controlRevision": "17bb97973f29801224cd66f192c5ffacf82648b4"
+  },
+  "comparison": [
+    {
+      "role": "prompt-only",
+      "reportPath": "review/native-reference/sdxl-cottage-prompt-only-r1/report.json",
+      "reportSha256": "b247fe5a2e63804e4c944d6c8e98baaf2041cd277e367d98914516c9d4b9d0f8",
+      "generatedPath": "review/native-reference/sdxl-cottage-prompt-only-r1/generated.png",
+      "generatedSha256": "da703e67ce009f93d43d584d0da4ec08a7c0ace67812c707d50db41f32f50efc",
+      "controlDepthPath": "review/native-reference/sdxl-cottage-prompt-only-r1/control-depth.png",
+      "controlScale": 0,
+      "controlDepthSha256": "f4a82d30cb67b2f05aaf296dcaa22f9eea6d65d01a025f9f134f8234d93c7ed8",
+      "review": "baseline"
+    },
+    {
+      "role": "correct-control-0.65",
+      "reportPath": "review/native-reference/sdxl-cottage-depth-s065-r1/report.json",
+      "reportSha256": "175ace49e6bcc1db6ee1723160949e5103be0a86e7a9c24a5169ce3296dcdcf0",
+      "generatedPath": "review/native-reference/sdxl-cottage-depth-s065-r1/generated.png",
+      "generatedSha256": "3be2daa104aada5a27ddc4f14f6eefa33d36e74463d770e965f21d6638a4f0b1",
+      "controlDepthPath": "review/native-reference/sdxl-cottage-depth-s065-r1/control-depth.png",
+      "controlScale": 0.65,
+      "controlDepthSha256": "f4a82d30cb67b2f05aaf296dcaa22f9eea6d65d01a025f9f134f8234d93c7ed8",
+      "review": "accepted-best"
+    },
+    {
+      "role": "wrong-control",
+      "reportPath": "review/native-reference/sdxl-cottage-wrong-car-depth-s065-r2/report.json",
+      "reportSha256": "4c9cb853fef48d5c1e8e1cfd97a7e906a325bca3bfd17e13fb0ea661320c97c9",
+      "generatedPath": "review/native-reference/sdxl-cottage-wrong-car-depth-s065-r2/generated.png",
+      "generatedSha256": "0327ae1bedf363dafe4ca77b9e1e7b0694252bbd2acf57722cc56394c8a59e9e",
+      "controlDepthPath": "review/native-reference/sdxl-cottage-wrong-car-depth-s065-r2/control-depth.png",
+      "controlScale": 0.65,
+      "controlDepthSha256": "a1274d9b7a38404f87cccf14d6b691729a06c634afa78cdcb73a25076dc9dd9e",
+      "review": "causality-positive"
+    }
+  ],
+  "conclusion": {
+    "best": "correct-control-0.65",
+    "rejected": ["rabbit-hybrid", "car-failure"],
+    "scope": "stock-depth-causality-and-integration-only-not-17-channel-training-proof"
+  },
+  "contentSha256": "d7144c75a5b6e57ee0d3669e21fd877869f4eacb3568a3488522f6714e8e7e3a"
+}

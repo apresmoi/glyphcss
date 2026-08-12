@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "objective", "resolution", "optimizerSteps", "microsteps", "loss", "peakAllocatedBytes", "peakReservedBytes", "maximumPeakVramBytes", "gpu", "configSha256", "nativeReferencePreflightSha256", "containerDigest", "verdict", "contentSha256"],
+  "properties": {
+    "schemaVersion": { "const": "glyph-b12-objective-smoke/v1" },
+    "objective": { "const": "sdxl-controlnet-to-frozen-unet-noise-prediction/v1" },
+    "resolution": { "const": 1024 }, "optimizerSteps": { "const": 1 },
+    "microsteps": { "type": "integer", "minimum": 1 }, "loss": { "type": "number", "minimum": 0 },
+    "peakAllocatedBytes": { "type": "integer", "minimum": 1 }, "peakReservedBytes": { "type": "integer", "minimum": 1 },
+    "maximumPeakVramBytes": { "const": 17179869184 }, "gpu": { "const": "NVIDIA GeForce RTX 4090 Laptop GPU" },
+    "configSha256": { "$ref": "#/$defs/hash" }, "nativeReferencePreflightSha256": { "$ref": "#/$defs/hash" },
+    "containerDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }, "verdict": { "const": "pass" },
+    "contentSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" } }
+}

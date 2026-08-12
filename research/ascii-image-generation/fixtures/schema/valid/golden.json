@@ -1,0 +1,901 @@
+{
+  "name": "golden-v2",
+  "records": {
+    "dictionary": {
+      "schemaVersion": "glyph-object-dictionary/v2",
+      "id": "dictionary/mvp-v2",
+      "contentSha256": "d292ababf88b52f543bb52ae23fb665d059901ca0ca3c2c9b647c9a6e461c4d8",
+      "font": {
+        "id": "font/ibm-plex-mono-regular",
+        "version": "2.004@plex-v6.4.0",
+        "sha256": "fe11304a5fe956d5744e9b6a246cc83d90425245e75a62230044966ca96a7f50"
+      },
+      "classes": [
+        {
+          "id": 1,
+          "name": "cube",
+          "semanticGlyph": "A",
+          "controlColor": "#e63946"
+        },
+        {
+          "id": 2,
+          "name": "floor",
+          "semanticGlyph": "B",
+          "controlColor": "#457b9d"
+        }
+      ]
+    },
+    "scenes": [
+      {
+        "schemaVersion": "control-scene/v1",
+        "id": "scene/train-a",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "1c104178be30f106dd2d38719eab91756af98f1991b4a7384538be646456012b",
+        "geometrySha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "polygonOrderSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "instances": [
+          {
+            "id": "instance/cube-a",
+            "classId": 1
+          },
+          {
+            "id": "instance/cube-b",
+            "classId": 1
+          },
+          {
+            "id": "instance/floor-a",
+            "classId": 2
+          }
+        ],
+        "surfaces": [
+          {
+            "id": "surface/cube-a-front",
+            "instanceId": "instance/cube-a"
+          },
+          {
+            "id": "surface/cube-a-side",
+            "instanceId": "instance/cube-a"
+          },
+          {
+            "id": "surface/cube-b-front",
+            "instanceId": "instance/cube-b"
+          },
+          {
+            "id": "surface/floor-a-top",
+            "instanceId": "instance/floor-a"
+          }
+        ],
+        "polygonSurfaceIds": [
+        "surface/cube-a-front",
+        "surface/cube-a-front",
+          "surface/cube-b-front",
+          "surface/floor-a-top"
+        ],
+        "contentSha256": "0c45248d9d01d36cfa00ae15a18aafe2d1af3d8efa661297a794c2d4ea6a9d05"
+      },
+      {
+        "schemaVersion": "control-scene/v1",
+        "id": "scene/test-b",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "1c104178be30f106dd2d38719eab91756af98f1991b4a7384538be646456012b",
+        "geometrySha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "polygonOrderSha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "instances": [
+          {
+            "id": "instance/test-floor",
+            "classId": 2
+          }
+        ],
+        "surfaces": [
+          {
+            "id": "surface/test-floor-top",
+            "instanceId": "instance/test-floor"
+          }
+        ],
+        "polygonSurfaceIds": [
+          "surface/test-floor-top"
+        ],
+        "contentSha256": "76bf40319c0b9cde98562bc3ac18b2635c1152e1c285d453d4bfe32d9724b43c"
+      }
+    ],
+    "samples": [
+      {
+        "schemaVersion": "control-sample/v2",
+        "id": "frame/train-a-000",
+        "sceneId": "scene/train-a",
+        "sceneSha256": "",
+        "sceneSeed": "seed-train-a",
+        "split": "train",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "",
+        "camera": {
+          "id": "camera/train-a-000",
+          "projection": "perspective",
+          "rotX": 65,
+          "rotY": 45,
+          "zoom": 50,
+          "target": [
+            0,
+            0,
+            0
+          ],
+          "perspective": 800,
+          "distance": 0,
+          "viewport": {
+            "width": 200,
+            "height": 100
+          },
+          "grid": {
+            "cols": 2,
+            "rows": 2
+          },
+          "fontSize": 16,
+          "lineHeight": 1,
+          "supersample": 1,
+          "renderMode": "solid"
+        },
+        "prompt": "two red cubes over a blue floor",
+        "geometryTags": [
+          "cube",
+          "ground"
+        ],
+        "ascii": {
+          "width": 2,
+          "height": 2,
+          "visibleCells": [
+            "##",
+            ".."
+          ],
+          "semanticCells": [
+            "AA",
+            "AB"
+          ],
+          "outputSource": "glyphcss-control-frame/v1"
+        },
+        "controls": {
+          "winnerPolygon": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              1,
+              2,
+              3
+            ]
+          },
+          "semanticClassId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              2
+            ]
+          },
+          "objectInstanceId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              "instance/cube-a",
+              "instance/cube-a",
+              "instance/cube-b",
+              "instance/floor-a"
+            ]
+          },
+          "surfaceId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+            "surface/cube-a-front",
+            "surface/cube-a-front",
+              "surface/cube-b-front",
+              "surface/floor-a-top"
+            ]
+          },
+          "depth": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0.2,
+              0.3,
+              0.4,
+              0.8
+            ]
+          },
+          "normal": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              0,
+              1,
+              0
+            ]
+          },
+          "worldPosition": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              1,
+              0,
+              1,
+              2,
+              0,
+              1,
+              0,
+              0,
+              0
+            ]
+          },
+          "surfaceUv": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "coverage": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "shade": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              0.8,
+              0.5
+            ]
+          },
+          "validity": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "disocclusion": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "confidence": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        "style": {
+          "id": "style/fixture",
+          "version": "1",
+          "strength": 1,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "targetProvenance": {
+          "provider": "fixture",
+          "model": "fixture-model",
+          "version": "1",
+          "generationSeed": "target-seed-0",
+          "license": "CC0-1.0",
+          "sourceRevision": "fixture-rev",
+          "requestSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "artifacts": [
+          {
+            "role": "control-bundle",
+            "outputSource": "visible",
+            "path": "fixtures/schema/artifacts/train-0-control.bin",
+            "sha256": ""
+          },
+          {
+            "role": "control-bundle",
+            "outputSource": "semantic",
+            "path": "fixtures/schema/artifacts/train-0-control.bin",
+            "sha256": ""
+          },
+          {
+            "role": "target",
+            "outputSource": "target",
+            "path": "fixtures/schema/artifacts/train-0-target.bin",
+            "sha256": ""
+          }
+        ],
+        "contentSha256": ""
+      },
+      {
+        "schemaVersion": "control-sample/v2",
+        "id": "frame/train-a-001",
+        "sceneId": "scene/train-a",
+        "sceneSha256": "",
+        "sceneSeed": "seed-train-a",
+        "split": "train",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "",
+        "camera": {
+          "id": "camera/train-a-001",
+          "projection": "perspective",
+          "rotX": 65,
+          "rotY": 46,
+          "zoom": 50,
+          "target": [
+            0,
+            0,
+            0
+          ],
+          "perspective": 800,
+          "distance": 0,
+          "viewport": {
+            "width": 200,
+            "height": 100
+          },
+          "grid": {
+            "cols": 2,
+            "rows": 2
+          },
+          "fontSize": 16,
+          "lineHeight": 1,
+          "supersample": 1,
+          "renderMode": "solid"
+        },
+        "prompt": "two red cubes over a blue floor",
+        "geometryTags": [
+          "cube",
+          "ground"
+        ],
+        "ascii": {
+          "width": 2,
+          "height": 2,
+          "visibleCells": [
+            "##",
+            ".."
+          ],
+          "semanticCells": [
+            "AA",
+            "AB"
+          ],
+          "outputSource": "glyphcss-control-frame/v1"
+        },
+        "controls": {
+          "winnerPolygon": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              1,
+              2,
+              3
+            ]
+          },
+          "semanticClassId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              2
+            ]
+          },
+          "objectInstanceId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              "instance/cube-a",
+              "instance/cube-a",
+              "instance/cube-b",
+              "instance/floor-a"
+            ]
+          },
+          "surfaceId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+            "surface/cube-a-front",
+            "surface/cube-a-front",
+              "surface/cube-b-front",
+              "surface/floor-a-top"
+            ]
+          },
+          "depth": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0.2,
+              0.3,
+              0.4,
+              0.8
+            ]
+          },
+          "normal": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              0,
+              1,
+              0
+            ]
+          },
+          "worldPosition": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              1,
+              0,
+              1,
+              2,
+              0,
+              1,
+              0,
+              0,
+              0
+            ]
+          },
+          "surfaceUv": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "coverage": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "shade": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              0.8,
+              0.5
+            ]
+          },
+          "validity": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "disocclusion": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "confidence": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "transition": {
+          "sourceFrameId": "frame/train-a-000",
+          "targetFrameId": "frame/train-a-001",
+          "reprojectionMatrix": [
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "atlasUpdate": {
+            "surfaceIds": [
+              "surface/cube-a-front",
+              "surface/floor-a-top"
+            ],
+            "confidenceMapSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        },
+        "style": {
+          "id": "style/fixture",
+          "version": "1",
+          "strength": 1,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "targetProvenance": {
+          "provider": "fixture",
+          "model": "fixture-model",
+          "version": "1",
+          "generationSeed": "target-seed-1",
+          "license": "CC0-1.0",
+          "sourceRevision": "fixture-rev",
+          "requestSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "artifacts": [
+          {
+            "role": "control-bundle",
+            "outputSource": "visible",
+            "path": "fixtures/schema/artifacts/train-1-control.bin",
+            "sha256": ""
+          },
+          {
+            "role": "control-bundle",
+            "outputSource": "semantic",
+            "path": "fixtures/schema/artifacts/train-1-control.bin",
+            "sha256": ""
+          },
+          {
+            "role": "target",
+            "outputSource": "target",
+            "path": "fixtures/schema/artifacts/train-1-target.bin",
+            "sha256": ""
+          }
+        ],
+        "contentSha256": ""
+      },
+      {
+        "schemaVersion": "control-sample/v2",
+        "id": "frame/test-b-000",
+        "sceneId": "scene/test-b",
+        "sceneSha256": "",
+        "sceneSeed": "seed-test-b",
+        "split": "test",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "",
+        "camera": {
+          "id": "camera/test-b-000",
+          "projection": "orthographic",
+          "rotX": 65,
+          "rotY": 45,
+          "zoom": 50,
+          "target": [
+            0,
+            0,
+            0
+          ],
+          "viewport": {
+            "width": 200,
+            "height": 100
+          },
+          "grid": {
+            "cols": 2,
+            "rows": 2
+          },
+          "fontSize": 16,
+          "lineHeight": 1,
+          "supersample": 1,
+          "renderMode": "solid"
+        },
+        "prompt": "a blue floor",
+        "geometryTags": [
+          "ground"
+        ],
+        "ascii": {
+          "width": 2,
+          "height": 2,
+          "visibleCells": [
+            "..",
+            ".."
+          ],
+          "semanticCells": [
+            "BB",
+            "BB"
+          ],
+          "outputSource": "glyphcss-control-frame/v1"
+        },
+        "controls": {
+          "winnerPolygon": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "semanticClassId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              2,
+              2,
+              2,
+              2
+            ]
+          },
+          "objectInstanceId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              "instance/test-floor",
+              "instance/test-floor",
+              "instance/test-floor",
+              "instance/test-floor"
+            ]
+          },
+          "surfaceId": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              "surface/test-floor-top",
+              "surface/test-floor-top",
+              "surface/test-floor-top",
+              "surface/test-floor-top"
+            ]
+          },
+          "depth": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0.8,
+              0.8,
+              0.8,
+              0.8
+            ]
+          },
+          "normal": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              1,
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              0
+            ]
+          },
+          "worldPosition": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              1,
+              0,
+              1
+            ]
+          },
+          "surfaceUv": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              1,
+              0,
+              0,
+              1,
+              1,
+              1
+            ]
+          },
+          "coverage": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "shade": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0.5,
+              0.5,
+              0.5,
+              0.5
+            ]
+          },
+          "validity": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "disocclusion": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              1,
+              1,
+              1,
+              1
+            ]
+          },
+          "confidence": {
+            "width": 2,
+            "height": 2,
+            "values": [
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        "style": {
+          "id": "style/fixture",
+          "version": "1",
+          "strength": 1,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "targetProvenance": {
+          "provider": "fixture",
+          "model": "fixture-model",
+          "version": "1",
+          "generationSeed": "target-seed-2",
+          "license": "CC0-1.0",
+          "sourceRevision": "fixture-rev",
+          "requestSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "artifacts": [
+          {
+            "role": "control-bundle",
+            "outputSource": "visible",
+            "path": "fixtures/schema/artifacts/test-0-control.bin",
+            "sha256": ""
+          },
+          {
+            "role": "control-bundle",
+            "outputSource": "semantic",
+            "path": "fixtures/schema/artifacts/test-0-control.bin",
+            "sha256": ""
+          },
+          {
+            "role": "target",
+            "outputSource": "target",
+            "path": "fixtures/schema/artifacts/test-0-target.bin",
+            "sha256": ""
+          }
+        ],
+        "contentSha256": ""
+      }
+    ],
+    "trajectories": [
+      {
+        "schemaVersion": "control-trajectory/v2",
+        "id": "trajectory/train-a",
+        "sceneId": "scene/train-a",
+        "sceneSha256": "",
+        "sceneSeed": "seed-train-a",
+        "split": "train",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "",
+        "frames": [
+          {
+            "frameId": "frame/train-a-000",
+            "cameraId": "camera/train-a-000",
+            "index": 0,
+            "nextFrameId": "frame/train-a-001"
+          },
+          {
+            "frameId": "frame/train-a-001",
+            "cameraId": "camera/train-a-001",
+            "index": 1,
+            "previousFrameId": "frame/train-a-000"
+          }
+        ],
+        "contentSha256": ""
+      },
+      {
+        "schemaVersion": "control-trajectory/v2",
+        "id": "trajectory/test-b",
+        "sceneId": "scene/test-b",
+        "sceneSha256": "",
+        "sceneSeed": "seed-test-b",
+        "split": "test",
+        "dictionaryId": "dictionary/mvp-v2",
+        "dictionarySha256": "",
+        "frames": [
+          {
+            "frameId": "frame/test-b-000",
+            "cameraId": "camera/test-b-000",
+            "index": 0
+          }
+        ],
+        "contentSha256": ""
+      }
+    ]
+  }
+}

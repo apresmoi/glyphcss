@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const context = await browser.newContext({ viewport: { width: 1400, height: 900 }, bypassCSP: true });
+const page = await context.newPage();
+await page.goto("http://localhost:4323/wordart?text=Hi&tilt=0&turn=0&cb=" + Date.now(), { waitUntil: "networkidle" });
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForTimeout(2000);
+await page.screenshot({ path: "/tmp/wa3_hardreload.png" });
+const pre = await page.locator(".wa-stage pre").first();
+console.log(await pre.textContent());
+await browser.close();
