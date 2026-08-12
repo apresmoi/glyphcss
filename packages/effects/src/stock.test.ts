@@ -1791,3 +1791,49 @@ describe("field-synth ink mode", () => {
     for (const g of dots) expect(g.codePointAt(0)).toBeGreaterThanOrEqual(0x2800);
   });
 });
+
+describe("field-synth per-voice frame and argmax", () => {
+  const render = (overrides: Record<string, number | string | boolean>) =>
+    evaluate(fieldSynth, { space: "scene", amp2: 0, ...overrides }, { withUv: true });
+
+  it("rotates a linear field by its own angle", () => {
+    const base = render({ field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1 });
+    const turned = render({ field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, angle1: 90 });
+    // 90° turns vertical stripes into horizontal ones: the same field, sampled
+    // along a different axis, so the rendered grid must differ.
+    expect(turned.glyph.join("")).not.toBe(base.glyph.join(""));
+    // ...and a rotation of a RADIAL field changes nothing, because its level
+    // sets are circles about the same centre.
+    const radial = render({ field1: "radial", wave1: "sin", freq1: 2, speed1: 0, amp1: 1 });
+    const radialTurned = render({ field1: "radial", wave1: "sin", freq1: 2, speed1: 0, amp1: 1, angle1: 37 });
+    expect(radialTurned.glyph.join("")).toBe(radial.glyph.join(""));
+  });
+
+  it("gives each voice its own origin", () => {
+    const centred = render({ field1: "radial", wave1: "sin", freq1: 3, speed1: 0, amp1: 1 });
+    const moved = render({ field1: "radial", wave1: "sin", freq1: 3, speed1: 0, amp1: 1, originU1: 0.4 });
+    expect(moved.glyph.join("")).not.toBe(centred.glyph.join(""));
+  });
+
+  it("argmax outputs flat regions keyed to the winning voice", () => {
+    const out = render({
+      combine: "argmax",
+      field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1,
+      field2: "linearY", wave2: "sin", freq2: 2, speed2: 0, amp2: 1,
+      field3: "diagonal", wave3: "sin", freq3: 2, speed3: 0, amp3: 1,
+    });
+    const inked = out.glyph.filter((g) => g !== " ");
+    expect(inked.length).toBeGreaterThan(0);
+    // Three active voices means at most three distinct levels — one flat tone
+    // per region — where a value-combining mode would spread across the ramp.
+    expect(new Set(inked).size).toBeLessThanOrEqual(3);
+
+    const blended = render({
+      combine: "max",
+      field1: "linearX", wave1: "sin", freq1: 2, speed1: 0, amp1: 1,
+      field2: "linearY", wave2: "sin", freq2: 2, speed2: 0, amp2: 1,
+      field3: "diagonal", wave3: "sin", freq3: 2, speed3: 0, amp3: 1,
+    });
+    expect(new Set(blended.glyph.filter((g) => g !== " ")).size).toBeGreaterThan(3);
+  });
+});

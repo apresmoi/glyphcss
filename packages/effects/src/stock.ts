@@ -1178,7 +1178,7 @@ export const ripple: GlyphStockEffectDefinition<typeof rippleSchema> = {
 export const SYNTH_VOICES = 6;
 export const SYNTH_FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
 export const SYNTH_WAVES = ["sin", "triangle", "saw", "square"] as const;
-export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
+export const SYNTH_COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
 
 // Exported so consumers (e.g. the website's `/synth` waveform trendlines) can
 // plot the exact same shape+phase math the engine evaluates, instead of a
@@ -1215,8 +1215,20 @@ function synthNoise3(x: number, y: number, z: number): number {
 }
 
 // One oscillator → value in ~[-amp, amp].
-function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number): number {
+function synthOsc(field: string, wave: string, freq: number, speed: number, amp: number, x: number, y: number, cx: number, cy: number, time: number, angle = 0): number {
   if (amp === 0) return 0;
+  if (angle !== 0) {
+    // Rotate the SAMPLE about this voice's own centre rather than rotating the
+    // field: radial/spiral then stay anchored where they were, and a linear
+    // field becomes a plane wave at `angle`.
+    const a = (-angle * Math.PI) / 180;
+    const dx = x - cx;
+    const dy = y - cy;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    x = cx + dx * ca - dy * sa;
+    y = cy + dx * sa + dy * ca;
+  }
   if (field === "noise") {
     return amp * (2 * synthNoise3(x * freq, y * freq, time * speed) - 1);
   }
@@ -1256,31 +1268,49 @@ const fieldSynthSchema = {
   freq1: { kind: "number", default: 3, min: 0, max: 24, step: 0.1, label: "Osc 1 freq" },
   speed1: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 1 speed" },
   amp1: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Osc 1 amp" },
+  angle1: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 1 angle" },
+  originU1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 1 origin U" },
+  originV1: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 1 origin V" },
   field2: { kind: "string", default: "angular", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 2 field" },
   wave2: { kind: "string", default: "saw", values: SYNTH_WAVES, animation: "discrete", label: "Osc 2 wave" },
   freq2: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 2 freq" },
   speed2: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 2 speed" },
   amp2: { kind: "number", default: 1, min: 0, max: 1, step: 0.05, label: "Osc 2 amp" },
+  angle2: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 2 angle" },
+  originU2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 2 origin U" },
+  originV2: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 2 origin V" },
   field3: { kind: "string", default: "linearX", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 3 field" },
   wave3: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 3 wave" },
   freq3: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 3 freq" },
   speed3: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 3 speed" },
   amp3: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 3 amp" },
+  angle3: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 3 angle" },
+  originU3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 3 origin U" },
+  originV3: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 3 origin V" },
   field4: { kind: "string", default: "linearY", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 4 field" },
   wave4: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 4 wave" },
   freq4: { kind: "number", default: 4, min: 0, max: 24, step: 0.1, label: "Osc 4 freq" },
   speed4: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 4 speed" },
   amp4: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 4 amp" },
+  angle4: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 4 angle" },
+  originU4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin U" },
+  originV4: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 4 origin V" },
   field5: { kind: "string", default: "diagonal", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 5 field" },
   wave5: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 5 wave" },
   freq5: { kind: "number", default: 6, min: 0, max: 24, step: 0.1, label: "Osc 5 freq" },
   speed5: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 5 speed" },
   amp5: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 5 amp" },
+  angle5: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 5 angle" },
+  originU5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin U" },
+  originV5: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 5 origin V" },
   field6: { kind: "string", default: "noise", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 6 field" },
   wave6: { kind: "string", default: "sin", values: SYNTH_WAVES, animation: "discrete", label: "Osc 6 wave" },
   freq6: { kind: "number", default: 5, min: 0, max: 24, step: 0.1, label: "Osc 6 freq" },
   speed6: { kind: "number", default: 0.4, min: -8, max: 8, step: 0.05, unit: "cyc/s", label: "Osc 6 speed" },
   amp6: { kind: "number", default: 0, min: 0, max: 1, step: 0.05, label: "Osc 6 amp" },
+  angle6: { kind: "number", default: 0, min: -180, max: 180, step: 1, unit: "°", label: "Osc 6 angle" },
+  originU6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin U" },
+  originV6: { kind: "number", default: 0, min: -1, max: 1, step: 0.01, label: "Osc 6 origin V" },
   combine: { kind: "string", default: "multiply", values: SYNTH_COMBINES, animation: "discrete", label: "Combine" },
   gain: { kind: "number", default: 1, min: 0, max: 4, step: 0.05, label: "Contrast" },
   bias: { kind: "number", default: 0.5, min: -1, max: 2, step: 0.05, label: "Brightness" },
@@ -1331,6 +1361,15 @@ interface SynthVoice {
   readonly speed: number;
   readonly amp: number;
   readonly color: string;
+  /** Degrees. Rotates this voice's sampling frame about its own origin, which
+   *  turns the three fixed linear fields into one continuously steerable plane
+   *  wave — the continuum where fine moiré lives. Radial is invariant to it. */
+  readonly angle: number;
+  /** Offset from the global origin, in the same normalized domain units, so two
+   *  radial voices can sit on DIFFERENT centres (the textbook interference
+   *  figure, unreachable at any voice count while the centre was shared). */
+  readonly originU: number;
+  readonly originV: number;
 }
 
 // Generated world-surface coordinates (space "surface", or "auto" without a
@@ -1397,6 +1436,55 @@ const BRAILLE_DOT_BITS: readonly (readonly [number, number, number, number])[] =
 // Same voice-fold as the main evaluate() loop below, minus the color
 // bookkeeping the main loop needs — used to resample the scalar field at each
 // of a cell's 8 Braille subcell offsets, where only the scalar matters.
+/**
+ * Evaluate the whole voice stack at one point. `winner` is only meaningful under
+ * `combine: "argmax"`, where the output is CATEGORICAL — which voice won, not
+ * how much it won by. Every other mode folds values as before and reports -1.
+ *
+ * argmax is what makes hard-edged tilings possible: the pairwise ops all return
+ * a value, so a region's shading keeps varying inside it, whereas selecting by
+ * identity gives each region one flat level (and, with per-voice colors, the
+ * winning voice's own colour).
+ */
+function evaluateVoices(
+  voices: readonly SynthVoice[],
+  combine: string,
+  x: number,
+  y: number,
+  cx: number,
+  cy: number,
+  time: number,
+): { combined: number; winner: number; active: number } {
+  let combined = 0;
+  let active = 0;
+  let best = -Infinity;
+  let winner = -1;
+  let winnerOrder = -1;
+  const argmax = combine === "argmax";
+  for (let k = 0; k < SYNTH_VOICES; k++) {
+    const voice = voices[k]!;
+    if (!(voice.amp > 0)) continue;
+    const vcx = cx + voice.originU;
+    const vcy = cy + voice.originV;
+    const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, vcx, vcy, time, voice.angle);
+    if (argmax) {
+      const contribution = voice.amp * o;
+      if (contribution > best) { best = contribution; winner = k; winnerOrder = active; }
+    } else if (active === 0) {
+      combined = voice.amp * o;
+    } else {
+      combined += voice.amp * (combineSynth(combine, combined, o) - combined);
+    }
+    active++;
+  }
+  if (argmax) {
+    // Evenly spaced flat levels across the range, one per ACTIVE voice, so the
+    // ramp (or ink) reads each region as a single constant tone.
+    combined = active > 1 ? (2 * winnerOrder + 1) / active - 1 : 0;
+  }
+  return { combined, winner, active };
+}
+
 function subcellFieldValue(
   voices: readonly SynthVoice[],
   combine: string,
@@ -1406,17 +1494,7 @@ function subcellFieldValue(
   cy: number,
   time: number,
 ): number {
-  let combined = 0;
-  let active = 0;
-  for (let k = 0; k < SYNTH_VOICES; k++) {
-    const voice = voices[k]!;
-    if (!(voice.amp > 0)) continue;
-    const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, cx, cy, time);
-    if (active === 0) combined = voice.amp * o;
-    else combined += voice.amp * (combineSynth(combine, combined, o) - combined);
-    active++;
-  }
-  return combined;
+  return evaluateVoices(voices, combine, x, y, cx, cy, time).combined;
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -1474,6 +1552,9 @@ function fieldSynthSubcellGradient<P extends AnyParams>(
 // per-voice mix-weight fold instead of re-deriving it.
 export function combineSynth(mode: string, a: number, b: number): number {
   switch (mode) {
+    // Pairwise, argmax can only report the winning VALUE; the winning identity
+    // is resolved by `evaluateVoices`, which sees the whole stack at once.
+    case "argmax": return Math.max(a, b);
     case "add": return a + b;
     case "max": return Math.max(a, b);
     case "min": return Math.min(a, b);
@@ -1563,12 +1644,12 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
       const cB = parseGlyphEffectColor(params.colorB);
       const useVoiceColors = params.voiceColors;
       const voices: readonly SynthVoice[] = [
-        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1 },
-        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2 },
-        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3 },
-        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4 },
-        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5 },
-        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6 },
+        { field: params.field1, wave: params.wave1, freq: params.freq1, speed: params.speed1, amp: params.amp1, color: params.color1, angle: params.angle1, originU: params.originU1, originV: params.originV1 },
+        { field: params.field2, wave: params.wave2, freq: params.freq2, speed: params.speed2, amp: params.amp2, color: params.color2, angle: params.angle2, originU: params.originU2, originV: params.originV2 },
+        { field: params.field3, wave: params.wave3, freq: params.freq3, speed: params.speed3, amp: params.amp3, color: params.color3, angle: params.angle3, originU: params.originU3, originV: params.originV3 },
+        { field: params.field4, wave: params.wave4, freq: params.freq4, speed: params.speed4, amp: params.amp4, color: params.color4, angle: params.angle4, originU: params.originU4, originV: params.originV4 },
+        { field: params.field5, wave: params.wave5, freq: params.freq5, speed: params.speed5, amp: params.amp5, color: params.color5, angle: params.angle5, originU: params.originU5, originV: params.originV5 },
+        { field: params.field6, wave: params.wave6, freq: params.freq6, speed: params.speed6, amp: params.amp6, color: params.color6, angle: params.angle6, originU: params.originU6, originV: params.originV6 },
       ];
       const parsedVoiceColors = useVoiceColors ? voices.map((voice) => parseGlyphEffectColor(voice.color)) : undefined;
       const time = params.time;
@@ -1589,40 +1670,45 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         );
         if (!coord) continue;
         const [x, y, cx, cy] = coord;
-        // Combine active oscillators (amp > 0). `amp` is a MIX WEIGHT, not a signal
-        // gain: the first voice enters at its weight; each later voice blends the
-        // result toward `combine(result, voice)` by its amp. So amp 0 = no effect
-        // (leaves the others clean), amp 1 = full combine, and low amp gently mixes
-        // — for every combine op, instead of `multiply` crushing the field to zero.
-        let combined = 0;
-        let active = 0;
-        // Two weight sums, both accumulated every pass: `cw` (amp * |osc|) is
-        // the true per-cell contribution and drives the normal blend; `caw`
-        // (amp alone) is always > 0 for an active voice and only feeds the
-        // fallback below, for cells where every voice sits on a zero-crossing.
+        // One evaluator for the whole stack (see `evaluateVoices`) so the
+        // scalar here, the 2x4 subcell probes and the ink gradient probes can
+        // never disagree about what the patch sounds like. `amp` is a MIX
+        // WEIGHT, not a signal gain: the first voice enters at its weight, each
+        // later voice blends the result toward `combine(result, voice)` by its
+        // amp. So amp 0 = no effect, amp 1 = full combine, low amp gently mixes
+        // instead of `multiply` crushing the field to zero.
+        const stack = evaluateVoices(voices, params.combine, x, y, cx, cy, time);
+        const combined = stack.combined;
+        const active = stack.active;
+        // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
+        // and drives the normal blend; `caw` (amp alone) is always > 0 for an
+        // active voice and only feeds the fallback below, for cells where every
+        // voice sits on a zero-crossing.
         let cr = 0, cg = 0, cbv = 0, cw = 0, co = 0;
-        let car = 0, cag = 0, cabv = 0, caw = 0, cao = 0;
-        for (let k = 0; k < SYNTH_VOICES; k++) {
-          const voice = voices[k]!;
-          if (!(voice.amp > 0)) continue;
-          const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, cx, cy, time);
-          if (active === 0) combined = voice.amp * o;
-          else combined += voice.amp * (combineSynth(params.combine, combined, o) - combined);
-          active++;
-          if (parsedVoiceColors) {
-            const w = voice.amp * Math.abs(o);
-            const c = parsedVoiceColors[k]!;
-            const r = (c.packed >> 16) & 0xff, g = (c.packed >> 8) & 0xff, b = c.packed & 0xff;
-            cr += r * w;
-            cg += g * w;
-            cbv += b * w;
-            co += c.opacity * w;
-            cw += w;
-            car += r * voice.amp;
-            cag += g * voice.amp;
-            cabv += b * voice.amp;
-            cao += c.opacity * voice.amp;
-            caw += voice.amp;
+        let car = 0, cag = 0, cabv = 0, cao = 0, caw = 0;
+        if (parsedVoiceColors) {
+          if (stack.winner >= 0) {
+            // argmax is categorical: the region belongs to ONE voice, so it
+            // takes that voice's colour flat rather than a blend of all of them.
+            const c = parsedVoiceColors[stack.winner]!;
+            cr = (c.packed >> 16) & 0xff; cg = (c.packed >> 8) & 0xff; cbv = c.packed & 0xff;
+            co = c.opacity; cw = 1;
+            car = cr; cag = cg; cabv = cbv; cao = co; caw = 1;
+          } else {
+            for (let k = 0; k < SYNTH_VOICES; k++) {
+              const voice = voices[k]!;
+              if (!(voice.amp > 0)) continue;
+              const o = synthOsc(
+                voice.field, voice.wave, voice.freq, voice.speed, 1,
+                x, y, cx + voice.originU, cy + voice.originV, time, voice.angle,
+              );
+              const w = voice.amp * Math.abs(o);
+              const c = parsedVoiceColors[k]!;
+              const r = (c.packed >> 16) & 0xff, g = (c.packed >> 8) & 0xff, b = c.packed & 0xff;
+              cr += r * w; cg += g * w; cbv += b * w; co += c.opacity * w; cw += w;
+              car += r * voice.amp; cag += g * voice.amp; cabv += b * voice.amp;
+              cao += c.opacity * voice.amp; caw += voice.amp;
+            }
           }
         }
         if (active === 0) continue;

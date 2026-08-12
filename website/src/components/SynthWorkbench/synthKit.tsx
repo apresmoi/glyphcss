@@ -55,7 +55,7 @@ export type Polys = ReturnType<typeof resolveGeometry>;
 export const MAX_VOICES = 6;
 export const FIELDS = ["radial", "linearX", "linearY", "diagonal", "angular", "spiral", "noise"] as const;
 export const WAVES = ["sin", "triangle", "saw", "square"] as const;
-export const COMBINES = ["add", "multiply", "max", "min", "difference"] as const;
+export const COMBINES = ["add", "multiply", "max", "min", "difference", "argmax"] as const;
 export const SPACES = ["auto", "surface", "scene"] as const;
 export const SUBCELL_RES = ["1x1", "2x4", "ink"] as const;
 export const SHAPES: string[] = ["plane", "cube", "sphere", "icosahedron", "dodecahedron", "octahedron", "cylinder", "cone", "torus", "tetrahedron"];
@@ -427,6 +427,7 @@ export function soloParams(params: Params, slot: number): Params {
   const base = synthDefaults();
   for (let k = 1; k <= MAX_VOICES; k++) base[`amp${k}`] = 0;
   base.field1 = params[`field${slot}`]; base.wave1 = params[`wave${slot}`];
+  base.angle1 = params[`angle${slot}`]; base.originU1 = params[`originU${slot}`]; base.originV1 = params[`originV${slot}`];
   base.freq1 = params[`freq${slot}`]; base.speed1 = params[`speed${slot}`]; base.amp1 = 1;
   base.space = params.space; base.scale = params.scale; base.glyphs = params.glyphs;
   base.voiceColors = params.voiceColors === true;
@@ -716,6 +717,9 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
         <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), 24)} style={fill(freqToSlider(num("freq"), 24), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, 24))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
+        <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>
+        <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin. Two radial voices on different centres is the classic interference figure."><span>orig u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`originU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
+        <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>orig v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`originV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
       </div>
     </div>
   );

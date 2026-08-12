@@ -9,7 +9,7 @@ import type { LoaderPreset } from "./loaders";
 const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
   Object.fromEntries(list.map((v) => [v, v])) as Record<string, T>;
 
-const COMBINE_OPTS = opts(["add", "multiply", "max", "min", "difference"] as const);
+const COMBINE_OPTS = opts(["add", "multiply", "max", "min", "difference", "argmax"] as const);
 const SPACE_OPTS = opts(["auto", "surface", "scene"] as const);
 /** Named character sets, same source /synth and the gallery pick from. The
  *  option VALUE is the ramp's NAME (not its glyphs), and "Custom" covers a
