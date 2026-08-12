@@ -850,7 +850,12 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
   useEffect(() => {
     rampCtrl?.setEnabled(!ramplessSubcell, { dim: true });
     charsCtrl?.setEnabled(!ramplessSubcell, { dim: true });
-  }, [rampCtrl, charsCtrl, ramplessSubcell]);
+    // Ink needs no explanatory block: the dimming says it, and the mode toggle
+    // sits directly above. A hover title is enough for the why.
+    const why = subcellIsInk ? "Ink contours the field, so it never reads the ramp." : "";
+    if (rampCtrl) rampCtrl.raw.$name.title = why;
+    if (charsCtrl) charsCtrl.raw.$name.title = why;
+  }, [rampCtrl, charsCtrl, ramplessSubcell, subcellIsInk]);
   // How many cuts through the amplitude axis to contour — only meaningful in
   // ink, so it appears with the mode rather than sitting inert.
   useSlider(subcellIsInk ? out : null, "Ink levels", { min: 1, max: 12, step: 1 }, Number(params.inkLevels ?? 4), (v) => onParam("inkLevels", v));
@@ -911,9 +916,7 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
           onSelect={selectRamp}
           disabledReason={subcellIs2x4
             ? "Subcell = 2x4 renders a Braille dot pattern, not the ramp — Ramp/Chars have no effect. Contrast/Brightness set the dot threshold instead."
-            : subcellIsInk
-              ? "Subcell = ink contours the field's shape, not its level — Ramp/Chars have no effect. Ink levels sets how many cuts through the amplitude axis are traced."
-              : undefined}
+            : undefined}
         />,
         rampDensitySlot,
       )}

@@ -110,7 +110,7 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
   useEffect(() => {
     for (const c of [ramp, chars]) {
       if (!c) continue;
-      if (subcellIs2x4) { c.raw.disable(); c.raw.$name.title = "This subcell mode synthesizes its own glyphs (Braille dots / contour strokes) and never reads the ramp — Chars/Ramp have no effect."; }
+      if (subcellIs2x4) { c.raw.disable(); c.raw.$name.title = "This subcell mode synthesizes its own glyphs and never reads the ramp."; }
       else { c.raw.enable(); c.raw.$name.title = ""; }
     }
   }, [ramp, chars, subcellIs2x4]);
