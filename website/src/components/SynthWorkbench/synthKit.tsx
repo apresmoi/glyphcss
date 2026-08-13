@@ -683,6 +683,16 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
  * it changes nothing, and the map should say so); angular/spiral get a ray,
  * since their phase reference does turn with `angle`.
  */
+/**
+ * Rotation only means something for a field that is not symmetric about its own
+ * centre. `radial` is `hypot(x - cx, y - cy)` — turning the sample frame leaves
+ * it identical — so its angle control is hidden rather than left as a knob that
+ * provably does nothing. Every other field responds: `angular`/`spiral` shift
+ * their phase reference, `noise` is sampled at rotated coordinates, and the
+ * linear family is the whole point of having the control.
+ */
+const angleApplies = (field: string): boolean => field !== "radial";
+
 export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }) {
   const size = 100;
   const baseAngle: Record<string, number> = { linearX: 0, linearY: 90, diagonal: 45 };
@@ -762,6 +772,20 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   }, []);
   useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
+  // Placement (angle/u/v) is the exception rather than the rule, so it folds
+  // away — but a patch that USES it should show it without being asked. The
+  // check spans the whole patch, not just this voice: Cube tiles leaves voice 1
+  // at 0° while turning 2 and 3, and one open card beside two shut ones reads
+  // as a glitch rather than a state.
+  const patchUsesPlacement = Array.from({ length: MAX_VOICES }, (_, k) => k + 1).some((v) =>
+    Number(params[`amp${v}`] ?? 0) > 0
+    && ((angleApplies(String(params[`field${v}`])) && Number(params[`angle${v}`] ?? 0) !== 0)
+      || Number(params[`originU${v}`] ?? 0) !== 0 || Number(params[`originV${v}`] ?? 0) !== 0));
+  const [placementOverride, setPlacementOverride] = useState<boolean | null>(null);
+  // Applying a preset flips `patchUsesPlacement`; clear any manual choice so the
+  // new patch decides, instead of a stale click hiding what it configured.
+  useEffect(() => { setPlacementOverride(null); }, [patchUsesPlacement]);
+  const placementOpen = placementOverride ?? patchUsesPlacement;
   return (
     <div className="voice-card" onPointerEnter={() => onHover?.(slot)} onPointerLeave={() => onHover?.(null)}>
       <div className="voice-left">
@@ -769,7 +793,6 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
           <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
         </svg>
-        <VoiceFieldMap params={params} slot={slot} />
         <span className="voice-preview" ref={setHost} />
       </div>
       <div className="voice-controls">
@@ -785,9 +808,25 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
         <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), 24)} style={fill(freqToSlider(num("freq"), 24), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, 24))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
-        <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>
+        <button
+          type="button"
+          className={`voice-placement-toggle${placementOpen ? " is-open" : ""}`}
+          onClick={() => setPlacementOverride(!placementOpen)}
+          title="Placement — where this voice's field is centred and which way it runs. Hidden until used, since most patches leave it alone."
+        >
+          {placementOpen ? "▾" : "▸"} placement
+        </button>
+        {placementOpen && (
+          <div className="voice-placement">
+            <VoiceFieldMap params={params} slot={slot} />
+            <div className="voice-placement-rows">
+        {angleApplies(f("field")) && <label className="voice-slider" title="Angle — rotates this voice's sampling frame about its own origin, in degrees. Turns the linear fields into a steerable plane wave; radial is invariant to it (its level sets are circles)."><span>angle</span><span className="voice-slider-track"><input type="range" min={-180} max={180} step={1} value={num("angle")} style={fill(num("angle"), -180, 180)} onChange={(e) => onParam(`angle${slot}`, +e.target.value)} /></span><b>{num("angle").toFixed(0)}°</b></label>}
         <label className="voice-slider" title="Origin U — offsets THIS voice's centre from the global origin. Two radial voices on different centres is the classic interference figure."><span>u</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originU")} style={fill(num("originU"), -1, 1)} onChange={(e) => onParam(`originU${slot}`, +e.target.value)} /></span><b>{num("originU").toFixed(2)}</b></label>
         <label className="voice-slider" title="Origin V — as Origin U, on the other axis."><span>v</span><span className="voice-slider-track"><input type="range" min={-1} max={1} step={0.01} value={num("originV")} style={fill(num("originV"), -1, 1)} onChange={(e) => onParam(`originV${slot}`, +e.target.value)} /></span><b>{num("originV").toFixed(2)}</b></label>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

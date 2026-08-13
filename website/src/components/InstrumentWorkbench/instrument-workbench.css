@@ -305,8 +305,19 @@
 /* Angle/u/v get their own diagram, exactly as freq/speed/mix have the waveform
    above: origin dot, travel direction, and a wavefront tick. Same 92px column
    width so the card reads as one stack of related views. */
+/* Placement group: folded away by default (most patches never touch it), with
+   the field diagram to the LEFT of its own three sliders — the same pairing the
+   waveform has with freq/speed/mix. */
+.voice-placement-toggle {
+  margin-top: 4px; padding: 1px 4px; align-self: flex-start;
+  font: inherit; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.45); background: none; border: 0; cursor: pointer;
+}
+.voice-placement-toggle:hover, .voice-placement-toggle.is-open { color: rgba(255, 232, 184, 0.8); }
+.voice-placement { display: flex; gap: 6px; align-items: stretch; margin-top: 2px; }
+.voice-placement-rows { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .voice-fieldmap {
-  display: block; width: 92px; height: 34px;
+  display: block; flex: 0 0 auto; width: 46px; align-self: stretch; height: auto;
   background: #02040a; border: 1px solid rgba(255, 232, 184, 0.1);
 }
 .voice-fieldmap-axis { stroke: rgba(255, 232, 184, 0.14); stroke-width: 1; vector-effect: non-scaling-stroke; }
