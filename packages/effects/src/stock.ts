@@ -1571,6 +1571,16 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
   // tessellation. No value-combining op can express it — inside a region a
   // folded value keeps varying, and the illusion needs constants. Per-voice
   // colours paint the three cube faces; the ramp keeps it readable unlit too.
+  // argmax regions traced as contours rather than shaded: an angular voice cuts
+  // the plane into wedges while two counter-rotating radials fight over them, so
+  // the winning region — and therefore the outline — keeps reorganising.
+  { name: "Ink cells", params: { combine: "argmax", subcellRes: "ink", inkLevels: 1,
+    scale: 0.9, gain: 1, bias: 0.4,
+    field1: "angular", wave1: "triangle", freq1: 8, speed1: 0.65, amp1: 1,
+    field2: "radial", wave2: "sin", freq2: 7, speed2: 1.3, amp2: 1,
+    field3: "radial", wave3: "sin", freq3: 4, speed3: -0.65, amp3: 0.7,
+    amp4: 0, amp5: 0, amp6: 0,
+    voiceColors: true, color: "#ff5aa8", colorB: "#48f7ff", gradient: 1, lit: 1 } },
   { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 1, bias: 0.5,
     // Drift, not shear: a rigid translation needs each wave's phase rate to be
     // its own normal projected on the drift direction, `speed = freq * (n · v)`.
