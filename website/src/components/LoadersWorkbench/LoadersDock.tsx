@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { getGlyphEffect, GlyphRamps } from "@glyphcss/effects";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
-import { IconToggle, LogSliderRow, SUBCELL_TOGGLE, SynthScope, VoiceFieldMap, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
+import { IconToggle, LogSliderRow, SUBCELL_TOGGLE, SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import type { LoaderPreset } from "./loaders";
 
 const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
@@ -128,13 +128,7 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
 
   return (
     <>
-      {scopeHost && createPortal(
-        <div className="dock-scope-row">
-          <SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
-          <VoiceFieldMap params={params} />
-        </div>,
-        scopeHost,
-      )}
+      {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
       {scaleSlot && createPortal(
         <LogSliderRow
           label="Scale"

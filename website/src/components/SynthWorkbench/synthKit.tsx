@@ -672,10 +672,10 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
 
 
 /**
- * The scope plots each voice as a 1D waveform, which is exactly the information
- * a voice's `angle` and origin do NOT live in — a waveform has no spatial axis,
- * so rotating a field or moving its centre leaves the trace identical. This is
- * the missing half: a plan view of WHERE each voice sits and WHICH WAY it runs.
+ * A voice's `angle` and origin live nowhere in its waveform — a 1D trace has no
+ * spatial axis, so rotating a field or moving its centre leaves it identical.
+ * This annotates the voice's own preview square with WHERE it sits and WHICH
+ * WAY it runs.
  *
  * Drawn per field family, because "direction" means something different in each:
  * a linear field gets an arrow along its propagation direction with a tick for
@@ -683,12 +683,11 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
  * it changes nothing, and the map should say so); angular/spiral get a ray,
  * since their phase reference does turn with `angle`.
  */
-export function VoiceFieldMap({ params }: { params: Params }) {
+export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }) {
   const size = 100;
   const baseAngle: Record<string, number> = { linearX: 0, linearY: 90, diagonal: 45 };
   const marks: ReactNode[] = [];
-  for (let slot = 1; slot <= MAX_VOICES; slot++) {
-    if (!(Number(params[`amp${slot}`] ?? 0) > 0)) continue;
+  {
     const field = String(params[`field${slot}`]);
     const color = String(params[`color${slot}`] ?? "#7df9ff");
     const ox = (0.5 + Number(params[`originU${slot}`] ?? 0)) * size;
@@ -725,16 +724,15 @@ export function VoiceFieldMap({ params }: { params: Params }) {
       );
     }
   }
+  // Overlaid on the voice's OWN preview rather than shown as a separate map:
+  // the preview already renders that voice's field, so the annotation lands on
+  // the thing it describes instead of asking you to correlate two pictures.
   return (
-    <div className="dock-fieldmap" aria-hidden="true">
-      <span className="dock-scope-label">Field</span>
-      <svg className="dock-fieldmap-plot" viewBox={`0 0 ${size} ${size}`}>
-        <rect x={0.5} y={0.5} width={size - 1} height={size - 1} className="dock-fieldmap-frame" />
-        <line x1={size / 2} y1={0} x2={size / 2} y2={size} className="dock-fieldmap-axis" />
-        <line x1={0} y1={size / 2} x2={size} y2={size / 2} className="dock-fieldmap-axis" />
-        {marks}
-      </svg>
-    </div>
+    <svg className="voice-fieldmap" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="none" aria-hidden="true">
+      <line x1={size / 2} y1={0} x2={size / 2} y2={size} className="voice-fieldmap-axis" />
+      <line x1={0} y1={size / 2} x2={size} y2={size / 2} className="voice-fieldmap-axis" />
+      {marks}
+    </svg>
   );
 }
 
@@ -770,7 +768,10 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
           <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
         </svg>
-        <span className="voice-preview" ref={setHost} />
+        <span className="voice-preview-wrap">
+          <span className="voice-preview" ref={setHost} />
+          <VoiceFieldMap params={params} slot={slot} />
+        </span>
       </div>
       <div className="voice-controls">
         <div className="voice-head">
@@ -963,13 +964,7 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
 
   return (
     <>
-      {scopeHost && createPortal(
-        <div className="dock-scope-row">
-          <SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
-          <VoiceFieldMap params={params} />
-        </div>,
-        scopeHost,
-      )}
+      {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
       {scaleSlot && createPortal(
         <LogSliderRow
           label="Scale"
