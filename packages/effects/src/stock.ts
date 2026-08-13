@@ -1260,7 +1260,9 @@ function lerpPacked(a: number, b: number, t: number): number {
 const fieldSynthSchema = {
   time: timeSpec,
   space: spaceSpec,
-  scale: { kind: "number", default: 2, min: 0.1, max: 12, step: 0.1, label: "Pattern scale" },
+  // 0.1 → 100 is exactly three decades, and the dial is logarithmic, so
+  // 0.1–1, 1–10 and 10–100 each get precisely a third of the track.
+  scale: { kind: "number", default: 2, min: 0.1, max: 100, step: 0.1, label: "Pattern scale" },
   originU: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Origin U" },
   originV: { kind: "number", default: 0.5, min: 0, max: 1, step: 0.01, label: "Origin V" },
   field1: { kind: "string", default: "radial", values: SYNTH_FIELDS, animation: "discrete", label: "Osc 1 field" },

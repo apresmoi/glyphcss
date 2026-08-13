@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { getGlyphEffect, GlyphRamps } from "@glyphcss/effects";
 import { useDockGui } from "../Dock/slots";
 import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
-import { IconToggle, LogSliderRow, SUBCELL_TOGGLE, SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
+import { IconToggle, LogSliderRow, SCALE_MAX, SCALE_MIN, SUBCELL_TOGGLE, SynthScope, type Params, type ParamValue } from "../SynthWorkbench/synthKit";
 import type { LoaderPreset } from "./loaders";
 
 const opts = <T extends string>(list: readonly T[]): Record<string, T> =>
@@ -134,8 +134,8 @@ export function LoadersDock({ loader, params, onParam, layerParams, onLayerParam
           label="Scale"
           title="Pattern scale — a multiplier on the sampled domain, so its effect is per RATIO, not per unit. The dial is logarithmic: equal travel per doubling."
           value={n("scale")}
-          min={0.1}
-          max={12}
+          min={SCALE_MIN}
+          max={SCALE_MAX}
           onChange={(v) => onParam("scale", v)}
         />,
         scaleSlot,

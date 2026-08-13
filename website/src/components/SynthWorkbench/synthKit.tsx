@@ -589,6 +589,10 @@ const FREQ_TAPER = 3;
 export const FREQ_MAX = Number(
   (fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).freq1?.max ?? 24,
 );
+/** Same rule for the pattern scale: bounds come from the schema, never a copy. */
+const scaleSpecOf = (fieldSynth.parameterSchema as unknown as Record<string, { min?: number; max?: number }>).scale;
+export const SCALE_MIN = Number(scaleSpecOf?.min ?? 0.1);
+export const SCALE_MAX = Number(scaleSpecOf?.max ?? 12);
 export const freqFromSlider = (pos: number, max: number): number => {
   const v = max * Math.pow(Math.min(1, Math.max(0, pos)), FREQ_TAPER);
   // Finer quantization down low, where the taper hands you the resolution: a
@@ -1014,8 +1018,8 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
           label="Scale"
           title="Pattern scale — a multiplier on the sampled domain, so its effect is per RATIO, not per unit. The dial is logarithmic: equal travel per doubling."
           value={n("scale")}
-          min={0.1}
-          max={12}
+          min={SCALE_MIN}
+          max={SCALE_MAX}
           onChange={(v) => onParam("scale", v)}
         />,
         scaleSlot,
