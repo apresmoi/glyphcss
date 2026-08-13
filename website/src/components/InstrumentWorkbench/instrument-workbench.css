@@ -300,7 +300,21 @@
 }
 .dock-scope {
   width: 100%;
+  min-width: 0;
 }
+/* Waveform and plan view side by side: the scope says WHAT each voice plays,
+   the field map says where it sits and which way it runs. Neither can carry the
+   other's information — a 1D trace has no spatial axis. */
+.dock-scope-row { display: flex; gap: 6px; align-items: flex-end; width: 100%; }
+.dock-fieldmap { flex: 0 0 auto; width: 62px; }
+.dock-fieldmap-plot {
+  width: 62px;
+  height: 56px;
+  background: #05070c;
+  border: 1px solid rgba(255, 232, 184, 0.14);
+}
+.dock-fieldmap-frame { fill: none; stroke: none; }
+.dock-fieldmap-axis { stroke: rgba(255, 232, 184, 0.16); stroke-width: 1; vector-effect: non-scaling-stroke; }
 /* The log-mapped Scale row reproduces lil-gui's own row markup so the dock
    stylesheet dresses it identically; the slot itself must not add chrome. */
 .dock-logrow-slot { display: contents; }

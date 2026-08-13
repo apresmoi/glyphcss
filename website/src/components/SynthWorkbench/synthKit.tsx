@@ -670,6 +670,74 @@ export function LogSliderRow({ label, title, value, min, max, onChange }: {
   );
 }
 
+
+/**
+ * The scope plots each voice as a 1D waveform, which is exactly the information
+ * a voice's `angle` and origin do NOT live in — a waveform has no spatial axis,
+ * so rotating a field or moving its centre leaves the trace identical. This is
+ * the missing half: a plan view of WHERE each voice sits and WHICH WAY it runs.
+ *
+ * Drawn per field family, because "direction" means something different in each:
+ * a linear field gets an arrow along its propagation direction with a tick for
+ * the wavefronts it pushes; radial gets a ring (it is angle-invariant — rotating
+ * it changes nothing, and the map should say so); angular/spiral get a ray,
+ * since their phase reference does turn with `angle`.
+ */
+export function VoiceFieldMap({ params }: { params: Params }) {
+  const size = 100;
+  const baseAngle: Record<string, number> = { linearX: 0, linearY: 90, diagonal: 45 };
+  const marks: ReactNode[] = [];
+  for (let slot = 1; slot <= MAX_VOICES; slot++) {
+    if (!(Number(params[`amp${slot}`] ?? 0) > 0)) continue;
+    const field = String(params[`field${slot}`]);
+    const color = String(params[`color${slot}`] ?? "#7df9ff");
+    const ox = (0.5 + Number(params[`originU${slot}`] ?? 0)) * size;
+    const oy = (0.5 + Number(params[`originV${slot}`] ?? 0)) * size;
+    const deg = Number(params[`angle${slot}`] ?? 0) + (baseAngle[field] ?? 0);
+    const rad = (deg * Math.PI) / 180;
+    const dx = Math.cos(rad), dy = Math.sin(rad);
+    const key = `v${slot}`;
+    if (field in baseAngle) {
+      const L = 30;
+      marks.push(
+        <g key={key} stroke={color} fill={color}>
+          <line x1={ox - dx * L} y1={oy - dy * L} x2={ox + dx * L} y2={oy + dy * L} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
+          {/* wavefront tick: perpendicular to travel */}
+          <line x1={ox - dy * 9} y1={oy + dx * 9} x2={ox + dy * 9} y2={oy - dx * 9} strokeWidth={1} opacity={0.55} vectorEffect="non-scaling-stroke" />
+          <circle cx={ox + dx * L} cy={oy + dy * L} r={2.6} stroke="none" />
+        </g>,
+      );
+    } else if (field === "radial" || field === "noise") {
+      marks.push(
+        <g key={key} stroke={color} fill="none">
+          <circle cx={ox} cy={oy} r={16} strokeWidth={1.2} strokeDasharray={field === "noise" ? "3 3" : undefined} vectorEffect="non-scaling-stroke" />
+          <circle cx={ox} cy={oy} r={2.6} fill={color} stroke="none" />
+        </g>,
+      );
+    } else {
+      const L = 30;
+      marks.push(
+        <g key={key} stroke={color} fill="none">
+          <path d={`M ${ox} ${oy} L ${ox + dx * L} ${oy + dy * L}`} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
+          <circle cx={ox} cy={oy} r={9} strokeWidth={1} opacity={0.55} vectorEffect="non-scaling-stroke" />
+          <circle cx={ox} cy={oy} r={2.6} fill={color} stroke="none" />
+        </g>,
+      );
+    }
+  }
+  return (
+    <div className="dock-fieldmap" aria-hidden="true">
+      <span className="dock-scope-label">Field</span>
+      <svg className="dock-fieldmap-plot" viewBox={`0 0 ${size} ${size}`}>
+        <rect x={0.5} y={0.5} width={size - 1} height={size - 1} className="dock-fieldmap-frame" />
+        <line x1={size / 2} y1={0} x2={size / 2} y2={size} className="dock-fieldmap-axis" />
+        <line x1={0} y1={size / 2} x2={size} y2={size / 2} className="dock-fieldmap-axis" />
+        {marks}
+      </svg>
+    </div>
+  );
+}
+
 export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
   slot: number; index: number; params: Params;
   onParam: (key: string, value: ParamValue) => void; onRemove: () => void;
@@ -693,7 +761,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
     const v = trendRef.current;
     path.setAttribute("d", buildWavePathD(v.wave, v.freq, v.speed, v.amp, t, 100, 30));
   }, []);
-  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
+  useSynthPreview(host, () => soloParams(params, slot), [params[`field${slot}`], params[`wave${slot}`], params[`freq${slot}`], params[`speed${slot}`], params[`color${slot}`], params[`angle${slot}`], params[`originU${slot}`], params[`originV${slot}`], params.voiceColors, params.space, params.scale, params.color, params.colorB, params.gradient, params.glyphs, host], onTick);
   const fill = (v: number, min: number, max: number) => ({ ["--fill" as string]: `${((v - min) / (max - min)) * 100}%` } as CSSProperties);
   return (
     <div className="voice-card" onPointerEnter={() => onHover?.(slot)} onPointerLeave={() => onHover?.(null)}>
@@ -895,7 +963,13 @@ export function SynthDock({ shape, onShape, timeScale, onTimeScale, paused, onPa
 
   return (
     <>
-      {scopeHost && createPortal(<SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />, scopeHost)}
+      {scopeHost && createPortal(
+        <div className="dock-scope-row">
+          <SynthScope paramsRef={paramsRef} tsRef={tsRef} pausedRef={pausedRef} />
+          <VoiceFieldMap params={params} />
+        </div>,
+        scopeHost,
+      )}
       {scaleSlot && createPortal(
         <LogSliderRow
           label="Scale"
