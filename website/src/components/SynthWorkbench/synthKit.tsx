@@ -583,6 +583,12 @@ export function SynthScope({ paramsRef, tsRef, pausedRef }: {
  * is a legal, meaningful value — a voice with no spatial variation).
  */
 const FREQ_TAPER = 3;
+/** Read from the schema rather than repeated here: the dial and the parameter
+ *  must agree, and a hardcoded copy silently clamps the control the moment the
+ *  effect's range changes. */
+export const FREQ_MAX = Number(
+  (fieldSynth.parameterSchema as unknown as Record<string, { max?: number }>).freq1?.max ?? 24,
+);
 export const freqFromSlider = (pos: number, max: number): number => {
   const v = max * Math.pow(Math.min(1, Math.max(0, pos)), FREQ_TAPER);
   // Finer quantization down low, where the taper hands you the resolution: a
@@ -805,7 +811,7 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
         </div>
         <IconToggle groupTitle="Wave — the oscillator shape sampled across this voice's field (hover a button for its shape)" options={WAVE_TOGGLE} value={f("wave")} onChange={(v) => onParam(`wave${slot}`, v)} />
         <IconToggle groupTitle="Field — how this voice's value varies spatially across the surface (hover a button for its shape)" options={FIELD_TOGGLE} value={f("field")} onChange={(v) => onParam(`field${slot}`, v)} />
-        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), 24)} style={fill(freqToSlider(num("freq"), 24), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, 24))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
+        <label className="voice-slider" title="Freq — spatial frequency: how many oscillation cycles this voice packs across the surface. Higher = tighter, more repetitions. The dial is tapered, so the low end where patterns actually live gets most of the travel."><span>freq</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.001} value={freqToSlider(num("freq"), FREQ_MAX)} style={fill(freqToSlider(num("freq"), FREQ_MAX), 0, 1)} onChange={(e) => onParam(`freq${slot}`, freqFromSlider(+e.target.value, FREQ_MAX))} /></span><b>{num("freq") < 2 ? num("freq").toFixed(2) : num("freq").toFixed(1)}</b></label>
         <label className="voice-slider" title="Speed — how fast this voice's phase animates over time. Negative reverses the direction of travel."><span>speed</span><span className="voice-slider-track"><input type="range" min={-8} max={8} step={0.05} value={num("speed")} style={fill(num("speed"), -8, 8)} onChange={(e) => onParam(`speed${slot}`, +e.target.value)} /></span><b>{num("speed").toFixed(2)}</b></label>
         <label className="voice-slider" title="Mix — a MIX WEIGHT, not a volume: blends the running result toward combine(result, this voice) by this amount. 0 skips the voice entirely; a low value still shows up gently instead of a mode like multiply collapsing the whole field to flat."><span>mix</span><span className="voice-slider-track"><input type="range" min={0} max={1} step={0.02} value={num("amp")} style={fill(num("amp"), 0, 1)} onChange={(e) => onParam(`amp${slot}`, +e.target.value)} /></span><b>{num("amp").toFixed(2)}</b></label>
         <button
