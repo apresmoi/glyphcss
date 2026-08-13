@@ -1581,7 +1581,7 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     field3: "radial", wave3: "sin", freq3: 4, speed3: -0.65, amp3: 0.7,
     amp4: 0, amp5: 0, amp6: 0,
     voiceColors: true, color: "#ff5aa8", colorB: "#48f7ff", gradient: 1, lit: 1 } },
-  { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 1, bias: 0.5,
+  { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 3, bias: 1,
     // Drift, not shear: a rigid translation needs each wave's phase rate to be
     // its own normal projected on the drift direction, `speed = freq * (n · v)`.
     // For normals at 0°/60°/120° moving along +x that ratio is 1 : 0.5 : -0.5 —

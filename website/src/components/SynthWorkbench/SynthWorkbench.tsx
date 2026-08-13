@@ -48,6 +48,12 @@ import "../GalleryWorkbench/gallery-workbench.css";
 // actually renders with.
 const SYNTH_EFFECT_BLEND: GlyphEffectBlend = "replace";
 
+/** Stage density a preset wants, by name. Only for patterns whose read depends
+ *  on cell size — everything else keeps whatever density you were already on. */
+const PRESET_DENSITY: Record<string, number> = {
+  "Cube tiles": 1.5,
+};
+
 import {
   MAX_VOICES,
   buildLighting,
@@ -185,10 +191,17 @@ export default function SynthWorkbench() {
   }, [params, shape, timeScale, density, voiceSlots, lighting]);
 
   const onParam = useCallback((key: string, value: ParamValue) => setParams((p) => ({ ...p, [key]: value })), []);
+  // Density is STAGE state, not part of the patch, so a `GlyphEffectPreset`
+  // cannot carry it — the same preset has to work on a loader tile, a mesh face
+  // and this viewport. A few patterns only read correctly at a particular cell
+  // size though, so the page keeps its own hint per preset name and applies it
+  // alongside the params.
   const applyPreset = useCallback((preset: GlyphEffectPreset<never>) => {
     const next = { ...synthDefaults(), ...(preset.params as Params) };
     setParams(next);
     setVoiceSlots(Array.from({ length: MAX_VOICES }, (_, i) => i + 1).filter((k) => Number(next[`amp${k}`]) > 0));
+    const stageDensity = PRESET_DENSITY[preset.name];
+    if (stageDensity !== undefined) setDensity(stageDensity);
   }, []);
 
   const addVoice = useCallback(() => {
