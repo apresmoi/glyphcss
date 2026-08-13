@@ -1564,6 +1564,24 @@ export function combineSynth(mode: string, a: number, b: number): number {
 }
 
 const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] = [
+  // Three plane waves 60° apart, selected by IDENTITY: argmax gives each region
+  // one flat tone, which is what turns a lattice into the rhombille/cube
+  // tessellation. No value-combining op can express it — inside a region a
+  // folded value keeps varying, and the illusion needs constants. Per-voice
+  // colours paint the three cube faces; the ramp keeps it readable unlit too.
+  { name: "Cube tiles", params: { combine: "argmax", scale: 12, gain: 1, bias: 0.5,
+    // Drift, not shear: a rigid translation needs each wave's phase rate to be
+    // its own normal projected on the drift direction, `speed = freq * (n · v)`.
+    // For normals at 0°/60°/120° moving along +x that ratio is 1 : 0.5 : -0.5 —
+    // equal speeds would pump the cells' areas instead of sliding the lattice.
+    field1: "linearX", wave1: "triangle", freq1: 1, speed1: 0.6, amp1: 1, angle1: 0,
+    field2: "linearX", wave2: "triangle", freq2: 1, speed2: 0.3, amp2: 1, angle2: 60,
+    field3: "linearX", wave3: "triangle", freq3: 1, speed3: -0.3, amp3: 1, angle3: 120,
+    // Exactly one glyph per region: with three voices the flat levels land on
+    // 0.167/0.5/0.833, and a ramp with a leading space puts the lowest of those
+    // on an exact .5 rounding boundary that floats to " " and punches holes.
+    amp4: 0, amp5: 0, amp6: 0, glyphs: "░▒█", voiceColors: true,
+    color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 } },
   { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
   { name: "Ring pulse", params: { field1: "radial", wave1: "sin", freq1: 6, speed1: 0.5, amp1: 1, originU: 0.35, field2: "radial", wave2: "sin", freq2: 6, speed2: -0.5, amp2: 1, amp3: 0, combine: "add", scale: 2.5, glyphs: " ·:+*oO0", color: "#7df9ff", gradient: 0 } },
   { name: "Plaid weave", params: { field1: "linearX", wave1: "square", freq1: 5, speed1: 0.4, amp1: 1, field2: "linearY", wave2: "square", freq2: 5, speed2: 0.4, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " ▏▎▍▌▋▊▉█", color: "#8affc1", colorB: "#3a6df0", gradient: 1 } },
