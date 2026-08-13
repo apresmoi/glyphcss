@@ -724,9 +724,10 @@ export function VoiceFieldMap({ params, slot }: { params: Params; slot: number }
       );
     }
   }
-  // Overlaid on the voice's OWN preview rather than shown as a separate map:
-  // the preview already renders that voice's field, so the annotation lands on
-  // the thing it describes instead of asking you to correlate two pictures.
+  // Its own diagram, sitting beside the waveform in the card's left column.
+  // The waveform is a dedicated read of freq/speed/mix; this is the same idea
+  // for angle/u/v. Painted OVER the rendered field it just fought the render —
+  // two different kinds of picture stacked on one another.
   return (
     <svg className="voice-fieldmap" viewBox={`0 0 ${size} ${size}`} preserveAspectRatio="none" aria-hidden="true">
       <line x1={size / 2} y1={0} x2={size / 2} y2={size} className="voice-fieldmap-axis" />
@@ -768,10 +769,8 @@ export function VoiceCard({ slot, index, params, onParam, onRemove, onHover }: {
           <line x1="0" y1="15" x2="100" y2="15" className="voice-trend-mid" />
           <path ref={pathRef} className="voice-trend-line" style={{ stroke: f("color") }} vectorEffect="non-scaling-stroke" fill="none" />
         </svg>
-        <span className="voice-preview-wrap">
-          <span className="voice-preview" ref={setHost} />
-          <VoiceFieldMap params={params} slot={slot} />
-        </span>
+        <VoiceFieldMap params={params} slot={slot} />
+        <span className="voice-preview" ref={setHost} />
       </div>
       <div className="voice-controls">
         <div className="voice-head">
