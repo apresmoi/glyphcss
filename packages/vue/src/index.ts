@@ -154,6 +154,7 @@ export {
   GlyphGround,
   GlyphHotspot,
   GlyphSceneContextKey,
+  useGlyphMesh,
   useGlyphSceneContext,
   findGlyphMeshHandle,
   pointInMeshElement,

@@ -53,6 +53,7 @@ scene. Template attributes are kebab-case (`:rot-x`, `:rot-y`, `:auto-center`).
 | Composable | Returns |
 |---|---|
 | `useGlyphSceneContext()` | The scene + camera handles available to any descendant of `<GlyphScene>` |
+| `useGlyphMesh(polygons, options?)` | Register a polygon list with the parent scene; returns `{ meshRef, loading }`. Accepts a plain array or a `ref`, and disposes the mesh on unmount |
 | `useGlyphCamera()` | The camera handle from the surrounding camera component |
 | `useGlyphAnimation(opts)` | Drive a `GlyphAnimationClip` from a mesh handle |
 
