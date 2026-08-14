@@ -65,7 +65,10 @@ describe("solid winner polygon capture", () => {
   });
 
   it("resolves fixture-side polygon → surface → instance → class → dictionary lineage for distinct instances of one class", () => {
-    const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "../../research/ascii-image-generation/fixtures/lineage/winner-lineage.json"), "utf8")) as {
+    // Lives with the package that tests it, not under `research/` — that directory
+    // is local-only exploration and is not part of the repo, so reaching into it
+    // passed locally and failed in CI.
+    const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "test/fixtures/winner-lineage.json"), "utf8")) as {
       dictionary: { classes: { id: number; semanticGlyph: string; color: string }[] };
       scene: {
         instances: { id: string; classId: number }[];
