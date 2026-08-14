@@ -181,6 +181,18 @@ recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame 
 | Colors | `colors=0` / `--no-colors` | on |
 | Recenter mesh | `autoCenter=1` / `--auto-center` | off |
 | Mesh optimize | `meshResolution` / `--mesh-resolution` | lossy |
+| Character encoding | `charMode` / `--char-mode` | ascii |
+| Hidden lines | `hiddenLines` / `--hidden-lines` | show |
+| Weighted ramp | `solidWeightRamp` (Node API only — it is step data, not a flag) | off |
+| Smooth shading | `smoothShading` `creaseAngle` / `--smooth-shading` | off / 60 |
+| Back faces | `doubleSided` | culled |
+| Supersample | `supersample` | 1 |
+| Semantic output | `glyphOutput` (with `sceneManifest` + `dictionary`) | visible |
+
+`charMode`, `hiddenLines` and `solidWeightRamp` are pure functions of geometry +
+camera, so a static bake reproduces them exactly. `wireframeJunctions` and
+per-mesh `density`/`transparent` are **runtime-only** — the static path takes a
+flat polygon list and cannot represent per-mesh detail layers.
 
 > **Textures:** per-cell texture sampling needs browser image decoding, so the
 > static compile renders from material / vertex colors.
@@ -200,6 +212,13 @@ const { html, pen, polygonCount } = buildGlyphInteractiveExport(polygons, {
 });
 // pen → { html, css, js } ready for a CodePen prefill (glyphCodepenPrefill)
 ```
+
+An optional `effect: { id, params, blend?, timeScale? }` mounts a live **stock**
+`@glyphcss/effects` layer in the snippet: it adds a second CDN import, resolves
+the effect by id at runtime, and — when `timeScale > 0` — appends a small
+`requestAnimationFrame` loop driving `params.time`. Only stock effects work here;
+a custom `defineGlyphEffect` cannot cross the CDN boundary. `glyphcss` itself
+never imports `@glyphcss/effects`, so that dependency only points one way.
 
 The **capability manifest** (`interactions`) drives two things:
 
@@ -255,3 +274,37 @@ Trade-offs: discrete angles (smoothness ∝ `frameCount`), fixed resolution, and
 payload = `frameCount × frame`. It only covers orbit (1 axis) — pan / fpv have too
 many camera states to bake, so those still use the [interactive](#interactive-export)
 mesh + runtime path.
+
+## Effect-only static export (field synth)
+
+For a scene whose camera and mesh are fixed and where only a **field-synth**
+texture animates, `buildGlyphFieldSynthStaticExport` bakes the static base grid
+plus each covered cell's resolved domain coordinate once, then ships a tiny
+hand-written field-synth evaluator that recomputes the pattern every frame —
+**zero imports, zero CDN, no `glyphcss` at runtime**.
+
+```ts
+import { buildGlyphFieldSynthStaticExport } from "@glyphcss/effects";
+
+const { html, pen } = buildGlyphFieldSynthStaticExport(polygons, {
+  params,          // the live field-synth patch
+  blend,           // the layer's REAL blend, not the definition's defaultBlend
+  loopSeconds: 8,
+  cols: 120,
+  rows: 40,
+});
+```
+
+Payload is fixed regardless of loop length and the motion is continuously
+smooth — unlike a frame roll, whose payload grows with `frameCount`. Two bakes
+shrink it further for the common flat-surface case: when every covered cell's
+domain coordinate fits an affine function of `(col, row)` within a tight
+residual, the per-cell coordinate table (normally ~86% of the payload) collapses
+to six fitted scalars; and when the effect covers every cell with
+`blend: "replace"` at opacity 1, the base grid is skipped too. A curved or
+partially covered surface fails those checks and keeps the full table.
+
+Field synth only: another effect id would need its own exported coordinate
+resolver plus a hand-written port of its per-cell math, since there is no way to
+ship an arbitrary `GlyphEffectProgram.evaluate()` without shipping the effect
+runtime with it.
