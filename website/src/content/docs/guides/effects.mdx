@@ -293,11 +293,34 @@ operator active voices are folded through, pairwise, in voice order. `gain`
 (contrast) and `bias` (brightness) then map the combined scalar to `0..1` for
 output: `value = clamp01(bias + gain * combined * 0.5)`.
 
+`combine: "argmax"` is the exception — it is **categorical**, not a fold. It
+reports *which* voice won a cell rather than by how much, giving every cell in
+a region one flat level (and, with `voiceColors`, the winning voice's own
+colour) instead of a value that keeps varying inside it. That is what makes
+hard-edged tilings reachable: three plane waves 60° apart under `argmax`
+produce the rhombille/cube tessellation, which no value-folding operator can
+express. Note `amp` stops being a mix weight there and becomes a comparison
+weight — a quiet voice simply loses everywhere rather than blending in.
+
 ### Placement: scale and origin
 
 `scale` sets pattern frequency without changing scene glyph density.
 `originU`/`originV` place the center that `radial`, `angular`, and `spiral`
-measure from. On generated surface coordinates (no usable authored UV),
+measure from.
+
+Each voice can also carry its **own** placement, which the global values are
+the baseline for:
+
+- `angleN` (degrees, default `0`) rotates that voice's sampling frame about
+  its own origin. This turns the three fixed linear fields into one steerable
+  plane wave — the continuum between them is where fine moiré lives (two
+  gratings a few degrees apart). It does nothing on `radial`, which is
+  symmetric about its centre: `hypot(x - cx, y - cy)` is unchanged by
+  rotation. `angular`, `spiral` and `noise` all respond.
+- `originUN`/`originVN` (default `0`) offset that voice's centre from the
+  global origin, in the same scaled domain units, so two `radial` voices can
+  sit on **different** centres — the classic interference figure, which was
+  unreachable at any voice count while the centre was shared. On generated surface coordinates (no usable authored UV),
 origin resolves **per face**: `originU: 0.5, originV: 0.5` centers the
 pattern on each visible face's own covered UV bounds rather than on one fixed
 point in world space, so radial/spiral patterns stay centered as the camera
@@ -309,7 +332,7 @@ moves between faces.
   not a random-pick character set — see [`GlyphRamps`](#glyphramps) below, or
   author a string such as `" .:-=+*#%@"`. A leading space renders a
   genuinely blank cell, giving the ramp a true dark step.
-- `subcellRes: "1x1" | "2x4"` (default `"1x1"`) swaps the ramp-indexed glyph
+- `subcellRes: "1x1" | "2x4" | "ink"` (default `"1x1"`) swaps the ramp-indexed glyph
   for a synthesized Braille pattern character at `"2x4"`: the combined field
   is resampled and thresholded at each of a cell's 8 dot positions and packed
   into one `U+2800`-block glyph — still exactly one glyph per cell, so it does
@@ -323,6 +346,21 @@ moves between faces.
 - `color` / `colorB` / `gradient` blend a single two-color gradient across
   the mapped value (`gradient: 0` is solid `color`, `1` is a full blend to
   `colorB`).
+  At `"ink"` it stops shading by level and **contours** the field instead, the
+  way `mode: "ink"` outlines geometry rather than filling it. `inkLevels`
+  (`1..12`, default `4`) cuts the amplitude axis into that many evenly spaced
+  levels (`n / (levels + 1)`, so neither extreme gets a degenerate line) and a
+  cell inks where a level falls *between* it and a neighbour — a real crossing,
+  which is what draws a continuous line rather than a scatter of near-level
+  marks. The stroke is oriented perpendicular to the local gradient into the
+  same four 45° buckets the geometry `ink` mode uses. Like that mode it draws
+  only lines: plateaus and interiors stay empty, and a square wave's flat crest
+  needs no special case because its step is an abrupt gradient the crossing test
+  already sees. `"ink"` ignores the ramp (as `"2x4"` does) and emits plain-ASCII
+  strokes, because box-drawing glyphs are missing from common monospace faces
+  and would desync the character grid. A contour of an oscillating field is
+  inherently dense — a `freq 6` voice crosses a level on most cells at 32×12 —
+  so legibility comes from *fewer* `inkLevels`, not a higher one.
 - `voiceColors` (boolean, default `false`) replaces that single gradient
   with a **per-voice** blend instead: each active voice's own `colorN` is
   mixed into the cell color weighted by that voice's contribution, so the
