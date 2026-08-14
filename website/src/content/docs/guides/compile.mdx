@@ -181,18 +181,20 @@ recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame 
 | Colors | `colors=0` / `--no-colors` | on |
 | Recenter mesh | `autoCenter=1` / `--auto-center` | off |
 | Mesh optimize | `meshResolution` / `--mesh-resolution` | lossy |
-| Character encoding | `charMode` / `--char-mode` | ascii |
-| Hidden lines | `hiddenLines` / `--hidden-lines` | show |
-| Weighted ramp | `solidWeightRamp` (Node API only — it is step data, not a flag) | off |
-| Smooth shading | `smoothShading` `creaseAngle` / `--smooth-shading` | off / 60 |
-| Back faces | `doubleSided` | culled |
-| Supersample | `supersample` | 1 |
-| Semantic output | `glyphOutput` (with `sceneManifest` + `dictionary`) | visible |
+| Smooth shading | `smoothShading` `creaseAngle` / `--smooth` | off / 60 |
+| Back faces | `doubleSided` / `--double-sided` | culled |
+| Supersample | `supersample` / `--supersample` | 1 |
+| Semantic output | `glyphOutput` / `--glyph-output` (with `sceneManifest` + `dictionary`) | visible |
 
 `charMode`, `hiddenLines` and `solidWeightRamp` are pure functions of geometry +
-camera, so a static bake reproduces them exactly. `wireframeJunctions` and
-per-mesh `density`/`transparent` are **runtime-only** — the static path takes a
-flat polygon list and cannot represent per-mesh detail layers.
+camera, so a static bake reproduces them exactly — but they are reachable only
+through `compileScene` (the pure function in `glyphcss`). `@glyphcss/compile`'s
+CLI, Vite plugin and `compileFile` do **not** accept them yet; call
+`compileScene` directly if you need them baked.
+
+`wireframeJunctions` and per-mesh `density`/`transparent` are **runtime-only**
+in every path — the static bake takes a flat polygon list and cannot represent
+per-mesh detail layers.
 
 > **Textures:** per-cell texture sampling needs browser image decoding, so the
 > static compile renders from material / vertex colors.

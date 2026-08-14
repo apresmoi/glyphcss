@@ -84,6 +84,31 @@ describe("GlyphSceneElement", () => {
     expect(host.getScene()).not.toBeNull();
   });
 
+  // `directional-direction` sat in observedAttributes but was never read, so the
+  // light stayed pinned to its default and the documented attribute did nothing.
+  it("reads directional-direction into the scene's light", () => {
+    host.setAttribute("directional-direction", "1,0,0");
+    host.setAttribute("directional-intensity", "0.75");
+    document.body.appendChild(camEl);
+    const light = host.getScene()?.getOptions().directionalLight;
+    expect(light?.direction).toEqual([1, 0, 0]);
+    expect(light?.intensity).toBe(0.75);
+  });
+
+  it("accepts directional-direction on its own", () => {
+    host.setAttribute("directional-direction", "0,-1,0");
+    document.body.appendChild(camEl);
+    expect(host.getScene()?.getOptions().directionalLight?.direction).toEqual([0, -1, 0]);
+  });
+
+  it("ignores a malformed directional-direction rather than throwing", () => {
+    host.setAttribute("directional-direction", "1,2");
+    host.setAttribute("directional-intensity", "0.5");
+    document.body.appendChild(camEl);
+    // Falls back to the default vector, keeping the intensity that parsed.
+    expect(host.getScene()?.getOptions().directionalLight?.intensity).toBe(0.5);
+  });
+
   it("dispatches glyphcss:scene-ready on connect", () => {
     let fired = false;
     host.addEventListener("glyphcss:scene-ready", () => { fired = true; });

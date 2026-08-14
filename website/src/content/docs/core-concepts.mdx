@@ -70,18 +70,18 @@ const camera = createGlyphPerspectiveCamera({
   rotX: 25, rotY: 0, distance: 3, zoom: 50, stretch: 1.0,
 });
 
-const scene = buildSceneContext({ camera, grid, wireframe: edges, mode: "wireframe" });
+const ctx = buildRasterizeContext({ camera, grid, polygons, mode: "solid" });
 
-// Renderer
-const frames = bakeFrames(scene, 60, "y");
+// Renderer — one pass, one string
+const text = rasterize(ctx);
 
-// Hit layer — same camera, same N angles
-for (let i = 0; i < 60; i++) {
-  camera.rotY = (i / 60) * 360;
-  const cells = projectHotspots(hotspots, camera, cols, rows, cellAspect);
-  // ...
-}
+// Hit layer — the SAME camera object, so it cannot disagree
+const cells = projectHotspots(hotspots, camera, grid.cols, grid.rows, grid.cellAspect);
 ```
+
+Mutating `camera.rotY` and re-running both calls is all "animation" is here:
+there is no baked sequence to keep in sync, and nothing caches a projection that
+could go stale.
 
 If you ever find yourself threading a separate "current angle" through projection,
 stop: one camera-state object feeds both the grid and the hotspots, and that is

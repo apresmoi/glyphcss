@@ -48,6 +48,13 @@ const OBSERVED_ATTRS = [
   "shadow-max-extend",
 ] as const;
 
+function parseVec3(value: string | null): [number, number, number] | undefined {
+  if (!value) return undefined;
+  const parts = value.split(",").map((p) => parseFloat(p.trim()));
+  if (parts.length !== 3 || parts.some((p) => !Number.isFinite(p))) return undefined;
+  return [parts[0]!, parts[1]!, parts[2]!];
+}
+
 function parseNumber(value: string | null): number | undefined {
   if (value == null) return undefined;
   const n = parseFloat(value);
@@ -150,8 +157,18 @@ export class GlyphSceneElement extends ELEMENT_BASE {
     if (rows !== undefined) opts.rows = rows;
     const cellAspect = parseNumber(this.getAttribute("cell-aspect"));
     if (cellAspect !== undefined) opts.cellAspect = cellAspect;
+    // `directional-direction` was in `OBSERVED_ATTRS` but never read, so the
+    // light direction was pinned to this default and the attribute silently did
+    // nothing. Either attribute alone now configures the light, with the other
+    // falling back — same "x,y,z" comma form `<glyph-mesh position>` uses.
+    const dirDirection = parseVec3(this.getAttribute("directional-direction"));
     const dirIntensity = parseNumber(this.getAttribute("directional-intensity"));
-    if (dirIntensity !== undefined) opts.directionalLight = { direction: [0.5, 0.7, 0.5], intensity: dirIntensity };
+    if (dirDirection !== undefined || dirIntensity !== undefined) {
+      opts.directionalLight = {
+        direction: dirDirection ?? [0.5, 0.7, 0.5],
+        intensity: dirIntensity ?? 1,
+      };
+    }
     const ambIntensity = parseNumber(this.getAttribute("ambient-intensity"));
     if (ambIntensity !== undefined) opts.ambientLight = { intensity: ambIntensity };
     if (this.hasAttribute("auto-size")) opts.autoSize = true;

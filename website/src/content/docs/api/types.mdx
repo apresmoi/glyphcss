@@ -1,6 +1,6 @@
 ---
 title: Core Types
-description: TypeScript types exported by glyph-core and glyphcss.
+description: TypeScript types exported by @glyphcss/core and glyphcss.
 ---
 
 All types below are exported from `@glyphcss/core` unless marked with `glyphcss`
@@ -14,7 +14,7 @@ All types below are exported from `@glyphcss/core` unless marked with `glyphcss`
 | `Vec3` | `[x, y, z]` tuple — world-space point or vector | Vertices, directions, hotspot anchors |
 | `Polygon` | N coplanar vertices + optional color/texture | Helper generators, mesh parsers |
 | `TextureTriangle` | 3 vertices + 3 UV pairs + optional color | Parser-internal type for UV-mapped meshes |
-| `WireframeEdge` | `from`/`to` Vec3 pair + optional weight/color | `buildSceneContext` wireframe mode |
+| `WireframeEdge` | `from`/`to` Vec3 pair + optional weight/color | `buildRasterizeContext` wireframe mode (`glyphcss`) |
 
 ```ts
 type Vec2 = [number, number];
@@ -114,8 +114,8 @@ Browser-only (detail layers measure the live cell size); works with any camera (
 
 | Type | Description | Used in |
 |---|---|---|
-| `GridSize` | `{ cols, rows, cellAspect }` | `buildSceneContext`, camera `project()` |
-| `SceneContext` | Resolved scene state used by the rasterizer | `buildSceneContext` return value |
+| `GridSize` | `{ cols, rows, cellAspect }` | `buildRasterizeContext`, camera `project()` |
+| `SceneContext` | Normalized polygons + scene bbox + warnings | `buildSceneContext({ polygons })` return value. The rasterizer takes `RasterizeContext` from `buildRasterizeContext`, not this |
 
 ```ts
 interface GridSize {
