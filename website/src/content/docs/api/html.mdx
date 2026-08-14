@@ -57,6 +57,10 @@ Root container. Owns the `<pre>` rasterisation output and the lighting state.
 | `glyph-palette` | string | Named palette: `default`, `detail`, `ascii`, `lines`, `blocks`, `dots`, `solid`, `braille`, `runes`, `stars`, `arrows`, `math`, `binary`, `hex` |
 | `char-mode` | `"ascii" \| "braille" \| "halfblock" \| "quadrant"` | Character encoding for rasterized output (default `"ascii"`). `"braille"` (wireframe-only) packs a 2×4 subcell dot grid into Unicode Braille Patterns for smoother edges. `"halfblock"` (solid-only) packs two independently colored subcells (top/bottom) into `▀`/`▄`/`█` for 2× vertical color resolution. `"quadrant"` (solid-only) generalizes that to a full 2×2 subcell split (16 possible glyphs) for both shape AND color resolution. Each is a documented no-op outside the mode it applies to |
 | `use-colors` | bool | Emit color spans in the output |
+| `wireframe-junctions` | flag | Box-drawing junction resolve pass (wireframe + `char-mode="ascii"` only): corners/T-junctions/crossings render from `┌┐└┘├┤┬┴┼─│` instead of a random per-edge glyph |
+| `hidden-lines` | `"show" \| "hide"` | Hidden-line removal for wireframe (+ braille) and `ink`. Default `show`. No-op in `solid`, which is already depth-buffered |
+| `glyph-output` | `"visible" \| "semantic"` | Default `visible`. `semantic` needs `sceneManifest` + `dictionary`, which are set as JS **properties** (they are data, not string attributes) |
+| `directional-direction` | `"x y z"` | Key-light source vector — the direction from the shaded surface *toward* the light |
 | `directional-intensity` | number | Key-light intensity |
 | `ambient-intensity` | number | Ambient fill intensity |
 | `auto-size` | flag | Auto-fit `cols`/`rows` to the host's box via ResizeObserver |
@@ -155,6 +159,7 @@ target plane.
 | `drag` | flag — enable drag |
 | `wheel` | flag — enable wheel zoom |
 | `invert` | flag or number — invert axis multiplier |
+| `clamp-pitch` | flag — stop the orbit pitch from passing over the poles |
 | `animate-speed` | Orbit-only: auto-rotation speed |
 | `animate-axis` | Orbit-only: `x` \| `y` \| `z` |
 

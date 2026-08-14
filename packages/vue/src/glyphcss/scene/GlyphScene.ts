@@ -61,6 +61,15 @@ export interface GlyphSceneProps {
    * during active temporal-blend reprojection.
    */
   solidWeightRamp?: GlyphSolidWeightRampStep[];
+  /**
+   * Smooth (Gouraud) shading: per-cell Lambert intensity interpolated from
+   * per-vertex normals averaged across adjacent polygons within `creaseAngle`.
+   * Default `false` — the faceted look is part of glyph's identity.
+   */
+  smoothShading?: boolean;
+  /** Max angle (degrees) between adjacent faces still averaged into one vertex
+   *  normal when `smoothShading` is on. Default `60`. */
+  creaseAngle?: number;
   useColors?: boolean;
   cols?: number;
   rows?: number;
@@ -101,6 +110,8 @@ export const GlyphScene = defineComponent({
     wireframeJunctions: { type: Boolean, default: undefined },
     hiddenLines: { type: String as PropType<"show" | "hide">, default: undefined },
     solidWeightRamp: { type: Array as PropType<GlyphSolidWeightRampStep[]>, default: undefined },
+    smoothShading: { type: Boolean, default: undefined },
+    creaseAngle: { type: Number, default: undefined },
     useColors: { type: Boolean, default: undefined },
     cols: { type: Number, default: undefined },
     rows: { type: Number, default: undefined },
@@ -135,6 +146,8 @@ export const GlyphScene = defineComponent({
       if (props.wireframeJunctions !== undefined) opts.wireframeJunctions = props.wireframeJunctions;
       if (props.hiddenLines !== undefined) opts.hiddenLines = props.hiddenLines;
       if (props.solidWeightRamp !== undefined) opts.solidWeightRamp = props.solidWeightRamp;
+      if (props.smoothShading !== undefined) opts.smoothShading = props.smoothShading;
+      if (props.creaseAngle !== undefined) opts.creaseAngle = props.creaseAngle;
       if (props.useColors !== undefined) opts.useColors = props.useColors;
       if (props.cols !== undefined) opts.cols = props.cols;
       if (props.rows !== undefined) opts.rows = props.rows;
@@ -170,6 +183,8 @@ export const GlyphScene = defineComponent({
         wireframeJunctions: props.wireframeJunctions,
         hiddenLines: props.hiddenLines,
         solidWeightRamp: props.solidWeightRamp,
+        smoothShading: props.smoothShading,
+        creaseAngle: props.creaseAngle,
         useColors: props.useColors,
         cols: props.cols,
         rows: props.rows,
@@ -196,6 +211,8 @@ export const GlyphScene = defineComponent({
         // `solidWeightRamp`'s "off" state IS `undefined` — always forward it
         // (like `shadow` below) so removing the prop actually clears the ramp.
         partial.solidWeightRamp = next.solidWeightRamp;
+        if (next.smoothShading !== undefined) partial.smoothShading = next.smoothShading;
+        if (next.creaseAngle !== undefined) partial.creaseAngle = next.creaseAngle;
         if (next.useColors !== undefined) partial.useColors = next.useColors;
         if (next.cols !== undefined) partial.cols = next.cols;
         if (next.rows !== undefined) partial.rows = next.rows;

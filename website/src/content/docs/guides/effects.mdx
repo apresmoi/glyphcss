@@ -255,6 +255,40 @@ rather than a 2D UV-domain frequency. A `scale` tuned for `"auto"`/`"surface"`
 on a given mesh will not carry over 1:1 to `"object"` on the same mesh —
 re-tune it after switching mapping.
 
+## Stock effect parameters
+
+Every stock effect also takes `time` (the clock you drive), and the mapping
+params `space` / `scale` where noted in [Composition and mapping](#composition-and-mapping).
+`direction` is `"up" | "down" | "left" | "right"`.
+
+| Effect | Parameters (with defaults) |
+|---|---|
+| `matrixRain` | `glyphs: "HOLA"`, `direction: "down"`, `space: "object"`, `speedMin: 5`, `speedMax: 12`, `trail: 14`, `density: 0.55`, `seed: 1`, `colorMode`, `color: "#00ff66"`, `headColor: "#d8ffe4"` |
+| `flowText` | `glyphs: "HOLA"`, `direction: "right"`, `speed: 6` (cells/s) |
+| `scan` | `speed: 10` (cells/s), `width: 3` (cells), `spacing: 28` (cells), `color: "#ffffff"` |
+| `wipe` | `progress: 0.5`, `softness: 0.04`, `direction`, `invert: false` |
+| `scramble` | `glyphs: "@#$%&*+=?"`, `amount: 0.35`, `rate: 10` (Hz), `seed: 1` |
+| `glitch` | `glyphs: "#%/=+!?"`, `amount: 0.28`, `rate: 12` (Hz), `bandSize: 4` (rows), `seed: 1`, `color: "#ff4fd8"` |
+| `noiseDissolve` | `progress: 0.5`, `softness: 0.08`, `scale: 0.22`, `seed: 1` |
+| `ripple` | `glyphs: "*+"`, `speed: 6`, `frequency: 0.5`, `width: 0.18`, `amount: 0.85`, `color: "#72d9ff"` |
+
+`wipe` and `noiseDissolve` are **masks**: they write coverage only, so they are
+built to be driven by their `progress` param rather than by `time` — that is how
+you get a determinate progress bar rather than a loop. Because they emit no
+glyph of their own, mount them with `blend: "replace"`; under `"over"` the
+compositor keeps `input × (1 - emitted)` and the masked-out region stays lit,
+so nothing appears to fill.
+
+Reading a schema at runtime rather than from this table:
+
+```ts
+import { getGlyphEffect, defaultGlyphEffectParams, GlyphEffectCatalog } from "@glyphcss/effects";
+
+const scan = getGlyphEffect("scan");            // by id, or iterate GlyphEffectCatalog
+const defaults = defaultGlyphEffectParams(scan); // every param at its default
+scan.parameterSchema.width;                      // { kind, default, min, max, step, unit, label }
+```
+
 ## Field synth
 
 `fieldSynth` is a small composable synth: up to six oscillators, each a
