@@ -45,7 +45,7 @@ export function App() {
       <GlyphScene>
         <GlyphOrbitControls drag wheel />
         <GlyphMesh geometry="cuboctahedron">
-          <GlyphHotspot at={[1, 0, 0]} onClick={() => alert("vertex")} />
+          <GlyphHotspot id="vertex" at={[1, 0, 0]} onClick={() => alert("vertex")} />
         </GlyphMesh>
       </GlyphScene>
     </GlyphCamera>
@@ -62,7 +62,7 @@ export function App() {
     <GlyphScene>
       <GlyphOrbitControls drag wheel />
       <GlyphMesh geometry="cuboctahedron">
-        <GlyphHotspot :at="[1, 0, 0]" @click="onClick" />
+        <GlyphHotspot id="vertex" :at="[1, 0, 0]" @click="onClick" />
       </GlyphMesh>
     </GlyphScene>
   </GlyphCamera>

@@ -14,22 +14,25 @@ Frame size:
 - 160×48 grid (typical): ~7,500 cells, ~3ms per frame
 - 240×72 grid (large): ~17,000 cells, ~6ms per frame
 
-The bake (60 frames × per-frame cost) happens once at init and then again only on
-drag-end / wheel-end. Each render pass is one projection + one string write — the
-renderer
-is a static `<pre>` and the browser composites the `translate3d` transform on the
-GPU.
+That cost is paid per render pass — one projection over all polygons plus one
+`textContent` assignment — and a pass runs only when the camera or scene actually
+changes. Between changes there is no work at all: the `<pre>` just sits there.
+
+Cost scales roughly with cell count, so it is **quadratic in density**: halving
+the cell size quadruples the cells. That is what `interactiveDownscale` exists
+for — render at `1/n` resolution while a control is dragging and restore full
+detail on release.
 
 ## When to drop hotspot count
 
-The hit layer's per-frame cost is `O(hotspots × N_frames)` during the bake. For
-60 hotspots and 60 frames, that's 3,600 projections per bake. Still fast (< 5ms)
-but you'll notice if you push past ~500 hotspots in one scene.
+The hit layer costs `O(hotspots)` per render pass — one projection and one
+inline-style assignment each. That is cheap, but it is paid on every pass, so a
+few hundred hotspots in one scene start to show.
 
 For "highlight every vertex" UIs, consider:
 - Group nearby vertices into one logical hotspot.
 - Render hotspots only for the front-facing hemisphere (skip backface verts).
-- Lower `N_frames` to 30 — half the bake cost, slight loss of rotation smoothness.
+- Hide hotspots you do not need rather than mounting and re-projecting them.
 
 ## Avoid steady-state JS
 
@@ -38,9 +41,10 @@ every frame, stop. The single-write render pass is designed to make that
 unnecessary. Two
 recipes that come up:
 
-**"I want the scene to react to scroll position":** map scroll to camera.rotY in
-chunks of `2π / 60`, debounce 100ms, re-bake. The user sees ~10fps of camera
-updates which feels smooth enough.
+**"I want the scene to react to scroll position":** map scroll to `camera.rotY`
+(**degrees** — glyphcss uses degrees everywhere, not radians) and call
+`scene.rerender()`. Throttle to whatever frame rate the grid size affords; a
+coarse grid can take every scroll event, a dense one wants a debounce.
 
 **"I want a continuous color pulse on a hotspot":** put the pulse on the hotspot's
 `<div>` directly. The hotspot div is real DOM — an inline `transform`

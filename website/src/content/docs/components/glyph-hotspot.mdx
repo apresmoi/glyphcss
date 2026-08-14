@@ -15,7 +15,7 @@ element.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `id` | `string` | required | Stable identifier for this hotspot |
-| `at` | `Vec3 \| string` | required | World-space anchor. Either `[x, y, z]` or a string like `"vertex:42"` |
+| `at` | `Vec3` | required | World-space anchor `[x, y, z]` |
 | `size` | `[number, number]` | `[1, 1]` | Hitbox size in character cells |
 | `onClick` | `MouseEventHandler` | — | Click handler |
 | `aria-label` | `string` | — | Accessibility label |
@@ -157,25 +157,20 @@ const rightHotspot = scene.addHotspot(
 
 ## Visibility
 
-Hotspots behind the camera get `opacity: 0` automatically. Add a CSS transition to
-fade them gracefully:
-
-```css
-.glyph-hotspot {
-  transition: opacity 200ms ease;
-}
-```
-
-The fade is free — the renderer writes `opacity: 0` into the keyframe at any frame
-where the anchor is behind the camera.
+A hotspot whose projected cell is not visible (behind the camera, or occluded)
+is hidden with `display: "none"` rather than faded — the renderer stages the
+style and applies it in the same single write as the rest of the frame. There is
+no opacity keyframe to hook a CSS transition onto; animate the element yourself
+if you want a fade.
 
 ## Anchors
 
-`at` accepts either an explicit `Vec3` or a string anchor:
+`at` is a world-space `Vec3`. String anchors (`"vertex:42"`, `"face:roof"`,
+`"centroid"`) are **not** implemented — resolve the coordinate yourself from the
+polygon data and pass the result:
 
-| Anchor | Resolves to |
-|---|---|
-| `[x, y, z]` | World-space coordinate |
-| `"vertex:42"` | Vertex index 42 of the parent mesh |
-| `"face:roof"` | Named face (requires mesh authoring) |
-| `"centroid"` | Mesh centroid |
+```ts
+const centroid = polygons
+  .flatMap((p) => p.vertices)
+  .reduce((a, v, _i, all) => [a[0] + v[0] / all.length, a[1] + v[1] / all.length, a[2] + v[2] / all.length], [0, 0, 0]);
+```

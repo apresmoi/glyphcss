@@ -180,12 +180,12 @@ mouselook, WASD/arrow move, Space jump, Ctrl crouch.
 ## Scene-ready handshake
 
 Custom elements register asynchronously. If you need to call imperative
-methods on the scene from JavaScript, listen for `glyph-scene-ready` on
+methods on the scene from JavaScript, listen for `glyphcss:scene-ready` on
 the `<glyph-scene>` element:
 
 ```ts
 const sceneEl = document.querySelector("glyph-scene")!;
-sceneEl.addEventListener("glyph-scene-ready", (ev) => {
+sceneEl.addEventListener("glyphcss:scene-ready", (ev) => {
   const scene = (ev.target as any).getScene();
   scene.addHotspot({ id: "runtime", at: [0, 0, 1] }, () => alert("clicked"));
 });

@@ -45,7 +45,7 @@ interface WireframeEdge {
 
 | Type | Description | Used in |
 |---|---|---|
-| `RenderMode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `SceneContextOptions.mode`, all framework props |
+| `RenderMode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `RasterizeContextOptions.mode`, all framework props |
 | `CharRamp` | `string[]` — index 0 = darkest, last = brightest | Solid-mode Lambert → glyph mapping |
 | `EdgeWeight` | `1 \| 2 \| 3` — thin / normal / core | `WireframeEdge.weight` |
 
@@ -59,8 +59,8 @@ type EdgeWeight = 1 | 2 | 3;
 
 | Type | Description | Used in |
 |---|---|---|
-| `GlyphDirectionalLight` | Single distant light source | `SceneContextOptions.directionalLight` |
-| `GlyphAmbientLight` | Uniform fill light | `SceneContextOptions.ambientLight` |
+| `GlyphDirectionalLight` | Single distant light source | `GlyphSceneOptions.directionalLight` |
+| `GlyphAmbientLight` | Uniform fill light | `GlyphSceneOptions.ambientLight` |
 
 ```ts
 interface GlyphDirectionalLight {
@@ -79,7 +79,7 @@ interface GlyphAmbientLight {
 
 | Type | Description | Used in |
 |---|---|---|
-| `GlyphShadowOptions` | Shadow-map configuration. `undefined` on the scene = shadows off | `SceneContextOptions.shadow`, `<GlyphScene shadow={…}>` |
+| `GlyphShadowOptions` | Shadow-map configuration. `undefined` on the scene = shadows off | `GlyphSceneOptions.shadow`, `<GlyphScene shadow={…}>` |
 
 ```ts
 interface GlyphShadowOptions {
@@ -115,7 +115,7 @@ Browser-only (detail layers measure the live cell size); works with any camera (
 | Type | Description | Used in |
 |---|---|---|
 | `GridSize` | `{ cols, rows, cellAspect }` | `buildRasterizeContext`, camera `project()` |
-| `SceneContext` | Normalized polygons + scene bbox + warnings | `buildSceneContext({ polygons })` return value. The rasterizer takes `RasterizeContext` from `buildRasterizeContext`, not this |
+| `SceneContext` | Normalized polygons + scene bbox + warnings | The `.context` field of `buildSceneContext({ polygons })`'s `SceneContextBuildResult`. The rasterizer takes `RasterizeContext` from `buildRasterizeContext`, not this |
 
 ```ts
 interface GridSize {

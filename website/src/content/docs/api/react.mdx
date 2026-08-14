@@ -142,11 +142,13 @@ export function App() {
 
 ## Re-exports from `@glyphcss/core`
 
-`@glyphcss/react` re-exports the full `@glyphcss/core` surface — every
-polygon factory (`cubePolygons`, `dodecahedronPolygons`, …), the
-`resolveGeometry` registry, the math primitives, and the mesh parsers
-(`loadMesh`, `parseObj`, `parseGltf`, `parseVox`). You usually only need
-to import from `@glyphcss/react`.
+`@glyphcss/react` re-exports a curated slice of `@glyphcss/core` — the polygon
+factories (`cubePolygons`, `dodecahedronPolygons`, …), the `resolveGeometry`
+registry, the math primitives, and the mesh parsers (`loadMesh`, `parseObj`,
+`parseGltf`, `parseVox`, `parseStl`). It is not the *whole* surface: mesh ops
+such as `decimatePolygons`, `dedupeOverlappingPolygons` and `recenterPolygons`,
+plus the quaternion helpers, are only in `@glyphcss/core` — import those from
+there directly.
 
 ## See also
 
