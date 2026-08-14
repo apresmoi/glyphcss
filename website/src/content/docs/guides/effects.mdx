@@ -370,7 +370,7 @@ moves between faces.
   Lambert shade, so scene lighting reads through the texture; `lit: 0` is
   flat/unlit.
 
-`fieldSynth` shares the same `space: "auto" | "surface" | "scene"` mapping
+`fieldSynth` shares the same `space: "auto" | "surface" | "scene" | "object"` mapping
 described [above](#composition-and-mapping).
 
 ### Example
@@ -516,7 +516,7 @@ spatial program, retained frames, composition, and final write.
 
 ## Current boundary
 
-The implemented runtime accepts `baseColor`, `baseShade`, `depth`, `normal`,
+The implemented runtime accepts `baseColor`, `baseShade`, `depth`, `normal`, `objectPosition`,
 `worldPosition`, and `uv0` program inputs, plus the invariant base/input glyph
 and coverage buffers. Hard surface requirements require solid mode;
 `optionalRequirements` let a program request those retained fields while still

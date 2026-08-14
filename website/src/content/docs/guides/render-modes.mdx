@@ -522,8 +522,10 @@ scene.add(polygons);
   </TabItem>
 </Tabs>
 
-Each face's color (from the VOX palette) maps to a glyph density — bright colors
-become `#` / `@`, dim colors become `.` / `:`. Back faces are culled.
+Today `voxel` routes through the wireframe rasterizer rather than owning a
+separate path (`// wireframe (and voxel falls through to wireframe for now)` in
+`rasterize.ts`), so it renders cell-aligned geometry as edges. The colour →
+glyph-density mapping described for a dedicated voxel pass does not exist yet.
 
 Best for: voxel art, chunky low-poly aesthetics.
 
@@ -532,7 +534,7 @@ Best for: voxel art, chunky low-poly aesthetics.
 Oriented silhouette + crease outline mode: detects view-dependent silhouette
 edges (front-facing/back-facing sign flip across a shared triangle edge) and
 fixed dihedral-angle crease edges, chains them into contours, smooths the
-screen-space tangent along each chain, and picks a glyph — `_ / | \ - ‾` — that
+screen-space tangent along each chain, and picks a glyph — `_ / | \ - ‾ ▏ ▕` — that
 traces the local contour direction. Interior cells stay empty; hatching and
 texture fills are a future effect-layer concern, not baked into this mode.
 
@@ -675,9 +677,11 @@ Shadow fields (`GlyphShadowOptions`):
 ## Built-in `geometry` attribute
 
 The `<glyph-mesh>` custom element and the `GlyphMesh` component accept a
-`geometry` string shortcut for three built-in shapes. These are runtime-internal
-presets, not public core helpers — for procedural code use the `@glyphcss/core`
-generators instead.
+`geometry` string shortcut for any name in `GlyphGeometryName` — a public
+registry of ~44 shapes in `@glyphcss/core` (every Platonic, Archimedean and
+Catalan solid, plus `sphere`, `cylinder`, `cone`, `torus`, `pyramid`, `prism`
+and more), resolved by the exported `resolveGeometry`. An unknown name throws
+`Unknown geometry`. A few of the most-used values:
 
 | Value | Shape | Notes |
 |---|---|---|

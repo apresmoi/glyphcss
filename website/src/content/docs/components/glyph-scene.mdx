@@ -19,7 +19,7 @@ keyframes consume.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `mode` | `"wireframe" \| "solid" \| "voxel"` | `"solid"` | Render mode |
+| `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | `"solid"` | Render mode |
 | `cols` | `number` | `80` | Grid width in character columns |
 | `rows` | `number` | `24` | Grid height in character rows |
 | `cellAspect` | `number` | `2.0` | Character cell height ÷ width |
@@ -292,7 +292,11 @@ const directionalLight = { direction: [0.5, 0.7, 0.5], intensity: 1 };
     <glyph-mesh geometry="dodecahedron" color="#4488ff"
       cast-shadow receive-shadow
     ></glyph-mesh>
-    <glyph-mesh geometry="ground" receive-shadow></glyph-mesh>
+    <!-- There is no "ground" geometry name: `GlyphGround` is a React/Vue
+         component only. From HTML, use a large flat mesh as the receiver. -->
+    <glyph-mesh geometry="cube" scale="12 12 0.1" position="0 0 -2"
+      receive-shadow
+    ></glyph-mesh>
   </glyph-scene>
 </glyph-perspective-camera>
 ```
