@@ -1456,6 +1456,7 @@ function evaluateVoices(
   cx: number,
   cy: number,
   time: number,
+  scale: number,
 ): { combined: number; winner: number; active: number } {
   let combined = 0;
   let active = 0;
@@ -1466,8 +1467,11 @@ function evaluateVoices(
   for (let k = 0; k < SYNTH_VOICES; k++) {
     const voice = voices[k]!;
     if (!(voice.amp > 0)) continue;
-    const vcx = cx + voice.originU;
-    const vcy = cy + voice.originV;
+    // Same units as the global origin, which `fieldSynthCoordinate` already
+    // scaled (`originU * scale`) — adding a raw offset here made a voice's
+    // centre drift by half the grid at scale 2 and by 1% of it at scale 100.
+    const vcx = cx + voice.originU * scale;
+    const vcy = cy + voice.originV * scale;
     const o = synthOsc(voice.field, voice.wave, voice.freq, voice.speed, 1, x, y, vcx, vcy, time, voice.angle);
     if (argmax) {
       const contribution = voice.amp * o;
@@ -1495,8 +1499,9 @@ function subcellFieldValue(
   cx: number,
   cy: number,
   time: number,
+  scale: number,
 ): number {
-  return evaluateVoices(voices, combine, x, y, cx, cy, time).combined;
+  return evaluateVoices(voices, combine, x, y, cx, cy, time, scale).combined;
 }
 
 // Reconstructs the per-cell coordinate gradient (change in resolved (x, y)
@@ -1589,9 +1594,12 @@ const fieldSynthPresets: readonly GlyphEffectPreset<typeof fieldSynthSchema>[] =
     field1: "linearX", wave1: "triangle", freq1: 1, speed1: 0.6, amp1: 1, angle1: 0,
     field2: "linearX", wave2: "triangle", freq2: 1, speed2: 0.3, amp2: 1, angle2: 60,
     field3: "linearX", wave3: "triangle", freq3: 1, speed3: -0.3, amp3: 1, angle3: 120,
-    // Exactly one glyph per region: with three voices the flat levels land on
-    // 0.167/0.5/0.833, and a ramp with a leading space puts the lowest of those
-    // on an exact .5 rounding boundary that floats to " " and punches holes.
+    // At gain 3 / bias 1 the three argmax levels clamp to {0, 1, 1}: the two lit
+    // faces paint solid blocks in their voice colour, and the third lands on 0
+    // and is skipped — the unpainted cells ARE the cube's shadowed face, which
+    // is why this looks right despite ~a third of the grid staying blank. The
+    // level sits exactly on the `value <= 0` boundary, so it is deliberate but
+    // fragile; bias 0.95 would push it clearly negative for the same picture.
     amp4: 0, amp5: 0, amp6: 0, glyphs: "░▒█", voiceColors: true,
     color1: "#f4f4f4", color2: "#d0d0d0", color3: "#6b6b6b", gradient: 0 } },
   { name: "Sunburst", params: { field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1, field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1, amp3: 0, combine: "multiply", scale: 2, glyphs: " .:-=+*#%@", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6 } },
@@ -1707,7 +1715,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
         // later voice blends the result toward `combine(result, voice)` by its
         // amp. So amp 0 = no effect, amp 1 = full combine, low amp gently mixes
         // instead of `multiply` crushing the field to zero.
-        const stack = evaluateVoices(voices, params.combine, x, y, cx, cy, time);
+        const stack = evaluateVoices(voices, params.combine, x, y, cx, cy, time, scale);
         const combined = stack.combined;
         const active = stack.active;
         // Two weight sums: `cw` (amp * |osc|) is the true per-cell contribution
@@ -1730,7 +1738,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               if (!(voice.amp > 0)) continue;
               const o = synthOsc(
                 voice.field, voice.wave, voice.freq, voice.speed, 1,
-                x, y, cx + voice.originU, cy + voice.originV, time, voice.angle,
+                x, y, cx + voice.originU * scale, cy + voice.originV * scale, time, voice.angle,
               );
               const w = voice.amp * Math.abs(o);
               const c = parsedVoiceColors[k]!;
@@ -1753,7 +1761,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
             sceneCols, sceneRows, generatedSurface, x, y,
           );
           const sample = (ox: number, oy: number): number =>
-            clamp01(params.bias + params.gain * subcellFieldValue(voices, params.combine, x + ox, y + oy, cx, cy, time) * 0.5);
+            clamp01(params.bias + params.gain * subcellFieldValue(voices, params.combine, x + ox, y + oy, cx, cy, time, scale) * 0.5);
           const right = sample(dxCol, dyCol);
           const down = sample(dxRow, dyRow);
           const gx = right - value;
@@ -1782,7 +1790,7 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema> = {
               const fy = (dotRow + 0.5) / 4 - 0.5;
               const subX = x + fx * dxCol + fy * dxRow;
               const subY = y + fx * dyCol + fy * dyRow;
-              const subCombined = subcellFieldValue(voices, params.combine, subX, subY, cx, cy, time);
+              const subCombined = subcellFieldValue(voices, params.combine, subX, subY, cx, cy, time, scale);
               const subValue = clamp01(params.bias + params.gain * subCombined * 0.5);
               if (subValue > 0.5) mask |= BRAILLE_DOT_BITS[dotCol]![dotRow]!;
             }
