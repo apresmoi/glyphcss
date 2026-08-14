@@ -76,6 +76,7 @@ export {
   bakeSolidTextureSampledPolygons,
   loadMesh,
   createIsometricCamera,
+  parseStl,
   parseVox,
   polygonFaces,
   computeShapeLighting,

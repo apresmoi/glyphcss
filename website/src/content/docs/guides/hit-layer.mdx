@@ -41,13 +41,14 @@ const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" 
 Each `<GlyphHotspot>` becomes:
 
 ```html
-<div class="glyph-hotspot" data-hotspot-id="roof"
-     style="position: absolute; left: …; top: …; width: 1ch; height: 1ch">
-  <span class="badge">Roof</span>
+<div class="glyph-hotspot" data-hotspot-id="top"
+     style="position: absolute; left: …; top: …; width: 1ch; height: 2ch">
+  <span class="badge">Top</span>
 </div>
 ```
 
-`left`/`top` are reassigned inline each render from the same camera projection
+The height is `size[1] × cellAspect` ch — 2ch at the default aspect — so the box
+covers a whole character cell. `left`/`top` are reassigned inline each render from the same camera projection
 that produced the character grid, anchored at the **cell centre** — the
 `.glyph-hotspot` rule applies `transform: translate(-50%, -50%)`. There is no
 `role`; add your own semantics if the hotspot is interactive.

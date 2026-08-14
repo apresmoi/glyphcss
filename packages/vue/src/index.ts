@@ -71,6 +71,7 @@ export {
   bakeSolidTextureSampledPolygons,
   loadMesh,
   createIsometricCamera,
+  parseStl,
   parseVox,
   polygonFaces,
   computeShapeLighting,
@@ -191,7 +192,9 @@ export type {
   GlyphFirstPersonControlsProps,
   GlyphAxesHelperProps,
   GlyphDirectionalLightHelperProps,
-  UseGlyphAnimationResultVue,
+  UseGlyphAnimationResult,
+  UseGlyphMeshOptions,
+  UseGlyphMeshResult,
 } from "./glyphcss";
 
 // ── Mesh handle type ──────────────────────────────────────────────────────────

@@ -10,6 +10,8 @@ export type {
   GlyphGroundProps,
   GlyphHotspotProps,
   GlyphSceneContextValue,
+  UseGlyphMeshOptions,
+  UseGlyphMeshResult,
 } from "./scene";
 
 // ── Camera ──────────────────────────────────────────────────────────────────
@@ -41,4 +43,4 @@ export { injectGlyphBaseStyles } from "./styles";
 
 // ── Animation ───────────────────────────────────────────────────────────────
 export { useGlyphAnimation } from "./animation/useGlyphAnimation";
-export type { UseGlyphAnimationResultVue } from "./animation/useGlyphAnimation";
+export type { UseGlyphAnimationResult } from "./animation/useGlyphAnimation";

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { ref, computed, nextTick } from "vue";
 import { createApp, h } from "vue";
 import { useGlyphAnimation } from "./useGlyphAnimation";
-import type { UseGlyphAnimationResultVue } from "./useGlyphAnimation";
+import type { UseGlyphAnimationResult } from "./useGlyphAnimation";
 import type {
   GlyphAnimationTarget,
   GlyphAnimationClip,
@@ -28,7 +28,7 @@ function makeTarget(): GlyphAnimationTarget & { calls: Polygon[][] } {
 // ── Harness ──────────────────────────────────────────────────────────────────
 
 interface CaptureResult {
-  result: UseGlyphAnimationResultVue;
+  result: UseGlyphAnimationResult;
   app: ReturnType<typeof createApp>;
 }
 
@@ -37,7 +37,7 @@ function mountComposable(
   controller?: ParseAnimationController,
   root?: GlyphAnimationTarget | null,
 ): CaptureResult {
-  let captured!: UseGlyphAnimationResultVue;
+  let captured!: UseGlyphAnimationResult;
   const container = document.createElement("div");
   const app = createApp({
     setup() {
@@ -266,7 +266,7 @@ describe("useGlyphAnimation — reactive inputs", () => {
     const ctrlRef = ref<ParseAnimationController | undefined>(makeController(clipsRef.value));
     const target = makeTarget();
 
-    let captured!: UseGlyphAnimationResultVue;
+    let captured!: UseGlyphAnimationResult;
     const container = document.createElement("div");
     const app = createApp({
       setup() {
@@ -295,7 +295,7 @@ describe("useGlyphAnimation — reactive inputs", () => {
     const ctrl = makeController(clips);
     const rootRef = ref<GlyphAnimationTarget | null>(null);
 
-    let captured!: UseGlyphAnimationResultVue;
+    let captured!: UseGlyphAnimationResult;
     const container = document.createElement("div");
     const app = createApp({
       setup() {

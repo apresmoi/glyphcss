@@ -32,7 +32,7 @@ import type {
 
 export type { GlyphAnimationClip, GlyphAnimationAction, GlyphAnimationMixer };
 
-export interface UseGlyphAnimationResultVue {
+export interface UseGlyphAnimationResult {
   /** Attach to a mesh handle when not passing `root` directly. */
   ref: Ref<GlyphAnimationTarget | null>;
   /** The active mixer, or null if inputs are not ready yet. */
@@ -58,7 +58,7 @@ export function useGlyphAnimation(
   clips: MaybeRef<GlyphAnimationClip[] | undefined>,
   controller: MaybeRef<ParseAnimationController | undefined>,
   root?: MaybeRef<GlyphAnimationTarget | null | undefined>,
-): UseGlyphAnimationResultVue {
+): UseGlyphAnimationResult {
   // Internal ref: used as the root target when `root` is not passed.
   const internalRef = ref<GlyphAnimationTarget | null>(null);
 
