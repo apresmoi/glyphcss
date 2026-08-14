@@ -42,3 +42,10 @@ ANIMATIONS.md
 # Generated static-effect-export bench artifacts
 bench/static-effect-export/out/
 bench/static-effect-export/shots/
+
+# Temp build dirs from the compile CLI parity test (mkdtemp). The test removes
+# them in afterAll, but an interrupted run leaves one behind — never commit it.
+packages/compile/.glyph-cli-build-*
+
+# AI-texture experiment assets — local exploration, not shipped with the site.
+website/public/examples/textured-house/
